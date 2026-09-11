@@ -13,6 +13,7 @@ export type CodingAgentProduct =
   | "fx"
   | "muse"
   | "deepseek"
+  | "devin"
   | "pi"
   | "copilot";
 
@@ -87,6 +88,14 @@ export const CODING_AGENT_ADAPTERS = {
     recovery: "process-bound",
     capabilities: { interrupt: "immediate", questions: false, modelChange: "none", thinkingChange: "none", scheduled: false, toolAccess: "contract-only" },
   },
+  devin: {
+    product: "devin", driver: "rpc", transport: "command-file", managedLaunch: true,
+    // `devin acp` creates fresh sessions only, like DeepSeek's ACP surface. The
+    // interactive harness keeps one session alive but cannot reload it after
+    // its process exits.
+    recovery: "process-bound",
+    capabilities: { interrupt: "immediate", questions: true, modelChange: "none", thinkingChange: "none", scheduled: false, toolAccess: "contract-only" },
+  },
   copilot: {
     product: "copilot", driver: "sdk", transport: "command-file", managedLaunch: true,
     recovery: "durable",
@@ -141,6 +150,7 @@ export const ACTIVE_SESSION_AGENT_KINDS = [
   "fx",
   "muse",
   "deepseek",
+  "devin",
   "pi",
   "copilot",
 ] as const satisfies readonly CodingAgentKind[];
@@ -176,6 +186,7 @@ export const SESSION_AGENT_KINDS = [
   "fx",
   "muse",
   "deepseek",
+  "devin",
   "pi",
   "copilot",
 ] as const satisfies readonly CodingAgentKind[];
@@ -196,6 +207,7 @@ export const COMMAND_FILE_AGENT_KINDS = [
   "fx",
   "muse",
   "deepseek",
+  "devin",
   "copilot",
   "jcode",
 ] as const satisfies readonly CodingAgentKind[];

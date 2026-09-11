@@ -1416,6 +1416,7 @@ export type ManagedStructuredModule =
   | "fx-acp-session"
   | "muse-msp-session"
   | "deepseek-acp-session"
+  | "devin-acp-session"
   | "copilot-sdk-session"
   | "jcode-sdk-session";
 
@@ -1478,6 +1479,9 @@ export const spawnManagedMuseMspSession = (opts: ManagedStructuredSessionOptions
 
 export const spawnManagedDeepseekAcpSession = (opts: ManagedStructuredSessionOptions) =>
   spawnManagedStructuredSession("deepseek-acp-session", opts);
+
+export const spawnManagedDevinAcpSession = (opts: ManagedStructuredSessionOptions) =>
+  spawnManagedStructuredSession("devin-acp-session", opts);
 
 export const spawnManagedCopilotSdkSession = (opts: ManagedStructuredSessionOptions) =>
   spawnManagedStructuredSession("copilot-sdk-session", opts);

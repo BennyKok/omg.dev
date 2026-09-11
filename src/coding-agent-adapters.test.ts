@@ -22,6 +22,7 @@ import {
   spawnManagedCursorAcpSession,
   spawnManagedFxAcpSession,
   spawnManagedDeepseekAcpSession,
+  spawnManagedDevinAcpSession,
   spawnManagedCursorSession,
   spawnManagedGrokAcpSession,
   spawnManagedGrokSession,
@@ -64,6 +65,7 @@ const launchers = {
   fx: spawnManagedFxAcpSession,
   muse: spawnManagedMuseMspSession,
   deepseek: spawnManagedDeepseekAcpSession,
+  devin: spawnManagedDevinAcpSession,
   pi: spawnManagedPiSession,
   copilot: spawnManagedCopilotSdkSession,
 } satisfies Record<(typeof SESSION_AGENT_KINDS)[number], unknown>;
@@ -74,6 +76,7 @@ describe("coding agent adapter contract", () => {
     expect(resolveActiveSessionAgent("claude")).toBe("aisdk");
     expect(resolveActiveSessionAgent("codex")).toBe("codex-aisdk");
     expect(resolveActiveSessionAgent("hermes")).toBeNull();
+    expect(resolveActiveSessionAgent("devin")).toBe("devin");
     expect(ACTIVE_SESSION_AGENT_KINDS).not.toContain("claude");
     expect(ACTIVE_SESSION_AGENT_KINDS).not.toContain("codex");
   });

@@ -52,6 +52,7 @@ export type CodingAgentKind =
   | "fx"
   | "muse"
   | "deepseek"
+  | "devin"
   | "hermes"
   | "pi"
   | "copilot";
@@ -223,6 +224,7 @@ export const CODING_AGENT_KINDS: Exclude<CodingAgentKind, "claude" | "hermes">[]
   "fx",
   "muse",
   "deepseek",
+  "devin",
   "opencode",
   "omg",
   "jcode",
@@ -243,6 +245,7 @@ export const CODING_AGENT_LABELS: Record<CodingAgentKind, string> = {
   fx: "fx",
   muse: "muse",
   deepseek: "deepseek",
+  devin: "devin",
   hermes: "hermes",
   pi: "pi",
   copilot: "copilot",
@@ -504,6 +507,31 @@ function hasDeepseekAcpProfile(): boolean {
     typeof manifest?.dependencies?.["@deepseek-ai/dsh-acp"] === "string" &&
     existsSync(join(root, "node_modules", "@deepseek-ai", "dsh-acp", "package.json"))
   );
+}
+
+// Devin's installer drops a single binary in ~/.local/bin/devin. The Cognition
+// install script is the only supported package path; there is no registry copy.
+function devinPath(): string | null {
+  const home = userHome();
+  return which("devin", [
+    process.env.LFG_DEVIN_PATH ?? "",
+    `${home}/.local/bin/devin`,
+    `${home}/.bun/bin/devin`,
+    "/usr/local/bin/devin",
+  ]);
+}
+
+// Only a completed `devin auth login` counts as a connected account: it writes
+// a persistent token to the credentials file. WINDSURF_API_KEY also makes the
+// CLI runnable, but it is a platform key, not the user's own login — the same
+// split fx and muse draw.
+function hasDevinAccountAuth(): boolean {
+  const dataHome = process.env.XDG_DATA_HOME?.trim() || join(userHome(), ".local", "share");
+  return existsSync(join(dataHome, "devin", "credentials.toml"));
+}
+
+function hasDevinAuth(): boolean {
+  return hasDevinAccountAuth() || !!process.env.WINDSURF_API_KEY;
 }
 
 function rejectGrokAgent(path: string | null): string | null {
@@ -824,6 +852,7 @@ function installCommandFor(kind: CodingAgentKind): string | null {
   if (kind === "fx") return "curl -fsSL https://fx.sh/setup.sh | bash";
   if (kind === "muse") return "curl -fsSL https://dev.meta.ai/install.sh | bash";
   if (kind === "deepseek") return "bun add -g @deepseek-ai/dsh@0.1.1-rc.2 pnpm && dsh plugin --profile omg add @deepseek-ai/dsh-acp@0.1.1-rc.2";
+  if (kind === "devin") return "curl -fsSL https://cli.devin.ai/install.sh | bash";
   if (kind === "copilot") return "npm install -g @github/copilot";
   // pi is no longer bundled. Its provider layer (@earendil-works/pi-ai) pulls
   // in eleven SDKs — Anthropic, OpenAI, Google GenAI, Mistral, Bedrock — which
@@ -850,6 +879,7 @@ function loginCommandPartsFor(kind: CodingAgentKind): string[] | null {
   if (kind === "fx") return [fxPath() ?? "fx", "login"];
   if (kind === "muse") return [musePath() ?? "muse", "login"];
   if (kind === "deepseek") return null;
+  if (kind === "devin") return [devinPath() ?? "devin", "auth", "login"];
   if (kind === "copilot") return [copilotPath() ?? "copilot"];
   // pi has no login subcommand — auth is file-based (~/.pi/agent/auth.json) or
   // ANTHROPIC_API_KEY, so there is no terminal login to offer.
@@ -1511,6 +1541,11 @@ async function statusFor(kind: CodingAgentKind): Promise<CodingAgentStatus> {
     addAuth("DeepSeek API key", hasDeepseekAuth(), "set DEEPSEEK_API_KEY or save it in ~/.dsh/.credentials.yaml");
     instructions.push("Run Setup, then set DEEPSEEK_API_KEY or configure the key in DeepSeek Harness.");
     canLoginInTerminal = false;
+  } else if (kind === "devin") {
+    accountConnected = hasDevinAccountAuth();
+    addBinary("Devin CLI", devinPath());
+    addAuth("Devin auth", hasDevinAuth(), "run `devin auth login` once or set WINDSURF_API_KEY");
+    instructions.push("Install Devin CLI (curl -fsSL https://cli.devin.ai/install.sh | bash), then run `devin auth login` and sign in, or set WINDSURF_API_KEY.");
   } else if (kind === "pi") {
     const providers = piAuthProviders();
     accountConnected = providers.some((p) => p.connected && !p.fromEnv);
@@ -1828,6 +1863,7 @@ function setupEnvFor(kind: CodingAgentKind): Record<string, string> | null {
   if (kind === "fx") return { LFG_INSTALL_FX: "1" };
   if (kind === "muse") return { LFG_INSTALL_MUSE: "1" };
   if (kind === "deepseek") return { LFG_INSTALL_DEEPSEEK: "1" };
+  if (kind === "devin") return { LFG_INSTALL_DEVIN: "1" };
   if (kind === "copilot") return { LFG_INSTALL_COPILOT: "1" };
   return null;
 }

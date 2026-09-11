@@ -27,6 +27,9 @@ export const DEFAULT_ALLOW_HOSTS = [
   ".googleapis.com",
   ".x.ai",
   ".deepseek.com",
+  ".devin.ai",
+  ".codeium.com",
+  ".windsurf.com",
   ".githubusercontent.com",
 ];
 
