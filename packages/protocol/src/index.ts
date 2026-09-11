@@ -98,7 +98,7 @@ export interface OmgSessionPrompt {
 export interface OmgQueueMessage {
   id: string;
   text: string;
-  status: "pending" | "sending" | "queued" | "failed" | "delivered";
+  status: "pending" | "sending" | "queued" | "held" | "failed" | "delivered";
   error?: string;
 }
 

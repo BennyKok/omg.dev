@@ -19,6 +19,47 @@ type QueueRow = {
 let db: Database | null = null;
 let openedPath: string | null = null;
 
+const QUEUE_STATUSES = ["pending", "sending", "delivered", "queued", "held", "failed"] as const;
+
+const QUEUE_COLUMNS = `
+      session_id TEXT NOT NULL,
+      id TEXT NOT NULL,
+      text TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('pending', 'sending', 'delivered', 'queued', 'held', 'failed')),
+      error TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      queued_behind_turn INTEGER NOT NULL DEFAULT 0 CHECK(queued_behind_turn IN (0, 1)),
+      PRIMARY KEY (session_id, id)`;
+
+const QUEUE_INDEXES = `
+    CREATE INDEX IF NOT EXISTS send_queue_messages_session_order
+      ON send_queue_messages(session_id, created_at, id);
+    CREATE INDEX IF NOT EXISTS send_queue_messages_actionable
+      ON send_queue_messages(status, session_id);
+`;
+
+// A `held` row (kept back until the agent is idle) postdates the table. SQLite
+// cannot relax a CHECK constraint in place, so an older table is rebuilt once
+// with every existing row copied across.
+function migrateHeldStatus(opened: Database): void {
+  const row = opened
+    .query<{ sql: string }, [string]>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get("send_queue_messages");
+  if (!row || row.sql.includes("'held'")) return;
+  opened.transaction(() => {
+    opened.exec(`CREATE TABLE send_queue_messages_next (${QUEUE_COLUMNS});`);
+    opened.exec(`
+      INSERT INTO send_queue_messages_next
+      SELECT session_id, id, text, status, error, attempts, created_at, updated_at, queued_behind_turn
+      FROM send_queue_messages;
+    `);
+    opened.exec("DROP TABLE send_queue_messages;");
+    opened.exec("ALTER TABLE send_queue_messages_next RENAME TO send_queue_messages;");
+  })();
+}
+
 function database(): Database {
   const path = join(PATHS.data, "lfg.sqlite");
   if (db && openedPath === path) return db;
@@ -30,29 +71,18 @@ function database(): Database {
   opened.exec("PRAGMA busy_timeout = 5000");
   opened.exec(`
     CREATE TABLE IF NOT EXISTS send_queue_messages (
-      session_id TEXT NOT NULL,
-      id TEXT NOT NULL,
-      text TEXT NOT NULL,
-      status TEXT NOT NULL CHECK(status IN ('pending', 'sending', 'delivered', 'queued', 'failed')),
-      error TEXT,
-      attempts INTEGER NOT NULL DEFAULT 0,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      queued_behind_turn INTEGER NOT NULL DEFAULT 0 CHECK(queued_behind_turn IN (0, 1)),
-      PRIMARY KEY (session_id, id)
+      ${QUEUE_COLUMNS}
     );
-    CREATE INDEX IF NOT EXISTS send_queue_messages_session_order
-      ON send_queue_messages(session_id, created_at, id);
-    CREATE INDEX IF NOT EXISTS send_queue_messages_actionable
-      ON send_queue_messages(status, session_id);
   `);
+  migrateHeldStatus(opened);
+  opened.exec(QUEUE_INDEXES);
   db = opened;
   openedPath = path;
   return opened;
 }
 
 function fromRow(row: QueueRow): QueuedMsg | null {
-  if (!["pending", "sending", "delivered", "queued", "failed"].includes(row.status)) return null;
+  if (!(QUEUE_STATUSES as readonly string[]).includes(row.status)) return null;
   return {
     id: row.id,
     text: row.text,
@@ -119,7 +149,7 @@ export function actionableStoredQueueSessionIds(): string[] {
     .query<{ session_id: string }, []>(`
       SELECT DISTINCT session_id
       FROM send_queue_messages
-      WHERE status IN ('pending', 'sending')
+      WHERE status IN ('pending', 'sending', 'held')
     `)
     .all()
     .map((row) => row.session_id);

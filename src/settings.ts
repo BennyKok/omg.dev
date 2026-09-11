@@ -77,7 +77,14 @@ export type GlobalSettings = {
   // Off hides the Fast pill in the composer; new sessions launch without
   // fast mode.
   showComposerFastMode: boolean;
+  // What a plain send (Enter, tap) does while the agent is on a turn. "steer"
+  // interrupts the turn with the new text. "queue" holds the text as an
+  // editable card until the turn ends. The other mode stays one gesture away
+  // (Cmd/Ctrl+Enter, hold the send button).
+  composerSendMode: ComposerSendMode;
 };
+
+export type ComposerSendMode = "steer" | "queue";
 
 export const DEFAULT_AGENT_KEY_MAX_LENGTH = 40;
 export const DEFAULT_MODEL_MAX_LENGTH = 120;
@@ -182,6 +189,7 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
   const showSchedules = input?.showSchedules !== false;
   const showSessionDiffBar = input?.showSessionDiffBar !== false;
   const showComposerFastMode = input?.showComposerFastMode !== false;
+  const composerSendMode: ComposerSendMode = input?.composerSendMode === "queue" ? "queue" : "steer";
   return {
     machineName: typeof input?.machineName === "string" ? input.machineName.trim().replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 80) : "",
     timeZone,
@@ -204,6 +212,7 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
     showSchedules,
     showSessionDiffBar,
     showComposerFastMode,
+    composerSendMode,
   };
 }
 
@@ -320,6 +329,7 @@ export async function setGlobalSettings(patch: Partial<GlobalSettings>): Promise
     write.run("showSchedules", JSON.stringify(next.showSchedules), now);
     write.run("showSessionDiffBar", JSON.stringify(next.showSessionDiffBar), now);
     write.run("showComposerFastMode", JSON.stringify(next.showComposerFastMode), now);
+    write.run("composerSendMode", JSON.stringify(next.composerSendMode), now);
   })();
   return next;
 }

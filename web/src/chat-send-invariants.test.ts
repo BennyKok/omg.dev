@@ -22,10 +22,14 @@ const SERVER_SEND = (() => {
 describe("a composer send during a live turn", () => {
   test("an ordinary tap interrupts and is not marked queued", () => {
     expect(SEND).toContain('const queuedBehindTurn = mode === "queue" && chatBusy;');
-    expect(SEND).toContain('mode: "steer" | "queue" = "steer"');
+    expect(SEND).toContain('const mode: ComposerSendMode = requestedMode ?? composerSendMode;');
     expect(SEND).toContain('{ body: { mode } }');
+    // A queue-mode send during a live turn is held server-side, before the
+    // steer branch can interrupt anything.
+    const hold = SERVER_SEND.indexOf('opts.mode === "queue" && opts.hold && session.busy');
+    expect(hold).toBeGreaterThan(-1);
     const interrupt = SERVER_SEND.indexOf('=== "steer" && session.busy');
-    expect(interrupt).toBeGreaterThan(-1);
+    expect(interrupt).toBeGreaterThan(hold);
     expect(SERVER_SEND.indexOf("interruptLiveSession(session)")).toBeGreaterThan(interrupt);
     expect(SERVER_SEND.indexOf('appendAisdkCmd(key, { type: "send"')).toBeGreaterThan(interrupt);
     expect(SERVER_SEND.indexOf("enqueueMessage(sid, transportPrompt")).toBeGreaterThan(interrupt);

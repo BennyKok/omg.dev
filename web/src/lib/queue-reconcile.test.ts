@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
+  heldQueueRows,
   matchedQueueRowIds,
+  queueRowNeedsBubble,
   reconcileQueueMessages,
   retryQueuedMessage,
   type QueueMessageRow,
@@ -195,5 +197,26 @@ describe("retryQueuedMessage", () => {
     await expect(
       retryQueuedMessage("sess-1", "abc123", () => Promise.reject(new Error("404 Not Found"))),
     ).rejects.toThrow("404 Not Found");
+  });
+});
+
+describe("held rows", () => {
+  const reconcile = reconcileQueueMessages;
+  const held = { id: "h1", text: "later", status: "held" as const, createdAt: 2 };
+  const heldEarlier = { id: "h0", text: "first", status: "held" as const, createdAt: 1 };
+
+  test("a held row gets no transcript bubble", () => {
+    expect(queueRowNeedsBubble(held)).toBe(false);
+    const next = reconcile([], [held], (item) => ({ id: `queue-${item.id}`, text: item.text }));
+    expect(next).toEqual([]);
+  });
+
+  test("heldQueueRows returns only held rows, oldest first", () => {
+    const rows = heldQueueRows([
+      held,
+      { id: "q1", text: "sent", status: "queued" as const, createdAt: 0 },
+      heldEarlier,
+    ]);
+    expect(rows.map((row) => row.id)).toEqual(["h0", "h1"]);
   });
 });

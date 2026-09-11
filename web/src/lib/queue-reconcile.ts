@@ -19,7 +19,7 @@ import { api } from "./omg-client";
 export type QueueMessageRow = {
   id: string;
   text: string;
-  status: "pending" | "sending" | "queued" | "failed" | "delivered";
+  status: "pending" | "sending" | "queued" | "held" | "failed" | "delivered";
   error?: string;
   createdAt?: number;
   updatedAt?: number;
@@ -51,11 +51,19 @@ function normText(value?: string) {
 
 // Statuses that still need a bubble in the transcript. Delivered rows are
 // dropped (their real transcript row renders instead); failed rows stay so the
-// user can see the error and retry.
+// user can see the error and retry. Held rows are not in the transcript at
+// all: the composer shows them as editable cards until the agent is idle.
 const BUBBLE_STATUSES = new Set(["pending", "sending", "queued", "failed"]);
 
 export function queueRowNeedsBubble(item: QueueMessageRow): boolean {
   return BUBBLE_STATUSES.has(item.status);
+}
+
+/** The held rows, oldest first: what the composer shows as queued cards. */
+export function heldQueueRows<T extends QueueMessageRow>(queue: T[]): T[] {
+  return queue
+    .filter((item) => item.status === "held")
+    .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
 }
 
 // Which queue rows already have their own user row in the visible transcript?
@@ -71,7 +79,7 @@ export function matchedQueueRowIds(
   const claimed = new Set<number>();
   const matched = new Set<string>();
   const ordered = queue
-    .filter((item) => item.status !== "failed")
+    .filter((item) => item.status !== "failed" && item.status !== "held")
     .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
   for (const item of ordered) {
     const text = normText(item.text);

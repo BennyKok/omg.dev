@@ -759,7 +759,11 @@ import {
   reconcileQueued,
   getMessage,
   recordCommandFileMessage,
+  holdMessage,
+  removeHeldMessage,
   resumePersistedQueues,
+  setHeldReleaseHandler,
+  updateHeldMessage,
   takeUndeliveredQueue,
 } from "../sendq.ts";
 import { startFleetWatcher } from "../voice-bus.ts";
@@ -2519,7 +2523,12 @@ function interruptLiveSession(session: Session): { ok: boolean; error?: string; 
 function sendPromptToLiveSession(
   session: Session,
   text: string,
-  opts: { mode?: "steer" | "queue" } = {},
+  // `hold`: a queue-mode send from the composer stays in the send queue as an
+  // editable held row until the agent is idle, instead of being typed into
+  // the harness now (where it either merged into the running turn or vanished
+  // into the TUI's own queue). The held-row release path and agent-to-agent
+  // updates deliver right away.
+  opts: { mode?: "steer" | "queue"; hold?: boolean } = {},
 ): { ok: boolean; msg?: unknown; error?: string } {
   const prompt = text.trim();
   if (!prompt) return { ok: true };
@@ -2530,9 +2539,13 @@ function sendPromptToLiveSession(
     sessionId: sid,
     agent: session.agent,
     mode: opts.mode ?? "steer",
+    hold: !!opts.hold,
     busy: !!session.busy,
     chars: prompt.length,
   });
+  if (opts.mode === "queue" && opts.hold && session.busy) {
+    return { ok: true, msg: holdMessage(sid, prompt) };
+  }
   if ((opts.mode ?? "steer") === "steer" && session.busy) {
     const interrupted = interruptLiveSession(session);
     if (!interrupted.ok) return interrupted;
@@ -5234,6 +5247,11 @@ a{color:#60a5fa}
             if (typeof b.showComposerFastMode !== "boolean")
               return err(400, "showComposerFastMode must be a boolean");
             patch.showComposerFastMode = b.showComposerFastMode;
+          }
+          if (b?.composerSendMode !== undefined) {
+            if (b.composerSendMode !== "steer" && b.composerSendMode !== "queue")
+              return err(400, 'composerSendMode must be "steer" or "queue"');
+            patch.composerSendMode = b.composerSendMode;
           }
           if (b?.customInstructions !== undefined) {
             if (
@@ -9804,7 +9822,10 @@ a{color:#60a5fa}
               fromSessionId: body?.fromSessionId,
               targetPersistent: sess.persistent,
             });
-            const sent = sendPromptToLiveSession(sess, text, { mode });
+            const sent = sendPromptToLiveSession(sess, text, {
+              mode,
+              hold: mode === "queue" && !body?.fromSessionId,
+            });
             if (!sent.ok) return err(409, sent.error || "couldn't send message");
             sentMsg = sent.msg;
           }
@@ -10191,6 +10212,27 @@ a{color:#60a5fa}
           if (!query) return err(400, "expected { query }");
           const r = await searchTranscriptIndex(tp, m[1], query, { limit: body?.limit });
           return json({ id: m[1], query, ...r });
+        }
+      }
+
+      // A held row (queue mode while the agent was busy) is the user's text,
+      // still theirs to edit or drop until the idle release sends it.
+      {
+        const m = path.match(/^\/api\/sessions\/([0-9a-fA-F-]{36})\/queue\/([0-9a-f]+)$/);
+        if (m && req.method === "PATCH") {
+          const body = (await req.json().catch(() => null)) as { text?: string } | null;
+          const text = body?.text?.trim();
+          if (!text) return err(400, "expected { text }");
+          const updated = updateHeldMessage(m[1], m[2], text);
+          if (!updated) return err(404, "queued message not found");
+          if (updated === "not-held") return err(409, "only a held message can be edited");
+          return json({ ok: true, msg: updated });
+        }
+        if (m && req.method === "DELETE") {
+          const removed = removeHeldMessage(m[1], m[2]);
+          if (!removed) return err(404, "queued message not found");
+          if (removed === "not-held") return err(409, "only a held message can be removed");
+          return json({ ok: true });
         }
       }
 
@@ -10988,6 +11030,17 @@ a{color:#60a5fa}
     console.log(`[session-recovery] adopted=${recovered.adopted} recovered=${recovered.recovered} recoveredTmux=${recovered.recoveredTmux} failed=${recovered.failed} skippedLegacy=${recovered.skippedLegacy}`);
     invalidateListSessionsCache();
   }
+  // Held rows are released through the same path a composer send takes, minus
+  // `hold`: the session is idle when this runs, and a second held row must
+  // not be re-held behind the first one's turn.
+  setHeldReleaseHandler(async (sessionId, text) => {
+    const sess = (await listSessionsCached()).find(
+      (s) => s.sessionId === sessionId || s.nativeSessionId === sessionId,
+    );
+    if (!sess) return { ok: false, error: "session not found" };
+    const sent = sendPromptToLiveSession(sess, text, { mode: "queue" });
+    return sent.ok ? { ok: true } : { ok: false, error: sent.error };
+  });
   const resumedQueueMessages = resumePersistedQueues();
   if (resumedQueueMessages) {
     console.log(`[sendq] resumed=${resumedQueueMessages}`);
