@@ -72,6 +72,7 @@ import Reanimated, {
 import { Text, TextInput } from "../../src/omg/text";
 import type { OmgConnectionStatus } from "@omg-dev/client";
 import { AgentSetupSheet } from "../../src/omg/agent-setup-sheet";
+import { HeldQueue, type HeldRow } from "../../src/omg/held-queue";
 import { useKeyCommand } from "../../src/omg/key-commands";
 import { useAgentPicker } from "../../src/omg/session-options";
 import { COMPOSER_FADE_HEIGHT, EdgeFade, TOP_FADE_HEIGHT } from "../../src/omg/edge-fade";
@@ -245,6 +246,59 @@ export function SessionScreenBody({
   const [messages, setMessages] = useState<Entry[]>([]);
   const [streamText, setStreamText] = useState("");
   const [busy, setBusy] = useState(false);
+  /**
+   * HELD SENDS. A queue-mode send while the agent is busy is kept on the
+   * machine (status "held") until the turn ends; it is not in the message
+   * chain, so the transcript socket never carries it. Fetched on open and
+   * whenever busy flips, and polled every two seconds only while something
+   * is held, so a release shows up within a beat.
+   */
+  const [held, setHeld] = useState<HeldRow[]>([]);
+  const refreshHeld = useCallback(async (): Promise<HeldRow[]> => {
+    if (!client || !id) return [];
+    try {
+      const res = await client.transport.request<{ queue?: HeldRow[] }>(
+        `/api/sessions/${encodeURIComponent(id)}/queue`,
+      );
+      const rows = (Array.isArray(res?.queue) ? res.queue : []).filter((m) => m.status === "held");
+      setHeld(rows);
+      return rows;
+    } catch {
+      return [];
+    }
+  }, [client, id]);
+  useEffect(() => {
+    void refreshHeld();
+  }, [refreshHeld, busy]);
+  useEffect(() => {
+    if (!held.length) return;
+    const timer = setInterval(() => void refreshHeld(), 2000);
+    return () => clearInterval(timer);
+  }, [held.length, refreshHeld]);
+  const editHeld = useCallback(
+    async (mid: string, text: string) => {
+      if (!client || !id) return;
+      setHeld((prev) => prev.map((m) => (m.id === mid ? { ...m, text } : m)));
+      await client.transport.request(`/api/sessions/${encodeURIComponent(id)}/queue/${encodeURIComponent(mid)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      await refreshHeld();
+    },
+    [client, id, refreshHeld],
+  );
+  const removeHeld = useCallback(
+    async (mid: string) => {
+      if (!client || !id) return;
+      setHeld((prev) => prev.filter((m) => m.id !== mid));
+      await client.transport.request(`/api/sessions/${encodeURIComponent(id)}/queue/${encodeURIComponent(mid)}`, {
+        method: "DELETE",
+      });
+      await refreshHeld();
+    },
+    [client, id, refreshHeld],
+  );
   /**
    * Live-socket health, for the title capsule. The transcript socket owns its
    * own reconnect; this is only so the header can SAY "Reconnecting…" while
@@ -915,6 +969,14 @@ export function SessionScreenBody({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ text: trimmed, mode: "queue" }),
           });
+          // If the machine HELD it (agent busy), the row above the composer
+          // is now the message; a second copy in the chain would sit there
+          // dimmed until the release echo, saying the same thing twice.
+          const rows = await refreshHeld();
+          if (rows.some((m) => m.text === trimmed)) {
+            setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
+            return;
+          }
         } else {
           await client.sendMessage(id, trimmed);
         }
@@ -1970,6 +2032,7 @@ export function SessionScreenBody({
           </Reanimated.View>
         ) : null}
 
+        <HeldQueue items={held} onEdit={editHeld} onRemove={removeHeld} />
         <AttachmentStrip items={attachments.items} onRemove={attachments.remove} />
         {/* "/" lists the box's skills above the field, as on the web. */}
         <SkillSuggest value={draft} onChangeText={setDraft} />
