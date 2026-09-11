@@ -1133,7 +1133,6 @@ export function HomeComposer({
               />
             ) : null
           }
-          usageWindows={agentUsage?.available ? orderWindows(agentUsage.windows ?? []) : []}
           usageLoading={usageLoading}
         />
         <TextInput

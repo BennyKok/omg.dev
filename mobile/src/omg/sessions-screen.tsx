@@ -1477,12 +1477,17 @@ export function SessionsScreen({
           accessibilityState={{ selected: folder.selected }}
           accessibilityLabel={`${folder.label} folder`}
           scale={0.96}
+          // Selected is an OUTLINE and a shade lighter, not a white block.
+          // A solid white pill in a row of grey ones was the loudest thing
+          // on the screen, for a filter.
           style={{
             minHeight: 34,
             justifyContent: "center",
             paddingHorizontal: 14,
             borderRadius: radius.pill,
-            backgroundColor: folder.selected ? colors.text : colors.secondary,
+            borderWidth: 1,
+            borderColor: folder.selected ? colors.borderStrong : "transparent",
+            backgroundColor: folder.selected ? colors.card : colors.secondary,
           }}
         >
           <Text
@@ -1490,7 +1495,7 @@ export function SessionsScreen({
             style={{
               ...type.footnote,
               fontWeight: "600",
-              color: folder.selected ? colors.bg : colors.textSecondary,
+              color: folder.selected ? colors.text : colors.textSecondary,
             }}
           >
             {folder.label}

@@ -11,7 +11,7 @@
  * Fed by the same `MenuOption` lists the menu used, so the option owners in
  * session-options.ts are unchanged and nothing here decides what is selected.
  */
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -41,9 +41,8 @@ import { SymbolView } from "expo-symbols";
 import { GlassSurface } from "./glass";
 import type { MenuOption } from "./menu";
 import { PressableScale } from "./motion";
-import { Text } from "./text";
+import { Text, TextInput } from "./text";
 import { useTheme } from "./theme";
-import type { UsageWindow } from "./usage";
 
 const LAYOUT = LinearTransition.duration(160).easing(Easing.out(Easing.quad));
 
@@ -54,7 +53,6 @@ export function AgentSetupSheet({
   modelOptions,
   thinkingOptions,
   usageRing,
-  usageWindows,
   usageLoading,
 }: {
   visible: boolean;
@@ -64,7 +62,6 @@ export function AgentSetupSheet({
   thinkingOptions?: MenuOption[];
   /** The current agent's usage ring, drawn by the composer so this file does not import it. */
   usageRing?: ReactNode;
-  usageWindows?: UsageWindow[];
   usageLoading?: boolean;
 }) {
   const { colors, type, space, radius, isDark } = useTheme();
@@ -153,14 +150,6 @@ export function AgentSetupSheet({
                       }}
                     >
                       <Text style={{ ...type.caption, color: colors.textMuted, flex: 1 }}>Agent</Text>
-                      {usageWindows?.length ? (
-                        <Text style={{ ...type.caption, color: colors.textMuted }}>
-                          {usageWindows
-                            .filter((w) => w.pct !== null)
-                            .map((w) => `${w.label} ${Math.round(w.pct ?? 0)}%`)
-                            .join("  ")}
-                        </Text>
-                      ) : null}
                       {usageRing ??
                         (usageLoading ? <ActivityIndicator size="small" color={colors.textMuted} /> : null)}
                     </View>
@@ -232,23 +221,7 @@ export function AgentSetupSheet({
                 {modelOptions?.length ? (
                   <Reanimated.View layout={LAYOUT} style={{ gap: space.sm }}>
                     <Heading>Model</Heading>
-                    <View
-                      style={{
-                        marginHorizontal: space.lg,
-                        borderRadius: radius.xl,
-                        backgroundColor: colors.card,
-                        overflow: "hidden",
-                      }}
-                    >
-                      {modelOptions.map((option, index) => (
-                        <Row
-                          key={`${option.label}:${index}`}
-                          option={option}
-                          first={index === 0}
-                          onPress={() => pick(option)}
-                        />
-                      ))}
-                    </View>
+                    <ModelList options={modelOptions} onPick={pick} />
                   </Reanimated.View>
                 ) : null}
 
@@ -278,7 +251,13 @@ function Heading({ children }: { children: string }) {
   );
 }
 
-function SymbolIf({ name, color }: { name: "chevron.down" | "checkmark"; color: string }) {
+function SymbolIf({
+  name,
+  color,
+}: {
+  name: "chevron.down" | "checkmark" | "magnifyingglass";
+  color: string;
+}) {
   if (Platform.OS !== "ios") {
     return <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color }} />;
   }
@@ -374,6 +353,85 @@ function Row({ option, first, onPress }: { option: MenuOption; first: boolean; o
       </Text>
       {selected ? <SymbolIf name="checkmark" color={colors.text} /> : null}
     </PressableScale>
+  );
+}
+
+/** How many models fit before the list gets a search field and a ceiling. */
+const MODEL_SEARCH_FROM = 8;
+const MODEL_ROWS_SHOWN = 5.5;
+const MODEL_MAX_RESULTS = 40;
+
+/**
+ * The inset model list. Short lists are just rows. A box that reports a
+ * whole provider catalogue (forty `xai/grok-*` and `openai/gpt-*` names)
+ * gets a search field above the rows, a ceiling of about five rows with
+ * the rest behind a scroll, and the current model pinned to the top so
+ * it never has to be found.
+ */
+function ModelList({ options, onPick }: { options: MenuOption[]; onPick: (option: MenuOption) => void }) {
+  const { colors, type, space, radius } = useTheme();
+  const [query, setQuery] = useState("");
+  const searchable = options.length >= MODEL_SEARCH_FROM;
+  const q = query.trim().toLowerCase();
+  const shown = useMemo(() => {
+    const matched = q ? options.filter((o) => o.label.toLowerCase().includes(q)) : options;
+    if (q || !searchable) return matched.slice(0, MODEL_MAX_RESULTS);
+    const current = matched.find((o) => o.selected);
+    return [...(current ? [current] : []), ...matched.filter((o) => o !== current)].slice(
+      0,
+      MODEL_MAX_RESULTS,
+    );
+  }, [options, q, searchable]);
+  const hidden = (q ? options.filter((o) => o.label.toLowerCase().includes(q)).length : options.length) - shown.length;
+
+  return (
+    <View style={{ marginHorizontal: space.lg, gap: space.sm }}>
+      {searchable ? (
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 6,
+            height: 36,
+            paddingHorizontal: space.md,
+            borderRadius: radius.lg,
+            backgroundColor: colors.card,
+          }}
+        >
+          <SymbolIf name="magnifyingglass" color={colors.textMuted} />
+          <TextInput
+            value={query}
+            onChangeText={setQuery}
+            placeholder={`Search ${options.length} models`}
+            placeholderTextColor={colors.textMuted}
+            autoCapitalize="none"
+            autoCorrect={false}
+            clearButtonMode="while-editing"
+            style={{ flex: 1, ...type.callout, color: colors.text, paddingVertical: 0 }}
+          />
+        </View>
+      ) : null}
+      <View style={{ borderRadius: radius.xl, backgroundColor: colors.card, overflow: "hidden" }}>
+        <ScrollView
+          bounces={false}
+          nestedScrollEnabled
+          keyboardShouldPersistTaps="handled"
+          style={searchable ? { maxHeight: 44 * MODEL_ROWS_SHOWN } : undefined}
+        >
+          {shown.map((option, index) => (
+            <Row key={`${option.label}:${index}`} option={option} first={index === 0} onPress={() => onPick(option)} />
+          ))}
+          {!shown.length ? (
+            <Text style={{ ...type.footnote, color: colors.textMuted, padding: space.md }}>No model matches</Text>
+          ) : null}
+          {hidden > 0 ? (
+            <Text style={{ ...type.footnote, color: colors.textMuted, padding: space.md }}>
+              {hidden} more. Keep typing.
+            </Text>
+          ) : null}
+        </ScrollView>
+      </View>
+    </View>
   );
 }
 
@@ -489,21 +547,28 @@ function Slider({ options, onPick }: { options: MenuOption[]; onPick: (option: M
         // the track itself rather than against whichever label was under the
         // finger. Without this a release over "High" measured inside "High"
         // and snapped back to the old segment.
+        //
+        // ONLY THE ACTIVE SEGMENT SAYS ITS NAME. Seven levels in 350pt
+        // truncated to "Medi..." and "Think...", which named nothing. The
+        // rest are dots: the track reads as a scale, and the name you are
+        // on is the one you need.
         <View
           key={`${option.label}:${index}`}
           pointerEvents="none"
           style={{ flex: 1, alignItems: "center", justifyContent: "center" }}
         >
-          <Text
-            numberOfLines={1}
-            style={{
-              ...type.footnote,
-              fontWeight: "600",
-              color: index === active ? colors.bg : colors.textSecondary,
-            }}
-          >
-            {option.label}
-          </Text>
+          {index === active ? (
+            <Text
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.75}
+              style={{ ...type.footnote, fontWeight: "600", color: colors.bg, paddingHorizontal: 4 }}
+            >
+              {option.label}
+            </Text>
+          ) : (
+            <View style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: colors.textMuted }} />
+          )}
         </View>
       ))}
     </View>
