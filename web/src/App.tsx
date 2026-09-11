@@ -19827,46 +19827,85 @@ const ToolGroup = memo(function ToolGroup({
     setOpen(next);
   };
 
+  // Every step starts folded to one line: its name and the first stretch of
+  // its arguments. A run of eighty calls used to open as eighty full argument
+  // blocks, which no popover height can hold. The line is enough to find the
+  // step you want; one click opens it.
+  const [expandedSteps, setExpandedSteps] = useState<ReadonlySet<string>>(() => new Set());
+  const toggleStep = (key: string) =>
+    setExpandedSteps((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  const resultCount = items.filter((entry) => entry.kind === "tool_result").length;
+
   const details = (
-    <div className="space-y-3">
+    <div className="space-y-0.5">
       {items.map((item, index) => {
         const isUse = item.kind === "tool_use";
         const isThought = item.kind === "thinking";
+        const key = item.id ?? `${item.kind}-${item.ts}-${index}`;
+        const expanded = expandedSteps.has(key);
         // Thinking folded in from between the calls (see buildChatRenderItems).
         // Prose, not a command, so it is not set in mono and keeps no colon
         // split — the whole message is the body.
-        if (isThought) {
-          return (
-            <div key={item.id ?? `thinking-${item.ts}-${index}`} className="min-w-0">
-              <div className="mb-1 flex items-center gap-2 text-xs font-semibold text-foreground">
-                <span className="size-1.5 rounded-full bg-muted-foreground/60" />
-                <span className="truncate">Thought</span>
-              </div>
-              <div className="max-h-52 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-muted/60 p-2.5 text-[11px] leading-relaxed text-muted-foreground">
-                {item.text || "thinking..."}
-              </div>
-            </div>
-          );
-        }
         const text = item.text || (isUse ? "No command details" : "No result details");
         const separator = isUse ? text.indexOf(":") : -1;
-        const title = isUse
-          ? (separator >= 0 ? text.slice(0, separator) : text) || "Command"
-          : `Result${items.filter((entry) => entry.kind === "tool_result").length > 1 ? ` ${index + 1}` : ""}`;
-        const inlineBody = isUse && separator >= 0 ? text.slice(separator + 1).trim() : isUse ? "" : text;
+        const title = isThought
+          ? "Thought"
+          : isUse
+            ? (separator >= 0 ? text.slice(0, separator) : text) || "Command"
+            : `Result${resultCount > 1 ? ` ${index + 1}` : ""}`;
+        const inlineBody = isThought
+          ? item.text || "thinking..."
+          : isUse && separator >= 0
+            ? text.slice(separator + 1).trim()
+            : isUse
+              ? ""
+              : text;
         // A deferred call has no inline arguments at all: the server sent the
         // name only. Whatever the fetch has reached is the body instead.
-        const deferred = isDeferredToolUse(item) ? toolArgs[item.id!] : undefined;
+        const deferred = !isThought && isDeferredToolUse(item) ? toolArgs[item.id!] : undefined;
         const body = deferred?.status === "ready" ? deferred.args : inlineBody;
+        const preview = body
+          ? body.replace(/\s+/g, " ").trim().slice(0, 200)
+          : deferred?.status === "loading"
+            ? "Loading..."
+            : deferred?.status === "error"
+              ? deferred.error
+              : "";
         return (
-          <div key={item.id ?? `${item.kind}-${item.ts}-${index}`} className="min-w-0">
-            <div className="mb-1 flex items-center gap-2 text-xs font-semibold text-foreground">
-              <span className={cn("size-1.5 rounded-full", isUse ? "bg-primary" : "bg-muted-foreground/60")} />
-              <span className="truncate font-mono">{title}</span>
-            </div>
-            {deferred?.status === "loading" ? (
+          <div key={key} className="min-w-0">
+            <button
+              type="button"
+              aria-expanded={expanded}
+              onClick={() => toggleStep(key)}
+              className="flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-lg px-1.5 py-1 text-left text-xs outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <ChevronRight
+                className={cn("size-3 shrink-0 text-muted-foreground transition-transform", expanded && "rotate-90")}
+                aria-hidden="true"
+              />
+              <span
+                className={cn("size-1.5 shrink-0 rounded-full", isUse ? "bg-primary" : "bg-muted-foreground/60")}
+                aria-hidden="true"
+              />
+              <span className={cn("shrink-0 font-semibold text-foreground", !isThought && "font-mono")}>{title}</span>
+              {!expanded && preview ? (
+                <span className={cn("min-w-0 truncate text-[11px] text-muted-foreground", !isThought && "font-mono")}>
+                  {preview}
+                </span>
+              ) : null}
+            </button>
+            {!expanded ? null : isThought ? (
+              <div className="mb-2 ml-6 max-h-52 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-muted/60 p-2.5 text-[11px] leading-relaxed text-muted-foreground">
+                {body}
+              </div>
+            ) : deferred?.status === "loading" ? (
               <div
-                className="rounded-xl bg-muted/60 p-2.5 text-[11px] leading-relaxed text-muted-foreground"
+                className="mb-2 ml-6 rounded-xl bg-muted/60 p-2.5 text-[11px] leading-relaxed text-muted-foreground"
                 role="status"
                 data-testid="tool-args-loading"
               >
@@ -19874,14 +19913,14 @@ const ToolGroup = memo(function ToolGroup({
               </div>
             ) : deferred?.status === "error" ? (
               <div
-                className="rounded-xl bg-destructive/10 p-2.5 text-[11px] leading-relaxed text-destructive"
+                className="mb-2 ml-6 rounded-xl bg-destructive/10 p-2.5 text-[11px] leading-relaxed text-destructive"
                 role="alert"
                 data-testid="tool-args-error"
               >
                 {deferred.error}
               </div>
             ) : body ? (
-              <pre className="max-h-52 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-muted/60 p-2.5 font-mono text-[11px] leading-relaxed text-muted-foreground">
+              <pre className="mb-2 ml-6 max-h-52 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-muted/60 p-2.5 font-mono text-[11px] leading-relaxed text-muted-foreground">
                 {body}
               </pre>
             ) : null}
@@ -19944,10 +19983,14 @@ const ToolGroup = memo(function ToolGroup({
           <Popover.Popup
             onMouseEnter={keepHoverOpen}
             onMouseLeave={scheduleHoverClose}
-            className="w-[min(28rem,calc(100vw-1rem))] rounded-2xl border border-border bg-popover p-3 text-popover-foreground shadow-2xl ring-1 ring-foreground/5 outline-none"
+            // A run of thirty calls used to stack every step at full height and
+            // run the card off both ends of the screen. The card is capped to
+            // half the viewport, or the room the positioner reports if that is
+            // less, and the steps scroll inside it with the summary pinned.
+            className="flex max-h-[min(var(--available-height),50vh)] w-[min(28rem,calc(100vw-1rem))] flex-col rounded-2xl border border-border bg-popover p-3 text-popover-foreground shadow-2xl ring-1 ring-foreground/5 outline-none"
           >
-            <div className="mb-2 text-xs font-semibold text-muted-foreground">{summary}</div>
-            {details}
+            <div className="mb-2 shrink-0 text-xs font-semibold text-muted-foreground">{summary}</div>
+            <div className="min-h-0 overflow-y-auto">{details}</div>
           </Popover.Popup>
         </Popover.Positioner>
       </Popover.Portal>
