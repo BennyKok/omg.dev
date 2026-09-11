@@ -7274,8 +7274,7 @@ a{color:#60a5fa}
         // so the voice agent can read them out and answer on the user's behalf.
         // Carry the question in the push itself. A wake-only push would make
         // the worker fetch /api/push/pending, which it can only reach when the
-        // app is served from this box. (Web only — see push-native.ts for why
-        // native never gets `body` verbatim.)
+        // app is served from this box.
         void (async () => {
           const askSession = q.sessionId
             ? (await listSessions()).find(

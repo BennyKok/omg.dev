@@ -447,8 +447,7 @@ async function runAutoAgentInner(
   if (!agent.cwd) {
     onLog(`[auto] WARNING: agent "${agent.id}" has no base repo (cwd) — defaulting to ${PATHS.root}; set one in the editor`);
   }
-  // For the native push alert only — see push-native.ts — which names the
-  // project a finding is about instead of quoting the finding itself.
+  // Shown as the native push subtitle — see push-native.ts.
   const project = projectName(cwd);
   const result = await runSelectedBackend(agent, prompt, cwd, onLog);
 
