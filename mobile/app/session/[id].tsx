@@ -70,7 +70,7 @@ import Reanimated, {
   withTiming,
 } from "react-native-reanimated";
 import { Text, TextInput } from "../../src/omg/text";
-import { EdgeFade, TOP_FADE_HEIGHT } from "../../src/omg/edge-fade";
+import { COMPOSER_FADE_HEIGHT, EdgeFade, TOP_FADE_HEIGHT } from "../../src/omg/edge-fade";
 import { SkillSuggest } from "../../src/omg/skill-suggest";
 import * as Clipboard from "expo-clipboard";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -1745,6 +1745,26 @@ export function SessionScreenBody({
         {menuOptions.length ? <OverflowDisc /> : null}
       </View>
 
+
+      {/* THE BOTTOM FADE, behind the composer: the transcript dissolves into
+          the page before it reaches the field, as it does on Live. Sized off
+          `composerHeight` and carried by the same `composerLift`, so the
+          dissolve always ends at the field, keyboard up or down. Paint only. */}
+      <Reanimated.View
+        pointerEvents="none"
+        style={[
+          {
+            position: "absolute",
+            left: 0,
+            right: 0,
+            bottom: 0,
+            height: composerHeight + COMPOSER_FADE_HEIGHT,
+          },
+          composerLift,
+        ]}
+      >
+        <EdgeFade edge="bottom" color={colors.bg} style={{ flex: 1 }} />
+      </Reanimated.View>
 
       {/* The bar itself draws NOTHING.
  *

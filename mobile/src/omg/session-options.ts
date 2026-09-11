@@ -308,6 +308,9 @@ function labelFor(key: string, agents: CodingAgent[]): string {
   // The box's own label wins when it has one — it is what the web shows, and
   // it distinguishes the two Claude backends ("claude" for both aisdk and the
   // CLI) the way that surface does.
+  // omg is styled as a lower-case wordmark, and its box label ("omg agent")
+  // is longer than the row needs. The app's own name wins for this one.
+  if (key === "omg") return agentDisplayName(key);
   const fromBox = agents.find((a) => a.key === key)?.label;
   if (fromBox) return fromBox.charAt(0).toUpperCase() + fromBox.slice(1);
   return agentDisplayName(key);

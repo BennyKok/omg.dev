@@ -1,7 +1,7 @@
 /**
  * The real coding-agent marks.
  *
- * These are the same nine icons the web serves from web/public/agent-*.svg,
+ * These are the same icons the web serves from web/public/agent-*.svg,
  * rasterised to PNG at 1x/2x/3x. React Native cannot render SVG without
  * react-native-svg, and that is a NATIVE module — adding it would mean a new
  * TestFlight build for what is otherwise an asset change. PNGs ride along with
@@ -24,6 +24,11 @@ const BY_AGENT: Record<string, ImageSourcePropType> = {
   grok: require("../../assets/agents/agent-grok.png"),
   cursor: require("../../assets/agents/agent-cursor.png"),
   hermes: require("../../assets/agents/agent-hermes.png"),
+  omg: require("../../assets/agents/agent-omg.png"),
+  deepseek: require("../../assets/agents/agent-deepseek.png"),
+  devin: require("../../assets/agents/agent-devin.png"),
+  fx: require("../../assets/agents/agent-fx.png"),
+  muse: require("../../assets/agents/agent-muse.png"),
   opencode: require("../../assets/agents/agent-opencode.png"),
   jcode: require("../../assets/agents/agent-jcode.png"),
   pi: require("../../assets/agents/agent-pi.png"),
@@ -47,6 +52,18 @@ export function agentLabel(agent?: string | null): string {
       return "Cursor";
     case "hermes":
       return "Hermes";
+    // Lower case and just the name, by request: the mark already says it is
+    // an agent. The web still says "omg agent" (agentIconAlt).
+    case "omg":
+      return "omg";
+    case "deepseek":
+      return "DeepSeek";
+    case "devin":
+      return "Devin";
+    case "fx":
+      return "fx";
+    case "muse":
+      return "Muse";
     case "opencode":
       return "OpenCode";
     case "jcode":

@@ -15,6 +15,17 @@ import { withAlpha } from "../components";
 export const TOP_FADE_HEIGHT = 56;
 
 /**
+ * How far above a composer the scroll content starts dissolving.
+ *
+ * Borrowed from Claude's iOS app: the transcript doesn't stop at a hard edge
+ * above the input bar, it fades into the page background first, so scrolling
+ * text never collides with the glass. 120pt is roughly two lines of body text
+ * plus breathing room — enough to read as a dissolve, not so much that the
+ * last visible row looks half-erased.
+ */
+export const COMPOSER_FADE_HEIGHT = 120;
+
+/**
  * Gradient stops for an edge fade, eased rather than linear.
  *
  * A straight transparent-to-opaque ramp reads as a flat grey smudge sliding

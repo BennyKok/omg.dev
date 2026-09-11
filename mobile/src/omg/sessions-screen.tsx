@@ -41,7 +41,7 @@ import Reanimated, {
   useAnimatedStyle,
 } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
-import { EdgeFade, fadeStops, TOP_FADE_HEIGHT } from "./edge-fade";
+import { COMPOSER_FADE_HEIGHT, EdgeFade, fadeStops, TOP_FADE_HEIGHT } from "./edge-fade";
 import { Text } from "./text";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { OmgSession } from "@omg-dev/protocol";
@@ -352,17 +352,6 @@ const ELBOW_RADIUS = 9;
  * instead of letting a row sit under the glass.
  */
 const MIN_COMPOSER_HEIGHT = 76;
-
-/**
- * How far above the composer the scroll content starts dissolving.
- *
- * Borrowed from Claude's iOS app: the transcript doesn't stop at a hard edge
- * above the input bar, it fades into the page background first, so scrolling
- * text never collides with the glass. 120pt is roughly two lines of body text
- * plus breathing room — enough to read as a dissolve, not so much that the
- * last visible row looks half-erased.
- */
-const COMPOSER_FADE_HEIGHT = 120;
 
 /**
  * The greeting the web Live view carries, in the bar slot the removed
