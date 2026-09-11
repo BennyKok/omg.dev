@@ -31,6 +31,7 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      "./plugins/with-key-commands.js",
       "expo-status-bar",
       "expo-router",
       "expo-font",
