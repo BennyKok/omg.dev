@@ -17,7 +17,7 @@ read off the EAS docs.
 | ASC API key | `P37PJ5VSHN`, issuer `8e538491-9c7f-4ddf-88ba-4bf3e4f81fa6`, ADMIN |
 | App Store | **LIVE since 2026-09-01T02:04:11Z** — version 1.0, build 37, released manually. `asc-status` now reports `Store: LIVE ... storefront us`. |
 | `asc-status` store probe | Fixed 2026-09-01. It had called the iTunes lookup with no `country`, which answered `resultCount 0` for a live app three times out of three, so it printed `Store: not live` for hours after release and the review-watch bot repeated it. It now asks `us,hk,gb,jp` in order and reports the first storefront that answers. A total lookup failure reads as unknown, not as not-live. **The script lives at `~/.local/bin/asc-status` and is NOT in this repository**, so the fix is on this box only. |
-| Latest TestFlight build | `1.0.2 (37)` — released to the App Store |
+| Latest TestFlight build | `1.0.4 (41)` — built and submitted 2026-09-11 through `mobile-release.yml` run 34571573067 (EAS build `02b223d1-083d-41b7-b541-70636e3c7e62`, submission `87425e68-7198-4564-95fa-2782b1b84277`, commit `5fbaa89c7`). Runtime `1.0.4`, so every `production` update group since 2026-09-06 applies to it on first launch. The App Store still serves `1.0.3 (39)` until this build is reviewed and released manually. Dependency delta from build 40 is `jpeg-js` and `upng-js`, both pure JS. |
 | EAS Update | live, branch `production`, runtimeVersion policy `appVersion`; last group `ba1812d9-fbbc-43d5-93e1-7bf8d176d928` (2026-09-11, runtime `1.0.4`, `gitCommitHash 8f3c351dc`) — see the publish log below |
 
 ## Publish log (`production` channel)
