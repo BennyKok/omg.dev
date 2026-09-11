@@ -70,6 +70,7 @@ import Reanimated, {
   withTiming,
 } from "react-native-reanimated";
 import { Text, TextInput } from "../../src/omg/text";
+import { SkillSuggest } from "../../src/omg/skill-suggest";
 import * as Clipboard from "expo-clipboard";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { OmgSession, OmgSessionPrompt } from "@omg-dev/protocol";
@@ -239,6 +240,15 @@ export function SessionScreenBody({
   const [messages, setMessages] = useState<Entry[]>([]);
   const [streamText, setStreamText] = useState("");
   const [busy, setBusy] = useState(false);
+  /**
+   * Whether the transcript socket has said anything about busy yet. Until
+   * it has, the session list's `busy` is the only word on the matter, and
+   * the screen used to ignore it: the Live card read "Working" while the
+   * chat behind it sat idle until the first socket event, which on a slow
+   * reconnect could be a long time. Once the socket speaks, it is the
+   * authority and the list is no longer consulted.
+   */
+  const socketBusySeen = useRef(false);
   const [prompt, setPrompt] = useState<OmgSessionPrompt | null>(null);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -372,6 +382,7 @@ export function SessionScreenBody({
         title: found.title?.trim() || found.lastUserText?.trim() || "Session",
         agent: found.agent?.trim() || found.agentLabel?.trim() || "omg",
       });
+      if (!socketBusySeen.current) setBusy(!!found.busy);
       setLive(true);
       return true;
     };
@@ -502,6 +513,7 @@ export function SessionScreenBody({
           }
           break;
         case "busy":
+          socketBusySeen.current = true;
           setBusy(event.busy);
           /**
            * "Queued" means WAITING BEHIND THE TURN IN FLIGHT. When that turn
@@ -1894,6 +1906,8 @@ export function SessionScreenBody({
         ) : null}
 
         <AttachmentStrip items={attachments.items} onRemove={attachments.remove} />
+        {/* "/" lists the box's skills above the field, as on the web. */}
+        <SkillSuggest value={draft} onChangeText={setDraft} />
 
         {/**
          * THE FIELD GETS THE WHOLE WIDTH, and the buttons get their own row.

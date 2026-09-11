@@ -1461,7 +1461,7 @@ export function SessionsScreen({
       horizontal
       showsHorizontalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
-      style={{ height: 50, backgroundColor: withAlpha(colors.bg, 0.94) }}
+      style={{ height: 50, backgroundColor: "transparent" }}
       contentContainerStyle={{
         gap: 8,
         paddingHorizontal: space.lg,
