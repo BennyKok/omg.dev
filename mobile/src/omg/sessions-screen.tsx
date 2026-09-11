@@ -2011,7 +2011,7 @@ export function SessionsScreen({
         visible={railSheetOpen}
         onClose={() => setRailSheetOpen(false)}
         folders={projectPicker.folders}
-        move={projectPicker.move}
+        setOrder={projectPicker.setOrder}
         setHidden={projectPicker.setHidden}
         addFolder={projectPicker.addFolder}
         createFolder={projectPicker.createFolder}

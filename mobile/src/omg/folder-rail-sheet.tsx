@@ -4,15 +4,15 @@
  * put it back, add an existing folder from the machine, or make a new one.
  * Order and hidden set live on the device (see STORAGE_KEYS.folderRail).
  */
-import { useEffect, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
-import Reanimated, { Easing, FadeIn, FadeInDown, FadeOut, FadeOutDown } from "react-native-reanimated";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View, type GestureResponderEvent } from "react-native";
+
+import Reanimated, { Easing, LinearTransition } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import type { AndroidSymbol, SFSymbol } from "expo-symbols";
 
 import { Icon } from "../components";
-import { GlassSurface } from "./glass";
+import { Sheet } from "./sheet";
 import { PressableScale } from "./motion";
 import { useOmg } from "./provider";
 import type { FolderRow } from "./session-options";
@@ -26,7 +26,7 @@ export function FolderRailSheet({
   visible,
   onClose,
   folders,
-  move,
+  setOrder,
   setHidden,
   addFolder,
   createFolder,
@@ -35,43 +35,25 @@ export function FolderRailSheet({
   visible: boolean;
   onClose: () => void;
   folders: FolderRow[];
-  move: (cwd: string, delta: -1 | 1) => void;
+  setOrder: (cwds: string[]) => void;
   setHidden: (cwd: string, hidden: boolean) => void;
   addFolder: (path: string) => Promise<void>;
   createFolder: (name: string) => Promise<string>;
   projectsRoot: string | null;
 }) {
-  const { colors, type, space, radius, isDark } = useTheme();
-  const insets = useSafeAreaInsets();
+  const { colors, type, space, radius } = useTheme();
   const [mode, setMode] = useState<"list" | "browse" | "create">("list");
   useEffect(() => {
     if (!visible) setMode("list");
   }, [visible]);
-  if (!visible) return null;
 
   return (
-    <Modal visible transparent animationType="none" onRequestClose={onClose}>
-      <View style={{ flex: 1, justifyContent: "flex-end" }}>
-        <Reanimated.View entering={FadeIn.duration(120)} exiting={FadeOut.duration(120)} style={StyleSheet.absoluteFill}>
-          <Pressable
-            onPress={onClose}
-            accessibilityRole="button"
-            accessibilityLabel="Close"
-            style={{ flex: 1, backgroundColor: isDark ? "rgba(0,0,0,0.5)" : "rgba(0,0,0,0.25)" }}
-          />
-        </Reanimated.View>
-        <Reanimated.View
-          entering={FadeInDown.duration(170).easing(Easing.out(Easing.cubic))}
-          exiting={FadeOutDown.duration(130)}
-          style={{ marginHorizontal: 10, marginBottom: Math.max(insets.bottom, 10), maxWidth: 560, alignSelf: "center", width: "100%" }}
-        >
-          <GlassSurface variant="regular" fallbackColor={colors.popover} style={{ borderRadius: 30, overflow: "hidden" }}>
-            <View style={{ paddingTop: 8, paddingBottom: space.lg, gap: space.md }}>
-              <View style={{ alignSelf: "center", width: 36, height: 5, borderRadius: 3, backgroundColor: colors.borderStrong }} />
+    <Sheet visible={visible} onClose={onClose}>
+            <View style={{ paddingBottom: space.lg, gap: space.md }}>
               {mode === "list" ? (
                 <FolderList
                   folders={folders}
-                  move={move}
+                  setOrder={setOrder}
                   setHidden={setHidden}
                   onBrowse={() => setMode("browse")}
                   onCreate={() => setMode("create")}
@@ -95,10 +77,7 @@ export function FolderRailSheet({
                 />
               )}
             </View>
-          </GlassSurface>
-        </Reanimated.View>
-      </View>
-    </Modal>
+    </Sheet>
   );
 }
 
@@ -116,75 +95,156 @@ function Heading({ children, onBack }: { children: string; onBack?: () => void }
   );
 }
 
+const ROW_H = 46;
+const LAYOUT = LinearTransition.duration(150).easing(Easing.out(Easing.quad));
+
+/**
+ * DRAG TO REORDER. Grab the handle at the end of a row and slide; the other
+ * rows step out of the way as the finger crosses their midlines, and the
+ * order is written when the finger lifts. Rows are a fixed height, so the
+ * target slot is arithmetic on the drag distance, not measurement.
+ */
 function FolderList({
   folders,
-  move,
+  setOrder,
   setHidden,
   onBrowse,
   onCreate,
 }: {
   folders: FolderRow[];
-  move: (cwd: string, delta: -1 | 1) => void;
+  setOrder: (cwds: string[]) => void;
   setHidden: (cwd: string, hidden: boolean) => void;
   onBrowse: () => void;
   onCreate: () => void;
 }) {
   const { colors, type, space, radius } = useTheme();
-  const tap = () => void Haptics.selectionAsync();
+  const byCwd = useMemo(() => new Map(folders.map((f) => [f.cwd, f] as const)), [folders]);
+  const [order, setLocalOrder] = useState(() => folders.map((f) => f.cwd));
+  const [drag, setDrag] = useState<{ cwd: string; from: number; dy: number } | null>(null);
+  const orderRef = useRef(order);
+  orderRef.current = order;
+  const dragRef = useRef(drag);
+  dragRef.current = drag;
+  const setOrderRef = useRef(setOrder);
+  setOrderRef.current = setOrder;
+
+  // Follow the picker's list while nothing is being dragged.
+  useEffect(() => {
+    if (!dragRef.current) setLocalOrder(folders.map((f) => f.cwd));
+  }, [folders]);
+
+  /**
+   * Raw touch events, not the responder system. The list's ScrollView wins
+   * the responder negotiation on the first vertical move, which is why a
+   * PanResponder on the handle never saw a grant; touch events still reach
+   * the deepest view regardless of who the responder is, and the ScrollView
+   * is frozen (`scrollEnabled={!drag}`) for the duration.
+   */
+  const startY = useRef(0);
+  const handleFor = (cwd: string) => ({
+    onTouchStart: (e: GestureResponderEvent) => {
+      startY.current = e.nativeEvent.pageY;
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      setDrag({ cwd, from: orderRef.current.indexOf(cwd), dy: 0 });
+    },
+    onTouchMove: (e: GestureResponderEvent) => {
+      const d = dragRef.current;
+      if (!d || d.cwd !== cwd) return;
+      const dy = e.nativeEvent.pageY - startY.current;
+      const list = orderRef.current;
+      const cur = list.indexOf(cwd);
+      const target = Math.min(list.length - 1, Math.max(0, Math.round(d.from + dy / ROW_H)));
+      if (target !== cur) {
+        const next = list.filter((c) => c !== cwd);
+        next.splice(target, 0, cwd);
+        setLocalOrder(next);
+        void Haptics.selectionAsync();
+      }
+      setDrag({ ...d, dy });
+    },
+    onTouchEnd: () => {
+      if (dragRef.current?.cwd !== cwd) return;
+      setOrderRef.current(orderRef.current);
+      setDrag(null);
+    },
+    onTouchCancel: () => {
+      if (dragRef.current?.cwd !== cwd) return;
+      setOrderRef.current(orderRef.current);
+      setDrag(null);
+    },
+  });
+
+  const rows = order.map((cwd) => byCwd.get(cwd)).filter((f): f is FolderRow => !!f);
   return (
     <>
       <Heading>Folders</Heading>
-      <ScrollView bounces={false} style={{ maxHeight: 360 }} contentContainerStyle={{ paddingHorizontal: space.lg }}>
-        <View style={{ borderRadius: radius.xl, backgroundColor: colors.card, overflow: "hidden" }}>
-          {folders.map((folder, index) => (
-            <View
-              key={folder.cwd}
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                minHeight: 46,
-                paddingLeft: space.lg,
-                paddingRight: space.sm,
-                gap: space.sm,
-                borderTopWidth: index === 0 ? 0 : StyleSheet.hairlineWidth,
-                borderTopColor: colors.borderSoft,
-                opacity: folder.hidden ? 0.5 : 1,
-              }}
-            >
-              <Text numberOfLines={1} style={{ ...type.body, flex: 1, color: colors.text, fontWeight: folder.selected ? "600" : "400" }}>
-                {folder.label}
-              </Text>
-              <RowButton
-                label={`Move ${folder.label} up`}
-                ios="chevron.up"
-                android="expand_less"
-                disabled={index === 0}
-                onPress={() => {
-                  tap();
-                  move(folder.cwd, -1);
+      <ScrollView
+        bounces={false}
+        scrollEnabled={!drag}
+        style={{ maxHeight: 360 }}
+        contentContainerStyle={{ paddingHorizontal: space.lg }}
+      >
+        <View style={{ borderRadius: radius.xl, backgroundColor: colors.card, overflow: "visible" }}>
+          {rows.map((folder, index) => {
+            const dragging = drag?.cwd === folder.cwd;
+            // The dragged row is drawn where the finger is: its slot has
+            // already moved with the order, so the finger offset is corrected
+            // by however many slots it has crossed.
+            const lift = dragging && drag ? drag.dy - (index - drag.from) * ROW_H : 0;
+            return (
+              <Reanimated.View
+                key={folder.cwd}
+                layout={dragging ? undefined : LAYOUT}
+                style={{ zIndex: dragging ? 10 : 0 }}
+              >
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  height: ROW_H,
+                  paddingLeft: space.lg,
+                  paddingRight: space.xs,
+                  gap: space.xs,
+                  borderTopWidth: index === 0 || dragging ? 0 : StyleSheet.hairlineWidth,
+                  borderTopColor: colors.borderSoft,
+                  borderRadius: dragging ? radius.md : 0,
+                  backgroundColor: dragging ? colors.popover : "transparent",
+                  opacity: folder.hidden && !dragging ? 0.5 : 1,
+                  transform: [{ translateY: lift }, { scale: dragging ? 1.02 : 1 }],
+                  shadowColor: "#000",
+                  shadowOpacity: dragging ? 0.25 : 0,
+                  shadowRadius: 12,
+                  shadowOffset: { width: 0, height: 6 },
                 }}
-              />
-              <RowButton
-                label={`Move ${folder.label} down`}
-                ios="chevron.down"
-                android="expand_more"
-                disabled={index === folders.length - 1}
-                onPress={() => {
-                  tap();
-                  move(folder.cwd, 1);
-                }}
-              />
-              <RowButton
-                label={folder.hidden ? `Add ${folder.label} to the rail` : `Remove ${folder.label} from the rail`}
-                ios={folder.hidden ? "plus.circle" : "minus.circle"}
-                android={folder.hidden ? "add_circle" : "remove_circle"}
-                onPress={() => {
-                  tap();
-                  setHidden(folder.cwd, !folder.hidden);
-                }}
-              />
-            </View>
-          ))}
+              >
+                <Text
+                  numberOfLines={1}
+                  style={{ ...type.body, flex: 1, color: colors.text, fontWeight: folder.selected ? "600" : "400" }}
+                >
+                  {folder.label}
+                </Text>
+                <RowButton
+                  label={folder.hidden ? `Add ${folder.label} to the rail` : `Remove ${folder.label} from the rail`}
+                  ios={folder.hidden ? "plus.circle" : "minus.circle"}
+                  android={folder.hidden ? "add_circle" : "remove_circle"}
+                  onPress={() => {
+                    void Haptics.selectionAsync();
+                    setHidden(folder.cwd, !folder.hidden);
+                  }}
+                />
+                <View
+                  {...handleFor(folder.cwd)}
+                  accessibilityRole="adjustable"
+                  accessibilityLabel={`Reorder ${folder.label}`}
+                  accessibilityHint="Drag up or down"
+                  style={{ width: 40, height: ROW_H, alignItems: "center", justifyContent: "center" }}
+                >
+                  <Icon ios="line.3.horizontal" android="drag_handle" size={16} color={colors.textMuted} />
+                </View>
+              </View>
+              </Reanimated.View>
+            );
+          })}
         </View>
       </ScrollView>
       <View style={{ flexDirection: "row", gap: space.sm, paddingHorizontal: space.lg }}>

@@ -9,14 +9,13 @@
  * session itself starts through the same request the composer uses.
  */
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
-import Reanimated, { Easing, FadeIn, FadeInDown, FadeOut, FadeOutDown } from "react-native-reanimated";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ActivityIndicator, ScrollView, View } from "react-native";
+
 import * as Haptics from "expo-haptics";
 import type { AndroidSymbol, SFSymbol } from "expo-symbols";
 
 import { Icon } from "../components";
-import { GlassSurface } from "./glass";
+import { Sheet } from "./sheet";
 import { PressableScale } from "./motion";
 import type { FolderRow } from "./session-options";
 import { Text, TextInput } from "./text";
@@ -81,8 +80,7 @@ export function CreateSheet({
   /** Starts the session the way the composer does, with an explicit folder. */
   launch: (args: { prompt: string; cwd: string }) => Promise<void>;
 }) {
-  const { colors, type, space, radius, isDark } = useTheme();
-  const insets = useSafeAreaInsets();
+  const { colors, type, space, radius } = useTheme();
   const [kind, setKind] = useState<CreateKind>("ios");
   const [where, setWhere] = useState<"new" | "existing">("new");
   const [name, setName] = useState("");
@@ -135,32 +133,14 @@ export function CreateSheet({
     }
   };
 
-  if (!visible) return null;
-
   return (
-    <Modal visible transparent animationType="none" onRequestClose={onClose}>
-      <View style={{ flex: 1, justifyContent: "flex-end" }}>
-        <Reanimated.View entering={FadeIn.duration(120)} exiting={FadeOut.duration(120)} style={StyleSheet.absoluteFill}>
-          <Pressable
-            onPress={onClose}
-            accessibilityRole="button"
-            accessibilityLabel="Close"
-            style={{ flex: 1, backgroundColor: isDark ? "rgba(0,0,0,0.5)" : "rgba(0,0,0,0.25)" }}
-          />
-        </Reanimated.View>
-        <Reanimated.View
-          entering={FadeInDown.duration(170).easing(Easing.out(Easing.cubic))}
-          exiting={FadeOutDown.duration(130)}
-          style={{ marginHorizontal: 10, marginBottom: Math.max(insets.bottom, 10), maxWidth: 560, alignSelf: "center", width: "100%" }}
-        >
-          <GlassSurface variant="regular" fallbackColor={colors.popover} style={{ borderRadius: 30, overflow: "hidden" }}>
+    <Sheet visible={visible} onClose={onClose}>
             <ScrollView
               bounces={false}
               keyboardShouldPersistTaps="handled"
               style={{ maxHeight: 640 }}
-              contentContainerStyle={{ paddingTop: 8, paddingBottom: space.lg, gap: space.md }}
+              contentContainerStyle={{ paddingBottom: space.lg, gap: space.md }}
             >
-              <View style={{ alignSelf: "center", width: 36, height: 5, borderRadius: 3, backgroundColor: colors.borderStrong }} />
               <Text style={{ ...type.headline, color: colors.text, paddingHorizontal: space.lg }}>Create</Text>
 
               {/* WHAT */}
@@ -304,9 +284,6 @@ export function CreateSheet({
                 </PressableScale>
               </View>
             </ScrollView>
-          </GlassSurface>
-        </Reanimated.View>
-      </View>
-    </Modal>
+    </Sheet>
   );
 }

@@ -458,6 +458,12 @@ export function useProjectPicker() {
     [ordered, arrangement.hidden, saveArrangement],
   );
 
+  /** The whole order at once, from a drag. Unknown cwds are dropped; missing ones are appended by `ordered`. */
+  const setOrder = useCallback(
+    (cwds: string[]) => saveArrangement({ order: cwds, hidden: arrangement.hidden }),
+    [arrangement.hidden, saveArrangement],
+  );
+
   const setHidden = useCallback(
     (target: string, hidden: boolean) => {
       const next = new Set(arrangement.hidden);
@@ -525,6 +531,7 @@ export function useProjectPicker() {
     filter: activeFilter,
     folders,
     move,
+    setOrder,
     setHidden,
     addFolder,
     createFolder,

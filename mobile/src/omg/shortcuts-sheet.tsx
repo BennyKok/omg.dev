@@ -2,37 +2,19 @@
  * The keyboard shortcuts card, opened with ⌘/ or from the Pages menu. Same
  * glass card as the agent picker, so it reads as part of the same app.
  */
-import { Modal, Pressable, StyleSheet, View } from "react-native";
-import Reanimated, { Easing, FadeIn, FadeInDown, FadeOut, FadeOutDown } from "react-native-reanimated";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { StyleSheet, View } from "react-native";
 
-import { GlassSurface } from "./glass";
+
+import { Sheet } from "./sheet";
 import { SHORTCUTS } from "./key-commands";
 import { Text } from "./text";
 import { useTheme } from "./theme";
 
 export function ShortcutsSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
-  const { colors, type, space, radius, isDark } = useTheme();
-  const insets = useSafeAreaInsets();
-  if (!visible) return null;
+  const { colors, type, space, radius } = useTheme();
   return (
-    <Modal visible transparent animationType="none" onRequestClose={onClose}>
-      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-        <Reanimated.View entering={FadeIn.duration(120)} exiting={FadeOut.duration(120)} style={StyleSheet.absoluteFill}>
-          <Pressable
-            onPress={onClose}
-            accessibilityRole="button"
-            accessibilityLabel="Close"
-            style={{ flex: 1, backgroundColor: isDark ? "rgba(0,0,0,0.5)" : "rgba(0,0,0,0.25)" }}
-          />
-        </Reanimated.View>
-        <Reanimated.View
-          entering={FadeInDown.duration(170).easing(Easing.out(Easing.cubic))}
-          exiting={FadeOutDown.duration(130)}
-          style={{ width: "100%", maxWidth: 420, paddingHorizontal: 10, marginBottom: insets.bottom }}
-        >
-          <GlassSurface variant="regular" fallbackColor={colors.popover} style={{ borderRadius: 30, overflow: "hidden" }}>
-            <View style={{ padding: space.lg, gap: space.md }}>
+    <Sheet visible={visible} onClose={onClose} placement="center" maxWidth={420}>
+            <View style={{ padding: space.lg, paddingTop: space.sm, gap: space.md }}>
               <Text style={{ ...type.headline, color: colors.text }}>Keyboard shortcuts</Text>
               <View style={{ borderRadius: radius.xl, backgroundColor: colors.card, overflow: "hidden" }}>
                 {SHORTCUTS.map((row, index) => (
@@ -66,9 +48,6 @@ export function ShortcutsSheet({ visible, onClose }: { visible: boolean; onClose
                 ))}
               </View>
             </View>
-          </GlassSurface>
-        </Reanimated.View>
-      </View>
-    </Modal>
+    </Sheet>
   );
 }

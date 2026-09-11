@@ -12,33 +12,12 @@
  * session-options.ts are unchanged and nothing here decides what is selected.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import {
-  ActivityIndicator,
-  Image,
-  Modal,
-  PanResponder,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  View,
-} from "react-native";
-import Reanimated, {
-  Easing,
-  FadeIn,
-  FadeInDown,
-  FadeOut,
-  FadeOutDown,
-  LinearTransition,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-} from "react-native-reanimated";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ActivityIndicator, Image, Modal, PanResponder, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import Reanimated, { Easing, FadeIn, FadeInDown, FadeOut, FadeOutDown, LinearTransition, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { SymbolView } from "expo-symbols";
 
-import { GlassSurface } from "./glass";
+import { Sheet } from "./sheet";
 import type { MenuOption } from "./menu";
 import { PressableScale } from "./motion";
 import { Text, TextInput } from "./text";
@@ -74,21 +53,12 @@ export function AgentSetupSheet({
    */
   action?: { label: string; onPress: () => void };
 }) {
-  const { colors, type, space, radius, isDark } = useTheme();
-  const insets = useSafeAreaInsets();
+  const { colors, type, space, radius } = useTheme();
   /**
    * The Modal unmounts on the same frame `visible` drops, which would cut the
    * exit animation. Keep it mounted one beat longer so the card can slide
    * away, then let the Modal go.
    */
-  const [mounted, setMounted] = useState(visible);
-  useEffect(() => {
-    if (visible) setMounted(true);
-    else {
-      const t = setTimeout(() => setMounted(false), 150);
-      return () => clearTimeout(t);
-    }
-  }, [visible]);
   /**
    * The agent row starts folded to the current agent. Opening the sheet is
    * usually about the model or the level, and five marks in a row would
@@ -99,7 +69,6 @@ export function AgentSetupSheet({
   useEffect(() => {
     if (!visible) setAgentsOpen(false);
   }, [visible]);
-  if (!mounted) return null;
 
   const pick = (option: MenuOption) => {
     if (option.disabled) return;
@@ -109,45 +78,8 @@ export function AgentSetupSheet({
   const currentAgent = agentOptions.find((o) => o.selected) ?? agentOptions[0];
 
   return (
-    <Modal visible transparent animationType="none" onRequestClose={onClose} statusBarTranslucent>
-      <View style={{ flex: 1, justifyContent: "flex-end" }}>
-        {visible ? (
-          <Reanimated.View
-            entering={FadeIn.duration(120)}
-            exiting={FadeOut.duration(120)}
-            style={StyleSheet.absoluteFill}
-          >
-            <Pressable
-              onPress={onClose}
-              accessibilityRole="button"
-              accessibilityLabel="Close"
-              style={{ flex: 1, backgroundColor: isDark ? "rgba(0,0,0,0.5)" : "rgba(0,0,0,0.25)" }}
-            />
-          </Reanimated.View>
-        ) : null}
-        {visible ? (
-          <Reanimated.View
-            entering={FadeInDown.duration(170).easing(Easing.out(Easing.cubic))}
-            exiting={FadeOutDown.duration(130)}
-            layout={LAYOUT}
-            style={{ marginHorizontal: 10, marginBottom: Math.max(insets.bottom, 10) }}
-          >
-            <GlassSurface
-              variant="regular"
-              fallbackColor={colors.popover}
-              style={{ borderRadius: 30, overflow: "hidden" }}
-            >
-              <View style={{ paddingTop: 8, paddingBottom: space.lg, gap: space.lg }}>
-                {/* Grabber: the card reads as a sheet, and a sheet reads as dismissable. */}
-                <View
-                  style={{
-                    alignSelf: "center",
-                    width: 36,
-                    height: 5,
-                    borderRadius: 3,
-                    backgroundColor: colors.borderStrong,
-                  }}
-                />
+    <Sheet visible={visible} onClose={onClose}>
+              <View style={{ paddingBottom: space.lg, gap: space.lg }}>
 
                 {title ? (
                   <Text style={{ ...type.headline, color: colors.text, paddingHorizontal: space.lg + 4 }}>
@@ -268,11 +200,7 @@ export function AgentSetupSheet({
                   </Reanimated.View>
                 ) : null}
               </View>
-            </GlassSurface>
-          </Reanimated.View>
-        ) : null}
-      </View>
-    </Modal>
+    </Sheet>
   );
 }
 
