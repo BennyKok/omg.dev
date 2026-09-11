@@ -371,14 +371,18 @@ const MIN_COMPOSER_HEIGHT = 76;
 function LiveWelcome({
   firstName,
   busyCount,
+  connection,
   onPress,
 }: {
   firstName: string;
   busyCount: number;
+  /** Live-socket health. A drop takes over the greeting, as the web's status text does. */
+  connection?: OmgConnectionStatus;
   /** The greeting is the door to the Notification Center, as on the web. */
   onPress?: () => void;
 }) {
   const { colors, type } = useTheme();
+  const dropped = connection === "reconnecting" || connection === "offline";
   const [showActivity, setShowActivity] = useState(false);
 
   useEffect(() => {
@@ -399,9 +403,9 @@ function LiveWelcome({
     <Pressable onPress={onPress} accessibilityRole="button" hitSlop={8}>
       <Text
         numberOfLines={1}
-        style={{ ...type.headline, color: colors.text, maxWidth: 210 }}
+        style={{ ...type.headline, color: dropped ? colors.warning : colors.text, maxWidth: 210 }}
       >
-        {busyCount > 0 && showActivity ? activity : welcome}
+        {dropped ? "Reconnecting…" : busyCount > 0 && showActivity ? activity : welcome}
       </Text>
     </Pressable>
   );
@@ -1357,6 +1361,7 @@ export function SessionsScreen({
               <LiveWelcome
                 firstName={firstName}
                 busyCount={flattenNodes(working).length}
+                connection={connection}
                 onPress={() => router.push("/notifications")}
               />
             </View>
@@ -1378,6 +1383,7 @@ export function SessionsScreen({
     navigation,
     colors.bg,
     router,
+    connection,
     computerPicker.options,
     machineName,
     currentBinding?.online,
@@ -1575,6 +1581,7 @@ export function SessionsScreen({
                   <LiveWelcome
                     firstName={firstName}
                     busyCount={flattenNodes(working).length}
+                    connection={connection}
                     onPress={() => navigateWorkspace("/notifications")}
                   />
                 </View>
@@ -1679,19 +1686,6 @@ export function SessionsScreen({
                 New session
               </Text>
             </Pressable>
-          ) : null}
-          {(connection === "reconnecting" || connection === "offline") &&
-          ready ? (
-            <Text
-              style={{
-                ...type.caption,
-                color: colors.warning,
-                paddingHorizontal: space.lg,
-                paddingTop: space.xs,
-              }}
-            >
-              Reconnecting…
-            </Text>
           ) : null}
 
           {/* Readiness owns the screen when the machine is not serving. */}

@@ -70,6 +70,7 @@ import Reanimated, {
   withTiming,
 } from "react-native-reanimated";
 import { Text, TextInput } from "../../src/omg/text";
+import type { OmgConnectionStatus } from "@omg-dev/client";
 import { AgentSetupSheet } from "../../src/omg/agent-setup-sheet";
 import { useKeyCommand } from "../../src/omg/key-commands";
 import { useAgentPicker } from "../../src/omg/session-options";
@@ -244,6 +245,18 @@ export function SessionScreenBody({
   const [messages, setMessages] = useState<Entry[]>([]);
   const [streamText, setStreamText] = useState("");
   const [busy, setBusy] = useState(false);
+  /**
+   * Live-socket health, for the title capsule. The transcript socket owns its
+   * own reconnect; this is only so the header can SAY "Reconnecting…" while
+   * it does, the way the web's status text does, instead of a chat that
+   * silently stops moving.
+   */
+  const [connection, setConnection] = useState<OmgConnectionStatus>("live");
+  useEffect(() => {
+    if (!client) return;
+    return client.live.subscribeConnection((state) => setConnection(state.status));
+  }, [client]);
+  const dropped = connection === "reconnecting" || connection === "offline";
   /**
    * Whether the transcript socket has said anything about busy yet. Until
    * it has, the session list's `busy` is the only word on the matter, and
@@ -1382,15 +1395,15 @@ export function SessionScreenBody({
           style={{
             ...type.subhead,
             fontWeight: "600",
-            color: colors.text,
+            color: dropped ? colors.warning : colors.text,
             maxWidth: 210,
           }}
         >
-          {bot ? bot.name : title}
+          {dropped ? "Reconnecting…" : bot ? bot.name : title}
         </Text>
       </GlassSurface>
     ),
-    [agentLabel, bot, busy, colors, radius.pill, space, title, type],
+    [agentLabel, bot, busy, colors, dropped, radius.pill, space, title, type],
   );
 
   /**
