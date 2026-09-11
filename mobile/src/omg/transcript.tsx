@@ -198,6 +198,8 @@ const COLLAPSED_LINES = 10;
 const LONG_MESSAGE_CHARS = 460;
 
 const ATTACHMENT_MAX = 240;
+/** Widest an agent-displayed image gets, whatever the pane offers. */
+const DISPLAY_MAX_WIDTH = 560;
 const ATTACHMENT_TILE = 150;
 
 const isThought = (message?: Entry) => message?.kind === "thinking";
@@ -1365,7 +1367,10 @@ function DisplayedImage({ message }: { message: Entry }) {
       <AuthenticatedImage
         path={path}
         accessibilityLabel={message.alt ?? (caption || "Image")}
-        maxWidth={screen.width - space.lg * 2 - space.xs * 2}
+        // Capped: on an iPad the pane is 700pt wide and a screenshot that
+        // stretched to fill it was a poster, not evidence. 560 keeps a phone
+        // screenshot readable and stops a landscape one from owning the pane.
+        maxWidth={Math.min(DISPLAY_MAX_WIDTH, screen.width - space.lg * 2 - space.xs * 2)}
         maxHeight={420}
         // The artifact tells us its own dimensions, so the tile is the right
         // shape before the bytes arrive.
