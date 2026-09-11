@@ -116,15 +116,15 @@ describe("notifyNativeAll", () => {
     expect((message.data as { url: string }).url).toBe("/session/abc");
   });
 
-  test("never forwards the real title/body to Expo's relay — only a generic alert plus the project", async () => {
+  test("forwards the real title and body, with the project as subtitle", async () => {
     await saveNativeToken({ token: "ExponentPushToken[benny]", user: "benny@example.com" });
-    const privateQuestion = "Should I force-push over the release branch in acme/payments?";
+    const question = "Should I force-push over the release branch in acme/payments?";
 
     await notifyNativeAll({
       user: "benny@example.com",
       notification: {
         title: "omg needs your input",
-        body: privateQuestion,
+        body: question,
         url: "/?session=abc",
         tag: "ask-q1",
         project: "acme/payments",
@@ -134,20 +134,23 @@ describe("notifyNativeAll", () => {
 
     const [message] = sent[0].body as Array<Record<string, unknown>>;
     expect(message.title).toBe("omg needs your input");
-    expect(message.body).toBe("in acme/payments");
-    expect(JSON.stringify(message)).not.toContain(privateQuestion);
+    expect(message.subtitle).toBe("acme/payments");
+    expect(message.body).toBe(question);
   });
 
-  test("without a project, the body says nothing at all — never falls back to the real text", async () => {
+  test("clips a long body to the lock-screen budget and collapses whitespace", async () => {
     await saveNativeToken({ token: "ExponentPushToken[benny]", user: "benny@example.com" });
     await notifyNativeAll({
       user: "benny@example.com",
-      notification: { title: "omg found something", body: "Leaks the DB password in a log line", tag: "finding-f1" },
+      notification: { title: "Shipped: Native push", body: "line one\n\n" + "x".repeat(400), tag: "shipped-p1" },
     });
 
     const [message] = sent[0].body as Array<Record<string, unknown>>;
-    expect(message.title).toBe("omg found something");
-    expect(message.body).toBeUndefined();
+    const body = message.body as string;
+    expect(body.startsWith("line one x")).toBe(true);
+    expect(body.length).toBe(200);
+    expect(body.endsWith("\u2026")).toBe(true);
+    expect(message.subtitle).toBeUndefined();
   });
 
   test("prunes a token Expo reports as DeviceNotRegistered", async () => {
