@@ -86,6 +86,15 @@ export type Entry = OmgMessage & {
    * is happening.
    */
   queued?: boolean;
+  /**
+   * THE ROW KEY THE MESSAGE WAS BORN WITH. A sent message starts as an
+   * optimistic row keyed `local-N`; the machine's echo arrives with the real
+   * id. Re-keying the row on that swap unmounted and remounted it, with the
+   * arrival animation firing a second time: the "glitch on send". The echo
+   * keeps the optimistic key here, so it is the same row settling, not a new
+   * one arriving. Set only on confirmed echoes; never persisted.
+   */
+  localKey?: string;
 };
 
 /**
@@ -309,7 +318,7 @@ function buildToolPairs(run: Entry[], offset: number): ToolPair[] {
 
 /** Ids are nullable on the wire, so position is the fallback that keeps keys unique. */
 function entryKey(message: Entry, index: number): string {
-  return message.id ?? `${message.kind ?? message.role ?? "msg"}-${index}`;
+  return message.localKey ?? message.id ?? `${message.kind ?? message.role ?? "msg"}-${index}`;
 }
 
 /**
@@ -1627,6 +1636,16 @@ export function UserMessage({ message }: { message: Entry }) {
 
   const [expanded, setExpanded] = useState(false);
 
+  const unsettled = !!(message.pending || message.queued);
+  const settleOpacity = useSharedValue(unsettled ? 0.55 : 1);
+  useEffect(() => {
+    settleOpacity.value = withTiming(unsettled ? 0.55 : 1, {
+      duration: 260,
+      easing: Easing.out(Easing.quad),
+    });
+  }, [unsettled, settleOpacity]);
+  const settle = useAnimatedStyle(() => ({ opacity: settleOpacity.value }));
+
   // Attachments ride along in the user's text as absolute upload paths, because
   // that is how the agent receives them. Split them back out so the transcript
   // shows the pictures instead of `/tmp/lfg-uploads/…-IMG_0850.png` on its own
@@ -1649,6 +1668,17 @@ export function UserMessage({ message }: { message: Entry }) {
       {/* A caption is optional: attach an image with nothing typed and the
           picture is the whole message, with no empty bubble under it. */}
       {text ? (
+        <Reanimated.View
+          /**
+           * SETTLING, NOT SWAPPING. The bubble is drawn dim while the request
+           * is in the air (or queued behind a turn) and fades up to full when
+           * the machine has it. Animating opacity on the same row is what
+           * replaced the old "Sending…" caption: a caption appearing and then
+           * vanishing changed the row's height, and the height change plus
+           * the key swap read as the message being re-inserted.
+           */
+          style={settle}
+        >
         <MenuView
           actions={bubbleActions}
           shouldOpenOnLongPress
@@ -1685,8 +1715,6 @@ export function UserMessage({ message }: { message: Entry }) {
             // leading above and below the glyphs, so 8 read as 11 and the
             // bubble looked padded out of proportion to its one line.
             paddingVertical: 5,
-            // Both states are "not acted on yet", so both sit back a little.
-            opacity: message.pending || message.queued ? 0.6 : 1,
           }}
         >
           <Text
@@ -1730,6 +1758,7 @@ export function UserMessage({ message }: { message: Entry }) {
           ) : null}
         </View>
         </MenuView>
+        </Reanimated.View>
       ) : null}
       <View
         style={{
@@ -1744,13 +1773,14 @@ export function UserMessage({ message }: { message: Entry }) {
         {copied ? (
           <Text style={{ ...type.caption, color: colors.textMuted }}>Copied</Text>
         ) : null}
+        {/* No "Sending…" caption: the bubble's own dimness says it, and a
+            caption that appears and vanishes moved the row. Queued stays,
+            because it can sit for minutes and deserves a word. */}
         {message.queued ? (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
             <Icon ios="clock" android="schedule" size={11} color={colors.textMuted} />
             <Text style={{ ...type.caption, color: colors.textMuted }}>Queued</Text>
           </View>
-        ) : message.pending ? (
-          <Text style={{ ...type.caption, color: colors.textMuted }}>Sending…</Text>
         ) : null}
       </View>
     </View>

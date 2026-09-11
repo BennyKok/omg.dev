@@ -495,13 +495,16 @@ export function SessionScreenBody({
              */
             const echoText = stripBotLaunchEnvelope(event.message.text ?? "");
             const confirmed = prev.find((m) => isOptimisticId(m.id) && m.text === echoText);
-            const incoming: Entry = confirmed?.queued
-              ? { ...event.message, queued: true }
+            // The echo keeps the optimistic row's key (see Entry.localKey), so
+            // the list sees one row settling rather than one leaving and one
+            // arriving — and it is NOT marked fresh, for the same reason.
+            const incoming: Entry = confirmed
+              ? { ...event.message, queued: confirmed.queued || undefined, localKey: confirmed.id ?? undefined }
               : event.message;
             const withoutOptimistic = prev.filter(
               (m) => !(isOptimisticId(m.id) && m.text === echoText),
             );
-            if (incoming.id) liveKeysRef.current.add(incoming.id);
+            if (incoming.id && !confirmed) liveKeysRef.current.add(incoming.id);
             if (incoming.id && withoutOptimistic.some((m) => m.id === incoming.id)) {
               return withoutOptimistic.map((m) => (m.id === incoming.id ? incoming : m));
             }
