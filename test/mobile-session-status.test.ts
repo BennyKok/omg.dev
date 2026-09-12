@@ -34,14 +34,16 @@ test("unknown sessions request one follow-up refresh during an existing load", a
   const request = state.refresh(fetch);
   expect(state.refresh(fetch)).toBe(request);
   await Promise.resolve();
-  expect(state.apply([{ sessionId: "new", busy: true }])).toBe(true);
-  expect(state.apply([{ sessionId: "new", busy: true }])).toBe(false);
+  expect(state.apply([{ sessionId: "new", busy: true }])).toEqual({ unknown: true, settled: false });
+  expect(state.apply([{ sessionId: "new", busy: true }])).toEqual({ unknown: false, settled: false });
   resolve([]);
   await request;
   expect(calls).toBe(2);
   expect(latest[0]!.cwd).toBe("/new");
   expect(latest[0]!.busy).toBe(true);
-  expect(state.apply([{ sessionId: "new", busy: false }])).toBe(false);
+  // Known and finishing: no hole in the list, but the per-viewer read state
+  // it may have just earned only comes back from REST. See `settled`.
+  expect(state.apply([{ sessionId: "new", busy: false }])).toEqual({ unknown: false, settled: true });
   state.remove("new");
   expect(latest).toEqual([]);
 });
@@ -72,7 +74,7 @@ test("Home polls without status support, slows when live, refreshes unknown rows
       subscribeConnection: (callback) => { connection = callback; callback({ status: "connecting", attempt: 0 }); return () => releases.push("connection"); },
       subscribeStatus: (callback) => { status = callback; return () => releases.push("status"); },
     },
-    apply: (rows) => { applied++; return rows.some((row) => row.sessionId === "unknown"); },
+    apply: (rows) => { applied++; return { unknown: rows.some((row) => row.sessionId === "unknown"), settled: false }; },
     refresh: (quiet) => { refreshes.push(quiet); },
     connectionChanged: () => {},
   }, { start: (callback) => { tick = callback; return () => releases.push("timer"); } });
@@ -95,4 +97,97 @@ test("Home polls without status support, slows when live, refreshes unknown rows
   tick(); status([]); connection({ status: "live", attempt: 0 });
   expect(refreshes).toHaveLength(6);
   expect(applied).toBe(2);
+});
+
+
+test("a finished turn refetches the list once per burst, a chatty turn never does", async () => {
+  // Status frames carry no per-viewer unread (src/session-reads.ts stamps it
+  // on /api/sessions), so a settled session has to pull REST — but a session
+  // mid-turn emits frames constantly and must not cost a request each time.
+  type Row = import("../packages/protocol/src").OmgStatusRow;
+  let status!: (rows: Row[]) => void;
+  const refreshes: boolean[] = [];
+  const live = {
+    state: { status: "live" as const, attempt: 0 },
+    subscribeConnection: () => () => {},
+    subscribeStatus: (callback: (rows: Row[]) => void) => { status = callback; return () => {}; },
+  };
+  const settled = { unknown: false, settled: true };
+  const stop = observeSessionStatus({
+    live,
+    apply: () => settled,
+    refresh: (quiet) => { refreshes.push(quiet); },
+    connectionChanged: () => {},
+    settleRefreshMs: 20,
+  }, { start: () => () => {} });
+  expect(refreshes).toEqual([false]);
+  status([{ sessionId: "a", busy: false }]);
+  status([{ sessionId: "b", busy: false }]);
+  status([{ sessionId: "c", busy: false }]);
+  expect(refreshes).toEqual([false]); // Held, not dropped.
+  await Bun.sleep(60);
+  expect(refreshes).toEqual([false, true]); // One quiet refresh for the burst.
+  stop();
+});
+
+test("nothing to settle, and nothing to refetch", async () => {
+  type Row = import("../packages/protocol/src").OmgStatusRow;
+  let status!: (rows: Row[]) => void;
+  const refreshes: boolean[] = [];
+  const stop = observeSessionStatus({
+    live: {
+      state: { status: "live" as const, attempt: 0 },
+      subscribeConnection: () => () => {},
+      subscribeStatus: (callback: (rows: Row[]) => void) => { status = callback; return () => {}; },
+    },
+    apply: () => ({ unknown: false, settled: false }),
+    refresh: (quiet) => { refreshes.push(quiet); },
+    connectionChanged: () => {},
+    settleRefreshMs: 20,
+  }, { start: () => () => {} });
+  status([{ sessionId: "a", busy: true }]);
+  await Bun.sleep(60);
+  expect(refreshes).toEqual([false]);
+  stop();
+});
+
+test("a stopped observer never wakes up to fetch", async () => {
+  type Row = import("../packages/protocol/src").OmgStatusRow;
+  let status!: (rows: Row[]) => void;
+  const refreshes: boolean[] = [];
+  const stop = observeSessionStatus({
+    live: {
+      state: { status: "live" as const, attempt: 0 },
+      subscribeConnection: () => () => {},
+      subscribeStatus: (callback: (rows: Row[]) => void) => { status = callback; return () => {}; },
+    },
+    apply: () => ({ unknown: false, settled: true }),
+    refresh: (quiet) => { refreshes.push(quiet); },
+    connectionChanged: () => {},
+    settleRefreshMs: 20,
+  }, { start: () => () => {} });
+  status([{ sessionId: "a", busy: false }]);
+  stop(); // Home blurred or backgrounded with a settle window open.
+  await Bun.sleep(60);
+  expect(refreshes).toEqual([false]);
+});
+
+test("a missing row still refetches at once, ahead of any settle window", () => {
+  type Row = import("../packages/protocol/src").OmgStatusRow;
+  let status!: (rows: Row[]) => void;
+  const refreshes: boolean[] = [];
+  const stop = observeSessionStatus({
+    live: {
+      state: { status: "live" as const, attempt: 0 },
+      subscribeConnection: () => () => {},
+      subscribeStatus: (callback: (rows: Row[]) => void) => { status = callback; return () => {}; },
+    },
+    apply: () => ({ unknown: true, settled: true }),
+    refresh: (quiet) => { refreshes.push(quiet); },
+    connectionChanged: () => {},
+    settleRefreshMs: 20,
+  }, { start: () => () => {} });
+  status([{ sessionId: "new", busy: false }]);
+  expect(refreshes).toEqual([false, true]);
+  stop();
 });
