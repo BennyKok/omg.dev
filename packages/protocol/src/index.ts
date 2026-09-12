@@ -71,6 +71,43 @@ export interface OmgMessage {
    * keeps receiving the full inline text.
    */
   toolArgsLen?: number;
+  /**
+   * Kind `work`: one run of tool calls and thoughts, folded by the server
+   * for a connection that declared the `workRows` capability. The row is
+   * re-sent under the same id as the run grows; an empty list withdraws it.
+   */
+  steps?: OmgMessage[];
+  /** An artifact: the display tool call that produced it (`workRows`). */
+  tool?: OmgMessage;
+}
+
+/**
+ * What a connection asks the server to do to the transcript on the wire.
+ * Both are additive and optional: a client that declares neither receives
+ * the raw stream every client received before they existed.
+ *
+ * - `workRows`: fold every run of tool_use / tool_result / thinking into one
+ *   `work` message carrying its `steps`, and put a display tool call on the
+ *   artifact it produced as `tool`.
+ * - `deferToolArgs`: send tool_use names only (`toolArgsLen` marks the cut)
+ *   and let the client fetch arguments on demand.
+ */
+export interface OmgLiveCapabilities {
+  workRows?: boolean;
+  deferToolArgs?: boolean;
+}
+
+/**
+ * The text of one draft the agent is streaming, accumulated for the client:
+ * a reply (`text`) or reasoning (`thinking`). The two share a wire channel
+ * (`ai_part`) and are told apart only by `kind`; a client that appended
+ * every delta to one string drew the agent's reasoning as its answer.
+ */
+export interface OmgDraft {
+  id: string;
+  kind: "text" | "thinking";
+  text: string;
+  ts?: number;
 }
 
 export interface OmgAiStreamPart {
@@ -203,6 +240,8 @@ export type OmgTranscriptEvent =
   | { type: "snapshot"; messages: OmgMessage[]; nextBefore: number | null }
   | { type: "message"; message: OmgMessage }
   | { type: "ai_part"; part: OmgAiStreamPart }
+  /** The accumulated draft after each `ai_part`; see OmgDraft. */
+  | { type: "draft"; draft: OmgDraft }
   | { type: "busy"; busy: boolean }
   | { type: "prompt"; prompt: OmgSessionPrompt | null }
   | { type: "error"; error: string };
