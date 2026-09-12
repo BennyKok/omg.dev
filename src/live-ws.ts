@@ -57,6 +57,8 @@ export type LiveWsSocketData = {
    * field to the subscribe frame, but it owns the URL it opens.
    */
   workRows?: boolean;
+  /** The upgrade request's User-Agent, for telling one client from another in the log. */
+  userAgent?: string | null;
 };
 
 type Evlog = (event: string, fields?: Record<string, unknown>) => void;
@@ -1113,6 +1115,8 @@ export function createLiveWsSupport(opts: {
       rid: state.rid,
       sid,
       messages: snapshotMessages,
+      workRows: !!state.workRows,
+      deferToolArgs: state.deferToolArgs,
       durationMs: roundMs(performance.now() - t0),
     });
     const tail = await ensureSidTail(sid, tp);
@@ -1234,12 +1238,16 @@ export function createLiveWsSupport(opts: {
   };
 
   return {
-    dataForRequest(participantId: string | null = null, capabilities: { workRows?: boolean } = {}): LiveWsSocketData {
+    dataForRequest(
+      participantId: string | null = null,
+      capabilities: { workRows?: boolean; userAgent?: string | null } = {},
+    ): LiveWsSocketData {
       return {
         liveWs: true,
         rid: crypto.randomUUID?.() ?? `ws-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`,
         participantId,
         ...(capabilities.workRows ? { workRows: true } : {}),
+        userAgent: capabilities.userAgent ?? null,
       };
     },
     isLiveSocket(ws: ServerWebSocket<unknown>): boolean {
@@ -1261,7 +1269,10 @@ export function createLiveWsSupport(opts: {
       };
       sockets.set(ws, state);
       openSockets.add(ws);
-      evlog("ws_connect", { rid });
+      // The capability on the URL and the client behind the socket, so a
+      // transcript that arrives unfolded can be traced to the connection
+      // that never declared the capability rather than guessed at.
+      evlog("ws_connect", { rid, workRows: !!data?.workRows, userAgent: data?.userAgent ?? null });
       ensureStatusLoop();
       void sendStatusBaseline(ws);
       state.heartbeat = setInterval(() => {
