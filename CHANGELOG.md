@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## September 12, 2026 - Stable message queues and mobile navigation (v0.6.68)
+
+- Queued messages now leave the editable queue one at a time as the agent becomes available. The remaining messages stay visible across reconnects and restarts instead of moving into a hidden agent queue.
+- Mobile Live now has a side navigation panel for pages and the computer switcher. Unread dots clear when the latest reply is visible. Agent icons are smaller, and chat headers show the selected model with a neutral reconnect label.
+- Mobile project creation opens full-screen with explicit keyboard focus. Home receives fleet status over the shared live connection, and the chat navigation background is more transparent.
+- Web composers support `#` references to sessions.
+
 ## September 12, 2026 - Shared fleet status subscription (v0.6.67)
 
 - `@omg-dev/client`: `client.live.subscribeStatus(listener)` delivers fleet status rows over the existing shared WebSocket. Status-only consumers open the socket, reconnect with a fresh subscription, and release it when the last consumer leaves.
