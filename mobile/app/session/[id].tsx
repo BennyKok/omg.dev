@@ -1480,20 +1480,6 @@ export function SessionScreenBody({
     router,
   ]);
 
-  /**
-   * The native bar: system back on the left (this is a pushed screen, so the
-   * chevron and the edge-swipe cost nothing), the session title with the
-   * agent's avatar and live status in the middle, the overflow on the right.
-   *
-   * Set here rather than in _layout.tsx for the same reason index.tsx sets
-   * its own: the title and the menu need this screen's live state, and the
-   * deps below are what keep them current as the session loads and the agent
-   * starts and stops.
-   *
-   * `headerTitle` is content-sized, not flex-sized, so an uncapped long prompt
-   * would push the overflow button off the bar. The maxWidth is what makes
-   * UIKit truncate the title instead of the chrome.
-   */
   /** The chevron on its own glass disc — one bar item. */
   const BackDisc = useCallback(
     () => (
@@ -1567,71 +1553,41 @@ export function SessionScreenBody({
     [colors, menuOptions],
   );
 
-  /** The agent and the session's name, on their own glass capsule. */
-  const TitleCapsule = useCallback(
+  /** Identity uses the remaining bar width so long titles cannot move actions. */
+  const HeaderIdentity = useCallback(
     () => (
-      <GlassSurface
-        variant="clear"
-        fallbackColor={colors.card}
+      <View
         style={{
+          flex: 1,
+          minWidth: 0,
           flexDirection: "row",
           alignItems: "center",
           gap: space.sm,
-          borderRadius: radius.pill,
-          /**
-           * The back disc's diameter, exactly — and the system's bar item
-           * height with it.
-           *
-           * They sit side by side in the bar, so any difference between them
-           * reads as a mistake rather than a hierarchy. This used to be sized
-           * by its own padding around two lines of text, which happened to be
-           * close while the subtitle existed and stopped being close the
-           * moment it went. A fixed height and vertical centring keeps the pair
-           * matched whatever the title does.
-           */
-          height: BAR_ITEM,
-          // The mark is a circle inside a capsule, so it needs more of a lead
-          // than a square would: at 4pt it sat against the glass.
-          paddingLeft: space.sm,
-          paddingRight: space.md,
-          overflow: "hidden",
         }}
       >
-        {/* THE MARK CARRIES BOTH FACTS THE SUBTITLE WAS CARRYING.
-            It was a second line reading "Claude" — under a capsule already
-            showing Claude's mark — or "Working…", which the mark says better
-            with its spinner. Two lines of chrome in a navigation bar for one
-            piece of information, and the title got 190pt to fit in because of
-            it. One line now, and the title has the room. */}
-        {/**
-         * A BOT CHAT'S HEADER IS A FACE AND A NAME, not the agent running it
-         * or a prompt-derived title — spec §4.1: "Avatar: same rounded-full
-         * emoji avatar as the roster row... Title line: bot name." The
-         * mascot mark (bot-avatar.tsx) is this app's native equivalent of
-         * that avatar, and its own pulsing dot already carries "working" the
-         * same way AgentAvatar's spinner does, so nothing else about this
-         * capsule has to change to say it.
-         */}
         {bot ? (
-          <BotAvatar shape={bot.shape} colorway={bot.colorway} size={26} working={busy} />
+          <BotAvatar shape={bot.shape} colorway={bot.colorway} size={32} working={busy} />
         ) : (
-          <AgentAvatar agent={agentLabel} size={26} busy={busy} plain />
+          <AgentAvatar agent={agentLabel} size={32} busy={busy} plain />
         )}
-        <Text
-          numberOfLines={1}
-          ellipsizeMode="tail"
-          style={{
-            ...type.subhead,
-            fontWeight: "600",
-            color: dropped ? colors.warning : colors.text,
-            maxWidth: 210,
-          }}
-        >
-          {dropped ? "Reconnecting…" : bot ? bot.name : title}
-        </Text>
-      </GlassSurface>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text
+            numberOfLines={1}
+            ellipsizeMode="tail"
+            style={{ ...type.subhead, fontWeight: "600", color: colors.text }}
+          >
+            {bot ? bot.name : title}
+          </Text>
+          <Text
+            numberOfLines={1}
+            style={{ ...type.caption, color: dropped ? colors.warning : colors.textMuted }}
+          >
+            {dropped ? "Reconnecting…" : bot ? "Bot" : agentDisplayName(agentLabel)}
+          </Text>
+        </View>
+      </View>
     ),
-    [agentLabel, bot, busy, colors, dropped, radius.pill, space, title, type],
+    [agentLabel, bot, busy, colors, dropped, space.sm, title, type],
   );
 
   /**
@@ -1954,18 +1910,16 @@ export function SessionScreenBody({
        * The list reserves room for it in its own top padding, so nothing
        * starts underneath the chevron.
        */}
-      {/* The transcript passes UNDER the bar and dissolves as it goes: the
-          page colour fades over it from the top edge, the same paint the
-          Live view puts above its composer. The bar itself is transparent. */}
+      {/* Keep identity text clear; the transcript fades below the solid bar. */}
       <EdgeFade
         edge="top"
         color={colors.bg}
         style={{
           position: "absolute",
-          top: 0,
+          top: insets.top + BAR_ITEM + space.xs,
           left: 0,
           right: 0,
-          height: insets.top + BAR_ITEM + space.xs + TOP_FADE_HEIGHT,
+          height: TOP_FADE_HEIGHT,
         }}
       />
       <View
@@ -1979,14 +1933,12 @@ export function SessionScreenBody({
           paddingBottom: space.xs,
           flexDirection: "row",
           alignItems: "center",
-          gap: 6,
-          backgroundColor: "transparent",
+          gap: space.sm,
+          backgroundColor: colors.bg,
         }}
       >
         <BackDisc />
-        <TitleCapsule />
-        {/* Pushes the overflow to the far edge without a spacer view. */}
-        <View style={{ flex: 1 }} />
+        <HeaderIdentity />
         {menuOptions.length ? <OverflowDisc /> : null}
       </View>
 
