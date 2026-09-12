@@ -2146,41 +2146,6 @@ export function SessionScreenBody({
           />
         ) : null}
 
-        {/**
-         * THE GESTURE CONFIRMS ITSELF.
-         *
-         * A long press that sends is invisible: the field empties exactly as
-         * it does on a tap, so nothing on screen distinguishes "queued behind
-         * the current turn" from "sent into it" — and those are opposite
-         * outcomes. A chip on the right, over the field it came from, for as
-         * long as it takes to read one word.
-         */}
-        {queuedHint ? (
-          <Reanimated.View
-            entering={FadeIn.duration(120)}
-            exiting={FadeOut.duration(160)}
-            pointerEvents="none"
-            style={{ alignItems: "flex-end", paddingRight: space.sm, paddingBottom: space.xs }}
-          >
-            <GlassSurface
-              variant="regular"
-              fallbackColor={colors.secondary}
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 5,
-                paddingHorizontal: space.md - 2,
-                paddingVertical: 5,
-                borderRadius: radius.pill,
-                overflow: "hidden",
-              }}
-            >
-              <Icon ios="clock" android="schedule" size={12} color={colors.textSecondary} />
-              <Text style={{ ...type.caption, fontWeight: "500", color: colors.text }}>Queued</Text>
-            </GlassSurface>
-          </Reanimated.View>
-        ) : null}
-
         <AttachmentStrip items={attachments.items} onRemove={attachments.remove} />
         {/* "/" lists the box's skills above the field, as on the web. */}
         <SkillSuggest value={draft} onChangeText={setDraft} />
@@ -2273,6 +2238,7 @@ export function SessionScreenBody({
             </View>
           </DropdownMenu>
 
+          <View style={{ flex: 1, flexDirection: "row", alignItems: "center" }}>
           <TextInput
             /**
              * THE LIVE TRANSCRIPT GOES IN THE FIELD. Dictation is typing with
@@ -2294,7 +2260,7 @@ export function SessionScreenBody({
              * discover that from the spinner.
              */
             placeholder={
-              live === false
+              queuedHint ? "" : live === false
                 ? "Message to resume…"
                 : busy && sendMode === "queue"
                   ? "Queue a follow-up…"
@@ -2337,6 +2303,20 @@ export function SessionScreenBody({
               lineHeight: 21,
             }}
           />
+          {/* Confirmation paints over the empty field. It never adds a row
+              or changes the measured composer/transcript padding. */}
+          {queuedHint && !draft && !dictationTail ? (
+            <Reanimated.View
+              entering={FadeIn.duration(120)}
+              exiting={FadeOut.duration(160)}
+              pointerEvents="none"
+              style={{ position: "absolute", left: 0, top: 0, bottom: 0, flexDirection: "row", alignItems: "center", gap: 5 }}
+            >
+              <Icon ios="clock" android="schedule" size={13} color={colors.textMuted} />
+              <Text style={{ ...type.callout, color: colors.textMuted }}>Queued</Text>
+            </Reanimated.View>
+          ) : null}
+          </View>
           {/**
            * ONE BUTTON, TWO JOBS, decided by whether there is anything to
            * send. An empty composer can only be filled — so it offers the
