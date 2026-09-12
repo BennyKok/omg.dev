@@ -2027,50 +2027,9 @@ export function SessionScreenBody({
         }}
       />
 
-      {/* The bar itself draws NOTHING.
- *
- * It used to be a surface in its own right: a fill plus a hairline rule
- * across the top, with the rounded field sitting on it. Against a black
- * transcript that reads as a grey slab pasted along the bottom of the
- * screen — a band whose edges have no meaning, since the thing you
- * interact with is the pill inside it, not the panel behind it.
- *
- * The fill and the rule were there to separate the composer from the
- * scrolling transcript. The field's own shape already does that, and
- * `keyboardDismissMode="interactive"` means content is meant to pass
- * behind it. So the bar is now pure layout, and the field is the only
- * surface — the same rule the home composer follows. */}
-      <Reanimated.View
-        onLayout={(e) => setComposerHeight(e.nativeEvent.layout.height)}
-        // Reserve the measured height immediately. A separate layout animation
-        // made the field and transcript padding disagree during queue expansion
-        // and delayed the collapse after clearing a multiline draft.
-        style={[
-          {
-            position: "absolute",
-            left: 0,
-            right: 0,
-            bottom: 0,
-            paddingHorizontal: space.md,
-            paddingTop: space.md,
-            paddingBottom: insets.bottom + space.md,
-            gap: space.sm,
-          },
-          composerLift,
-        ]}
-      >
-        {/**
-         * JUMP BACK TO NOW — and say when there is something to come back to.
-         *
-         * Reading history in a live session is a trap without this: the
-         * transcript keeps growing above the fold and the only way back is a
-         * long drag. It appears only when you have actually left the bottom,
-         * and it says "New activity" rather than showing an unread COUNT,
-         * because a number here would be counting tool traffic and thinking
-         * blocks as if they were things someone said to you.
-         */}
+      {/* Outside the measured composer: hiding Latest must not move the scroll target. */}
         {!atBottom ? (
-          <View style={{ alignItems: "center", paddingBottom: space.xs }}>
+          <Reanimated.View style={[{ position: "absolute", bottom: composerHeight, left: 0, right: 0, alignItems: "center", paddingBottom: space.xs }, composerLift]}>
             <Pressable
               onPress={() => {
                 setUnseen(false);
@@ -2078,13 +2037,11 @@ export function SessionScreenBody({
                 // land and onScroll to agree: anything the agent says during
                 // that half second should follow, and the pill should not
                 // linger over the message you just asked to see.
+                userMovedRef.current = false;
                 atBottomRef.current = true;
                 setAtBottom(true);
-                // The same absurd offset the auto-scroll uses (see the
-                // "scrollToOffset WITH AN ABSURD OFFSET" note above):
-                // scrollToEnd aims at a content height that is stale while
-                // markdown is still laying out, so "Latest" stopped short of
-                // the bottom by exactly the part that had not measured yet.
+                // The floating button does not change composer padding when
+                // hidden, so this measured destination stays put during the glide.
                 listRef.current?.scrollToOffset({ offset: bottomOffset(), animated: true });
               }}
               accessibilityRole="button"
@@ -2122,9 +2079,41 @@ export function SessionScreenBody({
                 <Icon ios="arrow.down" android="arrow_downward" size={11} color={colors.textMuted} />
               </GlassSurface>
             </Pressable>
-          </View>
+          </Reanimated.View>
         ) : null}
 
+      {/* The bar itself draws NOTHING.
+ *
+ * It used to be a surface in its own right: a fill plus a hairline rule
+ * across the top, with the rounded field sitting on it. Against a black
+ * transcript that reads as a grey slab pasted along the bottom of the
+ * screen — a band whose edges have no meaning, since the thing you
+ * interact with is the pill inside it, not the panel behind it.
+ *
+ * The fill and the rule were there to separate the composer from the
+ * scrolling transcript. The field's own shape already does that, and
+ * `keyboardDismissMode="interactive"` means content is meant to pass
+ * behind it. So the bar is now pure layout, and the field is the only
+ * surface — the same rule the home composer follows. */}
+      <Reanimated.View
+        onLayout={(e) => setComposerHeight(e.nativeEvent.layout.height)}
+        // Reserve the measured height immediately. A separate layout animation
+        // made the field and transcript padding disagree during queue expansion
+        // and delayed the collapse after clearing a multiline draft.
+        style={[
+          {
+            position: "absolute",
+            left: 0,
+            right: 0,
+            bottom: 0,
+            paddingHorizontal: space.md,
+            paddingTop: space.md,
+            paddingBottom: insets.bottom + space.md,
+            gap: space.sm,
+          },
+          composerLift,
+        ]}
+      >
         {/* Questions for the person, inside the floating composer — see
             QuestionCard. Ask-user rows first, then a native prompt. */}
         {asks.map((q) => (
