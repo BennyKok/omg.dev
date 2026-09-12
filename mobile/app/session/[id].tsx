@@ -261,6 +261,15 @@ export function SessionScreenBody({
 
   const [messages, setMessages] = useState<Entry[]>([]);
   const [streamText, setStreamText] = useState("");
+  /**
+   * A THOUGHT BEING STREAMED. The machine streams reasoning as `ai_part`
+   * deltas with `kind: "thinking"`, the same channel as the reply. Appended
+   * to `streamText` it was drawn as the answer: a Grok session showed "The
+   * user is asking about a notification..." as a paragraph of prose. It is
+   * kept apart here and shown as the newest step of the live run (see the
+   * `data` memo), the same row it lands in once it is done.
+   */
+  const [streamThought, setStreamThought] = useState("");
   const [busy, setBusy] = useState(false);
   /**
    * HELD SENDS. A queue-mode send while the agent is busy is kept on the
@@ -681,16 +690,24 @@ export function SessionScreenBody({
           });
           // A completed message supersedes whatever was streaming.
           setStreamText("");
+          setStreamThought("");
           break;
-        case "ai_part":
+        case "ai_part": {
+          // Reasoning and reply share the delta channel; `kind` tells them
+          // apart, and an older machine that omits it is sending a reply.
+          // `kind` is on the wire (packages/protocol) but not yet in the
+          // protocol package this app pins, hence the narrow cast.
+          const kind = (event.part as { kind?: string }).kind;
+          const setStream = kind === "thinking" ? setStreamThought : setStreamText;
           if (event.part.type === "text-start" || event.part.reset) {
-            setStreamText(event.part.text ?? "");
+            setStream(event.part.text ?? "");
           } else if (event.part.type === "text-delta") {
-            setStreamText((prev) => prev + (event.part.delta ?? ""));
+            setStream((prev) => prev + (event.part.delta ?? ""));
           } else if (event.part.type === "text-end") {
             // Leave the text on screen; the real message replaces it.
           }
           break;
+        }
         case "busy":
           socketBusySeen.current = true;
           setBusy(event.busy);
@@ -703,6 +720,9 @@ export function SessionScreenBody({
            * claim to be waiting.
            */
           if (!event.busy) {
+            // A thought with no turn behind it is over, whether or not its
+            // final message ever arrived.
+            setStreamThought("");
             setMessages((prev) =>
               prev.some((m) => m.queued)
                 ? prev.map((m) => (m.queued ? { ...m, queued: false } : m))
@@ -723,19 +743,30 @@ export function SessionScreenBody({
   // Tool traffic is grouped into single rows here rather than in renderItem, so
   // a call and the result it produced stay one cell of the list.
   const data = useMemo<TranscriptItem[]>(() => {
-    const entries: Entry[] = streamText
-      ? [
-          ...messages,
-          { id: "__streaming__", role: "assistant", text: streamText, streaming: true },
-        ]
-      : messages;
+    const entries: Entry[] = [...messages];
+    // A streaming thought is a `work` row of one step at the tail. It joins
+    // the open run above it (buildTranscriptItems merges adjacent rows), so
+    // the reasoning reads as "Working for 4s" and opens into the sheet, and
+    // never as a paragraph of the reply.
+    if (streamThought) {
+      entries.push({
+        id: "__thinking__",
+        role: "assistant",
+        kind: "work",
+        text: "",
+        steps: [{ id: "__thinking_step__", role: "assistant", kind: "thinking", text: streamThought }],
+      });
+    }
+    if (streamText) {
+      entries.push({ id: "__streaming__", role: "assistant", text: streamText, streaming: true });
+    }
     // Bot chat reads as a conversation, not a session log — tool calls,
     // results and thinking blocks are hidden, and the launch envelope
     // folded into the first turn is stripped back to what the human
     // actually typed. See bot-transcript.ts. A normal session (bot === null)
     // never runs this filter.
     return buildTranscriptItems(bot ? filterBotChatEntries(entries) : entries, { busy });
-  }, [messages, streamText, bot, busy]);
+  }, [messages, streamText, streamThought, bot, busy]);
 
   const onScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
