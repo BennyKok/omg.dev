@@ -134,3 +134,38 @@ describe("historical session cache", () => {
     });
   });
 });
+
+describe("resumable cache cwd filter", () => {
+  test("pages one folder ahead of the rest for the # session picker", () => {
+    upsertResumableRows([
+      {
+        sessionId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        cwd: "/home/dev/repos/lfg",
+        project: "lfg",
+        title: "In folder",
+        lastActivityAt: 1_000,
+        lastUserText: null,
+        agent: "claude",
+        path: "/tmp/c.jsonl",
+        mtimeMs: 1_000,
+      },
+      {
+        sessionId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        cwd: "/home/dev/repos/other",
+        project: "other",
+        title: "Elsewhere",
+        lastActivityAt: 9_000,
+        lastUserText: null,
+        agent: "claude",
+        path: "/tmp/d.jsonl",
+        mtimeMs: 9_000,
+      },
+    ]);
+
+    const inFolder = queryResumableCache({ cwd: "/home/dev/repos/lfg" });
+    expect(inFolder.sessions.map((s) => s.title)).toEqual(["In folder"]);
+    const searched = queryResumableCache({ cwd: "/home/dev/repos/lfg", search: "elsewhere" });
+    expect(searched.sessions).toEqual([]);
+    expect(queryResumableCache({}).sessions.map((s) => s.title)).toEqual(["Elsewhere", "In folder"]);
+  });
+});
