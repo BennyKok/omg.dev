@@ -78,6 +78,17 @@ import { HeldQueue, type HeldRow } from "../../src/omg/held-queue";
 
 /** What a send does while the agent is working. Mirrors the web's ComposerSendMode. */
 type SendMode = "steer" | "queue";
+
+/** An open row from GET /api/ask — the shape the web's ask center reads. */
+type AskQuestion = {
+  id: string;
+  question: string;
+  options?: string[];
+  sessionId?: string | null;
+  createdAt: number;
+};
+/** Same cadence as the web's ask center. */
+const ASK_POLL_MS = 5000;
 import { useKeyCommand } from "../../src/omg/key-commands";
 import { useAgentPicker } from "../../src/omg/session-options";
 import { COMPOSER_FADE_HEIGHT, EdgeFade, TOP_FADE_HEIGHT } from "../../src/omg/edge-fade";
@@ -406,7 +417,67 @@ export function SessionScreenBody({
   /** Set while the reader is away from the bottom and the agent says something. */
   const [unseen, setUnseen] = useState(false);
   const [atBottom, setAtBottom] = useState(true);
-  const [sessionInfo, setSessionInfo] = useState<{ title: string; agent: string } | null>(null);
+  const [sessionInfo, setSessionInfo] = useState<{
+    title: string;
+    agent: string;
+    /** Every id the machine files this session under: its own and the native one. */
+    aliases: string[];
+  } | null>(null);
+  /**
+   * ASK-USER QUESTIONS RAISED BY THIS SESSION. An agent that calls
+   * `omg_input` ends its turn and waits; the question is not in the
+   * transcript, it is a row in `/api/ask`. The web shows it above the
+   * composer and treats the composer as the reply box. The phone only
+   * listed it under Notifications, so from inside the very chat that asked,
+   * nothing was visible. Same card as a native prompt: question, one-tap
+   * options; typing in the composer answers it too.
+   */
+  const [asks, setAsks] = useState<AskQuestion[]>([]);
+  const askAliases = useMemo(() => {
+    const set = new Set<string>(sessionInfo?.aliases ?? []);
+    if (id) set.add(id);
+    return set;
+  }, [id, sessionInfo?.aliases]);
+  const refreshAsks = useCallback(async () => {
+    if (!client || !id) return;
+    try {
+      const res = await client.transport.request<{ questions?: AskQuestion[] }>("/api/ask?status=open");
+      const rows = (Array.isArray(res?.questions) ? res.questions : [])
+        .filter((q) => !!q.sessionId && askAliases.has(q.sessionId))
+        .sort((a, b) => a.createdAt - b.createdAt);
+      setAsks(rows);
+    } catch {
+      /* keep what we have */
+    }
+  }, [client, id, askAliases]);
+  useEffect(() => {
+    void refreshAsks();
+    const timer = setInterval(() => void refreshAsks(), ASK_POLL_MS);
+    return () => clearInterval(timer);
+  }, [refreshAsks, busy]);
+  /**
+   * Answer by tapping an option: the machine delivers the reply into the
+   * session itself (the pushback path), and the echo arrives as a normal
+   * message. Answering from the composer passes `deliver: false`, because
+   * the typed message is already on its way.
+   */
+  const answerAsk = useCallback(
+    async (q: AskQuestion, answer: string, deliver: boolean) => {
+      if (!client) return;
+      setAsks((prev) => prev.filter((x) => x.id !== q.id));
+      try {
+        await client.transport.request(`/api/ask/${encodeURIComponent(q.id)}/answer`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ answer, via: "web", deliver }),
+        });
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        void refreshAsks();
+      }
+    },
+    [client, refreshAsks],
+  );
   /** "Continue with" picker: agent, model and level for the replacement session. */
   const [continueOpen, setContinueOpen] = useState(false);
   const continuePicker = useAgentPicker({ initialAgent: sessionInfo?.agent });
@@ -483,6 +554,7 @@ export function SessionScreenBody({
       setSessionInfo({
         title: found.title?.trim() || found.lastUserText?.trim() || "Session",
         agent: found.agent?.trim() || found.agentLabel?.trim() || "omg",
+        aliases: [found.sessionId, found.nativeSessionId].filter((v): v is string => !!v),
       });
       if (!socketBusySeen.current) setBusy(!!found.busy);
       setLive(true);
@@ -515,6 +587,7 @@ export function SessionScreenBody({
           setSessionInfo({
             title: row.title?.trim() || row.lastUserText?.trim() || "Session",
             agent: row.agent?.trim() || "omg",
+            aliases: [row.sessionId],
           });
         }
       })
@@ -921,6 +994,7 @@ export function SessionScreenBody({
       // its first turn) always has both, unchanged from before.
       if (!trimmed || !client || (!id && !onDeliver)) return;
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      for (const q of asks) void answerAsk(q, trimmed, false);
       const optimisticId = `local-${++localSeq}`;
       const optimistic: Entry = {
         id: optimisticId,
@@ -1045,7 +1119,7 @@ export function SessionScreenBody({
         setResuming(false);
       }
     },
-    [client, id, live, router, onDeliver],
+    [client, id, live, router, onDeliver, asks, answerAsk],
   );
 
   /** Shown for a beat after a long-press send, so the gesture confirms itself. */
@@ -1993,53 +2067,25 @@ export function SessionScreenBody({
           </View>
         ) : null}
 
-        {/* The agent asked something — answering has to be one tap, and that tap
-            has to actually answer. It lives INSIDE the floating composer: laid
-            out in the normal flow it landed under the absolutely positioned bar,
-            where the field covered the question and most of its answers. Here
-            it sits above the field, lifts with the keyboard, and is part of the
-            height the transcript reserves at its end. */}
-        {prompt ? (
-          <View
-            style={{
-              padding: space.md,
-              backgroundColor: colors.card,
-              borderRadius: radius.lg,
-              borderWidth: StyleSheet.hairlineWidth,
-              // borderStrong: this is a card the transcript can hand you at any
-              // moment, asking for a tap that unblocks the agent — it needs to
-              // read as a distinct surface immediately, not the .35-alpha
-              // border that "reads as a rumour against black" everywhere else
-              // it was tried (see SessionCard's own note on the home screen).
-              borderColor: colors.borderStrong,
-              gap: space.sm,
+        {/* Questions for the person, inside the floating composer — see
+            QuestionCard. Ask-user rows first, then a native prompt. */}
+        {asks.map((q) => (
+          <QuestionCard
+            key={q.id}
+            question={q.question}
+            options={(q.options ?? []).map((label, index) => ({ index, label }))}
+            onAnswer={(label) => {
+              void Haptics.selectionAsync();
+              void answerAsk(q, label, true);
             }}
-          >
-            {prompt.question ? (
-              <Text style={{ ...type.callout, color: colors.text }}>{prompt.question}</Text>
-            ) : null}
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}>
-              {prompt.options?.map((opt) => (
-                <Pressable
-                  key={opt.index}
-                  onPress={() => answerPrompt(opt.label)}
-                  accessibilityRole="button"
-                  style={({ pressed }) => ({
-                    minHeight: 36,
-                    justifyContent: "center",
-                    paddingHorizontal: space.md,
-                    paddingVertical: space.sm,
-                    borderRadius: radius.pill,
-                    backgroundColor: pressed ? colors.cardPressed : colors.secondary,
-                    borderWidth: StyleSheet.hairlineWidth,
-                    borderColor: colors.borderStrong,
-                  })}
-                >
-                  <Text style={{ ...type.footnote, color: colors.text }}>{opt.label}</Text>
-                </Pressable>
-              ))}
-            </View>
-          </View>
+          />
+        ))}
+        {prompt ? (
+          <QuestionCard
+            question={prompt.question}
+            options={prompt.options ?? []}
+            onAnswer={answerPrompt}
+          />
         ) : null}
 
         {/**
@@ -2410,6 +2456,67 @@ export function SessionScreenBody({
  * over-spec call), only here, where the header's identity is not enough
  * because the header cannot say "happening right now".
  */
+/**
+ * The agent asked something — answering has to be one tap, and that tap has
+ * to actually answer. It lives INSIDE the floating composer: laid out in the
+ * normal flow it landed under the absolutely positioned bar, where the field
+ * covered the question and most of its answers. Here it sits above the field,
+ * lifts with the keyboard, and is part of the height the transcript reserves
+ * at its end. Used for a native prompt from the transcript socket and for an
+ * ask-user question from /api/ask alike.
+ */
+function QuestionCard({
+  question,
+  options,
+  onAnswer,
+}: {
+  question?: string | null;
+  options: { index: number; label: string }[];
+  onAnswer: (label: string) => void;
+}) {
+  const { colors, type, space, radius } = useTheme();
+  return (
+    <View
+      style={{
+        padding: space.md,
+        backgroundColor: colors.card,
+        borderRadius: radius.lg,
+        borderWidth: StyleSheet.hairlineWidth,
+        // borderStrong: this is a card the transcript can hand you at any
+        // moment, asking for a tap that unblocks the agent — it needs to
+        // read as a distinct surface immediately, not the .35-alpha
+        // border that "reads as a rumour against black" everywhere else
+        // it was tried (see SessionCard's own note on the home screen).
+        borderColor: colors.borderStrong,
+        gap: space.sm,
+      }}
+    >
+      {question ? <Text style={{ ...type.callout, color: colors.text }}>{question}</Text> : null}
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}>
+        {options.map((opt) => (
+          <Pressable
+            key={opt.index}
+            onPress={() => onAnswer(opt.label)}
+            accessibilityRole="button"
+            style={({ pressed }) => ({
+              minHeight: 36,
+              justifyContent: "center",
+              paddingHorizontal: space.md,
+              paddingVertical: space.sm,
+              borderRadius: radius.pill,
+              backgroundColor: pressed ? colors.cardPressed : colors.secondary,
+              borderWidth: StyleSheet.hairlineWidth,
+              borderColor: colors.borderStrong,
+            })}
+          >
+            <Text style={{ ...type.footnote, color: colors.text }}>{opt.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 function BotWorkingIndicator({ bot }: { bot: Bot }) {
   return (
     <View style={{ alignSelf: "flex-start", marginTop: 16, marginLeft: 4 }}>
