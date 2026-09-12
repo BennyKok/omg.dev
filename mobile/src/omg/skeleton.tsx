@@ -30,6 +30,7 @@ import Reanimated, {
 import { LinearGradient } from "expo-linear-gradient";
 
 import { useTheme } from "./theme";
+import { SESSION_ROW } from "../components";
 
 /** One full sweep, edge to edge. Slower than any UI transition on purpose —
  * this loops for as long as the request is in flight, not for a fixed beat. */
@@ -102,74 +103,44 @@ export function Bone({
   );
 }
 
-/**
- * Geometry mirrored by hand from SessionCard in ../components.tsx (avatar
- * size, padding, gap, corner radius) rather than imported, because this file
- * does not own that component and a shared-token refactor is out of scope
- * here. If these ever drift apart the list will visibly jump when real data
- * lands — worth promoting avatar/padding/radius to shared tokens if another
- * skeleton needs the same shape.
- */
-/**
- * Mirrors SessionCard's grouped-row geometry in src/components.tsx. A skeleton
- * that does not match the row it stands in for is worse than no skeleton: the
- * list visibly jumps when real data lands, which is the exact flicker the
- * skeleton exists to prevent. Keep these in step with that file.
- */
+/** Loading rows use the same geometry as the live session rows. */
 const CARD = {
-  paddingLeft: 12, // space.md
-  paddingRight: 16, // space.lg — the dot needs more air than the avatar
-  paddingVertical: 10,
-  minHeight: 60,
-  gap: 12, // space.md
-  avatar: 40, // AVATAR_SIZE
-  radius: 18, // radius.xl — the GROUP's outer corners only
-  dot: 10,
-  titleHeight: 17, // type.headline fontSize
+  titleHeight: 17,
   titleWidth: 148,
-  subtitleHeight: 13, // type.footnote fontSize
+  subtitleHeight: 15,
   subtitleWidth: 104,
+  dot: 10,
 };
 
 /** Same shape as SessionCard, mid-shimmer instead of mid-render. */
 export function SessionCardSkeleton({
   progress,
   reducedMotion,
-  position = "only",
 }: {
   progress: SharedValue<number>;
   reducedMotion: boolean;
-  position?: "first" | "middle" | "last" | "only";
 }) {
-  const { colors, space } = useTheme();
-  const isFirst = position === "first" || position === "only";
-  const isLast = position === "last" || position === "only";
+  const { colors } = useTheme();
   return (
     <View
       style={{
         flexDirection: "row",
         alignItems: "center",
-        gap: CARD.gap,
-        backgroundColor: colors.card,
-        borderTopLeftRadius: isFirst ? CARD.radius : 0,
-        borderTopRightRadius: isFirst ? CARD.radius : 0,
-        borderBottomLeftRadius: isLast ? CARD.radius : 0,
-        borderBottomRightRadius: isLast ? CARD.radius : 0,
-        marginHorizontal: space.lg,
-        paddingLeft: CARD.paddingLeft,
-        paddingRight: CARD.paddingRight,
-        paddingVertical: CARD.paddingVertical,
-        minHeight: CARD.minHeight,
+        gap: SESSION_ROW.gap,
+        marginHorizontal: SESSION_ROW.inset,
+        paddingLeft: SESSION_ROW.padding,
+        paddingRight: SESSION_ROW.paddingRight,
+        height: SESSION_ROW.height,
       }}
     >
       <Bone
-        width={CARD.avatar}
-        height={CARD.avatar}
-        radius={CARD.avatar / 2}
+        width={SESSION_ROW.avatar}
+        height={SESSION_ROW.avatar}
+        radius={SESSION_ROW.avatar / 2}
         progress={progress}
         reducedMotion={reducedMotion}
       />
-      <View style={{ flex: 1, gap: 6, minWidth: 0 }}>
+      <View style={{ flex: 1, gap: SESSION_ROW.textGap, minWidth: 0 }}>
         <Bone
           width={CARD.titleWidth}
           height={CARD.titleHeight}
@@ -186,41 +157,21 @@ export function SessionCardSkeleton({
         />
       </View>
       <View style={{ width: CARD.dot, height: CARD.dot, borderRadius: CARD.dot / 2, backgroundColor: colors.secondary }} />
-      {!isLast ? (
-        <View
-          pointerEvents="none"
-          style={{
-            position: "absolute",
-            left: CARD.paddingLeft + CARD.avatar + CARD.gap,
-            right: 0,
-            bottom: 0,
-            height: StyleSheet.hairlineWidth,
-            backgroundColor: colors.borderSoft,
-          }}
-        />
-      ) : null}
     </View>
   );
 }
 
-/**
- * A stack of session-card bones, gapped the same as the real list
- * (`space.md` in app/index.tsx). One shared shimmer drives all of them.
- */
+/** Session placeholders share one shimmer and the real row height. */
 export function SessionListSkeleton({ count = 3, style }: { count?: number; style?: ViewStyle }) {
-  const { space } = useTheme();
   const { progress, reducedMotion } = useShimmer();
   return (
-    // No gap — one grouped surface, same as the real list.
+    // No extra gap between rows.
     <View style={style}>
       {Array.from({ length: count }, (_, i) => (
         <SessionCardSkeleton
           key={i}
           progress={progress}
           reducedMotion={reducedMotion}
-          position={
-            count === 1 ? "only" : i === 0 ? "first" : i === count - 1 ? "last" : "middle"
-          }
         />
       ))}
     </View>
