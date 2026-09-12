@@ -106,7 +106,7 @@ export function HeldQueue({
       </Pressable>
       {shown.map((item, index) => {
         const isEditing = editing?.id === item.id;
-        const working = busyId === item.id;
+        const working = busyId === item.id || item.status === "pending";
         return (
           <Reanimated.View
             key={item.id}
@@ -147,6 +147,7 @@ export function HeldQueue({
               />
             ) : (
               <Pressable
+                disabled={working}
                 onPress={() => setEditing({ id: item.id, text: item.text })}
                 accessibilityRole="button"
                 accessibilityLabel="Edit the queued message"

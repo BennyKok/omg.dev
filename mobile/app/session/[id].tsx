@@ -279,6 +279,8 @@ export function SessionScreenBody({
    * active, including an empty queue so sends from other clients appear.
    */
   const [held, setHeld] = useState<HeldRow[]>([]);
+  const queueSendPending = useRef(false);
+  const queueRevision = useRef(0);
   /**
    * THE MACHINE'S SEND MODE, same setting the web composer reads
    * (`composerSendMode`). "steer": a tap interrupts the turn, a hold queues.
@@ -303,13 +305,14 @@ export function SessionScreenBody({
     };
   }, [client, id]);
   const refreshHeld = useCallback(async (): Promise<HeldRow[]> => {
-    if (!client || !id) return [];
+    if (!client || !id || queueSendPending.current) return [];
+    const revision = queueRevision.current;
     try {
       const res = await client.transport.request<{ queue?: HeldRow[] }>(
         `/api/sessions/${encodeURIComponent(id)}/queue`,
       );
       const rows = (Array.isArray(res?.queue) ? res.queue : []).filter((m) => m.status === "held");
-      setHeld(rows);
+      if (revision === queueRevision.current) setHeld(rows);
       return rows;
     } catch {
       return [];
@@ -1020,14 +1023,21 @@ export function SessionScreenBody({
         text: trimmed,
         ts: Date.now(),
         pending: true,
-        // Carried into the bubble so a held send reads as queued rather than
-        // as sending — see Entry.queued.
-        queued: mode === "queue",
       };
       // The reader's own send is exactly as "new" as an incoming live
       // message — see liveKeysRef's doc comment.
       liveKeysRef.current.add(optimisticId);
-      setMessages((prev) => [...prev, optimistic]);
+      const queueRequest = mode === "queue" && !onDeliver && live !== false;
+      const showInQueue = queueRequest && busy;
+      if (queueRequest) {
+        queueSendPending.current = true;
+        ++queueRevision.current; // An older poll must not erase this send.
+      }
+      if (showInQueue) {
+        setHeld((prev) => [...prev, { id: optimisticId, text: trimmed, status: "pending" }]);
+      } else {
+        setMessages((prev) => [...prev, optimistic]);
+      }
       setSending(true);
       try {
         if (onDeliver) {
@@ -1094,17 +1104,20 @@ export function SessionScreenBody({
            * wrong one when you have simply thought of the next thing — which
            * is why this is a separate gesture rather than a mode switch.
            */
-          await client.transport.request(`/api/sessions/${encodeURIComponent(id)}/send`, {
+          const result = await client.transport.request<{ msg?: HeldRow }>(`/api/sessions/${encodeURIComponent(id)}/send`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ text: trimmed, mode: "queue" }),
           });
-          // If the machine HELD it (agent busy), the row above the composer
-          // is now the message; a second copy in the chain would sit there
-          // dimmed until the release echo, saying the same thing twice.
-          const rows = await refreshHeld();
-          if (rows.some((m) => m.text === trimmed)) {
-            setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
+          // The send response owns the decision. Do not wait for a second
+          // request or match text: two queued messages can have the same words.
+          const accepted = result.msg;
+          setHeld((prev) => {
+            const rest = prev.filter((m) => m.id !== optimisticId && m.id !== accepted?.id);
+            return accepted?.status === "held" ? [...rest, accepted] : rest;
+          });
+          if (accepted?.status === "held") {
+            setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
             return;
           }
         } else {
@@ -1119,15 +1132,20 @@ export function SessionScreenBody({
       } catch (e) {
         // Roll the message back AND give the person their words back — losing
         // typed text to a failed request is the rudest thing a composer can do.
+        setHeld((prev) => prev.filter((m) => m.id !== optimisticId));
         setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
         setDraft((current) => (current ? current : trimmed));
         setError(e instanceof Error ? e.message : String(e));
       } finally {
+        if (queueRequest) {
+          queueSendPending.current = false;
+          void refreshHeld();
+        }
         setSending(false);
         setResuming(false);
       }
     },
-    [client, id, live, router, onDeliver, asks, answerAsk, refreshHeld],
+    [client, id, live, busy, router, onDeliver, asks, answerAsk, refreshHeld],
   );
 
   /** Shown for a beat after a long-press send, so the gesture confirms itself. */
