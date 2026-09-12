@@ -20,8 +20,10 @@ import {
 } from "expo-router";
 import * as Haptics from "expo-haptics";
 import {
+  createContext,
   type ReactNode,
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -62,7 +64,6 @@ import {
   PrimaryButton,
   SectionHeader,
   SessionCard,
-  StatusDot,
 } from "../components";
 import { useAttachments } from "./attachments";
 import {
@@ -85,6 +86,13 @@ import {
   type AutoFindingRow,
 } from "./auto-agents";
 import { useComputerPicker } from "./computer-picker";
+import { SideNavButton, SideNavDrawer, SideNavPanel } from "./side-nav";
+import {
+  clearSessionUnread,
+  fetchSessionsForViewer,
+  sameUnreadSessions,
+  type UnreadSessionRow,
+} from "./session-unread";
 import { UserFilterMenu } from "./user-filter-menu";
 import {
   sessionMatchesUserFilter,
@@ -95,8 +103,7 @@ import {
 import { useDictation } from "./dictation";
 import { PressableScale } from "./motion";
 import { useUsage } from "./usage";
-import { LucideIcon } from "./lucide";
-import { DropdownMenu, type MenuOption } from "./menu";
+import { DropdownMenu } from "./menu";
 import { useAgentPicker, useProjectPicker } from "./session-options";
 import { useOmg } from "./provider";
 import { useToast } from "./toast";
@@ -117,6 +124,25 @@ import {
  * the wire value with a narrow cast.
  */
 type BotDrivenSession = OmgSession & { botId?: string };
+
+/**
+ * A listed session, plus the read state the box stamps on it.
+ *
+ * `unread` is not in @omg-dev/protocol's OmgSession — the same narrow cast the
+ * web uses for the same field (web/src/lib/session-unread.ts), and for the same
+ * reason: the flag is a property of the ANSWER to one viewer's list request,
+ * not of the session.
+ */
+type ListedSession = OmgSession & UnreadSessionRow;
+
+/**
+ * Which sessions hold a reply this person has not read.
+ *
+ * A context rather than a prop threaded through SessionFamily and
+ * SessionBranch: the tree passes rows down three levels and neither of those
+ * components has any other business with read state.
+ */
+const SessionUnreadContext = createContext<Set<string>>(new Set());
 
 /**
  * A session and everything it spawned.
@@ -151,6 +177,12 @@ function SessionFamily({
   // a row still tinted then reads as a stuck press, not a selection.
   const pathname = usePathname();
   const selected = Platform.OS === "ios" && Platform.isPad && pathname === `/session/${session.sessionId}`;
+  // Read state is the roster's, from the server's own watermark. A working
+  // session is never in the set: the box holds the mark back while a turn is
+  // running, because the dot means "ready for you" and a session mid-turn is
+  // not. See withSessionUnread in src/commands/serve.ts.
+  const unreadSessions = useContext(SessionUnreadContext);
+  const unread = !!session.sessionId && unreadSessions.has(session.sessionId);
 
   return (
     <View style={{ alignSelf: "stretch" }}>
@@ -182,6 +214,7 @@ function SessionFamily({
           agent={session.agent ?? session.agentLabel}
           busy={!!session.busy}
           blocked={session.status === "blocked"}
+          unread={unread}
           onPress={() => onOpen(session.sessionId)}
           onArchive={
             depth === 0 && onArchive
@@ -420,131 +453,36 @@ function LiveWelcome({
 }
 
 /**
- * The controls on the home header: the roster filter, the machine, and the
- * pages menu. One component, so the phone's nav bar and the iPad rail carry
- * the same row. `navigate` differs: the phone pushes, the rail swaps the pane.
+ * The trailing control on the home header: the roster filter, and only the
+ * roster filter.
+ *
+ * It used to carry an "ellipsis" overflow menu beside it holding
+ * Notifications, Schedules, Settings and the shortcuts card, and the machine
+ * switcher led the bar on the other side. Those are places, not filters, and
+ * they live in the side nav now (side-nav.tsx) — one column that says what it
+ * holds, instead of four screens behind a glyph that says nothing. What is
+ * left here is the one control that changes what the LIST shows.
+ *
+ * Still one component, so the phone's nav bar and the iPad rail carry the
+ * same row.
  */
-/**
- * The machine, as the web's phone header places it: the FIRST thing on the
- * bar, at the leading edge before the greeting, a bare glyph with the
- * machine's online dot. It used to sit in the trailing island between the
- * roster filter and the pages menu; the web keeps that island for the
- * filter and the pages only, and the machine is where the row starts.
- */
-function ComputerDisc({
-  computerOptions,
-  machineName,
-  online,
-}: {
-  computerOptions: MenuOption[];
-  machineName: string;
-  online: boolean;
-}) {
-  const { colors } = useTheme();
-  return (
-    <DropdownMenu title="Computer" options={computerOptions}>
-      <View
-        accessibilityRole="button"
-        accessibilityLabel={`Computer: ${machineName}. Change`}
-        style={{
-          width: 36,
-          height: 36,
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <LucideIcon
-          name="monitor"
-          size={20}
-          color={colors.textSecondary}
-        />
-        <View
-          style={{
-            position: "absolute",
-            // Bottom-trailing of the glyph box, the corner UIKit badges
-            // from, clear of the monitor's stand.
-            right: 6,
-            bottom: 6,
-          }}
-        >
-          <StatusDot busy={online} size={7} />
-        </View>
-      </View>
-    </DropdownMenu>
-  );
-}
-
 function HomeHeaderControls({
   userFilter,
   rosterUsers,
   setUserFilter,
-  navigate,
-  onShortcuts,
 }: {
   userFilter: string;
   rosterUsers: RosterUser[];
   setUserFilter: (next: string) => void;
-  navigate: (href: Href) => void;
-  /** Opens the keyboard shortcuts card; listed only when the binary can deliver key commands. */
-  onShortcuts?: () => void;
 }) {
-  const { colors, space } = useTheme();
+  const { space } = useTheme();
   return (
-    <View
-      style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}
-    >
-      {/* The web's island, in the web's order: the roster filter, then one
-          overflow menu for the pages. The machine is not here: it leads the
-          bar, before the greeting, as on the web. */}
+    <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
       <UserFilterMenu
         value={userFilter}
         users={rosterUsers}
         onChange={setUserFilter}
       />
-      {/* Pages. The web's PagesMenu: everything that is a screen rather
-          than a filter, behind one control, so the island stays three
-          wide. Live is this screen and is not listed. */}
-      <DropdownMenu
-        title="Pages"
-        options={[
-          {
-            label: "Notifications",
-            icon: "bell",
-            onPress: () => navigate("/notifications"),
-          },
-          {
-            label: "Schedules",
-            icon: "calendar.badge.clock",
-            onPress: () => navigate("/schedules"),
-          },
-          {
-            label: "Settings",
-            icon: "gearshape",
-            onPress: () => navigate("/settings"),
-          },
-          ...(onShortcuts && keyCommandsAvailable()
-            ? [{ label: "Keyboard shortcuts", icon: "keyboard" as const, onPress: onShortcuts }]
-            : []),
-        ]}
-      >
-        <View
-          accessibilityRole="button"
-          accessibilityLabel="Pages"
-          style={{
-            width: 36,
-            height: 36,
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Icon
-            ios="ellipsis"
-            android="more_vert"
-            size={20}
-            color={colors.textSecondary}
-          />
-        </View>
-      </DropdownMenu>
     </View>
   );
 }
@@ -562,7 +500,7 @@ export function SessionsScreen({
   workspace?: boolean;
 }) {
   const pathname = usePathname();
-  const { width } = useWindowDimensions();
+  const { width, height: windowHeight } = useWindowDimensions();
   const wide = workspace && width >= 768;
   const home = pathname === "/";
   const railWidth = wide ? 320 : 0;
@@ -797,6 +735,61 @@ export function SessionsScreen({
   }, [bindingId, workspace, router]);
 
   /**
+   * WHICH SESSIONS HOLD A REPLY THIS PERSON HAS NOT READ.
+   *
+   * Its own set, never a field on the rows — see session-unread.ts. Live
+   * status frames and optimistic local edits both write rows that have never
+   * seen a read watermark, and a flag carried on the row blinked off on the
+   * next one of those. This set is only ever replaced by a full list payload,
+   * which is the only thing that knows.
+   */
+  const [unreadSessions, setUnreadSessions] = useState<Set<string>>(() => new Set());
+  /** Whose watermark. The same identity the web asks with: the signed-in email. */
+  const viewer = user?.email ?? null;
+  // Read inside an async callback that may outlive the selection it started
+  // under — see the guard in listSessionsForViewer.
+  const currentViewer = useRef(viewer);
+  currentViewer.current = viewer;
+  useEffect(() => {
+    // A different person (or a sign-out) has a different answer, and keeping
+    // the old dots until the next poll would show them somebody else's.
+    setUnreadSessions((current) => (current.size ? new Set() : current));
+  }, [viewer, bindingId]);
+
+  /**
+   * The session list, ASKED FOR AS A NAMED VIEWER.
+   *
+   * `client.listSessions()` cannot carry one yet (the SDK has no viewer
+   * argument), and read state is per person: a list fetched without an
+   * identity is answered against a DIFFERENT watermark than the one the chat
+   * screen's "mark read" write advances, so the two would take turns every
+   * few seconds. So this one call goes through the transport with the viewer
+   * on the query, which is all the SDK call does anyway. If `listSessions`
+   * grows a viewer option, this should become that call again.
+   *
+   * The unread set is harvested here, in the one place a FULL payload lands.
+   */
+  const listSessionsForViewer = useCallback(async (): Promise<OmgSession[]> => {
+    if (!client) return [];
+    return await fetchSessionsForViewer<ListedSession>({
+      transport: client.transport,
+      viewer,
+      // A slow answer for the machine, or the person, this screen has since
+      // moved off carries somebody else's read state. The rows still come
+      // back for `load` to judge; the DOTS do not.
+      stillCurrent: () =>
+        currentClient.current === client && currentViewer.current === viewer,
+      // Same ids, same set: the list is polled every few seconds and almost
+      // always says the same thing, and a new set identity would re-render
+      // every row on a timer.
+      onUnread: (next) =>
+        setUnreadSessions((current) =>
+          sameUnreadSessions(current, next) ? current : next,
+        ),
+    });
+  }, [client, viewer]);
+
+  /**
    * @param quiet Skip the loading flag. A background refresh must not light up
    * the pull-to-refresh spinner — the list would appear to be reloading every
    * few seconds while nobody asked it to.
@@ -806,7 +799,7 @@ export function SessionsScreen({
       if (!client || !ready) return;
       if (!quiet) setLoading(true);
       try {
-        await statusState.refresh(() => client.listSessions());
+        await statusState.refresh(() => listSessionsForViewer());
         if (currentClient.current !== client) return;
         setError(null);
       } catch (e) {
@@ -828,7 +821,7 @@ export function SessionsScreen({
         setSessionsSettled(true);
       }
     },
-    [client, ready, statusState],
+    [client, ready, statusState, listSessionsForViewer],
   );
 
   /**
@@ -1028,6 +1021,16 @@ export function SessionsScreen({
   const openSession = (id: string | null) => {
     if (!id) return;
     void Haptics.selectionAsync();
+    /**
+     * The dot goes out as the transcript opens, not a round trip later.
+     *
+     * LOCAL ONLY. The WRITE that advances the watermark belongs to the chat
+     * screen, which is the surface that can tell whether the reply was
+     * actually shown (foregrounded, focused, scrolled to the bottom). So if
+     * the session is opened and never read, the next full list payload brings
+     * the dot back — which is the honest answer, not a bug.
+     */
+    setUnreadSessions((current) => clearSessionUnread(current, id));
     if (workspace) navigateWorkspace(`/session/${id}`);
     else router.push(`/session/${id}`);
   };
@@ -1040,6 +1043,8 @@ export function SessionsScreen({
    * carrying this is safe on older installs. The list order is the rail's.
    */
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  /** The phone's side nav. The iPad's wide layout keeps the same rows on screen. */
+  const [navOpen, setNavOpen] = useState(false);
   const [railSheetOpen, setRailSheetOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const orderedSessionIds = useMemo(
@@ -1074,7 +1079,12 @@ export function SessionsScreen({
   useKeyCommand({ key: "/" }, () => setShortcutsOpen(true));
   useKeyCommand(
     { key: { special: "escape" }, modifier: "none" },
-    shortcutsOpen ? () => setShortcutsOpen(false) : null,
+    // One escape, one layer: the card on top of the nav, then the nav.
+    shortcutsOpen
+      ? () => setShortcutsOpen(false)
+      : navOpen
+        ? () => setNavOpen(false)
+        : null,
   );
 
   /**
@@ -1349,37 +1359,51 @@ export function SessionsScreen({
        * the greeting is plain text on the bar and the buttons opposite keep
        * their glass.
        */
-      unstable_headerLeftItems: () => [
-        {
-          type: "custom",
-          hidesSharedBackground: true,
-          element: (
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
-              {/* Machine first, greeting second: the web's phone header. */}
-              <ComputerDisc
-                computerOptions={computerPicker.options}
-                machineName={machineName}
-                online={currentBinding?.online ?? false}
-              />
-              <LiveWelcome
-                firstName={firstName}
-                busyCount={flattenNodes(working).length}
-                connection={connection}
-                onPress={() => router.push("/notifications")}
-              />
-            </View>
-          ),
-        },
-      ],
-      headerRight: () => (
-        <HomeHeaderControls
-          userFilter={userFilter}
-          rosterUsers={rosterUsers}
-          setUserFilter={setUserFilter}
-          navigate={(href) => router.push(href)}
-          onShortcuts={() => setShortcutsOpen(true)}
-        />
-      ),
+      /**
+       * THE BAR EMPTIES WHILE THE NAV IS OPEN.
+       *
+       * The drawer is an ordinary view inside this screen, not a modal (see
+       * side-nav.tsx for why that matters to the computer menu), and a native
+       * navigation bar draws ABOVE react-native content whatever its z-index
+       * says. Left as they are, the greeting and the filter would float on
+       * top of the open drawer. The bar is transparent and has no title, so
+       * with its two items withdrawn there is nothing left of it to see.
+       */
+      unstable_headerLeftItems: () =>
+        navOpen
+          ? []
+          : [
+              {
+                type: "custom",
+                hidesSharedBackground: true,
+                element: (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
+                    {/* The nav, then the greeting. The machine switcher moved
+                        inside the nav; this button keeps the machine's online
+                        dot, which is the part of it you read at a glance. */}
+                    <SideNavButton
+                      onPress={() => setNavOpen(true)}
+                      online={currentBinding?.online ?? false}
+                      machineName={machineName}
+                    />
+                    <LiveWelcome
+                      firstName={firstName}
+                      busyCount={flattenNodes(working).length}
+                      connection={connection}
+                      onPress={() => router.push("/notifications")}
+                    />
+                  </View>
+                ),
+              },
+            ],
+      headerRight: () =>
+        navOpen ? null : (
+          <HomeHeaderControls
+            userFilter={userFilter}
+            rosterUsers={rosterUsers}
+            setUserFilter={setUserFilter}
+          />
+        ),
     });
   }, [
     workspace,
@@ -1387,7 +1411,7 @@ export function SessionsScreen({
     colors.bg,
     router,
     connection,
-    computerPicker.options,
+    navOpen,
     machineName,
     currentBinding?.online,
     userFilter,
@@ -1551,6 +1575,7 @@ export function SessionsScreen({
   ) : null;
 
   return (
+    <SessionUnreadContext.Provider value={unreadSessions}>
     <Reanimated.View style={{ flex: 1, backgroundColor: colors.bg }}>
       {workspace ? (
         <View
@@ -1599,11 +1624,18 @@ export function SessionsScreen({
               }}
             >
               <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: space.xs }}>
-                <ComputerDisc
-                  computerOptions={computerPicker.options}
-                  machineName={machineName}
-                  online={currentBinding?.online ?? false}
-                />
+                {/* Narrow enough that the rail IS the screen (Slide Over, a
+                    split window): the nav has nowhere to live on screen, so
+                    it becomes the phone's drawer and this button opens it.
+                    Wide, the same rows sit in the rail's footer below and
+                    there is nothing to open. */}
+                {!wide ? (
+                  <SideNavButton
+                    onPress={() => setNavOpen(true)}
+                    online={currentBinding?.online ?? false}
+                    machineName={machineName}
+                  />
+                ) : null}
                 {/* Flat, like the phone's bar item. The glass island it wore
                     read as a control in a row that already has two. */}
                 <View style={{ height: 40, paddingHorizontal: 6, justifyContent: "center" }}>
@@ -1619,8 +1651,6 @@ export function SessionsScreen({
                 userFilter={userFilter}
                 rosterUsers={rosterUsers}
                 setUserFilter={setUserFilter}
-                navigate={navigateWorkspace}
-                onShortcuts={() => setShortcutsOpen(true)}
               />
             </View>
             {/* No Chat/Schedules strip: Schedules lives in the Pages menu on
@@ -1970,7 +2000,63 @@ export function SessionsScreen({
             </>
           )}
         </ScrollView>
+        {/* THE NAV, PINNED TO THE FOOT OF THE RAIL, on iPad only.
+            A 320pt column is already on screen, so sliding a second one over
+            it would be ceremony; the rows simply live at the bottom of the one
+            that is there, under a hairline, the way a sidebar footer does.
+
+            IT SCROLLS ITSELF AND IT IS CAPPED. Five rows plus the machine is
+            ~280pt, which is most of the column in a short window (a landscape
+            split, a small stage). The cap keeps the session list the larger
+            half and lets the nav scroll inside whatever it is given, rather
+            than pushing the list off its own rail. */}
+        {wide ? (
+          <View
+            style={{
+              borderTopWidth: 1,
+              borderTopColor: colors.border,
+              maxHeight: Math.max(160, Math.round(windowHeight * 0.4)),
+              paddingHorizontal: space.md - 4,
+              paddingTop: space.xs,
+              paddingBottom: insets.bottom + space.xs,
+            }}
+          >
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <SideNavPanel
+                pathname={pathname}
+                computerOptions={computerPicker.options}
+                machineName={machineName}
+                online={currentBinding?.online ?? false}
+                navigate={(href) => navigateWorkspace(href as Href)}
+                onShortcuts={
+                  keyCommandsAvailable() ? () => setShortcutsOpen(true) : undefined
+                }
+              />
+            </ScrollView>
+          </View>
+        ) : null}
       </View>
+      {/* The phone's drawer, and the iPad's when its window is too narrow to
+          keep the rail. Mounted last so it paints over the list; it draws
+          nothing at all while closed. */}
+      {!wide ? (
+        <SideNavDrawer
+          visible={navOpen}
+          onClose={() => setNavOpen(false)}
+          pathname={pathname}
+          computerOptions={computerPicker.options}
+          machineName={machineName}
+          online={currentBinding?.online ?? false}
+          onDismiss={() => setNavOpen(false)}
+          navigate={(href) => {
+            if (workspace) navigateWorkspace(href as Href);
+            else router.push(href as Href);
+          }}
+          onShortcuts={
+            keyCommandsAvailable() ? () => setShortcutsOpen(true) : undefined
+          }
+        />
+      ) : null}
       <ShortcutsSheet visible={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
       <CreateSheet
         visible={createOpen}
@@ -2132,6 +2218,7 @@ export function SessionsScreen({
         </>
       ) : null}
     </Reanimated.View>
+    </SessionUnreadContext.Provider>
   );
 }
 

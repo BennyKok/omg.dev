@@ -734,6 +734,7 @@ export function SessionCard({
   agent,
   busy,
   blocked,
+  unread,
   ended,
   onPress,
   onArchive,
@@ -751,6 +752,15 @@ export function SessionCard({
   agent?: string | null;
   busy?: boolean;
   blocked?: boolean;
+  /**
+   * This session said something and nobody has looked at it.
+   *
+   * The server owns the answer (a per-person watermark; see
+   * src/session-reads.ts and omg/session-unread.ts) — the row only draws it.
+   * A working session is never unread: the box holds the mark back until the
+   * turn settles, because the dot means "ready for you".
+   */
+  unread?: boolean;
   /** Finished: no agent attached, resumable. See SessionStatusDot. */
   ended?: boolean;
   onPress: () => void;
@@ -880,12 +890,39 @@ export function SessionCard({
         >
           <AgentAvatar agent={agent} size={SESSION_ROW.avatar} busy={busy} plain />
           <View style={{ flex: 1, gap: SESSION_ROW.textGap, minWidth: 0 }}>
-            <Text
-              numberOfLines={1}
-              style={{ ...type.headline, fontWeight: "600", color: colors.text }}
-            >
-              {title}
-            </Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 }}>
+              {/* THE UNREAD DOT LEADS THE TITLE, the way it does on the web
+                  roster and on a bot row: one small filled disc in the tint,
+                  not a count and not a colour change on the text. It is inside
+                  the title row rather than the trailing slot so it cannot
+                  fight the timestamp for the edge. */}
+              {unread ? (
+                <View
+                  accessibilityRole="image"
+                  accessibilityLabel="Unread"
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: 4,
+                    backgroundColor: colors.primary,
+                  }}
+                />
+              ) : null}
+              <Text
+                numberOfLines={1}
+                style={{
+                  ...type.headline,
+                  flexShrink: 1,
+                  // Unread is not communicated by the dot alone: the title
+                  // carries full strength weight while it is unread, and
+                  // settles back once it has been read.
+                  fontWeight: unread ? "700" : "600",
+                  color: colors.text,
+                }}
+              >
+                {title}
+              </Text>
+            </View>
             {/* Rendered unconditionally — see the prop's note. An empty
                 preview keeps its line rather than collapsing the row. */}
             <Text
