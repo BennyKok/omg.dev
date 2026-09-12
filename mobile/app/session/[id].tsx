@@ -1714,12 +1714,11 @@ export function SessionScreenBody({
           >
             {bot ? bot.name : title}
           </Text>
-          <Text
-            numberOfLines={1}
-            style={{ ...type.caption, color: dropped ? colors.warning : colors.textMuted }}
-          >
-            {dropped ? "Reconnecting…" : bot ? "Bot" : agentDisplayName(agentLabel)}
-          </Text>
+          {dropped ? (
+            <Text numberOfLines={1} style={{ ...type.caption, color: colors.warning }}>
+              Reconnecting…
+            </Text>
+          ) : null}
         </View>
       </View>
     ),
