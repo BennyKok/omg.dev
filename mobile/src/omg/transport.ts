@@ -176,30 +176,13 @@ export function getHostedTransport(bindingId: string): OmgTransport {
   if (existing) return existing.transport;
 
   const owner = createGrantOwner(bindingId);
-  const grant = createGrantTransport({
+  const transport = createGrantTransport({
     baseUrl: SESSION_ORIGIN,
     getGrant: owner.get,
   });
-  // The SDK's grant transport opens `/api/live/ws` with no query, so the
-  // capability has to be put on the path here, through the `openSocket` it
-  // exposes. Without this the hosted path received raw rows while the direct
-  // transport below received folded ones: one phone, two transcripts.
-  const transport: OmgTransport = {
-    ...grant,
-    openLiveSocket: () => grant.openSocket(LIVE_SOCKET_PATH),
-  };
   transports.set(bindingId, { transport, owner });
   return transport;
 }
-
-/**
- * The live socket, with the `workRows=1` capability on the URL. The machine
- * then folds every run of tool calls and thoughts into one `work` message
- * (see buildTranscriptItems in transcript.tsx). The SDK owns the subscribe
- * frame, so the URL this app opens is where the capability is declared, on
- * both transports.
- */
-const LIVE_SOCKET_PATH = "/api/live/ws?workRows=1";
 
 /**
  * A transport for a box reachable directly on the network (`lfg serve` over
@@ -240,7 +223,10 @@ export function createDirectTransport(baseUrl: string): OmgTransport {
       >;
     },
     async openLiveSocket() {
-      return new WebSocket(socketUrl(LIVE_SOCKET_PATH)) as unknown as Awaited<
+      // Transcript capabilities are not on this URL. The SDK declares them
+      // on the subscribe frame for every transport (see provider.tsx), so a
+      // transport cannot opt in while another misses out.
+      return new WebSocket(socketUrl("/api/live/ws")) as unknown as Awaited<
         ReturnType<OmgTransport["openLiveSocket"]>
       >;
     },

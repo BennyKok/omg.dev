@@ -624,14 +624,10 @@ export function SessionScreenBody({
     let cancelled = false;
     if (!client || !id) return;
     setLoading(true);
-    // Not `client.getMessages`: the page declares `workRows=1`, the same
-    // capability transport.ts puts on the socket, so history and the live
-    // stream arrive in one shape.
-    client.transport
-      .request<{ messages?: Entry[] }>(
-        `/api/sessions/${encodeURIComponent(id)}/messages?limit=${limit}&workRows=1`,
-        { cache: "no-store" },
-      )
+    // The SDK declares the same capabilities here as on the socket (see
+    // provider.tsx), so history and the live stream arrive in one shape.
+    client
+      .getMessages(id, limit)
       .then((res) => {
         if (cancelled) return;
         setMessages(res.messages ?? []);
@@ -692,22 +688,12 @@ export function SessionScreenBody({
           setStreamText("");
           setStreamThought("");
           break;
-        case "ai_part": {
-          // Reasoning and reply share the delta channel; `kind` tells them
-          // apart, and an older machine that omits it is sending a reply.
-          // `kind` is on the wire (packages/protocol) but not yet in the
-          // protocol package this app pins, hence the narrow cast.
-          const kind = (event.part as { kind?: string }).kind;
-          const setStream = kind === "thinking" ? setStreamThought : setStreamText;
-          if (event.part.type === "text-start" || event.part.reset) {
-            setStream(event.part.text ?? "");
-          } else if (event.part.type === "text-delta") {
-            setStream((prev) => prev + (event.part.delta ?? ""));
-          } else if (event.part.type === "text-end") {
-            // Leave the text on screen; the real message replaces it.
-          }
+        case "draft":
+          // The SDK accumulates the deltas and says which kind of draft this
+          // is. Reasoning and reply share the wire channel and are told apart
+          // only by that; the raw `ai_part` events are ignored here.
+          (event.draft.kind === "thinking" ? setStreamThought : setStreamText)(event.draft.text);
           break;
-        }
         case "busy":
           socketBusySeen.current = true;
           setBusy(event.busy);
