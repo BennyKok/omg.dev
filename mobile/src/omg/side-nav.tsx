@@ -40,6 +40,7 @@ import {
 } from "react-native";
 import Reanimated, {
   Easing,
+  cancelAnimation,
   runOnJS,
   useAnimatedStyle,
   type SharedValue,
@@ -256,6 +257,7 @@ export function SideNavDrawer({
   const mountedRef = useRef(mounted);
   mountedRef.current = mounted;
   const closing = useRef(false);
+  const dragStart = useRef(1);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
 
@@ -304,11 +306,16 @@ export function SideNavDrawer({
       // rows, which scrolls when the nav is taller than the screen.
       onMoveShouldSetPanResponder: (_event, gesture) =>
         gesture.dx < -6 && Math.abs(gesture.dx) > Math.abs(gesture.dy),
+      onPanResponderGrant: () => {
+        dragStart.current = progress.value;
+        closing.current = false;
+        cancelAnimation(progress);
+      },
       onPanResponderMove: (_event, gesture) => {
-        progress.value = Math.max(0, Math.min(1, 1 + gesture.dx / width));
+        progress.value = Math.max(0, Math.min(1, dragStart.current + gesture.dx / width));
       },
       onPanResponderRelease: (_event, gesture) => {
-        const far = gesture.dx < -width / 3;
+        const far = progress.value < 2 / 3;
         const flick = gesture.vx < -0.5;
         if (far || flick) dismissRef.current(true);
         else progress.value = withTiming(1, { duration: reducedMotion ? 0 : 160 });
@@ -333,7 +340,12 @@ export function SideNavDrawer({
   }, [mounted]);
 
   const panelStyle = useAnimatedStyle(() => ({ transform: [{ translateX: (progress.value - 1) * width }] }));
-  const scrimStyle = useAnimatedStyle(() => ({ opacity: progress.value }));
+  const scrimStyle = useAnimatedStyle(() => ({
+    opacity: progress.value,
+    transform: [{ translateX: width * progress.value }],
+    borderTopLeftRadius: 40 * progress.value,
+    borderBottomLeftRadius: 40 * progress.value,
+  }));
 
   if (!mounted) return null;
   return (
@@ -343,7 +355,9 @@ export function SideNavDrawer({
       accessibilityViewIsModal
       style={[StyleSheet.absoluteFill, { zIndex: 200, elevation: 8 }]}
     >
-      <Reanimated.View style={[StyleSheet.absoluteFill, scrimStyle]}>
+      <Reanimated.View style={[StyleSheet.absoluteFill, {
+        overflow: "hidden", borderWidth: StyleSheet.hairlineWidth, borderColor: colors.borderStrong,
+      }, scrimStyle]}>
         <Pressable
           style={StyleSheet.absoluteFill}
           accessibilityRole="button"
