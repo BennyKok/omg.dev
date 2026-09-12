@@ -42,6 +42,7 @@ import {
 import Reanimated, {
   useAnimatedKeyboard,
   useAnimatedStyle,
+  useSharedValue,
 } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
 import { COMPOSER_FADE_HEIGHT, EdgeFade, fadeStops, TOP_FADE_HEIGHT } from "./edge-fade";
@@ -85,7 +86,7 @@ import {
   type AutoFindingRow,
 } from "./auto-agents";
 import { useComputerPicker } from "./computer-picker";
-import { SideNavButton, SideNavDrawer, SideNavPanel } from "./side-nav";
+import { SideNavButton, SideNavDrawer, SideNavPanel, sideNavWidth } from "./side-nav";
 import {
   clearSessionUnread,
   fetchSessionsForViewer,
@@ -880,6 +881,13 @@ export function SessionsScreen({
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   /** The phone's side nav. The iPad's wide layout keeps the same rows on screen. */
   const [navOpen, setNavOpen] = useState(false);
+  const navProgress = useSharedValue(0);
+  const drawerWidth = sideNavWidth(width);
+  const navPageStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: wide ? 0 : drawerWidth * navProgress.value }],
+    borderTopLeftRadius: wide ? 0 : 40 * navProgress.value,
+    borderBottomLeftRadius: wide ? 0 : 40 * navProgress.value,
+  }));
   const [railSheetOpen, setRailSheetOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const orderedSessionIds = useMemo(
@@ -1411,7 +1419,17 @@ export function SessionsScreen({
 
   return (
     <SessionUnreadContext.Provider value={unreadSessions}>
-    <Reanimated.View style={{ flex: 1, backgroundColor: colors.bg }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg, overflow: "hidden" }}>
+    <Reanimated.View style={[{ flex: 1, backgroundColor: colors.bg, overflow: "hidden" }, navPageStyle]}>
+      {!workspace && navOpen ? (
+        <View style={{ position: "absolute", top: insets.top, left: 16, height: 44,
+          zIndex: 110, flexDirection: "row", alignItems: "center", gap: 2 }}>
+          <SideNavButton onPress={() => setNavOpen(false)}
+            online={currentBinding?.online ?? false} machineName={machineName} />
+          <LiveWelcome firstName={firstName} busyCount={flattenNodes(working).length}
+            connection={connection} onPress={() => setNavOpen(false)} />
+        </View>
+      ) : null}
       {workspace ? (
         <View
           style={{
@@ -1871,27 +1889,6 @@ export function SessionsScreen({
           </View>
         ) : null}
       </View>
-      {/* The phone's drawer, and the iPad's when its window is too narrow to
-          keep the rail. Mounted last so it paints over the list; it draws
-          nothing at all while closed. */}
-      {!wide ? (
-        <SideNavDrawer
-          visible={navOpen}
-          onClose={() => setNavOpen(false)}
-          pathname={pathname}
-          computerOptions={computerPicker.options}
-          machineName={machineName}
-          online={currentBinding?.online ?? false}
-          onDismiss={() => setNavOpen(false)}
-          navigate={(href) => {
-            if (workspace) navigateWorkspace(href as Href);
-            else router.push(href as Href);
-          }}
-          onShortcuts={
-            keyCommandsAvailable() ? () => setShortcutsOpen(true) : undefined
-          }
-        />
-      ) : null}
       <ShortcutsSheet visible={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
       <CreateSheet
         visible={createOpen}
@@ -2053,6 +2050,29 @@ export function SessionsScreen({
         </>
       ) : null}
     </Reanimated.View>
+      {/* The phone's drawer, and the iPad's when its window is too narrow to
+          keep the rail. Mounted last so it paints over the list; it draws
+          nothing at all while closed. */}
+      {!wide ? (
+        <SideNavDrawer
+          visible={navOpen}
+          progress={navProgress}
+          onClose={() => setNavOpen(false)}
+          pathname={pathname}
+          computerOptions={computerPicker.options}
+          machineName={machineName}
+          online={currentBinding?.online ?? false}
+          onDismiss={() => setNavOpen(false)}
+          navigate={(href) => {
+            if (workspace) navigateWorkspace(href as Href);
+            else router.push(href as Href);
+          }}
+          onShortcuts={
+            keyCommandsAvailable() ? () => setShortcutsOpen(true) : undefined
+          }
+        />
+      ) : null}
+    </View>
     </SessionUnreadContext.Provider>
   );
 }

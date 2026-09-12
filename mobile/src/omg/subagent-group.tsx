@@ -56,7 +56,7 @@ export function SubagentGroup({ nodes, unreadSessions, onOpen }: {
           android={expanded ? "expand_less" : "expand_more"} size={12} color={colors.textMuted} />
       </PressableScale>
       {expanded ? (
-        <View style={{ gap: 6, marginTop: 4 }}>
+        <View style={{ gap: 6, marginTop: 4, marginLeft: -SESSION_ROW.inset }}>
           {sessions.map((session) => (
             <SessionCard key={sessionStableId(session)} compact animateEntry={false}
               selected={Platform.OS === "ios" && Platform.isPad && pathname === `/session/${session.sessionId}`}

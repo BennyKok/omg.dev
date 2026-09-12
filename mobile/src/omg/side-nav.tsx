@@ -26,7 +26,7 @@
  * arrives already built by computer-picker.ts, which stays the single owner of
  * what switching a computer means.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BackHandler,
   Keyboard,
@@ -42,16 +42,15 @@ import Reanimated, {
   Easing,
   runOnJS,
   useAnimatedStyle,
-  useSharedValue,
+  type SharedValue,
   withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { AndroidSymbol, SFSymbol } from "expo-symbols";
 
 import { Icon, StatusDot } from "../components";
-import { GlassSurface } from "./glass";
 import { DropdownMenu, type MenuOption } from "./menu";
-import { PressableScale } from "./motion";
+import { PressableScale, useReduceMotionEnabled } from "./motion";
 import { sideNavRows, type SideNavRowKey } from "./side-nav-items";
 import { Text } from "./text";
 import { useTheme } from "./theme";
@@ -67,6 +66,7 @@ const GLYPH: Record<SideNavRowKey, { ios: SFSymbol; android: AndroidSymbol }> = 
 
 /** Wide enough for a machine name, never more than most of a phone. */
 export const SIDE_NAV_WIDTH = 288;
+export const sideNavWidth = (screenWidth: number) => Math.min(SIDE_NAV_WIDTH, Math.round(screenWidth * 0.84));
 
 export type SideNavProps = {
   /** Where the reader is, so the matching row can draw selected. */
@@ -235,7 +235,7 @@ export function SideNavPanel({
 }
 
 /**
- * The phone's drawer: the panel on translucent glass, over a scrim.
+ * The phone's opaque drawer. One progress value also moves the main screen.
  *
  * Drag it left, or tap the page beside it, to put it away. It keeps the same
  * card alive until it is off screen rather than unmounting on `visible`, so
@@ -244,17 +244,17 @@ export function SideNavPanel({
 export function SideNavDrawer({
   visible,
   onClose,
+  progress,
   ...panel
-}: SideNavProps & { visible: boolean; onClose: () => void }) {
+}: SideNavProps & { visible: boolean; onClose: () => void; progress: SharedValue<number> }) {
   const { colors, space } = useTheme();
   const insets = useSafeAreaInsets();
   const { width: screenWidth } = useWindowDimensions();
-  const width = Math.min(SIDE_NAV_WIDTH, Math.round(screenWidth * 0.84));
+  const width = sideNavWidth(screenWidth);
+  const reducedMotion = useReduceMotionEnabled();
   const [mounted, setMounted] = useState(visible);
   const mountedRef = useRef(mounted);
   mountedRef.current = mounted;
-  const shift = useSharedValue(-width);
-  const scrim = useSharedValue(0);
   const closing = useRef(false);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
@@ -267,16 +267,15 @@ export function SideNavDrawer({
         setMounted(false);
         if (notify) closeRef.current();
       };
-      scrim.value = withTiming(0, { duration: 160 });
-      shift.value = withTiming(
-        -width,
-        { duration: 180, easing: Easing.out(Easing.quad) },
+      progress.value = withTiming(
+        0,
+        { duration: reducedMotion ? 0 : 220, easing: Easing.out(Easing.cubic) },
         (done) => {
           if (done) runOnJS(finish)();
         },
       );
     },
-    [scrim, shift, width],
+    [progress, reducedMotion],
   );
   const dismissRef = useRef(dismiss);
   dismissRef.current = dismiss;
@@ -289,9 +288,7 @@ export function SideNavDrawer({
       Keyboard.dismiss();
       closing.current = false;
       setMounted(true);
-      shift.value = -width;
-      scrim.value = withTiming(1, { duration: 170 });
-      shift.value = withTiming(0, { duration: 190, easing: Easing.out(Easing.cubic) });
+      progress.value = withTiming(1, { duration: reducedMotion ? 0 : 260, easing: Easing.out(Easing.cubic) });
     } else if (mountedRef.current) {
       dismissRef.current(false);
     }
@@ -299,25 +296,29 @@ export function SideNavDrawer({
     // this effect, and listing it would replay the opening animation from
     // -width on the very next render, a visible stutter every time the nav
     // is opened.
-  }, [visible, shift, scrim, width]);
+  }, [visible, progress, reducedMotion]);
 
-  const pan = useRef(
+  const pan = useMemo(() =>
     PanResponder.create({
       // Only a real leftward drag. Anything vertical belongs to the list of
       // rows, which scrolls when the nav is taller than the screen.
       onMoveShouldSetPanResponder: (_event, gesture) =>
         gesture.dx < -6 && Math.abs(gesture.dx) > Math.abs(gesture.dy),
       onPanResponderMove: (_event, gesture) => {
-        shift.value = Math.min(0, gesture.dx);
+        progress.value = Math.max(0, Math.min(1, 1 + gesture.dx / width));
       },
       onPanResponderRelease: (_event, gesture) => {
         const far = gesture.dx < -width / 3;
         const flick = gesture.vx < -0.5;
         if (far || flick) dismissRef.current(true);
-        else shift.value = withTiming(0, { duration: 160 });
+        else progress.value = withTiming(1, { duration: reducedMotion ? 0 : 160 });
+      },
+      onPanResponderTerminate: () => {
+        progress.value = withTiming(1, { duration: reducedMotion ? 0 : 160 });
       },
     }),
-  ).current;
+    [progress, width, reducedMotion],
+  );
 
   // Android's back gesture closes the nav before it leaves the screen. This is
   // a plain overlay rather than a Modal (see the note at the top of this file),
@@ -331,8 +332,8 @@ export function SideNavDrawer({
     return () => subscription.remove();
   }, [mounted]);
 
-  const panelStyle = useAnimatedStyle(() => ({ transform: [{ translateX: shift.value }] }));
-  const scrimStyle = useAnimatedStyle(() => ({ opacity: scrim.value }));
+  const panelStyle = useAnimatedStyle(() => ({ transform: [{ translateX: (progress.value - 1) * width }] }));
+  const scrimStyle = useAnimatedStyle(() => ({ opacity: progress.value }));
 
   if (!mounted) return null;
   return (
@@ -348,9 +349,9 @@ export function SideNavDrawer({
           accessibilityRole="button"
           accessibilityLabel="Close navigation"
           onPress={() => dismissRef.current(true)}
+          {...pan.panHandlers}
         >
-          {/* Understated: enough to push the page back, not enough to black
-              it out. The panel's own translucency does the rest. */}
+          {/* Dim the exposed main screen; the drawer itself is opaque. */}
           <View
             style={[
               StyleSheet.absoluteFill,
@@ -363,11 +364,10 @@ export function SideNavDrawer({
         style={[{ position: "absolute", left: 0, top: 0, bottom: 0, width }, panelStyle]}
         {...pan.panHandlers}
       >
-        <GlassSurface
-          variant="regular"
-          fallbackColor={colors.bg}
+        <View
           style={{
             flex: 1,
+            backgroundColor: colors.bg,
             borderRightWidth: StyleSheet.hairlineWidth,
             borderRightColor: colors.border,
           }}
@@ -379,9 +379,9 @@ export function SideNavDrawer({
               paddingHorizontal: space.sm,
             }}
           >
-            <SideNavPanel {...panel} />
+            <SideNavPanel {...panel} onDismiss={() => dismissRef.current(true)} />
           </ScrollView>
-        </GlassSurface>
+        </View>
       </Reanimated.View>
     </View>
   );
