@@ -298,7 +298,14 @@ export function OmgProvider({ children }: PropsWithChildren) {
   // One client per machine, rebuilt only when the machine changes. The
   // underlying transport is itself cached, so this is cheap.
   const client = useMemo(
-    () => (bindingId ? new OmgClient(getHostedTransport(bindingId)) : null),
+    // `workRows` is declared here, once, and the SDK puts it on every live
+    // subscribe frame and on getMessages, whatever transport opened the
+    // socket. The machine then folds each run of tool calls and thoughts
+    // into one `work` message; see buildTranscriptItems in transcript.tsx.
+    () =>
+      bindingId
+        ? new OmgClient(getHostedTransport(bindingId), { capabilities: { workRows: true } })
+        : null,
     [bindingId],
   );
 
