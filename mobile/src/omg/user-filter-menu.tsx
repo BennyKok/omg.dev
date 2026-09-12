@@ -24,7 +24,8 @@ import {
   type RosterUser,
 } from "./users";
 
-const TRIGGER_AVATAR = 24;
+// Fill the trigger; the native navigation bar supplies the outer glass inset.
+const TRIGGER_AVATAR = 36;
 
 export function UserFilterMenu({
   value,
