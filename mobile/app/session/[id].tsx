@@ -460,7 +460,7 @@ export function SessionScreenBody({
   );
   useFocusEffect(
     useCallback(() => {
-      if (!client || !id || !user?.email || !atBottom || !latestAssistant) return;
+      if (!client || !id || !user?.email || loading || error || !atBottom || !latestAssistant) return;
       let timer: ReturnType<typeof setTimeout> | undefined;
       const acknowledge = () => {
         if (timer) clearTimeout(timer);
@@ -480,7 +480,7 @@ export function SessionScreenBody({
         if (timer) clearTimeout(timer);
         subscription.remove();
       };
-    }, [client, id, user?.email, atBottom, latestAssistant]),
+    }, [client, id, user?.email, loading, error, atBottom, latestAssistant]),
   );
   const [sessionInfo, setSessionInfo] = useState<{
     title: string;
