@@ -86,7 +86,7 @@ import {
   type AutoFindingRow,
 } from "./auto-agents";
 import { useComputerPicker } from "./computer-picker";
-import { SideNavButton, SideNavDrawer, SideNavPanel, sideNavWidth } from "./side-nav";
+import { SideNavButton, SideNavDrawer, SideNavPanel, sideNavWidth, useSideNavGesture } from "./side-nav";
 import {
   clearSessionUnread,
   fetchSessionsForViewer,
@@ -883,6 +883,10 @@ export function SessionsScreen({
   const [navOpen, setNavOpen] = useState(false);
   const navProgress = useSharedValue(0);
   const drawerWidth = sideNavWidth(width);
+  const navGesture = useSideNavGesture({
+    visible: navOpen, onOpen: () => setNavOpen(true), onClose: () => setNavOpen(false),
+    progress: navProgress, width: drawerWidth, enabled: !wide,
+  });
   const navPageStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: wide ? 0 : drawerWidth * navProgress.value }],
     borderTopLeftRadius: wide ? 0 : 40 * navProgress.value,
@@ -1218,24 +1222,23 @@ export function SessionsScreen({
           : [
               {
                 type: "custom",
+                hidesSharedBackground: false,
+                element: <SideNavButton
+                  onPress={() => setNavOpen(true)}
+                  online={currentBinding?.online ?? false}
+                  machineName={machineName}
+                />,
+              },
+              {
+                type: "custom",
                 hidesSharedBackground: true,
                 element: (
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
-                    {/* The nav, then the greeting. The machine switcher moved
-                        inside the nav; this button keeps the machine's online
-                        dot, which is the part of it you read at a glance. */}
-                    <SideNavButton
-                      onPress={() => setNavOpen(true)}
-                      online={currentBinding?.online ?? false}
-                      machineName={machineName}
-                    />
-                    <LiveWelcome
-                      firstName={firstName}
-                      busyCount={flattenNodes(working).length}
-                      connection={connection}
-                      onPress={() => router.push("/notifications")}
-                    />
-                  </View>
+                  <LiveWelcome
+                    firstName={firstName}
+                    busyCount={flattenNodes(working).length}
+                    connection={connection}
+                    onPress={() => router.push("/notifications")}
+                  />
                 ),
               },
             ],
@@ -1419,12 +1422,12 @@ export function SessionsScreen({
 
   return (
     <SessionUnreadContext.Provider value={unreadSessions}>
-    <View style={{ flex: 1, backgroundColor: colors.bg, overflow: "hidden" }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg, overflow: "hidden" }} {...navGesture.panHandlers}>
     <Reanimated.View style={[{ flex: 1, backgroundColor: colors.bg, overflow: "hidden" }, navPageStyle]}>
       {!workspace && navOpen ? (
         <View style={{ position: "absolute", top: insets.top, left: 16, height: 44,
           zIndex: 110, flexDirection: "row", alignItems: "center", gap: 2 }}>
-          <SideNavButton onPress={() => setNavOpen(false)}
+          <SideNavButton floating onPress={() => setNavOpen(false)}
             online={currentBinding?.online ?? false} machineName={machineName} />
           <LiveWelcome firstName={firstName} busyCount={flattenNodes(working).length}
             connection={connection} onPress={() => setNavOpen(false)} />
@@ -2055,9 +2058,8 @@ export function SessionsScreen({
           nothing at all while closed. */}
       {!wide ? (
         <SideNavDrawer
-          visible={navOpen}
+          controller={navGesture}
           progress={navProgress}
-          onClose={() => setNavOpen(false)}
           pathname={pathname}
           computerOptions={computerPicker.options}
           machineName={machineName}

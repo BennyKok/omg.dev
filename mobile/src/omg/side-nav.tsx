@@ -50,6 +50,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { AndroidSymbol, SFSymbol } from "expo-symbols";
 
 import { Icon, StatusDot } from "../components";
+import { GlassSurface } from "./glass";
 import { DropdownMenu, type MenuOption } from "./menu";
 import { PressableScale, useReduceMotionEnabled } from "./motion";
 import { sideNavRows, type SideNavRowKey } from "./side-nav-items";
@@ -242,22 +243,21 @@ export function SideNavPanel({
  * card alive until it is off screen rather than unmounting on `visible`, so
  * the exit animation can actually run.
  */
-export function SideNavDrawer({
-  visible,
-  onClose,
-  progress,
-  ...panel
-}: SideNavProps & { visible: boolean; onClose: () => void; progress: SharedValue<number> }) {
-  const { colors, space } = useTheme();
-  const insets = useSafeAreaInsets();
-  const { width: screenWidth } = useWindowDimensions();
-  const width = sideNavWidth(screenWidth);
+/** One gesture owner for both the screen edge and the open drawer. */
+export function useSideNavGesture({ visible, onOpen, onClose, progress, enabled, width }: {
+  visible: boolean; onOpen: () => void; onClose: () => void;
+  progress: SharedValue<number>; enabled: boolean; width: number;
+}) {
   const reducedMotion = useReduceMotionEnabled();
   const [mounted, setMounted] = useState(visible);
   const mountedRef = useRef(mounted);
   mountedRef.current = mounted;
   const closing = useRef(false);
   const dragStart = useRef(1);
+  const openingDrag = useRef(false);
+  const dragging = useRef(false);
+  const openRef = useRef(onOpen);
+  openRef.current = onOpen;
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
 
@@ -290,7 +290,7 @@ export function SideNavDrawer({
       Keyboard.dismiss();
       closing.current = false;
       setMounted(true);
-      progress.value = withTiming(1, { duration: reducedMotion ? 0 : 260, easing: Easing.out(Easing.cubic) });
+      if (!dragging.current) progress.value = withTiming(1, { duration: reducedMotion ? 0 : 260, easing: Easing.out(Easing.cubic) });
     } else if (mountedRef.current) {
       dismissRef.current(false);
     }
@@ -302,12 +302,19 @@ export function SideNavDrawer({
 
   const pan = useMemo(() =>
     PanResponder.create({
-      // Only a real leftward drag. Anything vertical belongs to the list of
-      // rows, which scrolls when the nav is taller than the screen.
-      onMoveShouldSetPanResponder: (_event, gesture) =>
-        gesture.dx < -6 && Math.abs(gesture.dx) > Math.abs(gesture.dy),
+      // Capture only horizontal intent. Vertical list drags stay with the list.
+      onMoveShouldSetPanResponderCapture: (_event, gesture) =>
+        enabled && Math.abs(gesture.dx) > 8 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.5 &&
+        (mountedRef.current ? gesture.dx < 0 : gesture.x0 <= 24 && gesture.dx > 0),
       onPanResponderGrant: () => {
+        openingDrag.current = !mountedRef.current;
+        dragging.current = true;
         dragStart.current = progress.value;
+        if (openingDrag.current) {
+          Keyboard.dismiss();
+          setMounted(true);
+          openRef.current();
+        }
         closing.current = false;
         cancelAnimation(progress);
       },
@@ -315,16 +322,19 @@ export function SideNavDrawer({
         progress.value = Math.max(0, Math.min(1, dragStart.current + gesture.dx / width));
       },
       onPanResponderRelease: (_event, gesture) => {
-        const far = progress.value < 2 / 3;
-        const flick = gesture.vx < -0.5;
-        if (far || flick) dismissRef.current(true);
-        else progress.value = withTiming(1, { duration: reducedMotion ? 0 : 160 });
+        dragging.current = false;
+        const opens = gesture.vx > 0.5 || (gesture.vx >= -0.5 &&
+          progress.value >= (openingDrag.current ? 1 / 3 : 2 / 3));
+        if (opens) progress.value = withTiming(1, { duration: reducedMotion ? 0 : 160 });
+        else dismissRef.current(true);
       },
       onPanResponderTerminate: () => {
-        progress.value = withTiming(1, { duration: reducedMotion ? 0 : 160 });
+        dragging.current = false;
+        if (openingDrag.current) dismissRef.current(true);
+        else progress.value = withTiming(1, { duration: reducedMotion ? 0 : 160 });
       },
     }),
-    [progress, width, reducedMotion],
+    [progress, width, reducedMotion, enabled],
   );
 
   // Android's back gesture closes the nav before it leaves the screen. This is
@@ -339,6 +349,16 @@ export function SideNavDrawer({
     return () => subscription.remove();
   }, [mounted]);
 
+  return { mounted, dismiss: () => dismissRef.current(true), panHandlers: pan.panHandlers };
+}
+
+export function SideNavDrawer({ progress, controller, ...panel }: SideNavProps & {
+  progress: SharedValue<number>; controller: ReturnType<typeof useSideNavGesture>;
+}) {
+  const { colors, space } = useTheme();
+  const insets = useSafeAreaInsets();
+  const { width: screenWidth } = useWindowDimensions();
+  const width = sideNavWidth(screenWidth);
   const panelStyle = useAnimatedStyle(() => ({ transform: [{ translateX: (progress.value - 1) * width }] }));
   const scrimStyle = useAnimatedStyle(() => ({
     opacity: progress.value,
@@ -347,7 +367,7 @@ export function SideNavDrawer({
     borderBottomLeftRadius: 40 * progress.value,
   }));
 
-  if (!mounted) return null;
+  if (!controller.mounted) return null;
   return (
     <View
       // VoiceOver must not wander into the list behind an open drawer, and
@@ -362,8 +382,8 @@ export function SideNavDrawer({
           style={StyleSheet.absoluteFill}
           accessibilityRole="button"
           accessibilityLabel="Close navigation"
-          onPress={() => dismissRef.current(true)}
-          {...pan.panHandlers}
+          onPress={controller.dismiss}
+          {...controller.panHandlers}
         >
           {/* Dim the exposed main screen; the drawer itself is opaque. */}
           <View
@@ -376,7 +396,7 @@ export function SideNavDrawer({
       </Reanimated.View>
       <Reanimated.View
         style={[{ position: "absolute", left: 0, top: 0, bottom: 0, width }, panelStyle]}
-        {...pan.panHandlers}
+        {...controller.panHandlers}
       >
         <View
           style={{
@@ -393,7 +413,7 @@ export function SideNavDrawer({
               paddingHorizontal: space.sm,
             }}
           >
-            <SideNavPanel {...panel} onDismiss={() => dismissRef.current(true)} />
+            <SideNavPanel {...panel} onDismiss={controller.dismiss} />
           </ScrollView>
         </View>
       </Reanimated.View>
@@ -413,24 +433,31 @@ export function SideNavButton({
   onPress,
   online,
   machineName,
+  floating = false,
 }: {
   onPress: () => void;
   online: boolean;
   machineName: string;
+  floating?: boolean;
 }) {
   const { colors } = useTheme();
-  return (
+  const button = (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={`Navigation. Computer: ${machineName}`}
       hitSlop={8}
-      style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center" }}
+      style={{ width: floating ? 44 : 36, height: floating ? 44 : 36, alignItems: "center", justifyContent: "center" }}
     >
       <Icon ios="sidebar.leading" android="menu" size={20} color={colors.textSecondary} />
-      <View style={{ position: "absolute", right: 5, bottom: 6 }}>
+      <View style={{ position: "absolute", right: floating ? 9 : 5, bottom: floating ? 10 : 6 }}>
         <StatusDot busy={online} size={7} />
       </View>
     </Pressable>
   );
+  return floating ? (
+    <GlassSurface fallbackColor={colors.card} variant="regular" style={{ borderRadius: 22 }}>
+      {button}
+    </GlassSurface>
+  ) : button;
 }
