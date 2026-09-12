@@ -452,9 +452,40 @@ export function SessionScreenBody({
   /** Set while the reader is away from the bottom and the agent says something. */
   const [unseen, setUnseen] = useState(false);
   const [atBottom, setAtBottom] = useState(true);
+  // Advance the server-owned watermark only for a visible, settled transcript.
+  // A background route or a reader looking at older messages must not clear it.
+  const latestAssistant = useMemo(
+    () => [...messages].reverse().find((message) => message.role === "assistant"),
+    [messages],
+  );
+  useFocusEffect(
+    useCallback(() => {
+      if (!client || !id || !user?.email || !atBottom || !latestAssistant) return;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const acknowledge = () => {
+        if (timer) clearTimeout(timer);
+        if (AppState.currentState !== "active") return;
+        timer = setTimeout(() => {
+          if (AppState.currentState !== "active") return;
+          void client.transport.request(`/api/sessions/${encodeURIComponent(id)}/read`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ user: user.email }),
+          }).catch(() => {});
+        }, 500);
+      };
+      acknowledge();
+      const subscription = AppState.addEventListener("change", acknowledge);
+      return () => {
+        if (timer) clearTimeout(timer);
+        subscription.remove();
+      };
+    }, [client, id, user?.email, atBottom, latestAssistant]),
+  );
   const [sessionInfo, setSessionInfo] = useState<{
     title: string;
     agent: string;
+    model?: string | null;
     /** Every id the machine files this session under: its own and the native one. */
     aliases: string[];
   } | null>(null);
@@ -638,6 +669,7 @@ export function SessionScreenBody({
       setSessionInfo({
         title: found.title?.trim() || found.lastUserText?.trim() || "Session",
         agent: found.agent?.trim() || found.agentLabel?.trim() || "omg",
+        model: found.model,
         aliases: [found.sessionId, found.nativeSessionId].filter((v): v is string => !!v),
       });
       if (!socketBusySeen.current) setBusy(!!found.busy);
@@ -661,7 +693,7 @@ export function SessionScreenBody({
          */
         setLive(false);
         const resumable = await client.transport
-          .request<{ sessions?: { sessionId: string; title?: string; lastUserText?: string; agent?: string }[] }>(
+          .request<{ sessions?: { sessionId: string; title?: string; lastUserText?: string; agent?: string; model?: string | null }[] }>(
             "/api/sessions/resumable?limit=50",
           )
           .catch(() => ({ sessions: [] }));
@@ -671,6 +703,7 @@ export function SessionScreenBody({
           setSessionInfo({
             title: row.title?.trim() || row.lastUserText?.trim() || "Session",
             agent: row.agent?.trim() || "omg",
+            model: row.model,
             aliases: [row.sessionId],
           });
         }
@@ -1715,15 +1748,15 @@ export function SessionScreenBody({
           >
             {bot ? bot.name : title}
           </Text>
-          {dropped ? (
-            <Text numberOfLines={1} style={{ ...type.caption, color: colors.warning }}>
-              Reconnecting…
+          {dropped || sessionInfo?.model ? (
+            <Text numberOfLines={1} style={{ ...type.caption, color: colors.textSecondary }}>
+              {dropped ? "Reconnecting…" : sessionInfo?.model}
             </Text>
           ) : null}
         </View>
       </View>
     ),
-    [agentLabel, bot, busy, colors, dropped, space.sm, title, type],
+    [agentLabel, bot, busy, colors, dropped, sessionInfo?.model, space.sm, title, type],
   );
 
   /**

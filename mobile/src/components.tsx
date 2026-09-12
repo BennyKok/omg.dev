@@ -714,7 +714,7 @@ export const SESSION_ROW = {
   /** Inset from the row's own edge to the mark. */
   padding: 10,
   /** The agent mark's box. */
-  avatar: 44,
+  avatar: 36,
   gap: 12,
   textGap: 4,
   paddingRight: 8,
