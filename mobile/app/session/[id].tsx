@@ -1630,6 +1630,9 @@ export function SessionScreenBody({
     (draft.trim().length > 0 || attachments.items.some((item) => item.path)) &&
     !sending &&
     !attachments.uploading;
+  // ⌘↩ sends the other way: steer on a queue-mode machine, queue on a
+  // steer-mode one. The same key the web binds to its alternate send.
+  useKeyCommand({ key: { special: "enter" } }, canSend ? () => send(alternateSendMode) : null);
 
   /**
    * Track the keyboard on the UI thread instead of using KeyboardAvoidingView.
@@ -2123,10 +2126,13 @@ export function SessionScreenBody({
           </Reanimated.View>
         ) : null}
 
-        <HeldQueue items={held} onEdit={editHeld} onRemove={removeHeld} />
         <AttachmentStrip items={attachments.items} onRemove={attachments.remove} />
         {/* "/" lists the box's skills above the field, as on the web. */}
         <SkillSuggest value={draft} onChangeText={setDraft} />
+        {/* Held sends, tucked under the field row that follows: the row paints
+            over the card's bottom edge, as the web's HeldQueueCards sit under
+            its composer bar. */}
+        <HeldQueue items={held} busy={busy} onEdit={editHeld} onRemove={removeHeld} />
 
         {/**
          * THE FIELD GETS THE WHOLE WIDTH, and the buttons get their own row.
@@ -2149,7 +2155,7 @@ export function SessionScreenBody({
             control of its own — the plus button's place in Messages. Its own
             glass circle, bottom-aligned so it stays level with the last line
             as the field grows. */}
-        <View style={{ flexDirection: "row", alignItems: "flex-end", gap: space.sm }}>
+        <View style={{ flexDirection: "row", alignItems: "flex-end", gap: space.sm, zIndex: 1 }}>
         <GlassSurface
           variant="regular"
           fallbackColor={colors.card}

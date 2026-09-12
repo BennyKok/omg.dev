@@ -111,4 +111,5 @@ export const SHORTCUTS: Array<{ keys: string; does: string; where: "Live" | "Cha
   { keys: "⌘ /", does: "Show these shortcuts", where: "Anywhere" },
   { keys: "Esc", does: "Close a sheet or menu", where: "Anywhere" },
   { keys: "Return", does: "Send (Shift-Return for a new line)", where: "Chat" },
+  { keys: "⌘ Return", does: "Send the other way: steer on a queue-mode machine, queue on a steer-mode one", where: "Chat" },
 ];
