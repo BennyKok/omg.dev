@@ -13,7 +13,7 @@
  */
 import { useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
-import Reanimated, { FadeIn, FadeOut, LinearTransition } from "react-native-reanimated";
+import Reanimated, { FadeIn, FadeOut } from "react-native-reanimated";
 
 import { Icon } from "../components";
 
@@ -59,7 +59,6 @@ export function HeldQueue({
     <Reanimated.View
       entering={FadeIn.duration(150)}
       exiting={FadeOut.duration(120)}
-      layout={LinearTransition.duration(150)}
       style={{
         // Narrower than the field, centred, and its bottom hidden behind the
         // field: the row after this one paints over it.
@@ -113,7 +112,6 @@ export function HeldQueue({
             key={item.id}
             entering={FadeIn.duration(150)}
             exiting={FadeOut.duration(120)}
-            layout={LinearTransition.duration(150)}
             style={{
               flexDirection: "row",
               alignItems: isEditing || expanded ? "flex-start" : "center",

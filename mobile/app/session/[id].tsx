@@ -45,12 +45,13 @@
  * transcript is what should dominate the screen.
  */
 
-import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   Animated,
   FlatList,
   Keyboard,
@@ -69,7 +70,6 @@ import Reanimated, {
   useSharedValue,
   withTiming,
   Easing,
-  LinearTransition,
 } from "react-native-reanimated";
 import { Text, TextInput } from "../../src/omg/text";
 import type { OmgConnectionStatus } from "@omg-dev/client";
@@ -266,8 +266,8 @@ export function SessionScreenBody({
    * HELD SENDS. A queue-mode send while the agent is busy is kept on the
    * machine (status "held") until the turn ends; it is not in the message
    * chain, so the transcript socket never carries it. Fetched on open and
-   * whenever busy flips, and polled every two seconds only while something
-   * is held, so a release shows up within a beat.
+   * whenever busy flips, and polled every two seconds while the screen is
+   * active, including an empty queue so sends from other clients appear.
    */
   const [held, setHeld] = useState<HeldRow[]>([]);
   /**
@@ -309,11 +309,22 @@ export function SessionScreenBody({
   useEffect(() => {
     void refreshHeld();
   }, [refreshHeld, busy]);
-  useEffect(() => {
-    if (!held.length) return;
-    const timer = setInterval(() => void refreshHeld(), 2000);
-    return () => clearInterval(timer);
-  }, [held.length, refreshHeld]);
+  useFocusEffect(
+    useCallback(() => {
+      const refresh = () => {
+        if (AppState.currentState === "active") void refreshHeld();
+      };
+      refresh();
+      const timer = setInterval(refresh, 2000);
+      const subscription = AppState.addEventListener("change", (state) => {
+        if (state === "active") refresh();
+      });
+      return () => {
+        clearInterval(timer);
+        subscription.remove();
+      };
+    }, [refreshHeld]),
+  );
   const editHeld = useCallback(
     async (mid: string, text: string) => {
       if (!client || !id) return;
@@ -638,25 +649,9 @@ export function SessionScreenBody({
         case "message":
           if (!atBottomRef.current) setUnseen(true);
           setMessages((prev) => {
-            /**
-             * Drop the optimistic copy this message confirms, de-dupe on id,
-             * and CARRY `queued` ACROSS.
-             *
-             * Two things were wrong here. The optimistic row was identified by
-             * `m.pending`, which conflated "this row is a local placeholder"
-             * with "the request is still in the air" — so the moment the
-             * success path stopped setting `pending`, the row stopped matching
-             * and the message rendered twice. It is matched on the `local-`
-             * id prefix now, which is what actually makes a row optimistic.
-             *
-             * And `queued` lived only on the optimistic row, so the echo — which
-             * the machine sends as soon as it accepts the message, long before
-             * the agent gets to it — replaced the row with a plain server
-             * message and the "Queued" badge vanished almost immediately. That
-             * is why a held send looked identical to a tapped one. The flag is
-             * a local fact about how it was sent, so it is carried onto the
-             * echo rather than expected back from the server.
-             */
+            // A held send lives in the queue card, not the transcript. A server
+            // echo confirms delivery, so do not carry its local queued badge
+            // onto a message the agent can already answer.
             /**
              * `stripBotLaunchEnvelope` here (not just at render time) is what
              * keeps a bot's very first message from showing up twice. Its
@@ -673,7 +668,7 @@ export function SessionScreenBody({
             // the list sees one row settling rather than one leaving and one
             // arriving — and it is NOT marked fresh, for the same reason.
             const incoming: Entry = confirmed
-              ? { ...event.message, queued: confirmed.queued || undefined, localKey: confirmed.id ?? undefined }
+              ? { ...event.message, queued: undefined, localKey: confirmed.id ?? undefined }
               : event.message;
             const withoutOptimistic = prev.filter(
               (m) => !(isOptimisticId(m.id) && m.text === echoText),
@@ -1039,7 +1034,7 @@ export function SessionScreenBody({
           // owns that session id as its own state, re-rendering this one
           // with it. See app/bots/[id]/index.tsx.
           setMessages((prev) =>
-            prev.map((m) => (m.id === optimistic.id ? { ...m, pending: false } : m)),
+            prev.map((m) => (m.id === optimistic.id ? { ...m, pending: false, queued: undefined } : m)),
           );
           return;
         }
@@ -1099,20 +1094,10 @@ export function SessionScreenBody({
           await client.sendMessage(id, trimmed);
         }
         setError(null);
-        /**
-         * The request has landed. A queued message is no longer in flight, but
-         * it IS still waiting behind the current turn — so drop `pending` and
-         * keep `queued`.
-         *
-         * THIS BELONGS ON THE SUCCESS PATH. It used to sit in the `catch`
-         * below, underneath the line that removes the optimistic message
-         * entirely, which made it two bugs at once: dead code on failure (it
-         * mapped over a list the row had just been filtered out of) and
-         * missing on success, so a delivered message kept `pending: true` and
-         * stayed dimmed at 0.6 opacity for as long as it survived.
-         */
+        // Held sends returned above. Everything reaching this point has been
+        // delivered, including queue-mode sends to an idle agent.
         setMessages((prev) =>
-          prev.map((m) => (m.id === optimistic.id ? { ...m, pending: false } : m)),
+          prev.map((m) => (m.id === optimistic.id ? { ...m, pending: false, queued: undefined } : m)),
         );
       } catch (e) {
         // Roll the message back AND give the person their words back — losing
@@ -1125,7 +1110,7 @@ export function SessionScreenBody({
         setResuming(false);
       }
     },
-    [client, id, live, router, onDeliver, asks, answerAsk],
+    [client, id, live, router, onDeliver, asks, answerAsk, refreshHeld],
   );
 
   /** Shown for a beat after a long-press send, so the gesture confirms itself. */
@@ -2022,9 +2007,9 @@ export function SessionScreenBody({
  * surface — the same rule the home composer follows. */}
       <Reanimated.View
         onLayout={(e) => setComposerHeight(e.nativeEvent.layout.height)}
-        // The bar's height follows the field: two lines typed, one line after
-        // the send. Animated, so the send does not snap the bar down.
-        layout={LinearTransition.duration(180).easing(Easing.out(Easing.quad))}
+        // Reserve the measured height immediately. A separate layout animation
+        // made the field and transcript padding disagree during queue expansion
+        // and delayed the collapse after clearing a multiline draft.
         style={[
           {
             position: "absolute",
