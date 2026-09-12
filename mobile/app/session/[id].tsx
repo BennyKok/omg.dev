@@ -58,6 +58,7 @@ import {
   Platform,
   Pressable,
   StyleSheet,
+  useWindowDimensions,
   View,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
@@ -66,14 +67,23 @@ import Reanimated, {
   FadeIn,
   FadeOut,
   useAnimatedKeyboard,
+  useAnimatedRef,
+  useAnimatedReaction,
+  useReducedMotion,
+  scrollTo as scrollListTo,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
+  withDelay,
+  cancelAnimation,
+  runOnJS,
   Easing,
 } from "react-native-reanimated";
 import { Text, TextInput } from "../../src/omg/text";
 import type { OmgConnectionStatus } from "@omg-dev/client";
 import { AgentSetupSheet } from "../../src/omg/agent-setup-sheet";
+import { SEND_DELAY, SEND_DURATION, SendOriginContext } from "../../src/omg/send-motion";
+import { remainingReplySpace, sendTargetOffset, type SendOrigin } from "../../src/omg/send-motion-layout";
 import { HeldQueue, type HeldRow } from "../../src/omg/held-queue";
 
 /** What a send does while the agent is working. Mirrors the web's ComposerSendMode. */
@@ -219,6 +229,7 @@ export function SessionScreenBody({
   const navigation = useNavigation();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const window = useWindowDimensions();
   const { colors, type, space, radius } = useTheme();
   const { client, agents, user } = useOmg();
 
@@ -518,7 +529,56 @@ export function SessionScreenBody({
     if (resuming) toast.show("Waking the agent…");
   }, [resuming, toast]);
 
-  const listRef = useRef<FlatList<TranscriptItem>>(null);
+  const listRef = useAnimatedRef<FlatList<TranscriptItem>>();
+  const composerSource = useRef<View>(null);
+  const preparingSend = useRef(false);
+  const reducedMotion = useReducedMotion();
+  const [sendTurn, setSendTurn] = useState<{ key: string; reserve: number; origin: SendOrigin | null } | null>(null);
+  const rowHeights = useRef(new Map<string, number>());
+  const [rowMeasureVersion, setRowMeasureVersion] = useState(0);
+  const [footerHeight, setFooterHeight] = useState(0);
+  const replySpaceRef = useRef(0);
+  const bottomPaddingRef = useRef(0);
+  const composerMeasuredRef = useRef(0);
+  const footerHeightRef = useRef(0);
+  const sendGeometry = useRef({ naturalHeight: 0, rowTotal: 0, bottomPadding: 0 });
+  const scrollOffset = useRef(0);
+  const sendScroll = useRef(false);
+  const sendDuration = useSharedValue(SEND_DURATION);
+  const sendTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sendProgress = useSharedValue(0);
+  const sendFrom = useSharedValue(0);
+  const sendTo = useSharedValue(0);
+  const sendActive = useSharedValue(false);
+  const sendReady = useSharedValue(false);
+  const sendStarted = useSharedValue(false);
+  const dismissSendKeyboard = useCallback(() => Keyboard.dismiss(), []);
+  const finishSendMotion = useCallback(() => {
+    sendScroll.current = false;
+    sendActive.value = false;
+    if (sendTimer.current) clearTimeout(sendTimer.current);
+    setSendTurn((turn) => turn ? { ...turn, origin: null } : turn);
+  }, [sendActive]);
+  useAnimatedReaction(
+    () => ({ active: sendActive.value, ready: sendReady.value, progress: sendProgress.value, target: sendTo.value }),
+    (value) => {
+      if (!value.active || !value.ready) return;
+      if (!sendStarted.value) {
+        sendStarted.value = true;
+        runOnJS(dismissSendKeyboard)();
+        sendProgress.value = withDelay(sendDuration.value ? SEND_DELAY : 0,
+          withTiming(1, { duration: sendDuration.value, easing: Easing.out(Easing.cubic) },
+            (finished) => { if (finished) runOnJS(finishSendMotion)(); }));
+      }
+      scrollListTo(listRef, 0, sendFrom.value + (value.target - sendFrom.value) * value.progress, false);
+    },
+  );
+  useEffect(() => () => {
+    if (sendTimer.current) clearTimeout(sendTimer.current);
+    sendActive.value = false;
+    cancelAnimation(sendProgress);
+  }, [sendActive, sendProgress]);
+
   /**
    * WHICH ROWS GET `TranscriptRow`'s ENTRANCE ANIMATION.
    *
@@ -757,8 +817,31 @@ export function SessionScreenBody({
     return buildTranscriptItems(bot ? filterBotChatEntries(entries) : entries, { busy });
   }, [messages, streamText, streamThought, bot, busy]);
 
+  const replySpace = useMemo(() => {
+    if (!sendTurn) return 0;
+    const anchor = data.findIndex((item) => item.key === sendTurn.key);
+    if (anchor < 0) return 0;
+    return remainingReplySpace(sendTurn.reserve, [
+      footerHeight,
+      ...data.slice(anchor + 1).map((item) => rowHeights.current.get(item.key) ?? 0),
+    ]);
+  }, [data, sendTurn, footerHeight, rowMeasureVersion]);
+  replySpaceRef.current = replySpace;
+  footerHeightRef.current = footerHeight;
+  useLayoutEffect(() => {
+    if (!sendScroll.current || !sendTurn || !rowHeights.current.has(sendTurn.key)) return;
+    const rowTotal = data.reduce((sum, item) => sum + (rowHeights.current.get(item.key) ?? 0), 0);
+    const base = sendGeometry.current;
+    // The final inset excludes the keyboard. Its dismissal must not retarget
+    // the scroll halfway through the shared animation.
+    sendTo.value = sendTargetOffset(base, rowTotal, footerHeight, replySpace, viewportHeight.current);
+    sendActive.value = true;
+  }, [data, sendTurn, rowMeasureVersion, footerHeight, replySpace, sendTo, sendActive]);
+
   const onScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      scrollOffset.current = e.nativeEvent.contentOffset.y;
+      if (e.nativeEvent.layoutMeasurement.height > 0) viewportHeight.current = e.nativeEvent.layoutMeasurement.height;
       // Layout noise, not a reader. See userMovedRef.
       if (!userMovedRef.current) return;
 
@@ -835,7 +918,7 @@ export function SessionScreenBody({
      */
     const timers = attempts.map((delay) =>
       setTimeout(() => {
-        if (atBottomRef.current && !touchingRef.current) {
+        if (atBottomRef.current && !touchingRef.current && !sendScroll.current) {
           listRef.current?.scrollToOffset({ offset: 10 ** 7, animated: false });
         }
       }, delay),
@@ -933,7 +1016,7 @@ export function SessionScreenBody({
    * own layout, so the animated target is the true last offset and UIKit
    * gives it its standard scroll curve.
    */
-  const viewportHeight = useRef(0);
+  const viewportHeight = useRef(window.height);
   const bottomOffset = () => Math.max(0, lastContentHeight.current - viewportHeight.current);
   const handleContentSizeChange = useCallback((_width: number, height: number) => {
     const delta = height - lastContentHeight.current;
@@ -944,6 +1027,9 @@ export function SessionScreenBody({
     // below, because a list that is growing while the reader is somewhere
     // else is still a list that has not settled.
     noteContentActivityRef.current();
+    if (sendScroll.current) return;
+    // Reply growth consumes the reserved space without moving the sent turn.
+    if (replySpaceRef.current > 0) return;
     // Follow the stream only while the reader is already at the bottom, and
     // never while their finger is on the glass — see touchingRef.
     if (!atBottomRef.current || touchingRef.current) return;
@@ -1007,7 +1093,7 @@ export function SessionScreenBody({
    * composer or from tapping an answer to the agent's question.
    */
   const submit = useCallback(
-    async (text: string, mode: "steer" | "queue" = "steer") => {
+    async (text: string, mode: "steer" | "queue" = "steer", origin?: SendOrigin) => {
       const trimmed = text.trim();
       // A bot's first-ever message has no id yet — nothing has minted its
       // backing session — so `onDeliver` is what's allowed to send with one
@@ -1036,6 +1122,39 @@ export function SessionScreenBody({
       if (showInQueue) {
         setHeld((prev) => [...prev, { id: optimisticId, text: trimmed, status: "pending" }]);
       } else {
+        atBottomRef.current = true;
+        userMovedRef.current = false;
+        touchingRef.current = false;
+        setAtBottom(true);
+        setUnseen(false);
+        if (origin) {
+          sendGeometry.current = {
+            naturalHeight: lastContentHeight.current - bottomPaddingRef.current - replySpaceRef.current - footerHeightRef.current,
+            rowTotal: data.reduce((sum, item) => sum + (rowHeights.current.get(item.key) ?? 0), 0),
+            bottomPadding: Math.max(composerMeasuredRef.current - origin.height + 44, insets.bottom + 60) + space.lg,
+          };
+          setSendTurn({ key: optimisticId, origin: reducedMotion ? null : origin,
+            reserve: Math.max(80, (viewportHeight.current - insets.top - insets.bottom - 100) / 2) });
+          sendScroll.current = true;
+          sendDuration.value = reducedMotion ? 0 : SEND_DURATION;
+          sendReady.value = reducedMotion;
+          sendStarted.value = false;
+          sendActive.value = false;
+          sendFrom.value = scrollOffset.current;
+          sendProgress.value = 0;
+          if (sendTimer.current) clearTimeout(sendTimer.current);
+          sendTimer.current = setTimeout(() => {
+            sendScroll.current = false;
+            sendActive.value = false;
+            setSendTurn((turn) => turn?.key === optimisticId ? { ...turn, origin: null } : turn);
+          }, 1500);
+        } else {
+          if (sendTimer.current) clearTimeout(sendTimer.current);
+          cancelAnimation(sendProgress);
+          setSendTurn(null);
+          sendScroll.current = false;
+          sendActive.value = false;
+        }
         setMessages((prev) => [...prev, optimistic]);
       }
       setSending(true);
@@ -1117,6 +1236,9 @@ export function SessionScreenBody({
             return accepted?.status === "held" ? [...rest, accepted] : rest;
           });
           if (accepted?.status === "held") {
+            setSendTurn((turn) => turn?.key === optimisticId ? null : turn);
+            sendScroll.current = false;
+            sendActive.value = false;
             setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
             return;
           }
@@ -1132,6 +1254,9 @@ export function SessionScreenBody({
       } catch (e) {
         // Roll the message back AND give the person their words back — losing
         // typed text to a failed request is the rudest thing a composer can do.
+        setSendTurn((turn) => turn?.key === optimisticId ? null : turn);
+        sendScroll.current = false;
+        sendActive.value = false;
         setHeld((prev) => prev.filter((m) => m.id !== optimisticId));
         setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
         setDraft((current) => (current ? current : trimmed));
@@ -1145,7 +1270,7 @@ export function SessionScreenBody({
         setResuming(false);
       }
     },
-    [client, id, live, busy, router, onDeliver, asks, answerAsk, refreshHeld],
+    [client, id, live, busy, router, onDeliver, asks, answerAsk, refreshHeld, reducedMotion, insets.top, insets.bottom, sendFrom, sendProgress, sendActive, sendDuration, sendReady, sendStarted, data, space.lg],
   );
 
   /** Shown for a beat after a long-press send, so the gesture confirms itself. */
@@ -1174,7 +1299,7 @@ export function SessionScreenBody({
   const send = useCallback(
     (mode: "steer" | "queue" = "steer", spoken?: string) => {
       const text = attachments.compose((spoken ?? draft).trim());
-      if (!text || sending) return;
+      if (!text || sending || preparingSend.current) return;
       if (mode === "queue" && busy) {
         /**
          * A DIFFERENT WEIGHT FOR A DIFFERENT ACT. Queueing puts the message
@@ -1188,14 +1313,25 @@ export function SessionScreenBody({
         setQueuedHint(true);
         setTimeout(() => setQueuedHint(false), 1600);
       }
-      setDraft("");
-      attachments.clear();
-      // Sending ends the typing. The keyboard goes with it, so the reply
-      // lands on a full screen instead of behind the keys.
-      Keyboard.dismiss();
-      void submit(text, mode);
+      const deliver = (origin?: SendOrigin) => {
+        preparingSend.current = false;
+        setDraft("");
+        attachments.clear();
+        void submit(text, mode, origin);
+        if (!origin) Keyboard.dismiss();
+      };
+      if (mode === "queue" && busy) {
+        deliver();
+      } else if (composerSource.current && (spoken ?? draft).trim()) {
+        preparingSend.current = true;
+        composerSource.current.measureInWindow((x, y, width, height) =>
+          deliver(contentReady && atBottomRef.current && width > 0 && height > 0 ? { x, y, width, height } : undefined),
+        );
+      } else {
+        deliver();
+      }
     },
-    [attachments, busy, draft, sending, submit],
+    [attachments, busy, contentReady, draft, sending, submit],
   );
 
   // Kept current for the dictation callback declared above it.
@@ -1737,10 +1873,16 @@ export function SessionScreenBody({
     };
   }, []);
 
+  const transcriptBottomPadding = Math.max(composerHeight, insets.bottom + 60) + space.lg +
+    Math.max(0, keyboardHeight - insets.bottom);
+  bottomPaddingRef.current = transcriptBottomPadding;
+  composerMeasuredRef.current = composerHeight;
+
   return (
     <Reanimated.View style={{ flex: 1 }}>
-      <FlatList
+      <Reanimated.FlatList
         ref={listRef}
+        removeClippedSubviews={false}
         data={data}
         keyExtractor={(item) => item.key}
         onLayout={(e) => {
@@ -1793,10 +1935,7 @@ export function SessionScreenBody({
            * sentence ending exactly at the top edge of the glass reads as
            * clipped even when it is not.
            */
-          paddingBottom:
-            Math.max(composerHeight, insets.bottom + 60) +
-            space.lg +
-            Math.max(0, keyboardHeight - insets.bottom),
+          paddingBottom: transcriptBottomPadding,
           // 24pt between EVERY item read as a transcript of isolated objects
           // rather than a conversation: a tool run and the sentence explaining
           // it were pushed as far apart as two separate turns. 16pt keeps the
@@ -1828,6 +1967,8 @@ export function SessionScreenBody({
         // A drag is the only thing that means "I am reading somewhere else".
         // Programmatic scrolls and layout settling are not.
         onScrollBeginDrag={() => {
+          sendScroll.current = false;
+          sendActive.value = false;
           userMovedRef.current = true;
           touchingRef.current = true;
         }}
@@ -1850,19 +1991,34 @@ export function SessionScreenBody({
           const speakerChanged =
             !!previous && transcriptSpeaker(previous) !== transcriptSpeaker(item);
           return (
-            <View style={{ paddingBottom: space.sm, paddingTop: speakerChanged ? 10 : 0 }}>
+            <View
+              onLayout={(event) => {
+                const height = event.nativeEvent.layout.height;
+                if (rowHeights.current.get(item.key) === height) return;
+                rowHeights.current.set(item.key, height);
+                if (sendTurn) setRowMeasureVersion((version) => version + 1);
+              }}
+              style={{ paddingBottom: space.sm, paddingTop: speakerChanged ? 10 : 0 }}
+            >
+              <SendOriginContext.Provider value={sendTurn?.key === item.key && sendTurn.origin ? { origin: sendTurn.origin, progress: sendProgress, ready: sendReady } : null}>
               <OverlapRow id={`row:${item.key}`}>
                 <TranscriptRow
                   item={item}
-                  fresh={contentReady && liveKeysRef.current.has(item.key)}
+                  fresh={contentReady && liveKeysRef.current.has(item.key) && sendTurn?.key !== item.key}
                   bot={bot}
                 />
               </OverlapRow>
+              </SendOriginContext.Provider>
             </View>
           );
         }}
         ListFooterComponent={
-          thinking ? bot ? <BotWorkingIndicator bot={bot} /> : <ThinkingPill /> : null
+          <View>
+            <View onLayout={(event) => setFooterHeight(event.nativeEvent.layout.height)}>
+              {thinking ? bot ? <BotWorkingIndicator bot={bot} /> : <ThinkingPill /> : null}
+            </View>
+            <View style={{ height: replySpace }} />
+          </View>
         }
         ListEmptyComponent={
           // The spinner lives INSIDE the list so it inherits the content
@@ -2116,7 +2272,7 @@ export function SessionScreenBody({
             control of its own — the plus button's place in Messages. Its own
             glass circle, bottom-aligned so it stays level with the last line
             as the field grows. */}
-        <View style={{ flexDirection: "row", alignItems: "flex-end", gap: space.sm, zIndex: 1 }}>
+        <View ref={composerSource} collapsable={false} style={{ flexDirection: "row", alignItems: "flex-end", gap: space.sm, zIndex: 1 }}>
         <GlassSurface
           variant="regular"
           fallbackColor={colors.card}

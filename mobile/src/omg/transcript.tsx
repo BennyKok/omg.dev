@@ -34,11 +34,12 @@
  * the results as their own rows rather than labelling one with another's name.
  */
 
+import { SendOriginContext, useSendEntrance } from "./send-motion";
 import * as Clipboard from "expo-clipboard";
 import MenuView, { type MenuAction } from "@expo/ui/community/menu";
 import * as Haptics from "expo-haptics";
 import type { AndroidSymbol, SFSymbol } from "expo-symbols";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Animated,
   Modal,
@@ -349,6 +350,7 @@ export function TranscriptRow({
   /** Present only inside a bot chat — see app/session/[id].tsx's `SessionScreenBody`. */
   bot?: BotBubbleIdentity | null;
 }) {
+  const sendTransition = useContext(SendOriginContext);
   return (
     <Reanimated.View
       // Eased, not sprung. The spring overshot on arrival and on every
@@ -367,7 +369,7 @@ export function TranscriptRow({
             : FadeInDown.duration(180).easing(Easing.out(Easing.cubic))
           : undefined
       }
-      layout={LinearTransition.duration(160).easing(Easing.out(Easing.quad))}
+      layout={sendTransition ? undefined : LinearTransition.duration(160).easing(Easing.out(Easing.quad))}
     >
       {item.type === "stamp" ? (
         <Stamp ts={item.ts} />
@@ -1604,6 +1606,7 @@ function OmgInstructionsChip({ instructions, version }: { instructions: string; 
 export function UserMessage({ message }: { message: Entry }) {
   const { colors, type, space, isDark } = useTheme();
   const body = useBodyText();
+  const sendEntrance = useSendEntrance();
   const [copied, setCopied] = useState(false);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const envelope = useMemo(() => parseOmgPromptEnvelope(message.text ?? ""), [message.text]);
@@ -1683,7 +1686,8 @@ export function UserMessage({ message }: { message: Entry }) {
            * vanishing changed the row's height, and the height change plus
            * the key swap read as the message being re-inserted.
            */
-          style={settle}
+          entering={sendEntrance.entering}
+          style={[settle, sendEntrance.bubbleStyle, { alignSelf: "flex-end", maxWidth: "85%" }]}
         >
         <MenuView
           actions={bubbleActions}
@@ -1692,7 +1696,7 @@ export function UserMessage({ message }: { message: Entry }) {
           onPressAction={({ nativeEvent }) => {
             if (nativeEvent.event === "copy") copy();
           }}
-          style={{ alignSelf: "flex-end", maxWidth: "85%" }}
+          style={{ alignSelf: "stretch" }}
         >
         <View
           accessibilityRole="text"
@@ -1723,6 +1727,7 @@ export function UserMessage({ message }: { message: Entry }) {
             paddingVertical: 5,
           }}
         >
+          <Reanimated.View style={sendEntrance.contentStyle}>
           <Text
             // Not `selectable`: the native selection gesture is a long press
             // too, and it would take this one before the copy menu could.
@@ -1762,6 +1767,7 @@ export function UserMessage({ message }: { message: Entry }) {
               </Text>
             </Pressable>
           ) : null}
+          </Reanimated.View>
         </View>
         </MenuView>
         </Reanimated.View>
