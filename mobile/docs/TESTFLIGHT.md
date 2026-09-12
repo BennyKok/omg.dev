@@ -108,6 +108,16 @@ command didn't error."
 | 2026-09-12 | `4dbfae7e-87ee-4afe-a4f4-4564495bf6b0` | `1f7658e53` | Queue refresh continues when empty while the screen is active and refreshes on foreground return. Delivered messages no longer inherit a local Queued badge. Queue/composer height changes no longer run competing layout animations. Sheets animate their existing dragged card off screen before unmounting and blur the composer before opening. | Published for runtime `1.0.4` from `release/ios-1.0.4-e7a545`; native configuration, dependencies, plugins and modules are unchanged from `cd3d7186b`. Workflow `34672790564` passed typecheck and Metro export. Group, runtime and commit independently verified with `eas update:view`. iPhone simulator checks covered the queue card and sheet dismissal. The UI fixes also landed on main in `7f7e8cc65` for build 45. Superseded by `ee60972a`: this first compatibility branch omitted the concurrent server-work-row client update. |
 | 2026-09-12 | `ee60972a-fc3a-4b93-b1cb-cbed81cfeae5` | `1779f4f79` | Queue and sheet fixes plus the concurrent server-work-row client update. | The maintenance branch was merged with current main (`b9cc97262`); its only mobile diff from main is app version 1.0.4 instead of 1.0.5. Native configuration and dependencies match the previously cleared 1.0.4 runtime. Workflow `34673038633` passed mobile typecheck and Metro export. `eas update:view` independently confirmed iOS and Android runtime 1.0.4, group and commit. |
 
+### Session rows keep their size on press (2026-09-12)
+
+`SessionCard` now uses scale 1. The pressed background remains, and tapping still opens the session. This applies to full and compact child rows.
+
+- Runtime 1.0.5: group `91866af5-1f7c-4e20-9699-5301440a2bc7`, workflow `34709461555`, source `e7b5f8ab6a25f6b3218d1710c4827337ff216d76`.
+- Runtime 1.0.4: group `4f96a53b-d15d-4236-a071-d909c12f4b5a`, workflow `34709463764`, source `6c558246501c6feb4a29dd5892c089666e95e1f0`. Fresh branch `ota/row-press-1.0.4` differs only in the app version.
+- Both groups were read back with EAS: production, iOS and Android, expected runtime and source commit.
+- Root and mobile type checks passed. On the pinned iPhone 17 Pro simulator, the row kept its size while held, showed its pressed background, and opened the session on release. Evidence: `/tmp/e7a545-row-rest-verified.png`, `/tmp/e7a545-row-held-verified.png`, `/tmp/e7a545-row-open-verified.png`.
+- Physical-phone activation remains unverified.
+
 ### Header avatar fills its button (2026-09-12)
 
 The selected user's avatar is 36pt instead of 24pt inside the same 36pt trigger. The native bar supplies the outer glass inset. The photograph fills most of the button while its tap area stays the same.

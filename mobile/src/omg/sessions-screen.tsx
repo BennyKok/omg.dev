@@ -94,6 +94,7 @@ import {
   type UnreadSessionRow,
 } from "./session-unread";
 import { UserFilterMenu } from "./user-filter-menu";
+import { GlassSurface } from "./glass";
 import {
   sessionMatchesUserFilter,
   useUserFilter,
@@ -1425,12 +1426,21 @@ export function SessionsScreen({
     <View style={{ flex: 1, backgroundColor: colors.bg, overflow: "hidden" }} {...navGesture.panHandlers}>
     <Reanimated.View style={[{ flex: 1, backgroundColor: colors.bg, overflow: "hidden" }, navPageStyle]}>
       {!workspace && navOpen ? (
-        <View style={{ position: "absolute", top: insets.top, left: 16, height: 44,
-          zIndex: 110, flexDirection: "row", alignItems: "center", gap: 2 }}>
-          <SideNavButton floating onPress={() => setNavOpen(false)}
-            online={currentBinding?.online ?? false} machineName={machineName} />
-          <LiveWelcome firstName={firstName} busyCount={flattenNodes(working).length}
-            connection={connection} onPress={() => setNavOpen(false)} />
+        <View pointerEvents="box-none" style={{ position: "absolute", top: insets.top,
+          left: 16, right: 16, height: 44, zIndex: 110,
+          flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 16, flexShrink: 1 }}>
+            <SideNavButton floating onPress={() => setNavOpen(false)}
+              online={currentBinding?.online ?? false} machineName={machineName} />
+            <LiveWelcome firstName={firstName} busyCount={flattenNodes(working).length}
+              connection={connection} onPress={() => setNavOpen(false)} />
+          </View>
+          <GlassSurface fallbackColor={colors.card} variant="regular"
+            style={{ width: 44, height: 44, borderRadius: 22,
+              alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <HomeHeaderControls userFilter={userFilter} rosterUsers={rosterUsers}
+              setUserFilter={setUserFilter} />
+          </GlassSurface>
         </View>
       ) : null}
       {workspace ? (
