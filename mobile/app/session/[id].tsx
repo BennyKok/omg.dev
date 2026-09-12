@@ -113,6 +113,7 @@ import {
   Icon,
   IconButton,
   VoiceMeter,
+  withAlpha,
 } from "../../src/components";
 import { useAttachments } from "../../src/omg/attachments";
 import { BotAvatar } from "../../src/omg/bot-avatar";
@@ -2065,7 +2066,7 @@ export function SessionScreenBody({
        * The list reserves room for it in its own top padding, so nothing
        * starts underneath the chevron.
        */}
-      {/* Keep identity text clear; the transcript fades below the solid bar. */}
+      {/* A translucent backdrop and matching fade keep the title legible. */}
       <EdgeFade
         edge="top"
         color={colors.bg}
@@ -2075,6 +2076,7 @@ export function SessionScreenBody({
           left: 0,
           right: 0,
           height: TOP_FADE_HEIGHT,
+          opacity: 0.85,
         }}
       />
       <View
@@ -2089,7 +2091,7 @@ export function SessionScreenBody({
           flexDirection: "row",
           alignItems: "center",
           gap: space.sm,
-          backgroundColor: colors.bg,
+          backgroundColor: withAlpha(colors.bg, 0.85),
         }}
       >
         <BackDisc />
