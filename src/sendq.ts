@@ -23,8 +23,8 @@ import {
   feedbackPromptOpen,
   tmuxDismissFeedback,
 } from "./tmux.ts";
-import { resolveTranscript, type SessionMsg } from "./sessions.ts";
-import { listSessionsCached } from "./session-cache.ts";
+import { invalidateSessionBusyCache, resolveTranscript, type SessionMsg } from "./sessions.ts";
+import { invalidateListSessionsCache, listSessionsCached } from "./session-cache.ts";
 import {
   enqueueTranscriptIndex,
   indexedMessagePage,
@@ -160,9 +160,12 @@ export function recordCommandFileMessage(
 // into the harness, which either merged it into the running turn (SDK) or put
 // it in the TUI's own hidden queue — either way the user could no longer edit
 // or drop it, and it often reached the agent immediately. A held row stays
-// here, visible and editable, until the session reports idle. Then every held
-// row is released in order through the handler serve.ts installs (the normal
-// send path), which creates a fresh pending/queued row per message.
+// here, visible and editable, until the session reports idle. Then ONE held
+// row is released, oldest first, through the handler serve.ts installs (the
+// normal send path), which creates a fresh pending/queued row for it. The rest
+// stay held until that row has actually reached the agent and the session is
+// idle again — see releaseNextHeldMessage for why the whole queue must not go
+// out at once.
 // ---------------------------------------------------------------------------
 
 export type HeldReleaseHandler = (
@@ -171,7 +174,33 @@ export type HeldReleaseHandler = (
 ) => Promise<{ ok: boolean; error?: string }>;
 
 let releaseHeld: HeldReleaseHandler | null = null;
-let sessionIsBusy: (sessionId: string) => Promise<boolean | null> = async (sessionId) => {
+
+/**
+ * Is this session mid-turn?
+ *
+ * `fresh` asks for a reading that cannot predate the caller. The session list
+ * serves a snapshot for up to LIST_SESSIONS_CACHE_TTL_MS (3000 ms), which is
+ * longer than the gap between a release and the turn it starts: the harness
+ * picks the send up, sets its registry entry busy and writes the user row
+ * inside a second, while the list is still answering from the snapshot taken
+ * before any of that. Releasing on that stale `false` is how a whole held
+ * queue used to go out at once. Invalidating first costs one session scan and
+ * is only paid on the tick that is about to release a row.
+ */
+type HeldBusyProbe = (
+  sessionId: string,
+  opts: { fresh: boolean },
+) => Promise<boolean | null>;
+
+let sessionIsBusy: HeldBusyProbe = async (sessionId, opts) => {
+  if (opts.fresh) {
+    // Two caches sit between here and the truth, and rescanning the list does
+    // not clear the second one. A tmux-pane session's busy flag comes from a
+    // pane capture cached for BUSY_CACHE_TTL_MS; a command-file session's
+    // comes from its registry entry, which is never cached.
+    invalidateSessionBusyCache();
+    invalidateListSessionsCache();
+  }
   const sess = (await listSessionsCached()).find(
     (s) => s.sessionId === sessionId || s.nativeSessionId === sessionId,
   );
@@ -185,9 +214,7 @@ export function setHeldReleaseHandler(handler: HeldReleaseHandler | null): void 
 }
 
 /** Test seam: replaces the session-list busy probe. */
-export function setHeldBusyProbeForTests(
-  probe: ((sessionId: string) => Promise<boolean | null>) | null,
-): void {
+export function setHeldBusyProbeForTests(probe: HeldBusyProbe | null): void {
   if (probe) sessionIsBusy = probe;
 }
 
@@ -240,66 +267,128 @@ export function removeHeldMessage(sessionId: string, id: string): boolean | "not
   return true;
 }
 
+// Statuses that mean an earlier send is still on its way to the agent. A held
+// row must not follow one of these out, whatever the busy probe says.
+const IN_FLIGHT_STATUSES: ReadonlySet<QueuedMsg["status"]> = new Set([
+  "pending",
+  "sending",
+  "queued",
+]);
+
+/**
+ * Is an earlier send from this session still unresolved?
+ *
+ * The busy probe alone cannot answer this. It reads the session list, which
+ * serves a snapshot for up to 3000 ms, and a command-file harness needs a
+ * moment to pick a send up and start a turn. So for a second or two after a
+ * release the probe still describes the world before it, and a tick that
+ * trusted it would let the next row out on top of the first. The queue's own
+ * rows do not have that lag: the release handler records a pending/queued row
+ * synchronously, and it stays in flight until the agent's matching user turn
+ * appears in the transcript.
+ */
+function hasInFlightSend(sessionId: string): boolean {
+  return q(sessionId).msgs.some((m) => IN_FLIGHT_STATUSES.has(m.status));
+}
+
 function watchHeld(sessionId: string): void {
   if (heldWatchers.has(sessionId)) return;
-  let releasing = false;
+  // Held from the first line of a tick to its last, not just around the
+  // release. Every step in between awaits — reconcileQueued reads transcript
+  // pages, and the fresh busy probe forces a full session scan — and any of
+  // them can outlast HELD_POLL_MS. Two overlapping ticks would each read the
+  // same idle state, each pick listHeld()[0], and send that one row twice,
+  // because the row is only removed after its handler resolves.
+  let ticking = false;
   const tick = async () => {
-    if (releasing) return;
-    if (!listHeld(sessionId).length) {
-      clearInterval(heldWatchers.get(sessionId));
-      heldWatchers.delete(sessionId);
-      return;
-    }
-    let busy: boolean | null;
+    if (ticking) return;
+    ticking = true;
     try {
-      busy = await sessionIsBusy(sessionId);
-    } catch {
-      return;
-    }
-    // null: the session is not listed right now (restarting, or gone). Keep
-    // the text; the user can still see and edit it, and a later tick decides.
-    if (busy !== false) return;
-    releasing = true;
-    try {
-      await releaseHeldMessages(sessionId);
+      if (!listHeld(sessionId).length) {
+        clearInterval(heldWatchers.get(sessionId));
+        heldWatchers.delete(sessionId);
+        return;
+      }
+      // Nobody else may be watching this session, and reconcileQueued is what
+      // retires a released row once the agent's user turn lands. Drive it here
+      // so the in-flight gate below can clear without a connected client.
+      if (hasInFlightSend(sessionId)) {
+        try {
+          await reconcileQueued(sessionId);
+        } catch {
+          // A transcript that cannot be read leaves the row in flight, which
+          // holds the queue back. That is the safe direction.
+        }
+        if (hasInFlightSend(sessionId)) return;
+      }
+      let busy: boolean | null;
+      try {
+        busy = await sessionIsBusy(sessionId, { fresh: false });
+        // The cheap reading said idle. It can be a snapshot from before the
+        // previous release reached the harness, and the gate above clears the
+        // moment that send's user row is indexed — which the harness writes
+        // AFTER it marks itself busy. So the last word on a release is a
+        // reading that cannot predate this tick.
+        if (busy === false) busy = await sessionIsBusy(sessionId, { fresh: true });
+      } catch {
+        return;
+      }
+      // null: the session is not listed right now (restarting, or gone). Keep
+      // the text; the user can still see and edit it, and a later tick decides.
+      if (busy !== false) return;
+      await releaseNextHeldMessage(sessionId);
     } finally {
-      releasing = false;
+      ticking = false;
     }
   };
   heldWatchers.set(sessionId, setInterval(() => void tick(), HELD_POLL_MS));
 }
 
 /**
- * Release every held row, oldest first, through the installed handler. A row
- * the handler accepts is removed here because the handler recorded its own
- * pending/queued row; a row it refuses stays visible as failed with the reason.
+ * Release the OLDEST held row through the installed handler, and only that one.
+ *
+ * One row per idle tick, never the whole queue. Releasing every row at once
+ * only looks like a drain: the first row starts a turn, and every row behind
+ * it lands in the harness's own queue in the same millisecond. There it is no
+ * longer editable, no longer removable, and no longer a `held` row — so the
+ * composer queue bar empties while the messages are still waiting, and the
+ * transcript paints them as plain queued bubbles instead. Observed on
+ * 2026-09-12: seven held rows left one session in 40 ms and the last of them
+ * did not reach the agent for 26 minutes.
+ *
+ * Each remaining row stays held, visible and editable, and the watcher probes
+ * busy again before the next one goes. A row the handler accepts is removed
+ * here because the handler recorded its own pending/queued row; a row it
+ * refuses stays visible as failed with the reason.
  */
-export async function releaseHeldMessages(sessionId: string): Promise<number> {
+export async function releaseNextHeldMessage(sessionId: string): Promise<number> {
   const handler = releaseHeld;
   if (!handler) return 0;
-  let released = 0;
-  for (const msg of listHeld(sessionId)) {
-    let result: { ok: boolean; error?: string };
-    try {
-      result = await handler(sessionId, msg.text);
-    } catch (e) {
-      result = { ok: false, error: e instanceof Error ? e.message : String(e) };
-    }
-    const s = q(sessionId);
-    if (result.ok) {
-      s.msgs = s.msgs.filter((m) => m !== msg);
-      deleteStoredQueueMessages(sessionId, [msg.id]);
-      released++;
-      traceLog("sendq_held_released", { sessionId, messageId: msg.id });
-    } else {
-      msg.status = "failed";
-      msg.error = result.error || "could not send the held message";
-      msg.updatedAt = Date.now();
-      persist(sessionId, msg);
-      traceLog("sendq_held_failed", { sessionId, messageId: msg.id, error: msg.error });
-    }
+  const msg = listHeld(sessionId)[0];
+  if (!msg) return 0;
+  let result: { ok: boolean; error?: string };
+  try {
+    result = await handler(sessionId, msg.text);
+  } catch (e) {
+    result = { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
-  return released;
+  const s = q(sessionId);
+  if (!result.ok) {
+    msg.status = "failed";
+    msg.error = result.error || "could not send the held message";
+    msg.updatedAt = Date.now();
+    persist(sessionId, msg);
+    traceLog("sendq_held_failed", { sessionId, messageId: msg.id, error: msg.error });
+    return 0;
+  }
+  s.msgs = s.msgs.filter((m) => m !== msg);
+  deleteStoredQueueMessages(sessionId, [msg.id]);
+  traceLog("sendq_held_released", {
+    sessionId,
+    messageId: msg.id,
+    stillHeld: listHeld(sessionId).length,
+  });
+  return 1;
 }
 
 export function retryMessage(sessionId: string, id: string): QueuedMsg | null {
