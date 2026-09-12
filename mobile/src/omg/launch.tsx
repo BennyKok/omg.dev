@@ -30,7 +30,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { Dimensions, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import Reanimated, {
   Easing,
   type SharedValue,
@@ -70,72 +70,12 @@ const SHIMMER_LIFT = 1 - SHIMMER_FLOOR;
 const CAPTION_TYPE = { fontSize: 15, fontWeight: "600", letterSpacing: -0.1 } as const;
 
 /**
- * THE GLOW, AND WHY IT IS 24 STACKED CIRCLES.
+ * The launch surface: the landing's background, flat.
  *
- * The landing paints its hero with
- * `radial-gradient(ellipse 80% 55% at 50% 12%, brand 20%, transparent 72%)`.
- * There is no radial gradient available here: `expo-linear-gradient` is linear
- * only, and `react-native-svg` — which has `RadialGradient` — is not a
- * dependency. Adding a native module for one decorative layer would also mean
- * a new binary rather than an OTA update.
- *
- * Concentric circles reproduce it exactly rather than approximately. CSS
- * interpolates a radial gradient LINEARLY in alpha between its stops, and N
- * evenly-spaced rings of equal alpha accumulate to the same linear ramp: at
- * distance d the number of rings covering it is N(1 - d/R), so the composited
- * alpha falls straight off to zero at the edge. 24 rings puts each step near
- * 1/255, which is below a visible band.
- *
- * RING_ALPHA is solved, not guessed: stacking k layers of alpha a gives
- * 1 - (1 - a)^k, so a = 1 - (1 - GLOW_ALPHA)^(1/N) lands the centre on the
- * landing's 20% exactly instead of the 18% that GLOW_ALPHA/N would give.
- *
- * 64 RINGS, NOT 24. At 24 the arithmetic said each step was about one level of
- * 255, and on device the rings were plainly visible anyway: the eye finds a
- * circular contour far below the threshold it needs for a flat edge, which is
- * ordinary Mach banding. 64 puts each step under one level — 0.0035 of a 249
- * level span — and the contours go.
- */
-const GLOW_ALPHA = 0.2;
-const GLOW_RINGS = 64;
-const RING_ALPHA = 1 - Math.pow(1 - GLOW_ALPHA, 1 / GLOW_RINGS);
-/** Radius against the short edge, and the squash that makes it the ellipse. */
-const GLOW_RADIUS_RATIO = 0.85;
-const GLOW_SQUASH = 0.72;
-
-function RadialGlow({ rgb }: { rgb: string }) {
-  // Read once at render. A splash does not outlive a rotation, and reacting to
-  // one would restart the breathing animation mid-pulse.
-  const { width, height } = Dimensions.get("window");
-  const radius = Math.min(width, height) * GLOW_RADIUS_RATIO;
-
-  return (
-    <View
-      pointerEvents="none"
-      style={[StyleSheet.absoluteFill, styles.screen, { transform: [{ scaleY: GLOW_SQUASH }] }]}
-    >
-      {Array.from({ length: GLOW_RINGS }, (_, i) => {
-        // Largest ring first, so later (smaller) children paint on top.
-        const d = radius * 2 * (1 - i / GLOW_RINGS);
-        return (
-          <View
-            key={i}
-            style={{
-              position: "absolute",
-              width: d,
-              height: d,
-              borderRadius: d / 2,
-              backgroundColor: `rgba(${rgb}, ${RING_ALPHA})`,
-            }}
-          />
-        );
-      })}
-    </View>
-  );
-}
-
-/**
- * The launch surface: the landing's background with its glow on it.
+ * NO GLOW. The landing puts a brand radial behind its hero and this screen
+ * carried a copy of it; Benny took it out. The background is one colour now,
+ * which also means the mark's bite is filled with that colour again rather
+ * than with the glow's centre.
  *
  * Exported because `app/_layout.tsx` shows a second, caption-less splash while
  * auth and consent settle. That screen and this one have to be the same
@@ -147,7 +87,6 @@ export function LaunchBackdrop({ children }: { children?: React.ReactNode }) {
   const tokens = isDark ? launch.dark : launch.light;
   return (
     <View style={[StyleSheet.absoluteFill, { backgroundColor: tokens.bg }]}>
-      <RadialGlow rgb={tokens.glowRgb} />
       {children}
     </View>
   );
@@ -165,19 +104,30 @@ export function LaunchBackdrop({ children }: { children?: React.ReactNode }) {
  *
  * So: a short DIP first (the anticipation every fast move needs — a thing that
  * pulls back before it goes reads as intent rather than a glitch), then an
- * accelerating rush to 7x in a quarter of a second. Seven, because the mark
- * has to leave the screen: 64pt at 7x is 448pt against a 393pt-wide phone, so
- * it passes the viewer rather than stopping in front of them.
+ * accelerating rush in a quarter of a second.
+ *
+ * THE FACTOR IS SET BY THE MARK'S SIZE, not chosen for its own sake: the mark
+ * has to leave the screen. It was 7x while the mark was 64pt, which put it at
+ * 448pt against a 393pt-wide phone. The horizontal lockup shrank the mark to
+ * 41pt, where 7x is 287pt and the mark would stop in front of the viewer
+ * instead of passing them. 11x restores the same margin: 451pt.
  */
-/** Disc diameter of the mark on the launch screen, and the lockup's cap height. */
-const MARK_SIZE = 64;
-const WORDMARK_SIZE = 30;
+/**
+ * THE LOCKUP IS HORIZONTAL, exactly as the landing header draws it: mark, gap,
+ * then the type. It used to be a 64pt mark with the type stacked underneath.
+ *
+ * The gap is the wordmark's own ratio (0.26 of the cap height) so the spacing
+ * matches BrandWordmark's built-in lockup rather than drifting from it.
+ */
+const WORDMARK_SIZE = 40;
+const MARK_SIZE = Math.round(WORDMARK_SIZE * 1.02);
+const LOCKUP_GAP = Math.round(WORDMARK_SIZE * 0.26);
 
 const CAPTION_OUT_MS = 120;
 const DIP_MS = 110;
 const ZOOM_MS = 250;
 const DIP_SCALE = 0.9;
-const ZOOM_SCALE = 7;
+const ZOOM_SCALE = 11;
 
 function ShimmerText({ text, color }: { text: string; color: string }) {
   const progress = useSharedValue(0);
@@ -265,6 +215,19 @@ export function LaunchScreen({
   const fade = useSharedValue(1);
   const backdrop = useSharedValue(1);
   const caption = useSharedValue(1);
+  /**
+   * 0 at rest, 1 once the mark has reached the screen centre.
+   *
+   * A HORIZONTAL LOCKUP PUTS THE MARK OFF CENTRE, and a view scales about its
+   * own centre — so zooming it where it sits would send it out along a line to
+   * the left of the middle, which reads as the mark falling off the side
+   * rather than launching. It slides to the centre first, under the caption's
+   * own 120ms, so the move is over before the dip begins and is read as the
+   * lockup collapsing to its mark rather than as a separate step.
+   */
+  const slide = useSharedValue(0);
+  /** Lockup width, measured: the slide distance depends on the type's width. */
+  const [lockupWidth, setLockupWidth] = useState(0);
   const [leaving, setLeaving] = useState(false);
 
   useEffect(() => {
@@ -287,6 +250,7 @@ export function LaunchScreen({
      * re-cut the others.
      */
     caption.value = withTiming(0, { duration: CAPTION_OUT_MS });
+    slide.value = withTiming(1, { duration: CAPTION_OUT_MS, easing: Easing.inOut(Easing.quad) });
 
     scale.value = withDelay(
       CAPTION_OUT_MS,
@@ -312,7 +276,10 @@ export function LaunchScreen({
       CAPTION_OUT_MS + DIP_MS + ZOOM_MS * 0.3,
       withTiming(0, { duration: ZOOM_MS * 0.55 }),
     );
-  }, [done, leaving, scale, fade, backdrop, caption, onFinished]);
+  }, [done, leaving, scale, fade, backdrop, caption, slide, onFinished]);
+
+  // Distance right to the lockup's own centre, which is the screen's centre.
+  const markShift = lockupWidth / 2 - MARK_SIZE / 2;
 
   const markStyle = useAnimatedStyle(() => {
     if (!leaving) {
@@ -321,7 +288,12 @@ export function LaunchScreen({
         transform: [{ scale: 0.97 + breathe.value * 0.03 }],
       };
     }
-    return { opacity: fade.value, transform: [{ scale: scale.value }] };
+    // translateX BEFORE scale: the transforms apply in order, so the mark is
+    // already centred when it is scaled about its own centre.
+    return {
+      opacity: fade.value,
+      transform: [{ translateX: markShift * slide.value }, { scale: scale.value }],
+    };
   });
 
   const captionStyle = useAnimatedStyle(() => ({ opacity: caption.value }));
@@ -332,43 +304,46 @@ export function LaunchScreen({
     <Reanimated.View pointerEvents={leaving ? "none" : "auto"} style={[StyleSheet.absoluteFill, backdropStyle]}>
       <LaunchBackdrop />
       {/**
-       * ONE LAYER PER THING, EACH CENTRED ON THE SCREEN — not one centred
-       * column of mark-above-wordmark-above-caption.
+       * TWO LAYERS, EACH CENTRED ON THE SCREEN — the lockup and the caption —
+       * rather than one centred column of lockup-above-caption.
        *
-       * As a column the STACK was centred, which put the mark's own centre
-       * above the screen's by half of everything below it. Invisible at rest,
-       * and very visible at 7x: a view scales about its own centre, so the mark
-       * rushed out along a line that missed the middle of the screen and the
-       * zoom read as drifting off toward the top. The mark owns the centre and
-       * everything else is offset from it.
+       * As a column the PAIR was centred, which put the lockup's own centre
+       * above the screen's by half the caption's height plus its gap.
+       * Invisible at rest, and very visible during the exit: a view scales
+       * about its own centre, so the mark rushed out along a line that missed
+       * the middle of the screen and the zoom read as drifting toward the top.
+       * The lockup owns the centre and the caption is offset from it.
        *
        * `paddingTop` on a centred box moves its content down by HALF the
        * padding, because the padding shrinks the box it is centring in. Hence
-       * the doubled offsets below — read them as `2 * distance-below-centre`.
+       * the doubled offset below — read it as `2 * distance-below-centre`.
        */}
-      <Reanimated.View style={[StyleSheet.absoluteFill, styles.screen, markStyle]}>
-        <BrandMark size={MARK_SIZE} holeColor={tokens.glowCentre} />
-      </Reanimated.View>
-      {/**
-       * THE WORDMARK LEAVES WITH THE CAPTION, NOT WITH THE MARK.
-       *
-       * The mark's exit is a 7x rush past the viewer, and type at 7x is an
-       * unreadable wall crossing the screen. The lockup's two halves therefore
-       * part company on the way out: the type goes quietly, and the mark — the
-       * only thing that reads at any size — does the travelling.
-       */}
-      <Reanimated.View
-        pointerEvents="none"
-        style={[StyleSheet.absoluteFill, styles.screen, styles.wordmark, captionStyle]}
-      >
-        <BrandWordmark
-          size={WORDMARK_SIZE}
-          mark={false}
-          color={tokens.text}
-          mutedColor={tokens.textMuted}
-          holeColor={tokens.glowCentre}
-        />
-      </Reanimated.View>
+      <View style={[StyleSheet.absoluteFill, styles.screen]} pointerEvents="none">
+        <View
+          style={styles.lockup}
+          onLayout={(e) => setLockupWidth(e.nativeEvent.layout.width)}
+        >
+          <Reanimated.View style={markStyle}>
+            <BrandMark size={MARK_SIZE} holeColor={tokens.bg} />
+          </Reanimated.View>
+          {/**
+           * THE TYPE LEAVES WITH THE CAPTION, NOT WITH THE MARK.
+           *
+           * The mark's exit is a rush past the viewer, and type at 11x is an
+           * unreadable wall crossing the screen. The lockup's two halves part
+           * company on the way out: the type goes quietly while the mark —
+           * the only half that reads at any size — does the travelling.
+           */}
+          <Reanimated.View style={captionStyle}>
+            <BrandWordmark
+              size={WORDMARK_SIZE}
+              mark={false}
+              color={tokens.text}
+              mutedColor={tokens.textMuted}
+            />
+          </Reanimated.View>
+        </View>
+      </View>
       <Reanimated.View
         pointerEvents="none"
         style={[StyleSheet.absoluteFill, styles.screen, styles.caption, captionStyle]}
@@ -384,12 +359,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  wordmark: {
-    // Centre sits MARK_SIZE/2 + 28 below the screen centre, doubled.
-    paddingTop: (MARK_SIZE / 2 + 28) * 2,
+  lockup: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: LOCKUP_GAP,
   },
   caption: {
-    // Clear of the wordmark's own half-height as well as the mark's.
-    paddingTop: (MARK_SIZE / 2 + 28 + WORDMARK_SIZE / 2 + 26) * 2,
+    // Clear of the lockup's own half-height, plus a gap.
+    paddingTop: (MARK_SIZE / 2 + 30) * 2,
   },
 });

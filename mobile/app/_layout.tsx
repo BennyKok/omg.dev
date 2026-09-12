@@ -19,7 +19,7 @@ import {
   useIntro,
   useOnboarding,
 } from "../src/omg/onboarding";
-import { BrandMark } from "../src/omg/brand-mark";
+import { BrandWordmark } from "../src/omg/brand-mark";
 import { LaunchBackdrop, LaunchScreen } from "../src/omg/launch";
 import { useLucideFont } from "../src/omg/lucide";
 
@@ -79,7 +79,13 @@ function Splash() {
     <LaunchBackdrop>
       <View style={styles.splash}>
         <Reanimated.View style={breathe}>
-          <BrandMark size={64} holeColor={launchTokens.glowCentre} />
+          {/* The same lockup LaunchScreen shows, so the two cannot diverge. */}
+          <BrandWordmark
+            size={40}
+            color={launchTokens.text}
+            mutedColor={launchTokens.textMuted}
+            holeColor={launchTokens.bg}
+          />
         </Reanimated.View>
       </View>
       <StatusBar style={isDark ? "light" : "dark"} />

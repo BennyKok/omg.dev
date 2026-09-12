@@ -166,26 +166,18 @@ export const lightColors: Palette = {
  * cream into `colors.bg` would re-skin every screen in the app. This is one
  * screen quoting another product surface, so it stays a named island.
  *
- * `glowRgb` is `--brand` as a channel triplet rather than a hex, because the
- * glow is drawn at a fraction of its alpha and RN needs `rgba(...)`.
- *
- * `glowCentre` is `bg` composited with `glow` at GLOW_ALPHA, precomputed. The
- * mark's bite is a HOLE: it has to be filled with whatever is actually behind
- * the mark, and behind the mark is the brightest part of the glow, not the
- * bare background. Filling it with `bg` turns the bite into a pale dot.
+ * The landing's brand radial glow was copied here too and then removed at
+ * Benny's request, so `--brand` is no longer among these: the launch surface
+ * is one flat colour and the only brand on it is the mark itself.
  */
 export const launch = {
   light: {
     bg: "#f0ede7",
-    glowRgb: "255, 79, 40",
-    glowCentre: "#f3cdc1",
     text: "#0d0c0a",
     textMuted: "#65605a",
   },
   dark: {
     bg: "#060505",
-    glowRgb: "255, 122, 87",
-    glowCentre: "#381c15",
     text: "#ffffff",
     textMuted: "#c4beb4",
   },
