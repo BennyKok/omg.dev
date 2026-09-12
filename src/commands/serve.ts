@@ -4222,6 +4222,7 @@ export async function cmdServe() {
         const ok = server.upgrade(req, {
           data: liveWs.dataForRequest(viewerConversationParticipantId(wsViewer.identity), {
             workRows: requestedWorkRows(url),
+            userAgent: req.headers.get("user-agent"),
           }),
         });
         if (ok) return undefined; // upgraded — Bun takes over the socket
