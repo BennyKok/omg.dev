@@ -52,6 +52,9 @@ export type ResumableQuery = {
   agent?: string;
   // Exact project match — omit for all projects.
   project?: string;
+  // Exact cwd match — the composer's `#` picker uses this to page the
+  // caller's own folder ahead of everything else.
+  cwd?: string;
   // Currently-live session ids to hide (they belong in the live list, not here).
   excludeIds?: Set<string>;
 };
@@ -481,6 +484,10 @@ export function queryResumableCache(opts: ResumableQuery = {}): ResumableQueryRe
   if (opts.project) {
     where.push("project = ?");
     params.push(opts.project);
+  }
+  if (opts.cwd) {
+    where.push("cwd = ?");
+    params.push(opts.cwd);
   }
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
