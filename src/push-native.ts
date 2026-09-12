@@ -119,19 +119,29 @@ function chunk<T>(rows: T[], size: number): T[][] {
 
 type ExpoTicket = { status: "ok" | "error"; message?: string; details?: { error?: string } };
 
-// Lock-screen budget. iOS truncates past roughly these lengths anyway; cutting
-// here keeps the payload small and the ellipsis predictable.
-const TITLE_MAX = 100;
-const BODY_MAX = 200;
+// Lock-screen budget. Benny's phone showed a four-line body on 2026-09-12
+// and he called it too many words. One sentence, two lines at most.
+const TITLE_MAX = 60;
+const BODY_MAX = 90;
 
 function clip(text: string, max: number): string {
   const one = text.replace(/\s+/g, " ").trim();
-  return one.length > max ? `${one.slice(0, max - 1).trimEnd()}…` : one;
+  if (one.length <= max) return one;
+  const cut = one.slice(0, max - 1);
+  const space = cut.lastIndexOf(" ");
+  return `${(space > max / 2 ? cut.slice(0, space) : cut).trimEnd()}…`;
+}
+
+/** First sentence of an agent's message, then clipped — the verdict, not the essay. */
+function firstSentence(text: string): string {
+  const one = text.replace(/\s+/g, " ").trim();
+  const m = one.match(/^.+?[.!?](?=\s|$)/);
+  return m ? m[0] : one;
 }
 
 /** The alert this device receives: the real title and body, project as subtitle. */
 export function alertFor(notification: PushNotification): { title: string; subtitle?: string; body?: string } {
-  const body = notification.body ? clip(notification.body, BODY_MAX) : undefined;
+  const body = notification.body ? clip(firstSentence(notification.body), BODY_MAX) : undefined;
   return {
     title: clip(notification.title, TITLE_MAX) || "omg",
     ...(notification.project ? { subtitle: clip(notification.project, TITLE_MAX) } : {}),
