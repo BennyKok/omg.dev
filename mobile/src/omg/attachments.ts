@@ -21,11 +21,14 @@
  * silently target the wrong machine after a switch.
  */
 
+import * as Crypto from "expo-crypto";
 import * as ImagePicker from "expo-image-picker";
 import { useCallback, useState } from "react";
 
 import type { MenuOption } from "./menu";
 import { useOmg } from "./provider";
+
+export type AttachmentKind = "image" | "video" | "file";
 
 export type Attachment = {
   /** Local, stable for the row's lifetime; the server's name is not unique. */
@@ -33,10 +36,28 @@ export type Attachment = {
   name: string;
   /** Local file URI — what the thumbnail draws from. */
   uri: string;
+  /** What the strip draws: a thumbnail for an image, a glyph for the rest. */
+  kind: AttachmentKind;
   /** Absolute path ON THE COMPUTER. Null until the upload lands. */
   path: string | null;
   failed?: boolean;
 };
+
+/** Anything picked, from whichever picker: enough to upload and to draw a row. */
+export type PickedFile = {
+  uri: string;
+  name: string;
+  mimeType: string;
+  kind: AttachmentKind;
+};
+
+/**
+ * Same split as the web's `uploadFile`: the machine caps one request body at
+ * 32 MB, so a video goes up in 8 MB parts under one `uploadId`, and the
+ * server's chunk route stitches them in order. Small files still take the
+ * one-shot route.
+ */
+const CHUNK_BYTES = 8 * 1024 * 1024;
 
 let seq = 0;
 
@@ -64,25 +85,39 @@ export function useAttachments(sessionId: string | null) {
   const [picking, setPicking] = useState(false);
 
   const upload = useCallback(
-    async (asset: ImagePicker.ImagePickerAsset, id: string, name: string) => {
+    async (file: PickedFile, id: string) => {
       if (!client) return;
       try {
-        const blob = await readAsBlob(asset.uri);
+        const blob = await readAsBlob(file.uri);
         const endpoint = sessionId
           ? `/api/sessions/${sessionId}/upload`
           : "/api/uploads";
-        const response = await client.transport.fetch(
-          `${endpoint}?filename=${encodeURIComponent(name)}`,
-          {
+        const base = `${endpoint}?filename=${encodeURIComponent(file.name)}`;
+        const headers = { "Content-Type": file.mimeType || "application/octet-stream" };
+        const post = async (query: string, body: Blob) => {
+          const response = await client.transport.fetch(`${base}${query}`, {
             method: "POST",
-            headers: { "Content-Type": asset.mimeType || "application/octet-stream" },
-            body: blob,
-          },
-        );
-        const body = (await response.json()) as { ok?: boolean; path?: string };
-        if (!response.ok || !body?.path) throw new Error("upload rejected");
+            headers,
+            body,
+          });
+          const parsed = (await response.json().catch(() => ({}))) as { ok?: boolean; path?: string };
+          if (!response.ok) throw new Error("upload rejected");
+          return parsed;
+        };
+        let result: { path?: string } = {};
+        if (blob.size > CHUNK_BYTES) {
+          const uploadId = Crypto.randomUUID();
+          for (let offset = 0; offset < blob.size; offset += CHUNK_BYTES) {
+            const part = blob.slice(offset, Math.min(blob.size, offset + CHUNK_BYTES));
+            result = await post(`&uploadId=${uploadId}&offset=${offset}&total=${blob.size}`, part);
+          }
+        } else {
+          result = await post("", blob);
+        }
+        if (!result.path) throw new Error("upload rejected");
+        const path = result.path;
         setItems((current) =>
-          current.map((item) => (item.id === id ? { ...item, path: body.path! } : item)),
+          current.map((item) => (item.id === id ? { ...item, path } : item)),
         );
       } catch {
         // Kept in the list rather than dropped: a row that vanishes looks like
@@ -93,6 +128,21 @@ export function useAttachments(sessionId: string | null) {
       }
     },
     [client, sessionId],
+  );
+
+  /** One row per picked file, then the upload in the background. */
+  const add = useCallback(
+    (files: PickedFile[]) => {
+      for (const file of files) {
+        const id = `att-${++seq}`;
+        setItems((current) => [
+          ...current,
+          { id, name: file.name, uri: file.uri, kind: file.kind, path: null },
+        ]);
+        void upload(file, id);
+      }
+    },
+    [upload],
   );
 
   const take = useCallback(
@@ -119,23 +169,32 @@ export function useAttachments(sessionId: string | null) {
           source === "camera"
             ? await ImagePicker.launchCameraAsync({ quality: 0.8 })
             : await ImagePicker.launchImageLibraryAsync({
-                mediaTypes: ["images"],
+                // Videos too. A screen recording of the bug is the attachment
+                // people reach for most after a screenshot.
+                mediaTypes: ["images", "videos"],
                 quality: 0.8,
                 selectionLimit: 4,
               });
         if (result.canceled) return;
 
-        for (const asset of result.assets) {
-          const id = `att-${++seq}`;
-          const name = asset.fileName?.trim() || `image-${Date.now()}.jpg`;
-          setItems((current) => [...current, { id, name, uri: asset.uri, path: null }]);
-          void upload(asset, id, name);
-        }
+        add(
+          result.assets.map((asset) => {
+            const video = asset.type === "video";
+            return {
+              uri: asset.uri,
+              name:
+                asset.fileName?.trim() ||
+                (video ? `video-${Date.now()}.mp4` : `image-${Date.now()}.jpg`),
+              mimeType: asset.mimeType || (video ? "video/mp4" : "image/jpeg"),
+              kind: video ? "video" : "image",
+            };
+          }),
+        );
       } finally {
         setPicking(false);
       }
     },
-    [picking, upload],
+    [picking, add],
   );
 
   const remove = useCallback((id: string) => {

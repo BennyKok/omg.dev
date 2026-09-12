@@ -1711,17 +1711,43 @@ export function AttachmentStrip({
     <View style={{ flexDirection: "row", gap: space.sm, paddingBottom: space.sm }}>
       {items.map((item) => (
         <View key={item.id}>
-          <Image
-            source={{ uri: item.uri }}
-            style={{
-              width: 56,
-              height: 56,
-              borderRadius: radius.md,
-              opacity: item.path ? 1 : 0.5,
-              borderWidth: StyleSheet.hairlineWidth,
-              borderColor: item.failed ? colors.danger : colors.border,
-            }}
-          />
+          {item.kind === "image" ? (
+            <Image
+              source={{ uri: item.uri }}
+              style={{
+                width: 56,
+                height: 56,
+                borderRadius: radius.md,
+                opacity: item.path ? 1 : 0.5,
+                borderWidth: StyleSheet.hairlineWidth,
+                borderColor: item.failed ? colors.danger : colors.border,
+              }}
+            />
+          ) : (
+            /* A video or a document has no picture to stand in for it: a
+               glyph on the same 56pt tile, the name for accessibility. */
+            <View
+              accessibilityLabel={item.name}
+              style={{
+                width: 56,
+                height: 56,
+                borderRadius: radius.md,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: colors.card,
+                opacity: item.path ? 1 : 0.5,
+                borderWidth: StyleSheet.hairlineWidth,
+                borderColor: item.failed ? colors.danger : colors.border,
+              }}
+            >
+              <Icon
+                ios={item.kind === "video" ? "video" : "doc"}
+                android={item.kind === "video" ? "videocam" : "description"}
+                size={20}
+                color={colors.textSecondary}
+              />
+            </View>
+          )}
           {!item.path && !item.failed ? (
             <View
               style={{
