@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   OmgApiError,
+  OmgClient,
   OmgLiveConnection,
   createGrantTransport,
   createSameOriginTransport,
@@ -339,4 +340,119 @@ test("createSameOriginTransport prefixes every path with basePath", async () => 
   expect(transport.assetUrl?.("/api/sessions/s1/files/a.png")).toBe(
     "/api/cloud/machines/cloud/api/sessions/s1/files/a.png",
   );
+});
+
+// ---- capabilities and drafts ------------------------------------------------
+//
+// Both live here so that a client declares them ONCE. The phone opted into
+// work rows on one of its two transports and missed the other; the SDK now
+// puts the capability on every subscribe frame and every history page, and
+// it accumulates the two kinds of draft the wire interleaves.
+
+class InboundSocket extends FakeSocket {
+  private messageListeners = new Set<(event: { data: string }) => void>();
+  override addEventListener(type: "open" | "message" | "close" | "error", listener: (event?: never) => void) {
+    if (type === "message") {
+      this.messageListeners.add(listener as unknown as (event: { data: string }) => void);
+      return;
+    }
+    super.addEventListener(type, listener);
+  }
+  receive(frame: unknown) {
+    for (const listener of this.messageListeners) listener({ data: JSON.stringify(frame) });
+  }
+}
+
+function inboundTransport(socket: InboundSocket): OmgTransport {
+  return {
+    fetch: async () => new Response(),
+    request: async () => ({}) as never,
+    openSocket: async () => socket,
+    openLiveSocket: async () => socket,
+  };
+}
+
+test("declared capabilities ride on every subscribe frame, whatever transport opened the socket", async () => {
+  const socket = new InboundSocket();
+  const live = new OmgLiveConnection(inboundTransport(socket), {
+    capabilities: { workRows: true, deferToolArgs: true },
+  });
+  const off = live.subscribeTranscript("a", () => {});
+  await Promise.resolve();
+  socket.open();
+  await Promise.resolve();
+  expect(JSON.parse(String(socket.sent[0]!))).toEqual({
+    t: "subscribe",
+    channels: [{ kind: "transcript", key: "a" }],
+    workRows: true,
+    deferToolArgs: true,
+  });
+  off();
+  live.dispose();
+});
+
+test("a connection that declares nothing sends the frame it always sent", async () => {
+  const socket = new InboundSocket();
+  const live = new OmgLiveConnection(inboundTransport(socket));
+  const off = live.subscribeTranscript("a", () => {});
+  await Promise.resolve();
+  socket.open();
+  await Promise.resolve();
+  expect(JSON.parse(String(socket.sent[0]!))).toEqual({
+    t: "subscribe",
+    channels: [{ kind: "transcript", key: "a" }],
+  });
+  off();
+  live.dispose();
+});
+
+test("getMessages declares the same capabilities on the history page", async () => {
+  const paths: string[] = [];
+  const transport: OmgTransport = {
+    fetch: async () => new Response(),
+    request: async (path: string) => {
+      paths.push(path);
+      return { messages: [] } as never;
+    },
+    openSocket: async () => new FakeSocket(),
+    openLiveSocket: async () => new FakeSocket(),
+  };
+  await new OmgClient(transport, { capabilities: { workRows: true } }).getMessages("s", 40);
+  await new OmgClient(transport).getMessages("s", 40);
+  expect(paths).toEqual([
+    "/api/sessions/s/messages?limit=40&workRows=1",
+    "/api/sessions/s/messages?limit=40",
+  ]);
+});
+
+test("reasoning and reply are separate drafts, accumulated from their deltas", async () => {
+  const socket = new InboundSocket();
+  const live = new OmgLiveConnection(inboundTransport(socket));
+  const drafts: Array<{ kind: string; text: string }> = [];
+  const off = live.subscribeTranscript("a", (event) => {
+    if (event.type === "draft") drafts.push({ kind: event.draft.kind, text: event.draft.text });
+  });
+  await Promise.resolve();
+  socket.open();
+  await Promise.resolve();
+  const part = (fields: Record<string, unknown>) => ({ t: "ai_part", sid: "a", part: { type: "text-delta", id: "d1", ...fields } });
+  socket.receive(part({ kind: "thinking", text: "The user is", reset: true }));
+  socket.receive(part({ kind: "thinking", delta: " asking" }));
+  socket.receive(part({ delta: "Yes." , reset: true }));
+  socket.receive(part({ delta: " Done." }));
+  // A restarted thought does not carry the old text with it.
+  socket.receive(part({ kind: "thinking", text: "Next", reset: true }));
+  expect(drafts).toEqual([
+    { kind: "thinking", text: "The user is" },
+    { kind: "thinking", text: "The user is asking" },
+    { kind: "text", text: "Yes." },
+    { kind: "text", text: "Yes. Done." },
+    { kind: "thinking", text: "Next" },
+  ]);
+  // The turn ending forgets the drafts: the next delta starts fresh.
+  socket.receive({ t: "busy", sid: "a", busy: false });
+  socket.receive(part({ delta: "tail" }));
+  expect(drafts.at(-1)).toEqual({ kind: "text", text: "tail" });
+  off();
+  live.dispose();
 });

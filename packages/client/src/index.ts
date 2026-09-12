@@ -1,4 +1,5 @@
 import type {
+  OmgAiStreamPart,
   OmgLiveChannel,
   OmgLiveMessage,
   OmgMessage,
@@ -7,6 +8,8 @@ import type {
   OmgSession,
   OmgSessionsResponse,
   OmgTranscriptEvent,
+  OmgLiveCapabilities,
+  OmgDraft,
 } from "@omg-dev/protocol";
 
 export type {
@@ -19,6 +22,8 @@ export type {
   OmgSessionPrompt,
   OmgStatusRow,
   OmgTranscriptEvent,
+  OmgLiveCapabilities,
+  OmgDraft,
 } from "@omg-dev/protocol";
 
 export interface OmgSocket {
@@ -422,6 +427,22 @@ function channelId(channel: OmgLiveChannel): string {
   return `${channel.kind}:${channel.key}`;
 }
 
+/** The capability fields of a subscribe frame. Absent means not declared. */
+function subscribeCapabilities(capabilities: OmgLiveCapabilities): Record<string, true> {
+  const out: Record<string, true> = {};
+  if (capabilities.workRows) out.workRows = true;
+  if (capabilities.deferToolArgs) out.deferToolArgs = true;
+  return out;
+}
+
+/** The same capabilities as query parameters, for an HTTP page. */
+function capabilityQuery(capabilities: OmgLiveCapabilities): string {
+  let query = "";
+  if (capabilities.workRows) query += "&workRows=1";
+  if (capabilities.deferToolArgs) query += "&deferToolArgs=1";
+  return query;
+}
+
 export class OmgLiveConnection {
   private socket: OmgSocket | null = null;
   private disposed = false;
@@ -437,8 +458,22 @@ export class OmgLiveConnection {
     status: "connecting",
     attempt: 0,
   };
+  private readonly capabilities: OmgLiveCapabilities;
+  /** Per session, the drafts in flight by draft id; see OmgDraft. */
+  private drafts = new Map<string, Map<string, OmgDraft>>();
 
-  constructor(private readonly transport: OmgTransport) {}
+  /**
+   * `capabilities` are declared on every subscribe frame this connection
+   * sends, whatever transport opened the socket. That is the point of
+   * putting them here: a client that declares them once cannot opt in on one
+   * transport and miss the other.
+   */
+  constructor(
+    private readonly transport: OmgTransport,
+    options: { capabilities?: OmgLiveCapabilities } = {},
+  ) {
+    this.capabilities = options.capabilities ?? {};
+  }
 
   get state(): OmgConnectionState {
     return this.connectionState;
@@ -586,7 +621,7 @@ export class OmgLiveConnection {
         channels.push(channel);
         this.sentChannels.add(sessionId);
       }
-      if (channels.length) this.send({ t: "subscribe", channels });
+      if (channels.length) this.send({ t: "subscribe", channels, ...subscribeCapabilities(this.capabilities) });
     });
   }
 
@@ -594,6 +629,29 @@ export class OmgLiveConnection {
     if (!this.socket || this.socket.readyState !== SOCKET_OPEN) return false;
     this.socket.send(JSON.stringify(payload));
     return true;
+  }
+
+  // The wire carries deltas; a client wants the text. A part with `reset` (or
+  // a `text-start`) restarts its draft, a `text-delta` extends it, and the
+  // draft's `kind` is the part's, defaulting to a reply for servers that
+  // predate the field. Reasoning and reply keep separate drafts even when
+  // they share an id.
+  private accumulateDraft(sessionId: string, part: OmgAiStreamPart): OmgDraft | null {
+    if (!part.id) return null;
+    if (part.type !== "text-delta" && part.type !== "text-start") return null;
+    const kind: OmgDraft["kind"] = part.kind === "thinking" ? "thinking" : "text";
+    const key = `${kind}:${part.id}`;
+    let bySession = this.drafts.get(sessionId);
+    if (!bySession) {
+      bySession = new Map();
+      this.drafts.set(sessionId, bySession);
+    }
+    const previous = bySession.get(key);
+    const restart = part.type === "text-start" || !!part.reset || !previous;
+    const text = restart ? (part.text ?? part.delta ?? "") : `${previous!.text}${part.delta ?? ""}`;
+    const draft: OmgDraft = { id: part.id, kind, text, ...(part.ts != null ? { ts: part.ts } : {}) };
+    bySession.set(key, draft);
+    return draft;
   }
 
   private emit(sessionId: string, event: OmgTranscriptEvent): void {
@@ -660,7 +718,11 @@ export class OmgLiveConnection {
       if (item) this.emit(sessionId, { type: "message", message: item });
     } else if (message.t === "ai_part" && message.part) {
       this.emit(sessionId, { type: "ai_part", part: message.part });
+      const draft = this.accumulateDraft(sessionId, message.part);
+      if (draft) this.emit(sessionId, { type: "draft", draft });
     } else if (message.t === "busy") {
+      // The turn is over: nothing is being drafted any more.
+      if (!message.busy) this.drafts.delete(sessionId);
       this.emit(sessionId, { type: "busy", busy: !!message.busy });
     } else if (message.t === "prompt") {
       this.emit(sessionId, {
@@ -679,9 +741,18 @@ export class OmgLiveConnection {
 export class OmgClient {
   readonly live: OmgLiveConnection;
   private sessions: OmgSession[] | null = null;
+  private readonly capabilities: OmgLiveCapabilities;
 
-  constructor(readonly transport: OmgTransport) {
-    this.live = new OmgLiveConnection(transport);
+  /**
+   * `capabilities` apply to the live socket AND to `getMessages`, so history
+   * and the live stream arrive in one shape. See OmgLiveCapabilities.
+   */
+  constructor(
+    readonly transport: OmgTransport,
+    options: { capabilities?: OmgLiveCapabilities } = {},
+  ) {
+    this.capabilities = options.capabilities ?? {};
+    this.live = new OmgLiveConnection(transport, { capabilities: this.capabilities });
   }
 
   peekSessions(): OmgSession[] | null {
@@ -703,7 +774,7 @@ export class OmgClient {
   // intentionally allowed to differ.
   async getMessages(sessionId: string, limit = 80): Promise<OmgMessagesResponse> {
     return this.transport.request<OmgMessagesResponse>(
-      `/api/sessions/${encodeURIComponent(sessionId)}/messages?limit=${limit}`,
+      `/api/sessions/${encodeURIComponent(sessionId)}/messages?limit=${limit}${capabilityQuery(this.capabilities)}`,
       { cache: "no-store" },
     );
   }

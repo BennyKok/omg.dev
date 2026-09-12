@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## September 12, 2026 - SDK owns transcript capabilities and drafts (v0.6.66)
+
+- `@omg-dev/client`: `new OmgClient(transport, { capabilities: { workRows, deferToolArgs } })` declares the transcript capabilities on every live subscribe frame and on `getMessages`, whatever transport opened the socket. Before this, a client could opt in on one transport and miss the other, which is how the phone showed raw tool rows over omg.dev.
+- `@omg-dev/client`: the live connection emits a `draft` event with the accumulated text and its `kind` (`text` or `thinking`), so a client no longer parses deltas itself or mistakes streamed reasoning for the reply.
+- `@omg-dev/protocol`: `OmgMessage.steps` and `OmgMessage.tool` (work rows), `OmgDraft`, `OmgLiveCapabilities`.
+
 ## September 12, 2026 - One row per run of work, folded on the server (v0.6.65)
 
 - A run of tool calls and thinking now arrives from the server as one "Worked for" row. The web app and the phone no longer build that row themselves, so both show the same rows for the same run.
