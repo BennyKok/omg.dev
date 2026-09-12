@@ -24,6 +24,7 @@ import { LaunchScreen } from "../src/omg/launch";
 import { useLucideFont } from "../src/omg/lucide";
 
 import { OmgProvider, useOmg } from "../src/omg/provider";
+import { AgentLiveActivityBridge } from "../src/omg/agent-live-activity";
 import { useNotificationTapRouting } from "../src/omg/push";
 import { useOtaUpdates } from "../src/omg/ota";
 import { useTheme } from "../src/omg/theme";
@@ -633,6 +634,7 @@ export default function Layout() {
   const { isDark } = useTheme();
   return (
     <OmgProvider>
+      <AgentLiveActivityBridge />
       {/**
        * TELL THE NAVIGATOR WHICH APPEARANCE THIS APP IS IN. It cannot see the
        * palette, and its default is LIGHT.

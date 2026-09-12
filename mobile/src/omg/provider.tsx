@@ -164,7 +164,7 @@ type OmgContextValue = {
 
 const Context = createContext<OmgContextValue | null>(null);
 
-async function controlPlane<T>(name: string, body: unknown = {}): Promise<T> {
+export async function controlPlane<T>(name: string, body: unknown = {}): Promise<T> {
   const token = await getAuthToken();
   if (!token) throw new Error("Please sign in again.");
   const response = await fetch(`${CONTROLPLANE_ORIGIN}/api/computer/${name}`, {

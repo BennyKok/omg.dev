@@ -5,6 +5,7 @@ import {
   diffSessionEvents,
   diffShipEvents,
   errorFrameMessage,
+  fleetStatusFrame,
   forwardToLocalServe,
   isHttpFrame,
   isReportableTransition,
@@ -266,6 +267,28 @@ describe("isTopLevelSession", () => {
   test("subagentDepth 0/null is treated the same as absent — top-level", () => {
     expect(isTopLevelSession(session({ sessionId: "a", subagentDepth: 0 }))).toBe(true);
     expect(isTopLevelSession(session({ sessionId: "a", subagentDepth: null }))).toBe(true);
+  });
+});
+
+describe("fleetStatusFrame", () => {
+  test("reports only top-level work and one privacy-safe attention target", () => {
+    expect(fleetStatusFrame([
+      session({ sessionId: "working", busy: true }),
+      session({ sessionId: "blocked", busy: true, status: "blocked" }),
+      session({ sessionId: "child", busy: true, parentSessionId: "working" }),
+      session({ sessionId: "idle", busy: false }),
+    ], 1234)).toEqual({
+      type: "event",
+      event: "fleet.status",
+      sessionId: "fleet",
+      title: null,
+      project: null,
+      agent: null,
+      runningCount: 2,
+      blockedCount: 1,
+      attentionSessionId: "blocked",
+      ts: 1234,
+    });
   });
 });
 

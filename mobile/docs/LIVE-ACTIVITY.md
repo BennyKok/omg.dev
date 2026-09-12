@@ -1,10 +1,34 @@
-# Live Activity — design, not built
+# Live Activity
 
-Status: **design only**, per the Phase 2 instruction this doc came out of. Nothing here is
-wired up. Written 2026-08-15 alongside the native push work in `src/omg/push.ts` and
-`src/push-native.ts` on the machine — read those first; this reuses the same backend
-notification-worthy events (a session running/blocked, a question waiting) rather than
-inventing a third source of truth.
+Status: **implemented in source on 2026-09-12; native build and APNs credentials are not
+deployed yet.**
+
+## Implemented path
+
+```
+lfg connect → relay → hosted control plane → APNs → ActivityKit
+                                              ↑
+                               iOS registers both token types
+```
+
+- `src/commands/connect.ts` sends `fleet.status` only when the aggregate changes.
+- `src/omg/agent-live-activity.tsx` defines the lock-screen and Dynamic Island views.
+- `expo-widgets` generates the Widget Extension and enables push-to-start.
+- The hosted control plane stores tokens and owns start, update, and end pushes.
+- The lock screen receives counts and an opaque session id. It does not receive prompts,
+  questions, transcripts, or project names.
+
+The hosted control plane needs these secrets:
+
+- `OMG_APNS_KEY_ID`
+- `OMG_APNS_TEAM_ID`
+- `OMG_APNS_PRIVATE_KEY`
+- `OMG_APNS_ENV=sandbox` for development builds. Production is the default.
+
+This first version follows the currently selected, user-owned Computer. Cloud Computers
+and Computers shared by another user do not register a Live Activity.
+
+## Original design record
 
 ## The ask
 
