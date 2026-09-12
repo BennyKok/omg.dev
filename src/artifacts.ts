@@ -12,6 +12,7 @@ import { randomBytes } from "node:crypto";
 import { loadSharp } from "./native-deps.ts";
 import { PATHS } from "./config.ts";
 import type { SessionMsg } from "./sessions.ts";
+import { isArtifactKind } from "./transcript-rows.ts";
 
 function root(): string {
   return join(PATHS.data, "artifacts");
@@ -611,14 +612,7 @@ export function collapseArtifactRetryMessages<T extends {
 }
 
 export function hydrateImageArtifactMessage(message: SessionMsg): SessionMsg | ImageArtifactMessage {
-  if (
-    message.kind !== "image" &&
-    message.kind !== "video" &&
-    message.kind !== "html" &&
-    message.kind !== "file"
-  ) {
-    return message;
-  }
+  if (!isArtifactKind(message.kind)) return message;
   const artifactId = message.id?.startsWith("artifact-") ? message.id.slice("artifact-".length) : null;
   if (!artifactId) return message;
   const artifact = getImageArtifact(artifactId);

@@ -33,6 +33,10 @@ export type Message = {
   id?: string;
   role?: string;
   kind?: string;
+  /** Kind `work`: the steps of one run, folded by the server. Empty means withdrawn. */
+  steps?: Message[];
+  /** An artifact: the display tool call that produced it. */
+  tool?: Message;
   text?: string;
   html?: string;
   ts?: number;
@@ -514,7 +518,7 @@ export function useLiveSocket(
 
   const subscribeChannels = useCallback((channels: LiveChannel[]) => {
     if (!channels.length) return false;
-    return send({ t: "subscribe", channels: channels.map(channelWithResume), deferToolArgs: true });
+    return send({ t: "subscribe", channels: channels.map(channelWithResume), deferToolArgs: true, workRows: true });
   }, [channelWithResume, send]);
 
   const unsubscribeChannels = useCallback((channels: LiveChannel[]) => {
@@ -818,7 +822,7 @@ export function useLiveSocket(
         probeLatency();
         const channels = [...desiredChannelsRef.current.values()];
         if (channels.length) {
-          ws.send(JSON.stringify({ t: "subscribe", channels: channels.map(channelWithResume), deferToolArgs: true }));
+          ws.send(JSON.stringify({ t: "subscribe", channels: channels.map(channelWithResume), deferToolArgs: true, workRows: true }));
           subscribedChannelsRef.current = new Set(channels.map(channelId));
           subscribedRef.current = new Set(channels.filter((channel) => channel.kind === "transcript").map((channel) => channel.key));
         }

@@ -18,7 +18,7 @@ import {
   isSessionIndexKey,
   subscribeIndexedArtifactMessages,
 } from "./transcript-index.ts";
-import { countTranscriptRows } from "./transcript-rows.ts";
+import { countTranscriptRows, foldWorkRows, LiveWorkRows, type ChatRenderMessage } from "./transcript-rows.ts";
 import { ensureChatTranscriptCaughtUp, subscribeChatTranscript } from "./chat-ingest.ts";
 import {
   capturePane,
@@ -47,7 +47,17 @@ import { traceLog } from "./trace-log.ts";
  * identity exists — such a socket can read presence but can never claim to be
  * typing, because there is nobody to attribute the claim to.
  */
-export type LiveWsSocketData = { liveWs: true; rid: string; participantId: string | null };
+export type LiveWsSocketData = {
+  liveWs: true;
+  rid: string;
+  participantId: string | null;
+  /**
+   * The `workRows` capability declared on the upgrade URL (`?workRows=1`).
+   * A client whose live connection is built by a pinned package cannot add a
+   * field to the subscribe frame, but it owns the URL it opens.
+   */
+  workRows?: boolean;
+};
 
 type Evlog = (event: string, fields?: Record<string, unknown>) => void;
 type LiveWs = ServerWebSocket<unknown>;
@@ -193,6 +203,71 @@ export function frameForSocket(
   return deferred;
 }
 
+// The `workRows` capability on the same fan-out transport.
+//
+// Unlike deferral, the fold is STATEFUL per socket: a step re-sends the run it
+// belongs to, so the socket has to remember which run is open — and that is a
+// fact about what THIS socket was sent, which is why the folders live on the
+// socket and are seeded from the snapshot it received. Older pages (`batch`)
+// fold but never seed: they sit above the open run, not at its tail.
+//
+// One stamped frame in, one or two frames out. A step yields one frame (the
+// grown run) and so does any message that closes a run. An artifact yields
+// two — the run without its display call, then the artifact carrying it —
+// and only the LAST keeps the seq. Both clients dispatch a delta with no seq
+// without consulting their cursor, and a resume replays the stamped frame
+// through here again, so the pair is rebuilt exactly.
+export type WorkRowsState = Map<string, LiveWorkRows<WireMessage>>;
+
+type WireMessage = ChatRenderMessage & { kind: string; text: string };
+
+function workRowsFolder(folders: WorkRowsState, sid: string): LiveWorkRows<WireMessage> {
+  let folder = folders.get(sid);
+  if (!folder) {
+    folder = new LiveWorkRows<WireMessage>();
+    folders.set(sid, folder);
+  }
+  return folder;
+}
+
+export function workRowsFrames(
+  folders: WorkRowsState,
+  frame: Record<string, unknown>,
+): Record<string, unknown>[] {
+  if (frame.t === "snapshot" || frame.t === "batch") {
+    if (!Array.isArray(frame.messages)) return [frame];
+    const sid = typeof frame.sid === "string" ? frame.sid : typeof frame.key === "string" ? frame.key : null;
+    const messages = foldWorkRows(frame.messages as WireMessage[]);
+    if (frame.t === "snapshot" && sid) workRowsFolder(folders, sid).seed(messages);
+    return [{ ...frame, messages }];
+  }
+  const delta = frame.delta;
+  if (!delta || typeof delta !== "object") return [frame];
+  const inner = delta as Record<string, unknown>;
+  if (inner.t !== "msg" || typeof inner.sid !== "string") return [frame];
+  const field = inner.message ? "message" : inner.m ? "m" : null;
+  if (!field) return [frame];
+  const out = workRowsFolder(folders, inner.sid).next(inner[field] as WireMessage);
+  return out.map((message, index) => {
+    const shaped: Record<string, unknown> = { ...frame, delta: { ...inner, [field]: message } };
+    if (index < out.length - 1) delete shaped.seq;
+    return shaped;
+  });
+}
+
+/** Every frame one socket should receive for one published frame. */
+export function framesForSocket(
+  state: { deferToolArgs?: boolean; workRows?: WorkRowsState | null },
+  frame: Record<string, unknown>,
+): Record<string, unknown>[] {
+  if (!state.workRows) return [frameForSocket(state, frame)];
+  // Fold first, then defer: the deferral rule reaches into the steps of a row
+  // and the call on an artifact, so the payload one capable socket receives is
+  // the folded shape with names only.
+  const folded = workRowsFrames(state.workRows, frame);
+  return state.deferToolArgs ? folded.map(deferToolArgsInFrame) : folded;
+}
+
 function roundMs(ms: number): number {
   return Math.round(ms * 1000) / 1000;
 }
@@ -335,6 +410,13 @@ type SocketState = {
   // not change while the socket is open. Absent means the full inline payload,
   // which is what every client built before the capability existed receives.
   deferToolArgs: boolean;
+  /**
+   * The `workRows` capability, latched the same way, from the subscribe frame
+   * or the upgrade URL. Holds one live folder per subscribed transcript. Null
+   * means the raw message stream, which is what every client built before the
+   * capability existed receives. See src/transcript-rows.ts.
+   */
+  workRows: WorkRowsState | null;
   /** See LiveWsSocketData. Null means this socket cannot report typing. */
   participantId: string | null;
 };
@@ -444,8 +526,13 @@ export function createLiveWsSupport(opts: {
     for (const ws of openSockets) {
       const state = sockets.get(ws);
       if (!state || state.closed || !state.subscribed.has(id)) continue;
-      safeSend(ws, frameForSocket(state, frame));
+      sendForSocket(state, frame);
     }
+  };
+
+  /** Send one published frame to one socket, in the shape that socket declared. */
+  const sendForSocket = (state: SocketState, frame: Record<string, unknown>) => {
+    for (const shaped of framesForSocket(state, frame)) safeSend(state.ws, shaped);
   };
 
   const publishSid = (sid: string, type: SendType, fields: Record<string, unknown>) => {
@@ -955,7 +1042,7 @@ export function createLiveWsSupport(opts: {
     const id = channelId(channel);
     for (const ws of tail.sockets) {
       const state = sockets.get(ws);
-      if (state && !state.closed && state.subscribed.has(id)) safeSend(ws, frameForSocket(state, frame));
+      if (state && !state.closed && state.subscribed.has(id)) sendForSocket(state, frame);
     }
   }
 
@@ -972,7 +1059,7 @@ export function createLiveWsSupport(opts: {
       let replayed = 0;
       for (const item of chState.ring) {
         if (item.seq > resumeFromSeq) {
-          safeSend(state.ws, frameForSocket(state, item.frame));
+          sendForSocket(state, item.frame);
           replayed++;
         }
       }
@@ -980,7 +1067,7 @@ export function createLiveWsSupport(opts: {
       return true;
     }
     if (resumeFromSeq != null && resumeFromSeq > 0) safeSend(state.ws, stamp(channel, { t: "gap" }));
-    safeSend(state.ws, frameForSocket(state, stamp(channel, await snapshot())));
+    sendForSocket(state, stamp(channel, await snapshot()));
     return false;
   };
 
@@ -1037,6 +1124,7 @@ export function createLiveWsSupport(opts: {
 
   const unsubscribeTranscript = (state: SocketState, sid: string) => {
     state.subscribed.delete(channelId(transcriptChannel(sid)));
+    state.workRows?.delete(sid);
     const tail = sidTails.get(sid);
     if (tail) {
       tail.sockets.delete(state.ws);
@@ -1146,11 +1234,12 @@ export function createLiveWsSupport(opts: {
   };
 
   return {
-    dataForRequest(participantId: string | null = null): LiveWsSocketData {
+    dataForRequest(participantId: string | null = null, capabilities: { workRows?: boolean } = {}): LiveWsSocketData {
       return {
         liveWs: true,
         rid: crypto.randomUUID?.() ?? `ws-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`,
         participantId,
+        ...(capabilities.workRows ? { workRows: true } : {}),
       };
     },
     isLiveSocket(ws: ServerWebSocket<unknown>): boolean {
@@ -1167,6 +1256,7 @@ export function createLiveWsSupport(opts: {
         lastTraffic: Date.now(),
         heartbeat: null,
         deferToolArgs: false,
+        workRows: data?.workRows ? new Map() : null,
         participantId: data?.participantId ?? null,
       };
       sockets.set(ws, state);
@@ -1209,6 +1299,7 @@ export function createLiveWsSupport(opts: {
         limit?: unknown;
         resync?: unknown;
         deferToolArgs?: unknown;
+        workRows?: unknown;
         typing?: unknown;
       };
       if (input.t === "pong") return;
@@ -1226,6 +1317,7 @@ export function createLiveWsSupport(opts: {
         // latched, never cleared, so a resubscribe cannot silently downgrade a
         // client that already renders pills from the deferred shape.
         if (input.deferToolArgs === true) state.deferToolArgs = true;
+        if (input.workRows === true && !state.workRows) state.workRows = new Map();
         const requested = Array.isArray(input.channels) ? input.channels : [];
         const channels = requested
           .map(validChannel)

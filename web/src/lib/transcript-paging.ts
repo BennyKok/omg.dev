@@ -36,12 +36,21 @@ export const LIVE_WINDOW_MAX_MESSAGES = 3000;
 // and receives the payload it has always received.
 export const DEFER_TOOL_ARGS_PARAM = "deferToolArgs=1";
 
+// The `workRows` capability, declared the same way. The server folds every run
+// of tool_use / tool_result / thinking into one `work` message carrying its
+// steps, and puts a display tool call on the artifact it produced. The rule
+// lives in src/transcript-rows.ts and runs there; this client only renders.
+export const WORK_ROWS_PARAM = "workRows=1";
+
+/** Every wire capability this client declares on a transcript request. */
+export const TRANSCRIPT_WIRE_PARAMS = `${DEFER_TOOL_ARGS_PARAM}&${WORK_ROWS_PARAM}`;
+
 export function transcriptPagePath(sid: string): string {
-  return `/api/sessions/${encodeURIComponent(sid)}/messages?limit=${TRANSCRIPT_PAGE_LIMIT}&rows=${TRANSCRIPT_PAGE_ROWS}&${DEFER_TOOL_ARGS_PARAM}`;
+  return `/api/sessions/${encodeURIComponent(sid)}/messages?limit=${TRANSCRIPT_PAGE_LIMIT}&rows=${TRANSCRIPT_PAGE_ROWS}&${TRANSCRIPT_WIRE_PARAMS}`;
 }
 
 export function transcriptOlderPagePath(sid: string, before: number): string {
-  return `/api/sessions/${encodeURIComponent(sid)}/messages?page=backward&before=${before}&limit=${TRANSCRIPT_PAGE_LIMIT}&rows=${TRANSCRIPT_PAGE_ROWS}&${DEFER_TOOL_ARGS_PARAM}`;
+  return `/api/sessions/${encodeURIComponent(sid)}/messages?page=backward&before=${before}&limit=${TRANSCRIPT_PAGE_LIMIT}&rows=${TRANSCRIPT_PAGE_ROWS}&${TRANSCRIPT_WIRE_PARAMS}`;
 }
 
 /** Where the arguments of one deferred tool call are fetched from. */

@@ -356,10 +356,19 @@ export function splitToolUseText(text: string): { name: string; args: string } {
 // Only the text shrinks. The kind, the id and the order are untouched, so the
 // row rule in src/transcript-rows.ts folds the run into exactly the same pill
 // with exactly the same label, and the counter still ticks up live.
-export function deferToolUseArgs<T extends { kind: string; text: string }>(
+export function deferToolUseArgs<T extends { kind: string; text: string; steps?: unknown; tool?: unknown }>(
   messages: T[],
 ): Array<T & { toolArgsLen?: number }> {
   return messages.map((message) => {
+    // A folded row (the workRows capability, src/transcript-rows.ts) carries
+    // its calls as steps, and an artifact carries the display call that made
+    // it. The rule is the same one level down.
+    if (Array.isArray(message.steps)) {
+      return { ...message, steps: deferToolUseArgs(message.steps as Array<{ kind: string; text: string }>) };
+    }
+    if (message.tool && typeof message.tool === "object") {
+      return { ...message, tool: deferToolUseArgs([message.tool as { kind: string; text: string }])[0] };
+    }
     if (message.kind !== "tool_use") return message;
     const { name, args } = splitToolUseText(message.text);
     // No arguments, or a name we cannot split off: send it unchanged. There is
