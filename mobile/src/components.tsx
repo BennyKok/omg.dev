@@ -876,23 +876,6 @@ export function SessionCard({
           <AgentAvatar agent={agent} size={compact ? 28 : SESSION_ROW.avatar} busy={busy} plain />
           <View style={{ flex: 1, gap: SESSION_ROW.textGap, minWidth: 0 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 }}>
-              {/* THE UNREAD DOT LEADS THE TITLE, the way it does on the web
-                  roster and on a bot row: one small filled disc in the tint,
-                  not a count and not a colour change on the text. It is inside
-                  the title row rather than the trailing slot so it cannot
-                  fight the timestamp for the edge. */}
-              {unread ? (
-                <View
-                  accessibilityRole="image"
-                  accessibilityLabel="Unread"
-                  style={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: 4,
-                    backgroundColor: colors.primary,
-                  }}
-                />
-              ) : null}
               <Text
                 numberOfLines={1}
                 style={{
@@ -946,6 +929,16 @@ export function SessionCard({
             {blocked ? (
               <Icon ios="pause.fill" android="pause" size={12} color={colors.warning} />
             ) : null}
+            {/* Keep the trailing slot fixed when a reply is marked read. */}
+            <View style={{ width: 8, height: 8 }}>
+              {unread ? (
+                <View
+                  accessibilityRole="image"
+                  accessibilityLabel="Unread"
+                  style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.primary }}
+                />
+              ) : null}
+            </View>
           </View>
         </PressableScale>
       </Reanimated.View>
