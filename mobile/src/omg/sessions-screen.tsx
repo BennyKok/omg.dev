@@ -144,7 +144,11 @@ function SessionFamily({
 }) {
   const { colors, space, radius } = useTheme();
   const session = node.session;
-  const selected = usePathname() === `/session/${session.sessionId}`;
+  // Only the iPad rail has a current row: the list stays on screen beside
+  // the open session. On a phone the list is a screen you come BACK to, and
+  // a row still tinted then reads as a stuck press, not a selection.
+  const pathname = usePathname();
+  const selected = Platform.OS === "ios" && Platform.isPad && pathname === `/session/${session.sessionId}`;
 
   return (
     <View style={{ alignSelf: "stretch" }}>

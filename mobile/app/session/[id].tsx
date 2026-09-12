@@ -1704,6 +1704,8 @@ export function SessionScreenBody({
     transform: [{ translateY: -Math.max(0, keyboard.height.value - insets.bottom) }],
   }));
   const [composerHeight, setComposerHeight] = useState(0);
+  /** The field has the keyboard: a little more room around the text while typing. */
+  const [composerFocused, setComposerFocused] = useState(false);
 
   /**
    * THE LIFT ALONE IS NOT ENOUGH — the list has to follow it.
@@ -2207,7 +2209,9 @@ export function SessionScreenBody({
             // longer starts at the field's own inset — the button provides it.
             paddingLeft: space.sm,
             paddingRight: space.sm,
-            paddingVertical: 8,
+            // A touch taller while typing, so the caret line does not sit
+            // tight against the glass edge under the keyboard.
+            paddingVertical: composerFocused ? 11 : 8,
             overflow: "hidden",
             // Only when the OS cannot draw glass: the fallback is a flat fill,
             // and a flat fill with no edge disappears into the page.
@@ -2285,12 +2289,20 @@ export function SessionScreenBody({
             onSubmitEditing={() => {
               if (canSend) send(sendMode);
             }}
+            onFocus={() => setComposerFocused(true)}
+            onBlur={() => setComposerFocused(false)}
             style={{
               flex: 1,
               maxHeight: 120,
               // No vertical padding of its own: the box centres it, and
               // padding here would fight that and push the text low again.
               minHeight: 24,
+              // EMPTY IS ONE LINE, NOW. A multiline field keeps its last
+              // measured height after its value is cleared until the next
+              // content-size event, so a sent three-line message left a
+              // three-line box for a beat. Pin the height while there is
+              // nothing in it; the auto-size takes over on the first key.
+              ...(draft.length || dictationTail ? {} : { height: 24 }),
               paddingTop: 0,
               paddingBottom: 0,
               color: colors.text,
