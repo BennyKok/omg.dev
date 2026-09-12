@@ -106,7 +106,6 @@ describe("notifyNativeAll", () => {
         body: "Should I force-push over the release branch in acme/payments?",
         url: "/?session=abc",
         tag: "ask-q1",
-        project: "acme/payments",
       },
     });
 
@@ -116,7 +115,7 @@ describe("notifyNativeAll", () => {
     expect((message.data as { url: string }).url).toBe("/session/abc");
   });
 
-  test("forwards the real title and body, with the project as subtitle", async () => {
+  test("forwards the real title and body, with no folder name", async () => {
     await saveNativeToken({ token: "ExponentPushToken[benny]", user: "benny@example.com" });
     const question = "Should I force-push over the release branch in acme/payments?";
 
@@ -127,14 +126,13 @@ describe("notifyNativeAll", () => {
         body: question,
         url: "/?session=abc",
         tag: "ask-q1",
-        project: "acme/payments",
         requireInteraction: true,
       },
     });
 
     const [message] = sent[0].body as Array<Record<string, unknown>>;
     expect(message.title).toBe("omg needs your input");
-    expect(message.subtitle).toBe("acme/payments");
+    expect(message.subtitle).toBeUndefined();
     expect(message.body).toBe(question);
   });
 

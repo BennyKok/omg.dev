@@ -13,16 +13,17 @@
 // which is worse for both shapes than one extra module.
 //
 // PAYLOAD. The alert carries the real `notification.title` and `.body`,
-// trimmed to what iOS shows on the lock screen, with `project` as the
-// subtitle. An earlier pass sent only a generic line ("omg shipped
-// something / in lfg") so Expo's relay and Apple never saw the text. Benny
-// reversed that on 2026-09-11: a notification that does not say WHAT
-// shipped or WHICH question is waiting is not worth the buzz. The trade is
-// explicit: Expo and APNs can read the alert in transit. Web push still
-// carries the same text end-to-end encrypted (push.ts); native accepts the
-// relay. The text itself is agent-authored at every call site: a ship's
-// `summary`, the agent's last line for a finished session, the question for
-// an ask. What the agent writes there is what the phone shows.
+// trimmed to what iOS shows on the lock screen. An earlier pass sent only a
+// generic line ("omg shipped something / in lfg") so Expo's relay and Apple
+// never saw the text. Benny reversed that on 2026-09-11: a notification
+// that does not say WHAT shipped or WHICH question is waiting is not worth
+// the buzz. The folder name does not belong on the alert — title and body
+// already say the thing. The trade is explicit: Expo and APNs can read the
+// alert in transit. Web push still carries the same text end-to-end
+// encrypted (push.ts); native accepts the relay. The text itself is
+// agent-authored at every call site: a ship's `summary`, the agent's last
+// line for a finished session, the question for an ask. What the agent
+// writes there is what the phone shows.
 //
 // USER SCOPING mirrors push.ts exactly: a token is bound to a `user` string
 // at register time, and a targeted send filters to tokens for that user only
@@ -139,12 +140,11 @@ function firstSentence(text: string): string {
   return m ? m[0] : one;
 }
 
-/** The alert this device receives: the real title and body, project as subtitle. */
-export function alertFor(notification: PushNotification): { title: string; subtitle?: string; body?: string } {
+/** The alert this device receives: the real title and body. No folder name. */
+export function alertFor(notification: PushNotification): { title: string; body?: string } {
   const body = notification.body ? clip(firstSentence(notification.body), BODY_MAX) : undefined;
   return {
     title: clip(notification.title, TITLE_MAX) || "omg",
-    ...(notification.project ? { subtitle: clip(notification.project, TITLE_MAX) } : {}),
     ...(body ? { body } : {}),
   };
 }

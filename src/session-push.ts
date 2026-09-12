@@ -82,8 +82,6 @@ export function startSessionPushBridge(): void {
             // Per session, so a second completion replaces that session's
             // notice rather than stacking another one behind it.
             tag: `session-${ev.sessionId}`,
-            // Native shows this as the alert subtitle (see push-native.ts).
-            project: ev.project,
           },
         });
       })().catch(() => {});

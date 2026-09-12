@@ -7314,31 +7314,23 @@ a{color:#60a5fa}
         // Carry the question in the push itself. A wake-only push would make
         // the worker fetch /api/push/pending, which it can only reach when the
         // app is served from this box.
-        void (async () => {
-          const askSession = q.sessionId
-            ? (await listSessions()).find(
-                (s) => s.sessionId === q.sessionId || s.nativeSessionId === q.sessionId,
-              )
-            : undefined;
-          await notifyAll({
-            user: q.user,
-            notification: {
-              title: "omg needs your input",
-              body:
-                q.options?.length
-                  ? `${q.question} — ${q.options.join(" / ")}`
-                  : q.question,
-              // Straight to the session asking, not just the app root, so a
-              // tap — on any platform — lands on the actual question. Asks
-              // are always tied to a running session in practice; "/" is only
-              // ever a fallback for a hand-authored question with none.
-              url: q.sessionId ? `/?session=${encodeURIComponent(q.sessionId)}` : "/",
-              tag: `ask-${q.id}`,
-              requireInteraction: true,
-              project: askSession?.project,
-            },
-          });
-        })().catch(() => {});
+        void notifyAll({
+          user: q.user,
+          notification: {
+            title: "omg needs your input",
+            body:
+              q.options?.length
+                ? `${q.question} — ${q.options.join(" / ")}`
+                : q.question,
+            // Straight to the session asking, not just the app root, so a
+            // tap — on any platform — lands on the actual question. Asks
+            // are always tied to a running session in practice; "/" is only
+            // ever a fallback for a hand-authored question with none.
+            url: q.sessionId ? `/?session=${encodeURIComponent(q.sessionId)}` : "/",
+            tag: `ask-${q.id}`,
+            requireInteraction: true,
+          },
+        }).catch(() => {});
         // Pushback asks never block — the answer arrives via session injection.
         if (q.pushback || b.wait === false) return json({ id: q.id, status: q.status });
         // Cap the block so a stuck request can't pin a connection forever.
@@ -9660,7 +9652,6 @@ a{color:#60a5fa}
                   ? `/?session=${encodeURIComponent(post.sessionId)}`
                   : "/notifications",
                 tag: `shipped-${post.id}-${post.rev}`,
-                project: post.project,
               },
             }).catch(() => {});
             // Publishing is not a lifecycle event: the source session stays
