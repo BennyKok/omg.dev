@@ -1,7 +1,7 @@
 /**
  * THE "+" PILL: start something new with a preset.
  *
- * Four kinds, one card. Pick what to make, say where (a new project folder
+ * Four kinds, one full-screen form. Pick what to make, say where (a new project folder
  * beside the others, or an existing one), read or edit the preset prompt,
  * Start. Websites, slides and images go through the artifacts the agent can
  * already publish; the iOS app preset points the agent at Expo and the
@@ -9,13 +9,13 @@
  * session itself starts through the same request the composer uses.
  */
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
+import { ActivityIndicator, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import * as Haptics from "expo-haptics";
 import type { AndroidSymbol, SFSymbol } from "expo-symbols";
 
 import { Icon } from "../components";
-import { Sheet } from "./sheet";
 import { PressableScale } from "./motion";
 import type { FolderRow } from "./session-options";
 import { Text, TextInput } from "./text";
@@ -81,6 +81,7 @@ export function CreateSheet({
   launch: (args: { prompt: string; cwd: string }) => Promise<void>;
 }) {
   const { colors, type, space, radius } = useTheme();
+  const insets = useSafeAreaInsets();
   /**
    * THREE STEPS, ONE QUESTION EACH. What, where, and what it should be. The
    * single tall card asked all three at once and the preset prose under
@@ -100,7 +101,7 @@ export function CreateSheet({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (visible) return;
+    if (visible) { Keyboard.dismiss(); return; }
     setStep(0);
     setKind("ios");
     setWhere("new");
@@ -144,6 +145,7 @@ export function CreateSheet({
   };
 
   const go = (next: 0 | 1 | 2) => {
+    Keyboard.dismiss();
     void Haptics.selectionAsync();
     setStep(next);
   };
@@ -160,12 +162,26 @@ export function CreateSheet({
     </PressableScale>
   );
 
+  const close = () => { Keyboard.dismiss(); onClose(); };
+
   return (
-    <Sheet visible={visible} onClose={onClose}>
+    <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={close}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={{ flex: 1, backgroundColor: colors.bg }}
+      >
+      <View style={{ flex: 1, paddingTop: insets.top, paddingBottom: insets.bottom }}>
+        <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: space.lg, paddingBottom: space.md }}>
+          <Text style={{ ...type.title, color: colors.text, flex: 1 }}>New project</Text>
+          <Pressable onPress={close} accessibilityRole="button" accessibilityLabel="Close new project" style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
+            <Icon ios="xmark" android="close" size={18} color={colors.text} />
+          </Pressable>
+        </View>
       <ScrollView
         bounces={false}
         keyboardShouldPersistTaps="handled"
-        style={{ maxHeight: 560 }}
+        style={{ flex: 1 }}
+        keyboardDismissMode="on-drag"
         contentContainerStyle={{ paddingBottom: space.lg, gap: space.md }}
       >
         {/* Header: back on steps 2 and 3, the question, and where you are. */}
@@ -233,7 +249,6 @@ export function CreateSheet({
                   onChangeText={setName}
                   placeholder="Project name"
                   placeholderTextColor={colors.textMuted}
-                  autoFocus
                   autoCapitalize="none"
                   autoCorrect={false}
                   returnKeyType="next"
@@ -296,7 +311,6 @@ export function CreateSheet({
                       : "A flat illustration of a lighthouse at dusk…"
               }
               placeholderTextColor={colors.textMuted}
-              autoFocus
               multiline
               scrollEnabled={false}
               style={{ ...type.callout, lineHeight: 21, color: colors.text, backgroundColor: colors.card, borderRadius: radius.lg, paddingHorizontal: space.md, paddingVertical: 10, minHeight: 96 }}
@@ -323,6 +337,8 @@ export function CreateSheet({
           </View>
         ) : null}
       </ScrollView>
-    </Sheet>
+      </View>
+      </KeyboardAvoidingView>
+    </Modal>
   );
 }
