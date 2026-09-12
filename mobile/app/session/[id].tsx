@@ -604,8 +604,14 @@ export function SessionScreenBody({
     let cancelled = false;
     if (!client || !id) return;
     setLoading(true);
-    client
-      .getMessages(id, limit)
+    // Not `client.getMessages`: the page declares `workRows=1`, the same
+    // capability transport.ts puts on the socket, so history and the live
+    // stream arrive in one shape.
+    client.transport
+      .request<{ messages?: Entry[] }>(
+        `/api/sessions/${encodeURIComponent(id)}/messages?limit=${limit}&workRows=1`,
+        { cache: "no-store" },
+      )
       .then((res) => {
         if (cancelled) return;
         setMessages(res.messages ?? []);

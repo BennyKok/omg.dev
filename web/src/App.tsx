@@ -434,7 +434,7 @@ import {
 } from "./lib/chat-render-items";
 import { isDeferredToolUse, useDeferredToolArgs } from "./lib/deferred-tool-args";
 import {
-  DEFER_TOOL_ARGS_PARAM,
+  TRANSCRIPT_WIRE_PARAMS,
   loadOlderIntent,
   toolArgsPath,
   transcriptOlderPagePath,
@@ -1062,6 +1062,12 @@ type Message = {
   // the word-by-word streaming reveal. See DRAFT_CATCHUP_MIN_CHARS.
   catchUp?: boolean;
   author?: MessageAuthorRef;
+  // Kind `work`: the steps of one run, folded by the server (the workRows
+  // capability, src/transcript-rows.ts). The row is re-sent under the same
+  // id as the run grows; an empty list withdraws it.
+  steps?: Message[];
+  // An artifact: the display tool call that produced it.
+  tool?: Message;
 };
 
 type AiStreamPart = {
@@ -3045,7 +3051,13 @@ function collapseThinkingRuns(messages: Message[]) {
 
 // Media order is owned by the server transcript index. Append live media at the
 // tail; never re-sort by timestamp (that raced a second artifact poll stream).
+// A work row that is already in the list is the same run one step longer:
+// replace it in place.
 function appendLiveMessage(messages: Message[], message: Message): Message[] {
+  if (message.kind === "work" && message.id) {
+    const index = messages.findIndex((item) => item.id === message.id);
+    if (index >= 0) return messages.map((item, at) => (at === index ? message : item));
+  }
   return [...messages, message];
 }
 
@@ -4964,7 +4976,7 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
     const draftSeen = new Set<string>();
     evlog("live_stream_client_start", { rid, ids, idsCount: ids.length });
     const es = new EventSource(
-      `/api/live/stream?ids=${ids.join(",")}&rid=${encodeURIComponent(rid)}&${DEFER_TOOL_ARGS_PARAM}`,
+      `/api/live/stream?ids=${ids.join(",")}&rid=${encodeURIComponent(rid)}&${TRANSCRIPT_WIRE_PARAMS}`,
     );
     es.onopen = () => {
       evlog("live_stream_client_open", {
@@ -5008,7 +5020,9 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
         });
       }
       setLoadingBySid((prev) => ({ ...prev, [sid]: false }));
-      if (message.id && message.kind !== "thinking") {
+      // A work row is re-sent under the same id each time its run grows, so
+      // seeing the id again is the point, not a duplicate.
+      if (message.id && message.kind !== "thinking" && message.kind !== "work") {
         const seen = seenRef.current[sid] || (seenRef.current[sid] = new Set());
         if (seen.has(message.id)) return;
         seen.add(message.id);

@@ -285,7 +285,7 @@ import {
   type SessionMsg,
 } from "../sessions.ts";
 import { markSessionRead, sessionUnreadMap } from "../session-reads.ts";
-import { countTranscriptRows } from "../transcript-rows.ts";
+import { countTranscriptRows, foldWorkRows, LiveWorkRows, type ChatRenderMessage } from "../transcript-rows.ts";
 import {
   invalidateListSessionsCache,
   listSessionsCached,
@@ -2400,24 +2400,35 @@ function withImageArtifacts<T extends { role: string; kind: string; text: string
   );
 }
 
+// The wire shape of a page of transcript, in the order the capabilities apply:
+// what a client may see, then names only, then rows. The fold goes last so
+// the calls inside a row are the deferred ones.
 function transcriptMessagesForClient<T extends { role: string; kind: string; text: string; ts?: number | null; id?: string | null }>(
   sessionId: string,
   messages: T[],
-  opts: { deferToolArgs?: boolean } = {},
+  opts: { deferToolArgs?: boolean; workRows?: boolean } = {},
 ): Array<T | ImageArtifactMessage> {
   const visible = withImageArtifacts(sessionId, visibleTranscriptMessages(messages));
-  return opts.deferToolArgs ? deferToolUseArgs(visible) : visible;
+  const shaped = opts.deferToolArgs ? deferToolUseArgs(visible) : visible;
+  return opts.workRows ? foldWorkRows(shaped) : shaped;
 }
 
+/** One SSE connection's live folder for one session; see LiveWorkRows. */
+type LiveFolder = LiveWorkRows<ChatRenderMessage & { kind: string; text: string }>;
+
 // The live half of transcriptMessagesForClient. A streamed message needs the
-// same two wire filters, but not the artifact hydration: artifacts arrive on
-// their own subscription, already hydrated.
+// same wire filters, but not the artifact hydration: artifacts arrive on
+// their own subscription, already hydrated. With a folder, each message
+// becomes the rows to send for it — the open run re-sent one step longer, or
+// the message that closed it.
 function liveTranscriptMessagesForClient<T extends { kind: string; text: string }>(
   messages: T[],
-  opts: { deferToolArgs?: boolean } = {},
+  opts: { deferToolArgs?: boolean; workRows?: LiveFolder | null } = {},
 ): T[] {
   const visible = visibleTranscriptMessages(messages);
-  return opts.deferToolArgs ? (deferToolUseArgs(visible) as T[]) : visible;
+  const shaped = opts.deferToolArgs ? (deferToolUseArgs(visible) as T[]) : visible;
+  const folder = opts.workRows;
+  return folder ? shaped.flatMap((message) => folder.next(message) as T[]) : shaped;
 }
 
 // The `deferToolArgs` capability, as a query parameter.
@@ -2428,6 +2439,14 @@ function liveTranscriptMessagesForClient<T extends { kind: string; text: string 
 // environment variable and no configuration for it.
 function requestedDeferToolArgs(url: URL): boolean {
   return url.searchParams.get("deferToolArgs") === "1";
+}
+
+// The `workRows` capability, as a query parameter. Same contract: a client
+// that omits it receives every tool call and thought as its own message and
+// folds them itself, exactly as it always has. A client that declares it
+// receives each run as one `work` row (see src/transcript-rows.ts).
+function requestedWorkRows(url: URL): boolean {
+  return url.searchParams.get("workRows") === "1";
 }
 
 // Rows as the client will count them: the shared row model applied to the
@@ -4201,7 +4220,9 @@ export async function cmdServe() {
         const wsTag = resolveSessionUserTag(wsRequestedUser);
         const wsViewer = botViewerFromRequest(req, wsTag.ok ? wsTag.user : undefined);
         const ok = server.upgrade(req, {
-          data: liveWs.dataForRequest(viewerConversationParticipantId(wsViewer.identity)),
+          data: liveWs.dataForRequest(viewerConversationParticipantId(wsViewer.identity), {
+            workRows: requestedWorkRows(url),
+          }),
         });
         if (ok) return undefined; // upgraded — Bun takes over the socket
         return err(400, "expected a websocket upgrade");
@@ -10129,6 +10150,7 @@ a{color:#60a5fa}
           // because a run of tool calls collapses into one.
           const rows = requestedRows(url);
           const deferToolArgs = requestedDeferToolArgs(url);
+          const workRows = requestedWorkRows(url);
           if (url.searchParams.get("page") === "backward") {
             const rawLimit = parseInt(url.searchParams.get("limit") ?? "220", 10);
             const limit = Number.isFinite(rawLimit) ? rawLimit : 220;
@@ -10147,7 +10169,7 @@ a{color:#60a5fa}
               id: m[1],
               total: page.total,
               nextBefore: page.nextBefore,
-              messages: transcriptMessagesForClient(m[1], page.messages, { deferToolArgs }).map(msgWithHtml),
+              messages: transcriptMessagesForClient(m[1], page.messages, { deferToolArgs, workRows }).map(msgWithHtml),
             });
           }
           const full = url.searchParams.get("full") === "1";
@@ -10167,7 +10189,7 @@ a{color:#60a5fa}
             id: m[1],
             total: page.total,
             nextBefore: page.nextBefore,
-            messages: transcriptMessagesForClient(m[1], page.messages, { deferToolArgs }).map(msgWithHtml),
+            messages: transcriptMessagesForClient(m[1], page.messages, { deferToolArgs, workRows }).map(msgWithHtml),
           });
         }
       }
@@ -10521,7 +10543,19 @@ a{color:#60a5fa}
         // Per-connection capability, declared on the stream URL. Absent means
         // the old payload, so an older EventSource client is unchanged.
         const deferToolArgs = requestedDeferToolArgs(url);
-        evlog("live_stream_request", { rid, ids, idsCount: ids.length, deferToolArgs });
+        const workRows = requestedWorkRows(url);
+        // One live folder per session on this connection, or none at all.
+        const workFolders = new Map<string, LiveFolder>();
+        const folderFor = (sid: string): LiveFolder | null => {
+          if (!workRows) return null;
+          let folder = workFolders.get(sid);
+          if (!folder) {
+            folder = new LiveWorkRows();
+            workFolders.set(sid, folder);
+          }
+          return folder;
+        };
+        evlog("live_stream_request", { rid, ids, idsCount: ids.length, deferToolArgs, workRows });
         type LivePane = { sid: string; tp: string | null; target: string | null; agent: Session["agent"] | null };
         let panes: LivePane[] = [];
 
@@ -10568,7 +10602,10 @@ a{color:#60a5fa}
             artifactUnsub = subscribeIndexedArtifactMessages(({ sessionId, message }) => {
               if (closed || !ids.includes(sessionId)) return;
               markMessage(sessionId);
-              send(`event: msg\ndata: ${JSON.stringify({ sid: sessionId, m: msgWithHtml(message) })}\n\n`);
+              const messages = liveTranscriptMessagesForClient([message], { deferToolArgs, workRows: folderFor(sessionId) });
+              for (const msg of messages) {
+                send(`event: msg\ndata: ${JSON.stringify({ sid: sessionId, m: msgWithHtml(msg) })}\n\n`);
+              }
             });
             const subscribeTranscriptOne = (p: LivePane, tp: string) => {
               if (transcriptUnsubs.has(p.sid)) return;
@@ -10577,7 +10614,10 @@ a{color:#60a5fa}
                 p.sid,
                 subscribeChatTranscript(tp, p.sid, (event) => {
                   if (closed) return;
-                  const messages = liveTranscriptMessagesForClient(event.messages, { deferToolArgs });
+                  const messages = liveTranscriptMessagesForClient(event.messages, {
+                    deferToolArgs,
+                    workRows: folderFor(p.sid),
+                  });
                   if (messages.length) markMessage(p.sid);
                   for (const msg of messages) {
                     send(`event: msg\ndata: ${JSON.stringify({ sid: p.sid, m: msgWithHtml(msg) })}\n\n`);
@@ -10735,7 +10775,11 @@ a{color:#60a5fa}
                   const renderT0 = performance.now();
                   const msgs = transcriptMessagesForClient(p.sid, page.messages, {
                     deferToolArgs,
+                    workRows,
                   }).map(msgWithHtml);
+                  // A run at the end of the backlog is still open: the next
+                  // step re-sends it, so the folder must know about it.
+                  folderFor(p.sid)?.seed(msgs);
                   evlog("live_stream_backlog", {
                     rid,
                     sid: p.sid,
@@ -10817,8 +10861,9 @@ a{color:#60a5fa}
           const tp = await resolveTranscript(m[1]);
           if (!tp) return err(404, "session transcript not found");
           const target = session?.tmuxTarget ?? null;
-          // Same per-connection capability as /api/live/stream.
+          // Same per-connection capabilities as /api/live/stream.
           const deferToolArgs = requestedDeferToolArgs(url);
+          const workFolder: LiveFolder | null = requestedWorkRows(url) ? new LiveWorkRows() : null;
           let iv: ReturnType<typeof setInterval> | null = null;
           let pi: ReturnType<typeof setInterval> | null = null;
           let di: ReturnType<typeof setInterval> | null = null;
@@ -10858,7 +10903,8 @@ a{color:#60a5fa}
               artifactUnsub = subscribeIndexedArtifactMessages(({ sessionId, message }) => {
                 if (closed || sessionId !== sid) return;
                 lastMessageAt = Date.now();
-                send(`event: msg\ndata: ${JSON.stringify(msgWithHtml(message))}\n\n`);
+                const messages = liveTranscriptMessagesForClient([message], { deferToolArgs, workRows: workFolder });
+                for (const msg of messages) send(`event: msg\ndata: ${JSON.stringify(msgWithHtml(msg))}\n\n`);
               });
               const ensureTranscript = async () => {
                 if (closed) return;
@@ -10866,7 +10912,10 @@ a{color:#60a5fa}
                   if (!transcriptUnsub) {
                     transcriptUnsub = subscribeChatTranscript(tp, sid, (event) => {
                       if (closed) return;
-                      const messages = liveTranscriptMessagesForClient(event.messages, { deferToolArgs });
+                      const messages = liveTranscriptMessagesForClient(event.messages, {
+                        deferToolArgs,
+                        workRows: workFolder,
+                      });
                       if (messages.length) lastMessageAt = Date.now();
                       for (const msg of messages) send(`event: msg\ndata: ${JSON.stringify(msgWithHtml(msg))}\n\n`);
                     });
@@ -10896,8 +10945,9 @@ a{color:#60a5fa}
                 const msgs = transcriptMessagesForClient(
                   sid,
                   page.messages,
-                  { deferToolArgs },
+                  { deferToolArgs, workRows: !!workFolder },
                 ).map(msgWithHtml);
+                workFolder?.seed(msgs);
                 for (const msg of msgs)
                   send(`event: msg\ndata: ${JSON.stringify(msg)}\n\n`);
                 await ensureTranscript();
