@@ -206,9 +206,7 @@ export async function reportClientError(
     });
     // Carry the text in the push. A contentless wake would make the worker
     // fetch the finding back from this box, which a device running the app on
-    // a hosted origin cannot do. No `project`: a client error is always about
-    // this app's own web/src, so naming it would add nothing a generic "omg
-    // found something" doesn't already say.
+    // a hosted origin cannot do.
     void notifyAll({
       notification: {
         title,

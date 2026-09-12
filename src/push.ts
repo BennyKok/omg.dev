@@ -66,12 +66,6 @@ export type PushNotification = {
   tag?: string;
   /** Keep the notice on screen until acted on — used for questions. */
   requireInteraction?: boolean;
-  /**
-   * The project/repo this notice is about, e.g. "vibes" or "acme/payments" —
-   * a label, never a question or a body of text. Native push shows it as the
-   * alert subtitle above the real body (see push-native.ts).
-   */
-  project?: string;
 };
 
 type VapidFile = {
