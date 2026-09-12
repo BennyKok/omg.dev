@@ -3,7 +3,6 @@
 // module stays as the client's import path for it.
 export {
   buildChatRenderItems,
-  chatRenderItemMessageCount,
   countTranscriptRows,
   splitQueuedRenderItems,
   toolGroupLabel,

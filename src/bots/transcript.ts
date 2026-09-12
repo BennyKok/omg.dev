@@ -144,7 +144,9 @@ export function botRosterPreview(rawPreview: string | undefined, busy = false): 
  * Images, video and artifacts stay. A bot that answers you with a picture chose
  * to hand you that picture; it is the reply, not the machinery behind it.
  */
-const HIDDEN_IN_BOT_CHAT = new Set(["tool_use", "tool_result", "thinking"]);
+// `work` is the same traffic folded into one row by the workRows capability
+// (src/transcript-rows.ts).
+const HIDDEN_IN_BOT_CHAT = new Set(["tool_use", "tool_result", "thinking", "work"]);
 
 export function isBotHiddenLogKind(kind: string | undefined): boolean {
   return !!kind && HIDDEN_IN_BOT_CHAT.has(kind);

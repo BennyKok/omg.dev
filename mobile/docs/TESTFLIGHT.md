@@ -5,6 +5,25 @@ read off the EAS docs.
 
 ## Current state
 
+### Build 44 submission failure (2026-09-12)
+
+Build `fb2a122a-61e0-4037-a85f-281bea17ff2c` (1.0.4, build 44,
+commit `f2338276f`) built successfully in workflow run `34671132554`,
+but Apple rejected the upload. The retry submission
+[`f85d679b-c143-4378-a890-3186ae91f6ff`](https://expo.dev/accounts/bennykok/projects/lfg-native/submissions/f85d679b-c143-4378-a890-3186ae91f6ff)
+reports errors `90062` and `90186`: version 1.0.4 is already approved and
+its pre-release train is closed. Retrying that IPA cannot resolve this.
+
+`app.json` now targets **1.0.5** for the next native build. This is a local
+configuration change, not a submitted build. EAS owns the incrementing build
+number. Run the production `mobile-release.yml` workflow with submission
+enabled after landing this change; verify acceptance in App Store Connect.
+The document picker still needs that new binary.
+
+The `appVersion` runtime policy also makes the next iOS runtime **1.0.5**.
+Future OTA updates from this configuration will not reach installed 1.0.4
+builds. The existing 1.0.4 OTA group remains separate from this build fix.
+
 | | |
 |---|---|
 | Expo account | `bennykok` / itechbenny@gmail.com |
@@ -18,7 +37,7 @@ read off the EAS docs.
 | App Store | **LIVE since 2026-09-01T02:04:11Z** — version 1.0, build 37, released manually. `asc-status` now reports `Store: LIVE ... storefront us`. |
 | `asc-status` store probe | Fixed 2026-09-01. It had called the iTunes lookup with no `country`, which answered `resultCount 0` for a live app three times out of three, so it printed `Store: not live` for hours after release and the review-watch bot repeated it. It now asks `us,hk,gb,jp` in order and reports the first storefront that answers. A total lookup failure reads as unknown, not as not-live. **The script lives at `~/.local/bin/asc-status` and is NOT in this repository**, so the fix is on this box only. |
 | Latest TestFlight build | `1.0.4 (43)` — built and submitted 2026-09-11 through `mobile-release.yml` run 34596013572 from `ef313281c`. FIRST BINARY WITH `react-native-key-command` and `modules/omg-key-commands` plus `plugins/with-key-commands.js` (hardware keyboard shortcuts on iPad; ⌘/ lists them). Uploaded to App Store Connect (`Latest build: 43 VALID`); version `1.0.4` stays attached to build 42, which is in review. Key commands could not be exercised on the simulator (injected ⌘ presses never became iOS key commands; React Native's own ⌘D did not fire either), so they are unverified until someone presses ⌘/ on a real iPad with build 43 from TestFlight. Build 42 (review) and 41 (superseded) are earlier the same day. |
-| EAS Update | live, branch `production`, runtimeVersion policy `appVersion`; last group `9cc911a7-710a-48af-aff3-22e40809dc91` (2026-09-12, runtime `1.0.4`, `gitCommitHash cd3d7186b`) — see the publish log below |
+| EAS Update | live, branch `production`, runtimeVersion policy `appVersion`; last group `c80754bc-6fa7-41b1-b55f-e7da5ab87df1` (2026-09-12, runtime `1.0.4`, `gitCommitHash d9f6fa524`) — see the publish log below |
 
 ## Publish log (`production` channel)
 
@@ -77,6 +96,7 @@ command didn't error."
 | 2026-09-12 | `c58bfec9-2505-4184-8ccf-a5cfbe6396ff` | `fbb9a9236` (run `34666248775`) | Send button follows the machine's `composerSendMode`: tap takes the setting, hold takes the other mode; the Queued chip only when the message is actually held. Ask-user questions (`omg_input`) now show as a card above the composer of the session that asked, with one-tap options; typing in the composer answers with `deliver: false`, as on the web. | `git diff b44cd5959 fbb9a9236 -- mobile/package.json mobile/app.json mobile/bun.lock` is empty, so no native surface moved since build 43. Published through `.github/workflows/mobile-ota.yml`; runtime `1.0.4` and the group id read from the `Publish update` step log. |
 | 2026-09-12 | `8c066d69-aadc-49ec-a9d3-24c3b6ff40a5` | `98c1cbdd3` (run `34669650725`) | Queued sends drawn as the web's card: one card tucked under the field, a count in the header, only the next message when collapsed with a +N chip, all numbered when expanded, edit in place, cross to drop. New arrow on a row sends it now: DELETE from the queue, then the plain steer send. ⌘↩ on a hardware keyboard sends with the alternate mode, as ⌘/Ctrl+Enter on the web; listed in the shortcuts sheet. | `git diff fbb9a9236 98c1cbdd3 -- mobile/package.json mobile/app.json mobile/bun.lock` is empty, so no native surface moved since build 43. Card seen on the simulator collapsed, expanded, and with the arrow, against real held rows in a live session; the arrow itself was not tapped because it would have interrupted the verifying agent. Published through `.github/workflows/mobile-ota.yml`; runtime `1.0.4` and the group id read from the `Publish update` step log. |
 | 2026-09-12 | `9cc911a7-710a-48af-aff3-22e40809dc91` | `cd3d7186b` (run `34670973259`) | Photo Library picks videos as well as photos; files over 8 MB upload in 8 MB parts through the chunk route (the machine caps one body at 32 MB); non-image attachments draw a glyph tile. Videos use a transcoding preset, because passthrough's PHAsset fast path raised a full-photo-library prompt. Row tint on the home list only on iPad; chat field 11pt vertical padding while focused; an empty field is one line at once. A new "Choose File" row is backed by `expo-document-picker`, which is NOT in build 43: it is required lazily and shows an "Update the app" alert on this binary. | **`package.json` and `bun.lock` moved** (`expo-document-picker ~57.0.2` added), so the workflow's native-surface step warned. Safe on build 43 because nothing imports the module at load; verified on the simulator: the row alerts, the app keeps running. Video pick verified after `simctl privacy reset photos`: no prompt, 27.9 KB sample landed in `lfg-uploads`. Choose File itself needs build 44 (`mobile-release.yml`). |
+| 2026-09-12 | `c80754bc-6fa7-41b1-b55f-e7da5ab87df1` | `d9f6fa524` (run `34672720005`) | Transcript rows come folded from the machine: the socket URL and the page fetch declare `workRows=1`, so every run of thoughts and tool calls arrives as one `work` message and `buildTranscriptItems` maps it instead of folding. A displayed image, file, or video rides on the artifact as `tool`. The rule is `src/transcript-rows.ts` in the lfg repository (v0.6.65). A machine that predates the capability still sends raw rows, which render one per message. | `git diff cd3d7186b d9f6fa524 -- mobile/package.json mobile/app.json mobile/app.config.js` is empty; runtime `1.0.4` unchanged. Published at `d9f6fa524`, before `e708a37eb` moved `app.json` to 1.0.5, so this is the last 1.0.4 group. Mobile type check passed. Not checked on a device before publishing; web verified end to end against the deployed server. Group, commit and runtime read back with `eas update:view c80754bc-6fa7-41b1-b55f-e7da5ab87df1 --json` (ios+android, `gitCommitHash d9f6fa524`). |
 
 ## Which change needs which pipeline
 

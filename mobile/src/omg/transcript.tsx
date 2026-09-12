@@ -95,6 +95,14 @@ export type Entry = OmgMessage & {
    * one arriving. Set only on confirmed echoes; never persisted.
    */
   localKey?: string;
+  /**
+   * Kind `work`: the steps of one run — thoughts and tool calls, in order —
+   * folded by the machine. The row is re-sent under the same id as the run
+   * grows; an empty list withdraws it.
+   */
+  steps?: Entry[];
+  /** An artifact: the display tool call that produced it. */
+  tool?: Entry;
 };
 
 /**
@@ -206,19 +214,18 @@ const isThought = (message?: Entry) => message?.kind === "thinking";
 
 /** A pause long enough to earn a stamp between groups. Messages uses about an hour; this is a working chat. */
 const STAMP_GAP_MS = 15 * 60_000;
-const isWork = (message?: Entry) => isCall(message) || isResult(message) || isThought(message);
-
 /**
- * A RUN IS THE THOUGHTS AND THE TOOL CALLS TOGETHER. The agent thinks, calls
- * something, thinks about the result, calls again: one stretch of work, and
- * one row — "Worked for 12s" — that opens into every step. Split by kind it
- * read as "Thought", "2 × shell", "Thought", "1 × shell", none of which say
- * anything until opened. Same rule as the web's buildChatRenderItems.
+ * A RUN ARRIVES FOLDED. The machine sends every stretch of thoughts and tool
+ * calls as one message of kind `work` carrying its `steps` — the `workRows`
+ * capability, declared on the socket URL in transport.ts and on the page
+ * fetch in app/session/[id].tsx. The rule is src/transcript-rows.ts in the
+ * lfg repository, and it runs there: this screen no longer decides what a run
+ * is. A `work` row is a run, two adjacent ones are one run (a page seam), and
+ * a row with no steps was withdrawn and draws nothing.
  *
- * Two exceptions, both because the thought is the only thing on screen:
- *   - a thought with no tool call anywhere near it stays a row of its own;
- *   - the thought still streaming at the END of the transcript stays out of
- *     the run above it, so the live reasoning is readable without a tap.
+ * A raw tool call or thought — from a machine whose server predates the
+ * capability — lands on its own readable row rather than being folded here,
+ * so there is one copy of the rule and it is not this one.
  *
  * `busy` marks the run at the end of the transcript as live: its label counts
  * up until the agent moves on.
@@ -258,32 +265,30 @@ export function buildTranscriptItems(
       index += 1;
       continue;
     }
-    if (!isWork(message)) {
+    if (message.kind !== "work") {
       pushMessage(message, index);
       index += 1;
       continue;
     }
     let end = index;
-    while (end < messages.length && isWork(messages[end])) end += 1;
-    /**
-     * EVERY STRETCH OF WORK IS ONE ROW, whatever it holds. A lone thought,
-     * a single tool call, a thought still streaming at the end: they used
-     * to stay out as rows of their own, so a turn read "Thinking", "Bash",
-     * "Thinking", "Working" down the screen. One "Working for 12s" row
-     * now, opening into every step; the footer shows only when there is no
-     * live run to say it.
-     */
-    const run = messages.slice(index, end);
-    const tools = run.filter((entry) => !isThought(entry));
-    stamp(message.ts, `tools-${entryKey(message, index)}`);
-    items.push({
-      type: "tools",
-      key: `tools-${entryKey(message, index)}`,
-      pairs: buildToolPairs(tools, index),
-      entries: run,
-      nextTs: messages[end]?.ts ?? null,
-      live: !!options.busy && end === messages.length,
-    });
+    const run: Entry[] = [];
+    while (end < messages.length && messages[end].kind === "work") {
+      run.push(...(messages[end].steps ?? []));
+      end += 1;
+    }
+    if (run.length) {
+      const tools = run.filter((entry) => !isThought(entry));
+      const key = `tools-${entryKey(message, index)}`;
+      stamp(message.ts, key);
+      items.push({
+        type: "tools",
+        key,
+        pairs: buildToolPairs(tools, index),
+        entries: run,
+        nextTs: messages[end]?.ts ?? null,
+        live: !!options.busy && end === messages.length,
+      });
+    }
     index = end;
   }
 

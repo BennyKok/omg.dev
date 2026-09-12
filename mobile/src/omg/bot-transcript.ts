@@ -51,7 +51,9 @@ export function isBotLaunchOnlyText(text: string): boolean {
 /** Transcript kinds a bot chat does not show — the machinery behind a reply,
  * not the reply. See transcript.tsx's own header for why `kind` is how a
  * message's shape is read. */
-const HIDDEN_IN_BOT_CHAT = new Set(["tool_use", "tool_result", "thinking"]);
+// `work` is the same traffic folded into one row by the server (see
+// buildTranscriptItems in transcript.tsx).
+const HIDDEN_IN_BOT_CHAT = new Set(["tool_use", "tool_result", "thinking", "work"]);
 
 export function isBotHiddenKind(kind: string | undefined): boolean {
   return !!kind && HIDDEN_IN_BOT_CHAT.has(kind);

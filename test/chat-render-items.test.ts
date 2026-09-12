@@ -81,25 +81,26 @@ describe("thinking folds into the run it happened in", () => {
     expect(items[0]).toMatchObject({ items: [{ id: "t1" }, { id: "th1" }, { id: "t2" }] });
   });
 
-  // It is the whole answer to "what is it doing" until the first tool appears.
-  test("the thought that opens a run stays its own row", () => {
+  // A run is the thoughts and the calls together, wherever the thought sits:
+  // the one that opens the run, and the one still streaming at the end. The
+  // server folds them (the workRows capability) and this is the same rule.
+  test("the thought that opens a run is its first step", () => {
     const items = buildChatRenderItems([
       { id: "th1", kind: "thinking", text: "let me look", ts: 1 },
       { id: "t1", kind: "tool_use", text: "Bash: ls", ts: 2 },
       { id: "txt", kind: "text", text: "Done", ts: 3 },
     ]);
-    expect(items.map((item) => item.type)).toEqual(["msg", "tools", "msg"]);
+    expect(items.map((item) => item.type)).toEqual(["tools", "msg"]);
+    expect(items[0]).toMatchObject({ items: [{ id: "th1" }, { id: "t1" }] });
   });
 
-  // The last message is the one still streaming. Folding it would trade a live
-  // view of the reasoning for a pill you have to open.
-  test("the trailing thought is never folded", () => {
+  test("the trailing thought is the newest step of its run", () => {
     const items = buildChatRenderItems([
       { id: "t1", kind: "tool_use", text: "Bash: ls", ts: 1 },
       { id: "th1", kind: "thinking", text: "still working", ts: 2 },
     ]);
-    expect(items.map((item) => item.type)).toEqual(["tools", "msg"]);
-    expect(items[0]).toMatchObject({ items: [{ id: "t1" }] });
+    expect(items.map((item) => item.type)).toEqual(["tools"]);
+    expect(items[0]).toMatchObject({ items: [{ id: "t1" }, { id: "th1" }] });
   });
 
   test("the label leads with the thinking, then the tools", () => {

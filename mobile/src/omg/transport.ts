@@ -223,7 +223,11 @@ export function createDirectTransport(baseUrl: string): OmgTransport {
       >;
     },
     async openLiveSocket() {
-      return new WebSocket(socketUrl("/api/live/ws")) as unknown as Awaited<
+      // `workRows=1` asks the machine to fold every run of tool calls and
+      // thoughts into one `work` message (see buildTranscriptItems in
+      // transcript.tsx). The SDK owns the subscribe frame, so the capability
+      // is declared here, on the URL this app owns.
+      return new WebSocket(socketUrl("/api/live/ws?workRows=1")) as unknown as Awaited<
         ReturnType<OmgTransport["openLiveSocket"]>
       >;
     },
