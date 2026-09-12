@@ -59,8 +59,9 @@ import {
 //   relay  → client   {type:"http", id, method, path, headers, bodyB64?}
 //   client → relay   {type:"http-response", id, status, headers, bodyB64?}
 //   client → relay   {type:"event", event, sessionId, title?, project?, agent?, ts, …}
-//                     (opt-in, LFG_CONNECT_EVENTS=1 — see "Session lifecycle
-//                     events" below; no response frame, a relay that doesn't
+//                     (privacy-safe fleet.status is always on; detailed
+//                     lifecycle events require LFG_CONNECT_EVENTS=1 — see
+//                     "Session lifecycle events" below; no response frame, a relay that doesn't
 //                     understand `event` just ignores or errors it and this
 //                     client doesn't care either way. Every event kind shares
 //                     that envelope and only ADDS fields — ship.posted adds
@@ -93,14 +94,15 @@ import {
 // so the reconnect loop below treats it as fatal rather than backing off
 // forever against a token that can't work.
 //
-// Session lifecycle events (opt-in, LFG_CONNECT_EVENTS=1):
+// Fleet status and session lifecycle events:
 //
-// When enabled, this client also polls its own local `lfg serve` (the same
+// This client polls its own local `lfg serve` (the same
 // GET /api/sessions any client of this box's HTTP API can call — see
 // src/sessions.ts's Session type) every LFG_CONNECT_EVENTS_INTERVAL_MS (default
-// 4000ms) and diffs busy/status transitions per session. Two transitions are
-// reported as `event` frames up the relay socket, whenever a live connection
-// is open:
+// 4000ms). It always sends a privacy-safe `fleet.status` aggregate on change
+// and once per minute. It has no title, prompt, project, agent, or transcript.
+// When LFG_CONNECT_EVENTS=1, two detailed transitions are also reported as
+// `event` frames up the relay socket, whenever a live connection is open:
 //   - a session that was busy goes idle without being blocked → "session.completed"
 //   - a session's status flips to "blocked" (see computeStatus in
 //     src/sessions.ts — model unavailable, out of credits, provider auth/error)
@@ -194,7 +196,7 @@ Env:
                              events, shipped-post events, new auto-agent findings, and open ask-user
                              questions to the relay. PRIVACY: session titles, ship titles/summaries,
                              finding titles/reasoning, and question text leave this box when on.
-  LFG_CONNECT_EVENTS_INTERVAL_MS  Local session-poll interval in ms when events are enabled (default 4000)
+  LFG_CONNECT_EVENTS_INTERVAL_MS  Local fleet/session poll interval in ms (default 4000)
   LFG_CONNECT_EVENTS_MIN_DURATION_MS  Minimum session duration to report a completion, in ms (default 60000).
                              Does not apply to session.needs_attention (always reported).
 
@@ -707,6 +709,43 @@ export type SessionEventFrame = {
   ts: number;
 };
 
+/** A privacy-safe aggregate for iOS Live Activities. The relay adds the
+ * authenticated binding and user ids, so the box must not guess either. */
+export type FleetStatusEventFrame = {
+  type: "event";
+  event: "fleet.status";
+  sessionId: "fleet";
+  title: null;
+  project: null;
+  agent: null;
+  runningCount: number;
+  blockedCount: number;
+  attentionSessionId: string | null;
+  ts: number;
+};
+
+export function fleetStatusFrame(sessions: SessionLite[], ts: number): FleetStatusEventFrame {
+  const reportable = sessions.filter(isTopLevelSession);
+  const blocked = reportable.filter((session) => session.status === "blocked");
+  const running = reportable.filter((session) => session.busy || session.launching);
+  return {
+    type: "event",
+    event: "fleet.status",
+    sessionId: "fleet",
+    title: null,
+    project: null,
+    agent: null,
+    runningCount: running.length,
+    blockedCount: blocked.length,
+    attentionSessionId: blocked[0]?.sessionId ?? null,
+    ts,
+  };
+}
+
+function fleetStatusSignature(frame: FleetStatusEventFrame): string {
+  return `${frame.runningCount}:${frame.blockedCount}:${frame.attentionSessionId ?? ""}`;
+}
+
 /** A shipped-post announcement (POST /api/shipped → shipped.jsonl). Same
  * envelope as SessionEventFrame so relays that already tolerate `event`
  * frames forward it unchanged; `summary` is the extra, ship-specific field. */
@@ -1102,7 +1141,11 @@ async function pollAskEvents(
   }
 }
 
-async function pollSessionEvents(seen: Map<string, SeenSession>, getSocket: () => WebSocket | null): Promise<void> {
+async function pollSessionEvents(
+  state: { seen: Map<string, SeenSession>; fleetSignature: string | null; fleetSentAt: number },
+  getSocket: () => WebSocket | null,
+  includeLifecycleEvents: boolean,
+): Promise<void> {
   let sessions: SessionLite[];
   try {
     const response = await fetch(`http://${LOCAL_HOST}:${LOCAL_PORT}/api/sessions`);
@@ -1112,13 +1155,23 @@ async function pollSessionEvents(seen: Map<string, SeenSession>, getSocket: () =
   } catch {
     return; // local serve unreachable this tick — try again next tick.
   }
-  const events = diffSessionEvents(seen, sessions, Date.now());
+  const ts = Date.now();
+  const events: Array<SessionEventFrame | FleetStatusEventFrame> = includeLifecycleEvents
+    ? diffSessionEvents(state.seen, sessions, ts)
+    : [];
+  const fleet = fleetStatusFrame(sessions, ts);
+  const nextFleetSignature = fleetStatusSignature(fleet);
+  if (nextFleetSignature !== state.fleetSignature || ts - state.fleetSentAt >= 60_000) events.push(fleet);
   if (!events.length) return;
   const ws = getSocket();
   if (!ws || ws.readyState !== WebSocket.OPEN) return; // no live relay connection right now — drop this tick's events.
   for (const frame of events) {
     try {
       ws.send(JSON.stringify(frame));
+      if (frame.event === "fleet.status") {
+        state.fleetSignature = nextFleetSignature;
+        state.fleetSentAt = ts;
+      }
     } catch {
       // best-effort — a dead socket or a relay that rejects `event` frames
       // just loses this one notification, never the connection itself.
@@ -1244,13 +1297,21 @@ async function runConnectLoop(explicitComputerUrl?: string): Promise<void> {
   // events, same "best-effort, poller elsewhere is the fallback" posture as
   // everything else in this file).
   let currentWs: WebSocket | null = null;
-  if (eventsEnabled()) {
+  const includeLifecycleEvents = eventsEnabled();
+  const sessionState = {
+    seen: new Map<string, SeenSession>(),
+    fleetSignature: null as string | null,
+    fleetSentAt: 0,
+  };
+  const timer = setInterval(
+    () => void pollSessionEvents(sessionState, () => currentWs, includeLifecycleEvents),
+    EVENTS_POLL_MS,
+  );
+  timer.unref?.();
+  if (includeLifecycleEvents) {
     console.log(
       `lfg connect: forwarding session lifecycle, shipped-post, auto-finding and ask-user events to the relay every ${EVENTS_POLL_MS}ms (LFG_CONNECT_EVENTS=1) — session titles, ship titles/summaries, finding titles/reasoning and question text will be sent to the relay.`,
     );
-    const seen = new Map<string, SeenSession>();
-    const timer = setInterval(() => void pollSessionEvents(seen, () => currentWs), EVENTS_POLL_MS);
-    timer.unref?.();
     // Shipped-post watcher — same opt-in, same cadence, same best-effort
     // posture. A ship (lfg_ship / POST /api/shipped) is an explicit verified
     // result, so it's forwarded as its own `ship.posted` frame with the summary.
