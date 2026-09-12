@@ -59,6 +59,46 @@ const SECTIONS: Record<string, Probe[]> = {
       label: "established outbound (non-loopback)",
       cmd: `ss -tnp state established 2>/dev/null | grep -vE '127\\.0\\.0\\.1|::1|\\[::ffff:127' | head -40`,
     },
+    // A bind address alone does NOT establish internet exposure: this host runs
+    // a default-DROP packet filter, so a 0.0.0.0/* listener is usually reachable
+    // only over the tailnet. The next three probes give the filter state so a
+    // "publicly exposed port" call can be made from the rules, not the bind.
+    {
+      label: "packet filter — UFW rules (READ THIS BEFORE CALLING A PORT PUBLIC)",
+      cmd: `sudo -n ufw status verbose 2>/dev/null || echo "(ufw needs root / not installed)"`,
+    },
+    {
+      label: "packet filter — iptables INPUT policy + accepted ports",
+      cmd: `sudo -n iptables -S 2>/dev/null | grep -E '^-P (INPUT|FORWARD)|^-A ufw-user-input|^-A INPUT ' || echo "(iptables needs root / no access)"; echo; echo "## ip6tables"; sudo -n ip6tables -S 2>/dev/null | grep -E '^-P (INPUT|FORWARD)|^-A ufw6-user-input|^-A INPUT ' || echo "(no access)"`,
+    },
+    {
+      label: "exposure verdict — which non-loopback TCP listeners the filter actually permits",
+      cmd: `set +e
+pol=$(sudo -n iptables -S 2>/dev/null | awk '/^-P INPUT/{print $3}')
+[ -z "$pol" ] && pol="UNKNOWN"
+allow=$(sudo -n iptables -S ufw-user-input 2>/dev/null | grep -oE 'dport [0-9]+' | awk '{print $2}' | sort -un | tr '\\n' ' ')
+echo "INPUT policy: $pol"
+echo "ports accepted from ANY interface: \${allow:-<none>}"
+echo
+echo "port | bind | verdict"
+ss -tlnH 2>/dev/null | awk '{print $4}' | sed -E 's/.*:([0-9]+)$/\\1 &/' | sort -u | while read -r port bind; do
+  case "$bind" in 127.*|\\[::1\\]*) continue;; esac
+  case "$bind" in 100.*|\\[fd7a:*) echo "$port | $bind | TAILNET-ONLY (bound to tailscale address)"; continue;; esac
+  if echo " $allow " | grep -q " $port "; then
+    echo "$port | $bind | PUBLIC (an ufw-user-input rule accepts it from any interface)"
+  elif [ "$pol" = "DROP" ] || [ "$pol" = "REJECT" ]; then
+    echo "$port | $bind | NOT PUBLIC (default-$pol INPUT, no accept rule; reachable via tailscale0 and loopback only)"
+  else
+    echo "$port | $bind | PUBLIC (INPUT policy is $pol, nothing drops it)"
+  fi
+done
+echo
+echo "NOTE: do NOT test exposure by curling this host's own public IP from this host."
+echo "ufw-before-input accepts -i lo first, and traffic to a local address routes over lo,"
+echo "so a self-curl returns 200 for ports the filter blocks from the internet."
+echo "To confirm a PUBLIC verdict, probe from off-box (e.g. check-host.net) and use a known-open"
+echo "port such as 22 as a control so a timeout is not mistaken for a working block."` ,
+    },
   ],
   persistence: [
     { label: "user crontab (dev)", cmd: `crontab -l 2>/dev/null || echo "(none)"` },
