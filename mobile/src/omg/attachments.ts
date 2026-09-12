@@ -174,6 +174,16 @@ export function useAttachments(sessionId: string | null) {
                 mediaTypes: ["images", "videos"],
                 quality: 0.8,
                 selectionLimit: 4,
+                /**
+                 * NOT PASSTHROUGH. With passthrough the picker takes a fast
+                 * path through PHAsset for a video, and that path asks for
+                 * full photo-library access — the prompt the comment above
+                 * exists to avoid. Any other preset reads the picked file
+                 * through the item provider (no permission) and re-encodes
+                 * it to mp4 at source quality, which is also the container
+                 * agents' tools expect.
+                 */
+                videoExportPreset: ImagePicker.VideoExportPreset.HighestQuality,
               });
         if (result.canceled) return;
 
