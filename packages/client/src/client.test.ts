@@ -456,3 +456,53 @@ test("reasoning and reply are separate drafts, accumulated from their deltas", a
   off();
   live.dispose();
 });
+
+test("fleet listeners open one socket, patch independently, and share it with transcripts", async () => {
+  const socket = new InboundSocket();
+  const live = new OmgLiveConnection(inboundTransport(socket));
+  const first: unknown[] = [];
+  const second: unknown[] = [];
+  const offA = live.subscribeStatus((rows) => first.push(rows));
+  const offB = live.subscribeStatus((rows) => second.push(rows));
+  const offTranscript = live.subscribeTranscript("status:*", () => {});
+  await Promise.resolve();
+  socket.open();
+  await Promise.resolve();
+  expect(JSON.parse(String(socket.sent[0])).channels).toEqual([
+    { kind: "transcript", key: "status:*" }, { kind: "status", key: "*" },
+  ]);
+  socket.receive({ t: "status", kind: "status", key: "*", seq: 1, rows: [{ sessionId: "a", busy: true }] });
+  offA();
+  socket.receive({ t: "status", rows: [{ sessionId: "a", busy: false }] });
+  expect(first).toEqual([[{ sessionId: "a", busy: true }]]);
+  expect(second).toHaveLength(2);
+  offB();
+  expect(socket.readyState).toBe(1);
+  expect(JSON.parse(String(socket.sent.at(-1)))).toEqual({ t: "unsubscribe", channels: [{ kind: "status", key: "*" }] });
+  offTranscript();
+  expect(socket.readyState).toBe(3);
+  live.dispose();
+});
+
+test("status-only connection reconnects and asks for a fresh fleet subscription", async () => {
+  const sockets = [new InboundSocket(), new InboundSocket()];
+  let opens = 0;
+  const live = new OmgLiveConnection({ ...inboundTransport(sockets[0]!), openLiveSocket: async () => sockets[opens++]! });
+  const rows: unknown[] = [];
+  const off = live.subscribeStatus((value) => rows.push(value));
+  await Promise.resolve();
+  sockets[0]!.open();
+  await Promise.resolve();
+  live.reconnectNow();
+  await Promise.resolve();
+  sockets[1]!.open();
+  await Promise.resolve();
+  expect(opens).toBe(2);
+  expect(JSON.parse(String(sockets[1]!.sent[0]))).toEqual({ t: "subscribe", channels: [{ kind: "status", key: "*" }] });
+  sockets[0]!.receive({ t: "status", rows: [{ sessionId: "stale" }] });
+  sockets[1]!.receive({ t: "status", rows: [{ sessionId: "current" }] });
+  expect(rows).toEqual([[{ sessionId: "current" }]]);
+  off();
+  expect(sockets[1]!.readyState).toBe(3);
+  live.dispose();
+});

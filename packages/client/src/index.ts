@@ -10,6 +10,7 @@ import type {
   OmgTranscriptEvent,
   OmgLiveCapabilities,
   OmgDraft,
+  OmgStatusRow,
 } from "@omg-dev/protocol";
 
 export type {
@@ -421,6 +422,7 @@ export interface OmgConnectionState {
 }
 
 type TranscriptListener = (event: OmgTranscriptEvent) => void;
+type StatusListener = (rows: OmgStatusRow[]) => void;
 type ConnectionListener = (state: OmgConnectionState) => void;
 
 function channelId(channel: OmgLiveChannel): string {
@@ -450,6 +452,7 @@ export class OmgLiveConnection {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempt = 0;
   private listeners = new Map<string, Set<TranscriptListener>>();
+  private statusListeners = new Set<StatusListener>();
   private cursors = new Map<string, number>();
   private sentChannels = new Set<string>();
   private pendingFlush = false;
@@ -485,6 +488,25 @@ export class OmgLiveConnection {
     return () => this.connectionListeners.delete(listener);
   }
 
+  /** Fleet status shares the transcript socket and stays open while observed. */
+  subscribeStatus(listener: StatusListener): () => void {
+    this.statusListeners.add(listener);
+    this.ensureConnected();
+    this.scheduleSubscriptionFlush();
+    return () => {
+      this.statusListeners.delete(listener);
+      if (this.statusListeners.size) return;
+      if (this.sentChannels.delete("status:*")) {
+        this.send({ t: "unsubscribe", channels: [{ kind: "status", key: "*" }] });
+      }
+      if (!this.hasSubscribers()) this.closeSocket();
+    };
+  }
+
+  private hasSubscribers(): boolean {
+    return this.listeners.size > 0 || this.statusListeners.size > 0;
+  }
+
   subscribeTranscript(sessionId: string, listener: TranscriptListener): () => void {
     const listeners = this.listeners.get(sessionId) ?? new Set<TranscriptListener>();
     listeners.add(listener);
@@ -498,13 +520,13 @@ export class OmgLiveConnection {
       if (current.size) return;
       this.listeners.delete(sessionId);
       this.cursors.delete(channelId({ kind: "transcript", key: sessionId }));
-      if (this.sentChannels.delete(sessionId)) {
+      if (this.sentChannels.delete(`transcript:${sessionId}`)) {
         this.send({
           t: "unsubscribe",
           channels: [{ kind: "transcript", key: sessionId }],
         });
       }
-      if (!this.listeners.size) this.closeSocket();
+      if (!this.hasSubscribers()) this.closeSocket();
     };
   }
 
@@ -519,6 +541,7 @@ export class OmgLiveConnection {
   dispose(): void {
     this.disposed = true;
     this.listeners.clear();
+    this.statusListeners.clear();
     this.connectionListeners.clear();
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
@@ -534,7 +557,7 @@ export class OmgLiveConnection {
     if (
       this.disposed ||
       this.connecting ||
-      !this.listeners.size ||
+      !this.hasSubscribers() ||
       (this.socket && (this.socket.readyState === 0 || this.socket.readyState === SOCKET_OPEN))
     ) {
       return;
@@ -546,7 +569,7 @@ export class OmgLiveConnection {
     });
     void this.transport.openLiveSocket().then(
       (socket) => {
-        if (this.disposed || !this.listeners.size) {
+        if (this.disposed || !this.hasSubscribers()) {
           socket.close();
           this.connecting = false;
           return;
@@ -586,7 +609,7 @@ export class OmgLiveConnection {
   }
 
   private scheduleReconnect(): void {
-    if (this.disposed || !this.listeners.size || this.reconnectTimer) return;
+    if (this.disposed || !this.hasSubscribers() || this.reconnectTimer) return;
     this.reconnectAttempt += 1;
     this.publishConnection({
       status: this.reconnectAttempt >= 5 ? "offline" : "reconnecting",
@@ -614,12 +637,16 @@ export class OmgLiveConnection {
       if (!this.socket || this.socket.readyState !== SOCKET_OPEN) return;
       const channels: OmgLiveChannel[] = [];
       for (const sessionId of this.listeners.keys()) {
-        if (this.sentChannels.has(sessionId)) continue;
+        if (this.sentChannels.has(`transcript:${sessionId}`)) continue;
         const channel: OmgLiveChannel = { kind: "transcript", key: sessionId };
         const cursor = this.cursors.get(channelId(channel));
         if (cursor) channel.resumeFromSeq = cursor;
         channels.push(channel);
-        this.sentChannels.add(sessionId);
+        this.sentChannels.add(`transcript:${sessionId}`);
+      }
+      if (this.statusListeners.size && !this.sentChannels.has("status:*")) {
+        channels.push({ kind: "status", key: "*" });
+        this.sentChannels.add("status:*");
       }
       if (channels.length) this.send({ t: "subscribe", channels, ...subscribeCapabilities(this.capabilities) });
     });
@@ -661,6 +688,12 @@ export class OmgLiveConnection {
   }
 
   private handleMessage(message: OmgLiveMessage): void {
+    if (message.t === "status") {
+      if (Array.isArray(message.rows)) {
+        for (const listener of this.statusListeners) listener(message.rows);
+      }
+      return;
+    }
     if (message.t === "ping") {
       this.send({ t: "pong", ...(message.id ? { id: message.id } : {}) });
       return;

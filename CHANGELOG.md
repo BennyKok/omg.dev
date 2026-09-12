@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## September 12, 2026 - Shared fleet status subscription (v0.6.67)
+
+- `@omg-dev/client`: `client.live.subscribeStatus(listener)` delivers fleet status rows over the existing shared WebSocket. Status-only consumers open the socket, reconnect with a fresh subscription, and release it when the last consumer leaves.
+- Transcript and status subscriptions share one connection and have separate channel identities.
+
 ## September 12, 2026 - SDK owns transcript capabilities and drafts (v0.6.66)
 
 - `@omg-dev/client`: `new OmgClient(transport, { capabilities: { workRows, deferToolArgs } })` declares the transcript capabilities on every live subscribe frame and on `getMessages`, whatever transport opened the socket. Before this, a client could opt in on one transport and miss the other, which is how the phone showed raw tool rows over omg.dev.
