@@ -2,8 +2,12 @@
 
 Recent product updates and deployment notes.
 
-## New coding agent: Devin (v0.6.64)
+## September 12, 2026 - Queue messages while the agent works, Devin agent (v0.6.64)
 
+- Queue a message while the agent is on a turn and it waits. It no longer reaches the agent right away. Queued messages show as a card under the composer, not in the chat. Click a message to edit it, or remove it. When the turn ends, every queued message is sent in order.
+- New setting under Settings > More > View: "Send while the agent is working". Steer (default) interrupts the turn on Enter. Queue holds the message on Enter. The other action stays on Cmd/Ctrl+Enter and on holding the send button.
+- Queued messages survive a page reload and a service restart.
+- Dependencies: `js-yaml` 5 and `fast-uri` 4 overrides, `sharp` 0.35.4. The dependency audit is clean.
 - New coding agent: Devin. It runs the Devin CLI locally through `devin acp`, so one session keeps its context across follow-up prompts. Pick it in the agent list; "adaptive" (Cognition's model router) is the default model, and Opus, GPT, Sonnet, Gemini, Codex, and Cognition's own SWE models are one pick away.
 - On your own machine, install the Devin CLI (`curl -fsSL https://cli.devin.ai/install.sh | bash`), then run `devin auth login` once. A Devin, Windsurf, or API key (`WINDSURF_API_KEY`) login all work.
 
