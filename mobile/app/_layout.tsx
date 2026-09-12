@@ -20,13 +20,14 @@ import {
   useOnboarding,
 } from "../src/omg/onboarding";
 import { BrandMark } from "../src/omg/brand-mark";
-import { LaunchScreen } from "../src/omg/launch";
+import { LaunchBackdrop, LaunchScreen } from "../src/omg/launch";
 import { useLucideFont } from "../src/omg/lucide";
 
 import { OmgProvider, useOmg } from "../src/omg/provider";
 import { AgentLiveActivityBridge } from "../src/omg/agent-live-activity";
 import { useNotificationTapRouting } from "../src/omg/push";
 import { useOtaUpdates } from "../src/omg/ota";
+import { launch } from "../src/omg/palette";
 import { useTheme } from "../src/omg/theme";
 import { ToastProvider } from "../src/omg/toast";
 
@@ -48,7 +49,8 @@ import { ToastProvider } from "../src/omg/toast";
  * the turn and this is the one thing on screen.
  */
 function Splash() {
-  const { colors, isDark } = useTheme();
+  const { isDark } = useTheme();
+  const launchTokens = isDark ? launch.dark : launch.light;
   const pulse = useSharedValue(0);
 
   useEffect(() => {
@@ -64,13 +66,24 @@ function Splash() {
     transform: [{ scale: 0.97 + pulse.value * 0.03 }],
   }));
 
+  /**
+   * SAME SURFACE AS LaunchScreen, borrowed rather than rebuilt.
+   *
+   * This screen and the launch screen are both "the app opening", and a second
+   * hand-rolled copy of the background is how one of them ends up on last
+   * quarter's colours. The backdrop is LaunchScreen's; only the caption and the
+   * exit are missing, because this one has nothing to say and no hand-off to
+   * play — it simply stops being rendered.
+   */
   return (
-    <View style={[styles.splash, { backgroundColor: colors.bg }]}>
-      <Reanimated.View style={breathe}>
-        <BrandMark size={64} holeColor={colors.bg} />
-      </Reanimated.View>
+    <LaunchBackdrop>
+      <View style={styles.splash}>
+        <Reanimated.View style={breathe}>
+          <BrandMark size={64} holeColor={launchTokens.glowCentre} />
+        </Reanimated.View>
+      </View>
       <StatusBar style={isDark ? "light" : "dark"} />
-    </View>
+    </LaunchBackdrop>
   );
 }
 

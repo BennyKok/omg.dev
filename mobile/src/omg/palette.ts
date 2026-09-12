@@ -152,6 +152,46 @@ export const lightColors: Palette = {
 };
 
 /**
+ * THE LANDING PAGE'S OWN SURFACE, for the launch screen only.
+ *
+ * Benny asked for the splash to look like omg.dev, so these are not invented:
+ * they are the landing stylesheet's `:root` and `.dark` custom properties,
+ * read on 2026-09-12 from
+ * .../web/landing/1de05cf82745300d600e2eeefabe884f54cacb53/assets/styles.css
+ * — `--background`, `--foreground`, `--muted-foreground` and `--brand`.
+ *
+ * SEPARATE FROM `Palette` ON PURPOSE, and not in check-theme-drift's MAP. The
+ * app's own palette mirrors web/src/index.css, which is the DASHBOARD's token
+ * set — a different surface with a different background. Folding the marketing
+ * cream into `colors.bg` would re-skin every screen in the app. This is one
+ * screen quoting another product surface, so it stays a named island.
+ *
+ * `glowRgb` is `--brand` as a channel triplet rather than a hex, because the
+ * glow is drawn at a fraction of its alpha and RN needs `rgba(...)`.
+ *
+ * `glowCentre` is `bg` composited with `glow` at GLOW_ALPHA, precomputed. The
+ * mark's bite is a HOLE: it has to be filled with whatever is actually behind
+ * the mark, and behind the mark is the brightest part of the glow, not the
+ * bare background. Filling it with `bg` turns the bite into a pale dot.
+ */
+export const launch = {
+  light: {
+    bg: "#f0ede7",
+    glowRgb: "255, 79, 40",
+    glowCentre: "#f3cdc1",
+    text: "#0d0c0a",
+    textMuted: "#65605a",
+  },
+  dark: {
+    bg: "#060505",
+    glowRgb: "255, 122, 87",
+    glowCentre: "#381c15",
+    text: "#ffffff",
+    textMuted: "#c4beb4",
+  },
+} as const;
+
+/**
  * omg brand. Deliberately scheme-independent and NOT part of the shared token
  * set: the web surface is chrome-less inside the dashboard and takes brand from
  * its host, whereas the app IS the chrome and needs its own mark.

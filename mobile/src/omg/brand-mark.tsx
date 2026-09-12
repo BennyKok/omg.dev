@@ -16,6 +16,7 @@
 
 import { View, type ViewStyle } from "react-native";
 
+import { Text } from "./text";
 import { useTheme } from "./theme";
 
 const DISC_VIEWBOX_DIAMETER = 88; // r=44
@@ -70,6 +71,70 @@ export function BrandMark({
           top: centre + BITE_OFFSET_Y * scale - bite / 2,
         }}
       />
+    </View>
+  );
+}
+
+/**
+ * The full `omg.dev` lockup: mark, then "omg" solid and ".dev" one tier back.
+ *
+ * The split colour is the logo's, not a flourish — the landing header draws
+ * "omg" in `--foreground` and ".dev" in a muted grey, and a wordmark that
+ * paints both the same reads as a different logo.
+ *
+ * NOT IN GEIST. The landing sets `Geist Variable` and no Geist file is bundled
+ * here (assets/fonts holds lucide.ttf and nothing else), so this is the system
+ * face at weight 800 with the tracking pulled in to sit closer to it. Adding a
+ * variable font to the launch path is its own change: `src/omg/lucide.tsx`
+ * documents that a font which fails to load must not strand the app on its
+ * splash, and that argument applies doubly to a font the splash itself needs.
+ */
+export function BrandWordmark({
+  size = 34,
+  /**
+   * Draw the mark ahead of the type. Off for a caller that ALREADY shows the
+   * mark — the launch screen has a 64pt one breathing directly above this, and
+   * two discs one under the other reads as a rendering fault, not a lockup.
+   */
+  mark = true,
+  color,
+  mutedColor,
+  holeColor,
+}: {
+  /** Cap height of the type. The mark is scaled to match it. */
+  size?: number;
+  mark?: boolean;
+  color?: string;
+  mutedColor?: string;
+  holeColor?: string;
+}) {
+  const { colors } = useTheme();
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: mark ? size * 0.26 : 0 }}>
+      {mark ? <BrandMark size={size * 1.02} holeColor={holeColor} /> : null}
+      <Text
+        // The lockup is a logo, not prose: it must not grow with Dynamic Type.
+        allowFontScaling={false}
+        style={{
+          fontSize: size,
+          fontWeight: "800",
+          letterSpacing: -size * 0.045,
+          color: color ?? colors.text,
+        }}
+      >
+        omg
+        <Text
+          allowFontScaling={false}
+          style={{
+            fontSize: size,
+            fontWeight: "800",
+            letterSpacing: -size * 0.045,
+            color: mutedColor ?? colors.textSecondary,
+          }}
+        >
+          .dev
+        </Text>
+      </Text>
     </View>
   );
 }
