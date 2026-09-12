@@ -51,6 +51,22 @@ import { useTheme } from "./theme";
 const SHIMMER_MS = 1500;
 /** How many characters the bright part of the wave spans. */
 const SHIMMER_WIDTH = 4;
+/**
+ * THE CAPTION IS READ, NOT GLIMPSED.
+ *
+ * It used to be `type.footnote` (13pt/400) drawn in `colors.textMuted`, whose
+ * alpha is 0.6 — and the shimmer then multiplied that by as little as 0.45, so
+ * the resting text sat at an effective 0.27 alpha on the background. That is
+ * below any usable contrast, and because only the 4-character wave rose out of
+ * it the line read as a moving smudge rather than a sentence. Two changes: a
+ * one-tier-brighter token (`textSecondary`, alpha 0.78) and a floor under the
+ * shimmer, so the dim state is still legible and the wave is a highlight on
+ * top of readable text instead of the only readable part.
+ */
+const SHIMMER_FLOOR = 0.72;
+const SHIMMER_LIFT = 1 - SHIMMER_FLOOR;
+/** 15pt/600: a launch caption is the only text on screen, so it carries weight. */
+const CAPTION_TYPE = { fontSize: 15, fontWeight: "600", letterSpacing: -0.1 } as const;
 
 /**
  * THE EXIT IS A ZOOM PAST THE VIEWER, NOT A RESIZE.
@@ -75,7 +91,7 @@ const DIP_SCALE = 0.9;
 const ZOOM_SCALE = 7;
 
 function ShimmerText({ text }: { text: string }) {
-  const { colors, type } = useTheme();
+  const { colors } = useTheme();
   const progress = useSharedValue(0);
 
   useEffect(() => {
@@ -100,8 +116,8 @@ function ShimmerText({ text }: { text: string }) {
           index={index}
           total={chars.length}
           progress={progress}
-          color={colors.textMuted}
-          style={type.footnote}
+          color={colors.textSecondary}
+          style={CAPTION_TYPE}
         />
       ))}
     </View>
@@ -130,7 +146,7 @@ function ShimmerChar({
     const head = progress.value * (total + SHIMMER_WIDTH * 2) - SHIMMER_WIDTH;
     const distance = Math.abs(index - head);
     const lift = Math.max(0, 1 - distance / SHIMMER_WIDTH);
-    return { opacity: 0.45 + lift * 0.55 };
+    return { opacity: SHIMMER_FLOOR + lift * SHIMMER_LIFT };
   });
 
   return (
