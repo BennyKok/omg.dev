@@ -739,8 +739,13 @@ export function SessionCard({
   onPress,
   onArchive,
   animateEntry = true,
+  compact = false,
+  selected = false,
 }: {
   title: string;
+  /** Smaller filled card for a parent session's expanded subagent list. */
+  compact?: boolean;
+  selected?: boolean;
   /**
    * The preview line. ALWAYS occupies its line even when empty — a row that
    * shrinks when a session has nothing to preview makes the list reflow as
@@ -827,7 +832,7 @@ export function SessionCard({
               left: 0,
               backgroundColor: colors.danger,
               ...corners,
-              marginHorizontal: SESSION_ROW.inset,
+              marginHorizontal: compact ? 0 : SESSION_ROW.inset,
               alignItems: "flex-end",
               justifyContent: "center",
               paddingRight: space.xl,
@@ -844,31 +849,11 @@ export function SessionCard({
           style={({ pressed }) => ({
             flexDirection: "row",
             alignItems: "center",
-            gap: SESSION_ROW.gap,
-            /**
-             * NOTHING AT REST. The web's rail row has no fill and no border
-             * until you touch it; the surface was the card's idea, and a list
-             * of filled rectangles is still a stack of cards however tightly
-             * it is packed.
-             */
-            backgroundColor: pressed ? colors.cardPressed : "transparent",
-            /**
-             * A ROW, NOT A CARD.
-             *
-             * This was a bordered card per session, on the argument that a
-             * session is a separate object and the web gave each one an edge.
-             * The web stopped doing that on 2026-08-22 (bc762a0e0): a card
-             * that carries a transcript "cannot be scanned, only read, so the
-             * list was long before it was useful". Its rail row is 60px flat
-             * with no border and no fill, and the phone now matches it — the
-             * comment that used to live here cited a web surface that no
-             * longer exists.
-             *
-             * The corner radius stays only so the pressed tint and the archive
-             * reveal have a shape; at rest there is nothing drawn at all.
-             */
+            gap: compact ? 10 : SESSION_ROW.gap,
+            // Main sessions are flat rows. Expanded subagents use compact cards.
+            backgroundColor: pressed ? colors.cardPressed : selected ? colors.accent : compact ? colors.card : "transparent",
             borderRadius: radius.md,
-            marginHorizontal: SESSION_ROW.inset,
+            marginHorizontal: compact ? 0 : SESSION_ROW.inset,
             /**
              * The mark needs room to be a mark.
              *
@@ -885,10 +870,10 @@ export function SessionCard({
             // big enough not to need the same help.
             paddingRight: SESSION_ROW.paddingRight,
             // Reserve both text lines so activity updates do not resize rows.
-            height: SESSION_ROW.height,
+            height: compact ? 64 : SESSION_ROW.height,
           })}
         >
-          <AgentAvatar agent={agent} size={SESSION_ROW.avatar} busy={busy} plain />
+          <AgentAvatar agent={agent} size={compact ? 28 : SESSION_ROW.avatar} busy={busy} plain />
           <View style={{ flex: 1, gap: SESSION_ROW.textGap, minWidth: 0 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 }}>
               {/* THE UNREAD DOT LEADS THE TITLE, the way it does on the web
@@ -911,7 +896,7 @@ export function SessionCard({
               <Text
                 numberOfLines={1}
                 style={{
-                  ...type.headline,
+                  ...(compact ? type.subhead : type.headline),
                   flexShrink: 1,
                   // Unread is not communicated by the dot alone: the title
                   // carries full strength weight while it is unread, and
@@ -927,7 +912,7 @@ export function SessionCard({
                 preview keeps its line rather than collapsing the row. */}
             <Text
               numberOfLines={1}
-              style={{ ...type.subhead, color: colors.textMuted }}
+              style={{ ...(compact ? type.caption : type.subhead), color: colors.textMuted }}
             >
               {subtitle ?? ""}
             </Text>

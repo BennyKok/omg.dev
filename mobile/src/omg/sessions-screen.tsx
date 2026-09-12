@@ -58,8 +58,6 @@ import {
   EmptyState,
   Icon,
   SESSION_ROW,
-  SESSION_ROW_MARK_X,
-  SESSION_ROW_MARK_Y,
   HomeComposer,
   PrimaryButton,
   SectionHeader,
@@ -79,6 +77,7 @@ import { useOverlapWatch } from "./list-overlap-watch";
 import { groupNodesByProject } from "./session-groups";
 import { observeSessionStatus, SessionStatusState } from "./session-status";
 import { sessionPreview } from "./session-preview";
+import { SubagentGroup } from "./subagent-group";
 import {
   groupHomeAutoFindings,
   selectHomeAutoFindings,
@@ -138,39 +137,25 @@ type ListedSession = OmgSession & UnreadSessionRow;
 /**
  * Which sessions hold a reply this person has not read.
  *
- * A context rather than a prop threaded through SessionFamily and
- * SessionBranch: the tree passes rows down three levels and neither of those
- * components has any other business with read state.
+ * The roster owns read state. Parent rows and expanded subagent cards read
+ * the same set, so collapsing a family cannot hide its unread indicator.
  */
 const SessionUnreadContext = createContext<Set<string>>(new Set());
 
-/**
- * A session and everything it spawned.
- *
- * Children are indented under their parent with a spine and an elbow, the way
- * the web draws the same family. The elbow lands on the CARD's midline rather
- * than the midline of the card plus its own descendants, which is the detail
- * that makes a three-deep tree still read as a tree.
- *
- * A subagent is not archivable from here: it belongs to its parent's run, and
- * swiping one away would leave the parent waiting on something the list says
- * is gone.
- */
+/** A parent row with its subagents behind a compact, expandable stack. */
 function SessionFamily({
   node,
-  depth = 0,
   onOpen,
   onArchive,
   animateEntry = true,
 }: {
   node: SessionNode;
-  depth?: number;
   onOpen: (id: string | null) => void;
   onArchive?: (id: string | null) => void;
   /** See the identical prop on SessionCard/AutoFindingCard for why. */
   animateEntry?: boolean;
 }) {
-  const { colors, space, radius } = useTheme();
+  const { colors, radius } = useTheme();
   const session = node.session;
   // Only the iPad rail has a current row: the list stays on screen beside
   // the open session. On a phone the list is a screen you come BACK to, and
@@ -217,7 +202,7 @@ function SessionFamily({
           unread={unread}
           onPress={() => onOpen(session.sessionId)}
           onArchive={
-            depth === 0 && onArchive
+            onArchive
               ? () => onArchive(session.sessionId)
               : undefined
           }
@@ -226,165 +211,15 @@ function SessionFamily({
       </View>
 
       {node.children.length ? (
-        <View
-          style={{
-            marginLeft: CHILD_INDENT,
-            marginTop: space.sm,
-            gap: space.sm,
-          }}
-        >
-          {node.children.map((child, index) => (
-            <SessionBranch
-              key={sessionStableId(child.session)}
-              node={child}
-              depth={depth + 1}
-              last={index === node.children.length - 1}
-              onOpen={onOpen}
-              animateEntry={animateEntry}
-            />
-          ))}
-        </View>
+        <SubagentGroup
+          nodes={node.children}
+          unreadSessions={unreadSessions}
+          onOpen={onOpen}
+        />
       ) : null}
     </View>
   );
 }
-
-/**
- * One child, plus the two lines that tie it to its parent.
- *
- * THE LINE AIMS AT THE MARK, and both ends come from one set of numbers.
- *
- * This used to MEASURE the branch and join at half its height, because a card
- * was 60pt with one line of text and ~72 with two. Two things were wrong with
- * that. The measured box is the whole family, so a child that had children of
- * its own joined at the midline of the SUBTREE — far below its own row. And
- * horizontally the line stopped at a literal copied from the row's old 16pt
- * margin, so when the row's margin changed the line kept pointing at where the
- * row used to be, arriving at the mark's left edge rather than its centre.
- *
- * The row is a fixed height now, so the join is exact arithmetic on
- * SESSION_ROW rather than a measurement, and it is right on the first frame
- * with no flash.
- *
- * The spine is one continuous run. Drawn per-child at `height: 100%` it stopped
- * at each card's bottom edge and left a gap-sized hole between every sibling —
- * a dashed line down the family. Stretching it `top`-to-`bottom` past the gap
- * closes those; the last child stops it at its own midline so the family ends
- * on the elbow instead of trailing a line into whatever follows.
- */
-function SessionBranch({
-  node,
-  depth,
-  last,
-  onOpen,
-  animateEntry = true,
-}: {
-  node: SessionNode;
-  depth: number;
-  last: boolean;
-  onOpen: (id: string | null) => void;
-  /** See the identical prop on SessionCard/AutoFindingCard for why. */
-  animateEntry?: boolean;
-}) {
-  const { colors, space } = useTheme();
-  // The mark's centre, both axes. Not measured — see the note above.
-  const midline = SESSION_ROW_MARK_Y;
-  const reach = SESSION_ROW_MARK_X - SPINE_INSET;
-
-  return (
-    <View>
-      {/**
-       * The last child gets a ROUNDED ELBOW drawn as one bordered box — a left
-       * border and a bottom border meeting in a corner radius, which is how
-       * the web draws it (`rounded-bl-lg border-b border-l`). Two straight
-       * rects meeting at a right angle is a different drawing: it reads as
-       * plumbing, and it cannot be softened at the join no matter how thin the
-       * lines are.
-       *
-       * A child with siblings below it is a T-junction instead: the spine has
-       * to carry on past the branch, so the corner cannot be part of it.
-       *
-       * The row inside carries its own margin and padding, so the branch
-       * crosses both to reach the mark — sized to the indent alone it stopped
-       * in mid air, short of the row it points at.
-       */}
-      {last ? (
-        <View
-          pointerEvents="none"
-          style={{
-            position: "absolute",
-            left: SPINE_INSET,
-            top: -space.sm,
-            width: reach,
-            height: midline + space.sm,
-            borderLeftWidth: LINE,
-            borderBottomWidth: LINE,
-            borderBottomLeftRadius: ELBOW_RADIUS,
-            borderColor: colors.borderStrong,
-          }}
-        />
-      ) : (
-        <>
-          <View
-            pointerEvents="none"
-            style={{
-              position: "absolute",
-              left: SPINE_INSET,
-              top: -space.sm,
-              bottom: -space.sm,
-              width: LINE,
-              backgroundColor: colors.borderStrong,
-            }}
-          />
-          <View
-            pointerEvents="none"
-            style={{
-              position: "absolute",
-              left: SPINE_INSET,
-              top: midline,
-              width: reach,
-              height: LINE,
-              backgroundColor: colors.borderStrong,
-            }}
-          />
-        </>
-      )}
-      <SessionFamily
-        node={node}
-        depth={depth}
-        onOpen={onOpen}
-        animateEntry={animateEntry}
-      />
-    </View>
-  );
-}
-
-/** Hairlines vanish against black at this length; a point and a half reads. */
-const LINE = 1.5;
-/**
- * The indent a family's children sit at, and the only place it is written.
- * SessionBranch subtracts it to work out where the spine goes, so the two
- * cannot disagree.
- */
-const CHILD_INDENT = 24;
-
-/**
- * How far the spine sits inside the indent — DERIVED, not chosen.
- *
- * The spine descends from the parent it belongs to, so it belongs directly
- * under that parent's mark. This was a standalone 7, tuned when the row
- * carried a 16pt margin: back then the mark's centre sat at 43 and the spine
- * at 31, twelve points to its left. Turning the card into a row moved the
- * mark's centre to 27 and left the spine at 31, so it swapped sides and hung
- * four points to the RIGHT of the thing it hangs from.
- *
- * Subtracting the indent from the mark's own position means the line starts
- * under the mark at any row geometry, and nothing has to be re-tuned when one
- * of those numbers moves again.
- */
-const SPINE_INSET = SESSION_ROW_MARK_X - CHILD_INDENT;
-/** Enough curve to read as a corner at 1.5pt, not enough to become an arc. */
-const ELBOW_RADIUS = 9;
 
 /**
  * A conservative floor for the composer's height, before it has been
