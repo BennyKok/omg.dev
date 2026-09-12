@@ -5,6 +5,25 @@ read off the EAS docs.
 
 ## Current state
 
+### Build 44 submission failure (2026-09-12)
+
+Build `fb2a122a-61e0-4037-a85f-281bea17ff2c` (1.0.4, build 44,
+commit `f2338276f`) built successfully in workflow run `34671132554`,
+but Apple rejected the upload. The retry submission
+[`f85d679b-c143-4378-a890-3186ae91f6ff`](https://expo.dev/accounts/bennykok/projects/lfg-native/submissions/f85d679b-c143-4378-a890-3186ae91f6ff)
+reports errors `90062` and `90186`: version 1.0.4 is already approved and
+its pre-release train is closed. Retrying that IPA cannot resolve this.
+
+`app.json` now targets **1.0.5** for the next native build. This is a local
+configuration change, not a submitted build. EAS owns the incrementing build
+number. Run the production `mobile-release.yml` workflow with submission
+enabled after landing this change; verify acceptance in App Store Connect.
+The document picker still needs that new binary.
+
+The `appVersion` runtime policy also makes the next iOS runtime **1.0.5**.
+Future OTA updates from this configuration will not reach installed 1.0.4
+builds. The existing 1.0.4 OTA group remains separate from this build fix.
+
 | | |
 |---|---|
 | Expo account | `bennykok` / itechbenny@gmail.com |
