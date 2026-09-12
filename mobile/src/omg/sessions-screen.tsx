@@ -29,6 +29,7 @@ import {
   useState,
 } from "react";
 import {
+  AppState,
   Platform,
   Pressable,
   RefreshControl,
@@ -75,6 +76,7 @@ import { AutoReportRow } from "./auto-agent-card";
 import { canDriveSession, type DriveableSession } from "./session-runtime";
 import { useOverlapWatch } from "./list-overlap-watch";
 import { groupNodesByProject } from "./session-groups";
+import { observeSessionStatus, SessionStatusState } from "./session-status";
 import { sessionPreview } from "./session-preview";
 import {
   groupHomeAutoFindings,
@@ -713,11 +715,8 @@ export function SessionsScreen({
   const animateEntry = Date.now() - mountedAtRef.current >= COLD_LOAD_WINDOW_MS;
   /**
    * Live-socket health. The SDK's statuses are connecting | live | reconnecting
-   * | offline — there is no "connected", and comparing against that string made
-   * the banner permanently true. Worse, subscribeConnection does NOT open the
-   * socket (only subscribeTranscript does), so this screen sat at "connecting"
-   * forever and told everyone their computer was reconnecting when nothing was
-   * wrong. Only a genuine drop is worth saying out loud.
+   * | offline. The focused fleet subscription opens the shared socket.
+   * Only a genuine drop is worth saying out loud.
    */
   const [connection, setConnection] =
     useState<OmgConnectionStatus>("connecting");
@@ -752,32 +751,7 @@ export function SessionsScreen({
 
   const ready = readiness?.status === "ready";
 
-  /**
-   * WHAT THE LIST ACTUALLY DEPENDS ON, not the whole payload.
-   *
-   * The 10s poll below re-fetches even when nothing a person would notice has
-   * changed, and the machine bumps heartbeat-y fields (`lastActivityAt`,
-   * `last.ts`) on a live-but-idle session just by having it open. Every field
-   * in the response therefore changes on a schedule that has nothing to do
-   * with what's on screen, and a naive `setSessions(freshArray)` would hand
-   * `roots`/`projectGroups`/`working` (all `useMemo`d off `sessions` by
-   * reference) a brand-new array every single poll regardless — which
-   * re-renders every mounted `SessionFamily`/`SessionCard` and re-arms each
-   * one's `layout: LinearTransition` (see motion.tsx) even though not one row
-   * actually moved.
-   *
-   * This is a PERFORMANCE fix and nothing more. It was originally written on
-   * the theory that the churn was also what produced the "list renders twice,
-   * offset, with a second list's rows peeking through the gaps" report; that
-   * theory was wrong, and the note that used to be here claiming it as the
-   * best lead has been removed rather than left to mislead the next reader.
-   * The real cause was the `exiting` animation on SessionCard stranding
-   * unmounted rows out of flow — found and fixed separately, see motion.tsx.
-   *
-   * Keep this anyway, on its own merits: a quiet poll that changed nothing
-   * costs a JSON compare here instead of re-rendering every mounted card and
-   * re-arming every layout transition in the list.
-   */
+  /** Keep unchanged rows stable across REST reconciliations and status frames. */
   function sessionsSignature(list: OmgSession[]): string {
     return JSON.stringify(
       list.map((s) => [
@@ -786,10 +760,13 @@ export function SessionsScreen({
         s.tmuxName,
         s.title,
         s.lastUserText,
+        s.lastActivityAt,
         s.agent,
         s.agentLabel,
         s.busy,
         s.status,
+        s.statusReason,
+        s.statusDetail,
         s.parentSessionId,
         s.parentNativeSessionId,
         s.model,
@@ -799,6 +776,14 @@ export function SessionsScreen({
   const sessionsSignatureRef = useRef<string | null>(null);
   const currentClient = useRef(client);
   currentClient.current = client;
+  const statusState = useMemo(() => new SessionStatusState((fresh) => {
+    if (currentClient.current !== client) return;
+    const signature = sessionsSignature(fresh);
+    if (signature !== sessionsSignatureRef.current) {
+      sessionsSignatureRef.current = signature;
+      setSessions(fresh);
+    }
+  }), [client]);
   const previousBinding = useRef(bindingId);
   useEffect(() => {
     sessionsSignatureRef.current = null;
@@ -821,16 +806,8 @@ export function SessionsScreen({
       if (!client || !ready) return;
       if (!quiet) setLoading(true);
       try {
-        const fresh = await client.listSessions();
+        await statusState.refresh(() => client.listSessions());
         if (currentClient.current !== client) return;
-        const signature = sessionsSignature(fresh);
-        // Same rows, same order, same everything that renders: keep the
-        // existing array identity so nothing downstream re-renders or
-        // re-animates for a poll that changed nothing on screen.
-        if (signature !== sessionsSignatureRef.current) {
-          sessionsSignatureRef.current = signature;
-          setSessions(fresh);
-        }
         setError(null);
       } catch (e) {
         // A failed background poll keeps the list it already has. Only a
@@ -851,7 +828,7 @@ export function SessionsScreen({
         setSessionsSettled(true);
       }
     },
-    [client, ready],
+    [client, ready, statusState],
   );
 
   /**
@@ -904,36 +881,30 @@ export function SessionsScreen({
     return () => clearTimeout(timer);
   }, [ready, sessionsSettled]);
 
-  /**
-   * TITLES AND SUBTITLES GO STALE WHILE YOU WATCH THEM, so this polls.
-   *
-   * The live socket carries connection state and per-session TRANSCRIPTS —
-   * `subscribeConnection` and `subscribeTranscript` are the only channels the
-   * SDK exposes. There is nothing that pushes "this session's title changed",
-   * and a session's title and last message change constantly while an agent
-   * works. Refreshing only on focus meant the list you were staring at was a
-   * snapshot from whenever you opened it: a session would sit there named
-   * after a prompt it finished ten minutes ago.
-   *
-   * 10s, and only while the screen is focused, so a backgrounded app is not
-   * talking to the machine. Quiet, so it never touches the refresh spinner.
-   */
+  // Observe the fleet only while Home is visible and the app is foregrounded.
+  // REST reconciles membership every minute, or every 10s without live frames.
   useFocusEffect(
     useCallback(() => {
-      void load();
-      const timer = setInterval(() => void load(true), 10_000);
-      return () => clearInterval(timer);
-    }, [load]),
+      if (!client || !ready) return;
+      let stop: (() => void) | undefined;
+      const start = () => {
+        if (stop) return;
+        const unsubscribe = observeSessionStatus({
+          live: client.live,
+          apply: (rows) => statusState.apply(rows),
+          refresh: (quiet) => { void load(quiet); },
+          connectionChanged: setConnection,
+        });
+        stop = () => { unsubscribe(); stop = undefined; };
+      };
+      if (AppState.currentState !== "background") start();
+      const appState = AppState.addEventListener("change", (state) => {
+        if (state === "background") stop?.();
+        else if (state === "active") start();
+      });
+      return () => { appState.remove(); stop?.(); };
+    }, [client, ready, load, statusState]),
   );
-
-  // Surface a dropped socket without stealing the screen — the list is still
-  // valid, it is just not updating.
-  useEffect(() => {
-    if (!client) return;
-    return client.live.subscribeConnection((state) =>
-      setConnection(state.status),
-    );
-  }, [client]);
 
   const currentSharedComputer = useMemo(
     () => sharedComputers.find((c) => c.id === bindingId) ?? null,
@@ -1219,9 +1190,7 @@ export function SessionsScreen({
       // Drop the row immediately. The request is not instant, and leaving a
       // card that has just been swiped away sitting on screen until the server
       // answers reads as the gesture having failed.
-      setSessions((current) =>
-        current.filter((s) => s.sessionId !== sessionId),
-      );
+      statusState.remove(sessionId);
       void (async () => {
         try {
           await client.transport.request(`/api/sessions/${encodeURIComponent(sessionId)}/close`, {
@@ -1238,7 +1207,7 @@ export function SessionsScreen({
         }
       })();
     },
-    [client, load],
+    [client, statusState, load],
   );
 
   /**

@@ -7,8 +7,8 @@
       "dependencies": {
         "@expo/metro-runtime": "~57.0.9",
         "@expo/ui": "~57.0.10",
-        "@omg-dev/client": "^0.6.66",
-        "@omg-dev/protocol": "^0.6.66",
+        "@omg-dev/client": "^0.6.67",
+        "@omg-dev/protocol": "^0.6.67",
         "@react-native-async-storage/async-storage": "2.2.0",
         "@react-native-google-signin/google-signin": "^16.1.4",
         "@siteed/audio-studio": "^3.2.1",
@@ -316,9 +316,9 @@
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
 
-    "@omg-dev/client": ["@omg-dev/client@0.6.66", "", { "dependencies": { "@omg-dev/protocol": "0.6.66" } }, "sha512-kd3OcK9MpcsEHP7djpAkaVsyCnAvunc2b8RFpjcxkWBNv8GtkTrZ3LlaUCerdQBPETuRF1kisDDdqTKH62IyeQ=="],
+    "@omg-dev/client": ["@omg-dev/client@0.6.67", "", { "dependencies": { "@omg-dev/protocol": "0.6.67" } }, "sha512-O/zv5PyYkEYZ63WSCcC+9FEeJkZfjBs9JPFiWL++9teVsN8BXghGiQ6CEakLHESsViDWIt3eTk95laI1Q34sbw=="],
 
-    "@omg-dev/protocol": ["@omg-dev/protocol@0.6.66", "", {}, "sha512-i3agA71dLawoE8YjLzvfWOd3IS0JfMC5wAu5luHXoEwCulUz+uPFzfiQquVUl/2vkVBKg8/lckbLmSORWKOqwg=="],
+    "@omg-dev/protocol": ["@omg-dev/protocol@0.6.67", "", {}, "sha512-GlSdGY8UuPLCarDxIMf7Z/oGudzS24GI8C+mkkc3931oMBZzbJH0GXDrpRia/kdYZNDxp7wi+2GjrgS02cZURA=="],
 
     "@radix-ui/primitive": ["@radix-ui/primitive@1.1.7", "", {}, "sha512-rqWnm76nYT8HoNNqEjpgJ7Pw/DrBj5iBTrmEPo6HTX5+VJyBNOqTdv4g89G63HuR5g0AaENoAcH7Is5fF2kZ8Q=="],
 

@@ -10,8 +10,8 @@
   "dependencies": {
     "@expo/metro-runtime": "~57.0.9",
     "@expo/ui": "~57.0.10",
-    "@omg-dev/client": "^0.6.66",
-    "@omg-dev/protocol": "^0.6.66",
+    "@omg-dev/client": "^0.6.67",
+    "@omg-dev/protocol": "^0.6.67",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-google-signin/google-signin": "^16.1.4",
     "@siteed/audio-studio": "^3.2.1",
