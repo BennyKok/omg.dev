@@ -85,14 +85,14 @@ export function Bone({
   return (
     <View
       style={[
-        { width, height, borderRadius: radius, backgroundColor: colors.secondary, overflow: "hidden" },
+        { width, height, borderRadius: radius, backgroundColor: colors.skeletonBone, overflow: "hidden" },
         style,
       ]}
     >
       {reducedMotion ? null : (
         <Reanimated.View style={[StyleSheet.absoluteFill, sweepStyle]}>
           <LinearGradient
-            colors={["transparent", colors.borderStrong, "transparent"]}
+            colors={["transparent", colors.skeletonSweep, "transparent"]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
             style={{ width: width * 2, height: "100%" }}
@@ -156,7 +156,7 @@ export function SessionCardSkeleton({
           reducedMotion={reducedMotion}
         />
       </View>
-      <View style={{ width: CARD.dot, height: CARD.dot, borderRadius: CARD.dot / 2, backgroundColor: colors.secondary }} />
+      <View style={{ width: CARD.dot, height: CARD.dot, borderRadius: CARD.dot / 2, backgroundColor: colors.skeletonBone }} />
     </View>
   );
 }
