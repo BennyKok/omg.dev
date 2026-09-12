@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## September 12, 2026 - One row per run of work, folded on the server (v0.6.65)
+
+- A run of tool calls and thinking now arrives from the server as one "Worked for" row. The web app and the phone no longer build that row themselves, so both show the same rows for the same run.
+- A displayed image, video, file, or dashboard sits under the run that made it. The display call no longer shows as a separate step.
+- Every thought is part of its run, including the first one and the one still streaming.
+- The old raw message stream is unchanged for clients that do not ask for rows, so an older phone build keeps working.
+
 ## September 12, 2026 - Queue messages while the agent works, Devin agent (v0.6.64)
 
 - Queue a message while the agent is on a turn and it waits. It no longer reaches the agent right away. Queued messages show as a card under the composer, not in the chat. Click a message to edit it, or remove it. When the turn ends, every queued message is sent in order.
