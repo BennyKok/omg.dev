@@ -3235,6 +3235,21 @@ export async function listSessions(): Promise<Session[]> {
 const BUSY_CACHE_TTL_MS = 2500;
 const busyCache = new Map<string, { at: number; busy: boolean }>();
 
+/**
+ * Drop the cached pane-busy results.
+ *
+ * For a fleet dot, a reading up to BUSY_CACHE_TTL_MS old is fine. For deciding
+ * whether to let the next held message out it is not: a pane capture taken
+ * before the previous message was typed still shows an idle prompt, and the
+ * queue would release on top of the turn that message just started. The send
+ * queue calls this before the reading it acts on. Registry-backed sessions
+ * (the command-file harnesses) read their entry directly and never cache, so
+ * this only matters for the tmux-pane adapters.
+ */
+export function invalidateSessionBusyCache(): void {
+  busyCache.clear();
+}
+
 // Live busy state for a single session, derived the same way the SSE stream
 // derives it (so the list and the stream agree): a tmux session is busy when
 // its pane shows a running turn; a pane-less aisdk session is busy when its

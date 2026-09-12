@@ -12,7 +12,7 @@ import {
   jcodeAcceptedStatus,
   listHeld,
   listQueue,
-  releaseHeldMessages,
+  releaseNextHeldMessage,
   removeHeldMessage,
   setHeldBusyProbeForTests,
   setHeldReleaseHandler,
@@ -467,12 +467,195 @@ describe("held messages", () => {
     expect(listQueue(sessionId)).toEqual([]);
   });
 
+  // The bug these cover, from the 2026-09-12 trace: seven held rows left one
+  // session inside 40 ms, the first started a turn and the other six went into
+  // the harness's private queue, where the composer queue bar could not show
+  // them and the user could not edit them. The last one reached the agent 26
+  // minutes later.
+  test("releases one held row per idle tick while a released row is still in flight", async () => {
+    const sessionId = crypto.randomUUID();
+    // Stale busy, the real failure mode: the session list keeps answering
+    // "idle" for seconds after a send, so every tick in that window sees the
+    // same `false` the tick that released the first row saw.
+    setHeldBusyProbeForTests(async () => false);
+    const released: string[] = [];
+    setHeldReleaseHandler(async (sid, text) => {
+      released.push(text);
+      // What serve.ts does: the send path records its own queue row. Nothing
+      // reconciles it here, so it stays in flight.
+      recordCommandFileMessage(sid, text, true);
+      return { ok: true };
+    });
+    holdMessage(sessionId, "first");
+    holdMessage(sessionId, "second");
+    holdMessage(sessionId, "third");
+
+    await waitFor(() => released.length === 1, 5_000);
+    // Several more ticks with the same stale idle reading.
+    await new Promise((resolve) => setTimeout(resolve, 3_500));
+
+    expect(released).toEqual(["first"]);
+    expect(listHeld(sessionId).map((m) => m.text)).toEqual(["second", "third"]);
+    // The two that stayed behind are still editable and still removable.
+    expect(updateHeldMessage(sessionId, listHeld(sessionId)[1]!.id, "third, edited")).toMatchObject({
+      status: "held",
+    });
+    expect(removeHeldMessage(sessionId, listHeld(sessionId)[1]!.id)).toBe(true);
+  }, 20_000);
+
+  test("releases the next held row once the one before it reaches the transcript", async () => {
+    const sessionId = crypto.randomUUID();
+    setHeldBusyProbeForTests(async () => false);
+    const released: string[] = [];
+    setHeldReleaseHandler(async (sid, text) => {
+      released.push(text);
+      recordCommandFileMessage(sid, text, true);
+      return { ok: true };
+    });
+    holdMessage(sessionId, "first");
+    holdMessage(sessionId, "second");
+
+    await waitFor(() => released.length === 1, 5_000);
+    expect(listHeld(sessionId).map((m) => m.text)).toEqual(["second"]);
+    // The agent read it: its user turn is now in the transcript, which is what
+    // retires the queue row. The watcher runs reconcileQueued itself, so this
+    // needs no connected client.
+    indexSessionMessagesDirect(sessionId, [
+      { id: "user-1", role: "user", kind: "text", text: "first", ts: Date.now() },
+    ]);
+
+    await waitFor(() => released.length === 2, 8_000);
+    expect(released).toEqual(["first", "second"]);
+    expect(listHeld(sessionId)).toEqual([]);
+  }, 20_000);
+
+  // The narrower race inside the same bug: the gate can clear fast. The
+  // harness marks itself busy and THEN writes the user row, so a reconcile a
+  // second after the release can retire the queue row while the session list
+  // is still serving the snapshot it took before the release. A release
+  // decided on that snapshot lands on top of a running turn.
+  test("does not release the next row on a stale idle reading after a fast reconcile", async () => {
+    const sessionId = crypto.randomUUID();
+    let reallyBusy = false;
+    // The cached reading is stuck on "idle" for the whole test. Only a fresh
+    // one tells the truth.
+    setHeldBusyProbeForTests(async (_sid, opts) => (opts.fresh ? reallyBusy : false));
+    const released: string[] = [];
+    setHeldReleaseHandler(async (sid, text) => {
+      released.push(text);
+      recordCommandFileMessage(sid, text, true);
+      // The harness takes it: busy first, then the user row lands, so the
+      // next tick's reconcileQueued retires the row it just created.
+      reallyBusy = true;
+      indexSessionMessagesDirect(sid, [
+        { id: `user-${released.length}`, role: "user", kind: "text", text, ts: Date.now() },
+      ]);
+      return { ok: true };
+    });
+    holdMessage(sessionId, "first");
+    holdMessage(sessionId, "second");
+
+    await waitFor(() => released.length === 1, 5_000);
+    await new Promise((resolve) => setTimeout(resolve, 3_500));
+
+    // The in-flight gate opened as soon as "first" was indexed, and the cached
+    // reading still says idle. Only the fresh reading keeps "second" back.
+    expect(listQueue(sessionId).find((m) => m.text === "first")?.status).toBe("delivered");
+    expect(released).toEqual(["first"]);
+    expect(listHeld(sessionId).map((m) => m.text)).toEqual(["second"]);
+
+    reallyBusy = false;
+    await waitFor(() => released.length === 2, 8_000);
+    expect(released).toEqual(["first", "second"]);
+  }, 20_000);
+
+  // Every step of a tick awaits, and the fresh busy probe forces a full
+  // session scan. When those outlast the 1s poll the intervals overlap, and
+  // two ticks that each read idle would each take listHeld()[0] — the same
+  // row, twice, because a row is only removed once its handler resolves.
+  test("a slow probe and a slow handler still release one row once", async () => {
+    const sessionId = crypto.randomUUID();
+    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    setHeldBusyProbeForTests(async () => {
+      await sleep(1_200); // Longer than HELD_POLL_MS: ticks now overlap.
+      return false;
+    });
+    const released: string[] = [];
+    let inHandler = 0;
+    let overlapped = false;
+    setHeldReleaseHandler(async (sid, text) => {
+      if (++inHandler > 1) overlapped = true;
+      await sleep(1_200);
+      released.push(text);
+      recordCommandFileMessage(sid, text, true);
+      inHandler--;
+      return { ok: true };
+    });
+    const first = holdMessage(sessionId, "only once");
+    holdMessage(sessionId, "and not this one yet");
+
+    await waitFor(() => released.length >= 1, 10_000);
+    await sleep(3_000);
+
+    expect(overlapped).toBe(false);
+    expect(released).toEqual(["only once"]);
+    expect(getMessage(sessionId, first.id)).toBeNull();
+    expect(listHeld(sessionId).map((m) => m.text)).toEqual(["and not this one yet"]);
+  }, 30_000);
+
+  test("a queued row that outlived a restart holds the released rows back", async () => {
+    const sessionId = crypto.randomUUID();
+    setHeldBusyProbeForTests(async () => false);
+    // A queue-mode send accepted before the restart, still waiting on the
+    // agent, plus two held rows. All three are in SQLite.
+    recordCommandFileMessage(sessionId, "sent before the restart", true);
+    holdMessage(sessionId, "held one");
+    holdMessage(sessionId, "held two");
+    // Restart: drop every timer and in-memory queue, reload from the store.
+    resetSendQueueForTests();
+    const released: string[] = [];
+    setHeldBusyProbeForTests(async () => false);
+    setHeldReleaseHandler(async (sid, text) => {
+      released.push(text);
+      recordCommandFileMessage(sid, text, true);
+      return { ok: true };
+    });
+
+    resumePersistedQueues();
+    await new Promise((resolve) => setTimeout(resolve, 3_500));
+
+    // The older queued row is ahead in line, so nothing is released on top of
+    // it, and both held rows are still on the queue bar.
+    expect(released).toEqual([]);
+    expect(listHeld(sessionId).map((m) => m.text)).toEqual(["held one", "held two"]);
+    expect(listQueue(sessionId).filter((m) => m.status === "queued")).toHaveLength(1);
+  }, 20_000);
+
+  test("a failed release does not hold the rest of the queue back", async () => {
+    const sessionId = crypto.randomUUID();
+    setHeldBusyProbeForTests(async () => false);
+    // Nothing is in flight after a refusal: the text never left, so the row is
+    // terminal and visible with its reason. The next row is free to try.
+    setHeldReleaseHandler(async () => ({ ok: false, error: "no pane" }));
+    const first = holdMessage(sessionId, "unlucky one");
+    const second = holdMessage(sessionId, "unlucky two");
+
+    await waitFor(
+      () =>
+        getMessage(sessionId, first.id)?.status === "failed" &&
+        getMessage(sessionId, second.id)?.status === "failed",
+      8_000,
+    );
+    expect(getMessage(sessionId, first.id)?.error).toBe("no pane");
+    expect(getMessage(sessionId, second.id)?.error).toBe("no pane");
+  }, 20_000);
+
   test("a refused release stays visible as failed with the reason", async () => {
     const sessionId = crypto.randomUUID();
     setHeldBusyProbeForTests(async () => true);
     setHeldReleaseHandler(async () => ({ ok: false, error: "no pane" }));
     const held = holdMessage(sessionId, "unlucky");
-    expect(await releaseHeldMessages(sessionId)).toBe(0);
+    expect(await releaseNextHeldMessage(sessionId)).toBe(0);
     expect(getMessage(sessionId, held.id)?.status).toBe("failed");
     expect(getMessage(sessionId, held.id)?.error).toBe("no pane");
   });
