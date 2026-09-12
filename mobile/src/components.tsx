@@ -845,7 +845,7 @@ export function SessionCard({
       <Reanimated.View style={cardStyle} {...(swipeable ? panResponder.panHandlers : {})}>
         <PressableScale
           onPress={onPress}
-          scale={0.97}
+          scale={1}
           style={({ pressed }) => ({
             flexDirection: "row",
             alignItems: "center",
