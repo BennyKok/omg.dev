@@ -75,6 +75,9 @@ import { Text, TextInput } from "../../src/omg/text";
 import type { OmgConnectionStatus } from "@omg-dev/client";
 import { AgentSetupSheet } from "../../src/omg/agent-setup-sheet";
 import { HeldQueue, type HeldRow } from "../../src/omg/held-queue";
+
+/** What a send does while the agent is working. Mirrors the web's ComposerSendMode. */
+type SendMode = "steer" | "queue";
 import { useKeyCommand } from "../../src/omg/key-commands";
 import { useAgentPicker } from "../../src/omg/session-options";
 import { COMPOSER_FADE_HEIGHT, EdgeFade, TOP_FADE_HEIGHT } from "../../src/omg/edge-fade";
@@ -199,7 +202,7 @@ export function SessionScreenBody({
    * any backing session exists (`sessionId` is null) — so this is what makes
    * that legal; see the guard at the top of `submit`.
    */
-  onDeliver?: (text: string, mode: "steer" | "queue") => Promise<{ sessionId?: string } | undefined>;
+  onDeliver?: (text: string, mode: SendMode) => Promise<{ sessionId?: string } | undefined>;
 }) {
   const id = sessionId;
   const navigation = useNavigation();
@@ -256,6 +259,29 @@ export function SessionScreenBody({
    * is held, so a release shows up within a beat.
    */
   const [held, setHeld] = useState<HeldRow[]>([]);
+  /**
+   * THE MACHINE'S SEND MODE, same setting the web composer reads
+   * (`composerSendMode`). "steer": a tap interrupts the turn, a hold queues.
+   * "queue": a tap queues behind the turn, a hold steers. Read once per
+   * open; the setting page lives on the web, so it does not change under
+   * this screen. A failed read leaves the historical default.
+   */
+  const [sendMode, setSendMode] = useState<SendMode>("steer");
+  const alternateSendMode: SendMode = sendMode === "queue" ? "steer" : "queue";
+  useEffect(() => {
+    if (!client || !id) return;
+    let cancelled = false;
+    client.transport
+      .request<{ settings?: { composerSendMode?: unknown } }>("/api/settings")
+      .then((res) => {
+        if (cancelled) return;
+        setSendMode(res?.settings?.composerSendMode === "queue" ? "queue" : "steer");
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [client, id]);
   const refreshHeld = useCallback(async (): Promise<HeldRow[]> => {
     if (!client || !id) return [];
     try {
@@ -1049,13 +1075,14 @@ export function SessionScreenBody({
     (mode: "steer" | "queue" = "steer", spoken?: string) => {
       const text = attachments.compose((spoken ?? draft).trim());
       if (!text || sending) return;
-      if (mode === "queue") {
+      if (mode === "queue" && busy) {
         /**
-         * A DIFFERENT WEIGHT FOR A DIFFERENT ACT. A tap steers; a long press
-         * puts the message behind the work in flight. Success feedback rather
-         * than the light impact of a normal send, because the whole point of
-         * the gesture is that something other than the obvious thing happened
-         * and you did not see the message go.
+         * A DIFFERENT WEIGHT FOR A DIFFERENT ACT. Queueing puts the message
+         * behind the work in flight instead of into it. Success feedback
+         * rather than the light impact of a normal send, because the whole
+         * point is that something other than the obvious thing happened and
+         * you did not see the message go. Only while the agent is busy: a
+         * queue-mode send to an idle agent is just a send.
          */
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         setQueuedHint(true);
@@ -1068,13 +1095,13 @@ export function SessionScreenBody({
       Keyboard.dismiss();
       void submit(text, mode);
     },
-    [attachments, draft, sending, submit],
+    [attachments, busy, draft, sending, submit],
   );
 
   // Kept current for the dictation callback declared above it.
   useEffect(() => {
-    submitRef.current = (text: string) => send("steer", text);
-  }, [send]);
+    submitRef.current = (text: string) => send(sendMode, text);
+  }, [send, sendMode]);
 
   /**
    * Answering the agent's question SENDS the answer. It used to drop the label
@@ -2158,7 +2185,11 @@ export function SessionScreenBody({
              * discover that from the spinner.
              */
             placeholder={
-              live === false ? "Message to resume…" : busy ? "Queue a follow-up…" : "Message"
+              live === false
+                ? "Message to resume…"
+                : busy && sendMode === "queue"
+                  ? "Queue a follow-up…"
+                  : "Message"
             }
             placeholderTextColor={colors.textMuted}
             multiline
@@ -2173,7 +2204,7 @@ export function SessionScreenBody({
             returnKeyType="send"
             submitBehavior="submit"
             onSubmitEditing={() => {
-              if (canSend) send("steer");
+              if (canSend) send(sendMode);
             }}
             style={{
               flex: 1,
@@ -2248,11 +2279,17 @@ export function SessionScreenBody({
                   hold.timer = null;
                 }
               }}
-              onPress={() => send(queueHoldRef.current?.armed ? "queue" : "steer")}
+              onPress={() => send(queueHoldRef.current?.armed ? alternateSendMode : sendMode)}
               disabled={!canSend}
               accessibilityRole="button"
-              accessibilityLabel={busy ? "Queue the message" : "Send the message"}
-              accessibilityHint="Press and hold to queue it behind the current turn"
+              accessibilityLabel={
+                !busy ? "Send the message" : sendMode === "queue" ? "Queue the message" : "Send the message now"
+              }
+              accessibilityHint={
+                sendMode === "queue"
+                  ? "Press and hold to send it into the current turn"
+                  : "Press and hold to queue it behind the current turn"
+              }
               accessibilityState={{ disabled: !canSend }}
               style={({ pressed }) => ({
                 width: 32,
