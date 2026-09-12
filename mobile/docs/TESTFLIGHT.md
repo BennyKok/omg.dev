@@ -40,7 +40,7 @@ the UI fixes with unchanged 1.0.4 native configuration.
 | App Store | **LIVE since 2026-09-01T02:04:11Z** — version 1.0, build 37, released manually. `asc-status` now reports `Store: LIVE ... storefront us`. |
 | `asc-status` store probe | Fixed 2026-09-01. It had called the iTunes lookup with no `country`, which answered `resultCount 0` for a live app three times out of three, so it printed `Store: not live` for hours after release and the review-watch bot repeated it. It now asks `us,hk,gb,jp` in order and reports the first storefront that answers. A total lookup failure reads as unknown, not as not-live. **The script lives at `~/.local/bin/asc-status` and is NOT in this repository**, so the fix is on this box only. |
 | Latest iOS upload | **1.0.5 (45)** — built from `7f7e8cc65`, workflow `34672791382`, EAS build `9c9c01ef-78d8-431b-9394-dbb867d32ec7`. Uploaded to App Store Connect 2026-09-12 04:30 UTC, submission `aacc9b07-d681-46b7-9f3e-b6afd50e0f62`. Apple processing / TestFlight availability is not yet confirmed. Includes `expo-document-picker` for Choose File, the keyboard shortcut modules introduced in build 43, and the queue/sheet fixes. Build 43 was the last upload previously confirmed VALID. Build 44 was rejected because the 1.0.4 train closed. The native Files sheet passed the simulator check below; physical-phone activation remains unverified. |
-| EAS Update | live, branch `production`, runtimeVersion policy `appVersion`. Two runtimes are in the field: `1.0.5` last group `7ab8b287-8be1-4366-a695-fbf3260f42b1` (2026-09-12, `cf4311430`, main); `1.0.4` last group `a82548de-6b0e-406f-8060-20fc7f4babbd` (2026-09-12, `af9f56f6e`, main with only app version held at 1.0.4). Both include the send morph and reply space, roomier Live rows, separate chat header, Latest scroll fix, inline queue confirmation, immediate queue placement, and combined work-row fixes. Publish BOTH for every phone-visible change until 1.0.4 is retired; check the installed version before attributing a missing change. |
+| EAS Update | live, branch `production`, runtimeVersion policy `appVersion`. Two runtimes are in the field: `1.0.5` last group `c7fa8045-6629-462f-bd95-a0fe507bfc3c` (2026-09-12, `83e307100`, main); `1.0.4` last group `0b1a8131-8d13-4a01-a3a4-a8815ea31b75` (2026-09-12, `d3e43ffe3`, main with only app version held at 1.0.4). Both include the single-line chat title, send morph and reply space, roomier Live rows, separate chat header, Latest scroll fix, inline queue confirmation, immediate queue placement, and combined work-row fixes. Publish BOTH for every phone-visible change until 1.0.4 is retired; check the installed version before attributing a missing change. |
 
 ## Publish log (`production` channel)
 
@@ -107,6 +107,23 @@ command didn't error."
 | 2026-09-12 | `37876cb1-cc0f-490b-80a3-c92d1fecf8f4` | `370bfb29b` (`main`, run `34676092226`) | The same code as `bb49b0fc`, for runtime 1.0.5. Benny's phone is on native build 45 (1.0.5, cut from `7f7e8cc65`), which predates every phone fix from today and cannot receive a 1.0.4 group; his screenshot after `bb49b0fc` still showed eight raw `shell` rows. The machine folds this session for any capable socket (37 messages, 0 raw) and sends raw only to a socket that declares nothing, which build 45 does on the hosted path. | Published from `main` with no override; `app.json` is 1.0.5 there. Native surface vs build 45 (`7f7e8cc65`): only `mobile/package.json` moved (pure-JS `@omg-dev/*` bumps). Coordinated with session 542a7801, which verifies the EAS source independently. Not checked on a device before publishing. Read back with `eas update:view --json`: ios+android, runtime 1.0.5, `gitCommitHash 370bfb29b`. |
 | 2026-09-12 | `4dbfae7e-87ee-4afe-a4f4-4564495bf6b0` | `1f7658e53` | Queue refresh continues when empty while the screen is active and refreshes on foreground return. Delivered messages no longer inherit a local Queued badge. Queue/composer height changes no longer run competing layout animations. Sheets animate their existing dragged card off screen before unmounting and blur the composer before opening. | Published for runtime `1.0.4` from `release/ios-1.0.4-e7a545`; native configuration, dependencies, plugins and modules are unchanged from `cd3d7186b`. Workflow `34672790564` passed typecheck and Metro export. Group, runtime and commit independently verified with `eas update:view`. iPhone simulator checks covered the queue card and sheet dismissal. The UI fixes also landed on main in `7f7e8cc65` for build 45. Superseded by `ee60972a`: this first compatibility branch omitted the concurrent server-work-row client update. |
 | 2026-09-12 | `ee60972a-fc3a-4b93-b1cb-cbed81cfeae5` | `1779f4f79` | Queue and sheet fixes plus the concurrent server-work-row client update. | The maintenance branch was merged with current main (`b9cc97262`); its only mobile diff from main is app version 1.0.4 instead of 1.0.5. Native configuration and dependencies match the previously cleared 1.0.4 runtime. Workflow `34673038633` passed mobile typecheck and Metro export. `eas update:view` independently confirmed iOS and Android runtime 1.0.4, group and commit. |
+
+### Single-line chat title (2026-09-12)
+
+Removed the agent-name subtitle under the chat title. The avatar and title
+remain centred in the header. A dropped connection still shows its temporary
+reconnection status. Mobile typecheck passed. The iPhone 17 Pro simulator
+showed the real session header without the Codex subtitle.
+
+- Runtime 1.0.5: `c7fa8045-6629-462f-bd95-a0fe507bfc3c`, workflow
+  `34687754009`, source `83e307100`.
+- Runtime 1.0.4: `0b1a8131-8d13-4a01-a3a4-a8815ea31b75`, workflow
+  `34687756271`, source `d3e43ffe3`. Branch `ota/header-line-1.0.4`
+  was cut from main with only the app version line changed.
+
+Both workflows passed typecheck, Metro export, and the native compatibility
+gate. EAS readback verified both platforms, runtime versions, and commits.
+Physical-phone activation remains unverified.
 
 ### Input-to-bubble send motion (2026-09-12)
 
