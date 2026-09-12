@@ -138,19 +138,37 @@ describe("notifyNativeAll", () => {
     expect(message.body).toBe(question);
   });
 
-  test("clips a long body to the lock-screen budget and collapses whitespace", async () => {
+  test("keeps only the first sentence of a long body and clips at a word boundary", async () => {
     await saveNativeToken({ token: "ExponentPushToken[benny]", user: "benny@example.com" });
     await notifyNativeAll({
       user: "benny@example.com",
-      notification: { title: "Shipped: Native push", body: "line one\n\n" + "x".repeat(400), tag: "shipped-p1" },
+      notification: {
+        title: "I wanted to rework a bit on message attachments and the transcript view",
+        body:
+          "Nothing else to request now. The only pending item is the release workflow result, and that is a tracked background task.",
+        tag: "session-s1",
+      },
+    });
+
+    const [message] = sent[0].body as Array<Record<string, unknown>>;
+    expect(message.body).toBe("Nothing else to request now.");
+    expect(message.title).toBe("I wanted to rework a bit on message attachments and the…");
+    expect(message.subtitle).toBeUndefined();
+  });
+
+  test("a single run-on sentence is clipped to the body budget without splitting a word", async () => {
+    await saveNativeToken({ token: "ExponentPushToken[benny]", user: "benny@example.com" });
+    const words = Array.from({ length: 40 }, (_, i) => `word${i}`).join(" ");
+    await notifyNativeAll({
+      user: "benny@example.com",
+      notification: { title: "Shipped: Native push", body: words, tag: "shipped-p1" },
     });
 
     const [message] = sent[0].body as Array<Record<string, unknown>>;
     const body = message.body as string;
-    expect(body.startsWith("line one x")).toBe(true);
-    expect(body.length).toBe(200);
+    expect(body.length).toBeLessThanOrEqual(90);
     expect(body.endsWith("\u2026")).toBe(true);
-    expect(message.subtitle).toBeUndefined();
+    expect(body.slice(0, -1).trimEnd()).toMatch(/word\d+$/);
   });
 
   test("prunes a token Expo reports as DeviceNotRegistered", async () => {
