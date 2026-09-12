@@ -24,6 +24,7 @@
 import * as Crypto from "expo-crypto";
 import * as ImagePicker from "expo-image-picker";
 import { useCallback, useState } from "react";
+import { Alert } from "react-native";
 
 import type { MenuOption } from "./menu";
 import { useOmg } from "./provider";
@@ -229,6 +230,47 @@ export function useAttachments(sessionId: string | null) {
     [items],
   );
 
+  /**
+   * ANY FILE, from the Files sheet. The picker is a native module that build
+   * 43 does not carry, and this code reaches build 43 over the air, so the
+   * module is required lazily and a missing one degrades to a row that
+   * explains itself instead of a crash at import.
+   */
+  const pickFile = useCallback(async () => {
+    if (picking) return;
+    setPicking(true);
+    try {
+      let picker: typeof import("expo-document-picker");
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        picker = require("expo-document-picker") as typeof import("expo-document-picker");
+      } catch {
+        Alert.alert("Update the app", "Attaching files needs a newer omg app from the App Store.");
+        return;
+      }
+      const result = await picker.getDocumentAsync({
+        multiple: true,
+        // A copy in our cache: a provider's own URL can stop resolving as
+        // soon as the sheet closes, and the upload reads it a beat later.
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled) return;
+      add(
+        result.assets.map((asset) => {
+          const mime = asset.mimeType || "application/octet-stream";
+          return {
+            uri: asset.uri,
+            name: asset.name?.trim() || `file-${Date.now()}`,
+            mimeType: mime,
+            kind: mime.startsWith("image/") ? "image" : mime.startsWith("video/") ? "video" : "file",
+          };
+        }),
+      );
+    } finally {
+      setPicking(false);
+    }
+  }, [picking, add]);
+
   /** Rows for the paperclip's menu — the same control every other pick uses. */
   const options: MenuOption[] = [
     {
@@ -237,6 +279,7 @@ export function useAttachments(sessionId: string | null) {
       onPress: () => void take("library"),
     },
     { label: "Take Photo", icon: "camera", onPress: () => void take("camera") },
+    { label: "Choose File", icon: "folder", onPress: () => void pickFile() },
   ];
 
   return {
