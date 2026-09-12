@@ -8,7 +8,8 @@
  * waiting beneath the field rather than a panel on top of it. A header
  * counts the queue; collapsed, only the first message shows (truncated,
  * with a +N chip); expanded, all of them, numbered, in the order they will
- * go. Tap a message to edit it in place, the cross to drop it.
+ * go. Tap a message to edit it in place, the cross to drop it, the arrow
+ * to stop waiting and steer it into the running turn now.
  */
 import { useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
@@ -34,12 +35,15 @@ export function HeldQueue({
   busy,
   onEdit,
   onRemove,
+  onSendNow,
 }: {
   items: HeldRow[];
   /** Whether the agent is still working. Off, the queue is on its way out. */
   busy: boolean;
   onEdit: (id: string, text: string) => Promise<void>;
   onRemove: (id: string) => Promise<void>;
+  /** Stop waiting: pull the message out of the queue and steer it into the turn now. */
+  onSendNow: (id: string) => Promise<void>;
 }) {
   const { colors, type, space } = useTheme();
   const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
@@ -208,6 +212,25 @@ export function HeldQueue({
                 <Icon ios="checkmark" android="check" size={15} weight="semibold" color={colors.text} />
               </Pressable>
             ) : (
+              <>
+                <Pressable
+                  onPress={() => {
+                    setBusyId(item.id);
+                    onSendNow(item.id).finally(() => setBusyId(null));
+                  }}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Send now, into the current turn"
+                  style={({ pressed }) => ({
+                    width: 32,
+                    height: 32,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    opacity: pressed ? 0.5 : 1,
+                  })}
+                >
+                  <Icon ios="arrow.up" android="arrow_upward" size={14} weight="semibold" color={colors.textSecondary} />
+                </Pressable>
               <Pressable
                 onPress={() => {
                   setBusyId(item.id);
@@ -226,6 +249,7 @@ export function HeldQueue({
               >
                 <Icon ios="xmark" android="close" size={13} weight="semibold" color={colors.textMuted} />
               </Pressable>
+              </>
             )}
           </Reanimated.View>
         );

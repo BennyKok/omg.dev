@@ -1178,6 +1178,33 @@ export function SessionScreenBody({
   }, [send, sendMode]);
 
   /**
+   * STOP WAITING. A held message can be steered into the running turn: it
+   * leaves the queue (DELETE) and goes through the plain send path, which
+   * interrupts the agent the way a tapped steer does. Two requests, because
+   * the machine has no "release now" for a held row; the delete comes first
+   * so a failure leaves a message you can still see, never one sent twice.
+   */
+  const steerHeld = useCallback(
+    async (mid: string) => {
+      if (!client || !id) return;
+      const row = held.find((m) => m.id === mid);
+      if (!row) return;
+      setHeld((prev) => prev.filter((m) => m.id !== mid));
+      try {
+        await client.transport.request(`/api/sessions/${encodeURIComponent(id)}/queue/${encodeURIComponent(mid)}`, {
+          method: "DELETE",
+        });
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        await refreshHeld();
+        return;
+      }
+      await submit(row.text, "steer");
+    },
+    [client, id, held, refreshHeld, submit],
+  );
+
+  /**
    * Answering the agent's question SENDS the answer. It used to drop the label
    * into the composer and wait for a second tap on Send, which meant a one-tap
    * affordance quietly did nothing but type for you.
@@ -2132,7 +2159,7 @@ export function SessionScreenBody({
         {/* Held sends, tucked under the field row that follows: the row paints
             over the card's bottom edge, as the web's HeldQueueCards sit under
             its composer bar. */}
-        <HeldQueue items={held} busy={busy} onEdit={editHeld} onRemove={removeHeld} />
+        <HeldQueue items={held} busy={busy} onEdit={editHeld} onRemove={removeHeld} onSendNow={steerHeld} />
 
         {/**
          * THE FIELD GETS THE WHOLE WIDTH, and the buttons get their own row.
