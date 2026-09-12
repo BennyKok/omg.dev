@@ -14,15 +14,18 @@ but Apple rejected the upload. The retry submission
 reports errors `90062` and `90186`: version 1.0.4 is already approved and
 its pre-release train is closed. Retrying that IPA cannot resolve this.
 
-`app.json` now targets **1.0.5** for the next native build. This is a local
-configuration change, not a submitted build. EAS owns the incrementing build
-number. Run the production `mobile-release.yml` workflow with submission
-enabled after landing this change; verify acceptance in App Store Connect.
-The document picker still needs that new binary.
+`app.json` now targets **1.0.5**. The fix landed in `e708a37eb`. EAS owns
+the incrementing build number. Build 45 (`9c9c01ef-78d8-431b-9394-dbb867d32ec7`)
+was built from `7f7e8cc65` in workflow `34672791382` and successfully uploaded
+to App Store Connect at 2026-09-12 04:30 UTC. Submission
+`aacc9b07-d681-46b7-9f3e-b6afd50e0f62` succeeded; Apple processing and
+TestFlight availability are not yet confirmed. The document picker needs this
+new binary; it cannot be delivered by OTA.
 
 The `appVersion` runtime policy also makes the next iOS runtime **1.0.5**.
 Future OTA updates from this configuration will not reach installed 1.0.4
-builds. The existing 1.0.4 OTA group remains separate from this build fix.
+builds. The 1.0.4 maintenance OTA uses `release/ios-1.0.4-e7a545`, which contains
+the UI fixes with unchanged 1.0.4 native configuration.
 
 | | |
 |---|---|
@@ -36,8 +39,8 @@ builds. The existing 1.0.4 OTA group remains separate from this build fix.
 | ASC API key | `P37PJ5VSHN`, issuer `8e538491-9c7f-4ddf-88ba-4bf3e4f81fa6`, ADMIN |
 | App Store | **LIVE since 2026-09-01T02:04:11Z** — version 1.0, build 37, released manually. `asc-status` now reports `Store: LIVE ... storefront us`. |
 | `asc-status` store probe | Fixed 2026-09-01. It had called the iTunes lookup with no `country`, which answered `resultCount 0` for a live app three times out of three, so it printed `Store: not live` for hours after release and the review-watch bot repeated it. It now asks `us,hk,gb,jp` in order and reports the first storefront that answers. A total lookup failure reads as unknown, not as not-live. **The script lives at `~/.local/bin/asc-status` and is NOT in this repository**, so the fix is on this box only. |
-| Latest TestFlight build | `1.0.4 (43)` — built and submitted 2026-09-11 through `mobile-release.yml` run 34596013572 from `ef313281c`. FIRST BINARY WITH `react-native-key-command` and `modules/omg-key-commands` plus `plugins/with-key-commands.js` (hardware keyboard shortcuts on iPad; ⌘/ lists them). Uploaded to App Store Connect (`Latest build: 43 VALID`); version `1.0.4` stays attached to build 42, which is in review. Key commands could not be exercised on the simulator (injected ⌘ presses never became iOS key commands; React Native's own ⌘D did not fire either), so they are unverified until someone presses ⌘/ on a real iPad with build 43 from TestFlight. Build 42 (review) and 41 (superseded) are earlier the same day. |
-| EAS Update | live, branch `production`, runtimeVersion policy `appVersion`; last group `c80754bc-6fa7-41b1-b55f-e7da5ab87df1` (2026-09-12, runtime `1.0.4`, `gitCommitHash d9f6fa524`) — see the publish log below |
+| Latest iOS upload | **1.0.5 (45)** — built from `7f7e8cc65`, workflow `34672791382`, EAS build `9c9c01ef-78d8-431b-9394-dbb867d32ec7`. Uploaded to App Store Connect 2026-09-12 04:30 UTC, submission `aacc9b07-d681-46b7-9f3e-b6afd50e0f62`. Apple processing / TestFlight availability is not yet confirmed. Includes `expo-document-picker` for Choose File, the keyboard shortcut modules introduced in build 43, and the queue/sheet fixes. Build 43 was the last upload previously confirmed VALID. Build 44 was rejected because the 1.0.4 train closed. The real Files sheet remains untested on a binary containing the module. |
+| EAS Update | live, branch `production`, runtimeVersion policy `appVersion`; last group `ee60972a-fc3a-4b93-b1cb-cbed81cfeae5` (2026-09-12, runtime `1.0.4`, `gitCommitHash 1779f4f79`) — see the publish log below |
 
 ## Publish log (`production` channel)
 
@@ -96,7 +99,25 @@ command didn't error."
 | 2026-09-12 | `c58bfec9-2505-4184-8ccf-a5cfbe6396ff` | `fbb9a9236` (run `34666248775`) | Send button follows the machine's `composerSendMode`: tap takes the setting, hold takes the other mode; the Queued chip only when the message is actually held. Ask-user questions (`omg_input`) now show as a card above the composer of the session that asked, with one-tap options; typing in the composer answers with `deliver: false`, as on the web. | `git diff b44cd5959 fbb9a9236 -- mobile/package.json mobile/app.json mobile/bun.lock` is empty, so no native surface moved since build 43. Published through `.github/workflows/mobile-ota.yml`; runtime `1.0.4` and the group id read from the `Publish update` step log. |
 | 2026-09-12 | `8c066d69-aadc-49ec-a9d3-24c3b6ff40a5` | `98c1cbdd3` (run `34669650725`) | Queued sends drawn as the web's card: one card tucked under the field, a count in the header, only the next message when collapsed with a +N chip, all numbered when expanded, edit in place, cross to drop. New arrow on a row sends it now: DELETE from the queue, then the plain steer send. ⌘↩ on a hardware keyboard sends with the alternate mode, as ⌘/Ctrl+Enter on the web; listed in the shortcuts sheet. | `git diff fbb9a9236 98c1cbdd3 -- mobile/package.json mobile/app.json mobile/bun.lock` is empty, so no native surface moved since build 43. Card seen on the simulator collapsed, expanded, and with the arrow, against real held rows in a live session; the arrow itself was not tapped because it would have interrupted the verifying agent. Published through `.github/workflows/mobile-ota.yml`; runtime `1.0.4` and the group id read from the `Publish update` step log. |
 | 2026-09-12 | `9cc911a7-710a-48af-aff3-22e40809dc91` | `cd3d7186b` (run `34670973259`) | Photo Library picks videos as well as photos; files over 8 MB upload in 8 MB parts through the chunk route (the machine caps one body at 32 MB); non-image attachments draw a glyph tile. Videos use a transcoding preset, because passthrough's PHAsset fast path raised a full-photo-library prompt. Row tint on the home list only on iPad; chat field 11pt vertical padding while focused; an empty field is one line at once. A new "Choose File" row is backed by `expo-document-picker`, which is NOT in build 43: it is required lazily and shows an "Update the app" alert on this binary. | **`package.json` and `bun.lock` moved** (`expo-document-picker ~57.0.2` added), so the workflow's native-surface step warned. Safe on build 43 because nothing imports the module at load; verified on the simulator: the row alerts, the app keeps running. Video pick verified after `simctl privacy reset photos`: no prompt, 27.9 KB sample landed in `lfg-uploads`. Choose File itself needs build 44 (`mobile-release.yml`). |
-| 2026-09-12 | `c80754bc-6fa7-41b1-b55f-e7da5ab87df1` | `d9f6fa524` (run `34672720005`) | Transcript rows come folded from the machine: the socket URL and the page fetch declare `workRows=1`, so every run of thoughts and tool calls arrives as one `work` message and `buildTranscriptItems` maps it instead of folding. A displayed image, file, or video rides on the artifact as `tool`. The rule is `src/transcript-rows.ts` in the lfg repository (v0.6.65). A machine that predates the capability still sends raw rows, which render one per message. | `git diff cd3d7186b d9f6fa524 -- mobile/package.json mobile/app.json mobile/app.config.js` is empty; runtime `1.0.4` unchanged. Published at `d9f6fa524`, before `e708a37eb` moved `app.json` to 1.0.5, so this is the last 1.0.4 group. Mobile type check passed. Not checked on a device before publishing; web verified end to end against the deployed server. Group, commit and runtime read back with `eas update:view c80754bc-6fa7-41b1-b55f-e7da5ab87df1 --json` (ios+android, `gitCommitHash d9f6fa524`). |
+| 2026-09-12 | `c80754bc-6fa7-41b1-b55f-e7da5ab87df1` | `d9f6fa524` (run `34672720005`) | Transcript rows come folded from the machine: the socket URL and the page fetch declare `workRows=1`, so every run of thoughts and tool calls arrives as one `work` message and `buildTranscriptItems` maps it instead of folding. A displayed image, file, or video rides on the artifact as `tool`. The rule is `src/transcript-rows.ts` in the lfg repository (v0.6.65). A machine that predates the capability still sends raw rows, which render one per message. | `git diff cd3d7186b d9f6fa524 -- mobile/package.json mobile/app.json mobile/app.config.js` is empty; runtime `1.0.4` unchanged. Published at `d9f6fa524`, before `e708a37eb` moved `app.json` to 1.0.5, with subsequent 1.0.4 maintenance publishes listed below. Mobile type check passed. Not checked on a device before publishing; web verified end to end against the deployed server. Group, commit and runtime read back with `eas update:view c80754bc-6fa7-41b1-b55f-e7da5ab87df1 --json` (ios+android, `gitCommitHash d9f6fa524`). |
+| 2026-09-12 | `4dbfae7e-87ee-4afe-a4f4-4564495bf6b0` | `1f7658e53` | Queue refresh continues when empty while the screen is active and refreshes on foreground return. Delivered messages no longer inherit a local Queued badge. Queue/composer height changes no longer run competing layout animations. Sheets animate their existing dragged card off screen before unmounting and blur the composer before opening. | Published for runtime `1.0.4` from `release/ios-1.0.4-e7a545`; native configuration, dependencies, plugins and modules are unchanged from `cd3d7186b`. Workflow `34672790564` passed typecheck and Metro export. Group, runtime and commit independently verified with `eas update:view`. iPhone simulator checks covered the queue card and sheet dismissal. The UI fixes also landed on main in `7f7e8cc65` for build 45. Superseded by `ee60972a`: this first compatibility branch omitted the concurrent server-work-row client update. |
+| 2026-09-12 | `ee60972a-fc3a-4b93-b1cb-cbed81cfeae5` | `1779f4f79` | Queue and sheet fixes plus the concurrent server-work-row client update. | The maintenance branch was merged with current main (`b9cc97262`); its only mobile diff from main is app version 1.0.4 instead of 1.0.5. Native configuration and dependencies match the previously cleared 1.0.4 runtime. Workflow `34673038633` passed mobile typecheck and Metro export. `eas update:view` independently confirmed iOS and Android runtime 1.0.4, group and commit. |
+
+### Verification for the 2026-09-12 queue/sheet release
+
+Mobile typecheck, backend typecheck, and the landing web build passed. Both
+OTA workflows and the native release workflow passed mobile typecheck and
+Metro export. The native release also passed generated iOS purpose-string
+checks. The iPhone simulator showed the held card, expansion, and dismissal
+of the create and agent sheets without a keyboard remaining open. The
+temporary queued test message was removed. The legacy queued-badge fix was
+code-reviewed; it was not exercised through a complete agent turn.
+
+The full local test run was not green: it recorded nine failures and then
+ended with SIGTERM (exit 143). Running the six affected test files on the
+unchanged `f2338276f` baseline reproduced all nine failures (60 pass, 9 fail).
+They cover chat-render items, web secondary pages, plan fallbacks, feedback
+wiring, thinking controls, and web sheet source assertions.
 
 ## Which change needs which pipeline
 
