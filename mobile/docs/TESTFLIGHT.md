@@ -31,12 +31,13 @@ Verification:
 - Light and dark skeleton fixtures use files identical to this candidate.
   No fixture route, mock data, or Live Activities revert is in the candidate.
 
-Signing remains incomplete: `group.dev.omg.computer` must be registered and
-linked to both `dev.omg.computer` and `dev.omg.computer.ExpoWidgetsTarget`.
-The APP_GROUPS capability alone does not establish that association. Refresh
-the provisioning profiles after linking the group, then verify their
-entitlements before starting the single production build and submission.
-The Apple Developer browser login was handed to the user and is still pending.
+Signing is ready. The user's signed-in Chrome on the Linux box allowed the
+App Group `group.dev.omg.computer` (`HGJW6VQ3HX`) to be registered and linked to
+both App IDs. EAS regenerated the app profile `A9UPTK842R` and created the
+extension profile `U455PR9782`, using the existing distribution certificate.
+Apple API readback and decoded profile entitlements confirm both profiles are
+ACTIVE and include `com.apple.security.application-groups` with exactly that
+group. The app profile also contains `aps-environment: production`.
 
 Hosted APNs delivery remains separate and is not deployed. Simulator validation
 does not establish remote updates or physical-device push behavior.
