@@ -1,0 +1,23 @@
+{
+  "date": "2026-09-13",
+  "baseCommit": "eb8ecacbde28a07d5f088006b3d42e4d2c4ceb71",
+  "device": "iPhone 17 simulator",
+  "ios": "26.0",
+  "udid": "84C3046E-1FDF-48C7-9751-6C245C2D9620",
+  "productionJavascript": true,
+  "nativeBinary": "omg development client",
+  "dependencies": {
+    "expo": "57.0.12",
+    "react-native": "0.86.2",
+    "react": "19.2.3",
+    "react-native-reanimated": "4.5.1",
+    "marked": "18.0.9"
+  },
+  "sha256": {
+    "mobile/bun.lock": "47e3dce7e94bad470ef57186a64b4155ac080052035c710a3650aced32052989",
+    "mobile/bench/transcript-entry.tsx": "e863e3144782824a2a4fc5558247b070328041c00d26ef15f462849c85d902f0",
+    "mobile/src/omg/transcript-body.tsx": "38d376588953cc2e5a15272454b1bb7d74654f976dc24e33d69fa22b2b6059ef",
+    "mobile/src/omg/transcript.tsx": "e843eab6e2ef9cb2295453d72909059ee6f1b26a55a9f80bb5b1b1a57e43f0e4",
+    "mobile/app/session/[id].tsx": "af6014d6a7952bf2d5e3fda3f1151ad1cc47aef2811c026b40cb2285fe65b137"
+  }
+}

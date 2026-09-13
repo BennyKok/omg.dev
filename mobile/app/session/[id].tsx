@@ -47,7 +47,7 @@
 
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -763,46 +763,51 @@ export function SessionScreenBody({
           break;
         case "message":
           if (!atBottomRef.current) setUnseen(true);
-          setMessages((prev) => {
-            // A held send lives in the queue card, not the transcript. A server
-            // echo confirms delivery, so do not carry its local queued badge
-            // onto a message the agent can already answer.
-            /**
-             * `stripBotLaunchEnvelope` here (not just at render time) is what
-             * keeps a bot's very first message from showing up twice. Its
-             * echo comes back as the whole launch prompt — the plumbing
-             * envelope plus the human's own line, folded together so the
-             * agent's boot and the first message can't race (see serve.ts's
-             * `POST /api/bots/:id/messages`) — which would otherwise never
-             * text-match the plain line the composer sent optimistically. A
-             * pure, namespace-marked no-op for every non-bot message.
-             */
-            const echoText = stripBotLaunchEnvelope(event.message.text ?? "");
-            const confirmed = prev.find((m) => isOptimisticId(m.id) && m.text === echoText);
-            // The echo keeps the optimistic row's key (see Entry.localKey), so
-            // the list sees one row settling rather than one leaving and one
-            // arriving — and it is NOT marked fresh, for the same reason.
-            const incoming: Entry = confirmed
-              ? { ...event.message, queued: undefined, localKey: confirmed.id ?? undefined }
-              : event.message;
-            const withoutOptimistic = prev.filter(
-              (m) => !(isOptimisticId(m.id) && m.text === echoText),
-            );
-            if (incoming.id && !confirmed) liveKeysRef.current.add(incoming.id);
-            if (incoming.id && withoutOptimistic.some((m) => m.id === incoming.id)) {
-              return withoutOptimistic.map((m) => (m.id === incoming.id ? incoming : m));
-            }
-            return [...withoutOptimistic, incoming];
+          // Network rendering yields to urgent input and scroll work.
+          startTransition(() => {
+            setMessages((prev) => {
+              // A held send lives in the queue card, not the transcript. A server
+              // echo confirms delivery, so do not carry its local queued badge
+              // onto a message the agent can already answer.
+              /**
+               * `stripBotLaunchEnvelope` here (not just at render time) is what
+               * keeps a bot's very first message from showing up twice. Its
+               * echo comes back as the whole launch prompt — the plumbing
+               * envelope plus the human's own line, folded together so the
+               * agent's boot and the first message can't race (see serve.ts's
+               * `POST /api/bots/:id/messages`) — which would otherwise never
+               * text-match the plain line the composer sent optimistically. A
+               * pure, namespace-marked no-op for every non-bot message.
+               */
+              const echoText = stripBotLaunchEnvelope(event.message.text ?? "");
+              const confirmed = prev.find((m) => isOptimisticId(m.id) && m.text === echoText);
+              // The echo keeps the optimistic row's key (see Entry.localKey), so
+              // the list sees one row settling rather than one leaving and one
+              // arriving — and it is NOT marked fresh, for the same reason.
+              const incoming: Entry = confirmed
+                ? { ...event.message, queued: undefined, localKey: confirmed.id ?? undefined }
+                : event.message;
+              const withoutOptimistic = prev.filter(
+                (m) => !(isOptimisticId(m.id) && m.text === echoText),
+              );
+              if (incoming.id && !confirmed) liveKeysRef.current.add(incoming.id);
+              if (incoming.id && withoutOptimistic.some((m) => m.id === incoming.id)) {
+                return withoutOptimistic.map((m) => (m.id === incoming.id ? incoming : m));
+              }
+              return [...withoutOptimistic, incoming];
+            });
+            // A completed message supersedes whatever was streaming.
+            setStreamText("");
+            setStreamThought("");
           });
-          // A completed message supersedes whatever was streaming.
-          setStreamText("");
-          setStreamThought("");
           break;
         case "draft":
           // The SDK accumulates the deltas and says which kind of draft this
           // is. Reasoning and reply share the wire channel and are told apart
           // only by that; the raw `ai_part` events are ignored here.
-          (event.draft.kind === "thinking" ? setStreamThought : setStreamText)(event.draft.text);
+          startTransition(() => {
+            (event.draft.kind === "thinking" ? setStreamThought : setStreamText)(event.draft.text);
+          });
           break;
         case "busy":
           socketBusySeen.current = true;

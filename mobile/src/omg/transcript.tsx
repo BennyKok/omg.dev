@@ -66,7 +66,8 @@ import { Icon, IconButton } from "../components";
 import { formatFileSize } from "./file-preview";
 import { workLabel } from "./work-label";
 import { stampTime } from "./format";
-import { CodeBlock, Markdown, useBodyText } from "./markdown";
+import { CodeBlock, useBodyText } from "./markdown";
+import { TranscriptBody } from "./transcript-body";
 import {
   parseMessageAttachments,
   type MessageAttachment,
@@ -350,9 +351,11 @@ export function TranscriptRow({
   item,
   fresh,
   bot,
+  virtualize,
 }: {
   item: TranscriptItem;
   fresh?: boolean;
+  virtualize?: boolean;
   /** Present only inside a bot chat — see app/session/[id].tsx's `SessionScreenBody`. */
   bot?: BotBubbleIdentity | null;
 }) {
@@ -380,7 +383,7 @@ export function TranscriptRow({
       {item.type === "stamp" ? (
         <Stamp ts={item.ts} />
       ) : item.type === "message" ? (
-        <TranscriptEntry message={item.message} nextTs={item.nextTs} bot={bot} />
+        <TranscriptEntry message={item.message} nextTs={item.nextTs} bot={bot} virtualize={virtualize} />
       ) : (
         <ToolRun pairs={item.pairs} entries={item.entries} nextTs={item.nextTs} live={item.live} />
       )}
@@ -733,10 +736,12 @@ export function TranscriptEntry({
   message,
   nextTs,
   bot,
+  virtualize,
 }: {
   message: Entry;
   nextTs?: number | null;
   bot?: BotBubbleIdentity | null;
+  virtualize?: boolean;
 }) {
   const { colors, type, space, radius } = useTheme();
   const isUser = message.role === "user";
@@ -831,7 +836,7 @@ export function TranscriptEntry({
           paddingVertical: 10,
         }}
       >
-        <Markdown text={message.text ?? ""} streaming={message.streaming} />
+        <TranscriptBody text={message.text ?? ""} streaming={message.streaming} virtualize={virtualize} />
       </View>
     );
   }
@@ -840,7 +845,7 @@ export function TranscriptEntry({
   // tint — exactly like the web transcript.
   return (
     <View style={{ alignSelf: "stretch", paddingHorizontal: space.xs }}>
-      <Markdown text={message.text ?? ""} streaming={message.streaming} />
+      <TranscriptBody text={message.text ?? ""} streaming={message.streaming} virtualize={virtualize} />
     </View>
   );
 }
