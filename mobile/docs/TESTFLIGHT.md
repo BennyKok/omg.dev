@@ -5,12 +5,19 @@ read off the EAS docs.
 
 ## Current state
 
-### 1.0.6 candidate — not submitted (2026-09-13)
+### 1.0.6 build 46 — build in progress (2026-09-13)
 
 Candidate `0964f06ea` combines Live Activities, the two-line drawer button,
 launch and skeleton contrast changes, and the native `#` session picker.
-`app.json` targets version/runtime **1.0.6**. No cloud build or submission
-has been dispatched for this candidate.
+`app.json` targets version/runtime **1.0.6**. The combined changes are landed.
+EAS build `ee3d1381-23ac-42ef-8409-60fff7090145` targets version **1.0.6 (46)**
+from `be397adc50211faf86068807b197ca0f7d52dbb8`, workflow
+`34743057976`, with production submission enabled. Build completion and
+App Store Connect upload are not yet verified.
+
+The first workflow `34742906346` stopped before EAS because the purpose-string
+check found both app and widget plists. The check now selects the app package
+and excludes extension plists. All four generated app purpose strings pass.
 
 Verification:
 
