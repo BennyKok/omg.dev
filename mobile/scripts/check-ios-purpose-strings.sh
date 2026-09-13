@@ -31,11 +31,21 @@ ln -s "$here/node_modules" "$tmp/node_modules"
 # A prebuild emits several (Pods, test targets, expo-dev-client), so asserting on
 # an arbitrary match could pass while the app target shipped something else --
 # the exact class of bug this script exists to catch. Demand exactly one
-# candidate and fail loudly otherwise.
-mapfile -t plists < <(find "$tmp/ios" -name Info.plist \
-  -not -path '*/Pods/*' \
-  -not -path '*Tests*' \
-  -not -path '*/build/*' | sort)
+# app candidate and fail loudly otherwise. Widget extensions have their own
+# Info.plist; identify the application by its package type, not its directory.
+mapfile -t plists < <(python3 - "$tmp/ios" <<'PY'
+import pathlib, plistlib, sys
+for path in sorted(pathlib.Path(sys.argv[1]).rglob('Info.plist')):
+    if any(part in ('Pods', 'build') or 'Tests' in part for part in path.parts):
+        continue
+    with path.open('rb') as fh:
+        info = plistlib.load(fh)
+    # Expo leaves this Xcode build setting unexpanded before compilation.
+    app_types = ('APPL', '$(PRODUCT_BUNDLE_PACKAGE_TYPE)')
+    if info.get('CFBundlePackageType') in app_types and 'NSExtension' not in info:
+        print(path)
+PY
+)
 
 if [ "${#plists[@]}" -eq 0 ]; then
   echo "::error::prebuild produced no Info.plist" >&2
