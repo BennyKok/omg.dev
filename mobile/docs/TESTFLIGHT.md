@@ -5,15 +5,20 @@ read off the EAS docs.
 
 ## Current state
 
-### 1.0.6 build 46 — build in progress (2026-09-13)
+### 1.0.6 build 46 — uploaded and VALID (2026-09-13)
 
 Candidate `0964f06ea` combines Live Activities, the two-line drawer button,
 launch and skeleton contrast changes, and the native `#` session picker.
 `app.json` targets version/runtime **1.0.6**. The combined changes are landed.
 EAS build `ee3d1381-23ac-42ef-8409-60fff7090145` targets version **1.0.6 (46)**
 from `be397adc50211faf86068807b197ca0f7d52dbb8`, workflow
-`34743057976`, with production submission enabled. Build completion and
-App Store Connect upload are not yet verified.
+[`34743057976`](https://github.com/BennyKok/omg.dev/actions/runs/34743057976),
+which completed successfully at 06:43:53 UTC. The build finished at 06:41:05 UTC.
+EAS submission `3b2e9140-de2f-4f53-a3d8-bb5292f2a304` succeeded at 06:43:49 UTC.
+Apple API readback confirms build `bdff52fa-f166-444d-86cb-c50be01d1ba0`,
+version **1.0.6 (46)**, uploaded at 06:42:15 UTC, processing **VALID**, not expired.
+TestFlight tester availability and physical-phone activation remain unverified.
+No public App Store version or review submission was created.
 
 The first workflow `34742906346` stopped before EAS because the purpose-string
 check found both app and widget plists. The check now selects the app package
@@ -83,7 +88,7 @@ the UI fixes with unchanged 1.0.4 native configuration.
 | ASC API key | `P37PJ5VSHN`, issuer `8e538491-9c7f-4ddf-88ba-4bf3e4f81fa6`, ADMIN |
 | App Store | **LIVE since 2026-09-01T02:04:11Z** — version 1.0, build 37, released manually. `asc-status` now reports `Store: LIVE ... storefront us`. |
 | `asc-status` store probe | Fixed 2026-09-01. It had called the iTunes lookup with no `country`, which answered `resultCount 0` for a live app three times out of three, so it printed `Store: not live` for hours after release and the review-watch bot repeated it. It now asks `us,hk,gb,jp` in order and reports the first storefront that answers. A total lookup failure reads as unknown, not as not-live. **The script lives at `~/.local/bin/asc-status` and is NOT in this repository**, so the fix is on this box only. |
-| Latest iOS upload | **1.0.5 (45)** — built from `7f7e8cc65`, workflow `34672791382`, EAS build `9c9c01ef-78d8-431b-9394-dbb867d32ec7`. Uploaded to App Store Connect 2026-09-12 04:30 UTC, submission `aacc9b07-d681-46b7-9f3e-b6afd50e0f62`. Apple processing / TestFlight availability is not yet confirmed. Includes `expo-document-picker` for Choose File, the keyboard shortcut modules introduced in build 43, and the queue/sheet fixes. Build 43 was the last upload previously confirmed VALID. Build 44 was rejected because the 1.0.4 train closed. The native Files sheet passed the simulator check below; physical-phone activation remains unverified. |
+| Latest iOS upload | **1.0.6 (46)** — built from `be397adc5`, workflow `34743057976`, EAS build `ee3d1381-23ac-42ef-8409-60fff7090145`. Uploaded to App Store Connect 2026-09-13 06:42:15 UTC; submission `3b2e9140-de2f-4f53-a3d8-bb5292f2a304` succeeded. Apple processing is **VALID**. Includes Live Activities, the two-line drawer button, launch/skeleton contrast, and the native session picker with coding-agent icons. TestFlight tester availability and phone activation remain unverified. |
 | EAS Update | live, branch `production`, runtimeVersion policy `appVersion`. Two runtimes are in the field: `1.0.5` last group `b255261f-3722-452d-b37a-094940917478` (2026-09-12, `672a61e94`, main); `1.0.4` last group `e693b442-1bd5-415b-93bf-d1b46ebeaff2` (2026-09-12, `7bae59c86`, main with only app version held at 1.0.4). Both include the stable drawer header and avatar during swipes, session rows without press shrinking, the larger header avatar, edge-swipe opening, the native glass navigation button, the opaque push sidebar, wider row highlights, trailing unread dots, compact subagent stacks and expandable cards, Live side navigation, unread badges, smaller agent icons, selected-model chat subtitles, neutral reconnect text, and all prior project, navigation, fleet status, send morph, scroll and queue UI fixes. The server queue handoff fix is deployed separately at `284abba25`. Publish BOTH for every phone-visible change until 1.0.4 is retired; check the installed version before attributing a missing change. |
 
 ## Publish log (`production` channel)
