@@ -7,7 +7,7 @@ read off the EAS docs.
 
 ### 1.0.6 candidate — not submitted (2026-09-13)
 
-Candidate `710be1dce` combines Live Activities, the two-line drawer button,
+Candidate `0964f06ea` combines Live Activities, the two-line drawer button,
 launch and skeleton contrast changes, and the native `#` session picker.
 `app.json` targets version/runtime **1.0.6**. No cloud build or submission
 has been dispatched for this candidate.
@@ -24,6 +24,10 @@ Verification:
 - Drawer and picker checks use isolated native fixtures. HomeComposer insertion
   works with the software keyboard and keeps focus. Chat uses a stand-in field;
   real signed-in chat layout and reference navigation remain unverified.
+- The final picker renderer shows 24pt coding-agent icons, with no folder labels
+  or status dots. Its native HomeComposer and chat fixture captures show the
+  software keyboard; selecting a Home row preserves focus and inserts the token.
+  Candidate rows are stub data. Mobile typecheck passes after this visual change.
 - Light and dark skeleton fixtures use files identical to this candidate.
   No fixture route, mock data, or Live Activities revert is in the candidate.
 
