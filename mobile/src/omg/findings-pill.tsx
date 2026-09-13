@@ -8,10 +8,8 @@
  * list, that opens a drawer.
  *
  * THE PILL floats above the composer on the phone (above the rail's footer
- * on iPad), centred, and says exactly two things: how many findings are
- * open, and how bad the worst of them are. The severity dots are the same
- * colours the rows use (SeverityDot), one per agent with something to say,
- * worst first, capped at three so the pill stays a pill. It draws nothing
+ * on iPad), centred, with a quiet count labelled Updates. Severity stays in the
+ * drawer rows so the badge does not compete with active sessions. It draws nothing
  * when there is nothing open, the same rule the section followed.
  *
  * THE DRAWER is the app's one card (Sheet) with the same rows the section
@@ -19,19 +17,17 @@
  * list and tapping it still opens the agent's report. The rows do not
  * animate in: the sheet's own slide is the entrance.
  */
-import { ScrollView, useWindowDimensions, View } from "react-native";
+import { ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
 import * as Haptics from "expo-haptics";
 
 import { Icon, withAlpha } from "../components";
-import { AutoReportRow, SeverityDot, worstSeverity } from "./auto-agent-card";
-import type { AutoFindingGroup, AutoFindingSeverity } from "./auto-agents";
+import { AutoReportRow } from "./auto-agent-card";
+import type { AutoFindingGroup } from "./auto-agents";
 import { GlassSurface } from "./glass";
 import { PressableScale } from "./motion";
 import { Sheet } from "./sheet";
 import { Text } from "./text";
 import { useTheme } from "./theme";
-
-const SEVERITY_ORDER: Record<AutoFindingSeverity, number> = { high: 0, med: 1, low: 2 };
 
 /**
  * The pill's own height, and the gap it keeps above the composer.
@@ -41,16 +37,8 @@ const SEVERITY_ORDER: Record<AutoFindingSeverity, number> = { high: 0, med: 1, l
  * last card permanently under the pill, with no way to scroll it out. The
  * clearance and the placement must come from one number or they drift apart.
  */
-export const PILL_HEIGHT = 34;
+export const PILL_HEIGHT = 28;
 export const PILL_GAP = 8;
-
-/** One dot per agent with open findings, worst first, at most three. */
-export function pillSeverities(groups: ReadonlyArray<AutoFindingGroup>): AutoFindingSeverity[] {
-  return groups
-    .map((group) => worstSeverity(group.rows.map((row) => row.finding)) ?? "low")
-    .sort((a, b) => SEVERITY_ORDER[a] - SEVERITY_ORDER[b])
-    .slice(0, 3);
-}
 
 export function findingsCount(groups: ReadonlyArray<AutoFindingGroup>): number {
   return groups.reduce((n, group) => n + group.rows.length, 0);
@@ -66,7 +54,7 @@ export function FindingsPill({
   const { colors, radius, type, space } = useTheme();
   const count = findingsCount(groups);
   if (!count) return null;
-  const label = `${count} finding${count === 1 ? "" : "s"}`;
+  const label = `${count} update${count === 1 ? "" : "s"}`;
   return (
     <PressableScale
       onPress={() => {
@@ -76,6 +64,7 @@ export function FindingsPill({
       scale={0.96}
       accessibilityRole="button"
       accessibilityLabel={`${label} from auto agents. Open`}
+      hitSlop={8}
       style={{ alignSelf: "center" }}
     >
       <GlassSurface
@@ -84,32 +73,26 @@ export function FindingsPill({
         style={{
           flexDirection: "row",
           alignItems: "center",
-          gap: space.sm,
-          paddingLeft: space.md,
-          paddingRight: space.md - 2,
+          gap: space.xs,
+          paddingHorizontal: space.sm,
           height: PILL_HEIGHT,
           borderRadius: radius.pill,
-          borderWidth: 1,
-          borderColor: colors.borderStrong,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.borderSoft,
           overflow: "hidden",
         }}
       >
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
-          {pillSeverities(groups).map((severity, i) => (
-            <SeverityDot key={i} severity={severity} />
-          ))}
-        </View>
         <Text
           style={{
-            ...type.footnote,
-            fontWeight: "600",
+            ...type.caption,
+            fontWeight: "500",
             fontVariant: ["tabular-nums"],
-            color: colors.text,
+            color: colors.textSecondary,
           }}
         >
           {label}
         </Text>
-        <Icon ios="chevron.up" android="keyboard_arrow_up" size={12} color={colors.textMuted} />
+        <Icon ios="chevron.up" android="keyboard_arrow_up" size={10} color={colors.textMuted} />
       </GlassSurface>
     </PressableScale>
   );
@@ -141,7 +124,7 @@ export function FindingsDrawer({
           paddingBottom: space.sm,
         }}
       >
-        <Text style={{ ...type.headline, color: colors.text }}>Auto</Text>
+        <Text style={{ ...type.headline, color: colors.text }}>Updates</Text>
         <Text style={{ ...type.subhead, color: colors.textMuted, fontVariant: ["tabular-nums"] }}>
           {count} open
         </Text>
@@ -177,7 +160,7 @@ export function FindingsDrawer({
               paddingVertical: space.lg,
             }}
           >
-            Nothing open.
+            No updates.
           </Text>
         )}
       </ScrollView>
