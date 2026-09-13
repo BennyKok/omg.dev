@@ -9,13 +9,19 @@ const Hidden = createContext(false);
 let mounts = 0;
 let renders = 0;
 let unmounts = 0;
+const NativeView = ({ children, style }: { children?: ReactNode; style?: Record<string, unknown> }) =>
+  <div data-background={style?.backgroundColor ?? ""}>{children}</div>;
 mock.module(resolve(import.meta.dir, "../node_modules/react-native/index.js"), () => ({
-  Platform: { OS: process.env.TRANSCRIPT_FALLBACK === "web" ? "web" : "ios" },
+  Platform: { OS: process.env.TRANSCRIPT_FALLBACK === "web" ? "web" : "ios", select: (values: Record<string, unknown>) => values.ios },
+  View: NativeView, Pressable: NativeView, ScrollView: NativeView, Modal: NativeView,
+  Animated: { View: NativeView }, StyleSheet: { hairlineWidth: 1 },
+  useWindowDimensions: () => ({ width: 390, height: 844 }),
   UIManager: { hasViewManagerConfig: (name: string) => native && name === "VirtualView" },
   unstable_VirtualView: ({ children }: { children?: ReactNode }) =>
     <div data-virtual-body>{useContext(Hidden) ? null : children}</div>,
 }));
 mock.module(resolve(import.meta.dir, "../src/omg/markdown.tsx"), () => ({
+  CodeBlock: () => null, useBodyText: () => ({}),
   Markdown: ({ text, streaming }: { text: string; streaming?: boolean }) => {
     renders++;
     useEffect(() => { mounts++; return () => { unmounts++; }; }, []);
@@ -75,4 +81,35 @@ test.skipIf(native)("unsupported clients keep readable bodies without a native w
   ui.render(<Hidden value={true}><TranscriptBody text="fallback" /></Hidden>);
   expect(ui.text()).toBe("fallback");
   expect(ui.query("[data-virtual-body]")).toBeNull();
+});
+
+// Render the real entry to check its chrome across the body refactor. Native
+// platform services are stubbed; the entry and TranscriptBody remain real.
+mock.module(import.meta.resolve("expo-clipboard"), () => ({ setStringAsync: async () => {} }));
+mock.module(import.meta.resolve("expo-haptics"), () => ({}));
+mock.module(import.meta.resolve("@expo/ui/community/menu"), () => ({ default: NativeView }));
+mock.module(import.meta.resolve("expo-router"), () => ({ useRouter: () => ({}) }));
+mock.module(import.meta.resolve("react-native-reanimated"), () => ({
+  default: { View: NativeView }, Easing: {}, FadeIn: {}, FadeInDown: {},
+  LinearTransition: {}, useAnimatedStyle: () => ({}), useSharedValue: () => ({ value: 0 }), withTiming: (v: number) => v,
+}));
+mock.module(resolve(import.meta.dir, "../src/omg/send-motion.tsx"), () => ({
+  SendOriginContext: createContext(null), useSendEntrance: () => ({}),
+}));
+mock.module(resolve(import.meta.dir, "../src/components.tsx"), () => ({ Icon: () => null, IconButton: () => null }));
+mock.module(resolve(import.meta.dir, "../src/omg/file-preview.ts"), () => ({ formatFileSize: () => "" }));
+mock.module(resolve(import.meta.dir, "../src/omg/remote-image.tsx"), () => ({ AuthenticatedImage: () => null }));
+mock.module(resolve(import.meta.dir, "../src/omg/text.tsx"), () => ({ Text: NativeView }));
+mock.module(resolve(import.meta.dir, "../src/omg/theme.ts"), () => ({
+  useTheme: () => ({ colors: { card: "card", border: "border" }, type: {}, space: { xs: 4 }, radius: { xl: 18 } }),
+}));
+const { TranscriptEntry } = await import("../src/omg/transcript");
+
+test("assistant replies have no card and bot replies keep their card", () => {
+  const message = { role: "assistant" as const, kind: "text" as const, text: "Readable reply" };
+  ui.render(<TranscriptEntry message={message} />);
+  expect(ui.text()).toBe("Readable reply");
+  expect(ui.query('[data-background="card"]')).toBeNull();
+  ui.render(<TranscriptEntry message={message} bot={{ id: "bot-1" }} />);
+  expect(ui.query('[data-background="card"]')?.textContent).toBe("Readable reply");
 });

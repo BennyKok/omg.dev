@@ -128,12 +128,14 @@ describe("the transcript renders a user turn the way the web does", () => {
     );
   });
 
-  test("only the user's turn is a card; the assistant's reply is plain text", () => {
-    const assistant = transcript.slice(
-      transcript.indexOf("// The assistant's reply is plain text"),
-      transcript.indexOf("/* ---", transcript.indexOf("// The assistant's reply is plain text")),
-    );
-    expect(assistant).toContain("<Markdown");
-    expect(assistant).not.toContain("backgroundColor: colors.card");
+  test("assistant replies render without a card while bot replies retain theirs", () => {
+    // Keep native module mocks isolated from the rest of the Bun suite.
+    const result = Bun.spawnSync([
+      process.execPath, "test", `${import.meta.dir}/../mobile/scripts/transcript-body.native-check.tsx`,
+    ], { env: { ...process.env, TRANSCRIPT_FALLBACK: "" } });
+    if (result.exitCode !== 0) {
+      throw new Error(new TextDecoder().decode(result.stderr));
+    }
+    expect(result.exitCode).toBe(0);
   });
 });
