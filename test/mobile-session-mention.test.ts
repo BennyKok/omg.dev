@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   applySessionMention,
   createSessionMentionPicker,
+  createSessionRefOpener,
   resolveSessionRef,
   resolveSessionRefWith,
   sessionFolderName,
@@ -167,19 +168,29 @@ describe("picker controller", () => {
     expect(picker.getState().active).toEqual({ start: 2, end: 5, query: "lo" });
   });
 
-  test("a failed fetch clears the list; a disposed picker emits nothing", async () => {
-    const { picker, pending, states } = harness();
+  test("a failed fetch clears the list", async () => {
+    const { picker, pending } = harness();
     picker.update({ value: "#" });
     pending[0].reject(new Error("offline"));
     await tick();
     expect(picker.getState()).toEqual({ active: { start: 0, end: 1, query: "" }, items: [] });
+  });
+
+  test("reset drops the pending answer, and the picker works again afterwards", async () => {
+    const { picker, pending, states } = harness();
     picker.update({ value: "#x" });
-    picker.dispose();
+    picker.reset();
+    expect(picker.getState()).toEqual({ active: null, items: [] });
     const before = states.length;
-    pending[1].resolve([row("a", "x")]);
+    pending[0].resolve([row("stale", "x")]);
     await tick();
     expect(states.length).toBe(before);
-    expect(picker.getState().items).toEqual([]);
+    // StrictMode: cleanup ran, then setup runs the update effect again.
+    picker.update({ value: "#x" });
+    expect(pending).toHaveLength(2);
+    pending[1].resolve([row("a", "x")]);
+    await tick();
+    expect(picker.getState().items.map((i) => i.sessionId)).toEqual(["a"]);
   });
 
   test("debounces a typed query but not a bare #", async () => {
@@ -211,6 +222,89 @@ describe("tapping a rendered reference", () => {
     expect(resolveSessionRef("0f1e", list)).toBeNull();
     expect(resolveSessionRef("zzzz", list)).toBeNull();
     expect(resolveSessionRef("0f1e2d3c", null)).toBeNull();
+  });
+
+  function opener() {
+    const opened: string[] = [];
+    const pending: { client: SessionRefClient; ref: string; resolve: (id: string | null) => void; reject: (e: unknown) => void }[] = [];
+    const it = createSessionRefOpener({
+      navigate: (id) => opened.push(id),
+      resolve: (client, ref) =>
+        new Promise((resolve, reject) => {
+          pending.push({ client, ref, resolve, reject });
+        }),
+    });
+    return { it, opened, pending };
+  }
+  const fakeClient = (): SessionRefClient => ({
+    peekSessions: () => [],
+    listSessions: async () => [],
+    transport: { request: async <T,>() => ({}) as T },
+  });
+
+  test("ordinary links are not taken over, and no client means no navigation", () => {
+    const { it, opened, pending } = opener();
+    expect(it.open("https://omg.dev")).toBe(false);
+    expect(it.open("omg:session_0f1e2d3c")).toBe(true);
+    expect(pending).toHaveLength(0);
+    expect(opened).toEqual([]);
+  });
+
+  test("navigates when the client that answered is still the registered one", async () => {
+    const { it, opened, pending } = opener();
+    const a = fakeClient();
+    it.register(a);
+    expect(it.open("omg:session_0f1e2d3c")).toBe(true);
+    await tick();
+    expect(pending[0].client).toBe(a);
+    expect(pending[0].ref).toBe("0f1e2d3c");
+    pending[0].resolve(FULL);
+    await tick();
+    expect(opened).toEqual([FULL]);
+  });
+
+  test("a lookup that outlives a machine switch or sign-out never navigates", async () => {
+    const { it, opened, pending } = opener();
+    const a = fakeClient();
+    it.register(a);
+    it.open("omg:session_0f1e2d3c");
+    it.open("omg:session_0f1e2d3c");
+    await tick();
+    it.register(fakeClient());
+    pending[0].resolve(FULL);
+    await tick();
+    it.register(null);
+    pending[1].resolve(FULL);
+    await tick();
+    expect(opened).toEqual([]);
+    // Re-registering the same client later does not revive an old answer either.
+    it.register(a);
+    it.open("omg:session_0f1e2d3c");
+    await tick();
+    it.register(fakeClient());
+    it.register(a);
+    pending[2].resolve(FULL);
+    await tick();
+    expect(opened).toEqual([FULL]);
+  });
+
+  test("a failed or throwing lookup is swallowed, never an unhandled rejection", async () => {
+    const { it, opened, pending } = opener();
+    it.register(fakeClient());
+    it.open("omg:session_0f1e2d3c");
+    await tick();
+    pending[0].reject(new Error("offline"));
+    await tick();
+    const throwing = createSessionRefOpener({
+      navigate: (id) => opened.push(id),
+      resolve: () => {
+        throw new Error("sync");
+      },
+    });
+    throwing.register(fakeClient());
+    expect(throwing.open("omg:session_0f1e2d3c")).toBe(true);
+    await tick();
+    expect(opened).toEqual([]);
   });
 
   test("climbs peek, then the live list, then the catalog, stopping at the first answer", async () => {
