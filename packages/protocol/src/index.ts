@@ -245,3 +245,5 @@ export type OmgTranscriptEvent =
   | { type: "busy"; busy: boolean }
   | { type: "prompt"; prompt: OmgSessionPrompt | null }
   | { type: "error"; error: string };
+
+export * from "./session-mention-token.js";

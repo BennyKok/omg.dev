@@ -37,6 +37,7 @@
     "@novnc/novnc": "^1.7.0",
     "@number-flow/react": "^0.6.2",
     "@omg-dev/client": "workspace:*",
+    "@omg-dev/protocol": "workspace:*",
     "@pierre/diffs": "^1.3.1",
     "@pierre/trees": "1.0.0-beta.6",
     "@streamdown/cjk": "^1.0.3",

@@ -5,7 +5,7 @@ import {
   sessionMentionAt,
   sessionMentionUrl,
 } from "./session-mention";
-import { parseSessionMentions } from "../../../src/session-mention-token.ts";
+import { parseSessionMentions } from "@omg-dev/protocol";
 
 describe("sessionMentionAt", () => {
   it("opens on a bare # at the start", () => {
