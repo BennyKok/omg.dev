@@ -9,15 +9,14 @@ test("reply fills the reserved space before extending the transcript", () => {
   expect(remainingReplySpace(320, [24, 40])).toBe(256);
 });
 
-test("morph starts at the measured input rectangle for short and multiline text", () => {
+test("short and multiline bubbles move from the composer without scaling", () => {
   const source = { x: 12, y: 480, width: 378, height: 66 };
   for (const target of [
     { x: 270, y: 550, width: 116, height: 34 },
     { x: 72, y: 550, width: 314, height: 140 },
   ]) {
     const transform = sendOriginTransform(source, target);
-    expect(target.width * transform.scaleX).toBeCloseTo(source.width);
-    expect(target.height * transform.scaleY).toBeCloseTo(source.height);
+    expect(Object.keys(transform).sort()).toEqual(["translateX", "translateY"]);
     expect(target.x + target.width / 2 + transform.translateX).toBe(source.x + source.width / 2);
     expect(target.y + target.height / 2 + transform.translateY).toBe(source.y + source.height / 2);
   }
