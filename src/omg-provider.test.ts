@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { ensureOmgProvider, hasOmgProviderAccess, isHostedOmgSandbox, OMG_SIGN_IN_REQUIRED } from "./omg-provider.ts";
+import { ensureOmgProvider, hasHostedOmgAiProxy, hasOmgProviderAccess, isHostedOmgSandbox, OMG_SIGN_IN_REQUIRED } from "./omg-provider.ts";
 import { OMG_MODELS } from "./omg-models.ts";
 
 let home: string;
@@ -29,6 +29,7 @@ const configPath = () => join(home, ".config/opencode/opencode.json");
 
 test("hosted proxy environment is a no-op without credentials", () => {
   const opts = { ...options(), env: { OMG_AI_URL: "http://169.254.0.1:9090/v1/" } };
+  expect(hasHostedOmgAiProxy(opts)).toBe(true);
   expect(isHostedOmgSandbox(opts)).toBe(true);
   expect(hasOmgProviderAccess(opts)).toBe(true);
   ensureOmgProvider(opts);
@@ -39,6 +40,7 @@ test("guest's existing omg provider is a no-op and stays byte-for-byte intact", 
   const opts = options();
   const source = '{ // guest managed\n "provider": { "omg": { "options": { "baseURL": "http://169.254.0.1:9090/v1" } } } }';
   put(opts.guestConfigPath, source);
+  expect(hasHostedOmgAiProxy(opts)).toBe(false);
   expect(isHostedOmgSandbox(opts)).toBe(true);
   ensureOmgProvider(opts);
   expect(readFileSync(opts.guestConfigPath, "utf8")).toBe(source);

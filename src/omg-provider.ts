@@ -24,10 +24,15 @@ function readConfig(path: string): Config {
   throw new Error(`Cannot update invalid JSON config: ${path}`);
 }
 
+/** True only for the managed AI proxy injected into a hosted Computer. */
+export function hasHostedOmgAiProxy(options: OmgProviderOptions = {}): boolean {
+  const env = options.env ?? process.env;
+  return env.OMG_AI_URL?.trim().replace(/\/+$/, "").replace(/\/v1$/, "") === GUEST_PROXY;
+}
+
 /** The guest sets OMG_AI_URL; its preinstalled provider is a fallback marker. */
 export function isHostedOmgSandbox(options: OmgProviderOptions = {}): boolean {
-  const env = options.env ?? process.env;
-  if (env.OMG_AI_URL?.trim().replace(/\/+$/, "").replace(/\/v1$/, "") === GUEST_PROXY) return true;
+  if (hasHostedOmgAiProxy(options)) return true;
   const path = options.guestConfigPath ?? "/home/user/.config/opencode/opencode.jsonc";
   try { return !!readConfig(path).provider?.omg; } catch { return false; }
 }

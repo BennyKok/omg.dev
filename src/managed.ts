@@ -368,6 +368,30 @@ export function patchManaged(tmuxName: string, patch: Partial<ManagedSession>): 
   });
 }
 
+/** Replace an automatic title only while the original fallback still owns it. */
+export function replaceManagedTitle(
+  tmuxName: string,
+  expected: string | undefined,
+  title: string,
+): boolean {
+  return withRegistryLock(() => {
+    const current = readAll(true);
+    const cur = current.sessions[tmuxName];
+    if (!cur || cur.title !== expected) return false;
+    const updated = { ...cur, title };
+    const creationClaims = { ...current.creationClaims };
+    for (const [key, claim] of Object.entries(creationClaims)) {
+      if (claim.tmuxName === tmuxName) creationClaims[key] = { ...claim, title };
+    }
+    writeAll({
+      version: 2,
+      sessions: { ...current.sessions, [tmuxName]: updated },
+      creationClaims,
+    });
+    return true;
+  });
+}
+
 export function removeManaged(tmuxName: string, opts?: { forgetCreation?: boolean }): void {
   withRegistryLock(() => {
     const current = readAll(true);
