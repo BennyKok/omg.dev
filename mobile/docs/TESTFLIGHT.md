@@ -51,8 +51,11 @@ Apple API readback and decoded profile entitlements confirm both profiles are
 ACTIVE and include `com.apple.security.application-groups` with exactly that
 group. The app profile also contains `aps-environment: production`.
 
-Hosted APNs delivery remains separate and is not deployed. Simulator validation
-does not establish remote updates or physical-device push behavior.
+Hosted Live Activity lifecycle and production APNs credentials are deployed at
+vibes `12cc4f7d3` (workflow `34743984699`). Runtime source hashes match; the
+registration table and fleet-status route are verified. APNs responds to a synthetic
+token with `BadDeviceToken`. No phone was registered at verification time, so
+physical-device push delivery remains unverified.
 
 ### Build 44 submission failure (2026-09-12)
 

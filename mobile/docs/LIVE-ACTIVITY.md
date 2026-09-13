@@ -1,7 +1,13 @@
 # Live Activity
 
-Status: **implemented in source on 2026-09-12; native build and APNs credentials are not
-deployed yet.**
+Status: **iOS 1.0.6 (46) uploaded and Apple processing VALID. Hosted lifecycle and
+production APNs credentials deployed on 2026-09-13 at vibes `12cc4f7d3`.**
+
+Production readback confirms matching source hashes, the token table, loaded APNs
+configuration, and a successful fleet-status route probe. Apple responds to a
+synthetic token with `BadDeviceToken`; this verifies connectivity, not phone delivery.
+No device was registered at verification time. Open build 46 and select a user-owned
+Computer to register the phone. Physical-device start/update/end remain unverified.
 
 ## Implemented path
 
