@@ -73,7 +73,7 @@ import {
   sessionStableId,
   type SessionNode,
 } from "./session-tree";
-import { AutoReportRow } from "./auto-agent-card";
+import { FindingsDrawer, FindingsPill } from "./findings-pill";
 import { canDriveSession, type DriveableSession } from "./session-runtime";
 import { useOverlapWatch } from "./list-overlap-watch";
 import { groupNodesByProject } from "./session-groups";
@@ -886,6 +886,20 @@ export function SessionsScreen({
    * carrying this is safe on older installs. The list order is the rail's.
    */
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  /**
+   * Open findings live behind a pill, not in the list — see findings-pill.tsx.
+   * One drawer, opened by the pill, closed by its own grabber or a row tap.
+   */
+  const [findingsOpen, setFindingsOpen] = useState(false);
+  const autoGroups = useMemo(() => groupHomeAutoFindings(autoRows), [autoRows]);
+  const openAutoAgent = useCallback(
+    (agentId: string) => {
+      const href = `/auto/${encodeURIComponent(agentId)}` as Href;
+      if (workspace) navigateWorkspace(href);
+      else router.push(href);
+    },
+    [workspace, navigateWorkspace, router],
+  );
   /** The phone's side nav. The iPad's wide layout keeps the same rows on screen. */
   const [navOpen, setNavOpen] = useState(false);
   const navProgress = useSharedValue(0);
@@ -1798,72 +1812,13 @@ export function SessionsScreen({
               ))}
 
               {/**
-               * WHAT NEEDS A DECISION TODAY.
-               *
-               * Auto agents run on a timer and report findings; a finding is
-               * not a session, so it does not belong in Working or Idle, where
-               * a tap opens a transcript. A swipe here still dismisses, same
-               * gesture as archive, different target — see the long note atop
-               * auto-agent-card.tsx for why dismiss gets both that swipe and a
-               * visible button, and why "start session" only gets the button.
-               * Its own section, ADDED rather than substituted: the three above
-               * are untouched.
-               *
-               * ONE ROW PER OPEN FINDING, matching the web's own live view
-               * (the "Auto" section in web/src/App.tsx) rather than a roster of
-               * every scheduled agent — most of which have nothing to say right
-               * now, which is exactly why the web doesn't list them here either
-               * (see selectHomeAutoFindings). Nothing hands off to a "manage
-               * schedules" page: there is nothing left unsaid to hand off.
-               *
-               * BETWEEN Idle AND Recent, and that position is the argument.
-               * Working and Idle are happening now. Recent is finished and
-               * read-only. An open finding is neither — it is unfinished
-               * business that nothing is currently working on, which is exactly
-               * the gap between the two, and putting it below Recent would bury
-               * the only actionable thing on the screen under a log.
-               *
-               * Blue, matching the tint the web gives findings ("N open" in
-               * `text-primary`) and staying clear of the amber/green/grey the
-               * three session sections have already claimed.
-               *
-               * GATED ON `sessionsSettled`, ALONGSIDE `autoRows.length` — see
-               * the long note by that flag's `useEffect` above. Auto's own
-               * data is very often ready before Working/Idle's is (no
-               * readiness gate on its fetch), and rendering it the moment it
-               * arrives is exactly what let it paint, settle, and then get
-               * shoved down when Sessions mounted its own rows late.
+               * NO "AUTO" SECTION EITHER. Open findings used to sit here, one
+               * 80pt row per agent, between Idle and the old Recent slot.
+               * Three findings pushed the running sessions off the fold, so
+               * they moved behind the pill that floats at the foot of the
+               * list (FindingsPill, below) and open in a drawer. Same rows,
+               * same tap target, same "draw nothing when nothing is open".
                */}
-              {sessionsSettled && autoRows.length ? (
-                <>
-                  <SectionHeader
-                    label="Auto"
-                    count={autoRows.length}
-                    dotColor={colors.text}
-                  />
-                  <View style={{ gap: space.xs }}>
-                    {/* One row per agent, as the web's Auto section: the
-                        name, a count when there is more than one, the lead
-                        finding, the worst severity and the newest time.
-                        Tapping opens the agent's report page. */}
-                    {groupHomeAutoFindings(autoRows).map((group) => (
-                      <OverlapRow key={`agent:${group.agentId}`} id={`auto-agent:${group.agentId}`}>
-                        <AutoReportRow
-                          group={group}
-                          animateEntry={animateEntry}
-                          onOpen={() => {
-                            void Haptics.selectionAsync();
-                            const href = `/auto/${encodeURIComponent(group.agentId)}` as Href;
-                            if (workspace) navigateWorkspace(href);
-                            else router.push(href);
-                          }}
-                        />
-                      </OverlapRow>
-                    ))}
-                  </View>
-                </>
-              ) : null}
-
               {/**
                * NO "RECENT" SECTION.
                *
@@ -1880,6 +1835,13 @@ export function SessionsScreen({
             </>
           )}
         </ScrollView>
+        {/* THE PILL ON THE RAIL: in flow, between the list and the nav footer,
+            because an absolute one would sit on the footer's rows. */}
+        {wide && autoGroups.length ? (
+          <View style={{ paddingVertical: space.xs }}>
+            <FindingsPill groups={autoGroups} onPress={() => setFindingsOpen(true)} />
+          </View>
+        ) : null}
         {/* THE NAV, PINNED TO THE FOOT OF THE RAIL, on iPad only.
             A 320pt column is already on screen, so sliding a second one over
             it would be ceremony; the rows simply live at the bottom of the one
@@ -2074,9 +2036,35 @@ export function SessionsScreen({
           >
             {composer}
           </Reanimated.View>
+          {/* THE PILL ON THE PHONE: over the fade and just above the glass,
+              carried by the same `composerLift` so it rides the keyboard.
+              `box-none` so the list still scrolls either side of it. */}
+          {autoGroups.length ? (
+            <Reanimated.View
+              pointerEvents="box-none"
+              style={[
+                {
+                  position: "absolute",
+                  left: railWidth,
+                  right: 0,
+                  bottom: composerHeight + space.sm,
+                  alignItems: "center",
+                },
+                composerLift,
+              ]}
+            >
+              <FindingsPill groups={autoGroups} onPress={() => setFindingsOpen(true)} />
+            </Reanimated.View>
+          ) : null}
         </>
       ) : null}
     </Reanimated.View>
+      <FindingsDrawer
+        visible={findingsOpen}
+        onClose={() => setFindingsOpen(false)}
+        groups={autoGroups}
+        onOpenAgent={openAutoAgent}
+      />
       {/* The phone's drawer, and the iPad's when its window is too narrow to
           keep the rail. Mounted last so it paints over the list; it draws
           nothing at all while closed. */}
