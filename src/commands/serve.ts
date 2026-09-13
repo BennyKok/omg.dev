@@ -14,6 +14,8 @@ import { PATHS, appVersion, installInfo, localServeBaseUrl } from "../config.ts"
 import { desktopRuntimeReadyPayload } from "../desktop-parent.ts";
 import { handleServerAccessRequest } from "../server-access.ts";
 import { createCloudAccount } from "../cloud-account.ts";
+import { generateSessionTitle } from "../session-auto-title.ts";
+import { hasHostedOmgAiProxy } from "../omg-provider.ts";
 import { createCloudMachineProxy, type CloudProxySocketData } from "../cloud-machine-proxy.ts";
 import {
   importSessionPins,
@@ -352,6 +354,7 @@ import {
   getManagedSessionCreation,
   listManaged,
   patchManaged,
+  replaceManagedTitle,
   removeManaged,
   type ManagedSession,
 } from "../managed.ts";
@@ -8908,6 +8911,7 @@ a{color:#60a5fa}
                         ? resolvedModel ?? PI_DEFAULT_MODEL
                         : resolvedModel;
         const requestedTitle = body?.title?.trim().slice(0, 200);
+        const fallbackTitle = body?.prompt?.slice(0, 72);
         const resolvedRole = requestedRole || roleForUser(assignedUser).id;
         sessionRole = resolvedRole !== OWNER_ROLE_ID ? resolvedRole : undefined;
         const claim = addManaged({
@@ -8979,6 +8983,19 @@ a{color:#60a5fa}
         if (r.nativeSessionId) patchManaged(tmuxName, { nativeSessionId: r.nativeSessionId });
         if (CODING_AGENT_ADAPTERS[agent].transport === "command-file")
           patchManaged(tmuxName, { launchState: "running" });
+        // Keep creation fast and resilient. The prompt-derived title appears
+        // immediately, then managed AI may replace it. A human rename wins the
+        // compare-and-swap if it happens before this best-effort call finishes.
+        if (hasHostedOmgAiProxy() && !requestedTitle && fallbackTitle) {
+          void generateSessionTitle(body?.prompt)
+            .then((generatedTitle) => {
+              if (!generatedTitle) return;
+              if (replaceManagedTitle(tmuxName, fallbackTitle, generatedTitle)) {
+                invalidateListSessionsCache();
+              }
+            })
+            .catch(() => {});
+        }
         // The spawn (and the launchState patch above) changed what the session
         // list contains, so retire any snapshot taken during it.
         invalidateListSessionsCache();

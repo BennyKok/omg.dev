@@ -8,6 +8,7 @@ import {
   getManagedSessionCreation,
   listManaged,
   patchManaged,
+  replaceManagedTitle,
   removeManaged,
   resetManagedRegistryForTests,
 } from "./managed.ts";
@@ -150,6 +151,22 @@ describe("managed session registry", () => {
       }),
     });
     expect(listManaged().map((row) => row.tmuxName)).toEqual(["lfg-first"]);
+  });
+
+  test("replaces only the unchanged automatic title and refreshes its creation claim", () => {
+    const key = "create-with-auto-title";
+    addManaged({
+      tmuxName: "lfg-titled", cwd: "/tmp/project", createdAt: 1,
+      sessionId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd", title: "Long opening prompt",
+    }, key);
+
+    expect(replaceManagedTitle("lfg-titled", "Long opening prompt", "Repair Session Titles")).toBe(true);
+    expect(listManaged()[0]?.title).toBe("Repair Session Titles");
+    expect(getManagedSessionCreation(key)?.title).toBe("Repair Session Titles");
+
+    patchManaged("lfg-titled", { title: "My custom title" });
+    expect(replaceManagedTitle("lfg-titled", "Repair Session Titles", "Late model title")).toBe(false);
+    expect(listManaged()[0]?.title).toBe("My custom title");
   });
 
   test("keeps a creation claim after the live managed session is removed", () => {
