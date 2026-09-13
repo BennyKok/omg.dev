@@ -5,6 +5,30 @@ read off the EAS docs.
 
 ## Current state
 
+### Compact system-message OTA — 2026-09-13
+
+Production group `61552f09-8310-49f2-91bd-c074cb7e81ce` carries
+`a44af5bd6fd61e8c72cd8992d7c63232152dc5dc` for runtime **1.0.6**,
+iOS and Android. Workflow
+[`34745712215`](https://github.com/BennyKok/omg.dev/actions/runs/34745712215)
+succeeded. EAS JSON readback confirms both platforms, runtime and commit.
+It also carries the prompt stash/archive update below. No native surface changed.
+
+Session `7d641a40` supplied the compact system-message classifier and sheet
+header changes. Integration bounds long labels and keeps the pure tests under
+root `test/`. Background tasks, subagent reports, peer/bot messages, question
+answers, fork/continue openers, rotation notices and routines now share one
+expandable system line. Sheet close buttons use a padded 36pt disc.
+
+Verification: 13 focused tests and root/mobile typechecks pass. Full suite:
+3729 pass, one skip, the same 11 baseline failures. The pinned iPhone 17 Pro
+fixture shows all eight families, long-title fit, ordinary bubbles, and sheet
+open/dismiss behavior. Fixture and Metro were removed/stopped; device released.
+The source session also checked real background/answer rows on Pro Max.
+Continue and fork still share the server prompt and read “Started from”.
+Physical-phone activation remains unverified.
+
+
 ### Prompt stash and archive OTA — 2026-09-13
 
 Production update `87d5b160-89c8-4580-a0cb-469a5384c05f` carries
