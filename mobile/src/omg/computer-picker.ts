@@ -22,7 +22,7 @@ import { Linking } from "react-native";
 
 import { CLOUD_BINDING_ID } from "./config";
 import { sharedComputerPickerLabel } from "./computer-shared-binding";
-import { bindingLabel, cloudStatusLabel, relativeTime } from "./format";
+import { cloudComputerLabel, bindingLabel, cloudStatusLabel, relativeTime } from "./format";
 import { type MenuOption } from "./menu";
 import { useOmg } from "./provider";
 import { useToast } from "./toast";
@@ -78,8 +78,7 @@ export function useComputerPicker() {
 
   const options = useMemo<MenuOption[]>(() => {
     const rows: MenuOption[] = bindings.map((b) => ({
-      // Online rows already say everything in the name (bindingLabel prefers
-      // the paired folder's basename); an offline one is worth a reason.
+      // Use the API name consistently; offline rows also carry their last-seen time.
       label: b.online
         ? bindingLabel(b)
         : `${bindingLabel(b)} — last seen ${relativeTime(b.lastSeenAt) || "a while ago"}`,
@@ -88,7 +87,7 @@ export function useComputerPicker() {
     }));
 
     rows.push({
-      label: `Cloud computer — ${cloudStatusLabel(cloud?.status, cloud?.blockedReason)}`,
+      label: `${cloudComputerLabel(cloud)} — ${cloudStatusLabel(cloud?.status, cloud?.blockedReason)}`,
       selected: bindingId === CLOUD_BINDING_ID && !cloudBlocked,
       disabled: cloudBlocked,
       onPress: () => void selectBinding(CLOUD_BINDING_ID),

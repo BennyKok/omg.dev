@@ -38,27 +38,14 @@ export function machineSpec(machine?: {
   return parts.length ? parts.join(" · ") : null;
 }
 
-/**
- * A machine's own name — what to call the COMPUTER, not the work it happens to
- * be pointed at.
- *
- * This used to prefer `defaultFolder`'s basename, so the header chip on the
- * home screen read "vibes": the name of a project directory, presented as the
- * name of a machine. Two boxes bound to folders of the same name were
- * indistinguishable, and switching machines could leave the chip completely
- * unchanged. The folder is a separate decision, now made in the composer, and
- * conflating the two made both unreadable.
- *
- * The hostname is the machine's real identity, so it goes first. The folder
- * stays as a fallback rather than being dropped: a paired box that has not
- * advertised a URL yet still needs something recognisable, and a folder name
- * beats a truncated uuid.
- */
+/** Prefer the API's custom machine name, then the hostname and legacy fallbacks. */
 export function bindingLabel(binding: {
   id: string;
+  name?: string | null;
   defaultFolder?: string | null;
   computerUrl?: string | null;
 }): string {
+  if (binding.name?.trim()) return binding.name.trim();
   if (binding.computerUrl) {
     try {
       const host = new URL(binding.computerUrl).hostname.split(".")[0];
@@ -120,4 +107,9 @@ export function stampTime(ts: number, now = Date.now()): string {
     ...(date.getFullYear() === today.getFullYear() ? {} : { year: "numeric" }),
   });
   return `${day} ${time}`;
+}
+
+/** Cloud names use the same API field as paired machines. */
+export function cloudComputerLabel(cloud?: { name?: string | null } | null): string {
+  return cloud?.name?.trim() || "Cloud computer";
 }

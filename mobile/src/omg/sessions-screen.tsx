@@ -87,7 +87,7 @@ import {
   type AutoFindingRow,
 } from "./auto-agents";
 import { useComputerPicker } from "./computer-picker";
-import { SideNavButton, SideNavDrawer, SideNavPanel, sideNavWidth, useSideNavGesture } from "./side-nav";
+import { SideNavButton, SIDE_NAV_RADIUS, SideNavDrawer, SideNavPanel, sideNavWidth, useSideNavGesture } from "./side-nav";
 import {
   clearSessionUnread,
   fetchSessionsForViewer,
@@ -111,7 +111,7 @@ import { useOmg } from "./provider";
 import { useToast } from "./toast";
 import { SessionListSkeleton } from "./skeleton";
 import { useTheme } from "./theme";
-import { bindingLabel, relativeTime } from "./format";
+import { cloudComputerLabel, bindingLabel, relativeTime } from "./format";
 import { CLOUD_BINDING_ID } from "./config";
 import {
   isSharedBindingId,
@@ -359,6 +359,7 @@ export function SessionsScreen({
     bindingId,
     bindings,
     sharedComputers,
+    cloud,
     user,
   } = useOmg();
   const computerPicker = useComputerPicker();
@@ -762,7 +763,7 @@ export function SessionsScreen({
     : currentBinding
       ? bindingLabel(currentBinding)
       : bindingId === CLOUD_BINDING_ID
-        ? "Cloud computer"
+        ? cloudComputerLabel(cloud)
         : "No computer";
 
   /** First name only, capitalised — the web greets the same way. */
@@ -919,8 +920,8 @@ export function SessionsScreen({
   });
   const navPageStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: wide ? 0 : drawerWidth * navProgress.value }],
-    borderTopLeftRadius: wide ? 0 : 40 * navProgress.value,
-    borderBottomLeftRadius: wide ? 0 : 40 * navProgress.value,
+    borderTopLeftRadius: wide ? 0 : SIDE_NAV_RADIUS * navProgress.value,
+    borderBottomLeftRadius: wide ? 0 : SIDE_NAV_RADIUS * navProgress.value,
   }));
   const [railSheetOpen, setRailSheetOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -1380,7 +1381,7 @@ export function SessionsScreen({
   return (
     <SessionUnreadContext.Provider value={unreadSessions}>
     <View style={{ flex: 1, backgroundColor: colors.bg, overflow: "hidden" }} {...navGesture.panHandlers}>
-    <Reanimated.View style={[{ flex: 1, backgroundColor: colors.bg, overflow: "hidden" }, navPageStyle]}>
+    <Reanimated.View style={[{ flex: 1, backgroundColor: colors.bg, overflow: "hidden", borderCurve: "continuous" }, navPageStyle]}>
       {/* One persistent row moves with the page throughout the drawer transition. */}
       {!workspace ? (
         <View pointerEvents="box-none" style={{ position: "absolute", top: insets.top,

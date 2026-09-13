@@ -41,6 +41,7 @@ import {
 
 export type ComputerBinding = {
   id: string;
+  name?: string | null;
   boxId?: string;
   online?: boolean;
   lastSeenAt?: number | null;
@@ -59,7 +60,7 @@ export type ComputerBinding = {
  * direct box URL, only the session proxy (which is what actually authorized
  * them) knows how to reach it.
  */
-export type SharedComputerBinding = ComputerBinding & {
+export type SharedComputerBinding = Omit<ComputerBinding, "name"> & {
   shared: true;
   ownerUserId: string;
   /** The owner's raw binding id, for a unique tail when titles collide. */
@@ -113,6 +114,7 @@ export type Repo = { name: string; cwd: string };
 
 /** Shape returned by control-plane getCloudComputer. */
 export type CloudComputer = {
+  name?: string | null;
   status?: string;
   blockedReason?: string | null;
   instanceId?: string | null;

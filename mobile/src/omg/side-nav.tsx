@@ -18,9 +18,8 @@
  * NOT A MODAL. The drawer is an absolutely-positioned overlay inside the Live
  * screen, so the computer row's `DropdownMenu` — a real SwiftUI `Menu`, see
  * menu.tsx — hangs off an ordinary view in the ordinary hierarchy, exactly
- * like every other menu in the app. The caller hides its navigation-bar items
- * while the drawer is open (the bar is transparent and draws nothing of its
- * own), so there is nothing left above the overlay to show through it.
+ * like every other menu in the app. The caller keeps its header row in page
+ * content, so the controls move with the page and stay below this overlay.
  *
  * The machine switcher is the picker's, not this file's: `computerOptions`
  * arrives already built by computer-picker.ts, which stays the single owner of
@@ -50,6 +49,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { AndroidSymbol, SFSymbol } from "expo-symbols";
 
 import { Icon, StatusDot } from "../components";
+import { BrandWordmark } from "./brand-mark";
 import { GlassSurface } from "./glass";
 import { DropdownMenu, type MenuOption } from "./menu";
 import { PressableScale, useReduceMotionEnabled } from "./motion";
@@ -59,7 +59,7 @@ import { useTheme } from "./theme";
 
 /** The glyph for each row. Kept with the view so the row list stays testable. */
 const GLYPH: Record<SideNavRowKey, { ios: SFSymbol; android: AndroidSymbol }> = {
-  live: { ios: "bolt.fill", android: "bolt" },
+  live: { ios: "bolt", android: "bolt" },
   archive: { ios: "archivebox", android: "archive" },
   notifications: { ios: "bell", android: "notifications" },
   schedules: { ios: "calendar.badge.clock", android: "schedule" },
@@ -68,8 +68,9 @@ const GLYPH: Record<SideNavRowKey, { ios: SFSymbol; android: AndroidSymbol }> = 
 };
 
 /** Wide enough for a machine name, never more than most of a phone. */
-export const SIDE_NAV_WIDTH = 288;
-export const sideNavWidth = (screenWidth: number) => Math.min(SIDE_NAV_WIDTH, Math.round(screenWidth * 0.84));
+export const SIDE_NAV_WIDTH = 320;
+export const SIDE_NAV_RADIUS = 56;
+export const sideNavWidth = (screenWidth: number) => Math.min(SIDE_NAV_WIDTH, Math.round(screenWidth * 0.72));
 
 export type SideNavProps = {
   /** Where the reader is, so the matching row can draw selected. */
@@ -109,7 +110,7 @@ function NavRow({
   onPress?: () => void;
   accessory?: React.ReactNode;
 }) {
-  const { colors, radius, type, space } = useTheme();
+  const { colors, radius, type } = useTheme();
   return (
     <PressableScale
       onPress={onPress}
@@ -120,9 +121,10 @@ function NavRow({
       style={({ pressed }: { pressed: boolean }) => ({
         flexDirection: "row",
         alignItems: "center",
-        gap: space.sm,
-        height: 44,
-        paddingHorizontal: space.sm,
+        gap: 12,
+        minHeight: 48,
+        paddingVertical: 10,
+        paddingHorizontal: 12,
         borderRadius: radius.md,
         /**
          * SELECTED IS A TINT, NOT A BLOCK. The folder pills next door already
@@ -136,19 +138,16 @@ function NavRow({
             : "transparent",
       })}
     >
-      <Icon
-        ios={ios}
-        android={android}
-        size={18}
-        color={selected ? colors.text : colors.textSecondary}
-      />
+      <View style={{ width: 28, alignItems: "center", justifyContent: "center" }}>
+        <Icon ios={ios} android={android} size={22} weight="regular" color={colors.text} />
+      </View>
       <Text
         numberOfLines={1}
         style={{
-          ...type.callout,
+          ...type.body,
           flex: 1,
           fontWeight: selected ? "600" : "400",
-          color: selected ? colors.text : colors.textSecondary,
+          color: colors.text,
         }}
       >
         {label}
@@ -175,6 +174,11 @@ export function SideNavPanel({
   const rows = sideNavRows({ pathname, keyboardShortcuts: !!onShortcuts });
   return (
     <View style={{ gap: space.xs }}>
+      {onDismiss ? (
+        <View style={{ paddingHorizontal: 12, paddingTop: 8, paddingBottom: 20 }}>
+          <BrandWordmark size={28} holeColor={colors.bg} />
+        </View>
+      ) : null}
       {/* THE MACHINE, FIRST. It is the context every row below it runs in:
           which box these sessions are on. The menu is the picker's own, so
           this row is a trigger and nothing more. */}
@@ -185,19 +189,20 @@ export function SideNavPanel({
           style={{
             flexDirection: "row",
             alignItems: "center",
-            gap: space.sm,
-            height: 48,
-            paddingHorizontal: space.sm,
+            gap: 12,
+            minHeight: 56,
+            paddingVertical: 10,
+            paddingHorizontal: 12,
             borderRadius: radius.md,
-            borderWidth: 1,
-            borderColor: colors.border,
           }}
         >
-          <Icon lucide="monitor" size={18} color={colors.textSecondary} />
+          <View style={{ width: 28, alignItems: "center" }}>
+            <Icon ios="desktopcomputer" android="computer" size={22} color={colors.text} />
+          </View>
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text
-              numberOfLines={1}
-              style={{ ...type.callout, fontWeight: "600", color: colors.text }}
+              numberOfLines={2}
+              style={{ ...type.body, fontWeight: "600", color: colors.text }}
             >
               {machineName}
             </Text>
@@ -206,7 +211,7 @@ export function SideNavPanel({
           <Icon ios="chevron.up.chevron.down" android="unfold_more" size={12} color={colors.textMuted} />
         </View>
       </DropdownMenu>
-      <View style={{ height: 1, backgroundColor: colors.border, marginVertical: space.xs }} />
+      <View style={{ height: 12 }} />
       {rows.map((row) =>
         row.kind === "page" ? (
           <NavRow
@@ -364,8 +369,8 @@ export function SideNavDrawer({ progress, controller, ...panel }: SideNavProps &
   const scrimStyle = useAnimatedStyle(() => ({
     opacity: progress.value,
     transform: [{ translateX: width * progress.value }],
-    borderTopLeftRadius: 40 * progress.value,
-    borderBottomLeftRadius: 40 * progress.value,
+    borderTopLeftRadius: SIDE_NAV_RADIUS * progress.value,
+    borderBottomLeftRadius: SIDE_NAV_RADIUS * progress.value,
   }));
 
   if (!controller.mounted) return null;
@@ -377,7 +382,7 @@ export function SideNavDrawer({ progress, controller, ...panel }: SideNavProps &
       style={[StyleSheet.absoluteFill, { zIndex: 200, elevation: 8 }]}
     >
       <Reanimated.View style={[StyleSheet.absoluteFill, {
-        overflow: "hidden", borderWidth: StyleSheet.hairlineWidth, borderColor: colors.borderStrong,
+        overflow: "hidden", borderCurve: "continuous", borderWidth: StyleSheet.hairlineWidth, borderColor: colors.borderStrong,
       }, scrimStyle]}>
         <Pressable
           style={StyleSheet.absoluteFill}
@@ -403,15 +408,13 @@ export function SideNavDrawer({ progress, controller, ...panel }: SideNavProps &
           style={{
             flex: 1,
             backgroundColor: colors.bg,
-            borderRightWidth: StyleSheet.hairlineWidth,
-            borderRightColor: colors.border,
           }}
         >
           <ScrollView
             contentContainerStyle={{
               paddingTop: insets.top + space.sm,
               paddingBottom: insets.bottom + space.lg,
-              paddingHorizontal: space.sm,
+              paddingHorizontal: 12,
             }}
           >
             <SideNavPanel {...panel} onDismiss={controller.dismiss} />

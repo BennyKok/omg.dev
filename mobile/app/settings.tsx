@@ -26,7 +26,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Card, Icon, Row, SectionLabel, Separator, StatusDot } from "../src/components";
 import { useOmg } from "../src/omg/provider";
 import { useTheme } from "../src/omg/theme";
-import { bindingLabel } from "../src/omg/format";
+import { cloudComputerLabel, bindingLabel } from "../src/omg/format";
 import { CLOUD_BINDING_ID } from "../src/omg/config";
 import { sharedBindingLabel } from "../src/omg/computer-shared-binding";
 import {
@@ -108,7 +108,7 @@ const WEB_PAGES: { label: string; path: string }[] = [
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { colors, type, space } = useTheme();
-  const { user, client, signOut, bindings, sharedComputers, bindingId } = useOmg();
+  const { user, client, signOut, bindings, sharedComputers, bindingId, cloud } = useOmg();
   const router = useRouter();
 
   const current = bindings.find((b) => b.id === bindingId);
@@ -121,7 +121,7 @@ export default function SettingsScreen() {
     : currentShared
       ? sharedBindingLabel(currentShared, sharedComputers)
       : bindingId === CLOUD_BINDING_ID
-        ? "Cloud computer"
+        ? cloudComputerLabel(cloud)
         : "None selected";
 
   /**

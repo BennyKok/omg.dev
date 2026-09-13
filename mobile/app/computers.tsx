@@ -22,7 +22,7 @@ import { Card, Icon, Row, SectionLabel, Separator, StatusDot } from "../src/comp
 import { useOmg } from "../src/omg/provider";
 import { useTheme } from "../src/omg/theme";
 import { useToast } from "../src/omg/toast";
-import { bindingLabel, cloudStatusLabel, machineSpec, relativeTime } from "../src/omg/format";
+import { cloudComputerLabel, bindingLabel, cloudStatusLabel, machineSpec, relativeTime } from "../src/omg/format";
 import { CLOUD_BINDING_ID } from "../src/omg/config";
 import { sharedBindingLabel, sharedComputerSubtitle } from "../src/omg/computer-shared-binding";
 
@@ -168,7 +168,7 @@ export default function ComputersScreen() {
               numberOfLines={1}
               style={{ ...type.callout, color: colors.text, fontWeight: "600" }}
             >
-              Cloud computer
+              {cloudComputerLabel(cloud)}
             </Text>
             <Text style={{ ...type.footnote, color: cloudBlocked ? colors.warning : colors.textMuted }}>
               {cloudStatusLabel(cloud?.status, cloud?.blockedReason)}
