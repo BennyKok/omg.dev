@@ -5,14 +5,12 @@ export function remainingReplySpace(reserved: number, followingHeights: readonly
 
 export type SendOrigin = { x: number; y: number; width: number; height: number };
 
-/** Centre-based transforms preserve layout while the bubble changes shape. */
+/** Move the final-sized bubble from the composer centre without resizing it. */
 export function sendOriginTransform(from: SendOrigin, target: SendOrigin) {
   'worklet';
   return {
     translateX: from.x + from.width / 2 - target.x - target.width / 2,
     translateY: from.y + from.height / 2 - target.y - target.height / 2,
-    scaleX: from.width / Math.max(1, target.width),
-    scaleY: from.height / Math.max(1, target.height),
   };
 }
 

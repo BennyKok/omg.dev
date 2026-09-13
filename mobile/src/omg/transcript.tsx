@@ -1848,7 +1848,7 @@ export function UserMessage({ message }: { message: Entry }) {
             paddingVertical: 5,
           }}
         >
-          <Reanimated.View style={sendEntrance.contentStyle}>
+          <View>
           <Text
             // Not `selectable`: the native selection gesture is a long press
             // too, and it would take this one before the copy menu could.
@@ -1888,7 +1888,7 @@ export function UserMessage({ message }: { message: Entry }) {
               </Text>
             </Pressable>
           ) : null}
-          </Reanimated.View>
+          </View>
         </View>
         </MenuView>
         </Reanimated.View>

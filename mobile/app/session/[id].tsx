@@ -74,7 +74,6 @@ import Reanimated, {
   useAnimatedStyle,
   useSharedValue,
   withTiming,
-  withDelay,
   cancelAnimation,
   runOnJS,
   Easing,
@@ -82,7 +81,7 @@ import Reanimated, {
 import { Text, TextInput } from "../../src/omg/text";
 import type { OmgConnectionStatus } from "@omg-dev/client";
 import { AgentSetupSheet } from "../../src/omg/agent-setup-sheet";
-import { SEND_DELAY, SEND_DURATION, SendOriginContext } from "../../src/omg/send-motion";
+import { SEND_DURATION, SendOriginContext } from "../../src/omg/send-motion";
 import { remainingReplySpace, sendTargetOffset, type SendOrigin } from "../../src/omg/send-motion-layout";
 import { HeldQueue, type HeldRow } from "../../src/omg/held-queue";
 
@@ -610,9 +609,8 @@ export function SessionScreenBody({
       if (!sendStarted.value) {
         sendStarted.value = true;
         runOnJS(dismissSendKeyboard)();
-        sendProgress.value = withDelay(sendDuration.value ? SEND_DELAY : 0,
-          withTiming(1, { duration: sendDuration.value, easing: Easing.out(Easing.cubic) },
-            (finished) => { if (finished) runOnJS(finishSendMotion)(); }));
+        sendProgress.value = withTiming(1, { duration: sendDuration.value, easing: Easing.bezier(0.2, 0.8, 0.2, 1) },
+          (finished) => { if (finished) runOnJS(finishSendMotion)(); });
       }
       scrollListTo(listRef, 0, sendFrom.value + (value.target - sendFrom.value) * value.progress, false);
     },
