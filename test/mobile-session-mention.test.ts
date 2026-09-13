@@ -285,6 +285,11 @@ describe("tapping a rendered reference", () => {
     it.register(a);
     pending[2].resolve(FULL);
     await tick();
+    expect(opened).toEqual([]);
+    it.open("omg:session_0f1e2d3c");
+    await tick();
+    pending[3].resolve(FULL);
+    await tick();
     expect(opened).toEqual([FULL]);
   });
 
