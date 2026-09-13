@@ -33,6 +33,17 @@ import { useTheme } from "./theme";
 
 const SEVERITY_ORDER: Record<AutoFindingSeverity, number> = { high: 0, med: 1, low: 2 };
 
+/**
+ * The pill's own height, and the gap it keeps above the composer.
+ *
+ * Exported because the phone's list has to reserve this space too. The pill
+ * floats OVER the list, so a list that only clears the composer leaves its
+ * last card permanently under the pill, with no way to scroll it out. The
+ * clearance and the placement must come from one number or they drift apart.
+ */
+export const PILL_HEIGHT = 34;
+export const PILL_GAP = 8;
+
 /** One dot per agent with open findings, worst first, at most three. */
 export function pillSeverities(groups: ReadonlyArray<AutoFindingGroup>): AutoFindingSeverity[] {
   return groups
@@ -76,7 +87,7 @@ export function FindingsPill({
           gap: space.sm,
           paddingLeft: space.md,
           paddingRight: space.md - 2,
-          height: 34,
+          height: PILL_HEIGHT,
           borderRadius: radius.pill,
           borderWidth: 1,
           borderColor: colors.borderStrong,

@@ -73,7 +73,7 @@ import {
   sessionStableId,
   type SessionNode,
 } from "./session-tree";
-import { FindingsDrawer, FindingsPill } from "./findings-pill";
+import { FindingsDrawer, FindingsPill, PILL_GAP, PILL_HEIGHT } from "./findings-pill";
 import { canDriveSession, type DriveableSession } from "./session-runtime";
 import { useOverlapWatch } from "./list-overlap-watch";
 import { groupNodesByProject } from "./session-groups";
@@ -892,6 +892,15 @@ export function SessionsScreen({
    */
   const [findingsOpen, setFindingsOpen] = useState(false);
   const autoGroups = useMemo(() => groupHomeAutoFindings(autoRows), [autoRows]);
+
+  /**
+   * WHAT THE PHONE'S LIST HAS TO CLEAR BELOW THE COMPOSER.
+   *
+   * The pill floats OVER the list, so clearing only the composer leaves the
+   * last card stuck under the pill with no scroll left to free it. Reserve
+   * the pill's own band as well, and only while a pill is actually drawn.
+   */
+  const pillClearance = autoGroups.length ? PILL_HEIGHT + PILL_GAP : 0;
   const openAutoAgent = useCallback(
     (agentId: string) => {
       const href = `/auto/${encodeURIComponent(agentId)}` as Href;
@@ -1568,7 +1577,9 @@ export function SessionsScreen({
                 ? insets.top + 44 + space.sm + 50
                 : 0,
             paddingBottom:
-              home && !wide ? composerHeight + space.md : insets.bottom + space.md,
+              home && !wide
+                ? composerHeight + space.md + pillClearance
+                : insets.bottom + space.md,
           }}
           keyboardShouldPersistTaps="handled"
           // Scrolling the list puts the keyboard away. Reaching for the field is
@@ -2047,7 +2058,7 @@ export function SessionsScreen({
                   position: "absolute",
                   left: railWidth,
                   right: 0,
-                  bottom: composerHeight + space.sm,
+                  bottom: composerHeight + PILL_GAP,
                   alignItems: "center",
                 },
                 composerLift,
