@@ -11,6 +11,8 @@
  * whether it is fit to show.
  */
 
+import { classifySystemMessage } from "./system-message";
+
 type PreviewSession = {
   last?: { role?: string; kind?: string; text?: string; ts?: number } | null;
   lastUserText?: string | null;
@@ -19,21 +21,24 @@ type PreviewSession = {
 /**
  * Turns that exist for ordering and attribution rather than to be read.
  *
- * A HAND-MAINTAINED COPY of isMachineryPreviewText() in
- * web/src/lib/transcript-status.ts, which has tests. When one of these lands
- * last the row advertises it: a real session whose preview reads
- * "[Request interrupted by user]" or "[Message from …]" looks broken, and the
- * home screen was showing exactly that.
+ * The wrappers themselves are recognised in system-message.ts, which is the
+ * one list for the phone; the transcript asks it how to draw the turn and this
+ * asks it whether the turn may be a row's preview. Matches
+ * isMachineryPreviewText() in web/src/lib/transcript-status.ts, which has
+ * tests. When one of these lands last the row advertises it: a real session
+ * whose preview reads "[Request interrupted by user]" or "[Message from …]"
+ * looks broken, and the home screen was showing exactly that.
+ *
+ * A fired routine is deliberately NOT machinery here: its prompt is the real
+ * content of that turn, the same exception the web makes.
  */
 export function isMachineryPreviewText(text?: string | null): boolean {
   const value = (text ?? "").trim();
   if (!value) return false;
+  const system = classifySystemMessage(value);
+  if (system) return system.kind !== "routine";
   return (
     /^\[Request interrupted by user(?: for tool use)?\]/i.test(value) ||
-    /^\[ask-user answer\b/i.test(value) ||
-    /^\[subagent (?:progress|complete|failed)\b/i.test(value) ||
-    /^\[Peer message from\b/i.test(value) ||
-    /^\[Message from\b/i.test(value) ||
     /^\[Image:/i.test(value)
   );
 }

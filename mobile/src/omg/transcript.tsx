@@ -62,7 +62,7 @@ import Reanimated, {
 import { useRouter } from "expo-router";
 import type { OmgMessage } from "@omg-dev/protocol";
 
-import { Icon } from "../components";
+import { Icon, IconButton } from "../components";
 import { formatFileSize } from "./file-preview";
 import { workLabel } from "./work-label";
 import { stampTime } from "./format";
@@ -72,6 +72,12 @@ import {
   type MessageAttachment,
 } from "./message-attachments";
 import { parseOmgPromptEnvelope } from "./omg-prompt-envelope";
+import {
+  classifySystemMessage,
+  systemMessagePreview,
+  type SystemMessage,
+  type SystemMessageKind,
+} from "./system-message";
 import { AuthenticatedImage } from "./remote-image";
 import { Text } from "./text";
 import { useTheme } from "./theme";
@@ -432,30 +438,37 @@ function ToolSheet({
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <View style={{ flex: 1, backgroundColor: colors.bg }}>
+        {/*
+          * THE CLOSE IS A DISC, NOT A BARE GLYPH. A 15pt xmark hugging the
+          * title on a 12pt-padded row read as cramped and was a small target
+          * on the sheet's one action. This is the same 36pt IconButton on
+          * the app's grey disc that every other screen uses for a dismiss,
+          * with the row padded so it sits clear of the sheet's rounded top.
+          */}
         <View
           style={{
             flexDirection: "row",
             alignItems: "center",
-            gap: space.sm,
-            paddingHorizontal: space.lg,
-            paddingVertical: space.md,
-            borderBottomWidth: StyleSheet.hairlineWidth,
-            borderBottomColor: colors.border,
+            gap: space.md,
+            paddingLeft: space.lg,
+            paddingRight: space.md,
+            paddingTop: space.md,
+            paddingBottom: space.sm,
           }}
         >
-          <Icon ios={symbol.ios} android={symbol.android} size={14} color={colors.textMuted} />
+          <Icon ios={symbol.ios} android={symbol.android} size={15} color={colors.textMuted} />
           <Text style={{ ...type.headline, color: colors.text, flex: 1 }} numberOfLines={1}>
             {title}
           </Text>
-          <Pressable
-            onPress={onClose}
-            hitSlop={10}
-            accessibilityRole="button"
+          <IconButton
+            ios="xmark"
+            android="close"
+            size={15}
+            color={colors.textSecondary}
+            background={colors.accent}
             accessibilityLabel="Close"
-            style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}
-          >
-            <Icon ios="xmark" android="close" size={15} color={colors.textSecondary} />
-          </Pressable>
+            onPress={onClose}
+          />
         </View>
         <ScrollView
           contentContainerStyle={{ padding: space.lg, gap: space.sm }}
@@ -1603,6 +1616,94 @@ function OmgInstructionsChip({ instructions, version }: { instructions: string; 
   );
 }
 
+/** A glyph per family of machine-written turn; see system-message.ts. */
+const SYSTEM_SYMBOLS: Record<SystemMessageKind, Symbols> = {
+  "background-task": { ios: "arrow.turn.down.right", android: "subdirectory_arrow_right" },
+  subagent: { ios: "arrow.turn.down.right", android: "subdirectory_arrow_right" },
+  peer: { ios: "bubble.left.and.bubble.right", android: "forum" },
+  "bot-message": { ios: "bubble.left.and.bubble.right", android: "forum" },
+  "ask-answer": { ios: "questionmark.circle", android: "help" },
+  fork: { ios: "arrow.triangle.branch", android: "call_split" },
+  rotation: { ios: "arrow.clockwise", android: "refresh" },
+  routine: { ios: "clock", android: "schedule" },
+};
+
+/**
+ * A TURN THE MACHINE WROTE, drawn as one quiet line instead of a sent bubble.
+ *
+ * A background task reporting home, a peer bot writing in, an answered
+ * question, a fork's launch prompt: all of these arrive as `role: "user"`
+ * text with a marker in front, and the bubble put that marker in the person's
+ * own mouth — `[Background task ios app · 542a7801]`, right-aligned, in a
+ * card, as if they had typed it. The transcript is a log of what happened;
+ * these are events in it, not speech, and they read as events: centred, in
+ * the caption colours the "Worked for 9s" rows use, with the sender named in
+ * plain words and the raw body two lines deep. The whole thing is one tap
+ * away in a sheet, because the body is still the agent's real input and
+ * sometimes you need to read all of it.
+ *
+ * One component for every kind, on purpose. Each wrapper used to be a
+ * separate discovery — a bubble that looked wrong, then a special case —
+ * and the fix was the same every time. The list of shapes lives in
+ * system-message.ts; this only decides how a recognised one looks.
+ */
+function SystemLine({ system, raw }: { system: SystemMessage; raw: string }) {
+  const { colors, type, space } = useTheme();
+  const body = useBodyText();
+  const [open, setOpen] = useState(false);
+  const symbol = SYSTEM_SYMBOLS[system.kind];
+  const preview = systemMessagePreview(system.body);
+
+  return (
+    <>
+      <Pressable
+        onPress={() => {
+          void Haptics.selectionAsync();
+          setOpen(true);
+        }}
+        accessibilityRole="button"
+        accessibilityLabel={`${system.label}${system.id ? `, ${system.id}` : ""}. Open`}
+        style={({ pressed }) => ({
+          alignSelf: "center",
+          maxWidth: "100%",
+          alignItems: "center",
+          gap: 4,
+          paddingVertical: space.xs,
+          paddingHorizontal: space.lg,
+          opacity: pressed ? 0.6 : 1,
+        })}
+      >
+        <View style={{ flexDirection: "row", alignItems: "center", maxWidth: "100%", gap: 6 }}>
+          <Icon ios={symbol.ios} android={symbol.android} size={12} color={colors.textMuted} />
+          <Text numberOfLines={2} style={{ ...type.footnote, flexShrink: 1, fontWeight: "500", color: colors.textSecondary }}>
+            {system.label}
+          </Text>
+          {system.id ? (
+            <Text style={{ ...type.caption, fontFamily: MONO, color: colors.textMuted }}>
+              {system.id}
+            </Text>
+          ) : null}
+          <Icon ios="chevron.right" android="chevron_right" size={10} color={colors.textMuted} />
+        </View>
+        {preview ? (
+          <Text
+            numberOfLines={2}
+            style={{ ...type.footnote, color: colors.textMuted, textAlign: "center" }}
+          >
+            {preview}
+          </Text>
+        ) : null}
+      </Pressable>
+
+      <ToolSheet visible={open} title={system.label} symbol={symbol} onClose={() => setOpen(false)}>
+        <Text selectable style={body}>
+          {system.body || raw}
+        </Text>
+      </ToolSheet>
+    </>
+  );
+}
+
 export function UserMessage({ message }: { message: Entry }) {
   const { colors, type, space, isDark } = useTheme();
   const body = useBodyText();
@@ -1623,6 +1724,7 @@ export function UserMessage({ message }: { message: Entry }) {
   // actual task text, not the full contract. The raw `message.text` still
   // goes to the agent; this is presentation only (see omg-prompt-envelope.ts).
   const rawText = envelope?.task ?? message.text ?? "";
+  const system = useMemo(() => classifySystemMessage(rawText), [rawText]);
 
   /**
    * COPY IS A LONG PRESS, not a button. The little doc-on-doc glyph under
@@ -1665,6 +1767,20 @@ export function UserMessage({ message }: { message: Entry }) {
     [rawText],
   );
   const isLong = text.length > LONG_MESSAGE_CHARS;
+
+  // Not something the person typed: see SystemLine. The launch chip stays,
+  // because a fork's opener rides inside the omg.dev envelope and the
+  // contract is still one tap away.
+  if (system) {
+    return (
+      <View style={{ alignSelf: "stretch", gap: space.xs }}>
+        {envelope ? (
+          <OmgInstructionsChip instructions={envelope.instructions} version={envelope.version} />
+        ) : null}
+        <SystemLine system={system} raw={rawText} />
+      </View>
+    );
+  }
 
   return (
     <View style={{ alignSelf: "stretch", gap: space.xs }}>
