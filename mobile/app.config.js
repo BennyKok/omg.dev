@@ -7,7 +7,18 @@ module.exports = ({ config }) => {
   const iosClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
   const plugins = [
     ...(config.plugins ?? []),
-    ["expo-widgets", { enablePushNotifications: true }],
+    ["expo-widgets", {
+      enablePushNotifications: true,
+      widgets: [{
+        name: "OmgAgentVillage",
+        displayName: "Agent Village",
+        description: "Your agents at work in a notebook garden.",
+        ios: {
+          supportedFamilies: ["systemSmall", "systemMedium", "systemLarge"],
+          contentMarginsDisabled: true,
+        },
+      }],
+    }],
   ];
   if (!iosClientId) return { ...config, plugins };
   const iosUrlScheme = `com.googleusercontent.apps.${iosClientId.replace(/\.apps\.googleusercontent\.com$/, "")}`;

@@ -24,6 +24,7 @@ import { LaunchBackdrop, LaunchScreen } from "../src/omg/launch";
 import { useLucideFont } from "../src/omg/lucide";
 
 import { OmgProvider, useOmg } from "../src/omg/provider";
+import { AgentVillageWidgetBridge } from "../src/omg/village-widget-bridge";
 import { AgentLiveActivityBridge } from "../src/omg/agent-live-activity";
 import { useNotificationTapRouting } from "../src/omg/push";
 import { useOtaUpdates } from "../src/omg/ota";
@@ -651,6 +652,7 @@ export default function Layout() {
   return (
     <OmgProvider>
       <AgentLiveActivityBridge />
+      <AgentVillageWidgetBridge />
       {/**
        * TELL THE NAVIGATOR WHICH APPEARANCE THIS APP IS IN. It cannot see the
        * palette, and its default is LIGHT.

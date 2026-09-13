@@ -1,0 +1,87 @@
+import { expect, test } from "bun:test";
+import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
+import { runInNewContext } from "node:vm";
+import { plugin } from "bun";
+plugin({ name: "widget-png-fixtures", setup(build) {
+  build.onLoad({ filter: /\.png$/ }, () => ({ contents: "module.exports = 1", loader: "js" }));
+} });
+const { VILLAGE_SCENES } = await import("../src/omg/village-scene");
+
+test("small backgrounds stay within the native widget image budget", () => {
+  for (const scheme of ["light", "dark"]) {
+    const png = readFileSync(new URL(`../assets/village/notebook-small-${scheme}.png`, import.meta.url));
+    const width = png.readUInt32BE(16);
+    const height = png.readUInt32BE(20);
+    // 3x assets suffice; larger generated images can fail WidgetKit archival.
+    expect(width).toBeGreaterThan(0);
+    expect(height).toBeGreaterThan(0);
+    expect(width * height).toBeLessThanOrEqual(510 * 510);
+  }
+});
+
+// Execute Expo's compiled widget body in isolation, as the extension does.
+// This catches missing module-scope constants that a normal TS check cannot.
+const require = createRequire(import.meta.url);
+const { transformFileSync } = require("@babel/core");
+const { code } = transformFileSync(new URL("../src/omg/agent-village-widget.tsx", import.meta.url).pathname, {
+  configFile: false,
+  babelrc: false,
+  presets: [require.resolve("babel-preset-expo")],
+  caller: { name: "metro", platform: "ios", isDev: false, isServer: false },
+});
+let layout = "";
+runInNewContext(code, {
+  exports: {},
+  require: (name: string) => name === "expo-widgets"
+    ? { createWidget: (_name: string, compiled: string) => { layout = compiled; } }
+    : name.includes("interopRequireDefault") ? { default: (value: unknown) => value } : {},
+});
+type Node = { type: string; props: Record<string, any> };
+const jsx = (type: string, props: Record<string, any>) => ({ type, props });
+const globals: Record<string, unknown> = { _jsx: jsx, _jsxs: jsx };
+for (const type of ["ZStack", "VStack", "Image", "Text", "Circle", "Capsule", "Ellipse"]) globals[type] = type;
+for (const type of ["frame", "offset", "font", "foregroundColor", "containerBackground", "widgetURL", "bold", "clipShape", "resizable", "lineLimit"]) {
+  globals[type] = (value: unknown) => ({ type, value });
+}
+const render = runInNewContext(`(${layout})`, globals);
+const props = {
+  machineName: "Test Computer", runningCount: 7, blockedCount: 0,
+  attentionSessionId: "", updatedAt: 1, walkPhase: 0,
+  scenes: Object.fromEntries(Object.entries(VILLAGE_SCENES).map(([key, scene]) => [key, {
+    ...scene, backgroundLightUri: `${key}-light`, backgroundDarkUri: `${key}-dark`,
+  }])),
+  characters: Array.from({ length: 7 }, () => ({
+    iconUri: "claude", iconSize: 23, plate: true, markTone: "light", legColor: "#D87656", state: "working",
+  })),
+};
+function nodes(node: any): Node[] {
+  if (Array.isArray(node)) return node.flatMap(nodes);
+  if (!node || typeof node !== "object") return [];
+  return [node, ...nodes(node.props?.children)];
+}
+for (const [family, capacity] of [["Small", 2], ["Medium", 4], ["Large", 7]] as const) {
+  for (const scheme of ["light", "dark"]) test(`${family} ${scheme} renders its own scene and bounded cast`, () => {
+    const tree = nodes(render(props, { widgetFamily: `system${family}`, colorScheme: scheme }));
+    const images = tree.filter(node => node.type === "Image");
+    expect(images[0].props.uiImage).toBe(`${family.toLowerCase()}-${scheme}`);
+    expect(images).toHaveLength(capacity + 1);
+    expect(images[1].props.modifiers).toContainEqual({ type: "frame", value: { width: 23, height: 23 } });
+    expect(tree.find(node => node.type === "Circle")?.props.modifiers).toContainEqual({ type: "frame", value: { width: 38, height: 38 } });
+    expect(images.every(node => node.props.modifiers.some((modifier: any) => modifier.type === "resizable"))).toBe(true);
+  });
+}
+test("waiting state has a singular caption and opens its session", () => {
+  const tree = nodes(render({ ...props, blockedCount: 1, attentionSessionId: "waiting-id" }, { widgetFamily: "systemMedium" }));
+  expect(tree.find(node => node.type === "Text")?.props.children).toBe("1 needs you");
+  expect(tree[0].props.modifiers).toContainEqual({ type: "widgetURL", value: "omg:///session/waiting-id" });
+});
+test("empty fleet renders without a character or an invalid scene access", () => {
+  const tree = nodes(render({ ...props, characters: [], runningCount: 0 }, { widgetFamily: "systemSmall" }));
+  expect(tree.filter(node => node.type === "Image")).toHaveLength(1);
+  expect(tree.filter(node => node.type === "Text").map(node => node.props.children)).toContain("No active agents");
+});
+test("gallery before the first app launch has a usable placeholder", () => {
+  const tree = nodes(render({}, { widgetFamily: "systemSmall" }));
+  expect(tree[0].props.children).toBe("Open omg.dev to start your garden");
+});
