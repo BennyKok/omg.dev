@@ -1,9 +1,13 @@
 /**
  * The one owner of the `#session` reference token.
  *
- * The composer writes this token and agents read it, so the grammar must not
- * exist in two places. No imports on purpose: the web bundle and the server
- * both pull it in directly, like `src/bots/mention-token.ts`.
+ * The composers write this token and agents read it, so the grammar must not
+ * exist in two places. It lives in the protocol package because every
+ * surface can reach it from here: the server and web through
+ * `@omg-dev/protocol`, and the native app through a direct path into this
+ * source tree (`mobile/metro.config.js` adds it to Metro's watch folders),
+ * because `mobile/` consumes the published package and cannot wait for a
+ * release to pick up a grammar change. No imports on purpose.
  *
  * Shape: `[#Session title](omg:session_1234abcd)`
  *
@@ -46,6 +50,12 @@ export function formatSessionMentionToken(sessionId: string, title: string): str
   const ref = shortSessionRef(sessionId);
   const label = sanitizeSessionLabel(title) || ref;
   return `[#${label}](omg:session_${ref})`;
+}
+
+/** The short ref inside an `omg:session_` link, or null for any other href. */
+export function sessionRefFromHref(href: string): string | null {
+  const match = href.match(new RegExp(`^omg:session_(${SESSION_REF})$`));
+  return match ? match[1] : null;
 }
 
 /** Every reference in `text`, first-appearance order, one entry per session. */

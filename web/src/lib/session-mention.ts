@@ -8,10 +8,10 @@
  * folder comes first, then keyword matches, newest first.
  *
  * The inserted token carries the short session id. The grammar has a single
- * owner in `src/session-mention-token.ts`.
+ * owner in `packages/protocol/src/session-mention-token.ts`.
  */
 
-import { formatSessionMentionToken } from "../../../src/session-mention-token.ts";
+import { formatSessionMentionToken } from "@omg-dev/protocol";
 
 export type MentionableSession = {
   sessionId: string;

@@ -44,6 +44,7 @@ import type { OmgColors } from "./omg/palette";
 import { DropdownMenu, type MenuOption } from "./omg/menu";
 import { AgentSetupSheet } from "./omg/agent-setup-sheet";
 import { SkillSuggest } from "./omg/skill-suggest";
+import { SessionMentionSuggest } from "./omg/session-mention-suggest";
 import { PressableScale, useListItemMotion } from "./omg/motion";
 import { useSwipeToCommit } from "./omg/swipe-row";
 import { useTheme } from "./omg/theme";
@@ -975,6 +976,7 @@ export function HomeComposer({
   starting,
   projectLabel,
   projectOptions,
+  projectCwd,
   agent,
   agentLabel,
   agentOptions,
@@ -994,6 +996,8 @@ export function HomeComposer({
   starting?: boolean;
   projectLabel?: string | null;
   projectOptions: MenuOption[];
+  /** The folder the session would start in; the "#" picker ranks it first. */
+  projectCwd?: string | null;
   agent?: string | null;
   agentLabel?: string | null;
   agentOptions: MenuOption[];
@@ -1081,6 +1085,12 @@ export function HomeComposer({
     >
       {/* "/" lists the box's skills above the field, as on the web. */}
       <SkillSuggest value={value} onChangeText={onChangeText} />
+      <SessionMentionSuggest
+        value={value}
+        onChangeText={onChangeText}
+        scope={{ cwd: projectCwd ?? null }}
+        disabled={!!dictationTail}
+      />
       {/* Liquid Glass on iOS 26+, a solid card everywhere else. */}
       <GlassSurface
         variant="regular"

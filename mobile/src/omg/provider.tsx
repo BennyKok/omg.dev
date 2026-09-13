@@ -25,6 +25,7 @@ import { AppState, StyleSheet, View } from "react-native";
 import { CLOUD_BINDING_ID, CONTROLPLANE_ORIGIN, STORAGE_KEYS } from "./config";
 import { getAuthToken, getSession, signOut as authSignOut, type SignedInUser } from "./auth";
 import { forgetAllTransports, getHostedTransport } from "./transport";
+import { registerSessionRefResolver } from "./session-ref-link";
 import { unregisterForPushNotifications } from "./push";
 import { useUserActive } from "./idle";
 import { startCloudPresence } from "./presence";
@@ -308,6 +309,12 @@ export function OmgProvider({ children }: PropsWithChildren) {
         : null,
     [bindingId],
   );
+  // Markdown links have no client in scope; a tapped "#session" reference
+  // resolves its short id through whichever client is current.
+  useEffect(() => {
+    registerSessionRefResolver(client);
+    return () => registerSessionRefResolver(null);
+  }, [client]);
 
   const probeToken = useRef(0);
   const probe = useCallback(async () => {

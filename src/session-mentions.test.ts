@@ -4,7 +4,7 @@ import {
   formatSessionMentionToken,
   parseSessionMentions,
   shortSessionRef,
-} from "./session-mention-token";
+} from "../packages/protocol/src/session-mention-token";
 import { SHORT_SESSION_ID_LENGTH, shortSessionId } from "./omg-capabilities";
 
 const row = (

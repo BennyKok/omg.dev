@@ -103,6 +103,7 @@ import { useKeyCommand } from "../../src/omg/key-commands";
 import { useAgentPicker } from "../../src/omg/session-options";
 import { COMPOSER_FADE_HEIGHT, EdgeFade, TOP_FADE_HEIGHT } from "../../src/omg/edge-fade";
 import { SkillSuggest } from "../../src/omg/skill-suggest";
+import { SessionMentionSuggest } from "../../src/omg/session-mention-suggest";
 import * as Clipboard from "expo-clipboard";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { OmgSession, OmgSessionPrompt } from "@omg-dev/protocol";
@@ -486,6 +487,8 @@ export function SessionScreenBody({
     title: string;
     agent: string;
     model?: string | null;
+    /** Where the agent runs; the "#" picker ranks sibling sessions first. */
+    cwd?: string | null;
     /** Every id the machine files this session under: its own and the native one. */
     aliases: string[];
   } | null>(null);
@@ -670,6 +673,7 @@ export function SessionScreenBody({
         title: found.title?.trim() || found.lastUserText?.trim() || "Session",
         agent: found.agent?.trim() || found.agentLabel?.trim() || "omg",
         model: found.model,
+        cwd: found.cwd ?? null,
         aliases: [found.sessionId, found.nativeSessionId].filter((v): v is string => !!v),
       });
       if (!socketBusySeen.current) setBusy(!!found.busy);
@@ -2280,6 +2284,13 @@ export function SessionScreenBody({
         <AttachmentStrip items={attachments.items} onRemove={attachments.remove} />
         {/* "/" lists the box's skills above the field, as on the web. */}
         <SkillSuggest value={draft} onChangeText={setDraft} />
+        {/* "#" lists relevant sessions, this folder first, as on the web. */}
+        <SessionMentionSuggest
+          value={draft}
+          onChangeText={setDraft}
+          scope={{ cwd: sessionInfo?.cwd ?? null, sessionId: id }}
+          disabled={!!dictationTail}
+        />
         {/* Held sends, tucked under the field row that follows: the row paints
             over the card's bottom edge, as the web's HeldQueueCards sit under
             its composer bar. */}

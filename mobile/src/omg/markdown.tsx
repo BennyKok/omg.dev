@@ -44,6 +44,7 @@ import Reanimated, {
 } from "react-native-reanimated";
 
 import { IconButton } from "../components";
+import { openSessionRef } from "./session-ref-link";
 import { Text } from "./text";
 import { useTheme } from "./theme";
 
@@ -526,6 +527,10 @@ function Inline({ tokens }: { tokens?: Token[] }) {
                 style={{ color: colors.primary }}
                 onPress={() => {
                   void Haptics.selectionAsync();
+                  // A "#session" reference is the app's own `omg:` scheme.
+                  // Handing it to Linking would bounce it back in as an
+                  // unrecognised deep link, so it navigates directly.
+                  if (openSessionRef(t.href)) return;
                   void Linking.openURL(t.href).catch(() => {});
                 }}
               >

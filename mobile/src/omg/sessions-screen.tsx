@@ -1328,6 +1328,7 @@ export function SessionsScreen({
       starting={starting}
       projectLabel={projectPicker.label}
       projectOptions={projectPicker.options}
+      projectCwd={projectPicker.cwd ?? null}
       agent={agentPicker.agent}
       agentLabel={agentPicker.label}
       agentOptions={agentPicker.options}
