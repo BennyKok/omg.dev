@@ -6,7 +6,7 @@ illustrations only. Agent marks, legs, status text and badges are rendered by
 `src/omg/agent-village-widget.tsx`.
 
 The six PNGs cover small, medium and large widgets in light and dark mode.
-`src/omg/village-scene.ts` owns their standing points. If the path changes,
+`src/omg/village-scene.ts` owns their roaming centres on the grass. If the art changes,
 review those points in both colour schemes before replacing an asset.
 Small backgrounds are exported at 510 × 510 pixels (3×). WidgetKit rejects
 the original 1254 × 1254 images when archiving the small widget.
@@ -67,3 +67,7 @@ with Xcode. All three sizes were checked in light and dark mode on an
 iPhone 17 Pro simulator with iOS 26.0. The fixture used the production widget
 renderer and asset staging with sample fleet data. Signed-in fleet refresh
 and device delivery were not exercised.
+
+The revised layout shows only the status label. Large widgets use a deeper
+caption inset. Working agents shift around separate grass positions between
+scheduled poses; they do not follow the path.

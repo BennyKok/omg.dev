@@ -85,8 +85,13 @@ function AgentVillage(props: VillageProps, environment: { widgetFamily: string; 
   // `walkPhase` swings the legs and lifts a blocked agent off the ground, so
   // consecutive timeline entries read as walking and jumping.
   const crowd = characters.map((character, index) => {
-    const slot = scene.slots[index];
+    const origin = scene.slots[index];
     const phase = (props.walkPhase + index) % 4;
+    const roaming = character.state === "working";
+    const slot = {
+      x: origin.x + (roaming ? [0, 5, 1, -5][phase] : 0),
+      y: origin.y + (roaming ? [0, -3, 3, 1][phase] : 0),
+    };
     const stride = character.state === "working" ? [0, 3, 0, -3][phase] : 0;
     const hop = character.state === "blocked" ? [0, -5, -8, -5][phase] : 0;
     const legHeight = character.state === "idle" ? 5 : 7;
@@ -128,9 +133,8 @@ function AgentVillage(props: VillageProps, environment: { widgetFamily: string; 
   });
 
   const caption = (
-    <VStack alignment="leading" spacing={1} modifiers={[frame({ width: width - 32, alignment: "leading" }), place(width / 2, 29)]}>
+    <VStack alignment="leading" spacing={1} modifiers={[frame({ width: width - (family === "large" ? 56 : 32), alignment: "leading" }), place(width / 2, family === "large" ? 46 : 29)]}>
       <Text modifiers={[bold(), font({ size: 19, design: "serif" }), lineLimit(1), foregroundColor(ink)]}>{summary}</Text>
-      <Text modifiers={[font({ size: 11 }), lineLimit(1), foregroundColor(subdued)]}>{props.machineName}</Text>
     </VStack>
   );
 

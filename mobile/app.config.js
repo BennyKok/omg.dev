@@ -12,7 +12,7 @@ module.exports = ({ config }) => {
       widgets: [{
         name: "OmgAgentVillage",
         displayName: "Agent Village",
-        description: "Your agents at work in a notebook garden.",
+        description: "See your agents working and waiting for you.",
         ios: {
           supportedFamilies: ["systemSmall", "systemMedium", "systemLarge"],
           contentMarginsDisabled: true,
