@@ -9,17 +9,17 @@
  * behaviour lives in `createSessionMentionPicker`; this file only draws.
  */
 import { useEffect, useMemo, useSyncExternalStore } from "react";
-import { ScrollView, StyleSheet, View } from "react-native";
+import { Image, ScrollView, StyleSheet, View } from "react-native";
 import Reanimated, { FadeIn, FadeOut } from "react-native-reanimated";
 
 import { GlassSurface } from "./glass";
+import { agentIcon, agentLabel } from "./agent-icons";
 import { PressableScale } from "./motion";
 import { useOmg } from "./provider";
 import {
   applySessionMention,
   createSessionMentionPicker,
   fetchMentionableSessions,
-  sessionFolderName,
   type SessionMentionScope,
 } from "./session-mention";
 import { Text } from "./text";
@@ -83,7 +83,6 @@ export function SessionMentionSuggest({
           contentContainerStyle={{ padding: 4 }}
         >
           {items.map((session, index) => {
-            const folder = sessionFolderName(session.cwd) || session.project;
             const label = session.title || session.sessionId.slice(0, 8);
             return (
               <PressableScale
@@ -91,7 +90,7 @@ export function SessionMentionSuggest({
                 onPress={() => onChangeText(applySessionMention(value, active, session))}
                 dim={0.6}
                 accessibilityRole="button"
-                accessibilityLabel={`Reference session ${label}`}
+                accessibilityLabel={`Reference session ${label}, ${agentLabel(session.agent)}`}
                 style={{
                   flexDirection: "row",
                   alignItems: "center",
@@ -102,14 +101,11 @@ export function SessionMentionSuggest({
                   backgroundColor: index === 0 ? colors.card : "transparent",
                 }}
               >
-                <View
-                  style={{
-                    width: 6,
-                    height: 6,
-                    borderRadius: 3,
-                    backgroundColor: session.live ? colors.brand : colors.textMuted,
-                    opacity: session.live ? 1 : 0.4,
-                  }}
+                <Image
+                  source={agentIcon(session.agent)}
+                  style={{ width: 24, height: 24, borderRadius: 12 }}
+                  resizeMode="contain"
+                  accessible={false}
                 />
                 <View style={{ flex: 1, flexDirection: "row", alignItems: "baseline", minWidth: 0 }}>
                   <Text style={{ ...type.subhead, fontWeight: "600", color: colors.brand }}>#</Text>
@@ -120,18 +116,6 @@ export function SessionMentionSuggest({
                     {label}
                   </Text>
                 </View>
-                {folder ? (
-                  <Text
-                    numberOfLines={1}
-                    style={{
-                      ...type.footnote,
-                      color: session.sameFolder ? colors.brand : colors.textMuted,
-                      maxWidth: 120,
-                    }}
-                  >
-                    {folder}
-                  </Text>
-                ) : null}
               </PressableScale>
             );
           })}
