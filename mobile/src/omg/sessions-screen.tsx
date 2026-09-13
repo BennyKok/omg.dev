@@ -1191,21 +1191,8 @@ export function SessionsScreen({
     [client, startingFindingId, setAutoFindingStatus, load, router],
   );
 
-  /**
-   * The bar is the system's, not ours.
-   *
-   * This screen used to draw its own row — mark, machine chip, gear — because
-   * KeyboardAvoidingView measures against its PARENT, so a native header would
-   * have needed its height fed back as `keyboardVerticalOffset`. Moving the
-   * keyboard to `useAnimatedKeyboard` removed that constraint entirely: the
-   * lift is driven by the real keyboard frame and does not care what sits
-   * above it. So the header is now a real UINavigationBar with the system
-   * large title, which collapses on scroll, carries the system material, and
-   * matches every other iOS app for free.
-   *
-   * Set here rather than in _layout.tsx because the right-hand items need this
-   * screen's machine state, and the deps below are what keep them current.
-   */
+  // Keep the native bar empty and stable. The page owns the header controls
+  // so drawer transitions do not also animate UIKit bar-item replacement.
   useLayoutEffect(() => {
     if (workspace) return;
     navigation.setOptions({
@@ -1233,78 +1220,10 @@ export function SessionsScreen({
        */
       headerLargeTitle: false,
       title: "",
-      /**
-       * The greeting sits ON the bar, level with the two buttons — the row the
-       * web puts it in.
-       *
-       * It spent a version as page content because iOS 26 wraps bar items in a
-       * glass capsule and a sentence inside one looked like a control. That is
-       * per-ITEM, not per-bar: `hidesSharedBackground` opts this one out, so
-       * the greeting is plain text on the bar and the buttons opposite keep
-       * their glass.
-       */
-      /**
-       * THE BAR EMPTIES WHILE THE NAV IS OPEN.
-       *
-       * The drawer is an ordinary view inside this screen, not a modal (see
-       * side-nav.tsx for why that matters to the computer menu), and a native
-       * navigation bar draws ABOVE react-native content whatever its z-index
-       * says. Left as they are, the greeting and the filter would float on
-       * top of the open drawer. The bar is transparent and has no title, so
-       * with its two items withdrawn there is nothing left of it to see.
-       */
-      unstable_headerLeftItems: () =>
-        navOpen
-          ? []
-          : [
-              {
-                type: "custom",
-                hidesSharedBackground: false,
-                element: <SideNavButton
-                  onPress={() => setNavOpen(true)}
-                  online={currentBinding?.online ?? false}
-                  machineName={machineName}
-                />,
-              },
-              {
-                type: "custom",
-                hidesSharedBackground: true,
-                element: (
-                  <LiveWelcome
-                    firstName={firstName}
-                    busyCount={flattenNodes(working).length}
-                    connection={connection}
-                    onPress={() => router.push("/notifications")}
-                  />
-                ),
-              },
-            ],
-      headerRight: () =>
-        navOpen ? null : (
-          <HomeHeaderControls
-            userFilter={userFilter}
-            rosterUsers={rosterUsers}
-            setUserFilter={setUserFilter}
-          />
-        ),
+      unstable_headerLeftItems: () => [],
+      headerRight: () => null,
     });
-  }, [
-    workspace,
-    navigation,
-    colors.bg,
-    router,
-    connection,
-    navOpen,
-    machineName,
-    currentBinding?.online,
-    userFilter,
-    rosterUsers,
-    setUserFilter,
-    firstName,
-    working.length,
-    colors,
-    space,
-  ]);
+  }, [workspace, navigation]);
 
   // The composer floats over the list rather than sitting under it, so the
   // list has to know how tall it is. Measured rather than assumed: it grows
@@ -1462,15 +1381,17 @@ export function SessionsScreen({
     <SessionUnreadContext.Provider value={unreadSessions}>
     <View style={{ flex: 1, backgroundColor: colors.bg, overflow: "hidden" }} {...navGesture.panHandlers}>
     <Reanimated.View style={[{ flex: 1, backgroundColor: colors.bg, overflow: "hidden" }, navPageStyle]}>
-      {!workspace && navOpen ? (
+      {/* One persistent row moves with the page throughout the drawer transition. */}
+      {!workspace ? (
         <View pointerEvents="box-none" style={{ position: "absolute", top: insets.top,
           left: 16, right: 16, height: 44, zIndex: 110,
           flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 16, flexShrink: 1 }}>
-            <SideNavButton floating onPress={() => setNavOpen(false)}
+            <SideNavButton floating onPress={() => setNavOpen((open) => !open)}
               online={currentBinding?.online ?? false} machineName={machineName} />
             <LiveWelcome firstName={firstName} busyCount={flattenNodes(working).length}
-              connection={connection} onPress={() => setNavOpen(false)} />
+              connection={connection}
+              onPress={() => (navOpen ? setNavOpen(false) : router.push("/notifications"))} />
           </View>
           <GlassSurface fallbackColor={colors.card} variant="regular"
             style={{ width: 44, height: 44, borderRadius: 22,
