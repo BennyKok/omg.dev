@@ -242,8 +242,10 @@ export function createSessionRefOpener(deps: {
 } {
   const resolve = deps.resolve ?? resolveSessionRefWith;
   let current: SessionRefClient | null = null;
+  let generation = 0;
   return {
     register(client) {
+      generation += 1;
       current = client;
     },
     open(href) {
@@ -251,10 +253,11 @@ export function createSessionRefOpener(deps: {
       if (!ref) return false;
       const client = current;
       if (!client) return true;
+      const startedAt = generation;
       Promise.resolve()
         .then(() => resolve(client, ref))
         .then((full) => {
-          if (full && current === client) deps.navigate(full);
+          if (full && current === client && generation === startedAt) deps.navigate(full);
         })
         .catch(() => {});
       return true;
