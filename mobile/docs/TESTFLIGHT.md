@@ -5,6 +5,29 @@ read off the EAS docs.
 
 ## Current state
 
+### Prompt stash and archive OTA — 2026-09-13
+
+Production update `87d5b160-89c8-4580-a0cb-469a5384c05f` carries
+`daefe8f4b6bae9c641d8c1e6a9308cfa1e1ed805` for runtime **1.0.6** only
+(iOS and Android), published by workflow
+[`34745307682`](https://github.com/BennyKok/omg.dev/actions/runs/34745307682).
+`eas update:view --json` confirms both platform records, runtime and commit.
+No native dependency changed from build 46. No new binary was submitted.
+
+Drafts now persist locally per account, Computer and session. The sidebar
+Archive page offers session search/resume and a Stash tab to restore or remove
+saved prompts. Home drafts and sent-prompt recovery use the same store.
+
+Verification: 21 focused tests pass; root and mobile typechecks pass; CI iOS
+export and publish pass. Full suite retains 11 known baseline failures; its
+additional stale client-build prerequisite error passed on a focused rerun.
+A native fixture on pinned iPhone 17 Pro verified distinct drafts, persistence
+across app termination/relaunch, stash restore and resume response navigation.
+The archive response was stubbed. Real signed-in resume and physical-phone
+activation remain unverified. The fixture was not included in the update.
+The device was shut down and the fixture Metro stopped after verification.
+
+
 ### 1.0.6 build 46 — uploaded and VALID (2026-09-13)
 
 Candidate `0964f06ea` combines Live Activities, the two-line drawer button,
