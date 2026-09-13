@@ -5,6 +5,38 @@ read off the EAS docs.
 
 ## Current state
 
+### 1.0.6 candidate — not submitted (2026-09-13)
+
+Candidate `710be1dce` combines Live Activities, the two-line drawer button,
+launch and skeleton contrast changes, and the native `#` session picker.
+`app.json` targets version/runtime **1.0.6**. No cloud build or submission
+has been dispatched for this candidate.
+
+Verification:
+
+- 44 focused reference tests pass. Root, mobile, and web typechecks pass.
+- Full suite: 3,699 pass, one skip, and the same 11 existing failures.
+- EAS 22 `build:inspect --stage archive` includes the shared token source at
+  `packages/protocol/src/session-mention-token.ts`; its hash matches the checkout.
+- Live Activities were built and seen in all four presentations from the
+  integrated source `fe6202d21`. The full combined JS candidate loads on that
+  native client with Live Activities intact.
+- Drawer and picker checks use isolated native fixtures. HomeComposer insertion
+  works with the software keyboard and keeps focus. Chat uses a stand-in field;
+  real signed-in chat layout and reference navigation remain unverified.
+- Light and dark skeleton fixtures use files identical to this candidate.
+  No fixture route, mock data, or Live Activities revert is in the candidate.
+
+Signing remains incomplete: `group.dev.omg.computer` must be registered and
+linked to both `dev.omg.computer` and `dev.omg.computer.ExpoWidgetsTarget`.
+The APP_GROUPS capability alone does not establish that association. Refresh
+the provisioning profiles after linking the group, then verify their
+entitlements before starting the single production build and submission.
+The Apple Developer browser login was handed to the user and is still pending.
+
+Hosted APNs delivery remains separate and is not deployed. Simulator validation
+does not establish remote updates or physical-device push behavior.
+
 ### Build 44 submission failure (2026-09-12)
 
 Build `fb2a122a-61e0-4037-a85f-281bea17ff2c` (1.0.4, build 44,
