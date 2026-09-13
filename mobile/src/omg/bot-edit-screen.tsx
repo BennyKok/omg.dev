@@ -158,12 +158,10 @@ export function BotEditScreen({ bot }: { bot: Bot }) {
       initial.colorway = colorway;
       initial.agent = agent;
       initial.cwd = cwd;
-      // See bot-create-flow.tsx's identical note: `toast.show` defaults to
-      // intent "error", and a save confirmation must not read as a caution.
       toast.show(`Saved ${res.bot.name}.`, { intent: "success" });
       router.back();
     } catch (e) {
-      toast.show(e instanceof Error ? e.message : "Could not save bot");
+      toast.show(e instanceof Error ? e.message : "Could not save bot", { intent: "error" });
     } finally {
       setSaving(false);
     }

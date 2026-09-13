@@ -49,7 +49,7 @@ export default function AutoFindingScreen() {
       if (sessionId) router.replace(`/session/${sessionId}`);
       else router.back();
     } catch (e) {
-      toast.show(e instanceof Error ? e.message : String(e));
+      toast.show(e instanceof Error ? e.message : String(e), { intent: "error" });
     } finally {
       setStarting(false);
     }
@@ -69,9 +69,12 @@ export default function AutoFindingScreen() {
       ...(finding.reasoning?.length ? ["", ...finding.reasoning.map((r) => `- ${r}`)] : []),
       ...(finding.suggest ? ["", `Suggested: ${finding.suggest}`] : []),
     ].join("\n");
-    await Clipboard.setStringAsync(text);
-    void Haptics.selectionAsync();
-    toast.show("Copied");
+    try {
+      await Clipboard.setStringAsync(text);
+      toast.show("Copied", { intent: "success" });
+    } catch {
+      toast.show("Could not copy the finding.", { intent: "error" });
+    }
   };
 
   const footerAction = (

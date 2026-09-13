@@ -568,7 +568,9 @@ export function SessionScreenBody({
   // A cold start is seconds, and the only thing on screen would otherwise be
   // a message sitting there with nothing answering it.
   useEffect(() => {
-    if (resuming) toast.show("Waking the agent…");
+    if (!resuming) return;
+    const toastId = toast.show("Waking the agent…", { intent: "info" });
+    return () => { if (toastId !== undefined) toast.dismiss(toastId); };
   }, [resuming, toast]);
 
   const listRef = useAnimatedRef<FlatList<TranscriptItem>>();
@@ -1556,7 +1558,7 @@ export function SessionScreenBody({
             }),
           });
           if (res?.sourceArchived === false) {
-            toast.show("New session opened, but the old session was not archived.");
+            toast.show("New session opened, but the old session was not archived.", { intent: "warning" });
           }
           if (res?.sessionId) router.replace(`/session/${res.sessionId}`);
         } catch (e) {
@@ -1570,9 +1572,10 @@ export function SessionScreenBody({
   /** The id, for pasting into another agent — what the web's "Copy reference" does. */
   const copyReference = useCallback(() => {
     if (!id) return;
-    void Clipboard.setStringAsync(id);
-    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    toast.show("Session reference copied");
+    void Clipboard.setStringAsync(id).then(
+      () => toast.show("Session reference copied", { intent: "success" }),
+      () => toast.show("Could not copy the session reference.", { intent: "error" }),
+    );
   }, [id, toast]);
 
   /**

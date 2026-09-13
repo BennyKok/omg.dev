@@ -37,6 +37,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type PropsWithChildren,
 } from "react";
 import { PanResponder, Pressable, StyleSheet, View } from "react-native";
@@ -49,60 +50,31 @@ import Reanimated, {
   useReducedMotion,
   useSharedValue,
   withTiming,
+  withSpring,
+  cancelAnimation,
 } from "react-native-reanimated";
 
 import { Icon } from "../components";
 import { Text } from "./text";
 import { useTheme } from "./theme";
 
-export type ToastIntent = "error" | "success";
-
-export type ToastOptions = {
-  intent?: ToastIntent;
-  /** Overrides the length-scaled auto duration, in ms. */
-  duration?: number;
-};
-
+import { createToastController, TOAST_STATUS, type ToastOptions, type ToastState, type ToastFeedback } from "./toast-state";
+export { plainMessage } from "./toast-state";
+export type { ToastIntent, ToastOptions } from "./toast-state";
 export type ToastHandle = {
-  show: (message: string, options?: ToastOptions) => void;
-  dismiss: () => void;
+  show: (message: string, options: ToastOptions) => number | undefined;
+  dismiss: (id?: number) => void;
 };
-
-type ToastState = { id: number; message: string; intent: ToastIntent; duration: number };
-
-/** How far the banner travels on enter/exit. Skipped under reduced motion. */
-const TRAVEL = 24;
-/** Upward drag past this, or a fast enough flick, dismisses. */
+const TRAVEL = 18;
 const SWIPE_DISMISS_PX = 32;
 const SWIPE_DISMISS_VELOCITY = 0.5;
-
-/**
- * Reading pace, not message importance, drives the timer: a two-word
- * confirmation needs less time on screen than a sentence someone has to
- * actually read. ~3 words/sec plus a floor so even "Saved." doesn't vanish
- * before an eye lands on it, capped so a long error can't pin the banner up
- * indefinitely.
- */
-/**
- * A TRANSPORT ERROR IS NOT A MESSAGE. "fetch failed: UnexpectedException:
- * The network connection was lost. (at ExpoModulesCore/Promise.swift:56)"
- * is a stack frame, not news, and it looks like the app broke. Every call
- * site hands the toast whatever the client threw, so this is the one place
- * to turn the common network failures into a sentence, and to cut the
- * "(at File.swift:NN)" tail off anything else.
- */
-const NETWORK_ERROR =
-  /network connection was lost|fetch failed|network request failed|failed to fetch|econnre|etimedout|timed out|could not connect|no internet|offline|socket hang up|load failed/i;
-
-export function plainMessage(raw: string): string {
-  const text = raw.trim();
-  if (NETWORK_ERROR.test(text)) return "Connection lost. Retrying when the network is back.";
-  return text.replace(/\s*\(at [^)]+\.(swift|kt|java|ts|tsx|js):\d+\)\s*$/i, "").trim() || text;
-}
-
-function autoDuration(message: string): number {
-  const words = message.trim().split(/\s+/).filter(Boolean).length;
-  return Math.min(7000, Math.max(2200, 900 + words * 350));
+const SPRING = { damping: 26, stiffness: 300, mass: 0.8, overshootClamping: true };
+function feedback(kind: ToastFeedback) {
+  const result = kind === "light"
+    ? Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+    : kind === "none" ? undefined : Haptics.notificationAsync(kind === "warning"
+      ? Haptics.NotificationFeedbackType.Warning : Haptics.NotificationFeedbackType.Error);
+  void result?.catch(() => {});
 }
 
 const ToastContext = createContext<ToastHandle | null>(null);
@@ -114,60 +86,21 @@ export function useToast(): ToastHandle {
 }
 
 export function ToastProvider({ children }: PropsWithChildren) {
-  const [toast, setToast] = useState<ToastState | null>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const idRef = useRef(0);
-
-  const clearTimer = useCallback(() => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-  }, []);
-
-  const dismiss = useCallback(() => {
-    clearTimer();
-    setToast(null);
-  }, [clearTimer]);
-
-  const show = useCallback(
-    (raw: string, options?: ToastOptions) => {
-      clearTimer();
-      const id = ++idRef.current;
-      const message = plainMessage(raw);
-      const duration = options?.duration ?? autoDuration(message);
-      const intent = options?.intent ?? "error";
-      void Haptics.notificationAsync(
-        intent === "success"
-          ? Haptics.NotificationFeedbackType.Success
-          : Haptics.NotificationFeedbackType.Error,
-      );
-      setToast({ id, message, intent, duration });
-      timerRef.current = setTimeout(() => {
-        timerRef.current = null;
-        setToast((current) => (current?.id === id ? null : current));
-      }, duration);
-    },
-    [clearTimer],
-  );
-
-  // A dismiss (tap, swipe, or the timer) must not fire against a screen the
-  // provider has already unmounted from.
-  useEffect(() => clearTimer, [clearTimer]);
-
-  const value = useMemo<ToastHandle>(() => ({ show, dismiss }), [show, dismiss]);
-
+  const [controller] = useState(() => createToastController(feedback));
+  const toast = useSyncExternalStore(controller.subscribe, controller.snapshot, controller.snapshot);
+  useEffect(() => () => controller.reset(), [controller]);
+  const value = useMemo<ToastHandle>(() => ({ show: controller.show, dismiss: controller.dismiss }), [controller]);
   return (
     <ToastContext.Provider value={value}>
       {children}
-      <ToastHost toast={toast} onDismiss={dismiss} />
+      <ToastHost toast={toast} onDismiss={controller.dismiss} onPause={controller.pause} onResume={controller.resume} />
     </ToastContext.Provider>
   );
 }
 
-function ToastHost({ toast, onDismiss }: { toast: ToastState | null; onDismiss: () => void }) {
+function ToastHost({ toast, onDismiss, onPause, onResume }: { toast: ToastState | null; onDismiss: (id?: number) => void; onPause: (id: number) => void; onResume: (id?: number) => void }) {
   const insets = useSafeAreaInsets();
-  const { colors, space, radius, type: typeScale, motion } = useTheme();
+  const { colors, space, radius, type: typeScale } = useTheme();
   const reducedMotion = useReducedMotion();
 
   // The provider clears `toast` the instant a dismiss is decided so its timer
@@ -177,55 +110,83 @@ function ToastHost({ toast, onDismiss }: { toast: ToastState | null; onDismiss: 
   const opacity = useSharedValue(0);
   const translateY = useSharedValue(-TRAVEL);
 
+  const scale = useSharedValue(0.98);
+  const activeId = useRef<number | null>(null);
+  const renderedRef = useRef<ToastState | null>(null);
+  const drop = useCallback((id: number) => {
+    if (activeId.current !== null) return;
+    setRendered(current => current?.id === id ? null : current);
+    if (renderedRef.current?.id === id) renderedRef.current = null;
+  }, []);
   useEffect(() => {
-    const easing = Easing.bezier(...motion.easeSmoothOut);
+    const easing = Easing.out(Easing.cubic);
+    cancelAnimation(opacity); cancelAnimation(translateY); cancelAnimation(scale);
+    activeId.current = toast?.id ?? null;
     if (toast) {
+      const entering = !renderedRef.current;
+      renderedRef.current = toast;
       setRendered(toast);
-      opacity.value = 0;
-      translateY.value = reducedMotion ? 0 : -TRAVEL;
-      opacity.value = withTiming(1, { duration: motion.fast, easing });
-      if (!reducedMotion) translateY.value = withTiming(0, { duration: motion.fast, easing });
-    } else if (rendered) {
-      opacity.value = withTiming(0, { duration: motion.quick, easing }, (finished) => {
-        if (finished) runOnJS(setRendered)(null);
+      if (entering) {
+        opacity.value = 0;
+        translateY.value = reducedMotion ? 0 : -TRAVEL;
+        scale.value = reducedMotion ? 1 : 0.98;
+      }
+      opacity.value = withTiming(1, { duration: 180, easing });
+      translateY.value = reducedMotion ? 0 : withSpring(0, SPRING);
+      scale.value = reducedMotion ? 1 : withSpring(1, SPRING);
+    } else if (renderedRef.current) {
+      const id = renderedRef.current.id;
+      opacity.value = withTiming(0, { duration: 160, easing }, finished => {
+        if (finished) runOnJS(drop)(id);
       });
-      if (!reducedMotion) translateY.value = withTiming(-TRAVEL, { duration: motion.quick, easing });
+      translateY.value = reducedMotion ? 0 : withTiming(-TRAVEL, { duration: 160, easing });
+      scale.value = reducedMotion ? 1 : withTiming(0.98, { duration: 160, easing });
     }
-    // rendered is read, not depended on: re-running this when it changes would
-    // re-trigger the exit animation it itself schedules.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [toast, reducedMotion]);
+    return () => { cancelAnimation(opacity); cancelAnimation(translateY); cancelAnimation(scale); };
+  }, [toast, reducedMotion, drop, opacity, translateY, scale]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     opacity: opacity.value,
-    transform: [{ translateY: translateY.value }],
+    transform: [{ translateY: translateY.value }, { scale: scale.value }],
   }));
+  const gestureId = useRef<number | null>(null);
 
   const panResponder = useMemo(
     () =>
       PanResponder.create({
         onMoveShouldSetPanResponder: (_evt, gesture) =>
           gesture.dy < -6 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+        onPanResponderGrant: () => {
+          gestureId.current = activeId.current;
+          if (gestureId.current !== null) onPause(gestureId.current);
+          cancelAnimation(translateY);
+        },
         onPanResponderMove: (_evt, gesture) => {
-          if (gesture.dy < 0) translateY.value = gesture.dy;
+          if (!reducedMotion && gestureId.current === activeId.current && gesture.dy < 0) translateY.value = Math.max(-100, gesture.dy);
         },
         onPanResponderRelease: (_evt, gesture) => {
+          if (gestureId.current !== activeId.current || gestureId.current === null) return;
           if (gesture.dy < -SWIPE_DISMISS_PX || gesture.vy < -SWIPE_DISMISS_VELOCITY) {
-            onDismiss();
+            onDismiss(gestureId.current);
           } else {
-            translateY.value = withTiming(0, { duration: motion.quick });
+            translateY.value = reducedMotion ? 0 : withSpring(0, SPRING);
+            if (gestureId.current !== null) onResume(gestureId.current);
           }
         },
         onPanResponderTerminate: () => {
-          translateY.value = withTiming(0, { duration: motion.quick });
+          translateY.value = reducedMotion ? 0 : withSpring(0, SPRING);
+          if (gestureId.current !== null) onResume(gestureId.current);
         },
       }),
-    [onDismiss, motion.quick, translateY],
+    [onDismiss, onPause, onResume, reducedMotion, translateY],
   );
 
   if (!rendered) return null;
 
-  const tint = rendered.intent === "success" ? colors.success : colors.danger;
+  const status = TOAST_STATUS[rendered.intent];
+  const tint = rendered.intent === "info" ? colors.textSecondary
+    : rendered.intent === "success" ? colors.success
+    : rendered.intent === "warning" ? colors.warning : colors.danger;
 
   return (
     <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
@@ -243,7 +204,7 @@ function ToastHost({ toast, onDismiss }: { toast: ToastState | null; onDismiss: 
         ]}
       >
         <Pressable
-          onPress={onDismiss}
+          onPress={() => onDismiss(rendered.id)}
           accessibilityRole="button"
           accessibilityLabel={rendered.message}
           accessibilityLiveRegion="polite"
@@ -258,8 +219,8 @@ function ToastHost({ toast, onDismiss }: { toast: ToastState | null; onDismiss: 
             borderRadius: radius.lg,
             backgroundColor: colors.popover,
             borderWidth: StyleSheet.hairlineWidth,
-            borderColor: `${tint}4D`,
-            shadowColor: colors.text,
+            borderColor: colors.border,
+            shadowColor: "#000",
             shadowOpacity: 0.16,
             shadowRadius: 12,
             shadowOffset: { width: 0, height: 4 },
@@ -267,12 +228,12 @@ function ToastHost({ toast, onDismiss }: { toast: ToastState | null; onDismiss: 
           }}
         >
           <Icon
-            ios={rendered.intent === "success" ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"}
-            android={rendered.intent === "success" ? "check_circle" : "warning"}
+            ios={status.ios}
+            android={status.android}
             size={18}
             color={tint}
           />
-          <Text style={{ ...typeScale.footnote, color: tint, flex: 1 }} numberOfLines={4}>
+          <Text style={{ ...typeScale.footnote, color: colors.text, flex: 1 }} numberOfLines={4}>
             {rendered.message}
           </Text>
         </Pressable>

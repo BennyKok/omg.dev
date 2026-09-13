@@ -55,7 +55,7 @@ export function useComputerPicker() {
   // itself does, since it is the one place a person learns the machine list
   // is stale.
   useEffect(() => {
-    if (machinesError) toast.show(machinesError, { intent: "error" });
+    if (machinesError) toast.show(machinesError, { intent: "error", haptic: false });
   }, [machinesError, toast]);
 
   /**

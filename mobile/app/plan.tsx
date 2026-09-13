@@ -248,7 +248,7 @@ export default function PlanScreen() {
       const purchases = await restoreTiers(account?.tiers ?? FALLBACK_TIERS);
       if (purchases.length === 0) {
         setPhase({ kind: "ready" });
-        toast.show("No purchases to restore on this Apple ID.");
+        toast.show("No purchases to restore on this Apple ID.", { intent: "info" });
         return;
       }
       let restored: Entitlement | null = null;

@@ -81,7 +81,7 @@ export default function ComputersScreen() {
   } = useOmg();
   const toast = useToast();
   useEffect(() => {
-    if (machinesError) toast.show(machinesError, { intent: "error" });
+    if (machinesError) toast.show(machinesError, { intent: "error", haptic: false });
   }, [machinesError, toast]);
 
   const choose = async (id: string) => {
