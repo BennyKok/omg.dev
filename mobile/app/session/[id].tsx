@@ -124,6 +124,7 @@ import { useDictation } from "../../src/omg/dictation";
 import { GlassSurface, LIQUID_GLASS } from "../../src/omg/glass";
 import { DropdownMenu, type MenuOption } from "../../src/omg/menu";
 import { agentLabel as agentDisplayName } from "../../src/omg/agent-icons";
+import { usePromptDraft, stashScope } from "../../src/omg/prompt-stash";
 import { useOmg } from "../../src/omg/provider";
 import { useTheme } from "../../src/omg/theme";
 import { useToast } from "../../src/omg/toast";
@@ -233,7 +234,7 @@ export function SessionScreenBody({
   const insets = useSafeAreaInsets();
   const window = useWindowDimensions();
   const { colors, type, space, radius } = useTheme();
-  const { client, agents, user } = useOmg();
+  const { client, agents, user, bindingId } = useOmg();
 
   const attachments = useAttachments(id ?? null);
   const dictation = useDictation(
@@ -396,7 +397,7 @@ export function SessionScreenBody({
    */
   const socketBusySeen = useRef(false);
   const [prompt, setPrompt] = useState<OmgSessionPrompt | null>(null);
-  const [draft, setDraft] = useState("");
+
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const toast = useToast();
@@ -492,6 +493,12 @@ export function SessionScreenBody({
     /** Every id the machine files this session under: its own and the native one. */
     aliases: string[];
   } | null>(null);
+  const draftCache = usePromptDraft(stashScope(user?.email, bindingId), {
+    context: bot ? `bot:${bot.id}` : `session:${id}`,
+    sessionId: id ?? undefined, botId: bot?.id,
+    title: sessionInfo?.title ?? bot?.name ?? "Session",
+  });
+  const { text: draft, set: setDraft, stage: stageDraft, finish: finishDraft } = draftCache;
   /**
    * ASK-USER QUESTIONS RAISED BY THIS SESSION. An agent that calls
    * `omg_input` ends its turn and waits; the question is not in the
@@ -1140,6 +1147,8 @@ export function SessionScreenBody({
       if (!trimmed || !client || (!id && !onDeliver)) return;
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       for (const q of asks) void answerAsk(q, trimmed, false);
+      const stashId = stageDraft(trimmed);
+      let acceptedSend = false;
       const optimisticId = `local-${++localSeq}`;
       const optimistic: Entry = {
         id: optimisticId,
@@ -1211,6 +1220,7 @@ export function SessionScreenBody({
           if (coldStart) setResuming(true);
           const delivered = await onDeliver(trimmed, mode);
           if (!delivered?.sessionId) throw new Error("the bot did not return a conversation");
+          acceptedSend = true;
           setLive(true);
           setError(null);
           // No `router.replace` — a bot chat's URL names the BOT
@@ -1245,6 +1255,7 @@ export function SessionScreenBody({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ sessionId: id, prompt: trimmed }),
           });
+          acceptedSend = true;
           setLive(true);
           setError(null);
           if (res.sessionId && res.sessionId !== id) {
@@ -1268,6 +1279,7 @@ export function SessionScreenBody({
           });
           // The send response owns the decision. Do not wait for a second
           // request or match text: two queued messages can have the same words.
+          acceptedSend = true;
           const accepted = result.msg;
           setHeld((prev) => {
             const rest = prev.filter((m) => m.id !== optimisticId && m.id !== accepted?.id);
@@ -1282,6 +1294,7 @@ export function SessionScreenBody({
           }
         } else {
           await client.sendMessage(id, trimmed);
+          acceptedSend = true;
         }
         setError(null);
         // Held sends returned above. Everything reaching this point has been
@@ -1297,9 +1310,9 @@ export function SessionScreenBody({
         sendActive.value = false;
         setHeld((prev) => prev.filter((m) => m.id !== optimisticId));
         setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
-        setDraft((current) => (current ? current : trimmed));
         setError(e instanceof Error ? e.message : String(e));
       } finally {
+        finishDraft(stashId, acceptedSend ? "sent" : "failed");
         if (queueRequest) {
           queueSendPending.current = false;
           void refreshHeld();
@@ -1308,7 +1321,7 @@ export function SessionScreenBody({
         setResuming(false);
       }
     },
-    [client, id, live, busy, router, onDeliver, asks, answerAsk, refreshHeld, reducedMotion, insets.top, insets.bottom, sendFrom, sendProgress, sendActive, sendDuration, sendReady, sendStarted, data, space.lg],
+    [client, id, live, busy, router, onDeliver, asks, answerAsk, stageDraft, finishDraft, setDraft, refreshHeld, reducedMotion, insets.top, insets.bottom, sendFrom, sendProgress, sendActive, sendDuration, sendReady, sendStarted, data, space.lg],
   );
 
   /** Shown for a beat after a long-press send, so the gesture confirms itself. */
@@ -1369,7 +1382,7 @@ export function SessionScreenBody({
         deliver();
       }
     },
-    [attachments, busy, contentReady, draft, sending, submit],
+    [attachments, busy, contentReady, draft, sending, submit, setDraft],
   );
 
   // Kept current for the dictation callback declared above it.

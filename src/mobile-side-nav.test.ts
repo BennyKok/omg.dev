@@ -13,6 +13,7 @@ describe("mobile side nav rows", () => {
     const rows = sideNavRows({ pathname: "/", keyboardShortcuts: false });
     expect(rows.map((row) => row.key)).toEqual([
       "live",
+      "archive",
       "notifications",
       "schedules",
       "settings",

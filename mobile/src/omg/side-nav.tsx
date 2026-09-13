@@ -60,6 +60,7 @@ import { useTheme } from "./theme";
 /** The glyph for each row. Kept with the view so the row list stays testable. */
 const GLYPH: Record<SideNavRowKey, { ios: SFSymbol; android: AndroidSymbol }> = {
   live: { ios: "bolt.fill", android: "bolt" },
+  archive: { ios: "archivebox", android: "archive" },
   notifications: { ios: "bell", android: "notifications" },
   schedules: { ios: "calendar.badge.clock", android: "schedule" },
   settings: { ios: "gearshape", android: "settings" },

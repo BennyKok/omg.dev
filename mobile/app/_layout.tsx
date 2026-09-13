@@ -339,6 +339,7 @@ function RootNavigator() {
            */}
           <Stack.Protected guard={false}>
             <Stack.Screen name="index" options={{ title: "Sessions" }} />
+            <Stack.Screen name="archive" options={{ title: "Archive", headerLargeTitle: true }} />
             <Stack.Screen name="session/[id]" options={{ title: "Session" }} />
             <Stack.Screen name="computers" />
             <Stack.Screen name="settings" />
@@ -583,6 +584,7 @@ function RootNavigator() {
               does not flash "Sessions" for the frame before that screen's
               layout effect runs. */}
           <Stack.Screen name="index" options={{ title: "" }} />
+          <Stack.Screen name="archive" options={{ title: "Archive", headerLargeTitle: true }} />
           <Stack.Screen name="session/[id]" options={{ title: "Session" }} />
           {/* Switching machines is the frequent action and belongs in the menu
               on the machine chip; pairing and per-machine detail still need a

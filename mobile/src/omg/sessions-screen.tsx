@@ -19,6 +19,7 @@ import {
   usePathname,
 } from "expo-router";
 import * as Haptics from "expo-haptics";
+import { usePromptDraft, stashScope } from "./prompt-stash";
 import {
   createContext,
   type ReactNode,
@@ -495,7 +496,12 @@ export function SessionsScreen({
    */
   const [connection, setConnection] =
     useState<OmgConnectionStatus>("connecting");
-  const [draft, setDraft] = useState("");
+  const { text: draft, set: setDraft, stage: stageDraft, finish: finishDraft } = usePromptDraft(
+    stashScope(user?.email, bindingId), {
+      context: "new-session",
+      title: "New session", cwd: projectPicker.cwd ?? undefined,
+    },
+  );
   const [starting, setStarting] = useState(false);
   const dictation = useDictation(
     // The whole transport, not a fetch closure: dictation now opens a
@@ -975,6 +981,9 @@ export function SessionsScreen({
     async (spoken?: string) => {
       const prompt = attachments.compose((spoken ?? draft).trim());
       if (!prompt || !client || starting) return;
+      const stashId = stageDraft(prompt);
+      setDraft("");
+      let acceptedSend = false;
       setStarting(true);
       try {
         const res = await client.transport.request<{ sessionId?: string }>(
@@ -996,7 +1005,7 @@ export function SessionsScreen({
             }),
           },
         );
-        setDraft("");
+        acceptedSend = true;
         attachments.clear();
         void Haptics.notificationAsync(
           Haptics.NotificationFeedbackType.Success,
@@ -1006,6 +1015,7 @@ export function SessionsScreen({
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       } finally {
+        finishDraft(stashId, acceptedSend ? "sent" : "failed");
         setStarting(false);
       }
     },
@@ -1016,6 +1026,9 @@ export function SessionsScreen({
       agentPicker.model,
       projectPicker.cwd,
       draft,
+      stageDraft,
+      finishDraft,
+      setDraft,
       starting,
       load,
       router,

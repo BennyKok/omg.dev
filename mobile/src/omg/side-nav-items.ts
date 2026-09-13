@@ -14,7 +14,7 @@
  * state, and its options already have an owner in computer-picker.ts.
  */
 
-export type SideNavPageKey = "live" | "notifications" | "schedules" | "settings";
+export type SideNavPageKey = "live" | "archive" | "notifications" | "schedules" | "settings";
 
 /** Every row key the nav can draw, pages plus the one action. */
 export type SideNavRowKey = SideNavPageKey | "shortcuts";
@@ -32,6 +32,7 @@ export type SideNavRow =
 
 const PAGES: { key: SideNavPageKey; label: string; href: string }[] = [
   { key: "live", label: "Live", href: "/" },
+  { key: "archive", label: "Archive", href: "/archive" },
   { key: "notifications", label: "Notifications", href: "/notifications" },
   { key: "schedules", label: "Schedules", href: "/schedules" },
   { key: "settings", label: "Settings", href: "/settings" },
