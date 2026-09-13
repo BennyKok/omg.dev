@@ -449,7 +449,10 @@ export function SideNavButton({
       hitSlop={8}
       style={{ width: floating ? 44 : 36, height: floating ? 44 : 36, alignItems: "center", justifyContent: "center" }}
     >
-      <Icon ios="sidebar.leading" android="menu" size={20} color={colors.textSecondary} />
+      <View accessible={false} style={{ width: 20, height: 16, justifyContent: "center", gap: 5 }}>
+        <View style={{ width: 20, height: 2, borderRadius: 1, backgroundColor: colors.textSecondary }} />
+        <View style={{ width: 13, height: 2, borderRadius: 1, backgroundColor: colors.textSecondary }} />
+      </View>
       <View style={{ position: "absolute", right: floating ? 9 : 5, bottom: floating ? 10 : 6 }}>
         <StatusDot busy={online} size={7} />
       </View>
