@@ -89,49 +89,75 @@ export function BrandMark({
  * documents that a font which fails to load must not strand the app on its
  * splash, and that argument applies doubly to a font the splash itself needs.
  */
+/**
+ * THE LOCKUP'S PROPORTIONS, TAKEN FROM THE LANDING HEADER'S OWN MARKUP.
+ *
+ * Read on 2026-09-13 from the deployed `omg.dev` header, which renders:
+ *
+ *   <span style="gap:6.8px">
+ *     <span style="transform:translateY(1.4px)"><svg width=16 height=16
+ *        viewBox="0 0 100 100"><circle r=44 …></svg></span>
+ *     <span style="font-weight:700;font-size:20px;letter-spacing:-0.045em">
+ *       omg<span class="opacity-70">.dev</span></span>
+ *
+ * So, against the 20px type: the svg box is 16px but the VISIBLE disc is
+ * r=44 of a 100 viewBox, which is 88% of 16 = 14.08px. That is the number
+ * that matters, because BrandMark's `size` is the disc's diameter and not a
+ * bounding box. 14.08/20 = 0.704.
+ *
+ * The first version of this component used 1.02, sized off the type's cap
+ * height by eye, and the mark came out nearly half again too large.
+ */
+export const WORDMARK_MARK_RATIO = 0.704;
+/** 6.8/20. */
+export const WORDMARK_GAP_RATIO = 0.34;
+/** 1.4/20 — the header nudges the mark down off the optical centre. */
+export const WORDMARK_NUDGE_RATIO = 0.07;
+/** The landing draws ".dev" as the SAME colour at 70%, not as a grey token. */
+const SUFFIX_OPACITY = 0.7;
+
 export function BrandWordmark({
   size = 34,
   /**
    * Draw the mark ahead of the type. Off for a caller that ALREADY shows the
-   * mark — the launch screen has a 64pt one breathing directly above this, and
-   * two discs one under the other reads as a rendering fault, not a lockup.
+   * mark, or one that animates the two halves separately — the launch screen
+   * composes its own row so it can fly the mark out without the type.
    */
   mark = true,
   color,
-  mutedColor,
   holeColor,
 }: {
-  /** Cap height of the type. The mark is scaled to match it. */
+  /** Font size of the type. The mark is derived from it. */
   size?: number;
   mark?: boolean;
   color?: string;
-  mutedColor?: string;
   holeColor?: string;
 }) {
   const { colors } = useTheme();
+  const type = {
+    fontSize: size,
+    fontWeight: "700",
+    letterSpacing: -size * 0.045,
+    color: color ?? colors.text,
+  } as const;
+
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: mark ? size * 0.26 : 0 }}>
-      {mark ? <BrandMark size={size * 1.02} holeColor={holeColor} /> : null}
-      <Text
-        // The lockup is a logo, not prose: it must not grow with Dynamic Type.
-        allowFontScaling={false}
-        style={{
-          fontSize: size,
-          fontWeight: "800",
-          letterSpacing: -size * 0.045,
-          color: color ?? colors.text,
-        }}
-      >
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: mark ? size * WORDMARK_GAP_RATIO : 0,
+      }}
+    >
+      {mark ? (
+        <View style={{ transform: [{ translateY: size * WORDMARK_NUDGE_RATIO }] }}>
+          <BrandMark size={size * WORDMARK_MARK_RATIO} holeColor={holeColor} />
+        </View>
+      ) : null}
+      {/* The lockup is a logo, not prose: it must not grow with Dynamic Type. */}
+      <Text allowFontScaling={false} style={type}>
         omg
-        <Text
-          allowFontScaling={false}
-          style={{
-            fontSize: size,
-            fontWeight: "800",
-            letterSpacing: -size * 0.045,
-            color: mutedColor ?? colors.textSecondary,
-          }}
-        >
+        <Text allowFontScaling={false} style={{ ...type, opacity: SUFFIX_OPACITY }}>
           .dev
         </Text>
       </Text>

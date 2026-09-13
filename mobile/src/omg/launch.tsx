@@ -43,7 +43,13 @@ import Reanimated, {
   withTiming,
 } from "react-native-reanimated";
 
-import { BrandMark, BrandWordmark } from "./brand-mark";
+import {
+  BrandMark,
+  BrandWordmark,
+  WORDMARK_GAP_RATIO,
+  WORDMARK_MARK_RATIO,
+  WORDMARK_NUDGE_RATIO,
+} from "./brand-mark";
 import { launch } from "./palette";
 import { Text } from "./text";
 import { useTheme } from "./theme";
@@ -107,10 +113,12 @@ export function LaunchBackdrop({ children }: { children?: React.ReactNode }) {
  * accelerating rush in a quarter of a second.
  *
  * THE FACTOR IS SET BY THE MARK'S SIZE, not chosen for its own sake: the mark
- * has to leave the screen. It was 7x while the mark was 64pt, which put it at
- * 448pt against a 393pt-wide phone. The horizontal lockup shrank the mark to
- * 41pt, where 7x is 287pt and the mark would stop in front of the viewer
- * instead of passing them. 11x restores the same margin: 451pt.
+ * has to leave the screen, and every time the mark has shrunk this has had to
+ * grow to keep the same overshoot. 7x covered a 64pt mark (448pt against a
+ * 393pt-wide phone). The horizontal lockup took the mark to 41pt and this went
+ * to 11x. Sizing the mark off the landing's real 0.704 ratio takes it to
+ * 28.2pt, where 11x reaches only 310pt and the mark would stop in front of the
+ * viewer. 16x restores the margin: 451pt.
  */
 /**
  * THE LOCKUP IS HORIZONTAL, exactly as the landing header draws it: mark, gap,
@@ -120,14 +128,21 @@ export function LaunchBackdrop({ children }: { children?: React.ReactNode }) {
  * matches BrandWordmark's built-in lockup rather than drifting from it.
  */
 const WORDMARK_SIZE = 40;
-const MARK_SIZE = Math.round(WORDMARK_SIZE * 1.02);
-const LOCKUP_GAP = Math.round(WORDMARK_SIZE * 0.26);
+/**
+ * Derived from BrandWordmark's ratios rather than restated, because this
+ * screen hand-rolls the row — it has to animate the mark and the type apart —
+ * and a second set of hardcoded numbers is exactly how the launch lockup and
+ * the real one drift into looking like different logos.
+ */
+const MARK_SIZE = WORDMARK_SIZE * WORDMARK_MARK_RATIO;
+const LOCKUP_GAP = WORDMARK_SIZE * WORDMARK_GAP_RATIO;
+const MARK_NUDGE = WORDMARK_SIZE * WORDMARK_NUDGE_RATIO;
 
 const CAPTION_OUT_MS = 120;
 const DIP_MS = 110;
 const ZOOM_MS = 250;
 const DIP_SCALE = 0.9;
-const ZOOM_SCALE = 11;
+const ZOOM_SCALE = 16;
 
 function ShimmerText({ text, color }: { text: string; color: string }) {
   const progress = useSharedValue(0);
@@ -323,24 +338,27 @@ export function LaunchScreen({
           style={styles.lockup}
           onLayout={(e) => setLockupWidth(e.nativeEvent.layout.width)}
         >
-          <Reanimated.View style={markStyle}>
-            <BrandMark size={MARK_SIZE} holeColor={tokens.bg} />
-          </Reanimated.View>
+          {/**
+           * The nudge is on an OUTER view, not merged into markStyle.
+           * `transform` is one property: the animated style sets its own
+           * array every frame, so a translateY in the same style array is
+           * simply replaced and the mark sits on the wrong baseline.
+           */}
+          <View style={{ transform: [{ translateY: MARK_NUDGE }] }}>
+            <Reanimated.View style={markStyle}>
+              <BrandMark size={MARK_SIZE} holeColor={tokens.bg} />
+            </Reanimated.View>
+          </View>
           {/**
            * THE TYPE LEAVES WITH THE CAPTION, NOT WITH THE MARK.
            *
-           * The mark's exit is a rush past the viewer, and type at 11x is an
+           * The mark's exit is a rush past the viewer, and type at 16x is an
            * unreadable wall crossing the screen. The lockup's two halves part
            * company on the way out: the type goes quietly while the mark —
            * the only half that reads at any size — does the travelling.
            */}
           <Reanimated.View style={captionStyle}>
-            <BrandWordmark
-              size={WORDMARK_SIZE}
-              mark={false}
-              color={tokens.text}
-              mutedColor={tokens.textMuted}
-            />
+            <BrandWordmark size={WORDMARK_SIZE} mark={false} color={tokens.text} />
           </Reanimated.View>
         </View>
       </View>
@@ -365,7 +383,8 @@ const styles = StyleSheet.create({
     gap: LOCKUP_GAP,
   },
   caption: {
-    // Clear of the lockup's own half-height, plus a gap.
-    paddingTop: (MARK_SIZE / 2 + 30) * 2,
+    // Clear of the lockup's own half-height plus a gap. The TYPE is the tall
+    // half now that the mark is 0.704 of it, so measure off the type.
+    paddingTop: (WORDMARK_SIZE / 2 + 30) * 2,
   },
 });

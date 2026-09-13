@@ -80,12 +80,7 @@ function Splash() {
       <View style={styles.splash}>
         <Reanimated.View style={breathe}>
           {/* The same lockup LaunchScreen shows, so the two cannot diverge. */}
-          <BrandWordmark
-            size={40}
-            color={launchTokens.text}
-            mutedColor={launchTokens.textMuted}
-            holeColor={launchTokens.bg}
-          />
+          <BrandWordmark size={40} color={launchTokens.text} holeColor={launchTokens.bg} />
         </Reanimated.View>
       </View>
       <StatusBar style={isDark ? "light" : "dark"} />
