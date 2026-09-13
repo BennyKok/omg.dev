@@ -8,26 +8,21 @@
  * `Linking.openURL`: it would re-enter the app as a deep link it cannot
  * route. Ordinary links are not this module's concern and pass straight
  * through.
+ *
+ * The behaviour, including the guard against a lookup that outlives a
+ * machine switch, lives in `createSessionRefOpener`; this file only binds
+ * it to the router.
  */
 import { router } from "expo-router";
 
-import { resolveSessionRefWith, sessionRefFromHref, type SessionRefClient } from "./session-mention";
+import { createSessionRefOpener } from "./session-mention";
 
-let current: SessionRefClient | null = null;
+const opener = createSessionRefOpener({
+  navigate: (sessionId) => router.push(`/session/${sessionId}`),
+});
 
 /** The provider registers the live client so a plain markdown tap can look up ids. */
-export function registerSessionRefResolver(client: SessionRefClient | null): void {
-  current = client;
-}
+export const registerSessionRefResolver = opener.register;
 
 /** True when `href` was a session reference and has been taken over. */
-export function openSessionRef(href: string): boolean {
-  const ref = sessionRefFromHref(href);
-  if (!ref) return false;
-  const client = current;
-  if (!client) return true;
-  void resolveSessionRefWith(client, ref).then((full) => {
-    if (full) router.push(`/session/${full}`);
-  });
-  return true;
-}
+export const openSessionRef = opener.open;

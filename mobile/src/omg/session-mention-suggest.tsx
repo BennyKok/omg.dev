@@ -40,7 +40,7 @@ export function SessionMentionSuggest({
 }) {
   const { client } = useOmg();
   const { colors, type, space, radius } = useTheme();
-  // One controller per client: a machine switch disposes the old one, so a
+  // One controller per client: a machine switch resets the old one, so a
   // late answer from the previous box can never be shown for the new one.
   const picker = useMemo(
     () =>
@@ -52,7 +52,7 @@ export function SessionMentionSuggest({
       }),
     [client],
   );
-  useEffect(() => () => picker.dispose(), [picker]);
+  useEffect(() => () => picker.reset(), [picker]);
   const scopeCwd = scope?.cwd ?? null;
   const scopeSid = scope?.sessionId ?? null;
   // The caret is taken to be at the end, as SkillSuggest does: RN's

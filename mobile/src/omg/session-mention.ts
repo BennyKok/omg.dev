@@ -116,8 +116,14 @@ export type SessionMentionPicker = {
   update(input: SessionMentionPickerInput): void;
   getState(): SessionMentionPickerState;
   subscribe(listener: () => void): () => void;
-  /** Drops every pending request. Nothing arrives after this. */
-  dispose(): void;
+  /**
+   * Closes the picker and drops every pending request; a later `update`
+   * starts again from nothing. Reversible on purpose: React StrictMode runs
+   * an effect's setup, cleanup, setup in development, so a cleanup that
+   * disposed for good would leave the memoised picker dead on the second
+   * setup.
+   */
+  reset(): void;
 };
 
 const CLOSED: SessionMentionPickerState = { active: null, items: [] };
@@ -140,7 +146,6 @@ export function createSessionMentionPicker(deps: {
   let key: string | null = null;
   let scopeKey: string | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
-  let disposed = false;
 
   const emit = (next: SessionMentionPickerState) => {
     state = next;
@@ -156,7 +161,6 @@ export function createSessionMentionPicker(deps: {
 
   return {
     update({ value, scope, disabled }) {
-      if (disposed) return;
       const active = disabled ? null : sessionMentionAt(value, value.length);
       if (!active) {
         if (key !== null) {
@@ -192,10 +196,10 @@ export function createSessionMentionPicker(deps: {
         timer = null;
         deps.fetch(active.query, { cwd, sessionId }).then(
           (items) => {
-            if (mine === seq && !disposed) emit({ active: state.active, items });
+            if (mine === seq) emit({ active: state.active, items });
           },
           () => {
-            if (mine === seq && !disposed) emit({ active: state.active, items: [] });
+            if (mine === seq) emit({ active: state.active, items: [] });
           },
         );
       };
@@ -209,10 +213,51 @@ export function createSessionMentionPicker(deps: {
         listeners.delete(listener);
       };
     },
-    dispose() {
-      disposed = true;
+    reset() {
+      key = null;
+      scopeKey = null;
       cancelPending();
-      listeners.clear();
+      if (state !== CLOSED) emit(CLOSED);
+    },
+  };
+}
+
+/**
+ * The tap handler for a rendered reference, with the router injected.
+ *
+ * The lookup is asynchronous and the app can switch machine or sign out
+ * while it runs. An answer is only acted on when the client it came from is
+ * still the registered one: a session id from the previous box must never
+ * be pushed onto the new one. Every failure is swallowed here, because a
+ * markdown tap has nowhere to report and an unhandled rejection is worse
+ * than a tap that does nothing.
+ */
+export function createSessionRefOpener(deps: {
+  navigate: (sessionId: string) => void;
+  resolve?: (client: SessionRefClient, ref: string) => Promise<string | null>;
+}): {
+  register(client: SessionRefClient | null): void;
+  /** True when `href` was a session reference and has been taken over. */
+  open(href: string): boolean;
+} {
+  const resolve = deps.resolve ?? resolveSessionRefWith;
+  let current: SessionRefClient | null = null;
+  return {
+    register(client) {
+      current = client;
+    },
+    open(href) {
+      const ref = sessionRefFromHref(href);
+      if (!ref) return false;
+      const client = current;
+      if (!client) return true;
+      Promise.resolve()
+        .then(() => resolve(client, ref))
+        .then((full) => {
+          if (full && current === client) deps.navigate(full);
+        })
+        .catch(() => {});
+      return true;
     },
   };
 }
