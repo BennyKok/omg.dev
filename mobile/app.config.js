@@ -7,11 +7,12 @@ module.exports = ({ config }) => {
   const iosClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
   const plugins = [
     ...(config.plugins ?? []),
+    "./plugins/with-activity-icons.js",
     ["expo-widgets", {
       enablePushNotifications: true,
       widgets: [{
         name: "OmgAgentVillage",
-        displayName: "Agent Village",
+        displayName: "omg.dev",
         description: "See your agents working and waiting for you.",
         ios: {
           supportedFamilies: ["systemSmall", "systemMedium", "systemLarge"],

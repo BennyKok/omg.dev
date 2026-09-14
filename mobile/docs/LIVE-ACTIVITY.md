@@ -9,6 +9,15 @@ synthetic token with `BadDeviceToken`; this verifies connectivity, not phone del
 No device was registered at verification time. Open build 46 and select a user-owned
 Computer to register the phone. Physical-device start/update/end remain unverified.
 
+## Native redesign
+
+The pending 1.0.8 binary adds session rows, bundled agent marks, and a native
+first-use widget preview. The widget gallery and preview use the name `omg.dev`.
+The widget kind remains `OmgAgentVillage`, so existing placements keep their identity.
+
+This does not change ordinary notification icons. Gmail-style notification icons
+were discussed in the source session but have not been implemented.
+
 ## Implemented path
 
 ```
@@ -21,8 +30,19 @@ lfg connect → relay → hosted control plane → APNs → ActivityKit
 - `src/omg/agent-live-activity.tsx` defines the lock-screen and Dynamic Island views.
 - `expo-widgets` generates the Widget Extension and enables push-to-start.
 - The hosted control plane stores tokens and owns start, update, and end pushes.
-- The lock screen receives counts and an opaque session id. It does not receive prompts,
-  questions, transcripts, or project names.
+- The lock screen receives counts and up to three session rows (id, short title,
+  agent identity, and state), plus a total for overflow. Titles are limited to
+  72 characters and truncated to one visual line. The user approved title display
+  in the September 14 redesign. Prompts, questions, transcripts, and separate
+  project fields are excluded. IDs are deep-link targets and are not displayed.
+- The lock screen and expanded Island show title rows. Compact mode uses a static
+  cluster of bundled agent marks. Unknown agents use the omg mark; missing titles
+  use the agent name. Older count-only senders keep a usable summary.
+- Agent marks and the village gallery backgrounds are bundled in the extension.
+  An empty widget timeline receives a native garden preview before app data exists.
+  The app remains the sole owner of the real village timeline.
+- These extension assets and the gallery fallback require a new native binary
+  (runtime 1.0.8). An OTA for 1.0.7 cannot add them.
 
 The hosted control plane needs these secrets:
 

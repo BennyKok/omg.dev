@@ -2,14 +2,21 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Crypto from "expo-crypto";
 import { useEffect } from "react";
 import { AppState, Linking, Platform } from "react-native";
-import { HStack, Image, Spacer, Text, VStack } from "@expo/ui/swift-ui";
-import { bold, font, foregroundColor, padding, widgetURL } from "@expo/ui/swift-ui/modifiers";
-import { addPushToStartTokenListener, createLiveActivity } from "expo-widgets";
+import { Circle, HStack, Image, Spacer, Text, VStack } from "@expo/ui/swift-ui";
+import { background, bold, cornerRadius, font, foregroundColor, frame, lineLimit, padding, resizable, widgetURL } from "@expo/ui/swift-ui/modifiers";
+import { addPushToStartTokenListener, createLiveActivity, type LiveActivityEnvironment } from "expo-widgets";
 
 import { isSharedBindingId } from "./computer-shared-binding";
 import { CLOUD_BINDING_ID } from "./config";
 import { controlPlane, useOmg } from "./provider";
 import { bindingLabel } from "./format";
+
+export type ActivitySession = {
+  id: string;
+  title: string;
+  agent: string;
+  state: "blocked" | "working" | "done";
+};
 
 export type AgentActivityProps = {
   machineName: string;
@@ -17,43 +24,63 @@ export type AgentActivityProps = {
   blockedCount: number;
   attentionSessionId: string | null;
   updatedAt: number;
+  sessions?: ActivitySession[];
+  sessionCount?: number;
 };
 
-function AgentActivity(props: AgentActivityProps) {
+export function AgentActivity(props: AgentActivityProps, environment: LiveActivityEnvironment) {
   "widget";
+  const labels: Record<string, string> = { claude: "Claude", codex: "Codex", cursor: "Cursor", copilot: "Copilot", deepseek: "DeepSeek", devin: "Devin", grok: "Grok", hermes: "Hermes", jcode: "Jcode", muse: "Muse", opencode: "OpenCode", pi: "pi", fx: "fx", omg: "omg" };
+  const keyFor = (agent: string) => agent === "codex-aisdk" ? "codex" : agent in labels ? agent : "omg";
+  const sessions = (props.sessions ?? []).slice(0, 3);
+  const total = Math.max(sessions.length, props.sessionCount ?? 0);
+  const overflow = total > 3 ? total - 2 : 0;
+  const visible = sessions.slice(0, overflow ? 2 : 3);
   const summary = props.blockedCount > 0
-    ? `${props.blockedCount} need attention`
-    : props.runningCount > 0
-      ? `${props.runningCount} working`
-      : "All agents finished";
-  const symbol = props.blockedCount > 0 ? "exclamationmark.circle.fill" : "sparkles";
-  const color = props.blockedCount > 0 ? "#FF9F0A" : "#7C5CFC";
-  const displayCount = props.blockedCount > 0 ? props.blockedCount : props.runningCount;
-  const url = props.attentionSessionId ? `omg:///session/${props.attentionSessionId}` : "omg:///";
-  const compact = (
-    <HStack spacing={4}>
-      <Image systemName={symbol} size={14} modifiers={[foregroundColor(color)]} />
-      <Text modifiers={[bold(), foregroundColor(color)]}>{displayCount}</Text>
-    </HStack>
+    ? `${props.blockedCount} ${props.blockedCount === 1 ? "needs" : "need"} you`
+    : props.runningCount > 0 ? `${props.runningCount} working` : "All finished";
+  const accent = props.blockedCount > 0 ? "#C86B45" : "#5467FF";
+  const url = props.attentionSessionId ? `omg:///session/${encodeURIComponent(props.attentionSessionId)}` : "omg:///";
+  const icon = (agent: string, size: number) => (
+    <Image assetName={`agent-${keyFor(agent)}`} modifiers={[resizable(), frame({ width: size, height: size }), padding({ all: 3 }), background("#FFFFFF"), cornerRadius(7)]} />
   );
-  const banner = (
-    <HStack spacing={12} modifiers={[padding({ horizontal: 16, vertical: 12 }), widgetURL(url)]}>
-      <Image systemName={symbol} size={26} modifiers={[foregroundColor(color)]} />
-      <VStack alignment="leading" spacing={2}>
-        <Text modifiers={[bold(), font({ size: 16 })]}>omg.dev</Text>
-        <Text>{summary}</Text>
-        <Text modifiers={[foregroundColor("#8E8E93"), font({ size: 12 })]}>{props.machineName}</Text>
+  const list = (dark: boolean, expanded = false) => {
+    const ink = dark ? "#F2F0EA" : "#2B2A26";
+    const muted = dark ? "#A5A39A" : "#6B6A63";
+    return (
+      <VStack spacing={expanded ? 4 : 10} modifiers={[padding({ horizontal: expanded ? 4 : 16, vertical: expanded ? 0 : 13 }), widgetURL(url)]}>
+        <HStack spacing={12}>
+          <Text modifiers={[font({ size: expanded ? 15 : 18, weight: "bold" }), foregroundColor(ink), lineLimit(1)]}>{summary}</Text>
+          <Spacer />
+          <Circle modifiers={[frame({ width: 5, height: 5 }), foregroundColor(accent)]} />
+          <Text modifiers={[font({ size: 11, weight: "medium" }), foregroundColor(muted), lineLimit(1), frame({ maxWidth: 110 })]}>{props.machineName}</Text>
+        </HStack>
+        <VStack spacing={3}>
+          {visible.map((session) => (
+            <HStack key={session.id} spacing={8} modifiers={[padding({ horizontal: 8 }), frame({ height: expanded ? 24 : 30 }), background(session.state === "blocked" ? dark ? "#29211C" : "#FBF8F1" : "#00000000"), cornerRadius(10)]}>
+              {icon(session.agent, 16)}
+              <Text modifiers={[font({ size: 13, weight: "semibold" }), foregroundColor(ink), lineLimit(1), frame({ maxWidth: Infinity, alignment: "leading" })]}>{session.title || labels[keyFor(session.agent)]}</Text>
+              <Text modifiers={[font({ size: 12, weight: session.state === "blocked" ? "bold" : "regular" }), foregroundColor(session.state === "blocked" ? "#C86B45" : muted), lineLimit(1), frame({ width: 68, alignment: "trailing" })]}>{session.state === "blocked" ? "needs you" : session.state === "working" ? "working" : "done"}</Text>
+            </HStack>
+          ))}
+          {overflow > 0 ? <HStack spacing={8} modifiers={[padding({ horizontal: 8 }), frame({ height: expanded ? 24 : 30 })]}>
+            <Text modifiers={[font({ size: 11, weight: "semibold" }), foregroundColor(muted)]}>{`+${overflow}`}</Text>
+            <Text modifiers={[font({ size: 13 }), foregroundColor(muted)]}>more sessions</Text>
+            <Spacer />
+          </HStack> : null}
+          {sessions.length === 0 ? <Text modifiers={[font({ size: 13 }), foregroundColor(muted)]}>{props.runningCount > 0 || props.blockedCount > 0 ? "Open omg.dev for sessions" : "Your agents have finished"}</Text> : null}
+        </VStack>
       </VStack>
-      <Spacer />
-    </HStack>
-  );
+    );
+  };
+  const cluster = <HStack spacing={-6}>{(sessions.length ? sessions : [{ agent: "omg" }]).slice(0, 3).map((session, index) => <HStack key={`${session.agent}-${index}`}>{icon(session.agent, 14)}</HStack>)}</HStack>;
   return {
-    banner,
-    bannerSmall: compact,
-    compactLeading: <Image systemName={symbol} size={14} modifiers={[foregroundColor(color)]} />,
-    compactTrailing: <Text modifiers={[bold(), foregroundColor(color)]}>{displayCount}</Text>,
-    minimal: <Image systemName={symbol} size={14} modifiers={[foregroundColor(color)]} />,
-    expandedCenter: banner,
+    banner: <VStack modifiers={[background(environment.colorScheme === "dark" ? "#20211E" : "#F4F1E8")]}>{list(environment.colorScheme === "dark")}</VStack>,
+    bannerSmall: <HStack spacing={8}>{cluster}<Text modifiers={[bold(), foregroundColor(accent)]}>{summary}</Text></HStack>,
+    compactLeading: cluster,
+    compactTrailing: <Text modifiers={[bold(), foregroundColor(accent)]}>{props.blockedCount > 0 ? `! ${props.blockedCount}` : props.runningCount}</Text>,
+    minimal: icon(sessions[0]?.agent ?? "omg", 16),
+    expandedBottom: list(true, true),
   };
 }
 
