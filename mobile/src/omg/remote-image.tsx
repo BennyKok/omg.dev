@@ -40,6 +40,8 @@ import Reanimated, {
   withTiming,
 } from "react-native-reanimated";
 
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
 import { useOmg } from "./provider";
 import { Text } from "./text";
 import { ImageGalleryContext, ImageGalleryRow, type ImageRect } from "./image-gallery-context";
@@ -359,6 +361,7 @@ export function ImageViewer({
   onClosed: () => void;
 }) {
   const screen = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const [ratio, setRatio] = useState<number | null>(null);
 
   useEffect(() => {
@@ -626,12 +629,18 @@ export function ImageViewer({
           <Text style={{ color: "white" }}>{error ? "Image unavailable" : "Loading image…"}</Text>
         </View>}
       </View>
-      <View style={{ position: "absolute", top: 56, left: 20, right: 20, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Previous image" disabled={position <= 1} onPress={() => turnPage(-1)} style={{ padding: 12, opacity: position <= 1 ? 0.3 : 1 }}><Text style={{ color: "white", fontSize: 24 }}>‹</Text></Pressable>
-        <Text style={{ color: "white" }}>{position} / {count}</Text>
-        <Pressable accessibilityRole="button" accessibilityLabel="Next image" disabled={position >= count} onPress={() => turnPage(1)} style={{ padding: 12, opacity: position >= count ? 0.3 : 1 }}><Text style={{ color: "white", fontSize: 24 }}>›</Text></Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel="Close image" onPress={() => close()} style={{ padding: 12 }}><Text style={{ color: "white", fontSize: 24 }}>×</Text></Pressable>
+      <View pointerEvents="box-none" style={{ position: "absolute", bottom: Math.max(insets.bottom, 16) + 12, left: 0, right: 0, alignItems: "center" }}>
+        <View accessible accessibilityRole="adjustable" accessibilityLabel={`Image ${position} of ${count}`}
+          accessibilityActions={[{ name: "increment", label: "Next image" }, { name: "decrement", label: "Previous image" }]}
+          onAccessibilityAction={event => turnPage(event.nativeEvent.actionName === "increment" ? 1 : -1)}
+          style={{ borderRadius: 999, paddingHorizontal: 16, paddingVertical: 9, backgroundColor: "rgba(32,32,32,0.85)", borderWidth: 1, borderColor: "rgba(255,255,255,0.14)" }}>
+          <Text style={{ color: "white", fontSize: 14, fontWeight: "600", fontVariant: ["tabular-nums"] }}>{position} / {count}</Text>
+        </View>
       </View>
+      <Pressable accessibilityRole="button" accessibilityLabel="Close image" onPress={() => close()}
+        style={{ position: "absolute", top: Math.max(insets.top, 20) + 8, right: 20, padding: 12 }}>
+        <Text style={{ color: "white", fontSize: 24 }}>×</Text>
+      </Pressable>
     </Modal>
   );
 }

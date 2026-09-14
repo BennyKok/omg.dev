@@ -1055,8 +1055,9 @@ export function HomeComposer({
     agentOptions.length || modelOptions?.length || thinkingOptions?.length,
   );
   const [setupOpen, setSetupOpen] = useState(false);
-  const [composerFocused, setComposerFocused] = useState(false);
-  const inputMinHeight = composerFocused ? 48 : 24;
+  const [inputHeight, setInputHeight] = useState(24);
+  const promptText = dictationTail ? `${value}${value ? " " : ""}${dictationTail}` : value;
+  const measuredInputHeight = promptText ? Math.max(24, Math.min(120, inputHeight)) : 24;
   return (
     <View
       /**
@@ -1179,7 +1180,7 @@ export function HomeComposer({
            * settled yet, so appending it here shows the whole sentence with no
            * double-counting.
            */
-          value={dictationTail ? `${value}${value ? " " : ""}${dictationTail}` : value}
+          value={promptText}
           onChangeText={onChangeText}
           /**
            * Not editable mid-take. The field's contents are partly a
@@ -1191,19 +1192,15 @@ export function HomeComposer({
           placeholder="What should we work on?"
           placeholderTextColor={colors.textMuted}
           multiline
-          returnKeyType="send"
-          submitBehavior="submit"
-          onFocus={() => setComposerFocused(true)}
-          onBlur={() => setComposerFocused(false)}
-          onSubmitEditing={() => {
-            if (canStart) onStart();
-          }}
+          submitBehavior="newline"
+          // iOS reports only the visible height when native scrolling is disabled.
+          // Grow to fit first; the field scrolls once its content exceeds 120pt.
+          scrollEnabled
+          onContentSizeChange={event => setInputHeight(Math.ceil(event.nativeEvent.contentSize.height))}
           style={{
             flex: 1,
             minWidth: 0,
-            minHeight: inputMinHeight,
-            maxHeight: 120,
-            ...(value.length || dictationTail ? {} : { height: inputMinHeight }),
+            height: measuredInputHeight,
             color: colors.text,
             ...type.body,
             fontSize: 18,

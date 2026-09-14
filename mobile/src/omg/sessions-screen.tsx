@@ -1497,8 +1497,8 @@ export function SessionsScreen({
           */
           contentContainerStyle={{
             paddingTop:
-              !workspace && folderRail
-                ? insets.top + 44 + space.sm + 50
+              !workspace
+                ? insets.top + 44 + space.sm + (folderRail ? 50 : 0)
                 : 0,
             paddingBottom:
               home && !wide

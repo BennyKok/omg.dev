@@ -23,6 +23,7 @@ mock.module(import.meta.resolve('react-native-reanimated'),()=>({
 }));
 mock.module(resolve(import.meta.dir,'../src/omg/text.tsx'),()=>({Text:({children}:any)=><span>{children}</span>}));
 mock.module(resolve(import.meta.dir,'../src/omg/provider.tsx'),()=>({useOmg:()=>({client:null})}));
+mock.module(import.meta.resolve('react-native-safe-area-context'),()=>({useSafeAreaInsets:()=>({top:59,bottom:34})}));
 const {ImageViewer}=await import('../src/omg/remote-image');
 const {ImageGalleryProvider}=await import('../src/omg/image-gallery');
 const {ImageGalleryContext}=await import('../src/omg/image-gallery-context');
@@ -36,6 +37,9 @@ test('horizontal swipe pages without closing; vertical swipe closes',async()=>{
  ui.render(<ImageViewer uri="image" origin={origin} sourceRadius={16} accessibilityLabel="First" position={1} count={2} onPage={d=>pages.push(d)} onClosed={()=>closed++}/>);
  ui.flush(()=>pans.onPanResponderRelease({}, {dx:-120,dy:5,vx:-1,vy:0}));complete();
  expect(pages).toEqual([1]);expect(closed).toBe(0);
+ expect(ui.text()).toContain('1 / 2');
+ expect(ui.query('button[aria-label="Next image"]')).toBeNull();
+ expect(ui.query('button[aria-label="Previous image"]')).toBeNull();
  ui.render(null);
  ui.render(<ImageViewer uri="image" origin={origin} sourceRadius={16} accessibilityLabel="First" onClosed={()=>closed++}/>);
  await ui.flushAsync(async()=>{pans.onPanResponderRelease({}, {dx:3,dy:150,vx:0,vy:1});await Promise.resolve();});
@@ -65,7 +69,7 @@ test('gallery survives thumbnail unmount and restores the selected row before cl
  const reveal=async(key:string)=>{reveals.push(key);};
  const app=(show:boolean)=><ImageGalleryProvider images={images} onReveal={reveal}>{show?<Thumbnail/>:null}</ImageGalleryProvider>;
  ui.render(app(true));ui.flush(()=>ui.query('button')!.click());
- ui.flush(()=>ui.query('button[aria-label="Next image"]')!.click());complete();
+ ui.flush(()=>pans.onPanResponderRelease({}, {dx:-120,dy:5,vx:-1,vy:0}));complete();
  ui.render(app(false));expect(ui.query('[role="dialog"]')).not.toBeNull();expect(ui.text()).toContain('2 / 2');
  await ui.flushAsync(async()=>{ui.query('button[aria-label="Close image"]')!.click();await new Promise(r=>setTimeout(r,0));});
  expect(reveals).toEqual(['row-b']);complete();expect(ui.query('[role="dialog"]')).toBeNull();
