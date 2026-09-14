@@ -1033,7 +1033,9 @@ export function HomeComposer({
   /** The not-yet-settled words, when a live take is running. */
   const dictationTail =
     dictation.live && dictation.state === "recording" ? (dictation.partial ?? "").trim() : "";
-  const canStart = value.trim().length > 0 && !starting;
+  const hasMessage = value.trim().length > 0 || attachments.items.some((item) => item.path);
+  const uploading = attachments.items.some((item) => !item.path && !item.failed);
+  const canStart = hasMessage && !starting && !uploading;
   /** Where the finger went down on the mic, so an upward drag can cancel once. */
   const cancelSwipe = useRef<{ y: number; fired: boolean } | null>(null);
   const hairline = {
@@ -1094,6 +1096,7 @@ export function HomeComposer({
         disabled={!!dictationTail}
       />
       {/* Liquid Glass on iOS 26+, a solid card everywhere else. */}
+      <AttachmentStrip items={attachments.items} onRemove={attachments.remove} />
       <GlassSurface
         variant="regular"
         fallbackColor={colors.card}
@@ -1218,7 +1221,7 @@ export function HomeComposer({
 
         {/* Dictate until there are words to send, then the same spot sends
             them — the rule the session composer follows. */}
-        {!canStart && !starting ? (
+        {!hasMessage && !starting ? (
           <Pressable
             onPress={dictation.toggle}
             /**
@@ -1271,7 +1274,7 @@ export function HomeComposer({
 
         {/* Arrives with the text and leaves with it. Circular and glyph-only:
             the Messages send button, not a labelled call to action. */}
-        {canStart || starting ? (
+        {hasMessage || starting ? (
           <PressableScale
             onPress={onStart}
             disabled={!canStart}
@@ -1282,13 +1285,13 @@ export function HomeComposer({
             style={{
               alignItems: "center",
               justifyContent: "center",
-              backgroundColor: starting ? colors.border : colors.text,
+              backgroundColor: !canStart ? colors.border : colors.text,
               borderRadius: radius.pill,
               width: 34,
               height: 34,
             }}
           >
-            <Icon ios="arrow.up" android="arrow_upward" size={16} color={starting ? colors.textMuted : colors.bg} />
+            <Icon ios="arrow.up" android="arrow_upward" size={16} color={!canStart ? colors.textMuted : colors.bg} />
           </PressableScale>
         ) : null}
       </GlassSurface>
@@ -1720,7 +1723,7 @@ export function VoiceMeter({ level, color }: { level?: number; color: string }) 
  * only exists while something is attached, so the composer keeps its height in
  * the common case.
  *
- * An upload in flight dims its thumbnail and shows a spinner over it; one that
+ * An upload in flight dims its thumbnail and shows byte progress over it; one that
  * failed goes red and stays put, because a row that removes itself is a row
  * you cannot retry.
  */
@@ -1786,7 +1789,17 @@ export function AttachmentStrip({
                 justifyContent: "center",
               }}
             >
-              <ActivityIndicator size="small" color={colors.text} />
+              <View
+                accessibilityRole="progressbar"
+                accessibilityLabel={`Uploading ${item.name}`}
+                accessibilityValue={{ min: 0, max: 100, now: item.progress ?? 0 }}
+              >
+                <UsageRing pct={item.progress ?? 0} size={36} color={colors.text}>
+                  <Text style={{ fontSize: 9, fontWeight: "600", color: colors.text }}>
+                    {item.progress ?? 0}%
+                  </Text>
+                </UsageRing>
+              </View>
             </View>
           ) : null}
           {/* The remove target is deliberately bigger than the glyph: it sits

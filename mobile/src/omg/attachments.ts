@@ -26,6 +26,7 @@ import * as ImagePicker from "expo-image-picker";
 import { useCallback, useState } from "react";
 import { Alert } from "react-native";
 
+import { uploadAttachment } from "./attachment-upload";
 import type { MenuOption } from "./menu";
 import { useOmg } from "./provider";
 
@@ -42,6 +43,8 @@ export type Attachment = {
   /** Absolute path ON THE COMPUTER. Null until the upload lands. */
   path: string | null;
   failed?: boolean;
+  /** Uploaded percentage; 100 means the server accepted the file. */
+  progress?: number;
 };
 
 /** Anything picked, from whichever picker: enough to upload and to draw a row. */
@@ -51,14 +54,6 @@ export type PickedFile = {
   mimeType: string;
   kind: AttachmentKind;
 };
-
-/**
- * Same split as the web's `uploadFile`: the machine caps one request body at
- * 32 MB, so a video goes up in 8 MB parts under one `uploadId`, and the
- * server's chunk route stitches them in order. Small files still take the
- * one-shot route.
- */
-const CHUNK_BYTES = 8 * 1024 * 1024;
 
 let seq = 0;
 
@@ -87,36 +82,18 @@ export function useAttachments(sessionId: string | null) {
 
   const upload = useCallback(
     async (file: PickedFile, id: string) => {
-      if (!client) return;
       try {
+        if (!client) throw new Error("No computer connected");
         const blob = await readAsBlob(file.uri);
         const endpoint = sessionId
           ? `/api/sessions/${sessionId}/upload`
           : "/api/uploads";
         const base = `${endpoint}?filename=${encodeURIComponent(file.name)}`;
-        const headers = { "Content-Type": file.mimeType || "application/octet-stream" };
-        const post = async (query: string, body: Blob) => {
-          const response = await client.transport.fetch(`${base}${query}`, {
-            method: "POST",
-            headers,
-            body,
-          });
-          const parsed = (await response.json().catch(() => ({}))) as { ok?: boolean; path?: string };
-          if (!response.ok) throw new Error("upload rejected");
-          return parsed;
-        };
-        let result: { path?: string } = {};
-        if (blob.size > CHUNK_BYTES) {
-          const uploadId = Crypto.randomUUID();
-          for (let offset = 0; offset < blob.size; offset += CHUNK_BYTES) {
-            const part = blob.slice(offset, Math.min(blob.size, offset + CHUNK_BYTES));
-            result = await post(`&uploadId=${uploadId}&offset=${offset}&total=${blob.size}`, part);
-          }
-        } else {
-          result = await post("", blob);
-        }
-        if (!result.path) throw new Error("upload rejected");
-        const path = result.path;
+        const path = await uploadAttachment(
+          client.transport, base, blob, file.mimeType, Crypto.randomUUID(),
+          (progress) => setItems((current) => current.map((item) =>
+            item.id === id ? { ...item, progress } : item)),
+        );
         setItems((current) =>
           current.map((item) => (item.id === id ? { ...item, path } : item)),
         );

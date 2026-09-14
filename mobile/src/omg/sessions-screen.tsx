@@ -1003,6 +1003,7 @@ export function SessionsScreen({
 
   const startSession = useCallback(
     async (spoken?: string) => {
+      if (attachments.uploading) return;
       const prompt = attachments.compose((spoken ?? draft).trim());
       if (!prompt || !client || starting) return;
       const stashId = stageDraft(prompt);
