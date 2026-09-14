@@ -13,8 +13,9 @@ const NativeView = ({ children, style }: { children?: ReactNode; style?: Record<
   <div data-background={style?.backgroundColor ?? ""}>{children}</div>;
 mock.module(resolve(import.meta.dir, "../node_modules/react-native/index.js"), () => ({
   Platform: { OS: process.env.TRANSCRIPT_FALLBACK === "web" ? "web" : "ios", select: (values: Record<string, unknown>) => values.ios },
-  View: NativeView, Pressable: NativeView, ScrollView: NativeView, Modal: NativeView,
+  View: NativeView, Image: NativeView, Pressable: NativeView, ScrollView: NativeView, Modal: NativeView,
   Animated: { View: NativeView }, StyleSheet: { hairlineWidth: 1 },
+  AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) },
   useWindowDimensions: () => ({ width: 390, height: 844 }),
   UIManager: { hasViewManagerConfig: (name: string) => native && name === "VirtualView" },
   unstable_VirtualView: ({ children }: { children?: ReactNode }) =>
