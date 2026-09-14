@@ -9,13 +9,12 @@ import {
 import {
   ActivityIndicator,
   Alert,
-  Image,
   Pressable,
   ScrollView,
-  TextInput,
   View,
 } from "react-native";
-import { agentIcon } from "../src/omg/agent-icons";
+import { SessionCard } from "../src/components";
+import { relativeTime } from "../src/omg/format";
 import {
   createArchiveBrowser,
   resumeArchivedSession,
@@ -24,7 +23,7 @@ import {
 import { promptStash, stashScope } from "../src/omg/prompt-stash";
 import type { StashEntry } from "../src/omg/prompt-stash-store";
 import { useOmg } from "../src/omg/provider";
-import { Text } from "../src/omg/text";
+import { Text, TextInput } from "../src/omg/text";
 import { useTheme } from "../src/omg/theme";
 
 export default function ArchiveScreen() {
@@ -194,7 +193,7 @@ export function ArchiveContent({
       {tab === "sessions" ? (
         <>
           <Text style={{ ...type.caption, color: colors.textMuted }}>
-            Open a conversation to read it, or resume the agent.
+            Tap a conversation to read it. Hold to resume the agent.
           </Text>
           {state.error || resumeError ? (
             <Text style={{ ...type.body, color: colors.textMuted }}>
@@ -206,67 +205,31 @@ export function ArchiveContent({
               <Text style={{ color: colors.text }}>Try again</Text>
             </Pressable>
           ) : null}
-          {state.items.map((item) => (
-            <View
-              key={item.sessionId}
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 12,
-                padding: 14,
-                backgroundColor: colors.card,
-                borderRadius: radius.md,
-              }}
-            >
-              <Pressable
+          {resuming ? (
+            <Text style={{ ...type.caption, color: colors.textMuted }}>Resuming session…</Text>
+          ) : null}
+          <View style={{ marginHorizontal: -space.lg }}>
+            {state.items.map((item) => (
+              <SessionCard
+                key={item.sessionId}
+                title={item.title || item.lastUserText || "Untitled session"}
+                subtitle={item.lastUserText}
+                timestamp={relativeTime(item.lastActivityAt)}
+                agent={item.agent}
+                ended
+                animateEntry={false}
                 onPress={() => onOpen(item.sessionId)}
-                style={{
-                  flex: 1,
-                  flexDirection: "row",
-                  gap: 12,
-                  alignItems: "center",
+                accessibilityHint="Hold to resume the agent"
+                onLongPress={() => {
+                  if (resuming) return;
+                  Alert.alert(item.title || "Session", "Resume this agent?", [
+                    { text: "Cancel", style: "cancel" },
+                    { text: "Resume", onPress: () => void resume(item.sessionId) },
+                  ]);
                 }}
-                accessibilityLabel={`Open ${item.title || "session"}`}
-              >
-                <Image
-                  source={agentIcon(item.agent)}
-                  style={{ width: 30, height: 30 }}
-                />
-                <View style={{ flex: 1, gap: 4 }}>
-                  <Text
-                    numberOfLines={2}
-                    style={{
-                      ...type.body,
-                      color: colors.text,
-                      fontWeight: "600",
-                    }}
-                  >
-                    {item.title || "Session"}
-                  </Text>
-                  <Text
-                    numberOfLines={2}
-                    style={{ ...type.caption, color: colors.textMuted }}
-                  >
-                    {item.lastUserText || "Open conversation"}
-                  </Text>
-                </View>
-              </Pressable>
-              <Pressable
-                disabled={!!resuming}
-                onPress={() => void resume(item.sessionId)}
-                accessibilityLabel={`Resume ${item.title || "session"}`}
-                style={{ paddingVertical: 12, paddingHorizontal: 8 }}
-              >
-                {resuming === item.sessionId ? (
-                  <ActivityIndicator />
-                ) : (
-                  <Text style={{ ...type.caption, color: colors.text }}>
-                    Resume
-                  </Text>
-                )}
-              </Pressable>
-            </View>
-          ))}
+              />
+            ))}
+          </View>
           {state.loading ? (
             <ActivityIndicator />
           ) : !state.items.length && !state.error ? (

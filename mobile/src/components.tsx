@@ -739,6 +739,8 @@ export function SessionCard({
   ended,
   onPress,
   onArchive,
+  onLongPress,
+  accessibilityHint,
   animateEntry = true,
   compact = false,
   selected = false,
@@ -772,6 +774,8 @@ export function SessionCard({
   onPress: () => void;
   /** Omit to make the row unswipeable — a running session has nothing to archive. */
   onArchive?: () => void;
+  onLongPress?: () => void;
+  accessibilityHint?: string;
   /**
    * Skip BOTH the mount-in slide/fade AND the resettle-on-reflow transition
    * — see the identical flag on `AutoFindingCard` for why. Suppressing only
@@ -846,6 +850,8 @@ export function SessionCard({
       <Reanimated.View style={cardStyle} {...(swipeable ? panResponder.panHandlers : {})}>
         <PressableScale
           onPress={onPress}
+          onLongPress={onLongPress}
+          accessibilityHint={accessibilityHint}
           scale={1}
           style={({ pressed }) => ({
             flexDirection: "row",
