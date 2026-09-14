@@ -1,3 +1,4 @@
+import { ChatIdentityContext, useChatIdentity } from "../../src/omg/chat-identity";
 /**
  * A session: the transcript, and the composer.
  *
@@ -238,6 +239,7 @@ export function SessionScreenBody({
   const window = useWindowDimensions();
   const { colors, type, space, radius } = useTheme();
   const { client, agents, user, bindingId } = useOmg();
+  const chatIdentity = useChatIdentity(client, id, user?.email);
 
   const attachments = useAttachments(id ?? null);
   const dictation = useDictation(
@@ -2082,11 +2084,15 @@ export function SessionScreenBody({
               <SendOriginContext.Provider value={sendTurn?.key === item.key && sendTurn.origin ? { origin: sendTurn.origin, progress: sendProgress, ready: sendReady } : null}>
               <ImageGalleryRow.Provider value={item.key}>
               <OverlapRow id={`row:${item.key}`}>
+                <ChatIdentityContext.Provider value={chatIdentity}>
                 <TranscriptRow
+                  firstOfRun={!previous || transcriptSpeaker(previous) !== transcriptSpeaker(item)}
+                  lastOfRun={!data[index + 1] || transcriptSpeaker(data[index + 1]) !== transcriptSpeaker(item)}
                   item={item}
                   fresh={contentReady && liveKeysRef.current.has(item.key) && sendTurn?.key !== item.key}
                   bot={bot}
                 />
+                </ChatIdentityContext.Provider>
               </OverlapRow>
               </ImageGalleryRow.Provider>
               </SendOriginContext.Provider>

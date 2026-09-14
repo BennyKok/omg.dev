@@ -34,6 +34,10 @@
  * the results as their own rows rather than labelling one with another's name.
  */
 
+import type { MessageAuthorRef } from "../../../src/conversation-contract";
+import { ChatIdentityContext } from "./chat-identity";
+import { messageSpeaker, otherMessageSender } from "./message-author";
+import { HumanMessageFrame } from "./human-message-frame";
 import { Sheet } from "./sheet";
 import { SendOriginContext, useSendEntrance } from "./send-motion";
 import * as Clipboard from "expo-clipboard";
@@ -85,6 +89,7 @@ import { useTheme } from "./theme";
 
 /** A transcript message, plus the flag the live stream sets on its synthetic tail. */
 export type Entry = OmgMessage & {
+  author?: MessageAuthorRef;
   streaming?: boolean;
   /**
    * Sent with `mode: "queue"` — waiting BEHIND the turn in flight rather than
@@ -180,7 +185,7 @@ export function transcriptSpeaker(item: TranscriptItem): string {
   if (item.type === "stamp") return "stamp";
   if (item.type === "tools") return "assistant";
   const role = item.message.role;
-  if (role === "user") return "user";
+  if (role === "user") return messageSpeaker(item.message);
   if (role === "assistant") return "assistant";
   return "system";
 }
@@ -352,10 +357,14 @@ export function TranscriptRow({
   fresh,
   bot,
   virtualize,
+  firstOfRun,
+  lastOfRun,
 }: {
   item: TranscriptItem;
   fresh?: boolean;
   virtualize?: boolean;
+  firstOfRun?: boolean;
+  lastOfRun?: boolean;
   /** Present only inside a bot chat — see app/session/[id].tsx's `SessionScreenBody`. */
   bot?: BotBubbleIdentity | null;
 }) {
@@ -383,7 +392,7 @@ export function TranscriptRow({
       {item.type === "stamp" ? (
         <Stamp ts={item.ts} />
       ) : item.type === "message" ? (
-        <TranscriptEntry message={item.message} nextTs={item.nextTs} bot={bot} virtualize={virtualize} />
+        <TranscriptEntry firstOfRun={firstOfRun} lastOfRun={lastOfRun} message={item.message} nextTs={item.nextTs} bot={bot} virtualize={virtualize} />
       ) : (
         <ToolRun pairs={item.pairs} entries={item.entries} nextTs={item.nextTs} live={item.live} />
       )}
@@ -734,11 +743,15 @@ export function TranscriptEntry({
   nextTs,
   bot,
   virtualize,
+  firstOfRun,
+  lastOfRun,
 }: {
   message: Entry;
   nextTs?: number | null;
   bot?: BotBubbleIdentity | null;
   virtualize?: boolean;
+  firstOfRun?: boolean;
+  lastOfRun?: boolean;
 }) {
   const { colors, type, space, radius } = useTheme();
   const isUser = message.role === "user";
@@ -790,7 +803,7 @@ export function TranscriptEntry({
   if (message.kind === "tool_result") return <ToolEntry call={null} result={message} />;
   if (message.kind === "tool_use") return <ToolEntry call={message} result={null} />;
 
-  if (isUser) return <UserMessage message={message} />;
+  if (isUser) return <UserMessage message={message} firstOfRun={firstOfRun} lastOfRun={lastOfRun} />;
 
   if (!message.text?.trim()) {
     // Never an empty cell: say what arrived, even when this build cannot draw it.
@@ -1706,7 +1719,9 @@ function SystemLine({ system, raw }: { system: SystemMessage; raw: string }) {
   );
 }
 
-export function UserMessage({ message }: { message: Entry }) {
+export function UserMessage({ message, firstOfRun, lastOfRun }: { message: Entry; firstOfRun?: boolean; lastOfRun?: boolean }) {
+  const identity = useContext(ChatIdentityContext);
+  const sender = otherMessageSender(message, identity);
   const { colors, type, space, isDark } = useTheme();
   const body = useBodyText();
   const sendEntrance = useSendEntrance();
@@ -1785,12 +1800,13 @@ export function UserMessage({ message }: { message: Entry }) {
   }
 
   return (
+    <HumanMessageFrame sender={sender} firstOfRun={firstOfRun} lastOfRun={lastOfRun}>
     <View style={{ alignSelf: "stretch", gap: space.xs }}>
       {envelope ? (
         <OmgInstructionsChip instructions={envelope.instructions} version={envelope.version} />
       ) : null}
       {attachments.length ? (
-        <UserAttachments attachments={attachments} pending={message.pending} />
+        <UserAttachments attachments={attachments} pending={message.pending} otherAuthor={!!sender} />
       ) : null}
       {/* A caption is optional: attach an image with nothing typed and the
           picture is the whole message, with no empty bubble under it. */}
@@ -1804,8 +1820,8 @@ export function UserMessage({ message }: { message: Entry }) {
            * vanishing changed the row's height, and the height change plus
            * the key swap read as the message being re-inserted.
            */
-          entering={sendEntrance.entering}
-          style={[settle, sendEntrance.bubbleStyle, { alignSelf: "flex-end", maxWidth: "85%" }]}
+          entering={sender ? undefined : sendEntrance.entering}
+          style={[settle, sender ? undefined : sendEntrance.bubbleStyle, { alignSelf: sender ? "flex-start" : "flex-end", maxWidth: "85%" }]}
         >
         <MenuView
           actions={bubbleActions}
@@ -1894,7 +1910,7 @@ export function UserMessage({ message }: { message: Entry }) {
         style={{
           flexDirection: "row",
           alignItems: "center",
-          alignSelf: "flex-end",
+          alignSelf: sender ? "flex-start" : "flex-end",
           gap: space.sm,
           marginTop: 2,
           marginRight: space.sm,
@@ -1914,6 +1930,7 @@ export function UserMessage({ message }: { message: Entry }) {
         ) : null}
       </View>
     </View>
+    </HumanMessageFrame>
   );
 }
 
@@ -1928,9 +1945,11 @@ export function UserMessage({ message }: { message: Entry }) {
 function UserAttachments({
   attachments,
   pending,
+  otherAuthor = false,
 }: {
   attachments: MessageAttachment[];
   pending?: boolean;
+  otherAuthor?: boolean;
 }) {
   const { colors, space, radius } = useTheme();
   const single = attachments.length === 1;
@@ -1950,7 +1969,7 @@ function UserAttachments({
          * hung off both sides of the screen. They are one utterance and they
          * share an edge.
          */
-        justifyContent: "flex-end",
+        justifyContent: otherAuthor ? "flex-start" : "flex-end",
         // Not `stretch`, which is the flex default: that pulls every tile on a
         // row up to the tallest one's height, so a wide screenshot beside a
         // tall one renders squashed. The web stylesheet carries this same note.
