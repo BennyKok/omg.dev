@@ -261,6 +261,7 @@ export function useSideNavGesture({ visible, onOpen, onClose, progress, enabled,
   const closing = useRef(false);
   const dragStart = useRef(1);
   const openingDrag = useRef(false);
+  const openingBlocked = useRef(false);
   const dragging = useRef(false);
   const openRef = useRef(onOpen);
   openRef.current = onOpen;
@@ -308,10 +309,17 @@ export function useSideNavGesture({ visible, onOpen, onClose, progress, enabled,
 
   const pan = useMemo(() =>
     PanResponder.create({
+      onStartShouldSetPanResponderCapture: () => {
+        // Descendant horizontal scrollers can exclude this touch sequence
+        // in onTouchStart, after this capture phase. Keep the exclusion even
+        // when the native scroll view cancels child touches during a drag.
+        openingBlocked.current = false;
+        return false;
+      },
       // Capture only horizontal intent. Vertical list drags stay with the list.
       onMoveShouldSetPanResponderCapture: (_event, gesture) =>
         enabled && Math.abs(gesture.dx) > 8 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.5 &&
-        (mountedRef.current ? gesture.dx < 0 : gesture.x0 <= 24 && gesture.dx > 0),
+        (mountedRef.current ? gesture.dx < 0 : !openingBlocked.current && gesture.x0 <= 24 && gesture.dx > 0),
       onPanResponderGrant: () => {
         openingDrag.current = !mountedRef.current;
         dragging.current = true;
@@ -355,7 +363,10 @@ export function useSideNavGesture({ visible, onOpen, onClose, progress, enabled,
     return () => subscription.remove();
   }, [mounted]);
 
-  return { mounted, dismiss: () => dismissRef.current(true), panHandlers: pan.panHandlers };
+  return {
+    mounted, dismiss: () => dismissRef.current(true), panHandlers: pan.panHandlers,
+    blockOpeningGesture: () => { openingBlocked.current = true; },
+  };
 }
 
 export function SideNavDrawer({ progress, controller, ...panel }: SideNavProps & {

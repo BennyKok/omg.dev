@@ -1303,6 +1303,7 @@ export function SessionsScreen({
   const folderRail = ready && projectPicker.options.length ? (
     <ScrollView
       horizontal
+      onTouchStart={navGesture.blockOpeningGesture}
       showsHorizontalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
       // flexGrow 0: a ScrollView grows by default, and in the iPad rail's
