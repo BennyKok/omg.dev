@@ -10,6 +10,7 @@ import { isSharedBindingId } from "./computer-shared-binding";
 import { CLOUD_BINDING_ID } from "./config";
 import { controlPlane, useOmg } from "./provider";
 import { bindingLabel } from "./format";
+import { liveActivityRegistration } from "./live-activity-registration";
 
 export type ActivitySession = {
   id: string;
@@ -96,12 +97,13 @@ async function deviceId(): Promise<string> {
   return created;
 }
 
-async function registerDevice(bindingId: string, machineName: string, pushToStartToken: string): Promise<void> {
+async function registerDevice(bindingId: string, machineName: string, pushToStartToken: string, hasActiveActivity?: boolean): Promise<void> {
   await controlPlane("registerLiveActivityDevice", {
     deviceId: await deviceId(),
     bindingId,
     machineName,
     pushToStartToken,
+    ...(hasActiveActivity === undefined ? {} : { hasActiveActivity }),
   });
 }
 
@@ -155,37 +157,26 @@ export function AgentLiveActivityBridge() {
       isSharedBindingId(bindingId)
     ) return;
 
-    let disposed = false;
-    const activitySubscriptions: Array<{ remove(): void }> = [];
-    const attachedActivityIds = new Set<string>();
-    const reportInstances = async () => {
-      for (const instance of AgentLiveActivity.getInstances()) {
-        if (attachedActivityIds.has(instance.getId())) continue;
-        attachedActivityIds.add(instance.getId());
-        const report = (event: { activityId: string; pushToken: string }) => {
-          if (!disposed) void registerActivityWithRetry(bindingId, event.activityId, event.pushToken).catch(console.warn);
-        };
-        activitySubscriptions.push(instance.addPushTokenListener(report));
-        const pushToken = await instance.getPushToken();
-        if (pushToken && !disposed) await registerActivityWithRetry(bindingId, instance.getId(), pushToken);
-      }
-    };
-
     const currentBinding = bindings.find((binding) => binding.id === bindingId);
     const machineName = currentBinding ? bindingLabel(currentBinding) : "My Computer";
-    const pushToStartSubscription = addPushToStartTokenListener(({ activityPushToStartToken }) => {
-      if (!disposed) void registerDevice(bindingId, machineName, activityPushToStartToken).catch(console.warn);
+    const registration = liveActivityRegistration({
+      getInstances: () => AgentLiveActivity.getInstances(),
+      isForeground: () => AppState.currentState === "active",
+      registerDevice: (token, hasActiveActivity) => registerDevice(bindingId, machineName, token, hasActiveActivity),
+      registerActivity: (id, token) => registerActivityWithRetry(bindingId, id, token),
+      onError: console.warn,
     });
-    void reportInstances().catch(console.warn);
+    const pushToStartSubscription = addPushToStartTokenListener(({ activityPushToStartToken }) => {
+      void registration.onStartToken(activityPushToStartToken);
+    });
     const appStateSubscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") void reportInstances().catch(console.warn);
+      if (state === "active") void registration.refresh();
     });
 
     return () => {
-      disposed = true;
+      registration.dispose();
       pushToStartSubscription.remove();
       appStateSubscription.remove();
-      for (const subscription of activitySubscriptions) subscription.remove();
     };
   }, [authStatus, bindingId, bindings]);
 
