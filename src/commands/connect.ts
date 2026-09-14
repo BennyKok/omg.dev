@@ -709,7 +709,7 @@ export type SessionEventFrame = {
   ts: number;
 };
 
-/** A privacy-safe aggregate for iOS Live Activities. The relay adds the
+/** A bounded roster for iOS Live Activities. The relay adds the
  * authenticated binding and user ids, so the box must not guess either. */
 export type FleetStatusEventFrame = {
   type: "event";
@@ -721,6 +721,8 @@ export type FleetStatusEventFrame = {
   runningCount: number;
   blockedCount: number;
   attentionSessionId: string | null;
+  sessions: Array<{ id: string; title: string; agent: string; state: "blocked" | "working" | "done" }>;
+  sessionCount: number;
   ts: number;
 };
 
@@ -728,6 +730,10 @@ export function fleetStatusFrame(sessions: SessionLite[], ts: number): FleetStat
   const reportable = sessions.filter(isTopLevelSession);
   const blocked = reportable.filter((session) => session.status === "blocked");
   const running = reportable.filter((session) => session.busy || session.launching);
+  const roster = reportable.filter((session) => session.sessionId).sort((a, b) => {
+    const rank = (session: SessionLite) => session.status === "blocked" ? 0 : session.busy || session.launching ? 1 : 2;
+    return rank(a) - rank(b) || (b.startedAt ?? 0) - (a.startedAt ?? 0) || a.sessionId!.localeCompare(b.sessionId!);
+  });
   return {
     type: "event",
     event: "fleet.status",
@@ -737,13 +743,20 @@ export function fleetStatusFrame(sessions: SessionLite[], ts: number): FleetStat
     agent: null,
     runningCount: running.length,
     blockedCount: blocked.length,
-    attentionSessionId: blocked[0]?.sessionId ?? null,
+    attentionSessionId: roster.find((session) => session.status === "blocked")?.sessionId ?? null,
+    sessions: roster.slice(0, 3).map((session) => ({
+      id: session.sessionId!.slice(0, 128),
+      title: (session.title ?? "").replace(/\s+/g, " ").trim().slice(0, 72),
+      agent: (session.agent ?? "").trim().toLowerCase().slice(0, 32),
+      state: session.status === "blocked" ? "blocked" : session.busy || session.launching ? "working" : "done",
+    })),
+    sessionCount: Math.min(999, roster.length),
     ts,
   };
 }
 
-function fleetStatusSignature(frame: FleetStatusEventFrame): string {
-  return `${frame.runningCount}:${frame.blockedCount}:${frame.attentionSessionId ?? ""}`;
+export function fleetStatusSignature(frame: FleetStatusEventFrame): string {
+  return JSON.stringify([frame.runningCount, frame.blockedCount, frame.attentionSessionId, frame.sessionCount, frame.sessions]);
 }
 
 /** A shipped-post announcement (POST /api/shipped → shipped.jsonl). Same

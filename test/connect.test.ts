@@ -6,6 +6,7 @@ import {
   diffShipEvents,
   errorFrameMessage,
   fleetStatusFrame,
+  fleetStatusSignature,
   forwardToLocalServe,
   isHttpFrame,
   isReportableTransition,
@@ -287,9 +288,26 @@ describe("fleetStatusFrame", () => {
       runningCount: 2,
       blockedCount: 1,
       attentionSessionId: "blocked",
+      sessions: [
+        { id: "blocked", title: "build a todo app", agent: "claude", state: "blocked" },
+        { id: "working", title: "build a todo app", agent: "claude", state: "working" },
+        { id: "idle", title: "build a todo app", agent: "claude", state: "done" },
+      ],
+      sessionCount: 3,
       ts: 1234,
     });
   });
+});
+
+test("fleet roster bounds titles and refreshes identity without count changes", () => {
+  const rows = Array.from({ length: 8 }, (_, index) => session({ sessionId: `session-${index}`, busy: true, title: "x".repeat(100), agent: "codex" }));
+  const before = fleetStatusFrame(rows, 1);
+  expect(before.sessions).toHaveLength(3);
+  expect(before.sessionCount).toBe(8);
+  expect(before.sessions[0].title).toHaveLength(72);
+  expect(fleetStatusSignature(before)).toBe(fleetStatusSignature(fleetStatusFrame(rows, 2)));
+  rows[0].title = "New title";
+  expect(fleetStatusSignature(before)).not.toBe(fleetStatusSignature(fleetStatusFrame(rows, 2)));
 });
 
 describe("isReportableTransition", () => {
