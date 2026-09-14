@@ -17,7 +17,7 @@
  * list and tapping it still opens the agent's report. The rows do not
  * animate in: the sheet's own slide is the entrance.
  */
-import { ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
+import { StyleSheet, useWindowDimensions, View } from "react-native";
 import * as Haptics from "expo-haptics";
 
 import { Icon, withAlpha } from "../components";
@@ -26,6 +26,7 @@ import type { AutoFindingGroup } from "./auto-agents";
 import { GlassSurface } from "./glass";
 import { PressableScale } from "./motion";
 import { Sheet } from "./sheet";
+import { SheetScrollView as ScrollView } from "./sheet-scroll";
 import { Text } from "./text";
 import { useTheme } from "./theme";
 

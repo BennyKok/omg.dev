@@ -13,6 +13,7 @@ mock.module(import.meta.resolve('expo-symbols'), () => ({SymbolView:()=>null}));
 mock.module(resolve(import.meta.dir,'../src/omg/sheet.tsx'), () => ({Sheet:({children}:any)=><section>{children}</section>}));
 mock.module(resolve(import.meta.dir,'../src/omg/motion.tsx'), () => ({PressableScale:Pressable}));
 mock.module(resolve(import.meta.dir,'../src/omg/text.tsx'), () => ({Text:({children}:any)=><span>{children}</span>,TextInput:({value,onChangeText,placeholder}:any)=><input value={value} placeholder={placeholder} onInput={e=>onChangeText(e.currentTarget.value)}/>}));
+mock.module(import.meta.resolve('react-native-gesture-handler'), () => ({NativeViewGestureHandler:View}));
 const { light, space, type, radius } = await import('../src/omg/palette');
 mock.module(resolve(import.meta.dir,'../src/omg/theme.ts'), () => ({useTheme:()=>({colors:light,space,type,radius})}));
 const { AgentSetupSheet } = await import('../src/omg/agent-setup-sheet');

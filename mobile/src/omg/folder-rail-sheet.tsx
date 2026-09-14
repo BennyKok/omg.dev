@@ -5,7 +5,7 @@
  * Order and hidden set live on the device (see STORAGE_KEYS.folderRail).
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View, type GestureResponderEvent } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, View, type GestureResponderEvent } from "react-native";
 
 import Reanimated, { Easing, LinearTransition } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
@@ -13,6 +13,7 @@ import type { AndroidSymbol, SFSymbol } from "expo-symbols";
 
 import { Icon } from "../components";
 import { Sheet } from "./sheet";
+import { SheetScrollView as ScrollView, useBlockSheetDrag } from "./sheet-scroll";
 import { PressableScale } from "./motion";
 import { useOmg } from "./provider";
 import type { FolderRow } from "./session-options";
@@ -141,8 +142,10 @@ function FolderList({
    * is frozen (`scrollEnabled={!drag}`) for the duration.
    */
   const startY = useRef(0);
+  const blockSheetDrag = useBlockSheetDrag();
   const handleFor = (cwd: string) => ({
     onTouchStart: (e: GestureResponderEvent) => {
+      blockSheetDrag();
       startY.current = e.nativeEvent.pageY;
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       setDrag({ cwd, from: orderRef.current.indexOf(cwd), dy: 0 });

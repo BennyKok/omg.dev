@@ -12,12 +12,13 @@
  * session-options.ts are unchanged and nothing here decides what is selected.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ActivityIndicator, Image, PanResponder, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Image, PanResponder, Platform, Pressable, StyleSheet, View } from "react-native";
 import Reanimated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { SymbolView } from "expo-symbols";
 
 import { Sheet } from "./sheet";
+import { SheetScrollView as ScrollView, useSheetExpanded } from "./sheet-scroll";
 import type { MenuOption } from "./menu";
 import { PressableScale } from "./motion";
 import { Text, TextInput } from "./text";
@@ -226,6 +227,7 @@ const MODEL_MAX_RESULTS = 40;
 function ModelList({ options, onPick }: { options: MenuOption[]; onPick: (option: MenuOption) => void }) {
   const { colors, type, space, radius } = useTheme();
   const [query, setQuery] = useState("");
+  const expanded = useSheetExpanded();
   const q = query.trim().toLowerCase();
   const shown = useMemo(() => {
     const matched = q ? options.filter((o) => o.label.toLowerCase().includes(q)) : options;
@@ -268,7 +270,7 @@ function ModelList({ options, onPick }: { options: MenuOption[]; onPick: (option
           bounces={false}
           nestedScrollEnabled
           keyboardShouldPersistTaps="handled"
-          style={{ height: 44 * MODEL_ROWS_SHOWN }}
+          style={{ height: 44 * (expanded ? 10.5 : MODEL_ROWS_SHOWN) }}
         >
           {shown.map((option, index) => (
             <Row key={`${option.label}:${index}`} option={option} first={index === 0} onPress={() => onPick(option)} />
