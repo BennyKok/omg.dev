@@ -2548,7 +2548,7 @@ export function SessionScreenBody({
                   ? "Press and hold to send it into the current turn"
                   : "Press and hold to queue it behind the current turn"
               }
-              accessibilityState={{ disabled: !canSend }}
+              accessibilityState={{ disabled: !canSend, busy: sending }}
               style={({ pressed }) => ({
                 width: 32,
                 height: 32,
@@ -2562,17 +2562,13 @@ export function SessionScreenBody({
               {/* Always the arrow. A "+" while the agent worked read as
                   "attach", and the hold-to-queue affordance was never in
                   the glyph anyway — it is in the hold. */}
-              {sending ? (
-                <ActivityIndicator size="small" color={colors.bg} />
-              ) : (
-                <Icon
-                  ios="arrow.up"
-                  android="arrow_upward"
-                  size={15}
-                  weight="semibold"
-                  color={colors.bg}
-                />
-              )}
+              <Icon
+                ios="arrow.up"
+                android="arrow_upward"
+                size={15}
+                weight="semibold"
+                color={colors.bg}
+              />
             </Pressable>
           ) : (
             /**

@@ -1276,22 +1276,19 @@ export function HomeComposer({
             onPress={onStart}
             disabled={!canStart}
             accessibilityLabel="Start session"
+            accessibilityState={{ disabled: !canStart, busy: !!starting }}
             scale={0.94}
             dim={0.8}
             style={{
               alignItems: "center",
               justifyContent: "center",
-              backgroundColor: colors.text,
+              backgroundColor: starting ? colors.border : colors.text,
               borderRadius: radius.pill,
               width: 34,
               height: 34,
             }}
           >
-            {starting ? (
-              <ActivityIndicator size="small" color={colors.bg} />
-            ) : (
-              <Icon ios="arrow.up" android="arrow_upward" size={16} color={colors.bg} />
-            )}
+            <Icon ios="arrow.up" android="arrow_upward" size={16} color={starting ? colors.textMuted : colors.bg} />
           </PressableScale>
         ) : null}
       </GlassSurface>
