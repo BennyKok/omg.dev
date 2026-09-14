@@ -9,6 +9,7 @@ import {
   NO_AGENT_LIMIT,
   agentLaunchMemoryBudget,
   computerAgentAdmissionContext,
+  isScheduleSpawned,
 } from "../agent-admission.ts";
 import { PATHS, appVersion, installInfo, localServeBaseUrl } from "../config.ts";
 import { desktopRuntimeReadyPayload } from "../desktop-parent.ts";
@@ -1374,6 +1375,12 @@ function persistManagedResume(session: Session): void {
     fastMode: session.fastMode === true || session.serviceTier === "fast",
     assignedUser: session.assignedUser,
     resumable: true,
+    scheduled: isScheduleSpawned(session.spawnedBy),
+    // This function runs only from closeLiveSession, so reaching it IS the
+    // archive event. Stamping Date.now() rather than reusing mtimeMs is the
+    // point: mtimeMs is the last turn, which can be hours or days older, and
+    // sorting the picker on it buried a session the moment it was archived.
+    archivedAt: Date.now(),
   };
   const rows: Parameters<typeof upsertResumableRows>[0] = [{
     ...base,
@@ -8089,12 +8096,17 @@ a{color:#60a5fa}
           ? agentParam
           : undefined;
         const project = url.searchParams.get("project")?.trim() || undefined;
+        // Headless schedule runs are hidden unless the caller asks for them.
+        // They are the bulk of the catalog on a box with active auto agents
+        // and none of them is a conversation a human wants to resume.
+        const includeScheduled = url.searchParams.get("includeScheduled") === "1";
         const { sessions, total, facets } = await queryResumable({
           limit,
           offset,
           search,
           agent,
           project,
+          includeScheduled,
           excludeIds: liveIds,
         });
         return json({ sessions, total, facets });

@@ -439,7 +439,7 @@ export default function ResumeSessionSheet({
                               {session.title}
                             </span>
                             <span className="shrink-0 text-[10px] leading-tight tabular-nums text-muted-foreground/70">
-                              {timeAgo(session.lastActivityAt)}
+                              {timeAgo(session.archivedAt ?? session.lastActivityAt)}
                             </span>
                           </span>
                           {preview ? (
