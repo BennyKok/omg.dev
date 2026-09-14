@@ -1,4 +1,4 @@
-/** App-owned widget timeline. Refreshes on launch and foreground; no background push. */
+/** App-owned widget timeline. Tracks the ready Computer while the app can run. */
 import type { OmgClient } from "@omg-dev/client";
 import { useEffect } from "react";
 import { AppState, Platform } from "react-native";
@@ -7,6 +7,7 @@ import { AgentVillageWidget, type VillageCharacter, type VillageProps } from "./
 import { isSharedBindingId } from "./computer-shared-binding";
 import { CLOUD_BINDING_ID } from "./config";
 import { bindingLabel } from "./format";
+import { widgetRefresh } from "./widget-refresh";
 import { useOmg } from "./provider";
 import { stageAgentIcons, stageVillageScenes, villageCharacter, villageScene, walkTimeline } from "./village-widget-data";
 
@@ -17,6 +18,7 @@ type FleetSession = {
   sessionId: string | null;
   agent?: string;
   busy?: boolean;
+  launching?: boolean;
   status?: "ok" | "blocked";
   lastActivityAt?: number | null;
 };
@@ -58,7 +60,7 @@ async function openAskSessionIds(client: OmgClient): Promise<Set<string> | null>
 function rank(session: FleetSession, waiting: Set<string>): number {
   if (session.sessionId && waiting.has(session.sessionId)) return 0;
   if (session.status === "blocked") return 1;
-  if (session.busy) return 2;
+  if (session.busy || session.launching) return 2;
   return 3;
 }
 
@@ -70,12 +72,13 @@ function rank(session: FleetSession, waiting: Set<string>): number {
 function stateOf(session: FleetSession, waiting: Set<string>): VillageCharacter["state"] {
   if (session.sessionId && waiting.has(session.sessionId)) return "blocked";
   if (session.status === "blocked") return "blocked";
-  if (session.busy) return "working";
+  if (session.busy || session.launching) return "working";
   return "idle";
 }
 
 export function AgentVillageWidgetBridge() {
-  const { authStatus, bindingId, bindings, client } = useOmg();
+  const { authStatus, bindingId, bindings, client, readiness } = useOmg();
+  const ready = readiness?.status === "ready";
 
   useEffect(() => {
     if (Platform.OS !== "ios") return;
@@ -84,33 +87,45 @@ export function AgentVillageWidgetBridge() {
 
     let disposed = false;
 
-    const refresh = async () => {
-      const stagedScenes = await stageVillageScenes();
-      const small = villageScene("small", stagedScenes);
-      const medium = villageScene("medium", stagedScenes);
-      const large = villageScene("large", stagedScenes);
-      if (disposed || !small || !medium || !large) return;
-      if (!eligible || !client) {
+    // Clear a signed-out or explicitly unsupported selection, but preserve
+    // the saved frame during authentication and Computer wake-up.
+    if (authStatus === "signed-out" || (authStatus === "signed-in" && bindingId && !eligible)) {
+      void (async () => {
+        const staged = await stageVillageScenes();
+        const small = villageScene("small", staged);
+        const medium = villageScene("medium", staged);
+        const large = villageScene("large", staged);
+        if (disposed || !small || !medium || !large) return;
         AgentVillageWidget.updateSnapshot({
           machineName: "Open omg.dev", runningCount: 0, blockedCount: 0,
           attentionSessionId: "", scenes: { small, medium, large },
           characters: [], walkPhase: 0, updatedAt: Date.now(),
         });
-        return;
-      }
+      })().catch(console.warn);
+      return () => { disposed = true; };
+    }
+
+    const refresh = async (): Promise<boolean> => {
+      // Startup/auth restoration must not overwrite a valid saved snapshot.
+      if (authStatus !== "signed-in" || !eligible || !client || !ready) return false;
+      const stagedScenes = await stageVillageScenes();
+      const small = villageScene("small", stagedScenes);
+      const medium = villageScene("medium", stagedScenes);
+      const large = villageScene("large", stagedScenes);
+      if (disposed || !small || !medium || !large) return false;
       const [sessions, waiting] = await Promise.all([
         client.listSessions().catch(() => null) as Promise<FleetSession[] | null>,
         openAskSessionIds(client),
       ]);
       // Either half missing means the next frame would be wrong rather than
       // stale. Keep what the widget already shows.
-      if (disposed || !sessions || !waiting) return;
+      if (disposed || !sessions || !waiting) return false;
 
       const icons = await stageAgentIcons(sessions.map((session) => session.agent ?? ""));
-      if (disposed) return;
+      if (disposed) return false;
 
       const isActive = (session: FleetSession) =>
-        (session.sessionId && waiting.has(session.sessionId)) || session.status === "blocked" || session.busy;
+        (session.sessionId && waiting.has(session.sessionId)) || session.status === "blocked" || session.busy || session.launching;
       const active = sessions.filter(isActive).sort((a, b) => rank(a, waiting) - rank(b, waiting));
       const nappers = active.length > 0
         ? []
@@ -132,7 +147,7 @@ export function AgentVillageWidgetBridge() {
       AgentVillageWidget.updateTimeline(
         walkTimeline<VillageProps>({
           machineName: binding ? bindingLabel(binding) : "My Computer",
-          runningCount: sessions.filter((session) => session.busy).length,
+          runningCount: sessions.filter((session) => session.busy || session.launching).length,
           blockedCount: asking.length + stuck.length,
           // A parked question is the one a tap can actually resolve, so it wins
           // the deep link over a provider error.
@@ -142,18 +157,41 @@ export function AgentVillageWidgetBridge() {
           updatedAt: Date.now(),
         }, WALK_STEP_MS),
       );
+      return true;
     };
 
-    void refresh().catch(console.warn);
+    if (!eligible || !client || !ready) return;
+    const writer = widgetRefresh({ refresh, onError: console.warn });
+    let stopObserving: (() => void) | null = null;
+    const foreground = (active: boolean) => {
+      if (active && !stopObserving) {
+        let lastStatus = "";
+        const offStatus = client.live.subscribeStatus((rows) => {
+          const signature = JSON.stringify(rows.map((row) => [row.sessionId, row.busy, row.status]));
+          if (signature !== lastStatus) { lastStatus = signature; writer.changed(); }
+        });
+        const offConnection = client.live.subscribeConnection((state) => {
+          if (state.status === "live") writer.changed();
+        });
+        stopObserving = () => { offStatus(); offConnection(); };
+      } else if (!active) {
+        stopObserving?.();
+        stopObserving = null;
+      }
+      void writer.foreground(active);
+    };
+    foreground(AppState.currentState === "active");
     const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") void refresh().catch(console.warn);
+      if (state === "active" || state === "background") foreground(state === "active");
     });
 
     return () => {
       disposed = true;
+      writer.dispose();
+      stopObserving?.();
       subscription.remove();
     };
-  }, [authStatus, bindingId, bindings, client]);
+  }, [authStatus, bindingId, bindings, client, ready]);
 
   return null;
 }
