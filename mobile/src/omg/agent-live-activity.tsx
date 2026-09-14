@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Crypto from "expo-crypto";
 import { useEffect } from "react";
 import { AppState, Linking, Platform } from "react-native";
-import { Circle, HStack, Image, Spacer, Text, VStack } from "@expo/ui/swift-ui";
+import { HStack, Image, Spacer, Text, VStack } from "@expo/ui/swift-ui";
 import { background, bold, cornerRadius, font, foregroundColor, frame, lineLimit, padding, resizable, widgetURL } from "@expo/ui/swift-ui/modifiers";
 import { addPushToStartTokenListener, createLiveActivity, type LiveActivityEnvironment } from "expo-widgets";
 
@@ -53,8 +53,6 @@ export function AgentActivity(props: AgentActivityProps, environment: LiveActivi
         <HStack spacing={12}>
           <Text modifiers={[font({ size: expanded ? 15 : 18, weight: "bold" }), foregroundColor(ink), lineLimit(1)]}>{summary}</Text>
           <Spacer />
-          <Circle modifiers={[frame({ width: 5, height: 5 }), foregroundColor(accent)]} />
-          <Text modifiers={[font({ size: 11, weight: "medium" }), foregroundColor(muted), lineLimit(1), frame({ maxWidth: 110 })]}>{props.machineName}</Text>
         </HStack>
         <VStack spacing={3}>
           {sessions.map((session) => (
