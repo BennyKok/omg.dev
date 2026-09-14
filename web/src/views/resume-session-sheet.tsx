@@ -17,7 +17,16 @@ import {
 import { timeAgo } from "../lib/session-ui";
 import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
 import { cn } from "@/lib/utils";
-import { Archive, ChevronRight, Loader2, RotateCcw, Search, Trash2, X } from "lucide-react";
+import {
+  Archive,
+  CalendarClock,
+  ChevronRight,
+  Loader2,
+  RotateCcw,
+  Search,
+  Trash2,
+  X,
+} from "lucide-react";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 
@@ -55,6 +64,9 @@ type ResumableResponse = {
   sessions: ResumableSession[];
   total: number;
   facets: ResumableFacets;
+  // How many scheduled runs the current filters match. Optional so an older or
+  // proxied backend just renders no count instead of "undefined".
+  scheduledTotal?: number;
 };
 
 type ResumableFacets = {
@@ -86,11 +98,17 @@ export default function ResumeSessionSheet({
   const [debounced, setDebounced] = useState("");
   const [agent, setAgent] = useState("all");
   const [project, setProject] = useState(scoped);
+  // Headless auto-agent runs are the bulk of the catalog and none of them is a
+  // conversation anyone resumes, so the sheet opens without them every time.
+  // Deliberately not persisted: hiding them is the right default on every open,
+  // and a sticky "on" would quietly restore the wall of identical rows.
+  const [showScheduled, setShowScheduled] = useState(false);
   const [items, setItems] = useState<ResumableSession[]>(
     scoped === "all" && initial ? initial : [],
   );
   const [total, setTotal] = useState(scoped === "all" && initial ? initial.length : 0);
   const [facets, setFacets] = useState<ResumableFacets>({ agents: [], projects: [] });
+  const [scheduledTotal, setScheduledTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -126,18 +144,21 @@ export default function ResumeSessionSheet({
       if (debounced) params.set("search", debounced);
       if (agent !== "all") params.set("agent", agent);
       if (project !== "all") params.set("project", project);
+      if (showScheduled) params.set("includeScheduled", "1");
       api<ResumableResponse>(`/api/sessions/resumable?${params.toString()}`)
         .then((response) => {
           if (token !== requestRef.current) return;
           const batch = Array.isArray(response.sessions) ? response.sessions : [];
           setItems((current) => (reset ? batch : [...current, ...batch]));
           setTotal(response.total ?? batch.length);
+          setScheduledTotal(response.scheduledTotal ?? 0);
           setFacets(response.facets ?? { agents: [], projects: [] });
         })
         .catch(() => {
           if (token !== requestRef.current || !reset) return;
           setItems([]);
           setTotal(0);
+          setScheduledTotal(0);
           setFacets({ agents: [], projects: [] });
         })
         .finally(() => {
@@ -146,7 +167,7 @@ export default function ResumeSessionSheet({
           else setLoadingMore(false);
         });
     },
-    [agent, debounced, project],
+    [agent, debounced, project, showScheduled],
   );
 
   useEffect(() => {
@@ -306,6 +327,32 @@ export default function ResumeSessionSheet({
                         </option>
                       ))}
                     </select>
+                  ) : null}
+                  {/* Only offered when there is something to reveal. A dead
+                      toggle on a box with no auto agents is just noise, and the
+                      count is what makes the control mean anything. */}
+                  {scheduledTotal || showScheduled ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowScheduled((on) => !on)}
+                      aria-pressed={showScheduled}
+                      title={
+                        showScheduled
+                          ? "Hide scheduled auto-agent runs"
+                          : `Show ${scheduledTotal} scheduled auto-agent run${scheduledTotal === 1 ? "" : "s"}`
+                      }
+                      className={cn(
+                        "flex h-8 shrink-0 items-center gap-1 rounded-full border px-2.5 text-xs font-medium transition",
+                        showScheduled
+                          ? "border-transparent bg-foreground text-background"
+                          : "border-border bg-background text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      <CalendarClock className="size-3.5" />
+                      {scheduledTotal ? (
+                        <span className="tabular-nums opacity-70">{scheduledTotal}</span>
+                      ) : null}
+                    </button>
                   ) : null}
                 </>
               ) : null}

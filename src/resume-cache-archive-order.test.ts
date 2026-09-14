@@ -102,6 +102,47 @@ describe("scheduled runs are hidden by default", () => {
   });
 });
 
+describe("the hidden-run count the toggle is labelled with", () => {
+  test("counts the scheduled rows regardless of whether they are shown", () => {
+    upsertResumableRows([
+      row({ sessionId: "human" }),
+      row({ sessionId: "watch-a", scheduled: true }),
+      row({ sessionId: "watch-b", scheduled: true }),
+    ]);
+
+    // Hidden: the count is what the control offers to reveal.
+    const hidden = queryResumableCache({ limit: 10 });
+    expect(hidden.total).toBe(1);
+    expect(hidden.scheduledTotal).toBe(2);
+
+    // Shown: the same rows are now in `total`, and the count still describes
+    // them, so the control can say what turning it off would remove.
+    const shown = queryResumableCache({ limit: 10, includeScheduled: true });
+    expect(shown.total).toBe(3);
+    expect(shown.scheduledTotal).toBe(2);
+  });
+
+  test("narrows with the search and project filters, like the page does", () => {
+    // A count of every schedule on the box, sitting next to a page filtered to
+    // one project, would send the user looking for rows that are not there.
+    upsertResumableRows([
+      row({ sessionId: "lfg-watch", project: "lfg", scheduled: true }),
+      row({ sessionId: "vibes-watch-a", project: "vibes", scheduled: true }),
+      row({ sessionId: "vibes-watch-b", project: "vibes", scheduled: true }),
+      row({ sessionId: "vibes-human", project: "vibes" }),
+    ]);
+
+    expect(queryResumableCache({ limit: 10 }).scheduledTotal).toBe(3);
+    expect(queryResumableCache({ limit: 10, project: "vibes" }).scheduledTotal).toBe(2);
+    expect(queryResumableCache({ limit: 10, project: "lfg" }).scheduledTotal).toBe(1);
+  });
+
+  test("is zero when the box runs no auto agents, so the control stays hidden", () => {
+    upsertResumableRows([row({ sessionId: "human" })]);
+    expect(queryResumableCache({ limit: 10 }).scheduledTotal).toBe(0);
+  });
+});
+
 describe("ordering is by archive time", () => {
   test("a session archived now outranks one whose last turn is newer", () => {
     // The exact case the old ORDER BY got wrong: a long-idle session that the

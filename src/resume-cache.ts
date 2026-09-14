@@ -79,6 +79,11 @@ export type ResumableQueryResult = {
   sessions: ResumableSession[];
   total: number;
   facets: ResumableFacets;
+  // How many scheduled runs the current filters match. The picker labels its
+  // show/hide control with this, so the rows it is hiding are stated rather
+  // than silently missing. Counted under the same search/agent/project filters
+  // as `total`, so the two numbers describe the same slice of history.
+  scheduledTotal: number;
 };
 
 export type HistoricalSession = {
@@ -499,6 +504,9 @@ export function queryResumableCache(opts: ResumableQuery = {}): ResumableQueryRe
     facetParams.push(...exclude.params);
   }
   facetWhere.push("resumable = 1");
+  // Everything above applies whether or not scheduled runs are shown; keep it
+  // separate so the "how many am I hiding" count below can reuse it.
+  const sharedWhere = [...facetWhere];
   // Scheduled runs are excluded from the facet counts too, not just the page.
   // A chip that reads "claude 4,904" and then pages nothing but hidden rows is
   // worse than no chip.
@@ -516,22 +524,37 @@ export function queryResumableCache(opts: ResumableQuery = {}): ResumableQueryRe
     )
     .all(...facetParams);
 
-  // The visible page respects every filter.
-  const where = [...facetWhere];
-  const params = [...facetParams];
+  // The visible page respects every filter. Collected separately from the
+  // shared clauses because the scheduled count below needs the same narrowing
+  // (a count of 388 next to a project-filtered page of 4 would be a lie).
+  const narrowing: string[] = [];
+  const narrowingParams: (string | number)[] = [];
   if (opts.agent) {
-    where.push("agent = ?");
-    params.push(opts.agent);
+    narrowing.push("agent = ?");
+    narrowingParams.push(opts.agent);
   }
   if (opts.project) {
-    where.push("project = ?");
-    params.push(opts.project);
+    narrowing.push("project = ?");
+    narrowingParams.push(opts.project);
   }
   if (opts.cwd) {
-    where.push("cwd = ?");
-    params.push(opts.cwd);
+    narrowing.push("cwd = ?");
+    narrowingParams.push(opts.cwd);
   }
+  const where = [...facetWhere, ...narrowing];
+  const params = [...facetParams, ...narrowingParams];
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+
+  // How many scheduled runs this same slice of history holds. Neither
+  // "scheduled = 0"/"scheduled = 1" binds a parameter, so the parameter order
+  // is identical to the page query above.
+  const scheduledWhere = [...sharedWhere, "scheduled = 1", ...narrowing];
+  const scheduledTotal =
+    d
+      .query<{ count: number }, (string | number)[]>(
+        `SELECT COUNT(*) AS count FROM resumable_sessions WHERE ${scheduledWhere.join(" AND ")}`,
+      )
+      .get(...facetParams, ...narrowingParams)?.count ?? 0;
 
   const total =
     d
@@ -562,6 +585,7 @@ export function queryResumableCache(opts: ResumableQuery = {}): ResumableQueryRe
   return {
     sessions: rows.map(toSession),
     total,
+    scheduledTotal,
     facets: {
       agents: agentFacet.map((r) => ({ agent: r.agent, count: r.count })),
       projects: projectFacet
