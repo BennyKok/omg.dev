@@ -1047,6 +1047,8 @@ export function HomeComposer({
     agentOptions.length || modelOptions?.length || thinkingOptions?.length,
   );
   const [setupOpen, setSetupOpen] = useState(false);
+  const [composerFocused, setComposerFocused] = useState(false);
+  const inputMinHeight = composerFocused ? 48 : 24;
   return (
     <View
       /**
@@ -1182,17 +1184,22 @@ export function HomeComposer({
           multiline
           returnKeyType="send"
           submitBehavior="submit"
+          onFocus={() => setComposerFocused(true)}
+          onBlur={() => setComposerFocused(false)}
           onSubmitEditing={() => {
             if (canStart) onStart();
           }}
           style={{
             flex: 1,
             minWidth: 0,
-            minHeight: 24,
+            minHeight: inputMinHeight,
             maxHeight: 120,
-            ...(value.length || dictationTail ? {} : { height: 24 }),
+            ...(value.length || dictationTail ? {} : { height: inputMinHeight }),
             color: colors.text,
             ...type.body,
+            fontSize: 18,
+            lineHeight: 24,
+            textAlignVertical: "top",
             paddingVertical: 0,
           }}
         />
