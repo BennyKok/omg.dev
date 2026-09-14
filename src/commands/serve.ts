@@ -8100,7 +8100,7 @@ a{color:#60a5fa}
         // They are the bulk of the catalog on a box with active auto agents
         // and none of them is a conversation a human wants to resume.
         const includeScheduled = url.searchParams.get("includeScheduled") === "1";
-        const { sessions, total, facets } = await queryResumable({
+        const { sessions, total, facets, scheduledTotal } = await queryResumable({
           limit,
           offset,
           search,
@@ -8109,7 +8109,7 @@ a{color:#60a5fa}
           includeScheduled,
           excludeIds: liveIds,
         });
-        return json({ sessions, total, facets });
+        return json({ sessions, total, facets, scheduledTotal });
       }
 
       // Candidates for the composer's `#` session picker: live fleet plus the
