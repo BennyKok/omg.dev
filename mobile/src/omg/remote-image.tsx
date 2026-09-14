@@ -20,7 +20,7 @@
  * its media feed and this file starts where that ended up.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   Image,
   Modal,
@@ -41,6 +41,9 @@ import Reanimated, {
 } from "react-native-reanimated";
 
 import { useOmg } from "./provider";
+import { Text } from "./text";
+import { ImageGalleryContext, ImageGalleryRow, type ImageRect } from "./image-gallery-context";
+import { galleryImageId, gallerySwipe } from "./image-gallery-data";
 
 type Load =
   | { status: "loading" }
@@ -73,9 +76,11 @@ function readAsDataUri(blob: Blob): Promise<string> {
 export function useAuthenticatedImage(path: string | null): Load {
   const { client } = useOmg();
   const [state, setState] = useState<Load>({ status: "loading" });
+  const [loadedPath, setLoadedPath] = useState<string | null>(null);
 
   useEffect(() => {
     if (!path) return;
+    setLoadedPath(path);
     // No transport, no bytes — and no way to ever get them. Report that as a
     // failure rather than leaving a grey rectangle spinning forever: the
     // caller's fallback (a named chip) is the honest thing to show, and an
@@ -120,7 +125,7 @@ export function useAuthenticatedImage(path: string | null): Load {
     };
   }, [path, client]);
 
-  return state;
+  return path && path === loadedPath ? state : { status: "loading" };
 }
 
 /**
@@ -187,7 +192,7 @@ export function AuthenticatedImage({
     );
   }
 
-  return <TappableImage uri={load.uri} {...{ width, height, radius, placeholderColor, style, accessibilityLabel }} />;
+  return <TappableImage path={path} uri={load.uri} {...{ width, height, radius, placeholderColor, style, accessibilityLabel }} />;
 }
 
 /**
@@ -222,6 +227,7 @@ export function AuthenticatedImage({
  * two fingers of pinch is not enough work to justify taking that risk.
  */
 function TappableImage({
+  path,
   uri,
   width,
   height,
@@ -230,6 +236,7 @@ function TappableImage({
   style,
   accessibilityLabel,
 }: {
+  path: string;
   uri: string;
   width: number;
   height: number;
@@ -238,8 +245,24 @@ function TappableImage({
   style?: StyleProp<ImageStyle>;
   accessibilityLabel: string;
 }) {
+  const gallery = useContext(ImageGalleryContext);
+  const rowKey = useContext(ImageGalleryRow);
+  const galleryId = rowKey ? galleryImageId(rowKey, path) : null;
   const thumb = useRef<View>(null);
   const [origin, setOrigin] = useState<Rect | null>(null);
+
+  const thumbnail = useMemo(() => ({ uri, radius, measure: () => new Promise<ImageRect | null>(resolve => {
+    const node = thumb.current;
+    if (!node) return resolve(null);
+    const timeout = setTimeout(() => resolve(null), 200);
+    node.measureInWindow((x, y, width, height) => {
+      clearTimeout(timeout);
+      resolve(width > 0 && height > 0 ? { x, y, width, height } : null);
+    });
+  }) }), [uri, radius]);
+  useEffect(() => {
+    if (galleryId && gallery) return gallery.register(galleryId, thumbnail);
+  }, [galleryId, gallery?.register, thumbnail]);
 
   /**
    * MEASURE BEFORE OPENING, and open only once the measurement lands.
@@ -253,7 +276,11 @@ function TappableImage({
     const node = thumb.current;
     if (!node) return;
     node.measureInWindow((x, y, w, h) => {
-      if (w > 0 && h > 0) setOrigin({ x, y, width: w, height: h });
+      if (w > 0 && h > 0) {
+        const rect = { x, y, width: w, height: h };
+        if (galleryId && gallery?.open(galleryId, rect, thumbnail)) return;
+        setOrigin(rect);
+      }
     });
   };
 
@@ -294,7 +321,7 @@ function TappableImage({
   );
 }
 
-type Rect = { x: number; y: number; width: number; height: number };
+type Rect = ImageRect;
 
 /** Drag past this, or flick faster than this, and the viewer goes home. */
 const DISMISS_DISTANCE = 110;
@@ -305,14 +332,26 @@ const MAX_ZOOM = 4;
 const DOUBLE_TAP_ZOOM = 2.5;
 const DOUBLE_TAP_MS = 280;
 
-function ImageViewer({
+export function ImageViewer({
   uri,
   origin,
   sourceRadius,
   accessibilityLabel,
   onClosed,
+  onBeforeClose,
+  onPage,
+  imageId,
+  position = 1,
+  count = 1,
+  error = false,
 }: {
-  uri: string;
+  uri: string | null;
+  imageId?: string;
+  position?: number;
+  count?: number;
+  error?: boolean;
+  onPage?: (delta: number) => void;
+  onBeforeClose?: () => Promise<Rect | null>;
   origin: Rect;
   sourceRadius: number;
   accessibilityLabel: string;
@@ -323,11 +362,12 @@ function ImageViewer({
   const [ratio, setRatio] = useState<number | null>(null);
 
   useEffect(() => {
-    Image.getSize(
-      uri,
-      (w, h) => setRatio(h > 0 ? w / h : null),
-      () => setRatio(null),
-    );
+    let live = true;
+    setRatio(null);
+    if (uri) Image.getSize(uri,
+      (w, h) => { if (live) setRatio(h > 0 ? w / h : null); },
+      () => { if (live) setRatio(null); });
+    return () => { live = false; };
   }, [uri]);
 
   /**
@@ -359,7 +399,23 @@ function ImageViewer({
     progress.value = withTiming(1, { duration: OPEN_MS, easing: Easing.out(Easing.cubic) });
   }, [progress]);
 
-  const close = useCallback(() => {
+  const home = useSharedValue(origin);
+  const closing = useRef(false);
+  const paging = useRef(false);
+  const tapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => {
+    mounted.current = false;
+    if (tapTimer.current) clearTimeout(tapTimer.current);
+  }; }, []);
+  const close = useCallback(async () => {
+    if (closing.current) return;
+    closing.current = true;
+    if (tapTimer.current) clearTimeout(tapTimer.current);
+    let destination: Rect | null | undefined;
+    try { destination = await onBeforeClose?.(); } catch { destination = null; }
+    if (!mounted.current) return;
+    home.value = destination ?? (onBeforeClose ? target : origin);
     // Home is wherever the thumbnail is, so the picture returns to the row it
     // came from rather than fading out over it.
     zoom.value = withTiming(1, { duration: CLOSE_MS });
@@ -374,13 +430,39 @@ function ImageViewer({
         if (finished) runOnJS(onClosed)();
       },
     );
-  }, [progress, dragX, dragY, zoom, panX, panY, onClosed]);
+  }, [progress, dragX, dragY, zoom, panX, panY, onClosed, onBeforeClose, home, target, origin]);
 
   /** Pinch and drag state, kept off the render path. */
   const pinch = useRef<{ distance: number; base: number } | null>(null);
   const lastTap = useRef(0);
   const zoomedRef = useRef(false);
   const panBase = useRef({ x: 0, y: 0 });
+
+  const incomingDirection = useRef(0);
+  useEffect(() => {
+    zoomedRef.current = false;
+    zoom.value = 1;
+    panX.value = 0;
+    panY.value = 0;
+    dragY.value = 0;
+    lastTap.current = 0;
+    if (tapTimer.current) clearTimeout(tapTimer.current);
+    dragX.value = incomingDirection.current * screen.width;
+    dragX.value = withTiming(0, { duration: 200 });
+    paging.current = false;
+  }, [imageId]);
+  const turnPage = useCallback((delta: number) => {
+    if (!onPage || closing.current || paging.current || position + delta < 1 || position + delta > count) return false;
+    paging.current = true;
+    lastTap.current = 0;
+    if (tapTimer.current) clearTimeout(tapTimer.current);
+    incomingDirection.current = delta;
+    dragY.value = withTiming(0, { duration: 160 });
+    dragX.value = withTiming(-delta * screen.width, { duration: 160 }, finished => {
+      if (finished) runOnJS(onPage)(delta);
+    });
+    return true;
+  }, [onPage, position, count, dragX, dragY, screen.width]);
 
   const responder = useMemo(
     () =>
@@ -393,6 +475,7 @@ function ImageViewer({
           panBase.current = { x: panX.value, y: panY.value };
         },
         onPanResponderMove: (e, g) => {
+          if (closing.current || paging.current) return;
           const touches = e.nativeEvent.touches;
           if (touches.length > 1) {
             const [a, b] = touches;
@@ -414,11 +497,24 @@ function ImageViewer({
             return;
           }
           dragX.value = g.dx;
-          dragY.value = g.dy;
+          dragY.value = Math.abs(g.dx) > Math.abs(g.dy) ? 0 : g.dy;
+        },
+        onPanResponderTerminate: () => {
+          pinch.current = null;
+          dragX.value = withTiming(0, { duration: 160 });
+          dragY.value = withTiming(0, { duration: 160 });
         },
         onPanResponderRelease: (_e, g) => {
+          if (closing.current || paging.current) return;
+          const wasPinching = pinch.current !== null;
           pinch.current = null;
-          if (zoomedRef.current) {
+          if (!zoomedRef.current && !wasPinching) {
+            const direction = gallerySwipe(g.dx, g.dy, g.vx);
+            if (direction && turnPage(direction)) return;
+          }
+          const travelled = Math.hypot(g.dx, g.dy);
+          if (wasPinching) return;
+          if (zoomedRef.current && travelled >= 6) {
             if (zoom.value <= 1.02) {
               zoomedRef.current = false;
               zoom.value = withTiming(1, { duration: 160 });
@@ -427,8 +523,7 @@ function ImageViewer({
             }
             return;
           }
-          const travelled = Math.hypot(g.dx, g.dy);
-          if (Math.abs(g.dy) > DISMISS_DISTANCE || Math.abs(g.vy) > DISMISS_VELOCITY) {
+          if (Math.abs(g.dy) >= Math.abs(g.dx) && (Math.abs(g.dy) > DISMISS_DISTANCE || Math.abs(g.vy) > DISMISS_VELOCITY)) {
             close();
             return;
           }
@@ -447,7 +542,7 @@ function ImageViewer({
               return;
             }
             lastTap.current = now;
-            setTimeout(() => {
+            tapTimer.current = setTimeout(() => {
               if (lastTap.current && Date.now() - lastTap.current >= DOUBLE_TAP_MS) close();
             }, DOUBLE_TAP_MS);
             return;
@@ -456,7 +551,7 @@ function ImageViewer({
           dragY.value = withTiming(0, { duration: 200 });
         },
       }),
-    [close, dragX, dragY, panX, panY, zoom],
+    [close, dragX, dragY, panX, panY, zoom, turnPage],
   );
 
   const imageStyle = useAnimatedStyle(() => {
@@ -464,10 +559,10 @@ function ImageViewer({
     // rect; at 1 it sits exactly where it belongs. One interpolation, so the
     // two ends cannot drift apart.
     const p = progress.value;
-    const shrink = target.width > 0 ? origin.width / target.width : 1;
+    const shrink = target.width > 0 ? home.value.width / target.width : 1;
     const scale = shrink + (1 - shrink) * p;
-    const fromX = origin.x + origin.width / 2 - (target.x + target.width / 2);
-    const fromY = origin.y + origin.height / 2 - (target.y + target.height / 2);
+    const fromX = home.value.x + home.value.width / 2 - (target.x + target.width / 2);
+    const fromY = home.value.y + home.value.height / 2 - (target.y + target.height / 2);
     // Dragging shrinks the picture a little, the way Photos does — it reads as
     // the image being lifted off the screen rather than slid along it.
     const pull = Math.min(1, Math.abs(dragY.value) / 400);
@@ -510,7 +605,7 @@ function ImageViewer({
             backdropStyle,
           ]}
         />
-        <Reanimated.Image
+        {uri ? <Reanimated.Image
           source={{ uri }}
           accessibilityLabel={accessibilityLabel}
           accessible
@@ -527,7 +622,15 @@ function ImageViewer({
             },
             imageStyle,
           ]}
-        />
+        /> : <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+          <Text style={{ color: "white" }}>{error ? "Image unavailable" : "Loading image…"}</Text>
+        </View>}
+      </View>
+      <View style={{ position: "absolute", top: 56, left: 20, right: 20, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Previous image" disabled={position <= 1} onPress={() => turnPage(-1)} style={{ padding: 12, opacity: position <= 1 ? 0.3 : 1 }}><Text style={{ color: "white", fontSize: 24 }}>‹</Text></Pressable>
+        <Text style={{ color: "white" }}>{position} / {count}</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel="Next image" disabled={position >= count} onPress={() => turnPage(1)} style={{ padding: 12, opacity: position >= count ? 0.3 : 1 }}><Text style={{ color: "white", fontSize: 24 }}>›</Text></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="Close image" onPress={() => close()} style={{ padding: 12 }}><Text style={{ color: "white", fontSize: 24 }}>×</Text></Pressable>
       </View>
     </Modal>
   );

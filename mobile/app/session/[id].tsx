@@ -45,6 +45,10 @@
  * transcript is what should dominate the screen.
  */
 
+import { ImageGalleryProvider } from "../../src/omg/image-gallery";
+import { ImageGalleryRow, type ImageRect } from "../../src/omg/image-gallery-context";
+import { revealGalleryThumbnail, retryGalleryScroll } from "../../src/omg/image-gallery-scroll";
+import { transcriptImages } from "../../src/omg/image-gallery-data";
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -586,6 +590,7 @@ export function SessionScreenBody({
   const footerHeightRef = useRef(0);
   const sendGeometry = useRef({ naturalHeight: 0, rowTotal: 0, bottomPadding: 0 });
   const scrollOffset = useRef(0);
+  const galleryRestore = useRef<{ index: number; failed: boolean } | null>(null);
   const sendScroll = useRef(false);
   const sendDuration = useSharedValue(SEND_DURATION);
   const sendTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -893,7 +898,7 @@ export function SessionScreenBody({
       scrollOffset.current = e.nativeEvent.contentOffset.y;
       if (e.nativeEvent.layoutMeasurement.height > 0) viewportHeight.current = e.nativeEvent.layoutMeasurement.height;
       // Layout noise, not a reader. See userMovedRef.
-      if (!userMovedRef.current) return;
+      if (!userMovedRef.current || galleryRestore.current) return;
 
       const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
       const bottom = contentOffset.y + layoutMeasurement.height >= contentSize.height - 48;
@@ -1934,10 +1939,28 @@ export function SessionScreenBody({
   bottomPaddingRef.current = transcriptBottomPadding;
   composerMeasuredRef.current = composerHeight;
 
+  const galleryImages = useMemo(() => transcriptImages(data), [data]);
+  const galleryRows = useRef(data);
+  galleryRows.current = data;
+  const revealGalleryImage = useCallback(async (rowKey: string, measure: () => Promise<ImageRect | null>) => {
+    userMovedRef.current = true;
+    atBottomRef.current = false;
+    setAtBottom(false);
+    await revealGalleryThumbnail({
+      list: listRef, offset: scrollOffset, pending: galleryRestore,
+      findIndex: () => galleryRows.current.findIndex(row => row.key === rowKey),
+      measure,
+    });
+  }, [listRef]);
+
   return (
+    <ImageGalleryProvider images={galleryImages} onReveal={revealGalleryImage}>
     <Reanimated.View style={{ flex: 1 }}>
       <Reanimated.FlatList
         ref={listRef}
+        onScrollToIndexFailed={({ averageItemLength }) => {
+          retryGalleryScroll(listRef.current, galleryRestore.current, averageItemLength);
+        }}
         removeClippedSubviews={false}
         data={data}
         keyExtractor={(item) => item.key}
@@ -2057,6 +2080,7 @@ export function SessionScreenBody({
               style={{ paddingBottom: space.sm, paddingTop: speakerChanged ? 10 : 0 }}
             >
               <SendOriginContext.Provider value={sendTurn?.key === item.key && sendTurn.origin ? { origin: sendTurn.origin, progress: sendProgress, ready: sendReady } : null}>
+              <ImageGalleryRow.Provider value={item.key}>
               <OverlapRow id={`row:${item.key}`}>
                 <TranscriptRow
                   item={item}
@@ -2064,6 +2088,7 @@ export function SessionScreenBody({
                   bot={bot}
                 />
               </OverlapRow>
+              </ImageGalleryRow.Provider>
               </SendOriginContext.Provider>
             </View>
           );
@@ -2648,6 +2673,7 @@ export function SessionScreenBody({
             the session's other verbs already are. */}
       </Reanimated.View>
     </Reanimated.View>
+    </ImageGalleryProvider>
   );
 }
 
