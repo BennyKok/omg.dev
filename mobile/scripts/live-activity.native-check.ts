@@ -34,17 +34,39 @@ for (const colorScheme of ["light", "dark"]) test(`isolated ${colorScheme} layou
   const texts = tree.filter(n => n.type === "Text").map(n => n.props.children);
   expect(texts).toContain("Fix APNs registration");
   expect(texts).toContain("needs you");
-  expect(texts).toContain("Cursor");
+  expect(texts).not.toContain("Cursor");
+  expect(texts).not.toContain("done");
   expect(texts).not.toContain("blocked");
-  expect(tree.filter(n => n.type === "Image").map(n => n.props.assetName)).toEqual(["agent-codex", "agent-claude", "agent-cursor"]);
-  expect(nodes(result.compactLeading).filter(n => n.type === "Image")).toHaveLength(3);
-  expect(nodes(result.expandedBottom).filter(n => n.type === "Image")).toHaveLength(3);
+  expect(tree.filter(n => n.type === "Image").map(n => n.props.assetName)).toEqual(["agent-codex", "agent-claude"]);
+  expect(nodes(result.compactLeading).filter(n => n.type === "Image")).toHaveLength(2);
+  expect(nodes(result.expandedBottom).filter(n => n.type === "Image")).toHaveLength(2);
 });
-test("overflow reserves the final lane, old payloads render, and unknown agents have a mark", () => {
+test("inactive roster totals are hidden, old payloads render, and unknown agents have a mark", () => {
   const result = render({ ...props, sessionCount: 8 }, { colorScheme: "dark" });
   expect(nodes(result.banner).filter(n => n.type === "Image")).toHaveLength(2);
-  expect(nodes(result.banner).some(n => n.props.children === "+6")).toBe(true);
+  expect(nodes(result.banner).some(n => String(n.props?.children).includes("more sessions"))).toBe(false);
   expect(() => render({ ...props, sessions: undefined }, { colorScheme: "light" })).not.toThrow();
   const unknown = render({ ...props, sessions: [{ id: "unknown", title: "", agent: "unknown", state: "working" }] }, { colorScheme: "light" });
   expect(nodes(unknown.minimal)[0].props.assetName).toBe("agent-omg");
+});
+
+function luminance(hex: string) {
+  const channels = hex.slice(1).match(/../g)!.map(value => parseInt(value, 16) / 255).map(value => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
+  return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+}
+for (const colorScheme of ["light", "dark"]) test(`${colorScheme} text stays readable on dark activity surfaces`, () => {
+  const result = render(props, { colorScheme });
+  for (const section of Object.values(result)) for (const node of nodes(section).filter(n => n.type === "Text")) {
+    const color = node.props.modifiers.find((m: any) => m.type === "foregroundColor")?.value;
+    expect(typeof color).toBe("string");
+    for (const surface of ["#000000", "#20211E", "#33271F"]) {
+      expect((luminance(color) + 0.05) / (luminance(surface) + 0.05)).toBeGreaterThanOrEqual(4.5);
+    }
+  }
+});
+test("finished rows cannot crowd out active rows", () => {
+  const result = render({ ...props, sessions: [props.sessions[2], props.sessions[2], props.sessions[2], props.sessions[0]] }, {colorScheme:"light"});
+  const texts = nodes(result.banner).filter(n => n.type === "Text").map(n => n.props.children);
+  expect(texts).toContain("Fix APNs registration");
+  expect(texts).not.toContain("done");
 });
