@@ -34,6 +34,7 @@
  * the results as their own rows rather than labelling one with another's name.
  */
 
+import { Sheet } from "./sheet";
 import { SendOriginContext, useSendEntrance } from "./send-motion";
 import * as Clipboard from "expo-clipboard";
 import MenuView, { type MenuAction } from "@expo/ui/community/menu";
@@ -42,7 +43,6 @@ import type { AndroidSymbol, SFSymbol } from "expo-symbols";
 import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Animated,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -439,8 +439,8 @@ function ToolSheet({
 }) {
   const { colors, type, space } = useTheme();
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+    <Sheet visible={visible} onClose={onClose}>
+      <View>
         {/*
           * THE CLOSE IS A DISC, NOT A BARE GLYPH. A 15pt xmark hugging the
           * title on a 12pt-padded row read as cramped and was a small target
@@ -473,14 +473,11 @@ function ToolSheet({
             onPress={onClose}
           />
         </View>
-        <ScrollView
-          contentContainerStyle={{ padding: space.lg, gap: space.sm }}
-          contentInsetAdjustmentBehavior="never"
-        >
+        <View style={{ padding: space.lg, gap: space.sm }}>
           {children}
-        </ScrollView>
+        </View>
       </View>
-    </Modal>
+    </Sheet>
   );
 }
 

@@ -4,10 +4,10 @@
  * where state comes from.
  */
 
+import { Sheet } from "./omg/sheet";
 import {
   ActivityIndicator,
   Image,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -1870,8 +1870,8 @@ export function UsageSheet({
 }) {
   const { colors, type, space, radius } = useTheme();
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+    <Sheet visible={visible} onClose={onClose}>
+      <View>
         <View
           style={{
             flexDirection: "row",
@@ -1887,7 +1887,7 @@ export function UsageSheet({
           </Pressable>
         </View>
 
-        <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.lg }}>
+        <View style={{ padding: space.lg, gap: space.lg }}>
           {providers.length === 0 ? (
             <Text style={{ ...type.footnote, color: colors.textMuted }}>
               This machine reported no usage.
@@ -1976,9 +1976,9 @@ export function UsageSheet({
               </View>
             );
           })}
-        </ScrollView>
+        </View>
       </View>
-    </Modal>
+    </Sheet>
   );
 }
 

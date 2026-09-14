@@ -48,7 +48,7 @@ export function FolderRailSheet({
   }, [visible]);
 
   return (
-    <Sheet visible={visible} onClose={onClose}>
+    <Sheet visible={visible} onClose={onClose} pageKey={mode} pageDirection={mode === "list" ? "back" : "forward"}>
             <View style={{ paddingBottom: space.lg, gap: space.md }}>
               {mode === "list" ? (
                 <FolderList

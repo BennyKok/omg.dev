@@ -103,6 +103,7 @@ mock.module(resolve(import.meta.dir, "../src/omg/text.tsx"), () => ({ Text: Nati
 mock.module(resolve(import.meta.dir, "../src/omg/theme.ts"), () => ({
   useTheme: () => ({ colors: { card: "card", border: "border" }, type: {}, space: { xs: 4 }, radius: { xl: 18 } }),
 }));
+mock.module(resolve(import.meta.dir, "../src/omg/sheet.tsx"), () => ({ Sheet: NativeView }));
 const { TranscriptEntry } = await import("../src/omg/transcript");
 
 test("assistant replies have no card and bot replies keep their card", () => {
