@@ -1099,8 +1099,9 @@ export function HomeComposer({
           flexDirection: "row",
           alignItems: "center",
           gap: space.sm,
-          borderRadius: radius.pill,
+          borderRadius: 26,
           minHeight: 52,
+          paddingVertical: 7,
           paddingLeft: space.sm,
           paddingRight: space.sm,
           overflow: "hidden",
@@ -1178,16 +1179,21 @@ export function HomeComposer({
           editable={!dictationTail}
           placeholder="What should we work on?"
           placeholderTextColor={colors.textMuted}
+          multiline
           returnKeyType="send"
+          submitBehavior="submit"
           onSubmitEditing={() => {
             if (canStart) onStart();
           }}
           style={{
             flex: 1,
             minWidth: 0,
+            minHeight: 24,
+            maxHeight: 120,
+            ...(value.length || dictationTail ? {} : { height: 24 }),
             color: colors.text,
             ...type.body,
-            paddingVertical: space.sm,
+            paddingVertical: 0,
           }}
         />
         {/* Attach sits in the field, at the trailing edge, next to the control
