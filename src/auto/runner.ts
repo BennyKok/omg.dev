@@ -13,6 +13,7 @@ import { defaultModelForAgent } from "../agent-catalog.ts";
 import { PATHS } from "../config.ts";
 import { notifyAll, type PushNotification } from "../push.ts";
 import { runInCwd } from "./cwd-lock.ts";
+import { WATCH_AGENT_OPENING } from "./watch-agent-signature.ts";
 import { claudeAccountConfigDir, resolveClaudeAccount } from "../claude-accounts.ts";
 import { claudeAccountEnv } from "../claude-creds.ts";
 import {
@@ -34,7 +35,9 @@ import {
  */
 const MAX_FINDINGS_PER_RUN = 5;
 
-const SYSTEM = `You are an autonomous watch agent. Carry out the instruction below.
+// The opening sentence is shared with the resume-cache scan, which uses it to
+// keep scheduled runs out of the archive picker. See watch-agent-signature.ts.
+const SYSTEM = `${WATCH_AGENT_OPENING} Carry out the instruction below.
 
 You have read-only tools (Read, Grep, Glob, WebSearch, WebFetch) — use them to
 gather your own context. Decide what, if anything, is worth surfacing as a

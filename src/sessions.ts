@@ -44,6 +44,8 @@ import {
   isSessionIndexKey,
 } from "./transcript-index";
 import { isProviderAuthError } from "./provider-auth-error";
+import { isScheduleSpawned } from "./agent-admission.ts";
+import { isScheduledRunPrompt } from "./auto/watch-agent-signature.ts";
 import { listBots } from "./bots/store.ts";
 import {
   migrateLegacyConversations,
@@ -3490,6 +3492,10 @@ export type ResumableSession = {
   serviceTier?: "fast" | null;
   fastMode?: boolean;
   assignedUser?: string | null;
+  // When this session was closed. Null for rows archived before the column
+  // existed, and for anything the box never saw close (a reboot, a crash).
+  // The picker sorts and labels on `archivedAt ?? lastActivityAt`.
+  archivedAt?: number | null;
 };
 
 // The cwd a codex rollout was recorded in. Codex stores it on the first
@@ -3821,7 +3827,20 @@ async function refreshResumableCacheOnce(focusSessionId?: string): Promise<void>
       model: sdkEntry?.model || m.model || null,
       assignedUser: assignments[m.tmuxName] || null,
       managed: true,
+      scheduled: isScheduleSpawned(m.spawnedBy),
     });
+  }
+
+  // Mark scheduled runs once, here, instead of inside each of the five source
+  // branches above. An auto agent can run on any backend (claude, codex, grok,
+  // cursor, fx, muse), but every backend gets the SAME prompt from
+  // auto/runner.ts, so one signature check covers all of them and cannot drift
+  // branch by branch. Managed rows already carry the first-class
+  // spawnedBy="schedule" marker and set the flag themselves.
+  for (const row of changed) {
+    if (row.scheduled) continue;
+    row.scheduled =
+      isScheduledRunPrompt(row.title) || isScheduledRunPrompt(row.lastUserText);
   }
 
   upsertResumableRows(changed);

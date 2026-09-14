@@ -21185,6 +21185,10 @@ export type ResumableSession = {
   lastUserText: string | null;
   agent: "omg" | "claude" | "codex" | "opencode" | "grok" | "cursor" | "fx" | "muse";
   model?: string | null;
+  // When the session was archived. The list is ordered on this, so the row
+  // labels it too; null for rows that predate the field, which fall back to
+  // lastActivityAt exactly as the server's ORDER BY does.
+  archivedAt?: number | null;
 };
 
 // Facet counts + total returned alongside the resumable roster so the picker can
