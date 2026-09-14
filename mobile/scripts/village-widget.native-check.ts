@@ -41,7 +41,7 @@ type Node = { type: string; props: Record<string, any> };
 const jsx = (type: string, props: Record<string, any>) => ({ type, props });
 const globals: Record<string, unknown> = { _jsx: jsx, _jsxs: jsx };
 for (const type of ["ZStack", "VStack", "Image", "Text", "Circle", "Capsule", "Ellipse"]) globals[type] = type;
-for (const type of ["frame", "offset", "font", "foregroundColor", "containerBackground", "widgetURL", "bold", "clipShape", "resizable", "lineLimit"]) {
+for (const type of ["frame", "offset", "font", "foregroundColor", "containerBackground", "widgetURL", "bold", "clipShape", "resizable", "lineLimit", "widgetAccentedRenderingMode"]) {
   globals[type] = (value: unknown) => ({ type, value });
 }
 const render = runInNewContext(`(${layout})`, globals);
@@ -85,3 +85,16 @@ test("gallery before the first app launch has a usable placeholder", () => {
   const tree = nodes(render({}, { widgetFamily: "systemSmall" }));
   expect(tree[0].props.children).toBe("Open omg.dev to start your garden");
 });
+
+for (const family of ["Small", "Medium", "Large"]) {
+  for (const scheme of ["light", "dark"]) test(`${family} tinted ${scheme} preserves image detail and readable ink`, () => {
+    const tree = nodes(render(props, { widgetFamily: `system${family}`, colorScheme: scheme, widgetRenderingMode: "accented" }));
+    const images = tree.filter(node => node.type === "Image");
+    expect(images[0].props.uiImage).toBe(`${family.toLowerCase()}-dark`);
+    for (const image of images) {
+      expect(image.props.modifiers).toContainEqual({ type: "widgetAccentedRenderingMode", value: "desaturated" });
+    }
+    const summary = tree.find(node => node.type === "Text" && node.props.children === "7 working");
+    expect(summary?.props.modifiers).toContainEqual({ type: "foregroundColor", value: "#F2F0EA" });
+  });
+}

@@ -1,5 +1,5 @@
 import { Capsule, Circle, Ellipse, Image, Text, VStack, ZStack } from "@expo/ui/swift-ui";
-import { bold, clipShape, resizable, lineLimit, containerBackground, font, foregroundColor, frame, offset, widgetURL } from "@expo/ui/swift-ui/modifiers";
+import { bold, clipShape, resizable, lineLimit, containerBackground, font, foregroundColor, frame, offset, widgetURL, widgetAccentedRenderingMode } from "@expo/ui/swift-ui/modifiers";
 import { createWidget } from "expo-widgets";
 
 /** What one character needs to draw itself. */
@@ -42,7 +42,7 @@ export type VillageProps = {
   updatedAt: number;
 };
 
-function AgentVillage(props: VillageProps, environment: { widgetFamily: string; colorScheme?: "light" | "dark" }) {
+function AgentVillage(props: VillageProps, environment: { widgetFamily: string; colorScheme?: "light" | "dark"; widgetRenderingMode?: "fullColor" | "accented" | "vibrant" }) {
   "widget";
   if (!props.scenes) {
     return <Text modifiers={[font({ size: 14 }), widgetURL("omg:///")]}>Open omg.dev to start your garden</Text>;
@@ -52,7 +52,9 @@ function AgentVillage(props: VillageProps, environment: { widgetFamily: string; 
   const family = environment.widgetFamily === "systemSmall" ? "small" : environment.widgetFamily === "systemLarge" ? "large" : "medium";
   const scene = props.scenes[family];
 
-  const dark = environment.colorScheme === "dark";
+  // Tinted widgets flatten an unconfigured opaque image into a solid mask.
+  // Preserve image luminance, and use the dark garden behind iOS's light ink.
+  const dark = environment.colorScheme === "dark" || environment.widgetRenderingMode === "accented";
   const width = scene.width;
   const height = scene.height;
 
@@ -78,7 +80,7 @@ function AgentVillage(props: VillageProps, environment: { widgetFamily: string; 
   const village = (
     <Image
       uiImage={dark ? scene.backgroundDarkUri : scene.backgroundLightUri}
-      modifiers={[resizable(), frame({ width, height }), place(width / 2, height / 2)]}
+      modifiers={[resizable(), widgetAccentedRenderingMode("desaturated"), frame({ width, height }), place(width / 2, height / 2)]}
     />
   );
 
@@ -120,7 +122,7 @@ function AgentVillage(props: VillageProps, environment: { widgetFamily: string; 
           : null}
         <Image
           uiImage={character.iconUri}
-          modifiers={[resizable(), frame({ width: character.iconSize, height: character.iconSize }), clipShape(disc ? "circle" : "roundedRectangle", 9), place(slot.x, markY)]}
+          modifiers={[resizable(), widgetAccentedRenderingMode("desaturated"), frame({ width: character.iconSize, height: character.iconSize }), clipShape(disc ? "circle" : "roundedRectangle", 9), place(slot.x, markY)]}
         />
         {character.state === "blocked"
           ? <Text modifiers={[bold(), font({ size: 15 }), foregroundColor(flagged), place(slot.x + 16, markY - 18)]}>!</Text>
