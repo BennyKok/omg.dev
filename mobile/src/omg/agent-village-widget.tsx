@@ -52,9 +52,14 @@ function AgentVillage(props: VillageProps, environment: { widgetFamily: string; 
   const family = environment.widgetFamily === "systemSmall" ? "small" : environment.widgetFamily === "systemLarge" ? "large" : "medium";
   const scene = props.scenes[family];
 
+  const tinted = environment.widgetRenderingMode === "accented";
   // Tinted widgets flatten an unconfigured opaque image into a solid mask.
   // Preserve image luminance, and use the dark garden behind iOS's light ink.
-  const dark = environment.colorScheme === "dark" || environment.widgetRenderingMode === "accented";
+  //
+  // `dark` selects ART ONLY. It used to gate the mark discs too, which is how
+  // a tinted widget ended up drawing a white puck over every dark mark; see
+  // `disc` below.
+  const dark = environment.colorScheme === "dark" || tinted;
   const width = scene.width;
   const height = scene.height;
 
@@ -77,10 +82,27 @@ function AgentVillage(props: VillageProps, environment: { widgetFamily: string; 
       : "All finished";
   const url = props.attentionSessionId ? `omg:///session/${props.attentionSessionId}` : "omg:///";
 
+  /**
+   * THE SCENE IS AUTHORED FOR ONE WIDGET SIZE, AND THE REAL ONE VARIES.
+   *
+   * `scene.width`/`scene.height` are fixed points (medium is 364x170, which is
+   * the medium widget on a 430x932pt device). Every other iPhone gets a
+   * different container, and where the container is BIGGER the art stopped
+   * short of the edges and `containerBackground(sky)` showed through as a
+   * border. Reported from a device; invisible on the 430x932 simulator that
+   * the authored size happens to match exactly.
+   *
+   * Over-bleed the art instead of trying to learn the container size, which
+   * the widget environment does not report. The widget clips whatever hangs
+   * over, so the only cost is a few points of the garden at each edge, and
+   * coverage no longer depends on knowing every device.
+   */
+  const BLEED = 1.08;
+
   const village = (
     <Image
       uiImage={dark ? scene.backgroundDarkUri : scene.backgroundLightUri}
-      modifiers={[resizable(), widgetAccentedRenderingMode("desaturated"), frame({ width, height }), place(width / 2, height / 2)]}
+      modifiers={[resizable(), widgetAccentedRenderingMode("desaturated"), frame({ width: width * BLEED, height: height * BLEED }), place(width / 2, height / 2)]}
     />
   );
 
@@ -98,7 +120,20 @@ function AgentVillage(props: VillageProps, environment: { widgetFamily: string; 
     const hop = character.state === "blocked" ? [0, -5, -8, -5][phase] : 0;
     const legHeight = character.state === "idle" ? 5 : 7;
     const markY = slot.y + hop - legHeight - MARK / 2;
-    const disc = character.plate || (dark && character.markTone === "dark");
+    /**
+     * NO DISC IN TINTED MODE.
+     *
+     * The disc exists to carry contrast on the nocturnal scene, where a dark
+     * mark would otherwise disappear into the grass. Tinted mode does not need
+     * it and cannot survive it: iOS renders the widget from the alpha of its
+     * content, so an opaque disc and the mark on top of it merge into one flat
+     * puck and the mark stops existing. Verified on device and on the
+     * simulator — a mark WITHOUT a disc reads perfectly in the same render.
+     *
+     * So the disc is a full-colour affordance only. iOS owns contrast in
+     * tinted mode, and it does the job without help.
+     */
+    const disc = !tinted && (character.plate || (dark && character.markTone === "dark"));
 
     return (
       <ZStack key={`villager-${index}`}>

@@ -98,3 +98,42 @@ for (const family of ["Small", "Medium", "Large"]) {
     expect(summary?.props.modifiers).toContainEqual({ type: "foregroundColor", value: "#F2F0EA" });
   });
 }
+
+/**
+ * A disc under a mark is a full-colour affordance. In tinted mode iOS renders
+ * from the alpha of the content, so the disc and the mark merge into one flat
+ * puck and the mark stops existing — which is what shipped, and what a device
+ * screenshot caught.
+ */
+for (const family of ["Small", "Medium", "Large"]) {
+  test(`${family} draws mark discs in full colour but never in tinted mode`, () => {
+    const environment = { widgetFamily: `system${family}`, colorScheme: "dark" };
+    const plated = nodes(render(props, environment));
+    expect(plated.filter(node => node.type === "Circle").length).toBeGreaterThan(0);
+
+    const tinted = nodes(render(props, { ...environment, widgetRenderingMode: "accented" }));
+    expect(tinted.filter(node => node.type === "Circle")).toHaveLength(0);
+    // The marks themselves must survive the disc going away.
+    expect(tinted.filter(node => node.type === "Image").length).toBeGreaterThan(1);
+  });
+}
+
+/**
+ * The authored scene size matches exactly one device. Anywhere the real widget
+ * is larger, art drawn at the authored size leaves `containerBackground`
+ * showing as a border, so the art is deliberately drawn oversized and clipped.
+ */
+for (const [family, key] of [["Small", "small"], ["Medium", "medium"], ["Large", "large"]] as const) {
+  for (const mode of [undefined, "accented"] as const) {
+    test(`${family} background over-bleeds the authored scene${mode ? " when tinted" : ""}`, () => {
+      const scene = VILLAGE_SCENES[key];
+      const tree = nodes(render(props, { widgetFamily: `system${family}`, colorScheme: "dark", widgetRenderingMode: mode }));
+      const background = tree.filter(node => node.type === "Image")[0];
+      const sized = background.props.modifiers.find((modifier: any) => modifier.type === "frame");
+      expect(sized.value.width).toBeGreaterThan(scene.width);
+      expect(sized.value.height).toBeGreaterThan(scene.height);
+      // Uniform, so the garden is never stretched out of shape.
+      expect(sized.value.width / scene.width).toBeCloseTo(sized.value.height / scene.height, 6);
+    });
+  }
+}
