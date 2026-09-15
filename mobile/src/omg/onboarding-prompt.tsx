@@ -28,25 +28,40 @@ import { Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Icon } from "../components";
+import { DropdownMenu, type MenuOption } from "./menu";
 import { PrimaryAction, StepHeader, StepHeading } from "./onboarding-chrome";
+import type { PickedFile } from "./attachments";
 import { Text, TextInput } from "./text";
 import { useTheme } from "./theme";
 
 export function PromptScreen({
   value,
   onChangeText,
-  onAttach,
+  attachOptions,
+  files,
+  onRemoveFile,
   onSignIn,
   onBack,
   custom = false,
+  finalLabel = "Sign in to start",
 }: {
   value: string;
   onChangeText: (next: string) => void;
-  onAttach: () => void;
+  /** The plus button's menu rows. Picking only; nothing is uploaded yet. */
+  attachOptions: MenuOption[];
+  /** What has been picked so far, so the control is not a button into a void. */
+  files: readonly PickedFile[];
+  onRemoveFile: (uri: string) => void;
   onSignIn: () => void;
   onBack: () => void;
   /** The own-idea path: blank, with a different title and no editing hint. */
   custom?: boolean;
+  /**
+   * "Sign in to start" is the bargain on first run. A replay from Settings is
+   * someone who already has an account being shown the flow, so the button
+   * there says "Continue" and nothing asks them to sign in again.
+   */
+  finalLabel?: string;
 }) {
   const { colors, radius, space, type } = useTheme();
   const insets = useSafeAreaInsets();
@@ -87,22 +102,49 @@ export function PromptScreen({
               textAlignVertical: "top",
             }}
           />
-          <Pressable
-            accessibilityRole="button"
-            onPress={onAttach}
-            hitSlop={8}
-            style={({ pressed }) => ({
-              flexDirection: "row",
-              alignItems: "center",
-              gap: space.sm,
-              opacity: pressed ? 0.6 : 1,
-            })}
-          >
-            <Icon ios="plus" android="add" size={15} color={colors.textMuted} />
-            <Text style={{ ...type.callout, color: colors.textMuted }}>
-              {custom ? "Add a file" : "Add a file or reference"}
-            </Text>
-          </Pressable>
+          {/*
+           * WHAT WAS PICKED IS ON SCREEN. There is no upload yet -- no account,
+           * no Computer -- so without a row there would be no evidence the pick
+           * worked at all, and the next tap would add a second copy of the same
+           * file. Tapping a row takes it off again.
+           */}
+          {files.map((file) => (
+            <Pressable
+              key={file.uri}
+              accessibilityRole="button"
+              accessibilityLabel={`Remove ${file.name}`}
+              onPress={() => onRemoveFile(file.uri)}
+              style={({ pressed }) => ({
+                flexDirection: "row",
+                alignItems: "center",
+                gap: space.sm,
+                opacity: pressed ? 0.6 : 1,
+              })}
+            >
+              <Icon
+                ios={file.kind === "image" ? "photo" : file.kind === "video" ? "film" : "doc"}
+                android="attach_file"
+                size={15}
+                color={colors.textMuted}
+              />
+              <Text numberOfLines={1} style={{ ...type.callout, color: colors.text, flex: 1 }}>
+                {file.name}
+              </Text>
+              <Icon ios="xmark" android="close" size={12} color={colors.textMuted} />
+            </Pressable>
+          ))}
+          <DropdownMenu options={attachOptions}>
+            <View
+              accessibilityRole="button"
+              accessibilityLabel="Add a file"
+              style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}
+            >
+              <Icon ios="plus" android="add" size={15} color={colors.textMuted} />
+              <Text style={{ ...type.callout, color: colors.textMuted }}>
+                {custom ? "Add a file" : "Add a file or reference"}
+              </Text>
+            </View>
+          </DropdownMenu>
         </View>
 
         {custom ? null : (
@@ -117,7 +159,7 @@ export function PromptScreen({
          * control plane's to grant, and this side promising it would be a claim
          * the product breaks on first use.
          */}
-        <PrimaryAction label="Sign in to start" onPress={onSignIn} disabled={!ready} />
+        <PrimaryAction label={finalLabel} onPress={onSignIn} disabled={!ready} />
       </View>
     </View>
   );

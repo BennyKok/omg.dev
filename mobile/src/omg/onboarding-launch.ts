@@ -20,7 +20,10 @@
 import type { OmgClient } from "@omg-dev/client";
 
 import type { InterestKey } from "./onboarding-tasks";
+import type { PickedFile } from "./attachments";
 
+import { composeAttachmentMessage } from "./attachment-message";
+import { uploadAttachment } from "./attachment-upload";
 import { hasOnboardingChoice, takeOnboardingChoice } from "./onboarding-handoff";
 
 export type LaunchOutcome =
@@ -34,6 +37,46 @@ export type LaunchOutcome =
   | { kind: "started"; sessionId: string; prompt: string; interest: InterestKey | null }
   /** The prompt is gone either way; say so rather than silently dropping it. */
   | { kind: "failed"; prompt: string; error: string };
+
+/**
+ * Send the files picked on step 03 to the Computer, and name them.
+ *
+ * They go to `/api/uploads`, the pre-session endpoint the home composer uses,
+ * because the paths have to be IN the prompt that creates the session -- the
+ * first message is the prompt, and there is no second one to attach to.
+ *
+ * A file that will not upload is DROPPED, not fatal. The cache copy can be
+ * gone if the system reclaimed it while somebody was in a browser signing in,
+ * and losing a reference is a much smaller loss than refusing to start the
+ * task it was attached to. Nothing here can make the launch fail.
+ */
+async function attach(
+  client: OmgClient,
+  prompt: string,
+  files: readonly PickedFile[],
+): Promise<string> {
+  const attached: { name: string; path: string }[] = [];
+  for (const file of files) {
+    try {
+      const blob = await fetch(file.uri).then((r) => r.blob());
+      const path = await uploadAttachment(
+        client.transport,
+        `/api/uploads?filename=${encodeURIComponent(file.name)}`,
+        blob,
+        file.mimeType,
+        `onboarding-${file.name}-${Date.now()}`,
+        // No progress to draw. This runs behind the splash while the flow is
+        // still deciding what to show, and there is no row to put a bar on.
+        () => {},
+      );
+      if (path) attached.push({ name: file.name, path });
+    } catch {
+      // See above: a reference that cannot be delivered must not take the
+      // task down with it.
+    }
+  }
+  return composeAttachmentMessage(prompt, attached);
+}
 
 export async function launchOnboardingTask(
   client: OmgClient | null,
@@ -56,11 +99,16 @@ export async function launchOnboardingTask(
   if (!choice) return { kind: "nothing" };
 
   try {
+    // The attachment block has to be part of the prompt, because the prompt IS
+    // the session's first message.
+    const prompt = choice.files?.length
+      ? await attach(client, choice.prompt, choice.files)
+      : choice.prompt;
     const result = await client.transport.request<{ sessionId?: string }>("/api/sessions/new", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        prompt: choice.prompt,
+        prompt,
         // No agent, model or account is named. The box has defaults per
         // agent and picks the Claude login with the most capacity left; a
         // first-run guess from this side would be worse than either.

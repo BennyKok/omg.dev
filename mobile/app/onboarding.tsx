@@ -3,19 +3,33 @@
  *
  * First run shows these screens as GATES in _layout.tsx, not routes, so they
  * cannot be deep-linked into by accident. Replay is the opposite case: someone
- * signed in asked to see them again, so a plain route is right. Nothing here
- * writes the onboarding flags; a replay is a look, not a re-run of setup.
+ * signed in asked to see them again, so a plain route is right.
  *
- * The intro's last button reads "Continue" rather than "Sign in", and both
- * the intro's exits lead to the setup steps. Setup's exits pop back to
- * Settings.
+ * ── A replay is a look, not a re-run ──────────────────────────────────────
+ *
+ * Nothing here writes the onboarding flags, nothing stashes a prompt, and
+ * nothing creates a session. The flow is handed `signedIn`, so its last button
+ * reads "Continue" and the sign-in drawer never opens -- asking somebody to
+ * sign in while they are signed in is a dead end.
+ *
+ * ── It shows the CURRENT flow ─────────────────────────────────────────────
+ *
+ * This rendered `IntroScreen`, the three pitch panels the revamp replaced, for
+ * as long as the revamp has been shipping. Anyone who opened it was shown last
+ * month's app and had no way to know that. A replay that is out of date is
+ * worse than no replay: it is a wrong answer to "what does a new user see".
+ *
+ * Steps 04 to 06 are not here. They are the real session being created and
+ * then paid for, and neither is something to re-enact.
  */
 
 import { useCallback, useState } from "react";
+import { Linking } from "react-native";
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 
-import { IntroScreen, SetupScreen, rosterFromReadiness } from "../src/omg/onboarding";
+import { SetupScreen, rosterFromReadiness } from "../src/omg/onboarding";
+import { OnboardingFlow } from "../src/omg/onboarding-flow";
 import { useOmg } from "../src/omg/provider";
 import { useTheme } from "../src/omg/theme";
 
@@ -35,7 +49,15 @@ export default function OnboardingReplayScreen() {
     <>
       <StatusBar style={isDark ? "light" : "dark"} />
       {phase === "intro" ? (
-        <IntroScreen finalLabel="Continue" onSignIn={() => setPhase("setup")} />
+        <OnboardingFlow
+          signedIn
+          // The written prompt is DROPPED on purpose. Running it would create a
+          // real session from a screen somebody opened to look at, which is the
+          // opposite of what "replay" means.
+          onSignIn={() => setPhase("setup")}
+          onTerms={() => void Linking.openURL("https://omg.dev/terms")}
+          onPrivacy={() => void Linking.openURL("https://omg.dev/privacy")}
+        />
       ) : (
         <SetupScreen onDone={done} agents={agents} waking={waking} onConnected={probe} />
       )}

@@ -26,6 +26,7 @@ import * as ImagePicker from "expo-image-picker";
 import { useCallback, useState } from "react";
 import { Alert } from "react-native";
 
+import { composeAttachmentMessage } from "./attachment-message";
 import { uploadAttachment } from "./attachment-upload";
 import type { MenuOption } from "./menu";
 import { useOmg } from "./provider";
@@ -192,18 +193,16 @@ export function useAttachments(sessionId: string | null) {
   const clear = useCallback(() => setItems([]), []);
 
   /**
-   * The message the agent actually receives. Byte-identical in shape to the
-   * web's `composeAttachmentMessage`, including the singular/plural label and
-   * the blank line before the block.
+   * The message the agent actually receives. The block's shape lives in
+   * attachment-message.ts, shared with the onboarding launch, because the web
+   * parses it back off and a one-character difference breaks that.
    */
   const compose = useCallback(
-    (text: string) => {
-      const ready = items.filter((item) => item.path);
-      if (!ready.length) return text;
-      const label = ready.length === 1 ? "Attached file" : "Attached files";
-      const list = ready.map((item) => `- ${item.name}: ${item.path}`).join("\n");
-      return [text, `${label}:\n${list}`].filter(Boolean).join("\n\n");
-    },
+    (text: string) =>
+      composeAttachmentMessage(
+        text,
+        items.flatMap((item) => (item.path ? [{ name: item.name, path: item.path }] : [])),
+      ),
     [items],
   );
 

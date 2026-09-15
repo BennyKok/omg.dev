@@ -17,6 +17,7 @@
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
+import type { PickedFile } from "./attachments";
 import type { InterestKey } from "./onboarding-tasks";
 
 const KEY = "omg.onboarding.handoff.v1";
@@ -25,6 +26,14 @@ export type OnboardingHandoff = {
   interest: InterestKey | null;
   taskId: string | null;
   prompt: string;
+  /**
+   * Files picked on step 03, as LOCAL URIs. There was nowhere to upload them
+   * yet -- no account, no Computer -- so they cross sign-in unsent and are
+   * uploaded by onboarding-launch.ts. Both pickers copy into this app's cache
+   * directory, which outlives the process being killed while somebody is over
+   * in a browser signing in.
+   */
+  files?: PickedFile[];
   /** When it was stashed, so a stale one can be thrown away rather than run. */
   at: number;
 };
@@ -37,7 +46,12 @@ export type OnboardingHandoff = {
 export const HANDOFF_MAX_AGE_MS = 60 * 60 * 1000;
 
 export async function stashOnboardingChoice(
-  choice: { interest: InterestKey | null; taskId: string | null; prompt: string },
+  choice: {
+    interest: InterestKey | null;
+    taskId: string | null;
+    prompt: string;
+    files?: PickedFile[];
+  },
 ): Promise<void> {
   // Nothing written means nothing to run. An empty prompt is not an answer,
   // and storing one would make the reader branch on a value it cannot use.

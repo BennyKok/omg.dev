@@ -19,7 +19,7 @@
  *
  * Design: "v2_omg.dev iOS onboarding", page "Version 2 · Clean onboarding".
  */
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { View } from "react-native";
 
 import { InterestsScreen } from "./onboarding-interests";
@@ -27,7 +27,9 @@ import { PromptScreen } from "./onboarding-prompt";
 import { SignInDrawer, type SignInMethod } from "./onboarding-signin-drawer";
 import { TaskScreen } from "./onboarding-task";
 import { WelcomeScreen } from "./onboarding-welcome";
+import { onboardingAttachOptions } from "./onboarding-attach";
 import { promptFor, type InterestKey } from "./onboarding-tasks";
+import type { PickedFile } from "./attachments";
 import { useTheme } from "./theme";
 
 type Step = "welcome" | "interests" | "task" | "prompt";
@@ -37,19 +39,32 @@ export type OnboardingChoice = {
   taskId: string | null;
   /** What the person actually wants run, edited or written from scratch. */
   prompt: string;
+  /** Local URIs. Nothing has been uploaded; there is nowhere to put them yet. */
+  files: PickedFile[];
 };
 
 export function OnboardingFlow({
   onSignIn,
   onTerms,
   onPrivacy,
-  onAttach,
+  signedIn = false,
 }: {
-  /** Hand the finished choice up; the caller opens the real sign-in. */
-  onSignIn: (choice: OnboardingChoice, method: SignInMethod) => void;
+  /**
+   * Hand the finished choice up; the caller opens the real sign-in. `method`
+   * is null when there was no drawer -- see `signedIn`.
+   */
+  onSignIn: (choice: OnboardingChoice, method: SignInMethod | null) => void;
   onTerms: () => void;
   onPrivacy: () => void;
-  onAttach: () => void;
+  /**
+   * The person already has an account.
+   *
+   * One fact, two honest consequences: the last button reads "Continue"
+   * instead of "Sign in to start", and there is no drawer, because asking
+   * somebody to sign in while they are signed in is a dead end. This is what
+   * app/onboarding.tsx uses to REPLAY the flow from Settings.
+   */
+  signedIn?: boolean;
 }) {
   const { colors } = useTheme();
   const [step, setStep] = useState<Step>("welcome");
@@ -58,6 +73,24 @@ export function OnboardingFlow({
   const [prompt, setPrompt] = useState("");
   const [custom, setCustom] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  /*
+   * Picked, not uploaded. There is no account and no Computer on this side of
+   * the flow, so the files ride across sign-in as local URIs and are sent by
+   * onboarding-launch.ts once there is somewhere to send them.
+   */
+  const [files, setFiles] = useState<PickedFile[]>([]);
+  const attachOptions = useMemo(
+    () =>
+      onboardingAttachOptions((picked) =>
+        // Same file twice is a mistake, not a request. The URI is the identity
+        // because both pickers copy into our cache under a unique name.
+        setFiles((current) => [
+          ...current,
+          ...picked.filter((file) => !current.some((had) => had.uri === file.uri)),
+        ]),
+      ),
+    [],
+  );
 
   /**
    * Choosing a task REPLACES the editor's contents, and going back to change
@@ -117,21 +150,28 @@ export function OnboardingFlow({
         <PromptScreen
           value={prompt}
           onChangeText={setPrompt}
-          onAttach={onAttach}
+          attachOptions={attachOptions}
+          files={files}
+          onRemoveFile={(uri) => setFiles((current) => current.filter((f) => f.uri !== uri))}
           custom={custom}
-          onSignIn={() => setDrawerOpen(true)}
+          finalLabel={signedIn ? "Continue" : undefined}
+          onSignIn={() =>
+            signedIn
+              ? onSignIn({ interest, taskId, prompt: prompt.trim(), files }, null)
+              : setDrawerOpen(true)
+          }
           onBack={() => setStep("task")}
         />
       ) : null}
 
       <SignInDrawer
-        visible={drawerOpen}
+        visible={drawerOpen && !signedIn}
         // "Not yet", not "start over": the prompt is untouched because it was
         // never inside this drawer.
         onClose={() => setDrawerOpen(false)}
         onChoose={(method) => {
           setDrawerOpen(false);
-          onSignIn({ interest, taskId, prompt: prompt.trim() }, method);
+          onSignIn({ interest, taskId, prompt: prompt.trim(), files }, method);
         }}
         onTerms={onTerms}
         onPrivacy={onPrivacy}

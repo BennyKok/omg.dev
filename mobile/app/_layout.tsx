@@ -369,7 +369,6 @@ function RootNavigator() {
               void stashOnboardingChoice(choice);
               intro.complete();
             }}
-            onAttach={() => {}}
             onTerms={() => void Linking.openURL("https://omg.dev/terms")}
             onPrivacy={() => void Linking.openURL("https://omg.dev/privacy")}
           />
