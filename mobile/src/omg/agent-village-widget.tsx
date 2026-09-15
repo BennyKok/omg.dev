@@ -141,7 +141,9 @@ function AgentVillage(props: VillageProps, environment: { widgetFamily: string; 
     const room = Math.max(0, Math.min(
       MAX_ROAM,
       (nearest - MARK) / 2,
-      Math.min(origin.x, width - origin.x) - MARK / 2,
+      // PLATE, not MARK: a plated mark is drawn on a disc wider than itself,
+      // so clamping to the glyph let the disc hang 2pt off the scene edge.
+      Math.min(origin.x, width - origin.x) - PLATE / 2,
     ));
 
     // A triangle, not a sawtooth: it paces out and back, so the cycle never
@@ -338,6 +340,25 @@ function AgentVillage(props: VillageProps, environment: { widgetFamily: string; 
   const bubbleY = spot.y;
   /** The tail points back at the speaker, on whichever side it ended up. */
   const tailLeft = bubbleX >= (leadSlot ? leadSlot.x : width / 2);
+  /**
+   * THE TAIL ONLY EXISTS WHEN IT FITS, and only on the speaker's side.
+   *
+   * The bubble is clamped into the scene but the dots were not, so a bubble
+   * pushed against an edge -- which is every large widget, whose lead stands
+   * at x=80 under a 196pt bubble -- put one dot on the boundary and the next
+   * at x=-6, off the widget. One clipped dot and one missing, seen on a
+   * device.
+   *
+   * It is not flipped to the roomy side when it does not fit: a tail pointing
+   * away from the agent it belongs to is worse than no tail. A bubble without
+   * one still reads as a label.
+   */
+  const tailOffsets = [{ size: 7, out: 5, drop: 8 }, { size: 4, out: 12, drop: 13 }];
+  const tailX = (out: number) => bubbleX + (tailLeft ? -1 : 1) * (bubbleWidth / 2 + out);
+  const tailFits = tailOffsets.every((dot) => {
+    const at = tailX(dot.out);
+    return at - dot.size / 2 >= 0 && at + dot.size / 2 <= width;
+  });
 
   /*
    * NO FILLED BODY WHEN TINTED. Same trap as the mark discs: iOS renders a
@@ -360,12 +381,12 @@ function AgentVillage(props: VillageProps, environment: { widgetFamily: string; 
         {/* Two shrinking dots aimed back at the character, instead of a drawn
             tail: the toolkit exposes no triangle, and the thought-bubble
             reading suits a garden anyway. */}
-        {tinted ? null : (
-          <Circle modifiers={[frame({ width: 7, height: 7 }), foregroundColor(paper), place(bubbleX + (tailLeft ? -1 : 1) * (bubbleWidth / 2 + 5), bubbleY + 8)]} />
-        )}
-        {tinted ? null : (
-          <Circle modifiers={[frame({ width: 4, height: 4 }), foregroundColor(paper), place(bubbleX + (tailLeft ? -1 : 1) * (bubbleWidth / 2 + 12), bubbleY + 13)]} />
-        )}
+        {tinted || !tailFits ? null : tailOffsets.map((dot) => (
+          <Circle
+            key={`tail-${dot.out}`}
+            modifiers={[frame({ width: dot.size, height: dot.size }), foregroundColor(paper), place(tailX(dot.out), bubbleY + dot.drop)]}
+          />
+        ))}
         <VStack alignment="leading" spacing={1} modifiers={[
           frame({ width: bubbleWidth - 18, alignment: "leading" }),
           place(bubbleX, bubbleY),

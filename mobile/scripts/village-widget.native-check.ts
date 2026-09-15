@@ -346,3 +346,24 @@ test("the bubble never covers the agent it belongs to", () => {
     expect(Math.abs(at.y) + size.height / 2).toBeLessThanOrEqual(scene.height / 2);
   }
 });
+
+/**
+ * The bubble was clamped into the scene but its tail dots were not, so on a
+ * large widget -- whose lead stands at x=80 under a 196pt bubble -- one dot
+ * landed on the boundary and the next at x=-6, off the widget entirely. One
+ * clipped dot and one missing, caught on a device.
+ */
+for (const [family, key] of [["Medium", "medium"], ["Large", "large"]] as const) {
+  test(`${family} keeps every disc and speech tail inside the scene`, () => {
+    const scene = VILLAGE_SCENES[key];
+    const tree = talking({ title: "ios app", lastActivityAt: 0 },
+      { widgetFamily: `system${family}`, date: 60_000 });
+    for (const dot of tree.filter(node => node.type === "Circle")) {
+      const at = dot.props.modifiers.find((m: any) => m.type === "offset").value;
+      const size = dot.props.modifiers.find((m: any) => m.type === "frame").value.width;
+      // Offsets are from the centre of the scene.
+      expect(at.x - size / 2).toBeGreaterThanOrEqual(-scene.width / 2);
+      expect(at.x + size / 2).toBeLessThanOrEqual(scene.width / 2);
+    }
+  });
+}
