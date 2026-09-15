@@ -652,76 +652,18 @@ function Dots({ count, index }: { count: number; index: number }) {
  * The intro: three panels then a way in. Pre-auth, so it can only talk about
  * the product — it has no account to reason about yet.
  */
-/**
- * `finalLabel` is "Sign in" on first run, where the last panel leads to the
- * sign-in field, and "Continue" when replayed from Settings, where there is no
- * sign-in to lead to.
+/*
+ * IntroScreen -- the three pitch panels -- was DELETED here.
+ *
+ * The revamp replaced it on first run, and app/onboarding.tsx replayed it from
+ * Settings long after nothing else rendered it, so anyone who opened the
+ * replay was shown last month's app. Both now run OnboardingFlow. An exported
+ * component that nothing renders is one import away from coming back, and the
+ * thing it would bring back is a flow the product no longer has.
+ *
+ * PANELS, PanelArt, MarkArt, BigButton and Dots stay: SetupScreen below uses
+ * them, and PANELS.length still sets its step numbering.
  */
-export function IntroScreen({
-  onSignIn,
-  finalLabel = "Sign in",
-}: {
-  onSignIn: () => void;
-  finalLabel?: string;
-}) {
-  const { colors, space, type } = useTheme();
-  const insets = useSafeAreaInsets();
-  const still = useReduceMotionEnabled();
-  const [index, setIndex] = useState(0);
-
-  const panel = PANELS[index];
-  const last = index === PANELS.length - 1;
-
-  const next = useCallback(() => {
-    if (last) onSignIn();
-    else setIndex((current) => current + 1);
-  }, [last, onSignIn]);
-
-  return (
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      <View
-        style={{
-          paddingTop: insets.top + space.md,
-          paddingHorizontal: space.lg,
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
-        <View style={{ width: 44 }} />
-        <Dots count={PANELS.length} index={index} />
-        {/*
-         * Skip goes STRAIGHT to sign-in, not past it. Nothing here is a
-         * precondition for having an account, and a returning user who
-         * reinstalled should not read the pitch again to reach the field.
-         */}
-        <Pressable accessibilityRole="button" onPress={onSignIn} hitSlop={12}>
-          <Text style={{ ...type.subhead, color: colors.textMuted }}>Skip</Text>
-        </Pressable>
-      </View>
-
-      <View style={{ flex: 1 }} />
-      <View style={{ paddingHorizontal: space.xl, alignItems: "center", gap: space.xl }}>
-        <PanelArt key={panel.art} art={panel.art} still={still} />
-        <View style={{ gap: space.md }}>
-          <Text style={{ ...type.largeTitle, color: colors.text, textAlign: "center" }}>
-            {panel.title}
-          </Text>
-          <Text
-            style={{ ...type.body, color: colors.textMuted, textAlign: "center", lineHeight: 24 }}
-          >
-            {panel.body}
-          </Text>
-        </View>
-      </View>
-      <View style={{ flex: 0.6 }} />
-
-      <View style={{ padding: space.lg, paddingBottom: insets.bottom + space.lg }}>
-        <BigButton label={last ? finalLabel : "Continue"} onPress={next} />
-      </View>
-    </View>
-  );
-}
 
 /**
  * A featured agent: the card someone is expected to act on.

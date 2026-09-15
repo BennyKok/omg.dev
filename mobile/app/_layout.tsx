@@ -13,7 +13,6 @@ import Reanimated, {
 
 import { AiConsentScreen, useAiDataConsent } from "../src/omg/ai-consent";
 import {
-  IntroScreen,
   SetupScreen,
   rosterFromReadiness,
   useIntro,
