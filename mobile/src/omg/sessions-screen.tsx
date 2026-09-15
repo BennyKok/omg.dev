@@ -46,6 +46,7 @@ import Reanimated, {
   useSharedValue,
 } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
+import { composerReservation } from "./composer-reservation";
 import { COMPOSER_FADE_HEIGHT, EdgeFade, fadeStops, TOP_FADE_HEIGHT } from "./edge-fade";
 import { keyCommandsAvailable, useKeyCommand } from "./key-commands";
 import { ShortcutsSheet } from "./shortcuts-sheet";
@@ -232,6 +233,7 @@ function SessionFamily({
  * instead of letting a row sit under the glass.
  */
 const MIN_COMPOSER_HEIGHT = 76;
+
 
 /**
  * The greeting the web Live view carries, in the bar slot the removed
@@ -1930,27 +1932,26 @@ export function SessionsScreen({
               composerLift,
             ]}
             /**
-             * NEVER SHRINK THE RESERVATION, only grow it.
+             * The reservation TRACKS the composer, with a floor under it.
              *
-             * The composer's own first layout pass can land BEFORE the things
-             * that widen its pill row — `agentPicker`/`projectPicker` options
+             * The composer's first layout pass can land BEFORE the things that
+             * widen its pill row — `agentPicker`/`projectPicker` options
              * resolve from the machine, `usage` rings arrive from a separate
              * fetch (see `usageLoading` above) — so an early `onLayout` can
-             * measure a shorter composer than the one actually on screen a
-             * moment later, once those pills populate. Overwriting
-             * `composerHeight` on every measurement trusts that later growth
-             * re-fires `onLayout` and corrects itself — which it normally does —
-             * but the one time it lands late (a slow response, a re-render that
-             * coalesces with the resize) is the one time the pill row —
-             * "opus / Thinking / All projects" — sits on top of whatever card
-             * has scrolled to the bottom. Taking the max instead means a later,
-             * taller measurement still wins, and an earlier, larger one (e.g. a
-             * longer agent name that later shortens) only costs a little unused
-             * clearance rather than risking a covered row.
+             * measure a shorter composer than the one on screen a moment
+             * later, and the pill row — "opus / Thinking / All projects" —
+             * would sit on top of whatever card had scrolled to the bottom.
+             * `MIN_COMPOSER_HEIGHT + insets.bottom` is what answers that: it
+             * is the same conservative floor the state is seeded with, so an
+             * under-measurement cannot uncover a row.
+             *
+             * This used to keep the MAXIMUM instead, which answered the same
+             * worry and created a worse one — see composerReservation().
              */
             onLayout={(e) => {
-              const measured = e.nativeEvent.layout.height;
-              setComposerHeight((current) => Math.max(current, measured));
+              setComposerHeight(
+                composerReservation(e.nativeEvent.layout.height, MIN_COMPOSER_HEIGHT + insets.bottom),
+              );
             }}
           >
             {composer}
