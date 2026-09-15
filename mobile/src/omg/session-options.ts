@@ -350,11 +350,29 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
    */
   const accountOptions = useMemo<MenuOption[]>(() => {
     if (agent !== "aisdk" || claudeAccounts.length < 2) return [];
+    /**
+     * THE EMAIL ALONE IS NOT ALWAYS AN IDENTITY.
+     *
+     * Two rows can carry the SAME login -- a second one added and never
+     * connected, say -- and naming both by email produced two identical rows
+     * on Benny's box, which is the ambiguity `label` ("Claude 1") exists to
+     * resolve. So the ordinal comes back, but only where it earns its place.
+     */
+    const seen = new Map<string, number>();
+    for (const account of claudeAccounts) {
+      const who = account.profile?.label;
+      if (who) seen.set(who, (seen.get(who) ?? 0) + 1);
+    }
     return claudeAccounts.map((account) => {
       // The state goes in the LABEL. `MenuOption` has no subtitle, and a field
       // it does not know is dropped in silence -- the plan and the reconnect
       // warning would simply never have appeared.
-      const who = account.profile?.label || account.label;
+      const email = account.profile?.label;
+      const who = !email
+        ? account.label
+        : (seen.get(email) ?? 0) > 1
+          ? `${account.label} · ${email}`
+          : email;
       const note = account.needsReconnect
         ? "needs reconnecting"
         : !account.connected
