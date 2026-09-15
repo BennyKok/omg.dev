@@ -52,7 +52,30 @@ test("asking too early does not consume the prompt", async () => {
   expect(await launchOnboardingTask(null, true)).toEqual({ kind: "not-ready" });
   // Still there for the attempt that can actually act on it.
   const ok = await launchOnboardingTask(clientThat({ sessionId: "s-1" }), true);
-  expect(ok).toEqual({ kind: "started", sessionId: "s-1", prompt: "Create 3 ad concepts" });
+  expect(ok).toEqual({ kind: "started", sessionId: "s-1", prompt: "Create 3 ad concepts", interest: "design" });
+});
+
+/**
+ * The lane rides across sign-in too. Step 05's headline is "Continue your
+ * design!" and the component state that held that word is gone by then --
+ * signing in re-mounts the tree -- so the stash is the only copy left.
+ */
+test("the chosen lane survives to the screens after sign-in", async () => {
+  await stashOnboardingChoice({ interest: null, taskId: null, prompt: "Something of my own" });
+  const out = await launchOnboardingTask(clientThat({ sessionId: "s-9" }), true);
+  expect(out.kind === "started" && out.interest).toBe(null);
+});
+
+/**
+ * NOTHING BEATS NOT-READY when there is nothing stashed.
+ *
+ * The caller waits out a ceiling of a minute and a half for a Computer before
+ * it gives up. Reporting "not ready" to an account that has no prompt to run
+ * would park it on a splash for that whole time for no reason, so the cheap
+ * non-consuming question is asked first.
+ */
+test("no stash answers immediately, without waiting for a computer", async () => {
+  expect(await launchOnboardingTask(null, false)).toEqual({ kind: "nothing" });
 });
 
 test("a started task is only started once", async () => {

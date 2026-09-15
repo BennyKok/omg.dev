@@ -31,6 +31,7 @@ plugin({
 
 const {
   HANDOFF_MAX_AGE_MS,
+  hasOnboardingChoice,
   stashOnboardingChoice,
   takeOnboardingChoice,
 } = await import("../src/omg/onboarding-handoff");
@@ -67,4 +68,24 @@ test("corrupt storage clears itself instead of throwing on launch", async () => 
   store.set("omg.onboarding.handoff.v1", "{not json");
   expect(await takeOnboardingChoice()).toBeNull();
   expect(await takeOnboardingChoice()).toBeNull();
+});
+
+/**
+ * The peek exists so an account with nothing to run is not parked on a splash
+ * while the caller waits out its ceiling for a Computer. It must answer the
+ * same question `take` does, and it must NOT consume.
+ */
+test("asking whether there is a handoff does not consume it", async () => {
+  await stashOnboardingChoice({ interest: "sales", taskId: null, prompt: "Draft a follow-up" });
+  expect(await hasOnboardingChoice()).toBe(true);
+  expect(await hasOnboardingChoice()).toBe(true);
+  expect((await takeOnboardingChoice())?.prompt).toBe("Draft a follow-up");
+  expect(await hasOnboardingChoice()).toBe(false);
+});
+
+test("the peek agrees with the read about stale and corrupt entries", async () => {
+  await stashOnboardingChoice({ interest: "data", taskId: null, prompt: "Chart this" });
+  expect(await hasOnboardingChoice(Date.now() + HANDOFF_MAX_AGE_MS + 1000)).toBe(false);
+  store.set("omg.onboarding.handoff.v1", "{not json");
+  expect(await hasOnboardingChoice()).toBe(false);
 });

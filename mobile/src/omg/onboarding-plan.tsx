@@ -8,11 +8,17 @@
  * remaining free allowance. A paywall that discarded the thing somebody just
  * wrote would undo the entire point of asking before sign-in.
  *
- * ── The products are the store's, never this file's ───────────────────────
+ * ── The products are the store's, and the buying is not this file's ───────
  *
- * Prices come from StoreKit through fetchTiers(), because a price written into
- * a bundle is wrong in every other currency and stale the day it changes.
- * FALLBACK_TIERS is the catalogue to ask for, not a price list to display.
+ * Prices come from StoreKit, because a price written into a bundle is wrong in
+ * every other currency and stale the day it changes.
+ *
+ * The purchase itself belongs to usePurchaseFlow(), the same hook app/plan.tsx
+ * uses. There must be exactly one implementation of taking money: its rules
+ * (a cancel is not an error, a failed submit is a slow activation and never a
+ * failed payment) are each the result of a specific failure, and a second copy
+ * would drift silently because a purchase cannot be exercised in CI or on a
+ * simulator.
  *
  * Annual is NOT offered yet. The design marks its artboard price-pending and
  * the board says annual pricing and credit allowances need confirming, so the
@@ -20,54 +26,50 @@
  *
  * Design: artboard "06 · Choose your plan · Full screen".
  */
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Icon } from "../components";
-import { FALLBACK_TIERS } from "./plan-specs";
 import { SecondaryAction } from "./onboarding-chrome";
-import { connectStore, fetchTiers, isStoreAvailable, type StoreProduct } from "./store";
+import { usePurchaseFlow } from "./purchase-flow";
 import { Text } from "./text";
 import { TierCard } from "./tier-card";
 import { useTheme } from "./theme";
 
 export function PlanScreen({
-  onPurchase,
+  onPurchased,
   onSkip,
-  onRestore,
   onClose,
 }: {
-  onPurchase: (product: StoreProduct) => void;
+  /** A purchase completed, or an existing one was restored. */
+  onPurchased: () => void;
   onSkip: () => void;
-  onRestore: () => void;
   onClose: () => void;
 }) {
   const { colors, space, type } = useTheme();
   const insets = useSafeAreaInsets();
-  const [products, setProducts] = useState<StoreProduct[] | null>(null);
+  const { phase, products, busy, buy, restore } = usePurchaseFlow();
 
+  /*
+   * A finished purchase leaves the flow rather than showing a receipt screen.
+   * app/plan.tsx has one because it is reached FROM a blocked computer and the
+   * outcome is the whole point of the visit; here the outcome is the session
+   * waiting behind this screen, so the right celebration is getting out of the
+   * way. `activating` counts: Apple has the money and the entitlement is
+   * coming, and holding somebody on a paywall to wait for a webhook is the
+   * worst reading of that state.
+   */
   useEffect(() => {
-    let cancelled = false;
-    if (!isStoreAvailable()) {
-      // A simulator, or a build with no StoreKit. Show the skip rather than a
-      // spinner that will never resolve -- this screen must never trap anyone.
-      setProducts([]);
-      return;
-    }
-    void (async () => {
-      try {
-        await connectStore();
-        const loaded = await fetchTiers(FALLBACK_TIERS);
-        if (!cancelled) setProducts(loaded);
-      } catch {
-        // The store is unreachable. "Continue for now" still works, which is
-        // the outcome that matters.
-        if (!cancelled) setProducts([]);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
+    if (phase.kind === "done" || phase.kind === "activating") onPurchased();
+  }, [phase.kind, onPurchased]);
+
+  /*
+   * `unavailable` is a simulator or a build with no StoreKit. It is an empty
+   * list here, not an error panel: "Continue for now" is the outcome that
+   * matters and this screen must never trap anyone.
+   */
+  const loading = phase.kind === "loading";
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insets.top }}>
@@ -80,7 +82,7 @@ export function PlanScreen({
           height: 52,
         }}
       >
-        <Pressable accessibilityRole="button" onPress={onRestore} hitSlop={12}>
+        <Pressable accessibilityRole="button" onPress={() => void restore()} hitSlop={12} disabled={busy}>
           <Text style={{ ...type.subhead, color: colors.textMuted }}>Restore purchases</Text>
         </Pressable>
         <Pressable
@@ -109,17 +111,28 @@ export function PlanScreen({
           <Text style={{ ...type.body, color: colors.textMuted }}>A workspace that grows with you.</Text>
         </View>
 
-        {products === null ? (
+        {loading ? (
           <ActivityIndicator color={colors.textMuted} style={{ marginTop: space.xl }} />
+        ) : products.length === 0 ? (
+          /*
+           * Nothing to sell: a simulator, a build with no StoreKit, or a store
+           * that is briefly unreachable. Say so in one line. A blank slab above
+           * "Continue for now" reads as a screen that failed to load, and this
+           * is the last thing between somebody and the session they just
+           * started.
+           */
+          <Text style={{ ...type.body, color: colors.textMuted }}>
+            Plans are not available on this device right now. Everything below still works.
+          </Text>
         ) : (
           products.map((product) => (
             <TierCard
               key={product.productId}
               product={product}
               current={false}
-              purchasing={false}
-              disabled={false}
-              onPress={() => onPurchase(product)}
+              purchasing={phase.kind === "purchasing" && phase.productId === product.productId}
+              disabled={busy}
+              onPress={() => void buy(product)}
             />
           ))
         )}

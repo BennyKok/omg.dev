@@ -26,9 +26,11 @@ import { useLucideFont } from "../src/omg/lucide";
 import { OmgProvider, useOmg } from "../src/omg/provider";
 import { AgentVillageWidgetBridge } from "../src/omg/village-widget-bridge";
 import { AgentLiveActivityBridge } from "../src/omg/agent-live-activity";
-import { useNotificationTapRouting } from "../src/omg/push";
+import { OnboardingAfterSignIn } from "../src/omg/onboarding-after";
 import { OnboardingFlow } from "../src/omg/onboarding-flow";
+import { shouldMarkOnboarded, shouldShowSetup } from "../src/omg/onboarding-gate";
 import { stashOnboardingChoice } from "../src/omg/onboarding-handoff";
+import { registerForPushNotifications, useNotificationTapRouting } from "../src/omg/push";
 import { useRootOpenRouting } from "../src/omg/root-open";
 import { useOtaUpdates } from "../src/omg/ota";
 import { launch } from "../src/omg/palette";
@@ -164,12 +166,51 @@ function LaunchGate() {
   );
 }
 
+/**
+ * Open a session, but not before there is a navigator to open it in.
+ *
+ * The onboarding paywall's exits leave the gate AND want to land on the session
+ * the flow created, and those two cannot happen in the same tick: while a gate
+ * is rendering there is no Stack, so a `router.push` from inside one pushes
+ * into a tree that does not exist. Rendering this INSIDE the signed-in tree
+ * means its effect cannot run until the Stack above it is mounted, whatever
+ * else had to clear first -- setup, a slow plan read, anything added later.
+ */
+function OpenWhenMounted({ sessionId, onOpened }: { sessionId: string; onOpened: () => void }) {
+  useEffect(() => {
+    router.push(`/session/${sessionId}`);
+    onOpened();
+  }, [sessionId, onOpened]);
+  return null;
+}
+
 function RootNavigator() {
-  const { authStatus, signOut, user, readiness, bindings, cloud, machinesLoaded, machinesError, probe } =
+  const { authStatus, signOut, user, readiness, bindings, cloud, client, machinesLoaded, machinesError, probe } =
     useOmg();
   const consent = useAiDataConsent(user?.id ?? null);
   const onboarding = useOnboarding(user?.id ?? null);
   const intro = useIntro();
+
+  /*
+   * Steps 04 to 06 are over for this launch. Local, not persisted: the flow is
+   * driven by the one-shot handoff stash, so a relaunch cannot repeat it -- and
+   * a persisted flag would be a second source of truth for the same fact.
+   */
+  const [afterSignInDone, setAfterSignInDone] = useState(false);
+  /**
+   * The new flow actually ran for this person, so setup below still owes them
+   * a visit -- even though buying a plan in step 06 has just made `established`
+   * true. Without this, paying would skip the connect step that Benny put
+   * AFTER the paywall on purpose, and only for the people who paid.
+   */
+  const [newArrival, setNewArrival] = useState(false);
+  const endAfterSignIn = useCallback((ran: boolean) => {
+    if (ran) setNewArrival(true);
+    setAfterSignInDone(true);
+  }, []);
+  /** Where the finished flow wants to land, held until a navigator exists. */
+  const [pendingSession, setPendingSession] = useState<string | null>(null);
+  const clearPendingSession = useCallback(() => setPendingSession(null), []);
 
   /*
    * Who is already established, by Benny's rule: an existing Computer OR a
@@ -196,9 +237,14 @@ function RootNavigator() {
    * is a state update during render, which React either warns about or turns
    * into a re-render loop depending on where it lands.
    */
+  // Both predicates live in onboarding-gate.ts with the rule they encode, and
+  // are pinned by scripts/onboarding-gate.native-check.ts.
+  const gate = { state: onboarding.state, established, newArrival, machinesLoaded };
   useEffect(() => {
-    if (onboarding.state === "needed" && machinesLoaded && established) onboarding.complete();
-  }, [onboarding, machinesLoaded, established]);
+    if (shouldMarkOnboarded({ state: onboarding.state, established, newArrival, machinesLoaded })) {
+      onboarding.complete();
+    }
+  }, [onboarding, machinesLoaded, established, newArrival]);
   /**
    * A tapped notification goes to the thing it is about.
    *
@@ -475,7 +521,46 @@ function RootNavigator() {
     return <Splash />;
   }
 
-  if (onboarding.state === "needed" && !established) {
+  /*
+   * Steps 04 to 06 of the revamp: the task they wrote before signing in, now
+   * running, then the real session, then the plan.
+   *
+   * ABOVE the setup gate on purpose. Benny's rule for the new flow is that
+   * connecting agent subscriptions happens after the paywall -- once somebody
+   * has seen their first session work, not before they have seen anything.
+   *
+   * Gated on `needed` so an established account never sees it, and on a local
+   * done flag so leaving it is final for this launch. It cannot hang: the
+   * component gives up on an unreachable Computer after LAUNCH_WAIT_MS and
+   * calls onDone, which drops through to exactly the gates below.
+   */
+  if (onboarding.state === "needed" && !afterSignInDone) {
+    const { agents } = rosterFromReadiness(readiness);
+    return (
+      <>
+        <StatusBar style={isDark ? "light" : "dark"} />
+        <OnboardingAfterSignIn
+          client={client}
+          ready={readiness?.status === "ready"}
+          // No cwd. The box has a default working directory and a first-run
+          // guess from this side would be worse than it.
+          agent={agents.find((a) => a.connected)?.key ?? ""}
+          runningCount={1}
+          onNotify={() => {
+            // Best effort. The permission prompt is the point; a failed token
+            // registration must not hold up the flow, and Settings has the
+            // repair path for it.
+            if (client) void registerForPushNotifications(client.transport, user?.email).catch(() => {});
+          }}
+          onOpenSession={setPendingSession}
+          onDone={endAfterSignIn}
+          splash={<Splash />}
+        />
+      </>
+    );
+  }
+
+  if (shouldShowSetup(gate)) {
     /*
      * The roster is whatever the Computer has told us so far. `waking` is a
      * real answer, not an error, so the screen says "starting up" instead of
@@ -677,6 +762,9 @@ function RootNavigator() {
           <Stack.Screen name="auto/[agentId]/[findingId]" options={{ title: "Finding" }} />
         </Stack.Protected>
       </Stack>
+      {pendingSession ? (
+        <OpenWhenMounted sessionId={pendingSession} onOpened={clearPendingSession} />
+      ) : null}
     </>
   );
 }

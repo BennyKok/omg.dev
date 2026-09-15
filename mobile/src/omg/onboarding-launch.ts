@@ -19,14 +19,19 @@
  */
 import type { OmgClient } from "@omg-dev/client";
 
-import { takeOnboardingChoice } from "./onboarding-handoff";
+import type { InterestKey } from "./onboarding-tasks";
+
+import { hasOnboardingChoice, takeOnboardingChoice } from "./onboarding-handoff";
 
 export type LaunchOutcome =
   /** Nothing stashed, or it was too old. Normal for everyone but a new arrival. */
   | { kind: "nothing" }
   /** The pieces are not all here yet. Ask again; nothing was consumed. */
   | { kind: "not-ready" }
-  | { kind: "started"; sessionId: string; prompt: string }
+  /** `interest` rides along because the screens after sign-in need the word
+   *  the person chose, and the component state that held it is gone: signing
+   *  in re-mounts the tree. The stash is the only copy left. */
+  | { kind: "started"; sessionId: string; prompt: string; interest: InterestKey | null }
   /** The prompt is gone either way; say so rather than silently dropping it. */
   | { kind: "failed"; prompt: string; error: string };
 
@@ -35,12 +40,19 @@ export async function launchOnboardingTask(
   ready: boolean,
   cwd?: string | null,
 ): Promise<LaunchOutcome> {
-  // Check readiness BEFORE reading, because reading consumes. Getting this
-  // order wrong would eat the prompt on the first render after sign-in, when
-  // the client is reliably still null.
+  // "Is there anything?" first, and it does not consume. Answering "nothing"
+  // before the readiness check is what keeps an account with no stashed prompt
+  // from being parked on a splash while the caller waits out its ceiling for a
+  // Computer it has no use for.
+  if (!(await hasOnboardingChoice())) return { kind: "nothing" };
+
+  // Readiness BEFORE the consuming read. Getting this order wrong would eat
+  // the prompt on the first render after sign-in, when the client is reliably
+  // still null.
   if (!client || !ready) return { kind: "not-ready" };
 
   const choice = await takeOnboardingChoice();
+  // Raced with another reader, or it aged out between the two reads.
   if (!choice) return { kind: "nothing" };
 
   try {
@@ -57,7 +69,7 @@ export async function launchOnboardingTask(
     });
     const sessionId = result?.sessionId;
     if (!sessionId) return { kind: "failed", prompt: choice.prompt, error: "No session was created" };
-    return { kind: "started", sessionId, prompt: choice.prompt };
+    return { kind: "started", sessionId, prompt: choice.prompt, interest: choice.interest ?? null };
   } catch (e) {
     return {
       kind: "failed",

@@ -22,6 +22,7 @@
  *
  * Design: artboard "04 · Working + village [07 + 08]".
  */
+import { useState } from "react";
 import { Image, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -50,19 +51,55 @@ export function WorkingScreen({
   const { colors, isDark, radius, space, type } = useTheme();
   const insets = useSafeAreaInsets();
   const plates = backgroundsFor("blossom");
+  /** Measured, because the plate under it is pinned to the space that is left. */
+  const [headingHeight, setHeadingHeight] = useState(0);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insets.top }}>
       <StepHeader onBack={onBack} />
-      <View style={{ flex: 1, paddingHorizontal: space.lg + 4, gap: space.lg }}>
-        <StepHeading title={"Your agents\nare on it."} body="Get notified when your result is ready." />
+      <View style={{ flex: 1 }}>
+        <View style={{ paddingHorizontal: space.lg + 4 }} onLayout={(e) => setHeadingHeight(e.nativeEvent.layout.height)}>
+          <StepHeading title={"Your agents\nare on it."} body="Get notified when your result is ready." />
+        </View>
 
-        <View style={{ borderRadius: radius.xl, overflow: "hidden" }}>
+        {/*
+         * THE PLATE IS PINNED, top AND bottom, and that is deliberate.
+         *
+         * Sized in normal flow it was not the height of the space left under
+         * the heading: it took the artwork's own dimensions, ran off the
+         * bottom of a 6.3" screen, and the buttons ended up drawn over it.
+         * Every ordinary remedy was tried on the device -- `flex: 1` on the
+         * box, `flex: 1` on the image, an absolutely filled image, `minHeight:
+         * 0` -- and the card stayed about 1450pt tall in all of them, which is
+         * the artwork's pixel height. A colour probe with the image removed
+         * laid out correctly, so the image was the thing setting the height.
+         *
+         * With both `top` and `bottom` fixed, the height comes only from the
+         * parent and nothing inside can change it. The heading is measured
+         * because it is the only part above that is not a constant: two lines
+         * of large title is not the same height on every text size.
+         *
+         * The art is a backdrop, not a diagram, so `cover` cropping it is
+         * correct. The caption and the bubble are then placed against a box
+         * that is actually on screen.
+         */}
+        <View
+          style={{
+            position: "absolute",
+            top: headingHeight + space.lg,
+            left: space.lg + 4,
+            right: space.lg + 4,
+            bottom: 0,
+            borderRadius: radius.xl,
+            overflow: "hidden",
+          }}
+        >
           <Image
             source={isDark ? plates.large.dark : plates.large.light}
-            style={{ width: "100%", aspectRatio: 1 }}
+            style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
             resizeMode="cover"
           />
+
           {/* Laid over the plate rather than baked into it -- the plates are
               clean on purpose, so a caption and a bubble drawn here cannot end
               up duplicated by artwork that already contains them. */}
@@ -99,7 +136,7 @@ export function WorkingScreen({
         </View>
       </View>
 
-      <View style={{ paddingHorizontal: space.lg + 4, paddingBottom: insets.bottom + space.lg, gap: space.md }}>
+      <View style={{ paddingHorizontal: space.lg + 4, paddingTop: space.lg, paddingBottom: insets.bottom + space.lg, gap: space.md }}>
         <PrimaryAction label="Notify me" onPress={onNotify} />
         <SecondaryAction label="Not now" onPress={onSkip} />
       </View>

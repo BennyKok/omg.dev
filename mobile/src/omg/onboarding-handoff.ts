@@ -51,20 +51,39 @@ export async function stashOnboardingChoice(
   });
 }
 
-/** Read and clear. Returns null when there is nothing, or it is too old. */
-export async function takeOnboardingChoice(
-  now: number = Date.now(),
-): Promise<OnboardingHandoff | null> {
-  const raw = await AsyncStorage.getItem(KEY).catch(() => null);
+function usable(raw: string | null, now: number): OnboardingHandoff | null {
   if (!raw) return null;
-  await AsyncStorage.removeItem(KEY).catch(() => {});
   try {
     const parsed = JSON.parse(raw) as OnboardingHandoff;
     if (!parsed?.prompt?.trim()) return null;
     if (typeof parsed.at !== "number" || now - parsed.at > HANDOFF_MAX_AGE_MS) return null;
     return parsed;
   } catch {
-    // Corrupt. It was cleared above either way, so the next launch is clean.
     return null;
   }
+}
+
+/**
+ * Is there anything to run? Reads WITHOUT clearing.
+ *
+ * The caller has to wait for a Computer before it can act, and that wait has a
+ * ceiling measured in a minute and a half. Asking this first means somebody
+ * with nothing stashed -- an account created before the revamp, anyone who
+ * reached sign-in another way -- is not held on a splash for that minute
+ * waiting for a machine they have no use for yet.
+ */
+export async function hasOnboardingChoice(now: number = Date.now()): Promise<boolean> {
+  return usable(await AsyncStorage.getItem(KEY).catch(() => null), now) !== null;
+}
+
+/** Read and clear. Returns null when there is nothing, or it is too old. */
+export async function takeOnboardingChoice(
+  now: number = Date.now(),
+): Promise<OnboardingHandoff | null> {
+  const raw = await AsyncStorage.getItem(KEY).catch(() => null);
+  if (!raw) return null;
+  // Cleared even when it turns out to be stale or corrupt, so the next launch
+  // is clean either way.
+  await AsyncStorage.removeItem(KEY).catch(() => {});
+  return usable(raw, now);
 }
