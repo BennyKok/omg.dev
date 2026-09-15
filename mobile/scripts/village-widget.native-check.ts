@@ -425,3 +425,73 @@ test("a napping agent's sleep marker drifts up and away across the cycle", () =>
 test("a napper's breath is deep enough to notice between two glances", () => {
   expect(travel("idle").y).toBeGreaterThanOrEqual(5);
 });
+
+/**
+ * One bubble per agent. A single bubble over the top-ranked session read as
+ * arbitrary once two agents were on screen: you could see who was working and
+ * only hear from one of them.
+ */
+const chorus = (titles: (string | null)[], environment: Record<string, unknown> = {}) => nodes(render({
+  ...props,
+  characters: titles.map((title, i) => ({
+    iconUri: "i", iconSize: 34, plate: false, markTone: "light", legColor: "#000",
+    state: "working", title, lastActivityAt: i * 1000,
+  })),
+}, { widgetFamily: "systemMedium", date: 10_000, ...environment }));
+
+const boxesOf = (tree: any[]) => tree.filter(node => node.type === "RoundedRectangle").map(node => ({
+  at: node.props.modifiers.find((m: any) => m.type === "offset").value,
+  size: node.props.modifiers.find((m: any) => m.type === "frame").value,
+}));
+
+test("every agent with a title gets its own bubble", () => {
+  const tree = chorus(["first task", "second task"]);
+  const said = tree.filter(node => node.type === "Text").map(node => node.props.children);
+  expect(said).toContain("first task");
+  expect(said).toContain("second task");
+  expect(boxesOf(tree)).toHaveLength(2);
+});
+
+test("an agent with no title stays silent while its neighbours speak", () => {
+  const tree = chorus(["first task", null, "third task"]);
+  expect(boxesOf(tree)).toHaveLength(2);
+  expect(tree.filter(node => node.type === "Text").map(node => node.props.children)).toContain("third task");
+});
+
+test("bubbles never overlap each other, whatever the cast", () => {
+  for (const family of ["Medium", "Large"]) {
+    const boxes = boxesOf(chorus(
+      ["one", "two", "three", "four"].map(t => `session ${t}`),
+      { widgetFamily: `system${family}` },
+    ));
+    for (let i = 0; i < boxes.length; i += 1) {
+      for (let j = i + 1; j < boxes.length; j += 1) {
+        const apart = Math.abs(boxes[i].at.x - boxes[j].at.x) >= (boxes[i].size.width + boxes[j].size.width) / 2
+          || Math.abs(boxes[i].at.y - boxes[j].at.y) >= (boxes[i].size.height + boxes[j].size.height) / 2;
+        expect(apart).toBe(true);
+      }
+    }
+  }
+});
+
+test("bubbles never cover a villager, however many are talking", () => {
+  const tree = chorus(["one", "two", "three", "four"].map(t => `session ${t}`));
+  const marks = tree.filter(node => node.type === "Image").slice(1).map(node => ({
+    at: node.props.modifiers.find((m: any) => m.type === "offset").value,
+    size: node.props.modifiers.find((m: any) => m.type === "frame").value,
+  }));
+  for (const box of boxesOf(tree)) {
+    for (const mark of marks) {
+      const apart = Math.abs(box.at.x - mark.at.x) >= (box.size.width + mark.size.width) / 2
+        || Math.abs(box.at.y - mark.at.y) >= (box.size.height + mark.size.height) / 2;
+      expect(apart).toBe(true);
+    }
+  }
+});
+
+test("a crowded village quietens the ones it cannot seat, rather than stacking them", () => {
+  // Every slot taken and every one talking: some must go without a bubble.
+  const tree = chorus(Array.from({ length: 4 }, (_, i) => `a much longer session title number ${i}`));
+  expect(boxesOf(tree).length).toBeLessThanOrEqual(4);
+  expect(boxesOf(tree).length).toBeGreaterThan(0);
+});

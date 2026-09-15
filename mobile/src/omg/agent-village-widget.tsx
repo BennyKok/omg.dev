@@ -260,177 +260,126 @@ function AgentVillage(props: VillageProps, environment: { widgetFamily: string; 
 
 
   /**
-   * ONE SPEECH BUBBLE, OVER WHOEVER MATTERS MOST.
+   * ONE BUBBLE PER AGENT, as many as the village has room for.
    *
-   * The bridge already sorts the cast by rank -- a parked question first, then
-   * a provider error, then running -- so index 0 IS the one worth reading, and
-   * putting a bubble over everybody would overlap on medium and bury the
-   * garden on large. One bubble, over the lead.
+   * It used to be a single bubble over the highest-ranked session. That read
+   * as arbitrary once two agents were on screen -- you could see who was
+   * working and only hear from one of them. Benny asked for each.
    *
-   * Small gets none. A 170pt square has no room for a legible title next to a
-   * cast and a caption, and a clipped bubble reads worse than no bubble.
-   */
-  const lead = characters[0];
-  const leadSlot = scene.slots[0];
-  const said = family === "small" ? null : (lead?.title ?? "").trim();
-  /**
-   * "NOW" IS THE ENTRY'S OWN DATE, not the moment the app wrote the frame.
-   *
-   * A timeline covers the next twelve minutes, so a relative time baked in at
-   * write time is up to twelve minutes wrong by the last pose. `environment.date`
-   * is the date WidgetKit is rendering for, which is the only clock that
-   * follows the entries. It falls back to the write time on anything that does
-   * not supply it.
+   * They are placed in rank order, which the bridge already sorts: a parked
+   * question, then a provider error, then running. Each takes the first
+   * candidate position that clears every villager AND every bubble already
+   * placed, so the ones that matter most get the good spots. A speaker with
+   * nowhere left to stand is simply silent rather than overlapping someone --
+   * which is also what caps the count, without a magic number deciding it.
    */
   const renderedAt = Number(environment.date ?? 0) || props.updatedAt;
-  // `!= null`, not truthiness: an epoch of 0 is a timestamp, and a falsy test
-  // silently drops the time from the bubble instead of showing it.
-  const lastActivityAt = lead?.lastActivityAt;
-  const sinceMinutes = typeof lastActivityAt === "number"
-    ? Math.max(0, Math.round((renderedAt - lastActivityAt) / 60000))
-    : null;
-  const when = sinceMinutes === null
-    ? ""
-    : sinceMinutes < 1
-      ? "now"
-      : sinceMinutes < 60
-        ? `${sinceMinutes}m`
-        : sinceMinutes < 60 * 24
-          ? `${Math.round(sinceMinutes / 60)}h`
-          : `${Math.round(sinceMinutes / (60 * 24))}d`;
-  /**
-   * A LIVE CLOCK, WHICH IS THE ONE THING A WIDGET CAN UPDATE FOR FREE.
-   *
-   * WidgetKit renders date and timer Text itself, outside the timeline: it
-   * ticks every second and costs no reload budget at all. Everything else here
-   * -- the cast, the caption, where anyone is standing -- can only change when
-   * a timeline entry is rendered, which iOS grants sparingly. So the widget had
-   * nothing on it that moved between entries, and a frame twelve minutes old
-   * looked exactly like a fresh one.
-   *
-   * A running lead now carries a ticking clock instead of a rounded string, so
-   * there is always one element that is honestly current. A lead that is NOT
-   * running keeps the rounded string: a counter climbing next to a finished
-   * session says the wrong thing.
-   *
-   * Only the lower bound is read while counting up; the upper is out of reach
-   * because a run has no known end.
-   */
-  const YEAR_MS = 365 * 24 * 60 * 60 * 1000;
-  const ticking = lead?.state === "working" && typeof lastActivityAt === "number";
-
-  const bubbleWidth = Math.min(family === "large" ? 196 : 150, width - 56);
-  const bubbleHeight = (when || ticking) ? 34 : 24;
+  const bubbleWidth = Math.min(family === "large" ? 176 : 138, width - 56);
   const paper = dark ? "#1B1F19" : "#FFFFFF";
 
+  /** The summary's baseline, so a bubble can never stack on top of it. */
+  const captionBand = captionY + 20;
+
+  const age = (at: number | null | undefined) => {
+    // `!= null`, not truthiness: an epoch of 0 is a timestamp, and a falsy
+    // test silently drops the time instead of showing it.
+    if (typeof at !== "number") return "";
+    const minutes = Math.max(0, Math.round((renderedAt - at) / 60000));
+    return minutes < 1 ? "now"
+      : minutes < 60 ? `${minutes}m`
+        : minutes < 60 * 24 ? `${Math.round(minutes / 60)}h`
+          : `${Math.round(minutes / (60 * 24))}d`;
+  };
+
   /**
-   * PICK A SPOT THAT IS ACTUALLY EMPTY.
+   * A LIVE CLOCK, THE ONE THING A WIDGET CAN UPDATE FOR FREE.
    *
-   * A bubble parked at a fixed offset from the lead covers whoever happens to
-   * be standing there. Above the head runs into the caption; beside the head
-   * ran straight through two other villagers on the simulator. The village is
-   * crowded and its slots differ per family, so the position has to be chosen
-   * against the actual cast rather than assumed.
+   * WidgetKit renders timer Text itself, outside the timeline: it ticks every
+   * second and costs no reload budget. Everything else here can only change
+   * when an entry is rendered, which iOS grants sparingly, so without this a
+   * twelve minute old frame looked exactly like a fresh one.
    *
-   * Candidates are tried nearest-the-speaker first and the first clear one
-   * wins. If the village is too full for any of them the least-obstructed one
-   * is used rather than dropping the bubble, because a slightly overlapped
-   * title still tells you more than no title at all.
+   * Only a RUNNING agent gets one. A counter climbing beside a session that
+   * has stopped says the wrong thing, so those keep a rounded age.
    */
-  const leadLegs = lead?.state === "idle" ? 5 : 7;
-  const leadHeadY = leadSlot ? leadSlot.y - leadLegs - MARK / 2 : height / 2;
+  const YEAR_MS = 365 * 24 * 60 * 60 * 1000;
+
   const markBoxes = characters.map((who, i) => ({
     x: scene.slots[i].x,
     y: scene.slots[i].y - (who.state === "idle" ? 5 : 7) - MARK / 2,
+    w: MARK,
+    h: MARK,
   }));
-  const clampX = (x: number) => Math.min(Math.max(x, bubbleWidth / 2 + 6), width - bubbleWidth / 2 - 6);
-  const clampY = (y: number) => Math.min(Math.max(y, captionY + 20 + bubbleHeight / 2), height - bubbleHeight / 2 - 6);
-  const reach = MARK / 2 + 6 + bubbleWidth / 2;
-  const candidates = leadSlot
-    ? [
-      { x: leadSlot.x, y: leadHeadY - MARK / 2 - bubbleHeight / 2 - 6 },
-      { x: leadSlot.x + reach, y: leadHeadY },
-      { x: leadSlot.x - reach, y: leadHeadY },
-      { x: width - bubbleWidth / 2 - 8, y: captionY + 20 + bubbleHeight / 2 },
-      { x: width / 2, y: height - bubbleHeight / 2 - 8 },
-    ]
-    : [{ x: width / 2, y: height / 2 }];
+  const overlaps = (a: { x: number; y: number; w: number; h: number }, b: typeof a) =>
+    Math.abs(a.x - b.x) < (a.w + b.w) / 2 && Math.abs(a.y - b.y) < (a.h + b.h) / 2;
 
-  /** How much of this position lands on top of a villager. */
-  const obstruction = (at: { x: number; y: number }) => markBoxes.reduce((sum, box) => {
-    const overlapX = Math.max(0, Math.min(at.x + bubbleWidth / 2, box.x + MARK / 2) - Math.max(at.x - bubbleWidth / 2, box.x - MARK / 2));
-    const overlapY = Math.max(0, Math.min(at.y + bubbleHeight / 2, box.y + MARK / 2) - Math.max(at.y - bubbleHeight / 2, box.y - MARK / 2));
-    return sum + overlapX * overlapY;
-  }, 0);
+  const placed: { x: number; y: number; w: number; h: number }[] = [];
+  const bubbles = characters.map((who, index) => {
+    const said = family === "small" ? "" : (who.title ?? "").trim();
+    if (!said) return null;
+    const startedAt = who.lastActivityAt;
+    const ticking = who.state === "working" && typeof startedAt === "number";
+    const when = ticking ? "" : age(startedAt);
+    const bubbleHeight = ticking || when ? 34 : 24;
 
-  let spot = { x: clampX(candidates[0].x), y: clampY(candidates[0].y) };
-  let worst = Infinity;
-  for (const candidate of candidates) {
-    const at = { x: clampX(candidate.x), y: clampY(candidate.y) };
-    const cost = obstruction(at);
-    if (cost < worst) { worst = cost; spot = at; }
-    if (cost === 0) break;
-  }
-  const bubbleX = spot.x;
-  const bubbleY = spot.y;
-  /** The tail points back at the speaker, on whichever side it ended up. */
-  const tailLeft = bubbleX >= (leadSlot ? leadSlot.x : width / 2);
-  /**
-   * THE TAIL ONLY EXISTS WHEN IT FITS, and only on the speaker's side.
-   *
-   * The bubble is clamped into the scene but the dots were not, so a bubble
-   * pushed against an edge -- which is every large widget, whose lead stands
-   * at x=80 under a 196pt bubble -- put one dot on the boundary and the next
-   * at x=-6, off the widget. One clipped dot and one missing, seen on a
-   * device.
-   *
-   * It is not flipped to the roomy side when it does not fit: a tail pointing
-   * away from the agent it belongs to is worse than no tail. A bubble without
-   * one still reads as a label.
-   */
-  const tailOffsets = [{ size: 7, out: 5, drop: 8 }, { size: 4, out: 12, drop: 13 }];
-  const tailX = (out: number) => bubbleX + (tailLeft ? -1 : 1) * (bubbleWidth / 2 + out);
-  const tailFits = tailOffsets.every((dot) => {
-    const at = tailX(dot.out);
-    return at - dot.size / 2 >= 0 && at + dot.size / 2 <= width;
-  });
+    const slot = scene.slots[index];
+    const legs = who.state === "idle" ? 5 : 7;
+    const headY = slot.y - legs - MARK / 2;
+    const clampX = (x: number) => Math.min(Math.max(x, bubbleWidth / 2 + 6), width - bubbleWidth / 2 - 6);
+    const clampY = (y: number) => Math.min(Math.max(y, captionBand + bubbleHeight / 2), height - bubbleHeight / 2 - 6);
+    const reach = MARK / 2 + 6 + bubbleWidth / 2;
+    const candidates = [
+      { x: slot.x, y: headY - MARK / 2 - bubbleHeight / 2 - 6 },
+      { x: slot.x + reach, y: headY },
+      { x: slot.x - reach, y: headY },
+      { x: slot.x, y: headY + MARK / 2 + bubbleHeight / 2 + 10 },
+      { x: width - bubbleWidth / 2 - 8, y: captionBand + bubbleHeight / 2 },
+      { x: bubbleWidth / 2 + 8, y: captionBand + bubbleHeight / 2 },
+    ];
 
-  /*
-   * NO FILLED BODY WHEN TINTED. Same trap as the mark discs: iOS renders a
-   * tinted widget from the ALPHA of its content, so an opaque bubble and the
-   * text inside it both come out solid white and the words vanish. Verified on
-   * the simulator -- a filled bubble rendered as an empty white slab.
-   *
-   * Bare text over the garden reads fine there, which is what the accidental
-   * first version proved, so tinted mode simply goes without the paper.
-   */
-  const bubble = said
-    ? (
-      <ZStack>
+    let spot: { x: number; y: number } | null = null;
+    for (const candidate of candidates) {
+      const box = { x: clampX(candidate.x), y: clampY(candidate.y), w: bubbleWidth, h: bubbleHeight };
+      if (markBoxes.some((mark) => overlaps(box, mark))) continue;
+      if (placed.some((other) => overlaps(box, other))) continue;
+      spot = { x: box.x, y: box.y };
+      placed.push(box);
+      break;
+    }
+    // Nowhere to stand without covering somebody. Stay quiet.
+    if (!spot) return null;
+
+    const tailLeft = spot.x >= slot.x;
+    const tailOffsets = [{ size: 7, out: 5, drop: 8 }, { size: 4, out: 12, drop: 13 }];
+    const tailX = (out: number) => spot.x + (tailLeft ? -1 : 1) * (bubbleWidth / 2 + out);
+    const tailFits = tailOffsets.every((dot) => {
+      const at = tailX(dot.out);
+      return at - dot.size / 2 >= 0 && at + dot.size / 2 <= width;
+    });
+
+    return (
+      <ZStack key={`bubble-${index}`}>
         {tinted ? null : (
           <RoundedRectangle
             cornerRadius={11}
-            modifiers={[frame({ width: bubbleWidth, height: bubbleHeight }), foregroundColor(paper), place(bubbleX, bubbleY)]}
+            modifiers={[frame({ width: bubbleWidth, height: bubbleHeight }), foregroundColor(paper), place(spot.x, spot.y)]}
           />
         )}
-        {/* Two shrinking dots aimed back at the character, instead of a drawn
-            tail: the toolkit exposes no triangle, and the thought-bubble
-            reading suits a garden anyway. */}
         {tinted || !tailFits ? null : tailOffsets.map((dot) => (
           <Circle
-            key={`tail-${dot.out}`}
-            modifiers={[frame({ width: dot.size, height: dot.size }), foregroundColor(paper), place(tailX(dot.out), bubbleY + dot.drop)]}
+            key={`tail-${index}-${dot.out}`}
+            modifiers={[frame({ width: dot.size, height: dot.size }), foregroundColor(paper), place(tailX(dot.out), spot.y + dot.drop)]}
           />
         ))}
         <VStack alignment="leading" spacing={1} modifiers={[
           frame({ width: bubbleWidth - 18, alignment: "leading" }),
-          place(bubbleX, bubbleY),
+          place(spot.x, spot.y),
         ]}>
           <Text modifiers={[bold(), font({ size: 11 }), lineLimit(1), foregroundColor(ink)]}>{said}</Text>
           {ticking
             ? (
               <Text
-                timerInterval={{ lower: new Date(lastActivityAt as number), upper: new Date((lastActivityAt as number) + YEAR_MS) }}
+                timerInterval={{ lower: new Date(startedAt as number), upper: new Date((startedAt as number) + YEAR_MS) }}
                 countsDown={false}
                 modifiers={[font({ size: 10 }), lineLimit(1), foregroundColor(subdued)]}
               />
@@ -440,14 +389,14 @@ function AgentVillage(props: VillageProps, environment: { widgetFamily: string; 
               : null}
         </VStack>
       </ZStack>
-    )
-    : null;
+    );
+  }).filter(Boolean);
 
   return (
     <ZStack modifiers={[frame({ width, height }), containerBackground(sky, "widget"), widgetURL(url)]}>
       {village}
       {crowd}
-      {bubble}
+      {bubbles}
       {caption}
       {characters.length === 0 ? emptyVillage : null}
     </ZStack>
