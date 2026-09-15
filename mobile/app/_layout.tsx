@@ -27,6 +27,7 @@ import { OmgProvider, useOmg } from "../src/omg/provider";
 import { AgentVillageWidgetBridge } from "../src/omg/village-widget-bridge";
 import { AgentLiveActivityBridge } from "../src/omg/agent-live-activity";
 import { useNotificationTapRouting } from "../src/omg/push";
+import { useRootOpenRouting } from "../src/omg/root-open";
 import { useOtaUpdates } from "../src/omg/ota";
 import { launch } from "../src/omg/palette";
 import { useTheme } from "../src/omg/theme";
@@ -215,6 +216,11 @@ function RootNavigator() {
    * waiting costs nothing and the tap still lands after the gate clears.
    */
   useNotificationTapRouting(authStatus === "signed-in" && consent.state === "granted");
+  /*
+   * The other half of the destination-less open. Same gate and same reason: a
+   * widget tap on a cold start arrives before there is a Stack to pop within.
+   */
+  useRootOpenRouting(authStatus === "signed-in" && consent.state === "granted");
   /**
    * Land on sign-in the moment ANY path sets authStatus to "signed-out" —
    * an explicit Sign out, a session that expired underneath the app, a
