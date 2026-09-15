@@ -58,6 +58,7 @@ export function ArchiveContent({
 }) {
   const { colors, type, space, radius } = useTheme();
   const [tab, setTab] = useState<"sessions" | "stash">("sessions");
+  const [showScheduled, setShowScheduled] = useState(false);
   const [search, setSearch] = useState("");
   const [resuming, setResuming] = useState<string | null>(null);
   const [resumeError, setResumeError] = useState<string | null>(null);
@@ -192,9 +193,44 @@ export function ArchiveContent({
       />
       {tab === "sessions" ? (
         <>
-          <Text style={{ ...type.caption, color: colors.textMuted }}>
-            Tap a conversation to read it. Hold to resume the agent.
-          </Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+            <Text style={{ ...type.caption, color: colors.textMuted, flex: 1 }}>
+              Tap a conversation to read it. Hold to resume the agent.
+            </Text>
+            {/* SAYS WHERE THE RUNS WENT.
+                The server hides scheduled auto-agent runs from this list --
+                they are the bulk of the catalog on a busy box and none of them
+                is a conversation to resume. The web has had a control to ask
+                for them back since that landed; this app had none, so the runs
+                just disappeared here with nothing to explain it. Hidden while
+                there are none to show, rather than offering an empty toggle. */}
+            {state.scheduledTotal > 0 ? (
+              <Pressable
+                accessibilityRole="switch"
+                accessibilityState={{ checked: showScheduled }}
+                accessibilityLabel={
+                  showScheduled ? "Hide scheduled runs" : `Show ${state.scheduledTotal} scheduled runs`
+                }
+                onPress={() => {
+                  const next = !showScheduled;
+                  setShowScheduled(next);
+                  void browser.setIncludeScheduled(next);
+                }}
+                style={{
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                  borderRadius: radius.pill,
+                  backgroundColor: showScheduled ? colors.card : colors.bg,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                }}
+              >
+                <Text style={{ ...type.caption, color: showScheduled ? colors.text : colors.textMuted }}>
+                  {showScheduled ? "Hide runs" : `${state.scheduledTotal} runs`}
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
           {state.error || resumeError ? (
             <Text style={{ ...type.body, color: colors.textMuted }}>
               {state.error || resumeError}
