@@ -42,6 +42,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useEffect, useRef } from "react";
 import { Platform } from "react-native";
 import { useRouter } from "expo-router";
+
+import { notificationTapAction } from "./notification-tap";
 import type { OmgTransport } from "@omg-dev/client";
 
 import { STORAGE_KEYS } from "./config";
@@ -172,8 +174,9 @@ export async function unregisterForPushNotifications(transport: OmgTransport): P
  * way, so this waits for the caller to say the Stack is actually up rather
  * than assuming expo-router queues navigation correctly against an unmounted
  * tree. The response itself isn't lost by waiting: `useLastNotificationResponse`
- * holds onto it until `clearLastNotificationResponse` is called (never, here),
- * so the effect below re-runs and fires as soon as `ready` flips true.
+ * holds onto it until `clearLastNotificationResponse` is called, which the
+ * effect below does only once it has actually handled the tap, so the effect
+ * re-runs and fires as soon as `ready` flips true.
  *
  * The machine sends `data.url` as an app-relative path it already resolved
  * from a web-style notification url (see push-native.ts's toNativeAppUrl) —
@@ -194,9 +197,15 @@ export function useNotificationTapRouting(ready: boolean): void {
     const id = response.notification.request.identifier;
     if (handledId.current === id) return;
     handledId.current = id;
-    const url = response.notification.request.content.data?.url;
-    if (typeof url === "string" && url.startsWith("/")) {
-      router.push(url);
-    }
+    const action = notificationTapAction(response.notification.request.content.data?.url);
+    /*
+     * CONSUME IT. The response is held until something clears it, and
+     * `handledId` is a ref that dies with the component -- so a remount
+     * replays the last tap the phone ever saw, against a stack that has
+     * already moved on.
+     */
+    Notifications.clearLastNotificationResponse();
+    if (action.kind === "dismissTo") router.dismissTo(action.path);
+    else if (action.kind === "push") router.push(action.path);
   }, [ready, response, router]);
 }
