@@ -1041,6 +1041,10 @@ export function SessionsScreen({
               // sending a level it does not recognise is a 400 rather than a
               // fallback.
               thinkingLevel: agentPicker.thinking ?? undefined,
+              // Omitted unless chosen: the box picks the login with the most
+              // capacity left when it hears nothing, which beats this app
+              // pinning one at random.
+              claudeAccountId: agentPicker.claudeAccountId,
               cwd: projectPicker.cwd ?? undefined,
             }),
           },
@@ -1308,6 +1312,8 @@ export function SessionsScreen({
       modelOptions={agentPicker.modelOptions}
       thinkingLabel={agentPicker.thinkingLabel}
       thinkingOptions={agentPicker.thinkingOptions}
+      accountOptions={agentPicker.accountOptions}
+      accountLabel={agentPicker.claudeAccountLabel}
       attachments={attachments}
       dictation={dictation}
       usage={usage}

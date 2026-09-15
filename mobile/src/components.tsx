@@ -998,6 +998,8 @@ export function HomeComposer({
   modelOptions,
   thinkingLabel,
   thinkingOptions,
+  accountOptions,
+  accountLabel,
   attachments,
   dictation,
   usage = [],
@@ -1020,6 +1022,9 @@ export function HomeComposer({
   modelOptions?: MenuOption[];
   thinkingLabel?: string | null;
   thinkingOptions?: MenuOption[];
+  /** The box's Claude logins. Empty unless it holds more than one. */
+  accountOptions?: MenuOption[];
+  accountLabel?: string | null;
   /** The files going with this prompt, and how to pick more. */
   attachments: {
     items: Attachment[];
@@ -1184,6 +1189,8 @@ export function HomeComposer({
           agentOptions={agentOptions}
           modelOptions={modelOptions}
           thinkingOptions={thinkingOptions}
+          accountOptions={accountOptions}
+          accountLabel={accountLabel}
           usageRing={
             agentUsage ? (
               <UsageRings

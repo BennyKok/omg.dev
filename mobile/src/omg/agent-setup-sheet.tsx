@@ -30,6 +30,8 @@ export function AgentSetupSheet({
   agentOptions,
   modelOptions,
   thinkingOptions,
+  accountOptions,
+  accountLabel,
   usageRing,
   usageLoading,
   title,
@@ -40,6 +42,14 @@ export function AgentSetupSheet({
   agentOptions: MenuOption[];
   modelOptions?: MenuOption[];
   thinkingOptions?: MenuOption[];
+  /**
+   * The box's Claude logins, when it holds more than one. A box can be signed
+   * in to several at once and only the web could ever see them; without this a
+   * person with two accounts could not tell which one a session would bill to.
+   */
+  accountOptions?: MenuOption[];
+  /** Who the next session will run as, when a login has been chosen. */
+  accountLabel?: string | null;
   /** The current agent's usage ring, drawn by the composer so this file does not import it. */
   usageRing?: ReactNode;
   usageLoading?: boolean;
@@ -76,6 +86,49 @@ export function AgentSetupSheet({
                 <AgentTile key={`${option.label}:${index}`} option={option} onPress={() => pick(option)} />
               ))}
             </ScrollView>
+          </View>
+        ) : null}
+        {/*
+          * WHICH LOGIN, when the box holds more than one.
+          *
+          * Above Model on purpose: the account decides which plan's limits and
+          * which usage ring apply, so it is a bigger choice than the model and
+          * belongs next to the agent it qualifies. Absent entirely when there
+          * is one account or none, because that is not a choice.
+          */}
+        {accountOptions?.length ? (
+          <View style={{ gap: space.sm }}>
+            <Heading>Account</Heading>
+            <View style={{ marginHorizontal: space.lg, gap: 6 }}>
+              {accountOptions.map((option, index) => (
+                <Pressable
+                  key={`${option.label}:${index}`}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: !!option.selected, disabled: !!option.disabled }}
+                  onPress={() => pick(option)}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: space.sm,
+                    paddingVertical: 10,
+                    paddingHorizontal: 14,
+                    borderRadius: radius.md,
+                    backgroundColor: option.selected ? colors.card : "transparent",
+                    opacity: option.disabled ? 0.45 : 1,
+                  }}
+                >
+                  <Text
+                    numberOfLines={1}
+                    style={{ ...type.body, color: colors.text, flex: 1 }}
+                  >
+                    {option.label}
+                  </Text>
+                  {option.selected ? (
+                    <SymbolView name="checkmark" size={13} weight="semibold" tintColor={colors.text} />
+                  ) : null}
+                </Pressable>
+              ))}
+            </View>
           </View>
         ) : null}
         <View style={{ gap: space.sm }}>

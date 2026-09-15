@@ -61,6 +61,16 @@ type ModelCatalogEntry = {
  * which the machine has always accepted on `/api/sessions/new` and this app
  * has never offered — finally has somewhere to live.
  */
+/** One Claude login on the box. Mirrors ClaudeAccount in src/claude-accounts.ts. */
+export type ClaudeAccountRow = {
+  id: string;
+  number: number;
+  label: string;
+  profile?: { label: string; detail?: string };
+  connected: boolean;
+  needsReconnect?: boolean;
+};
+
 export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
   const { agents, bindingId, client } = useOmg();
   const { initialAgent } = init;
@@ -80,6 +90,20 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
    */
   const [saved, setSaved] = useState<Record<string, { model?: string; thinking?: string }>>({});
   const [savedLoaded, setSavedLoaded] = useState(false);
+  /**
+   * THE CLAUDE LOGINS THIS BOX HOLDS.
+   *
+   * A box can be signed in to several Claude accounts at once, and the web has
+   * been able to see and pick between them since the feature landed. This app
+   * never asked for the list, so a person with two logins had no way to tell
+   * which one a session would bill to, let alone choose.
+   *
+   * `label` is synthetic ordering ("Claude 1") and cannot tell two apart. The
+   * identity is in `profile`, which is where the email and plan live -- see
+   * agent-profiles.ts, which exists for exactly this reason.
+   */
+  const [claudeAccounts, setClaudeAccounts] = useState<ClaudeAccountRow[]>([]);
+  const [claudeAccount, setClaudeAccount] = useState<string | null>(null);
 
   useEffect(() => {
     void AsyncStorage.getItem(STORAGE_KEYS.composerSetup)
@@ -91,6 +115,23 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
       })
       .finally(() => setSavedLoaded(true));
   }, []);
+
+  useEffect(() => {
+    if (!client) return;
+    let cancelled = false;
+    void client.transport
+      .request<{ accounts?: ClaudeAccountRow[] }>("/api/coding-agents/claude/accounts")
+      .then((res) => {
+        if (cancelled) return;
+        setClaudeAccounts(res?.accounts ?? []);
+      })
+      .catch(() => {
+        // A box that cannot answer has nothing to choose between. The picker
+        // hides itself rather than showing an empty or broken section.
+        if (!cancelled) setClaudeAccounts([]);
+      });
+    return () => { cancelled = true; };
+  }, [client, bindingId]);
 
   /**
    * WHICH MODELS EACH AGENT CAN RUN, from the machine's own catalog
@@ -294,6 +335,42 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
     return null;
   }, [entry, model]);
 
+  /**
+   * ONE ROW PER LOGIN, named by who it actually is.
+   *
+   * Hidden unless the box holds more than one: a single account is not a
+   * choice, and a section offering it would be noise on a phone. Only Claude
+   * runs under several logins, so this is empty for every other agent --
+   * `claudeAccountId` is rejected by the box for anything but aisdk.
+   *
+   * A login that cannot serve is listed and disabled rather than dropped. A
+   * missing row reads as "you never set that up"; a greyed one with its reason
+   * reads as "that one needs reconnecting", which is the truth and is
+   * actionable.
+   */
+  const accountOptions = useMemo<MenuOption[]>(() => {
+    if (agent !== "aisdk" || claudeAccounts.length < 2) return [];
+    return claudeAccounts.map((account) => {
+      // The state goes in the LABEL. `MenuOption` has no subtitle, and a field
+      // it does not know is dropped in silence -- the plan and the reconnect
+      // warning would simply never have appeared.
+      const who = account.profile?.label || account.label;
+      const note = account.needsReconnect
+        ? "needs reconnecting"
+        : !account.connected
+          ? "not connected"
+          : account.profile?.detail;
+      return {
+        label: note ? `${who} · ${note}` : who,
+        selected: account.id === claudeAccount,
+        disabled: !account.connected,
+        onPress: () => setClaudeAccount(account.id),
+      };
+    });
+  }, [agent, claudeAccounts, claudeAccount]);
+
+  const activeAccount = claudeAccounts.find((a) => a.id === claudeAccount) ?? null;
+
   return {
     agent,
     model: activeModel,
@@ -305,6 +382,14 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
       ? activeThinking.charAt(0).toUpperCase() + activeThinking.slice(1)
       : null,
     thinkingOptions,
+    /**
+     * Omitted unless actually chosen. The box picks by remaining capacity when
+     * it hears nothing (pickClaudeAccountForNewSession), which is a better
+     * answer than this app pinning one at random.
+     */
+    claudeAccountId: claudeAccount ?? undefined,
+    claudeAccountLabel: activeAccount?.profile?.label ?? activeAccount?.label ?? null,
+    accountOptions,
     label,
     options,
   };
