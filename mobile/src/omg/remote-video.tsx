@@ -129,6 +129,9 @@ export function RemoteVideo({
   useEffect(() => {
     cancelled.current = false;
     if (!loaded || !client) return;
+    // `client` null is handled below, not here: there is no transport, so
+    // there are no bytes and no way to ever get them. Spinning forever would
+    // be the wrong answer to a question that is already settled.
     setUri(null);
     setFailed(false);
     void download((p) => client.transport.fetch(p), path, loaded.fs)
@@ -146,7 +149,12 @@ export function RemoteVideo({
   }, [client, loaded, path]);
 
   if (!loaded) return <UnplayableVideo label={label} reason="update" />;
-  if (failed) return <UnplayableVideo label={label} reason="gone" />;
+  /*
+   * No transport, no bytes -- and no way to ever get them. remote-image.tsx
+   * reports the same state rather than drawing a placeholder that never
+   * resolves; this used to spin indefinitely.
+   */
+  if (!client || failed) return <UnplayableVideo label={label} reason="gone" />;
 
   const height = style?.height ?? 200;
   if (!uri) {
