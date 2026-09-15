@@ -68,6 +68,7 @@ import type { OmgMessage } from "@omg-dev/protocol";
 
 import { Icon, IconButton } from "../components";
 import { formatFileSize } from "./file-preview";
+import { RemoteVideo } from "./remote-video";
 import { workLabel } from "./work-label";
 import { WorkingDots } from "./working-indicator";
 import { stampTime } from "./format";
@@ -756,6 +757,20 @@ export function TranscriptEntry({
     return <DisplayedImage message={message} />;
   }
 
+  /*
+   * A displayed VIDEO, for the same reason the image branch above exists: an
+   * agent that recorded a screen to SHOW you something used to hand you a card
+   * saying "this app can't show video yet, view on the web", because there was
+   * no player in the app at all.
+   *
+   * The renderer needs native modules that cannot ship over the air, so a
+   * build made before they were added keeps the old honest card rather than
+   * crashing. See remote-video.tsx.
+   */
+  if (message.kind === "video" && (message.url || message.artifactId)) {
+    return <DisplayedVideo message={message} />;
+  }
+
   // A displayed file is an artifact, never prose. Its caption arrives in
   // `text`, and the `!message.text` guard below therefore used to let it fall
   // all the way through to the markdown renderer — so an agent that handed you
@@ -1356,6 +1371,33 @@ function artifactRatio(message: Entry): number | null {
   const { width, height } = message as Entry & { width?: number; height?: number };
   if (typeof width !== "number" || typeof height !== "number" || height <= 0) return null;
   return width / height;
+}
+
+/**
+ * A video the agent put in front of you, at the column's full width.
+ *
+ * Same reasoning as DisplayedImage below: this is evidence, not a thumbnail.
+ * A screen recording of a bug shown at attachment-tile size cannot be read,
+ * and the player's own fullscreen button is one tap away for the rest.
+ *
+ * There is no autoplay. It sits in something somebody is reading.
+ */
+function DisplayedVideo({ message }: { message: Entry }) {
+  const { colors, type, space } = useTheme();
+  const caption = (message.caption ?? message.text ?? message.alt ?? "").trim();
+  const path = message.url ?? (message.artifactId ? `/api/artifacts/${message.artifactId}` : null);
+  if (!path) return <AttachmentEntry message={message} />;
+
+  return (
+    <View style={{ alignSelf: "stretch", gap: space.xs, paddingHorizontal: space.xs }}>
+      <RemoteVideo path={path} label={message.name ?? message.alt ?? caption ?? null} />
+      {/* Same caption treatment as DisplayedImage: a small line under the
+          media, not a card detail. */}
+      {caption ? (
+        <Text style={{ ...type.caption, color: colors.textMuted, lineHeight: 17 }}>{caption}</Text>
+      ) : null}
+    </View>
+  );
 }
 
 function DisplayedImage({ message }: { message: Entry }) {

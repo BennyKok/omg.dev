@@ -33,6 +33,7 @@
     "plugins": [
       "./plugins/with-key-commands.js",
       "expo-status-bar",
+      "expo-video",
       "expo-router",
       "expo-font",
       "expo-asset",
