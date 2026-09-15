@@ -1,6 +1,6 @@
 // The held sends under the composer. See HeldQueueCards.
 import { useState } from "react";
-import { Check, ChevronDown, Clock3, X } from "lucide-react";
+import { ArrowUp, Check, ChevronDown, Clock3, X } from "lucide-react";
 import { api } from "../lib/omg-client";
 import { cn } from "../lib/utils";
 import type { OmgQueueMessage } from "../lib/omg-chat-transport";
@@ -8,9 +8,9 @@ import type { OmgQueueMessage } from "../lib/omg-chat-transport";
 /**
  * The held sends under the composer: queue-mode text the server keeps back
  * until the running turn ends, then releases in this order. Each card is still
- * the user's draft, so it can be edited in place or dropped. The list is
- * server state; the callbacks patch it optimistically and the next queue frame
- * confirms.
+ * the user's draft, so it can be edited in place, sent now (steered into the
+ * running turn), or dropped. The list is server state; the callbacks patch it
+ * optimistically and the next queue frame confirms.
  */
 export function HeldQueueCards({
   sessionId,
@@ -18,6 +18,7 @@ export function HeldQueueCards({
   busy,
   onChange,
   onError,
+  onSendNow,
   request = api,
 }: {
   sessionId: string;
@@ -25,6 +26,8 @@ export function HeldQueueCards({
   busy: boolean;
   onChange: (update: (current: OmgQueueMessage[]) => OmgQueueMessage[]) => void;
   onError: (message: string | null) => void;
+  /** Stop waiting: the card leaves the queue, then this sends the text as steer. */
+  onSendNow: (text: string) => void;
   request?: <T>(path: string, init?: RequestInit) => Promise<T>;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -68,6 +71,19 @@ export function HeldQueueCards({
     } catch (err) {
       fail(err);
     }
+  };
+  // Delete first so a failed send never duplicates the row. A failed delete
+  // leaves the card (fail() refreshes); a failed send after delete is the
+  // same trade as mobile: never twice, even if the text has to be retyped.
+  const sendNow = async (id: string, text: string) => {
+    onChange((current) => current.filter((item) => item.id !== id));
+    try {
+      await request(`${base}/${id}`, { method: "DELETE" });
+    } catch (err) {
+      fail(err);
+      return;
+    }
+    onSendNow(text);
   };
 
   const hidden = expanded ? 0 : Math.max(0, items.length - 1);
@@ -165,14 +181,25 @@ export function HeldQueueCards({
                 <Check className="size-3.5" />
               </button>
             ) : (
-              <button
-                type="button"
-                onClick={() => void remove(item.id)}
-                className="shrink-0 rounded-full p-1 text-muted-foreground hover:text-foreground"
-                aria-label="Remove queued message"
-              >
-                <X className="size-3.5" />
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => void sendNow(item.id, item.text)}
+                  className="shrink-0 rounded-full p-1 text-muted-foreground hover:text-foreground"
+                  aria-label="Send now, into the current turn"
+                  title="Send now"
+                >
+                  <ArrowUp className="size-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void remove(item.id)}
+                  className="shrink-0 rounded-full p-1 text-muted-foreground hover:text-foreground"
+                  aria-label="Remove queued message"
+                >
+                  <X className="size-3.5" />
+                </button>
+              </>
             )}
           </div>
         );

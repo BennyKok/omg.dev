@@ -15,8 +15,9 @@ const held: OmgQueueMessage[] = [
   { id: "bb22", text: "second thing", status: "held", createdAt: 2 },
 ];
 
-function harness() {
+function harness(opts?: { request?: <T>(path: string, init?: RequestInit) => Promise<T> }) {
   const calls: { path: string; method?: string; body?: unknown }[] = [];
+  const sent: string[] = [];
   let items = held;
   const request = async <T,>(path: string, init?: RequestInit) => {
     calls.push({
@@ -24,6 +25,7 @@ function harness() {
       method: init?.method,
       body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined,
     });
+    if (opts?.request) return opts.request<T>(path, init);
     return { ok: true } as T;
   };
   const render = () =>
@@ -37,11 +39,12 @@ function harness() {
           render();
         }}
         onError={() => {}}
+        onSendNow={(text) => sent.push(text)}
         request={request}
       />,
     );
   render();
-  return { calls, current: () => items };
+  return { calls, sent, current: () => items };
 }
 
 describe("HeldQueueCards", () => {
@@ -68,6 +71,29 @@ describe("HeldQueueCards", () => {
       { path: "/api/sessions/11111111-1111-4111-8111-111111111111/queue/bb22", method: "DELETE", body: undefined },
     ]);
     expect(ui.text()).not.toContain("second thing");
+  });
+
+  test("send now deletes the held row then steers the text", async () => {
+    const h = harness();
+    const send = ui.query('button[aria-label="Send now, into the current turn"]') as HTMLButtonElement;
+    await ui.flushAsync(() => send.click());
+    expect(h.current().map((item) => item.id)).toEqual(["bb22"]);
+    expect(h.calls).toEqual([
+      { path: "/api/sessions/11111111-1111-4111-8111-111111111111/queue/aa11", method: "DELETE", body: undefined },
+    ]);
+    expect(h.sent).toEqual(["first thing"]);
+    expect(ui.text()).not.toContain("first thing");
+  });
+
+  test("send now does not steer when the delete fails", async () => {
+    const h = harness({
+      request: async () => {
+        throw new Error("only a held message can be removed");
+      },
+    });
+    const send = ui.query('button[aria-label="Send now, into the current turn"]') as HTMLButtonElement;
+    await ui.flushAsync(() => send.click());
+    expect(h.sent).toEqual([]);
   });
 
   test("editing a card patches the held text", async () => {

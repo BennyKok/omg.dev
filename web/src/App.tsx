@@ -16007,6 +16007,37 @@ function SessionChatBody({
     }
   }
 
+  // A held card's send-now: steer this text only. Do not reuse sendMessage —
+  // that path also clears the composer and would attach whatever is still in
+  // the box.
+  const steerHeldText = useCallback(
+    (text: string) => {
+      const outgoingText = text.trim();
+      if (!sid || !outgoingText) return;
+      void ownedChatStreams
+        .run(sid, () =>
+          sendChatMessage(
+            {
+              text: outgoingText,
+              metadata: {
+                omgMessage: {
+                  role: "user",
+                  kind: "text",
+                  text: outgoingText,
+                  html: escapeHtml(outgoingText).replace(/\n/g, "<br>"),
+                  ts: Date.now(),
+                  pending: true,
+                },
+              },
+            },
+            { body: { mode: "steer" } },
+          ),
+        )
+        .catch((err) => onError(err instanceof Error ? err.message : String(err)));
+    },
+    [onError, ownedChatStreams, sendChatMessage, sid],
+  );
+
   // Re-queue a failed send. The next queue event repaints the bubble as
   // pending; delivery (and any further failure) flows from the server.
   const retryQueued = useCallback(
@@ -16101,6 +16132,7 @@ function SessionChatBody({
               busy={chatBusy}
               onChange={setHeldQueue}
               onError={onError}
+              onSendNow={steerHeldText}
             />
           ) : null}
           {/* The bar itself (not just the textarea) is the field now: attach, type,
