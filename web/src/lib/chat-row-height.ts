@@ -19,6 +19,7 @@
 import type { ChatRenderItem, ChatRenderMessage } from "./chat-render-items";
 import type { BoxMetrics, MarkdownMetrics } from "./markdown-metrics";
 import { parseOmgPromptEnvelope } from "./omg-prompt-envelope";
+import { classifyUserTurn } from "./system-message";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -42,6 +43,9 @@ export const TOOL_PILL_PX = 24;
 
 /** "Interrupted" status line: text-[11px] over a 16px line box + `py-0.5`. */
 export const INTERRUPTED_PX = 20;
+
+/** Compact machine-written user turn: icon+label row + two-line preview + py. */
+export const SYSTEM_LINE_PX = 64;
 
 /** A collapsed `Reasoning`: only the trigger row is in flow (text-xs). */
 export const COLLAPSED_THINKING_PX = 16;
@@ -89,7 +93,7 @@ export const CODE_BLOCK_CHROME_PX = 0;
 /** Bumped whenever the arithmetic below changes in a way that invalidates a
  *  cached height. Combined with `MarkdownMetrics.metricsVersion` it forms the
  *  full cache key, so a model change and a CSS change both flush the cache. */
-export const HEIGHT_MODEL_VERSION = 2;
+export const HEIGHT_MODEL_VERSION = 3;
 
 /** One rendered line in a user bubble before the row gap. */
 export const USER_SINGLE_LINE_PX = 42;
@@ -690,6 +694,10 @@ export function messageRowHeight(message: RowMessage, ctx: RowContext): number {
   const leading = envelope ? OMG_INSTRUCTIONS_LEADING_PX : 0;
   if (!text.trim()) return TYPING_INDICATOR_PX;
 
+  if (message.role === "user" && classifyUserTurn(rawText)) {
+    return leading + SYSTEM_LINE_PX;
+  }
+
   if (message.role === "user") {
     const metrics = ctx.user ?? ctx.assistant;
     const box = metrics.blocks.p;
@@ -764,6 +772,8 @@ export function estimateUnprobedRowHeight<T extends RowMessage>(
     else if (message.kind === "html") height = HTML_ARTIFACT_PX;
     else if (message.kind === "image" || message.kind === "video") {
       height = mediaHeight(message.width, message.height, 1);
+    } else if (message.role === "user" && classifyUserTurn(message.text ?? "")) {
+      height = SYSTEM_LINE_PX + (envelope ? OMG_INSTRUCTIONS_LEADING_PX : 0);
     } else if (message.role === "user") {
       height = USER_SINGLE_LINE_PX + (envelope ? OMG_INSTRUCTIONS_LEADING_PX : 0);
     } else height = ASSISTANT_SINGLE_LINE_PX;
