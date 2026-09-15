@@ -9,11 +9,13 @@
  * switcher hidden behind a glyph that says nothing about any of them.
  *
  * ONE SET OF ROWS, TWO PRESENTATIONS. `SideNavPanel` draws the column.
- * `SideNavDrawer` slides that same panel in over the phone; the iPad rail
- * renders it inline as a footer, because a 320pt column is already on screen
- * and sliding a second one over it would be ceremony for nothing. The rows
- * themselves come from side-nav-items.ts, so neither presentation can drift
- * into carrying a different list.
+ * `SideNavDrawer` slides that same panel in, at every width including the
+ * iPad. It used to be pinned into the foot of the iPad rail instead, on the
+ * reasoning that a 320pt column was already on screen -- but that column was
+ * then carrying the account header, the project chips, the session list and
+ * six nav rows at once, and the list lost. The rows come from
+ * side-nav-items.ts either way, so no presentation can drift into carrying a
+ * different list.
  *
  * NOT A MODAL. The drawer is an absolutely-positioned overlay inside the Live
  * screen, so the computer row's `DropdownMenu` — a real SwiftUI `Menu`, see

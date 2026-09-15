@@ -87,7 +87,7 @@ import {
   type AutoFindingRow,
 } from "./auto-agents";
 import { useComputerPicker } from "./computer-picker";
-import { SideNavButton, SIDE_NAV_RADIUS, SideNavDrawer, SideNavPanel, sideNavWidth, useSideNavGesture } from "./side-nav";
+import { SideNavButton, SIDE_NAV_RADIUS, SideNavDrawer, sideNavWidth, useSideNavGesture } from "./side-nav";
 import {
   clearSessionUnread,
   fetchSessionsForViewer,
@@ -910,18 +910,33 @@ export function SessionsScreen({
     },
     [workspace, navigateWorkspace, router],
   );
-  /** The phone's side nav. The iPad's wide layout keeps the same rows on screen. */
+  /**
+   * The side nav, as a drawer, on every width including the iPad.
+   *
+   * It used to be pinned into the foot of the iPad rail on the reasoning that
+   * a column was already on screen, so sliding a second one over it would be
+   * ceremony. In practice that put the account header, the project chips, the
+   * session list, the findings pill AND six nav rows into one 320pt column,
+   * and the nav footer was allowed up to 40% of the height. Benny's word for
+   * the result was "cramping all on the side", and he is right: the rail was
+   * carrying two jobs and the list, which is the reason the rail exists, lost.
+   *
+   * So the rail is the list again and the nav slides over, the way it already
+   * did on the phone and in a narrow iPad window. One presentation for every
+   * width, and the machine's name and status stay on screen regardless because
+   * `SideNavButton` carries them.
+   */
   const [navOpen, setNavOpen] = useState(false);
   const navProgress = useSharedValue(0);
   const drawerWidth = sideNavWidth(width);
   const navGesture = useSideNavGesture({
     visible: navOpen, onOpen: () => setNavOpen(true), onClose: () => setNavOpen(false),
-    progress: navProgress, width: drawerWidth, enabled: !wide,
+    progress: navProgress, width: drawerWidth, enabled: true,
   });
   const navPageStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: wide ? 0 : drawerWidth * navProgress.value }],
-    borderTopLeftRadius: wide ? 0 : SIDE_NAV_RADIUS * navProgress.value,
-    borderBottomLeftRadius: wide ? 0 : SIDE_NAV_RADIUS * navProgress.value,
+    transform: [{ translateX: drawerWidth * navProgress.value }],
+    borderTopLeftRadius: SIDE_NAV_RADIUS * navProgress.value,
+    borderBottomLeftRadius: SIDE_NAV_RADIUS * navProgress.value,
   }));
   const [railSheetOpen, setRailSheetOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -1451,18 +1466,15 @@ export function SessionsScreen({
               }}
             >
               <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: space.xs }}>
-                {/* Narrow enough that the rail IS the screen (Slide Over, a
-                    split window): the nav has nowhere to live on screen, so
-                    it becomes the phone's drawer and this button opens it.
-                    Wide, the same rows sit in the rail's footer below and
-                    there is nothing to open. */}
-                {!wide ? (
-                  <SideNavButton
-                    onPress={() => setNavOpen(true)}
-                    online={currentBinding?.online ?? false}
-                    machineName={machineName}
-                  />
-                ) : null}
+                {/* Opens the nav at every width. It also carries the machine
+                    name and its online dot, which is what the rail footer used
+                    to show, so nothing goes off screen by moving the rows into
+                    the drawer. */}
+                <SideNavButton
+                  onPress={() => setNavOpen(true)}
+                  online={currentBinding?.online ?? false}
+                  machineName={machineName}
+                />
                 {/* Flat, like the phone's bar item. The glass island it wore
                     read as a control in a row that already has two. */}
                 <View style={{ height: 40, paddingHorizontal: 6, justifyContent: "center" }}>
@@ -1770,46 +1782,12 @@ export function SessionsScreen({
             </>
           )}
         </ScrollView>
-        {/* THE PILL ON THE RAIL: in flow, between the list and the nav footer,
-            because an absolute one would sit on the footer's rows. */}
+        {/* THE PILL ON THE RAIL: in flow at the foot of the column, below the
+            list. It sat above the nav footer before that footer moved into the
+            drawer; it now simply ends the rail. */}
         {wide && autoGroups.length ? (
-          <View style={{ paddingVertical: space.xs }}>
+          <View style={{ paddingVertical: space.xs, paddingBottom: insets.bottom + space.xs }}>
             <FindingsPill groups={autoGroups} onPress={() => setFindingsOpen(true)} />
-          </View>
-        ) : null}
-        {/* THE NAV, PINNED TO THE FOOT OF THE RAIL, on iPad only.
-            A 320pt column is already on screen, so sliding a second one over
-            it would be ceremony; the rows simply live at the bottom of the one
-            that is there, under a hairline, the way a sidebar footer does.
-
-            IT SCROLLS ITSELF AND IT IS CAPPED. Five rows plus the machine is
-            ~280pt, which is most of the column in a short window (a landscape
-            split, a small stage). The cap keeps the session list the larger
-            half and lets the nav scroll inside whatever it is given, rather
-            than pushing the list off its own rail. */}
-        {wide ? (
-          <View
-            style={{
-              borderTopWidth: 1,
-              borderTopColor: colors.border,
-              maxHeight: Math.max(160, Math.round(windowHeight * 0.4)),
-              paddingHorizontal: space.md - 4,
-              paddingTop: space.xs,
-              paddingBottom: insets.bottom + space.xs,
-            }}
-          >
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <SideNavPanel
-                pathname={pathname}
-                computerOptions={computerPicker.options}
-                machineName={machineName}
-                online={currentBinding?.online ?? false}
-                navigate={(href) => navigateWorkspace(href as Href)}
-                onShortcuts={
-                  keyCommandsAvailable() ? () => setShortcutsOpen(true) : undefined
-                }
-              />
-            </ScrollView>
           </View>
         ) : null}
       </View>
@@ -2000,11 +1978,9 @@ export function SessionsScreen({
         groups={autoGroups}
         onOpenAgent={openAutoAgent}
       />
-      {/* The phone's drawer, and the iPad's when its window is too narrow to
-          keep the rail. Mounted last so it paints over the list; it draws
+      {/* Mounted last so it paints over the rail and the pane; it draws
           nothing at all while closed. */}
-      {!wide ? (
-        <SideNavDrawer
+      <SideNavDrawer
           controller={navGesture}
           progress={navProgress}
           pathname={pathname}
@@ -2020,7 +1996,6 @@ export function SessionsScreen({
             keyCommandsAvailable() ? () => setShortcutsOpen(true) : undefined
           }
         />
-      ) : null}
     </View>
     </SessionUnreadContext.Provider>
   );
