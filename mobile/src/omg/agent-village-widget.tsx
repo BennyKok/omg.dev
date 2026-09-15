@@ -274,7 +274,29 @@ function AgentVillage(props: VillageProps, environment: { widgetFamily: string; 
    * which is also what caps the count, without a magic number deciding it.
    */
   const renderedAt = Number(environment.date ?? 0) || props.updatedAt;
-  const bubbleWidth = Math.min(family === "large" ? 176 : 138, width - 56);
+  /**
+   * A BUBBLE IS AS WIDE AS WHAT IT SAYS.
+   *
+   * Every bubble was one fixed width, so "Napping" got the same slab as "Fix
+   * the widget border" and the village looked like a form rather than a
+   * conversation. Benny called it: too wide, and not matching the content.
+   *
+   * SwiftUI would size a Text to its content on its own, but the placement
+   * here has to KNOW the width -- it is what the overlap scan tests against --
+   * so the width is estimated from the string instead of measured. At 11pt
+   * semibold the average glyph is close enough to 5.6pt for this purpose, and
+   * being a few points out only makes the gap between two bubbles slightly
+   * generous, never overlapping.
+   */
+  const bubbleRoom = Math.min(family === "large" ? 176 : 150, width - 56);
+  const widthFor = (title: string, hasTime: boolean) => Math.round(Math.min(
+    bubbleRoom,
+    Math.max(
+      // Never narrower than the time line it also has to hold.
+      hasTime ? 62 : 48,
+      title.length * 5.6 + 20,
+    ),
+  ));
   const paper = dark ? "#1B1F19" : "#FFFFFF";
 
   /** The summary's baseline, so a bubble can never stack on top of it. */
@@ -304,12 +326,45 @@ function AgentVillage(props: VillageProps, environment: { widgetFamily: string; 
    */
   const YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 
-  const markBoxes = characters.map((who, i) => ({
-    x: scene.slots[i].x,
-    y: scene.slots[i].y - (who.state === "idle" ? 5 : 7) - MARK / 2,
-    w: MARK,
-    h: MARK,
-  }));
+  /**
+   * WHERE EVERYBODY ACTUALLY IS, not where their slot is.
+   *
+   * These boxes were built from the raw slot while the villagers walk away
+   * from it -- up to `room` points, which is 28 on a roomy seat. A bubble
+   * cleared the slot and then landed on the agent standing beside it, and a
+   * narrower bubble made that easy to hit. The pose is computed once here, by
+   * the same rule the crowd draws with, and both read it.
+   *
+   * The box is PLATE wide, not MARK: a plated mark sits on a disc wider than
+   * the glyph, and clearing the glyph still clips the disc.
+   */
+  const poses = characters.map((who, index) => {
+    const origin = scene.slots[index];
+    const phase = (props.walkPhase + index) % 4;
+    const roaming = who.state === "working";
+    let nearest = Infinity;
+    for (let other = 0; other < characters.length; other += 1) {
+      if (other === index) continue;
+      const gap = scene.slots[other];
+      nearest = Math.min(nearest, Math.hypot(gap.x - origin.x, gap.y - origin.y));
+    }
+    const room = Math.max(0, Math.min(
+      MAX_ROAM,
+      (nearest - MARK) / 2,
+      Math.min(origin.x, width - origin.x) - PLATE / 2,
+    ));
+    const pace = roaming ? 1 : who.state === "idle" ? 0.5 : 0;
+    const sweep = [-1, 0, 1, 0][phase] * room * pace;
+    const lift = [0, -1, 0, 1][phase] * Math.min(4, room / 4) * pace;
+    const breath = who.state === "idle" ? [0, -3, -5, -3][phase] : 0;
+    const hop = who.state === "blocked" ? [0, -5, -8, -5][phase] : 0;
+    const legHeight = who.state === "idle" ? 5 : 7;
+    const x = origin.x + sweep;
+    const y = origin.y + lift + breath;
+    return { phase, room, x, y, legHeight, markY: y + hop - legHeight - MARK / 2 };
+  });
+
+  const markBoxes = poses.map((pose) => ({ x: pose.x, y: pose.markY, w: PLATE, h: PLATE }));
   const overlaps = (a: { x: number; y: number; w: number; h: number }, b: typeof a) =>
     Math.abs(a.x - b.x) < (a.w + b.w) / 2 && Math.abs(a.y - b.y) < (a.h + b.h) / 2;
 
@@ -321,10 +376,11 @@ function AgentVillage(props: VillageProps, environment: { widgetFamily: string; 
     const ticking = who.state === "working" && typeof startedAt === "number";
     const when = ticking ? "" : age(startedAt);
     const bubbleHeight = ticking || when ? 34 : 24;
+    const bubbleWidth = widthFor(said, ticking || !!when);
 
-    const slot = scene.slots[index];
-    const legs = who.state === "idle" ? 5 : 7;
-    const headY = slot.y - legs - MARK / 2;
+    const pose = poses[index];
+    const slot = { x: pose.x, y: pose.y };
+    const headY = pose.markY;
     const clampX = (x: number) => Math.min(Math.max(x, bubbleWidth / 2 + 6), width - bubbleWidth / 2 - 6);
     const clampY = (y: number) => Math.min(Math.max(y, captionBand + bubbleHeight / 2), height - bubbleHeight / 2 - 6);
     const reach = MARK / 2 + 6 + bubbleWidth / 2;

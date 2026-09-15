@@ -495,3 +495,53 @@ test("a crowded village quietens the ones it cannot seat, rather than stacking t
   expect(boxesOf(tree).length).toBeLessThanOrEqual(4);
   expect(boxesOf(tree).length).toBeGreaterThan(0);
 });
+
+/**
+ * A bubble is as wide as what it says. Every bubble was one fixed width, so a
+ * one word title got the same slab as a sentence and the village read as a
+ * form rather than a conversation.
+ */
+test("a short title gets a narrower bubble than a long one", () => {
+  const widthOf = (title: string) => boxesOf(chorus([title]))[0].size.width;
+  expect(widthOf("Napping")).toBeLessThan(widthOf("Fix the widget border"));
+  expect(widthOf("Fix the widget border")).toBeLessThan(widthOf("Fix the widget border and the tinted marks"));
+  // There IS a floor, and it is not arbitrary: the bubble also holds a time
+  // line, so a one-word title cannot shrink below what "6:04" needs. Two
+  // titles under that floor are legitimately the same width.
+  expect(widthOf("a")).toBe(widthOf("Napping"));
+});
+
+test("a bubble never gets wider than the scene allows, however long the title", () => {
+  const scene = VILLAGE_SCENES.medium;
+  const box = boxesOf(chorus(["an extremely long session title that would run off the widget entirely"]))[0];
+  expect(box.size.width).toBeLessThanOrEqual(scene.width - 56);
+  expect(Math.abs(box.at.x) + box.size.width / 2).toBeLessThanOrEqual(scene.width / 2);
+});
+
+/**
+ * The collision boxes were built from the raw slot while the villagers walk
+ * away from it, so a bubble could clear the slot and land on the agent
+ * standing beside it. Checked in every phase, because that is when it differs.
+ */
+test("no bubble lands on a villager in any walk phase", () => {
+  for (const walkPhase of [0, 1, 2, 3]) {
+    const tree = nodes(render({
+      ...props, walkPhase,
+      characters: ["one", "two", "three", "four"].map((t, i) => ({
+        iconUri: "i", iconSize: 34, plate: i % 2 === 0, markTone: "light", legColor: "#000",
+        state: "working", title: `session ${t}`, lastActivityAt: 0,
+      })),
+    }, { widgetFamily: "systemMedium", date: 10_000 }));
+    const marks = tree.filter(node => node.type === "Image").slice(1).map(node => ({
+      at: node.props.modifiers.find((m: any) => m.type === "offset").value,
+      size: node.props.modifiers.find((m: any) => m.type === "frame").value,
+    }));
+    for (const box of boxesOf(tree)) {
+      for (const mark of marks) {
+        const apart = Math.abs(box.at.x - mark.at.x) >= (box.size.width + mark.size.width) / 2
+          || Math.abs(box.at.y - mark.at.y) >= (box.size.height + mark.size.height) / 2;
+        expect(apart).toBe(true);
+      }
+    }
+  }
+});
