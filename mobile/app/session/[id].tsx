@@ -122,6 +122,7 @@ import {
 } from "../../src/components";
 import { useAttachments } from "../../src/omg/attachments";
 import { BotAvatar } from "../../src/omg/bot-avatar";
+import { WorkingDots, WorkingLabel, useWorkingWave } from "../../src/omg/working-indicator";
 import { filterBotChatEntries, stripBotLaunchEnvelope } from "../../src/omg/bot-transcript";
 import type { Bot } from "../../src/omg/bots";
 import { useDictation } from "../../src/omg/dictation";
@@ -2765,39 +2766,25 @@ function BotWorkingIndicator({ bot }: { bot: Bot }) {
   );
 }
 
-/** The small dark pill with animated dots shown while the agent is thinking. */
 /**
- * THE AGENT IS WORKING — the same chip as a tool badge, because it belongs to
- * the same row of events.
+ * THE AGENT IS WORKING — the footer slot for a turn that has started but has
+ * produced nothing yet.
  *
  * It used to be a solid black-on-white lozenge, the one object in the
  * transcript with an inverted fill: louder than the tool calls it sits among
- * and matching nothing. It is a chip now — card fill, 1pt border, pill radius,
- * 26pt minimum — so a turn in progress reads as the next thing in the run
- * rather than as a notification about it.
+ * and matching nothing. There is no chip now, because the tool rows around it
+ * lost their capsules too, and a bordered "Working" was the last card in a
+ * column of lines.
  *
- * The dots stay. Three of them, breathing in sequence, is the one animation
- * everybody already reads as "something is coming".
+ * The dots and the word ride ONE wave, owned by ./working-indicator, which is
+ * the same indicator the live tool-run row draws. Two hand-rolled copies used
+ * to drift out of phase with each other on screen.
  */
 function ThinkingPill() {
   const { colors, type } = useTheme();
-  const dots = useRef([new Animated.Value(0.3), new Animated.Value(0.3), new Animated.Value(0.3)])
-    .current;
-
-  useEffect(() => {
-    const loops = dots.map((value, i) =>
-      Animated.loop(
-        Animated.sequence([
-          Animated.delay(i * 160),
-          Animated.timing(value, { toValue: 1, duration: 340, useNativeDriver: true }),
-          Animated.timing(value, { toValue: 0.3, duration: 340, useNativeDriver: true }),
-          Animated.delay((dots.length - 1 - i) * 160),
-        ]),
-      ),
-    );
-    loops.forEach((loop) => loop.start());
-    return () => loops.forEach((loop) => loop.stop());
-  }, [dots]);
+  // One clock for the mark and the label, so the light travels out of the
+  // dots and into the word instead of two loops running side by side.
+  const wave = useWorkingWave();
 
   return (
     <View
@@ -2809,25 +2796,12 @@ function ThinkingPill() {
         marginTop: 16,
         marginLeft: 4,
         minHeight: 26,
-        // No chip: the tool rows around it lost their capsules, so a bordered
-        // "Working" was the last card in a column of lines.
         paddingHorizontal: 4,
         paddingVertical: 5,
       }}
     >
-      {dots.map((value, i) => (
-        <Animated.View
-          key={i}
-          style={{
-            width: 5,
-            height: 5,
-            borderRadius: 2.5,
-            backgroundColor: colors.textSecondary,
-            opacity: value,
-          }}
-        />
-      ))}
-      <Text style={{ ...type.caption, color: colors.textMuted }}>Working</Text>
+      <WorkingDots color={colors.textSecondary} size={5} wave={wave} />
+      <WorkingLabel text="Working" color={colors.textMuted} style={type.caption} wave={wave} />
     </View>
   );
 }

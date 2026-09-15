@@ -69,6 +69,7 @@ import type { OmgMessage } from "@omg-dev/protocol";
 import { Icon, IconButton } from "../components";
 import { formatFileSize } from "./file-preview";
 import { workLabel } from "./work-label";
+import { WorkingDots } from "./working-indicator";
 import { stampTime } from "./format";
 import { CodeBlock, useBodyText } from "./markdown";
 import { TranscriptBody } from "./transcript-body";
@@ -490,35 +491,6 @@ function ToolSheet({
   );
 }
 
-/** Three dots breathing in sequence: the one animation everybody reads as "something is coming". */
-function WorkingDots({ color }: { color: string }) {
-  const dots = useRef([new Animated.Value(0.3), new Animated.Value(0.3), new Animated.Value(0.3)]).current;
-  useEffect(() => {
-    const loops = dots.map((value, i) =>
-      Animated.loop(
-        Animated.sequence([
-          Animated.delay(i * 160),
-          Animated.timing(value, { toValue: 1, duration: 340, useNativeDriver: true }),
-          Animated.timing(value, { toValue: 0.3, duration: 340, useNativeDriver: true }),
-          Animated.delay((dots.length - 1 - i) * 160),
-        ]),
-      ),
-    );
-    loops.forEach((loop) => loop.start());
-    return () => loops.forEach((loop) => loop.stop());
-  }, [dots]);
-  return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginRight: 2 }}>
-      {dots.map((value, i) => (
-        <Animated.View
-          key={i}
-          style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: color, opacity: value }}
-        />
-      ))}
-    </View>
-  );
-}
-
 /** One call's arguments and result, as the blocks a reader can copy. */
 function ToolDetail({ call, result }: { call: Entry | null; result: Entry | null }) {
   const { colors, type, space } = useTheme();
@@ -634,7 +606,7 @@ function ToolRun({
             gutter. A LIVE run carries the breathing dots instead — the same
             ones the footer used to show on its own — so the run row is the
             working indicator, not a second one under it. */}
-        {live ? <WorkingDots color={colors.textSecondary} /> : null}
+        {live ? <WorkingDots color={colors.textSecondary} size={4} /> : null}
         <Text style={{ ...type.caption, fontWeight: "500", color: colors.textSecondary }}>{label}</Text>
         <Icon ios="chevron.right" android="chevron_right" size={10} color={colors.textMuted} />
       </Pressable>
