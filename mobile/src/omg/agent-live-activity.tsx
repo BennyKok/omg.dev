@@ -55,7 +55,22 @@ export function AgentActivity(props: AgentActivityProps, environment: LiveActivi
    * none. So the running signal is the clock itself, which genuinely moves.
    */
   const labels: Record<string, string> = { claude: "Claude", codex: "Codex", cursor: "Cursor", copilot: "Copilot", deepseek: "DeepSeek", devin: "Devin", grok: "Grok", hermes: "Hermes", jcode: "Jcode", muse: "Muse", opencode: "OpenCode", pi: "pi", fx: "fx", omg: "omg" };
-  const keyFor = (agent: string) => agent === "codex-aisdk" ? "codex" : agent in labels ? agent : "omg";
+  /**
+   * MATCHES THE WEB, which is the reference for what an agent looks like.
+   *
+   * `aisdk` is the Claude runner -- `agent-catalog.ts` maps it to the label
+   * "claude", gives it the Claude thinking levels and reads ~/.claude -- and it
+   * is the server's DEFAULT agent, so it is the common case rather than an
+   * exotic one. This resolved it to the omg mark, and resolved every unknown
+   * agent there too, while the web and the home screen widget both land on
+   * Claude. The same session showed a different face depending on which
+   * surface you opened it from, which agent-icons.ts explicitly warns against.
+   */
+  const keyFor = (agent: string) =>
+    agent === "codex-aisdk" ? "codex"
+      : agent === "aisdk" ? "claude"
+        : agent in labels ? agent
+          : "claude";
   // Legacy payloads include finished sessions and a total for the whole roster.
   // Show only active previews; the header carries the live fleet counts.
   const sessions = (props.sessions ?? []).filter((session) => session.state === "working" || session.state === "blocked").slice(0, 3);

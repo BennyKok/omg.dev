@@ -41,13 +41,15 @@ for (const colorScheme of ["light", "dark"]) test(`isolated ${colorScheme} layou
   expect(nodes(result.compactLeading).filter(n => n.type === "Image")).toHaveLength(2);
   expect(nodes(result.expandedBottom).filter(n => n.type === "Image")).toHaveLength(2);
 });
-test("inactive roster totals are hidden, old payloads render, and unknown agents have a mark", () => {
+test("inactive roster totals are hidden, old payloads render, and unknown agents wear the Claude mark", () => {
   const result = render({ ...props, sessionCount: 8 }, { colorScheme: "dark" });
   expect(nodes(result.banner).filter(n => n.type === "Image")).toHaveLength(2);
   expect(nodes(result.banner).some(n => String(n.props?.children).includes("more sessions"))).toBe(false);
   expect(() => render({ ...props, sessions: undefined }, { colorScheme: "light" })).not.toThrow();
   const unknown = render({ ...props, sessions: [{ id: "unknown", title: "", agent: "unknown", state: "working" }] }, { colorScheme: "light" });
-  expect(nodes(unknown.minimal)[0].props.assetName).toBe("agent-omg");
+  // Claude, not omg: the web's agentIconSrc falls back to the Claude mark and
+  // this surface used to disagree with it. See the per-agent cases below.
+  expect(nodes(unknown.minimal)[0].props.assetName).toBe("agent-claude");
 });
 
 function luminance(hex: string) {
@@ -122,3 +124,26 @@ test("a blocked session still asks for you rather than counting", () => {
   expect(tree.find(node => node.type === "Text" && node.props.timerInterval)).toBeUndefined();
   expect(tree.map(node => node.props?.children)).toContain("needs you");
 });
+
+/**
+ * The same session must not show a different face per surface. `aisdk` is the
+ * Claude runner and the server's default agent; this resolved it, and every
+ * unknown agent, to the omg mark while the web and the widget showed Claude.
+ */
+for (const [agent, mark] of [
+  ["aisdk", "agent-claude"],
+  ["codex-aisdk", "agent-codex"],
+  ["codex", "agent-codex"],
+  ["cursor", "agent-cursor"],
+  ["", "agent-claude"],
+  ["something-new", "agent-claude"],
+] as const) {
+  test(`"${agent}" wears ${mark}, the same as the web`, () => {
+    const tree = nodes(render({
+      machineName: "Mac", runningCount: 1, blockedCount: 0, attentionSessionId: null,
+      updatedAt: 1, sessionCount: 1,
+      sessions: [{ id: "s1", title: "t", agent, state: "working", startedAt: 1 }],
+    }, { colorScheme: "dark" }).banner);
+    expect(tree.find(node => node.type === "Image")?.props.assetName).toBe(mark);
+  });
+}
