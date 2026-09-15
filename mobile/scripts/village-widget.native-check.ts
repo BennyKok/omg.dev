@@ -38,7 +38,14 @@ runInNewContext(code, {
     : name.includes("interopRequireDefault") ? { default: (value: unknown) => value } : {},
 });
 type Node = { type: string; props: Record<string, any> };
-const jsx = (type: string, props: Record<string, any>) => ({ type, props });
+/**
+ * The third argument is the KEY. React's automatic runtime passes it beside
+ * the props rather than inside them, so dropping it made a view's identity
+ * invisible to these tests -- and identity is what decides whether SwiftUI
+ * treats a new agent as an insertion worth animating or as a change to
+ * whoever already stood in that position.
+ */
+const jsx = (type: string, props: Record<string, any>, key?: string) => ({ type, props, key });
 const globals: Record<string, unknown> = { _jsx: jsx, _jsxs: jsx };
 for (const type of ["ZStack", "VStack", "Image", "Text", "Circle", "Capsule", "Ellipse", "RoundedRectangle"]) globals[type] = type;
 for (const type of ["frame", "offset", "font", "foregroundColor", "containerBackground", "widgetURL", "bold", "clipShape", "resizable", "lineLimit", "widgetAccentedRenderingMode"]) {
@@ -544,4 +551,35 @@ test("no bubble lands on a villager in any walk phase", () => {
       }
     }
   }
+});
+
+/**
+ * A new agent is an INSERTION, which is what `.transition` animates. Two
+ * things have to hold or it does nothing:
+ *
+ *  - the modifier has to be on the villager, and it is a plain record because
+ *    the compiled layout cannot reach module scope for a helper;
+ *  - the villager has to be keyed by its SESSION, so SwiftUI sees an arrival
+ *    rather than a change to whoever already stood in that index.
+ */
+test("each villager carries a transition and is keyed by its session", () => {
+  const cast = [
+    { id: "s-one", iconUri: "i", iconSize: 34, plate: false, markTone: "light", legColor: "#000", state: "working" },
+    { id: "s-two", iconUri: "i", iconSize: 34, plate: false, markTone: "light", legColor: "#000", state: "working" },
+  ];
+  const tree = nodes(render({ ...props, characters: cast }, { widgetFamily: "systemMedium" }));
+  const villagers = tree.filter(node => node.type === "ZStack"
+    && node.props.modifiers?.some((m: any) => m.$type === "transition"));
+  expect(villagers).toHaveLength(2);
+  for (const villager of villagers) {
+    expect(villager.props.modifiers.find((m: any) => m.$type === "transition").kind).toBe("scale");
+  }
+  expect(villagers.map(v => v.key)).toEqual(["s-one", "s-two"]);
+});
+
+test("a villager with no session id still renders, keyed by position", () => {
+  const cast = [{ iconUri: "i", iconSize: 34, plate: false, markTone: "light", legColor: "#000", state: "working" }];
+  const tree = nodes(render({ ...props, characters: cast }, { widgetFamily: "systemMedium" }));
+  expect(tree.filter(node => node.type === "ZStack"
+    && node.props.modifiers?.some((m: any) => m.$type === "transition"))).toHaveLength(1);
 });

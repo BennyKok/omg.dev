@@ -140,7 +140,11 @@ export function AgentVillageWidgetBridge() {
             .slice(0, 2);
       const characters = [...active, ...nappers]
         .slice(0, large.slots.length)
-        .map((session) => villageCharacter(session.agent, stateOf(session, waiting), icons, session))
+        .map((session) => villageCharacter(session.agent, stateOf(session, waiting), icons, {
+          sessionId: session.sessionId,
+          title: session.title,
+          lastActivityAt: session.lastActivityAt,
+        }))
         .filter((character): character is VillageCharacter => character !== null);
 
       // Both a parked question and a dead provider draw the same "!" pose, so

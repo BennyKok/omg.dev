@@ -1,0 +1,51 @@
+diff --git a/ios/Modifiers/ViewModifierRegistry.swift b/ios/Modifiers/ViewModifierRegistry.swift
+index b1956cec24eb467590f3c5b7b3816f8d6efe0033..7142754d38d0cb8619e5e866c46988e994a51a7e 100644
+--- a/ios/Modifiers/ViewModifierRegistry.swift
++++ b/ios/Modifiers/ViewModifierRegistry.swift
+@@ -120,6 +120,35 @@ internal struct OpacityModifier: ViewModifier, Record {
+   }
+ }
+ 
++/**
++ * `.transition(_:)`, which SwiftUI uses to animate a view being INSERTED or
++ * REMOVED rather than changed. Upstream @expo/ui exposes `animation` but not
++ * this, so a view appearing between two WidgetKit timeline entries popped in
++ * with no treatment at all. Property animation cannot cover it: an arriving
++ * agent is an insertion, not a change to something already on screen.
++ *
++ * Kept deliberately small -- a named kind rather than SwiftUI's full
++ * composable AnyTransition -- because the surface has to survive being
++ * re-applied to each new @expo/ui release by hand.
++ */
++internal struct TransitionModifier: ViewModifier, Record {
++  @Field var kind: String = "opacity"
++
++  @ViewBuilder
++  func body(content: Content) -> some View {
++    switch kind {
++    case "scale":
++      content.transition(.scale.combined(with: .opacity))
++    case "slide":
++      content.transition(.slide.combined(with: .opacity))
++    case "push":
++      content.transition(.push(from: .bottom).combined(with: .opacity))
++    default:
++      content.transition(.opacity)
++    }
++  }
++}
++
+ internal struct ScaleEffectModifier: ViewModifier, Record {
+   @Field var x: CGFloat = 1.0
+   @Field var y: CGFloat = 1.0
+@@ -1692,6 +1721,10 @@ extension ViewModifierRegistry {
+       return try ScaleEffectModifier(from: params, appContext: appContext)
+     }
+ 
++    register("transition") { params, appContext, _ in
++      return try TransitionModifier(from: params, appContext: appContext)
++    }
++
+     register("rotationEffect") { params, appContext, _ in
+       return try RotationEffectModifier(from: params, appContext: appContext)
+     }

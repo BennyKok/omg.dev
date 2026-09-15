@@ -133,12 +133,13 @@ export function villageCharacter(
   agent: string | null | undefined,
   state: VillageCharacter["state"],
   staged: Record<string, string>,
-  said?: { title?: string | null; lastActivityAt?: number | null },
+  said?: { sessionId?: string | null; title?: string | null; lastActivityAt?: number | null },
 ): VillageCharacter | null {
   const key = normalizeAgent(agent);
   const iconUri = staged[key];
   if (!iconUri) return null;
   return {
+    id: said?.sessionId ?? undefined,
     iconUri,
     legColor: LEG_COLOR[key] ?? LEG_COLOR.claude,
     plate: PLATED.has(key),

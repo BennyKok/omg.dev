@@ -4,6 +4,13 @@ import { createWidget } from "expo-widgets";
 
 /** What one character needs to draw itself. */
 export type VillageCharacter = {
+  /**
+   * The session this villager IS. Used as the view's identity, so SwiftUI can
+   * tell a new agent arriving from the cast simply reshuffling -- an insertion
+   * is what `.transition` animates, and an index would make every arrival look
+   * like a change to whoever already stood there.
+   */
+  id?: string;
   /** `file://` URI of the agent PNG in the shared widget directory. */
   iconUri: string;
   iconSize: number;
@@ -51,6 +58,23 @@ function AgentVillage(props: VillageProps, environment: { widgetFamily: string; 
   if (!props.scenes) {
     return <Text modifiers={[font({ size: 14 }), widgetURL("omg:///")]}>Open omg.dev to start your garden</Text>;
   }
+  /**
+   * `.transition(_:)`, which upstream @expo/ui does not expose.
+   *
+   * SwiftUI uses it to animate a view being INSERTED, which is exactly what a
+   * new agent is. `animation(_:value:)` cannot stand in: it animates a change
+   * to something already on screen, and an arriving villager is not a change
+   * to anything -- it was not there.
+   *
+   * A modifier record is a plain object, so this needs no helper. It must be
+   * declared INSIDE the widget body: the compiled layout is evaluated on its
+   * own in the extension and cannot see module scope, which the native check
+   * caught the moment this lived at the top of the file.
+   *
+   * The native half is `patches/@expo%2Fui@57.0.10.patch`, registering a
+   * `TransitionModifier`. Being native, it rides a BUILD and not an update.
+   */
+  const transition = (kind: string) => ({ $type: "transition", kind });
   const MARK = 34;
   const PLATE = 38;
   /** Nobody roams further than this even when the scene has room for it. */
@@ -209,7 +233,7 @@ function AgentVillage(props: VillageProps, environment: { widgetFamily: string; 
     const markTint = tinted && disc ? "fullColor" : "desaturated";
 
     return (
-      <ZStack key={`villager-${index}`}>
+      <ZStack key={character.id ?? `villager-${index}`} modifiers={[transition("scale")]}>
         <Ellipse modifiers={[frame({ width: 25, height: 5 }), foregroundColor(dark ? "#3C4333" : "#B5B99C"), place(slot.x, slot.y + 1)]} />
         <Capsule
           modifiers={[

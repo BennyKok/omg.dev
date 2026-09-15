@@ -54,6 +54,9 @@
       },
     },
   },
+  "patchedDependencies": {
+    "@expo/ui@57.0.10": "patches/@expo%2Fui@57.0.10.patch",
+  },
   "overrides": {
     "brace-expansion": "^5.0.9",
     "js-yaml": "^5.4.1",

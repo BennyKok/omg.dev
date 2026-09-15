@@ -64,5 +64,8 @@
     "test:native": "bun test ./scripts/*.native-check.ts",
     "doctor": "expo-doctor"
   },
-  "private": true
+  "private": true,
+  "patchedDependencies": {
+    "@expo/ui@57.0.10": "patches/@expo%2Fui@57.0.10.patch"
+  }
 }
