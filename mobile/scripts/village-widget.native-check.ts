@@ -642,3 +642,45 @@ test("dots further along the tail sit closer to the agent", () => {
   // The small dot trails the big one, so the tail tapers towards the speaker.
   expect(near(dots[1])).toBeLessThan(near(dots[0]));
 });
+
+/**
+ * The blossom orchard the onboarding design uses, added as six plates at
+ * exactly the notebook sizes so a scene can be swapped without touching a slot
+ * or a bound. The small ones matter most: WidgetKit archival is what the very
+ * first test in this file exists to protect, and a seasonal set is the easiest
+ * way to quietly reintroduce an oversized image.
+ */
+test("every blossom plate matches its notebook counterpart's size", async () => {
+  const { readFileSync } = await import("node:fs");
+  const dims = (name: string) => {
+    const png = readFileSync(new URL(`../assets/village/${name}.png`, import.meta.url));
+    return { width: png.readUInt32BE(16), height: png.readUInt32BE(20) };
+  };
+  for (const family of ["small", "medium", "large"]) {
+    for (const scheme of ["light", "dark"]) {
+      const blossom = dims(`blossom-${family}-${scheme}`);
+      // Within a pixel: one shipped notebook plate is 1832 wide where its pair
+      // is 1833, and holding blossom to that typo would be the wrong bound.
+      const notebook = dims(`notebook-${family}-${scheme}`);
+      expect(Math.abs(blossom.width - notebook.width)).toBeLessThanOrEqual(1);
+      expect(Math.abs(blossom.height - notebook.height)).toBeLessThanOrEqual(1);
+    }
+  }
+});
+
+test("the blossom small plates stay inside the widget image budget", async () => {
+  const { readFileSync } = await import("node:fs");
+  for (const scheme of ["light", "dark"]) {
+    const png = readFileSync(new URL(`../assets/village/blossom-small-${scheme}.png`, import.meta.url));
+    expect(png.readUInt32BE(16) * png.readUInt32BE(20)).toBeLessThanOrEqual(510 * 510);
+  }
+});
+
+test("an unknown scenery falls back to the everyday garden, never to nothing", async () => {
+  const { backgroundsFor, VILLAGE_BACKGROUNDS, BLOSSOM_BACKGROUNDS } =
+    await import("../src/omg/village-scene");
+  expect(backgroundsFor("blossom")).toBe(BLOSSOM_BACKGROUNDS);
+  expect(backgroundsFor("notebook")).toBe(VILLAGE_BACKGROUNDS);
+  expect(backgroundsFor(null)).toBe(VILLAGE_BACKGROUNDS);
+  expect(backgroundsFor(undefined)).toBe(VILLAGE_BACKGROUNDS);
+});
