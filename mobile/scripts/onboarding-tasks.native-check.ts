@@ -77,3 +77,32 @@ test("the custom path starts blank rather than prefilled", () => {
   expect(promptFor("design", "not-a-task")).toBeNull();
   expect(laneFor(null)).toBeNull();
 });
+
+/**
+ * Step 05's heading is "Continue your {word}!", so the word has to read as a
+ * noun in that sentence. A lane whose word was a verb or a plural would break
+ * the line without any type error saying so.
+ */
+test("every headline word reads as a noun after \"Continue your\"", () => {
+  for (const lane of INTEREST_LANES) {
+    expect(lane.word).toMatch(/^[a-z]+$/);
+    expect(lane.word).not.toContain(" ");
+  }
+  expect(FALLBACK_WORD).toMatch(/^[a-z]+$/);
+});
+
+/**
+ * Tool badges are not connect buttons: the example tasks run on sample inputs
+ * and an account is connected after the first session. A lane that listed a
+ * tool we cannot name would be a promise the badge cannot keep.
+ */
+test("every lane names its tools, and none of them repeat across lanes", () => {
+  const seen = new Set<string>();
+  for (const lane of INTEREST_LANES) {
+    for (const tool of lane.tools) {
+      expect(tool.trim().length).toBeGreaterThan(0);
+      seen.add(`${lane.key}:${tool}`);
+    }
+  }
+  expect(seen.size).toBe(INTEREST_LANES.reduce((n, l) => n + l.tools.length, 0));
+});
