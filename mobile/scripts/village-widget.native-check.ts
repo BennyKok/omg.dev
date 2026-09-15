@@ -390,3 +390,38 @@ for (const [family, key] of [["Medium", "medium"], ["Large", "large"]] as const)
     }
   });
 }
+
+/**
+ * A widget has no animation loop, so "idle animation" can only mean a pose
+ * that differs per timeline entry. A napper gets two: the body rises and
+ * settles, and its "z" drifts up and away before starting over.
+ */
+test("a napping agent's sleep marker drifts up and away across the cycle", () => {
+  const seat = [{ iconUri: "i", iconSize: 34, plate: false, markTone: "light", legColor: "#000", state: "idle" }];
+  const zs = [0, 1, 2, 3].map((walkPhase) => {
+    const tree = nodes(render({ ...props, walkPhase, characters: seat }, { widgetFamily: "systemMedium" }));
+    const z = tree.find(node => node.type === "Text" && node.props.children === "z");
+    // RELATIVE to the sleeper, who is ambling underneath it. Measured against
+    // the scene the drift would fight the body's own movement and read as
+    // jitter, which is not what is being asserted.
+    const mark = tree.filter(node => node.type === "Image")[1];
+    const at = z.props.modifiers.find((m: any) => m.type === "offset").value;
+    const body = mark.props.modifiers.find((m: any) => m.type === "offset").value;
+    return {
+      x: at.x - body.x,
+      y: at.y - body.y,
+      size: z.props.modifiers.find((m: any) => m.type === "font").value.size,
+    };
+  });
+  // Rises, drifts aside and shrinks, monotonically, so it reads as drifting
+  // away rather than jittering in place.
+  for (let i = 1; i < zs.length; i += 1) {
+    expect(zs[i].y).toBeLessThan(zs[i - 1].y);
+    expect(zs[i].x).toBeGreaterThan(zs[i - 1].x);
+    expect(zs[i].size).toBeLessThan(zs[i - 1].size);
+  }
+});
+
+test("a napper's breath is deep enough to notice between two glances", () => {
+  expect(travel("idle").y).toBeGreaterThanOrEqual(5);
+});

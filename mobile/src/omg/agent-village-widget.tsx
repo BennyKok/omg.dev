@@ -162,7 +162,22 @@ function AgentVillage(props: VillageProps, environment: { widgetFamily: string; 
     // A small counter-bob, so a walk does not read as sliding along a rail.
     const lift = [0, -1, 0, 1][phase] * Math.min(4, room / 4) * pace;
     // Sleeping still breathes, on top of whatever ambling it is doing.
-    const breath = character.state === "idle" ? [0, -2, -3, -2][phase] : 0;
+    /**
+     * SLEEPING, RENDERED THE ONLY WAY A WIDGET CAN.
+     *
+     * There is no animation loop, so "idle animation" can only mean a pose
+     * that differs per timeline entry. A napper gets two of them: the body
+     * rises and settles, and the "z" above it drifts up and away before
+     * starting over -- which is the shape of a sleep marker in every cartoon
+     * and reads as resting rather than as walking.
+     *
+     * Deeper than it was, because a 3pt rise on a 170pt widget is not a breath
+     * anybody sees between two glances.
+     */
+    const breath = character.state === "idle" ? [0, -3, -5, -3][phase] : 0;
+    const snoozeLift = [0, -5, -10, -15][phase];
+    const snoozeDrift = [0, 2, 5, 8][phase];
+    const snoozeSize = [11, 10, 9, 8][phase];
 
     const slot = { x: origin.x + sweep, y: origin.y + lift + breath };
     const stride = character.state === "working" ? [0, 3, 0, -3][phase] : 0;
@@ -221,7 +236,7 @@ function AgentVillage(props: VillageProps, environment: { widgetFamily: string; 
           ? <Text modifiers={[bold(), font({ size: 15 }), foregroundColor(flagged), place(slot.x + 16, markY - 18)]}>!</Text>
           : null}
         {character.state === "idle"
-          ? <Text modifiers={[font({ size: 11 }), foregroundColor(subdued), place(slot.x + 15, markY - 14)]}>z</Text>
+          ? <Text modifiers={[font({ size: snoozeSize }), foregroundColor(subdued), place(slot.x + 15 + snoozeDrift, markY - 14 + snoozeLift)]}>z</Text>
           : null}
       </ZStack>
     );
