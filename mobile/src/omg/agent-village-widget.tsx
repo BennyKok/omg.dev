@@ -307,10 +307,18 @@ function AgentVillage(props: VillageProps, environment: { widgetFamily: string; 
    *
    * SwiftUI would size a Text to its content on its own, but the placement
    * here has to KNOW the width -- it is what the overlap scan tests against --
-   * so the width is estimated from the string instead of measured. At 11pt
-   * semibold the average glyph is close enough to 5.6pt for this purpose, and
-   * being a few points out only makes the gap between two bubbles slightly
-   * generous, never overlapping.
+   * so the width is estimated from the string instead of measured.
+   *
+   * 6.6pt per glyph, not the 5.6 this started at: at 11pt semibold that was
+   * too mean and titles truncated on the device -- "Napping" came out as
+   * "Nappi...".
+   *
+   * It does NOT go wider than that, and the reason is worth keeping. Widening
+   * further did fit more words, and cost a whole speaker: the seat scan could
+   * no longer place the second bubble without covering somebody, so it went
+   * silent. Room for the words is bought INSIDE the bubble instead, by taking
+   * less off for the text inset. A truncated title is a smaller loss than an
+   * agent with nothing to say.
    */
   const bubbleRoom = Math.min(family === "large" ? 176 : 150, width - 56);
   const widthFor = (title: string, hasTime: boolean) => Math.round(Math.min(
@@ -318,7 +326,7 @@ function AgentVillage(props: VillageProps, environment: { widgetFamily: string; 
     Math.max(
       // Never narrower than the time line it also has to hold.
       hasTime ? 62 : 48,
-      title.length * 5.6 + 20,
+      title.length * 6.6 + 22,
     ),
   ));
   const paper = dark ? "#1B1F19" : "#FFFFFF";
@@ -429,12 +437,35 @@ function AgentVillage(props: VillageProps, environment: { widgetFamily: string; 
     // Nowhere to stand without covering somebody. Stay quiet.
     if (!spot) return null;
 
-    const tailLeft = spot.x >= slot.x;
-    const tailOffsets = [{ size: 7, out: 5, drop: 8 }, { size: 4, out: 12, drop: 13 }];
-    const tailX = (out: number) => spot.x + (tailLeft ? -1 : 1) * (bubbleWidth / 2 + out);
+    /**
+     * THE TAIL AIMS AT ITS SPEAKER, in whatever direction that is.
+     *
+     * It used to be chosen by comparing x alone, so it always went sideways.
+     * The placement scan picks ABOVE the agent whenever there is room, and
+     * there usually is -- so the common case was a bubble directly over its
+     * agent with the dots trailing off to one side, pointing at nothing.
+     * Reported from a device: "the dot is too far away from center".
+     *
+     * Now the dots ride the ray from the bubble's centre to the agent's mark,
+     * leaving the bubble wherever that ray actually crosses its edge.
+     */
+    const toward = { x: pose.x - spot.x, y: pose.markY - spot.y };
+    const reachLen = Math.hypot(toward.x, toward.y) || 1;
+    const unit = { x: toward.x / reachLen, y: toward.y / reachLen };
+    // Where the ray leaves the bubble's rectangle: whichever side it meets first.
+    const edge = Math.min(
+      unit.x === 0 ? Infinity : (bubbleWidth / 2) / Math.abs(unit.x),
+      unit.y === 0 ? Infinity : (bubbleHeight / 2) / Math.abs(unit.y),
+    );
+    const tailOffsets = [{ size: 7, out: 4 }, { size: 4, out: 11 }];
+    const tailAt = (out: number) => ({
+      x: spot.x + unit.x * (edge + out),
+      y: spot.y + unit.y * (edge + out),
+    });
     const tailFits = tailOffsets.every((dot) => {
-      const at = tailX(dot.out);
-      return at - dot.size / 2 >= 0 && at + dot.size / 2 <= width;
+      const at = tailAt(dot.out);
+      return at.x - dot.size / 2 >= 0 && at.x + dot.size / 2 <= width
+        && at.y - dot.size / 2 >= 0 && at.y + dot.size / 2 <= height;
     });
 
     return (
@@ -445,14 +476,17 @@ function AgentVillage(props: VillageProps, environment: { widgetFamily: string; 
             modifiers={[frame({ width: bubbleWidth, height: bubbleHeight }), foregroundColor(paper), place(spot.x, spot.y)]}
           />
         )}
-        {tinted || !tailFits ? null : tailOffsets.map((dot) => (
-          <Circle
-            key={`tail-${index}-${dot.out}`}
-            modifiers={[frame({ width: dot.size, height: dot.size }), foregroundColor(paper), place(tailX(dot.out), spot.y + dot.drop)]}
-          />
-        ))}
+        {tinted || !tailFits ? null : tailOffsets.map((dot) => {
+          const at = tailAt(dot.out);
+          return (
+            <Circle
+              key={`tail-${index}-${dot.out}`}
+              modifiers={[frame({ width: dot.size, height: dot.size }), foregroundColor(paper), place(at.x, at.y)]}
+            />
+          );
+        })}
         <VStack alignment="leading" spacing={1} modifiers={[
-          frame({ width: bubbleWidth - 18, alignment: "leading" }),
+          frame({ width: bubbleWidth - 12, alignment: "leading" }),
           place(spot.x, spot.y),
         ]}>
           <Text modifiers={[bold(), font({ size: 11 }), lineLimit(1), foregroundColor(ink)]}>{said}</Text>

@@ -510,12 +510,16 @@ test("a crowded village quietens the ones it cannot seat, rather than stacking t
  */
 test("a short title gets a narrower bubble than a long one", () => {
   const widthOf = (title: string) => boxesOf(chorus([title]))[0].size.width;
-  expect(widthOf("Napping")).toBeLessThan(widthOf("Fix the widget border"));
-  expect(widthOf("Fix the widget border")).toBeLessThan(widthOf("Fix the widget border and the tinted marks"));
-  // There IS a floor, and it is not arbitrary: the bubble also holds a time
-  // line, so a one-word title cannot shrink below what "6:04" needs. Two
-  // titles under that floor are legitimately the same width.
-  expect(widthOf("a")).toBe(widthOf("Napping"));
+  expect(widthOf("Napping")).toBeLessThan(widthOf("Fix the border"));
+  expect(widthOf("Fix the border")).toBeLessThan(widthOf("Fix the widget border"));
+  // There is a FLOOR and a CAP, and neither is arbitrary. The bubble also
+  // holds a time line, so a one-word title cannot shrink below what "6:04"
+  // needs; and it cannot grow past the scene. Two titles on the same bound are
+  // legitimately the same width -- the words truncate, the bubble does not.
+  expect(widthOf("a")).toBe(widthOf("ab"));
+  expect(widthOf("a")).toBeLessThan(widthOf("Napping"));
+  expect(widthOf("a session title long enough to reach the cap"))
+    .toBe(widthOf("a session title very much longer still, well past it"));
 });
 
 test("a bubble never gets wider than the scene allows, however long the title", () => {
@@ -582,4 +586,59 @@ test("a villager with no session id still renders, keyed by position", () => {
   const tree = nodes(render({ ...props, characters: cast }, { widgetFamily: "systemMedium" }));
   expect(tree.filter(node => node.type === "ZStack"
     && node.props.modifiers?.some((m: any) => m.$type === "transition"))).toHaveLength(1);
+});
+
+/**
+ * The tail has to point at the agent it belongs to, whichever side the
+ * placement scan put the bubble on. It used to be chosen by comparing x alone,
+ * so it always went sideways -- and the scan prefers ABOVE the agent, which
+ * meant the common case was dots trailing off to one side of a bubble sitting
+ * directly over its speaker, aimed at nothing.
+ */
+test("the tail points from the bubble towards its own agent", () => {
+  for (const family of ["Medium", "Large"]) {
+    const tree = nodes(render({
+      ...props,
+      characters: [{
+        iconUri: "i", iconSize: 34, plate: false, markTone: "light", legColor: "#000",
+        state: "working", title: "ios app", lastActivityAt: 0,
+      }],
+    }, { widgetFamily: `system${family}`, date: 10_000 }));
+
+    const box = tree.find(node => node.type === "RoundedRectangle");
+    const at = box.props.modifiers.find((m: any) => m.type === "offset").value;
+    const mark = tree.filter(node => node.type === "Image")[1];
+    const markAt = mark.props.modifiers.find((m: any) => m.type === "offset").value;
+    const dots = tree.filter(node => node.type === "Circle")
+      .map(node => node.props.modifiers.find((m: any) => m.type === "offset").value);
+    expect(dots.length).toBeGreaterThan(0);
+
+    const span = Math.hypot(markAt.x - at.x, markAt.y - at.y);
+    for (const dot of dots) {
+      // Each dot is nearer the agent than the bubble's centre is.
+      expect(Math.hypot(markAt.x - dot.x, markAt.y - dot.y)).toBeLessThan(span);
+      // And it lies along the line between them, not off to one side.
+      const cross = Math.abs((markAt.x - at.x) * (dot.y - at.y) - (markAt.y - at.y) * (dot.x - at.x)) / (span || 1);
+      expect(cross).toBeLessThan(1.5);
+    }
+  }
+});
+
+test("dots further along the tail sit closer to the agent", () => {
+  const tree = nodes(render({
+    ...props,
+    characters: [{
+      iconUri: "i", iconSize: 34, plate: false, markTone: "light", legColor: "#000",
+      state: "working", title: "ios app", lastActivityAt: 0,
+    }],
+  }, { widgetFamily: "systemMedium", date: 10_000 }));
+  const mark = tree.filter(node => node.type === "Image")[1];
+  const markAt = mark.props.modifiers.find((m: any) => m.type === "offset").value;
+  const dots = tree.filter(node => node.type === "Circle").map(node => ({
+    at: node.props.modifiers.find((m: any) => m.type === "offset").value,
+    size: node.props.modifiers.find((m: any) => m.type === "frame").value.width,
+  })).sort((a, b) => b.size - a.size);
+  const near = (d: typeof dots[number]) => Math.hypot(markAt.x - d.at.x, markAt.y - d.at.y);
+  // The small dot trails the big one, so the tail tapers towards the speaker.
+  expect(near(dots[1])).toBeLessThan(near(dots[0]));
 });
