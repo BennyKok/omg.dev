@@ -11,8 +11,13 @@ import { widgetRefresh } from "./widget-refresh";
 import { useOmg } from "./provider";
 import { stageAgentIcons, stageVillageScenes, villageCharacter, villageScene, walkTimeline } from "./village-widget-data";
 
-/** One pose every three minutes. Four poses cover the next twelve. */
-const WALK_STEP_MS = 3 * 60 * 1000;
+/**
+ * One pose every ninety seconds. WALK_ENTRIES of them still cover the next
+ * twelve minutes, so a write buys the same window as before at twice the rate.
+ * Below about a minute iOS stops honouring Home Screen entries anyway, so
+ * there is nothing to gain by going lower.
+ */
+const WALK_STEP_MS = 90 * 1000;
 
 type FleetSession = {
   sessionId: string | null;

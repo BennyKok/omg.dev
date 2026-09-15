@@ -137,3 +137,53 @@ for (const [family, key] of [["Small", "small"], ["Medium", "medium"], ["Large",
     });
   }
 }
+
+/**
+ * A widget cannot animate, so the only motion anyone perceives is the
+ * difference between two glances. That difference used to be 10pt on a 364pt
+ * widget, which is why the walk was reported as not happening at all. Pin the
+ * travel so it cannot quietly shrink back.
+ */
+function travel(state: string, family = "Medium", index = 0) {
+  const seats = Array.from({ length: index + 1 }, () => ({
+    iconUri: "i", iconSize: 34, plate: false, markTone: "light", legColor: "#000", state,
+  }));
+  const seen: { x: number; y: number }[] = [];
+  for (const walkPhase of [0, 1, 2, 3]) {
+    const tree = nodes(render({ ...props, walkPhase, characters: seats }, { widgetFamily: `system${family}` }));
+    const mark = tree.filter(node => node.type === "Image")[index + 1];
+    seen.push(mark.props.modifiers.find((modifier: any) => modifier.type === "offset").value);
+  }
+  const xs = seen.map(p => p.x), ys = seen.map(p => p.y);
+  return { x: Math.max(...xs) - Math.min(...xs), y: Math.max(...ys) - Math.min(...ys) };
+}
+
+test("a working agent covers ground a glance apart can tell", () => {
+  expect(travel("working").x).toBeGreaterThanOrEqual(40);
+});
+
+test("a napping agent breathes but never sleepwalks", () => {
+  const moved = travel("idle");
+  expect(moved.x).toBe(0);
+  expect(moved.y).toBeGreaterThan(0);
+});
+
+test("walkers never have the room to collide or leave the scene", () => {
+  const scene = VILLAGE_SCENES.medium;
+  const seats = scene.slots.map(() => ({
+    iconUri: "i", iconSize: 34, plate: false, markTone: "light", legColor: "#000", state: "working",
+  }));
+  for (const walkPhase of [0, 1, 2, 3]) {
+    const tree = nodes(render({ ...props, walkPhase, characters: seats }, { widgetFamily: "systemMedium" }));
+    const marks = tree.filter(node => node.type === "Image").slice(1)
+      .map(node => node.props.modifiers.find((modifier: any) => modifier.type === "offset").value);
+    // Centres stay a mark apart, measured the way they are seen. Two slots can
+    // sit close in x and still never overlap when they differ in y.
+    for (let i = 0; i < marks.length; i += 1) {
+      for (let j = i + 1; j < marks.length; j += 1) {
+        expect(Math.hypot(marks[i].x - marks[j].x, marks[i].y - marks[j].y)).toBeGreaterThanOrEqual(34);
+      }
+    }
+    for (const mark of marks) expect(Math.abs(mark.x)).toBeLessThanOrEqual(scene.width / 2 - 17);
+  }
+});

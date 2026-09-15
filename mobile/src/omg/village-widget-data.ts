@@ -154,17 +154,30 @@ export function villageCharacter(
  */
 export const WALK_PHASES = 4;
 
-/** One timeline entry per pose, `stepMs` apart. */
+/**
+ * How many entries one write covers.
+ *
+ * This used to be WALK_PHASES, so a write bought exactly four redraws and the
+ * village then froze until the app next came forward. Cycling the four poses
+ * over more entries buys the same wall-clock window at a shorter step, which
+ * is what makes a change visible between two glances. Every entry carries a
+ * full copy of the props, so this is also what the timeline costs in the App
+ * Group defaults — do not raise it without measuring that.
+ */
+export const WALK_ENTRIES = 8;
+
+/** One timeline entry per pose, `stepMs` apart, cycling the poses. */
 export function walkTimeline<T extends { walkPhase: number }>(
   props: Omit<T, "walkPhase">,
   stepMs: number,
   from: Date = new Date(),
+  count: number = WALK_ENTRIES,
 ): { date: Date; props: T }[] {
   const entries: { date: Date; props: T }[] = [];
-  for (let index = 0; index < WALK_PHASES; index += 1) {
+  for (let index = 0; index < count; index += 1) {
     entries.push({
       date: new Date(from.getTime() + index * stepMs),
-      props: { ...props, walkPhase: index } as T,
+      props: { ...props, walkPhase: index % WALK_PHASES } as T,
     });
   }
   return entries;

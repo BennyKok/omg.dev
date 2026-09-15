@@ -49,6 +49,8 @@ function AgentVillage(props: VillageProps, environment: { widgetFamily: string; 
   }
   const MARK = 34;
   const PLATE = 38;
+  /** Nobody roams further than this even when the scene has room for it. */
+  const MAX_ROAM = 28;
   const family = environment.widgetFamily === "systemSmall" ? "small" : environment.widgetFamily === "systemLarge" ? "large" : "medium";
   const scene = props.scenes[family];
 
@@ -112,10 +114,42 @@ function AgentVillage(props: VillageProps, environment: { widgetFamily: string; 
     const origin = scene.slots[index];
     const phase = (props.walkPhase + index) % 4;
     const roaming = character.state === "working";
-    const slot = {
-      x: origin.x + (roaming ? [0, 5, 1, -5][phase] : 0),
-      y: origin.y + (roaming ? [0, -3, 3, 1][phase] : 0),
-    };
+
+    /**
+     * HOW FAR THIS ONE CAN ROAM, MEASURED RATHER THAN TUNED.
+     *
+     * A widget cannot animate. The only motion anyone ever perceives is the
+     * difference between two glances, so that difference has to be legible.
+     * The old walk moved a working agent 10pt in total across a full cycle, on
+     * a widget 364pt wide, which is a twitch nobody can see.
+     *
+     * The bound is geometric so it holds for any scene: half the distance to
+     * the nearest neighbouring slot less a mark, so two agents cannot meet
+     * even when they walk straight at each other, and clipped to the scene so
+     * nobody steps off the grass.
+     */
+    let nearest = Infinity;
+    for (let other = 0; other < characters.length; other += 1) {
+      if (other === index) continue;
+      const gap = scene.slots[other];
+      nearest = Math.min(nearest, Math.hypot(gap.x - origin.x, gap.y - origin.y));
+    }
+    const room = Math.max(0, Math.min(
+      MAX_ROAM,
+      (nearest - MARK) / 2,
+      Math.min(origin.x, width - origin.x) - MARK / 2,
+    ));
+
+    // A triangle, not a sawtooth: it paces out and back, so the cycle never
+    // teleports the agent across the village when it restarts.
+    const sweep = roaming ? [-1, 0, 1, 0][phase] * room : 0;
+    // A small counter-bob, so a walk does not read as sliding along a rail.
+    const lift = roaming ? [0, -1, 0, 1][phase] * Math.min(4, room / 4) : 0;
+    // Napping agents keep their pitch; they only breathe, because the "z" says
+    // they are asleep and a sleepwalking villager reads as a bug.
+    const breath = character.state === "idle" ? [0, -2, -3, -2][phase] : 0;
+
+    const slot = { x: origin.x + sweep, y: origin.y + lift + breath };
     const stride = character.state === "working" ? [0, 3, 0, -3][phase] : 0;
     const hop = character.state === "blocked" ? [0, -5, -8, -5][phase] : 0;
     const legHeight = character.state === "idle" ? 5 : 7;
