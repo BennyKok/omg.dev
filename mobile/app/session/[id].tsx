@@ -122,7 +122,7 @@ import {
 } from "../../src/components";
 import { useAttachments } from "../../src/omg/attachments";
 import { BotAvatar } from "../../src/omg/bot-avatar";
-import { WorkingDots, WorkingLabel, useWorkingWave } from "../../src/omg/working-indicator";
+import { WorkingIndicator } from "../../src/omg/working-indicator";
 import { filterBotChatEntries, stripBotLaunchEnvelope } from "../../src/omg/bot-transcript";
 import type { Bot } from "../../src/omg/bots";
 import { useDictation } from "../../src/omg/dictation";
@@ -2782,26 +2782,21 @@ function BotWorkingIndicator({ bot }: { bot: Bot }) {
  */
 function ThinkingPill() {
   const { colors, type } = useTheme();
-  // One clock for the mark and the label, so the light travels out of the
-  // dots and into the word instead of two loops running side by side.
-  const wave = useWorkingWave();
 
   return (
-    <View
+    <WorkingIndicator
+      text="Working"
+      dotColor={colors.textSecondary}
+      labelColor={colors.textMuted}
+      labelStyle={type.caption}
       style={{
         alignSelf: "flex-start",
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 6,
         marginTop: 16,
         marginLeft: 4,
         minHeight: 26,
         paddingHorizontal: 4,
         paddingVertical: 5,
       }}
-    >
-      <WorkingDots color={colors.textSecondary} size={5} wave={wave} />
-      <WorkingLabel text="Working" color={colors.textMuted} style={type.caption} wave={wave} />
-    </View>
+    />
   );
 }

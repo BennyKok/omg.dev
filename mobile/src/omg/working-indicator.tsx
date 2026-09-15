@@ -22,7 +22,7 @@
  */
 
 import { useEffect } from "react";
-import { Text, View, type TextStyle } from "react-native";
+import { Text, View, type TextStyle, type ViewStyle } from "react-native";
 import Reanimated, {
   Easing,
   cancelAnimation,
@@ -47,6 +47,11 @@ const OPACITY_LIFT = 0.74;
 const SCALE_FLOOR = 0.78;
 const SCALE_LIFT = 0.34;
 
+/** The first appearance reads left-to-right before the steady wave takes over. */
+const REVEAL_MS = 620;
+/** Each item overlaps the next, so the entrance is a wipe rather than a typewriter. */
+const REVEAL_WINDOW = 0.48;
+
 /** Opacity a dot holds when the OS asks for reduced motion. */
 const STILL_OPACITY = 0.55;
 
@@ -65,6 +70,20 @@ function bump(phase: number, width: number): number {
   return (Math.cos((distance / width) * Math.PI) + 1) / 2;
 }
 
+/** Smoothly reveal one item at its position in a left-to-right sequence. */
+function revealAt(progress: number, index: number, total: number): number {
+  "worklet";
+  const start = total <= 1 ? 0 : (index / (total - 1)) * (1 - REVEAL_WINDOW);
+  const linear = Math.max(0, Math.min(1, (progress - start) / REVEAL_WINDOW));
+  return linear * linear * (3 - 2 * linear);
+}
+
+type WorkingWave = {
+  progress: SharedValue<number>;
+  reveal: SharedValue<number>;
+  reducedMotion: boolean;
+};
+
 /**
  * Drives one wave. Exported so a caller that already owns a clock — a row
  * with several indicators in it — can keep them in lockstep.
@@ -76,18 +95,26 @@ function bump(phase: number, width: number): number {
 export function useWorkingWave(enabled = true) {
   const reducedMotion = useReducedMotion();
   const progress = useSharedValue(0);
+  const reveal = useSharedValue(0);
 
   useEffect(() => {
     if (reducedMotion || !enabled) return;
+    reveal.value = withTiming(1, {
+      duration: REVEAL_MS,
+      easing: Easing.out(Easing.cubic),
+    });
     progress.value = withRepeat(
       withTiming(1, { duration: CYCLE_MS, easing: Easing.linear }),
       -1,
       false,
     );
-    return () => cancelAnimation(progress);
-  }, [enabled, reducedMotion, progress]);
+    return () => {
+      cancelAnimation(progress);
+      cancelAnimation(reveal);
+    };
+  }, [enabled, reducedMotion, progress, reveal]);
 
-  return { progress, reducedMotion };
+  return { progress, reveal, reducedMotion };
 }
 
 function Dot({
@@ -95,19 +122,29 @@ function Dot({
   size,
   color,
   progress,
+  reveal,
+  revealIndex,
+  revealTotal,
   reducedMotion,
 }: {
   index: number;
   size: number;
   color: string;
   progress: SharedValue<number>;
+  reveal: SharedValue<number>;
+  revealIndex: number;
+  revealTotal: number;
   reducedMotion: boolean;
 }) {
   const animated = useAnimatedStyle(() => {
     const lift = bump(progress.value - index * DOT_STAGGER, BUMP_WIDTH);
+    const entrance = revealAt(reveal.value, revealIndex, revealTotal);
     return {
-      opacity: OPACITY_FLOOR + lift * OPACITY_LIFT,
-      transform: [{ scale: SCALE_FLOOR + lift * SCALE_LIFT }],
+      opacity: entrance * (OPACITY_FLOOR + lift * OPACITY_LIFT),
+      transform: [
+        { translateX: (1 - entrance) * -size },
+        { scale: entrance * (SCALE_FLOOR + lift * SCALE_LIFT) },
+      ],
     };
   });
 
@@ -131,13 +168,17 @@ export function WorkingDots({
   color,
   size = 5,
   wave,
+  revealOffset = 0,
+  revealTotal = DOT_COUNT,
 }: {
   color: string;
   size?: number;
-  wave?: { progress: SharedValue<number>; reducedMotion: boolean };
+  wave?: WorkingWave;
+  revealOffset?: number;
+  revealTotal?: number;
 }) {
   const own = useWorkingWave(!wave);
-  const { progress, reducedMotion } = wave ?? own;
+  const { progress, reveal, reducedMotion } = wave ?? own;
 
   return (
     <View
@@ -153,6 +194,9 @@ export function WorkingDots({
           size={size}
           color={color}
           progress={progress}
+          reveal={reveal}
+          revealIndex={revealOffset + index}
+          revealTotal={revealTotal}
           reducedMotion={reducedMotion}
         />
       ))}
@@ -177,14 +221,18 @@ export function WorkingLabel({
   color,
   style,
   wave,
+  revealOffset = 0,
+  revealTotal,
 }: {
   text: string;
   color: string;
   style: TextStyle;
-  wave?: { progress: SharedValue<number>; reducedMotion: boolean };
+  wave?: WorkingWave;
+  revealOffset?: number;
+  revealTotal?: number;
 }) {
   const own = useWorkingWave(!wave);
-  const { progress, reducedMotion } = wave ?? own;
+  const { progress, reveal, reducedMotion } = wave ?? own;
   const chars = [...text];
 
   if (reducedMotion) return <Text style={{ ...style, color }}>{text}</Text>;
@@ -204,8 +252,51 @@ export function WorkingLabel({
           color={color}
           style={style}
           progress={progress}
+          reveal={reveal}
+          revealIndex={revealOffset + index}
+          revealTotal={revealTotal ?? chars.length}
         />
       ))}
+    </View>
+  );
+}
+
+/**
+ * The complete footer indicator. Its entrance and steady motion share one
+ * clock, so the first reveal flows from the dots into the word and the wave
+ * then keeps following the same route.
+ */
+export function WorkingIndicator({
+  text,
+  dotColor,
+  labelColor,
+  labelStyle,
+  dotSize = 5,
+  gap = 6,
+  style,
+}: {
+  text: string;
+  dotColor: string;
+  labelColor: string;
+  labelStyle: TextStyle;
+  dotSize?: number;
+  gap?: number;
+  style?: ViewStyle;
+}) {
+  const wave = useWorkingWave();
+  const revealTotal = DOT_COUNT + [...text].length;
+
+  return (
+    <View style={[{ flexDirection: "row", alignItems: "center", gap }, style]}>
+      <WorkingDots color={dotColor} size={dotSize} wave={wave} revealTotal={revealTotal} />
+      <WorkingLabel
+        text={text}
+        color={labelColor}
+        style={labelStyle}
+        wave={wave}
+        revealOffset={DOT_COUNT}
+        revealTotal={revealTotal}
+      />
     </View>
   );
 }
@@ -226,6 +317,9 @@ function LabelChar({
   color,
   style,
   progress,
+  reveal,
+  revealIndex,
+  revealTotal,
 }: {
   char: string;
   index: number;
@@ -233,6 +327,9 @@ function LabelChar({
   color: string;
   style: TextStyle;
   progress: SharedValue<number>;
+  reveal: SharedValue<number>;
+  revealIndex: number;
+  revealTotal: number;
 }) {
   const animated = useAnimatedStyle(() => {
     // The head enters before the first letter and leaves after the last, so
@@ -242,7 +339,11 @@ function LabelChar({
     const head = (((progress.value - LABEL_LEAD) % 1) + 1) % 1;
     const position = head * span - LABEL_WIDTH;
     const lift = Math.max(0, 1 - Math.abs(index - position) / LABEL_WIDTH);
-    return { opacity: LABEL_FLOOR + lift * LABEL_LIFT };
+    const entrance = revealAt(reveal.value, revealIndex, revealTotal);
+    return {
+      opacity: entrance * (LABEL_FLOOR + lift * LABEL_LIFT),
+      transform: [{ translateX: (1 - entrance) * -2 }],
+    };
   });
 
   return (
