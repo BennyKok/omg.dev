@@ -283,9 +283,29 @@ function AgentVillage(props: VillageProps, environment: { widgetFamily: string; 
         : sinceMinutes < 60 * 24
           ? `${Math.round(sinceMinutes / 60)}h`
           : `${Math.round(sinceMinutes / (60 * 24))}d`;
+  /**
+   * A LIVE CLOCK, WHICH IS THE ONE THING A WIDGET CAN UPDATE FOR FREE.
+   *
+   * WidgetKit renders date and timer Text itself, outside the timeline: it
+   * ticks every second and costs no reload budget at all. Everything else here
+   * -- the cast, the caption, where anyone is standing -- can only change when
+   * a timeline entry is rendered, which iOS grants sparingly. So the widget had
+   * nothing on it that moved between entries, and a frame twelve minutes old
+   * looked exactly like a fresh one.
+   *
+   * A running lead now carries a ticking clock instead of a rounded string, so
+   * there is always one element that is honestly current. A lead that is NOT
+   * running keeps the rounded string: a counter climbing next to a finished
+   * session says the wrong thing.
+   *
+   * Only the lower bound is read while counting up; the upper is out of reach
+   * because a run has no known end.
+   */
+  const YEAR_MS = 365 * 24 * 60 * 60 * 1000;
+  const ticking = lead?.state === "working" && typeof lastActivityAt === "number";
 
   const bubbleWidth = Math.min(family === "large" ? 196 : 150, width - 56);
-  const bubbleHeight = when ? 34 : 24;
+  const bubbleHeight = (when || ticking) ? 34 : 24;
   const paper = dark ? "#1B1F19" : "#FFFFFF";
 
   /**
@@ -392,9 +412,17 @@ function AgentVillage(props: VillageProps, environment: { widgetFamily: string; 
           place(bubbleX, bubbleY),
         ]}>
           <Text modifiers={[bold(), font({ size: 11 }), lineLimit(1), foregroundColor(ink)]}>{said}</Text>
-          {when
-            ? <Text modifiers={[font({ size: 10 }), lineLimit(1), foregroundColor(subdued)]}>{when}</Text>
-            : null}
+          {ticking
+            ? (
+              <Text
+                timerInterval={{ lower: new Date(lastActivityAt as number), upper: new Date((lastActivityAt as number) + YEAR_MS) }}
+                countsDown={false}
+                modifiers={[font({ size: 10 }), lineLimit(1), foregroundColor(subdued)]}
+              />
+            )
+            : when
+              ? <Text modifiers={[font({ size: 10 }), lineLimit(1), foregroundColor(subdued)]}>{when}</Text>
+              : null}
         </VStack>
       </ZStack>
     )

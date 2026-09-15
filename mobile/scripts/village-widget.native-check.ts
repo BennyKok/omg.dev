@@ -233,20 +233,43 @@ const talking = (extra: Record<string, unknown>, environment: Record<string, unk
   }, ...props.characters],
 }, { widgetFamily: "systemMedium", ...environment }));
 
-test("the lead's title and a relative time appear in one bubble", () => {
-  const tree = talking({ title: "Fix the widget border", lastActivityAt: 1000 - 5 * 60_000 },
-    { date: 1000 });
-  const text = tree.filter(node => node.type === "Text").map(node => node.props.children);
-  expect(text).toContain("Fix the widget border");
-  expect(text).toContain("5m");
+test("the lead's title appears in the bubble", () => {
+  const tree = talking({ title: "Fix the widget border", lastActivityAt: 1000 - 5 * 60_000 }, { date: 1000 });
+  expect(tree.filter(node => node.type === "Text").map(node => node.props.children))
+    .toContain("Fix the widget border");
 });
 
-test("the clock is the entry being rendered, not the moment the frame was written", () => {
-  // Same props, two entries twelve minutes apart: the bubble has to age.
-  const at = (date: number) => talking({ title: "t", lastActivityAt: 0 }, { date })
+/**
+ * WidgetKit renders timer Text itself, outside the timeline: it ticks every
+ * second and costs no reload budget. Everything else on this widget can only
+ * change when an entry is rendered, which iOS grants sparingly -- so without
+ * this the widget had nothing on it that moved, and a twelve minute old frame
+ * looked exactly like a fresh one.
+ */
+test("a running lead carries a live clock, not a number frozen at render time", () => {
+  const started = 1000 - 5 * 60_000;
+  const timer = talking({ title: "t", lastActivityAt: started, state: "working" }, { date: 1000 })
+    .find(node => node.type === "Text" && node.props.timerInterval);
+  expect(timer).toBeDefined();
+  expect(timer.props.countsDown).toBe(false);
+  expect(new Date(timer.props.timerInterval.lower).getTime()).toBe(started);
+  // Counting up: only the lower bound is read, and a run has no known end.
+  expect(new Date(timer.props.timerInterval.upper).getTime()).toBeGreaterThan(started + 300 * 24 * 3600 * 1000);
+});
+
+/**
+ * A counter climbing beside a session that has stopped says the wrong thing,
+ * so anything not running keeps the rounded string -- and that string is dated
+ * from the ENTRY being rendered, not from when the frame was written, because
+ * one write covers twelve minutes.
+ */
+test("a lead that is not running keeps a rounded age, dated from its entry", () => {
+  const at = (date: number) => talking({ title: "t", lastActivityAt: 0, state: "idle" }, { date })
     .filter(node => node.type === "Text").map(node => node.props.children);
   expect(at(60_000)).toContain("1m");
   expect(at(12 * 60_000)).toContain("12m");
+  expect(talking({ title: "t", lastActivityAt: 0, state: "idle" }, { date: 60_000 })
+    .find(node => node.type === "Text" && node.props.timerInterval)).toBeUndefined();
 });
 
 test("a session with no title gets no bubble at all", () => {
