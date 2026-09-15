@@ -2,6 +2,15 @@
 
 Recent product updates and deployment notes.
 
+## September 15, 2026 - Live Activities, scheduled runs in the archive, and iOS onboarding (v0.6.69)
+
+- iOS Live Activities show the fleet on the Lock Screen and in the Dynamic Island. The box publishes a bounded roster over `fleet.status` with each session's agent and state.
+- A running row carries `startedAt`, so the phone counts the elapsed time on the device instead of needing a push every second. **This part needs a Computer on this release.** A Computer on an older build sends no start time, and the phone correctly falls back to the word "working" rather than showing a date in 1970.
+- The archive hides scheduled runs by default and orders by archive time, with a control to show them again. This adds resume-cache migration 008.
+- Hosted sessions get an automatic title from managed AI.
+- `#` session references moved into `@omg-dev/protocol`, so the web and the native composers resolve them the same way.
+- The iOS app has a revamped onboarding that asks what you want before it asks who you are, a Home Screen widget, and per-agent Live Activity rows. The app ships through the App Store and over the air, not in this bundle.
+
 ## September 12, 2026 - Stable message queues and mobile navigation (v0.6.68)
 
 - Queued messages now leave the editable queue one at a time as the agent becomes available. The remaining messages stay visible across reconnects and restarts instead of moving into a hidden agent queue.
