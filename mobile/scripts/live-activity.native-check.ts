@@ -14,8 +14,8 @@ runInNewContext(code, { exports: {}, require: (name: string) => name === "expo-w
   : name.includes("interopRequireDefault") ? { default: (value: unknown) => value } : {} });
 const jsx = (type: string, props: any) => ({ type, props });
 const globals: Record<string, any> = { _jsx: jsx, _jsxs: jsx };
-for (const type of ["Circle", "HStack", "Image", "Spacer", "Text", "VStack"]) globals[type] = type;
-for (const type of ["background", "bold", "cornerRadius", "font", "foregroundColor", "frame", "lineLimit", "padding", "resizable", "widgetURL"]) globals[type] = (value: unknown) => ({ type, value });
+for (const type of ["Circle", "HStack", "Image", "ProgressView", "Spacer", "Text", "VStack"]) globals[type] = type;
+for (const type of ["background", "bold", "cornerRadius", "font", "foregroundColor", "frame", "lineLimit", "padding", "progressViewStyle", "resizable", "widgetURL"]) globals[type] = (value: unknown) => ({ type, value });
 const render = runInNewContext(`(${layout})`, globals);
 function nodes(node: any): any[] {
   if (Array.isArray(node)) return node.flatMap(nodes);
@@ -69,4 +69,56 @@ test("finished rows cannot crowd out active rows", () => {
   const texts = nodes(result.banner).filter(n => n.type === "Text").map(n => n.props.children);
   expect(texts).toContain("Fix APNs registration");
   expect(texts).not.toContain("done");
+});
+
+/**
+ * THE RIGHT-HAND COLUMN COUNTS, it does not say "working".
+ *
+ * The timer is counted by SwiftUI on the device from `startedAt`, so the row
+ * climbs every second with no push behind it. A Live Activity is updated over
+ * APNs and a per-second push is neither allowed nor affordable, so losing the
+ * interval would quietly turn a live number into a frozen one.
+ */
+const running = (extra: Record<string, unknown>) => nodes(render({
+  machineName: "Mac", runningCount: 1, blockedCount: 0, attentionSessionId: null,
+  updatedAt: 1, sessionCount: 1,
+  sessions: [{ id: "s1", title: "Fix the widget", agent: "claude", state: "working", ...extra }],
+}, { colorScheme: "dark" }).banner);
+
+test("a running session shows an elapsed timer counting up from its start", () => {
+  const started = 1_700_000_000_000;
+  const timer = running({ startedAt: started }).find(node => node.type === "Text" && node.props.timerInterval);
+  expect(timer).toBeDefined();
+  expect(timer.props.countsDown).toBe(false);
+  expect(new Date(timer.props.timerInterval.lower).getTime()).toBe(started);
+  // The upper bound is out of reach, because a run has no known end.
+  expect(new Date(timer.props.timerInterval.upper).getTime()).toBeGreaterThan(started + 300 * 24 * 3600 * 1000);
+});
+
+/**
+ * A spinner was tried and iOS will not turn it: an indeterminate ProgressView
+ * draws as a STATIC empty ring on a Lock Screen, which reads like an unticked
+ * checkbox next to every running session. Seen on the simulator. The clock is
+ * the running signal, because it is the thing that actually moves.
+ */
+test("no frozen progress ring sits beside the clock", () => {
+  expect(running({ startedAt: 1_700_000_000_000 }).filter(node => node.type === "ProgressView")).toHaveLength(0);
+});
+
+test("a session the box never stamped falls back to a word, not 1970", () => {
+  for (const missing of [null, undefined, 0]) {
+    const tree = running({ startedAt: missing });
+    expect(tree.find(node => node.type === "Text" && node.props.timerInterval)).toBeUndefined();
+    expect(tree.map(node => node.props?.children)).toContain("working");
+  }
+});
+
+test("a blocked session still asks for you rather than counting", () => {
+  const tree = nodes(render({
+    machineName: "Mac", runningCount: 0, blockedCount: 1, attentionSessionId: "s1",
+    updatedAt: 1, sessionCount: 1,
+    sessions: [{ id: "s1", title: "Waiting", agent: "claude", state: "blocked", startedAt: 1_700_000_000_000 }],
+  }, { colorScheme: "dark" }).banner);
+  expect(tree.find(node => node.type === "Text" && node.props.timerInterval)).toBeUndefined();
+  expect(tree.map(node => node.props?.children)).toContain("needs you");
 });

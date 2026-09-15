@@ -17,6 +17,8 @@ export type ActivitySession = {
   title: string;
   agent: string;
   state: "blocked" | "working" | "done";
+  /** Epoch ms the run began. Drives the elapsed timer; null falls back to a word. */
+  startedAt?: number | null;
 };
 
 export type AgentActivityProps = {
@@ -31,6 +33,27 @@ export type AgentActivityProps = {
 
 export function AgentActivity(props: AgentActivityProps, environment: LiveActivityEnvironment) {
   "widget";
+  /**
+   * INSIDE the function, not at module scope. The compiled layout string is
+   * evaluated on its own in the extension, so a constant declared outside it
+   * is simply not there -- the native check caught exactly that.
+   *
+   * A run has no known end, so the timer's upper bound is out of reach.
+   */
+  const YEAR_MS = 365 * 24 * 60 * 60 * 1000;
+  /**
+   * NO SPINNER. It was tried, and iOS will not turn it.
+   *
+   * `progressViewStyle("circular")` with no value renders SwiftUI's activity
+   * indicator, and on a Lock Screen it draws as a STATIC empty ring -- a Live
+   * Activity does not run an arbitrary animation loop any more than a widget
+   * does. Seen on the simulator: an empty circle sitting beside each time,
+   * reading like an unticked checkbox.
+   *
+   * A determinate ring is not available either: `ProgressView(timerInterval:)`
+   * would animate, but it needs an END to fill towards and a coding run has
+   * none. So the running signal is the clock itself, which genuinely moves.
+   */
   const labels: Record<string, string> = { claude: "Claude", codex: "Codex", cursor: "Cursor", copilot: "Copilot", deepseek: "DeepSeek", devin: "Devin", grok: "Grok", hermes: "Hermes", jcode: "Jcode", muse: "Muse", opencode: "OpenCode", pi: "pi", fx: "fx", omg: "omg" };
   const keyFor = (agent: string) => agent === "codex-aisdk" ? "codex" : agent in labels ? agent : "omg";
   // Legacy payloads include finished sessions and a total for the whole roster.
@@ -44,6 +67,41 @@ export function AgentActivity(props: AgentActivityProps, environment: LiveActivi
   const icon = (agent: string, size: number) => (
     <Image assetName={`agent-${keyFor(agent)}`} modifiers={[resizable(), frame({ width: size, height: size }), padding({ all: 3 }), background("#FFFFFF"), cornerRadius(7)]} />
   );
+  /**
+   * THE RIGHT-HAND COLUMN: how long it has been running, not the word
+   * "working".
+   *
+   * `Text` with a `timerInterval` is counted by SwiftUI on the device, so the
+   * number climbs every second with no push behind it. That matters here: a
+   * Live Activity is updated over APNs, and a per-second push is neither
+   * allowed nor affordable. The upper bound is a far-future date because the
+   * run has no known end; only the lower bound is read while counting up.
+   *
+   * A session the box never stamped falls back to the old word rather than
+   * showing a timer counting from 1970.
+   */
+  const trailing = (session: ActivitySession, expanded: boolean) => {
+    const muted = "#BDBBB3";
+    const width = expanded ? 62 : 68;
+    if (session.state === "blocked") {
+      return (
+        <Text modifiers={[font({ size: 12, weight: "bold" }), foregroundColor(accent), lineLimit(1), frame({ width, alignment: "trailing" })]}>needs you</Text>
+      );
+    }
+    if (session.state === "working" && typeof session.startedAt === "number" && session.startedAt > 0) {
+      return (
+        <Text
+          timerInterval={{ lower: new Date(session.startedAt), upper: new Date(session.startedAt + YEAR_MS) }}
+          countsDown={false}
+          modifiers={[font({ size: 12, weight: "regular" }), foregroundColor(muted), lineLimit(1), frame({ width, alignment: "trailing" })]}
+        />
+      );
+    }
+    return (
+      <Text modifiers={[font({ size: 12, weight: "regular" }), foregroundColor(muted), lineLimit(1), frame({ width, alignment: "trailing" })]}>{session.state === "working" ? "working" : "done"}</Text>
+    );
+  };
+
   const list = (expanded = false) => {
     // Lock Screen and Dynamic Island surfaces can stay dark in light mode.
     const ink = "#F2F0EA";
@@ -59,7 +117,7 @@ export function AgentActivity(props: AgentActivityProps, environment: LiveActivi
             <HStack key={session.id} spacing={8} modifiers={[padding({ horizontal: 8 }), frame({ height: expanded ? 24 : 30 }), background(session.state === "blocked" ? "#33271F" : "#00000000"), cornerRadius(10)]}>
               {icon(session.agent, 16)}
               <Text modifiers={[font({ size: 13, weight: "semibold" }), foregroundColor(ink), lineLimit(1), frame({ maxWidth: Infinity, alignment: "leading" })]}>{session.title || labels[keyFor(session.agent)]}</Text>
-              <Text modifiers={[font({ size: 12, weight: session.state === "blocked" ? "bold" : "regular" }), foregroundColor(session.state === "blocked" ? accent : muted), lineLimit(1), frame({ width: 68, alignment: "trailing" })]}>{session.state === "blocked" ? "needs you" : session.state === "working" ? "working" : "done"}</Text>
+              {trailing(session, expanded)}
             </HStack>
           ))}
           {sessions.length === 0 ? <Text modifiers={[font({ size: 13 }), foregroundColor(muted)]}>{props.runningCount > 0 || props.blockedCount > 0 ? "Open omg.dev for sessions" : "Your agents have finished"}</Text> : null}
@@ -130,12 +188,33 @@ export function AgentLiveActivityBridge() {
     if (!__DEV__ || Platform.OS !== "ios") return;
     const subscription = Linking.addEventListener("url", ({ url }) => {
       if (!url.includes("live-activity-preview")) return;
+      /*
+       * A REPRESENTATIVE payload, not a bare header. Without rows this preview
+       * rendered the empty state, which is the one arrangement that cannot
+       * show whether the elapsed timer or the progress ring work at all.
+       */
+      const now = Date.now();
+      /*
+       * END whatever is already up first. ActivityKit keeps a running activity
+       * across app restarts, so a second `start` leaves the OLD content on the
+       * Lock Screen and the preview appears not to have changed at all --
+       * which is exactly how an hour went into looking at a stale banner.
+       */
+      for (const live of AgentLiveActivity.getInstances()) {
+        void live.end("immediate").catch(() => {});
+      }
       AgentLiveActivity.start({
         machineName: "My Computer",
-        runningCount: 3,
+        runningCount: 2,
         blockedCount: 1,
-        attentionSessionId: null,
-        updatedAt: Date.now(),
+        attentionSessionId: "preview-blocked",
+        updatedAt: now,
+        sessionCount: 3,
+        sessions: [
+          { id: "preview-blocked", title: "Fix APNs registration", agent: "codex", state: "blocked", startedAt: now - 22 * 60_000 },
+          { id: "preview-working", title: "Refactor worktree cleanup", agent: "claude", state: "working", startedAt: now - 7 * 60_000 },
+          { id: "preview-fresh", title: "Widget tinted mode", agent: "cursor", state: "working", startedAt: now - 35_000 },
+        ],
       }, "omg:///");
     });
     return () => subscription.remove();
