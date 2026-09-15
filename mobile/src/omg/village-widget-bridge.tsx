@@ -22,6 +22,7 @@ const WALK_STEP_MS = 90 * 1000;
 type FleetSession = {
   sessionId: string | null;
   agent?: string;
+  title?: string | null;
   busy?: boolean;
   launching?: boolean;
   status?: "ok" | "blocked";
@@ -139,7 +140,7 @@ export function AgentVillageWidgetBridge() {
             .slice(0, 2);
       const characters = [...active, ...nappers]
         .slice(0, large.slots.length)
-        .map((session) => villageCharacter(session.agent, stateOf(session, waiting), icons))
+        .map((session) => villageCharacter(session.agent, stateOf(session, waiting), icons, session))
         .filter((character): character is VillageCharacter => character !== null);
 
       // Both a parked question and a dead provider draw the same "!" pose, so

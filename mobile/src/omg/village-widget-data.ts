@@ -133,6 +133,7 @@ export function villageCharacter(
   agent: string | null | undefined,
   state: VillageCharacter["state"],
   staged: Record<string, string>,
+  said?: { title?: string | null; lastActivityAt?: number | null },
 ): VillageCharacter | null {
   const key = normalizeAgent(agent);
   const iconUri = staged[key];
@@ -144,6 +145,8 @@ export function villageCharacter(
     iconSize: key === "claude" ? 23 : 34,
     markTone: DARK_MARK.has(key) ? "dark" : "light",
     state,
+    title: said?.title ?? null,
+    lastActivityAt: said?.lastActivityAt ?? null,
   };
 }
 

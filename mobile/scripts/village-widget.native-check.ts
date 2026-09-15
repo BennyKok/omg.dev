@@ -40,7 +40,7 @@ runInNewContext(code, {
 type Node = { type: string; props: Record<string, any> };
 const jsx = (type: string, props: Record<string, any>) => ({ type, props });
 const globals: Record<string, unknown> = { _jsx: jsx, _jsxs: jsx };
-for (const type of ["ZStack", "VStack", "Image", "Text", "Circle", "Capsule", "Ellipse"]) globals[type] = type;
+for (const type of ["ZStack", "VStack", "Image", "Text", "Circle", "Capsule", "Ellipse", "RoundedRectangle"]) globals[type] = type;
 for (const type of ["frame", "offset", "font", "foregroundColor", "containerBackground", "widgetURL", "bold", "clipShape", "resizable", "lineLimit", "widgetAccentedRenderingMode"]) {
   globals[type] = (value: unknown) => ({ type, value });
 }
@@ -91,8 +91,13 @@ for (const family of ["Small", "Medium", "Large"]) {
     const tree = nodes(render(props, { widgetFamily: `system${family}`, colorScheme: scheme, widgetRenderingMode: "accented" }));
     const images = tree.filter(node => node.type === "Image");
     expect(images[0].props.uiImage).toBe(`${family.toLowerCase()}-dark`);
-    for (const image of images) {
-      expect(image.props.modifiers).toContainEqual({ type: "widgetAccentedRenderingMode", value: "desaturated" });
+    // The garden is always desaturated so it keeps its detail under the tint.
+    expect(images[0].props.modifiers).toContainEqual({ type: "widgetAccentedRenderingMode", value: "desaturated" });
+    // Marks opt out of the tint only when they sit on a disc, which would
+    // otherwise swallow them; see the disc test below.
+    for (const image of images.slice(1)) {
+      const mode = image.props.modifiers.find((modifier: any) => modifier.type === "widgetAccentedRenderingMode");
+      expect(["desaturated", "fullColor"]).toContain(mode.value);
     }
     const summary = tree.find(node => node.type === "Text" && node.props.children === "7 working");
     expect(summary?.props.modifiers).toContainEqual({ type: "foregroundColor", value: "#F2F0EA" });
@@ -105,16 +110,36 @@ for (const family of ["Small", "Medium", "Large"]) {
  * puck and the mark stops existing — which is what shipped, and what a device
  * screenshot caught.
  */
+/**
+ * A bare glyph like Claude keeps its disc everywhere, because without one it
+ * reads as a different species from the marks that ship their own. In tinted
+ * mode that disc would swallow it -- iOS renders from alpha -- so the mark is
+ * drawn `fullColor` to stay on top of it. A mark that needs no disc does not
+ * get one when tinted, which is what made them visible in the first place.
+ */
 for (const family of ["Small", "Medium", "Large"]) {
-  test(`${family} draws mark discs in full colour but never in tinted mode`, () => {
-    const environment = { widgetFamily: `system${family}`, colorScheme: "dark" };
-    const plated = nodes(render(props, environment));
-    expect(plated.filter(node => node.type === "Circle").length).toBeGreaterThan(0);
+  const environment = { widgetFamily: `system${family}`, colorScheme: "dark" };
+  const cast = (plate: boolean, markTone: string) => [{
+    iconUri: "i", iconSize: 34, plate, markTone, legColor: "#000", state: "working",
+  }];
 
-    const tinted = nodes(render(props, { ...environment, widgetRenderingMode: "accented" }));
-    expect(tinted.filter(node => node.type === "Circle")).toHaveLength(0);
-    // The marks themselves must survive the disc going away.
-    expect(tinted.filter(node => node.type === "Image").length).toBeGreaterThan(1);
+  test(`${family} keeps a bare glyph's disc when tinted, and lets the glyph out of the tint`, () => {
+    const tree = nodes(render({ ...props, characters: cast(true, "light") }, { ...environment, widgetRenderingMode: "accented" }));
+    expect(tree.filter(node => node.type === "Circle").length).toBeGreaterThan(0);
+    const mark = tree.filter(node => node.type === "Image")[1];
+    expect(mark.props.modifiers).toContainEqual({ type: "widgetAccentedRenderingMode", value: "fullColor" });
+  });
+
+  test(`${family} gives a self-contained mark no disc when tinted`, () => {
+    const tree = nodes(render({ ...props, characters: cast(false, "dark") }, { ...environment, widgetRenderingMode: "accented" }));
+    expect(tree.filter(node => node.type === "Circle")).toHaveLength(0);
+    const mark = tree.filter(node => node.type === "Image")[1];
+    expect(mark.props.modifiers).toContainEqual({ type: "widgetAccentedRenderingMode", value: "desaturated" });
+  });
+
+  test(`${family} still discs a dark mark on the nocturnal scene in full colour`, () => {
+    const tree = nodes(render({ ...props, characters: cast(false, "dark") }, environment));
+    expect(tree.filter(node => node.type === "Circle").length).toBeGreaterThan(0);
   });
 }
 
@@ -162,10 +187,18 @@ test("a working agent covers ground a glance apart can tell", () => {
   expect(travel("working").x).toBeGreaterThanOrEqual(40);
 });
 
-test("a napping agent breathes but never sleepwalks", () => {
-  const moved = travel("idle");
-  expect(moved.x).toBe(0);
-  expect(moved.y).toBeGreaterThan(0);
+/**
+ * Nappers used to be pinned. "All finished" is the state the widget is in most
+ * of the time, so that made the walk unreachable in practice, and Benny asked
+ * to see the village move. They amble at half pace now, still slower than a
+ * working agent so the states stay tellable apart.
+ */
+test("a napping agent ambles, at half a working agent's pace", () => {
+  const napping = travel("idle");
+  const working = travel("working");
+  expect(napping.x).toBeGreaterThan(0);
+  expect(napping.x).toBeLessThan(working.x);
+  expect(napping.y).toBeGreaterThan(0);
 });
 
 test("walkers never have the room to collide or leave the scene", () => {
@@ -185,5 +218,131 @@ test("walkers never have the room to collide or leave the scene", () => {
       }
     }
     for (const mark of marks) expect(Math.abs(mark.x)).toBeLessThanOrEqual(scene.width / 2 - 17);
+  }
+});
+
+/**
+ * The speech bubble. One, over the lead, because the bridge already sorts the
+ * cast by who matters and a bubble per agent overlaps on medium.
+ */
+const talking = (extra: Record<string, unknown>, environment: Record<string, unknown> = {}) => nodes(render({
+  ...props,
+  characters: [{
+    iconUri: "i", iconSize: 34, plate: false, markTone: "light", legColor: "#000",
+    state: "working", ...extra,
+  }, ...props.characters],
+}, { widgetFamily: "systemMedium", ...environment }));
+
+test("the lead's title and a relative time appear in one bubble", () => {
+  const tree = talking({ title: "Fix the widget border", lastActivityAt: 1000 - 5 * 60_000 },
+    { date: 1000 });
+  const text = tree.filter(node => node.type === "Text").map(node => node.props.children);
+  expect(text).toContain("Fix the widget border");
+  expect(text).toContain("5m");
+});
+
+test("the clock is the entry being rendered, not the moment the frame was written", () => {
+  // Same props, two entries twelve minutes apart: the bubble has to age.
+  const at = (date: number) => talking({ title: "t", lastActivityAt: 0 }, { date })
+    .filter(node => node.type === "Text").map(node => node.props.children);
+  expect(at(60_000)).toContain("1m");
+  expect(at(12 * 60_000)).toContain("12m");
+});
+
+test("a session with no title gets no bubble at all", () => {
+  const withTitle = talking({ title: "Something" }).filter(node => node.type === "Text").length;
+  for (const empty of [null, undefined, "", "   "]) {
+    expect(talking({ title: empty }).filter(node => node.type === "Text").length).toBeLessThan(withTitle);
+  }
+});
+
+test("small has no room for a bubble and does not draw one", () => {
+  const tree = talking({ title: "Fix the widget border" }, { widgetFamily: "systemSmall" });
+  expect(tree.filter(node => node.type === "Text").map(node => node.props.children))
+    .not.toContain("Fix the widget border");
+});
+
+test("the bubble stays inside the scene on every family", () => {
+  for (const [family, key] of [["Medium", "medium"], ["Large", "large"]] as const) {
+    const scene = VILLAGE_SCENES[key];
+    const tree = talking({ title: "A very long session title that would overflow" }, { widgetFamily: `system${family}` });
+    const box = tree.find(node => node.type === "RoundedRectangle");
+    const sized = box.props.modifiers.find((modifier: any) => modifier.type === "frame").value.width;
+    const at = box.props.modifiers.find((modifier: any) => modifier.type === "offset").value;
+    expect(Math.abs(at.x) + sized / 2).toBeLessThanOrEqual(scene.width / 2);
+    expect(Math.abs(at.y)).toBeLessThanOrEqual(scene.height / 2);
+  }
+});
+
+/**
+ * The first simulator render printed the title directly under the summary,
+ * like a subtitle, because the bubble's floor was derived from the mark alone
+ * and the caption sits above every mark. They must not share vertical space.
+ */
+test("the bubble never overlaps the caption", () => {
+  for (const family of ["Medium", "Large"]) {
+    const tree = talking({ title: "Fix the widget border", lastActivityAt: 0 }, { widgetFamily: `system${family}`, date: 60_000 });
+    const box = tree.find(node => node.type === "RoundedRectangle");
+    const boxAt = box.props.modifiers.find((m: any) => m.type === "offset").value.y;
+    const boxTop = boxAt - box.props.modifiers.find((m: any) => m.type === "frame").value.height / 2;
+
+    const summary = tree.find(node => node.type === "Text" && node.props.children === "7 working");
+    // The caption's VStack carries the placement; the Text is inside it.
+    const caption = tree.find(node => node.type === "VStack"
+      && nodes(node.props.children).some((child: any) => child === summary));
+    const capAt = caption.props.modifiers.find((m: any) => m.type === "offset").value.y;
+    expect(boxTop).toBeGreaterThan(capAt);
+  }
+});
+
+test("a bubble with no time is shorter than one with a time", () => {
+  const height = (extra: Record<string, unknown>) => {
+    const tree = talking({ title: "t", ...extra }, { date: 60_000 });
+    return tree.find(node => node.type === "RoundedRectangle")
+      .props.modifiers.find((m: any) => m.type === "frame").value.height;
+  };
+  expect(height({ lastActivityAt: 0 })).toBeGreaterThan(height({ lastActivityAt: null }));
+});
+
+/**
+ * A filled bubble is the mark-disc trap again: tinted widgets render from
+ * alpha, so an opaque body and the text inside it both come out solid white.
+ * The simulator drew an empty white slab. Tinted goes without the paper.
+ */
+test("tinted draws the words but never a filled bubble body", () => {
+  const tinted = talking({ title: "Fix the widget border", lastActivityAt: 0 },
+    { date: 60_000, widgetRenderingMode: "accented" });
+  expect(tinted.filter(node => node.type === "RoundedRectangle")).toHaveLength(0);
+  expect(tinted.filter(node => node.type === "Text").map(node => node.props.children))
+    .toContain("Fix the widget border");
+
+  const full = talking({ title: "Fix the widget border", lastActivityAt: 0 }, { date: 60_000 });
+  expect(full.filter(node => node.type === "RoundedRectangle").length).toBe(1);
+});
+
+/**
+ * The bubble belongs to a character, so it must never sit on top of one.
+ * The first simulator render covered Claude completely.
+ */
+test("the bubble never covers the agent it belongs to", () => {
+  for (const [family, key] of [["Medium", "medium"], ["Large", "large"]] as const) {
+    const scene = VILLAGE_SCENES[key];
+    const tree = talking({ title: "Fix the widget border", lastActivityAt: 0 },
+      { widgetFamily: `system${family}`, date: 60_000 });
+    const box = tree.find(node => node.type === "RoundedRectangle");
+    const at = box.props.modifiers.find((m: any) => m.type === "offset").value;
+    const size = box.props.modifiers.find((m: any) => m.type === "frame").value;
+    // EVERY villager, not just the lead. The first simulator render cleared
+    // the speaker and went straight through two of its neighbours.
+    for (const mark of tree.filter(node => node.type === "Image").slice(1)) {
+      const markAt = mark.props.modifiers.find((m: any) => m.type === "offset").value;
+      const markSize = mark.props.modifiers.find((m: any) => m.type === "frame").value;
+      const apart = Math.abs(at.x - markAt.x) >= (size.width + markSize.width) / 2
+        || Math.abs(at.y - markAt.y) >= (size.height + markSize.height) / 2;
+      expect(apart).toBe(true);
+    }
+    // And still inside the scene.
+    expect(Math.abs(at.x) + size.width / 2).toBeLessThanOrEqual(scene.width / 2);
+    expect(Math.abs(at.y) + size.height / 2).toBeLessThanOrEqual(scene.height / 2);
   }
 });
