@@ -11,6 +11,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  useWindowDimensions,
   View,
   type ViewStyle,
 } from "react-native";
@@ -975,6 +976,13 @@ export function SessionCard({
  *
  * Purely presentational: the screen owns the draft, the choices and the submit.
  */
+/** One line of the home composer, matching the field's `lineHeight` below. */
+const COMPOSER_LINE = 24;
+/** Never grows past this. Eight lines is a paragraph of task description. */
+const COMPOSER_MAX_LINES = 8;
+/** Never shrinks below this on a short window, or the cap stops meaning anything. */
+const COMPOSER_MIN_LINES = 3;
+
 export function HomeComposer({
   value,
   onChangeText,
@@ -1055,9 +1063,30 @@ export function HomeComposer({
     agentOptions.length || modelOptions?.length || thinkingOptions?.length,
   );
   const [setupOpen, setSetupOpen] = useState(false);
-  const [inputHeight, setInputHeight] = useState(24);
+  const [inputHeight, setInputHeight] = useState(COMPOSER_LINE);
   const promptText = dictationTail ? `${value}${value ? " " : ""}${dictationTail}` : value;
-  const measuredInputHeight = promptText ? Math.max(24, Math.min(120, inputHeight)) : 24;
+  /**
+   * HOW TALL THIS IS ALLOWED TO GROW.
+   *
+   * It was a flat 120pt, which at this field's 24pt line is five lines. The
+   * session composer caps at the same 120 but sets a 21pt line, so it gets
+   * nearly six -- the home field was the shorter of the two while being the
+   * one you draft a whole task in. Benny asked for more room here.
+   *
+   * Expressed in LINES rather than points, so the cap cannot silently change
+   * meaning the next time the type scale moves, and bounded by a share of the
+   * window so a landscape phone or a Slide Over pane does not end up with a
+   * composer taller than the list it floats over. The field scrolls past the
+   * cap; nothing is unreachable.
+   */
+  const { height: windowHeight } = useWindowDimensions();
+  const maxInputHeight = Math.max(
+    COMPOSER_MIN_LINES * COMPOSER_LINE,
+    Math.min(COMPOSER_MAX_LINES * COMPOSER_LINE, Math.round(windowHeight * 0.3)),
+  );
+  const measuredInputHeight = promptText
+    ? Math.max(COMPOSER_LINE, Math.min(maxInputHeight, inputHeight))
+    : COMPOSER_LINE;
   return (
     <View
       /**
