@@ -394,6 +394,7 @@ import {
   Bell,
   MoreVertical,
   Moon,
+  PanelLeftClose,
   PanelLeftOpen,
   Paperclip,
   Pause,
@@ -13127,6 +13128,21 @@ function RailStage({
             {/* Hosted replaces the LFG mark with omg.dev and moves project
                 scope to the action row so the lockup always has room. */}
             <div className="flex items-center gap-1.5">
+              {/* Leads the row, which is where the collapsed strip puts its
+                  expand button. The control then stays in one place in both
+                  states instead of moving when you use it. Collapsing used to
+                  be ⌘B only — a shortcut you could find nowhere but the `?`
+                  overlay — while expanding had a button, so the affordance
+                  existed in one direction. */}
+              <button
+                type="button"
+                onClick={() => setRailCollapsed((v) => !v)}
+                aria-label="Collapse sidebar"
+                title="Collapse sidebar (⌘B)"
+                className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <PanelLeftClose className="size-4" />
+              </button>
               <RuntimeStatusBrand>
                 <ProductBrand hosted={hosted} />
               </RuntimeStatusBrand>
