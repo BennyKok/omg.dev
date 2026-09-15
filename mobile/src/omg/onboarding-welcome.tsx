@@ -29,9 +29,6 @@ import { useTheme } from "./theme";
  */
 const TEAM = ["claude", "codex", "cursor", "opencode", "devin", "grok"] as const;
 
-/** Intrinsic ratio of the exported illustration, so it never distorts. */
-const ART_RATIO = 1342 / 1172;
-
 export function WelcomeScreen({ onStart }: { onStart: () => void }) {
   const { colors, space, type } = useTheme();
   const insets = useSafeAreaInsets();
@@ -63,13 +60,19 @@ export function WelcomeScreen({ onStart }: { onStart: () => void }) {
           </Text>
         </View>
 
-        {/* `flexShrink` so a short window takes it out of the illustration
-            rather than pushing the button off the bottom. The words and the
-            action are the parts that must survive; the picture is not. */}
-        <View style={{ flex: 1, justifyContent: "center", gap: space.md, flexShrink: 1 }}>
+        {/* The illustration takes whatever height is left and fits INSIDE it,
+            so a short window shrinks the picture rather than pushing the button
+            off the bottom -- the words and the action must survive, the picture
+            need not.
+
+            `flex: 1` with `contain`, NOT an aspect-ratio box. An aspect-ratio
+            box that gets shrunk keeps its content at full size and CROPS it,
+            which showed on a real screen as a horizontal slice of the
+            illustration. `contain` scales to fit whatever it is given. */}
+        <View style={{ flex: 1, justifyContent: "center", gap: space.md, paddingBottom: space.lg }}>
           <Image
             source={require("../../assets/onboarding/welcome-grass.png")}
-            style={{ width: "100%", aspectRatio: ART_RATIO, flexShrink: 1 }}
+            style={{ flex: 1, width: "100%" }}
             resizeMode="contain"
             accessible
             accessibilityLabel="Someone lying on the grass, starting a task from their phone"

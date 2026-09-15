@@ -2,7 +2,7 @@ import { DarkTheme, DefaultTheme, router, Stack, ThemeProvider } from "expo-rout
 import { IpadWorkspaceLayout } from "../src/omg/sessions-screen";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Platform, StyleSheet, View } from "react-native";
+import { Linking, Platform, StyleSheet, View } from "react-native";
 import Reanimated, {
   Easing,
   useAnimatedStyle,
@@ -27,6 +27,8 @@ import { OmgProvider, useOmg } from "../src/omg/provider";
 import { AgentVillageWidgetBridge } from "../src/omg/village-widget-bridge";
 import { AgentLiveActivityBridge } from "../src/omg/agent-live-activity";
 import { useNotificationTapRouting } from "../src/omg/push";
+import { OnboardingFlow } from "../src/omg/onboarding-flow";
+import { stashOnboardingChoice } from "../src/omg/onboarding-handoff";
 import { useRootOpenRouting } from "../src/omg/root-open";
 import { useOtaUpdates } from "../src/omg/ota";
 import { launch } from "../src/omg/palette";
@@ -293,10 +295,38 @@ function RootNavigator() {
      * email field without a flash of the pitch.
      */
     if (intro.state === "needed") {
+      /*
+       * THE REVAMPED FLOW, and the reason it sits exactly here.
+       *
+       * It replaces the three pitch panels, and it inherits their placement
+       * for the reason recorded above: INSIDE the signed-out branch, never as
+       * a gate over it. A gate above this branch is the #237 splash deadlock
+       * -- a condition goes permanently true and sign-in becomes unreachable
+       * with no way out but reinstalling. Nested here, whatever the flow
+       * decides, this branch still owns the signed-out tree.
+       *
+       * Its exits both land on the same sign-in Stack below. `intro.complete`
+       * is what marks the pitch as seen, so a person who reaches sign-in does
+       * not walk the flow again after a failed attempt.
+       */
       return (
         <>
           <StatusBar style={isDark ? "light" : "dark"} />
-          <IntroScreen onSignIn={intro.complete} />
+          <OnboardingFlow
+            /*
+             * The choice is not dropped -- it is stashed for the session that
+             * gets created after sign-in, which is the whole point of asking
+             * before authenticating. `prompt-stash` already survives the
+             * re-mount that signing in causes.
+             */
+            onSignIn={(choice) => {
+              void stashOnboardingChoice(choice);
+              intro.complete();
+            }}
+            onAttach={() => {}}
+            onTerms={() => void Linking.openURL("https://omg.dev/terms")}
+            onPrivacy={() => void Linking.openURL("https://omg.dev/privacy")}
+          />
         </>
       );
     }
