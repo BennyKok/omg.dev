@@ -102,14 +102,14 @@ export function useKeyCommand(spec: KeyCommandSpec, handler: (() => void) | null
 }
 
 /** The table the shortcuts sheet draws. One source, so it cannot drift from the bindings. */
-export const SHORTCUTS: Array<{ keys: string; does: string; where: "Live" | "Chat" | "Anywhere" }> = [
+export const SHORTCUTS: Array<{ keys: string; does: string; where: "Session" | "Anywhere" }> = [
   { keys: "⌘ N", does: "New session", where: "Anywhere" },
   { keys: "⌘ ↑ / ⌘ ↓", does: "Previous / next session", where: "Anywhere" },
   { keys: "⌘ 1 … 9", does: "Open the nth session", where: "Anywhere" },
-  { keys: "⌘ .", does: "Interrupt the running agent", where: "Chat" },
+  { keys: "⌘ .", does: "Interrupt the running agent", where: "Session" },
   { keys: "⌘ ,", does: "Settings", where: "Anywhere" },
   { keys: "⌘ /", does: "Show these shortcuts", where: "Anywhere" },
   { keys: "Esc", does: "Close a sheet or menu", where: "Anywhere" },
-  { keys: "Return", does: "Send (Shift-Return for a new line)", where: "Chat" },
-  { keys: "⌘ Return", does: "Send the other way: steer on a queue-mode machine, queue on a steer-mode one", where: "Chat" },
+  { keys: "Return", does: "Send (Shift-Return for a new line)", where: "Session" },
+  { keys: "⌘ Return", does: "Send the other way: steer on a queue-mode machine, queue on a steer-mode one", where: "Session" },
 ];
