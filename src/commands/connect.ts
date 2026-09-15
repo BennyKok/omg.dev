@@ -721,7 +721,13 @@ export type FleetStatusEventFrame = {
   runningCount: number;
   blockedCount: number;
   attentionSessionId: string | null;
-  sessions: Array<{ id: string; title: string; agent: string; state: "blocked" | "working" | "done" }>;
+  /**
+   * `startedAt` is what lets the Live Activity show how long a session has
+   * been running WITHOUT a push per tick: SwiftUI counts up from it on the
+   * device. Null when the box never recorded one, and the row falls back to
+   * a word.
+   */
+  sessions: Array<{ id: string; title: string; agent: string; state: "blocked" | "working" | "done"; startedAt: number | null }>;
   sessionCount: number;
   ts: number;
 };
@@ -749,6 +755,7 @@ export function fleetStatusFrame(sessions: SessionLite[], ts: number): FleetStat
       title: (session.title ?? "").replace(/\s+/g, " ").trim().slice(0, 72),
       agent: (session.agent ?? "").trim().toLowerCase().slice(0, 32),
       state: session.status === "blocked" ? "blocked" : session.busy || session.launching ? "working" : "done",
+      startedAt: typeof session.startedAt === "number" ? session.startedAt : null,
     })),
     sessionCount: Math.min(999, roster.length),
     ts,
