@@ -61,6 +61,7 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
+    "test:native": "bun test ./scripts/*.native-check.ts",
     "doctor": "expo-doctor"
   },
   "private": true

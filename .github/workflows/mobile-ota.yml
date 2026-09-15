@@ -72,6 +72,18 @@ jobs:
       - name: Type check
         run: bunx tsc --noEmit
 
+      # The widget, Live Activity and deep-link checks. `bun test` does NOT
+      # discover the `.native-check.ts` suffix, so for months these ran only
+      # when somebody typed the path by hand — which meant a widget that
+      # rendered a blank puck in tinted mode, and a notification tap that
+      # stacked a second home screen, both reached a device with every
+      # automated check green. A type check cannot see either one.
+      #
+      # The script globs rather than listing paths, so a new check is picked
+      # up by existing. An unmatched glob exits 1, so it cannot pass silently.
+      - name: Native behaviour checks
+        run: bun run test:native
+
       # An OTA publish has no review stage in front of it, so the export has to
       # pass here rather than break on someone's phone.
       - name: Metro export smoke test

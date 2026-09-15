@@ -84,6 +84,11 @@ jobs:
       - name: Type check
         run: bunx tsc --noEmit
 
+      # See the same step in mobile-ota.yml. `bun test` does not discover the
+      # `.native-check.ts` suffix, so these ran nowhere until this was added.
+      - name: Native behaviour checks
+        run: bun run test:native
+
       - name: Metro export smoke test
         run: bunx expo export --platform ios
 
