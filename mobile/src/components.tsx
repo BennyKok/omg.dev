@@ -1816,7 +1816,15 @@ export function AttachmentStrip({
               />
             </View>
           )}
-          {!item.path && !item.failed ? (
+          {/*
+           * The ring means BYTES ARE MOVING, so it needs an upload to be
+           * happening. `progress` is undefined when there is no upload at all,
+           * which is the ordinary state on onboarding step 03: the file has
+           * been picked but there is no account and no Computer to send it to
+           * yet. A 0% ring there would claim a stalled transfer that was never
+           * started. The dimmed tile above already says "not delivered".
+           */}
+          {!item.path && !item.failed && item.progress !== undefined ? (
             <View
               style={{
                 position: "absolute",
@@ -1833,9 +1841,9 @@ export function AttachmentStrip({
                 accessibilityLabel={`Uploading ${item.name}`}
                 accessibilityValue={{ min: 0, max: 100, now: item.progress ?? 0 }}
               >
-                <UsageRing pct={item.progress ?? 0} size={36} color={colors.text}>
+                <UsageRing pct={item.progress} size={36} color={colors.text}>
                   <Text style={{ fontSize: 9, fontWeight: "600", color: colors.text }}>
-                    {item.progress ?? 0}%
+                    {item.progress}%
                   </Text>
                 </UsageRing>
               </View>

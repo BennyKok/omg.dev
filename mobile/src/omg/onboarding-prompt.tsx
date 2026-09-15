@@ -27,7 +27,7 @@
 import { Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Icon } from "../components";
+import { AttachmentStrip, Icon } from "../components";
 import { DropdownMenu, type MenuOption } from "./menu";
 import { PrimaryAction, StepHeader, StepHeading } from "./onboarding-chrome";
 import type { PickedFile } from "./attachments";
@@ -103,36 +103,29 @@ export function PromptScreen({
             }}
           />
           {/*
-           * WHAT WAS PICKED IS ON SCREEN. There is no upload yet -- no account,
-           * no Computer -- so without a row there would be no evidence the pick
-           * worked at all, and the next tap would add a second copy of the same
-           * file. Tapping a row takes it off again.
+           * THE SAME STRIP THE COMPOSERS DRAW, from src/components.tsx.
+           *
+           * Thumbnails on 56pt tiles with a remove target, not a list of file
+           * names invented for this one screen. Attaching should look like
+           * attaching wherever you do it.
+           *
+           * The tiles are dimmed and carry no progress ring, which is honest:
+           * nothing is uploading. There is no account and no Computer on this
+           * side of sign-in, so the bytes do not move until
+           * onboarding-launch.ts sends them.
            */}
-          {files.map((file) => (
-            <Pressable
-              key={file.uri}
-              accessibilityRole="button"
-              accessibilityLabel={`Remove ${file.name}`}
-              onPress={() => onRemoveFile(file.uri)}
-              style={({ pressed }) => ({
-                flexDirection: "row",
-                alignItems: "center",
-                gap: space.sm,
-                opacity: pressed ? 0.6 : 1,
-              })}
-            >
-              <Icon
-                ios={file.kind === "image" ? "photo" : file.kind === "video" ? "film" : "doc"}
-                android="attach_file"
-                size={15}
-                color={colors.textMuted}
-              />
-              <Text numberOfLines={1} style={{ ...type.callout, color: colors.text, flex: 1 }}>
-                {file.name}
-              </Text>
-              <Icon ios="xmark" android="close" size={12} color={colors.textMuted} />
-            </Pressable>
-          ))}
+          <AttachmentStrip
+            items={files.map((file) => ({
+              // The URI is the identity: both pickers copy into our cache
+              // under a unique name, and there is no server id to use yet.
+              id: file.uri,
+              name: file.name,
+              uri: file.uri,
+              kind: file.kind,
+              path: null,
+            }))}
+            onRemove={onRemoveFile}
+          />
           <DropdownMenu options={attachOptions}>
             <View
               accessibilityRole="button"

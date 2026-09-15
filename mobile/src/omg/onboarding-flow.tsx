@@ -27,7 +27,7 @@ import { PromptScreen } from "./onboarding-prompt";
 import { SignInDrawer, type SignInMethod } from "./onboarding-signin-drawer";
 import { TaskScreen } from "./onboarding-task";
 import { WelcomeScreen } from "./onboarding-welcome";
-import { onboardingAttachOptions } from "./onboarding-attach";
+import { filePickerOptions } from "./file-picker";
 import { promptFor, type InterestKey } from "./onboarding-tasks";
 import type { PickedFile } from "./attachments";
 import { useTheme } from "./theme";
@@ -81,7 +81,7 @@ export function OnboardingFlow({
   const [files, setFiles] = useState<PickedFile[]>([]);
   const attachOptions = useMemo(
     () =>
-      onboardingAttachOptions((picked) =>
+      filePickerOptions((picked) =>
         // Same file twice is a mistake, not a request. The URI is the identity
         // because both pickers copy into our cache under a unique name.
         setFiles((current) => [

@@ -22,12 +22,11 @@
  */
 
 import * as Crypto from "expo-crypto";
-import * as ImagePicker from "expo-image-picker";
 import { useCallback, useState } from "react";
-import { Alert } from "react-native";
 
 import { composeAttachmentMessage } from "./attachment-message";
 import { uploadAttachment } from "./attachment-upload";
+import { filePickerOptions } from "./file-picker";
 import type { MenuOption } from "./menu";
 import { useOmg } from "./provider";
 
@@ -124,68 +123,6 @@ export function useAttachments(sessionId: string | null) {
     [upload],
   );
 
-  const take = useCallback(
-    async (source: "library" | "camera") => {
-      if (picking) return;
-      setPicking(true);
-      try {
-        /**
-         * ONLY THE CAMERA ASKS. `launchImageLibraryAsync` presents
-         * PHPickerViewController, which runs OUT OF PROCESS and hands back
-         * only what the user picked — so iOS grants it no library access and
-         * asks for none. Calling `requestMediaLibraryPermissionsAsync` first
-         * put a "would like full access to your Photo Library" alert in front
-         * of someone who wanted to attach one screenshot, and full access is
-         * not a thing this app ever needs. Verified on the simulator: the
-         * prompt appeared for the library path and stopped once this went.
-         */
-        if (source === "camera") {
-          const permission = await ImagePicker.requestCameraPermissionsAsync();
-          if (!permission.granted) return;
-        }
-
-        const result =
-          source === "camera"
-            ? await ImagePicker.launchCameraAsync({ quality: 0.8 })
-            : await ImagePicker.launchImageLibraryAsync({
-                // Videos too. A screen recording of the bug is the attachment
-                // people reach for most after a screenshot.
-                mediaTypes: ["images", "videos"],
-                quality: 0.8,
-                selectionLimit: 4,
-                /**
-                 * NOT PASSTHROUGH. With passthrough the picker takes a fast
-                 * path through PHAsset for a video, and that path asks for
-                 * full photo-library access — the prompt the comment above
-                 * exists to avoid. Any other preset reads the picked file
-                 * through the item provider (no permission) and re-encodes
-                 * it to mp4 at source quality, which is also the container
-                 * agents' tools expect.
-                 */
-                videoExportPreset: ImagePicker.VideoExportPreset.HighestQuality,
-              });
-        if (result.canceled) return;
-
-        add(
-          result.assets.map((asset) => {
-            const video = asset.type === "video";
-            return {
-              uri: asset.uri,
-              name:
-                asset.fileName?.trim() ||
-                (video ? `video-${Date.now()}.mp4` : `image-${Date.now()}.jpg`),
-              mimeType: asset.mimeType || (video ? "video/mp4" : "image/jpeg"),
-              kind: video ? "video" : "image",
-            };
-          }),
-        );
-      } finally {
-        setPicking(false);
-      }
-    },
-    [picking, add],
-  );
-
   const remove = useCallback((id: string) => {
     setItems((current) => current.filter((item) => item.id !== id));
   }, []);
@@ -207,56 +144,15 @@ export function useAttachments(sessionId: string | null) {
   );
 
   /**
-   * ANY FILE, from the Files sheet. The picker is a native module that build
-   * 43 does not carry, and this code reaches build 43 over the air, so the
-   * module is required lazily and a missing one degrades to a row that
-   * explains itself instead of a crash at import.
+   * Rows for the paperclip's menu. The picking lives in file-picker.ts,
+   * shared with onboarding step 03 -- which picks before there is anywhere to
+   * upload to, and so cannot use this hook at all. Everything those two
+   * surfaces have in common is the pick; everything after it differs.
    */
-  const pickFile = useCallback(async () => {
-    if (picking) return;
-    setPicking(true);
-    try {
-      let picker: typeof import("expo-document-picker");
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        picker = require("expo-document-picker") as typeof import("expo-document-picker");
-      } catch {
-        Alert.alert("Update the app", "Attaching files needs a newer omg app from the App Store.");
-        return;
-      }
-      const result = await picker.getDocumentAsync({
-        multiple: true,
-        // A copy in our cache: a provider's own URL can stop resolving as
-        // soon as the sheet closes, and the upload reads it a beat later.
-        copyToCacheDirectory: true,
-      });
-      if (result.canceled) return;
-      add(
-        result.assets.map((asset) => {
-          const mime = asset.mimeType || "application/octet-stream";
-          return {
-            uri: asset.uri,
-            name: asset.name?.trim() || `file-${Date.now()}`,
-            mimeType: mime,
-            kind: mime.startsWith("image/") ? "image" : mime.startsWith("video/") ? "video" : "file",
-          };
-        }),
-      );
-    } finally {
-      setPicking(false);
-    }
-  }, [picking, add]);
-
-  /** Rows for the paperclip's menu — the same control every other pick uses. */
-  const options: MenuOption[] = [
-    {
-      label: "Photo Library",
-      icon: "photo.on.rectangle",
-      onPress: () => void take("library"),
-    },
-    { label: "Take Photo", icon: "camera", onPress: () => void take("camera") },
-    { label: "Choose File", icon: "folder", onPress: () => void pickFile() },
-  ];
+  const options: MenuOption[] = filePickerOptions(add, {
+    busy: () => picking,
+    setBusy: setPicking,
+  });
 
   return {
     items,
