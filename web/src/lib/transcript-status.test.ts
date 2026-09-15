@@ -18,6 +18,7 @@ describe("isMachineryPreviewText", () => {
       "[subagent complete]",
       "[Peer message from A (a) to B (b)] ping",
       "[Message from itechbenny@gmail.com to bot iOS Manager] try again",
+      "[Background task ios app · 542a7801]\n\ndone",
       "[Image: original 1260x2736, displayed at 921x2000]",
     ]) {
       expect(isMachineryPreviewText(text), text).toBe(true);

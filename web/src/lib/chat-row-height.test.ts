@@ -15,6 +15,7 @@ import {
   MEDIA_MAX_PX,
   messageRowHeight,
   OMG_INSTRUCTIONS_LEADING_PX,
+  SYSTEM_LINE_PX,
   RICH_INLINE_RE,
   ROW_GAP_PX,
   SPEAKER_CHANGE_PX,
@@ -422,6 +423,23 @@ describe("media rows", () => {
 });
 
 describe("message rows", () => {
+  test("a fork opener is the compact system line, not a user bubble", () => {
+    const message: RowMessage = {
+      role: "user",
+      kind: "text",
+      text: [
+        "You are starting a fresh agent session from an existing omg.dev session.",
+        "",
+        "Source session id: 542a7801-118e-4740-a8df-eb9b1ded1fd5",
+        "Source title: Icons",
+        "",
+        "User's extra prompt:",
+        "Finish the picker.",
+      ].join("\n"),
+    };
+    expect(messageRowHeight(message, context())).toBe(SYSTEM_LINE_PX);
+  });
+
   test("an interrupted turn is a constant", () => {
     const message: RowMessage = {
       role: "user",

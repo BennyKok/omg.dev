@@ -1,3 +1,5 @@
+import { classifySystemMessage } from "./system-message";
+
 type TranscriptStatusMessage = {
   role?: string;
   kind?: string;
@@ -30,12 +32,10 @@ export function isRequestInterruptedMessage(message: TranscriptStatusMessage): b
 export function isMachineryPreviewText(text?: string): boolean {
   const value = (text ?? "").trim();
   if (!value) return false;
+  const system = classifySystemMessage(value);
+  if (system) return system.kind !== "routine";
   return (
     /^\[Request interrupted by user(?: for tool use)?\]/i.test(value) ||
-    /^\[ask-user answer\b/i.test(value) ||
-    /^\[subagent (?:progress|complete|failed)\b/i.test(value) ||
-    /^\[Peer message from\b/i.test(value) ||
-    /^\[Message from\b/i.test(value) ||
     /^\[Image:/i.test(value)
   );
 }
