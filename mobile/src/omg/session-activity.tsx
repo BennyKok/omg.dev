@@ -50,7 +50,7 @@ export function useSessionActivity(active: boolean): Activity {
       phase.value = 0;
       if (present && !reducedMotion && AppState.currentState === "active") {
         // A long clock avoids repeating the noise every few wave passes.
-        phase.value = withRepeat(withTiming(3584, { duration: 3584 * 2200, easing: Easing.linear }), -1, false);
+        phase.value = withRepeat(withTiming(20480, { duration: 20480 * 2200, easing: Easing.linear }), -1, false);
       }
     };
     update();
@@ -82,10 +82,10 @@ function identitySeed(identity: string): number {
   return seed;
 }
 
-/** Smooth value noise: new brightness targets every 3.85s, with no sharp peaks. */
+/** Smooth value noise: new brightness targets every 2s, with no sharp peaks. */
 export function activityBreath(phase: number, position: number, seed: number): number {
   "worklet";
-  const time = phase / 1.75 + noiseHash(seed) * 2048;
+  const time = phase * 2.2 / 2 + noiseHash(seed) * 2048;
   const cell = Math.floor(time);
   const fraction = time - cell;
   const blend = fraction * fraction * fraction * (fraction * (fraction * 6 - 15) + 10);
