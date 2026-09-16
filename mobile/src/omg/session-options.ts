@@ -12,6 +12,7 @@ import { STORAGE_KEYS } from "./config";
 import { agentIcon, agentLabel as agentDisplayName } from "./agent-icons";
 import { type MenuOption } from "./menu";
 import { useOmg, type CodingAgent, type Repo } from "./provider";
+import { basename, projectKey, sessionMatchesProject } from "./project-filter";
 
 /**
  * The agent used when the roster has not arrived yet, matching what the server
@@ -425,11 +426,7 @@ export function useProjectPicker() {
   const activeFilter = activeProject ? projectKey(activeProject) : null;
 
   const matches = useCallback(
-    (session: { project?: string; cwd?: string }) => {
-      if (!activeFilter) return false;
-      if (session.project) return session.project === activeFilter;
-      return !!session.cwd && basename(session.cwd) === activeFilter;
-    },
+    (session: { project?: string; cwd?: string }) => sessionMatchesProject(session, activeFilter),
     [activeFilter],
   );
 
@@ -553,10 +550,4 @@ export function useProjectPicker() {
 }
 
 /** A repo's project key — see the note in useProjectPicker. */
-function projectKey(repo: { name: string; cwd: string }): string {
-  return repo.name || basename(repo.cwd);
-}
 
-function basename(path: string): string {
-  return path.split("/").filter(Boolean).pop() ?? path;
-}

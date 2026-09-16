@@ -110,7 +110,13 @@ export type CodingAgent = {
   status?: { configured?: boolean; accountConnected?: boolean };
 };
 
-export type Repo = { name: string; cwd: string };
+/**
+ * `name` is the label a person sees and can rename. `project` is the key the
+ * box stamps onto every session started in this folder, and it is what the
+ * session filter must compare against -- see `project-filter.ts`. Optional
+ * only because an older box may not send it.
+ */
+export type Repo = { name: string; cwd: string; project?: string };
 
 /** Shape returned by control-plane getCloudComputer. */
 export type CloudComputer = {
