@@ -49,7 +49,8 @@ export function useSessionActivity(active: boolean): Activity {
       cancelAnimation(phase);
       phase.value = 0;
       if (present && !reducedMotion && AppState.currentState === "active") {
-        phase.value = withRepeat(withTiming(1, { duration: 2200, easing: Easing.linear }), -1, false);
+        // Keep the wave at 2.2s while the ambient breath spans the full loop.
+        phase.value = withRepeat(withTiming(4, { duration: 8800, easing: Easing.linear }), -1, false);
       }
     };
     update();
@@ -62,16 +63,22 @@ export function useSessionActivity(active: boolean): Activity {
 /** A broad highlight travels left to right, then clears the edge before looping. */
 export function activityWave(phase: number, position: number): number {
   "worklet";
-  const distance = Math.abs(position - (phase * 1.6 - 0.3));
+  const wavePhase = phase % 1;
+  const distance = Math.abs(position - (wavePhase * 1.6 - 0.3));
   return distance >= 0.3 ? 0 : (1 + Math.cos(distance / 0.3 * Math.PI)) / 2;
 }
 
-/** Continuous scattered twinkles; the shared wave adds brightness to each peak. */
+/** One gentle 8.8-second breath beneath four unchanged 2.2-second waves. */
+export function activityBreath(phase: number, position: number, variant: number): number {
+  "worklet";
+  const pulse = (1 + Math.cos((phase / 4 - variant / 3 - position * 3.7) * Math.PI * 2)) / 2;
+  return pulse * pulse;
+}
+
 export function activitySparkle(phase: number, position: number, variant: number): number {
   "worklet";
-  const pulse = (1 + Math.cos((phase * 6 - variant / 3 - position * 3.7) * Math.PI * 2)) / 2;
-  const twinkle = Math.pow(pulse, 4);
-  return twinkle * 0.5 + twinkle * activityWave(phase, position) * 0.5;
+  const breath = activityBreath(phase, position, variant);
+  return breath * 0.5 + breath * activityWave(phase, position) * 0.5;
 }
 
 function TitleLetter({ char, position, activity, color, mutedColor }: {

@@ -45,7 +45,7 @@ mock.module(resolve(import.meta.dir, "../src/omg/theme.ts"), () => ({
   useTheme: () => ({ isDark: true }),
 }));
 mock.module(resolve(import.meta.dir, "../src/omg/text.tsx"), () => ({ Text: View }));
-const { SessionActivityField, useSessionActivity, activityWave, activitySparkle } = await import("../src/omg/session-activity");
+const { SessionActivityField, useSessionActivity, activityWave, activitySparkle, activityBreath } = await import("../src/omg/session-activity");
 
 function Field({ active = true, textBounds }: { active?: boolean; textBounds?: any }) {
   const activity = useSessionActivity(active);
@@ -144,34 +144,28 @@ test("measured text dims its dots without dimming the bottom margin", () => {
   } finally { ui.cleanup(); }
 });
 
-test("sparkles continue outside the wave and the wave adds brightness", () => {
-  // The wave is off the left edge, but distributed sparkles remain active.
-  expect(activityWave(0, 0)).toBe(0);
-  expect(activitySparkle(0, 0, 0)).toBeCloseTo(0.5);
+test("dots breathe slowly beneath four additive wave passes", () => {
+  expect(activityBreath(0, 0, 0)).toBeCloseTo(1);
+  expect(activityBreath(1, 0, 0)).toBeCloseTo(0.25);
+  expect(activityBreath(2, 0, 0)).toBeCloseTo(0);
+  expect(activityBreath(4, 0, 0)).toBeCloseTo(1);
   for (let frame = 0; frame <= 120; frame++) {
-    const phase = frame / 120;
+    const phase = frame / 30;
     let light = 0;
-    let min = 1;
-    let max = 0;
     for (let column = 0; column < 24; column++) {
       const x = column / 23;
       for (let variant = 0; variant < 3; variant++) {
+        const breath = activityBreath(phase, x, variant);
         const sparkle = activitySparkle(phase, x, variant);
-        min = Math.min(min, sparkle);
-        max = Math.max(max, sparkle);
+        expect(sparkle).toBeGreaterThanOrEqual(breath * 0.5);
+        expect(sparkle).toBeLessThanOrEqual(breath);
         light += sparkle;
       }
     }
-    expect(min).toBeGreaterThanOrEqual(0);
-    expect(max).toBeLessThanOrEqual(1);
     expect(light).toBeGreaterThan(1);
   }
-  // Same twinkle phase, with the wave away and then centred on this column.
-  const phase = (1 + 0.5 * 3.7) / 6;
-  const boosted = activitySparkle(phase, 0.5, 0);
-  const ambient = activitySparkle(phase + 0.5, 0.5, 0);
-  expect(ambient).toBeCloseTo(0.5);
-  expect(boosted).toBeGreaterThan(ambient);
-  // The loop boundary does not interrupt the independent twinkles.
-  expect(activitySparkle(0, 0.5, 1)).toBeCloseTo(activitySparkle(1, 0.5, 1));
+  for (let cycle = 0; cycle < 4; cycle++) {
+    expect(activityWave(cycle + 0.5, 0.5)).toBeCloseTo(1);
+  }
+  expect(activitySparkle(0, 0.5, 1)).toBeCloseTo(activitySparkle(4, 0.5, 1));
 });
