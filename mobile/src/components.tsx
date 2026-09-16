@@ -1249,32 +1249,54 @@ export function HomeComposer({
           ...(LIQUID_GLASS ? {} : hairline),
         }}
       >
+        {/*
+         * THE FIELD KEEPS ITS SLOT IN BOTH LAYOUTS, and that is the whole
+         * reason this is written as three fixed positions instead of two
+         * branches.
+         *
+         * It used to be `expanded ? <>{field}{controls}</> : <>{agent}{field}
+         * {attach}{mic}</>`, which put the TextInput at index 0 in one branch
+         * and index 1 in the other. React reconciles unkeyed siblings BY
+         * POSITION, so flipping `expanded` compared the field against the
+         * agent avatar, found different types, and unmounted the field to
+         * mount a new one.
+         *
+         * Both bugs Benny reported came out of that single remount:
+         *
+         *  - The first tap did not open the keyboard. Focusing set `expanded`,
+         *    which destroyed the very field that had just taken focus, so the
+         *    keyboard had nothing to attach to.
+         *  - The composer did not morph back. The destroyed field could not
+         *    deliver its `onBlur`, so `composerFocused` stayed true and the
+         *    box never collapsed.
+         *
+         * Keeping the field at a fixed index means React UPDATES it in place.
+         * Everything around it may still be rebuilt freely; none of it holds
+         * focus. `null` holds a slot, so the indices stay aligned.
+         */}
+        {expanded ? null : agentControl}
+        {inputControl}
         {expanded ? (
-          <>
-            {inputControl}
-            <View style={{ minHeight: 40, flexDirection: "row", alignItems: "center", gap: 8 }}>
-              {agentControl}
-              {attachmentControl}
-              <View style={{ flex: 1 }} />
-              {dictation.state === "idle" ? (
-                <>
-                  {micControl}
-                  {sendControl}
-                </>
-              ) : (
-                <InlineVoiceRecorder
-                  state={dictation.state}
-                  level={dictation.level}
-                  onCancel={() => dictation.cancel?.()}
-                  onConfirm={dictation.toggle}
-                />
-              )}
-            </View>
-          </>
+          <View style={{ minHeight: 40, flexDirection: "row", alignItems: "center", gap: 8 }}>
+            {agentControl}
+            {attachmentControl}
+            <View style={{ flex: 1 }} />
+            {dictation.state === "idle" ? (
+              <>
+                {micControl}
+                {sendControl}
+              </>
+            ) : (
+              <InlineVoiceRecorder
+                state={dictation.state}
+                level={dictation.level}
+                onCancel={() => dictation.cancel?.()}
+                onConfirm={dictation.toggle}
+              />
+            )}
+          </View>
         ) : (
           <>
-            {agentControl}
-            {inputControl}
             {attachmentControl}
             {micControl}
           </>

@@ -65,3 +65,50 @@ test('typed text keeps voice beside send and recording uses the inline controls'
   expect(ui.query('[aria-label="Dictate a prompt"]')).toBeNull();
  } finally {ui.cleanup();}
 });
+
+/**
+ * FOCUSING MUST NOT RECREATE THE FIELD.
+ *
+ * The composer morphs when it gains focus, and it used to do that by swapping
+ * between two different child orders. React reconciles unkeyed siblings by
+ * POSITION, so the TextInput moved from index 1 to index 0 and was unmounted
+ * and remounted instead of updated.
+ *
+ * Two reports came from that one remount. The first tap did not open the
+ * keyboard, because focusing destroyed the field that had just taken focus.
+ * And the composer never morphed back, because a destroyed field cannot
+ * deliver its `onBlur`, so the focused flag stayed true forever.
+ *
+ * The DOM node is the evidence: React replaces it on a remount and keeps it on
+ * an update. A test that only checked which controls were on screen passed
+ * through the whole bug.
+ */
+test('the field survives the morph, so the keyboard it just opened stays open',()=>{
+ const ui=mount();
+ const base={onChangeText:()=>{},onStart:()=>{},projectOptions:[],agentOptions:[],attachments:{items:[],options:[],remove:()=>{}}};
+ try {
+  ui.render(<HomeComposer {...base} value="" dictation={{state:'idle',toggle:()=>{}}}/>);
+  const collapsed = ui.query('textarea');
+  expect(collapsed).not.toBeNull();
+  // Tap: the field takes focus and the composer expands around it.
+  ui.flush(()=>input.onFocus?.());
+  expect(ui.query('textarea')).toBe(collapsed);
+  // And back again when focus leaves, which is the half that stayed stuck.
+  ui.flush(()=>input.onBlur?.());
+  expect(ui.query('textarea')).toBe(collapsed);
+ } finally {ui.cleanup();}
+});
+
+/** The same slot has to hold while text arrives, which expands it too. */
+test('the field survives expanding because of typed text',()=>{
+ const ui=mount();
+ const base={onChangeText:()=>{},onStart:()=>{},projectOptions:[],agentOptions:[],attachments:{items:[],options:[],remove:()=>{}}};
+ try {
+  ui.render(<HomeComposer {...base} value="" dictation={{state:'idle',toggle:()=>{}}}/>);
+  const field = ui.query('textarea');
+  ui.render(<HomeComposer {...base} value="Typed" dictation={{state:'idle',toggle:()=>{}}}/>);
+  expect(ui.query('textarea')).toBe(field);
+  ui.render(<HomeComposer {...base} value="" dictation={{state:'idle',toggle:()=>{}}}/>);
+  expect(ui.query('textarea')).toBe(field);
+ } finally {ui.cleanup();}
+});
