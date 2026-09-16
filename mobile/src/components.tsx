@@ -891,7 +891,7 @@ export function SessionCard({
             height: compact ? 64 : SESSION_ROW.height,
           })}
         >
-          <SessionActivityField activity={activity} textBounds={textBounds} cornerRadius={radius.md}
+          <SessionActivityField identity={sessionId ?? title} activity={activity} textBounds={textBounds} cornerRadius={radius.md}
             horizontalOutset={compact ? 0 : SESSION_ROW.inset} />
           <AgentAvatar agent={agent} size={compact ? 28 : SESSION_ROW.avatar} plain />
           <View onLayout={({ nativeEvent: { layout } }) => setTextBounds((old) =>

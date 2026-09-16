@@ -47,9 +47,9 @@ mock.module(resolve(import.meta.dir, "../src/omg/theme.ts"), () => ({
 mock.module(resolve(import.meta.dir, "../src/omg/text.tsx"), () => ({ Text: View }));
 const { SessionActivityField, useSessionActivity, activityWave, activitySparkle, activityBreath } = await import("../src/omg/session-activity");
 
-function Field({ active = true, textBounds }: { active?: boolean; textBounds?: any }) {
+function Field({ active = true, textBounds, identity }: { active?: boolean; textBounds?: any; identity?: string }) {
   const activity = useSessionActivity(active);
-  return <SessionActivityField activity={activity} textBounds={textBounds} cornerRadius={12} />;
+  return <SessionActivityField identity={identity} activity={activity} textBounds={textBounds} cornerRadius={12} />;
 }
 
 test("the grid keeps square spacing at phone, compact, and tablet widths", () => {
@@ -144,28 +144,49 @@ test("measured text dims its dots without dimming the bottom margin", () => {
   } finally { ui.cleanup(); }
 });
 
-test("dots breathe slowly beneath four additive wave passes", () => {
-  expect(activityBreath(0, 0, 0)).toBeCloseTo(1);
-  expect(activityBreath(1, 0, 0)).toBeCloseTo(0.25);
-  expect(activityBreath(2, 0, 0)).toBeCloseTo(0);
-  expect(activityBreath(4, 0, 0)).toBeCloseTo(1);
-  for (let frame = 0; frame <= 120; frame++) {
-    const phase = frame / 30;
-    let light = 0;
-    for (let column = 0; column < 24; column++) {
-      const x = column / 23;
-      for (let variant = 0; variant < 3; variant++) {
-        const breath = activityBreath(phase, x, variant);
-        const sparkle = activitySparkle(phase, x, variant);
-        expect(sparkle).toBeGreaterThanOrEqual(breath * 0.5);
-        expect(sparkle).toBeLessThanOrEqual(breath);
-        light += sparkle;
-      }
+test("smooth noise is stable, varies by seed, and does not repeat each breath", () => {
+  for (const seed of [15, 973, 12345]) {
+    const sample = (t: number) => activityBreath(t, 0.5, seed);
+    expect(sample(0)).toBe(sample(0));
+    expect(sample(0)).not.toBeCloseTo(sample(4), 4);
+    expect(sample(0)).toBeCloseTo(sample(4096), 8);
+    for (let frame = 0; frame < 600; frame++) {
+      const t = frame / 60;
+      const breath = sample(t);
+      expect(breath).toBeGreaterThanOrEqual(0.04);
+      expect(breath).toBeLessThanOrEqual(1);
+      expect(Math.abs(sample(t + 1 / 60) - breath)).toBeLessThan(0.02);
+      const sparkle = activitySparkle(t, 0.5, seed);
+      expect(sparkle).toBeGreaterThanOrEqual(breath * 0.5);
+      expect(sparkle).toBeLessThanOrEqual(breath);
     }
-    expect(light).toBeGreaterThan(1);
   }
-  for (let cycle = 0; cycle < 4; cycle++) {
-    expect(activityWave(cycle + 0.5, 0.5)).toBeCloseTo(1);
-  }
-  expect(activitySparkle(0, 0.5, 1)).toBeCloseTo(activitySparkle(4, 0.5, 1));
+  expect(activityBreath(1, 0.5, 15)).not.toBe(activityBreath(1, 0.5, 973));
+  for (let cycle = 0; cycle < 4; cycle++) expect(activityWave(cycle + 0.5, 0.5)).toBeCloseTo(1);
+});
+
+test("session identities keep stable but distinct noise layouts", () => {
+  const ui = mount();
+  const accents = () => {
+    const seen = new Set<string>();
+    const repeated: string[] = [];
+    for (const el of ui.queryAll("div")) {
+      const style = (el as HTMLElement).style;
+      if (style.width !== "7px") continue;
+      const key = `${style.left}:${style.top}`;
+      if (seen.has(key)) repeated.push(key);
+      seen.add(key);
+    }
+    return repeated;
+  };
+  try {
+    ui.render(<Field identity="first-session" />);
+    ui.flush(() => layout({ nativeEvent: { layout: { width: 380, height: 80 } } }));
+    const first = accents();
+    expect(first.length).toBeGreaterThan(20);
+    ui.render(<Field identity="second-session" />);
+    expect(accents()).not.toEqual(first);
+    ui.render(<Field identity="first-session" />);
+    expect(accents()).toEqual(first);
+  } finally { ui.cleanup(); }
 });

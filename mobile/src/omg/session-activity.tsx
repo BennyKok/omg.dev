@@ -49,8 +49,8 @@ export function useSessionActivity(active: boolean): Activity {
       cancelAnimation(phase);
       phase.value = 0;
       if (present && !reducedMotion && AppState.currentState === "active") {
-        // Keep the wave at 2.2s while the ambient breath spans the full loop.
-        phase.value = withRepeat(withTiming(4, { duration: 8800, easing: Easing.linear }), -1, false);
+        // A long clock avoids repeating the noise every few wave passes.
+        phase.value = withRepeat(withTiming(4096, { duration: 4096 * 2200, easing: Easing.linear }), -1, false);
       }
     };
     update();
@@ -68,16 +68,38 @@ export function activityWave(phase: number, position: number): number {
   return distance >= 0.3 ? 0 : (1 + Math.cos(distance / 0.3 * Math.PI)) / 2;
 }
 
-/** One gentle 8.8-second breath beneath four unchanged 2.2-second waves. */
-export function activityBreath(phase: number, position: number, variant: number): number {
+/** Avalanche the bits so neighbouring cells do not form diagonal hash bands. */
+function noiseHash(value: number): number {
   "worklet";
-  const pulse = (1 + Math.cos((phase / 4 - variant / 3 - position * 3.7) * Math.PI * 2)) / 2;
-  return pulse * pulse;
+  let n = Math.imul(value ^ (value >>> 16), 0x21f0aaad);
+  n = Math.imul(n ^ (n >>> 15), 0x735a2d97);
+  return ((n ^ (n >>> 15)) >>> 0) / 4294967296;
 }
 
-export function activitySparkle(phase: number, position: number, variant: number): number {
+function identitySeed(identity: string): number {
+  let seed = 5381;
+  for (let i = 0; i < identity.length; i++) seed = Math.imul(seed, 33) ^ identity.charCodeAt(i);
+  return seed;
+}
+
+/** Smooth value noise: new brightness targets every 4.4s, with no sharp peaks. */
+export function activityBreath(phase: number, position: number, seed: number): number {
   "worklet";
-  const breath = activityBreath(phase, position, variant);
+  const time = phase / 2 + noiseHash(seed) * 2048;
+  const cell = Math.floor(time);
+  const fraction = time - cell;
+  const blend = fraction * fraction * fraction * (fraction * (fraction * 6 - 15) + 10);
+  const salt = seed ^ Math.round(position * 65536);
+  // Period matches the long clock, including the interpolation across its seam.
+  const from = noiseHash(salt ^ Math.imul(cell & 2047, 0x9e3779b1));
+  const to = noiseHash(salt ^ Math.imul((cell + 1) & 2047, 0x9e3779b1));
+  const noise = from + (to - from) * blend;
+  return 0.04 + 0.96 * noise * noise;
+}
+
+export function activitySparkle(phase: number, position: number, seed: number): number {
+  "worklet";
+  const breath = activityBreath(phase, position, seed);
   return breath * 0.5 + breath * activityWave(phase, position) * 0.5;
 }
 
@@ -104,16 +126,16 @@ export function SessionActivityTitle({ title, activity, style }: {
   </Text>;
 }
 
-type Point = { x: number; y: number; strength: number };
-function Lights({ points, index, activity, color, sparkleVariant }: {
-  points: Point[]; index: number; activity: Activity; color: string; sparkleVariant?: number;
+type Point = { x: number; y: number; strength: number; seed: number };
+function Lights({ points, index, activity, color, sparkleSeed }: {
+  points: Point[]; index: number; activity: Activity; color: string; sparkleSeed?: number;
 }) {
   const style = useAnimatedStyle(() => ({
-    opacity: activity.visibility.value * (sparkleVariant === undefined
+    opacity: activity.visibility.value * (sparkleSeed === undefined
       ? (activity.reducedMotion ? 0.27 :
         0.045 + activityWave(activity.phase.value, index / (GROUPS - 1)) * 0.6)
       : (activity.reducedMotion ? 0 :
-        activitySparkle(activity.phase.value, index / (GROUPS - 1), sparkleVariant) * 0.9)),
+        activitySparkle(activity.phase.value, index / (GROUPS - 1), sparkleSeed) * 0.9)),
   }));
   return <Animated.View style={[StyleSheet.absoluteFill, style]}>
     {points.map(({ x, y, strength }) => <View key={`${x}:${y}`} style={{
@@ -125,14 +147,15 @@ function Lights({ points, index, activity, color, sparkleVariant }: {
 }
 
 /** Decorative working state. The session remains the sole owner of busy. */
-export function SessionActivityField({ activity, textBounds, cornerRadius, horizontalOutset = 0 }: {
-  activity: Activity; textBounds?: LayoutRectangle; cornerRadius: number; horizontalOutset?: number;
+export function SessionActivityField({ activity, textBounds, cornerRadius, horizontalOutset = 0, identity = "session" }: {
+  activity: Activity; textBounds?: LayoutRectangle; cornerRadius: number; horizontalOutset?: number; identity?: string;
 }) {
   const { isDark } = useTheme();
   const [size, setSize] = useState({ width: 0, height: 0 });
   const groups = useMemo(() => {
     const result: Point[][] = Array.from({ length: GROUPS }, () => []);
-    const sparks: Point[][] = Array.from({ length: GROUPS * 3 }, () => []);
+    const sparks: { point: Point; group: number }[] = [];
+    const rowSeed = identitySeed(identity);
     for (let y = 5; y < size.height; y += SPACING) {
       for (let x = 5; x < size.width; x += SPACING) {
         const edge = Math.min(1, x / 70, (size.width - x) / 70, (size.height - y) / 15);
@@ -146,16 +169,15 @@ export function SessionActivityField({ activity, textBounds, cornerRadius, horiz
         }
         const strength = edge * lower * textDim;
         const group = Math.round(x / size.width * (GROUPS - 1));
-        const point = { x, y, strength };
-        result[group].push(point);
-        // Stable sparse accents: different rows twinkle in sequence, never at random.
-        const cell = Math.imul(Math.round(x / SPACING) + 1, 73856093) ^
+        const cell = rowSeed ^ Math.imul(Math.round(x / SPACING) + 1, 73856093) ^
           Math.imul(Math.round(y / SPACING) + 1, 19349663);
-        if ((cell >>> 0) % 4 === 0) sparks[group * 3 + ((cell >>> 3) % 3)].push(point);
+        const point = { x, y, strength, seed: Math.floor(noiseHash(cell) * 4294967296) };
+        result[group].push(point);
+        if (noiseHash(point.seed ^ 0x68bc21eb) < 0.25) sparks.push({ point, group });
       }
     }
     return { base: result, sparks };
-  }, [size, textBounds, horizontalOutset]);
+  }, [size, textBounds, horizontalOutset, identity]);
   if (!activity.present) return null;
   return <View pointerEvents="none" accessibilityElementsHidden
     importantForAccessibility="no-hide-descendants"
@@ -168,8 +190,8 @@ export function SessionActivityField({ activity, textBounds, cornerRadius, horiz
     }]}>
     {groups.base.map((points, index) => <Lights key={index} points={points}
       index={index} activity={activity} color={isDark ? "#a7bacb" : "#52677e"} />)}
-    {!activity.reducedMotion && groups.sparks.map((points, index) => points.length > 0 ?
-      <Lights key={`spark-${index}`} points={points} index={Math.floor(index / 3)}
-        sparkleVariant={index % 3} activity={activity} color={isDark ? "#e1eaf2" : "#344d68"} /> : null)}
+    {!activity.reducedMotion && groups.sparks.map(({ point, group }) =>
+      <Lights key={`spark-${point.x}:${point.y}`} points={[point]} index={group}
+        sparkleSeed={point.seed} activity={activity} color={isDark ? "#e1eaf2" : "#344d68"} />)}
   </View>;
 }
