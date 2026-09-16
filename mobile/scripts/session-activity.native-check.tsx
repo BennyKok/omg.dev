@@ -149,7 +149,7 @@ test("smooth noise is stable, varies by seed, and does not repeat each breath", 
     const sample = (t: number) => activityBreath(t, 0.5, seed);
     expect(sample(0)).toBe(sample(0));
     expect(sample(0)).not.toBeCloseTo(sample(4), 4);
-    expect(sample(0)).toBeCloseTo(sample(4096), 8);
+    expect(sample(0)).toBeCloseTo(sample(3584), 8);
     for (let frame = 0; frame < 600; frame++) {
       const t = frame / 60;
       const breath = sample(t);

@@ -50,7 +50,7 @@ export function useSessionActivity(active: boolean): Activity {
       phase.value = 0;
       if (present && !reducedMotion && AppState.currentState === "active") {
         // A long clock avoids repeating the noise every few wave passes.
-        phase.value = withRepeat(withTiming(4096, { duration: 4096 * 2200, easing: Easing.linear }), -1, false);
+        phase.value = withRepeat(withTiming(3584, { duration: 3584 * 2200, easing: Easing.linear }), -1, false);
       }
     };
     update();
@@ -82,10 +82,10 @@ function identitySeed(identity: string): number {
   return seed;
 }
 
-/** Smooth value noise: new brightness targets every 4.4s, with no sharp peaks. */
+/** Smooth value noise: new brightness targets every 3.85s, with no sharp peaks. */
 export function activityBreath(phase: number, position: number, seed: number): number {
   "worklet";
-  const time = phase / 2 + noiseHash(seed) * 2048;
+  const time = phase / 1.75 + noiseHash(seed) * 2048;
   const cell = Math.floor(time);
   const fraction = time - cell;
   const blend = fraction * fraction * fraction * (fraction * (fraction * 6 - 15) + 10);
@@ -158,7 +158,9 @@ export function SessionActivityField({ activity, textBounds, cornerRadius, horiz
     const rowSeed = identitySeed(identity);
     for (let y = 5; y < size.height; y += SPACING) {
       for (let x = 5; x < size.width; x += SPACING) {
-        const edge = Math.min(1, x / 70, (size.width - x) / 70, (size.height - y) / 15);
+        const edge = Math.min(1, x / 70, (size.width - x) / 70);
+        const bottom = Math.min(1, Math.max(0, (size.height - y) / 24));
+        const bottomFade = bottom * bottom * (3 - 2 * bottom);
         const lower = Math.pow(y / size.height, 3);
         let textDim = 1;
         if (textBounds) {
@@ -167,7 +169,7 @@ export function SessionActivityField({ activity, textBounds, cornerRadius, horiz
           const dy = Math.max(textBounds.y - y, 0, y - textBounds.y - textBounds.height);
           textDim = 0.12 + 0.88 * Math.min(1, Math.hypot(dx, dy) / 16);
         }
-        const strength = edge * lower * textDim;
+        const strength = edge * bottomFade * lower * textDim;
         const group = Math.round(x / size.width * (GROUPS - 1));
         const cell = rowSeed ^ Math.imul(Math.round(x / SPACING) + 1, 73856093) ^
           Math.imul(Math.round(y / SPACING) + 1, 19349663);
