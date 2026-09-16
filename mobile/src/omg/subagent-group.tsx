@@ -41,7 +41,7 @@ export function SubagentGroup({ nodes, unreadSessions, onOpen }: {
           {sessions.slice(0, 4).map((session, index) => (
             <View key={sessionStableId(session)} style={{ marginLeft: index ? -8 : 0,
               padding: 2, borderRadius: 16, backgroundColor: colors.bg, zIndex: 4 - index }}>
-              <AgentAvatar agent={session.agent ?? session.agentLabel} size={24} busy={!!session.busy} plain />
+              <AgentAvatar agent={session.agent ?? session.agentLabel} size={24} plain />
             </View>
           ))}
         </View>
@@ -59,6 +59,7 @@ export function SubagentGroup({ nodes, unreadSessions, onOpen }: {
         <View style={{ gap: 6, marginTop: 4, marginLeft: -SESSION_ROW.inset }}>
           {sessions.map((session) => (
             <SessionCard key={sessionStableId(session)} compact animateEntry={false}
+              sessionId={sessionStableId(session)}
               selected={Platform.OS === "ios" && Platform.isPad && pathname === `/session/${session.sessionId}`}
               title={session.title || session.lastUserText || "Untitled session"}
               subtitle={sessionPreview(session)}

@@ -25,6 +25,7 @@ mock.module(import.meta.resolve('react-native-reanimated'), () => ({
 mock.module(import.meta.resolve('expo-symbols'), () => ({SymbolView:()=>null}));
 const local = (file:string, exports:any) => mock.module(resolve(import.meta.dir, `../src/omg/${file}`), () => exports);
 local('sheet.tsx',{Sheet:()=>null});
+local('session-activity.tsx',{SessionActivityField:({identity}:any)=><div data-activity={identity}/>});
 local('text.tsx',{Text:View,TextInput:(props:any)=>{input=props;return <textarea value={props.value} readOnly/>;}});
 local('agent-icons.ts',{agentIcon:()=>null});
 local('glass.tsx',{GlassSurface:View,LIQUID_GLASS:false});
@@ -38,7 +39,21 @@ local('motion.tsx',{PressableScale:Pressable,useListItemMotion:()=>({}),useReduc
 local('swipe-row.ts',{useSwipeToCommit:()=>({})});
 const { light, space, type, radius, motion } = await import('../src/omg/palette');
 local('theme.ts',{useTheme:()=>({colors:light,space,type,radius,motion,isDark:false})});
-const {HomeComposer}=await import('../src/components');
+const {HomeComposer,SessionCard}=await import('../src/components');
+test('only working session rows have an activity field',()=>{
+ const ui=mount();
+ const base={sessionId:'stable-id',title:'Task',onPress:()=>{},animateEntry:false};
+ try {
+  ui.render(<SessionCard {...base} busy/>);
+  expect(ui.query('[data-activity="stable-id"]')).not.toBeNull();
+  ui.render(<SessionCard {...base} busy title="Renamed task"/>);
+  expect(ui.query('[data-activity="stable-id"]')).not.toBeNull();
+  for(const state of [{busy:false},{busy:true,blocked:true},{busy:true,ended:true}]) {
+   ui.render(<SessionCard {...base} {...state}/>);
+   expect(ui.query('[data-activity]')).toBeNull();
+  }
+ } finally {ui.cleanup();}
+});
 test('the live composer grows from measured text, caps scrolling, and resets after clearing',()=>{
  const ui=mount();
  const render=(value:string)=>ui.render(<HomeComposer value={value} onChangeText={()=>{}} onStart={()=>{}} projectOptions={[]} agentOptions={[]} attachments={{items:[],options:[],remove:()=>{}}} dictation={{state:'idle',toggle:()=>{}}}/>);

@@ -51,6 +51,7 @@ import { SessionMentionSuggest } from "./omg/session-mention-suggest";
 import { PressableScale, useListItemMotion, useReduceMotionEnabled } from "./omg/motion";
 import { useSwipeToCommit } from "./omg/swipe-row";
 import { useTheme } from "./omg/theme";
+import { SessionActivityField } from "./omg/session-activity";
 
 /**
  * Tailwind's `bg-success/30` in a language React Native understands. The web
@@ -695,8 +696,8 @@ export function SectionHeader({
  * follows, because two surfaces describing the same session two ways is the
  * problem both changes were trying to solve.
  *
- * Avatar left, one-line title, muted one-line subtitle, state right: a spinner
- * while working, a green dot when idle, a pause glyph when blocked.
+ * Avatar left, one-line title, muted one-line subtitle. Working lights the
+ * row background; unread and blocked keep their trailing dot and pause.
  */
 /**
  * THE ROW'S GEOMETRY, published because the tree lines have to hit it.
@@ -732,6 +733,7 @@ export const SESSION_ROW_MARK_X =
 export const SESSION_ROW_MARK_Y = SESSION_ROW.height / 2;
 
 export function SessionCard({
+  sessionId,
   title,
   subtitle,
   timestamp,
@@ -748,6 +750,7 @@ export function SessionCard({
   compact = false,
   selected = false,
 }: {
+  sessionId?: string | null;
   title: string;
   /** Smaller filled card for a parent session's expanded subagent list. */
   compact?: boolean;
@@ -855,6 +858,7 @@ export function SessionCard({
           onPress={onPress}
           onLongPress={onLongPress}
           accessibilityHint={accessibilityHint}
+          accessibilityState={{ busy: !!busy && !blocked && !ended }}
           scale={1}
           style={({ pressed }) => ({
             flexDirection: "row",
@@ -883,7 +887,9 @@ export function SessionCard({
             height: compact ? 64 : SESSION_ROW.height,
           })}
         >
-          <AgentAvatar agent={agent} size={compact ? 28 : SESSION_ROW.avatar} busy={busy} plain />
+          {busy && !blocked && !ended ? <SessionActivityField
+            identity={sessionId ?? title} cornerRadius={radius.md} /> : null}
+          <AgentAvatar agent={agent} size={compact ? 28 : SESSION_ROW.avatar} plain />
           <View style={{ flex: 1, gap: SESSION_ROW.textGap, minWidth: 0 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 }}>
               <Text
@@ -910,10 +916,6 @@ export function SessionCard({
               {subtitle ?? ""}
             </Text>
           </View>
-          {/* One definition of "is this session working?", shared with the
-              web — see SessionStatusDot. A spinner here was louder than the
-              web's pulsing dot and in the brand orange rather than warning
-              amber, so the two surfaces disagreed about the same session. */}
           {/* WHEN IT LAST MOVED, then what state it is in.
               The list had no time on it at all, so a session that moved thirty
               seconds ago looked exactly like one that moved yesterday. The web
@@ -933,9 +935,7 @@ export function SessionCard({
                 {timestamp}
               </Text>
             ) : null}
-            {/* No amber dot while busy: the agent mark beside the row already
-                wears the working ring, and two live indicators on one row read
-                as two different things happening. Blocked keeps its pause. */}
+            {/* Working uses the row's ambient field. Blocked keeps its pause. */}
             {blocked ? (
               <Icon ios="pause.fill" android="pause" size={12} color={colors.warning} />
             ) : null}

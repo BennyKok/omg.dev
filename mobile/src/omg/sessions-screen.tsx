@@ -197,6 +197,7 @@ function SessionFamily({
           />
         ) : null}
         <SessionCard
+          sessionId={session.sessionId}
           title={session.title || session.lastUserText || "Untitled session"}
           subtitle={sessionPreview(session)}
           timestamp={relativeTime(session.lastActivityAt ?? session.startedAt)}
