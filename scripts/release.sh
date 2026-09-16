@@ -122,6 +122,9 @@ cp -r web/dist "$STAGE/lfg/web/dist"
 # into @omg-dev/connectors without staging it, and `serve` died on the import
 # in every install. Keep this list in sync with tsconfig.json "paths".
 stage_runtime_workspace_package "$STAGE/lfg" connectors
+# Fast capability rules are shared with the native composer through this
+# import-free source package. The server imports them by relative path.
+stage_runtime_workspace_package "$STAGE/lfg" protocol
 # Source maps are built with sourcemap: "hidden", so no bundle references them
 # and no browser ever fetches one. They were still 27MB of a 61MB download -
 # 700 files, 117MB unpacked, shipped to every install for a debugging aid that
