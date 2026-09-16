@@ -22,7 +22,7 @@ mock.module(resolve(import.meta.dir,'../src/omg/text.tsx'), () => ({Text:({child
 mock.module(import.meta.resolve('react-native-gesture-handler'), () => ({NativeViewGestureHandler:View}));
 const { light, space, type, radius } = await import('../src/omg/palette');
 mock.module(resolve(import.meta.dir,'../src/omg/theme.ts'), () => ({useTheme:()=>({colors:light,space,type,radius})}));
-const { AgentSetupSheet, Slider } = await import('../src/omg/agent-setup-sheet');
+const { AgentSetupSheet, Slider, thinkingDotScale } = await import('../src/omg/agent-setup-sheet');
 
 test('compact controls open searchable models and return after choosing',()=>{
  const ui=mount();
@@ -143,4 +143,15 @@ test('usage ring opens one detail page with reset information and a return path'
   expect(ui.text()).not.toContain('Weekly');
   expect(ui.text()).toContain('Claude');
  } finally {ui.cleanup();}
+});
+
+
+test('dots grow continuously with finger proximity and settle at their original size',()=>{
+ expect(thinkingDotScale(0,100,1)).toBeCloseTo(2.8);
+ expect(thinkingDotScale(25,100,1)).toBeGreaterThan(thinkingDotScale(50,100,1));
+ expect(thinkingDotScale(50,100,1)).toBeGreaterThan(thinkingDotScale(100,100,1));
+ expect(thinkingDotScale(-50,100,1)).toBe(thinkingDotScale(50,100,1));
+ expect(thinkingDotScale(150,100,1)).toBe(1);
+ expect(thinkingDotScale(0,100,0)).toBe(1);
+ expect(thinkingDotScale(0,100,0.5)).toBeCloseTo(1.9);
 });

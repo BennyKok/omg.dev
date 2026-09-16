@@ -1394,7 +1394,7 @@ export function HomeComposer({
         usageRing={
           agentUsage ? (
             <UsageRings
-              size={22}
+              size={20}
               windows={agentUsage.available ? orderWindows(agentUsage.windows ?? []) : []}
             />
           ) : null
@@ -2182,7 +2182,7 @@ export function UsageDetails({ providers }: { providers: ProviderUsage[] }) {
 
                 {windows.length ? (
                   <View style={{ flexDirection: "row", alignItems: "center", gap: space.lg }}>
-                    <UsageRings windows={windows} size={52} />
+                    <UsageRings windows={windows} size={44} strokeWidth={4.5} />
                     <View style={{ flex: 1, gap: 6 }}>
                       {windows.map((w, index) => {
                         const resets = resetsIn(w.resetsAt);
@@ -2231,14 +2231,17 @@ export function UsageDetails({ providers }: { providers: ProviderUsage[] }) {
 export function UsageRings({
   windows,
   size = 24,
+  strokeWidth = 3,
 }: {
   windows: UsageWindow[];
   size?: number;
+  strokeWidth?: number;
 }) {
   const { colors } = useTheme();
   const shown = windows.slice(0, RING_COLORS.length);
-  // Keep every reported ring visible even at the compact 22pt size.
-  const thickness = Math.min(3, (size - 4) / Math.max(2, shown.length * 2.6));
+  // Leave a visible centre and a 1pt gap even with four compact rings.
+  const count = Math.max(1, shown.length);
+  const thickness = Math.min(strokeWidth, (size - 4 - 2 * (count - 1)) / (2 * count));
   const gap = thickness + 1;
 
   return (

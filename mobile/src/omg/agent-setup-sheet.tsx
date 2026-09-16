@@ -1,7 +1,7 @@
 /** Compact agent controls. Selection and availability belong to useAgentPicker. */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ActivityIndicator, Image, PanResponder, Platform, Pressable, StyleSheet, View } from "react-native";
-import Reanimated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
+import Reanimated, { useAnimatedStyle, useSharedValue, withTiming, type SharedValue } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
 import { SymbolView } from "expo-symbols";
@@ -78,7 +78,7 @@ export function AgentSetupSheet({
             {modelOptions.length ? <SymbolView name="chevron.right" size={14} tintColor={colors.textMuted} /> : null}
           </Pressable> : null}
           {onToggleFast ? <Pressable onPress={onToggleFast} accessibilityRole="switch" accessibilityLabel="Fast mode"
-            accessibilityState={{ checked: !!fastMode }} style={{ width: 44, height: 52, alignItems: "center", justifyContent: "center" }}>
+            accessibilityState={{ checked: !!fastMode }} style={{ width: 44, height: 52, borderRadius: 14, backgroundColor: isDark ? "#303030" : colors.borderSoft, alignItems: "center", justifyContent: "center" }}>
             <SymbolView name={fastMode ? "bolt.fill" : "bolt"} size={18} tintColor={fastMode ? colors.text : colors.textMuted} />
           </Pressable> : null}
           </View>
@@ -256,10 +256,10 @@ function ModelList({ options, recent, onPick }: { options: MenuOption[]; recent:
 
 const TRACK = 52;
 
-/** Full-width palette from web/src/index.css .thinking-scrubber-fill. */
+/** The web blue/purple/pink palette, darkened for white label contrast. */
 const THINKING_COLORS = {
-  light: ["rgba(0,122,255,0.88)", "rgba(90,110,255,0.94)", "rgba(175,82,222,0.97)", "rgba(232,121,249,1)"],
-  dark: ["rgba(10,132,255,0.92)", "rgba(100,120,255,0.95)", "rgba(191,90,242,0.98)", "rgba(240,140,255,1)"],
+  light: ["#1761B8", "#5355B7", "#8744A8", "#A744AC"],
+  dark: ["#2169BD", "#595CBE", "#914BAD", "#AF49B3"],
 } as const;
 
 /** The whole bar owns the gesture. The preview rises above the finger. */
@@ -274,6 +274,7 @@ export function Slider({ options, onPick }: { options: MenuOption[]; onPick: (op
   const progress = useSharedValue((active + 1) / options.length);
   const labelX = useSharedValue(0);
   const lift = useSharedValue(0);
+  const fingerX = useSharedValue(0);
   useEffect(() => {
     const duration = reducedMotion ? 0 : 120;
     progress.value = withTiming((active + 1) / options.length, { duration });
@@ -282,11 +283,14 @@ export function Slider({ options, onPick }: { options: MenuOption[]; onPick: (op
   }, [active, width, options.length, dragIndex, reducedMotion]);
   const fillStyle = useAnimatedStyle(() => ({ width: width * progress.value }));
   const labelStyle = useAnimatedStyle(() => ({ opacity: lift.value, transform: [{ translateX: labelX.value }, { translateY: (1 - lift.value) * 8 }] }));
+  const barStyle = useAnimatedStyle(() => ({ transform: [{ scaleX: 1 + lift.value * (reducedMotion ? 0 : 0.025) }, { scaleY: 1 + lift.value * (reducedMotion ? 0 : 0.08) }] }));
   const lastStep = useRef(selectedIndex);
   const latest = useRef({ width, options, selectedIndex, onPick });
   latest.current = { width, options, selectedIndex, onPick };
   const indexAt = (px: number) => Math.max(0, Math.min(latest.current.options.length - 1, Math.floor(px / (latest.current.width || 1) * latest.current.options.length)));
-  const preview = (index: number) => {
+  const preview = (px: number) => {
+    fingerX.value = Math.max(0, Math.min(latest.current.width, px));
+    const index = indexAt(px);
     if (latest.current.options[index]?.disabled) return;
     if (lastStep.current !== index) {
       void Haptics.selectionAsync();
@@ -297,12 +301,12 @@ export function Slider({ options, onPick }: { options: MenuOption[]; onPick: (op
   const pan = useRef(PanResponder.create({
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: () => true,
-    onPanResponderGrant: e => { lastStep.current = latest.current.selectedIndex; preview(indexAt(e.nativeEvent.locationX)); },
-    onPanResponderMove: e => preview(indexAt(e.nativeEvent.locationX)),
+    onPanResponderGrant: e => { lastStep.current = latest.current.selectedIndex; preview(e.nativeEvent.locationX); },
+    onPanResponderMove: e => preview(e.nativeEvent.locationX),
     onPanResponderRelease: e => {
       const i = indexAt(e.nativeEvent.locationX);
       const option = latest.current.options[i];
-      preview(i);
+      preview(e.nativeEvent.locationX);
       if (option && !option.disabled && i !== latest.current.selectedIndex) latest.current.onPick(option);
       setDragIndex(null);
     },
@@ -311,7 +315,7 @@ export function Slider({ options, onPick }: { options: MenuOption[]; onPick: (op
   return <View style={{ paddingTop: 28 }}>
     <Reanimated.View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants"
       style={[{ position: "absolute", top: 0, left: 0, width: 88, alignItems: "center" }, labelStyle]}>
-      {dragIndex !== null ? <Text numberOfLines={1} style={{ ...type.footnote, fontWeight: "600", color: colors.text }}>{options[active]?.label}</Text> : null}
+      {dragIndex !== null ? <Text numberOfLines={1} style={{ ...type.footnote, fontWeight: "600", color: "#fff", backgroundColor: "#303030", borderRadius: 8, overflow: "hidden", paddingHorizontal: 8, paddingVertical: 3 }}>{options[active]?.label}</Text> : null}
     </Reanimated.View>
     <View {...pan.panHandlers} onTouchStart={blockSheetDrag} onLayout={e => setWidth(e.nativeEvent.layout.width)}
       accessibilityRole="adjustable" accessibilityLabel="Thinking level" accessibilityValue={{ text: options[active]?.label }}
@@ -321,14 +325,30 @@ export function Slider({ options, onPick }: { options: MenuOption[]; onPick: (op
         const option = options[selectedIndex + step];
         if (option && !option.disabled) { void Haptics.selectionAsync(); onPick(option); }
       }}
-      style={{ height: TRACK, flexDirection: "row", borderRadius: 14, overflow: "hidden", backgroundColor: isDark ? "#191919" : colors.card }}>
+      style={{ height: TRACK }}>
+      <Reanimated.View pointerEvents="none" style={[{ height: TRACK, flexDirection: "row", borderRadius: 14, overflow: "hidden", backgroundColor: isDark ? "#191919" : colors.card }, barStyle]}>
       <Reanimated.View pointerEvents="none" style={[{ position: "absolute", top: 0, bottom: 0, left: 0, overflow: "hidden", borderRadius: 14 }, fillStyle]}>
         <LinearGradient colors={THINKING_COLORS[isDark ? "dark" : "light"]} locations={[0, 0.34, 0.68, 1]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={{ width, height: TRACK }} />
       </Reanimated.View>
       {options.map((option, index) => <View key={option.label} pointerEvents="none" style={{ flex: 1, alignItems: "center", justifyContent: "center", opacity: option.disabled ? 0.35 : 1 }}>
-        {index === active && dragIndex === null ? <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} style={{ ...type.footnote, fontWeight: "600", color: "#101010", paddingHorizontal: 4 }}>{option.label}</Text>
-          : <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: index <= active ? "#fff" : colors.textMuted }} />}
+        {index === active && dragIndex === null ? <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} style={{ ...type.footnote, fontWeight: "600", color: "#fff", paddingHorizontal: 4 }}>{option.label}</Text>
+          : <ThinkingDot fingerX={fingerX} pressed={lift} center={(index + 0.5) * width / options.length} spacing={width / options.length} color={index <= active ? "#fff" : colors.textMuted} />}
       </View>)}
+      </Reanimated.View>
     </View>
   </View>;
+}
+
+/** A continuous falloff keeps neighbouring dots growing as the finger approaches. */
+export function thinkingDotScale(distance: number, spacing: number, pressed: number): number {
+  "worklet";
+  const proximity = Math.max(0, 1 - Math.abs(distance) / Math.max(1, spacing * 1.4));
+  return 1 + pressed * proximity * 1.8;
+}
+
+function ThinkingDot({ fingerX, pressed, center, spacing, color }: {
+  fingerX: SharedValue<number>; pressed: SharedValue<number>; center: number; spacing: number; color: string;
+}) {
+  const style = useAnimatedStyle(() => ({ transform: [{ scale: thinkingDotScale(fingerX.value - center, spacing, pressed.value) }] }));
+  return <Reanimated.View style={[{ width: 4, height: 4, borderRadius: 2, backgroundColor: color }, style]} />;
 }
