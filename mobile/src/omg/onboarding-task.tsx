@@ -54,9 +54,16 @@ export function TaskScreen({
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insets.top }}>
-      {/* The lane in the corner: four versions of one title that differ only
-          below the fold would otherwise read as the screen failing to change. */}
-      <StepHeader onBack={onBack} trailing={lane.label} />
+      {/*
+       * NO LANE LABEL. Benny dropped it from the design and confirmed it.
+       *
+       * It was there because the four lane variants of this screen differ only
+       * below the fold, so going back and picking another lane could read as
+       * the screen failing to change. That risk is real but small: the tool
+       * badges and all three task titles change with the lane, and they are
+       * the first things below the heading.
+       */}
+      <StepHeader onBack={onBack} />
       <View style={{ flex: 1, paddingHorizontal: space.lg + 4, gap: space.lg }}>
         {/*
          * NO HARD LINE BREAK, unlike step 01's headline.

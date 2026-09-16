@@ -56,7 +56,13 @@ export function InterestsScreen({
     <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insets.top }}>
       <StepHeader onBack={onBack} />
       <View style={{ flex: 1, paddingHorizontal: space.lg + 4, gap: space.xl }}>
-        <StepHeading title={"What would you\nlike help with?"} />
+        {/*
+         * The design reads "What you working daily?", which is missing a verb.
+         * Shipped, it reads as a typo on the second screen anybody ever sees,
+         * so the sense is kept and the grammar fixed. No hard line break: one
+         * sentence, and a forced break strands a word on a narrow phone.
+         */}
+        <StepHeading title="What do you work on daily?" />
 
         <View>
           {INTEREST_LANES.map((lane, index) => {

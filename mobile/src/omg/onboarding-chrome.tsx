@@ -73,11 +73,13 @@ export function SecondaryAction({ label, onPress }: { label: string; onPress: ()
 }
 
 /**
- * The top row: a back chevron, and on step 03 the lane you picked.
+ * The top row: a back chevron, and optionally a word in the corner.
  *
- * The lane label is there so the branch is never a mystery -- four versions of
- * "Choose your first task" that differ only in their contents would otherwise
- * look like the same screen failing to change.
+ * `trailing` carried the chosen lane on step 03 so the branch was never a
+ * mystery. Benny dropped it from the design, so nothing passes it today. The
+ * prop stays because the header is shared and a corner word is an ordinary
+ * thing for it to offer -- but do not restore the lane label here without
+ * checking the design first.
  */
 export function StepHeader({ onBack, trailing }: { onBack?: () => void; trailing?: string }) {
   const { colors, space, type } = useTheme();
