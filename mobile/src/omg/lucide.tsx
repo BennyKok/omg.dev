@@ -32,11 +32,26 @@ import { Text } from "react-native";
 /** Must match the key `useFonts` registers below, and nothing else uses it. */
 export const LUCIDE_FONT_FAMILY = "Lucide";
 
-/** Codepoints from lucide-static@1.31.0, `font/codepoints.json`. */
+/**
+ * Codepoints from lucide-static@1.31.0, `font/codepoints.json`.
+ *
+ * Every one of these was read out of that table, not guessed. A wrong
+ * codepoint is not a compile error and not a crash: it draws a tofu box, or
+ * worse, some unrelated glyph that looks deliberate. The three that were here
+ * first were re-checked against the same table when the rest were added, which
+ * is also how the table is confirmed to match the committed font.
+ */
 export const LUCIDE = {
   monitor: 0xe11d,
   settings: 0xe154,
   bot: 0xe1bb,
+  // The side navigation.
+  "message-circle": 0xe116,
+  archive: 0xe041,
+  bell: 0xe059,
+  "calendar-clock": 0xe304,
+  keyboard: 0xe284,
+  "chevrons-up-down": 0xe211,
 } as const;
 
 export type LucideName = keyof typeof LUCIDE;

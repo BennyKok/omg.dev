@@ -78,6 +78,27 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # SEVEN OF THE NATIVE CHECKS RENDER COMPONENTS, and they do it through
+      # `web/src/test-support/render`, importing React from the WEB workspace's
+      # node_modules. The step above installs `mobile/` only -- a separate npm
+      # graph -- so on a runner those seven died at import with
+      # "Cannot find module '../../web/node_modules/react/jsx-dev-runtime'".
+      #
+      # They passed locally the whole time, because a dev box has the root
+      # workspace installed already. That is exactly the shape of gap that let
+      # eight check files go unrun for months: green here, absent there.
+      - name: Install the workspace deps the render harness needs
+        working-directory: ${{ github.workspace }}
+        run: |
+          bun install --frozen-lockfile
+          # Asserted, not assumed: the checks import React by PATH from the web
+          # workspace, so a hoist that put it somewhere else would break them
+          # again with the same unhelpful "module not found" at import.
+          if [ ! -d web/node_modules/react ]; then
+            echo "::error::web/node_modules/react is missing after a workspace install; the render-harness checks cannot run."
+            exit 1
+          fi
+
       # Both checks below are cheap and run BEFORE anything bills. `expo export`
       # pushes the whole app through Metro and fails on breakage that tsc alone
       # misses, which has caught real problems in this project.

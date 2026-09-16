@@ -48,9 +48,9 @@ import Reanimated, {
   withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { AndroidSymbol, SFSymbol } from "expo-symbols";
 
 import { Icon, StatusDot } from "../components";
+import { LucideIcon, type LucideName } from "./lucide";
 import { BrandWordmark } from "./brand-mark";
 import { GlassSurface } from "./glass";
 import { DropdownMenu, type MenuOption } from "./menu";
@@ -59,14 +59,32 @@ import { sideNavRows, type SideNavRowKey } from "./side-nav-items";
 import { Text } from "./text";
 import { useTheme } from "./theme";
 
-/** The glyph for each row. Kept with the view so the row list stays testable. */
-const GLYPH: Record<SideNavRowKey, { ios: SFSymbol; android: AndroidSymbol }> = {
-  live: { ios: "bolt", android: "bolt" },
-  archive: { ios: "archivebox", android: "archive" },
-  notifications: { ios: "bell", android: "notifications" },
-  schedules: { ios: "calendar.badge.clock", android: "schedule" },
-  settings: { ios: "gearshape", android: "settings" },
-  shortcuts: { ios: "keyboard", android: "keyboard" },
+/**
+ * The glyph for each row. Kept with the view so the row list stays testable.
+ *
+ * THIS COLUMN IS LUCIDE, and it is the exception rather than the new rule.
+ *
+ * Everywhere else in the app a glyph is an SF Symbol, because those carry the
+ * system's optical weights and match the bar, the keyboard and the menus for
+ * free. The side navigation is the one surface where the set has to read as
+ * ONE family: eight rows stacked in a column, where SF Symbols' varying
+ * optical weights and widths showed up as a ragged edge that a single icon
+ * cannot -- `bolt` is dense, `archivebox` is airy, and stacked they looked
+ * borrowed from different apps.
+ *
+ * Lucide is one stroke weight by construction, so the column lines up. Do not
+ * take this as licence to convert other screens; see lucide.tsx for why the
+ * font is here at all.
+ */
+const GLYPH: Record<SideNavRowKey, LucideName> = {
+  // "Chat", so a speech bubble rather than the old `bolt`, which said
+  // "fast" about a page that is a conversation.
+  live: "message-circle",
+  archive: "archive",
+  notifications: "bell",
+  schedules: "calendar-clock",
+  settings: "settings",
+  shortcuts: "keyboard",
 };
 
 /** Wide enough for a machine name, never more than most of a phone. */
@@ -99,15 +117,13 @@ export type SideNavProps = {
 
 function NavRow({
   label,
-  ios,
-  android,
+  glyph,
   selected,
   onPress,
   accessory,
 }: {
   label: string;
-  ios: SFSymbol;
-  android: AndroidSymbol;
+  glyph: LucideName;
   selected?: boolean;
   onPress?: () => void;
   accessory?: React.ReactNode;
@@ -141,7 +157,7 @@ function NavRow({
       })}
     >
       <View style={{ width: 28, alignItems: "center", justifyContent: "center" }}>
-        <Icon ios={ios} android={android} size={22} weight="regular" color={colors.text} />
+        <LucideIcon name={glyph} size={22} color={colors.text} />
       </View>
       <Text
         numberOfLines={1}
@@ -199,7 +215,7 @@ export function SideNavPanel({
           }}
         >
           <View style={{ width: 28, alignItems: "center" }}>
-            <Icon ios="desktopcomputer" android="computer" size={22} color={colors.text} />
+            <LucideIcon name="monitor" size={22} color={colors.text} />
           </View>
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text
@@ -210,7 +226,7 @@ export function SideNavPanel({
             </Text>
           </View>
           <StatusDot busy={online} size={7} />
-          <Icon ios="chevron.up.chevron.down" android="unfold_more" size={12} color={colors.textMuted} />
+          <LucideIcon name="chevrons-up-down" size={12} color={colors.textMuted} />
         </View>
       </DropdownMenu>
       <View style={{ height: 12 }} />
@@ -219,7 +235,7 @@ export function SideNavPanel({
           <NavRow
             key={row.key}
             label={row.label}
-            {...GLYPH[row.key]}
+            glyph={GLYPH[row.key]}
             selected={row.current}
             onPress={() => {
               onDismiss?.();
@@ -232,7 +248,7 @@ export function SideNavPanel({
           <NavRow
             key={row.key}
             label={row.label}
-            {...GLYPH[row.key]}
+            glyph={GLYPH[row.key]}
             onPress={() => {
               onDismiss?.();
               onShortcuts?.();
