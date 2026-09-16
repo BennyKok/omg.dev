@@ -8,7 +8,20 @@ const View = ({children}: any) => <div>{children}</div>;
 const Pressable = ({children,onPress,disabled,accessibilityLabel}: any) => <button aria-label={accessibilityLabel} disabled={disabled} onClick={onPress}>{children}</button>;
 let input: any;
 mock.module(resolve(import.meta.dir, '../node_modules/react-native/index.js'), () => ({View,ScrollView:View,Image:()=>null,ActivityIndicator:()=>null,Pressable,useWindowDimensions:()=>({width:393,height:400}),StyleSheet:{hairlineWidth:1,create:(s:any)=>s}}));
-mock.module(import.meta.resolve('react-native-reanimated'), () => ({default:{View},Easing:{linear:(x:any)=>x},useSharedValue:(value:any)=>React.useRef({value}).current,useAnimatedStyle:(fn:any)=>fn(),withTiming:(x:any)=>x,withRepeat:(x:any)=>x}));
+// A chainable stub for the layout-transition builders: every method returns
+// the builder, so `.duration().easing().reduceMotion()` resolves to an object
+// the mocked views simply ignore.
+const chain: any = new Proxy({}, {get:()=>()=>chain});
+mock.module(import.meta.resolve('react-native-reanimated'), () => ({
+ default:{View, createAnimatedComponent:(C:any)=>C},
+ Easing:{linear:(x:any)=>x, bezier:()=>(x:any)=>x},
+ LinearTransition: chain,
+ ReduceMotion:{Always:'always',Never:'never'},
+ useSharedValue:(value:any)=>React.useRef({value}).current,
+ useAnimatedStyle:(fn:any)=>fn(),
+ withTiming:(x:any)=>x,
+ withRepeat:(x:any)=>x,
+}));
 mock.module(import.meta.resolve('expo-symbols'), () => ({SymbolView:()=>null}));
 const local = (file:string, exports:any) => mock.module(resolve(import.meta.dir, `../src/omg/${file}`), () => exports);
 local('sheet.tsx',{Sheet:()=>null});
@@ -21,10 +34,10 @@ local('menu.tsx',{DropdownMenu:View});
 local('agent-setup-sheet.tsx',{AgentSetupSheet:()=>null});
 local('skill-suggest.tsx',{SkillSuggest:()=>null});
 local('session-mention-suggest.tsx',{SessionMentionSuggest:()=>null});
-local('motion.tsx',{PressableScale:Pressable,useListItemMotion:()=>({})});
+local('motion.tsx',{PressableScale:Pressable,useListItemMotion:()=>({}),useReduceMotionEnabled:()=>false});
 local('swipe-row.ts',{useSwipeToCommit:()=>({})});
-const { light, space, type, radius } = await import('../src/omg/palette');
-local('theme.ts',{useTheme:()=>({colors:light,space,type,radius,isDark:false})});
+const { light, space, type, radius, motion } = await import('../src/omg/palette');
+local('theme.ts',{useTheme:()=>({colors:light,space,type,radius,motion,isDark:false})});
 const {HomeComposer}=await import('../src/components');
 test('the live composer grows from measured text, caps scrolling, and resets after clearing',()=>{
  const ui=mount();

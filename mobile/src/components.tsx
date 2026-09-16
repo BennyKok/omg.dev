@@ -18,6 +18,8 @@ import {
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Reanimated, {
   Easing,
+  LinearTransition,
+  ReduceMotion,
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
@@ -46,7 +48,7 @@ import { DropdownMenu, type MenuOption } from "./omg/menu";
 import { AgentSetupSheet } from "./omg/agent-setup-sheet";
 import { SkillSuggest } from "./omg/skill-suggest";
 import { SessionMentionSuggest } from "./omg/session-mention-suggest";
-import { PressableScale, useListItemMotion } from "./omg/motion";
+import { PressableScale, useListItemMotion, useReduceMotionEnabled } from "./omg/motion";
 import { useSwipeToCommit } from "./omg/swipe-row";
 import { useTheme } from "./omg/theme";
 
@@ -983,6 +985,16 @@ const COMPOSER_MAX_LINES = 8;
 /** Never shrinks below this on a short window, or the cap stops meaning anything. */
 const COMPOSER_MIN_LINES = 3;
 
+/**
+ * The composer's surface, animatable.
+ *
+ * Created once at module scope: `createAnimatedComponent` builds a new
+ * component type, and doing that inside a render would give React a different
+ * type every frame and remount the whole composer -- which is the bug the
+ * fixed field slot below exists to prevent, reintroduced by the cure.
+ */
+const AnimatedGlassSurface = Reanimated.createAnimatedComponent(GlassSurface);
+
 export function HomeComposer({
   value,
   onChangeText,
@@ -1047,7 +1059,7 @@ export function HomeComposer({
   usageLoading?: boolean;
   bottomInset?: number;
 }) {
-  const { colors, isDark, radius, type, space } = useTheme();
+  const { colors, isDark, radius, type, space, motion } = useTheme();
   const [usageSheet, setUsageSheet] = useState<"agent" | "all" | null>(null);
   /** The not-yet-settled words, when a live take is running. */
   const dictationTail =
@@ -1092,6 +1104,57 @@ export function HomeComposer({
     ? Math.max(COMPOSER_LINE, Math.min(maxInputHeight, inputHeight))
     : COMPOSER_LINE;
   const expanded = composerFocused || hasMessage || dictation.state !== "idle";
+  /**
+   * ONE VALUE DRIVES THE MORPH, so the parts cannot arrive out of step.
+   *
+   * `flexDirection` is a discrete layout property: row does not tween into
+   * column, and nothing can make it. What sells the change is everything
+   * around it moving together -- the box growing, the corners opening from 26
+   * to 30, the padding relaxing -- and the field gliding from beside the
+   * controls to above them, which the `layout` transitions below carry.
+   *
+   * Reduce Motion is honoured by jumping the same value rather than by
+   * skipping the styles, so the composer still ends in exactly the same shape.
+   */
+  const stillMotion = useReduceMotionEnabled();
+  const morph = useSharedValue(expanded ? 1 : 0);
+  useEffect(() => {
+    morph.value = stillMotion
+      ? (expanded ? 1 : 0)
+      : withTiming(expanded ? 1 : 0, {
+          duration: motion.fast,
+          easing: Easing.bezier(...motion.easeSmoothOut),
+        });
+  }, [expanded, morph, stillMotion, motion.fast, motion.easeSmoothOut]);
+  /*
+   * The arithmetic is INLINE, not a helper.
+   *
+   * `useAnimatedStyle` runs on the UI runtime. A tidy `lerp` defined out here
+   * is an ordinary JS-thread closure, and calling one from a worklet throws
+   * "Tried to synchronously call a Remote Function" at runtime -- which the
+   * check harness cannot see, because it mocks `useAnimatedStyle` as a plain
+   * call on the JS thread. Caught on a device.
+   *
+   * Plain numbers like `space.sm` are captured by value and are fine.
+   */
+  const collapsedPad = space.sm;
+  const morphStyle = useAnimatedStyle(() => {
+    const t = morph.value;
+    return {
+      borderRadius: 26 + 4 * t,
+      paddingTop: 7 + 7 * t,
+      paddingBottom: 7 + 5 * t,
+      paddingHorizontal: collapsedPad + (14 - collapsedPad) * t,
+    };
+  });
+  /*
+   * The children glide to their new places instead of jumping. Without this
+   * the box animates and its contents teleport inside it, which reads as a
+   * glitch rather than a morph.
+   */
+  const slide = LinearTransition.duration(motion.fast)
+    .easing(Easing.bezier(...motion.easeSmoothOut))
+    .reduceMotion(stillMotion ? ReduceMotion.Always : ReduceMotion.Never);
   const agentControl = hasSetup ? (
     <PressableScale
       onPress={() => setSetupOpen(true)}
@@ -1227,19 +1290,19 @@ export function HomeComposer({
       />
       {/* Liquid Glass on iOS 26+, a solid card everywhere else. */}
       <AttachmentStrip items={attachments.items} onRemove={attachments.remove} />
-      <GlassSurface
+      <AnimatedGlassSurface
         variant="regular"
         fallbackColor={colors.card}
-        style={{
+        // The height change is a layout change, so the container's own
+        // transition carries it; the corners and padding are style changes and
+        // ride `morphStyle`.
+        layout={slide}
+        style={[morphStyle, {
           flexDirection: expanded ? "column" : "row",
           alignItems: expanded ? "stretch" : "center",
           gap: expanded ? 14 : space.sm,
-          borderRadius: expanded ? 30 : 26,
           borderCurve: "continuous",
           minHeight: 52,
-          paddingTop: expanded ? 14 : 7,
-          paddingBottom: expanded ? 12 : 7,
-          paddingHorizontal: expanded ? 14 : space.sm,
           overflow: "hidden",
           shadowColor: colors.text,
           shadowOpacity: isDark || LIQUID_GLASS ? 0 : 0.08,
@@ -1247,7 +1310,7 @@ export function HomeComposer({
           shadowOffset: { width: 0, height: 4 },
           elevation: 2,
           ...(LIQUID_GLASS ? {} : hairline),
-        }}
+        }]}
       >
         {/*
          * THE FIELD KEEPS ITS SLOT IN BOTH LAYOUTS, and that is the whole
@@ -1277,7 +1340,7 @@ export function HomeComposer({
         {expanded ? null : agentControl}
         {inputControl}
         {expanded ? (
-          <View style={{ minHeight: 40, flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <Reanimated.View layout={slide} style={{ minHeight: 40, flexDirection: "row", alignItems: "center", gap: 8 }}>
             {agentControl}
             {attachmentControl}
             <View style={{ flex: 1 }} />
@@ -1294,14 +1357,14 @@ export function HomeComposer({
                 onConfirm={dictation.toggle}
               />
             )}
-          </View>
+          </Reanimated.View>
         ) : (
-          <>
+          <Reanimated.View layout={slide} style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
             {attachmentControl}
             {micControl}
-          </>
+          </Reanimated.View>
         )}
-      </GlassSurface>
+      </AnimatedGlassSurface>
       <AgentSetupSheet
         visible={setupOpen}
         onClose={() => setSetupOpen(false)}

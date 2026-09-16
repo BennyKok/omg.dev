@@ -12,8 +12,8 @@
  */
 
 import { GlassView, isLiquidGlassAvailable } from "expo-glass-effect";
-import type { ReactNode } from "react";
-import { View, type ViewStyle } from "react-native";
+import { forwardRef, type ReactNode } from "react";
+import { View, type StyleProp, type ViewStyle } from "react-native";
 
 /**
  * Checked once at module scope rather than per render: it is a static property
@@ -33,27 +33,31 @@ export const LIQUID_GLASS = (() => {
   }
 })();
 
-export function GlassSurface({
-  children,
-  style,
-  /** Solid colour used when the OS cannot draw glass. */
-  fallbackColor,
-  /** 'clear' for chrome floating over content, 'regular' for panels. */
-  variant = "regular",
-  tintColor,
-}: {
+/**
+ * `forwardRef`, and `StyleProp<ViewStyle>` rather than a bare `ViewStyle`, so
+ * this can be wrapped by `Reanimated.createAnimatedComponent`.
+ *
+ * Reanimated drives an animated component by getting a ref to its underlying
+ * host view and writing straight to it, and it passes the animated style down
+ * as an opaque style object. Without the ref it silently animates nothing;
+ * without the wider style type an animated style will not type-check. The
+ * composer morph is the first caller that needs either.
+ */
+export const GlassSurface = forwardRef<View, {
   children?: ReactNode;
-  style?: ViewStyle;
+  style?: StyleProp<ViewStyle>;
+  /** Solid colour used when the OS cannot draw glass. */
   fallbackColor: string;
+  /** 'clear' for chrome floating over content, 'regular' for panels. */
   variant?: "clear" | "regular";
   tintColor?: string;
-}) {
+}>(function GlassSurface({ children, style, fallbackColor, variant = "regular", tintColor }, ref) {
   if (!LIQUID_GLASS) {
-    return <View style={[style, { backgroundColor: fallbackColor }]}>{children}</View>;
+    return <View ref={ref} style={[style, { backgroundColor: fallbackColor }]}>{children}</View>;
   }
   return (
-    <GlassView style={style} glassEffectStyle={variant} tintColor={tintColor}>
+    <GlassView ref={ref as never} style={style} glassEffectStyle={variant} tintColor={tintColor}>
       {children}
     </GlassView>
   );
-}
+});
