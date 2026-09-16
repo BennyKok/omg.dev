@@ -70,6 +70,7 @@ export function AgentSetupSheet({
             {agentOptions.map((option, index) => <AgentTile key={option.id ?? `${option.label}:${index}`} option={option}
               onPress={() => pick(option)} onLongPress={option.id === "aisdk" && accountOptions.length ? () => { pick(option); setPage("profiles"); } : undefined} />)}
           </ScrollView>
+          <View>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
           {(modelLabel || modelOptions.length > 0) ? <Pressable accessibilityRole="button" accessibilityLabel={`Model ${modelLabel ?? modelOptions.find(o => o.selected)?.label ?? "default"}. Change model`}
             onPress={() => setPage("models")} disabled={!modelOptions.length}
@@ -83,6 +84,7 @@ export function AgentSetupSheet({
           </Pressable> : null}
           </View>
           {thinkingOptions.length ? <Slider options={thinkingOptions} onPick={option => option.onPress?.()} /> : null}
+          </View>
           {action ? <PressableScale onPress={action.onPress} accessibilityRole="button" style={{ alignItems: "center", padding: 12, borderRadius: 14, backgroundColor: colors.text }}>
             <Text style={{ ...type.headline, color: colors.bg }}>{action.label}</Text>
           </PressableScale> : null}
@@ -312,9 +314,9 @@ export function Slider({ options, onPick }: { options: MenuOption[]; onPick: (op
     },
     onPanResponderTerminate: () => setDragIndex(null),
   })).current;
-  return <View style={{ paddingTop: 28 }}>
+  return <View style={{ zIndex: 1 }}>
     <Reanimated.View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants"
-      style={[{ position: "absolute", top: 0, left: 0, width: 88, alignItems: "center" }, labelStyle]}>
+      style={[{ position: "absolute", top: -30, left: 0, width: 88, alignItems: "center" }, labelStyle]}>
       {dragIndex !== null ? <Text numberOfLines={1} style={{ ...type.footnote, fontWeight: "600", color: "#fff", backgroundColor: "#303030", borderRadius: 8, overflow: "hidden", paddingHorizontal: 8, paddingVertical: 3 }}>{options[active]?.label}</Text> : null}
     </Reanimated.View>
     <View {...pan.panHandlers} onTouchStart={blockSheetDrag} onLayout={e => setWidth(e.nativeEvent.layout.width)}
