@@ -45,6 +45,15 @@ export type InterestLane = {
    * Tool badges above the tasks. They say which workflows this lane fits, and
    * are NOT connect buttons -- the example tasks use sample inputs, and an
    * account is connected only when something actually needs it.
+   *
+   * KEEP THIS LIST TO MARKS WE MAY ACTUALLY SHIP. The design draws each badge
+   * with the vendor's logo, and that logo goes into an App Store binary. Excel
+   * and Jira were dropped for exactly that reason: Microsoft and Atlassian
+   * both gate those assets behind a permission or licence page, and a missing
+   * badge is a smaller problem than an unlicensed one. Benny made that call.
+   *
+   * Before adding a name here, check the vendor publishes a mark that may be
+   * used without written permission.
    */
   tools: string[];
   tasks: OnboardingTask[];
@@ -84,7 +93,7 @@ export const INTEREST_LANES: InterestLane[] = [
     key: "data",
     label: "Data & insights",
     word: "insights",
-    tools: ["Sheets", "Excel", "PostgreSQL"],
+    tools: ["Sheets", "PostgreSQL"],
     tasks: [
       {
         id: "data-trends",
@@ -110,7 +119,7 @@ export const INTEREST_LANES: InterestLane[] = [
     key: "code",
     label: "Code & reviews",
     word: "code",
-    tools: ["GitHub", "Linear", "Jira"],
+    tools: ["GitHub", "Linear"],
     tasks: [
       {
         id: "code-review",
