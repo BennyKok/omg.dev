@@ -30,16 +30,16 @@ function Lights({ points, index, phase, color }: {
   });
   return <Animated.View style={[StyleSheet.absoluteFill, style]}>
     {points.map(({ x, y, strength }) => <View key={`${x}:${y}`} style={{
-      position: "absolute", left: x - 1.5, top: y - 1.5,
-      width: 3, height: 3, borderRadius: 0.75,
+      position: "absolute", left: x - 1.75, top: y - 1.75,
+      width: 3.5, height: 3.5, borderRadius: 0.875,
       backgroundColor: color, opacity: strength,
     }} />)}
   </Animated.View>;
 }
 
 /** Decorative working state. The session remains the sole owner of busy. */
-export function SessionActivityField({ identity, cornerRadius }: {
-  identity: string; cornerRadius: number;
+export function SessionActivityField({ identity, cornerRadius, horizontalOutset = 0 }: {
+  identity: string; cornerRadius: number; horizontalOutset?: number;
 }) {
   const { isDark } = useTheme();
   const reducedMotion = useReduceMotionEnabled();
@@ -90,12 +90,16 @@ export function SessionActivityField({ identity, cornerRadius }: {
     onLayout={({ nativeEvent: { layout } }) => setSize((old) =>
       old.width === layout.width && old.height === layout.height ? old :
         { width: layout.width, height: layout.height })}
-    style={[StyleSheet.absoluteFill, { borderRadius: cornerRadius, overflow: "hidden" }]}>
+    style={[StyleSheet.absoluteFill, {
+      left: -horizontalOutset, right: -horizontalOutset,
+      borderRadius: cornerRadius, overflow: "hidden",
+    }]}>
     <Animated.View style={[StyleSheet.absoluteFill, breath]}>
       <LinearGradient
-        colors={isDark ? ["#8daec900", "#8daec907", "#8daec913", "#8daec900"]
-          : ["#52677e00", "#52677e03", "#52677e09", "#52677e00"]}
-        locations={[0, 0.4, 0.8, 1]} style={StyleSheet.absoluteFill} />
+        colors={isDark ? ["#8daec900", "#8daec907", "#8daec90c", "#8daec907", "#8daec900"]
+          : ["#52677e00", "#52677e03", "#52677e06", "#52677e03", "#52677e00"]}
+        start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }}
+        locations={[0, 0.12, 0.5, 0.88, 1]} style={StyleSheet.absoluteFill} />
     </Animated.View>
     {groups.map((points, index) => <Lights key={index} points={points}
       index={index} phase={phase} color={isDark ? "#a7bacb" : "#52677e"} />)}

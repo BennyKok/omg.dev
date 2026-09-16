@@ -888,7 +888,8 @@ export function SessionCard({
           })}
         >
           {busy && !blocked && !ended ? <SessionActivityField
-            identity={sessionId ?? title} cornerRadius={radius.md} /> : null}
+            identity={sessionId ?? title} cornerRadius={radius.md}
+            horizontalOutset={compact ? 0 : SESSION_ROW.inset} /> : null}
           <AgentAvatar agent={agent} size={compact ? 28 : SESSION_ROW.avatar} plain />
           <View style={{ flex: 1, gap: SESSION_ROW.textGap, minWidth: 0 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 }}>
