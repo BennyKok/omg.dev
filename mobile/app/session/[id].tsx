@@ -117,7 +117,7 @@ import {
   AttachmentStrip,
   Icon,
   IconButton,
-  VoiceMeter,
+  InlineVoiceRecorder,
   withAlpha,
 } from "../../src/components";
 import { useAttachments } from "../../src/omg/attachments";
@@ -272,9 +272,6 @@ export function SessionScreenBody({
    * state around one callback.
    */
   const submitRef = useRef<((text: string) => void) | null>(null);
-  /** Where the finger went down on the mic, so an upward drag can cancel once. */
-  const cancelSwipeRef = useRef<{ y: number; fired: boolean } | null>(null);
-
   /** The not-yet-settled words, when a live take is running. */
   const dictationTail =
     dictation.live && dictation.state === "recording" ? (dictation.partial ?? "").trim() : "";
@@ -1888,6 +1885,8 @@ export function SessionScreenBody({
   const [composerHeight, setComposerHeight] = useState(0);
   /** The field has the keyboard: a little more room around the text while typing. */
   const [composerFocused, setComposerFocused] = useState(false);
+  const composerExpanded =
+    composerFocused || draft.trim().length > 0 || dictation.state !== "idle";
 
   /**
    * THE LIFT ALONE IS NOT ENOUGH — the list has to follow it.
@@ -2348,7 +2347,7 @@ export function SessionScreenBody({
         <HeldQueue items={held} busy={busy} onEdit={editHeld} onRemove={removeHeld} onSendNow={steerHeld} />
 
         {/**
-         * THE FIELD GETS THE WHOLE WIDTH, and the buttons get their own row.
+         * FOCUS GIVES THE FIELD THE WHOLE WIDTH and the buttons their own row.
          *
          * They used to share one line: stop, paperclip, mic and history all
          * squeezed to the left of a field that ended up about half the bar.
@@ -2362,40 +2361,37 @@ export function SessionScreenBody({
          * transcript reads as a slab; the glass is what makes it chrome
          * floating over content rather than a panel pasted on.
          */}
-        {/* ATTACH IS ITS OWN BUTTON, beside the field rather than inside it.
-            Everything in the box acts on the text you are writing; attaching a
-            file adds a different KIND of thing to the message, and it earns a
-            control of its own — the plus button's place in Messages. Its own
-            glass circle, bottom-aligned so it stays level with the last line
-            as the field grows. */}
+        {/* At rest this stays a compact one-line field. Focus, typed text, and
+            dictation expand the same surface. */}
         <View ref={composerSource} collapsable={false} style={{ flexDirection: "row", alignItems: "flex-end", gap: space.sm, zIndex: 1 }}>
         <GlassSurface
           variant="regular"
           fallbackColor={colors.card}
           style={{
             flex: 1,
-            flexDirection: "row",
+            flexDirection: composerExpanded ? "column" : "row",
             // CENTRED, not bottom-aligned. One line of text in a 52pt box sat
             // on the floor of it with all the slack above — the placeholder
             // read as if it had slipped. The field grows with the text, so
             // centring stays right at every height.
-            alignItems: "center",
-            gap: space.xs,
+            alignItems: composerExpanded ? "stretch" : "center",
+            gap: composerExpanded ? 14 : space.xs,
             // Rounder than the panels around it, because it is a control and
             // not a surface — but not a full pill, which bulges once the field
             // grows to 120pt for a long prompt.
-            borderRadius: 24,
+            borderRadius: composerExpanded ? 32 : 24,
+            borderCurve: "continuous",
             // The same 44 as the attach button next to it. At 52 the two
             // controls on one row were visibly different heights, which reads
             // as a mistake rather than a hierarchy.
             minHeight: 44,
             // The attach button lives inside the field now, so the text no
             // longer starts at the field's own inset — the button provides it.
-            paddingLeft: space.sm,
-            paddingRight: space.sm,
+            paddingHorizontal: composerExpanded ? 14 : space.sm,
             // A touch taller while typing, so the caret line does not sit
             // tight against the glass edge under the keyboard.
-            paddingVertical: composerFocused ? 11 : 8,
+            paddingTop: composerExpanded ? 14 : 8,
+            paddingBottom: composerExpanded ? 12 : 8,
             overflow: "hidden",
             // Only when the OS cannot draw glass: the fallback is a flat fill,
             // and a flat fill with no edge disappears into the page.
@@ -2404,35 +2400,33 @@ export function SessionScreenBody({
               : { borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }),
           }}
         >
-          {/* Attach sits at the HEAD of the field, where the thing it adds
-              will appear. It used to be a disc OUTSIDE the field, which put
-              two of the composer's three controls outside the box they act
-              on — the web moved its own attach inside the composer pill on
-              2026-08-23 (32289caf7) for the same reason, and this comment has
-              described the intended arrangement since before the button
-              actually moved.
-              
-              The web draws it as a `+`; here it stays a paperclip, because
-              `plus` is already the send button's busy state (queue this turn)
-              and one glyph cannot mean both. */}
-          <DropdownMenu options={attachments.options} style={{ width: 32, height: 32 }}>
-            <View
-              accessibilityRole="button"
-              accessibilityLabel="Attach a file"
-              style={{
-                width: 32,
-                height: 32,
-                borderRadius: 16,
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <Icon ios="paperclip" android="attach_file" size={18} color={colors.textSecondary} />
-            </View>
-          </DropdownMenu>
+          {!composerExpanded ? (
+            <DropdownMenu options={attachments.options} style={{ width: 32, height: 32 }}>
+              <View
+                accessibilityRole="button"
+                accessibilityLabel="Attach a file"
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 16,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Icon ios="plus" android="add" size={20} color={colors.textSecondary} />
+              </View>
+            </DropdownMenu>
+          ) : null}
 
-          <View style={{ flex: 1, flexDirection: "row", alignItems: "center" }}>
-          <TextInput
+          <View
+            style={{
+              flex: composerExpanded ? undefined : 1,
+              width: composerExpanded ? "100%" : undefined,
+              flexDirection: "row",
+              alignItems: "center",
+            }}
+          >
+            <TextInput
             /**
              * THE LIVE TRANSCRIPT GOES IN THE FIELD. Dictation is typing with
              * your voice, so the words belong where typed words would be —
@@ -2495,8 +2489,8 @@ export function SessionScreenBody({
               fontSize: 16,
               lineHeight: 21,
             }}
-          />
-          {/* Confirmation paints over the empty field. It never adds a row
+            />
+            {/* Confirmation paints over the empty field. It never adds a row
               or changes the measured composer/transcript padding. */}
           {queuedHint && !draft && !dictationTail ? (
             <Reanimated.View
@@ -2508,150 +2502,101 @@ export function SessionScreenBody({
               <Icon ios="clock" android="schedule" size={13} color={colors.textMuted} />
               <Text style={{ ...type.callout, color: colors.textMuted }}>Queued</Text>
             </Reanimated.View>
-          ) : null}
+            ) : null}
           </View>
-          {/**
-           * ONE BUTTON, TWO JOBS, decided by whether there is anything to
-           * send. An empty composer can only be filled — so it offers the
-           * mic. The moment there are words, the only thing you want is to
-           * send them, so the same spot becomes the arrow. Showing both at
-           * once means one of them is always the wrong answer, and on a phone
-           * that is a 44pt target spent on nothing.
-           */}
-          {canSend || sending ? (
-            <Pressable
-              /**
-               * `key` IS LOAD-BEARING. Both branches of this ternary render a
-               * bare `Pressable` in the same slot, so without distinct keys
-               * React reconciles them as the SAME element — same instance,
-               * same native view, props swapped in place — and a gesture that
-               * is still in progress carries straight over to the other
-               * button's handlers.
-               *
-               * That is how holding this button used to start dictation. The
-               * hold queued the message, which cleared the draft, which
-               * flipped `canSend` false, which turned this into the mic —
-               * under a finger that had never lifted — and the mic's own
-               * `onPress`/`onLongPress` inherited the live press. Queueing on
-               * release (below) closes the window that made it easy to hit;
-               * these keys close the mechanism, so any future state flip
-               * mid-press kills the gesture with its view instead of handing
-               * it to a control that means something else.
-               */
-              key="composer-send"
-              /**
-               * QUEUE ON RELEASE, NOT AT THE 320ms MARK.
-               *
-               * `onLongPress` fires while the finger is still down, so the
-               * message left, the draft cleared and the button changed shape
-               * mid-gesture. The hold now only ARMS the queue (with a haptic,
-               * so the arming is something you feel rather than guess at), and
-               * the send happens on release like every other button.
-               *
-               * Deciding in `onPress` rather than `onPressOut` is deliberate:
-               * `onPress` is the one that does NOT fire if you slide off the
-               * button before letting go, so dragging away still cancels.
-               */
-              onPressIn={() => {
-                const hold: QueueHold = { armed: false, timer: null };
-                hold.timer = setTimeout(() => {
-                  hold.armed = true;
-                  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                }, 320);
-                queueHoldRef.current = hold;
-              }}
-              onPressOut={() => {
-                // Only stop the clock. `armed` has to survive into `onPress`,
-                // which Pressability calls after this.
-                const hold = queueHoldRef.current;
-                if (hold?.timer) {
-                  clearTimeout(hold.timer);
-                  hold.timer = null;
-                }
-              }}
-              onPress={() => send(queueHoldRef.current?.armed ? alternateSendMode : sendMode)}
-              disabled={!canSend}
-              accessibilityRole="button"
-              accessibilityLabel={
-                !busy ? "Send the message" : sendMode === "queue" ? "Queue the message" : "Send the message now"
-              }
-              accessibilityHint={
-                sendMode === "queue"
-                  ? "Press and hold to send it into the current turn"
-                  : "Press and hold to queue it behind the current turn"
-              }
-              accessibilityState={{ disabled: !canSend, busy: sending }}
-              style={({ pressed }) => ({
-                width: 32,
-                height: 32,
-                borderRadius: 16,
-                alignItems: "center",
-                justifyContent: "center",
-                backgroundColor: colors.foreground,
-                opacity: !canSend ? 0.3 : pressed ? 0.75 : 1,
-              })}
-            >
-              {/* Always the arrow. A "+" while the agent worked read as
-                  "attach", and the hold-to-queue affordance was never in
-                  the glyph anyway — it is in the hold. */}
-              <Icon
-                ios="arrow.up"
-                android="arrow_upward"
-                size={15}
-                weight="semibold"
-                color={colors.bg}
-              />
-            </Pressable>
+          {composerExpanded ? (
+            <View style={{ minHeight: 40, flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <DropdownMenu options={attachments.options} style={{ width: 34, height: 34 }}>
+                <View
+                  accessibilityRole="button"
+                  accessibilityLabel="Attach a file"
+                  style={{ width: 34, height: 34, alignItems: "center", justifyContent: "center" }}
+                >
+                  <Icon ios="plus" android="add" size={20} color={colors.textSecondary} />
+                </View>
+              </DropdownMenu>
+              <View style={{ flex: 1 }} />
+              {dictation.state === "idle" ? (
+                <>
+                  <Pressable
+                    key="composer-mic"
+                    onPress={dictation.toggle}
+                    accessibilityRole="button"
+                    accessibilityLabel="Dictate a message"
+                    hitSlop={8}
+                    style={({ pressed }) => ({
+                      width: 34,
+                      height: 34,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      opacity: pressed ? 0.6 : 1,
+                    })}
+                  >
+                    <Icon ios="mic" android="mic" size={18} color={colors.textSecondary} />
+                  </Pressable>
+                  <Pressable
+                    key="composer-send"
+                    onPressIn={() => {
+                      const hold: QueueHold = { armed: false, timer: null };
+                      hold.timer = setTimeout(() => {
+                        hold.armed = true;
+                        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                      }, 320);
+                      queueHoldRef.current = hold;
+                    }}
+                    onPressOut={() => {
+                      const hold = queueHoldRef.current;
+                      if (hold?.timer) {
+                        clearTimeout(hold.timer);
+                        hold.timer = null;
+                      }
+                    }}
+                    onPress={() => send(queueHoldRef.current?.armed ? alternateSendMode : sendMode)}
+                    disabled={!canSend}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      !busy ? "Send the message" : sendMode === "queue" ? "Queue the message" : "Send the message now"
+                    }
+                    accessibilityHint={
+                      sendMode === "queue"
+                        ? "Press and hold to send it into the current turn"
+                        : "Press and hold to queue it behind the current turn"
+                    }
+                    accessibilityState={{ disabled: !canSend, busy: sending }}
+                    style={({ pressed }) => ({
+                      width: 40,
+                      height: 40,
+                      borderRadius: 20,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      backgroundColor: canSend ? colors.foreground : colors.secondary,
+                      opacity: pressed ? 0.75 : 1,
+                    })}
+                  >
+                    <Icon
+                      ios="arrow.up"
+                      android="arrow_upward"
+                      size={17}
+                      weight="semibold"
+                      color={canSend ? colors.bg : colors.textMuted}
+                    />
+                  </Pressable>
+                </>
+              ) : (
+                <InlineVoiceRecorder
+                  state={dictation.state}
+                  level={dictation.level}
+                  onCancel={dictation.cancel}
+                  onConfirm={dictation.toggle}
+                />
+              )}
+            </View>
           ) : (
-            /**
-             * 32, NOT 36 — the send button's size, and the reason the field
-             * changed height as you typed.
-             *
-             * `IconButton` is a fixed 36pt disc. Idle, it made the box
-             * 36 + 12 of padding = 48pt; the moment there were words the 32pt
-             * send button took its place and the box fell to 44. So the
-             * composer was a different height depending on whether you had
-             * typed anything, and neither state matched the 44pt attach button
-             * beside it. Same size as send, so the row is one height always.
-             */
             <Pressable
-              // See the send button's `key` above: distinct keys are what stop
-              // an in-flight press on that button from being inherited by this
-              // one when `canSend` flips mid-gesture.
               key="composer-mic"
               onPress={dictation.toggle}
-              /**
-               * SWIPE UP TO THROW THE TAKE AWAY, the way a voice note is
-               * cancelled everywhere else. Tap now SENDS, so there has to be a
-               * gesture that does not — and it has to be one you can find
-               * without looking, because your thumb is already on the button
-               * and the words are already wrong.
-               *
-               * A long press cancels too: the same intention, for a thumb that
-               * would rather hold still than slide.
-               */
-              onLongPress={dictation.cancel}
-              delayLongPress={400}
-              onTouchStart={(e) => {
-                cancelSwipeRef.current = { y: e.nativeEvent.pageY, fired: false };
-              }}
-              onTouchMove={(e) => {
-                const swipe = cancelSwipeRef.current;
-                if (!swipe || swipe.fired || dictation.state !== "recording") return;
-                if (swipe.y - e.nativeEvent.pageY > 44) {
-                  swipe.fired = true;
-                  dictation.cancel();
-                }
-              }}
               accessibilityRole="button"
-              accessibilityLabel={
-                dictation.state === "recording" ? "Stop and send" : "Dictate a message"
-              }
-              accessibilityHint={
-                dictation.state === "recording"
-                  ? "Swipe up or hold to discard this recording"
-                  : undefined
-              }
+              accessibilityLabel="Dictate a message"
               hitSlop={8}
               style={({ pressed }) => ({
                 width: 32,
@@ -2661,13 +2606,7 @@ export function SessionScreenBody({
                 opacity: pressed ? 0.6 : 1,
               })}
             >
-              {dictation.state === "transcribing" ? (
-                <ActivityIndicator size="small" color={colors.textMuted} />
-              ) : dictation.state === "recording" ? (
-                <VoiceMeter level={dictation.level} color={colors.danger} />
-              ) : (
-                <Icon ios="mic" android="mic" size={18} color={colors.textMuted} />
-              )}
+              <Icon ios="mic" android="mic" size={18} color={colors.textMuted} />
             </Pressable>
           )}
         </GlassSurface>

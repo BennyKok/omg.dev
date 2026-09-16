@@ -5,9 +5,9 @@ import * as React from '../../web/node_modules/react';
 import { resolve } from 'node:path';
 mock.module(resolve(import.meta.dir, '../node_modules/react/index.js'), () => React);
 const View = ({children}: any) => <div>{children}</div>;
-const Pressable = ({children,onPress,disabled}: any) => <button disabled={disabled} onClick={onPress}>{children}</button>;
+const Pressable = ({children,onPress,disabled,accessibilityLabel}: any) => <button aria-label={accessibilityLabel} disabled={disabled} onClick={onPress}>{children}</button>;
 let input: any;
-mock.module(resolve(import.meta.dir, '../node_modules/react-native/index.js'), () => ({View,ScrollView:View,Image:()=>null,ActivityIndicator:()=>null,Pressable,StyleSheet:{hairlineWidth:1,create:(s:any)=>s}}));
+mock.module(resolve(import.meta.dir, '../node_modules/react-native/index.js'), () => ({View,ScrollView:View,Image:()=>null,ActivityIndicator:()=>null,Pressable,useWindowDimensions:()=>({width:393,height:400}),StyleSheet:{hairlineWidth:1,create:(s:any)=>s}}));
 mock.module(import.meta.resolve('react-native-reanimated'), () => ({default:{View},Easing:{linear:(x:any)=>x},useSharedValue:(value:any)=>React.useRef({value}).current,useAnimatedStyle:(fn:any)=>fn(),withTiming:(x:any)=>x,withRepeat:(x:any)=>x}));
 mock.module(import.meta.resolve('expo-symbols'), () => ({SymbolView:()=>null}));
 const local = (file:string, exports:any) => mock.module(resolve(import.meta.dir, `../src/omg/${file}`), () => exports);
@@ -49,5 +49,19 @@ test('the live composer grows from measured text, caps scrolling, and resets aft
   render('');
   expect(input.style.height).toBe(24);
   expect(input.scrollEnabled).toBe(true);
+ } finally {ui.cleanup();}
+});
+
+test('typed text keeps voice beside send and recording uses the inline controls',()=>{
+ const ui=mount();
+ const base={onChangeText:()=>{},onStart:()=>{},projectOptions:[],agentOptions:[],attachments:{items:[],options:[],remove:()=>{}}};
+ try {
+  ui.render(<HomeComposer {...base} value="Typed prompt" dictation={{state:'idle',toggle:()=>{}}}/>);
+  expect(ui.query('[aria-label="Dictate a prompt"]')).not.toBeNull();
+  expect(ui.query('[aria-label="Start session"]')).not.toBeNull();
+  ui.render(<HomeComposer {...base} value="Typed prompt" dictation={{state:'recording',toggle:()=>{},cancel:()=>{},level:0.5}}/>);
+  expect(ui.query('[aria-label="Discard recording"]')).not.toBeNull();
+  expect(ui.query('[aria-label="Finish recording"]')).not.toBeNull();
+  expect(ui.query('[aria-label="Dictate a prompt"]')).toBeNull();
  } finally {ui.cleanup();}
 });

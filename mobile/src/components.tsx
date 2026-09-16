@@ -969,10 +969,10 @@ export function SessionCard({
  * app could only ever start one kind of session in one directory, on a product
  * whose entire point is choosing.
  *
- * Send is a send button, not "Start", and it only exists once there is
- * something to send. A permanently visible, permanently dimmed button is a
- * control that reads as broken; the field is self-evidently a thing you type
- * into, so nothing is lost by letting the button arrive with the text.
+ * Focus gives the text its own line and moves the agent, attachment, voice,
+ * and send controls underneath. Voice stays available after text exists.
+ * While recording, one inline capsule replaces Mic and Send so cancel and
+ * confirm occupy the same stable area.
  *
  * Purely presentational: the screen owns the draft, the choices and the submit.
  */
@@ -1055,8 +1055,6 @@ export function HomeComposer({
   const hasMessage = value.trim().length > 0 || attachments.items.some((item) => item.path);
   const uploading = attachments.items.some((item) => !item.path && !item.failed);
   const canStart = hasMessage && !starting && !uploading;
-  /** Where the finger went down on the mic, so an upward drag can cancel once. */
-  const cancelSwipe = useRef<{ y: number; fired: boolean } | null>(null);
   const hairline = {
     borderWidth: isDark ? StyleSheet.hairlineWidth : 0,
     borderColor: colors.borderSoft,
@@ -1069,6 +1067,7 @@ export function HomeComposer({
   );
   const [setupOpen, setSetupOpen] = useState(false);
   const [inputHeight, setInputHeight] = useState(COMPOSER_LINE);
+  const [composerFocused, setComposerFocused] = useState(false);
   const promptText = dictationTail ? `${value}${value ? " " : ""}${dictationTail}` : value;
   /**
    * HOW TALL THIS IS ALLOWED TO GROW.
@@ -1092,6 +1091,96 @@ export function HomeComposer({
   const measuredInputHeight = promptText
     ? Math.max(COMPOSER_LINE, Math.min(maxInputHeight, inputHeight))
     : COMPOSER_LINE;
+  const expanded = composerFocused || hasMessage || dictation.state !== "idle";
+  const agentControl = hasSetup ? (
+    <PressableScale
+      onPress={() => setSetupOpen(true)}
+      scale={0.94}
+      accessibilityRole="button"
+      accessibilityLabel={`${agentLabel ?? "Coding agent"}, ${modelLabel ?? "default model"}, ${thinkingLabel ?? "default thinking"}. Change`}
+      style={{ width: 38, height: 38, alignItems: "center", justifyContent: "center" }}
+    >
+      <AgentAvatar agent={agent} size={32} />
+    </PressableScale>
+  ) : (
+    <AgentAvatar agent={agent} size={32} />
+  );
+  const attachmentControl = (
+    <DropdownMenu options={attachments.options} style={{ width: 34, height: 34 }}>
+      <View
+        accessibilityRole="button"
+        accessibilityLabel="Attach a file"
+        style={{ width: 34, height: 34, alignItems: "center", justifyContent: "center" }}
+      >
+        <Icon ios="plus" android="add" size={20} color={colors.textSecondary} />
+      </View>
+    </DropdownMenu>
+  );
+  const micControl = (
+    <Pressable
+      onPress={dictation.toggle}
+      disabled={dictation.state !== "idle"}
+      accessibilityRole="button"
+      accessibilityLabel="Dictate a prompt"
+      accessibilityState={{ disabled: dictation.state !== "idle" }}
+      style={({ pressed }) => ({
+        width: 34,
+        height: 34,
+        alignItems: "center",
+        justifyContent: "center",
+        opacity: pressed ? 0.6 : 1,
+      })}
+    >
+      <Icon ios="mic" android="mic" size={18} color={colors.textSecondary} />
+    </Pressable>
+  );
+  const sendControl = (
+    <PressableScale
+      onPress={onStart}
+      disabled={!canStart}
+      accessibilityLabel="Start session"
+      accessibilityState={{ disabled: !canStart, busy: !!starting }}
+      scale={0.94}
+      dim={0.8}
+      style={{
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: canStart ? colors.text : colors.secondary,
+        borderRadius: 20,
+        width: 40,
+        height: 40,
+      }}
+    >
+      <Icon ios="arrow.up" android="arrow_upward" size={17} color={canStart ? colors.bg : colors.textMuted} />
+    </PressableScale>
+  );
+  const inputControl = (
+    <TextInput
+      value={promptText}
+      onChangeText={onChangeText}
+      editable={!dictationTail}
+      placeholder="What should we work on?"
+      placeholderTextColor={colors.textMuted}
+      multiline
+      submitBehavior="newline"
+      scrollEnabled
+      onFocus={() => setComposerFocused(true)}
+      onBlur={() => setComposerFocused(false)}
+      onContentSizeChange={event => setInputHeight(Math.ceil(event.nativeEvent.contentSize.height))}
+      style={{
+        flex: expanded ? undefined : 1,
+        width: expanded ? "100%" : undefined,
+        minWidth: 0,
+        height: measuredInputHeight,
+        color: colors.text,
+        ...type.body,
+        fontSize: 18,
+        lineHeight: 24,
+        textAlignVertical: "top",
+        paddingVertical: 0,
+      }}
+    />
+  );
   return (
     <View
       /**
@@ -1142,14 +1231,15 @@ export function HomeComposer({
         variant="regular"
         fallbackColor={colors.card}
         style={{
-          flexDirection: "row",
-          alignItems: "center",
-          gap: space.sm,
-          borderRadius: 26,
+          flexDirection: expanded ? "column" : "row",
+          alignItems: expanded ? "stretch" : "center",
+          gap: expanded ? 14 : space.sm,
+          borderRadius: expanded ? 30 : 26,
+          borderCurve: "continuous",
           minHeight: 52,
-          paddingVertical: 7,
-          paddingLeft: space.sm,
-          paddingRight: space.sm,
+          paddingTop: expanded ? 14 : 7,
+          paddingBottom: expanded ? 12 : 7,
+          paddingHorizontal: expanded ? 14 : space.sm,
           overflow: "hidden",
           shadowColor: colors.text,
           shadowOpacity: isDark || LIQUID_GLASS ? 0 : 0.08,
@@ -1159,181 +1249,55 @@ export function HomeComposer({
           ...(LIQUID_GLASS ? {} : hairline),
         }}
       >
-        {/* The avatar IS the agent picker. It already showed which agent would
-            run, so making it the control means the answer and the way to
-            change it are the same object, rather than adding a second
-            affordance that says the same thing.
-
-            It opens AgentSetupSheet: one card with agent, model and thinking
-            all visible, instead of a native menu with a submenu per row. */}
-        {/* No affordance badge. A chevron tucked under the avatar was a 14pt
-            label explaining a control that opens the moment you touch it —
-            the kind of hint that makes an interface look unsure of itself.
-            Pressing it teaches it once and for good. */}
-        {hasSetup ? (
-          <PressableScale
-            onPress={() => setSetupOpen(true)}
-            scale={0.94}
-            accessibilityRole="button"
-            accessibilityLabel={`${agentLabel ?? "Coding agent"}, ${modelLabel ?? "default model"}, ${thinkingLabel ?? "default thinking"}. Change`}
-            style={{ width: 38, height: 38, alignItems: "center", justifyContent: "center" }}
-          >
-            <AgentAvatar agent={agent} size={32} />
-          </PressableScale>
+        {expanded ? (
+          <>
+            {inputControl}
+            <View style={{ minHeight: 40, flexDirection: "row", alignItems: "center", gap: 8 }}>
+              {agentControl}
+              {attachmentControl}
+              <View style={{ flex: 1 }} />
+              {dictation.state === "idle" ? (
+                <>
+                  {micControl}
+                  {sendControl}
+                </>
+              ) : (
+                <InlineVoiceRecorder
+                  state={dictation.state}
+                  level={dictation.level}
+                  onCancel={() => dictation.cancel?.()}
+                  onConfirm={dictation.toggle}
+                />
+              )}
+            </View>
+          </>
         ) : (
-          <AgentAvatar agent={agent} size={32} />
+          <>
+            {agentControl}
+            {inputControl}
+            {attachmentControl}
+            {micControl}
+          </>
         )}
-        <AgentSetupSheet
-          visible={setupOpen}
-          onClose={() => setSetupOpen(false)}
-          agentOptions={agentOptions}
-          modelOptions={modelOptions}
-          thinkingOptions={thinkingOptions}
-          accountOptions={accountOptions}
-          accountLabel={accountLabel}
-          usageRing={
-            agentUsage ? (
-              <UsageRings
-                size={28}
-                windows={agentUsage.available ? orderWindows(agentUsage.windows ?? []) : []}
-              />
-            ) : null
-          }
-          usageLoading={usageLoading}
-        />
-        <TextInput
-          /**
-           * THE LIVE TRANSCRIPT GOES IN THE FIELD, not above it.
-           *
-           * It spent a version as a dimmed caption over the composer, which
-           * put the words you were saying somewhere other than the box they
-           * were about to become — you watched one place and typed in
-           * another. Dictation is typing with your voice, so it belongs in the
-           * field, exactly where typed words would be.
-           *
-           * Committed chunks are already IN `value` (that is what `onText`
-           * does); `partial` is only ever the tail the transcriber has not
-           * settled yet, so appending it here shows the whole sentence with no
-           * double-counting.
-           */
-          value={promptText}
-          onChangeText={onChangeText}
-          /**
-           * Not editable mid-take. The field's contents are partly a
-           * provisional tail that will be REPLACED when the transcriber
-           * settles it, so a keystroke landing in the middle of that would be
-           * silently eaten. You are speaking, not typing.
-           */
-          editable={!dictationTail}
-          placeholder="What should we work on?"
-          placeholderTextColor={colors.textMuted}
-          multiline
-          submitBehavior="newline"
-          // iOS reports only the visible height when native scrolling is disabled.
-          // Grow to fit first; the field scrolls once its content exceeds 120pt.
-          scrollEnabled
-          onContentSizeChange={event => setInputHeight(Math.ceil(event.nativeEvent.contentSize.height))}
-          style={{
-            flex: 1,
-            minWidth: 0,
-            height: measuredInputHeight,
-            color: colors.text,
-            ...type.body,
-            fontSize: 18,
-            lineHeight: 24,
-            textAlignVertical: "top",
-            paddingVertical: 0,
-          }}
-        />
-        {/* Attach sits in the field, at the trailing edge, next to the control
-            that sends. Both act on the message, so both belong to the box that
-            holds it. */}
-        <DropdownMenu options={attachments.options} style={{ width: 30, height: 30 }}>
-          <View
-            accessibilityRole="button"
-            accessibilityLabel="Attach a file"
-            style={{ width: 30, height: 30, alignItems: "center", justifyContent: "center" }}
-          >
-            <Icon ios="paperclip" android="attach_file" size={17} color={colors.textMuted} />
-          </View>
-        </DropdownMenu>
-
-        {/* Dictate until there are words to send, then the same spot sends
-            them — the rule the session composer follows. */}
-        {!hasMessage && !starting ? (
-          <Pressable
-            onPress={dictation.toggle}
-            /**
-             * THE SAME RECORDING CONTROL AS THE CHAT COMPOSER — meter while
-             * listening, hold or swipe up to throw the take away.
-             *
-             * This screen had the old red stop square long after the session
-             * screen stopped using one, so the same act looked like two
-             * different features depending which composer you were in.
-             */
-            onLongPress={dictation.cancel}
-            delayLongPress={400}
-            onTouchStart={(e) => {
-              cancelSwipe.current = { y: e.nativeEvent.pageY, fired: false };
-            }}
-            onTouchMove={(e) => {
-              const swipe = cancelSwipe.current;
-              if (!swipe || swipe.fired || dictation.state !== "recording") return;
-              if (swipe.y - e.nativeEvent.pageY > 44) {
-                swipe.fired = true;
-                dictation.cancel?.();
-              }
-            }}
-            accessibilityRole="button"
-            accessibilityLabel={
-              dictation.state === "recording" ? "Stop and start the session" : "Dictate a prompt"
-            }
-            accessibilityHint={
-              dictation.state === "recording"
-                ? "Swipe up or hold to discard this recording"
-                : undefined
-            }
-            style={({ pressed }) => ({
-              width: 30,
-              height: 30,
-              alignItems: "center",
-              justifyContent: "center",
-              opacity: pressed ? 0.6 : 1,
-            })}
-          >
-            {dictation.state === "transcribing" ? (
-              <ActivityIndicator size="small" color={colors.textMuted} />
-            ) : dictation.state === "recording" ? (
-              <VoiceMeter level={dictation.level} color={colors.danger} />
-            ) : (
-              <Icon ios="mic" android="mic" size={17} color={colors.textMuted} />
-            )}
-          </Pressable>
-        ) : null}
-
-        {/* Arrives with the text and leaves with it. Circular and glyph-only:
-            the Messages send button, not a labelled call to action. */}
-        {hasMessage || starting ? (
-          <PressableScale
-            onPress={onStart}
-            disabled={!canStart}
-            accessibilityLabel="Start session"
-            accessibilityState={{ disabled: !canStart, busy: !!starting }}
-            scale={0.94}
-            dim={0.8}
-            style={{
-              alignItems: "center",
-              justifyContent: "center",
-              backgroundColor: !canStart ? colors.border : colors.text,
-              borderRadius: radius.pill,
-              width: 34,
-              height: 34,
-            }}
-          >
-            <Icon ios="arrow.up" android="arrow_upward" size={16} color={!canStart ? colors.textMuted : colors.bg} />
-          </PressableScale>
-        ) : null}
       </GlassSurface>
+      <AgentSetupSheet
+        visible={setupOpen}
+        onClose={() => setSetupOpen(false)}
+        agentOptions={agentOptions}
+        modelOptions={modelOptions}
+        thinkingOptions={thinkingOptions}
+        accountOptions={accountOptions}
+        accountLabel={accountLabel}
+        usageRing={
+          agentUsage ? (
+            <UsageRings
+              size={28}
+              windows={agentUsage.available ? orderWindows(agentUsage.windows ?? []) : []}
+            />
+          ) : null
+        }
+        usageLoading={usageLoading}
+      />
 
       {/* UNDER the box: what the fleet has spent on the left, where the next
           session runs on the right. Both are facts ABOUT the message you are
@@ -1750,6 +1714,113 @@ export function VoiceMeter({ level, color }: { level?: number; color: string }) 
       <Reanimated.View style={[bar, left]} />
       <Reanimated.View style={[bar, middle]} />
       <Reanimated.View style={[bar, right]} />
+    </View>
+  );
+}
+
+/**
+ * The inline voice control shared by both composers.
+ *
+ * This deliberately stays a regular capsule. The composer around it uses
+ * continuous corners, but the recorder replaces two circular controls and
+ * should retain that simpler geometry. Confirm ends the take through the
+ * existing dictation owner; cancel drops it through that same owner.
+ */
+export function InlineVoiceRecorder({
+  state,
+  level,
+  onCancel,
+  onConfirm,
+}: {
+  state: "recording" | "transcribing";
+  level?: number;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const { colors } = useTheme();
+  const recording = state === "recording";
+
+  return (
+    <View
+      accessibilityLabel={recording ? "Voice recording controls" : "Transcribing voice"}
+      style={{
+        width: 126,
+        height: 40,
+        padding: 3,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 5,
+        borderRadius: 20,
+        backgroundColor: colors.bg,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.border,
+        shadowColor: "#000000",
+        shadowOpacity: 0.18,
+        shadowRadius: 8,
+        shadowOffset: { width: 0, height: 3 },
+      }}
+    >
+      <PressableScale
+        onPress={onCancel}
+        disabled={!recording}
+        accessibilityRole="button"
+        accessibilityLabel="Discard recording"
+        accessibilityState={{ disabled: !recording }}
+        scale={0.9}
+        style={{
+          width: 32,
+          height: 32,
+          borderRadius: 16,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: colors.secondary,
+          opacity: recording ? 1 : 0.45,
+        }}
+      >
+        <Icon ios="xmark" android="close" size={13} color={colors.textSecondary} weight="semibold" />
+      </PressableScale>
+
+      <View
+        accessibilityLiveRegion="polite"
+        style={{
+          flex: 1,
+          minWidth: 0,
+          height: 32,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 6,
+        }}
+      >
+        {recording ? (
+          <>
+            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.danger }} />
+            <VoiceMeter level={level} color={colors.text} />
+          </>
+        ) : (
+          <ActivityIndicator size="small" color={colors.textSecondary} />
+        )}
+      </View>
+
+      <PressableScale
+        onPress={onConfirm}
+        disabled={!recording}
+        accessibilityRole="button"
+        accessibilityLabel="Finish recording"
+        accessibilityState={{ disabled: !recording }}
+        scale={0.9}
+        style={{
+          width: 32,
+          height: 32,
+          borderRadius: 16,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: colors.text,
+          opacity: recording ? 1 : 0.45,
+        }}
+      >
+        <Icon ios="checkmark" android="check" size={14} color={colors.bg} weight="semibold" />
+      </PressableScale>
     </View>
   );
 }
