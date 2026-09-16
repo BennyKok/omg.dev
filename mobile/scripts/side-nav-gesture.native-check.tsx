@@ -38,3 +38,26 @@ test('folder touches never open navigation; the next edge swipe and open-drawer 
   expect(handlers.onMoveShouldSetPanResponderCapture(null,{...drag,dx:-80})).toBe(false);
  }finally{ui.cleanup();}
 });
+
+test('protected controls keep horizontal gestures even over an open drawer; a new background touch resets the exclusion',()=>{
+ const ui=mount();let controller:ReturnType<typeof useSideNavGesture>;
+ function Fixture({visible=false}:{visible?:boolean}) {
+  controller=useSideNavGesture({visible,enabled:true,progress:{value:0} as any,width:300,onOpen:()=>{},onClose:()=>{}});
+  return null;
+ }
+ const drag={x0:10,dx:80,dy:2,vx:1};
+ try {
+  ui.render(<Fixture/>);
+  handlers.onStartShouldSetPanResponderCapture();
+  controller!.blockGesture();
+  expect(handlers.onMoveShouldSetPanResponderCapture(null,drag)).toBe(false);
+  expect(handlers.onMoveShouldSetPanResponderCapture(null,{...drag,dx:220})).toBe(false);
+  // A parent rail cannot weaken a child's exclusion.
+  controller!.blockOpeningGesture();
+  expect(handlers.onMoveShouldSetPanResponderCapture(null,drag)).toBe(false);
+  ui.render(<Fixture visible/>);
+  expect(handlers.onMoveShouldSetPanResponderCapture(null,{...drag,dx:-80})).toBe(false);
+  handlers.onStartShouldSetPanResponderCapture();
+  expect(handlers.onMoveShouldSetPanResponderCapture(null,{...drag,dx:-80})).toBe(true);
+ } finally {ui.cleanup();}
+});

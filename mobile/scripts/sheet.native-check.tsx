@@ -9,6 +9,7 @@ mock.module(resolve(import.meta.dir, "../node_modules/react/index.js"), () => Re
 
 const completions: ((done: boolean) => void)[] = [];
 let nativePan: any;
+let modalTouch: (() => void) | undefined;
 let touchStart: (() => boolean) | undefined;
 let touchEnd: (() => void) | undefined;
 let handleTouch: (() => void) | undefined;
@@ -31,7 +32,7 @@ mock.module(resolve(import.meta.dir, "../node_modules/react-native/index.js"), (
   useWindowDimensions: () => ({ height: 844, width: 390 }),
 }));
 mock.module(import.meta.resolve("react-native-gesture-handler"), () => ({
-  GestureHandlerRootView: View,
+  GestureHandlerRootView: (props: any) => { modalTouch = props.onTouchStart; return <View {...props} />; },
   NativeViewGestureHandler: View,
   PanGestureHandler: (props: any) => { nativePan = props; return <View>{props.children}</View>; },
   State: { ACTIVE: 4, END: 5, CANCELLED: 3, FAILED: 1 },
@@ -173,4 +174,13 @@ test("native scroll drift is restored when a body swipe belongs to the drawer", 
   scrolls.get("outer").onTouchStart({});
   ui.flush(() => activate(6.67));
   expect(scrolls.get("outer").scrollEnabled).toBe(false);
+});
+
+test("dialog touches exclude navigation without stealing the sheet gesture", async () => {
+  const { NavGestureContext } = await import("../src/omg/nav-gesture-context");
+  let blocked = 0;
+  ui.render(<NavGestureContext.Provider value={() => blocked++}><Sheet visible onClose={() => {}}>Content</Sheet></NavGestureContext.Provider>);
+  ui.flush(() => modalTouch?.());
+  expect(blocked).toBe(1);
+  expect(nativePan.enabled).toBe(true);
 });

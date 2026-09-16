@@ -5,6 +5,7 @@
  */
 
 import { Sheet } from "./omg/sheet";
+import { useBlockNavGesture } from "./omg/nav-gesture-context";
 import {
   ActivityIndicator,
   Image,
@@ -1066,6 +1067,7 @@ export function HomeComposer({
   bottomInset?: number;
 }) {
   const { colors, isDark, radius, type, space, motion } = useTheme();
+  const blockNavGesture = useBlockNavGesture();
   const [usageSheet, setUsageSheet] = useState<"agent" | "all" | null>(null);
   /** The not-yet-settled words, when a live take is running. */
   const dictationTail =
@@ -1255,7 +1257,7 @@ export function HomeComposer({
     />
   );
   return (
-    <View
+    <View onTouchStart={blockNavGesture}
       /**
        * SOLID, NOT GLASS — deliberately, unlike the pills inside it.
        *

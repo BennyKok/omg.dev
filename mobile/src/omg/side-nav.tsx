@@ -279,7 +279,7 @@ export function useSideNavGesture({ visible, onOpen, onClose, progress, enabled,
   const closing = useRef(false);
   const dragStart = useRef(1);
   const openingDrag = useRef(false);
-  const openingBlocked = useRef(false);
+  const blocked = useRef<"none" | "opening" | "all">("none");
   const dragging = useRef(false);
   const openRef = useRef(onOpen);
   openRef.current = onOpen;
@@ -328,16 +328,16 @@ export function useSideNavGesture({ visible, onOpen, onClose, progress, enabled,
   const pan = useMemo(() =>
     PanResponder.create({
       onStartShouldSetPanResponderCapture: () => {
-        // Descendant horizontal scrollers can exclude this touch sequence
+        // Descendant controls can exclude this touch sequence
         // in onTouchStart, after this capture phase. Keep the exclusion even
         // when the native scroll view cancels child touches during a drag.
-        openingBlocked.current = false;
+        blocked.current = "none";
         return false;
       },
       // Capture only horizontal intent. Vertical list drags stay with the list.
       onMoveShouldSetPanResponderCapture: (_event, gesture) =>
-        enabled && Math.abs(gesture.dx) > 8 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.5 &&
-        (mountedRef.current ? gesture.dx < 0 : !openingBlocked.current && gesture.x0 <= 24 && gesture.dx > 0),
+        enabled && blocked.current !== "all" && Math.abs(gesture.dx) > 8 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.5 &&
+        (mountedRef.current ? gesture.dx < 0 : blocked.current === "none" && gesture.x0 <= 24 && gesture.dx > 0),
       onPanResponderGrant: () => {
         openingDrag.current = !mountedRef.current;
         dragging.current = true;
@@ -383,7 +383,8 @@ export function useSideNavGesture({ visible, onOpen, onClose, progress, enabled,
 
   return {
     mounted, dismiss: () => dismissRef.current(true), panHandlers: pan.panHandlers,
-    blockOpeningGesture: () => { openingBlocked.current = true; },
+    blockOpeningGesture: () => { if (blocked.current !== "all") blocked.current = "opening"; },
+    blockGesture: () => { blocked.current = "all"; },
   };
 }
 

@@ -88,6 +88,7 @@ import {
   type AutoFindingRow,
 } from "./auto-agents";
 import { useComputerPicker } from "./computer-picker";
+import { NavGestureContext } from "./nav-gesture-context";
 import { SideNavButton, SIDE_NAV_RADIUS, SideNavDrawer, sideNavWidth, useSideNavGesture } from "./side-nav";
 import {
   clearSessionUnread,
@@ -1414,6 +1415,7 @@ export function SessionsScreen({
 
   return (
     <SessionUnreadContext.Provider value={unreadSessions}>
+    <NavGestureContext.Provider value={navGesture.blockGesture}>
     <View style={{ flex: 1, backgroundColor: colors.bg, overflow: "hidden" }} {...navGesture.panHandlers}>
     <Reanimated.View style={[{ flex: 1, backgroundColor: colors.bg, overflow: "hidden", borderCurve: "continuous" }, navPageStyle]}>
       {/* One persistent row moves with the page throughout the drawer transition. */}
@@ -2013,6 +2015,7 @@ export function SessionsScreen({
           }
         />
     </View>
+    </NavGestureContext.Provider>
     </SessionUnreadContext.Provider>
   );
 }

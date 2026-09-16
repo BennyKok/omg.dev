@@ -25,6 +25,7 @@
  */
 
 import { forwardRef } from "react";
+import { useBlockNavGesture } from "./nav-gesture-context";
 import {
   Text as RNText,
   TextInput as RNTextInput,
@@ -81,13 +82,18 @@ export const Text = forwardRef<RNText, TextProps>(
 Text.displayName = "Text";
 
 export const TextInput = forwardRef<RNTextInput, TextInputProps>(
-  ({ maxFontSizeMultiplier, style, ...props }, ref) => (
-    <RNTextInput
+  ({ maxFontSizeMultiplier, style, onTouchStart, ...props }, ref) => {
+    const blockNavGesture = useBlockNavGesture();
+    return <RNTextInput
       ref={ref}
       {...props}
+      onTouchStart={event => {
+        blockNavGesture?.();
+        onTouchStart?.(event);
+      }}
       style={[NO_INHERITED_TRACKING, style]}
       maxFontSizeMultiplier={maxFontSizeMultiplier ?? MAX_FONT_SCALE}
-    />
-  ),
+    />;
+  },
 );
 TextInput.displayName = "TextInput";

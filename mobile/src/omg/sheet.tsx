@@ -5,6 +5,7 @@ import Reanimated, { cancelAnimation, Easing, FadeInLeft, FadeInRight, FadeOut, 
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useReduceMotionEnabled } from "./motion";
 import { useTheme } from "./theme";
+import { useBlockNavGesture } from "./nav-gesture-context";
 
 import { SheetNativePanContext, SheetExpandedContext, SheetDraggingContext, SheetGestureContext, SheetScrollView, type SheetTouchOrigin } from "./sheet-scroll";
 import { canDragSheet, sheetDragDestination, sheetDragPosition, type SheetStage } from "./sheet-gesture";
@@ -26,6 +27,7 @@ export function Sheet({ visible, onClose, children, placement = "bottom", maxWid
   pageDirection?: "forward" | "back";
 }) {
   const { colors, isDark } = useTheme();
+  const blockNavGesture = useBlockNavGesture();
   const insets = useSafeAreaInsets();
   const { height: screenHeight } = useWindowDimensions();
   const reducedMotion = useReduceMotionEnabled();
@@ -158,7 +160,7 @@ export function Sheet({ visible, onClose, children, placement = "bottom", maxWid
   const backdrop = useAnimatedStyle(() => ({ opacity: opacity.value }));
   const size = useAnimatedStyle(() => ({ height: bodyHeight.value }));
   return <Modal visible={mounted} transparent animationType="none" onShow={reveal} onRequestClose={() => dismiss(true)} statusBarTranslucent>
-    <GestureHandlerRootView style={{ flex: 1 }}>
+    <GestureHandlerRootView style={{ flex: 1 }} onTouchStart={blockNavGesture}>
     <Reanimated.View style={[StyleSheet.absoluteFill, backdrop]}>
       <Pressable onPress={() => dismiss(true)} accessibilityRole="button" accessibilityLabel="Close" style={{ flex: 1, backgroundColor: isDark ? "rgba(0,0,0,0.4)" : "rgba(0,0,0,0.18)" }} />
     </Reanimated.View>
