@@ -10,6 +10,7 @@ import { bindingLabel } from "./format";
 import { widgetRefresh } from "./widget-refresh";
 import { useOmg } from "./provider";
 import { stageAgentIcons, stageVillageScenes, villageCharacter, villageScene, walkTimeline } from "./village-widget-data";
+import { shouldWriteTimeline, timelineWindowMs } from "./walk-timeline";
 
 /**
  * One pose every ninety seconds. WALK_ENTRIES of them still cover the next
@@ -111,6 +112,17 @@ export function AgentVillageWidgetBridge() {
       return () => { disposed = true; };
     }
 
+    /*
+     * What the widget is SHOWING, ignoring the walk.
+     *
+     * The pose is derived from wall-clock time now, so it is deliberately not
+     * part of this: a timeline already on the device keeps pacing without
+     * being rewritten, and rewriting it for the walk is what was burning the
+     * refresh budget. `updatedAt` is out for the same reason -- it changes
+     * every single time and would make every write look like a change.
+     */
+    let lastWrite: { signature: string; at: number } | null = null;
+
     const refresh = async (): Promise<boolean> => {
       // Startup/auth restoration must not overwrite a valid saved snapshot.
       if (authStatus !== "signed-in" || !eligible || !client || !ready) return false;
@@ -154,18 +166,30 @@ export function AgentVillageWidgetBridge() {
       const stuck = sessions.filter((session) => session.status === "blocked" && !(session.sessionId && waiting.has(session.sessionId)));
       const binding = bindings.find((entry) => entry.id === bindingId);
 
+      const frame = {
+        machineName: binding ? bindingLabel(binding) : "My Computer",
+        runningCount: sessions.filter((session) => session.busy || session.launching).length,
+        blockedCount: asking.length + stuck.length,
+        // A parked question is the one a tap can actually resolve, so it wins
+        // the deep link over a provider error.
+        attentionSessionId: asking[0]?.sessionId ?? stuck[0]?.sessionId ?? "",
+        scenes: { small, medium, large },
+        characters,
+      };
+      const signature = JSON.stringify(frame);
+      const now = Date.now();
+      /*
+       * SKIPPING IS THE POINT, not an optimisation. Every write ends in
+       * reloadTimelines, and asking for reloads far more often than the
+       * content changes is what gets a widget's refresh budget throttled --
+       * which starves the redraws the walk is made of. Reporting success keeps
+       * the caller's own 30s cadence intact; it just stops it reaching
+       * WidgetKit with nothing to say.
+       */
+      if (!shouldWriteTimeline(lastWrite, signature, now, timelineWindowMs(WALK_STEP_MS))) return true;
+      lastWrite = { signature, at: now };
       AgentVillageWidget.updateTimeline(
-        walkTimeline<VillageProps>({
-          machineName: binding ? bindingLabel(binding) : "My Computer",
-          runningCount: sessions.filter((session) => session.busy || session.launching).length,
-          blockedCount: asking.length + stuck.length,
-          // A parked question is the one a tap can actually resolve, so it wins
-          // the deep link over a provider error.
-          attentionSessionId: asking[0]?.sessionId ?? stuck[0]?.sessionId ?? "",
-          scenes: { small, medium, large },
-          characters,
-          updatedAt: Date.now(),
-        }, WALK_STEP_MS),
+        walkTimeline<VillageProps>({ ...frame, updatedAt: now }, WALK_STEP_MS),
       );
       return true;
     };

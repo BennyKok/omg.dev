@@ -64,3 +64,40 @@ export function walkTimeline<T extends { walkPhase: number }>(
   }
   return entries;
 }
+/**
+ * Whether the widget's timeline is worth rewriting.
+ *
+ * ── Why this exists ───────────────────────────────────────────────────────
+ *
+ * The bridge calls `updateTimeline` on every status change AND again every 30
+ * seconds while the app is in the foreground, and each call ends in
+ * `reloadTimelines(ofKind:)`. Apple is explicit that reloading far more often
+ * than a widget's content changes gets the widget's refreshes throttled -- the
+ * budget is a few dozen a day, not a few dozen a minute. So the surface most
+ * likely to be starved of redraws was the one asking for them hardest, and the
+ * village sat still.
+ *
+ * The walk itself no longer needs a write: `walkPhaseAt` derives the pose from
+ * wall-clock time, so the poses already in the timeline keep advancing on
+ * their own. A write is therefore only needed when the CONTENT changed, or
+ * when the timeline is running out of entries.
+ *
+ * `windowMs` is how much wall clock one write covers. Rewriting at half of it
+ * leaves a full margin before the last entry comes due, so the village never
+ * reaches the end and freezes on the final pose.
+ */
+export function shouldWriteTimeline(
+  last: { signature: string; at: number } | null,
+  signature: string,
+  now: number,
+  windowMs: number,
+): boolean {
+  if (!last) return true;
+  if (last.signature !== signature) return true;
+  return now - last.at >= windowMs / 2;
+}
+
+/** How much wall clock one write covers. */
+export function timelineWindowMs(stepMs: number): number {
+  return WALK_ENTRIES * stepMs;
+}
