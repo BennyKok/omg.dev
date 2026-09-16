@@ -49,7 +49,7 @@ import Reanimated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Icon, StatusDot } from "../components";
+import { StatusDot } from "../components";
 import { LucideIcon, type LucideName } from "./lucide";
 import { BrandWordmark } from "./brand-mark";
 import { GlassSurface } from "./glass";

@@ -8,7 +8,7 @@
  * The panels' one real lesson is kept: advance by a button that is always on
  * screen, never by a swipe nobody was told about.
  *
- * Design: "v2_omg.dev iOS onboarding", artboard "01 · Welcome".
+ * Design: "v2_omg.dev iOS onboarding", artboard "01 · Welcome (updated)".
  */
 import { Image, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -43,22 +43,24 @@ export function WelcomeScreen({ onStart }: { onStart: () => void }) {
           gap: space.lg,
         }}
       >
-        <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+        <View
+          style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: space.sm }}
+        >
           <BrandMark size={23} holeColor={colors.bg} />
           <Text style={{ ...type.title, color: colors.text }}>omg.dev</Text>
         </View>
 
-        <View style={{ gap: space.sm }}>
-          {/* The line breaks are the design's, not reflow. Two short sentences
-              carry the rhythm here and letting them wrap on a narrow phone
-              loses it. */}
-          <Text style={{ ...type.largeTitle, color: colors.text }}>
-            {"Keep work moving.\nWherever you are."}
-          </Text>
-          <Text style={{ ...type.body, color: colors.textMuted }}>
-            {"Start a task from your phone.\nYour AI agents take it from there."}
-          </Text>
-        </View>
+        {/* The line breaks are the design's, not reflow. Two short sentences
+            carry the rhythm here and letting them wrap on a narrow phone
+            loses it.
+
+            The headline stands alone. The supporting line that used to sit
+            under it ("Start a task from your phone...") said the same thing
+            twice, and the design drops it so the illustration carries the
+            second beat instead. */}
+        <Text style={{ ...type.largeTitle, color: colors.text, textAlign: "center" }}>
+          {"Keep work moving.\nWherever you are."}
+        </Text>
 
         {/* The illustration takes whatever height is left and fits INSIDE it,
             so a short window shrinks the picture rather than pushing the button
@@ -78,7 +80,7 @@ export function WelcomeScreen({ onStart }: { onStart: () => void }) {
             accessibilityLabel="Someone lying on the grass, starting a task from their phone"
           />
           <View style={{ alignItems: "center", gap: space.sm }}>
-            <Text style={{ ...type.footnote, color: colors.textMuted }}>Your AI team, on the go.</Text>
+            <Text style={{ ...type.footnote, color: colors.textMuted }}>Every agent, on the go.</Text>
             <View style={{ flexDirection: "row", gap: space.md, alignItems: "center" }}>
               {TEAM.map((agent) => (
                 <Image
