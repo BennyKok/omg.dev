@@ -30,8 +30,8 @@ function Lights({ points, index, phase, color }: {
   });
   return <Animated.View style={[StyleSheet.absoluteFill, style]}>
     {points.map(({ x, y, strength }) => <View key={`${x}:${y}`} style={{
-      position: "absolute", left: x - 2.5, top: y - 2.5,
-      width: 5, height: 5, borderRadius: 1.25,
+      position: "absolute", left: x - 3, top: y - 3,
+      width: 6, height: 6, borderRadius: 1.5,
       backgroundColor: color, opacity: strength,
     }} />)}
   </Animated.View>;
