@@ -98,56 +98,28 @@ test("a running session shows an elapsed timer counting up from its start", () =
 });
 
 /**
- * NO INDETERMINATE RING, EVER. This is the rule, and it is narrower than
- * "no ProgressView".
+ * NO RING BESIDE THE CLOCK. Both kinds were tried and both failed the same way.
  *
- * A spinner with no value draws as a STATIC empty ring on a Lock Screen,
- * because a Live Activity runs no animation loop. Seen on the simulator: an
- * unticked checkbox beside every session. A ring with a `timerInterval` is a
- * different thing entirely -- SwiftUI computes it on the device, outside the
- * timeline, exactly like the clock -- so that one is allowed and tested below.
+ * An indeterminate spinner draws as a static empty ring on a Lock Screen,
+ * because a Live Activity runs no animation loop. A determinate
+ * `ProgressView(timerInterval:)` does animate -- but against any flat horizon
+ * a coding run pins it at full within minutes and it spends the rest of the
+ * session as an unmoving disc, which is the same thing the first one drew.
+ *
+ * So the rule is the broad one again, and this time it is broad because the
+ * narrow version was tried in production and removed. The clock is the running
+ * signal; it moves, and it is exact.
  */
-test("a ring without a timer interval is never rendered", () => {
+test("no progress ring is rendered in any state", () => {
   for (const startedAt of [1_700_000_000_000, null, undefined, 0]) {
-    for (const ring of running({ startedAt }).filter(node => node.type === "ProgressView")) {
-      expect(ring.props.timerInterval).toBeDefined();
-    }
+    expect(running({ startedAt }).filter(node => node.type === "ProgressView")).toHaveLength(0);
   }
-});
-
-/**
- * The ring fills over a flat horizon and then rests full, so "full" means
- * "this has been going a while", which is true. It is never a claim about
- * completion: a coding run has no known end, and the exact figure sits
- * immediately beside it.
- */
-test("a running session carries a ring that fills from its own start", () => {
-  const started = 1_700_000_000_000;
-  const ring = running({ startedAt: started }).find(node => node.type === "ProgressView");
-  expect(ring).toBeDefined();
-  expect(ring.props.countsDown).toBe(false);
-  expect(new Date(ring.props.timerInterval.lower).getTime()).toBe(started);
-  // A flat horizon, not a prediction, and reachable rather than out of reach
-  // like the clock's upper bound -- the ring has to be able to finish.
-  const span = new Date(ring.props.timerInterval.upper).getTime() - started;
-  expect(span).toBeGreaterThan(0);
-  expect(span).toBeLessThanOrEqual(60 * 60 * 1000);
-  expect(ring.props.modifiers).toContainEqual({ type: "progressViewStyle", value: "circular" });
-});
-
-test("a session with no start time gets no ring, the same as it gets no clock", () => {
-  for (const missing of [null, undefined, 0]) {
-    expect(running({ startedAt: missing }).filter(node => node.type === "ProgressView")).toHaveLength(0);
-  }
-});
-
-test("a blocked session asks for you, with no ring counting at it", () => {
-  const tree = nodes(render({
+  const blocked = nodes(render({
     machineName: "Mac", runningCount: 0, blockedCount: 1, attentionSessionId: "s1",
     updatedAt: 1, sessionCount: 1,
     sessions: [{ id: "s1", title: "Waiting", agent: "claude", state: "blocked", startedAt: 1_700_000_000_000 }],
   }, { colorScheme: "dark" }).banner);
-  expect(tree.filter(node => node.type === "ProgressView")).toHaveLength(0);
+  expect(blocked.filter(node => node.type === "ProgressView")).toHaveLength(0);
 });
 
 test("a session the box never stamped falls back to a word, not 1970", () => {
