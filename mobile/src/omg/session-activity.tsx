@@ -66,6 +66,13 @@ export function activityWave(phase: number, position: number): number {
   return distance >= 0.3 ? 0 : (1 + Math.cos(distance / 0.3 * Math.PI)) / 2;
 }
 
+/** Short twinkles can only crest inside the shared travelling wave. */
+export function activitySparkle(phase: number, position: number, variant: number): number {
+  "worklet";
+  const pulse = (1 + Math.cos((phase * 6 - variant / 3) * Math.PI * 2)) / 2;
+  return Math.pow(activityWave(phase, position), 1.5) * Math.pow(pulse, 6);
+}
+
 function TitleLetter({ char, position, activity, color, mutedColor }: {
   char: string; position: number; activity: Activity; color: string; mutedColor: string;
 }) {
@@ -90,12 +97,15 @@ export function SessionActivityTitle({ title, activity, style }: {
 }
 
 type Point = { x: number; y: number; strength: number };
-function Lights({ points, index, activity, color }: {
-  points: Point[]; index: number; activity: Activity; color: string;
+function Lights({ points, index, activity, color, sparkleVariant }: {
+  points: Point[]; index: number; activity: Activity; color: string; sparkleVariant?: number;
 }) {
   const style = useAnimatedStyle(() => ({
-    opacity: activity.visibility.value * (activity.reducedMotion ? 0.22 :
-      0.035 + activityWave(activity.phase.value, index / (GROUPS - 1)) * 0.45),
+    opacity: activity.visibility.value * (sparkleVariant === undefined
+      ? (activity.reducedMotion ? 0.27 :
+        0.045 + activityWave(activity.phase.value, index / (GROUPS - 1)) * 0.6)
+      : (activity.reducedMotion ? 0 :
+        activitySparkle(activity.phase.value, index / (GROUPS - 1), sparkleVariant) * 0.9)),
   }));
   return <Animated.View style={[StyleSheet.absoluteFill, style]}>
     {points.map(({ x, y, strength }) => <View key={`${x}:${y}`} style={{
@@ -114,6 +124,7 @@ export function SessionActivityField({ activity, textBounds, cornerRadius, horiz
   const [size, setSize] = useState({ width: 0, height: 0 });
   const groups = useMemo(() => {
     const result: Point[][] = Array.from({ length: GROUPS }, () => []);
+    const sparks: Point[][] = Array.from({ length: GROUPS * 3 }, () => []);
     for (let y = 5; y < size.height; y += SPACING) {
       for (let x = 5; x < size.width; x += SPACING) {
         const edge = Math.min(1, x / 70, (size.width - x) / 70, (size.height - y) / 15);
@@ -127,10 +138,15 @@ export function SessionActivityField({ activity, textBounds, cornerRadius, horiz
         }
         const strength = edge * lower * textDim;
         const group = Math.round(x / size.width * (GROUPS - 1));
-        result[group].push({ x, y, strength });
+        const point = { x, y, strength };
+        result[group].push(point);
+        // Stable sparse accents: different rows twinkle in sequence, never at random.
+        const cell = Math.imul(Math.round(x / SPACING) + 1, 73856093) ^
+          Math.imul(Math.round(y / SPACING) + 1, 19349663);
+        if ((cell >>> 0) % 4 === 0) sparks[group * 3 + ((cell >>> 3) % 3)].push(point);
       }
     }
-    return result;
+    return { base: result, sparks };
   }, [size, textBounds, horizontalOutset]);
   if (!activity.present) return null;
   return <View pointerEvents="none" accessibilityElementsHidden
@@ -142,7 +158,10 @@ export function SessionActivityField({ activity, textBounds, cornerRadius, horiz
       left: -horizontalOutset, right: -horizontalOutset,
       borderRadius: cornerRadius, overflow: "hidden",
     }]}>
-    {groups.map((points, index) => <Lights key={index} points={points}
+    {groups.base.map((points, index) => <Lights key={index} points={points}
       index={index} activity={activity} color={isDark ? "#a7bacb" : "#52677e"} />)}
+    {!activity.reducedMotion && groups.sparks.map((points, index) => points.length > 0 ?
+      <Lights key={`spark-${index}`} points={points} index={Math.floor(index / 3)}
+        sparkleVariant={index % 3} activity={activity} color={isDark ? "#e1eaf2" : "#344d68"} /> : null)}
   </View>;
 }

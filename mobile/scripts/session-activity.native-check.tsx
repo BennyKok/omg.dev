@@ -45,7 +45,7 @@ mock.module(resolve(import.meta.dir, "../src/omg/theme.ts"), () => ({
   useTheme: () => ({ isDark: true }),
 }));
 mock.module(resolve(import.meta.dir, "../src/omg/text.tsx"), () => ({ Text: View }));
-const { SessionActivityField, useSessionActivity, activityWave } = await import("../src/omg/session-activity");
+const { SessionActivityField, useSessionActivity, activityWave, activitySparkle } = await import("../src/omg/session-activity");
 
 function Field({ active = true, textBounds }: { active?: boolean; textBounds?: any }) {
   const activity = useSessionActivity(active);
@@ -142,4 +142,18 @@ test("measured text dims its dots without dimming the bottom margin", () => {
     expect(opacityAt(155, 35)).toBeCloseTo(underText * 0.12);
     expect(opacityAt(155, 75)).toBeCloseTo(bottom);
   } finally { ui.cleanup(); }
+});
+
+test("sparkles stay inside the wave and stagger their peaks", () => {
+  for (const phase of [0, 0.15, 0.4, 0.7, 1]) {
+    for (const x of [0, 0.25, 0.5, 0.75, 1]) {
+      for (let variant = 0; variant < 3; variant++) {
+        const sparkle = activitySparkle(phase, x, variant);
+        expect(sparkle).toBeGreaterThanOrEqual(0);
+        expect(sparkle).toBeLessThanOrEqual(activityWave(phase, x));
+      }
+    }
+  }
+  expect(activitySparkle(0.5, 0.5, 0)).toBeCloseTo(1);
+  expect(activitySparkle(0.5, 0.5, 1)).toBeLessThan(0.01);
 });
