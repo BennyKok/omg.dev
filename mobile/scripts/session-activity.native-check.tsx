@@ -47,7 +47,7 @@ test("the grid keeps square spacing at phone, compact, and tablet widths", () =>
     ui.render(<SessionActivityField identity="one" cornerRadius={12} />);
     for (const [width, height] of [[380, 80], [268, 64], [700, 80]]) {
       ui.flush(() => layout({ nativeEvent: { layout: { width, height } } }));
-      const points = [...ui.queryAll("div")].filter((el) => (el as HTMLElement).style.width === "3.5px") as HTMLElement[];
+      const points = [...ui.queryAll("div")].filter((el) => (el as HTMLElement).style.width === "5px") as HTMLElement[];
       const xs = [...new Set(points.map((el) => parseFloat(el.style.left)))].sort((a, b) => a - b);
       const ys = [...new Set(points.map((el) => parseFloat(el.style.top)))].sort((a, b) => a - b);
       expect(xs.length).toBeGreaterThan(20);
