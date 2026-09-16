@@ -45,6 +45,7 @@ export type OnboardingChoice = {
 
 export function OnboardingFlow({
   onSignIn,
+  onStash,
   onTerms,
   onPrivacy,
   signedIn = false,
@@ -54,6 +55,13 @@ export function OnboardingFlow({
    * is null when there was no drawer -- see `signedIn`.
    */
   onSignIn: (choice: OnboardingChoice, method: SignInMethod | null) => void;
+  /**
+   * Save the choice without leaving the flow. Apple and Google authenticate
+   * inside the drawer, so the prompt has to be stored while this tree is still
+   * mounted, and the caller must NOT complete the intro -- doing so replaces
+   * the drawer mid sign-in.
+   */
+  onStash: (choice: OnboardingChoice) => Promise<void>;
   onTerms: () => void;
   onPrivacy: () => void;
   /**
@@ -169,10 +177,22 @@ export function OnboardingFlow({
         // "Not yet", not "start over": the prompt is untouched because it was
         // never inside this drawer.
         onClose={() => setDrawerOpen(false)}
+        /*
+         * Email only. Apple and Google finish inside the drawer, so the only
+         * method that still needs another screen is the one with a field on
+         * it. See the drawer's header.
+         */
         onChoose={(method) => {
           setDrawerOpen(false);
           onSignIn({ interest, taskId, prompt: prompt.trim(), files }, method);
         }}
+        /*
+         * Saved before the drawer leaves the app to authenticate, because
+         * Apple and Google both hand off to something that can outlive this
+         * process. The caller stashes; it must not complete the intro here,
+         * which would swap this tree out from under an in-flight sign-in.
+         */
+        onBeforeAuthenticate={() => onStash({ interest, taskId, prompt: prompt.trim(), files })}
         onTerms={onTerms}
         onPrivacy={onPrivacy}
       />

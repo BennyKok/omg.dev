@@ -379,6 +379,13 @@ function RootNavigator() {
               void stashOnboardingChoice(choice);
               intro.complete();
             }}
+            /*
+             * Apple and Google sign in inside the drawer, so the prompt is
+             * saved here and the intro is deliberately NOT completed:
+             * completing it swaps this branch for the sign-in Stack and would
+             * unmount the drawer in the middle of authenticating.
+             */
+            onStash={stashOnboardingChoice}
             onTerms={() => void Linking.openURL("https://omg.dev/terms")}
             onPrivacy={() => void Linking.openURL("https://omg.dev/privacy")}
           />

@@ -1,5 +1,5 @@
 /**
- * The sign-in drawer, over the prompt.
+ * The sign-in drawer, over the prompt. IT SIGNS IN HERE.
  *
  * "Save your first task." is doing real work as a title: it says what signing
  * in is FOR at the only moment the person has something to lose. The prompt
@@ -17,12 +17,40 @@
  * second sentence. This is the last screen before an account exists and the
  * likeliest place for a claim to be read as a commitment, so it stays out.
  *
+ * ── Apple and Google finish in this sheet ─────────────────────────────────
+ *
+ * They used to hand the choice up and land on the full sign-in screen, so
+ * tapping "Continue with Apple" produced a different screen with another
+ * "Continue with Apple" on it. The bargain this flow makes is "write the task,
+ * then sign in"; bouncing to a second screen to repeat the same tap breaks it.
+ *
+ * Email still hands up, and that is not an inconsistency: email is a code sent
+ * and typed back, which needs a field, a keyboard and a second step. There is
+ * nothing to do in place.
+ *
+ * ── The prompt is stashed BEFORE authenticating ───────────────────────────
+ *
+ * Signing in re-mounts the tree under this sheet, and Apple and Google both
+ * leave the app entirely -- a system sheet or a browser, either of which can
+ * be killed while somebody is over there. Anything still in component state at
+ * that moment is gone. `onBeforeAuthenticate` is awaited first for exactly
+ * that reason, so the words survive whatever happens next.
+ *
  * Design: artboard "03 · Sign-in drawer · After prompt".
  */
-import { Pressable, View } from "react-native";
+import { useEffect, useState } from "react";
+import { ActivityIndicator, Pressable, View } from "react-native";
+import * as Haptics from "expo-haptics";
 
 import { Icon } from "../components";
+import { useOmg } from "./provider";
 import { Sheet } from "./sheet";
+import {
+  appleSignInAvailable,
+  googleSignInConfigured,
+  signInWithApple,
+  signInWithGoogle,
+} from "./social-sign-in";
 import { Text } from "./text";
 import { useTheme } from "./theme";
 
@@ -32,16 +60,60 @@ export function SignInDrawer({
   visible,
   onClose,
   onChoose,
+  onBeforeAuthenticate,
   onTerms,
   onPrivacy,
 }: {
   visible: boolean;
   onClose: () => void;
+  /** Only ever called with "email": the one method that needs another screen. */
   onChoose: (method: SignInMethod) => void;
+  /** Save the prompt. Awaited before leaving the app to authenticate. */
+  onBeforeAuthenticate: () => Promise<void>;
   onTerms: () => void;
   onPrivacy: () => void;
 }) {
   const { colors, space, type } = useTheme();
+  const { refreshSession } = useOmg();
+  const [busy, setBusy] = useState<"apple" | "google" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  /*
+   * Apple is not offered where it cannot work -- a simulator without an Apple
+   * account, or any non-iOS host. Google is hidden when the build has no
+   * client id, which is the state every OTA used to ship in.
+   */
+  const [appleAvailable, setAppleAvailable] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void appleSignInAvailable().then((ok) => {
+      if (!cancelled) setAppleAvailable(ok);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  const authenticate = async (provider: "apple" | "google") => {
+    if (busy) return;
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setBusy(provider);
+    setError(null);
+    try {
+      // The words first. See the header: the app can be killed while the
+      // person is in Apple's sheet or a browser.
+      await onBeforeAuthenticate();
+      const user = provider === "apple" ? await signInWithApple() : await signInWithGoogle();
+      // A dismissed sheet resolves to null. That is a decision, not a failure,
+      // and it leaves the drawer exactly as it was.
+      if (!user) return;
+      await refreshSession();
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      // Nothing closes the drawer here. `refreshSession` flips authStatus and
+      // the whole signed-out tree, this sheet included, is replaced.
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "Could not sign in. Try again.");
+    } finally {
+      setBusy(null);
+    }
+  };
 
   return (
     <Sheet visible={visible} onClose={onClose}>
@@ -73,9 +145,29 @@ export function SignInDrawer({
         <View style={{ gap: space.sm }}>
           {/* Apple first, and filled. It is the one Apple requires alongside
               any other third-party sign-in, and the one most people will use. */}
-          <Method filled label="Continue with Apple" glyph="apple" onPress={() => onChoose("apple")} />
-          <Method label="Continue with Google" onPress={() => onChoose("google")} />
+          {appleAvailable ? (
+            <Method
+              filled
+              label="Continue with Apple"
+              glyph="apple"
+              busy={busy === "apple"}
+              disabled={busy !== null}
+              onPress={() => void authenticate("apple")}
+            />
+          ) : null}
+          {googleSignInConfigured ? (
+            <Method
+              label="Continue with Google"
+              busy={busy === "google"}
+              disabled={busy !== null}
+              onPress={() => void authenticate("google")}
+            />
+          ) : null}
         </View>
+
+        {error ? (
+          <Text style={{ ...type.footnote, color: colors.danger, textAlign: "center" }}>{error}</Text>
+        ) : null}
 
         <Pressable
           accessibilityRole="button"
@@ -107,16 +199,22 @@ function Method({
   onPress,
   filled = false,
   glyph,
+  busy = false,
+  disabled = false,
 }: {
   label: string;
   onPress: () => void;
   filled?: boolean;
   glyph?: "apple";
+  busy?: boolean;
+  disabled?: boolean;
 }) {
   const { colors, radius, type } = useTheme();
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityState={{ disabled, busy }}
+      disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => ({
         height: 56,
@@ -131,8 +229,14 @@ function Method({
         opacity: pressed ? 0.85 : 1,
       })}
     >
-      {glyph === "apple" ? <Icon ios="apple.logo" android="phone_iphone" size={17} color={colors.bg} /> : null}
-      <Text style={{ ...type.headline, color: filled ? colors.bg : colors.text }}>{label}</Text>
+      {busy ? (
+        <ActivityIndicator color={filled ? colors.bg : colors.text} />
+      ) : (
+        <>
+          {glyph === "apple" ? <Icon ios="apple.logo" android="phone_iphone" size={17} color={colors.bg} /> : null}
+          <Text style={{ ...type.headline, color: filled ? colors.bg : colors.text }}>{label}</Text>
+        </>
+      )}
     </Pressable>
   );
 }

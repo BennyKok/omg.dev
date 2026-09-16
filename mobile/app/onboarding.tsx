@@ -55,6 +55,8 @@ export default function OnboardingReplayScreen() {
           // real session from a screen somebody opened to look at, which is the
           // opposite of what "replay" means.
           onSignIn={() => setPhase("setup")}
+          // A replay never authenticates and never stores a prompt.
+          onStash={async () => {}}
           onTerms={() => void Linking.openURL("https://omg.dev/terms")}
           onPrivacy={() => void Linking.openURL("https://omg.dev/privacy")}
         />
