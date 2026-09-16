@@ -1008,6 +1008,8 @@ export function SessionsScreen({
           agent: agentPicker.agent,
           model: agentPicker.model ?? undefined,
           thinkingLevel: agentPicker.thinking ?? undefined,
+          fastMode: agentPicker.fastMode,
+          claudeAccountId: agentPicker.claudeAccountId,
           cwd,
         }),
       });
@@ -1016,7 +1018,7 @@ export function SessionsScreen({
       if (res?.sessionId) openSession(res.sessionId);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [client, agentPicker.agent, agentPicker.model, agentPicker.thinking, load],
+    [client, agentPicker.agent, agentPicker.model, agentPicker.thinking, agentPicker.fastMode, agentPicker.claudeAccountId, load],
   );
 
   const startSession = useCallback(
@@ -1048,6 +1050,7 @@ export function SessionsScreen({
               // capacity left when it hears nothing, which beats this app
               // pinning one at random.
               claudeAccountId: agentPicker.claudeAccountId,
+              fastMode: agentPicker.fastMode,
               cwd: projectPicker.cwd ?? undefined,
             }),
           },
@@ -1071,6 +1074,9 @@ export function SessionsScreen({
       client,
       agentPicker.agent,
       agentPicker.model,
+      agentPicker.thinking,
+      agentPicker.claudeAccountId,
+      agentPicker.fastMode,
       projectPicker.cwd,
       draft,
       stageDraft,
@@ -1317,6 +1323,8 @@ export function SessionsScreen({
       thinkingOptions={agentPicker.thinkingOptions}
       accountOptions={agentPicker.accountOptions}
       accountLabel={agentPicker.claudeAccountLabel}
+      fastMode={agentPicker.fastMode}
+      onToggleFast={agentPicker.toggleFast}
       attachments={attachments}
       dictation={dictation}
       usage={usage}

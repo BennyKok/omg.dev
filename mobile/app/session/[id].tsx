@@ -2213,6 +2213,8 @@ export function SessionScreenBody({
         title="Continue with"
         agentOptions={continuePicker.options}
         modelOptions={continuePicker.modelOptions}
+        modelLabel={continuePicker.modelLabel}
+        agentLabel={continuePicker.label}
         thinkingOptions={continuePicker.thinkingOptions}
         action={{
           label: `Continue with ${continuePicker.label}`,

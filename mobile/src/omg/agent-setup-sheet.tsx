@@ -1,169 +1,102 @@
-/**
- * The composer's agent / model / thinking picker, as ONE CARD.
- *
- * This replaced a native menu whose three rows ("Claude", "opus", "Medium")
- * each opened a submenu. Three questions behind three chevrons meant three
- * round trips to change a setup, and a submenu trigger cannot carry the
- * agent's own mark, so the rows read as bare words. Here every choice is on
- * one surface. The backdrop puts it away; there is no Done, because every
- * tap already took effect.
- *
- * Fed by the same `MenuOption` lists the menu used, so the option owners in
- * session-options.ts are unchanged and nothing here decides what is selected.
- */
+/** Compact agent controls. Selection and availability belong to useAgentPicker. */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ActivityIndicator, Image, PanResponder, Platform, Pressable, StyleSheet, View } from "react-native";
-import Reanimated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { SymbolView } from "expo-symbols";
 
 import { Sheet } from "./sheet";
-import { SheetScrollView as ScrollView, useSheetExpanded } from "./sheet-scroll";
+import { SheetScrollView as ScrollView, useSheetExpanded, useBlockSheetDrag } from "./sheet-scroll";
 import type { MenuOption } from "./menu";
 import { PressableScale } from "./motion";
 import { Text, TextInput } from "./text";
 import { useTheme } from "./theme";
 
 export function AgentSetupSheet({
-  visible,
-  onClose,
-  agentOptions,
-  modelOptions,
-  thinkingOptions,
-  accountOptions,
-  accountLabel,
-  usageRing,
-  usageLoading,
-  title,
-  action,
+  visible, onClose, agentOptions, modelOptions = [], thinkingOptions = [],
+  accountOptions = [], modelLabel, agentLabel, usageRing, usageLoading,
+  title, action, fastMode, onToggleFast, initialPage = "root",
 }: {
   visible: boolean;
   onClose: () => void;
   agentOptions: MenuOption[];
   modelOptions?: MenuOption[];
   thinkingOptions?: MenuOption[];
-  /**
-   * The box's Claude logins, when it holds more than one. A box can be signed
-   * in to several at once and only the web could ever see them; without this a
-   * person with two accounts could not tell which one a session would bill to.
-   */
   accountOptions?: MenuOption[];
-  /** Who the next session will run as, when a login has been chosen. */
   accountLabel?: string | null;
-  /** The current agent's usage ring, drawn by the composer so this file does not import it. */
+  modelLabel?: string | null;
+  agentLabel?: string | null;
   usageRing?: ReactNode;
   usageLoading?: boolean;
-  /** A heading above the sections, for a sheet that is asking a question ("Continue with"). */
   title?: string;
-  /**
-   * A confirm button at the bottom. The composer's picker has none, because
-   * every tap there already took effect; a sheet that ends in an ACT (start
-   * a new session) needs the act to be one deliberate press.
-   */
   action?: { label: string; onPress: () => void };
+  fastMode?: boolean;
+  onToggleFast?: () => void;
+  initialPage?: "root" | "profiles";
 }) {
-  const { colors, type, space, radius } = useTheme();
+  const { colors, type, isDark } = useTheme();
+  const [page, setPage] = useState<"root" | "models" | "profiles">("root");
+  const [recent, setRecent] = useState<Record<string, string[]>>({});
+  useEffect(() => { if (visible) setPage(initialPage); }, [visible, initialPage]);
+  const currentAgent = agentOptions.find(o => o.selected) ?? agentOptions[0];
+  const agentKey = currentAgent?.id ?? currentAgent?.label ?? agentLabel ?? "agent";
   const pick = (option: MenuOption) => {
     if (option.disabled) return;
     void Haptics.selectionAsync();
     option.onPress?.();
   };
-  const currentAgent = agentOptions.find((o) => o.selected) ?? agentOptions[0];
-
+  const surface = isDark ? "#303030" : colors.card;
+  const goBack = () => setPage("root");
   return (
-    <Sheet visible={visible} onClose={onClose}>
-      <View style={{ paddingBottom: space.lg, gap: space.lg }}>
-        {title ? <Text style={{ ...type.headline, color: colors.text, paddingHorizontal: space.lg + 4 }}>{title}</Text> : null}
-        {agentOptions.length ? (
-          <View style={{ gap: space.sm }}>
-            <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: space.lg + 4, gap: space.sm }}>
-              <Text style={{ ...type.caption, color: colors.textMuted, flex: 1 }}>Agent</Text>
-              {usageRing ?? (usageLoading ? <ActivityIndicator size="small" color={colors.textMuted} /> : null)}
-            </View>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled"
-              contentContainerStyle={{ paddingHorizontal: space.lg, gap: 14 }}>
-              {agentOptions.map((option, index) => (
-                <AgentTile key={`${option.label}:${index}`} option={option} onPress={() => pick(option)} />
-              ))}
-            </ScrollView>
-          </View>
-        ) : null}
-        {/*
-          * WHICH LOGIN, when the box holds more than one.
-          *
-          * Above Model on purpose: the account decides which plan's limits and
-          * which usage ring apply, so it is a bigger choice than the model and
-          * belongs next to the agent it qualifies. Absent entirely when there
-          * is one account or none, because that is not a choice.
-          */}
-        {accountOptions?.length ? (
-          <View style={{ gap: space.sm }}>
-            <Heading>Account</Heading>
-            <View style={{ marginHorizontal: space.lg, gap: 6 }}>
-              {accountOptions.map((option, index) => (
-                <Pressable
-                  key={`${option.label}:${index}`}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: !!option.selected, disabled: !!option.disabled }}
-                  onPress={() => pick(option)}
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: space.sm,
-                    paddingVertical: 10,
-                    paddingHorizontal: 14,
-                    borderRadius: radius.md,
-                    backgroundColor: option.selected ? colors.card : "transparent",
-                    opacity: option.disabled ? 0.45 : 1,
-                  }}
-                >
-                  <Text
-                    numberOfLines={1}
-                    style={{ ...type.body, color: colors.text, flex: 1 }}
-                  >
-                    {option.label}
-                  </Text>
-                  {option.selected ? (
-                    <SymbolView name="checkmark" size={13} weight="semibold" tintColor={colors.text} />
-                  ) : null}
-                </Pressable>
-              ))}
-            </View>
-          </View>
-        ) : null}
-        <View style={{ gap: space.sm }}>
-          <Heading>Model</Heading>
-          <ModelList key={`${visible}:${currentAgent?.label}`} options={modelOptions ?? []} onPick={pick} />
+    <Sheet visible={visible} onClose={onClose} pageKey={page} pageDirection={page === "root" ? "back" : "forward"} maxWidth={414}
+      surfaceStyle={{ borderRadius: 22, borderWidth: 1, borderColor: isDark ? "#454545" : colors.borderSoft, backgroundColor: isDark ? "#242424" : colors.popover }}>
+      <View style={{ padding: 12, paddingTop: 0, gap: 12 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", minHeight: 44, gap: 8 }}>
+          {page !== "root" ? <Pressable onPress={goBack} accessibilityRole="button" accessibilityLabel="Back to agent controls"
+            style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
+            <SymbolView name="chevron.left" size={16} tintColor={colors.text} />
+          </Pressable> : null}
+          <Text numberOfLines={1} style={{ ...type.headline, flex: 1, color: colors.text }}>
+            {page === "models" ? "Models" : page === "profiles" ? "Claude profile" : title ?? currentAgent?.label ?? agentLabel ?? "Agent"}
+          </Text>
+          {page === "root" ? <>
+            {usageRing ?? (usageLoading ? <ActivityIndicator size="small" color={colors.textMuted} /> : null)}
+            {onToggleFast ? <Pressable onPress={onToggleFast} accessibilityRole="switch" accessibilityLabel="Fast mode"
+              accessibilityState={{ checked: !!fastMode }} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
+              <SymbolView name={fastMode ? "bolt.fill" : "bolt"} size={18} tintColor={fastMode ? colors.text : colors.textMuted} />
+            </Pressable> : null}
+          </> : null}
         </View>
-        <View style={{ gap: space.sm }}>
-          <Heading>Thinking</Heading>
-          <View style={{ marginHorizontal: space.lg }}>
-            {thinkingOptions?.length ? <Slider options={thinkingOptions} onPick={pick} /> : (
-              <View style={{ height: TRACK, justifyContent: "center" }}>
-                <Text style={{ ...type.footnote, color: colors.textMuted }}>No thinking level for this model</Text>
-              </View>
-            )}
-          </View>
-        </View>
-        {action ? (
-          <View style={{ marginHorizontal: space.lg }}>
-            <PressableScale onPress={action.onPress} scale={0.98} accessibilityRole="button"
-              style={{ alignItems: "center", paddingVertical: 12, borderRadius: radius.lg, backgroundColor: colors.text }}>
-              <Text style={{ ...type.headline, color: colors.bg }}>{action.label}</Text>
-            </PressableScale>
-          </View>
-        ) : null}
+        {page === "root" ? <>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 8 }}>
+            {agentOptions.map((option, index) => <AgentTile key={option.id ?? `${option.label}:${index}`} option={option}
+              onPress={() => pick(option)} onLongPress={option.id === "aisdk" && accountOptions.length ? () => { pick(option); setPage("profiles"); } : undefined} />)}
+          </ScrollView>
+          {(modelLabel || modelOptions.length > 0) ? <Pressable accessibilityRole="button" accessibilityLabel={`Model ${modelLabel ?? modelOptions.find(o => o.selected)?.label ?? "default"}. Change model`}
+            onPress={() => setPage("models")} disabled={!modelOptions.length}
+            style={{ minHeight: 52, paddingHorizontal: 14, borderRadius: 14, backgroundColor: surface, flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <Text numberOfLines={1} style={{ ...type.callout, flex: 1, color: colors.text }}>{modelLabel ?? modelOptions.find(o => o.selected)?.label ?? "Choose model"}</Text>
+            {modelOptions.length ? <SymbolView name="chevron.right" size={14} tintColor={colors.textMuted} /> : null}
+          </Pressable> : null}
+          {thinkingOptions.length ? <Slider options={thinkingOptions} onPick={pick} /> : null}
+          {action ? <PressableScale onPress={action.onPress} accessibilityRole="button" style={{ alignItems: "center", padding: 12, borderRadius: 14, backgroundColor: colors.text }}>
+            <Text style={{ ...type.headline, color: colors.bg }}>{action.label}</Text>
+          </PressableScale> : null}
+        </> : page === "models" ? <ModelList key={agentKey} options={modelOptions} recent={recent[agentKey] ?? []} onPick={option => {
+          if (option.disabled) return;
+          pick(option);
+          setRecent(current => ({ ...current, [agentKey]: [option.label, ...(current[agentKey] ?? []).filter(label => label !== option.label)].slice(0, 3) }));
+          goBack();
+        }} /> : <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+          {accountOptions.map(option => <Pressable key={option.label} disabled={option.disabled} accessibilityRole="button"
+            accessibilityLabel={`Claude ${option.label}`} accessibilityState={{ selected: !!option.selected, disabled: !!option.disabled }}
+            onPress={() => { pick(option); goBack(); }} style={{ width: 76, minHeight: 76, borderRadius: 12, alignItems: "center", justifyContent: "center", gap: 8,
+              backgroundColor: option.selected ? colors.text : surface, opacity: option.disabled ? 0.4 : 1 }}>
+            <Mark option={agentOptions.find(o => o.id === "aisdk") ?? currentAgent ?? { label: "Claude" }} size={24} />
+            <Text style={{ ...type.callout, fontWeight: "600", color: option.selected ? colors.bg : colors.text }}>{option.label}</Text>
+          </Pressable>)}
+        </ScrollView>}
       </View>
     </Sheet>
-  );
-}
-
-function Heading({ children }: { children: string }) {
-  const { colors, type, space } = useTheme();
-  return (
-    <Text style={{ ...type.caption, color: colors.textMuted, paddingHorizontal: space.lg + 4 }}>
-      {children}
-    </Text>
   );
 }
 
@@ -193,46 +126,20 @@ function Mark({ option, size }: { option: MenuOption; size: number }) {
   );
 }
 
-/** One agent: its mark in a disc, its name beneath. The current one wears a ring. */
-function AgentTile({ option, onPress }: { option: MenuOption; onPress: () => void }) {
-  const { colors, type } = useTheme();
-  const selected = !!option.selected;
-  return (
-    <PressableScale
-      onPress={onPress}
-      scale={0.94}
-      disabled={option.disabled}
-      accessibilityRole="button"
-      accessibilityLabel={`${option.label} agent`}
-      accessibilityState={{ selected, disabled: !!option.disabled }}
-      style={{ alignItems: "center", gap: 6, width: 64, opacity: option.disabled ? 0.4 : 1 }}
-    >
-      <View
-        style={{
-          width: 56,
-          height: 56,
-          borderRadius: 28,
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: colors.card,
-          borderWidth: 2,
-          borderColor: selected ? colors.text : "transparent",
-        }}
-      >
-        <Mark option={option} size={28} />
-      </View>
-      <Text
-        numberOfLines={1}
-        style={{
-          ...type.caption,
-          fontWeight: selected ? "600" : "500",
-          color: selected ? colors.text : colors.textSecondary,
-        }}
-      >
-        {option.label}
-      </Text>
-    </PressableScale>
-  );
+/** A swipeable row of icon-only agents. Claude holds its account choices. */
+function AgentTile({ option, onPress, onLongPress }: { option: MenuOption; onPress: () => void; onLongPress?: () => void }) {
+  const { colors, isDark } = useTheme();
+  return <Pressable onPress={onPress} onLongPress={onLongPress} delayLongPress={400} disabled={option.disabled}
+    accessibilityRole="button" accessibilityLabel={`${option.label} agent`}
+    accessibilityHint={onLongPress ? "Long press to choose a Claude profile" : undefined}
+    accessibilityActions={onLongPress ? [{ name: "profiles", label: "Choose profile" }] : undefined}
+    onAccessibilityAction={event => { if (event.nativeEvent.actionName === "profiles") onLongPress?.(); }}
+    accessibilityState={{ selected: !!option.selected, disabled: !!option.disabled }}
+    style={{ width: 64, height: 48, borderRadius: 14, alignItems: "center", justifyContent: "center", opacity: option.disabled ? 0.4 : 1,
+      backgroundColor: option.selected ? (isDark ? "#454545" : colors.borderSoft) : (isDark ? "#303030" : colors.card),
+      borderWidth: 1, borderColor: option.selected ? colors.textMuted : "transparent" }}>
+    <Mark option={option} size={28} />
+  </Pressable>;
 }
 
 /** One choice in an inset list, iOS style: label, hairline above, check at the end. */
@@ -274,33 +181,28 @@ function Row({ option, first, onPress }: { option: MenuOption; first: boolean; o
 
 /** Stable space keeps controls in place across agents and search results. */
 const MODEL_ROWS_SHOWN = 5.5;
-const MODEL_MAX_RESULTS = 40;
+
 
 /** Search and rows keep their footprint even for short or empty catalogues. */
-function ModelList({ options, onPick }: { options: MenuOption[]; onPick: (option: MenuOption) => void }) {
+function ModelList({ options, recent, onPick }: { options: MenuOption[]; recent: string[]; onPick: (option: MenuOption) => void }) {
   const { colors, type, space, radius } = useTheme();
   const [query, setQuery] = useState("");
   const expanded = useSheetExpanded();
   const q = query.trim().toLowerCase();
   const shown = useMemo(() => {
     const matched = q ? options.filter((o) => o.label.toLowerCase().includes(q)) : options;
-    if (q || options.length < 8) return matched.slice(0, MODEL_MAX_RESULTS);
-    const current = matched.find((o) => o.selected);
-    return [...(current ? [current] : []), ...matched.filter((o) => o !== current)].slice(
-      0,
-      MODEL_MAX_RESULTS,
-    );
+    const current = matched.find(o => o.selected);
+    return [...(current ? [current] : []), ...matched.filter(o => o !== current)];
   }, [options, q]);
-  const hidden = (q ? options.filter((o) => o.label.toLowerCase().includes(q)).length : options.length) - shown.length;
 
   return (
-    <View style={{ marginHorizontal: space.lg, gap: space.sm }}>
+    <View style={{ gap: space.sm }}>
       <View
           style={{
             flexDirection: "row",
             alignItems: "center",
             gap: 6,
-            height: 36,
+            height: 44,
             paddingHorizontal: space.md,
             borderRadius: radius.lg,
             backgroundColor: colors.card,
@@ -318,6 +220,15 @@ function ModelList({ options, onPick }: { options: MenuOption[]; onPick: (option
             style={{ flex: 1, ...type.callout, color: colors.text, paddingVertical: 0 }}
           />
       </View>
+      {!q && recent.some(label => options.some(o => o.label === label && !o.selected)) ? <View style={{ gap: 6 }}>
+        <Text style={{ ...type.caption, color: colors.textMuted }}>Recent</Text>
+        <ScrollView horizontal keyboardShouldPersistTaps="handled" showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+          {recent.map(label => options.find(o => o.label === label && !o.selected)).filter((o): o is MenuOption => !!o).map(option =>
+            <Pressable key={option.label} onPress={() => onPick(option)} accessibilityRole="button" style={{ minHeight: 44, paddingHorizontal: 12, justifyContent: "center", borderRadius: 12, backgroundColor: colors.card }}>
+              <Text style={{ ...type.callout, color: colors.text }}>{option.label}</Text>
+            </Pressable>)}
+        </ScrollView>
+      </View> : null}
       <View style={{ borderRadius: radius.xl, backgroundColor: colors.card, overflow: "hidden" }}>
         <ScrollView
           bounces={false}
@@ -331,153 +242,53 @@ function ModelList({ options, onPick }: { options: MenuOption[]; onPick: (option
           {!shown.length ? (
             <Text style={{ ...type.footnote, color: colors.textMuted, padding: space.md }}>{options.length ? "No model matches" : "No models available"}</Text>
           ) : null}
-          {hidden > 0 ? (
-            <Text style={{ ...type.footnote, color: colors.textMuted, padding: space.md }}>
-              {hidden} more. Keep typing.
-            </Text>
-          ) : null}
+
         </ScrollView>
       </View>
     </View>
   );
 }
 
-const PAD = 3;
-const TRACK = 36;
+const TRACK = 44;
 
-/**
- * A segmented control whose thumb can be DRAGGED, not only tapped. The thumb
- * follows the finger across the track and snaps to the nearest segment on
- * release; a tap is the degenerate drag. Levels are ordered, so sliding
- * through them is the gesture that matches the thing.
- */
-function Slider({ options, onPick }: { options: MenuOption[]; onPick: (option: MenuOption) => void }) {
-  const { colors, type, radius } = useTheme();
+/** The whole bar owns the gesture. Only the current stop is labelled. */
+export function Slider({ options, onPick }: { options: MenuOption[]; onPick: (option: MenuOption) => void }) {
+  const { colors, type, isDark } = useTheme();
+  const blockSheetDrag = useBlockSheetDrag();
   const [width, setWidth] = useState(0);
-  const count = options.length;
-  const segment = width > 0 ? (width - PAD * 2) / count : 0;
-  const selectedIndex = Math.max(0, options.findIndex((o) => o.selected));
-  /** The segment under the finger while dragging; null when at rest. */
   const [dragIndex, setDragIndex] = useState<number | null>(null);
-  const x = useSharedValue(0);
-  const dragging = useSharedValue(false);
-
-  useEffect(() => {
-    if (!segment) return;
-    if (dragIndex === null) x.value = withTiming(selectedIndex * segment, { duration: 140 });
-  }, [selectedIndex, segment, dragIndex, x]);
-
-  // The responder is created once; it reads the latest geometry through this ref.
-  const latest = useRef({ segment, count, options, selectedIndex });
-  latest.current = { segment, count, options, selectedIndex };
-
-  const indexAt = (px: number) => {
-    const { segment: s, count: n } = latest.current;
-    if (!s) return 0;
-    return Math.min(n - 1, Math.max(0, Math.floor((px - PAD) / s)));
-  };
-  const pan = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: (e) => {
-        const { segment: s } = latest.current;
-        dragging.value = true;
-        const i = indexAt(e.nativeEvent.locationX);
-        setDragIndex(i);
-        x.value = withTiming(i * s, { duration: 100 });
-      },
-      onPanResponderMove: (e) => {
-        const { segment: s, count: n } = latest.current;
-        const px = e.nativeEvent.locationX;
-        const max = (n - 1) * s;
-        x.value = Math.min(max, Math.max(0, px - PAD - s / 2));
-        setDragIndex(indexAt(px));
-      },
-      onPanResponderRelease: (e) => {
-        const { segment: s, options: opts, selectedIndex: current } = latest.current;
-        const i = indexAt(e.nativeEvent.locationX);
-        dragging.value = false;
-        x.value = withTiming(i * s, { duration: 120 });
-        setDragIndex(null);
-        const option = opts[i];
-        if (option && i !== current) onPick(option);
-      },
-      onPanResponderTerminate: () => {
-        const { segment: s, selectedIndex: current } = latest.current;
-        dragging.value = false;
-        x.value = withTiming(current * s, { duration: 120 });
-        setDragIndex(null);
-      },
-    }),
-  ).current;
-
-  const thumb = useAnimatedStyle(() => ({
-    transform: [{ translateX: x.value }, { scale: dragging.value ? 1.04 : 1 }],
-  }));
+  const selectedIndex = Math.max(0, options.findIndex(o => o.selected));
+  const latest = useRef({ width, options, selectedIndex, onPick });
+  latest.current = { width, options, selectedIndex, onPick };
+  const indexAt = (px: number) => Math.max(0, Math.min(latest.current.options.length - 1, Math.floor(px / (latest.current.width || 1) * latest.current.options.length)));
+  const pan = useRef(PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: () => true,
+    onPanResponderGrant: e => setDragIndex(indexAt(e.nativeEvent.locationX)),
+    onPanResponderMove: e => setDragIndex(indexAt(e.nativeEvent.locationX)),
+    onPanResponderRelease: e => {
+      const i = indexAt(e.nativeEvent.locationX);
+      const option = latest.current.options[i];
+      if (option && !option.disabled && i !== latest.current.selectedIndex) latest.current.onPick(option);
+      setDragIndex(null);
+    },
+    onPanResponderTerminate: () => setDragIndex(null),
+  })).current;
   const active = dragIndex ?? selectedIndex;
-
-  return (
-    <View
-      {...pan.panHandlers}
-      onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
-      accessibilityRole="adjustable"
-      accessibilityLabel="Thinking level"
-      accessibilityValue={{ text: options[selectedIndex]?.label }}
-      style={{
-        flexDirection: "row",
-        backgroundColor: colors.card,
-        borderRadius: radius.lg,
-        padding: PAD,
-        height: TRACK,
-      }}
-    >
-      {segment ? (
-        <Reanimated.View
-          pointerEvents="none"
-          style={[
-            {
-              position: "absolute",
-              top: PAD,
-              left: PAD,
-              width: segment,
-              height: TRACK - PAD * 2,
-              borderRadius: radius.md,
-              backgroundColor: colors.text,
-            },
-            thumb,
-          ]}
-        />
-      ) : null}
-      {options.map((option, index) => (
-        // Labels take no touches, so every event reports `locationX` against
-        // the track itself rather than against whichever label was under the
-        // finger. Without this a release over "High" measured inside "High"
-        // and snapped back to the old segment.
-        //
-        // ONLY THE ACTIVE SEGMENT SAYS ITS NAME. Seven levels in 350pt
-        // truncated to "Medi..." and "Think...", which named nothing. The
-        // rest are dots: the track reads as a scale, and the name you are
-        // on is the one you need.
-        <View
-          key={`${option.label}:${index}`}
-          pointerEvents="none"
-          style={{ flex: 1, alignItems: "center", justifyContent: "center" }}
-        >
-          {index === active ? (
-            <Text
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.75}
-              style={{ ...type.footnote, fontWeight: "600", color: colors.bg, paddingHorizontal: 4 }}
-            >
-              {option.label}
-            </Text>
-          ) : (
-            <View style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: colors.textMuted }} />
-          )}
-        </View>
-      ))}
-    </View>
-  );
+  return <View {...pan.panHandlers} onTouchStart={blockSheetDrag} onLayout={e => setWidth(e.nativeEvent.layout.width)}
+    accessibilityRole="adjustable" accessibilityLabel="Thinking level" accessibilityValue={{ text: options[selectedIndex]?.label }}
+    accessibilityActions={[{ name: "increment" }, { name: "decrement" }]}
+    onAccessibilityAction={e => {
+      const step = e.nativeEvent.actionName === "increment" ? 1 : -1;
+      const option = options[selectedIndex + step];
+      if (option && !option.disabled) onPick(option);
+    }}
+    style={{ height: TRACK, flexDirection: "row", borderRadius: 12, overflow: "hidden", backgroundColor: isDark ? "#191919" : colors.card }}>
+    <View pointerEvents="none" style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: `${((active + 1) / options.length) * 100}%`,
+      backgroundColor: isDark ? "#454545" : colors.borderSoft, borderRightWidth: 2, borderRightColor: colors.textMuted }} />
+    {options.map((option, index) => <View key={option.label} pointerEvents="none" style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+      {index === active ? <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} style={{ ...type.footnote, fontWeight: "600", color: colors.text, paddingHorizontal: 4 }}>{option.label}</Text>
+        : <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: colors.textMuted }} />}
+    </View>)}
+  </View>;
 }

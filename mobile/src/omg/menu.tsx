@@ -57,6 +57,8 @@ import { roundAvatarFileUri } from "./round-avatar";
 import { useTheme } from "./theme";
 
 export type MenuOption = {
+  /** Stable identity for selectors that also offer contextual actions. */
+  id?: string;
   label: string;
   /** SF Symbol drawn at the trailing edge of the row, the way iOS does it. */
   icon?: SFSymbol;

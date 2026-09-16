@@ -1,6 +1,6 @@
 /** Shared content-sized tray. Its surface stays mounted as pages and height change. */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
+import { Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View, type StyleProp, type ViewStyle } from "react-native";
 import Reanimated, { cancelAnimation, Easing, FadeInLeft, FadeInRight, FadeOut, runOnJS, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useReduceMotionEnabled } from "./motion";
@@ -14,12 +14,13 @@ import { GestureHandlerRootView, PanGestureHandler, State } from "react-native-g
 const TRAY_DURATION = 260;
 const TRAY_EASE = Easing.bezier(0.2, 0.8, 0.2, 1);
 
-export function Sheet({ visible, onClose, children, placement = "bottom", maxWidth = 560, pageKey = "root", pageDirection = "forward" }: {
+export function Sheet({ visible, onClose, children, placement = "bottom", maxWidth = 560, pageKey = "root", pageDirection = "forward", surfaceStyle }: {
   visible: boolean;
   onClose: () => void;
   children: ReactNode;
   placement?: "bottom" | "center";
   maxWidth?: number;
+  surfaceStyle?: StyleProp<ViewStyle>;
   /** Change only for navigation, never for edits or selections within a page. */
   pageKey?: string;
   pageDirection?: "forward" | "back";
@@ -177,7 +178,7 @@ export function Sheet({ visible, onClose, children, placement = "bottom", maxWid
               else if (g.state === State.CANCELLED || g.state === State.FAILED) endDrag(0, 0, true);
             }}>
           <View onStartShouldSetResponderCapture={() => { origin.current = null; return false; }}
-            onTouchEnd={() => setGestureBlocked(false)} onTouchCancel={() => setGestureBlocked(false)} style={{ borderRadius: 32, borderCurve: "continuous", overflow: "hidden", backgroundColor: colors.popover }}>
+            onTouchEnd={() => setGestureBlocked(false)} onTouchCancel={() => setGestureBlocked(false)} style={[{ borderRadius: 32, borderCurve: "continuous", overflow: "hidden", backgroundColor: colors.popover }, surfaceStyle]}>
             {/* The full surface participates; nested scrollers declare their touch origin. */}
             <View onTouchStart={() => { origin.current = null; }} accessibilityRole="adjustable" accessibilityLabel="Drawer height"
               accessibilityValue={{ text: stage }}

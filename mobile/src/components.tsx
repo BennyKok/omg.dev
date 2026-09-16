@@ -1014,6 +1014,8 @@ export function HomeComposer({
   thinkingOptions,
   accountOptions,
   accountLabel,
+  fastMode,
+  onToggleFast,
   attachments,
   dictation,
   usage = [],
@@ -1039,6 +1041,8 @@ export function HomeComposer({
   /** The box's Claude logins. Empty unless it holds more than one. */
   accountOptions?: MenuOption[];
   accountLabel?: string | null;
+  fastMode?: boolean;
+  onToggleFast?: () => void;
   /** The files going with this prompt, and how to pick more. */
   attachments: {
     items: Attachment[];
@@ -1080,6 +1084,7 @@ export function HomeComposer({
     agentOptions.length || modelOptions?.length || thinkingOptions?.length,
   );
   const [setupOpen, setSetupOpen] = useState(false);
+  const [setupPage, setSetupPage] = useState<"root" | "profiles">("root");
   const [inputHeight, setInputHeight] = useState(COMPOSER_LINE);
   const [composerFocused, setComposerFocused] = useState(false);
   const promptText = dictationTail ? `${value}${value ? " " : ""}${dictationTail}` : value;
@@ -1159,11 +1164,14 @@ export function HomeComposer({
     .reduceMotion(stillMotion ? ReduceMotion.Always : ReduceMotion.Never);
   const agentControl = hasSetup ? (
     <PressableScale
-      onPress={() => setSetupOpen(true)}
+      onPress={() => { setSetupPage("root"); setSetupOpen(true); }}
+      onLongPress={agent === "aisdk" && accountOptions?.length ? () => { setSetupPage("profiles"); setSetupOpen(true); } : undefined}
       scale={0.94}
       accessibilityRole="button"
       accessibilityLabel={`${agentLabel ?? "Coding agent"}, ${modelLabel ?? "default model"}, ${thinkingLabel ?? "default thinking"}. Change`}
-      style={{ width: 38, height: 38, alignItems: "center", justifyContent: "center" }}
+      accessibilityActions={agent === "aisdk" && accountOptions?.length ? [{ name: "profiles", label: "Choose Claude profile" }] : undefined}
+      onAccessibilityAction={event => { if (event.nativeEvent.actionName === "profiles") { setSetupPage("profiles"); setSetupOpen(true); } }}
+      style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}
     >
       <AgentAvatar agent={agent} size={32} />
     </PressableScale>
@@ -1375,6 +1383,11 @@ export function HomeComposer({
         thinkingOptions={thinkingOptions}
         accountOptions={accountOptions}
         accountLabel={accountLabel}
+        modelLabel={modelLabel}
+        agentLabel={agentLabel}
+        fastMode={fastMode}
+        onToggleFast={onToggleFast}
+        initialPage={setupPage}
         usageRing={
           agentUsage ? (
             <UsageRings

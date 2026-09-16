@@ -1,29 +1,12 @@
 /**
- * The two choices a new session needs besides the prompt: WHICH AGENT runs it,
- * and WHICH FOLDER it runs in.
- *
- * Both were previously unmakeable. `agent` was omitted from
- * POST /api/sessions/new so the box always picked its default, and `cwd` was
- * always the machine's `defaultFolder` — the composer printed that folder as a
- * caption but offered no way to change it. On a product whose whole premise is
- * "which agent, on which project", neither question could be answered from the
- * phone.
- *
- * Both live here together, in the same shape, deliberately. They are the same
- * kind of decision — a short list of alternatives, one currently selected —
- * and giving them one module means the selection rules (what is offered, what
- * happens when the roster is empty, how the current choice is marked) cannot
- * drift into two slightly different answers.
- *
- * Selections are per-machine and are NOT persisted. Agents are configured on
- * the box and folders exist on its disk, so a choice restored from storage
- * could easily name something the current machine does not have — which would
- * be a 400 at launch, discovered only after typing a prompt. The roster is the
- * only authority, so the default is derived from it every time.
+ * Owns the composer agent, model, effort, account and project choices.
+ * Availability comes from the selected machine. Saved model and effort
+ * choices are validated against its catalog before use.
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { supportsFastMode } from "../../../packages/protocol/src/fast-mode-support";
 import { STORAGE_KEYS } from "./config";
 
 import { agentIcon, agentLabel as agentDisplayName } from "./agent-icons";
@@ -46,21 +29,6 @@ type ModelCatalogEntry = {
   thinkingLevels?: string[];
 };
 
-/**
- * THREE CONTROLS, NOT ONE. Which agent, which model, how hard it should think.
- *
- * These were one menu with the models nested behind each agent, and nesting is
- * what broke it: a submenu row cannot carry a brand mark (UIKit draws the open
- * submenu's header from the image at its own size, which produced an ~80pt
- * slab), and press-and-drag — the gesture iOS menus are built around, where
- * you hold the control, slide onto a row and release — does not survive a
- * sideways step into a second layer.
- *
- * So each question gets its own control, and every menu is ONE layer. The
- * agent keeps its marks, the drag gesture works everywhere, and thinking —
- * which the machine has always accepted on `/api/sessions/new` and this app
- * has never offered — finally has somewhere to live.
- */
 /** One Claude login on the box. Mirrors ClaudeAccount in src/claude-accounts.ts. */
 export type ClaudeAccountRow = {
   id: string;
@@ -76,6 +44,7 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
   const { initialAgent } = init;
   const [chosen, setChosen] = useState<string | null>(null);
   const [model, setModel] = useState<string | null>(null);
+  const [fast, setFast] = useState(false);
   const [thinking, setThinking] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<ModelCatalogEntry[]>([]);
   /**
@@ -90,18 +59,7 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
    */
   const [saved, setSaved] = useState<Record<string, { model?: string; thinking?: string }>>({});
   const [savedLoaded, setSavedLoaded] = useState(false);
-  /**
-   * THE CLAUDE LOGINS THIS BOX HOLDS.
-   *
-   * A box can be signed in to several Claude accounts at once, and the web has
-   * been able to see and pick between them since the feature landed. This app
-   * never asked for the list, so a person with two logins had no way to tell
-   * which one a session would bill to, let alone choose.
-   *
-   * `label` is synthetic ordering ("Claude 1") and cannot tell two apart. The
-   * identity is in `profile`, which is where the email and plan live -- see
-   * agent-profiles.ts, which exists for exactly this reason.
-   */
+  /** Account identity stays internal; the compact picker shows stable numbers. */
   const [claudeAccounts, setClaudeAccounts] = useState<ClaudeAccountRow[]>([]);
   const [claudeAccount, setClaudeAccount] = useState<string | null>(null);
 
@@ -162,11 +120,11 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
   // to this box's own first entry rather than 400ing at launch.
   useEffect(() => {
     setChosen(null);
+    setClaudeAccount(null);
+    setFast(false);
     setModel(null);
     setThinking(null);
   }, [bindingId]);
-
-  const setupKey = `${bindingId ?? "none"}:${chosen ?? "default"}`;
 
   /** Remember a choice for this machine and agent. */
   const remember = useCallback(
@@ -209,32 +167,17 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
 
   const label = useMemo(() => labelFor(agent, agents), [agent, agents]);
 
-  /**
-   * One choice is not a choice. An empty list lets the composer render the
-   * control as plain text with no chevron, rather than a menu with a single
-   * row in it — and it is why these hooks hand back OPTIONS rather than an
-   * `open()`: the menu is anchored to the control, so the control is what
-   * renders it. See ./menu.tsx.
-   */
-  /**
-   * The agent list, and each agent's models BEHIND it as a submenu.
-   *
-   * One control, two decisions: the models live inside the agent that runs
-   * them, so picking "Codex → gpt-5.6-sol" is one gesture and there is no
-   * second picker on the composer that could end up naming a model the current
-   * agent cannot run. Choosing a model chooses its agent too, which is the
-   * only reading of that tap that makes sense.
-   */
+  /** The rail includes single agents so their profile control stays reachable. */
   const options = useMemo<MenuOption[]>(() => {
-    if (agents.length < 2) return [];
-    // ONE LAYER, WITH MARKS. Every row is a leaf, so each keeps the brand mark
-    // that makes this menu scannable, and a press-and-drag reaches all of them.
     return agents.map((a) => ({
+      id: a.key,
       label: labelFor(a.key, agents),
       image: agentIcon(a.key),
       selected: a.key === agent,
       onPress: () => {
+        if (a.key === agent) return;
         setChosen(a.key);
+        setFast(false);
         // The model and the thinking level belong to the agent that runs them;
         // carrying a Claude model across to Codex would name something that
         // agent cannot run.
@@ -276,7 +219,7 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
 
   const modelOptions = useMemo<MenuOption[]>(() => {
     const models = entry?.models ?? [];
-    if (models.length < 2) return [];
+
     // No icons: these are strings the box reported, not things with faces, and
     // one icon in a menu indents every other label to make room for a gutter.
     return models.map((m) => ({
@@ -287,7 +230,7 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
         remember({ model: m }, `${bindingId ?? "none"}:${agent}`);
       },
     }));
-  }, [entry, activeModelName]);
+  }, [entry, activeModelName, remember, bindingId, agent]);
 
   /**
    * THE LEVEL IS ALWAYS SOMETHING, and the pill always says what.
@@ -313,7 +256,7 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
 
   const thinkingOptions = useMemo<MenuOption[]>(() => {
     const levels = entry?.thinkingLevels ?? [];
-    if (levels.length < 2) return [];
+
     // No "Default" row: the pill now always shows a real level, so a row that
     // means "whatever the box decides" would be a second answer to a question
     // that already has one.
@@ -327,7 +270,7 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
         },
       })),
     ];
-  }, [entry, activeThinking]);
+  }, [entry, activeThinking, remember, bindingId, agent]);
 
   /** Null means "the box's default", which is what omitting it asks for. */
   const activeModel = useMemo(() => {
@@ -335,62 +278,29 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
     return null;
   }, [entry, model]);
 
-  /**
-   * ONE ROW PER LOGIN, named by who it actually is.
-   *
-   * Hidden unless the box holds more than one: a single account is not a
-   * choice, and a section offering it would be noise on a phone. Only Claude
-   * runs under several logins, so this is empty for every other agent --
-   * `claudeAccountId` is rejected by the box for anything but aisdk.
-   *
-   * A login that cannot serve is listed and disabled rather than dropped. A
-   * missing row reads as "you never set that up"; a greyed one with its reason
-   * reads as "that one needs reconnecting", which is the truth and is
-   * actionable.
-   */
+  /** Auto leaves routing to the server. Explicit profiles must still be usable. */
+  const activeAccount = agent === "aisdk"
+    ? claudeAccounts.find(a => a.id === claudeAccount && a.connected && !a.needsReconnect) ?? null
+    : null;
   const accountOptions = useMemo<MenuOption[]>(() => {
     if (agent !== "aisdk" || claudeAccounts.length < 2) return [];
-    /**
-     * THE EMAIL ALONE IS NOT ALWAYS AN IDENTITY.
-     *
-     * Two rows can carry the SAME login -- a second one added and never
-     * connected, say -- and naming both by email produced two identical rows
-     * on Benny's box, which is the ambiguity `label` ("Claude 1") exists to
-     * resolve. So the ordinal comes back, but only where it earns its place.
-     */
-    const seen = new Map<string, number>();
-    for (const account of claudeAccounts) {
-      const who = account.profile?.label;
-      if (who) seen.set(who, (seen.get(who) ?? 0) + 1);
-    }
-    return claudeAccounts.map((account) => {
-      // The state goes in the LABEL. `MenuOption` has no subtitle, and a field
-      // it does not know is dropped in silence -- the plan and the reconnect
-      // warning would simply never have appeared.
-      const email = account.profile?.label;
-      const who = !email
-        ? account.label
-        : (seen.get(email) ?? 0) > 1
-          ? `${account.label} · ${email}`
-          : email;
-      const note = account.needsReconnect
-        ? "needs reconnecting"
-        : !account.connected
-          ? "not connected"
-          : account.profile?.detail;
-      return {
-        label: note ? `${who} · ${note}` : who,
-        selected: account.id === claudeAccount,
-        disabled: !account.connected,
+    return [
+      { label: "Auto", selected: !activeAccount, onPress: () => setClaudeAccount(null) },
+      ...claudeAccounts.map(account => ({
+        id: account.id,
+        label: String(account.number),
+        selected: account.id === activeAccount?.id,
+        disabled: !account.connected || !!account.needsReconnect,
         onPress: () => setClaudeAccount(account.id),
-      };
-    });
-  }, [agent, claudeAccounts, claudeAccount]);
-
-  const activeAccount = claudeAccounts.find((a) => a.id === claudeAccount) ?? null;
+      })),
+    ];
+  }, [agent, claudeAccounts, activeAccount]);
+  const fastAvailable = supportsFastMode(agent, activeModelName);
 
   return {
     agent,
+    fastMode: fastAvailable && fast,
+    toggleFast: fastAvailable ? () => setFast(value => !value) : undefined,
     model: activeModel,
     /** What the model pill shows: the choice, or the default it would use. */
     modelLabel: activeModelName,
@@ -405,8 +315,8 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
      * it hears nothing (pickClaudeAccountForNewSession), which is a better
      * answer than this app pinning one at random.
      */
-    claudeAccountId: claudeAccount ?? undefined,
-    claudeAccountLabel: activeAccount?.profile?.label ?? activeAccount?.label ?? null,
+    claudeAccountId: activeAccount?.id,
+    claudeAccountLabel: activeAccount ? String(activeAccount.number) : null,
     accountOptions,
     label,
     options,
