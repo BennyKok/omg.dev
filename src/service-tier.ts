@@ -11,11 +11,8 @@ export type ServiceTierResolution =
   | { ok: true; serviceTier?: CodexServiceTier }
   | { ok: false; error: string };
 
-/** Codex currently advertises Fast tier for Astra, GPT-5.4, GPT-5.5 and GPT-5.6. */
-export function codexModelSupportsFast(model: string | null | undefined): boolean {
-  if (!model) return false;
-  return model === "gpt-6-astra" || /^gpt-5\.(?:6(?:-|$)|5(?:-|$)|4$)/.test(model);
-}
+import { codexModelSupportsFast } from "../packages/protocol/src/fast-mode-support.ts";
+export { codexModelSupportsFast };
 
 /** Validate the untrusted service-tier field from a new-session request. */
 export function resolveSessionServiceTier(input: {
