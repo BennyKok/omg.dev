@@ -14,6 +14,7 @@ import {
   useWindowDimensions,
   View,
   type ViewStyle,
+  type LayoutRectangle,
 } from "react-native";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Reanimated, {
@@ -51,7 +52,7 @@ import { SessionMentionSuggest } from "./omg/session-mention-suggest";
 import { PressableScale, useListItemMotion, useReduceMotionEnabled } from "./omg/motion";
 import { useSwipeToCommit } from "./omg/swipe-row";
 import { useTheme } from "./omg/theme";
-import { SessionActivityField } from "./omg/session-activity";
+import { SessionActivityField, SessionActivityTitle, useSessionActivity } from "./omg/session-activity";
 
 /**
  * Tailwind's `bg-success/30` in a language React Native understands. The web
@@ -804,6 +805,8 @@ export function SessionCard({
   // different concerns with different lifetimes, and PressableScale is
   // reused by four other pressables that have no list to belong to.
   const listMotion = useListItemMotion();
+  const activity = useSessionActivity(!!busy && !blocked && !ended);
+  const [textBounds, setTextBounds] = useState<LayoutRectangle>();
 
   // The archive backdrop has to match the row it is revealed from, or the red
   // shows past the corners as four sharp ears.
@@ -887,14 +890,14 @@ export function SessionCard({
             height: compact ? 64 : SESSION_ROW.height,
           })}
         >
-          {busy && !blocked && !ended ? <SessionActivityField
-            identity={sessionId ?? title} cornerRadius={radius.md}
-            horizontalOutset={compact ? 0 : SESSION_ROW.inset} /> : null}
+          <SessionActivityField activity={activity} textBounds={textBounds} cornerRadius={radius.md}
+            horizontalOutset={compact ? 0 : SESSION_ROW.inset} />
           <AgentAvatar agent={agent} size={compact ? 28 : SESSION_ROW.avatar} plain />
-          <View style={{ flex: 1, gap: SESSION_ROW.textGap, minWidth: 0 }}>
+          <View onLayout={({ nativeEvent: { layout } }) => setTextBounds((old) =>
+            old && old.x === layout.x && old.y === layout.y && old.width === layout.width && old.height === layout.height ? old : layout)}
+            style={{ flex: 1, gap: SESSION_ROW.textGap, minWidth: 0 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 }}>
-              <Text
-                numberOfLines={1}
+              <SessionActivityTitle title={title} activity={activity}
                 style={{
                   ...(compact ? type.subhead : type.headline),
                   flexShrink: 1,
@@ -904,9 +907,7 @@ export function SessionCard({
                   fontWeight: unread ? "700" : "600",
                   color: colors.text,
                 }}
-              >
-                {title}
-              </Text>
+              />
             </View>
             {/* Rendered unconditionally — see the prop's note. An empty
                 preview keeps its line rather than collapsing the row. */}
