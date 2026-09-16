@@ -12570,7 +12570,7 @@ function RailStage({
       const session = sid ? bySid.get(sid) : null;
       if (!sid || !session) return;
       const confirmed = await appDialog.confirm({
-        title: `Archive ${titleForSession(session)}?`,
+        title: "Archive this session?",
         description: "The session will leave the live view and can be resumed later from Recent sessions.",
         confirmLabel: "Archive session",
         destructive: true,
@@ -18133,7 +18133,7 @@ const SessionCard = memo(function SessionCard({
       return;
     }
     const confirmed = await appDialog.confirm({
-      title: `Archive ${titleForSession(session)}?`,
+      title: "Archive this session?",
       description: "The session will leave the live view and can be resumed later from Recent sessions.",
       confirmLabel: "Archive session",
       destructive: true,
