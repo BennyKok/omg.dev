@@ -67,6 +67,29 @@ function nodes(node: any): Node[] {
   if (!node || typeof node !== "object") return [];
   return [node, ...nodes(node.props?.children)];
 }
+
+/**
+ * Every node with its ABSOLUTE centre, accumulating each ancestor's offset.
+ *
+ * This is what SwiftUI actually does, and it stopped being the same thing as
+ * reading a node's own `offset` when the villager became its own framed view
+ * -- which it had to, so the arrival transition scales about the agent rather
+ * than about the middle of the widget. The mark now sits at (0,0) inside a
+ * wrapper that carries the position, so a test reading only the mark's offset
+ * measures every agent as standing in the same place.
+ */
+function placed(node: any, base: { x: number; y: number } = { x: 0, y: 0 }): { node: Node; at: { x: number; y: number } }[] {
+  if (Array.isArray(node)) return node.flatMap((child) => placed(child, base));
+  if (!node || typeof node !== "object") return [];
+  const own = node.props?.modifiers?.find?.((modifier: any) => modifier.type === "offset")?.value;
+  const at = own ? { x: base.x + own.x, y: base.y + own.y } : base;
+  return [{ node, at }, ...placed(node.props?.children, at)];
+}
+
+/** Absolute centres of the agent marks, in cast order. The scene is images[0]. */
+function markCentres(tree: any): { x: number; y: number }[] {
+  return placed(tree).filter((entry) => entry.node.type === "Image").slice(1).map((entry) => entry.at);
+}
 for (const [family, capacity] of [["Small", 2], ["Medium", 4], ["Large", 7]] as const) {
   for (const scheme of ["light", "dark"]) test(`${family} ${scheme} renders its own scene and bounded cast`, () => {
     const tree = nodes(render(props, { widgetFamily: `system${family}`, colorScheme: scheme }));
@@ -182,9 +205,8 @@ function travel(state: string, family = "Medium", index = 0) {
   }));
   const seen: { x: number; y: number }[] = [];
   for (const walkPhase of [0, 1, 2, 3]) {
-    const tree = nodes(render({ ...props, walkPhase, characters: seats }, { widgetFamily: `system${family}` }));
-    const mark = tree.filter(node => node.type === "Image")[index + 1];
-    seen.push(mark.props.modifiers.find((modifier: any) => modifier.type === "offset").value);
+    const tree = render({ ...props, walkPhase, characters: seats }, { widgetFamily: `system${family}` });
+    seen.push(markCentres(tree)[index]);
   }
   const xs = seen.map(p => p.x), ys = seen.map(p => p.y);
   return { x: Math.max(...xs) - Math.min(...xs), y: Math.max(...ys) - Math.min(...ys) };
@@ -214,9 +236,7 @@ test("walkers never have the room to collide or leave the scene", () => {
     iconUri: "i", iconSize: 34, plate: false, markTone: "light", legColor: "#000", state: "working",
   }));
   for (const walkPhase of [0, 1, 2, 3]) {
-    const tree = nodes(render({ ...props, walkPhase, characters: seats }, { widgetFamily: "systemMedium" }));
-    const marks = tree.filter(node => node.type === "Image").slice(1)
-      .map(node => node.props.modifiers.find((modifier: any) => modifier.type === "offset").value);
+    const marks = markCentres(render({ ...props, walkPhase, characters: seats }, { widgetFamily: "systemMedium" }));
     // Centres stay a mark apart, measured the way they are seen. Two slots can
     // sit close in x and still never overlap when they differ in y.
     for (let i = 0; i < marks.length; i += 1) {
@@ -406,18 +426,16 @@ for (const [family, key] of [["Medium", "medium"], ["Large", "large"]] as const)
 test("a napping agent's sleep marker drifts up and away across the cycle", () => {
   const seat = [{ iconUri: "i", iconSize: 34, plate: false, markTone: "light", legColor: "#000", state: "idle" }];
   const zs = [0, 1, 2, 3].map((walkPhase) => {
-    const tree = nodes(render({ ...props, walkPhase, characters: seat }, { widgetFamily: "systemMedium" }));
-    const z = tree.find(node => node.type === "Text" && node.props.children === "z");
+    const tree = render({ ...props, walkPhase, characters: seat }, { widgetFamily: "systemMedium" });
+    const z = placed(tree).find((entry) => entry.node.type === "Text" && entry.node.props.children === "z")!;
     // RELATIVE to the sleeper, who is ambling underneath it. Measured against
     // the scene the drift would fight the body's own movement and read as
     // jitter, which is not what is being asserted.
-    const mark = tree.filter(node => node.type === "Image")[1];
-    const at = z.props.modifiers.find((m: any) => m.type === "offset").value;
-    const body = mark.props.modifiers.find((m: any) => m.type === "offset").value;
+    const body = markCentres(tree)[0];
     return {
-      x: at.x - body.x,
-      y: at.y - body.y,
-      size: z.props.modifiers.find((m: any) => m.type === "font").value.size,
+      x: z.at.x - body.x,
+      y: z.at.y - body.y,
+      size: z.node.props.modifiers.find((m: any) => m.type === "font").value.size,
     };
   });
   // Rises, drifts aside and shrinks, monotonically, so it reads as drifting
@@ -536,16 +554,17 @@ test("a bubble never gets wider than the scene allows, however long the title", 
  */
 test("no bubble lands on a villager in any walk phase", () => {
   for (const walkPhase of [0, 1, 2, 3]) {
-    const tree = nodes(render({
+    const rendered = render({
       ...props, walkPhase,
       characters: ["one", "two", "three", "four"].map((t, i) => ({
         iconUri: "i", iconSize: 34, plate: i % 2 === 0, markTone: "light", legColor: "#000",
         state: "working", title: `session ${t}`, lastActivityAt: 0,
       })),
-    }, { widgetFamily: "systemMedium", date: 10_000 }));
-    const marks = tree.filter(node => node.type === "Image").slice(1).map(node => ({
-      at: node.props.modifiers.find((m: any) => m.type === "offset").value,
-      size: node.props.modifiers.find((m: any) => m.type === "frame").value,
+    }, { widgetFamily: "systemMedium", date: 10_000 });
+    const tree = nodes(rendered);
+    const marks = placed(rendered).filter((entry) => entry.node.type === "Image").slice(1).map((entry) => ({
+      at: entry.at,
+      size: entry.node.props.modifiers.find((m: any) => m.type === "frame").value,
     }));
     for (const box of boxesOf(tree)) {
       for (const mark of marks) {
@@ -597,20 +616,23 @@ test("a villager with no session id still renders, keyed by position", () => {
  */
 test("the tail points from the bubble towards its own agent", () => {
   for (const family of ["Medium", "Large"]) {
-    const tree = nodes(render({
+    const rendered = render({
       ...props,
       characters: [{
         iconUri: "i", iconSize: 34, plate: false, markTone: "light", legColor: "#000",
         state: "working", title: "ios app", lastActivityAt: 0,
       }],
-    }, { widgetFamily: `system${family}`, date: 10_000 }));
+    }, { widgetFamily: `system${family}`, date: 10_000 });
+    const tree = nodes(rendered);
 
     const box = tree.find(node => node.type === "RoundedRectangle");
     const at = box.props.modifiers.find((m: any) => m.type === "offset").value;
-    const mark = tree.filter(node => node.type === "Image")[1];
-    const markAt = mark.props.modifiers.find((m: any) => m.type === "offset").value;
-    const dots = tree.filter(node => node.type === "Circle")
-      .map(node => node.props.modifiers.find((m: any) => m.type === "offset").value);
+    const markAt = markCentres(rendered)[0];
+    // Tail dots only: the disc under a plated mark is a Circle too, and it
+    // lives inside the villager rather than on the scene.
+    const dots = placed(rendered)
+      .filter((entry) => entry.node.type === "Circle")
+      .map((entry) => entry.at);
     expect(dots.length).toBeGreaterThan(0);
 
     const span = Math.hypot(markAt.x - at.x, markAt.y - at.y);
@@ -625,18 +647,17 @@ test("the tail points from the bubble towards its own agent", () => {
 });
 
 test("dots further along the tail sit closer to the agent", () => {
-  const tree = nodes(render({
+  const rendered = render({
     ...props,
     characters: [{
       iconUri: "i", iconSize: 34, plate: false, markTone: "light", legColor: "#000",
       state: "working", title: "ios app", lastActivityAt: 0,
     }],
-  }, { widgetFamily: "systemMedium", date: 10_000 }));
-  const mark = tree.filter(node => node.type === "Image")[1];
-  const markAt = mark.props.modifiers.find((m: any) => m.type === "offset").value;
-  const dots = tree.filter(node => node.type === "Circle").map(node => ({
-    at: node.props.modifiers.find((m: any) => m.type === "offset").value,
-    size: node.props.modifiers.find((m: any) => m.type === "frame").value.width,
+  }, { widgetFamily: "systemMedium", date: 10_000 });
+  const markAt = markCentres(rendered)[0];
+  const dots = placed(rendered).filter((entry) => entry.node.type === "Circle").map((entry) => ({
+    at: entry.at,
+    size: entry.node.props.modifiers.find((m: any) => m.type === "frame").value.width,
   })).sort((a, b) => b.size - a.size);
   const near = (d: typeof dots[number]) => Math.hypot(markAt.x - d.at.x, markAt.y - d.at.y);
   // The small dot trails the big one, so the tail tapers towards the speaker.
@@ -683,4 +704,57 @@ test("an unknown scenery falls back to the everyday garden, never to nothing", a
   expect(backgroundsFor("notebook")).toBe(VILLAGE_BACKGROUNDS);
   expect(backgroundsFor(null)).toBe(VILLAGE_BACKGROUNDS);
   expect(backgroundsFor(undefined)).toBe(VILLAGE_BACKGROUNDS);
+});
+
+
+/**
+ * THE ARRIVAL HAS TO GROW WHERE THE AGENT STANDS.
+ *
+ * `.transition(.scale)` scales about the centre of the view it is on. Every
+ * child used to be positioned with an offset from the centre of the WHOLE
+ * WIDGET, which made the villager widget-sized, so a new agent flew in from
+ * the middle of the village. Benny: "scale in center is not from the center of
+ * the agent."
+ *
+ * Framing the villager to its mark and placing the frame makes the view's
+ * centre the agent's centre, so the default anchor is already right and no
+ * anchor has to cross the native bridge.
+ */
+test("a villager is framed to its mark, so the arrival scales about the agent", () => {
+  const cast = [
+    { id: "s-one", iconUri: "i", iconSize: 34, plate: false, markTone: "light", legColor: "#000", state: "working" },
+    { id: "s-two", iconUri: "i", iconSize: 34, plate: true, markTone: "light", legColor: "#000", state: "idle" },
+  ];
+  const rendered = render({ ...props, characters: cast }, { widgetFamily: "systemMedium" });
+  const villagers = nodes(rendered).filter((node) => node.type === "ZStack"
+    && node.props.modifiers?.some((m: any) => m.$type === "transition"));
+  expect(villagers).toHaveLength(2);
+  const centres = markCentres(rendered);
+  villagers.forEach((villager, index) => {
+    const size = villager.props.modifiers.find((m: any) => m.type === "frame")?.value;
+    expect(size).toEqual({ width: 34, height: 34 });
+    // The frame's own centre is the mark's centre, which is the anchor SwiftUI
+    // scales about.
+    const at = villager.props.modifiers.find((m: any) => m.type === "offset").value;
+    expect(at.x).toBeCloseTo(centres[index].x, 5);
+    expect(at.y).toBeCloseTo(centres[index].y, 5);
+  });
+});
+
+/**
+ * The sleep marker belongs to the sleeper. It used to end its cycle 23pt right
+ * of the mark's centre and 29pt above it, which on a 34pt mark reads as a
+ * separate thing floating in the grass.
+ */
+test("the sleep marker stays within reach of the head it belongs to", () => {
+  const seat = [{ iconUri: "i", iconSize: 34, plate: false, markTone: "light", legColor: "#000", state: "idle" }];
+  for (const walkPhase of [0, 1, 2, 3]) {
+    const rendered = render({ ...props, walkPhase, characters: seat }, { widgetFamily: "systemMedium" });
+    const z = placed(rendered).find((entry) => entry.node.type === "Text" && entry.node.props.children === "z")!;
+    const body = markCentres(rendered)[0];
+    // Comfortably inside a mark's width of the head in both axes, at every
+    // point of the drift.
+    expect(Math.abs(z.at.x - body.x)).toBeLessThanOrEqual(20);
+    expect(Math.abs(z.at.y - body.y)).toBeLessThanOrEqual(24);
+  }
 });

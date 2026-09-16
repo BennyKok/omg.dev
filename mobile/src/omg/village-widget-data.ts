@@ -151,38 +151,14 @@ export function villageCharacter(
   };
 }
 
-/**
- * The four walk poses, one per timeline entry. WidgetKit does not run a render
- * loop, so this is the only motion a Home Screen widget can express, and the
- * system decides when it actually redraws.
- */
-export const WALK_PHASES = 4;
-
-/**
- * How many entries one write covers.
+/*
+ * The walk's timing lives in ./walk-timeline, which imports nothing.
  *
- * This used to be WALK_PHASES, so a write bought exactly four redraws and the
- * village then froze until the app next came forward. Cycling the four poses
- * over more entries buys the same wall-clock window at a shorter step, which
- * is what makes a change visible between two glances. Every entry carries a
- * full copy of the props, so this is also what the timeline costs in the App
- * Group defaults — do not raise it without measuring that.
+ * This module reaches expo-asset, expo-file-system and expo-widgets, so
+ * importing it drags React Native in and the bun check harness cannot parse
+ * that. The pose assignment is the part with a rule worth pinning, and it is
+ * pure arithmetic, so it moved somewhere a test can reach it. Re-exported
+ * because the bridge imports both from here.
  */
-export const WALK_ENTRIES = 8;
+export { WALK_ENTRIES, WALK_PHASES, walkPhaseAt, walkTimeline } from "./walk-timeline";
 
-/** One timeline entry per pose, `stepMs` apart, cycling the poses. */
-export function walkTimeline<T extends { walkPhase: number }>(
-  props: Omit<T, "walkPhase">,
-  stepMs: number,
-  from: Date = new Date(),
-  count: number = WALK_ENTRIES,
-): { date: Date; props: T }[] {
-  const entries: { date: Date; props: T }[] = [];
-  for (let index = 0; index < count; index += 1) {
-    entries.push({
-      date: new Date(from.getTime() + index * stepMs),
-      props: { ...props, walkPhase: index % WALK_PHASES } as T,
-    });
-  }
-  return entries;
-}

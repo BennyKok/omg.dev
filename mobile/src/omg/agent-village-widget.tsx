@@ -102,6 +102,17 @@ function AgentVillage(props: VillageProps, environment: { widgetFamily: string; 
   // SwiftUI offsets are measured from the centre of the ZStack. The scene is
   // authored in top-left points, so convert once here.
   const place = (centerX: number, centerY: number) => offset({ x: centerX - width / 2, y: centerY - height / 2 });
+  /**
+   * Offset from the PARENT's centre, for children of a framed view.
+   *
+   * `place()` above is absolute: it positions against the whole widget, which
+   * is right for anything laid out in scene coordinates. Inside the villager
+   * -- which is framed to its mark so the arrival transition scales about the
+   * agent -- the children are positioned relative to that mark instead, and
+   * this is that. Two helpers because there are genuinely two coordinate
+   * spaces, and the bug they prevent is a limb drawn a whole widget away.
+   */
+  const at = (dx: number, dy: number) => offset({ x: dx, y: dy });
 
   const characters = props.characters.slice(0, scene.slots.length);
 
@@ -199,8 +210,20 @@ function AgentVillage(props: VillageProps, environment: { widgetFamily: string; 
      * anybody sees between two glances.
      */
     const breath = character.state === "idle" ? [0, -3, -5, -3][phase] : 0;
-    const snoozeLift = [0, -5, -10, -15][phase];
-    const snoozeDrift = [0, 2, 5, 8][phase];
+    /*
+     * IT HAS TO STAY ATTACHED TO THE SLEEPER.
+     *
+     * The drift used to end 23pt right of the mark's centre and 29pt above it,
+     * which on a 34pt mark is most of a mark's width clear of the head -- so
+     * at the end of the cycle the "z" read as a separate thing floating in the
+     * grass rather than as this agent's sleep. Benny reported exactly that.
+     *
+     * It still rises and fades, because that is what makes it read as sleep
+     * rather than as a letter; it just does it in the space right above the
+     * head instead of leaving.
+     */
+    const snoozeLift = [0, -4, -7, -10][phase];
+    const snoozeDrift = [0, 2, 3, 5][phase];
     const snoozeSize = [11, 10, 9, 8][phase];
 
     const slot = { x: origin.x + sweep, y: origin.y + lift + breath };
@@ -233,34 +256,54 @@ function AgentVillage(props: VillageProps, environment: { widgetFamily: string; 
     const markTint = tinted && disc ? "fullColor" : "desaturated";
 
     return (
-      <ZStack key={character.id ?? `villager-${index}`} modifiers={[transition("scale")]}>
-        <Ellipse modifiers={[frame({ width: 25, height: 5 }), foregroundColor(dark ? "#3C4333" : "#B5B99C"), place(slot.x, slot.y + 1)]} />
+      /*
+       * THE VILLAGER IS ITS OWN SMALL VIEW, and that is what makes the
+       * arrival animation land in the right place.
+       *
+       * Every child used to be positioned with `place()`, which offsets from
+       * the centre of the WHOLE WIDGET. That made this ZStack widget-sized, so
+       * `.transition(.scale)` scaled it about the widget's centre: a new agent
+       * flew in from the middle of the village rather than growing where it
+       * stands. Benny: "scale in center is not from the center of the agent."
+       *
+       * Framing it to the mark and placing the frame gives SwiftUI a view
+       * whose centre IS the agent, so the default `.scale` anchor is already
+       * the right one and no anchor has to cross the native bridge. Children
+       * are offset relative to the mark's centre with `at()`. Nothing clips:
+       * SwiftUI lets children overflow a frame, which the legs, the shadow and
+       * the "z" all rely on.
+       */
+      <ZStack
+        key={character.id ?? `villager-${index}`}
+        modifiers={[frame({ width: MARK, height: MARK }), place(slot.x, markY), transition("scale")]}
+      >
+        <Ellipse modifiers={[frame({ width: 25, height: 5 }), foregroundColor(dark ? "#3C4333" : "#B5B99C"), at(0, slot.y + 1 - markY)]} />
         <Capsule
           modifiers={[
             frame({ width: 5, height: legHeight }),
             foregroundColor(character.legColor),
-            place(slot.x - 5 + stride, markY + MARK / 2 + legHeight / 2),
+            at(-5 + stride, MARK / 2 + legHeight / 2),
           ]}
         />
         <Capsule
           modifiers={[
             frame({ width: 5, height: legHeight }),
             foregroundColor(character.legColor),
-            place(slot.x + 5 - stride, markY + MARK / 2 + legHeight / 2),
+            at(5 - stride, MARK / 2 + legHeight / 2),
           ]}
         />
         {disc
-          ? <Circle modifiers={[frame({ width: PLATE, height: PLATE }), foregroundColor(discColor), place(slot.x, markY)]} />
+          ? <Circle modifiers={[frame({ width: PLATE, height: PLATE }), foregroundColor(discColor), at(0, 0)]} />
           : null}
         <Image
           uiImage={character.iconUri}
-          modifiers={[resizable(), widgetAccentedRenderingMode(markTint), frame({ width: character.iconSize, height: character.iconSize }), clipShape(disc ? "circle" : "roundedRectangle", 9), place(slot.x, markY)]}
+          modifiers={[resizable(), widgetAccentedRenderingMode(markTint), frame({ width: character.iconSize, height: character.iconSize }), clipShape(disc ? "circle" : "roundedRectangle", 9), at(0, 0)]}
         />
         {character.state === "blocked"
-          ? <Text modifiers={[bold(), font({ size: 15 }), foregroundColor(flagged), place(slot.x + 16, markY - 18)]}>!</Text>
+          ? <Text modifiers={[bold(), font({ size: 15 }), foregroundColor(flagged), at(16, -18)]}>!</Text>
           : null}
         {character.state === "idle"
-          ? <Text modifiers={[font({ size: snoozeSize }), foregroundColor(subdued), place(slot.x + 15 + snoozeDrift, markY - 14 + snoozeLift)]}>z</Text>
+          ? <Text modifiers={[font({ size: snoozeSize }), foregroundColor(subdued), at(12 + snoozeDrift, -12 + snoozeLift)]}>z</Text>
           : null}
       </ZStack>
     );
