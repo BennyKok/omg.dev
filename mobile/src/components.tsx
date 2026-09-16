@@ -1390,10 +1390,11 @@ export function HomeComposer({
         fastMode={fastMode}
         onToggleFast={onToggleFast}
         initialPage={setupPage}
+        usageDetails={<UsageDetails providers={usage.filter(provider => provider.kind === providerKindForAgent(agent))} />}
         usageRing={
           agentUsage ? (
             <UsageRings
-              size={28}
+              size={22}
               windows={agentUsage.available ? orderWindows(agentUsage.windows ?? []) : []}
             />
           ) : null
@@ -2130,6 +2131,16 @@ export function UsageSheet({
           </Pressable>
         </View>
 
+        <UsageDetails providers={providers} />
+      </View>
+    </Sheet>
+  );
+}
+
+/** Shared reset details for the selector page and the composer usage sheet. */
+export function UsageDetails({ providers }: { providers: ProviderUsage[] }) {
+  const { colors, type, space, radius } = useTheme();
+  return (
         <View style={{ padding: space.lg, gap: space.lg }}>
           {providers.length === 0 ? (
             <Text style={{ ...type.footnote, color: colors.textMuted }}>
@@ -2137,7 +2148,7 @@ export function UsageSheet({
             </Text>
           ) : null}
           {providers.map((provider) => {
-            const windows = provider.windows ?? [];
+            const windows = orderWindows(provider.windows ?? []);
             return (
               <View
                 key={provider.id}
@@ -2173,12 +2184,12 @@ export function UsageSheet({
                   <View style={{ flexDirection: "row", alignItems: "center", gap: space.lg }}>
                     <UsageRings windows={windows} size={52} />
                     <View style={{ flex: 1, gap: 6 }}>
-                      {windows.slice(0, RING_COLORS.length).map((w, index) => {
+                      {windows.map((w, index) => {
                         const resets = resetsIn(w.resetsAt);
                         return (
                           // Index, not label: two windows can share a label
                           // ("session"), and a duplicate key drops a legend row.
-                          <View key={index} style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+                          <View key={index} style={{ flexDirection: "row", alignItems: "flex-start", gap: space.sm }}>
                             <View
                               style={{
                                 width: 8,
@@ -2187,21 +2198,15 @@ export function UsageSheet({
                                 backgroundColor: RING_COLORS[index % RING_COLORS.length],
                               }}
                             />
-                            <Text style={{ ...type.caption, color: colors.textSecondary, flex: 1 }} numberOfLines={1}>
-                              {w.label}
-                            </Text>
-                            <Text
-                              style={{
-                                ...type.caption,
-                                fontVariant: ["tabular-nums"],
-                                color: colors.text,
-                              }}
-                            >
+                            <View style={{ flex: 1, gap: 3 }}>
+                              <Text style={{ ...type.caption, color: colors.textSecondary }}>{w.label}</Text>
+                              <Text style={{ ...type.caption, color: colors.textMuted }}>
+                                {resets ? `Next reset ${resets} · ${new Date(w.resetsAt!).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : "Reset time unavailable"}
+                              </Text>
+                            </View>
+                            <Text style={{ ...type.caption, fontVariant: ["tabular-nums"], color: colors.text }}>
                               {w.pct === null || w.pct === undefined ? "—" : `${Math.round(w.pct)}%`}
                             </Text>
-                            {resets ? (
-                              <Text style={{ ...type.caption, color: colors.textMuted }}>{resets}</Text>
-                            ) : null}
                           </View>
                         );
                       })}
@@ -2220,8 +2225,6 @@ export function UsageSheet({
             );
           })}
         </View>
-      </View>
-    </Sheet>
   );
 }
 
@@ -2234,10 +2237,8 @@ export function UsageRings({
 }) {
   const { colors } = useTheme();
   const shown = windows.slice(0, RING_COLORS.length);
-  // 3 at this diameter: the arcs have to stay distinguishable from each other
-  // at 22pt, and a 3.5 stroke on a 22pt circle leaves the inner ring almost no
-  // room to exist.
-  const thickness = 3;
+  // Keep every reported ring visible even at the compact 22pt size.
+  const thickness = Math.min(3, (size - 4) / Math.max(2, shown.length * 2.6));
   const gap = thickness + 1;
 
   return (
@@ -2345,6 +2346,14 @@ function Arc({
           backgroundColor: holeColor,
         }}
       />
+      {angle > 0 ? [0, angle].map((degrees, index) => {
+        const radians = degrees * Math.PI / 180;
+        const radius = (diameter - thickness) / 2;
+        return <View key={index} style={{ position: "absolute", width: thickness, height: thickness,
+          borderRadius: thickness / 2, backgroundColor: color,
+          left: half + radius * Math.sin(radians) - thickness / 2,
+          top: half - radius * Math.cos(radians) - thickness / 2 }} />;
+      }) : null}
     </View>
   );
 }

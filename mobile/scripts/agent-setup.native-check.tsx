@@ -7,15 +7,17 @@ mock.module(resolve(import.meta.dir, '../node_modules/react/index.js'), () => Re
 const responders: any[] = [];
 const View = ({children,style,accessibilityLabel,onLayout}: any) => {
  React.useLayoutEffect(() => { onLayout?.({nativeEvent:{layout:{width:400}}}); }, []);
- return <div aria-label={accessibilityLabel} style={style}>{children}</div>;
+ return <div aria-label={accessibilityLabel} style={Array.isArray(style) ? Object.assign({}, ...style) : style}>{children}</div>;
 };
 const Pressable = ({children,onPress,onLongPress,accessibilityLabel,disabled}: any) => <button aria-label={accessibilityLabel} disabled={disabled} onClick={onPress} onContextMenu={e=>{e.preventDefault();onLongPress?.();}}>{children}</button>;
 mock.module(resolve(import.meta.dir, '../node_modules/react-native/index.js'), () => ({View, ScrollView:View, Image:()=>null, ActivityIndicator:()=>null, Pressable, Platform:{OS:'ios'}, StyleSheet:{hairlineWidth:1}, PanResponder:{create:(handlers:any)=>{responders.push(handlers);return {panHandlers:{}};}}}));
 mock.module(import.meta.resolve('react-native-reanimated'), () => ({default:{View},useSharedValue:(value:any)=>React.useRef({value}).current,useAnimatedStyle:(fn:any)=>fn(),withTiming:(x:any)=>x}));
-mock.module(import.meta.resolve('expo-haptics'), () => ({selectionAsync:async()=>{}}));
+let haptics = 0;
+mock.module(import.meta.resolve('expo-haptics'), () => ({selectionAsync:async()=>{haptics++;}}));
+mock.module(import.meta.resolve('expo-linear-gradient'), () => ({LinearGradient:View}));
 mock.module(import.meta.resolve('expo-symbols'), () => ({SymbolView:()=>null}));
 mock.module(resolve(import.meta.dir,'../src/omg/sheet.tsx'), () => ({Sheet:({children}:any)=><section>{children}</section>}));
-mock.module(resolve(import.meta.dir,'../src/omg/motion.tsx'), () => ({PressableScale:Pressable}));
+mock.module(resolve(import.meta.dir,'../src/omg/motion.tsx'), () => ({PressableScale:Pressable,useReduceMotionEnabled:()=>false}));
 mock.module(resolve(import.meta.dir,'../src/omg/text.tsx'), () => ({Text:({children}:any)=><span>{children}</span>,TextInput:({value,onChangeText,placeholder}:any)=><input value={value} placeholder={placeholder} onInput={e=>onChangeText(e.currentTarget.value)}/>}));
 mock.module(import.meta.resolve('react-native-gesture-handler'), () => ({NativeViewGestureHandler:View}));
 const { light, space, type, radius } = await import('../src/omg/palette');
@@ -102,5 +104,43 @@ test('the whole thinking bar previews, cancels, and commits through the current 
   expect(choices).toEqual(['Max']);
   ui.flush(()=>gesture.onPanResponderRelease(at(150)));
   expect(choices).toEqual(['Max']);
+ } finally {ui.cleanup();}
+});
+
+
+test('dragging gives one haptic per new enabled step and does not commit on cancel',()=>{
+ const ui=mount(); const choices:string[]=[];
+ try {
+  const start=responders.length; haptics=0;
+  ui.render(<Slider options={[{label:'Low',selected:true},{label:'Medium'},{label:'High',disabled:true},{label:'Max'}]} onPick={o=>choices.push(o.label)}/>);
+  const gesture=responders[start]; const at=(locationX:number)=>({nativeEvent:{locationX}});
+  ui.flush(()=>gesture.onPanResponderGrant(at(20)));
+  expect(haptics).toBe(0);
+  ui.flush(()=>gesture.onPanResponderMove(at(130)));
+  expect(haptics).toBe(1);
+  expect(ui.text()).toBe('Medium');
+  ui.flush(()=>gesture.onPanResponderMove(at(150)));
+  expect(haptics).toBe(1);
+  ui.flush(()=>gesture.onPanResponderMove(at(250)));
+  expect(haptics).toBe(1);
+  expect(ui.text()).toBe('Medium');
+  ui.flush(()=>gesture.onPanResponderMove(at(350)));
+  expect(haptics).toBe(2);
+  ui.flush(()=>gesture.onPanResponderRelease(at(350)));
+  expect(haptics).toBe(2);
+  expect(choices).toEqual(['Max']);
+ } finally {ui.cleanup();}
+});
+
+test('usage ring opens one detail page with reset information and a return path',()=>{
+ const ui=mount();
+ try {
+  ui.render(<AgentSetupSheet visible onClose={()=>{}} agentOptions={[{label:'Claude'}]} usageRing={<span>ring</span>}
+   usageDetails={<span>Weekly · Next reset in 2d</span>}/>);
+  ui.flush(()=>(ui.query('[aria-label="Usage and next resets"]') as HTMLElement).click());
+  expect(ui.text()).toContain('Weekly · Next reset in 2d');
+  ui.flush(()=>(ui.query('[aria-label="Back to agent controls"]') as HTMLElement).click());
+  expect(ui.text()).not.toContain('Weekly');
+  expect(ui.text()).toContain('Claude');
  } finally {ui.cleanup();}
 });
