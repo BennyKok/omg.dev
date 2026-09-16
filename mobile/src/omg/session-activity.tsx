@@ -66,11 +66,12 @@ export function activityWave(phase: number, position: number): number {
   return distance >= 0.3 ? 0 : (1 + Math.cos(distance / 0.3 * Math.PI)) / 2;
 }
 
-/** Short twinkles can only crest inside the shared travelling wave. */
+/** Continuous scattered twinkles; the shared wave adds brightness to each peak. */
 export function activitySparkle(phase: number, position: number, variant: number): number {
   "worklet";
-  const pulse = (1 + Math.cos((phase * 6 - variant / 3) * Math.PI * 2)) / 2;
-  return Math.pow(activityWave(phase, position), 1.5) * Math.pow(pulse, 6);
+  const pulse = (1 + Math.cos((phase * 6 - variant / 3 - position * 3.7) * Math.PI * 2)) / 2;
+  const twinkle = Math.pow(pulse, 4);
+  return twinkle * 0.5 + twinkle * activityWave(phase, position) * 0.5;
 }
 
 function TitleLetter({ char, position, activity, color, mutedColor }: {

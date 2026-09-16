@@ -144,16 +144,34 @@ test("measured text dims its dots without dimming the bottom margin", () => {
   } finally { ui.cleanup(); }
 });
 
-test("sparkles stay inside the wave and stagger their peaks", () => {
-  for (const phase of [0, 0.15, 0.4, 0.7, 1]) {
-    for (const x of [0, 0.25, 0.5, 0.75, 1]) {
+test("sparkles continue outside the wave and the wave adds brightness", () => {
+  // The wave is off the left edge, but distributed sparkles remain active.
+  expect(activityWave(0, 0)).toBe(0);
+  expect(activitySparkle(0, 0, 0)).toBeCloseTo(0.5);
+  for (let frame = 0; frame <= 120; frame++) {
+    const phase = frame / 120;
+    let light = 0;
+    let min = 1;
+    let max = 0;
+    for (let column = 0; column < 24; column++) {
+      const x = column / 23;
       for (let variant = 0; variant < 3; variant++) {
         const sparkle = activitySparkle(phase, x, variant);
-        expect(sparkle).toBeGreaterThanOrEqual(0);
-        expect(sparkle).toBeLessThanOrEqual(activityWave(phase, x));
+        min = Math.min(min, sparkle);
+        max = Math.max(max, sparkle);
+        light += sparkle;
       }
     }
+    expect(min).toBeGreaterThanOrEqual(0);
+    expect(max).toBeLessThanOrEqual(1);
+    expect(light).toBeGreaterThan(1);
   }
-  expect(activitySparkle(0.5, 0.5, 0)).toBeCloseTo(1);
-  expect(activitySparkle(0.5, 0.5, 1)).toBeLessThan(0.01);
+  // Same twinkle phase, with the wave away and then centred on this column.
+  const phase = (1 + 0.5 * 3.7) / 6;
+  const boosted = activitySparkle(phase, 0.5, 0);
+  const ambient = activitySparkle(phase + 0.5, 0.5, 0);
+  expect(ambient).toBeCloseTo(0.5);
+  expect(boosted).toBeGreaterThan(ambient);
+  // The loop boundary does not interrupt the independent twinkles.
+  expect(activitySparkle(0, 0.5, 1)).toBeCloseTo(activitySparkle(1, 0.5, 1));
 });
