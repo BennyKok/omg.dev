@@ -2,8 +2,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Crypto from "expo-crypto";
 import { useEffect } from "react";
 import { AppState, Linking, Platform } from "react-native";
-import { HStack, Image, Spacer, Text, VStack } from "@expo/ui/swift-ui";
-import { background, bold, cornerRadius, font, foregroundColor, frame, lineLimit, padding, resizable, widgetURL } from "@expo/ui/swift-ui/modifiers";
+import { HStack, Image, ProgressView, Spacer, Text, VStack } from "@expo/ui/swift-ui";
+import { background, bold, cornerRadius, font, foregroundColor, frame, lineLimit, padding, progressViewStyle, resizable, widgetURL } from "@expo/ui/swift-ui/modifiers";
 import { addPushToStartTokenListener, createLiveActivity, type LiveActivityEnvironment } from "expo-widgets";
 
 import { isSharedBindingId } from "./computer-shared-binding";
@@ -42,18 +42,26 @@ export function AgentActivity(props: AgentActivityProps, environment: LiveActivi
    */
   const YEAR_MS = 365 * 24 * 60 * 60 * 1000;
   /**
-   * NO SPINNER. It was tried, and iOS will not turn it.
+   * THE RING, AND THE ONE THAT IS NOT COMING BACK.
    *
-   * `progressViewStyle("circular")` with no value renders SwiftUI's activity
-   * indicator, and on a Lock Screen it draws as a STATIC empty ring -- a Live
-   * Activity does not run an arbitrary animation loop any more than a widget
-   * does. Seen on the simulator: an empty circle sitting beside each time,
-   * reading like an unticked checkbox.
+   * An INDETERMINATE spinner -- `progressViewStyle("circular")` with no value
+   * -- was tried and iOS will not turn it. On a Lock Screen it draws as a
+   * static empty ring, because a Live Activity runs no animation loop any more
+   * than a widget does. Seen on the simulator: an empty circle beside each
+   * time, reading like an unticked checkbox. That one stays gone.
    *
-   * A determinate ring is not available either: `ProgressView(timerInterval:)`
-   * would animate, but it needs an END to fill towards and a coding run has
-   * none. So the running signal is the clock itself, which genuinely moves.
+   * A DETERMINATE ring does animate, because SwiftUI computes
+   * `ProgressView(timerInterval:)` on the device outside the timeline, exactly
+   * like the clock beside it. It needs an end to fill towards, and a coding
+   * run has none, so the end here is a flat horizon rather than a prediction.
+   *
+   * What "full" means is therefore "this has been going a while", which is
+   * TRUE. It is never a claim about completion, and the exact figure sits
+   * immediately beside it, so the ring is the glanceable half of a fact the
+   * row already states precisely. Nothing here estimates when a run will end,
+   * because nothing can.
    */
+  const RING_MS = 10 * 60 * 1000;
   const labels: Record<string, string> = { claude: "Claude", codex: "Codex", cursor: "Cursor", copilot: "Copilot", deepseek: "DeepSeek", devin: "Devin", grok: "Grok", hermes: "Hermes", jcode: "Jcode", muse: "Muse", opencode: "OpenCode", pi: "pi", fx: "fx", omg: "omg" };
   /**
    * MATCHES THE WEB, which is the reference for what an agent looks like.
@@ -105,11 +113,26 @@ export function AgentActivity(props: AgentActivityProps, environment: LiveActivi
     }
     if (session.state === "working" && typeof session.startedAt === "number" && session.startedAt > 0) {
       return (
-        <Text
-          timerInterval={{ lower: new Date(session.startedAt), upper: new Date(session.startedAt + YEAR_MS) }}
-          countsDown={false}
-          modifiers={[font({ size: 12, weight: "regular" }), foregroundColor(muted), lineLimit(1), frame({ width, alignment: "trailing" })]}
-        />
+        <HStack spacing={5}>
+          {/*
+           * The ring fills over RING_MS and then rests full. It is the
+           * glanceable half of the number to its right; see the note above for
+           * why that is honest and an indeterminate spinner is not.
+           *
+           * Only on the Lock Screen and the expanded island. The compact
+           * presentations are a few points wide and already carry a count.
+           */}
+          <ProgressView
+            timerInterval={{ lower: new Date(session.startedAt), upper: new Date(session.startedAt + RING_MS) }}
+            countsDown={false}
+            modifiers={[progressViewStyle("circular"), frame({ width: 12, height: 12 }), foregroundColor(muted)]}
+          />
+          <Text
+            timerInterval={{ lower: new Date(session.startedAt), upper: new Date(session.startedAt + YEAR_MS) }}
+            countsDown={false}
+            modifiers={[font({ size: 12, weight: "regular" }), foregroundColor(muted), lineLimit(1), frame({ width: width - 17, alignment: "trailing" })]}
+          />
+        </HStack>
       );
     }
     return (
