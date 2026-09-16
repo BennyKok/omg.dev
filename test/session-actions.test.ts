@@ -67,6 +67,7 @@ describe("session lifecycle actions", () => {
     expect(card).toContain('aria-label="Archive session"');
     expect(card).toContain("<Archive");
     expect(card).toContain("Archive");
+    expect(card).toContain('title: "Archive this session?"');
     expect(card).toContain('confirmLabel: "Archive session"');
     expect(card).toContain("can be resumed later from Recent sessions");
     expect(card).not.toContain('aria-label="Delete session"');
