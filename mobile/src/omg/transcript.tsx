@@ -70,7 +70,7 @@ import { Icon, IconButton } from "../components";
 import { formatFileSize } from "./file-preview";
 import { RemoteVideo } from "./remote-video";
 import { workLabel } from "./work-label";
-import { WorkingDots } from "./working-indicator";
+import { WorkingIndicator } from "./working-indicator";
 import { stampTime } from "./format";
 import { CodeBlock, useBodyText } from "./markdown";
 import { TranscriptBody } from "./transcript-body";
@@ -607,8 +607,31 @@ function ToolRun({
             gutter. A LIVE run carries the breathing dots instead — the same
             ones the footer used to show on its own — so the run row is the
             working indicator, not a second one under it. */}
-        {live ? <WorkingDots color={colors.textSecondary} size={4} /> : null}
-        <Text style={{ ...type.caption, fontWeight: "500", color: colors.textSecondary }}>{label}</Text>
+        {live ? (
+          /*
+           * THE WORD SHIMMERS WITH THE DOTS, on one wave.
+           *
+           * The dots were already the shared travelling wave, but "Working for
+           * 4s" beside them was plain text, so the motion stopped dead at the
+           * mark. The same indicator the footer draws carries both, and its
+           * label wave trails the dots by one dot-width of phase, so the light
+           * runs out of the dots and through the letters as a single thing.
+           *
+           * The number inside the label keeps ticking: it is re-rendered every
+           * second by the interval above, and the wave is driven on the UI
+           * thread independently of that.
+           */
+          <WorkingIndicator
+            text={label}
+            dotColor={colors.textSecondary}
+            labelColor={colors.textSecondary}
+            labelStyle={{ ...type.caption, fontWeight: "500" }}
+            dotSize={4}
+            gap={6}
+          />
+        ) : (
+          <Text style={{ ...type.caption, fontWeight: "500", color: colors.textSecondary }}>{label}</Text>
+        )}
         <Icon ios="chevron.right" android="chevron_right" size={10} color={colors.textMuted} />
       </Pressable>
 
