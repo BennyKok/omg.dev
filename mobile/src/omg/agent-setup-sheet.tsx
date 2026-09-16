@@ -70,8 +70,8 @@ export function AgentSetupSheet({
             {agentOptions.map((option, index) => <AgentTile key={option.id ?? `${option.label}:${index}`} option={option}
               onPress={() => pick(option)} onLongPress={option.id === "aisdk" && accountOptions.length ? () => { pick(option); setPage("profiles"); } : undefined} />)}
           </ScrollView>
-          <View>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+          <View style={{ gap: 12 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
           {(modelLabel || modelOptions.length > 0) ? <Pressable accessibilityRole="button" accessibilityLabel={`Model ${modelLabel ?? modelOptions.find(o => o.selected)?.label ?? "default"}. Change model`}
             onPress={() => setPage("models")} disabled={!modelOptions.length}
             style={{ flex: 1, minHeight: 52, paddingHorizontal: 14, borderRadius: 14, backgroundColor: surface, flexDirection: "row", alignItems: "center", gap: 10 }}>
@@ -79,7 +79,7 @@ export function AgentSetupSheet({
             {modelOptions.length ? <SymbolView name="chevron.right" size={14} tintColor={colors.textMuted} /> : null}
           </Pressable> : null}
           {onToggleFast ? <Pressable onPress={onToggleFast} accessibilityRole="switch" accessibilityLabel="Fast mode"
-            accessibilityState={{ checked: !!fastMode }} style={{ width: 44, height: 52, borderRadius: 14, backgroundColor: isDark ? "#303030" : colors.borderSoft, alignItems: "center", justifyContent: "center" }}>
+            accessibilityState={{ checked: !!fastMode }} style={{ width: 52, height: 52, borderRadius: 14, backgroundColor: isDark ? "#303030" : colors.borderSoft, alignItems: "center", justifyContent: "center" }}>
             <SymbolView name={fastMode ? "bolt.fill" : "bolt"} size={18} tintColor={fastMode ? colors.text : colors.textMuted} />
           </Pressable> : null}
           </View>
