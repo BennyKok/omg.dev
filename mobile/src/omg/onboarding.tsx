@@ -172,7 +172,7 @@ const INTRO_KEY = "omg:mobile:intro";
 
 type IntroState = "loading" | "needed" | "done";
 
-export function useIntro(): { state: IntroState; complete: () => void } {
+export function useIntro(): { state: IntroState; complete: () => void; reset: () => void } {
   const [state, setState] = useState<IntroState>("loading");
 
   useEffect(() => {
@@ -197,7 +197,29 @@ export function useIntro(): { state: IntroState; complete: () => void } {
     void AsyncStorage.setItem(INTRO_KEY, String(INTRO_VERSION)).catch(() => {});
   }, []);
 
-  return { state, complete };
+  /**
+   * Show it again. SIGNING OUT IS THE CALLER.
+   *
+   * Somebody who has signed out is, as far as this app can tell, a new
+   * arrival: there is no account, no Computer and nothing to return to. The
+   * flow's whole job is to ask what they want before asking who they are, and
+   * that question is exactly as relevant the second time.
+   *
+   * It was unreachable before. `resetIntro` below has existed the whole time
+   * and nothing ever called it, so once the flag was written the flow could
+   * not be seen again on that device short of reinstalling -- which is also
+   * why it could not be reviewed.
+   *
+   * The in-memory state is reset TOO, not just the stored flag. The hook reads
+   * storage once on mount and the tree stays mounted across a sign-out, so
+   * clearing the key alone would change nothing until the next cold start.
+   */
+  const reset = useCallback(() => {
+    setState("needed");
+    void AsyncStorage.removeItem(INTRO_KEY).catch(() => {});
+  }, []);
+
+  return { state, complete, reset };
 }
 
 /** Test/support hook: show the intro again on this device. */
