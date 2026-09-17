@@ -245,6 +245,9 @@ async function startRecording(udid: string) {
   const remote = `~/${REMOTE_DIR}/${name}`;
   // pgrep by the file name: the shell expands ~ in the command line, so the
   // literal path would never match.
+  // One recorder per device. A capture left running by a killed run answers
+  // "Host recording is already in progress" to the next one.
+  await ssh(`pkill -INT -f "simctl io ${udid} recordVideo" ; sleep 2`, { allowFail: true });
   await ssh(
     `rm -f ${remote}; (nohup xcrun simctl io ${udid} recordVideo --codec h264 --force ${remote} >/dev/null 2>&1 &); sleep 1; pgrep -f "recordVideo.*${name}" >/dev/null`,
   );
