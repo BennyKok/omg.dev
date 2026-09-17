@@ -100,7 +100,9 @@ export function PlanScreen({
       values: columns.map((p, i) => (p.specs ? String(p.specs.parallelAgents) : AGENTS_COPY[i] ?? "\u2014")),
     },
     { label: "Workspace", values: columns.map((_, i) => WORKSPACE_COPY[i] ?? "\u2014") },
-    { label: "AI credits", values: columns.map(() => "Included") },
+    // Personal carries more credit than Starter. The amounts are not in the
+    // catalog this app reads, so the row says the direction and not a number.
+    { label: "AI credits", values: columns.map((_, i) => (i === 0 ? "Included" : "More included")) },
   ];
 
   return (
@@ -142,43 +144,6 @@ export function PlanScreen({
         <View style={{ gap: space.sm }}>
           <Text style={{ ...type.largeTitle, fontSize: 32, color: colors.text }}>Keep work moving.</Text>
           <Text style={{ ...type.body, color: colors.textMuted }}>A workspace that grows with you.</Text>
-        </View>
-
-        {/*
-         * The board's Monthly / Annually control. Annual products are not in
-         * the store yet (see the header comment), so the segment is drawn as
-         * the board draws it and cannot be selected: a control that switched
-         * to prices that do not exist would be lying twice.
-         */}
-        <View
-          accessibilityRole="tablist"
-          style={{ flexDirection: "row", padding: 4, borderRadius: 12, backgroundColor: colors.bg }}
-        >
-          <View
-            accessibilityRole="tab"
-            accessibilityState={{ selected: true }}
-            style={{
-              flex: 1,
-              height: 34,
-              borderRadius: 9,
-              alignItems: "center",
-              justifyContent: "center",
-              backgroundColor: colors.card,
-              shadowColor: "#000",
-              shadowOpacity: 0.07,
-              shadowRadius: 3,
-              shadowOffset: { width: 0, height: 1 },
-            }}
-          >
-            <Text style={{ ...type.subhead, fontWeight: "600", color: colors.text }}>Monthly</Text>
-          </View>
-          <View
-            accessibilityRole="tab"
-            accessibilityState={{ selected: false, disabled: true }}
-            style={{ flex: 1, height: 34, alignItems: "center", justifyContent: "center", opacity: 0.4 }}
-          >
-            <Text style={{ ...type.subhead, color: colors.text }}>Annually</Text>
-          </View>
         </View>
 
         {loading ? (
