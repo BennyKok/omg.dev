@@ -26,23 +26,49 @@
  *
  * Design: artboard "06 · Choose your plan · Full screen".
  */
-import { useEffect } from "react";
-import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
+import { useEffect, useState } from "react";
+import { ActivityIndicator, Image, Linking, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Icon } from "../components";
-import { SecondaryAction } from "./onboarding-chrome";
+import { PrimaryAction, SecondaryAction } from "./onboarding-chrome";
 import { usePurchaseFlow } from "./purchase-flow";
+import { agentIcon } from "./agent-icons";
+import type { StoreProduct } from "./store";
 import { Text } from "./text";
-import { TierCard } from "./tier-card";
 import { useTheme } from "./theme";
+
+/**
+ * The board names the tiers "Starter" and "Personal". The App Store product
+ * for the first is called "Starter Plus", and that name is what Apple prints
+ * on its own purchase sheet, so it stays on the product. The screen shows the
+ * board's word, keyed by plan and never by string surgery on the label.
+ */
+const DISPLAY_LABELS: Record<string, string> = {
+  computer_s40: "Starter",
+  computer_5: "Personal",
+};
+
+function displayLabel(product: StoreProduct): string {
+  return DISPLAY_LABELS[product.plan] ?? product.label;
+}
+
+/**
+ * Fixed copy, by column, from the board. Benny chose words over numbers here:
+ * "Everyday" says more to a first-time buyer than a vCPU count, and the specs
+ * still reach the accessibility label so nothing is hidden from a reader.
+ */
+const WORKSPACE_COPY = ["Everyday", "Bigger &\nfaster"];
+/** The board's numbers, used when the store product carries no specs (the simulator's mock catalog). */
+const AGENTS_COPY = ["3", "5"];
+
+type Row = { label: string; values: string[]; muted?: boolean };
 
 export function PlanScreen({
   onPurchased,
   onSkip,
   onClose,
 }: {
-  /** A purchase completed, or an existing one was restored. */
   onPurchased: () => void;
   onSkip: () => void;
   onClose: () => void;
@@ -50,26 +76,32 @@ export function PlanScreen({
   const { colors, space, type } = useTheme();
   const insets = useSafeAreaInsets();
   const { phase, products, busy, buy, restore } = usePurchaseFlow();
+  const [selected, setSelected] = useState(0);
 
   /*
-   * A finished purchase leaves the flow rather than showing a receipt screen.
-   * app/plan.tsx has one because it is reached FROM a blocked computer and the
-   * outcome is the whole point of the visit; here the outcome is the session
-   * waiting behind this screen, so the right celebration is getting out of the
-   * way. `activating` counts: Apple has the money and the entitlement is
-   * coming, and holding somebody on a paywall to wait for a webhook is the
-   * worst reading of that state.
+   * Done means paid (or restored): leave. `activating` is the backend still
+   * catching up on a purchase Apple already confirmed, and the app treats it
+   * the same way rather than making a paying customer wait on a spinner.
    */
   useEffect(() => {
     if (phase.kind === "done" || phase.kind === "activating") onPurchased();
   }, [phase.kind, onPurchased]);
 
   /*
-   * `unavailable` is a simulator or a build with no StoreKit. It is an empty
-   * list here, not an error panel: "Continue for now" is the outcome that
-   * matters and this screen must never trap anyone.
+   * "unavailable" is a real state (no StoreKit on a simulator, a storefront
+   * with no products), not an error. The screen still offers the way out.
    */
   const loading = phase.kind === "loading";
+  const columns = products.slice(0, 2);
+  const chosen = columns[Math.min(selected, Math.max(0, columns.length - 1))];
+  const rows: Row[] = [
+    {
+      label: "Agents at once",
+      values: columns.map((p, i) => (p.specs ? String(p.specs.parallelAgents) : AGENTS_COPY[i] ?? "\u2014")),
+    },
+    { label: "Workspace", values: columns.map((_, i) => WORKSPACE_COPY[i] ?? "\u2014") },
+    { label: "AI credits", values: columns.map(() => "Included") },
+  ];
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insets.top }}>
@@ -83,7 +115,7 @@ export function PlanScreen({
         }}
       >
         <Pressable accessibilityRole="button" onPress={() => void restore()} hitSlop={12} disabled={busy}>
-          <Text style={{ ...type.subhead, color: colors.textMuted }}>Restore purchases</Text>
+          <Text style={{ ...type.footnote, color: colors.textMuted }}>Restore purchases</Text>
         </Pressable>
         <Pressable
           accessibilityRole="button"
@@ -91,9 +123,9 @@ export function PlanScreen({
           onPress={onClose}
           hitSlop={12}
           style={{
-            width: 30,
-            height: 30,
-            borderRadius: 15,
+            width: 32,
+            height: 32,
+            borderRadius: 16,
             alignItems: "center",
             justifyContent: "center",
             backgroundColor: colors.card,
@@ -104,46 +136,130 @@ export function PlanScreen({
       </View>
 
       <ScrollView
-        contentContainerStyle={{ paddingHorizontal: space.lg + 4, paddingBottom: space.xl, gap: space.lg }}
+        contentContainerStyle={{ paddingHorizontal: space.lg + 4, paddingTop: space.md, paddingBottom: space.xl, gap: space.lg }}
+        showsVerticalScrollIndicator={false}
       >
         <View style={{ gap: space.sm }}>
-          <Text style={{ ...type.largeTitle, color: colors.text }}>Keep work moving.</Text>
+          <Text style={{ ...type.largeTitle, fontSize: 32, color: colors.text }}>Keep work moving.</Text>
           <Text style={{ ...type.body, color: colors.textMuted }}>A workspace that grows with you.</Text>
         </View>
 
         {loading ? (
           <ActivityIndicator color={colors.textMuted} style={{ marginTop: space.xl }} />
-        ) : products.length === 0 ? (
+        ) : columns.length === 0 ? (
           /*
-           * Nothing to sell: a simulator, a build with no StoreKit, or a store
-           * that is briefly unreachable. Say so in one line. A blank slab above
-           * "Continue for now" reads as a screen that failed to load, and this
-           * is the last thing between somebody and the session they just
-           * started.
+           * No products: say so in the same voice as the rest of the screen.
+           * "Continue for now" below is the outcome, not a fallback.
            */
           <Text style={{ ...type.body, color: colors.textMuted }}>
             Plans are not available on this device right now. Everything below still works.
           </Text>
         ) : (
-          products.map((product) => (
-            <TierCard
-              key={product.productId}
-              product={product}
-              current={false}
-              purchasing={phase.kind === "purchasing" && phase.productId === product.productId}
-              disabled={busy}
-              onPress={() => void buy(product)}
-            />
-          ))
+          <>
+            <View style={{ borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, overflow: "hidden" }}>
+              {/* Header: the plan names, each a radio. */}
+              <View style={{ flexDirection: "row", height: 60, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                <View style={{ width: 112 }} />
+                {columns.map((product, i) => {
+                  const on = i === selected;
+                  return (
+                    <Pressable
+                      key={product.productId}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: on, disabled: busy }}
+                      accessibilityLabel={`${displayLabel(product)}, ${product.displayPrice} per month${product.specs ? `, ${product.specs.parallelAgents} agents at once` : ""}`}
+                      disabled={busy}
+                      onPress={() => setSelected(i)}
+                      style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 7, backgroundColor: on ? colors.bg : "transparent" }}
+                    >
+                      <View
+                        style={{
+                          width: 18,
+                          height: 18,
+                          borderRadius: 9,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          backgroundColor: on ? colors.text : "transparent",
+                          borderWidth: on ? 0 : 1.5,
+                          borderColor: colors.textMuted,
+                        }}
+                      >
+                        {on ? <Icon ios="checkmark" android="check" size={10} color={colors.bg} /> : null}
+                      </View>
+                      <Text style={{ ...type.subhead, fontWeight: "600", color: colors.text }}>{displayLabel(product)}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              {rows.map((row) => (
+                <View key={row.label} style={{ flexDirection: "row", minHeight: 44, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+                  <View style={{ width: 112, justifyContent: "center", paddingLeft: space.md, paddingVertical: space.sm }}>
+                    <Text style={{ ...type.footnote, color: colors.text }}>{row.label}</Text>
+                  </View>
+                  {row.values.map((value, i) => (
+                    <View
+                      key={i}
+                      style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: space.sm, backgroundColor: i === selected ? colors.bg : "transparent" }}
+                    >
+                      <Text style={{ ...type.subhead, fontWeight: i === selected ? "600" : "500", color: colors.text, textAlign: "center" }}>
+                        {value}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              ))}
+              <View style={{ flexDirection: "row", height: 76 }}>
+                <View style={{ width: 112, justifyContent: "center", paddingLeft: space.md }}>
+                  <Text style={{ ...type.footnote, color: colors.textMuted }}>{"Per month\nUSD"}</Text>
+                </View>
+                {columns.map((product, i) => (
+                  <View
+                    key={product.productId}
+                    style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: i === selected ? colors.bg : "transparent" }}
+                  >
+                    <Text style={{ fontSize: 24, fontWeight: "700", letterSpacing: -0.5, color: colors.text }}>{product.displayPrice}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+
+            <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
+              <View style={{ flexDirection: "row", gap: space.sm }}>
+                <Image source={agentIcon("codex-aisdk")} style={{ width: 24, height: 24, borderRadius: 6 }} />
+                <Image source={agentIcon("aisdk")} style={{ width: 24, height: 24, borderRadius: 6 }} />
+              </View>
+              <Text style={{ ...type.subhead, fontWeight: "400", color: colors.textMuted }}>{"Bring your Claude Code\nor Codex subscription."}</Text>
+            </View>
+          </>
         )}
       </ScrollView>
 
       <View style={{ paddingHorizontal: space.lg + 4, paddingBottom: insets.bottom + space.lg, gap: space.md }}>
+        {chosen ? (
+          <>
+            <PrimaryAction
+              label={phase.kind === "purchasing" ? "Opening App Store\u2026" : `Continue with ${displayLabel(chosen)}`}
+              onPress={() => void buy(chosen)}
+              disabled={busy}
+            />
+            <Text style={{ ...type.footnote, color: colors.textMuted, textAlign: "center" }}>
+              {"Renews monthly. Cancel anytime\nin App Store settings."}
+            </Text>
+          </>
+        ) : null}
         {/*
          * Always reachable, and never a disabled state. The task and its
-         * result survive this either way, so nothing here is a gate.
+         * result are already in the chat; this is the way to them.
          */}
         <SecondaryAction label="Continue for now" onPress={onSkip} />
+        <View style={{ flexDirection: "row", justifyContent: "center", gap: 18 }}>
+          <Text onPress={() => void Linking.openURL("https://omg.dev/terms")} style={{ ...type.footnote, color: colors.textMuted }}>
+            Terms
+          </Text>
+          <Text onPress={() => void Linking.openURL("https://omg.dev/privacy")} style={{ ...type.footnote, color: colors.textMuted }}>
+            Privacy
+          </Text>
+        </View>
       </View>
     </View>
   );

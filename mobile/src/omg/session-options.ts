@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { supportsFastMode } from "../../../packages/protocol/src/fast-mode-support";
 import { STORAGE_KEYS } from "./config";
 
+import { preferredAgent } from "./agent-default";
 import { agentIcon, agentLabel as agentDisplayName } from "./agent-icons";
 import { type MenuOption } from "./menu";
 import { useOmg, type CodingAgent, type Repo } from "./provider";
@@ -21,6 +22,7 @@ import { basename, projectKey, sessionMatchesProject } from "./project-filter";
  * lands is the agent that would actually run.
  */
 export const DEFAULT_AGENT = "aisdk";
+
 
 type ModelCatalogEntry = {
   key: string;
@@ -163,7 +165,7 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
     // changes anything.
     const initial = (initialAgent ?? "").trim().toLowerCase();
     if (initial && agents.some((a) => a.key === initial)) return initial;
-    return agents[0]?.key ?? DEFAULT_AGENT;
+    return preferredAgent(agents) ?? DEFAULT_AGENT;
   }, [chosen, agents, initialAgent]);
 
   const label = useMemo(() => labelFor(agent, agents), [agent, agents]);
