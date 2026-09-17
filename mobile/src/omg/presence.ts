@@ -32,6 +32,8 @@ import { STORAGE_KEYS } from "./config";
 /** The control-plane transport, injected so this module stays free of auth. */
 export type PresenceRpc = <T>(name: string, body?: unknown) => Promise<T>;
 
+export type PresenceRenewal = boolean | "unprovisioned";
+
 type RenewResponse = { stale?: boolean; expiresAt?: unknown };
 
 /**
@@ -132,7 +134,8 @@ function nextEventSeq(): number {
  * Every failure is swallowed after at most one log line per streak: presence
  * is best-effort, and a dropped heartbeat must never reach the UI.
  */
-export function startCloudPresence(rpc: PresenceRpc): { stop: () => void } {
+export function startCloudPresence(rpc: PresenceRpc): { renew: () => Promise<PresenceRenewal>; stop: () => void } {
+  let inFlight: Promise<PresenceRenewal> | null = null;
   let cancelled = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let activeLeaseId: string | null = null;
@@ -151,16 +154,16 @@ export function startCloudPresence(rpc: PresenceRpc): { stop: () => void } {
     timer = setTimeout(() => void tick(), delay);
   };
 
-  const tick = async (): Promise<void> => {
-    if (cancelled) return;
+  const renewOnce = async (): Promise<PresenceRenewal> => {
+    if (cancelled) return false;
     let id: string;
     try {
       id = await leaseId();
     } catch {
       schedule(undefined);
-      return;
+      return false;
     }
-    if (cancelled) return;
+    if (cancelled) return false;
     activeLeaseId = id;
     try {
       // "browser" is not a default: the server accepts exactly "browser" or
@@ -170,14 +173,21 @@ export function startCloudPresence(rpc: PresenceRpc): { stop: () => void } {
         kind: "browser",
         eventSeq: nextEventSeq(),
       });
-      if (cancelled) return;
+      if (cancelled) return false;
       failureLogged = false;
       if (res?.stale) {
         activeLeaseId = await regenerateLeaseId();
+        schedule(res?.expiresAt);
+        return false;
       }
       schedule(res?.expiresAt);
+      return true;
     } catch (error) {
-      if (cancelled) return;
+      if (cancelled) return false;
+      if (error instanceof Error && error.message === "cloud Computer has not been provisioned") {
+        schedule(undefined);
+        return "unprovisioned";
+      }
       if (!failureLogged) {
         failureLogged = true;
         console.warn(
@@ -186,12 +196,23 @@ export function startCloudPresence(rpc: PresenceRpc): { stop: () => void } {
         );
       }
       schedule(undefined);
+      return false;
     }
+  };
+
+  // Share the first heartbeat with startup. Explicit probes also renew an
+  // existing lease, so a foreground return never relies on an old response.
+  const tick = (): Promise<PresenceRenewal> => {
+    if (inFlight) return inFlight;
+    if (timer) clearTimeout(timer);
+    inFlight = renewOnce().finally(() => { inFlight = null; });
+    return inFlight;
   };
 
   void tick();
 
   return {
+    renew: tick,
     stop: () => {
       if (stopped) return;
       stopped = true;

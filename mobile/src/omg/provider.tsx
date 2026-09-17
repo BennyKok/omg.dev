@@ -29,6 +29,7 @@ import { registerSessionRefResolver } from "./session-ref-link";
 import { unregisterForPushNotifications } from "./push";
 import { useUserActive } from "./idle";
 import { startCloudPresence } from "./presence";
+import { wakeAfterPresence } from "./cloud-startup";
 import { waitForReady, type ComputerReadiness } from "./readiness";
 import {
   isSharedBindingId,
@@ -324,9 +325,77 @@ export function OmgProvider({ children }: PropsWithChildren) {
     return () => registerSessionRefResolver(null);
   }, [client]);
 
+  /**
+   * "background" is the only state that means gone.
+   *
+   * iOS emits "inactive" for anything that merely covers the app for a moment:
+   * pulling down Notification Center, an incoming call banner, the app
+   * switcher, a system permission sheet. Treating that as absence — which
+   * `state === "active"` does — releases the presence lease and starts the
+   * pause clock because someone glanced at their notifications for two
+   * seconds. Only a real background transition should end the lease.
+   */
+  const [foregrounded, setForegrounded] = useState(
+    () => AppState.currentState !== "background",
+  );
   const probeToken = useRef(0);
+  const presenceRef = useRef<ReturnType<typeof startCloudPresence> | null>(null);
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      setForegrounded(state !== "background");
+    });
+    return () => sub.remove();
+  }, []);
+
+  /**
+   * On screen is not the same as in use.
+   *
+   * Backgrounding releases the lease, and on a phone that covers most of the
+   * ways a person leaves. It does not cover all of them: auto-lock can be set
+   * to Never, and an app left open on a desk then renews forever and bills
+   * compute all night. See USER_IDLE_TIMEOUT_MS for the measurement that found
+   * this on the web client.
+   */
+  const { active: userActive, markActive } = useUserActive(foregrounded);
+  // Declines every gesture it sees (`false`), so observing costs the UI below
+  // nothing. Returning true here would swallow the whole app's touches.
+  const noteTouch = useCallback(() => {
+    markActive();
+    return false;
+  }, [markActive]);
+
+  /**
+   * Presence is the keep-awake demand channel for a cloud Computer.
+   *
+   * The control plane pauses a Computer after a grace period with no
+   * activity, and mint/refresh traffic explicitly "never provisions, wakes,
+   * or extends a Computer" — a presence lease is the only way a UI client
+   * says "someone is still here". The web dashboard renews one; this app sent
+   * none, and the Computer paused out from under the session. probe() wakes a
+   * paused Computer; this loop stops it pausing in the first place.
+   *
+   * One effect covers all three release triggers, because each flips a
+   * dependency: backgrounding clears foregrounded, sign-out clears
+   * authStatus, and picking another machine changes bindingId. The cleanup
+   * releases the lease so the pause clock starts when usage actually ends
+   * instead of one grace period later.
+   */
+  useEffect(() => {
+    if (authStatus !== "signed-in" || bindingId !== CLOUD_BINDING_ID || !userActive) {
+      return;
+    }
+    const lease = startCloudPresence(controlPlane);
+    presenceRef.current = lease;
+    return () => {
+      presenceRef.current = null;
+      ++probeToken.current;
+      lease.stop();
+    };
+  }, [authStatus, bindingId, userActive]);
+
   const probe = useCallback(async () => {
     if (!bindingId) return;
+    if (bindingId === CLOUD_BINDING_ID && !presenceRef.current) return;
     const ticket = ++probeToken.current;
     /**
      * Announce "waking" only when there is nothing good on screen to lose.
@@ -381,41 +450,33 @@ export function OmgProvider({ children }: PropsWithChildren) {
       }
     }
 
-    /**
-     * Ask a sleeping cloud Computer to actually wake up.
-     *
-     * Nothing else this app does will. The control plane is emphatic that
-     * lifecycle demand has exactly one set of callers — authorizeCloudComputerSession
-     * is documented "mint/refresh traffic never provisions, wakes, or extends a
-     * Computer", and there is a test called "session refreshes cannot wake or
-     * extend a paused Computer" asserting the sandbox stays hibernated. So
-     * minting a grant does not wake it, reading getCloudComputer does not wake
-     * it, and polling /api/bootstrap does not wake it.
-     *
-     * Which is exactly what this screen used to do: read the state, see
-     * "Paused", then poll bootstrap for sixty seconds against a machine nobody
-     * had told to start, and report that the Computer was not responding.
-     *
-     * getOrProvisionCloudComputer is the client-callable lifecycle path —
-     * ensureInner sets requestedState:"auto" and reconciles with
-     * wakeRequested:true. Paired machines need none of this: they are a laptop
-     * running `omg connect`, and are either up or not.
-     */
+    // Presence must be acknowledged before the server evaluates browser wake
+    // demand. Bootstrap polling cannot wake a paused Computer on its own.
     if (bindingId === CLOUD_BINDING_ID) {
+      const lease = presenceRef.current;
+      if (!lease) return;
+      const isCurrent = () => ticket === probeToken.current && presenceRef.current === lease;
       try {
-        const woken = await controlPlane<CloudComputer>("getOrProvisionCloudComputer");
-        if (ticket !== probeToken.current) return;
+        const woken = await wakeAfterPresence(
+          lease,
+          () => controlPlane<CloudComputer>("getOrProvisionCloudComputer"),
+          isCurrent,
+        );
+        if (!isCurrent()) return;
         if (woken) setCloud(woken);
-      } catch {
-        // Deliberately swallowed: waitForReady below is the authority on
-        // whether the Computer can serve, and it produces the better message.
+      } catch (error) {
+        if (isCurrent()) setReadiness({
+          status: "unavailable",
+          message: error instanceof Error ? error.message : "Could not start your Computer. Try again.",
+        });
+        return;
       }
     }
 
     const result = await waitForReady(getHostedTransport(bindingId));
     // A machine switch mid-probe must not overwrite the new machine's state.
     if (ticket === probeToken.current) setReadiness(result);
-  }, [bindingId, machinesLoaded, sharedComputers]);
+  }, [bindingId, machinesLoaded, sharedComputers, userActive]);
 
   useEffect(() => {
     if (bindingId && authStatus === "signed-in") void probe();
@@ -433,77 +494,14 @@ export function OmgProvider({ children }: PropsWithChildren) {
     return () => sub.remove();
   }, [authStatus, refreshMachines, probe]);
 
-  /**
-   * "background" is the only state that means gone.
-   *
-   * iOS emits "inactive" for anything that merely covers the app for a moment:
-   * pulling down Notification Center, an incoming call banner, the app
-   * switcher, a system permission sheet. Treating that as absence — which
-   * `state === "active"` does — releases the presence lease and starts the
-   * pause clock because someone glanced at their notifications for two
-   * seconds. Only a real background transition should end the lease.
-   */
-  const [foregrounded, setForegrounded] = useState(
-    () => AppState.currentState !== "background",
-  );
-  const presenceStopRef = useRef<(() => void) | null>(null);
-  useEffect(() => {
-    const sub = AppState.addEventListener("change", (state) => {
-      setForegrounded(state !== "background");
-    });
-    return () => sub.remove();
-  }, []);
-
-  /**
-   * On screen is not the same as in use.
-   *
-   * Backgrounding releases the lease, and on a phone that covers most of the
-   * ways a person leaves. It does not cover all of them: auto-lock can be set
-   * to Never, and an app left open on a desk then renews forever and bills
-   * compute all night. See USER_IDLE_TIMEOUT_MS for the measurement that found
-   * this on the web client.
-   */
-  const { active: userActive, markActive } = useUserActive(foregrounded);
-  // Declines every gesture it sees (`false`), so observing costs the UI below
-  // nothing. Returning true here would swallow the whole app's touches.
-  const noteTouch = useCallback(() => {
-    markActive();
-    return false;
-  }, [markActive]);
-
-  /**
-   * Presence is the keep-awake demand channel for a cloud Computer.
-   *
-   * The control plane pauses a Computer after a grace period with no
-   * activity, and mint/refresh traffic explicitly "never provisions, wakes,
-   * or extends a Computer" — a presence lease is the only way a UI client
-   * says "someone is still here". The web dashboard renews one; this app sent
-   * none, and the Computer paused out from under the session. probe() wakes a
-   * paused Computer; this loop stops it pausing in the first place.
-   *
-   * One effect covers all three release triggers, because each flips a
-   * dependency: backgrounding clears foregrounded, sign-out clears
-   * authStatus, and picking another machine changes bindingId. The cleanup
-   * releases the lease so the pause clock starts when usage actually ends
-   * instead of one grace period later.
-   */
-  useEffect(() => {
-    if (authStatus !== "signed-in" || bindingId !== CLOUD_BINDING_ID || !userActive) {
-      return;
-    }
-    const lease = startCloudPresence(controlPlane);
-    presenceStopRef.current = lease.stop;
-    return () => {
-      presenceStopRef.current = null;
-      lease.stop();
-    };
-  }, [authStatus, bindingId, userActive]);
 
   const signOut = useCallback(async () => {
     // Release the presence lease before the token goes away; a release sent
     // after authSignOut can only fail. stop() is idempotent, so the effect
     // cleanup below does not send a second one.
-    presenceStopRef.current?.();
+    presenceRef.current?.stop();
+    presenceRef.current = null;
+    ++probeToken.current;
     // Forget this device's push token BEFORE the auth token goes away (the
     // unregister call needs it) and before the account's bindingId is
     // cleared. A token left registered server-side under a signed-out
