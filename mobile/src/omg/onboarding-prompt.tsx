@@ -24,7 +24,7 @@
  * Design: artboards "03 · First prompt · Before sign-in", "03 · Custom task ·
  * Fourth option", "03 · Sign-in drawer · After prompt".
  */
-import { Pressable, View } from "react-native";
+import { KeyboardAvoidingView, Platform, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AttachmentStrip, Icon } from "../components";
@@ -70,7 +70,29 @@ export function PromptScreen({
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insets.top }}>
       <StepHeader onBack={onBack} />
-      <View style={{ flex: 1, paddingHorizontal: space.lg + 4, gap: space.lg }}>
+      {/*
+       * ── The keyboard must not trap the person ─────────────────────────
+       *
+       * The box takes most of the screen and Return inserts a newline, so once
+       * the keyboard was up there was no way to put it down: no Done key, no
+       * tap target outside the box, and "Sign in to start" sat behind the
+       * keyboard where it could not be reached. Benny hit this on 2026-09-17.
+       *
+       * Two things fix it, and both are the pattern the rest of the app uses
+       * (bot-create-flow.tsx, create-sheet.tsx):
+       *   - KeyboardAvoidingView lifts the primary action above the keyboard,
+       *     so the way forward is always on screen.
+       *   - ScrollView with keyboardShouldPersistTaps="handled" makes a tap
+       *     anywhere outside a control dismiss the keyboard, and
+       *     keyboardDismissMode="interactive" lets a downward drag do the same.
+       */}
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ flexGrow: 1, paddingHorizontal: space.lg + 4, gap: space.lg }}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+      >
         <StepHeading title={custom ? "What is your idea?" : "First prompt."} />
 
         <View
@@ -143,7 +165,7 @@ export function PromptScreen({
         {custom ? null : (
           <Text style={{ ...type.footnote, color: colors.textMuted }}>Edit any part of this prompt.</Text>
         )}
-      </View>
+      </ScrollView>
 
       <View style={{ paddingHorizontal: space.lg + 4, paddingBottom: insets.bottom + space.lg }}>
         {/*
@@ -154,6 +176,7 @@ export function PromptScreen({
          */}
         <PrimaryAction label={finalLabel} onPress={onSignIn} disabled={!ready} />
       </View>
+      </KeyboardAvoidingView>
     </View>
   );
 }
