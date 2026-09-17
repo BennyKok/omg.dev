@@ -29,6 +29,8 @@
  *   bun run test:e2e --flow new-project   one flow
  *   bun run test:e2e --record             render an mp4 locally and fetch it
  *   bun run test:e2e --inspect            print the current screen's elements
+ *   bun run test:e2e --flow onboarding    fresh install -> sign-in code from Gmail -> home
+ *   bun run test:e2e --install URL        install a simulator build (EAS tar.gz url or .app path on the Mac)
  */
 
 const HOST = process.env.OMG_SIM_HOST ?? "bennykok@bennys-macbook-pro-2";
@@ -46,7 +48,9 @@ const REMOTE_ENV =
 const REMOTE_DIR = ".omg-e2e";
 const LOCK_ROOT = ".omg-sim-locks";
 /** A lock older than this is assumed to be a crashed run, not a live one. */
-const LOCK_STALE_MS = 30 * 60 * 1000;
+// An onboarding run provisions a Computer and waits on a mail round trip, so
+// a live run can legitimately be long. Well past that before a lock is broken.
+const LOCK_STALE_MS = 60 * 60 * 1000;
 
 const LOCAL_E2E = new URL("../e2e", import.meta.url).pathname;
 
@@ -175,10 +179,63 @@ async function inspect(udid: string) {
   console.log(rows.join("\n"));
 }
 
+
+/**
+ * Put a simulator build on the device. `source` is either an EAS artifact URL
+ * (the .tar.gz `eas build:view --json` reports) or a path to an .app already
+ * on the Mac. The app is terminated and replaced; its data is kept, which is
+ * why the onboarding flow starts with `launchApp: clearState: true`.
+ */
+async function installApp(udid: string, source: string) {
+  let app = source;
+  if (/^https?:\/\//.test(source)) {
+    console.log(`Downloading ${source} on the Mac...`);
+    const { out } = await ssh(
+      `set -e; D=$(mktemp -d ~/.omg-e2e-build.XXXXXX); curl -fsSL -o "$D/build.tar.gz" "${source}"; ` +
+        `tar xzf "$D/build.tar.gz" -C "$D"; ls -d "$D"/*.app | head -1`,
+    );
+    app = out.trim();
+    if (!app) throw new Error("The EAS artifact did not contain an .app bundle.");
+  }
+  await ssh(`xcrun simctl terminate ${udid} dev.omg.computer 2>/dev/null; xcrun simctl install ${udid} "${app}"`);
+  console.log(`Installed ${app} on ${DEVICE}.`);
+}
+
+/**
+ * The onboarding flow needs a code that only exists in a mailbox, so it runs
+ * in two halves with the runner in between: the first half asks auth for the
+ * code, the runner reads it from Gmail, the second half types it and walks the
+ * signed-in steps. Each run uses a fresh plus-alias of the test mailbox, so
+ * each run is a brand-new account and a brand-new hosted Computer.
+ */
+async function runOnboarding(udid: string): Promise<number> {
+  const mailbox = process.env.OMG_E2E_MAILBOX ?? "itechbenny@gmail.com";
+  const [user, domain] = mailbox.split("@");
+  const email = process.env.OMG_E2E_EMAIL ?? `${user}+e2e${Date.now().toString(36)}@${domain}`;
+  const { readSignInCode } = await import("./e2e-otp.ts");
+  console.log(`Onboarding as ${email}`);
+  const started = new Date();
+  const first = await ssh(
+    `${REMOTE_ENV} maestro --udid=${udid} test -e EMAIL='${email}' ~/${REMOTE_DIR}/onboarding/01-request-code.yaml`,
+    { allowFail: true },
+  );
+  console.log(first.out || first.err);
+  if (first.code !== 0) return 1;
+  const { code, date } = await readSignInCode(mailbox, email, { notBefore: started });
+  console.log(`Sign-in code arrived (${date}).`);
+  const second = await ssh(
+    `${REMOTE_ENV} maestro --udid=${udid} test -e CODE='${code}' ~/${REMOTE_DIR}/onboarding/02-verify.yaml`,
+    { allowFail: true },
+  );
+  console.log(second.out || second.err);
+  console.log(`Test account left in place: ${email}. Account deletion finishes in the browser, so the runner cannot remove it.`);
+  return second.code === 0 ? 0 : 1;
+}
+
 async function main() {
   if (has("help")) {
     console.log(
-      "bun run test:e2e [--flow NAME] [--record] [--inspect] [--device NAME]",
+      "bun run test:e2e [--flow NAME|onboarding] [--record] [--inspect] [--install URL|PATH] [--device NAME]",
     );
     return 0;
   }
@@ -191,8 +248,14 @@ async function main() {
       return 0;
     }
 
+    const install = arg("install");
+    if (install) {
+      await installApp(udid, install);
+      if (!arg("flow")) return 0;
+    }
     await pushFlows();
     const flow = arg("flow");
+    if (flow === "onboarding") return await runOnboarding(udid);
     const target = flow ? `~/${REMOTE_DIR}/${flow}.yaml` : `~/${REMOTE_DIR}`;
 
     if (has("record")) {

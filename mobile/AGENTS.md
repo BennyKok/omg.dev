@@ -192,7 +192,7 @@ Two consequences, both real:
   `~/.maestro/tests/<run>/<flow>/screenshots/` before believing a red result.
 - **This cannot go in CI as is.** `mobile-ota.yml` and `mobile-release.yml` run
   on `ubuntu-latest` and Maestro needs a Mac. A standalone build
-  (`eas build --profile preview --platform ios`) with the bundle embedded fixes
+  (`eas build --profile simulator-release --platform ios`) with the bundle embedded fixes
   both this and `launchApp`. Until then `test:e2e` is a local, pre-release gate.
 
 ### The Mac needs Java, and it is not a system install

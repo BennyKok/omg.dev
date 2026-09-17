@@ -18,7 +18,7 @@ and useless in CI.
 installed on the device:
 
 ```bash
-eas build --profile preview --platform ios
+eas build --profile simulator-release --platform ios
 ```
 
 Add `launchApp` at that point, not before.

@@ -1,0 +1,46 @@
+# Onboarding, first half: a fresh install through the welcome flow up to the
+# point where the app has asked auth for a sign-in code.
+#
+# Runs only through `bun run test:e2e --flow onboarding`, which supplies EMAIL,
+# reads the code from Gmail after this half, and runs 02-verify.yaml with it.
+# It is in its own folder so a plain `maestro test e2e/` does not pick it up.
+#
+# Needs the simulator-release build (bundle embedded, no dev client):
+# `launchApp` with clearState is what makes every run start at step 01.
+appId: dev.omg.computer
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "Get started"
+    timeout: 60000
+- tapOn: "Get started"
+- extendedWaitUntil:
+    visible: "Code & reviews"
+    timeout: 15000
+- tapOn: "Code & reviews"
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Explain an error"
+    timeout: 15000
+- tapOn: "Explain an error"
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Sign in to start."
+    timeout: 15000
+- tapOn: "Sign in to start."
+- extendedWaitUntil:
+    visible: "Continue with email"
+    timeout: 15000
+- tapOn: "Continue with email"
+- extendedWaitUntil:
+    visible: "you@example.com"
+    timeout: 15000
+- tapOn: "you@example.com"
+- inputText: ${EMAIL}
+- tapOn: "Send sign-in code"
+# The code screen. Its field is focused on arrival, so 02-verify types into it
+# without a tap.
+- extendedWaitUntil:
+    visible: "Use a different email"
+    timeout: 30000
