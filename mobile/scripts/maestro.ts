@@ -241,14 +241,17 @@ async function runOnboarding(udid: string): Promise<number> {
 }
 
 async function startRecording(udid: string) {
-  const remote = `~/${REMOTE_DIR}/capture-${Date.now()}.mp4`;
+  const name = `capture-${Date.now()}.mp4`;
+  const remote = `~/${REMOTE_DIR}/${name}`;
+  // pgrep by the file name: the shell expands ~ in the command line, so the
+  // literal path would never match.
   await ssh(
-    `rm -f ${remote}; (nohup xcrun simctl io ${udid} recordVideo --codec h264 --force ${remote} >/dev/null 2>&1 &); sleep 1; pgrep -f "recordVideo --codec h264 --force ${remote}" >/dev/null`,
+    `rm -f ${remote}; (nohup xcrun simctl io ${udid} recordVideo --codec h264 --force ${remote} >/dev/null 2>&1 &); sleep 1; pgrep -f "recordVideo.*${name}" >/dev/null`,
   );
   console.log("Recording the device.");
   return {
     async stop(name: string) {
-      await ssh(`pkill -INT -f "recordVideo --codec h264 --force ${remote}"; sleep 4`, { allowFail: true });
+      await ssh(`pkill -INT -f "recordVideo.*${name}"; sleep 4`, { allowFail: true });
       const dest = `${LOCAL_E2E}/${name}.mp4`;
       const p = Bun.spawn(["scp", "-q", "-o", "BatchMode=yes", `${HOST}:${remote}`, dest], { stdout: "inherit", stderr: "inherit" });
       if ((await p.exited) !== 0) console.warn("Could not fetch the recording.");
