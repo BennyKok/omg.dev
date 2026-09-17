@@ -135,6 +135,7 @@ bun run test:e2e                      # every flow in e2e/
 bun run test:e2e --flow new-project   # one flow
 bun run test:e2e --inspect            # print the current screen's elements
 bun run test:e2e --flow smoke --record  # render an mp4 locally and fetch it
+bun run test:e2e --install URL --flow onboarding   # simulator-release build, fresh account, code from Gmail
 ```
 
 The runner is `scripts/maestro.ts`. It resolves the UDID **by device name**,

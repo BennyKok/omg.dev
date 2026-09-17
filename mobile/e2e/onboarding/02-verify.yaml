@@ -22,7 +22,9 @@ appId: dev.omg.computer
     visible: "Let me in"
     timeout: 30000
 - assertVisible: "Keep track of your agent."
-- assertVisible: ".*deepseek.*"
+# The transcript card is one accessibility element; its header text is not
+# addressable on its own.
+- assertVisible: "Open this session"
 - tapOn: "Let me in"
 # 06 · Plan.
 - extendedWaitUntil:

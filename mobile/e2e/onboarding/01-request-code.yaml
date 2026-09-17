@@ -39,6 +39,11 @@ appId: dev.omg.computer
 - tapOn: "you@example.com"
 - inputText: ${EMAIL}
 - tapOn: "Send sign-in code"
+# Auth scores this request like a browser (the app sends an Origin header) and
+# challenges the FOURTH send from one IP inside an hour. The app has no
+# Turnstile, so that is a dead end. Fail here by name instead of 30s later on
+# a screen that never comes. See e2e/README.md, "Rate of runs".
+- assertNotVisible: "Please confirm you are a person, then try again."
 # The code screen. Its field is focused on arrival, so 02-verify types into it
 # without a tap.
 - extendedWaitUntil:
