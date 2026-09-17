@@ -37,7 +37,7 @@ session) in a later pass the same day as the initial re-verification below.
 | App Availability | All 175 countries/regions, "Available on App Release" | Does not go live until app status is Ready for Sale |
 | App Review Information — Contact Information | First `Benny`, Last `Kok`, Phone `+852 67762685`, Email `support@omg.dev` | The block that gated saving anything else on the page, twice, across two prior sessions. Filled, saved, and confirmed by a **hard page reload** reading the same four values back from the server, not just client state |
 | App Store Version Release | "Manually release this version" | Radio confirmed checked after the same hard reload |
-| App Review Information — Notes, 4.8 addition | **NOW FALSE, STILL LIVE.** Appended: "iMessage sign-in is a first-party phone-number OTP delivered over iMessage — the user texts a code to omg's own number, approved by omg's own gateway. The app integrates no third-party or social login." | Was confirmed present, verbatim, after the same hard reload. It describes a build that no longer exists: iMessage sign-in is gone and Apple plus Google sign-in shipped in `1861b8f29` on 2026-09-03. **Must be replaced before the next submission** — see the 4.8 section and the replacement text under NEEDS BENNY. (One in-flight mistake caught before saving: a first attempt via the wrong input helper typed the literal string "@1425" into the field instead of the note text — caught via a value read-back, fixed with a direct DOM value-set + `input`/`change` events, re-verified, then saved.) |
+| App Review Information — Notes, 4.8 addition | **SUPERSEDED IN ASC, AND THIS ROW WAS WRONG ABOUT IT.** Appended: "iMessage sign-in is a first-party phone-number OTP delivered over iMessage — the user texts a code to omg's own number, approved by omg's own gateway. The app integrates no third-party or social login." | Was confirmed present, verbatim, after the same hard reload. The quoted text describes a build that no longer exists. **It is no longer in the live field**: read directly out of the `notes` textarea in App Store Connect on 2026-09-17, the live note now says "the sign-in screen offers Sign in with Apple, Sign in with Google, and a first-party email one-time code ... Sign in with Apple is offered as an equivalent option alongside Google, per 4.8." Somebody corrected it and did not update this row. Nothing further is needed here. (One in-flight mistake caught before saving: a first attempt via the wrong input helper typed the literal string "@1425" into the field instead of the note text — caught via a value read-back, fixed with a direct DOM value-set + `input`/`change` events, re-verified, then saved.) |
 
 ### App Privacy — derivation from source
 
@@ -132,13 +132,19 @@ text had already been copied into the App Review Notes field in App Store
 Connect, where it still asserts that the app "integrates no third-party or
 social login" while the binary ships an Apple button.
 
-**Benny still has to fix the live field.** Nothing in this repository can
-reach App Store Connect. Replacement note text is in the "NEEDS BENNY"
-section below. This is worth doing before the next submission rather than
-after a rejection: 2.3.1 says new features "must be described with
-specificity in the Notes for Review section" and that the app's
-functionality "should be clear to end users and App Review", and a note
-that contradicts the binary is the opposite of that.
+**The live field was already fixed by somebody, and this document did not
+know.** Read directly out of App Store Connect on 2026-09-17 over CDP
+against the Chrome profile at `/home/dev/.omg/computer/chrome-profile`
+(port 9222), the `notes` textarea is 1741 characters and contains no
+"third-party or social login" sentence and no mention of iMessage. It
+names Sign in with Apple, Google and the email code, and states the 4.8
+position correctly.
+
+**The lesson is the one already written at the top of this file, and it
+was ignored anyway.** An earlier pass of this very session told Benny the
+live field was wrong and asked him to change it, on the strength of this
+document rather than the field. Read the field. This document is a cache,
+and it has now been stale in both directions.
 
 ### Export compliance and app icon — confirmed live in ASC, not just locally
 
@@ -535,28 +541,17 @@ identity is now done. The live demo-account test is also done: it was driven
 end to end on the simulator on 2026-09-17, and what it found is recorded in
 "Demo account, driven end to end" below. What's left needs him specifically:
 
-1. **Replace the App Review Notes text.** The live field claims the app
-   "integrates no third-party or social login" and the binary ships a Sign
-   in with Apple button. Nothing in this repository can reach App Store
-   Connect, so this one cannot be automated. Paste this, which names
-   specifics because 2.3.1 rejects generic descriptions:
-
-   > omg.dev runs coding agents on a computer you own or on a cloud
-   > computer we host. Sign in, type a task, and the agent works on that
-   > machine while you watch from the phone.
-   >
-   > Sign-in: email code, Sign in with Apple, or Google. All three create
-   > the same account. There is no third-party account linking beyond
-   > standard sign-in.
-   >
-   > Demo account: appreview@omg.dev. Tap Continue to request a code, then
-   > enter 823014. The code is fixed and does not arrive by email, so
-   > please do not wait for a message. You must tap Continue first or the
-   > code is rejected.
-   >
-   > This account already has a cloud computer attached, so no pairing is
-   > needed. It sleeps when idle, so the first task may take a few seconds
-   > to start.
+1. **Nothing to do on the App Review Notes.** An earlier pass of this
+   session claimed the live field still said the app "integrates no
+   third-party or social login" and asked Benny to replace it. That was
+   wrong: it was read out of this document instead of out of App Store
+   Connect. The live note is correct and already states the 4.8 position.
+   One small inaccuracy is left in it, worth a touch-up whenever the
+   metadata is next unlocked but not worth a trip on its own: it says "On
+   a fresh install a short intro appears before sign-in. Continue or Skip
+   both lead to the sign-in screen." There is no Skip in the pre-sign-in
+   flow. The only `Skip` left is in `SetupScreen`, which the demo account
+   never reaches because it already has a computer.
 
 2. **Add a bank account** — Business → Agreements → Bank Accounts. Not
    started. Blocks the agreement from reaching `Active`.
