@@ -195,6 +195,10 @@ export function OnboardingAfterSignIn({
       <ContinueScreen
         interest={outcome.interest}
         transcript={<OnboardingTranscript client={client} sessionId={outcome.sessionId} />}
+        client={client}
+        sessionId={outcome.sessionId}
+        agent={agent}
+        title={outcome.prompt}
         onOpen={() => setStage("plan")}
         onBack={() => setStage("working")}
       />

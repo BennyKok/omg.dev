@@ -104,7 +104,7 @@ export function PlanScreen({
   ];
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insets.top }}>
+    <View style={{ flex: 1, backgroundColor: colors.card, paddingTop: insets.top }}>
       <View
         style={{
           flexDirection: "row",
@@ -128,7 +128,7 @@ export function PlanScreen({
             borderRadius: 16,
             alignItems: "center",
             justifyContent: "center",
-            backgroundColor: colors.card,
+            backgroundColor: colors.bg,
           }}
         >
           <Icon ios="xmark" android="close" size={13} color={colors.textMuted} />
@@ -142,6 +142,43 @@ export function PlanScreen({
         <View style={{ gap: space.sm }}>
           <Text style={{ ...type.largeTitle, fontSize: 32, color: colors.text }}>Keep work moving.</Text>
           <Text style={{ ...type.body, color: colors.textMuted }}>A workspace that grows with you.</Text>
+        </View>
+
+        {/*
+         * The board's Monthly / Annually control. Annual products are not in
+         * the store yet (see the header comment), so the segment is drawn as
+         * the board draws it and cannot be selected: a control that switched
+         * to prices that do not exist would be lying twice.
+         */}
+        <View
+          accessibilityRole="tablist"
+          style={{ flexDirection: "row", padding: 4, borderRadius: 12, backgroundColor: colors.bg }}
+        >
+          <View
+            accessibilityRole="tab"
+            accessibilityState={{ selected: true }}
+            style={{
+              flex: 1,
+              height: 34,
+              borderRadius: 9,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: colors.card,
+              shadowColor: "#000",
+              shadowOpacity: 0.07,
+              shadowRadius: 3,
+              shadowOffset: { width: 0, height: 1 },
+            }}
+          >
+            <Text style={{ ...type.subhead, fontWeight: "600", color: colors.text }}>Monthly</Text>
+          </View>
+          <View
+            accessibilityRole="tab"
+            accessibilityState={{ selected: false, disabled: true }}
+            style={{ flex: 1, height: 34, alignItems: "center", justifyContent: "center", opacity: 0.4 }}
+          >
+            <Text style={{ ...type.subhead, color: colors.text }}>Annually</Text>
+          </View>
         </View>
 
         {loading ? (
@@ -251,7 +288,9 @@ export function PlanScreen({
          * Always reachable, and never a disabled state. The task and its
          * result are already in the chat; this is the way to them.
          */}
-        <SecondaryAction label="Continue for now" onPress={onSkip} />
+        <View style={{ height: 44, justifyContent: "center" }}>
+          <SecondaryAction label="Continue for now" onPress={onSkip} />
+        </View>
         <View style={{ flexDirection: "row", justifyContent: "center", gap: 18 }}>
           <Text onPress={() => void Linking.openURL("https://omg.dev/terms")} style={{ ...type.footnote, color: colors.textMuted }}>
             Terms
