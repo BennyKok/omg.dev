@@ -61,7 +61,7 @@ Once the D-U-N-S number is in hand:
    organization's **founder or co-founder** — Benny qualifies.
 5. Apple immediately sends a confirmation email with a **case number**.
 6. **Apple calls to verify the enrollment** — expect a call to
-   `+852 6776 2685`. This is a real step, not a formality; have the BR
+   his mobile number. This is a real step, not a formality; have the BR
    certificate and D-U-N-S details on hand for that call.
 7. After verification, Apple emails instructions to complete the conversion.
 

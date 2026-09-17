@@ -1,5 +1,19 @@
 # App Store Connect listing readiness (2026-08-17)
 
+> **THIS REPOSITORY IS PUBLIC. DO NOT WRITE SECRETS OR PERSONAL DETAILS HERE.**
+>
+> No sign-in codes, no passwords, no API keys, no personal phone numbers or
+> addresses. App Store Connect is the source of truth for all of it, and a
+> value copied here is a value published to the internet.
+>
+> This is not hypothetical. Two leaks were removed from these files on
+> 2026-09-17: Benny's mobile number, and the App Review demo account's fixed
+> sign-in code. The code had been public since 2026-08-15 and still worked
+> when it was found. Both arrived the same way, as a helpful note in a
+> status table.
+>
+> Record *where* a value lives, never the value.
+
 Session scope: get the `iOS App 1.0` App Store listing (as opposed to the
 TestFlight track, which `TESTFLIGHT.md` / `TESTFLIGHT-PUBLIC-LINK.md` already
 cover) as close to one-click-submittable as possible without actually
@@ -31,11 +45,11 @@ session) in a later pass the same day as the initial re-verification below.
 | App Privacy (nutrition label) | 7 data types disclosed: Email Address, Photos or Videos, Audio Data, Other User Content, User ID, Device ID, Purchase History — all "Used for App Functionality" + "Linked to the user's identity," none for tracking | Derived from the actual `mobile/` source at commit `632242c` (see below), then **Published** |
 | Age Rating | 16+ (17+ in some regions) | Full 7-step questionnaire answered with reasoning below, not defaulted to None |
 | Description, Promotional Text, Keywords, Support URL, Marketing URL, Copyright | See App Information / iOS App Version 1.0 pages | Copy derived from the live omg.dev site content, not invented |
-| App Review Information — Sign-In | `appreview@omg.dev` / fixed code `823014` | Sourced from `mobile/docs/TESTFLIGHT-PUBLIC-LINK.md`, PR #1422 |
+| App Review Information — Sign-In | `appreview@omg.dev`, plus a fixed code held only in App Store Connect | The code is deliberately not in this repository, which is public. Read it from the version's Sign-In Information field |
 | App Review Information — Notes | Passwordless sign-in explanation + pre-emptive Guideline 4.8 reasoning | See below |
 | Pricing | Free ($0.00), all 175 countries/regions | |
 | App Availability | All 175 countries/regions, "Available on App Release" | Does not go live until app status is Ready for Sale |
-| App Review Information — Contact Information | First `Benny`, Last `Kok`, Phone `+852 67762685`, Email `support@omg.dev` | The block that gated saving anything else on the page, twice, across two prior sessions. Filled, saved, and confirmed by a **hard page reload** reading the same four values back from the server, not just client state |
+| App Review Information — Contact Information | First `Benny`, Last `Kok`, Email `support@omg.dev` | The block that gated saving anything else on the page, twice, across two prior sessions. Filled, saved, and confirmed by a **hard page reload** reading the same four values back from the server, not just client state. **The phone here was wrong until 2026-09-17** (recorded as `...2685`, actually `...2586`). Benny confirmed the App Store Connect value is the correct one. So the reload "confirmation" above did not actually compare digits, it compared a memory of them. Re-read this row from the field before quoting it |
 | App Store Version Release | "Manually release this version" | Radio confirmed checked after the same hard reload |
 | App Review Information — Notes, 4.8 addition | **SUPERSEDED IN ASC, AND THIS ROW WAS WRONG ABOUT IT.** Appended: "iMessage sign-in is a first-party phone-number OTP delivered over iMessage — the user texts a code to omg's own number, approved by omg's own gateway. The app integrates no third-party or social login." | Was confirmed present, verbatim, after the same hard reload. The quoted text describes a build that no longer exists. **It is no longer in the live field**: read directly out of the `notes` textarea in App Store Connect on 2026-09-17, the live note now says "the sign-in screen offers Sign in with Apple, Sign in with Google, and a first-party email one-time code ... Sign in with Apple is offered as an equivalent option alongside Google, per 4.8." Somebody corrected it and did not update this row. Nothing further is needed here. (One in-flight mistake caught before saving: a first attempt via the wrong input helper typed the literal string "@1425" into the field instead of the note text — caught via a value read-back, fixed with a direct DOM value-set + `input`/`change` events, re-verified, then saved.) |
 
@@ -177,7 +191,7 @@ the app signs in with them. What blocked the previous attempt was trying to
 reach the account through a browser that reuses Benny's own login, not the
 account itself.
 
-**The fixed code needs a send first.** `823014` on its own is rejected with
+**The fixed code needs a send first.** The code on its own is rejected with
 `INVALID_OTP`. Call `/api/auth/email-otp/send-verification-otp` first (which
 is what tapping Continue does) and the same code is then accepted. So the
 review note must tell the reviewer to tap Continue and NOT to wait for an
@@ -331,7 +345,7 @@ Benny's personal legal entity was **already on file**, not empty:
 | Name | `Chun Hung Kok` |
 | Type | `Individual` (already correctly set — independently confirms the individual-account fact above) |
 | Address | `40 Sam Dip Tam Hse 57 Lo Wai Village Tsuen Wan N.T.` / `Tsuen Wan` / `0000` / `Hong Kong` |
-| Phone | `89143220` (account-level phone — distinct from the `+852 67762685` used for App Review Contact Information; not touched) |
+| Phone | Set at account level, and a different number from the App Review contact. Both are deliberately not recorded here; read them from App Store Connect. Not touched |
 | Territories | 175 countries/regions |
 
 No tax ID field appears anywhere in this dialog — just Name, Type, Address.
@@ -576,7 +590,7 @@ end to end on the simulator on 2026-09-17, and what it found is recorded in
   was independently re-verified live (account name rendering in the ASC
   header, full nav present).
 - ~~Contact Information~~ — First `Benny` / Last `Kok` / Phone
-  `+852 67762685` / Email `support@omg.dev`, saved and confirmed via a hard
+  phone (not recorded here) / Email `support@omg.dev`, saved and confirmed via a hard
   page reload.
 - ~~"Manually release this version" + the Guideline 4.8 App Review Notes
   addition~~ — both saved and confirmed via the same reload, after two

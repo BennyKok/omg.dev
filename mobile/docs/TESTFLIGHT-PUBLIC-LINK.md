@@ -1,5 +1,19 @@
 # Opening TestFlight to a public link
 
+> **THIS REPOSITORY IS PUBLIC. DO NOT WRITE SECRETS OR PERSONAL DETAILS HERE.**
+>
+> No sign-in codes, no passwords, no API keys, no personal phone numbers or
+> addresses. App Store Connect is the source of truth for all of it, and a
+> value copied here is a value published to the internet.
+>
+> This is not hypothetical. Two leaks were removed from these files on
+> 2026-09-17: Benny's mobile number, and the App Review demo account's fixed
+> sign-in code. The code had been public since 2026-08-15 and still worked
+> when it was found. Both arrived the same way, as a helpful note in a
+> status table.
+>
+> Record *where* a value lives, never the value.
+
 Prep review done 2026-08-15 against the live account, the live auth box and the
 live EAS project. Everything marked VERIFIED was read off the running system,
 not off Apple's docs.
@@ -178,7 +192,7 @@ deployed to `auth.omg.dev` on 2026-08-15 and verified live:
 | | |
 |---|---|
 | Email | `appreview@omg.dev` |
-| Code | `823014` — **fixed**, never expires into something else, never mailed |
+| Code | A **fixed** code that never expires into something else and is never mailed. **Not written down here** — this repository is public. Read it from App Store Connect → the version's App Review Information → Sign-In Information |
 
 How it behaves: that one address gets a constant sign-in code instead of a
 random one, and its code is never sent to any inbox. Everything else is
@@ -274,7 +288,7 @@ Information:
 - **Feedback email:** an address that is actually read.
 - **Marketing URL:** `https://omg.dev`
 - **Privacy policy URL:** `https://omg.dev/privacy`
-- **Sign-in required:** yes. Email `appreview@omg.dev`, code `823014`. The
+- **Sign-in required:** yes. Email `appreview@omg.dev`; the code lives in App Store Connect, not here. The
   code only works AFTER a send: posting it to `/sign-in/email-otp` without
   first calling `/email-otp/send-verification-otp` returns `INVALID_OTP`.
   Tapping Continue in the app performs that send, so the normal flow is
