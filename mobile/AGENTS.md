@@ -142,9 +142,14 @@ The runner is `scripts/maestro.ts`. It resolves the UDID **by device name**,
 takes an exclusive lock on the shared Mac, copies `e2e/` over, runs the flows
 there, and releases the lock in a `finally`. Flows live in `mobile/e2e/`.
 
-**Add a flow when you add or change a screen.** A flow that asserts the new
-chrome is visible is a few lines and it is the only check in this repository
-that can see a screen.
+**Every feature change is proven by a Maestro run, with an assertion for the
+change and the recording attached to the ship.** Benny's rule, 2026-09-17. A
+hand-driven tap session is not proof; a Maestro flow that asserts the new
+chrome is. For onboarding that means `--flow onboarding --record` on a fresh
+`simulator-release` build of the change (`eas build --profile
+simulator-release --platform ios`, about ten minutes), because the release
+build embeds the bundle. Add the assertion to the flow in the same commit as
+the change.
 
 ### Why this replaces the CGEvent section below
 

@@ -32,7 +32,10 @@ appId: dev.omg.computer
     timeout: 30000
 - assertVisible: "Keep work moving."
 - assertVisible: "Agents at once"
-- assertVisible: "Continue with Starter"
+- assertVisible: "More included"
+- assertNotVisible: "Annually"
+# Personal is preselected, so the CTA reads its name.
+- assertVisible: "Continue with Personal"
 - tapOn: "Continue for now"
 # Connect step, then home.
 - extendedWaitUntil:
