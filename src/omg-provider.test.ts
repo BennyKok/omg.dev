@@ -27,13 +27,33 @@ function credentials(kind = "api-key", token = "omg_sk_test") {
 }
 const configPath = () => join(home, ".config/opencode/opencode.json");
 
-test("hosted proxy environment is a no-op without credentials", () => {
+test("hosted proxy environment writes the guest provider without credentials", () => {
+  // A fresh hosted Computer ships an opencode.jsonc with no omg provider. The
+  // omg agent is still reported connected, so the provider has to come from
+  // here or every omg/* turn dies with "Model not found".
   const opts = { ...options(), env: { OMG_AI_URL: "http://169.254.0.1:9090/v1/" } };
+  const guest = join(home, ".config/opencode/opencode.jsonc");
+  put(guest, '{"$schema":"https://opencode.ai/config.json","model":"opencode/nemotron-3.5-lightning-free"}');
   expect(hasHostedOmgAiProxy(opts)).toBe(true);
   expect(isHostedOmgSandbox(opts)).toBe(true);
   expect(hasOmgProviderAccess(opts)).toBe(true);
   ensureOmgProvider(opts);
+  const written = JSON.parse(readFileSync(guest, "utf8"));
+  expect(written.model).toBe("opencode/nemotron-3.5-lightning-free");
+  expect(written.provider.omg.npm).toBe("@ai-sdk/openai-compatible");
+  expect(written.provider.omg.options.baseURL).toBe("http://169.254.0.1:9090/v1");
+  expect(written.provider.omg.options.apiKey).toBe("omg-guest");
+  expect(Object.keys(written.provider.omg.models)).toContain("deepseek/deepseek-v4-flash-0731");
   expect(existsSync(configPath())).toBe(false);
+});
+
+test("hosted proxy environment leaves a guest config that already names omg alone", () => {
+  const opts = { ...options(), env: { OMG_AI_URL: "http://169.254.0.1:9090" } };
+  const guest = join(home, ".config/opencode/opencode.jsonc");
+  const source = '{ // guest managed\n "provider": { "omg": { "options": { "baseURL": "http://169.254.0.1:9090/v1", "apiKey": "x" } } } }';
+  put(guest, source);
+  ensureOmgProvider(opts);
+  expect(readFileSync(guest, "utf8")).toBe(source);
 });
 
 test("guest's existing omg provider is a no-op and stays byte-for-byte intact", () => {

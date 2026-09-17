@@ -42,22 +42,46 @@ export function hasOmgProviderAccess(options: OmgProviderOptions = {}): boolean 
   return !!loadCloudCredentials(join(options.home ?? homedir(), ".omg", "credentials.json"));
 }
 
-/** Merge only our provider. JSONC takes precedence over JSON in OpenCode. */
+/**
+ * The guest proxy takes no credential of its own: the sandbox is the identity.
+ * OpenCode's openai-compatible provider still wants a non-empty apiKey, so a
+ * marker goes in its place.
+ */
+const GUEST_API_KEY = "omg-guest";
+
+/**
+ * Merge only our provider. JSONC takes precedence over JSON in OpenCode.
+ *
+ * Local install: the provider points at the cloud LLM route and carries the
+ * `omg login` token. Hosted sandbox: the provider points at the guest proxy in
+ * OMG_AI_URL. The hosted template used to pre-bake that provider and this
+ * function trusted it and returned early. The template stopped shipping it
+ * (vibes build-template.ts, step 5a), so on every fresh Computer the omg agent
+ * was reported connected and then failed every turn with
+ * "ProviderModelNotFoundError: Model not found: omg/...". A guest config that
+ * already names the provider is still left byte-for-byte alone.
+ */
 export function ensureOmgProvider(options: OmgProviderOptions = {}): void {
-  if (isHostedOmgSandbox(options)) return;
-  const home = options.home ?? homedir();
-  const credentials = loadCloudCredentials(join(home, ".omg", "credentials.json"));
-  if (!credentials) throw new Error(OMG_SIGN_IN_REQUIRED);
   const env = options.env ?? process.env;
+  const hosted = hasHostedOmgAiProxy(options);
+  if (!hosted && isHostedOmgSandbox(options)) return;
+  const home = options.home ?? homedir();
   const dir = join(env.XDG_CONFIG_HOME?.trim() || join(home, ".config"), "opencode");
   // Match the existing MCP writer's opencode.json path on a new installation.
   const jsonc = join(dir, "opencode.jsonc");
   const path = existsSync(jsonc) ? jsonc : join(dir, "opencode.json");
   const current = readConfig(path);
+  if (hosted && current.provider?.omg) return;
+  const credentials = hosted ? null : loadCloudCredentials(join(home, ".omg", "credentials.json"));
+  if (!hosted && !credentials) throw new Error(OMG_SIGN_IN_REQUIRED);
   const previous = current.provider?.omg ?? {};
   // The local CLI holds a control-plane OAuth token. Infra does not accept it, so
   // the local route goes through the control-plane CLI gate (control-plane/lib/cli.ts).
-  const baseURL = `${cloudApiBaseUrl()}/api/cli/llm/v1`;
+  // The guest proxy is infra itself, reached on the sandbox's link-local address.
+  const baseURL = hosted
+    ? `${env.OMG_AI_URL!.trim().replace(/\/+$/, "").replace(/\/v1$/, "")}/v1`
+    : `${cloudApiBaseUrl()}/api/cli/llm/v1`;
+  const apiKey = hosted ? GUEST_API_KEY : credentials!.token;
   const next = {
     ...current,
     provider: {
@@ -66,7 +90,7 @@ export function ensureOmgProvider(options: OmgProviderOptions = {}): void {
         ...previous,
         npm: "@ai-sdk/openai-compatible",
         name: "omg",
-        options: { ...previous.options, baseURL, apiKey: credentials.token },
+        options: { ...previous.options, baseURL, apiKey },
         models: {
           ...previous.models,
           ...Object.fromEntries(OMG_MODELS.map((model) => {
