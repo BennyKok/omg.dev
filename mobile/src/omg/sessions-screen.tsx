@@ -110,6 +110,11 @@ import { useUsage } from "./usage";
 import { DropdownMenu } from "./menu";
 import { useAgentPicker, useProjectPicker } from "./session-options";
 import { useOmg } from "./provider";
+import {
+  prefetchTranscripts,
+  TRANSCRIPT_PAGE,
+  transcriptCacheKey,
+} from "./transcript-cache";
 import { useToast } from "./toast";
 import { SessionListSkeleton } from "./skeleton";
 import { useTheme } from "./theme";
@@ -836,6 +841,42 @@ export function SessionsScreen({
     () => groupNodesByProject(roots, (node) => flattenNodes([node]).length),
     [roots],
   );
+
+  /**
+   * WARM THE TOP OF THE LIST SO THE FIRST OPEN PAINTS TOO.
+   *
+   * The cache in transcript-cache.ts makes a RE-open instant on its own. This
+   * sweep extends that to the first open of the sessions a reader is most
+   * likely to tap, which on a phone is the handful of rows above the fold.
+   * It runs after a delay, serially, and never competes with the fetch for a
+   * session the reader actually opened; a failure is silent, because the
+   * session screen still fetches normally.
+   *
+   * The order passed is the order on screen, not the order the machine
+   * returned, so the warmed rows are the visible ones.
+   */
+  const prefetchKeys = useMemo(
+    () =>
+      projectGroups.flatMap((group) =>
+        group.nodes.map((node) =>
+          transcriptCacheKey(bindingId, sessionStableId(node.session)),
+        ),
+      ),
+    [projectGroups, bindingId],
+  );
+  useEffect(() => {
+    if (!client || !prefetchKeys.length) return;
+    prefetchTranscripts(
+      prefetchKeys,
+      async (key) => {
+        // The key carries the binding; the id is what the machine understands.
+        const sid = key.slice(key.indexOf(":") + 1);
+        const res = await client.getMessages(sid, TRANSCRIPT_PAGE);
+        return res.messages ?? [];
+      },
+      TRANSCRIPT_PAGE,
+    );
+  }, [client, prefetchKeys]);
 
   /**
    * Still needed, but only to COUNT — the ambient header says how many agents

@@ -134,6 +134,13 @@ import { useOmg } from "../../src/omg/provider";
 import { SessionActivityTitle, useSessionActivity } from "../../src/omg/session-activity";
 import { useTheme } from "../../src/omg/theme";
 import { useToast } from "../../src/omg/toast";
+import {
+  readTranscriptCache,
+  TRANSCRIPT_PAGE,
+  transcriptCacheKey,
+  updateTranscriptCacheMessages,
+  writeTranscriptCache,
+} from "../../src/omg/transcript-cache";
 import { useOverlapWatch } from "../../src/omg/list-overlap-watch";
 import {
   buildTranscriptItems,
@@ -159,19 +166,11 @@ const isOptimisticId = (id: unknown): boolean =>
 /**
  * One screenful of history, and the step every "load more" adds.
  *
- * Was 80. Opening a session means the FIRST page renders synchronously (see
- * `initialNumToRender` below) so the reader never sees rows pop in — and 80
- * of them is enough markdown and tool badges to make that synchronous layout
- * pass itself visible as a beat of nothing happening. 40 is still several
- * screens of scrollback before "load more" has to fire, and cuts the initial
- * layout cost roughly in half. `packages/client/src/index.ts`'s `getMessages`
- * default is deliberately left at 80: that is a general SDK fallback for
- * callers who don't pass a limit, not a mirror of this screen's tuning, and
- * this screen always passes its own `limit` explicitly, so the two were never
- * actually coupled — collapsing them would conflate a phone-screen sizing
- * decision with a library-wide default.
+ * Defined in src/omg/transcript-cache.ts rather than here, because the cache
+ * and the prefetch sweep have to store and warm exactly the page this screen
+ * asks for. Two constants that must agree are one constant.
  */
-const PAGE = 40;
+const PAGE = TRANSCRIPT_PAGE;
 
 /**
  * How long the opening reveal waits for the list to stop changing size, and
@@ -732,24 +731,44 @@ export function SessionScreenBody({
     };
   }, [client, id]);
 
-  // Seed from REST, then let the socket take over. The socket also sends a
-  // snapshot, but the REST read paints something immediately instead of waiting
-  // on a connection that may still be waking.
+  /** Where this session's page lives in the cross-screen cache. */
+  const cacheKey = useMemo(
+    () => (id ? transcriptCacheKey(bindingId, id) : null),
+    [bindingId, id],
+  );
+
+  // Seed from the cache if there is one, then from REST, then let the socket
+  // take over. The socket also sends a snapshot, but the REST read paints
+  // something immediately instead of waiting on a connection that may still
+  // be waking.
+  //
+  // THE CACHE READ IS SYNCHRONOUS AND HAPPENS BEFORE THE FETCH IS EVEN SENT.
+  // That is the whole point: this screen is a route, so returning to a session
+  // mounts it from scratch with an empty `messages`, and every re-open used to
+  // pay a full relay round trip before it could draw a single row. A hit means
+  // `loading` never goes true and the reader sees the transcript they left.
+  // The fetch still runs behind it and reconciles.
   useEffect(() => {
     let cancelled = false;
     if (!client || !id) return;
-    setLoading(true);
+    const cached = cacheKey ? readTranscriptCache<Entry>(cacheKey) : null;
+    if (cached) setMessages(cached.messages);
+    setLoading(!cached);
     // The SDK declares the same capabilities here as on the socket (see
     // provider.tsx), so history and the live stream arrive in one shape.
     client
       .getMessages(id, limit)
       .then((res) => {
         if (cancelled) return;
-        setMessages(res.messages ?? []);
+        const next = (res.messages ?? []) as Entry[];
+        setMessages(next);
+        if (cacheKey) writeTranscriptCache(cacheKey, next, PAGE);
         setError(null);
       })
       .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+        // A cached page already on screen is better than an error banner over
+        // nothing. The reader keeps reading; only a cold open reports.
+        if (!cancelled && !cached) setError(e instanceof Error ? e.message : String(e));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -757,7 +776,21 @@ export function SessionScreenBody({
     return () => {
       cancelled = true;
     };
-  }, [client, id, limit]);
+  }, [client, id, limit, cacheKey]);
+
+  /**
+   * Keep the cached page current while the screen is mounted, so the next
+   * re-open paints the newest state rather than the snapshot from whenever
+   * the page was fetched. Every path that changes the transcript runs through
+   * `messages` — the socket's `message` and `snapshot` events, the optimistic
+   * send and its rollback — so one effect here covers all of them instead of
+   * a write at each call site. `updateTranscriptCacheMessages` never creates
+   * an entry, so this cannot cache a session whose page never loaded.
+   */
+  useEffect(() => {
+    if (!cacheKey) return;
+    updateTranscriptCacheMessages(cacheKey, messages, PAGE);
+  }, [cacheKey, messages]);
 
   useEffect(() => {
     if (!client || !id) return;
