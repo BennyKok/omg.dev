@@ -39,7 +39,7 @@
  * Design: artboard "03 · Sign-in drawer · After prompt".
  */
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, View } from "react-native";
+import { ActivityIndicator, Image, Pressable, View } from "react-native";
 import * as Haptics from "expo-haptics";
 
 import { Icon } from "../components";
@@ -158,6 +158,7 @@ export function SignInDrawer({
           {googleSignInConfigured ? (
             <Method
               label="Continue with Google"
+              glyph="google"
               busy={busy === "google"}
               disabled={busy !== null}
               onPress={() => void authenticate("google")}
@@ -205,7 +206,7 @@ function Method({
   label: string;
   onPress: () => void;
   filled?: boolean;
-  glyph?: "apple";
+  glyph?: "apple" | "google";
   busy?: boolean;
   disabled?: boolean;
 }) {
@@ -234,6 +235,18 @@ function Method({
       ) : (
         <>
           {glyph === "apple" ? <Icon ios="apple.logo" android="phone_iphone" size={17} color={colors.bg} /> : null}
+          {/* Google's own asset, not a redraw and not recoloured. Their
+              branding guidelines require the G keep its standard colour
+              gradient and its aspect ratio, so this is their PNG padded into
+              a square and drawn with `contain`. Tinting it or rebuilding it
+              from paths would break the one rule they state plainly. */}
+          {glyph === "google" ? (
+            <Image
+              source={require("../../assets/brand/google-g.png")}
+              style={{ width: 18, height: 18 }}
+              resizeMode="contain"
+            />
+          ) : null}
           <Text style={{ ...type.headline, color: filled ? colors.bg : colors.text }}>{label}</Text>
         </>
       )}
