@@ -37,6 +37,20 @@
       },
       "channel": "development"
     },
+    // The same simulator target with the JS bundle EMBEDDED and no dev client.
+    // This is what the Maestro e2e suite runs against: `launchApp` works, there
+    // is no Metro dependency and no Expo dev menu to reopen over the app. Still
+    // unsigned, still free of credentials. Not for people; for the harness.
+    "simulator-release": {
+      "env": {
+        "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "470443022473-sj262et812jqi3pvl05ccr8spuq2th45.apps.googleusercontent.com"
+      },
+      "distribution": "internal",
+      "ios": {
+        "simulator": true
+      },
+      "channel": "development"
+    },
     "preview": {
       // Google iOS OAuth client (public identifier, not a secret). app.config.js
       // registers the Google Sign-In plugin and reversed URL scheme only when
