@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## September 17, 2026 - The omg agent runs on hosted Computers again (v0.6.71)
+
+- On a hosted Computer the omg agent was reported as connected, became the default for a session that names no agent, and then failed every turn with `ProviderModelNotFoundError: Model not found: omg/...`. The Computer template no longer pre-bakes the omg provider into OpenCode's config, and the runtime trusted that it did. The runtime now writes the provider itself, pointed at the Computer's guest LLM proxy. **Hosted Computers need this release.** Local installs are unchanged.
+
 ## September 17, 2026 - New sessions pick an agent the Computer can run (v0.6.70)
 
 - A new session that names no agent now gets one the Computer can actually run. The box reads its own `defaultAgent` setting first, then takes the first visible agent with a connected account (OpenCode counts without one), then the first configured agent. Before this, the box always answered Claude, so the first task from the iOS onboarding on a fresh hosted Computer came back "Not logged in". **Hosted Computers need this release** for the fix to apply. An explicit agent in the request is unchanged.
