@@ -2,8 +2,9 @@
 
 Recent product updates and deployment notes.
 
-## September 17, 2026 - `#` references list live threads only
+## September 17, 2026 - New sessions pick an agent the Computer can run (v0.6.70)
 
+- A new session that names no agent now gets one the Computer can actually run. The box reads its own `defaultAgent` setting first, then takes the first visible agent with a connected account (OpenCode counts without one), then the first configured agent. Before this, the box always answered Claude, so the first task from the iOS onboarding on a fresh hosted Computer came back "Not logged in". **Hosted Computers need this release** for the fix to apply. An explicit agent in the request is unchanged.
 - Typing `#` in a composer now lists running threads only. Closed and archived sessions no longer appear in the picker.
 
 ## September 15, 2026 - Live Activities, scheduled runs in the archive, and iOS onboarding (v0.6.69)
