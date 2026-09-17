@@ -26,9 +26,9 @@ appId: dev.omg.computer
 - tapOn: "Explain an error"
 - tapOn: "Continue"
 - extendedWaitUntil:
-    visible: "Sign in to start."
+    visible: "Sign in to start"
     timeout: 15000
-- tapOn: "Sign in to start."
+- tapOn: "Sign in to start"
 - extendedWaitUntil:
     visible: "Continue with email"
     timeout: 15000
