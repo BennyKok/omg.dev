@@ -214,13 +214,20 @@ async function runOnboarding(udid: string): Promise<number> {
   const email = process.env.OMG_E2E_EMAIL ?? `${user}+e2e${Date.now().toString(36)}@${domain}`;
   const { readSignInCode } = await import("./e2e-otp.ts");
   console.log(`Onboarding as ${email}`);
+  // --record here is a simctl screen capture around both halves, because
+  // `maestro record` renders one flow and this is two with a mail round trip
+  // in between. The mp4 lands next to the flows, like the single-flow case.
+  const recording = has("record") ? await startRecording(udid) : null;
   const started = new Date();
   const first = await ssh(
     `${REMOTE_ENV} maestro --udid=${udid} test -e EMAIL='${email}' ~/${REMOTE_DIR}/onboarding/01-request-code.yaml`,
     { allowFail: true },
   );
   console.log(first.out || first.err);
-  if (first.code !== 0) return 1;
+  if (first.code !== 0) {
+    if (recording) await recording.stop("onboarding");
+    return 1;
+  }
   const { code, date } = await readSignInCode(mailbox, email, { notBefore: started });
   console.log(`Sign-in code arrived (${date}).`);
   const second = await ssh(
@@ -228,8 +235,26 @@ async function runOnboarding(udid: string): Promise<number> {
     { allowFail: true },
   );
   console.log(second.out || second.err);
+  if (recording) await recording.stop("onboarding");
   console.log(`Test account left in place: ${email}. Account deletion finishes in the browser, so the runner cannot remove it.`);
   return second.code === 0 ? 0 : 1;
+}
+
+async function startRecording(udid: string) {
+  const remote = `~/${REMOTE_DIR}/capture-${Date.now()}.mp4`;
+  await ssh(
+    `rm -f ${remote}; (nohup xcrun simctl io ${udid} recordVideo --codec h264 --force ${remote} >/dev/null 2>&1 &); sleep 1; pgrep -f "recordVideo --codec h264 --force ${remote}" >/dev/null`,
+  );
+  console.log("Recording the device.");
+  return {
+    async stop(name: string) {
+      await ssh(`pkill -INT -f "recordVideo --codec h264 --force ${remote}"; sleep 4`, { allowFail: true });
+      const dest = `${LOCAL_E2E}/${name}.mp4`;
+      const p = Bun.spawn(["scp", "-q", "-o", "BatchMode=yes", `${HOST}:${remote}`, dest], { stdout: "inherit", stderr: "inherit" });
+      if ((await p.exited) !== 0) console.warn("Could not fetch the recording.");
+      else console.log(`\nRecording: ${dest}`);
+    },
+  };
 }
 
 async function main() {
