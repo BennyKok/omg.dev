@@ -8112,23 +8112,17 @@ a{color:#60a5fa}
         return json({ sessions, total, facets, scheduledTotal });
       }
 
-      // Candidates for the composer's `#` session picker: live fleet plus the
-      // durable catalog, same-folder rows first, then newest first. Unlike
-      // /api/sessions/resumable this INCLUDES live sessions, because a
-      // reference to a running session is the common case.
+      // Candidates for the composer's `#` session picker: live fleet only,
+      // same-folder rows first, then newest first. Closed catalog rows are
+      // not mentionable.
       if (path === "/api/sessions/mentionable" && req.method === "GET") {
         const query = url.searchParams.get("q")?.trim() || undefined;
         const cwd = url.searchParams.get("cwd")?.trim() || undefined;
         const excludeId = url.searchParams.get("exclude")?.trim() || undefined;
         const limit = Math.max(1, Math.min(50, Number(url.searchParams.get("limit")) || 20));
         const live = await listSessionsCached().catch(() => [] as Session[]);
-        const [inFolder, anywhere] = await Promise.all([
-          cwd ? queryResumable({ search: query, cwd, limit }) : null,
-          queryResumable({ search: query, limit }),
-        ]);
         const sessions = rankSessionMentions({
           live,
-          historical: [...(inFolder?.sessions ?? []), ...anywhere.sessions],
           cwd,
           query,
           excludeId,

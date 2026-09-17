@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## September 17, 2026 - `#` references list live threads only
+
+- Typing `#` in a composer now lists running threads only. Closed and archived sessions no longer appear in the picker.
+
 ## September 15, 2026 - Live Activities, scheduled runs in the archive, and iOS onboarding (v0.6.69)
 
 - iOS Live Activities show the fleet on the Lock Screen and in the Dynamic Island. The box publishes a bounded roster over `fleet.status` with each session's agent and state.

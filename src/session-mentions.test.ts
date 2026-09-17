@@ -24,7 +24,7 @@ const row = (
 });
 
 const HERE = "/home/dev/repos/lfg";
-const historical = [
+const live = [
   row("a1", "Fix login bug", "/home/dev/repos/other", 500),
   row("b2", "Add # picker", HERE, 300),
   row("c3", "Refactor auth", HERE, 100, { lastUserText: "login flow cleanup" }),
@@ -33,40 +33,31 @@ const historical = [
 
 describe("rankSessionMentions", () => {
   it("puts the caller's folder first, newest first inside each group", () => {
-    const ids = rankSessionMentions({ live: [], historical, cwd: HERE }).map((r) => r.sessionId);
+    const ids = rankSessionMentions({ live, cwd: HERE }).map((r) => r.sessionId);
     expect(ids).toEqual(["b2", "c3", "d4", "a1"]);
   });
 
   it("orders purely by recency without a folder", () => {
-    const ids = rankSessionMentions({ live: [], historical }).map((r) => r.sessionId);
+    const ids = rankSessionMentions({ live }).map((r) => r.sessionId);
     expect(ids).toEqual(["d4", "a1", "b2", "c3"]);
   });
 
-  it("holds live rows to the same keyword rule as the catalog", () => {
-    const live = [row("l1", "Live login work", HERE, 2000), row("l2", "Unrelated", HERE, 3000)];
-    const rows = rankSessionMentions({ live, historical, cwd: HERE, query: "login" });
-    expect(rows.map((r) => r.sessionId)).toEqual(["l1", "c3", "a1"]);
-    expect(rows[0].live).toBe(true);
-    expect(rows[1].live).toBe(false);
+  it("matches live rows against every keyword term", () => {
+    const rows = rankSessionMentions({ live, cwd: HERE, query: "login" });
+    expect(rows.map((r) => r.sessionId)).toEqual(["c3", "a1"]);
+    expect(rows.every((r) => r.live)).toBe(true);
   });
 
   it("matches every term across title, last prompt and project", () => {
-    const rows = rankSessionMentions({ live: [], historical, query: "login cleanup" });
+    const rows = rankSessionMentions({ live, query: "login cleanup" });
     expect(rows.map((r) => r.sessionId)).toEqual(["c3"]);
-    expect(rankSessionMentions({ live: [], historical, query: "other" }).map((r) => r.sessionId))
+    expect(rankSessionMentions({ live, query: "other" }).map((r) => r.sessionId))
       .toEqual(["d4", "a1"]);
   });
 
-  it("dedupes a session that is both live and cached, keeping live", () => {
-    const live = [row("b2", "Add # picker", HERE, 5000)];
-    const rows = rankSessionMentions({ live, historical, cwd: HERE });
-    expect(rows.filter((r) => r.sessionId === "b2")).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ sessionId: "b2", live: true, sameFolder: true });
-  });
-
   it("never offers the composer's own session, and drops rows without an id", () => {
-    const live = [{ ...row("x", "no id", HERE, 1), sessionId: null }];
-    const ids = rankSessionMentions({ live, historical, cwd: HERE, excludeId: "b2" }).map(
+    const mixed = [{ ...row("x", "no id", HERE, 1), sessionId: null }, ...live];
+    const ids = rankSessionMentions({ live: mixed, cwd: HERE, excludeId: "b2" }).map(
       (r) => r.sessionId,
     );
     expect(ids).not.toContain("b2");
@@ -74,9 +65,9 @@ describe("rankSessionMentions", () => {
   });
 
   it("treats a trailing slash as the same folder and caps the list", () => {
-    const rows = rankSessionMentions({ live: [], historical, cwd: `${HERE}/`, limit: 1 });
+    const rows = rankSessionMentions({ live, cwd: `${HERE}/`, limit: 1 });
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ sessionId: "b2", sameFolder: true });
+    expect(rows[0]).toMatchObject({ sessionId: "b2", sameFolder: true, live: true });
   });
 
   it("caps terms at eight", () => {

@@ -59,8 +59,7 @@ export type ResumableQuery = {
   agent?: string;
   // Exact project match — omit for all projects.
   project?: string;
-  // Exact cwd match — the composer's `#` picker uses this to page the
-  // caller's own folder ahead of everything else.
+  // Exact cwd match — used to page one folder ahead of everything else.
   cwd?: string;
   // Currently-live session ids to hide (they belong in the live list, not here).
   excludeIds?: Set<string>;

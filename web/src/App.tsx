@@ -15128,9 +15128,9 @@ function SkillTextarea({
   useEffect(() => setMentionIndex(0), [botMention?.query]);
 
   // `#` session references. Unlike bots, the candidate list is not in memory:
-  // it spans the durable catalog, so the server ranks it (same folder first,
-  // then keyword matches). Debounced, and a late response for an older query
-  // is dropped rather than shown under the newer one.
+  // the server ranks the live fleet (same folder first, then keyword
+  // matches). Debounced, and a late response for an older query is dropped
+  // rather than shown under the newer one.
   const [sessionMention, setSessionMention] = useState<SessionMentionState | null>(null);
   const [sessionIndex, setSessionIndex] = useState(0);
   const [sessionHits, setSessionHits] = useState<{ q: string; items: MentionableSession[] }>({

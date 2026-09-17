@@ -1,5 +1,5 @@
 /**
- * The "#" popup above a composer: type a hash and relevant sessions appear,
+ * The "#" popup above a composer: type a hash and live sessions appear,
  * the box's own folder first, then keyword matches on title, last prompt and
  * project; tap one and it replaces the "#word" with a session reference, the
  * way the web composer does.
