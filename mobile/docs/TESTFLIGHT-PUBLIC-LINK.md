@@ -223,9 +223,14 @@ the box is only created when something calls `getOrProvisionCloudComputer` —
 which the app does on demand, not on sign-in. A reviewer who signs in and pokes
 around could easily read that empty state as a broken app.
 
-So one has been provisioned for `appreview@omg.dev` ahead of review:
+So one has been provisioned for `appreview@omg.dev` ahead of review. Re-read
+live on 2026-09-17 via `POST backend.omg.dev/api/computer/getCloudComputer`:
 
-    status live · instance 0851f402ca71 · free plan · 2 vCPU, 4 GB, 16 GB
+    status live · runtime ready · instance 1b86b701bb2e · computer_s20 · 2 vCPU, 4 GB, 16 GB
+
+The instance id and plan both moved since this was first written (they were
+`0851f402ca71` on the free plan). Treat every value in this block as a
+snapshot, not a constant.
 
 `alwaysOn` is false, so it hibernates when idle and wakes on the next visit.
 That path is handled (a 425 shows as "waking", not as an error), but it means
@@ -269,7 +274,11 @@ Information:
 - **Feedback email:** an address that is actually read.
 - **Marketing URL:** `https://omg.dev`
 - **Privacy policy URL:** `https://omg.dev/privacy`
-- **Sign-in required:** yes. Email `appreview@omg.dev`, code `823014`.
+- **Sign-in required:** yes. Email `appreview@omg.dev`, code `823014`. The
+  code only works AFTER a send: posting it to `/sign-in/email-otp` without
+  first calling `/email-otp/send-verification-otp` returns `INVALID_OTP`.
+  Tapping Continue in the app performs that send, so the normal flow is
+  fine, but the note below must tell the reviewer to tap Continue.
 - **Review notes:** say the code is fixed and does not arrive by email, so the
   reviewer does not sit waiting for a message that will never come. Also say the
   account already has a cloud Computer attached and they do not need to pair a

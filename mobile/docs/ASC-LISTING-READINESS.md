@@ -37,7 +37,7 @@ session) in a later pass the same day as the initial re-verification below.
 | App Availability | All 175 countries/regions, "Available on App Release" | Does not go live until app status is Ready for Sale |
 | App Review Information — Contact Information | First `Benny`, Last `Kok`, Phone `+852 67762685`, Email `support@omg.dev` | The block that gated saving anything else on the page, twice, across two prior sessions. Filled, saved, and confirmed by a **hard page reload** reading the same four values back from the server, not just client state |
 | App Store Version Release | "Manually release this version" | Radio confirmed checked after the same hard reload |
-| App Review Information — Notes, 4.8 addition | Appended: "iMessage sign-in is a first-party phone-number OTP delivered over iMessage — the user texts a code to omg's own number, approved by omg's own gateway. The app integrates no third-party or social login." | Confirmed present, verbatim, after the same hard reload. (One in-flight mistake caught before saving: a first attempt via the wrong input helper typed the literal string "@1425" into the field instead of the note text — caught via a value read-back, fixed with a direct DOM value-set + `input`/`change` events, re-verified, then saved.) |
+| App Review Information — Notes, 4.8 addition | **NOW FALSE, STILL LIVE.** Appended: "iMessage sign-in is a first-party phone-number OTP delivered over iMessage — the user texts a code to omg's own number, approved by omg's own gateway. The app integrates no third-party or social login." | Was confirmed present, verbatim, after the same hard reload. It describes a build that no longer exists: iMessage sign-in is gone and Apple plus Google sign-in shipped in `1861b8f29` on 2026-09-03. **Must be replaced before the next submission** — see the 4.8 section and the replacement text under NEEDS BENNY. (One in-flight mistake caught before saving: a first attempt via the wrong input helper typed the literal string "@1425" into the field instead of the note text — caught via a value read-back, fixed with a direct DOM value-set + `input`/`change` events, re-verified, then saved.) |
 
 ### App Privacy — derivation from source
 
@@ -91,24 +91,54 @@ given the app surfaces an AI agent with real web access. Answers:
 Apple's calculator returned **16+** globally (17+ in a few regions) from
 these answers.
 
-### Guideline 4.8 / Sign in with Apple — not required
+### Guideline 4.8 / Login Services — IN SCOPE, and satisfied
 
-The app offers exactly two sign-in paths, both first-party:
+Re-verified against the code and against Apple's current 4.8 text on
+2026-09-17. **The previous version of this section was wrong on every
+point and had been pasted into the live App Review Notes field.** Read the
+correction note at the end before trusting anything here.
+
+What the app offers today (`mobile/app/sign-in.tsx` and
+`mobile/src/omg/onboarding-signin-drawer.tsx`, both calling
+`mobile/src/omg/social-sign-in.ts`):
 
 1. Email OTP via omg's own better-auth server.
-2. "Continue with iMessage" — despite the name, this is **not** a
-   third-party identity handoff. It sends a 6-digit code to omg's own
-   phone number over iMessage; the user texts it back; omg's own gateway
-   approves it. Functionally identical to a phone-number OTP delivered over
-   SMS instead of iMessage. No Apple ID, `AuthenticationServices`, or
-   `expo-apple-authentication` anywhere in the codebase.
+2. Sign in with Apple (`expo-apple-authentication`).
+3. Google Sign-In (`@react-native-google-signin/google-signin`).
 
-No Google/Facebook/other social login exists anywhere in the app (grepped
-`mobile/app` and `mobile/src`). Guideline 4.8 applies to third-party/social
-login used to authenticate the *primary* account — neither path here is
-that. Confidence: high. This reasoning is now also pasted directly into the
-App Review Notes field so a reviewer doesn't have to guess and potentially
-raise it anyway.
+Google Sign-In sets up and authenticates the primary account, so 4.8
+applies. It is satisfied, not avoided: 4.8 requires an equivalent option
+that limits collection to name and email, lets the user keep the email
+private, and does not collect in-app interactions for advertising without
+consent. Sign in with Apple meets all three and ships in the same two
+places as Google.
+
+One deployment caveat, because it decides whether a reviewer sees the
+Google button at all: `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` is inlined at
+bundle time and lives only in the `eas.json` build profiles. A bundle
+built without it renders no Google button. `.github/workflows/mobile-ota.yml`
+carries it into OTA bundles and asserts on it for exactly this reason.
+
+**Correction note.** Until 2026-09-17 this section stated that the app
+offered "exactly two sign-in paths, both first-party", that the second was
+"Continue with iMessage", and that there was "No Apple ID,
+`AuthenticationServices`, or `expo-apple-authentication` anywhere in the
+codebase" and no "Google/Facebook/other social login ... anywhere". Every
+one of those is now false. Apple and Google sign-in landed in `1861b8f29`
+on 2026-09-03; iMessage sign-in is gone entirely (`grep -rn iMessage
+mobile/app mobile/src` returns one unrelated comment about bubble
+animation). The section was never revisited after that commit, and its
+text had already been copied into the App Review Notes field in App Store
+Connect, where it still asserts that the app "integrates no third-party or
+social login" while the binary ships an Apple button.
+
+**Benny still has to fix the live field.** Nothing in this repository can
+reach App Store Connect. Replacement note text is in the "NEEDS BENNY"
+section below. This is worth doing before the next submission rather than
+after a rejection: 2.3.1 says new features "must be described with
+specificity in the Notes for Review section" and that the app's
+functionality "should be clear to end users and App Review", and a note
+that contradicts the binary is the opposite of that.
 
 ### Export compliance and app icon — confirmed live in ASC, not just locally
 
@@ -131,19 +161,76 @@ reachable again:
   broken-image placeholder. Resolves into the binary automatically via the
   Expo/EAS build; no separate ASC upload needed.
 
+### Demo account, driven end to end
+
+Done on 2026-09-17 on the pinned iPhone 17 Pro simulator
+(`2DDC0F84-B433-49C6-8675-87E7A98CB60E`) against a Metro bundle of `main`.
+This closes an item that earlier sessions recorded as unreachable. It was
+never unreachable: the credentials are in `TESTFLIGHT-PUBLIC-LINK.md` and
+the app signs in with them. What blocked the previous attempt was trying to
+reach the account through a browser that reuses Benny's own login, not the
+account itself.
+
+**The fixed code needs a send first.** `823014` on its own is rejected with
+`INVALID_OTP`. Call `/api/auth/email-otp/send-verification-otp` first (which
+is what tapping Continue does) and the same code is then accepted. So the
+review note must tell the reviewer to tap Continue and NOT to wait for an
+email, or they will sit on a screen waiting for a message that never
+arrives.
+
+**What passed**: onboarding 01 to 03, the sign-in drawer, email plus fixed
+code, the data-and-AI-providers consent screen, home, composer, and a real
+session. The box woke from hibernation and `opencode/ling-3.0-flash-fin-free`
+answered with an actual repo listing.
+
+**What failed, and is now fixed.** The session list rendered EMPTY. Three
+real sessions were on the box, one of them answered minutes earlier, and
+the app showed none of them. A reviewer would have signed in, seen an empty
+app, started a task, and watched it vanish — and empty is the worst
+available failure here, because it is indistinguishable from a new account.
+
+Cause: a repo carries two names. `name` is the label a person sees and can
+rename; `project` is the key the box stamps on every session. The picker
+filtered on `name`, and `Repo` dropped `project` on the way in. The demo
+account's repo is labelled `personal` and lives in `/home/user/project`, so
+the two strings differ and every comparison went false. Fixed in
+`4f07b3016` (`mobile/src/omg/project-filter.ts`, checked against the demo
+account's own `/api/bootstrap` response), and shipped as an OTA on runtime
+1.0.10, update group `a5d57d13-824e-4aaf-a839-49d0d99297d2`. Build 1.0.10 in
+App Store Connect picks it up on first launch, because `mobile/src/omg/ota.ts`
+reloads into a fetched update rather than waiting for the next cold start.
+
+**Box state, re-read live rather than carried forward.** `getCloudComputer`
+for `appreview@omg.dev` returns `status: live`, `runtime.state: ready`,
+instance `1b86b701bb2e`, plan `computer_s20`. `TESTFLIGHT-PUBLIC-LINK.md`
+still says instance `0851f402ca71` on the free plan; that is stale. Re-read
+this before each review round rather than trusting either number.
+
+**Still open, and a product decision rather than a bug.** The task a
+reviewer types in step 03 is discarded. The demo account has a computer, so
+it counts as `established`, so `mobile/src/omg/onboarding-gate.ts` skips
+steps 04 to 06 and nothing consumes the stashed prompt. That is what the
+gate is written to do. Benny has been asked whether the prompt should
+survive sign-in. Do not answer it by special-casing the review account:
+2.3.1 forbids behaviour that exists only for App Review.
+
 ### Account deletion / Guideline 5.1.1(v)
 
 **Not independently re-verified live this session, and its providence is
 unconfirmed** — stated plainly rather than re-asserted with confidence
 nobody in this session chain actually checked:
 
-- Attempted a live re-check via `app.omg.dev` (the deep-link target from
-  `mobile/app/settings.tsx`). It resolved to **Benny's own real, logged-in
-  session** (this very platform) rather than an isolated demo-account
-  context — ego-browser reuses his login state by design, and there is no
-  way to authenticate as the demo account without signing him out, which is
-  off the table. Stopped before navigating to `/settings/delete-account` or
-  clicking anything; zero state touched.
+- An earlier session attempted a live re-check via `app.omg.dev` (the
+  deep-link target from `mobile/app/settings.tsx`). It resolved to **Benny's
+  own real, logged-in session** rather than an isolated demo-account
+  context, because ego-browser reuses his login state by design. It stopped
+  before navigating to `/settings/delete-account`; zero state touched. That
+  session concluded there was "no way to authenticate as the demo account
+  without signing him out". **That conclusion was too broad and is now
+  retired**: the iOS app signs into the demo account directly with the
+  credentials in `TESTFLIGHT-PUBLIC-LINK.md`, which is how the end-to-end
+  run above was done. What is genuinely unavailable is a *browser* session
+  for that account, which is what the deletion screen needs.
 - The `403 DEMO_ACCOUNT_DELETION_DISABLED` live-verification claim (PR #120
   mobile Settings row + `vibes` PR #1433 backend cascade) predates every
   session transcript available to this one — carried forward as recovered
@@ -164,7 +251,7 @@ the live test above**, at `vibes` tip (`bd571983`,
    error (`role="alert"`) under the button: **"This is a shared demo
    account, so it cannot be deleted."** Any other failure falls back to a
    generic "try again" message — only the demo-account case gets this copy.
-2. **Server-side only, UI does not pre-gate**: the client never hides or
+5. **Server-side only, UI does not pre-gate**: the client never hides or
    disables the delete flow for the demo account ahead of time — it looks
    identical to a real account's flow right up until the confirmation
    request, which is the safer shape for a reviewer (reaching the button
@@ -443,21 +530,46 @@ blocked today, but neither is a light lift either.
 
 ## NEEDS BENNY
 
-Everything reachable without his personal signature, banking/tax identity,
-or a live demo-account test is now done. What's left needs him specifically:
+Everything reachable without his personal signature or his banking and tax
+identity is now done. The live demo-account test is also done: it was driven
+end to end on the simulator on 2026-09-17, and what it found is recorded in
+"Demo account, driven end to end" below. What's left needs him specifically:
 
-1. **Add a bank account** — Business → Agreements → Bank Accounts. Not
+1. **Replace the App Review Notes text.** The live field claims the app
+   "integrates no third-party or social login" and the binary ships a Sign
+   in with Apple button. Nothing in this repository can reach App Store
+   Connect, so this one cannot be automated. Paste this, which names
+   specifics because 2.3.1 rejects generic descriptions:
+
+   > omg.dev runs coding agents on a computer you own or on a cloud
+   > computer we host. Sign in, type a task, and the agent works on that
+   > machine while you watch from the phone.
+   >
+   > Sign-in: email code, Sign in with Apple, or Google. All three create
+   > the same account. There is no third-party account linking beyond
+   > standard sign-in.
+   >
+   > Demo account: appreview@omg.dev. Tap Continue to request a code, then
+   > enter 823014. The code is fixed and does not arrive by email, so
+   > please do not wait for a message. You must tap Continue first or the
+   > code is rejected.
+   >
+   > This account already has a cloud computer attached, so no pairing is
+   > needed. It sleeps when idle, so the first task may take a few seconds
+   > to start.
+
+2. **Add a bank account** — Business → Agreements → Bank Accounts. Not
    started. Blocks the agreement from reaching `Active`.
-2. **Submit the W-8BEN / Certificate of Foreign Status tax filing** —
+3. **Submit the W-8BEN / Certificate of Foreign Status tax filing** —
    Business → Agreements → Tax Forms. The routing questionnaire is done;
    the actual form(s) are not. Also blocks `Active`.
-3. **5.1.1(v) account deletion, live** — see the dedicated section above. No
+4. **5.1.1(v) account deletion, live** — see the dedicated section above. No
    code change needed (verified by reading the guard + its wired test,
    which already covers the real reviewer-facing behavior end to end); the
    open item is procedural — no session in this chain has personally
    exercised the live flow, since the only browser access available
    resolves to Benny's own real account, not the demo one.
-4. **Decide which transfer path he actually wants**, now that both are
+5. **Decide which transfer path he actually wants**, now that both are
    documented above with real requirements — that decision drives whether
    TestFlight needs to stay pristine (Path B) or whether he just needs a
    D-U-N-S for Use Effect Limited (Path A).
