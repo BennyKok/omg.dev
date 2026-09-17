@@ -297,7 +297,7 @@ import {
 } from "../session-cache.ts";
 import { buildSessionUsageReport, findSessionDevServerPids } from "../session-usage.ts";
 import { memoryReclaimCandidates } from "../idle-archive.ts";
-import { CODING_AGENT_ADAPTERS, resolveActiveSessionAgent, usesCommandFileRuntime } from "../coding-agent-adapters.ts";
+import { CODING_AGENT_ADAPTERS, pickDefaultSessionAgent, resolveActiveSessionAgent, usesCommandFileRuntime } from "../coding-agent-adapters.ts";
 import { launchCodingAgentSession } from "../coding-agent-provider.ts";
 import {
   enqueueTranscriptIndex,
@@ -8709,7 +8709,14 @@ a{color:#60a5fa}
         // Resolved below once the user tag is known: an explicit role wins,
         // else the tagged user's role (src/policy/roles.ts members).
         let sessionRole: string | undefined;
-        const agent = resolveActiveSessionAgent(body?.agent);
+        // No agent named: let the box choose one it can actually run, honouring
+        // its own defaultAgent setting. See pickDefaultSessionAgent.
+        const agent = body?.agent
+          ? resolveActiveSessionAgent(body.agent)
+          : pickDefaultSessionAgent(
+              await listCodingAgentsCached(),
+              (await getGlobalSettings()).defaultAgent,
+            );
         if (!agent) {
           if (body?.agent === "hermes") return err(410, "agent \"hermes\" has been removed");
           return err(400, `unknown coding agent "${body?.agent ?? ""}"`);

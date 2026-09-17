@@ -173,6 +173,70 @@ export function resolveActiveSessionAgent(agent: string | null | undefined): Act
   return ACTIVE_AGENT_SET.has(agent) ? agent as ActiveSessionAgentKind : null;
 }
 
+/**
+ * Order a box tries agents in when a session names none. Claude and Codex
+ * first because a signed-in account is the strongest signal of intent, then
+ * the omg agent (the hosted built-in), then OpenCode, whose free Zen models
+ * need no credential at all.
+ */
+const DEFAULT_AGENT_PREFERENCE: readonly ActiveSessionAgentKind[] = [
+  "aisdk",
+  "codex-aisdk",
+  "omg",
+  "opencode",
+  ...ACTIVE_SESSION_AGENT_KINDS.filter(
+    (kind) => kind !== "aisdk" && kind !== "codex-aisdk" && kind !== "omg" && kind !== "opencode",
+  ),
+];
+
+/** The slice of a coding-agent roster row the default picker reads. */
+export type DefaultAgentCandidate = {
+  key: string;
+  visible: boolean;
+  status: { configured: boolean; accountConnected?: boolean };
+};
+
+/**
+ * Choose the agent for a session that names none.
+ *
+ * `/api/sessions/new` used to answer this with a constant: `aisdk`. On a
+ * hosted Computer that is the one agent nobody has signed into, so a first
+ * task sent from mobile onboarding ran on Claude and came back "Not logged in".
+ * The box's own `defaultAgent` setting was never consulted either; only the
+ * web UI read it.
+ *
+ * Resolution, first hit wins:
+ * 1. The box's `defaultAgent` setting, when it names a launchable, configured,
+ *    visible agent.
+ * 2. The first visible agent in DEFAULT_AGENT_PREFERENCE whose account is
+ *    connected. OpenCode counts here without an account because its free tier
+ *    needs none.
+ * 3. The first visible agent that is merely configured (a platform API key
+ *    makes Claude or Codex runnable without a login).
+ * 4. `aisdk`, the old constant, so a box with no roster keeps its old answer.
+ */
+export function pickDefaultSessionAgent(
+  roster: readonly DefaultAgentCandidate[],
+  preferred?: string | null,
+): ActiveSessionAgentKind {
+  const rows = new Map<string, DefaultAgentCandidate>();
+  for (const row of roster) rows.set(row.key, row);
+  const configured = (kind: ActiveSessionAgentKind) => {
+    const row = rows.get(kind);
+    return !!row && row.visible && row.status.configured;
+  };
+  const connected = (kind: ActiveSessionAgentKind) =>
+    configured(kind) && (kind === "opencode" || rows.get(kind)?.status.accountConnected === true);
+
+  const pinned = preferred ? resolveActiveSessionAgent(preferred) : null;
+  if (pinned && configured(pinned)) return pinned;
+  return (
+    DEFAULT_AGENT_PREFERENCE.find(connected) ??
+    DEFAULT_AGENT_PREFERENCE.find(configured) ??
+    "aisdk"
+  );
+}
+
 export const SESSION_AGENT_KINDS = [
   "claude",
   "aisdk",
