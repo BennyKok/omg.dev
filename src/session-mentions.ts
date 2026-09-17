@@ -2,12 +2,11 @@
  * Ranking for the composer's `#` session picker.
  *
  * Pure so the endpoint in `serve.ts` stays a thin shell: it gathers the live
- * fleet and two cache pages (same folder, anywhere), and this module merges
- * them into one ordered list. Order: sessions in the caller's folder first,
- * then everything else, each group newest first. Every row must match every
- * keyword term the same way `resume-cache.ts` matches (substring of title,
- * last prompt, or project), so the live rows, which never go through SQL,
- * are held to the same rule here.
+ * fleet and this module orders it. Closed and archived sessions are not
+ * mentionable. Order: sessions in the caller's folder first, then everything
+ * else, each group newest first. Every row must match every keyword term the
+ * same way `resume-cache.ts` matches (substring of title, last prompt, or
+ * project).
  */
 
 export type MentionableSessionRow = {
@@ -34,7 +33,6 @@ type Candidate = {
 
 export type RankSessionMentionsInput = {
   live: readonly Candidate[];
-  historical: readonly Candidate[];
   cwd?: string | null;
   query?: string;
   excludeId?: string | null;
@@ -66,14 +64,9 @@ export function rankSessionMentions(input: RankSessionMentionsInput): Mentionabl
   const terms = sessionMentionTerms(input.query);
   const here = normaliseCwd(input.cwd);
   const limit = Math.max(1, Math.min(100, input.limit ?? 20));
-  const liveIds = new Set(
-    input.live.map((row) => row.sessionId).filter((id): id is string => !!id),
-  );
-
   const seen = new Set<string>();
   const rows: MentionableSessionRow[] = [];
-  // Live first so a session that is both running and cached keeps `live: true`.
-  for (const candidate of [...input.live, ...input.historical]) {
+  for (const candidate of input.live) {
     const sessionId = candidate.sessionId;
     if (!sessionId || seen.has(sessionId)) continue;
     if (input.excludeId && sessionId === input.excludeId) continue;
@@ -87,7 +80,7 @@ export function rankSessionMentions(input: RankSessionMentionsInput): Mentionabl
       lastUserText: candidate.lastUserText,
       lastActivityAt: candidate.lastActivityAt,
       agent: candidate.agent,
-      live: liveIds.has(sessionId),
+      live: true,
       sameFolder: here.length > 0 && normaliseCwd(candidate.cwd) === here,
     });
   }

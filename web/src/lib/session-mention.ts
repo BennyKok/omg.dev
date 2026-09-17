@@ -4,8 +4,8 @@
  * The input-field half of a session reference: detect a `#` trigger under the
  * caret, build the query URL, and produce the text to insert. Pure, so the
  * composer in App.tsx stays a thin shell. Ranking is the server's job
- * (`GET /api/sessions/mentionable`, `src/session-mentions.ts`): the same
- * folder comes first, then keyword matches, newest first.
+ * (`GET /api/sessions/mentionable`, `src/session-mentions.ts`): live
+ * sessions only, same folder first, then keyword matches, newest first.
  *
  * The inserted token carries the short session id. The grammar has a single
  * owner in `packages/protocol/src/session-mention-token.ts`.
