@@ -243,19 +243,28 @@ async function runOnboarding(udid: string): Promise<number> {
 async function startRecording(udid: string) {
   const name = `capture-${Date.now()}.mp4`;
   const remote = `~/${REMOTE_DIR}/${name}`;
-  // pgrep by the file name: the shell expands ~ in the command line, so the
-  // literal path would never match.
   // One recorder per device. A capture left running by a killed run answers
-  // "Host recording is already in progress" to the next one.
-  await ssh(`pkill -INT -f "simctl io ${udid} recordVideo" ; sleep 2`, { allowFail: true });
+  // "Host recording is already in progress" to the next one. Signalled by pid:
+  // a `pkill -f` pattern also matches the shell that runs it.
   await ssh(
-    `rm -f ${remote}; (nohup xcrun simctl io ${udid} recordVideo --codec h264 --force ${remote} >/dev/null 2>&1 &); sleep 1; pgrep -f "recordVideo.*${name}" >/dev/null`,
+    `for p in $(pgrep -f "simctl io ${udid} recordVideo"); do kill -INT $p; done; sleep 2`,
+    { allowFail: true },
   );
+  const { out } = await ssh(
+    `rm -f ${remote}; nohup xcrun simctl io ${udid} recordVideo --codec h264 --force ${remote} >/dev/null 2>&1 & echo $!`,
+  );
+  const pid = out.trim();
+  if (!/^\d+$/.test(pid)) throw new Error(`Could not start the device recorder: ${out}`);
   console.log("Recording the device.");
   return {
-    async stop(name: string) {
-      await ssh(`pkill -INT -f "recordVideo.*${name}"; sleep 4`, { allowFail: true });
-      const dest = `${LOCAL_E2E}/${name}.mp4`;
+    async stop(flowName: string) {
+      // SIGINT is how simctl finalises the file. Wait for the process to go
+      // before copying, or the mp4 has no moov atom and will not play.
+      await ssh(
+        `kill -INT ${pid}; for i in 1 2 3 4 5 6 7 8 9 10; do sleep 1; kill -0 ${pid} 2>/dev/null || break; done`,
+        { allowFail: true },
+      );
+      const dest = `${LOCAL_E2E}/${flowName}.mp4`;
       const p = Bun.spawn(["scp", "-q", "-o", "BatchMode=yes", `${HOST}:${remote}`, dest], { stdout: "inherit", stderr: "inherit" });
       if ((await p.exited) !== 0) console.warn("Could not fetch the recording.");
       else console.log(`\nRecording: ${dest}`);
