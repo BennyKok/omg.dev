@@ -7,6 +7,7 @@ import {
   TMUX_AGENT_KINDS,
   isCommandFileAgent,
   isTmuxAgent,
+  pickDefaultSessionAgent,
   resolveActiveSessionAgent,
   usesCommandFileRuntime,
 } from "./coding-agent-adapters.ts";
@@ -436,4 +437,73 @@ test("omg rejects models outside its managed provider before launch", () => {
   expect(ACTIVE_CODING_AGENT_PROVIDERS.omg.launch({
     agent: "omg", name: "test", cwd: "/tmp", sessionId: "test-session", model: "opencode/free",
   })).toEqual({ ok: false, error: 'unknown omg model "opencode/free"' });
+});
+
+describe("pickDefaultSessionAgent", () => {
+  const row = (
+    key: string,
+    status: { configured: boolean; accountConnected?: boolean },
+    visible = true,
+  ) => ({ key, visible, status });
+
+  test("a hosted box with Claude unauthenticated picks the omg agent, not Claude", () => {
+    // The bug: a new hosted Computer has Claude configured through a platform
+    // key but no login, plus omg and OpenCode signed in. The constant "aisdk"
+    // sent the onboarding's first task to "Not logged in".
+    const roster = [
+      row("aisdk", { configured: true, accountConnected: false }),
+      row("omg", { configured: true, accountConnected: true }),
+      row("opencode", { configured: true, accountConnected: true }),
+    ];
+    expect(pickDefaultSessionAgent(roster)).toBe("omg");
+  });
+
+  test("a box with only OpenCode picks OpenCode even with no account", () => {
+    const roster = [
+      row("aisdk", { configured: false, accountConnected: false }, false),
+      row("opencode", { configured: true, accountConnected: false }),
+    ];
+    expect(pickDefaultSessionAgent(roster)).toBe("opencode");
+  });
+
+  test("a connected Claude account still wins", () => {
+    const roster = [
+      row("aisdk", { configured: true, accountConnected: true }),
+      row("omg", { configured: true, accountConnected: true }),
+      row("opencode", { configured: true, accountConnected: true }),
+    ];
+    expect(pickDefaultSessionAgent(roster)).toBe("aisdk");
+  });
+
+  test("a platform API key keeps Claude runnable when nothing is signed in", () => {
+    const roster = [
+      row("aisdk", { configured: true, accountConnected: false }),
+      row("codex-aisdk", { configured: false, accountConnected: false }),
+    ];
+    expect(pickDefaultSessionAgent(roster)).toBe("aisdk");
+  });
+
+  test("the box's defaultAgent setting wins when it is configured", () => {
+    const roster = [
+      row("aisdk", { configured: true, accountConnected: true }),
+      row("opencode", { configured: true, accountConnected: true }),
+    ];
+    expect(pickDefaultSessionAgent(roster, "opencode")).toBe("opencode");
+    expect(pickDefaultSessionAgent(roster, "codex")).toBe("aisdk");
+    expect(pickDefaultSessionAgent(roster, "nope")).toBe("aisdk");
+    expect(pickDefaultSessionAgent(roster, "")).toBe("aisdk");
+  });
+
+  test("an agent hidden in settings is never chosen", () => {
+    const roster = [
+      row("omg", { configured: true, accountConnected: true }, false),
+      row("opencode", { configured: true, accountConnected: true }),
+    ];
+    expect(pickDefaultSessionAgent(roster)).toBe("opencode");
+    expect(pickDefaultSessionAgent(roster, "omg")).toBe("opencode");
+  });
+
+  test("an empty roster keeps the old constant", () => {
+    expect(pickDefaultSessionAgent([])).toBe("aisdk");
+  });
 });
