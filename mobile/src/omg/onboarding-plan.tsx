@@ -76,7 +76,12 @@ export function PlanScreen({
   const { colors, space, type } = useTheme();
   const insets = useSafeAreaInsets();
   const { phase, products, busy, buy, restore } = usePurchaseFlow();
-  const [selected, setSelected] = useState(0);
+  /*
+   * Personal is preselected. Benny's call: the column the CTA reads is the
+   * one to steer towards. Index 1 is Personal in the catalog order (Starter,
+   * Personal); with a single product on offer the index clamps to it.
+   */
+  const [selected, setSelected] = useState(1);
 
   /*
    * Done means paid (or restored): leave. `activating` is the backend still
@@ -93,7 +98,8 @@ export function PlanScreen({
    */
   const loading = phase.kind === "loading";
   const columns = products.slice(0, 2);
-  const chosen = columns[Math.min(selected, Math.max(0, columns.length - 1))];
+  const selectedIndex = Math.min(selected, Math.max(0, columns.length - 1));
+  const chosen = columns[selectedIndex];
   const rows: Row[] = [
     {
       label: "Agents at once",
@@ -163,7 +169,7 @@ export function PlanScreen({
               <View style={{ flexDirection: "row", height: 60, borderBottomWidth: 1, borderBottomColor: colors.border }}>
                 <View style={{ width: 112 }} />
                 {columns.map((product, i) => {
-                  const on = i === selected;
+                  const on = i === selectedIndex;
                   return (
                     <Pressable
                       key={product.productId}
@@ -201,9 +207,9 @@ export function PlanScreen({
                   {row.values.map((value, i) => (
                     <View
                       key={i}
-                      style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: space.sm, backgroundColor: i === selected ? colors.bg : "transparent" }}
+                      style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: space.sm, backgroundColor: i === selectedIndex ? colors.bg : "transparent" }}
                     >
-                      <Text style={{ ...type.subhead, fontWeight: i === selected ? "600" : "500", color: colors.text, textAlign: "center" }}>
+                      <Text style={{ ...type.subhead, fontWeight: i === selectedIndex ? "600" : "500", color: colors.text, textAlign: "center" }}>
                         {value}
                       </Text>
                     </View>
@@ -217,7 +223,7 @@ export function PlanScreen({
                 {columns.map((product, i) => (
                   <View
                     key={product.productId}
-                    style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: i === selected ? colors.bg : "transparent" }}
+                    style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: i === selectedIndex ? colors.bg : "transparent" }}
                   >
                     <Text style={{ fontSize: 24, fontWeight: "700", letterSpacing: -0.5, color: colors.text }}>{product.displayPrice}</Text>
                   </View>
