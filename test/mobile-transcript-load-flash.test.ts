@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { TRANSCRIPT_PAGE } from "../mobile/src/omg/transcript-cache";
 
 // Source-invariant guards, in the style of the ones in
 // mobile-transcript-attachments.test.ts: this screen is a FlatList-heavy
@@ -39,6 +40,11 @@ describe("opening a session does not flash or bump", () => {
   });
 
   test("the initial chunk was reduced, and the reasoning is on the record", () => {
-    expect(screen).toContain("const PAGE = 40;");
+    // The number moved to src/omg/transcript-cache.ts, which owns it because
+    // the cache and the prefetch sweep must store exactly the page this
+    // screen asks for. Asserted against the real export rather than against
+    // this file's source, so a rename of the local alias cannot fail it.
+    expect(TRANSCRIPT_PAGE).toBe(40);
+    expect(screen).toContain("const PAGE = TRANSCRIPT_PAGE;");
   });
 });
