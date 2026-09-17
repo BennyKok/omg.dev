@@ -78,6 +78,9 @@ async function attach(
   return composeAttachmentMessage(prompt, attached);
 }
 
+/** How long one launch request may take before it counts as failed. */
+export const LAUNCH_REQUEST_TIMEOUT_MS = 60_000;
+
 export async function launchOnboardingTask(
   client: OmgClient | null,
   ready: boolean,
@@ -114,6 +117,9 @@ export async function launchOnboardingTask(
         // first-run guess from this side would be worse than either.
         cwd: cwd ?? undefined,
       }),
+      // Bounded. A launch that never answers must become a "failed" outcome
+      // with the prompt still on screen, not a splash with no way out.
+      signal: AbortSignal.timeout(LAUNCH_REQUEST_TIMEOUT_MS),
     });
     const sessionId = result?.sessionId;
     if (!sessionId) return { kind: "failed", prompt: choice.prompt, error: "No session was created" };

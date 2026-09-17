@@ -103,6 +103,21 @@ export function OnboardingAfterSignIn({
    * result, it does not un-send the request.
    */
   const inFlight = useRef(false);
+  /**
+   * The component, not the effect instance. A launch that CONSUMED the stash
+   * has to land somewhere: the effect that sent it is torn down and re-run
+   * whenever `client` or `ready` changes, and both change while a request is
+   * open. The old code ignored the result of a torn-down effect, and the
+   * re-run found no stash, so nothing ever happened: the box got the session,
+   * the phone sat on the splash forever, and the first thing the person
+   * wrote was gone. That was the "stuck on loading after onboarding" report,
+   * reproduced on a release build on 2026-09-17. Only the not-ready poll is
+   * per effect instance; a real outcome applies as long as we are mounted.
+   */
+  const mounted = useRef(true);
+  useEffect(() => () => {
+    mounted.current = false;
+  }, []);
 
   useEffect(() => {
     if (stage !== "launching" || inFlight.current) return;
@@ -112,8 +127,9 @@ export function OnboardingAfterSignIn({
       // Released even when cancelled: the attempt is over either way, and a
       // flag left true would stop every later poll.
       inFlight.current = false;
-      if (cancelled) return;
+      if (!mounted.current) return;
       if (next.kind === "not-ready") {
+        if (cancelled) return;
         // Nothing was consumed. Either come back in a second, or give up and
         // let the ordinary gates run -- the prompt survives both.
         if (Date.now() - startedAt.current >= LAUNCH_WAIT_MS) onDone(false);
