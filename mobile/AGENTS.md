@@ -5,6 +5,10 @@ A UI change is not verified until you have SEEN it. `tsc --noEmit` and
 that happened on 2026-08-14, and a broken nav bar was committed and pushed on
 the strength of those two green checks. Neither one can see a screen.
 
+**If you touch an iOS feature, run `bun run test:e2e` and add a flow for what
+you changed.** It drives the real simulator with Maestro and it is the only
+check here that can see a screen. See "Drive the simulator with Maestro" below.
+
 The Mac is a Tailscale peer, so it is reachable from any dev box on the tailnet
 with no port forwarding and no VPN setup:
 
@@ -119,7 +123,107 @@ xcrun simctl spawn "$PRO" log show --last 3m --style compact \
   --predicate 'processImagePath CONTAINS "omg"' | grep -iE 'fail|error'
 ```
 
-## Tapping: there is no `simctl tap`. Calibrate off the accessibility tree.
+## Drive the simulator with Maestro. Do not synthesise clicks.
+
+Any session that touches an iOS feature runs this. It is the layer that `tsc`,
+`test:native` and `expo export` structurally cannot cover, and it is the layer
+that shipped a grey screen and a broken nav bar.
+
+```bash
+cd mobile
+bun run test:e2e                      # every flow in e2e/
+bun run test:e2e --flow new-project   # one flow
+bun run test:e2e --inspect            # print the current screen's elements
+bun run test:e2e --flow smoke --record  # render an mp4 locally and fetch it
+```
+
+The runner is `scripts/maestro.ts`. It resolves the UDID **by device name**,
+takes an exclusive lock on the shared Mac, copies `e2e/` over, runs the flows
+there, and releases the lock in a `finally`. Flows live in `mobile/e2e/`.
+
+**Add a flow when you add or change a screen.** A flow that asserts the new
+chrome is visible is a few lines and it is the only check in this repository
+that can see a screen.
+
+### Why this replaces the CGEvent section below
+
+Maestro talks to the device by UDID through its own on-device driver, and
+matches elements from the accessibility tree. That deletes every trap the old
+approach documented, because none of the machinery is involved any more:
+
+| Old trap | Why it is gone |
+| --- | --- |
+| bare `booted` picks another agent's device | the runner pins the UDID by name |
+| stale `AXRaise`, tap lands on a non-key window | no window focus, no coordinates |
+| `keystroke` silently no-ops over SSH | `inputText` goes through the driver |
+
+A selector that does not match is a loud failure with a screenshot, instead of
+a tap into empty space that looks like a pass.
+
+### Writing selectors
+
+Read the screen with `--inspect` and copy the strings verbatim. Never author a
+selector from a screenshot: an element showing a heart icon looks like a
+"Favorite" button in an image and has no such text in the hierarchy.
+
+- `text:` is **full-string regex, IGNORE_CASE**. A partial string does NOT
+  match. Anchor with `.*` for a prefix.
+- iOS `accessibilityText` maps to `text:`. `accessibilityText:` and `a11y:`
+  are not selector keys and Maestro rejects them.
+- Prefer `id:` where a stable `resource-id` exists. Most of this app has none
+  yet. Add `testID` props as you touch screens, and prefer them over labels.
+
+### The development build blocks `launchApp`
+
+Do not start a flow with `launchApp`. The simulator carries a dev client, so a
+restart with no Metro attached lands on "Searching for development servers..."
+and every later assertion fails for a reason unrelated to your change. The
+flows in `e2e/` instead reset with an `onFlowStart` hook that dismisses an open
+modal.
+
+Two consequences, both real:
+
+- **The Expo dev menu is an e2e hazard, and closing it is not enough.** It is a
+  sheet over your app. While it is open, taps on the app underneath do nothing
+  and assertions fail with a screenshot that looks almost right. On 2026-09-17
+  it reopened during every single suite run on a contended device, so a
+  dismiss step in `onFlowStart` did not make the suite green. Treat a run
+  against a dev client as advisory, and read the screenshots in
+  `~/.maestro/tests/<run>/<flow>/screenshots/` before believing a red result.
+- **This cannot go in CI as is.** `mobile-ota.yml` and `mobile-release.yml` run
+  on `ubuntu-latest` and Maestro needs a Mac. A standalone build
+  (`eas build --profile preview --platform ios`) with the bundle embedded fixes
+  both this and `launchApp`. Until then `test:e2e` is a local, pre-release gate.
+
+### The Mac needs Java, and it is not a system install
+
+Maestro is a Kotlin/JVM application and needs Java 17+. That Mac has no system
+JDK and no Homebrew. The runtime is a self-contained Temurin 21 in
+`~/.local/jdk`, installed on 2026-09-17, and `scripts/maestro.ts` points
+`JAVA_HOME` at it. If Maestro starts reporting "Unable to locate a Java
+Runtime", that directory is gone; reinstall it rather than adding a system JDK:
+
+```bash
+curl -fsSL -o /tmp/jdk21.tar.gz \
+  "https://api.adoptium.net/v3/binary/latest/21/ga/mac/aarch64/jdk/hotspot/normal/eclipse"
+mkdir -p ~/.local/jdk && tar xzf /tmp/jdk21.tar.gz -C ~/.local/jdk --strip-components=1
+```
+
+### Recording
+
+`--record` uses `maestro record --local`, which renders the mp4 on the Mac.
+Plain `maestro record` uploads your screen capture to mobile.dev to render it
+there. Always keep `--local`.
+
+## Fallback only: synthesising clicks with CGEvent
+
+**Prefer Maestro, above.** This section is kept because it still describes the
+only way to drive Simulator chrome that is outside the app (the dev menu, a
+system alert Maestro cannot see), and because the traps in it are real and were
+expensive to find. Do not use it for in-app interaction.
+
+
+### Tapping: there is no `simctl tap`. Calibrate off the accessibility tree.
 
 `simctl` cannot synthesise touches and `idb` is not installed on this Mac.
 Drive the Simulator window with CGEvent instead, and get the mapping from the

@@ -1,0 +1,34 @@
+# The cheapest possible "the app is not a grey screen" check.
+#
+# tsc and `expo export` both passed on an unreadable grey screen on 2026-08-14.
+# This flow is the guard that would have caught it: it asserts that real,
+# named chrome is on screen.
+appId: dev.omg.computer
+# Return to a known starting screen before the flow runs.
+#
+# `launchApp` cannot do this on a development build (see README.md), so the
+# reset is done by dismissing whatever modal the previous run left open. The
+# suite failed on 2026-09-17 because an earlier run stopped on step 2 of the
+# new-project wizard and every later flow asserted against that.
+onFlowStart:
+  # 1. The Expo dev menu is a sheet OVER the app. While it is open, taps on the
+  #    app underneath do nothing and every assertion fails with a screenshot
+  #    that looks almost right. Its close button is the only `id: xmark` on
+  #    screen; the wizard's close button has a label and no id.
+  - runFlow:
+      when:
+        visible:
+          id: "xmark"
+      commands:
+        - tapOn:
+            id: "xmark"
+  # 2. Dismiss a modal a previous run left open. `launchApp` cannot do this on
+  #    a development build -- see README.md.
+  - runFlow:
+      when:
+        visible: "Close new project"
+      commands:
+        - tapOn: "Close new project"
+---
+- assertVisible: "Create something new"
+- assertVisible: "gearshape.fill"

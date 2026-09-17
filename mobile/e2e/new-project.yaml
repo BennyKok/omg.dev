@@ -1,0 +1,44 @@
+# The new-project wizard, steps 1 and 2.
+#
+# Verified end to end on 2026-09-17 against iPhone 17 Pro (iOS 26.0).
+appId: dev.omg.computer
+# Return to a known starting screen before the flow runs.
+#
+# `launchApp` cannot do this on a development build (see README.md), so the
+# reset is done by dismissing whatever modal the previous run left open. The
+# suite failed on 2026-09-17 because an earlier run stopped on step 2 of the
+# new-project wizard and every later flow asserted against that.
+onFlowStart:
+  # 1. The Expo dev menu is a sheet OVER the app. While it is open, taps on the
+  #    app underneath do nothing and every assertion fails with a screenshot
+  #    that looks almost right. Its close button is the only `id: xmark` on
+  #    screen; the wizard's close button has a label and no id.
+  - runFlow:
+      when:
+        visible:
+          id: "xmark"
+      commands:
+        - tapOn:
+            id: "xmark"
+  # 2. Dismiss a modal a previous run left open. `launchApp` cannot do this on
+  #    a development build -- see README.md.
+  - runFlow:
+      when:
+        visible: "Close new project"
+      commands:
+        - tapOn: "Close new project"
+---
+- assertVisible: "Create something new"
+- tapOn: "Create something new"
+
+- assertVisible: "What do you want to make?"
+- assertVisible: "1 of 3"
+- tapOn:
+    text: "iphone, iOS app, Expo, with omg.dev as the backend"
+
+- assertVisible: "Where should it live?"
+- assertVisible: "2 of 3"
+
+# Leave the app where the flow found it. The simulator is shared.
+- tapOn: "Close new project"
+- assertVisible: "Create something new"
