@@ -131,6 +131,7 @@ import { DropdownMenu, type MenuOption } from "../../src/omg/menu";
 import { agentLabel as agentDisplayName } from "../../src/omg/agent-icons";
 import { usePromptDraft, stashScope } from "../../src/omg/prompt-stash";
 import { useOmg } from "../../src/omg/provider";
+import { SessionActivityTitle, useSessionActivity } from "../../src/omg/session-activity";
 import { useTheme } from "../../src/omg/theme";
 import { useToast } from "../../src/omg/toast";
 import { useOverlapWatch } from "../../src/omg/list-overlap-watch";
@@ -288,6 +289,7 @@ export function SessionScreenBody({
    */
   const [streamThought, setStreamThought] = useState("");
   const [busy, setBusy] = useState(false);
+  const headerActivity = useSessionActivity(busy);
   /**
    * HELD SENDS. A queue-mode send while the agent is busy is kept on the
    * machine (status "held") until the turn ends; it is not in the message
@@ -1764,18 +1766,23 @@ export function SessionScreenBody({
         }}
       >
         {bot ? (
-          <BotAvatar shape={bot.shape} colorway={bot.colorway} size={32} working={busy} />
+          <BotAvatar shape={bot.shape} colorway={bot.colorway} size={32} />
         ) : (
-          <AgentAvatar agent={agentLabel} size={32} busy={busy} plain />
+          <AgentAvatar agent={agentLabel} size={32} plain />
         )}
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Text
-            numberOfLines={1}
-            ellipsizeMode="tail"
+          {/* The session row and chat header now speak one activity language.
+              Keep the avatar stable so identity does not shrink or acquire a
+              second spinner while work is in progress; the shared wave moves
+              through the title instead. The title-only form is deliberate in
+              this narrow bar: copying the row's dot field here would add many
+              animated native views to a screen that already renders a live
+              transcript. */}
+          <SessionActivityTitle
+            title={bot ? bot.name : title}
+            activity={headerActivity}
             style={{ ...type.subhead, fontWeight: "600", color: colors.text }}
-          >
-            {bot ? bot.name : title}
-          </Text>
+          />
           {dropped || sessionInfo?.model ? (
             <Text numberOfLines={1} style={{ ...type.caption, color: colors.textSecondary }}>
               {dropped ? "Reconnecting…" : sessionInfo?.model}
@@ -1784,7 +1791,7 @@ export function SessionScreenBody({
         </View>
       </View>
     ),
-    [agentLabel, bot, busy, colors, dropped, sessionInfo?.model, space.sm, title, type],
+    [agentLabel, bot, colors, dropped, headerActivity, sessionInfo?.model, space.sm, title, type],
   );
 
   /**
