@@ -1068,6 +1068,89 @@ export function buildOmgMcpServer(): McpServer {
   );
 
   server.registerTool(
+    "omg_whoami",
+    {
+      title: "Show The omg Cloud Account",
+      description:
+        "Return the Cloud account attached to this runtime. Local boxes use ~/.omg/credentials.json. Cloud Computers inherit the binding credential. Do not ask the user for a token.",
+      inputSchema: {},
+    },
+    async () => {
+      return result(await api("/api/cloud/whoami"));
+    },
+  );
+
+  server.registerTool(
+    "omg_apps",
+    {
+      title: "List Hosted omg Apps",
+      description: "List hosted apps on omg Infra for the current Cloud account.",
+      inputSchema: {},
+    },
+    async () => {
+      return result(await api("/api/cloud/apps"));
+    },
+  );
+
+  server.registerTool(
+    "omg_deploy",
+    {
+      title: "Deploy A Folder To omg Infra",
+      description:
+        "Publish a project folder to omg Infra and return the live URL. Defaults to this session's cwd. omg_ship is a feed post and does not deploy.",
+      inputSchema: {
+        cwd: z.string().optional().describe("Absolute folder to publish. Defaults to the calling session cwd."),
+        name: z.string().optional().describe("App name on first deploy. Later deploys reuse .omg/project.json."),
+        wait: z.boolean().optional().describe("Wait until the build is ready or failed. Default true."),
+        generateIcon: z.boolean().optional().describe("Ask Cloud to generate an icon."),
+        sessionId: z.string().optional().describe("Session used to default cwd. Defaults to OMG_SESSION_ID."),
+      },
+    },
+    async ({ cwd, name, wait, generateIcon, sessionId }) => {
+      const sid = await activeSessionId(sessionId);
+      let folder = cwd?.trim();
+      if (!folder) {
+        const { sessions } = await api<{ sessions: SessionRow[] }>("/api/sessions");
+        const row = sessions.find((session) => session.sessionId === sid || session.nativeSessionId === sid);
+        folder = row?.cwd?.trim();
+      }
+      if (!folder) throw new Error("cwd is required");
+      return result(
+        await api("/api/cloud/apps/deploy", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-OMG-Session-ID": sid },
+          body: JSON.stringify({ cwd: folder, name, wait: wait !== false, generateIcon }),
+        }),
+      );
+    },
+  );
+
+  server.registerTool(
+    "omg_app_visibility",
+    {
+      title: "Get Or Set Hosted App Visibility",
+      description:
+        "Read or set whether a hosted app is public or omg-users. Pass visibility to change it.",
+      inputSchema: {
+        slug: z.string().min(1).describe("App slug, for example hello from hello.omgs.app."),
+        visibility: z.enum(["public", "omg-users"]).optional().describe("Omit to read the current value."),
+      },
+    },
+    async ({ slug, visibility }) => {
+      if (!visibility) {
+        return result(await api(`/api/cloud/apps/visibility?slug=${encodeURIComponent(slug)}`));
+      }
+      return result(
+        await api("/api/cloud/apps/visibility", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ slug, visibility }),
+        }),
+      );
+    },
+  );
+
+  server.registerTool(
     "omg_list_owned_bots",
     {
       title: "List Same-Owner Bots",

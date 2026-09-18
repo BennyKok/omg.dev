@@ -14,6 +14,7 @@ import { LOCAL_MACHINE_ID, type MachineChoice } from "./machines";
 /** Mirrors CloudAccountStatus in src/cloud-account.ts. */
 export type CloudAccountStatus = {
   signedIn: boolean;
+  inherited?: boolean;
   email: string | null;
   expiresAt: number | null;
   kind: "api-key" | "jwt" | "oauth" | null;

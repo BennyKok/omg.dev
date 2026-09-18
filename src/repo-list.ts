@@ -15,12 +15,17 @@ import {
   listHiddenRepos,
   type CustomRepo,
 } from "./repos-store.ts";
+import { deployLinkFromProject, type RepoDeployLink } from "./cloud-apps.ts";
+
+export type { RepoDeployLink };
 
 export type RepoListEntry = {
   name: string;
   cwd: string;
   project: string;
   custom?: boolean;
+  /** Present after `omg deploy` writes `.omg/project.json`. */
+  deploy?: RepoDeployLink;
 };
 
 export type RepoListSources = {
@@ -49,7 +54,14 @@ export async function buildRepoList(sources: RepoListSources): Promise<RepoListE
       // One row per project. A git worktree collapses onto its owning checkout,
       // so without this the same project appears once per worktree.
       if (repos.some((r) => r.project === project)) return;
-      repos.push(custom ? { name, cwd, project, custom: true } : { name, cwd, project });
+      const deploy = deployLinkFromProject(cwd);
+      repos.push({
+        name,
+        cwd,
+        project,
+        ...(custom ? { custom: true } : {}),
+        ...(deploy ? { deploy } : {}),
+      });
     } catch {}
   };
 

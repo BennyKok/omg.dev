@@ -42,9 +42,8 @@ You bring your own agent accounts. omg.dev does not resell tokens.
 | `omg login` | Sign in for create / deploy. |
 
 Any other verb the install owns (`mcp`, `doctor`, `agents`, …) is forwarded to
-it. `create` / `deploy` / `login` start the last published hosted app CLI
-(`@omg-dev/cli@0.4.42`) under this same `omg`. They do not install a second
-command.
+it. `create` / `deploy` / `login` also forward to the install. The retired
+`@omg-dev/cli@0.4.42` tarball is no longer downloaded.
 
 ## Versioning
 

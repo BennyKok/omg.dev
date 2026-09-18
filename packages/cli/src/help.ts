@@ -22,5 +22,6 @@ You bring your own agent accounts. omg.dev does not resell tokens.
 After setup, unknown commands are forwarded to the install. \`lfg\` remains
 a compatibility alias for that install.
 
-create / deploy / login still start the hosted app flow on this same \`omg\`.
+create / deploy / login run on the installed runtime. They no longer download
+the retired 0.4.42 CLI.
 `;

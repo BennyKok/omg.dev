@@ -5,6 +5,8 @@ import { join } from "node:path";
 
 import {
   createCloudAccount,
+  cloudApiBaseUrl,
+  guestCloudProxyUrl,
   loadCloudCredentials,
   safeReturnTo,
   saveCloudCredentials,
@@ -56,7 +58,7 @@ test("session reports signed out with no credential file", async () => {
   const [req, url] = request("/api/cloud/session");
   const response = await account.handleRequest(req, url);
   expect(response?.status).toBe(200);
-  expect(await response?.json()).toMatchObject({ signedIn: false, email: null });
+  expect(await response?.json()).toMatchObject({ signedIn: false, inherited: false, email: null });
   expect(await account.handleRequest(...request("/api/other"))).toBeNull();
 });
 
@@ -357,4 +359,56 @@ test("unpaired local rename works without cloud login and retains same-origin pr
   expect(blocked?.status).toBe(403);
   expect(account.status().localName).toBe("My Mac");
   expect(calls).toHaveLength(0);
+});
+
+test("cloudFetch attaches a bearer when signed in and omits it when not", async () => {
+  saveCloudCredentials({ token: "test-token", kind: "api-key" }, credentialPath);
+  const signedIn = fakeFetch(() => jsonResponse({ userId: "u1" }));
+  const account = createCloudAccount({ credentialPath, fetch: signedIn.fetch });
+  expect((await account.cloudFetch("/api/cli/whoami")).status).toBe(200);
+  expect(signedIn.calls[0]?.url).toBe("https://backend.omg.dev/api/cli/whoami");
+  expect(new Headers(signedIn.calls[0]?.init?.headers).get("Authorization")).toBe("Bearer test-token");
+
+  const unsigned = fakeFetch(() => jsonResponse({ userId: "proxied" }));
+  const signedOut = createCloudAccount({ credentialPath: join(dir, "missing.json"), fetch: unsigned.fetch });
+  await signedOut.cloudFetch("/api/cli/whoami");
+  expect(new Headers(unsigned.calls[0]?.init?.headers).has("Authorization")).toBe(false);
+  expect(unsigned.calls[0]?.url).toBe("https://backend.omg.dev/api/cli/whoami");
+});
+
+test("a Cloud Computer without a token inherits Cloud through the guest proxy", async () => {
+  const previousAi = process.env.OMG_AI_URL;
+  const previousApi = process.env.OMG_API_URL;
+  delete process.env.OMG_API_URL;
+  process.env.OMG_AI_URL = "http://169.254.0.1:9090";
+  try {
+    expect(guestCloudProxyUrl()).toBe("http://169.254.0.1:9090/cloud");
+    expect(cloudApiBaseUrl()).toBe("http://169.254.0.1:9090/cloud");
+
+    const unsigned = fakeFetch(() => jsonResponse({ userId: "owner" }));
+    const account = createCloudAccount({
+      credentialPath: join(dir, "missing.json"),
+      fetch: unsigned.fetch,
+    });
+    const [req, url] = request("/api/cloud/session");
+    const session = await account.handleRequest(req, url);
+    expect(await session?.json()).toMatchObject({ signedIn: true, inherited: true });
+
+    await account.cloudFetch("/api/cli/whoami");
+    expect(unsigned.calls[0]?.url).toBe("http://169.254.0.1:9090/cloud/api/cli/whoami");
+    expect(new Headers(unsigned.calls[0]?.init?.headers).has("Authorization")).toBe(false);
+
+    process.env.OMG_API_URL = "http://169.254.0.1:9090/cloud";
+    expect(cloudApiBaseUrl()).toBe("http://169.254.0.1:9090/cloud");
+    const withApi = createCloudAccount({
+      credentialPath: join(dir, "missing.json"),
+      fetch: fakeFetch(() => jsonResponse({})).fetch,
+    });
+    expect(withApi.status().inherited).toBe(true);
+  } finally {
+    if (previousAi === undefined) delete process.env.OMG_AI_URL;
+    else process.env.OMG_AI_URL = previousAi;
+    if (previousApi === undefined) delete process.env.OMG_API_URL;
+    else process.env.OMG_API_URL = previousApi;
+  }
 });

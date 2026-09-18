@@ -5108,6 +5108,23 @@ a{color:#60a5fa}
         if (path === "/api/cloud/logout") cloudMachineProxy.reset();
         if (handled) return handled;
       }
+      if (
+        path === "/api/cloud/whoami" ||
+        path === "/api/cloud/apps" ||
+        path === "/api/cloud/apps/deploy" ||
+        path === "/api/cloud/apps/status" ||
+        path === "/api/cloud/apps/visibility" ||
+        path === "/api/cloud/env" ||
+        path === "/api/cloud/env/pull" ||
+        path === "/api/cloud/env/rm" ||
+        path === "/api/cloud/env/import"
+      ) {
+        const { handleCloudAppsRequest } = await import("../cloud-apps.ts");
+        const handled = await handleCloudAppsRequest(req, url, {
+          getAccessToken: () => cloudAccount.getAccessToken(),
+        });
+        if (handled) return handled;
+      }
       if (path === "/api/server/wake-tick" && req.method === "POST") {
         return handleWakeTick((l) => console.log(l));
       }

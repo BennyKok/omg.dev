@@ -50,7 +50,6 @@ describe("omg help names the control plane and the hosted app verbs", () => {
       const spawned: string[][] = [];
       const code = await runCli([command, "arg"], {
         ...log,
-        env: { OMG_APPS_BIN: "/tmp/apps-cli" },
         which: () => "/tmp/lfg",
         spawn: async (argv) => {
           spawned.push(argv);
@@ -58,7 +57,7 @@ describe("omg help names the control plane and the hosted app verbs", () => {
         },
       });
       expect(code, command).toBe(0);
-      expect(spawned, command).toEqual([["/tmp/apps-cli", command, "arg"]]);
+      expect(spawned, command).toEqual([["/tmp/lfg", command, "arg"]]);
       expect(log.text(), command).not.toContain("not part of the current omg.dev product");
     }
   });
@@ -102,12 +101,11 @@ describe("omg computer", () => {
     expect(log.text()).toContain("already set up");
   });
 
-  test("computer setup does not start the hosted app CLI", async () => {
+  test("computer setup does not start a hosted app command", async () => {
     const spawned: string[][] = [];
     const log = capture();
     await runCli(["computer", "setup"], {
       ...log,
-      env: { OMG_APPS_BIN: "/tmp/apps-cli" },
       which: () => "/tmp/lfg",
       spawn: async (argv) => {
         spawned.push(argv);
