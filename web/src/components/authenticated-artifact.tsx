@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 
 import { artifactRequestPath } from "../lib/artifact-document";
-import { omgDirectUrl, omgFetch } from "../lib/omg-client";
+import { omgDirectUrl, omgFetch, resolveOmgDirectUrl } from "../lib/omg-client";
 import { cn } from "../lib/utils";
 import { ImageLightbox } from "./ImageLightbox";
 
@@ -70,15 +70,47 @@ function useArtifactBlobUrl(path: string | null): ArtifactLoad<string> {
  * can fetch the artifact itself with the same cookies — no header to inject,
  * nothing to revoke. A hosted surface installs a transport that signs each
  * request with a short-lived grant, an `<img>` cannot carry that header, and
- * `assetUrl` returns null there. An older host, bundled against a client that
- * predates `assetUrl`, has no such method at all and lands in the same branch.
- * Both keep exactly the behaviour they had before.
+ * `assetUrl` returns null there. A current host can resolve a signed artifact
+ * URL asynchronously. An older host has no resolver and keeps the blob path.
  */
 function useArtifactSource(path: string | null): ArtifactSource {
   const direct = path === null ? null : omgDirectUrl(path);
-  // Deferred (`path === null`) or blob-only: this stays "loading" until asked.
-  const blob = useArtifactBlobUrl(direct === null ? path : null);
-  return direct === null ? blob : { status: "direct", value: direct };
+  type Resolution =
+    | { path: string | null; status: "loading"; value: null }
+    | { path: string; status: "direct"; value: string }
+    | { path: string; status: "blob"; value: null };
+  const [resolution, setResolution] = useState<Resolution>({
+    path: null,
+    status: "loading",
+    value: null,
+  });
+
+  useEffect(() => {
+    if (path === null || direct !== null) return;
+    let active = true;
+    void resolveOmgDirectUrl(path).then((value) => {
+      if (!active) return;
+      setResolution(
+        value === null
+          ? { path, status: "blob", value: null }
+          : { path, status: "direct", value },
+      );
+    });
+    return () => {
+      active = false;
+    };
+  }, [direct, path]);
+
+  // Do not expose the previous path while a virtualized row is reused.
+  const current = resolution.path === path ? resolution : null;
+  const blob = useArtifactBlobUrl(
+    direct === null && current?.status === "blob" ? path : null,
+  );
+  if (direct !== null) return { status: "direct", value: direct };
+  if (current?.status === "direct") {
+    return { status: "direct", value: current.value };
+  }
+  return current?.status === "blob" ? blob : { status: "loading", value: null };
 }
 
 /**

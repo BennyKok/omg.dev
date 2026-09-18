@@ -34,7 +34,7 @@ let root: ReturnType<typeof createRoot>;
 let fetched: string[];
 
 /** A transport that can fetch bytes, and either offers a direct URL or does not. */
-function installTransport(options: { direct: boolean }) {
+function installTransport(options: { direct: boolean; resolved?: boolean }) {
   const transport: OmgTransport = {
     async fetch(path: string) {
       fetched.push(path);
@@ -52,6 +52,12 @@ function installTransport(options: { direct: boolean }) {
     // Omitted entirely on the fallback side, which is also what an older host
     // hands us: a transport built against a client that predates assetUrl.
     ...(options.direct ? { assetUrl: (path: string) => path } : {}),
+    ...(options.resolved
+      ? {
+          resolveAssetUrl: async (path: string) =>
+            `https://sessions.example${path}${path.includes("?") ? "&" : "?"}__omg_grant=signed`,
+        }
+      : {}),
   };
   configureOmgTransport(transport);
 }
@@ -251,6 +257,19 @@ describe("AuthenticatedArtifactImage", () => {
 });
 
 describe("AuthenticatedArtifactVideo", () => {
+  test("streams an asynchronously signed URL instead of buffering a blob", async () => {
+    installTransport({ direct: false, resolved: true });
+    render(
+      <AuthenticatedArtifactVideo path="/api/artifacts/signed.mp4" label="signed" autoPlay />,
+    );
+    await act(async () => {});
+
+    expect(host.querySelector("video")?.getAttribute("src")).toBe(
+      "https://sessions.example/api/artifacts/signed.mp4?__omg_grant=signed",
+    );
+    expect(fetched).toEqual([]);
+  });
+
   test("streams a direct URL instead of buffering the whole file as a blob", async () => {
     installTransport({ direct: true });
     render(

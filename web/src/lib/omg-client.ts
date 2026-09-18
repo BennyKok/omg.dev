@@ -186,6 +186,17 @@ export function omgDirectUrl(path: string): string | null {
   return selectDirectUrl(omgTransport, path);
 }
 
+/**
+ * Resolve an element-loadable URL, including hosts that must mint a signed
+ * artifact URL asynchronously. Older hosts omit `resolveAssetUrl` and return
+ * null here, which keeps the existing authenticated-blob fallback working.
+ */
+export async function resolveOmgDirectUrl(path: string): Promise<string | null> {
+  const direct = selectDirectUrl(omgTransport, path);
+  if (direct !== null) return direct;
+  return (await omgTransport.resolveAssetUrl?.(path)) ?? null;
+}
+
 export function omgAssetUrl(path: string): string {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   return `${omgAssetBaseUrl}${normalizedPath}`;
