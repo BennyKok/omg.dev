@@ -247,6 +247,22 @@ export function updateConnector(
 }
 
 /**
+ * Record that a connection authenticates with OAuth. The catalog only claims
+ * this; the host learns it for real when the endpoint answers 401, so it needs
+ * a way to write the answer back. Returns the stored connection, or null when
+ * the id is unknown or the flag is already correct.
+ */
+export function setConnectorOAuth(id: string, oauth: boolean): Connector | null {
+  const file = read();
+  const c = file.connectors.find((x) => x.id === id);
+  if (!c || c.oauth === oauth) return null;
+  c.oauth = oauth;
+  c.updatedAt = Date.now();
+  write(file);
+  return c;
+}
+
+/**
  * Remove every connection in one owner bucket and return what was removed, so
  * the caller can drop OAuth tokens and live hub clients. Used when a role is
  * deleted: its `role:<id>` connections would otherwise sit unreachable.

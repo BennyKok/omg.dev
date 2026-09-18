@@ -6,7 +6,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
 import type { Connector } from "./store.ts";
-import { callConnectorTool, listConnectorTools, probeConnector, resetAllConnectorsForTests } from "./hub.ts";
+import { callConnectorTool, isUnauthorizedError, listConnectorTools, probeConnector, resetAllConnectorsForTests } from "./hub.ts";
 
 const KEY = "x-conn-key";
 const SECRET = "s3cret";
@@ -89,5 +89,28 @@ describe("connector hub", () => {
   test("a wrong credential is refused, not silently allowed", async () => {
     const p = await probeConnector(connector({ [KEY]: "wrong" }));
     expect(p.ok).toBe(false);
+  });
+
+  test("a probe of a protected server reports that a sign-in is needed", async () => {
+    // No credential at all: the endpoint answers 401, which is the signal the
+    // host uses to offer a sign-in for a connector the catalog called open.
+    const p = await probeConnector(connector({}));
+    expect(p.ok).toBe(false);
+    expect(p.needsAuth).toBe(true);
+  });
+
+  test("an unreachable server is not reported as a sign-in problem", async () => {
+    const c = { ...connector({ [KEY]: SECRET }), endpoint: "http://127.0.0.1:1/mcp" };
+    const p = await probeConnector(c);
+    expect(p.ok).toBe(false);
+    expect(p.needsAuth).toBe(false);
+  });
+
+  test("isUnauthorizedError reads the transport status code", () => {
+    expect(isUnauthorizedError(Object.assign(new Error("Streamable HTTP error"), { code: 401 }))).toBe(true);
+    expect(isUnauthorizedError(new Error("Unauthorized"))).toBe(true);
+    expect(isUnauthorizedError(new Error("Error POSTing to endpoint (HTTP 403)"))).toBe(true);
+    expect(isUnauthorizedError(new Error("fetch failed"))).toBe(false);
+    expect(isUnauthorizedError(new Error("Streamable HTTP error: 500"))).toBe(false);
   });
 });

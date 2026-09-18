@@ -106,13 +106,33 @@ export async function callConnectorTool(
   }
 }
 
-/** A quick health probe: can omg reach and initialize this endpoint? */
-export async function probeConnector(connector: Connector): Promise<{ ok: boolean; tools?: number; error?: string }> {
+/**
+ * True when a failure means the remote server wants authorization.
+ *
+ * The catalog cannot be trusted for this: about half of its MCP entries carry
+ * no auth metadata, and an entry that says "none" can still be a protected
+ * server. The transport reports the real answer as a 401 (or a 403 for a token
+ * that is not enough), so the host reads it off the error.
+ */
+export function isUnauthorizedError(e: unknown): boolean {
+  const code = (e as { code?: unknown } | null)?.code;
+  if (code === 401 || code === 403) return true;
+  const message = e instanceof Error ? e.message : String(e ?? "");
+  return /\b(401|403)\b/.test(message) || /unauthorized/i.test(message);
+}
+
+/**
+ * A quick health probe: can omg reach and initialize this endpoint?
+ * `needsAuth` marks the failures that a sign-in can fix.
+ */
+export async function probeConnector(
+  connector: Connector,
+): Promise<{ ok: boolean; tools?: number; error?: string; needsAuth?: boolean }> {
   try {
     const tools = await listConnectorTools(connector);
     return { ok: true, tools: tools.length };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    return { ok: false, error: e instanceof Error ? e.message : String(e), needsAuth: isUnauthorizedError(e) };
   }
 }
 

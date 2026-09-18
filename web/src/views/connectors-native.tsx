@@ -36,7 +36,18 @@ export type CatalogEntry = {
   icon: string | null;
   domain: string | null;
   needsOAuth: boolean;
+  /** The catalog's `auth.kind`, or null when the entry says nothing. */
+  authKind?: string | null;
 };
+
+/**
+ * Whether adding this entry may open a sign-in. True when the catalog says
+ * OAuth, and also when the catalog says nothing: the server is asked on add,
+ * and a popup must be reserved during the click to survive the popup blocker.
+ */
+export function mayNeedAuth(entry: Pick<CatalogEntry, "needsOAuth" | "authKind">): boolean {
+  return entry.needsOAuth || entry.authKind === null || entry.authKind === undefined;
+}
 
 /** A logo, falling back to a plug glyph when the image is missing or fails. */
 function Logo({ src, alt }: { src?: string | null; alt: string }) {
@@ -75,15 +86,26 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
 // Reserve the popup during the click, before saving the connector or making
 // any auth request. Both Add and Connect use the same flow.
+//
+// `reserved` lets the caller open the popup itself during the click and hand
+// it over. Add needs that, because it only learns whether a sign-in is needed
+// after the connector is saved, and a popup opened that late is blocked.
+// Pass `undefined` to let this open its own. An id that resolves to null means
+// no sign-in is needed, so a reserved popup is closed again.
 function useConnectorSignIn(onChanged: () => Promise<void>) {
   const cleanup = useRef<(() => void) | null>(null);
   useEffect(() => () => cleanup.current?.(), []);
 
-  return async (id: string | Promise<string>) => {
+  return async (id: string | Promise<string | null>, reserved?: Window | null) => {
     cleanup.current?.();
-    const popup = window.open("", "omg-oauth", "width=520,height=680");
+    const popup = reserved === undefined ? window.open("", "omg-oauth", "width=520,height=680") : reserved;
     try {
       const connectorId = await id;
+      if (connectorId === null) {
+        popup?.close();
+        await onChanged();
+        return;
+      }
       if (!popup) throw new Error("Sign-in popup was blocked. Allow popups, then click Connect.");
       const res = await api<{ authorizeUrl?: string; alreadyAuthorized?: boolean }>(
         `/api/connectors/${connectorId}/oauth/start`,
@@ -130,6 +152,8 @@ type ConnectorDraft = {
   catalogSlug?: string;
   icon?: string;
   oauth?: boolean;
+  /** The server may still ask for a sign-in; reserve the popup on the click. */
+  maybeOauth?: boolean;
 };
 type AddConnector = (draft: ConnectorDraft) => Promise<void>;
 
@@ -205,17 +229,28 @@ export function ConnectorsNativePanel() {
   const addConnector: AddConnector = async (draft) => {
     let saved = false;
     let authError: string | null = null;
+    const { maybeOauth, ...body } = draft;
+    // The server probes the endpoint and returns the connector with `oauth`
+    // set to what the endpoint actually requires, so the decision to sign in
+    // comes from the saved connector and not from the catalog's claim.
+    const wantsPopup = draft.oauth === true || maybeOauth === true;
+    const popup = wantsPopup ? window.open("", "omg-oauth", "width=520,height=680") : null;
     const created = api<{ connector: PublicConnector }>("/api/connectors", {
       method: "POST",
-      body: JSON.stringify(draft),
+      body: JSON.stringify(body),
     }).then((result) => {
       saved = true;
       return result;
     });
     try {
-      if (draft.oauth) await signIn(created.then(({ connector }) => connector.id));
-      else await created;
+      if (wantsPopup) {
+        await signIn(
+          created.then(({ connector }) => (connector.oauth ? connector.id : null)),
+          popup,
+        );
+      } else await created;
     } catch (e) {
+      popup?.close();
       if (!saved) throw e;
       authError = e instanceof Error ? e.message : "could not start sign-in";
     } finally {
@@ -292,10 +327,15 @@ function ConnectorRow({
     setOpen(next);
     if (next && tools === null) {
       try {
-        const res = await api<{ ok: boolean; error?: string; tools: { name: string; description: string }[] }>(
+        const res = await api<{ ok: boolean; error?: string; needsAuth?: boolean; tools: { name: string; description: string }[] }>(
           `/api/connectors/${connector.id}/tools`,
         );
-        if (!res.ok) setToolsError(res.error ?? "could not reach this connector");
+        if (!res.ok) {
+          setToolsError(res.needsAuth ? "This connector needs a sign-in. Click Connect." : (res.error ?? "could not reach this connector"));
+          // The server records the sign-in requirement it just found, so
+          // reload to show the Connect button on this row.
+          if (res.needsAuth && !connector.oauth) await onChanged();
+        }
         setTools(res.tools ?? []);
       } catch (e) {
         setToolsError(e instanceof Error ? e.message : "could not reach this connector");
@@ -463,6 +503,9 @@ function AddByUrlForm({ user, scope, addConnector, onClose }: { user: string; sc
       await addConnector({
         ...scopeBody(scope, user), name: name.trim(), endpoint: endpoint.trim(),
         headers: auth === "header" ? headers : {}, oauth: auth === "oauth",
+        // "No authentication" is the user's guess. The server still probes,
+        // so reserve the popup in case the endpoint asks for a sign-in.
+        maybeOauth: auth !== "header",
       });
       onClose();
     } catch (e) {
@@ -562,6 +605,7 @@ function CatalogBrowser({ user, scope, addConnector }: { user: string; scope: Sc
         catalogSlug: entry.slug,
         icon: entry.icon ?? undefined,
         oauth: entry.needsOAuth,
+        maybeOauth: mayNeedAuth(entry),
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "could not add");

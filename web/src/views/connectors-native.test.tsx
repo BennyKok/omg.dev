@@ -17,6 +17,8 @@ let createFails: boolean;
 let authFails: boolean;
 let alreadyAuthorized: boolean;
 let oauth: boolean;
+let detectAuth: boolean;
+let unknownAuth: boolean;
 let connected: boolean;
 
 beforeEach(() => {
@@ -24,7 +26,7 @@ beforeEach(() => {
   events = [];
   drafts = [];
   connectors = [];
-  closed = blocked = createFails = authFails = alreadyAuthorized = connected = false;
+  closed = blocked = createFails = authFails = alreadyAuthorized = connected = detectAuth = unknownAuth = false;
   oauth = true;
   popup = { location: { href: "" }, close: () => { closed = true; } };
   window.open = (() => {
@@ -35,7 +37,7 @@ beforeEach(() => {
     const url = String(input instanceof Request ? input.url : input);
     if (url.includes("/catalog")) return Response.json({ total: 1, results: [{
       id: "test", slug: "test", name: "Example", description: "Example connector",
-      needsOAuth: oauth, connectUrl: "https://example.com/mcp",
+      needsOAuth: oauth, authKind: unknownAuth ? null : oauth ? "oauth" : "none", connectUrl: "https://example.com/mcp",
     }] });
     if (url.endsWith("/api/roles")) return Response.json({ roles: [] });
     if (url.endsWith("/oauth/start")) {
@@ -48,7 +50,9 @@ beforeEach(() => {
       const draft = JSON.parse(String(init.body));
       drafts.push(draft);
       if (createFails) return Response.json({ error: "Could not save" }, { status: 400 });
-      const connector = { ...draft, id: "aabb", slug: "example", owner: "owner", requireApproval: false };
+      // The server probes the endpoint and may report a sign-in the catalog
+      // did not claim.
+      const connector = { ...draft, oauth: draft.oauth === true || detectAuth, id: "aabb", slug: "example", owner: "owner", requireApproval: false };
       connectors.push(connector);
       return Response.json({ connector });
     }
@@ -136,8 +140,49 @@ for (const mode of ["header", "none"]) test(`custom ${mode} authentication does 
   await customForm(mode);
   expect(drafts[0]?.oauth).toBe(false);
   expect(drafts[0]?.headers).toEqual(mode === "header" ? { Authorization: "Bearer test-token" } : {});
-  expect(events).not.toContain("popup");
+  // "No authentication" reserves a popup because the server has the last
+  // word, but the popup closes when the server reports no sign-in is needed.
+  if (mode === "header") expect(events).not.toContain("popup");
+  else expect(events).toContain("popup");
   expect(events).not.toContain("auth");
+  if (mode === "none") expect(closed).toBe(true);
+});
+
+test("a catalog entry marked none still offers Connect when the server demands a sign-in", async () => {
+  // The catalog says "none", so no popup is reserved. The server probes the
+  // endpoint, finds it protected, and the saved row offers Connect.
+  oauth = false;
+  detectAuth = true;
+  await renderCatalog();
+  await ui.flushAsync(() => (ui.query('[data-catalog="test"] button') as HTMLButtonElement).click());
+  expect(events).not.toContain("popup");
+  const connect = ui.queryAll("button").find(b => b.textContent === "Connect") as HTMLButtonElement;
+  expect(connect).not.toBeUndefined();
+  await ui.flushAsync(() => connect.click());
+  expect(events).toContain("auth");
+  expect(popup.location.href).toBe("https://example.com/authorize");
+});
+
+test("a catalog entry with no auth metadata reserves a popup and signs in", async () => {
+  oauth = false;
+  detectAuth = true;
+  unknownAuth = true;
+  await renderCatalog();
+  await ui.flushAsync(() => {
+    (ui.query('[data-catalog="test"] button') as HTMLButtonElement).click();
+    // The popup is reserved during the click, before the server answers.
+    expect(events).toContain("popup");
+  });
+  expect(drafts[0]?.oauth).toBe(false);
+  expect(events).toContain("auth");
+  expect(popup.location.href).toBe("https://example.com/authorize");
+});
+
+test("a custom URL that demands a sign-in starts OAuth from the none option", async () => {
+  detectAuth = true;
+  await customForm("none");
+  expect(events).toContain("auth");
+  expect(popup.location.href).toBe("https://example.com/authorize");
 });
 
 test("catalog entries without OAuth only save", async () => {
