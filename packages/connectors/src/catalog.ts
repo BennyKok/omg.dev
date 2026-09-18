@@ -19,6 +19,13 @@ export interface CatalogEntry {
   domain: string | null;
   /** True when connecting needs OAuth, which is not yet supported end to end. */
   needsOAuth: boolean;
+  /**
+   * The catalog's own `auth.kind` ("none", "oauth", "api_key", ...), or null
+   * when the entry carries no auth metadata at all. Null means unknown, not
+   * "no auth": about half of the MCP entries say nothing, so the host probes
+   * the endpoint instead of trusting the catalog.
+   */
+  authKind: string | null;
 }
 
 const TTL_MS = 60 * 60 * 1000;
@@ -33,7 +40,14 @@ function project(raw: unknown): CatalogEntry | null {
   const r = raw as Record<string, unknown>;
   const slug = typeof r.slug === "string" ? r.slug : typeof r.id === "string" ? r.id : "";
   if (!slug) return null;
-  const auth = JSON.stringify(r.auth ?? "").toLowerCase();
+  const rawAuth = r.auth;
+  const auth = JSON.stringify(rawAuth ?? "").toLowerCase();
+  const authKind =
+    rawAuth && typeof rawAuth === "object" && typeof (rawAuth as { kind?: unknown }).kind === "string"
+      ? ((rawAuth as { kind: string }).kind as string)
+      : typeof rawAuth === "string" && rawAuth
+        ? rawAuth
+        : null;
   return {
     id: typeof r.id === "string" ? r.id : slug,
     slug,
@@ -45,6 +59,7 @@ function project(raw: unknown): CatalogEntry | null {
     icon: typeof r.icon === "string" ? r.icon : null,
     domain: typeof r.domain === "string" ? r.domain : null,
     needsOAuth: auth.includes("oauth"),
+    authKind,
   };
 }
 

@@ -50,6 +50,7 @@ import {
   roleOwner,
   publicView,
   updateConnector,
+  setConnectorOAuth,
   probeConnector,
   resetConnector,
   loadCatalog,
@@ -4371,7 +4372,21 @@ export async function cmdServe() {
           requireApproval: body.requireApproval,
         });
         if (!result.ok) return err(400, result.error);
-        return json({ connector: publicView(result.connector) });
+        // The catalog only claims how a server authenticates, and half of its
+        // MCP entries claim nothing. Ask the server itself: a 401 on the first
+        // connect means this connection needs a sign-in, so record that and
+        // let the client open the flow at once instead of silently saving a
+        // connection whose tools never load.
+        let connector = result.connector;
+        if (!connector.oauth) {
+          const probe = await probeConnector(connector);
+          if (!probe.ok && probe.needsAuth) {
+            const flagged = setConnectorOAuth(connector.id, true);
+            if (flagged) connector = flagged;
+            await resetConnector(connector.id);
+          }
+        }
+        return json({ connector: publicView(connector) });
       }
       if (path === "/api/connectors/catalog" && req.method === "GET") {
         try {
@@ -4406,7 +4421,16 @@ export async function cmdServe() {
           const connector = getConnector(m[1]!);
           if (!connector) return err(404, "connector not found");
           const probe = await probeConnector(connector);
-          if (!probe.ok) return json({ ok: false, error: probe.error, tools: [] });
+          if (!probe.ok) {
+            // A connection that answers 401 needs a sign-in, whatever the
+            // catalog said when it was added. Record it so the row offers
+            // Connect instead of only an error.
+            if (probe.needsAuth && !connector.oauth) {
+              setConnectorOAuth(connector.id, true);
+              await resetConnector(connector.id);
+            }
+            return json({ ok: false, error: probe.error, needsAuth: probe.needsAuth === true, tools: [] });
+          }
           const { listConnectorTools } = await import("@omg-dev/connectors");
           const tools = await listConnectorTools(connector);
           return json({ ok: true, tools: tools.map((t) => ({ name: t.name, description: t.description })) });

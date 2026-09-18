@@ -14,6 +14,7 @@ import {
   getConnector,
   listConnectors,
   publicView,
+  setConnectorOAuth,
   updateConnector,
 } from "./store.ts";
 
@@ -111,5 +112,23 @@ describe("connector store", () => {
     expect(deleteConnector(id).ok).toBe(true);
     expect(getConnector(id)).toBeNull();
     expect(listConnectors().length).toBe(0);
+  });
+});
+
+describe("oauth flag", () => {
+  test("setConnectorOAuth records a sign-in requirement found at runtime", () => {
+    const created = createConnector({ owner: "benny", name: "Probe", endpoint: "https://example.com/mcp" });
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    expect(created.connector.oauth).toBe(false);
+
+    const flagged = setConnectorOAuth(created.connector.id, true);
+    expect(flagged?.oauth).toBe(true);
+    expect(getConnector(created.connector.id)?.oauth).toBe(true);
+
+    // A second write with the same value is a no-op, so a repeated probe does
+    // not rewrite the file.
+    expect(setConnectorOAuth(created.connector.id, true)).toBeNull();
+    expect(setConnectorOAuth("nope", true)).toBeNull();
   });
 });
