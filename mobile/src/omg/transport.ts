@@ -27,6 +27,7 @@ import {
   mintTargetForBinding,
   SHARED_REVOKED_DETAIL,
 } from "./computer-shared-binding";
+import { signedArtifactUrl } from "./signed-asset-url";
 
 export class ComputerGrantError extends Error {
   /**
@@ -207,6 +208,7 @@ export function createDirectTransport(baseUrl: string): OmgTransport {
 
   return {
     fetch: doFetch,
+    assetUrl: (path: string) => `${origin}${path}`,
     async request<T>(path: string, init: RequestInit = {}): Promise<T> {
       const response = await doFetch(path, init);
       const text = await response.text().catch(() => "");
@@ -242,16 +244,16 @@ export function createDirectTransport(baseUrl: string): OmgTransport {
 
 /** Drop a machine's cached transport, e.g. after sign-out or unpairing. */
 /**
- * A URL and the header a NATIVE downloader needs to fetch one path right now.
+ * A signed URL a native media loader can fetch right now.
  *
  * `OmgTransport.fetch` is the right way to move bytes through JavaScript, but
  * a video is the one payload that should never pass through JavaScript at
  * all: a 20 MB recording read into an ArrayBuffer and written back out is
  * seconds of main-thread work on a phone, and it happens twice. The
- * filesystem module can stream a URL straight to disk, but it issues its own
- * request, so it needs the grant in its hand. This hands it over for ONE
- * request: the grant is short-lived by design, and a caller that keeps the
- * value around gets a 401 it must answer with `forceRefresh`.
+ * filesystem module and media player issue their own requests, so they cannot
+ * use the transport's Authorization header. The session proxy accepts this
+ * short-lived grant only on read-only artifact routes and removes it before it
+ * reaches the Computer.
  *
  * Null for a binding this module does not own a grant for (a direct
  * transport), so the caller can fall back to the fetch path.
@@ -265,8 +267,8 @@ export async function signedRequestFor(
   if (!entry) return null;
   const grant = await entry.owner.get({ forceRefresh: options.forceRefresh ?? false });
   return {
-    url: `${SESSION_ORIGIN}${path}`,
-    headers: { Authorization: `Bearer ${grant.token}` },
+    url: signedArtifactUrl(SESSION_ORIGIN, path, grant.token),
+    headers: {},
   };
 }
 

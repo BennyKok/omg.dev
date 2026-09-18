@@ -244,6 +244,30 @@ test("raw package fetch shares bearer auth and refreshes once on 401", async () 
   ]);
 });
 
+test("grant transport resolves a signed media URL on its configured origin", async () => {
+  const grants: string[] = [];
+  const transport = createGrantTransport({
+    baseUrl: "https://sessions.example/",
+    getGrant: async () => {
+      grants.push("short lived+/token");
+      return { token: "short lived+/token", expiresAt: Date.now() + 60_000 };
+    },
+    WebSocket: class {} as typeof WebSocket,
+  });
+
+  const resolved = await transport.resolveAssetUrl?.(
+    "/api/artifacts/clip.mp4?preview=1",
+  );
+  const hostile = await transport.resolveAssetUrl?.("https://evil.example/steal");
+
+  expect(resolved).toBe(
+    "https://sessions.example/api/artifacts/clip.mp4?preview=1&__omg_grant=short+lived%2B%2Ftoken",
+  );
+  expect(hostile).toStartWith("https://sessions.example/https://evil.example/steal?");
+  expect(new URL(hostile!).origin).toBe("https://sessions.example");
+  expect(grants).toEqual(["short lived+/token"]);
+});
+
 test("grant sockets keep terminal and live traffic inside the authenticated host boundary", async () => {
   RecordingWebSocket.calls = [];
   const grants: string[] = [];

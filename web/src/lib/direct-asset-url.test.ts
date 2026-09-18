@@ -11,7 +11,12 @@ import {
   type OmgTransport,
 } from "@omg-dev/client";
 
-import { configureOmgTransport, omgDirectUrl, selectDirectUrl } from "./omg-client";
+import {
+  configureOmgTransport,
+  omgDirectUrl,
+  resolveOmgDirectUrl,
+  selectDirectUrl,
+} from "./omg-client";
 
 /** The minimum a transport has to implement. */
 const base: OmgTransport = {
@@ -60,12 +65,16 @@ describe("the shipped transports", () => {
     expect(selectDirectUrl(transport, "api/artifacts/a.png")).toBe("/api/artifacts/a.png");
   });
 
-  test("the grant transport declines, because its credential is a header", () => {
+  test("the grant transport resolves a signed URL asynchronously", async () => {
     const transport = createGrantTransport({
       baseUrl: "https://box.example",
       getGrant: async () => ({ token: "t", expiresAt: Date.now() + 60_000 }),
     });
     expect(selectDirectUrl(transport, "/api/artifacts/a.png")).toBeNull();
+    configureOmgTransport(transport);
+    expect(await resolveOmgDirectUrl("/api/artifacts/a.png")).toBe(
+      "https://box.example/api/artifacts/a.png?__omg_grant=t",
+    );
   });
 });
 

@@ -77,6 +77,15 @@ export interface OmgTransport {
    */
   assetUrl?(path: string): string | null;
   /**
+   * Resolve a URL an element or native media player can load itself.
+   *
+   * This is asynchronous because an authenticated host can need to mint or
+   * refresh a short-lived grant before it can put a signed URL in `src`.
+   * Callers should prefer `assetUrl` when it returns a string, then try this,
+   * then fall back to moving the bytes through `fetch`.
+   */
+  resolveAssetUrl?(path: string): Promise<string | null>;
+  /**
    * Authenticated WebSocket access for application surfaces such as live
    * transcripts and terminals. Hosts own this boundary just like HTTP: an
    * embedded surface must never infer a socket origin from `location`.
@@ -299,6 +308,9 @@ export function createSameOriginTransport(
     assetUrl(path: string): string {
       return prefixed(path);
     },
+    async resolveAssetUrl(path: string): Promise<string> {
+      return prefixed(path);
+    },
     ...(XMLHttpRequestImpl
       ? {
           upload(
@@ -398,6 +410,14 @@ export function createGrantTransport(options: CreateGrantTransportOptions): OmgT
     // Deliberately null. Every request here carries a short-lived bearer grant,
     // and an `<img src>` cannot carry a header. Callers fall back to the blob.
     assetUrl: () => null,
+    async resolveAssetUrl(path: string): Promise<string> {
+      const current = await grant(false);
+      // Keep the credential on the configured session origin even if a buggy
+      // caller hands this boundary an absolute URL.
+      const url = new URL(`${baseUrl}${normalizedPath(path)}`);
+      url.searchParams.set("__omg_grant", current.token);
+      return url.toString();
+    },
     async request<T>(path: string, init: RequestInit = {}): Promise<T> {
       const response = await authenticatedFetch(path, init);
       const { data, text } = await readBody(response);

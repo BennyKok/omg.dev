@@ -5,21 +5,12 @@
  *
  * Every URL on a Computer is served by the session proxy behind
  * `Authorization: Bearer <grant>`, and a native player issues its own request.
- * expo-video CAN carry headers on a source, and that was the obvious route,
- * but the grant is deliberately short-lived and the transport deliberately
- * exposes no URL for exactly this reason -- `assetUrl` returns null and says
- * so. Handing a player a token to replay for the length of a video means
- * re-implementing refresh, and a token that expires mid-playback stalls the
- * picture with nothing to show for it.
- *
- * So the bytes come down to a FILE, and the player is pointed at a local path
- * that carries no auth at all. The download itself is native
- * (`File.downloadFileAsync` with the grant as a header for that one request;
- * see signedRequestFor in transport.ts): the first version pulled the whole
- * recording through `transport.fetch` into a JavaScript ArrayBuffer and wrote
- * it back out, which on a phone is seconds of main-thread work for a 20 MB
- * clip, on top of the transfer. That path is kept only as the fallback for a
- * transport this module cannot sign for.
+ * expo-video can carry headers on a source, but that would pin a bearer header
+ * inside the player. The hosted transport instead puts the existing signed,
+ * short-lived grant on the artifact URL. The proxy accepts it only on that
+ * read-only route and strips it before forwarding. expo-video can then request
+ * byte ranges itself and begin playback before the complete file is on disk.
+ * Older/custom transports fall back to the native file download.
  *
  * And nothing is downloaded until the user asks. What shows first is the
  * server's poster frame (`?preview=1` on a video artifact, a few KB), in the
@@ -184,7 +175,14 @@ export function RemoteVideo({
     // be the wrong answer to a question that is already settled.
     setUri(null);
     setFailed(false);
-    void download((p) => client.transport.fetch(p), bindingId, path, loaded.fs)
+    void (async () => {
+      const signed = bindingId ? await signedRequestFor(bindingId, path) : null;
+      const direct =
+        signed?.url ??
+        client.transport.assetUrl?.(path) ??
+        null;
+      return direct ?? download((p) => client.transport.fetch(p), bindingId, path, loaded.fs);
+    })()
       .then((local) => {
         if (!cancelled.current) setUri(local);
       })
