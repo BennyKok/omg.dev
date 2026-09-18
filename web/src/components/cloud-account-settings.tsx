@@ -53,12 +53,14 @@ export function CloudAccountSettingsSection({
               {status.signedIn ? "Signed in" : "Not signed in"}
             </span>
             <span className="block truncate text-xs text-muted-foreground">
-              {status.signedIn
-                ? (status.email ?? "omg Cloud account")
-                : "Sign in to see your cloud and connected computers here."}
+              {status.inherited
+                ? "This Computer uses the account that created it."
+                : status.signedIn
+                  ? (status.email ?? "omg Cloud account")
+                  : "Sign in to see your cloud and connected computers here."}
             </span>
           </span>
-          {status.signedIn ? (
+          {status.inherited ? null : status.signedIn ? (
             <button
               type="button"
               disabled={busy}

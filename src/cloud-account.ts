@@ -39,6 +39,12 @@ export type CloudCredentials = {
 
 export type CloudAccountStatus = {
   signedIn: boolean;
+  /**
+   * True when this process is a Cloud Computer with no token on disk.
+   * Outbound Cloud calls go through the Infra guest proxy, which attaches
+   * the binding owner's credential. Sign-in and sign-out are no-ops.
+   */
+  inherited: boolean;
   /** Best effort, read from the token's claims. Null for an opaque token. */
   email: string | null;
   expiresAt: number | null;
@@ -95,6 +101,12 @@ export interface CloudAccount {
   /** A usable access token, refreshed when close to expiry. Null when signed out. */
   getAccessToken(): Promise<string | null>;
   listComputers(): Promise<CloudComputerList>;
+  /**
+   * One Cloud HTTP call site. Attaches the local Bearer when a credential
+   * exists. With no credential the request still goes out, so a Computer
+   * proxy can inject the binding's token.
+   */
+  cloudFetch(path: string, init?: RequestInit): Promise<Response>;
 }
 
 export class CloudAccountError extends Error {
@@ -112,6 +124,7 @@ export class CloudAccountError extends Error {
 const DEFAULT_AUTH_URL = "https://auth.omg.dev";
 const DEFAULT_CONTROL_PLANE_URL = "https://backend.omg.dev";
 const DEFAULT_RESOURCE = "https://backend.omg.dev/api/cli";
+const GUEST_PROXY_HOST = "169.254.0.1";
 // omg:computer is what /api/cli/computer/* checks. The rest keeps the saved
 // credential interchangeable with the one `omg login` writes.
 const OAUTH_SCOPES = "openid email omg:apps omg:computer offline_access";
@@ -217,8 +230,47 @@ export function safeReturnTo(value: unknown): string {
   return trimmed;
 }
 
-export function cloudApiBaseUrl(): string {
-  return (process.env.OMG_API_URL?.trim() || DEFAULT_CONTROL_PLANE_URL).replace(/\/+$/, "");
+/**
+ * Guest Cloud origin used when this process is inside a Firecracker Computer.
+ *
+ * Infra injects `OMG_AI_URL=http://169.254.0.1:9090`. The same listener
+ * forwards `/cloud/api/cli/*` to backend.omg.dev and attaches the owner's
+ * credential. An explicit `OMG_API_URL` always wins, including on a Computer
+ * that has been pointed at a different control plane.
+ */
+export function guestCloudProxyUrl(env: NodeJS.ProcessEnv = process.env): string | null {
+  const explicit = env.OMG_API_URL?.trim();
+  if (explicit) return null;
+  const ai = env.OMG_AI_URL?.trim();
+  if (!ai) return null;
+  try {
+    const url = new URL(ai);
+    if (url.hostname !== GUEST_PROXY_HOST) return null;
+  } catch {
+    return null;
+  }
+  return `${ai.replace(/\/+$/, "")}/cloud`;
+}
+
+export function isInheritedCloudIdentity(
+  credentialPath = CLOUD_CREDENTIALS_PATH,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (loadCloudCredentials(credentialPath)) return false;
+  if (guestCloudProxyUrl(env) !== null) return true;
+  const api = env.OMG_API_URL?.trim();
+  if (!api) return false;
+  try {
+    return new URL(api).hostname === GUEST_PROXY_HOST;
+  } catch {
+    return false;
+  }
+}
+
+export function cloudApiBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
+  const explicit = env.OMG_API_URL?.trim();
+  if (explicit) return explicit.replace(/\/+$/, "");
+  return (guestCloudProxyUrl(env) ?? DEFAULT_CONTROL_PLANE_URL).replace(/\/+$/, "");
 }
 
 export function createCloudAccount(options: CloudAccountOptions = {}): CloudAccount {
@@ -323,8 +375,10 @@ export function createCloudAccount(options: CloudAccountOptions = {}): CloudAcco
   function status(): CloudAccountStatus {
     const creds = loadCloudCredentials(credentialPath);
     const live = creds && (!creds.expiresAt || creds.expiresAt > now() || Boolean(creds.refreshToken));
+    const inherited = !live && isInheritedCloudIdentity(credentialPath);
     return {
-      signedIn: Boolean(live),
+      signedIn: Boolean(live) || inherited,
+      inherited,
       email: creds ? tokenEmail(creds.token) : null,
       expiresAt: creds?.expiresAt ?? null,
       kind: creds?.kind ?? null,
@@ -336,9 +390,11 @@ export function createCloudAccount(options: CloudAccountOptions = {}): CloudAcco
 
   async function listComputers(): Promise<CloudComputerList> {
     const token = await getAccessToken();
-    if (!token) throw new CloudAccountError("Not signed in to omg Cloud.", 401);
+    if (!token && !status().inherited) throw new CloudAccountError("Not signed in to omg Cloud.", 401);
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (token) headers.Authorization = `Bearer ${token}`;
     const response = await fetchImpl(`${controlPlaneUrl}/api/cli/computer/status?passive=true`, {
-      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+      headers,
     });
     const text = await response.text().catch(() => "");
     let body: { computers?: unknown; defaultComputer?: unknown; error?: unknown } = {};
@@ -441,10 +497,22 @@ export function createCloudAccount(options: CloudAccountOptions = {}): CloudAcco
     });
   }
 
+  async function cloudFetch(path: string, init?: RequestInit): Promise<Response> {
+    const token = await getAccessToken();
+    const headers = new Headers(init?.headers);
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    if (!headers.has("Accept")) headers.set("Accept", "application/json");
+    const target = path.startsWith("http")
+      ? path
+      : `${controlPlaneUrl}${path.startsWith("/") ? path : `/${path}`}`;
+    return fetchImpl(target, { ...init, headers });
+  }
+
   return {
     status,
     getAccessToken,
     listComputers,
+    cloudFetch,
     async handleRequest(req, url) {
       const path = url.pathname;
       if (!path.startsWith("/api/cloud/")) return null;

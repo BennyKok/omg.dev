@@ -53,3 +53,21 @@ export {
   type MachineList,
   type SharedComputerBinding,
 } from "./control-plane";
+export {
+  CloudAppsError,
+  createCloudAppsClient,
+  deployPhaseOf,
+  isDeployDone,
+  isDeployFailed,
+  DEPLOY_DONE_PHASES,
+  DEPLOY_FAILED_PHASES,
+  type CloudAppRow,
+  type CloudAppsClient,
+  type CloudAppsOptions,
+  type CloudDeployResult,
+  type CloudDeploySourceInput,
+  type CloudDeployStatus,
+  type CloudSourceFile,
+  type CloudVisibility,
+  type CloudWhoami,
+} from "./apps";

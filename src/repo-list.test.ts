@@ -108,9 +108,20 @@ describe("buildRepoList", () => {
     expect(repos.find((r) => r.cwd === inside)?.custom).toBe(true);
   });
 
-  test("survives a missing repos root", async () => {
-    const repos = await build({ reposRoot: join(root, "does-not-exist") });
+  test("attaches a Cloud deploy URL from .omg/project.json", async () => {
+    const alpha = gitRepo(reposRoot, "alpha");
+    mkdirSync(join(alpha, ".omg"), { recursive: true });
+    writeFileSync(
+      join(alpha, ".omg", "project.json"),
+      `${JSON.stringify({ slug: "alpha", projectId: "p1", name: "alpha" }, null, 2)}\n`,
+    );
 
-    expect(repos.map((r) => r.name)).toEqual(["lfg"]);
+    const repos = await build();
+    expect(repos.find((r) => r.name === "alpha")?.deploy).toEqual({
+      slug: "alpha",
+      projectId: "p1",
+      name: "alpha",
+      url: "https://alpha.omgs.app",
+    });
   });
 });

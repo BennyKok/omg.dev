@@ -246,4 +246,21 @@ export type OmgTranscriptEvent =
   | { type: "prompt"; prompt: OmgSessionPrompt | null }
   | { type: "error"; error: string };
 
+/** Runtime action: publish a local folder through omg Cloud / Infra. */
+export interface OmgDeployStart {
+  cwd: string;
+  name?: string;
+  wait?: boolean;
+  generateIcon?: boolean;
+}
+
+export interface OmgDeployResult {
+  slug: string;
+  url: string;
+  status: string;
+  projectId: string;
+  runId: string;
+  dashboardUrl: string;
+}
+
 export * from "./session-mention-token.js";

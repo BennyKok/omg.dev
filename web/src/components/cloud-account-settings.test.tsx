@@ -130,4 +130,24 @@ describe("CloudAccountSettingsSection", () => {
     expect(calls.some((c) => c.url === "/api/cloud/logout" && c.init?.method === "POST")).toBe(true);
     expect(ui.text()).toContain("Not signed in");
   });
+
+  test("inherited Cloud identity hides sign-in and sign-out", async () => {
+    respond({
+      "/api/cloud/session": () =>
+        Response.json({
+          signedIn: true,
+          inherited: true,
+          email: null,
+          expiresAt: null,
+          kind: null,
+          authUrl: "https://auth.omg.dev",
+        }),
+      "/api/cloud/computers": () => Response.json({ computers: [], defaultComputer: "cloud" }),
+    });
+    ui.render(<CloudAccountSettingsSection />);
+    await ui.flushAsync();
+    expect(ui.text()).toContain("This Computer uses the account that created it.");
+    expect(ui.text()).not.toContain("Sign in");
+    expect(ui.text()).not.toContain("Sign out");
+  });
 });

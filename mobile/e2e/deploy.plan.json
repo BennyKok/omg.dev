@@ -1,0 +1,29 @@
+{
+  "appId": "dev.omg.computer",
+  "steps": [
+    {
+      "name": "01 Home",
+      "goal": "Be on the home session list with the composer visible",
+      "done": "Home is showing and the composer can dictate a message",
+      "expect": [
+        "Dictate a prompt"
+      ]
+    },
+    {
+      "name": "02 Folders sheet",
+      "goal": "Open the folder arrangement sheet. Long-press a folder pill on the home rail, or use the folders control that opens the same sheet.",
+      "done": "The Folders sheet is open and lists at least one project folder",
+      "expect": [
+        "Folders"
+      ]
+    },
+    {
+      "name": "03 Deploy row",
+      "goal": "Find the Deploy control on a folder row. Do not tap it. Confirm the row can publish that folder.",
+      "done": "A Deploy or Redeploy control is visible on a folder row",
+      "expect": [
+        "Deploy"
+      ]
+    }
+  ]
+}

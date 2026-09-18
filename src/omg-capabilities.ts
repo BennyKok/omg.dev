@@ -4,7 +4,7 @@ import { DEFAULT_MAX_BOT_SCHEDULES } from "./settings.ts";
 // Bump whenever an agent-facing omg.dev capability or its operating guidance
 // changes. Managed sessions persist the value they launched with, which lets
 // the UI identify long-lived sessions whose MCP/tool catalog predates a ship.
-export const OMG_CAPABILITY_VERSION = "2026-09-01.1";
+export const OMG_CAPABILITY_VERSION = "2026-09-18.1";
 
 export const OMG_CAPABILITIES = [
   {
@@ -18,6 +18,12 @@ export const OMG_CAPABILITIES = [
     useWhen: "The assigned task is finished and its result has been verified.",
     guidance:
       "This is how finished work reaches the human — a session that never ships is invisible. Post a headline, a tweet-length result and the strongest evidence. Posting does not close the session. Never ship planning, partial, or blocked work.",
+  },
+  {
+    tool: "omg_deploy / omg_apps / omg_whoami / omg_app_visibility",
+    useWhen: "A project folder must be published to omg Infra, listed, or have its URL visibility changed.",
+    guidance:
+      "These verbs inherit the runtime Cloud credential. A local box uses ~/.omg/credentials.json. A Cloud Computer gets the binding token from Infra. Do not ask the user to paste a token. omg_ship is a feed post, not a deploy.",
   },
   {
     tool: "omg_display_image / omg_display_video / omg_display_file",
@@ -74,6 +80,7 @@ export const OMG_MCP_INSTRUCTIONS = [
   "In a task session, publish every verified result with omg_ship; work that is never shipped never reaches the human. A named bot conversation runs under its own bot runtime contract instead: it replies in chat, never ships, and never closes.",
   "Decide autonomously; use omg_input only for a genuinely irreversible, risky, or ambiguous decision. Use omg.dev-managed delegation only when delegation is explicitly requested.",
   "Recurring scheduled work belongs to the auto agent tools (omg_list_auto_agents, omg_compose_auto_agent, omg_save_auto_agent, omg_run_auto_agent, omg_list_findings).",
+  "Hosted apps use omg_deploy, omg_apps, omg_whoami, and omg_app_visibility; the runtime supplies the Cloud credential.",
   `Session ids are returned in short form (${SHORT_SESSION_ID_LENGTH}-char prefix, like a git short sha). Pass them back exactly as given — any unambiguous prefix resolves to the full id.`,
 ].join(" ");
 

@@ -12,6 +12,12 @@ Usage:
   omg update [--check]             Update to the latest release and restart
   omg doctor [--json]              Print a shareable diagnostic for bug reports
   omg uninstall [--purge --yes]    Remove omg.dev (preserves sessions/config by default)
+  omg login [--api-key KEY]        Sign in to omg Cloud
+  omg whoami                       Show the Cloud account
+  omg deploy [--name NAME]         Publish the current directory to *.omgs.app
+  omg apps                         List hosted apps
+  omg visibility <slug> [public|omg-users]
+  omg env list|pull|set|rm|import <slug> ...
 
 Env (read from process env / .env, see .env.example):
   OMG_PORT, OMG_HOST, OMG_REPOS_ROOT  (the older LFG_* spellings still work)
@@ -103,6 +109,21 @@ async function main() {
     case "projects": {
       const { cmdProjects } = await import("./commands/projects.ts");
       return await cmdProjects(rest);
+    }
+    case "login":
+    case "logout":
+    case "whoami":
+    case "deploy":
+    case "create":
+    case "apps":
+    case "visibility":
+    case "env":
+    case "dev":
+    case "link": {
+      const { cmdApps } = await import("./commands/apps.ts");
+      const code = await cmdApps([cmd, ...rest]);
+      if (code !== 0) process.exit(code);
+      return;
     }
     case "setup": {
       const { cmdSetup } = await import("./commands/setup.ts");
