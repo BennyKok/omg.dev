@@ -186,9 +186,25 @@ export async function runPlan(opts: {
 }): Promise<{ ok: boolean; steps: StepResult[]; mcpStartMs: number }> {
   const log = opts.log ?? ((l: string) => console.log(l));
   const t0 = Date.now();
-  const mcp: McpSession = await openMaestroMcp(opts.host, opts.remoteEnv, opts.udid);
+  let mcp: McpSession = await openMaestroMcp(opts.host, opts.remoteEnv, opts.udid);
   const mcpStartMs = Date.now() - t0;
   log(`maestro mcp ready in ${(mcpStartMs / 1000).toFixed(1)}s`);
+  /**
+   * One dropped call is not a verdict. The Mac is a laptop on a tailnet; on
+   * 2026-09-18 it went offline for minutes in the middle of a run and the
+   * pending inspect timed out. Reopen the session and look again, once.
+   * A second failure in a row is reported as the step's failure, by name.
+   */
+  const look = async (): Promise<any> => {
+    try {
+      return await mcp.inspect();
+    } catch (e) {
+      log(`  inspect failed (${e instanceof Error ? e.message : e}); reopening maestro mcp`);
+      mcp.close();
+      mcp = await openMaestroMcp(opts.host, opts.remoteEnv, opts.udid);
+      return await mcp.inspect();
+    }
+  };
   const header = `appId: ${opts.plan.appId}\n---\n`;
   const results: StepResult[] = [];
   const sub = (s: string) => s.replace(/\$\{(\w+)\}/g, (_, k) => opts.vars[k] ?? "");
@@ -210,7 +226,13 @@ export async function runPlan(opts: {
       let verdict: StepResult | null = null;
 
       while (!verdict) {
-        const tree = await mcp.inspect();
+        let tree: any;
+        try {
+          tree = await look();
+        } catch (e) {
+          verdict = { name: step.name, status: "fail", at: Date.now(), looks, detail: `device unreachable: ${e instanceof Error ? e.message : e}` };
+          break;
+        }
         looks++;
         const { list, text } = candidates(tree);
         const exact = (step.expect ?? []).filter((w) => !hasText(text, w));

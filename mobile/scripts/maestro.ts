@@ -262,7 +262,9 @@ async function runJevPlan(udid: string, name: string): Promise<number> {
   const recordingStartedAt = Date.now();
   const started = new Date();
   const t0 = Date.now();
-  const result = await runPlan({
+  let result: Awaited<ReturnType<typeof runPlan>>;
+  try {
+    result = await runPlan({
     host: HOST,
     remoteEnv: REMOTE_ENV,
     udid,
@@ -274,7 +276,13 @@ async function runJevPlan(udid: string, name: string): Promise<number> {
       console.log(`  sign-in code arrived (${date})`);
       return code;
     },
-  });
+    });
+  } catch (e) {
+    // The recorder must not outlive the run: a capture left running answers
+    // "already in progress" to the next run on this device.
+    if (recording) await recording.stop(`${name}-capture`).catch(() => null);
+    throw e;
+  }
   const total = ((Date.now() - t0) / 1000).toFixed(1);
   console.log(`\n${result.ok ? "GREEN" : "RED"}: ${result.steps.filter((s) => s.status === "pass").length}/${plan.steps.length} steps in ${total}s (maestro start ${(result.mcpStartMs / 1000).toFixed(1)}s)`);
   if (recording) {
