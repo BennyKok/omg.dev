@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## September 18, 2026 - Deploy a project from the client (v0.6.73)
+
+- Web and iOS can publish a project folder to `*.omgs.app`. Open the project or folder sheet and use Deploy. The same URL stays on the row after a republish.
+- `omg deploy`, `omg apps`, `omg whoami`, `omg visibility`, and `omg env` now run on this runtime. Agents get matching MCP tools. The old `@omg-dev/cli` 0.4.42 download is gone.
+- A Cloud Computer does not store a user token. Cloud calls go through the guest proxy so Infra can attach the owner's credential. `omg login` on that Computer is a no-op.
+- The iOS usage ring now lists each Claude profile with its own windows instead of one merged card.
+
 ## September 18, 2026 - Hosted videos start without a full download (v0.6.72)
 
 - Transcript videos on the web and iOS now use short-lived signed artifact URLs. The browser and native player can request byte ranges and start playback before the complete recording downloads.
