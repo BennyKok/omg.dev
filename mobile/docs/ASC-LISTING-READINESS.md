@@ -24,6 +24,39 @@ This picks up from a session that died mid-task (`c9f1c9c1`) after it had
 already verified Build 24/25 state and set two fields (Content Rights,
 Subtitle). That state was independently re-verified here, not re-done.
 
+## 2026-09-18 — build 53 attached to 1.0.10, reviewer flow proven
+
+Read live from the App Store Connect API on 2026-09-18, not carried forward.
+
+- **Version 1.0.10**: `PREPARE_FOR_SUBMISSION`, manual release, **build 53**
+  attached. 53 was built by the `mobile-release` workflow (run
+  `35330488230`) from `main` at `f621353bb`, then submitted by `eas submit`.
+  It is the first build that carries everything after build 52: demo mode,
+  the video poster fix, transcript video work, the plan-page and sign-in
+  changes.
+- **Metadata**: description, keywords, support and marketing URL, What's New,
+  4 iPhone 6.7 screenshots and 3 iPad 12.9 screenshots all present and
+  `COMPLETE`. Export compliance needs no per-build answer, because
+  `app.json` declares `ITSAppUsesNonExemptEncryption: false`.
+- **Subscriptions**: 4, all `APPROVED`.
+- **Review notes, Guideline 2.3.1**: the Demo mode switch in Settings is
+  revealed in a release build by seven taps on the version footer
+  (`mobile/app/settings.tsx`). That is a hidden feature, so a paragraph
+  describing it was appended to the version's review notes and read back from
+  the API.
+- **Reviewer flow, run end to end**: `bun run test:e2e --plan reviewer
+  --record` is GREEN, 11/11 in 53.5s, against `main`. It signs in as the demo
+  account with the fixed code, agrees to the data notice, and reaches a
+  POPULATED session list. The 2026-09-17 empty-list bug fails that plan by
+  name through `forbid: ["No sessions yet"]`.
+
+**Still open, unchanged**: the task a reviewer picks in step 03 is discarded,
+because the demo account is `established` and the gate skips steps 04 to 06.
+Benny has the decision. Do not special-case the review account.
+
+**Not done**: nothing was submitted for review. The version is one button from
+it.
+
 ## Build 24 / Build 25 — re-verified
 
 - **Build 24**: now **`Approved`** (was `Waiting for Review` earlier the same
