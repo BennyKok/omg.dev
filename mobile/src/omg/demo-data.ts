@@ -293,6 +293,48 @@ function demoSocket() {
   return socket as unknown as Awaited<ReturnType<OmgTransport["openSocket"]>>;
 }
 
+/** Two Claude logins so the usage drawer has a profile to name, not one merged ring. */
+function demoUsageProviders() {
+  const t = now();
+  return [
+    {
+      id: "claude:one",
+      kind: "claude",
+      label: "Claude 1",
+      accountLabel: "Claude 1",
+      available: true,
+      plan: "Max",
+      windows: [
+        { label: "7 day", pct: 42, resetsAt: t + 2 * 24 * HOUR },
+        { label: "5 hr", pct: 18, resetsAt: t + 3 * HOUR },
+      ],
+    },
+    {
+      id: "claude:two",
+      kind: "claude",
+      label: "Claude 2",
+      accountLabel: "Claude 2",
+      available: true,
+      plan: "Pro",
+      windows: [
+        { label: "7 day", pct: 81, resetsAt: t + 4 * 24 * HOUR },
+        { label: "5 hr", pct: 55, resetsAt: t + HOUR },
+      ],
+    },
+    {
+      id: "codex",
+      kind: "codex",
+      label: "Codex",
+      available: true,
+      plan: "Plus",
+      windows: [
+        { label: "Weekly", pct: 30, resetsAt: t + 3 * 24 * HOUR },
+        { label: "5 hr", pct: 12, resetsAt: t + 4 * HOUR },
+      ],
+    },
+  ];
+}
+
 /** Route a path to its seeded body. Returns null for an unknown path. */
 function answer(path: string): unknown | null {
   const clean = path.split("?")[0];
@@ -303,6 +345,19 @@ function answer(path: string): unknown | null {
   if (clean === "/api/bots") return demoBots();
   if (clean === "/api/auto/agents") return demoAutoAgents();
   if (clean === "/api/auto/findings") return demoAutoFindings();
+  if (clean === "/api/usage") return { providers: demoUsageProviders() };
+  if (clean === "/api/usage/summary") return { providers: demoUsageProviders() };
+  if (clean === "/api/usage/providers") {
+    return {
+      providers: demoUsageProviders().map(({ id, kind, label }) => ({ id, kind, label })),
+    };
+  }
+  const usageOne = clean.match(/^\/api\/usage\/(.+)$/);
+  if (usageOne) {
+    const id = decodeURIComponent(usageOne[1]);
+    const provider = demoUsageProviders().find((entry) => entry.id === id);
+    return provider ? { provider } : {};
+  }
   const messages = clean.match(/^\/api\/sessions\/([^/]+)\/messages$/);
   if (messages) return { messages: demoMessages(decodeURIComponent(messages[1])) };
   // Writes (send / interrupt / toggles) succeed silently — demo mode never

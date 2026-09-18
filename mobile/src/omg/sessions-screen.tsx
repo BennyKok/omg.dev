@@ -375,10 +375,8 @@ export function SessionsScreen({
   // No session exists yet, so these upload to the pre-session endpoint and
   // ride along in the prompt that creates one.
   const attachments = useAttachments(null);
-  // Already one entry per agent rather than per login: the machine folds them
-  // now (`/api/usage/summary`), and useUsage only does it itself when talking
-  // to a box too old to have that endpoint.
-  const { providers: usage, loading: usageLoading } = useUsage();
+  // Rings fold logins of one agent. The details drawer lists each login.
+  const { providers: usage, accounts: usageAccounts, loading: usageLoading } = useUsage();
   const {
     agents: autoAgents,
     findings: autoFindings,
@@ -1370,6 +1368,7 @@ export function SessionsScreen({
       attachments={attachments}
       dictation={dictation}
       usage={usage}
+      usageAccounts={usageAccounts}
       usageLoading={usageLoading}
       bottomInset={wide ? 0 : insets.bottom}
     />

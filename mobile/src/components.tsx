@@ -40,6 +40,7 @@ import type { Attachment } from "./omg/attachments";
 import { GlassSurface, LIQUID_GLASS } from "./omg/glass";
 import { LucideIcon, type LucideName } from "./omg/lucide";
 import {
+  detailsForKind,
   orderWindows,
   providerKindForAgent,
   type ProviderUsage,
@@ -1020,6 +1021,7 @@ export function HomeComposer({
   attachments,
   dictation,
   usage = [],
+  usageAccounts = [],
   usageLoading,
   bottomInset = 0,
 }: {
@@ -1062,6 +1064,8 @@ export function HomeComposer({
   };
   /** Rate-limit windows, one ring each. Empty until the machine answers. */
   usage?: ProviderUsage[];
+  /** Unmerged logins, for the ring's details drawer. */
+  usageAccounts?: ProviderUsage[];
   /** Still asking. Draws a spinner where the rings will be. */
   usageLoading?: boolean;
   bottomInset?: number;
@@ -1390,7 +1394,7 @@ export function HomeComposer({
         fastMode={fastMode}
         onToggleFast={onToggleFast}
         initialPage={setupPage}
-        usageDetails={<UsageDetails providers={usage.filter(provider => provider.kind === providerKindForAgent(agent))} />}
+        usageDetails={<UsageDetails providers={detailsForKind(providerKindForAgent(agent), usageAccounts, usage)} />}
         usageRing={
           agentUsage ? (
             <UsageRings
@@ -1593,8 +1597,8 @@ export function HomeComposer({
         title={usageSheet === "all" ? "All agents" : "Usage"}
         providers={
           usageSheet === "all"
-            ? usage
-            : usage.filter((provider) => provider.kind === providerKindForAgent(agent))
+            ? (usageAccounts.length ? usageAccounts : usage)
+            : detailsForKind(providerKindForAgent(agent), usageAccounts, usage)
         }
         onClose={() => setUsageSheet(null)}
       />
@@ -2159,10 +2163,14 @@ export function UsageDetails({ providers }: { providers: ProviderUsage[] }) {
                   backgroundColor: colors.card,
                 }}
               >
-                <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+                <View
+                  testID={`usage-profile-${provider.id}`}
+                  accessibilityLabel={`${provider.accountLabel || provider.label} usage`}
+                  style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}
+                >
                   <AgentAvatar agent={provider.kind} size={18} plain />
                   <Text style={{ ...type.subhead, fontWeight: "600", color: colors.text }}>
-                    {provider.label}
+                    {provider.accountLabel || provider.label}
                   </Text>
                   {provider.plan ? (
                     <View

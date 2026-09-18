@@ -136,11 +136,12 @@ test('usage ring opens one detail page with reset information and a return path'
  const ui=mount();
  try {
   ui.render(<AgentSetupSheet visible onClose={()=>{}} agentOptions={[{label:'Claude'}]} usageRing={<span>ring</span>}
-   usageDetails={<span>Weekly · Next reset in 2d</span>}/>);
+   usageDetails={<span>Claude 1 · 42% Claude 2 · 81%</span>}/>);
   ui.flush(()=>(ui.query('[aria-label="Usage and next resets"]') as HTMLElement).click());
-  expect(ui.text()).toContain('Weekly · Next reset in 2d');
+  expect(ui.text()).toContain('Claude 1');
+  expect(ui.text()).toContain('Claude 2');
   ui.flush(()=>(ui.query('[aria-label="Back to agent controls"]') as HTMLElement).click());
-  expect(ui.text()).not.toContain('Weekly');
+  expect(ui.text()).not.toContain('Claude 1');
   expect(ui.text()).toContain('Claude');
  } finally {ui.cleanup();}
 });

@@ -124,23 +124,42 @@ export function peakPct(provider: ProviderUsage): number | null {
 }
 
 /**
+ * What the usage drawer lists for one agent.
+ *
+ * The ring is one reading per family. The drawer is the place that names each
+ * login, so when the machine sent per-account rows we show those, and we only
+ * fall back to the folded family when that list is empty (an old `/summary`
+ * response, or a box that never answered `/api/usage`).
+ */
+export function detailsForKind(
+  kind: string,
+  accounts: ProviderUsage[],
+  merged: ProviderUsage[],
+): ProviderUsage[] {
+  const perAccount = accounts.filter((provider) => provider.kind === kind);
+  if (perAccount.length) return perAccount;
+  return merged.filter((provider) => provider.kind === kind);
+}
+
+/**
  * ONE REQUEST WHEN THE MACHINE CAN DO IT, N+1 ONLY WHEN IT CANNOT.
  *
- * The old shape was a directory read plus a request PER LOGIN, and then the
- * phone folded them itself. Three Claude accounts meant four round trips over
- * whatever cell connection you happen to be on, to draw two circles — and the
- * folding rule lived in two places (here and web/src/lib/usage.ts), which is
- * the kind of duplication that ends with two surfaces disagreeing about how
- * full the same account is.
+ * `/api/usage` is the unmerged directory: one row per Claude login, which the
+ * details drawer needs. The ring still folds them with `mergeByKind`, the same
+ * rule `/api/usage/summary` uses, so a phone and the web keep agreeing.
  *
- * `/api/usage/summary` is that rule, on the machine, next to the data it
- * describes. The old path stays as a fallback because a phone updates through
- * TestFlight and a machine updates when its owner pulls: the two are never in
- * step, and a ring that vanishes for a week is a regression to the person
- * looking at it.
+ * Summary stays as a fallback for a box that 404s the older combined endpoint
+ * or answers it without a `providers` array (demo stubs, mid-restart). The
+ * per-account walk is last because three Claude accounts meant four round
+ * trips over a cell connection to draw two circles.
  */
 export function useUsage(): {
   providers: ProviderUsage[];
+  /**
+   * Unmerged sources, one per login. Empty when the machine only answered
+   * with a family summary, in which case the drawer shows that summary.
+   */
+  accounts: ProviderUsage[];
   /**
    * A read is in flight and nothing has arrived yet.
    *
@@ -155,6 +174,7 @@ export function useUsage(): {
 } {
   const { client } = useOmg();
   const [providers, setProviders] = useState<ProviderUsage[]>([]);
+  const [accounts, setAccounts] = useState<ProviderUsage[]>([]);
   const [loading, setLoading] = useState(true);
   const [tick, setTick] = useState(0);
 
@@ -167,16 +187,31 @@ export function useUsage(): {
 
     void (async () => {
       try {
+        const all = await client.transport.request<{ providers?: ProviderUsage[] }>(
+          "/api/usage",
+        );
+        if (cancelled) return;
+        if (Array.isArray(all.providers)) {
+          setAccounts(all.providers);
+          setProviders(mergeByKind(all.providers));
+          setLoading(false);
+          return;
+        }
+      } catch {
+        // Falls through. An old machine 404s; a stub may omit `providers`.
+      }
+
+      try {
         const merged = await client.transport.request<{ providers?: ProviderUsage[] }>(
           "/api/usage/summary",
         );
         if (cancelled) return;
+        setAccounts([]);
         setProviders(merged.providers ?? []);
         setLoading(false);
         return;
       } catch {
-        // Falls through to the per-account walk below. Any failure counts:
-        // an old machine 404s, and one that is mid-restart can 502.
+        // Falls through to the per-account walk below.
       }
 
       try {
@@ -206,6 +241,7 @@ export function useUsage(): {
               .then((payload) => {
                 if (cancelled || !payload.provider) return;
                 landed.push(payload.provider);
+                setAccounts([...landed]);
                 setProviders(mergeByKind(landed));
               })
               .catch(() => null),
@@ -214,7 +250,10 @@ export function useUsage(): {
       } catch {
         // A machine that cannot answer leaves the row empty rather than
         // showing rings full of nothing.
-        if (!cancelled) setProviders([]);
+        if (!cancelled) {
+          setAccounts([]);
+          setProviders([]);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -232,7 +271,7 @@ export function useUsage(): {
     return () => clearInterval(timer);
   }, [refresh]);
 
-  return { providers, loading, refresh };
+  return { providers, accounts, loading, refresh };
 }
 
 /**

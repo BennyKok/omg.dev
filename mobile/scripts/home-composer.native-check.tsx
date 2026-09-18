@@ -30,7 +30,7 @@ local('text.tsx',{Text:View,TextInput:(props:any)=>{input=props;return <textarea
 local('agent-icons.ts',{agentIcon:()=>null});
 local('glass.tsx',{GlassSurface:View,LIQUID_GLASS:false});
 local('lucide.tsx',{LucideIcon:()=>null});
-local('usage.ts',{orderWindows:(x:any)=>x,providerKindForAgent:()=>undefined});
+local('usage.ts',{orderWindows:(x:any)=>x,providerKindForAgent:()=>undefined,detailsForKind:(_k:any,accounts:any,merged:any)=>accounts.length?accounts:merged});
 local('menu.tsx',{DropdownMenu:View});
 local('agent-setup-sheet.tsx',{AgentSetupSheet:()=>null});
 local('skill-suggest.tsx',{SkillSuggest:()=>null});

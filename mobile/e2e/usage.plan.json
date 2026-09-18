@@ -1,0 +1,32 @@
+{
+  "appId": "dev.omg.computer",
+  "steps": [
+    {
+      "name": "01 Home",
+      "goal": "Be on the home session list with the composer visible",
+      "done": "Home is showing and the composer can dictate a message",
+      "expect": [
+        "Dictate a prompt"
+      ]
+    },
+    {
+      "name": "02 Agent sheet",
+      "goal": "Tap the button labelled Claude Code, default model, default thinking. Change. Do not tap the prompt field or the keyboard.",
+      "done": "The agent sheet is open and the usage ring control is on screen",
+      "expect": [
+        "Usage and next resets"
+      ]
+    },
+    {
+      "name": "03 Usage profiles",
+      "goal": "Open usage details from the ring and see each Claude profile listed with its own windows",
+      "done": "The usage page lists Claude 1 and Claude 2 with their own percentages, not one merged card",
+      "expect": [
+        "Claude 1",
+        "Claude 2",
+        "7 day",
+        "5 hr"
+      ]
+    }
+  ]
+}
