@@ -8,6 +8,7 @@ lock on the shared Mac.
 
 ```bash
 bun run test:e2e --plan onboarding --record
+bun run test:e2e --build --plan onboarding --record
 bun run test:e2e --install <EAS tar.gz url or .app path> --plan onboarding --record
 ```
 
@@ -28,8 +29,11 @@ Each onboarding run signs up a new plus-alias of `OMG_E2E_MAILBOX` (default
 `itechbenny@gmail.com`) and provisions a new hosted Computer. Nothing removes
 them: account deletion finishes in the browser. Expect the accounts to pile up.
 
-Plans need the `simulator-release` build, not the dev client: `launchApp`
-with `clearState` is what puts every run at step 01.
+Plans need a release build, not the dev client: `launchApp` with `clearState`
+is what puts every run at step 01. `--build` makes one with Xcode on the Mac
+(`scripts/e2e-build.ts`), about 45 seconds when the native project is warm.
+`eas build --profile simulator-release --platform ios` produces the same thing
+in about ten minutes and is the fallback.
 
 ## Static flows
 
@@ -60,7 +64,8 @@ and useless in CI.
 installed on the device:
 
 ```bash
-eas build --profile simulator-release --platform ios
+bun run test:e2e --build          # Xcode on the Mac, about 45s warm
+eas build --profile simulator-release --platform ios   # the fallback, about 10 min
 ```
 
 Add `launchApp` at that point, not before.

@@ -134,7 +134,8 @@ that shipped a grey screen and a broken nav bar.
 ```bash
 cd mobile
 bun run test:e2e --plan onboarding --record          # THE proof: Jev-judged plan + step video
-bun run test:e2e --install URL --plan onboarding --record   # same, on a fresh simulator-release build
+bun run test:e2e --build --plan onboarding --record   # build the app on the Mac first, then prove it
+bun run test:e2e --install URL --plan onboarding --record   # same, on an EAS simulator-release artifact
 bun run test:e2e --inspect                           # print the current screen's elements
 bun run test:e2e --flow smoke --record               # a static Maestro flow, maestro record --local
 ```
@@ -145,10 +146,33 @@ takes an exclusive lock on the shared Mac, and releases it in a `finally`.
 **Every feature change is proven by a `--plan` run with a step for the change,
 and the video goes with the ship.** Benny's rule, 2026-09-17, made the default
 on 2026-09-18. A hand-driven tap session is not proof. For onboarding that
-means `--plan onboarding --record` on a `simulator-release` build that
-contains the change (`eas build --profile simulator-release --platform ios`,
-about ten minutes; the release build embeds the bundle). Add the step, or the
+means `--plan onboarding --record` on a release build that contains the
+change. Use `--build`: Xcode on the Mac, about 45 seconds once the native
+project is warm, against about ten minutes plus a queue for
+`eas build --profile simulator-release --platform ios`. Add the step, or the
 `expect` strings, in the same commit as the change.
+
+### `--build`: the app comes from the Mac, not from EAS
+
+`scripts/e2e-build.ts` rsyncs `mobile/` and `packages/protocol/src` to
+`~/.omg-e2e-src` on the Mac, runs `bun install`, and builds with
+`xcodebuild -sdk iphonesimulator -configuration Release`. The result is the
+same product as the `simulator-release` profile: unsigned, bundle embedded, no
+dev client to pop over the app. `maestro.ts --build` installs it and runs the
+plan.
+
+- It builds BEFORE it takes the device lock. A build touches no simulator.
+- The native project (`ios/`) and DerivedData stay between runs. That is the
+  whole speed: the first build is minutes, later ones are the bundle phase.
+  `expo prebuild` runs only when `ios/` is absent, because it rewrites the
+  project and throws DerivedData away.
+- Do NOT use `expo run:ios --device <udid>`. It reads a simulator UDID as a
+  physical device and stops on "No code signing certificates are available".
+- The Mac needs node >= 20.19.4 for Expo. `~/.bun/bin/node` is bun's shim and
+  shadows the real one, so the script puts the highest `~/.nvm` version in
+  front of `PATH` itself.
+- EAS stays the path for TestFlight and for a machine that cannot reach the
+  Mac.
 
 ### Plans, not flows: how the Jev runner works
 

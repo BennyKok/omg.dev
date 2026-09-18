@@ -31,6 +31,7 @@
  *   bun run test:e2e --inspect            print the current screen's elements
  *   bun run test:e2e --flow onboarding    fresh install -> sign-in code from Gmail -> home
  *   bun run test:e2e --install URL        install a simulator build (EAS tar.gz url or .app path on the Mac)
+ *   bun run test:e2e --build              build the release simulator app on the Mac with Xcode, then install it
  *   bun run test:e2e --plan onboarding --record
  *                                         the default proof: Jev judges each step, side-by-side video
  */
@@ -344,10 +345,14 @@ async function startRecording(udid: string) {
 async function main() {
   if (has("help")) {
     console.log(
-      "bun run test:e2e [--plan NAME] [--flow NAME|onboarding] [--record] [--inspect] [--install URL|PATH] [--device NAME]",
+      "bun run test:e2e [--plan NAME] [--flow NAME|onboarding] [--record] [--inspect] [--build] [--install URL|PATH] [--device NAME]",
     );
     return 0;
   }
+
+  // The build touches no device, so it runs BEFORE the lock. A first build is
+  // several minutes and nobody else should wait on the simulator for it.
+  const built = has("build") ? await (await import("./e2e-build.ts")).buildSimulatorApp() : undefined;
 
   const udid = await resolveUdid();
   const release = await lock(udid);
@@ -357,7 +362,10 @@ async function main() {
       return 0;
     }
 
-    const install = arg("install");
+    // --build is the cheap path to a fresh simulator-release app: Xcode on
+    // the Mac, incremental, instead of a ten-minute EAS job. It ends with an
+    // .app path, which is exactly what --install takes.
+    const install = built ?? arg("install");
     if (install) {
       await installApp(udid, install);
       if (!arg("flow") && !arg("plan")) return 0;
