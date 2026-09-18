@@ -16,11 +16,12 @@ import Constants from "expo-constants";
 import {
   Alert,
   Linking,
+  Pressable,
   ScrollView,
   Switch,
   View,
 } from "react-native";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Text } from "../src/omg/text";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -113,6 +114,20 @@ export default function SettingsScreen() {
   const { user, client, signOut, bindings, sharedComputers, bindingId, cloud } = useOmg();
   const demo = useDemoMode();
   const router = useRouter();
+
+  // The Demo mode toggle fills the app with fake data, which is exactly wrong
+  // for a real user and exactly right for an App Store screenshot. So it is
+  // hidden behind the version footer: dev builds show it outright, and a
+  // release build reveals it after seven taps — the same gesture Android uses
+  // for its build number, chosen because nobody reaches it by accident. Once
+  // demo mode is already on (env or a prior unlock), the section stays shown.
+  const [devUnlocked, setDevUnlocked] = useState(__DEV__ || demo.value);
+  const versionTaps = useRef(0);
+  const revealDeveloper = useCallback(() => {
+    if (devUnlocked) return;
+    versionTaps.current += 1;
+    if (versionTaps.current >= 7) setDevUnlocked(true);
+  }, [devUnlocked]);
 
   const current = bindings.find((b) => b.id === bindingId);
   const currentShared = sharedComputers.find((c) => c.id === bindingId);
@@ -406,7 +421,7 @@ export default function SettingsScreen() {
         </Row>
       </Card>
 
-      {__DEV__ ? (
+      {devUnlocked ? (
         <>
           <SectionLabel>Developer</SectionLabel>
           <Card>
@@ -463,16 +478,19 @@ export default function SettingsScreen() {
         ))}
       </Card>
 
-      <Text
-        style={{
-          ...type.caption,
-          color: colors.textMuted,
-          textAlign: "center",
-          paddingTop: space.xl,
-        }}
-      >
-        omg {Constants.expoConfig?.version ?? "1.0.0"}
-      </Text>
+      <Pressable onPress={revealDeveloper}>
+        <Text
+          style={{
+            ...type.caption,
+            color: colors.textMuted,
+            textAlign: "center",
+            paddingTop: space.xl,
+          }}
+        >
+          omg {Constants.expoConfig?.version ?? "1.0.0"}
+          {devUnlocked ? " · developer" : ""}
+        </Text>
+      </Pressable>
     </ScrollView>
   );
 }
