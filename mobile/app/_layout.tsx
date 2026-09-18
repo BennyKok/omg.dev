@@ -23,6 +23,7 @@ import { LaunchBackdrop, LaunchScreen } from "../src/omg/launch";
 import { useLucideFont } from "../src/omg/lucide";
 
 import { OmgProvider, useOmg } from "../src/omg/provider";
+import { loadDemoMode } from "../src/omg/demo";
 import { AgentVillageWidgetBridge } from "../src/omg/village-widget-bridge";
 import { AgentLiveActivityBridge } from "../src/omg/agent-live-activity";
 import { OnboardingAfterSignIn } from "../src/omg/onboarding-after";
@@ -789,6 +790,15 @@ export default function Layout() {
   // Fetch and apply a published update on launch and on return from a pause.
   useOtaUpdates();
   const { isDark } = useTheme();
+  // Fold the persisted demo-mode override into the synchronous cache BEFORE the
+  // provider mounts, so its first refreshSession/refreshMachines already knows
+  // whether this is a demo session. The env flag resolves this instantly; a
+  // stored toggle is one AsyncStorage read. See demo.ts.
+  const [demoReady, setDemoReady] = useState(false);
+  useEffect(() => {
+    void loadDemoMode().finally(() => setDemoReady(true));
+  }, []);
+  if (!demoReady) return null;
   return (
     <OmgProvider>
       <AgentLiveActivityBridge />

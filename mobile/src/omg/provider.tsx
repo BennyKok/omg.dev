@@ -24,6 +24,7 @@ import { AppState, StyleSheet, View } from "react-native";
 
 import { CLOUD_BINDING_ID, CONTROLPLANE_ORIGIN, STORAGE_KEYS } from "./config";
 import { getAuthToken, getSession, signOut as authSignOut, type SignedInUser } from "./auth";
+import { DEMO_BINDING, DEMO_USER, isDemoMode } from "./demo";
 import { forgetAllTransports, getHostedTransport } from "./transport";
 import { registerSessionRefResolver } from "./session-ref-link";
 import { unregisterForPushNotifications } from "./push";
@@ -218,6 +219,13 @@ export function OmgProvider({ children }: PropsWithChildren) {
   const [readiness, setReadiness] = useState<ComputerReadiness | null>(null);
 
   const refreshSession = useCallback(async () => {
+    // Demo mode is signed into a fixed fake account, and never touches the
+    // real auth jar. See demo.ts.
+    if (isDemoMode()) {
+      setUser(DEMO_USER);
+      setAuthStatus("signed-in");
+      return;
+    }
     const found = await getSession();
     setUser(found);
     setAuthStatus(found ? "signed-in" : "signed-out");
@@ -228,6 +236,18 @@ export function OmgProvider({ children }: PropsWithChildren) {
   }, [refreshSession]);
 
   const refreshMachines = useCallback(async () => {
+    // Demo mode owns exactly one machine and never calls the control plane.
+    // The auto-select effect below then picks it, its transport is the seeded
+    // one, and the readiness probe reads "ready" off the fixtures.
+    if (isDemoMode()) {
+      setBindings([DEMO_BINDING]);
+      setSharedComputers([]);
+      setCloud(null);
+      setMachinesError(null);
+      setMachinesLoading(false);
+      setMachinesLoaded(true);
+      return;
+    }
     setMachinesLoading(true);
     try {
       const [bindingsResult, cloudResult, sharedResult] = await Promise.allSettled([

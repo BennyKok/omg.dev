@@ -1,0 +1,71 @@
+# Demo mode fills every screen with seeded content.
+#
+# This is the assertion for the demo-mode change: with EXPO_PUBLIC_OMG_DEMO=1
+# the app signs into a fake account, reads a seeded roster, and renders seeded
+# sessions and a seeded transcript — none of which exist on the real account
+# the simulator is otherwise pointed at. If the seam regresses, the home list
+# is empty and the first wait times out.
+#
+# A session card exposes ONE combined accessibility string ("title, subtitle,
+# time"), and Maestro's `text:` is a full-string regex — hence the `.*` tails.
+#
+# Run it against a demo bundle:
+#   EXPO_PUBLIC_OMG_DEMO=1 npx expo start   (then point the dev client at it)
+#   bun run test:e2e --flow demo-mode --record
+appId: dev.omg.computer
+onFlowStart:
+  # The Expo dev menu is a sheet over the app; its close button is the only
+  # `id: xmark` on screen. Same guard the other flows use.
+  - runFlow:
+      when:
+        visible:
+          id: "xmark"
+      commands:
+        - tapOn:
+            id: "xmark"
+  # `launchApp` cannot reset a dev build (see README.md), so a previous run that
+  # ended inside a session leaves the app there. The session screen also shows a
+  # gear and the session's title, so the home asserts below would match it and
+  # then fail on a row a session does not have. A session shows the mic
+  # ("Dictate a message") and a "Back" button; home shows neither. Gate on the
+  # mic so this never fires on home (where a stray tap opens the side drawer).
+  - runFlow:
+      when:
+        visible: "Dictate a message"
+      commands:
+        - tapOn: "Back"
+  # First launch of a demo session shows the one-time data-consent gate. It is
+  # not part of demo mode, so clear it before asserting the seeded screens.
+  - runFlow:
+      when:
+        visible: "Agree and continue"
+      commands:
+        - tapOn: "Agree and continue"
+---
+# HOME — seeded sessions in the default folder (api-gateway). The list is
+# fetched after launch, so wait for the first row rather than asserting into a
+# still-loading screen.
+- assertVisible: "gearshape.fill"
+- extendedWaitUntil:
+    visible: "Refactor the rate limiter to a sliding window.*"
+    timeout: 20000
+- extendedWaitUntil:
+    visible: "Fix the token refresh race on cold start.*"
+    timeout: 10000
+- extendedWaitUntil:
+    visible: "Add pagination to /v1/orders.*"
+    timeout: 10000
+- takeScreenshot: demo-home
+
+# SESSION — open the first one and prove its seeded transcript renders.
+- tapOn: "Refactor the rate limiter to a sliding window.*"
+- extendedWaitUntil:
+    visible: ".*Keep the same per-key limits.*"
+    timeout: 15000
+- takeScreenshot: demo-session
+- back
+
+# HOME again — the top of the seeded list is still there (the demo socket is
+# silent, so nothing clears it). Assert a top row, which is on screen after the
+# list scrolls back to the top; the idle rows lower down need a scroll.
+- assertVisible: "Refactor the rate limiter to a sliding window.*"
