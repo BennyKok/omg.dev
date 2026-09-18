@@ -29,10 +29,14 @@ import { claudeOauthToken as sharedClaudeOauthToken } from "../claude-creds.ts";
 import {
   applyReleaseUpdate,
   applySourceUpdate,
+  autoUpdateEnabled,
   changelogDelta,
   releaseUpdateStatus,
   scheduleRestart,
+  SelfUpdateInProgressError,
   sourceUpdateStatus,
+  startAutoUpdateLoop,
+  withSelfUpdate,
 } from "../self-update.ts";
 import { compressedAssetResponse, maybeCompressResponse } from "../http-compress.ts";
 import { serveOmgMcpRequest, serveComputerMcpRequest } from "../mcp-http.ts";
@@ -571,7 +575,6 @@ const REPOS_ROOT = reposRoot();
 const SELF_REPO = PATHS.root;
 const EVLOG_DIR = join(PATHS.data, "evlogs");
 const SERVER_INSTANCE_ID = randomBytes(8).toString("hex");
-let selfUpdateRunning = false;
 
 // Everything that can start, stop, or rebind one bot's backing session shares a
 // single critical section per bot.
@@ -7987,21 +7990,20 @@ a{color:#60a5fa}
           if (install.channel !== "source" && install.channel !== "release") {
             return err(400, "UI updates are only available for Git and release installs.");
           }
-          if (selfUpdateRunning) return err(409, "An omg.dev update is already running.");
-          selfUpdateRunning = true;
           try {
-            const result = install.channel === "source"
-              ? await applySourceUpdate(PATHS.root)
-              : await applyReleaseUpdate(PATHS.root, install);
+            const result = await withSelfUpdate(async () => (
+              install.channel === "source"
+                ? await applySourceUpdate(PATHS.root)
+                : await applyReleaseUpdate(PATHS.root, install)
+            ));
             const update = result.status;
             if (update.state === "blocked") return err(409, update.message);
             if (update.state === "available") return err(500, "The update did not reach origin/main.");
             if (result.updated) scheduleRestart();
             return json({ install, update, restarting: result.updated, bootId: SERVER_INSTANCE_ID });
           } catch (e) {
+            if (e instanceof SelfUpdateInProgressError) return err(409, e.message);
             return err(500, e instanceof Error ? e.message : String(e));
-          } finally {
-            selfUpdateRunning = false;
           }
         }
         return err(405, "method not allowed");
@@ -11294,5 +11296,16 @@ a{color:#60a5fa}
 
   console.log(`lfg web → http://${server.hostname}:${server.port}`);
   console.log(`  agents dir: ${AGENTS_DIR}`);
+
+  // Release installs apply a newer GitHub release on their own. Hosted
+  // Computers and source checkouts stay on the manual Update button.
+  startAutoUpdateLoop({
+    root: PATHS.root,
+    install: () => installInfo(),
+    hosted: () => hasHostedOmgAiProxy(),
+    enabled: () => autoUpdateEnabled(),
+    skippedUpdateVersion: () => getGlobalSettingsSync().skippedUpdateVersion,
+    log: (line) => console.log(line),
+  });
 
 }
