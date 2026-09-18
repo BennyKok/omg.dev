@@ -1,0 +1,137 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": true
+  },
+  "steps": [
+    {
+      "name": "01 Welcome",
+      "goal": "Start onboarding from the welcome screen",
+      "done": "A question asks what the person works on daily, with lane options such as Code & reviews",
+      "expect": [
+        "Code & reviews"
+      ]
+    },
+    {
+      "name": "02 Lane",
+      "goal": "Pick the Code & reviews lane",
+      "done": "The Code & reviews lane is selected",
+      "timeoutMs": 20000,
+      "selected": "Code & reviews"
+    },
+    {
+      "name": "02 Continue",
+      "goal": "Continue past the lane picker",
+      "done": "A list of starter tasks such as Explain an error is shown, with a Continue button",
+      "expect": [
+        "Explain an error"
+      ]
+    },
+    {
+      "name": "03 Task",
+      "goal": "Pick the task Explain an error",
+      "done": "Explain an error is selected",
+      "timeoutMs": 20000,
+      "selected": "Explain an error"
+    },
+    {
+      "name": "03 Continue",
+      "goal": "Continue past the task list to the prompt",
+      "done": "The prompt screen with a Sign in to start button",
+      "expect": [
+        "Sign in to start"
+      ]
+    },
+    {
+      "name": "Sign in",
+      "goal": "Open sign-in and choose email",
+      "done": "The email entry screen: Welcome to omg.dev, an empty you@example.com field, and Continue with Apple and Continue with Google buttons",
+      "expect": [
+        "you@example.com"
+      ]
+    },
+    {
+      "name": "Email",
+      "goal": "Enter the email address into the email field",
+      "type": "${EMAIL}",
+      "done": "The email address is in the field"
+    },
+    {
+      "name": "Send code",
+      "goal": "Tap the Send sign-in code button",
+      "done": "A six-digit code entry screen, with Use a different email",
+      "expect": [
+        "Use a different email"
+      ]
+    },
+    {
+      "name": "Code from Gmail",
+      "goal": "Type the six-digit sign-in code into the focused code field",
+      "otp": true,
+      "focused": true,
+      "done": "The code is entered"
+    },
+    {
+      "name": "Data notice",
+      "goal": "Agree to the data notice",
+      "done": "The Working screen: Your agents are on it, a task in progress, Notify me and Not now",
+      "expect": [
+        "Notify me"
+      ],
+      "timeoutMs": 150000
+    },
+    {
+      "name": "04 Working",
+      "goal": "See the first task working, then choose Not now",
+      "done": "The working screen shows a task in progress with Notify me and Not now",
+      "expect": [
+        "1 working",
+        "Your result is ready",
+        "Notify me"
+      ],
+      "timeoutMs": 30000
+    },
+    {
+      "name": "04 Not now",
+      "goal": "Dismiss the notification prompt with Not now",
+      "done": "The continue screen with the live session card and Let me in",
+      "expect": [
+        "Let me in",
+        "Keep track of your agent.",
+        "Open this session"
+      ]
+    },
+    {
+      "name": "05 Let me in",
+      "goal": "Tap Let me in",
+      "done": "The plan screen (Keep work moving) with Continue for now",
+      "expect": [
+        "Keep work moving.",
+        "Agents at once",
+        "More included",
+        "Continue with Personal",
+        "Continue for now"
+      ],
+      "forbid": [
+        "Annually"
+      ]
+    },
+    {
+      "name": "06 Continue for now",
+      "goal": "Skip the plan with Continue for now",
+      "done": "The connect-an-agent step with a Skip option",
+      "expect": [
+        "Skip"
+      ]
+    },
+    {
+      "name": "Skip connect",
+      "goal": "Skip connecting an agent",
+      "done": "The first session is open, titled with the task Explain this error",
+      "expect": [
+        "Explain this error"
+      ],
+      "timeoutMs": 90000
+    }
+  ]
+}

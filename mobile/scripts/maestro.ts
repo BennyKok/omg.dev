@@ -31,6 +31,8 @@
  *   bun run test:e2e --inspect            print the current screen's elements
  *   bun run test:e2e --flow onboarding    fresh install -> sign-in code from Gmail -> home
  *   bun run test:e2e --install URL        install a simulator build (EAS tar.gz url or .app path on the Mac)
+ *   bun run test:e2e --plan onboarding --record
+ *                                         the default proof: Jev judges each step, side-by-side video
  */
 
 const HOST = process.env.OMG_SIM_HOST ?? "bennykok@bennys-macbook-pro-2";
@@ -240,6 +242,61 @@ async function runOnboarding(udid: string): Promise<number> {
   return second.code === 0 ? 0 : 1;
 }
 
+/**
+ * The default proof: a plan judged by Jev, one persistent Maestro session,
+ * and the Maestro-style step video composed from the runner's own log.
+ * See e2e-jev.ts for the loop and e2e/<name>.plan.json for the plans.
+ */
+/** Work to do after the device lock is released: the video render. */
+let afterRelease: (() => Promise<void>) | null = null;
+
+async function runJevPlan(udid: string, name: string): Promise<number> {
+  const { runPlan, loadPlan, composeStepVideo } = await import("./e2e-jev.ts");
+  const plan = await loadPlan(LOCAL_E2E, name);
+  const mailbox = process.env.OMG_E2E_MAILBOX ?? "itechbenny@gmail.com";
+  const [user, domain] = mailbox.split("@");
+  const email = process.env.OMG_E2E_EMAIL ?? `${user}+e2e${Date.now().toString(36)}@${domain}`;
+  const needsOtp = plan.steps.some((s) => s.otp);
+  if (needsOtp) console.log(`Onboarding as ${email}`);
+  const recording = has("record") ? await startRecording(udid) : null;
+  const recordingStartedAt = Date.now();
+  const started = new Date();
+  const t0 = Date.now();
+  const result = await runPlan({
+    host: HOST,
+    remoteEnv: REMOTE_ENV,
+    udid,
+    plan,
+    vars: { EMAIL: email },
+    readOtp: async () => {
+      const { readSignInCode } = await import("./e2e-otp.ts");
+      const { code, date } = await readSignInCode(mailbox, email, { notBefore: started });
+      console.log(`  sign-in code arrived (${date})`);
+      return code;
+    },
+  });
+  const total = ((Date.now() - t0) / 1000).toFixed(1);
+  console.log(`\n${result.ok ? "GREEN" : "RED"}: ${result.steps.filter((s) => s.status === "pass").length}/${plan.steps.length} steps in ${total}s (maestro start ${(result.mcpStartMs / 1000).toFixed(1)}s)`);
+  if (recording) {
+    const capture = await recording.stop(`${name}-capture`);
+    if (capture) {
+      const steps = plan.steps.map((s) => {
+        const r = result.steps.find((x) => x.name === s.name);
+        return r ? { name: s.name, status: r.status, at: r.at } : { name: s.name, status: "todo" as const };
+      });
+      const out = `${LOCAL_E2E}/${name}.mp4`;
+      // Rendering takes half a minute on this box and needs nothing from the
+      // device, so it runs after the lock is released (see main).
+      afterRelease = async () => {
+        const ok = await composeStepVideo({ capture, out, recordingStartedAt, steps, title: `${name} · ${result.ok ? "green" : "red"} · ${total}s` });
+        console.log(ok ? `\nVideo: ${out}` : "Could not compose the step video; the raw capture is next to it.");
+      };
+    }
+  }
+  if (needsOtp) console.log(`Test account left in place: ${email}. Account deletion finishes in the browser, so the runner cannot remove it.`);
+  return result.ok ? 0 : 1;
+}
+
 async function startRecording(udid: string) {
   const name = `capture-${Date.now()}.mp4`;
   const remote = `~/${REMOTE_DIR}/${name}`;
@@ -266,8 +323,12 @@ async function startRecording(udid: string) {
       );
       const dest = `${LOCAL_E2E}/${flowName}.mp4`;
       const p = Bun.spawn(["scp", "-q", "-o", "BatchMode=yes", `${HOST}:${remote}`, dest], { stdout: "inherit", stderr: "inherit" });
-      if ((await p.exited) !== 0) console.warn("Could not fetch the recording.");
-      else console.log(`\nRecording: ${dest}`);
+      if ((await p.exited) !== 0) {
+        console.warn("Could not fetch the recording.");
+        return null;
+      }
+      console.log(`\nRecording: ${dest}`);
+      return dest;
     },
   };
 }
@@ -275,7 +336,7 @@ async function startRecording(udid: string) {
 async function main() {
   if (has("help")) {
     console.log(
-      "bun run test:e2e [--flow NAME|onboarding] [--record] [--inspect] [--install URL|PATH] [--device NAME]",
+      "bun run test:e2e [--plan NAME] [--flow NAME|onboarding] [--record] [--inspect] [--install URL|PATH] [--device NAME]",
     );
     return 0;
   }
@@ -291,8 +352,10 @@ async function main() {
     const install = arg("install");
     if (install) {
       await installApp(udid, install);
-      if (!arg("flow")) return 0;
+      if (!arg("flow") && !arg("plan")) return 0;
     }
+    const planName = arg("plan");
+    if (planName) return await runJevPlan(udid, planName);
     await pushFlows();
     const flow = arg("flow");
     if (flow === "onboarding") return await runOnboarding(udid);
@@ -329,4 +392,6 @@ async function main() {
   }
 }
 
-process.exit(await main());
+const code = await main();
+if (afterRelease) await afterRelease();
+process.exit(code);

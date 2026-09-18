@@ -5,9 +5,11 @@ A UI change is not verified until you have SEEN it. `tsc --noEmit` and
 that happened on 2026-08-14, and a broken nav bar was committed and pushed on
 the strength of those two green checks. Neither one can see a screen.
 
-**If you touch an iOS feature, run `bun run test:e2e` and add a flow for what
-you changed.** It drives the real simulator with Maestro and it is the only
-check here that can see a screen. See "Drive the simulator with Maestro" below.
+**If you touch an iOS feature, prove it with `bun run test:e2e --plan <name>
+--record` and add a step for what you changed.** Maestro drives the real
+simulator, Jev judges each step from the accessibility tree, and the run ends
+with the side-by-side step video. It is the only check here that can see a
+screen. See "Prove it with Maestro and Jev" below.
 
 The Mac is a Tailscale peer, so it is reachable from any dev box on the tailnet
 with no port forwarding and no VPN setup:
@@ -123,7 +125,7 @@ xcrun simctl spawn "$PRO" log show --last 3m --style compact \
   --predicate 'processImagePath CONTAINS "omg"' | grep -iE 'fail|error'
 ```
 
-## Drive the simulator with Maestro. Do not synthesise clicks.
+## Prove it with Maestro and Jev. Do not synthesise clicks.
 
 Any session that touches an iOS feature runs this. It is the layer that `tsc`,
 `test:native` and `expo export` structurally cannot cover, and it is the layer
@@ -131,25 +133,54 @@ that shipped a grey screen and a broken nav bar.
 
 ```bash
 cd mobile
-bun run test:e2e                      # every flow in e2e/
-bun run test:e2e --flow new-project   # one flow
-bun run test:e2e --inspect            # print the current screen's elements
-bun run test:e2e --flow smoke --record  # render an mp4 locally and fetch it
-bun run test:e2e --install URL --flow onboarding   # simulator-release build, fresh account, code from Gmail
+bun run test:e2e --plan onboarding --record          # THE proof: Jev-judged plan + step video
+bun run test:e2e --install URL --plan onboarding --record   # same, on a fresh simulator-release build
+bun run test:e2e --inspect                           # print the current screen's elements
+bun run test:e2e --flow smoke --record               # a static Maestro flow, maestro record --local
 ```
 
 The runner is `scripts/maestro.ts`. It resolves the UDID **by device name**,
-takes an exclusive lock on the shared Mac, copies `e2e/` over, runs the flows
-there, and releases the lock in a `finally`. Flows live in `mobile/e2e/`.
+takes an exclusive lock on the shared Mac, and releases it in a `finally`.
 
-**Every feature change is proven by a Maestro run, with an assertion for the
-change and the recording attached to the ship.** Benny's rule, 2026-09-17. A
-hand-driven tap session is not proof; a Maestro flow that asserts the new
-chrome is. For onboarding that means `--flow onboarding --record` on a fresh
-`simulator-release` build of the change (`eas build --profile
-simulator-release --platform ios`, about ten minutes), because the release
-build embeds the bundle. Add the assertion to the flow in the same commit as
-the change.
+**Every feature change is proven by a `--plan` run with a step for the change,
+and the video goes with the ship.** Benny's rule, 2026-09-17, made the default
+on 2026-09-18. A hand-driven tap session is not proof. For onboarding that
+means `--plan onboarding --record` on a `simulator-release` build that
+contains the change (`eas build --profile simulator-release --platform ios`,
+about ten minutes; the release build embeds the bundle). Add the step, or the
+`expect` strings, in the same commit as the change.
+
+### Plans, not flows: how the Jev runner works
+
+A plan (`e2e/<name>.plan.json`) is a list of steps, each with a `goal` and a
+`done` description in plain words, plus optional `expect` / `forbid` strings.
+`scripts/e2e-jev.ts` runs it:
+
+1. One `maestro mcp` process for the whole run (`scripts/maestro-mcp.ts`), so
+   there is no JVM restart per tap.
+2. For every look: `inspect_screen` (the accessibility tree, text only), one
+   Jev call (`scripts/jev.ts`, about half a second) with three questions:
+   `done`, `blocked`, `tap`.
+3. `done` high and every `expect` string present and every `forbid` string
+   absent: the step passes, immediately. No fixed waits anywhere.
+4. `blocked` high (error, rate-limit challenge, dev menu): the run fails NOW,
+   by name, instead of sitting out a 120 second timeout.
+5. Otherwise it taps what Jev picked and looks again.
+
+Exact facts stay in code. A feature proof is the `expect` list: the strings the
+screen must show. Jev only decides readiness and navigation, the part a fixed
+selector cannot survive a copy change on. Never put the proof in the `done`
+prose alone.
+
+`--record` captures the device with `simctl` and composes the Maestro-style
+video with ffmpeg on this box: device on the left, the step list ticking on
+the right at the moment the runner decided. It lands at `e2e/<name>.mp4`,
+which is gitignored. Attach it with `omg_display_video`.
+
+Jev needs `TYPESAFE_API_KEY` or `~/.config/typesafe/env`. It takes text only,
+no screenshots; that is why the tree is the state. Static YAML flows in
+`e2e/*.yaml` still run with `--flow` and are fine for a fixed smoke, but new
+proofs are plans.
 
 ### Why this replaces the CGEvent section below
 
@@ -217,9 +248,10 @@ mkdir -p ~/.local/jdk && tar xzf /tmp/jdk21.tar.gz -C ~/.local/jdk --strip-compo
 
 ### Recording
 
-`--record` uses `maestro record --local`, which renders the mp4 on the Mac.
-Plain `maestro record` uploads your screen capture to mobile.dev to render it
-there. Always keep `--local`.
+`--plan ... --record` composes the step video here from a `simctl` capture and
+the runner's log. `--flow ... --record` uses `maestro record --local`, which
+renders the mp4 on the Mac. Plain `maestro record` uploads your screen capture
+to mobile.dev to render it there. Always keep `--local`.
 
 ## Fallback only: synthesising clicks with CGEvent
 
