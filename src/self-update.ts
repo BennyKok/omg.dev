@@ -735,3 +735,242 @@ export function scheduleRestart(delayMs = 1_000): void {
     proc.unref();
   }, delayMs);
 }
+
+export class SelfUpdateInProgressError extends Error {
+  constructor() {
+    super("An omg.dev update is already running.");
+    this.name = "SelfUpdateInProgressError";
+  }
+}
+
+let selfUpdateRunning = false;
+
+export function isSelfUpdateRunning(): boolean {
+  return selfUpdateRunning;
+}
+
+/** Serialize the UI button and the on-start checker onto one in-flight update. */
+export async function withSelfUpdate<T>(fn: () => Promise<T>): Promise<T> {
+  if (selfUpdateRunning) throw new SelfUpdateInProgressError();
+  selfUpdateRunning = true;
+  try {
+    return await fn();
+  } finally {
+    selfUpdateRunning = false;
+  }
+}
+
+/** Test-only: the lock is process-wide and would otherwise leak across cases. */
+export function resetSelfUpdateLockForTests(): void {
+  selfUpdateRunning = false;
+}
+
+/**
+ * Off switch for the on-start updater. Unset means on. `LFG_AUTO_UPDATE=0`
+ * (or false/off/no) is the ops kill switch; there is no second setting.
+ */
+export function autoUpdateEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const raw = env.LFG_AUTO_UPDATE?.trim().toLowerCase();
+  if (!raw) return true;
+  return raw !== "0" && raw !== "false" && raw !== "off" && raw !== "no";
+}
+
+/**
+ * Same identifier the What's new drawer persists as `skippedUpdateVersion`,
+ * so Skip still means "not this version" when the box applies updates itself.
+ */
+export function autoUpdateIdentifier(status: {
+  state: string;
+  latestVersion?: string;
+  latestTag?: string;
+  latestSha?: string;
+  stagedVersion?: string;
+}): string | null {
+  if (status.state === "available") {
+    return status.latestVersion ?? status.latestTag ?? status.latestSha ?? null;
+  }
+  if (status.state === "staged") {
+    const version = status.stagedVersion ?? status.latestVersion ?? status.latestTag;
+    return version ? `staged:${version}` : null;
+  }
+  return null;
+}
+
+export type AutoUpdateAction = "apply" | "restart" | "noop";
+export type AutoUpdateReason =
+  | "available"
+  | "staged"
+  | "disabled"
+  | "hosted"
+  | "channel"
+  | "up-to-date"
+  | "blocked"
+  | "no-restart"
+  | "skipped"
+  | "in-progress";
+
+export type AutoUpdatePlan = { action: AutoUpdateAction; reason: AutoUpdateReason };
+
+export type AutoUpdateStatus = {
+  state: "up-to-date" | "available" | "staged" | "blocked";
+  restartSupported: boolean;
+  message?: string;
+  latestVersion?: string;
+  latestTag?: string;
+  latestSha?: string;
+  stagedVersion?: string;
+};
+
+export function planAutoUpdate(input: {
+  enabled: boolean;
+  hosted: boolean;
+  channel: string;
+  inProgress?: boolean;
+  skippedUpdateVersion: string;
+  status: AutoUpdateStatus | null;
+}): AutoUpdatePlan {
+  if (!input.enabled) return { action: "noop", reason: "disabled" };
+  // Hosted Computers stay on the template pin. A guest that self-updated
+  // to latest would drift from the fleet version Infra baked.
+  if (input.hosted) return { action: "noop", reason: "hosted" };
+  // Source checkouts are the development box (and any git-based install).
+  // Auto-pulling origin/main on serve start races a landing session and
+  // rebuilds the web bundle unattended. Release installs are what
+  // `omg computer setup` produces; those are the ones that self-update.
+  if (input.channel !== "release") return { action: "noop", reason: "channel" };
+  if (input.inProgress) return { action: "noop", reason: "in-progress" };
+  if (!input.status) return { action: "noop", reason: "blocked" };
+  if (input.status.state === "up-to-date") return { action: "noop", reason: "up-to-date" };
+  if (input.status.state === "blocked") return { action: "noop", reason: "blocked" };
+  if (!input.status.restartSupported) return { action: "noop", reason: "no-restart" };
+  const id = autoUpdateIdentifier(input.status);
+  if (id && id === input.skippedUpdateVersion) return { action: "noop", reason: "skipped" };
+  if (input.status.state === "staged") return { action: "restart", reason: "staged" };
+  if (input.status.state === "available") return { action: "apply", reason: "available" };
+  return { action: "noop", reason: "blocked" };
+}
+
+export type AutoUpdateResult = { updated: boolean; plan: AutoUpdatePlan };
+
+const NOOP_REASONS_WITHOUT_STATUS = new Set<AutoUpdateReason>([
+  "disabled",
+  "hosted",
+  "channel",
+  "in-progress",
+]);
+
+export async function maybeAutoUpdateOnStart(options: {
+  root: string;
+  install: ReleaseInstall & { channel: string };
+  hosted: boolean;
+  enabled: boolean;
+  skippedUpdateVersion: string;
+  checkStatus?: (
+    install: ReleaseInstall & { channel: string },
+    root: string,
+  ) => Promise<AutoUpdateStatus | null>;
+  applyRelease?: (
+    root: string,
+    install: ReleaseInstall,
+  ) => Promise<{ status: AutoUpdateStatus; updated: boolean }>;
+  restart?: () => void;
+  log?: (line: string) => void;
+}): Promise<AutoUpdateResult> {
+  const log = options.log ?? (() => {});
+  const base = {
+    enabled: options.enabled,
+    hosted: options.hosted,
+    channel: options.install.channel,
+    inProgress: isSelfUpdateRunning(),
+    skippedUpdateVersion: options.skippedUpdateVersion,
+  };
+  // Cheap noops must not hit GitHub. Probe with a fake "available" status so
+  // planAutoUpdate can reject on enabled/hosted/channel/in-progress first.
+  const early = planAutoUpdate({
+    ...base,
+    // No version on this probe: Skip matching must not fire until the
+    // real status is fetched.
+    status: { state: "available", restartSupported: true },
+  });
+  if (NOOP_REASONS_WITHOUT_STATUS.has(early.reason)) {
+    return { updated: false, plan: early };
+  }
+
+  let status: AutoUpdateStatus | null;
+  try {
+    status = options.checkStatus
+      ? await options.checkStatus(options.install, options.root)
+      : await releaseUpdateStatus(options.root, options.install);
+  } catch (error) {
+    log(`[update] auto: check failed: ${error instanceof Error ? error.message : String(error)}`);
+    return { updated: false, plan: { action: "noop", reason: "blocked" } };
+  }
+
+  const plan = planAutoUpdate({ ...base, inProgress: isSelfUpdateRunning(), status });
+  if (plan.action === "noop") {
+    if (plan.reason === "skipped") log("[update] auto: skipped this version");
+    if (plan.reason === "no-restart") {
+      log(`[update] auto: not applied; ${status?.message ?? "restart is unavailable"}`);
+    }
+    return { updated: false, plan };
+  }
+
+  if (plan.action === "restart") {
+    log(`[update] auto: ${status?.message ?? "staged update ready"}; restarting`);
+    (options.restart ?? scheduleRestart)();
+    return { updated: true, plan };
+  }
+
+  try {
+    const result = await withSelfUpdate(async () => {
+      const apply = options.applyRelease ?? applyReleaseUpdate;
+      return await apply(options.root, options.install);
+    });
+    if (result.updated) {
+      log(`[update] auto: ${result.status.message ?? "updated"}; restarting`);
+      (options.restart ?? scheduleRestart)();
+    }
+    return { updated: result.updated, plan };
+  } catch (error) {
+    if (error instanceof SelfUpdateInProgressError) {
+      return { updated: false, plan: { action: "noop", reason: "in-progress" } };
+    }
+    log(`[update] auto failed: ${error instanceof Error ? error.message : String(error)}`);
+    return { updated: false, plan };
+  }
+}
+
+/** First look is delayed so boot (session recovery, listen) finishes first. */
+export const AUTO_UPDATE_BOOT_DELAY_MS = 15_000;
+/** Long-running boxes only restart at boot otherwise; check again on this period. */
+export const AUTO_UPDATE_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
+export function startAutoUpdateLoop(options: {
+  root: string;
+  install: () => ReleaseInstall & { channel: string };
+  hosted: () => boolean;
+  enabled?: () => boolean;
+  skippedUpdateVersion: () => string;
+  log?: (line: string) => void;
+  bootDelayMs?: number;
+  intervalMs?: number;
+}): void {
+  const bootDelayMs = options.bootDelayMs ?? AUTO_UPDATE_BOOT_DELAY_MS;
+  const intervalMs = options.intervalMs ?? AUTO_UPDATE_INTERVAL_MS;
+  const tick = () => {
+    void maybeAutoUpdateOnStart({
+      root: options.root,
+      install: options.install(),
+      hosted: options.hosted(),
+      enabled: (options.enabled ?? autoUpdateEnabled)(),
+      skippedUpdateVersion: options.skippedUpdateVersion(),
+      log: options.log,
+    });
+  };
+  const start = setTimeout(() => {
+    tick();
+    const timer = setInterval(tick, intervalMs);
+    timer.unref();
+  }, bootDelayMs);
+  start.unref();
+}

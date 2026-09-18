@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## September 18, 2026 - Local installs update themselves (v0.6.74)
+
+- A computer installed with `omg computer setup` now applies a newer GitHub release on start, and checks again every 6 hours. The Update button still works. Skip still skips that version.
+- Hosted Computers stay on the template version. A source checkout (a git pull install) stays manual. Set `LFG_AUTO_UPDATE=0` to turn the checker off.
+
 ## September 18, 2026 - Deploy a project from the client (v0.6.73)
 
 - Web and iOS can publish a project folder to `*.omgs.app`. Open the project or folder sheet and use Deploy. The same URL stays on the row after a republish.

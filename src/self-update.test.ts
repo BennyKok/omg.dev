@@ -3,14 +3,21 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  autoUpdateEnabled,
+  autoUpdateIdentifier,
   changelogDelta,
   extractReleaseArchive,
   installReleaseBundle,
+  maybeAutoUpdateOnStart,
   parseChangelog,
+  planAutoUpdate,
   releaseUpdateStatus,
+  resetSelfUpdateLockForTests,
   restartCapability,
   restartCommand,
+  SelfUpdateInProgressError,
   sourceUpdateStatus,
+  withSelfUpdate,
 } from "./self-update.ts";
 
 const cleanup: string[] = [];
@@ -41,6 +48,7 @@ function fixture() {
 
 afterEach(() => {
   globalThis.fetch = realFetch;
+  resetSelfUpdateLockForTests();
   for (const path of cleanup.splice(0)) rmSync(path, { recursive: true, force: true });
 });
 
@@ -524,5 +532,213 @@ describe("changelog delta", () => {
     writeFileSync(join(root, "package.json"), JSON.stringify({ name: "lfg", version: "0.1.0" }));
 
     expect(await changelogDelta(root, {})).toEqual([]);
+  });
+});
+
+describe("auto-update on start", () => {
+  const available = {
+    state: "available" as const,
+    restartSupported: true,
+    latestVersion: "0.6.74",
+    latestTag: "v0.6.74",
+    message: "omg.dev 0.6.74 is available (running 0.6.73).",
+  };
+
+  test("env unset is on; 0/false/off/no are off", () => {
+    expect(autoUpdateEnabled({})).toBe(true);
+    expect(autoUpdateEnabled({ LFG_AUTO_UPDATE: "1" })).toBe(true);
+    expect(autoUpdateEnabled({ LFG_AUTO_UPDATE: "0" })).toBe(false);
+    expect(autoUpdateEnabled({ LFG_AUTO_UPDATE: "false" })).toBe(false);
+    expect(autoUpdateEnabled({ LFG_AUTO_UPDATE: "OFF" })).toBe(false);
+    expect(autoUpdateEnabled({ LFG_AUTO_UPDATE: "no" })).toBe(false);
+  });
+
+  test("Skip uses the same id the drawer persists", () => {
+    expect(autoUpdateIdentifier(available)).toBe("0.6.74");
+    expect(autoUpdateIdentifier({
+      state: "staged",
+      stagedVersion: "0.6.74",
+      latestVersion: "0.6.74",
+    })).toBe("staged:0.6.74");
+  });
+
+  test("release + available + restart applies", () => {
+    expect(planAutoUpdate({
+      enabled: true,
+      hosted: false,
+      channel: "release",
+      skippedUpdateVersion: "",
+      status: available,
+    })).toEqual({ action: "apply", reason: "available" });
+  });
+
+  test("a staged update only restarts", () => {
+    expect(planAutoUpdate({
+      enabled: true,
+      hosted: false,
+      channel: "release",
+      skippedUpdateVersion: "",
+      status: {
+        state: "staged",
+        restartSupported: true,
+        stagedVersion: "0.6.74",
+        latestVersion: "0.6.74",
+      },
+    })).toEqual({ action: "restart", reason: "staged" });
+  });
+
+  test("hosted, source, disabled, skipped, and no-restart stay put", () => {
+    const base = {
+      enabled: true,
+      hosted: false,
+      channel: "release",
+      skippedUpdateVersion: "",
+      status: available,
+    };
+    expect(planAutoUpdate({ ...base, hosted: true }).reason).toBe("hosted");
+    expect(planAutoUpdate({ ...base, channel: "source" }).reason).toBe("channel");
+    expect(planAutoUpdate({ ...base, channel: "container" }).reason).toBe("channel");
+    expect(planAutoUpdate({ ...base, enabled: false }).reason).toBe("disabled");
+    expect(planAutoUpdate({ ...base, skippedUpdateVersion: "0.6.74" }).reason).toBe("skipped");
+    expect(planAutoUpdate({
+      ...base,
+      status: { ...available, restartSupported: false },
+    }).reason).toBe("no-restart");
+    expect(planAutoUpdate({
+      ...base,
+      status: { state: "up-to-date", restartSupported: true },
+    }).reason).toBe("up-to-date");
+  });
+
+  test("a newer release after Skip still applies", () => {
+    expect(planAutoUpdate({
+      enabled: true,
+      hosted: false,
+      channel: "release",
+      skippedUpdateVersion: "0.6.73",
+      status: available,
+    }).action).toBe("apply");
+  });
+
+  test("applies a release and restarts", async () => {
+    const applied: string[] = [];
+    const restarts: string[] = [];
+    const result = await maybeAutoUpdateOnStart({
+      root: "/opt/omg",
+      install: { channel: "release", repoSlug: "BennyKok/omg.dev" },
+      hosted: false,
+      enabled: true,
+      skippedUpdateVersion: "",
+      checkStatus: async () => available,
+      applyRelease: async () => {
+        applied.push("ok");
+        return { updated: true, status: { ...available, state: "staged", stagedVersion: "0.6.74" } };
+      },
+      restart: () => restarts.push("now"),
+    });
+    expect(result).toEqual({ updated: true, plan: { action: "apply", reason: "available" } });
+    expect(applied).toEqual(["ok"]);
+    expect(restarts).toEqual(["now"]);
+  });
+
+  test("does not fetch GitHub for a source or hosted box", async () => {
+    let checked = 0;
+    const checkStatus = async () => {
+      checked++;
+      return available;
+    };
+    const source = await maybeAutoUpdateOnStart({
+      root: "/opt/omg",
+      install: { channel: "source" },
+      hosted: false,
+      enabled: true,
+      skippedUpdateVersion: "",
+      checkStatus,
+    });
+    const hosted = await maybeAutoUpdateOnStart({
+      root: "/opt/omg",
+      install: { channel: "release", repoSlug: "BennyKok/omg.dev" },
+      hosted: true,
+      enabled: true,
+      skippedUpdateVersion: "",
+      checkStatus,
+    });
+    expect(source.plan.reason).toBe("channel");
+    expect(hosted.plan.reason).toBe("hosted");
+    expect(checked).toBe(0);
+  });
+
+  test("a staged update restarts without downloading again", async () => {
+    let applied = 0;
+    const restarts: string[] = [];
+    const result = await maybeAutoUpdateOnStart({
+      root: "/opt/omg",
+      install: { channel: "release", repoSlug: "BennyKok/omg.dev" },
+      hosted: false,
+      enabled: true,
+      skippedUpdateVersion: "",
+      checkStatus: async () => ({
+        state: "staged",
+        restartSupported: true,
+        stagedVersion: "0.6.74",
+        latestVersion: "0.6.74",
+      }),
+      applyRelease: async () => {
+        applied++;
+        return { updated: true, status: available };
+      },
+      restart: () => restarts.push("now"),
+    });
+    expect(result).toEqual({ updated: true, plan: { action: "restart", reason: "staged" } });
+    expect(applied).toBe(0);
+    expect(restarts).toEqual(["now"]);
+  });
+
+  test("a skipped version does not download", async () => {
+    let applied = 0;
+    const result = await maybeAutoUpdateOnStart({
+      root: "/opt/omg",
+      install: { channel: "release", repoSlug: "BennyKok/omg.dev" },
+      hosted: false,
+      enabled: true,
+      skippedUpdateVersion: "0.6.74",
+      checkStatus: async () => available,
+      applyRelease: async () => {
+        applied++;
+        return { updated: true, status: available };
+      },
+    });
+    expect(result.plan.reason).toBe("skipped");
+    expect(applied).toBe(0);
+  });
+
+  test("an apply failure does not throw", async () => {
+    const logs: string[] = [];
+    const result = await maybeAutoUpdateOnStart({
+      root: "/opt/omg",
+      install: { channel: "release", repoSlug: "BennyKok/omg.dev" },
+      hosted: false,
+      enabled: true,
+      skippedUpdateVersion: "",
+      checkStatus: async () => available,
+      applyRelease: async () => {
+        throw new Error("Release checksum mismatch; update refused.");
+      },
+      log: (line) => logs.push(line),
+    });
+    expect(result.updated).toBe(false);
+    expect(logs.some((line) => line.includes("checksum"))).toBe(true);
+  });
+
+  test("withSelfUpdate rejects a second caller", async () => {
+    let release = () => {};
+    const first = new Promise<string>((resolve) => {
+      release = () => resolve("one");
+    });
+    const running = withSelfUpdate(() => first);
+    await expect(withSelfUpdate(async () => "two")).rejects.toBeInstanceOf(SelfUpdateInProgressError);
+    release();
+    expect(await running).toBe("one");
+    expect(await withSelfUpdate(async () => "three")).toBe("three");
   });
 });
