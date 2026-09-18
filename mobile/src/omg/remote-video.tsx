@@ -212,19 +212,25 @@ export function RemoteVideo({
   if (uri) return <Player video={loaded.video} uri={uri} box={box} />;
 
   const still = (
-    <AuthenticatedImage
-      path={path}
-      accessibilityLabel={label || "Video"}
-      maxWidth={maxWidth}
-      maxHeight={maxHeight}
-      ratio={declaredRatio}
-      radius={radius.md}
-      placeholderColor={colors.codeBg}
-      // No poster (a box without ffmpeg, or a clip published before posters
-      // existed): the same box, plain black, still with the play glyph.
-      fallback={<View style={{ ...box, borderRadius: radius.md, backgroundColor: "#000" }} />}
-      style={{ resizeMode: "contain" }}
-    />
+    // pointerEvents none is load-bearing. AuthenticatedImage draws a tappable
+    // image that opens the photo viewer on press, so without this the tap on
+    // a poster zoomed into a still frame ("1 / 1") and never reached the
+    // Pressable below. Seen on the iPhone 17 simulator on the first OTA.
+    <View pointerEvents="none">
+      <AuthenticatedImage
+        path={path}
+        accessibilityLabel={label || "Video"}
+        maxWidth={maxWidth}
+        maxHeight={maxHeight}
+        ratio={declaredRatio}
+        radius={radius.md}
+        placeholderColor={colors.codeBg}
+        // No poster (a box without ffmpeg, or a clip published before posters
+        // existed): the same box, plain black, still with the play glyph.
+        fallback={<View style={{ ...box, borderRadius: radius.md, backgroundColor: "#000" }} />}
+        style={{ resizeMode: "contain" }}
+      />
+    </View>
   );
 
   return (
