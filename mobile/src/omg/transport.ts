@@ -20,6 +20,8 @@ import {
 
 import { SESSION_AUTH_PATH, SESSION_ORIGIN } from "./config";
 import { getAuthToken } from "./auth";
+import { getDemoTransport } from "./demo-data";
+import { isDemoMode } from "./demo";
 import {
   isSharedBindingId,
   mintTargetForBinding,
@@ -172,6 +174,11 @@ const transports = new Map<string, { transport: OmgTransport; owner: GrantOwner 
  * subtree its own copy of the grant cache, which is the thing being shared.
  */
 export function getHostedTransport(bindingId: string): OmgTransport {
+  // Demo mode short-circuits the whole grant/mint machinery: the seeded
+  // transport answers every path from fixtures, so the real client and
+  // readiness probe run unchanged on top of it. See demo-data.ts.
+  if (isDemoMode()) return getDemoTransport();
+
   const existing = transports.get(bindingId);
   if (existing) return existing.transport;
 

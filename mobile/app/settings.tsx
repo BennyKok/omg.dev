@@ -11,6 +11,7 @@
  */
 
 import { useRouter } from "expo-router";
+import { reloadAppAsync } from "expo";
 import Constants from "expo-constants";
 import {
   Alert,
@@ -28,6 +29,7 @@ import { useOmg } from "../src/omg/provider";
 import { useTheme } from "../src/omg/theme";
 import { cloudComputerLabel, bindingLabel } from "../src/omg/format";
 import { CLOUD_BINDING_ID } from "../src/omg/config";
+import { useDemoMode } from "../src/omg/demo";
 import { sharedBindingLabel } from "../src/omg/computer-shared-binding";
 import {
   getStoredPushToken,
@@ -109,6 +111,7 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { colors, type, space } = useTheme();
   const { user, client, signOut, bindings, sharedComputers, bindingId, cloud } = useOmg();
+  const demo = useDemoMode();
   const router = useRouter();
 
   const current = bindings.find((b) => b.id === bindingId);
@@ -402,6 +405,29 @@ export default function SettingsScreen() {
           />
         </Row>
       </Card>
+
+      {__DEV__ ? (
+        <>
+          <SectionLabel>Developer</SectionLabel>
+          <Card>
+            <Row>
+              <View style={{ flex: 1 }}>
+                <Text style={{ ...type.callout, color: colors.text }}>Demo mode</Text>
+                <Text style={{ ...type.footnote, color: colors.textMuted, marginTop: 2 }}>
+                  Fills every screen with seeded content for screenshots. Reloads the app.
+                </Text>
+              </View>
+              <Switch
+                value={demo.value}
+                disabled={demo.locked}
+                onValueChange={(next) => {
+                  void demo.set(next).then(() => reloadAppAsync());
+                }}
+              />
+            </Row>
+          </Card>
+        </>
+      ) : null}
 
       <View style={{ marginTop: space.xl }}>
         <Card>
