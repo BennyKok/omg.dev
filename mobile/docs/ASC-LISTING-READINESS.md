@@ -39,11 +39,14 @@ Read live from the App Store Connect API on 2026-09-18, not carried forward.
   `COMPLETE`. Export compliance needs no per-build answer, because
   `app.json` declares `ITSAppUsesNonExemptEncryption: false`.
 - **Subscriptions**: 4, all `APPROVED`.
-- **Review notes, Guideline 2.3.1**: the Demo mode switch in Settings is
-  revealed in a release build by seven taps on the version footer
-  (`mobile/app/settings.tsx`). That is a hidden feature, so a paragraph
-  describing it was appended to the version's review notes and read back from
-  the API.
+- **Review notes, Demo mode: DELIBERATELY NOT MENTIONED.** A paragraph about
+  the seven-tap Demo mode switch (`mobile/app/settings.tsx`) was added to the
+  review notes on 2026-09-18 and removed the same day, on Benny's decision.
+  The reasoning, so nobody re-adds it: the reviewer's path is the real app,
+  and a note about a fake-data mode they cannot reach by accident only
+  confuses that. The switch is a screenshot tool. It calls no server, changes
+  nothing for any other device, and unlocks no functionality. Read the notes
+  from the API before assuming this row is current.
 - **Reviewer flow, run end to end**: `bun run test:e2e --plan reviewer
   --record` is GREEN, 11/11 in 53.5s, against `main`. It signs in as the demo
   account with the fixed code, agrees to the data notice, and reaches a
