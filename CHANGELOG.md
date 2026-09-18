@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## September 18, 2026 - Hosted videos start without a full download (v0.6.72)
+
+- Transcript videos on the web and iOS now use short-lived signed artifact URLs. The browser and native player can request byte ranges and start playback before the complete recording downloads.
+- Signed media URLs are limited to read-only artifact routes. The hosted proxy removes the grant before it forwards the request to the Computer.
+- Poster frames and other hosted images can use the same direct URL path. Older hosts keep the existing authenticated blob fallback.
+
 ## September 17, 2026 - The omg agent runs on hosted Computers again (v0.6.71)
 
 - On a hosted Computer the omg agent was reported as connected, became the default for a session that names no agent, and then failed every turn with `ProviderModelNotFoundError: Model not found: omg/...`. The Computer template no longer pre-bakes the omg provider into OpenCode's config, and the runtime trusted that it did. The runtime now writes the provider itself, pointed at the Computer's guest LLM proxy. **Hosted Computers need this release.** Local installs are unchanged.
