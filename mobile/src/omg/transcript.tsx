@@ -1407,13 +1407,22 @@ function artifactRatio(message: Entry): number | null {
  */
 function DisplayedVideo({ message }: { message: Entry }) {
   const { colors, type, space } = useTheme();
+  const screen = useWindowDimensions();
   const caption = (message.caption ?? message.text ?? message.alt ?? "").trim();
   const path = message.url ?? (message.artifactId ? `/api/artifacts/${message.artifactId}` : null);
   if (!path) return <AttachmentEntry message={message} />;
 
   return (
     <View style={{ alignSelf: "stretch", gap: space.xs, paddingHorizontal: space.xs }}>
-      <RemoteVideo path={path} label={message.name ?? message.alt ?? caption ?? null} />
+      <RemoteVideo
+        path={path}
+        label={message.name ?? message.alt ?? caption ?? null}
+        // Same caps as DisplayedImage: a phone recording stays readable, a
+        // landscape one does not own an iPad pane.
+        maxWidth={Math.min(DISPLAY_MAX_WIDTH, screen.width - space.lg * 2 - space.xs * 2)}
+        maxHeight={420}
+        ratio={artifactRatio(message)}
+      />
       {/* Same caption treatment as DisplayedImage: a small line under the
           media, not a card detail. */}
       {caption ? (

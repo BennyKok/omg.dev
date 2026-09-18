@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { loadSharp } from "./native-deps.ts";
 import { PATHS } from "./config.ts";
+import { writeVideoPoster } from "./video-tools.ts";
 
 /**
  * Anything with stable identity and bytes on disk: an image artifact, or a
@@ -108,6 +109,60 @@ export async function deleteImagePreview(artifactId: string): Promise<void> {
     variants.map((variant) => pending.get(`${artifactId}:${variant}`)?.catch(() => undefined)),
   );
   await Promise.all(
-    variants.map((variant) => rm(imagePreviewPath(artifactId, variant), { force: true })),
+    variants.map((variant) => pending.get(`${artifactId}:poster:${variant}`)?.catch(() => undefined)),
   );
+  await Promise.all([
+    ...variants.map((variant) => rm(imagePreviewPath(artifactId, variant), { force: true })),
+    ...variants.map((variant) => rm(videoPosterPath(artifactId, variant), { force: true })),
+  ]);
+}
+
+/**
+ * A still frame for a video artifact, at the same two sizes an image preview
+ * comes in, so `?preview=1` means "the picture for this artifact" whatever the
+ * media. The transcript shows it in place of the player until the user taps,
+ * which is what keeps a 20 MB recording off the wire until it is wanted.
+ *
+ * Cached under its own name so an image preview generated for the same id can
+ * never be confused with it.
+ */
+export function videoPosterPath(
+  artifactId: string,
+  variant: ImagePreviewVariant = "preview",
+): string {
+  return join(PREVIEWS_DIR, `${artifactId}-${PREVIEW_VERSION}-poster-${variant}.webp`);
+}
+
+async function createVideoPoster(
+  artifact: ImagePreviewSource,
+  outputPath: string,
+  variant: ImagePreviewVariant,
+): Promise<string> {
+  await mkdir(PREVIEWS_DIR, { recursive: true });
+  const temporaryPath = `${outputPath}.${process.pid}.${randomUUID()}.tmp.webp`;
+  const ok = await writeVideoPoster(artifact.filePath, temporaryPath, VARIANT_WIDTH[variant]);
+  if (!ok) {
+    await rm(temporaryPath, { force: true }).catch(() => undefined);
+    throw new Error("video poster generation failed");
+  }
+  await rename(temporaryPath, outputPath);
+  return outputPath;
+}
+
+export async function getOrCreateVideoPoster(
+  artifact: ImagePreviewSource,
+  variant: ImagePreviewVariant = "preview",
+): Promise<string> {
+  const outputPath = videoPosterPath(artifact.id, variant);
+  if (await Bun.file(outputPath).exists()) return outputPath;
+
+  const key = `${artifact.id}:poster:${variant}`;
+  const active = pending.get(key);
+  if (active) return active;
+
+  const generation = createVideoPoster(artifact, outputPath, variant).finally(() => {
+    pending.delete(key);
+  });
+  pending.set(key, generation);
+  return generation;
 }

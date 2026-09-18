@@ -10,6 +10,7 @@ import {
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
 import { loadSharp } from "./native-deps.ts";
+import { probeVideo, remuxFaststart } from "./video-tools.ts";
 import { PATHS } from "./config.ts";
 import type { SessionMsg } from "./sessions.ts";
 import { isArtifactKind } from "./transcript-rows.ts";
@@ -362,13 +363,25 @@ export async function createImageArtifact(input: {
   });
 }
 
-export function createVideoArtifact(input: {
+export async function createVideoArtifact(input: {
   sessionId: string;
   path: string;
   caption?: string;
   alt?: string;
-}): ImageArtifact {
-  return createMediaArtifact(input, "video");
+}): Promise<ImageArtifact> {
+  // Dimensions are read once at publish, like images, so every transcript can
+  // reserve the player's box before a single byte of video arrives. Without
+  // them a video row on the web collapsed to the size of its play button.
+  const probe = await probeVideo(input.path).catch(() => null);
+  const artifact = createMediaArtifact(
+    input,
+    "video",
+    probe ? { width: probe.width, height: probe.height } : undefined,
+  );
+  // The stored copy, never the caller's file. Best-effort: a box without
+  // ffmpeg serves the bytes as they came.
+  await remuxFaststart(artifact.filePath).catch(() => undefined);
+  return artifact;
 }
 
 /**

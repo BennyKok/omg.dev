@@ -234,6 +234,35 @@ export function createDirectTransport(baseUrl: string): OmgTransport {
 }
 
 /** Drop a machine's cached transport, e.g. after sign-out or unpairing. */
+/**
+ * A URL and the header a NATIVE downloader needs to fetch one path right now.
+ *
+ * `OmgTransport.fetch` is the right way to move bytes through JavaScript, but
+ * a video is the one payload that should never pass through JavaScript at
+ * all: a 20 MB recording read into an ArrayBuffer and written back out is
+ * seconds of main-thread work on a phone, and it happens twice. The
+ * filesystem module can stream a URL straight to disk, but it issues its own
+ * request, so it needs the grant in its hand. This hands it over for ONE
+ * request: the grant is short-lived by design, and a caller that keeps the
+ * value around gets a 401 it must answer with `forceRefresh`.
+ *
+ * Null for a binding this module does not own a grant for (a direct
+ * transport), so the caller can fall back to the fetch path.
+ */
+export async function signedRequestFor(
+  bindingId: string,
+  path: string,
+  options: { forceRefresh?: boolean } = {},
+): Promise<{ url: string; headers: Record<string, string> } | null> {
+  const entry = transports.get(bindingId);
+  if (!entry) return null;
+  const grant = await entry.owner.get({ forceRefresh: options.forceRefresh ?? false });
+  return {
+    url: `${SESSION_ORIGIN}${path}`,
+    headers: { Authorization: `Bearer ${grant.token}` },
+  };
+}
+
 export function forgetTransport(bindingId: string): void {
   transports.get(bindingId)?.owner.reset();
   transports.delete(bindingId);

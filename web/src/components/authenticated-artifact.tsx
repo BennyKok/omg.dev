@@ -395,32 +395,59 @@ function AuthenticatedPlainImage({
 }
 
 /**
+ * The play glyph that sits over a poster. Inline so this file keeps no
+ * icon-library dependency.
+ */
+function PlayGlyph() {
+  return (
+    <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+      <span className="flex size-11 items-center justify-center rounded-full bg-black/55 backdrop-blur transition-transform group-hover:scale-105 group-active:scale-95">
+        <svg viewBox="0 0 24 24" aria-hidden className="size-5 translate-x-[1px] fill-white">
+          <path d="M8 5v14l11-7z" />
+        </svg>
+      </span>
+    </span>
+  );
+}
+
+/**
  * Authenticated video.
  *
- * On the blob path `preload="metadata"` would be a lie: the bytes arrive
- * through the transport as one blob, so by the time the `<video>` exists the
- * whole file is already in memory. On the Shipped feed that meant one 2 MB clip
- * was downloaded just to paint a thumbnail nobody had pressed play on — more
- * than every image on the page combined. So unless the caller actually wants
- * playback now (`autoPlay`, i.e. the full-page viewer), wait for the tap. A
- * direct URL keeps that gate and adds real streaming: the element requests byte
+ * Nothing about the video itself is requested until the user taps. On the blob
+ * path `preload="metadata"` would be a lie: the bytes arrive through the
+ * transport as one blob, so by the time the `<video>` exists the whole file is
+ * already in memory. On the Shipped feed that meant one 2 MB clip was
+ * downloaded just to paint a thumbnail nobody had pressed play on. A direct
+ * URL keeps the gate and adds real streaming: the element requests byte
  * ranges, which the server already serves.
+ *
+ * What IS shown before the tap is the server's poster frame (`?preview=1` on
+ * a video artifact), inside the box the player will occupy. That box comes
+ * from `width`/`height`, recorded when the artifact is published. Without it
+ * the untapped state was a 44px play button with nothing around it, and the
+ * caption, which wraps to the media's width, came down one word per line.
  */
 export function AuthenticatedArtifactVideo({
   path,
   label,
+  width,
+  height,
   controls = true,
   autoPlay = false,
   className,
 }: {
   path: string;
   label?: string;
+  width?: number;
+  height?: number;
   controls?: boolean;
   autoPlay?: boolean;
   className?: string;
 }) {
   const [requested, setRequested] = useState(autoPlay);
   const source = useArtifactSource(requested ? path : null);
+  // The full-page viewer plays at once, so it never needs the still.
+  const poster = useArtifactSource(autoPlay ? null : artifactRequestPath(path, { preview: 1 }));
   const direct = source.status === "direct" ? source.value : null;
   const [directFailed, setDirectFailed] = useState(false);
 
@@ -429,23 +456,37 @@ export function AuthenticatedArtifactVideo({
     setDirectFailed(false);
   }, [direct]);
 
+  const reserved = reservedMediaBox(width, height);
+  // The still, or an empty dark box of the same shape when there is none (a
+  // box without ffmpeg, or an artifact published before posters existed).
+  const still = (
+    <ArtifactPicture
+      source={poster}
+      alt={label ?? "Video"}
+      width={width}
+      height={height}
+      lazy
+      fallback={
+        <div
+          aria-hidden
+          style={reserved}
+          className={cn("bg-black", !reserved && "aspect-video w-72 max-w-full", className)}
+        />
+      }
+      className={className}
+    />
+  );
+
   if (!requested) {
     return (
       <button
         type="button"
         onClick={() => setRequested(true)}
         aria-label={label ? `Play ${label}` : "Play video"}
-        className={cn(
-          "group relative flex items-center justify-center bg-black/90",
-          className,
-        )}
+        className="group relative block w-fit max-w-full cursor-pointer"
       >
-        <span className="flex size-11 items-center justify-center rounded-full bg-white/15 backdrop-blur transition-transform group-hover:scale-105 group-active:scale-95">
-          {/* Inline so this component keeps no icon-library dependency. */}
-          <svg viewBox="0 0 24 24" aria-hidden className="size-5 translate-x-[1px] fill-white">
-            <path d="M8 5v14l11-7z" />
-          </svg>
-        </span>
+        {still}
+        <PlayGlyph />
       </button>
     );
   }
@@ -453,17 +494,26 @@ export function AuthenticatedArtifactVideo({
     return <ArtifactLoadError className={className} />;
   }
   if (source.status === "loading") {
-    return <ArtifactLoading className={className} />;
+    // The bytes are on their way through the transport. Keep the still on
+    // screen, dimmed, so the row does not change shape while it waits.
+    return (
+      <div role="status" aria-label="Loading video" className="relative w-fit max-w-full animate-pulse">
+        {still}
+      </div>
+    );
   }
   return (
     <video
       src={source.value}
+      poster={poster.value ?? undefined}
       controls={controls}
       // Requested by an explicit tap, so start playing rather than making the
       // user press play a second time.
       autoPlay
       playsInline
       aria-label={label}
+      // Same box as the still it replaces, so nothing moves on the tap.
+      style={reserved}
       onError={direct === null ? undefined : () => setDirectFailed(true)}
       className={className}
     />

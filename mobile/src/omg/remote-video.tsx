@@ -12,11 +12,21 @@
  * re-implementing refresh, and a token that expires mid-playback stalls the
  * picture with nothing to show for it.
  *
- * So the bytes come down through `client.transport.fetch`, which already owns
- * the grant, its refresh and the 401 retry, and are written to a file. The
- * player is then pointed at a local path and carries no auth at all. This is
- * also what the web does -- see AuthenticatedArtifactVideo, which pulls the
- * whole blob before the `<video>` exists -- so both surfaces behave the same.
+ * So the bytes come down to a FILE, and the player is pointed at a local path
+ * that carries no auth at all. The download itself is native
+ * (`File.downloadFileAsync` with the grant as a header for that one request;
+ * see signedRequestFor in transport.ts): the first version pulled the whole
+ * recording through `transport.fetch` into a JavaScript ArrayBuffer and wrote
+ * it back out, which on a phone is seconds of main-thread work for a 20 MB
+ * clip, on top of the transfer. That path is kept only as the fallback for a
+ * transport this module cannot sign for.
+ *
+ * And nothing is downloaded until the user asks. What shows first is the
+ * server's poster frame (`?preview=1` on a video artifact, a few KB), in the
+ * box the player will occupy, with a play glyph over it. A transcript that
+ * pulled every recording in it as it scrolled past was the wrong default on
+ * a cellular link, and the web surface (AuthenticatedArtifactVideo) gates on
+ * the tap the same way.
  *
  * ── The modules are required lazily, and that is load-bearing ─────────────
  *
@@ -28,12 +38,14 @@
  * video had a renderer at all.
  */
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 
 import { Icon } from "../components";
 import { useOmg } from "./provider";
+import { AuthenticatedImage } from "./remote-image";
 import { Text } from "./text";
 import { useTheme } from "./theme";
+import { signedRequestFor } from "./transport";
 import { videoCacheName } from "./video-cache";
 
 type VideoModules = {
@@ -90,51 +102,89 @@ export function canPlayVideo(): boolean {
  */
 async function download(
   fetchPath: (path: string) => Promise<Response>,
+  bindingId: string | null,
   path: string,
   fs: VideoModules["fs"],
 ): Promise<string> {
   const file = new fs.File(fs.Paths.cache, videoCacheName(path));
   if (file.exists) return file.uri;
-  const response = await fetchPath(path);
-  if (!response.ok) throw new Error(`${response.status}`);
-  const bytes = new Uint8Array(await response.arrayBuffer());
   // Written to a temporary name and then moved, so a download interrupted
   // half way cannot leave a truncated file that `exists` reports as a cache
   // hit forever after.
   const part = new fs.File(fs.Paths.cache, `${videoCacheName(path)}.part`);
   if (part.exists) part.delete();
-  part.create();
-  part.write(bytes);
+
+  const signed = bindingId ? await signedRequestFor(bindingId, path) : null;
+  if (signed) {
+    const attempt = async (forceRefresh: boolean) => {
+      const request = forceRefresh ? await signedRequestFor(bindingId!, path, { forceRefresh }) : signed;
+      if (!request) throw new Error("unsigned");
+      await fs.File.downloadFileAsync(request.url, part, {
+        headers: request.headers,
+        idempotent: true,
+      });
+    };
+    try {
+      await attempt(false);
+    } catch (error) {
+      // The grant died between mint and use. Same one-retry rule the
+      // transport's own fetch applies.
+      if (!/401/.test(String(error))) throw error;
+      await attempt(true);
+    }
+  } else {
+    const response = await fetchPath(path);
+    if (!response.ok) throw new Error(`${response.status}`);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    part.create();
+    part.write(bytes);
+  }
   part.move(file);
   return file.uri;
+}
+
+/** Fit a ratio inside both caps; the ratio decides which one binds. */
+function fitBox(ratio: number, maxWidth: number, maxHeight: number): { width: number; height: number } {
+  const width = Math.min(maxWidth, maxHeight * ratio);
+  return { width, height: width / ratio };
 }
 
 export function RemoteVideo({
   path,
   label,
-  style,
+  ratio: declaredRatio,
+  maxWidth,
+  maxHeight,
 }: {
   /** A server path, not a URL: the transport owns the origin. */
   path: string;
   label?: string | null;
-  style?: { height?: number };
+  /**
+   * width / height from the artifact, when the server recorded it. This is
+   * what makes a portrait recording get a portrait box before any bytes
+   * arrive, instead of a 200pt letterbox with the picture in the middle.
+   */
+  ratio?: number | null;
+  maxWidth: number;
+  maxHeight: number;
 }) {
-  const { client } = useOmg();
+  const { client, bindingId } = useOmg();
   const { colors, radius, type, space } = useTheme();
   const loaded = videoModules();
+  const [requested, setRequested] = useState(false);
   const [uri, setUri] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   const cancelled = useRef(false);
 
   useEffect(() => {
     cancelled.current = false;
-    if (!loaded || !client) return;
+    if (!requested || !loaded || !client) return;
     // `client` null is handled below, not here: there is no transport, so
     // there are no bytes and no way to ever get them. Spinning forever would
     // be the wrong answer to a question that is already settled.
     setUri(null);
     setFailed(false);
-    void download((p) => client.transport.fetch(p), path, loaded.fs)
+    void download((p) => client.transport.fetch(p), bindingId, path, loaded.fs)
       .then((local) => {
         if (!cancelled.current) setUri(local);
       })
@@ -146,7 +196,7 @@ export function RemoteVideo({
     return () => {
       cancelled.current = true;
     };
-  }, [client, loaded, path]);
+  }, [requested, client, bindingId, loaded, path]);
 
   if (!loaded) return <UnplayableVideo label={label} reason="update" />;
   /*
@@ -156,28 +206,59 @@ export function RemoteVideo({
    */
   if (!client || failed) return <UnplayableVideo label={label} reason="gone" />;
 
-  const height = style?.height ?? 200;
-  if (!uri) {
-    return (
+  // A landscape guess only when the artifact is silent about its shape.
+  const box = fitBox(declaredRatio ?? 16 / 9, maxWidth, maxHeight);
+
+  if (uri) return <Player video={loaded.video} uri={uri} box={box} />;
+
+  const still = (
+    <AuthenticatedImage
+      path={path}
+      accessibilityLabel={label || "Video"}
+      maxWidth={maxWidth}
+      maxHeight={maxHeight}
+      ratio={declaredRatio}
+      radius={radius.md}
+      placeholderColor={colors.codeBg}
+      // No poster (a box without ffmpeg, or a clip published before posters
+      // existed): the same box, plain black, still with the play glyph.
+      fallback={<View style={{ ...box, borderRadius: radius.md, backgroundColor: "#000" }} />}
+      style={{ resizeMode: "contain" }}
+    />
+  );
+
+  return (
+    <Pressable
+      onPress={() => setRequested(true)}
+      disabled={requested}
+      accessibilityRole="button"
+      accessibilityLabel={label ? `Play ${label}` : "Play video"}
+      style={{ alignSelf: "flex-start", opacity: requested ? 0.7 : 1 }}
+    >
+      {still}
       <View
-        style={{
-          width: "100%",
-          height,
-          borderRadius: radius.md,
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: colors.card,
-          borderWidth: StyleSheet.hairlineWidth,
-          borderColor: colors.border,
-          gap: space.sm,
-        }}
+        pointerEvents="none"
+        style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center" }}
       >
-        <ActivityIndicator color={colors.textMuted} />
-        <Text style={{ ...type.caption, color: colors.textMuted }}>Loading video…</Text>
+        <View
+          style={{
+            width: 56,
+            height: 56,
+            borderRadius: 28,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: "rgba(0,0,0,0.55)",
+          }}
+        >
+          {requested ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Icon ios="play.fill" android="play_arrow" size={24} color="#fff" />
+          )}
+        </View>
       </View>
-    );
-  }
-  return <Player video={loaded.video} uri={uri} height={height} />;
+    </Pressable>
+  );
 }
 
 /**
@@ -190,24 +271,24 @@ export function RemoteVideo({
 function Player({
   video,
   uri,
-  height,
+  box,
 }: {
   video: VideoModules["video"];
   uri: string;
-  height: number;
+  box: { width: number; height: number };
 }) {
   const { radius } = useTheme();
   const player = video.useVideoPlayer(uri, (instance) => {
-    // No autoplay and no loop: this sits in a transcript somebody is reading,
-    // and a picture that starts moving while they read the line above it is
-    // the thing every chat app learned not to do.
+    // Requested by an explicit tap, so it starts rather than asking for a
+    // second press. No loop: it sits in a transcript somebody is reading.
     instance.loop = false;
     instance.muted = false;
+    instance.play();
   });
   return (
     <video.VideoView
       player={player}
-      style={{ width: "100%", height, borderRadius: radius.md, backgroundColor: "#000" }}
+      style={{ ...box, borderRadius: radius.md, backgroundColor: "#000" }}
       contentFit="contain"
       nativeControls
       // Fullscreen is the point for a screen recording of a bug: the inline
