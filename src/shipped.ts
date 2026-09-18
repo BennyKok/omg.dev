@@ -250,7 +250,7 @@ export async function addShipPost(input: {
     const sessionId = input.sessionId ?? prior?.sessionId;
     if (!sessionId) throw new Error("sessionId required to attach media files");
     if (VIDEO_EXT.test(item.path)) {
-      media.push(createVideoArtifact({ sessionId, path: item.path, caption: item.caption }).id);
+      media.push((await createVideoArtifact({ sessionId, path: item.path, caption: item.caption })).id);
       continue;
     }
     const optimized = await optimizeImageForStore(item.path);

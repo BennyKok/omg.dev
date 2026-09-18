@@ -262,12 +262,57 @@ describe("AuthenticatedArtifactVideo", () => {
     expect(fetched).toEqual([]);
   });
 
-  test("waits for the tap before it asks for any bytes", async () => {
+  test("waits for the tap before it asks for any video bytes", async () => {
     installTransport({ direct: true });
     render(<AuthenticatedArtifactVideo path="/api/artifacts/clip.mp4" label="clip" />);
     await act(async () => {});
 
     expect(host.querySelector("video")).toBeNull();
     expect(host.querySelector("button")).not.toBeNull();
+    // Only the still is asked for, and on the direct path the element asks.
+    expect(img()?.getAttribute("src")).toBe("/api/artifacts/clip.mp4?preview=1");
+    expect(fetched).toEqual([]);
+  });
+
+  // The untapped state used to be a bare 44px play button. The row's caption
+  // wraps to the media's width, so it came down one word per line beside a
+  // video nobody could size. The poster now occupies the player's box, from
+  // the dimensions the server recorded at publish.
+  test("the untapped state occupies the player's box", async () => {
+    installTransport({ direct: true });
+    render(
+      <AuthenticatedArtifactVideo
+        path="/api/artifacts/clip.mp4"
+        label="clip"
+        width={1320}
+        height={2868}
+        className="w-auto max-h-[24rem]"
+      />,
+    );
+    await act(async () => {});
+
+    // happy-dom drops `min()` widths; the aspect half proves the wiring (see
+    // the image test above for the same limitation).
+    expect(img()?.getAttribute("style") ?? "").toContain("aspect-ratio: 1320 / 2868");
+  });
+
+  test("a tap fetches the video and keeps the still as its poster", async () => {
+    installTransport({ direct: false });
+    render(
+      <AuthenticatedArtifactVideo path="/api/artifacts/clip.mp4" label="clip" width={320} height={180} />,
+    );
+    await act(async () => {});
+    expect(fetched).toEqual(["/api/artifacts/clip.mp4?preview=1"]);
+
+    await act(async () => {
+      host.querySelector("button")?.click();
+    });
+    await act(async () => {});
+
+    expect(fetched).toEqual(["/api/artifacts/clip.mp4?preview=1", "/api/artifacts/clip.mp4"]);
+    const video = host.querySelector("video");
+    expect(video?.getAttribute("src")).toStartWith("blob:");
+    expect(video?.getAttribute("poster")).toStartWith("blob:");
+    expect(video?.style.aspectRatio).toBe("320 / 180");
   });
 });

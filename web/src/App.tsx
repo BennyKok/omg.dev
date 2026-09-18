@@ -20829,6 +20829,8 @@ const MessageBubble = memo(function MessageBubble({
             <AuthenticatedArtifactVideo
               path={message.url}
               label={alt}
+              width={message.width}
+              height={message.height}
               className="block max-h-[24rem] w-auto max-w-full self-start overflow-hidden rounded-xl bg-black object-contain"
             />
           ) : (

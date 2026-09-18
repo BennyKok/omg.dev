@@ -551,7 +551,7 @@ import {
   listOriginDeliveries,
   type OriginDeliveryMedia,
 } from "../origin-deliveries.ts";
-import { deleteImagePreview, getOrCreateImagePreview } from "../artifact-previews.ts";
+import { deleteImagePreview, getOrCreateImagePreview, getOrCreateVideoPoster } from "../artifact-previews.ts";
 import { resolveUploadRequest, uploadsDir } from "../uploads.ts";
 import { addShipPost, listShipPosts, resolveShipProject } from "../shipped.ts";
 import { verifySelfRepoLanding } from "../session-landing.ts";
@@ -9186,6 +9186,20 @@ a{color:#60a5fa}
               // a broken image. The immutable original remains a safe fallback.
               console.warn("artifact preview generation failed", artifact.id, error);
             }
+          } else if (wantsPreview && artifact.media === "video") {
+            // A poster frame. There is no safe fallback here: the original is
+            // a video, and a client that asked for a picture would download
+            // the whole file and then fail to decode it as one. Say no instead.
+            try {
+              filePath = await getOrCreateVideoPoster(
+                artifact,
+                previewParam === "thumb" ? "thumb" : "preview",
+              );
+              contentType = "image/webp";
+            } catch (error) {
+              console.warn("video poster generation failed", artifact.id, error);
+              return err(404, "no preview for this video");
+            }
           }
           const file = Bun.file(filePath);
           if (!(await file.exists())) return err(404, "artifact file not found");
@@ -9324,7 +9338,7 @@ a{color:#60a5fa}
             for (const mediaPath of (body.mediaPaths ?? []).slice(0, Math.max(0, 3 - artifacts.length))) {
               const extension = extname(mediaPath).toLowerCase();
               const artifact = [".mp4", ".m4v", ".webm", ".mov", ".ogv"].includes(extension)
-                ? createVideoArtifact({ sessionId: m[1], path: mediaPath })
+                ? await createVideoArtifact({ sessionId: m[1], path: mediaPath })
                 : await createImageArtifact({ sessionId: m[1], path: mediaPath });
               artifacts.push(artifact);
             }
@@ -9434,7 +9448,7 @@ a{color:#60a5fa}
           try {
             const transcriptPath = await resolveTranscript(m[1]);
             const indexPath = transcriptPath ?? sessionIndexKey(m[1]);
-            const artifact = createVideoArtifact({
+            const artifact = await createVideoArtifact({
               sessionId: m[1],
               path: body.path,
               caption: body.caption,
