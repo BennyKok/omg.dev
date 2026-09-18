@@ -272,6 +272,14 @@ async function runJevPlan(udid: string, name: string): Promise<number> {
     plan,
     vars: { EMAIL: email },
     readOtp: async () => {
+      // The App Review demo account has a FIXED code that never arrives by
+      // mail, so there is nothing to read from Gmail. It lives in App Store
+      // Connect and in OMG_REVIEW_CODE, never in this public repository.
+      const fixed = process.env.OMG_REVIEW_CODE;
+      if (fixed) {
+        console.log("  using the fixed review code from OMG_REVIEW_CODE");
+        return fixed;
+      }
       const { readSignInCode } = await import("./e2e-otp.ts");
       const { code, date } = await readSignInCode(mailbox, email, { notBefore: started });
       console.log(`  sign-in code arrived (${date})`);

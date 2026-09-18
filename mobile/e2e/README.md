@@ -35,6 +35,26 @@ is what puts every run at step 01. `--build` makes one with Xcode on the Mac
 `eas build --profile simulator-release --platform ios` produces the same thing
 in about ten minutes and is the fallback.
 
+## The App Review plan
+
+```bash
+OMG_E2E_EMAIL=appreview@omg.dev OMG_REVIEW_CODE=<code> \
+  bun run test:e2e --plan reviewer --record
+```
+
+`reviewer.plan.json` walks what App Review walks: onboarding 01 to 03, the
+sign-in drawer, the demo account, its FIXED code, the data notice, and the
+signed-in session list. `OMG_REVIEW_CODE` short-circuits the Gmail read,
+because that code never arrives by mail. The code lives in App Store Connect
+and in the environment. It is NOT in this repository, which is public.
+
+The last step exists for one regression: on 2026-09-17 the list rendered
+empty while the demo box held real sessions, which reads as a broken app.
+`forbid: ["No sessions yet"]` fails by name if that returns.
+
+Run it before every submission, and re-read
+`docs/ASC-LISTING-READINESS.md` for the state of the demo Computer.
+
 ## Static flows
 
 `--flow NAME` runs `NAME.yaml` with `maestro test`; `--flow onboarding` runs
