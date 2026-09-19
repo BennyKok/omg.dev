@@ -1,0 +1,51 @@
+# THREE LINES, THEN SCROLL — the proof for the 2026-09-19 composer fix.
+#
+# Benny: the composer "doesn't expand multiple lines when the text overflow,
+# instead it just scroll down, which i expect to have max 3 lines". The home
+# composer stayed at ONE line for any prompt, because it set an explicit
+# height from onContentSizeChange, and that is a measurement deadlock on the
+# New Architecture (see HomeComposer in src/components.tsx).
+#
+# A field's HEIGHT is not in the accessibility tree, so a Jev plan cannot
+# judge this one and this is a fixed flow instead. Run it with --record: the
+# video is what carries the proof, because it shows both fields growing to
+# three lines and stopping there.
+#
+#   bun run test:e2e --flow composer-height --record
+#
+# Both fields are reached by `id:`, not by text. A composer's accessibility
+# label is its placeholder when empty and its VALUE once typed in, so a flow
+# that names the placeholder works exactly once and then fails on the draft it
+# left behind -- which is how the first run of this flow failed. Hence the
+# testID on each field.
+appId: dev.omg.computer
+---
+# Leave any open session, so this starts on home either way.
+- runFlow:
+    when:
+      visible: "Dictate a message"
+    commands:
+      - tapOn: "Back"
+
+# HOME — a prompt far longer than three lines. The field must grow to three
+# and then scroll, not sit at one line.
+- tapOn:
+    id: "home-composer-input"
+- eraseText: 300
+- inputText: "One two three four five six seven eight nine ten. One two three four five six seven eight nine ten. One two three four five six seven eight nine ten."
+- assertVisible: "Start session"
+- takeScreenshot: composer-home
+
+# SESSION — the same text in the chat composer, which caps at the same three
+# lines. Clear the home draft first, or it is still there on the next run.
+- eraseText: 300
+- tapOn: "Add pagination to /v1/orders.*"
+- extendedWaitUntil:
+    visible: "Dictate a message"
+    timeout: 30000
+- tapOn:
+    id: "session-composer-input"
+- eraseText: 300
+- inputText: "One two three four five six seven eight nine ten. One two three four five six seven eight nine ten. One two three four five six seven eight nine ten."
+- takeScreenshot: composer-session
+- eraseText: 300

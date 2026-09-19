@@ -4,7 +4,7 @@
  * choices are validated against its catalog before use.
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { supportsFastMode } from "../../../packages/protocol/src/fast-mode-support";
 import { STORAGE_KEYS } from "./config";
@@ -22,6 +22,16 @@ import { basename, projectKey, sessionMatchesProject } from "./project-filter";
  * lands is the agent that would actually run.
  */
 export const DEFAULT_AGENT = "aisdk";
+
+/**
+ * How often, and how many times, a failed catalog fetch is tried again.
+ *
+ * Bounded on purpose. A box that is merely slow to wake answers well inside
+ * this; a box whose build has no `/api/coding-agents` answers 404 every time,
+ * and polling it forever would burn battery to learn the same thing.
+ */
+const CATALOG_RETRY_MS = 3000;
+const CATALOG_RETRIES = 4;
 
 
 type ModelCatalogEntry = {
@@ -43,8 +53,49 @@ export type ClaudeAccountRow = {
 };
 
 export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
-  const { agents, bindingId, client } = useOmg();
+  const { agents, bindingId, client, readiness } = useOmg();
   const { initialAgent } = init;
+  /**
+   * NOTHING IS FETCHED UNTIL THE BOX ANSWERS, AND A FAILED FETCH RETRIES.
+   *
+   * Both requests below used to fire on `client` alone. `client` exists the
+   * moment `bindingId` is restored from AsyncStorage, which is before sign-in
+   * resolves and long before the box is awake. So on a cold or hibernating
+   * Computer they went out first, got 425 "waking" or a grant error, hit their
+   * `.catch`, and set an empty list. Their only dependency was `client`, whose
+   * only dependency is `bindingId`, so they never ran again: the box woke, the
+   * agent icon row filled in from readiness, and the model list stayed empty
+   * for the rest of the app session. That is the "model list and the rest is
+   * not loading" report, 2026-09-19.
+   *
+   * `waitForReady` already retries 425 for the bootstrap probe. These two are
+   * separate requests and got none of that. Gate them on the same readiness
+   * the roster comes from, so they go out when the box can answer, and retry a
+   * bounded number of times so a transient 502 mid-resume is not permanent
+   * either.
+   */
+  const ready = readiness?.status === "ready";
+  const [fetchAttempt, setFetchAttempt] = useState(0);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearRetry = useCallback(() => {
+    if (retryTimer.current) clearTimeout(retryTimer.current);
+    retryTimer.current = null;
+  }, []);
+  /** Both fetches share one timer, so a double failure schedules one retry. */
+  const retryLater = useCallback(() => {
+    if (retryTimer.current) return;
+    retryTimer.current = setTimeout(() => {
+      retryTimer.current = null;
+      setFetchAttempt((n) => (n >= CATALOG_RETRIES ? n : n + 1));
+    }, CATALOG_RETRY_MS);
+  }, []);
+  // A machine switch starts the retry budget over: the new box has its own
+  // catalog and its own chance to be asleep.
+  useEffect(() => {
+    clearRetry();
+    setFetchAttempt(0);
+  }, [bindingId, clearRetry]);
+  useEffect(() => clearRetry, [clearRetry]);
   const [chosen, setChosen] = useState<string | null>(null);
   const [model, setModel] = useState<string | null>(null);
   const [fast, setFast] = useState(false);
@@ -78,7 +129,7 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
   }, []);
 
   useEffect(() => {
-    if (!client) return;
+    if (!client || !ready) return;
     let cancelled = false;
     void client.transport
       .request<{ accounts?: ClaudeAccountRow[] }>("/api/coding-agents/claude/accounts")
@@ -88,11 +139,14 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
       })
       .catch(() => {
         // A box that cannot answer has nothing to choose between. The picker
-        // hides itself rather than showing an empty or broken section.
-        if (!cancelled) setClaudeAccounts([]);
+        // hides itself rather than showing an empty or broken section -- but
+        // it asks again, because "cannot answer yet" is the common case.
+        if (cancelled) return;
+        setClaudeAccounts([]);
+        retryLater();
       });
     return () => { cancelled = true; };
-  }, [client, bindingId]);
+  }, [client, ready, fetchAttempt, retryLater]);
 
   /**
    * WHICH MODELS EACH AGENT CAN RUN, from the machine's own catalog
@@ -102,7 +156,7 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
    * start with.
    */
   useEffect(() => {
-    if (!client) return;
+    if (!client || !ready) return;
     let cancelled = false;
     client.transport
       .request<{ models?: ModelCatalogEntry[] }>("/api/coding-agents")
@@ -111,12 +165,16 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
       })
       .catch(() => {
         // No catalog means no model submenu — the agent list still works.
-        if (!cancelled) setCatalog([]);
+        // An empty catalog also drops the remembered model and thinking level
+        // (they are validated against it below), so this is worth retrying.
+        if (cancelled) return;
+        setCatalog([]);
+        retryLater();
       });
     return () => {
       cancelled = true;
     };
-  }, [client]);
+  }, [client, ready, fetchAttempt, retryLater]);
 
   // A machine switch cannot keep the previous box's agent: the roster is
   // per-machine, so the old selection may not exist here. Clearing falls back
