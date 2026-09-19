@@ -12,7 +12,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  useWindowDimensions,
   View,
   type ViewStyle,
   type LayoutRectangle,
@@ -984,10 +983,8 @@ export function SessionCard({
  */
 /** One line of the home composer, matching the field's `lineHeight` below. */
 const COMPOSER_LINE = 24;
-/** Never grows past this. Eight lines is a paragraph of task description. */
-const COMPOSER_MAX_LINES = 8;
-/** Never shrinks below this on a short window, or the cap stops meaning anything. */
-const COMPOSER_MIN_LINES = 3;
+/** Never grows past this. Benny's rule, 2026-09-19: three lines, then scroll. */
+const COMPOSER_MAX_LINES = 3;
 
 /**
  * The composer's surface, animatable.
@@ -1091,31 +1088,32 @@ export function HomeComposer({
   );
   const [setupOpen, setSetupOpen] = useState(false);
   const [setupPage, setSetupPage] = useState<"root" | "profiles">("root");
-  const [inputHeight, setInputHeight] = useState(COMPOSER_LINE);
   const [composerFocused, setComposerFocused] = useState(false);
   const promptText = dictationTail ? `${value}${value ? " " : ""}${dictationTail}` : value;
   /**
-   * HOW TALL THIS IS ALLOWED TO GROW.
+   * HOW TALL THIS IS ALLOWED TO GROW, and why it is not measured any more.
    *
-   * It was a flat 120pt, which at this field's 24pt line is five lines. The
-   * session composer caps at the same 120 but sets a 21pt line, so it gets
-   * nearly six -- the home field was the shorter of the two while being the
-   * one you draft a whole task in. Benny asked for more room here.
+   * This used to set an explicit `height` from `onContentSizeChange`. On the
+   * New Architecture that is a DEADLOCK, and it shipped: the field stayed at
+   * exactly one line for any length of prompt and scrolled the text sideways
+   * out of view instead of growing. Reproduced on iOS 26 / RN 0.86, 2026-09-19.
    *
-   * Expressed in LINES rather than points, so the cap cannot silently change
-   * meaning the next time the type scale moves, and bounded by a share of the
-   * window so a landscape phone or a Slide Over pane does not end up with a
-   * composer taller than the list it floats over. The field scrolls past the
-   * cap; nothing is unreachable.
+   * The cycle is: a multiline field with an explicit `height` reports that
+   * frame height back as its content size, so `inputHeight` was measured as
+   * 24, which set the height to 24, which measured 24 ... forever. The old
+   * architecture reported the UITextView's own growing `contentSize` and hid
+   * this. Nothing in the component changed; the renderer under it did.
+   *
+   * Yoga can size a multiline field on its own from `minHeight`/`maxHeight`,
+   * with no measurement round trip to deadlock. That is what the session
+   * composer in app/session/[id].tsx already did, which is why that one grew
+   * correctly while this one did not.
+   *
+   * The cap stays expressed in LINES, so it cannot silently change meaning the
+   * next time the type scale moves. Past the cap the field scrolls; nothing is
+   * unreachable.
    */
-  const { height: windowHeight } = useWindowDimensions();
-  const maxInputHeight = Math.max(
-    COMPOSER_MIN_LINES * COMPOSER_LINE,
-    Math.min(COMPOSER_MAX_LINES * COMPOSER_LINE, Math.round(windowHeight * 0.3)),
-  );
-  const measuredInputHeight = promptText
-    ? Math.max(COMPOSER_LINE, Math.min(maxInputHeight, inputHeight))
-    : COMPOSER_LINE;
+  const maxInputHeight = COMPOSER_MAX_LINES * COMPOSER_LINE;
   const expanded = composerFocused || hasMessage || dictation.state !== "idle";
   /**
    * ONE VALUE DRIVES THE MORPH, so the parts cannot arrive out of step.
@@ -1238,6 +1236,11 @@ export function HomeComposer({
       value={promptText}
       onChangeText={onChangeText}
       editable={!dictationTail}
+      // A Maestro handle for the field itself. Its accessibility label is
+      // either the placeholder or whatever has been typed, so a flow that has
+      // to reach a field with a draft already in it has nothing stable to
+      // name. See e2e/composer-height.yaml.
+      testID="home-composer-input"
       placeholder="What should we work on?"
       placeholderTextColor={colors.textMuted}
       multiline
@@ -1245,12 +1248,18 @@ export function HomeComposer({
       scrollEnabled
       onFocus={() => setComposerFocused(true)}
       onBlur={() => setComposerFocused(false)}
-      onContentSizeChange={event => setInputHeight(Math.ceil(event.nativeEvent.contentSize.height))}
       style={{
         flex: expanded ? undefined : 1,
         width: expanded ? "100%" : undefined,
         minWidth: 0,
-        height: measuredInputHeight,
+        minHeight: COMPOSER_LINE,
+        maxHeight: maxInputHeight,
+        // EMPTY IS ONE LINE. A multiline field keeps the height it grew to
+        // after its value is cleared, so a sent three-line prompt left a
+        // three-line box behind. Pin it while there is nothing in it; the
+        // auto-size takes over on the first key. Same rule as the session
+        // composer.
+        ...(promptText ? {} : { height: COMPOSER_LINE }),
         color: colors.text,
         ...type.body,
         fontSize: 18,

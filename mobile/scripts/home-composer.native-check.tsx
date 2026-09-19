@@ -54,26 +54,49 @@ test('only working session rows have an activity field',()=>{
   }
  } finally {ui.cleanup();}
 });
-test('the live composer grows from measured text, caps scrolling, and resets after clearing',()=>{
+/**
+ * THE FIELD GROWS TO THREE LINES, AND YOGA IS WHAT GROWS IT.
+ *
+ * This test used to drive `onContentSizeChange` by hand and assert the
+ * `height` that came back. It passed for a year while the real field on a
+ * real phone stayed at ONE line and scrolled the text out of sight -- the bug
+ * Benny reported on 2026-09-19 and this check could not see.
+ *
+ * The reason is that the old code was a measurement feedback loop, and under
+ * the New Architecture the loop deadlocks: a multiline field carrying an
+ * explicit `height` reports that same frame height back as its content size.
+ * So `onContentSizeChange` fired with 24, which set the height to 24, which
+ * measured 24, forever. A hand-written event with 72 in it is a number the
+ * renderer would never actually send, so the test proved nothing.
+ *
+ * Assert the CONSTRAINTS now, not a round trip. `minHeight`/`maxHeight` with
+ * no explicit height is a plain Yoga layout: there is no callback to deadlock,
+ * and it is what the session composer already did correctly. The `undefined`
+ * assertion on `onContentSizeChange` is the load-bearing one -- it is what
+ * fails if anyone reintroduces the measurement.
+ */
+test('the live composer grows to three lines through layout, not measurement',()=>{
  const ui=mount();
  const render=(value:string)=>ui.render(<HomeComposer value={value} onChangeText={()=>{}} onStart={()=>{}} projectOptions={[]} agentOptions={[]} attachments={{items:[],options:[],remove:()=>{}}} dictation={{state:'idle',toggle:()=>{}}}/>);
  try {
   render('');
+  // Empty is pinned to one line, so a sent prompt does not leave a tall box.
   expect(input.style.height).toBe(24);
   expect(input.multiline).toBe(true);
   expect(input.submitBehavior).toBe('newline');
   ui.flush(()=>input.onFocus?.());
   expect(input.style.height).toBe(24);
+
   render('A message that wraps to several lines');
-  ui.flush(()=>input.onContentSizeChange({nativeEvent:{contentSize:{height:72}}}));
-  expect(input.style.height).toBe(72);
+  // No pin once there is text: Yoga sizes it between one and three lines.
+  expect(input.style.height).toBeUndefined();
+  expect(input.style.minHeight).toBe(24);
+  expect(input.style.maxHeight).toBe(72);
+  // Past three lines it scrolls; nothing is unreachable.
   expect(input.scrollEnabled).toBe(true);
-  ui.flush(()=>input.onContentSizeChange({nativeEvent:{contentSize:{height:192}}}));
-  expect(input.style.height).toBe(120);
-  expect(input.scrollEnabled).toBe(true);
-  render('Short');
-  ui.flush(()=>input.onContentSizeChange({nativeEvent:{contentSize:{height:24}}}));
-  expect(input.style.height).toBe(24);
+  // Nothing measures the field. See the comment above -- this is the bug.
+  expect(input.onContentSizeChange).toBeUndefined();
+
   render('');
   expect(input.style.height).toBe(24);
   expect(input.scrollEnabled).toBe(true);

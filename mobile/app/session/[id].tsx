@@ -2476,6 +2476,11 @@ export function SessionScreenBody({
              * Committed chunks are already in `draft`; `partial` is only the
              * unsettled tail, so appending it double-counts nothing.
              */
+            // A Maestro handle for the field itself. Its accessibility label
+            // is either the placeholder or whatever has been typed, and the
+            // placeholder here is one of four strings, so a flow has nothing
+            // stable to name. See e2e/composer-height.yaml.
+            testID="session-composer-input"
             value={dictationTail ? `${draft}${draft ? " " : ""}${dictationTail}` : draft}
             onChangeText={setDraft}
             // Not editable mid-take: part of what is on screen is provisional
@@ -2514,7 +2519,11 @@ export function SessionScreenBody({
             onBlur={() => setComposerFocused(false)}
             style={{
               flex: 1,
-              maxHeight: 120,
+              // THREE LINES, THEN SCROLL. Benny's rule, 2026-09-19, and the
+              // same cap the home composer uses. It was 120pt, which at this
+              // 21pt line is nearly six lines -- a composer that ate half the
+              // transcript before it stopped. 3 * 21 = 63.
+              maxHeight: 63,
               // No vertical padding of its own: the box centres it, and
               // padding here would fight that and push the text low again.
               minHeight: 24,
