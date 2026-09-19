@@ -30,6 +30,10 @@ mock.module(import.meta.resolve("react-native-reanimated"), () => ({
   runOnJS: (fn: any) => fn, interpolateColor: () => "#ffffff", Easing: { linear: (value: number) => value },
   useSharedValue: (value: number) => React.useRef({ value }).current,
   useAnimatedStyle: (fn: () => any) => fn(),
+  // session-activity-canvas imports this. The canvas path itself is inert
+  // here: requiring Skia throws without its native module, so the field falls
+  // back to the view path these tests assert on.
+  useDerivedValue: (fn: () => any) => ({ value: fn() }),
   withTiming: (value: number, _: any, done?: (finished: boolean) => void) => {
     if (done) finishTiming = done;
     return value;

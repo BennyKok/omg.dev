@@ -7,6 +7,7 @@ import Animated, {
 import { Text } from "./text";
 import { useReduceMotionEnabled } from "./motion";
 import { useTheme } from "./theme";
+import { ActivityCanvas, activityCanvasSupported } from "./session-activity-canvas";
 
 const SPACING = 10;
 const GROUPS = 24;
@@ -191,6 +192,9 @@ export function SessionActivityField({ activity, textBounds, cornerRadius, horiz
   const baseColor = isDark ? "#a7bacb" : "#52677e";
   const sparkColor = isDark ? "#e1eaf2" : "#344d68";
   const groups = useMemo(() => {
+    // The shader needs none of this. Building it anyway would keep the whole
+    // cost this change exists to remove, for a result nothing reads.
+    if (activityCanvasSupported) return { base: [] as Point[][], sparks: [] as { point: Point; group: number }[] };
     const result: Point[][] = Array.from({ length: GROUPS }, () => []);
     const sparks: { point: Point; group: number }[] = [];
     const rowSeed = identitySeed(identity);
@@ -228,10 +232,24 @@ export function SessionActivityField({ activity, textBounds, cornerRadius, horiz
       left: -horizontalOutset, right: -horizontalOutset,
       borderRadius: cornerRadius, overflow: "hidden",
     }]}>
-    {groups.base.map((points, index) => <Lights key={index} points={points}
-      index={index} activity={activity} color={baseColor} />)}
-    {!activity.reducedMotion && groups.sparks.map(({ point, group }) =>
-      <Lights key={`spark-${point.x}:${point.y}`} points={[point]} index={group}
-        sparkleSeed={point.seed} activity={activity} color={sparkColor} />)}
+    {activityCanvasSupported
+      ? (size.width > 0 && size.height > 0 ? <ActivityCanvas
+          width={size.width} height={size.height} cornerRadius={cornerRadius}
+          phase={activity.phase} visibility={activity.visibility}
+          rowSeed={identitySeed(identity)} reducedMotion={activity.reducedMotion}
+          // The field is drawn one outset wider than the row on each side, so
+          // the measured column has to move with it.
+          text={textBounds ? {
+            x: textBounds.x + horizontalOutset, y: textBounds.y,
+            width: textBounds.width, height: textBounds.height,
+          } : undefined}
+          baseColor={baseColor} sparkColor={sparkColor} /> : null)
+      : <>
+        {groups.base.map((points, index) => <Lights key={index} points={points}
+          index={index} activity={activity} color={baseColor} />)}
+        {!activity.reducedMotion && groups.sparks.map(({ point, group }) =>
+          <Lights key={`spark-${point.x}:${point.y}`} points={[point]} index={group}
+            sparkleSeed={point.seed} activity={activity} color={sparkColor} />)}
+      </>}
   </View>;
 }

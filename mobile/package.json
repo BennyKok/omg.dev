@@ -14,6 +14,7 @@
     "@omg-dev/protocol": "^0.6.67",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-google-signin/google-signin": "^16.1.4",
+    "@shopify/react-native-skia": "2.12.0",
     "@siteed/audio-studio": "^3.2.1",
     "expo": "~57.0.12",
     "expo-apple-authentication": "~57.0.1",
