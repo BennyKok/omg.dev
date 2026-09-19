@@ -1,0 +1,69 @@
+# The working-state grid survives leaving Home and coming back.
+#
+# Home keeps running under a pushed session screen, so its rows' activity
+# animation is now stopped while it is covered and restarted when it is not
+# (SessionActivityPane in src/omg/session-activity.tsx). This flow walks that
+# transition: a working row, into its transcript, back out, and the working
+# rows must still be there and still marked busy.
+#
+# Run it against a demo bundle:
+#   EXPO_PUBLIC_OMG_DEMO=1 bun x expo start --tunnel   (point the dev client at it)
+#   bun run test:e2e --flow session-activity --record
+appId: dev.omg.computer
+onFlowStart:
+  - runFlow:
+      when:
+        visible:
+          id: "xmark"
+      commands:
+        - tapOn:
+            id: "xmark"
+  - runFlow:
+      when:
+        visible: "Dictate a message"
+      commands:
+        - tapOn: "Back"
+  - runFlow:
+      when:
+        visible: "Agree and continue"
+      commands:
+        - tapOn: "Agree and continue"
+---
+# HOME — the seeded roster, with the first two sessions working.
+- extendedWaitUntil:
+    visible: "Refactor the rate limiter to a sliding window.*"
+    timeout: 30000
+- assertVisible: "Fix the token refresh race on cold start.*"
+- takeScreenshot: activity-home-before
+# The row reports busy through its accessibility state, which is what drives
+# the grid. Assert the state rather than the decoration.
+- assertVisible:
+    text: "Refactor the rate limiter to a sliding window.*"
+    enabled: true
+
+# SESSION — Home is now covered and its clocks are stopped.
+- tapOn: "Refactor the rate limiter to a sliding window.*"
+- extendedWaitUntil:
+    visible: ".*Keep the same per-key limits.*"
+    timeout: 20000
+- takeScreenshot: activity-session
+
+# HOME again — the rows come back, still working. A stopped clock that never
+# restarted would leave this list looking the same in a still; the recording
+# is what shows it breathing again, so keep --record on this flow.
+#
+# `back` (the swipe gesture) left the app ON the session screen here, and the
+# session HEADER carries the same title as the row, so asserting the title
+# after it read as a pass on the wrong screen. Tap the real button, and assert
+# something only Home has.
+- tapOn: "Back"
+# NOT the composer placeholder: a draft left in the composer replaces it, and
+# NOT the greeting, which becomes "N agents building" once the roster loads.
+# The folder chips belong to Home and to nothing else.
+- extendedWaitUntil:
+    visible: "api-gateway folder"
+    timeout: 20000
+- assertNotVisible: "Dictate a message"
+- assertVisible: "Refactor the rate limiter to a sliding window.*"
+- assertVisible: "Fix the token refresh race on cold start.*"
+- takeScreenshot: activity-home-after

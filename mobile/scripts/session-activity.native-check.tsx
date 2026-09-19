@@ -45,7 +45,7 @@ mock.module(resolve(import.meta.dir, "../src/omg/theme.ts"), () => ({
   useTheme: () => ({ isDark: true }),
 }));
 mock.module(resolve(import.meta.dir, "../src/omg/text.tsx"), () => ({ Text: View }));
-const { SessionActivityField, useSessionActivity, activityWave, activitySparkle, activityBreath } = await import("../src/omg/session-activity");
+const { SessionActivityField, SessionActivityPane, useSessionActivity, activityWave, activitySparkle, activityBreath } = await import("../src/omg/session-activity");
 
 function Field({ active = true, textBounds, identity }: { active?: boolean; textBounds?: any; identity?: string }) {
   const activity = useSessionActivity(active);
@@ -188,5 +188,38 @@ test("session identities keep stable but distinct noise layouts", () => {
     expect(accents()).not.toEqual(first);
     ui.render(<Field identity="first-session" />);
     expect(accents()).toEqual(first);
+  } finally { ui.cleanup(); }
+});
+
+test("a covered pane stops every row clock and gives back its listener", () => {
+  const ui = mount();
+  const pane = (onScreen: boolean) =>
+    ui.render(<SessionActivityPane onScreen={onScreen}><Field /></SessionActivityPane>);
+  starts = 0;
+  try {
+    pane(true);
+    expect(starts).toBe(1);
+    expect(appListener).toBeDefined();
+    // Home pushed a session screen on top. The rows are still mounted.
+    const before = cancels;
+    pane(false);
+    expect(cancels).toBeGreaterThan(before);
+    expect(starts).toBe(1);
+    expect(appListener).toBeUndefined();
+    // The field stays on screen, so coming back must not re-enter it.
+    expect(ui.queryAll("div").length).toBeGreaterThan(0);
+    pane(true);
+    expect(starts).toBe(2);
+    expect(appListener).toBeDefined();
+  } finally { ui.cleanup(); }
+});
+
+test("an idle row costs no clock and no AppState listener", () => {
+  const ui = mount();
+  starts = 0;
+  try {
+    ui.render(<Field active={false} />);
+    expect(starts).toBe(0);
+    expect(appListener).toBeUndefined();
   } finally { ui.cleanup(); }
 });

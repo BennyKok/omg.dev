@@ -78,6 +78,7 @@ import { FindingsDrawer, FindingsPill, PILL_GAP, PILL_HEIGHT } from "./findings-
 import { canDriveSession, type DriveableSession } from "./session-runtime";
 import { useOverlapWatch } from "./list-overlap-watch";
 import { groupNodesByProject } from "./session-groups";
+import { SessionActivityPane } from "./session-activity";
 import { observeSessionStatus, SessionStatusState } from "./session-status";
 import { sessionPreview } from "./session-preview";
 import { SubagentGroup } from "./subagent-group";
@@ -724,6 +725,19 @@ export function SessionsScreen({
     );
     return () => clearTimeout(timer);
   }, [ready, sessionsSettled]);
+
+  /**
+   * Home stays mounted under a pushed session screen, so "focused" is the only
+   * thing that distinguishes rows the user can see from rows drawn behind
+   * another screen. The activity grids are told, and stop their clocks.
+   */
+  const [paneOnScreen, setPaneOnScreen] = useState(true);
+  useFocusEffect(
+    useCallback(() => {
+      setPaneOnScreen(true);
+      return () => setPaneOnScreen(false);
+    }, []),
+  );
 
   // Observe the fleet only while Home is visible and the app is foregrounded.
   // REST reconciles membership every minute, or every 10s without live frames.
@@ -1557,6 +1571,11 @@ export function SessionsScreen({
           </>
         ) : null}
         {workspace ? folderRail : null}
+        {/* Everything inside runs its working-state animation only while these
+            rows are really on screen. On the phone that is Home being focused.
+            In the iPad workspace the rail is permanent at width, and only the
+            narrow layout ever covers it. */}
+        <SessionActivityPane onScreen={workspace ? wide || home : paneOnScreen}>
         <ScrollView
           style={{ flex: 1, position: "relative", zIndex: 0 }}
           /**
@@ -1841,6 +1860,7 @@ export function SessionsScreen({
             </>
           )}
         </ScrollView>
+        </SessionActivityPane>
         {/* THE PILL ON THE RAIL: in flow at the foot of the column, below the
             list. It sat above the nav footer before that footer moved into the
             drawer; it now simply ends the rail. */}

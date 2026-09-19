@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AppState, StyleSheet, View, type LayoutRectangle, type TextStyle } from "react-native";
 import Animated, {
   cancelAnimation, Easing, interpolateColor, runOnJS, type SharedValue, useAnimatedStyle,
@@ -18,6 +18,32 @@ type Activity = {
   present: boolean;
   reducedMotion: boolean;
 };
+
+/**
+ * Is the surface that holds these rows actually on screen?
+ *
+ * ── Why a context and not just `busy` ─────────────────────────────────────
+ *
+ * The clock below is a Reanimated animation, so it lives on the UI thread and
+ * it does not care that a pushed screen is drawn on top of Home. Expo Router's
+ * native stack keeps Home MOUNTED underneath `/session/[id]`, so every working
+ * row kept re-evaluating roughly a hundred animated styles per frame while the
+ * user was reading a transcript that could see none of them. With a fleet of
+ * agents running that is the single largest cost in the app, spent entirely on
+ * pixels behind another screen.
+ *
+ * Freezing the React subtree does not help: `freezeOnBlur` stops renders, and
+ * these worklets are not renders. The clock has to be stopped by name.
+ *
+ * Default true, so a row outside any pane (the chat header, the archive list)
+ * behaves exactly as before.
+ */
+const ActivityPane = createContext(true);
+
+/** Wrap the rows a screen owns, and say when that screen is visible. */
+export function SessionActivityPane({ onScreen, children }: { onScreen: boolean; children: ReactNode }) {
+  return <ActivityPane.Provider value={onScreen}>{children}</ActivityPane.Provider>;
+}
 
 /** One row clock drives both its title and its field, including entry/exit. */
 export function useSessionActivity(active: boolean): Activity {
@@ -44,19 +70,29 @@ export function useSessionActivity(active: boolean): Activity {
     return () => cancelAnimation(visibility);
   }, [active, reducedMotion, visibility, finishExit]);
   const present = active || retained;
+  const onScreen = useContext(ActivityPane);
+  // Present but covered keeps the field MOUNTED and simply stops its clock, so
+  // coming back is a resumed animation rather than a re-entrance the user
+  // watches play out under their thumb.
+  const running = present && onScreen;
   useEffect(() => {
     const update = () => {
       cancelAnimation(phase);
       phase.value = 0;
-      if (present && !reducedMotion && AppState.currentState === "active") {
+      if (running && !reducedMotion && AppState.currentState === "active") {
         // A long clock avoids repeating the noise every few wave passes.
         phase.value = withRepeat(withTiming(20480, { duration: 20480 * 2200, easing: Easing.linear }), -1, false);
       }
     };
     update();
+    // A row with no clock to resume needs no listener. Every session row calls
+    // this hook, idle ones included, so subscribing unconditionally put one
+    // AppState listener per session on the bridge and woke all of them on
+    // every foreground transition.
+    if (!running) return () => cancelAnimation(phase);
     const subscription = AppState.addEventListener("change", update);
     return () => { subscription.remove(); cancelAnimation(phase); };
-  }, [present, phase, reducedMotion]);
+  }, [running, phase, reducedMotion]);
   return { phase, visibility, present, reducedMotion };
 }
 
@@ -152,6 +188,8 @@ export function SessionActivityField({ activity, textBounds, cornerRadius, horiz
 }) {
   const { isDark } = useTheme();
   const [size, setSize] = useState({ width: 0, height: 0 });
+  const baseColor = isDark ? "#a7bacb" : "#52677e";
+  const sparkColor = isDark ? "#e1eaf2" : "#344d68";
   const groups = useMemo(() => {
     const result: Point[][] = Array.from({ length: GROUPS }, () => []);
     const sparks: { point: Point; group: number }[] = [];
@@ -191,9 +229,9 @@ export function SessionActivityField({ activity, textBounds, cornerRadius, horiz
       borderRadius: cornerRadius, overflow: "hidden",
     }]}>
     {groups.base.map((points, index) => <Lights key={index} points={points}
-      index={index} activity={activity} color={isDark ? "#a7bacb" : "#52677e"} />)}
+      index={index} activity={activity} color={baseColor} />)}
     {!activity.reducedMotion && groups.sparks.map(({ point, group }) =>
       <Lights key={`spark-${point.x}:${point.y}`} points={[point]} index={group}
-        sparkleSeed={point.seed} activity={activity} color={isDark ? "#e1eaf2" : "#344d68"} />)}
+        sparkleSeed={point.seed} activity={activity} color={sparkColor} />)}
   </View>;
 }

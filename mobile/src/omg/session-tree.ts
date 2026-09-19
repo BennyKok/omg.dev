@@ -95,11 +95,20 @@ export function buildSessionTree(sessions: OmgSession[]): SessionNode[] {
     childIds.add(id);
   }
 
-  return sessions
-    .map(sessionStableId)
-    .filter((id) => id && nodeById.has(id) && !childIds.has(id))
-    .map((id) => nodeById.get(id)!)
-    .filter((node, index, all) => all.indexOf(node) === index);
+  // Two sessions can share a stable id (a native id reported by both the tmux
+  // row and the lfg row), so the roots have to be de-duplicated. `indexOf` per
+  // node made that O(n^2), and this runs on every status frame — with a large
+  // fleet the rebuild cost grew as the square of the roster.
+  const seen = new Set<SessionNode>();
+  const roots: SessionNode[] = [];
+  for (const id of sessions.map(sessionStableId)) {
+    if (!id || childIds.has(id)) continue;
+    const node = nodeById.get(id);
+    if (!node || seen.has(node)) continue;
+    seen.add(node);
+    roots.push(node);
+  }
+  return roots;
 }
 
 /** A family is working if anyone in it is. See the header. */
