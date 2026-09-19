@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## September 19, 2026 - Smoother native loading animations (iOS 1.0.11)
+
+- Working sessions use a native Skia grid and one title pulse. Five sessions with three active animations improved from 22.5 to 59.6 UI callbacks per second in the simulator benchmark.
+- This change needs the new iOS binary. It cannot be delivered by an OTA alone.
+
 ## September 19, 2026 - Update install recovers from a frozen lockfile (v0.6.79)
 
 - `omg update` still finishes when the Computer's Bun rejects the release lockfile. It drops that lockfile and installs from package.json.
