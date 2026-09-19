@@ -92,3 +92,19 @@ export function shouldShowUpdateNudge(
   const id = updateIdentifier(status);
   return id !== null && id !== skippedUpdateVersion;
 }
+
+/** Label on the settings row and the What's new primary button. */
+export function updateActionLabel(
+  status: InstallUpdateStatus | null | undefined,
+): "Update" | "Restart" | "Check" {
+  if (status?.state === "staged") return "Restart";
+  if (status?.state === "available") return "Update";
+  return "Check";
+}
+
+export function updateNudgeLabel(
+  status: InstallUpdateStatus | null | undefined,
+): string {
+  if (status?.state === "staged") return "Restart to update";
+  return "Update available";
+}

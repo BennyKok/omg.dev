@@ -28,7 +28,9 @@ import { toast } from "@/lib/notify";
 import {
   isInstallUpdateInfo,
   shouldShowUpdateNudge,
+  updateActionLabel,
   updateIdentifier,
+  updateNudgeLabel,
   type ChangelogEntry,
   type InstallUpdateInfo,
   type InstallUpdateStatus,
@@ -80,9 +82,11 @@ export function UpdateProvider({
   const [error, setError] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  const refresh = useCallback(async (force = false) => {
-    setChecking(true);
-    setError(null);
+  const refresh = useCallback(async (force = false, silent = false) => {
+    if (!silent) {
+      setChecking(true);
+      setError(null);
+    }
     try {
       // A manual click forces a fresh lookup that bypasses the server-side
       // release-tag (and changelog) cache; the passive on-mount check reuses it.
@@ -91,15 +95,27 @@ export function UpdateProvider({
       if (!isInstallUpdateInfo(next)) throw new Error("Could not check for updates");
       setInfo(next);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not check for updates");
+      if (!silent) setError(e instanceof Error ? e.message : "Could not check for updates");
     } finally {
-      setChecking(false);
+      if (!silent) setChecking(false);
     }
   }, []);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  const channel = info?.install?.channel;
+  useEffect(() => {
+    // The auto-updater stages a release in the background. A quiet poll is
+    // how the Update button becomes Restart without a reload. Source
+    // installs `git fetch` on this endpoint, so they stay on the on-mount check.
+    if (channel !== "release") return;
+    const timer = setInterval(() => {
+      void refresh(false, true);
+    }, 30_000);
+    return () => clearInterval(timer);
+  }, [channel, refresh]);
 
   const status = info?.update ?? null;
   const latestId = updateIdentifier(status);
@@ -145,17 +161,18 @@ export function UpdateProvider({
 // than a count: an update either is or isn't available, there's nothing to
 // count. Opens the drawer directly; never renders when there's nothing to see.
 export function UpdateNavButton() {
-  const { nudgeVisible, openDrawer } = useUpdateStatus();
+  const { nudgeVisible, openDrawer, status } = useUpdateStatus();
   if (!nudgeVisible) return null;
+  const label = updateNudgeLabel(status);
   return (
     <button
       type="button"
       onClick={openDrawer}
-      aria-label="Update available"
-      title="Update available"
+      aria-label={label}
+      title={label}
       className="relative flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/12 text-primary transition-colors duration-200 ease-out active:scale-[0.96]"
     >
-      <ArrowDown className="size-[18px]" />
+      {status?.state === "staged" ? <RotateCcw className="size-[18px]" /> : <ArrowDown className="size-[18px]" />}
       <span
         className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full bg-primary ring-2 ring-background"
         aria-hidden
@@ -227,8 +244,8 @@ export function UpdateSettingsRow() {
           </div>
           {available ? (
             <Button size="sm" onClick={openDrawer}>
-              <ArrowDown className="size-4" />
-              Update
+              {status?.state === "staged" ? <RotateCcw className="size-4" /> : <ArrowDown className="size-4" />}
+              {updateActionLabel(status)}
             </Button>
           ) : (
             <Button size="sm" variant="outline" onClick={() => void refresh(true)} disabled={checking || !supported}>
@@ -396,11 +413,13 @@ function UpdateDrawer() {
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">
-                {status?.latestVersion
-                  ? `Version ${status.latestVersion} is available.`
-                  : status?.latestSha
-                    ? `${status.latestSha.slice(0, 7)} is available.`
-                    : status?.message}
+                {status?.state === "staged"
+                  ? (status.message ?? `Restart to start version ${status.stagedVersion ?? status.latestVersion}.`)
+                  : status?.latestVersion
+                    ? `Version ${status.latestVersion} is available.`
+                    : status?.latestSha
+                      ? `${status.latestSha.slice(0, 7)} is available.`
+                      : status?.message}
               </p>
             )}
           </div>
@@ -429,8 +448,12 @@ function UpdateDrawer() {
                   <>
                     <Button size="sm" variant="outline" onClick={handleSkip} disabled={busy}>Skip</Button>
                     <Button size="sm" onClick={() => void runUpdate()} disabled={busy}>
-                      {busy ? <Loader2 className="size-4 animate-spin" /> : <ArrowDown className="size-4" />}
-                      {flow.phase === "updating" ? "Updating…" : flow.phase === "restarting" ? "Restarting…" : "Update"}
+                      {busy ? <Loader2 className="size-4 animate-spin" /> : status?.state === "staged" ? <RotateCcw className="size-4" /> : <ArrowDown className="size-4" />}
+                      {flow.phase === "updating"
+                        ? (status?.state === "staged" ? "Restarting…" : "Updating…")
+                        : flow.phase === "restarting"
+                          ? "Restarting…"
+                          : updateActionLabel(status)}
                     </Button>
                   </>
                 )}

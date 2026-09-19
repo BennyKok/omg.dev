@@ -796,7 +796,7 @@ export function autoUpdateIdentifier(status: {
   return null;
 }
 
-export type AutoUpdateAction = "apply" | "restart" | "noop";
+export type AutoUpdateAction = "apply" | "noop";
 export type AutoUpdateReason =
   | "available"
   | "staged"
@@ -845,7 +845,9 @@ export function planAutoUpdate(input: {
   if (!input.status.restartSupported) return { action: "noop", reason: "no-restart" };
   const id = autoUpdateIdentifier(input.status);
   if (id && id === input.skippedUpdateVersion) return { action: "noop", reason: "skipped" };
-  if (input.status.state === "staged") return { action: "restart", reason: "staged" };
+  // Bits are on disk. The next process start loads them; the What's new
+  // drawer asks the person to Restart if they want it sooner.
+  if (input.status.state === "staged") return { action: "noop", reason: "staged" };
   if (input.status.state === "available") return { action: "apply", reason: "available" };
   return { action: "noop", reason: "blocked" };
 }
@@ -873,7 +875,6 @@ export async function maybeAutoUpdateOnStart(options: {
     root: string,
     install: ReleaseInstall,
   ) => Promise<{ status: AutoUpdateStatus; updated: boolean }>;
-  restart?: () => void;
   log?: (line: string) => void;
 }): Promise<AutoUpdateResult> {
   const log = options.log ?? (() => {});
@@ -909,16 +910,11 @@ export async function maybeAutoUpdateOnStart(options: {
   const plan = planAutoUpdate({ ...base, inProgress: isSelfUpdateRunning(), status });
   if (plan.action === "noop") {
     if (plan.reason === "skipped") log("[update] auto: skipped this version");
+    if (plan.reason === "staged") log("[update] auto: staged; restart to apply");
     if (plan.reason === "no-restart") {
       log(`[update] auto: not applied; ${status?.message ?? "restart is unavailable"}`);
     }
     return { updated: false, plan };
-  }
-
-  if (plan.action === "restart") {
-    log(`[update] auto: ${status?.message ?? "staged update ready"}; restarting`);
-    (options.restart ?? scheduleRestart)();
-    return { updated: true, plan };
   }
 
   try {
@@ -927,8 +923,7 @@ export async function maybeAutoUpdateOnStart(options: {
       return await apply(options.root, options.install);
     });
     if (result.updated) {
-      log(`[update] auto: ${result.status.message ?? "updated"}; restarting`);
-      (options.restart ?? scheduleRestart)();
+      log(`[update] auto: ${result.status.message ?? "updated"}; restart to apply`);
     }
     return { updated: result.updated, plan };
   } catch (error) {
