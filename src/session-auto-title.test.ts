@@ -49,6 +49,21 @@ describe("automatic session titles", () => {
     }
   });
 
+  // The model that serves this is a reasoning model. At the original budget of
+  // 24 it spent every token thinking and returned content: null with
+  // finish_reason "length", so every automatic title was silently empty.
+  test("asks for enough tokens that a reasoning model can still answer", async () => {
+    const sent: { body?: { max_tokens?: number } } = {};
+    await generateSessionTitle("Rename a session", {
+      env: { OMG_AI_URL: "http://proxy" },
+      fetch: async (_input, init) => {
+        sent.body = JSON.parse(String(init?.body));
+        return Response.json({ choices: [{ message: { content: "Rename A Session" } }] });
+      },
+    });
+    expect(sent.body?.max_tokens).toBeGreaterThanOrEqual(512);
+  });
+
   test("keeps failures harmless and cleans model formatting", async () => {
     expect(cleanGeneratedSessionTitle('<think>draft</think> Title: "Repair session titles."')).toBe("Repair session titles");
     expect(await generateSessionTitle("Keep the fallback", {
