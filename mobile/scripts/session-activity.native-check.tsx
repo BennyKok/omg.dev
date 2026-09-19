@@ -9,6 +9,7 @@ let layout: (event: any) => void;
 let appListener: (() => void) | undefined;
 let reducedMotion = false;
 let starts = 0;
+let animatedStyles = 0;
 let cancels = 0;
 let finishTiming: ((finished: boolean) => void) | undefined;
 const appState = {
@@ -18,9 +19,9 @@ const appState = {
     return { remove: () => { appListener = undefined; } };
   },
 };
-const View = ({ children, style, onLayout }: any) => {
+const View = ({ children, style, onLayout, accessibilityLabel, numberOfLines }: any) => {
   if (onLayout) layout = onLayout;
-  return <div style={Array.isArray(style) ? Object.assign({}, ...style) : style}>{children}</div>;
+  return <div aria-label={accessibilityLabel} data-lines={numberOfLines} style={Array.isArray(style) ? Object.assign({}, ...style) : style}>{children}</div>;
 };
 mock.module(resolve(import.meta.dir, "../node_modules/react-native/index.js"), () => ({
   View, AppState: appState, StyleSheet: { absoluteFill: { position: "absolute", inset: 0 } },
@@ -29,7 +30,11 @@ mock.module(import.meta.resolve("react-native-reanimated"), () => ({
   default: { View, createAnimatedComponent: (component: any) => component },
   runOnJS: (fn: any) => fn, interpolateColor: () => "#ffffff", Easing: { linear: (value: number) => value },
   useSharedValue: (value: number) => React.useRef({ value }).current,
-  useAnimatedStyle: (fn: () => any) => fn(),
+  useAnimatedStyle: (fn: () => any) => { animatedStyles++; return fn(); },
+  // session-activity-canvas imports this. The canvas path itself is inert
+  // here: requiring Skia throws without its native module, so the field falls
+  // back to the view path these tests assert on.
+  useDerivedValue: (fn: () => any) => ({ value: fn() }),
   withTiming: (value: number, _: any, done?: (finished: boolean) => void) => {
     if (done) finishTiming = done;
     return value;
@@ -45,7 +50,7 @@ mock.module(resolve(import.meta.dir, "../src/omg/theme.ts"), () => ({
   useTheme: () => ({ isDark: true }),
 }));
 mock.module(resolve(import.meta.dir, "../src/omg/text.tsx"), () => ({ Text: View }));
-const { SessionActivityField, SessionActivityPane, useSessionActivity, activityWave, activitySparkle, activityBreath } = await import("../src/omg/session-activity");
+const { SessionActivityTitle, SessionActivityField, SessionActivityPane, useSessionActivity, activityWave, activitySparkle, activityBreath } = await import("../src/omg/session-activity");
 
 function Field({ active = true, textBounds, identity }: { active?: boolean; textBounds?: any; identity?: string }) {
   const activity = useSessionActivity(active);
@@ -221,5 +226,38 @@ test("an idle row costs no clock and no AppState listener", () => {
     ui.render(<Field active={false} />);
     expect(starts).toBe(0);
     expect(appListener).toBeUndefined();
+  } finally { ui.cleanup(); }
+});
+
+
+test("the title uses one animated surface and preserves its complete accessible text", () => {
+  const ui = mount();
+  const activity = {
+    phase: { value: 0 }, visibility: { value: 1 }, present: true, reducedMotion: false,
+  };
+  const title = "Fix 👩🏽‍💻 session rendering — " + "long title ".repeat(20);
+  const render = () => ui.render(<SessionActivityTitle title={title} activity={activity} style={{ fontSize: 17 }} />);
+  try {
+    animatedStyles = 0;
+    render();
+    expect(animatedStyles).toBe(1);
+    expect(ui.text()).toBe(title);
+    expect(ui.queryAll("div").length).toBe(1);
+    const text = ui.query("div") as HTMLElement;
+    expect(text.getAttribute("aria-label")).toBe(title);
+    expect(text.getAttribute("data-lines")).toBe("1");
+    expect(Number(text.style.opacity)).toBeCloseTo(0.75);
+    activity.phase.value = 0.5;
+    render();
+    expect(Number(text.style.opacity)).toBeCloseTo(1);
+    activity.phase.value = 0;
+    activity.reducedMotion = true;
+    render();
+    expect(Number(text.style.opacity)).toBe(1);
+    activity.reducedMotion = false;
+    activity.visibility.value = 0;
+    activity.present = false;
+    render();
+    expect(Number(text.style.opacity)).toBe(1);
   } finally { ui.cleanup(); }
 });

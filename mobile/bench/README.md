@@ -60,3 +60,35 @@ memoization, restoration of updated hidden content, the lifetime of the surround
 row, and fallback rendering. They do not substitute for the simulator checks.
 The checks are opt-in so the default runtime test suite does not require the
 separate mobile dependency install.
+
+## Session activity: five sessions, three working
+
+From `mobile/`, run:
+
+```sh
+ACTIVITY_PERF_OUTPUT=/tmp/activity.jsonl bun scripts/benchmark-session-activity.ts --production
+```
+
+Use ports 8094 (Metro) and 8095 (collector) with the same SSH forwarding
+procedure above. Select an unused simulator and hold its device lock. The
+installed development client must contain Skia to measure the shader. Each
+result reports the actual `renderer`; a fallback is not a shader result.
+`EXPO_PUBLIC_OMG_ACTIVITY_RENDERER=views` forces the old field renderer.
+
+The ten trials keep five rows mounted. They compare all idle, three working,
+grid only, title only, and a covered pane. Each case runs twice in reverse
+order, with three seconds of warmup and eight seconds of measurement. This
+isolates the reported small-list problem from offscreen row count. Restart
+Metro between code variants because the runner disables watch mode. The runner
+clears Metro's cache so an inlined renderer environment override cannot leak
+from a previous run.
+
+Use production JavaScript (`dev: false`) for comparisons. This is still a
+development native binary on a shared simulator, not a release binary on a
+phone. UI FPS is the Reanimated callback rate, not a measurement of presented
+GPU frames. Check coverage, repeat agreement, and idle controls. JS p95 is a
+separate measure. A lost report is retried after measurement. Run IDs reject queued reports from
+a previous client, and duplicate retries are ignored. Check for all ten
+trial indices before drawing conclusions. Keep raw results with the report.
+
+Stop the runner and forwarder after use. The runner restores the app entry.

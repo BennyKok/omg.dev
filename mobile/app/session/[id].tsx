@@ -1830,8 +1830,8 @@ export function SessionScreenBody({
         <View style={{ flex: 1, minWidth: 0 }}>
           {/* The session row and chat header now speak one activity language.
               Keep the avatar stable so identity does not shrink or acquire a
-              second spinner while work is in progress; the shared wave moves
-              through the title instead. The title-only form is deliberate in
+              second spinner while work is in progress; the title uses one
+              composited pulse instead. The title-only form is deliberate in
               this narrow bar: copying the row's dot field here would add many
               animated native views to a screen that already renders a live
               transcript. */}

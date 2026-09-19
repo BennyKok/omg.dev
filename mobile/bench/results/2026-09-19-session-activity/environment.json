@@ -1,0 +1,33 @@
+{
+  "date": "2026-09-19",
+  "baseCommit": "87fc5f8b4",
+  "shaderSourceCommit": "2fe2731d9",
+  "device": "iPhone 17 Simulator",
+  "udid": "84C3046E-1FDF-48C7-9751-6C245C2D9620",
+  "ios": "26.0",
+  "macOS": "26.5.2",
+  "expo": "57.0.12",
+  "reactNative": "0.86.2",
+  "skia": "2.12.0",
+  "nativeBuild": "Existing simulator development client with a working Skia native module. Source session reports EAS build 81948296-51db-4817-b7db-6ba3b2a412e3.",
+  "javascript": "--no-dev --minify; every sample asserts dev:false by inspection",
+  "fixture": {
+    "rows": 5,
+    "busy": 3,
+    "rowHeight": 80,
+    "rowInset": 16,
+    "warmupMs": 3000,
+    "sampleMs": 8000
+  },
+  "shaderSha256": "40fb352a9b936ded9a09d65a7c611c3f3e9a9f90fbd088158ab7e2ad832c407c",
+  "limitations": [
+    "Shared Mac with other simulators active; load average about 39 at initial measurement.",
+    "Reanimated UI callback rate, not GPU present timing.",
+    "Production JavaScript in a development native binary, not a physical phone release build.",
+    "Initial baseline lost trial 8 during reporting; keep it for provenance, use the complete repeat for comparison."
+  ],
+  "installedAppVersion": "1.0.10 (1)",
+  "firstOptimizedActivitySha256": "6e941aa23016ef8e091e12507e691a3bc8deb663aebc89c29d871711a7dc63c3",
+  "finalActivitySha256": "69b404387bc8ce03a60f4ab98a774ec24118b9c40cca9c4bb494aa5883c3abdd",
+  "benchmarkSha256": "d252b89180f3491454e48cf0ca7a72e948d762ad36b5fdaef0c2acd4f85fb656"
+}

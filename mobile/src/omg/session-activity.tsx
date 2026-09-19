@@ -1,12 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AppState, StyleSheet, View, type LayoutRectangle, type TextStyle } from "react-native";
 import Animated, {
-  cancelAnimation, Easing, interpolateColor, runOnJS, type SharedValue, useAnimatedStyle,
+  cancelAnimation, Easing, runOnJS, type SharedValue, useAnimatedStyle,
   useSharedValue, withRepeat, withTiming,
 } from "react-native-reanimated";
 import { Text } from "./text";
 import { useReduceMotionEnabled } from "./motion";
 import { useTheme } from "./theme";
+import { ActivityCanvas, activityCanvasSupported } from "./session-activity-canvas";
 
 const SPACING = 10;
 const GROUPS = 24;
@@ -139,27 +140,19 @@ export function activitySparkle(phase: number, position: number, seed: number): 
   return breath * 0.5 + breath * activityWave(phase, position) * 0.5;
 }
 
-function TitleLetter({ char, position, activity, color, mutedColor }: {
-  char: string; position: number; activity: Activity; color: string; mutedColor: string;
-}) {
-  const style = useAnimatedStyle(() => ({
-    color: interpolateColor(activity.reducedMotion ? 1 :
-      1 - activity.visibility.value * 0.65 * (1 - activityWave(activity.phase.value, position)),
-    [0, 1], [mutedColor, color]),
-  }));
-  return <AnimatedText style={style}>{char}</AnimatedText>;
-}
-
-/** Nested text preserves native truncation and shaping, including long titles. */
+/** One composited pulse preserves native shaping without per-letter updates. */
 export function SessionActivityTitle({ title, activity, style }: {
   title: string; activity: Activity; style: TextStyle;
 }) {
-  const { colors } = useTheme();
-  return <Text numberOfLines={1} accessibilityLabel={title} style={style}>
-    {activity.present && !activity.reducedMotion ? [...title].map((char, index, chars) =>
-      <TitleLetter key={index} char={char} position={index / Math.max(1, chars.length - 1)}
-        activity={activity} color={colors.text} mutedColor={colors.textMuted} />) : title}
-  </Text>;
+  // Updating the colour of each nested letter invalidates native text on every
+  // frame. Opacity animates one text surface, independent of title length.
+  const pulse = useAnimatedStyle(() => ({
+    opacity: activity.reducedMotion ? 1 :
+      1 - activity.visibility.value * 0.25 * (1 - activityWave(activity.phase.value, 0.5)),
+  }));
+  return <AnimatedText numberOfLines={1} accessibilityLabel={title} style={[style, pulse]}>
+    {title}
+  </AnimatedText>;
 }
 
 type Point = { x: number; y: number; strength: number; seed: number };
@@ -191,6 +184,9 @@ export function SessionActivityField({ activity, textBounds, cornerRadius, horiz
   const baseColor = isDark ? "#a7bacb" : "#52677e";
   const sparkColor = isDark ? "#e1eaf2" : "#344d68";
   const groups = useMemo(() => {
+    // The shader needs none of this. Building it anyway would keep the whole
+    // cost this change exists to remove, for a result nothing reads.
+    if (activityCanvasSupported) return { base: [] as Point[][], sparks: [] as { point: Point; group: number }[] };
     const result: Point[][] = Array.from({ length: GROUPS }, () => []);
     const sparks: { point: Point; group: number }[] = [];
     const rowSeed = identitySeed(identity);
@@ -228,10 +224,27 @@ export function SessionActivityField({ activity, textBounds, cornerRadius, horiz
       left: -horizontalOutset, right: -horizontalOutset,
       borderRadius: cornerRadius, overflow: "hidden",
     }]}>
-    {groups.base.map((points, index) => <Lights key={index} points={points}
-      index={index} activity={activity} color={baseColor} />)}
-    {!activity.reducedMotion && groups.sparks.map(({ point, group }) =>
-      <Lights key={`spark-${point.x}:${point.y}`} points={[point]} index={group}
-        sparkleSeed={point.seed} activity={activity} color={sparkColor} />)}
+    {activityCanvasSupported
+      ? (size.width > 0 && size.height > 0 ? <ActivityCanvas
+          width={size.width} height={size.height} cornerRadius={cornerRadius}
+          phase={activity.phase} visibility={activity.visibility}
+          rowSeed={identitySeed(identity)} reducedMotion={activity.reducedMotion}
+          // The field is drawn one outset wider than the row on each side, so
+          // the measured column has to move with it.
+          text={textBounds ? {
+            x: textBounds.x + horizontalOutset, y: textBounds.y,
+            width: textBounds.width, height: textBounds.height,
+          } : undefined}
+          baseColor={baseColor} sparkColor={sparkColor} /> : null)
+      : <>
+        {groups.base.map((points, index) => <Lights key={index} points={points}
+          index={index} activity={activity} color={baseColor} />)}
+        {!activity.reducedMotion && groups.sparks.map(({ point, group }) =>
+          <Lights key={`spark-${point.x}:${point.y}`} points={[point]} index={group}
+            sparkleSeed={point.seed} activity={activity} color={sparkColor} />)}
+      </>}
   </View>;
 }
+
+/** Report the renderer selected by the field itself, including fallback. */
+export const sessionActivityRenderer = activityCanvasSupported ? "shader" : "views";

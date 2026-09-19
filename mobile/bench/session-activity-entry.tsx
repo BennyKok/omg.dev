@@ -6,12 +6,13 @@
 // It renders the product SessionActivityField and SessionActivityTitle at the
 // product's own row geometry, and measures the Reanimated UI-thread frame
 // interval, which is where the grid's worklets run. A JS requestAnimationFrame
-// series is recorded beside it to show the JS thread is not the constraint.
+// series is recorded beside it to measure JS responsiveness separately.
 import { registerRootComponent } from "expo";
 import { useEffect, useState } from "react";
 import { Platform, Text, View } from "react-native";
 import { useFrameCallback, useSharedValue } from "react-native-reanimated";
 import {
+  sessionActivityRenderer,
   SessionActivityField,
   SessionActivityPane,
   SessionActivityTitle,
@@ -19,6 +20,7 @@ import {
 } from "../src/omg/session-activity";
 
 const REPORT = "http://localhost:8095/result";
+const RUN_ID = process.env.EXPO_PUBLIC_OMG_ACTIVITY_RUN_ID;
 /** The product row: SESSION_ROW.height 80, inset 16 (src/components.tsx). */
 const ROW_HEIGHT = 80;
 const ROW_INSET = 16;
@@ -26,55 +28,54 @@ const WARMUP = 3000;
 const DURATION = 8000;
 
 /**
- * Row counts are interleaved, and each count appears twice, so thermal drift
- * or another agent's simulator landing mid-run shows up as disagreement
- * between the two samples instead of as a trend.
+ * Every case appears twice in reverse order so repeat disagreement exposes
+ * thermal drift or contention on the shared simulator.
  */
-const TRIALS: { rows: number; paused?: boolean }[] = [
-  { rows: 0 },
-  { rows: 24 },
-  { rows: 4 },
-  { rows: 24, paused: true },
-  { rows: 12 },
-  { rows: 0 },
-  { rows: 24 },
-  { rows: 4 },
-  { rows: 24, paused: true },
-  { rows: 12 },
+type TrialSpec = { rows: number; busy: number; field: boolean; title: boolean; paused?: boolean };
+// Five mounted sessions, three working: the reported small-list regression.
+// Isolate field and title costs with identical geometry and idle controls.
+const CASES: TrialSpec[] = [
+  { rows: 5, busy: 0, field: true, title: true },
+  { rows: 5, busy: 3, field: true, title: true },
+  { rows: 5, busy: 3, field: true, title: false },
+  { rows: 5, busy: 3, field: false, title: true },
+  { rows: 5, busy: 3, field: true, title: true, paused: true },
 ];
+const TRIALS = [...CASES, ...[...CASES].reverse()];
 
 const quantile = (a: number[], p: number) =>
   [...a].sort((x, y) => x - y)[Math.min(a.length - 1, Math.floor(a.length * p))] ?? 0;
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-/** One working row, drawn the way the session list draws it. */
-function Row({ index }: { index: number }) {
-  const activity = useSessionActivity(true);
+/** A working or idle row, drawn at the session list geometry. */
+function Row({ index, spec }: { index: number; spec: TrialSpec }) {
+  const activity = useSessionActivity(index < spec.busy);
+  const title = `Benchmark session number ${index} is working`;
   const [textBounds, setTextBounds] = useState<{ x: number; y: number; width: number; height: number }>();
   return (
     <View style={{ height: ROW_HEIGHT, marginHorizontal: ROW_INSET, justifyContent: "center" }}>
-      <SessionActivityField
+      {spec.field && <SessionActivityField
         identity={`bench-session-${index}`}
         activity={activity}
         textBounds={textBounds as never}
         cornerRadius={12}
         horizontalOutset={ROW_INSET}
-      />
+      />}
       <View
         onLayout={({ nativeEvent: { layout } }) => setTextBounds(layout)}
         style={{ paddingLeft: 56 }}
       >
-        <SessionActivityTitle
-          title={`Benchmark session number ${index} is working`}
+        {spec.title ? <SessionActivityTitle
+          title={title}
           activity={activity}
           style={{ fontSize: 17 }}
-        />
+        /> : <Text numberOfLines={1} style={{ fontSize: 17 }}>{title}</Text>}
       </View>
     </View>
   );
 }
 
-function Trial({ trial, spec, done }: { trial: number; spec: { rows: number; paused?: boolean }; done: () => void }) {
+function Trial({ trial, spec, done }: { trial: number; spec: TrialSpec; done: () => void }) {
   const [status, setStatus] = useState("Warmup");
   const measuring = useSharedValue(false);
   const frames = useSharedValue({ count: 0, total: 0, over20: 0, over33: 0, max: 0 });
@@ -113,9 +114,11 @@ function Trial({ trial, spec, done }: { trial: number; spec: { rows: number; pau
       if (cancelled) return;
       const ui = frames.value;
       const result = {
+        runId: RUN_ID,
         trial,
-        rows: spec.rows,
+        ...spec,
         paused: !!spec.paused,
+        renderer: sessionActivityRenderer,
         platform: Platform.OS,
         dev: __DEV__,
         durationMs: performance.now() - begin,
@@ -136,14 +139,23 @@ function Trial({ trial, spec, done }: { trial: number; spec: { rows: number; pau
         },
       };
       setStatus("Recorded");
-      try {
-        await fetch(REPORT, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(result),
-        });
-      } catch (error) {
-        console.error("BENCH_REPORT_FAILED", error);
+      // Do not silently discard a measured trial on a transient tunnel error.
+      // Reporting is outside the measured interval. Retry the same sample.
+      let reported = false;
+      while (!cancelled && !reported) {
+        try {
+          const response = await fetch(REPORT, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(result),
+          });
+          if (!response.ok) throw new Error(`Collector returned ${response.status}`);
+          reported = true;
+        } catch (error) {
+          setStatus("Retrying report");
+          console.error("BENCH_REPORT_FAILED", error);
+          await sleep(1000);
+        }
       }
       console.log("ACTIVITY_PERF", JSON.stringify(result));
       if (!cancelled) done();
@@ -157,12 +169,12 @@ function Trial({ trial, spec, done }: { trial: number; spec: { rows: number; pau
   return (
     <View style={{ flex: 1, backgroundColor: "#fff", paddingTop: 60 }}>
       <Text style={{ padding: 12, color: "#111" }}>
-        Trial {trial + 1}/{TRIALS.length} · {spec.rows} rows{spec.paused ? " · pane covered" : ""} · {status}
+        Trial {trial + 1}/{TRIALS.length} · {spec.rows} rows / {spec.busy} busy / field {String(spec.field)} / title {String(spec.title)}{spec.paused ? " · pane covered" : ""} · {status}
       </Text>
       {/* `onScreen={false}` is the state Home is in while a session screen
           covers it. It is the thing the fix changed, measured directly. */}
       <SessionActivityPane onScreen={!spec.paused}>
-        {Array.from({ length: spec.rows }, (_, i) => <Row key={i} index={i} />)}
+        {Array.from({ length: spec.rows }, (_, i) => <Row key={i} index={i} spec={spec} />)}
       </SessionActivityPane>
     </View>
   );
