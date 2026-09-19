@@ -2155,6 +2155,16 @@ function putSessionTitle(sid: string, title: string) {
   });
 }
 
+// Ask the server to re-run the automatic title for an existing session. The
+// server persists the result as a title override, so this wins over a managed
+// registry title the same way a human rename does.
+function postGenerateSessionTitle(sid: string) {
+  return api<{ ok?: boolean; title?: string }>(
+    `/api/sessions/${encodeURIComponent(sid)}/title/generate`,
+    { method: "POST" },
+  );
+}
+
 type RenameSession = (sid: string, title: string) => Promise<void>;
 
 /**
@@ -16510,6 +16520,41 @@ function useSessionActions({
   };
 }
 
+/**
+ * Shared "Rename with AI" action for the session card and the session sheet.
+ *
+ * The server generates the title AND persists it as a title override. Pushing
+ * the result back through `onRenameSession` re-uses the optimistic update and
+ * the per-session write queue, so the new name shows immediately and cannot be
+ * reordered behind a slower manual rename.
+ */
+function useRegenerateSessionTitle(
+  sid: string | null | undefined,
+  onRenameSession: RenameSession,
+  onError: (error: string | null) => void,
+) {
+  const [pending, setPending] = useState(false);
+  const run = useCallback(async () => {
+    if (!sid || pending) return;
+    setPending(true);
+    onError(null);
+    try {
+      const result = await postGenerateSessionTitle(sid);
+      const title = result?.title?.trim();
+      if (!title) throw new Error("no title was generated");
+      await onRenameSession(sid, title);
+      toast.success("Session renamed");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      onError(message);
+      toast.error(`Could not rename: ${message}`);
+    } finally {
+      setPending(false);
+    }
+  }, [sid, pending, onRenameSession, onError]);
+  return run;
+}
+
 function SessionActionsMenu({
   session,
   busy,
@@ -16518,6 +16563,7 @@ function SessionActionsMenu({
   onRemove,
   onError,
   onRename,
+  onRegenerateTitle,
   triggerClassName,
   pinned,
   onTogglePin,
@@ -16529,6 +16575,7 @@ function SessionActionsMenu({
   onRemove: (sid: string) => void;
   onError: (error: string | null) => void;
   onRename?: () => void;
+  onRegenerateTitle?: () => void;
   triggerClassName?: string;
   pinned?: boolean;
   onTogglePin?: (sid: string) => void;
@@ -16689,6 +16736,12 @@ function SessionActionsMenu({
             <DropdownMenuItem disabled={!sid} onClick={() => onRename()}>
               <Pencil className="size-4" />
               Rename
+            </DropdownMenuItem>
+          ) : null}
+          {onRegenerateTitle ? (
+            <DropdownMenuItem disabled={!sid} onClick={() => onRegenerateTitle()}>
+              <Sparkles className="size-4" />
+              Rename with AI
             </DropdownMenuItem>
           ) : null}
           {/* Files lives in this menu with the rest of the per-session actions
@@ -17132,6 +17185,8 @@ function SessionTitleSheet({
     setError(null);
     setRenamingInline(false);
   }, [sid]);
+
+  const regenerateTitle = useRegenerateSessionTitle(sid, onRenameSession, setError);
 
   const commitInlineRename = useCallback(
     async (next: string) => {
@@ -17607,6 +17662,9 @@ function SessionTitleSheet({
             onRename={
               session.shippedReview ? undefined : () => setRenamingInline(true)
             }
+            onRegenerateTitle={
+              session.shippedReview ? undefined : regenerateTitle
+            }
             triggerClassName="size-9"
             pinned={pinned}
             onTogglePin={onTogglePin}
@@ -18012,6 +18070,8 @@ const SessionCard = memo(function SessionCard({
     haptic("selection");
     setRenamingInline(true);
   }, [sid]);
+
+  const regenerateTitle = useRegenerateSessionTitle(sid, onRenameSession, setError);
 
   const commitInlineRename = useCallback(
     async (next: string) => {
@@ -18502,6 +18562,9 @@ const onTouchStart = (e: ReactTouchEvent) => {
             onRemove={onRemove}
             onError={setError}
             onRename={session.shippedReview ? undefined : startRename}
+            onRegenerateTitle={
+              session.shippedReview ? undefined : regenerateTitle
+            }
             pinned={pinned}
             onTogglePin={session.shippedReview ? undefined : onTogglePin}
           />
