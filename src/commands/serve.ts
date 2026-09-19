@@ -7981,7 +7981,8 @@ a{color:#60a5fa}
           // channel with release tags — a "here's what changed" list for the
           // version you're already on, or for a source checkout with no
           // CHANGELOG-aligned versioning, is not useful.
-          const changelog = update?.channel === "release" && update.state === "available"
+          const changelog = update?.channel === "release"
+            && (update.state === "available" || update.state === "staged")
             ? await changelogDelta(PATHS.root, install, force)
             : [];
           return json({ install, update, changelog, bootId: SERVER_INSTANCE_ID });
@@ -7991,16 +7992,24 @@ a{color:#60a5fa}
             return err(400, "UI updates are only available for Git and release installs.");
           }
           try {
-            const result = await withSelfUpdate(async () => (
-              install.channel === "source"
-                ? await applySourceUpdate(PATHS.root)
-                : await applyReleaseUpdate(PATHS.root, install)
-            ));
+            const result = await withSelfUpdate(async () => {
+              if (install.channel === "release") {
+                const current = await releaseUpdateStatus(PATHS.root, install);
+                // Already on disk: Restart in the drawer should not re-download.
+                if (current.state === "staged") {
+                  return { status: current, updated: false, restarting: true };
+                }
+                const applied = await applyReleaseUpdate(PATHS.root, install);
+                return { status: applied.status, updated: applied.updated, restarting: applied.updated };
+              }
+              const applied = await applySourceUpdate(PATHS.root);
+              return { status: applied.status, updated: applied.updated, restarting: applied.updated };
+            });
             const update = result.status;
             if (update.state === "blocked") return err(409, update.message);
             if (update.state === "available") return err(500, "The update did not reach origin/main.");
-            if (result.updated) scheduleRestart();
-            return json({ install, update, restarting: result.updated, bootId: SERVER_INSTANCE_ID });
+            if (result.restarting) scheduleRestart();
+            return json({ install, update, restarting: result.restarting, bootId: SERVER_INSTANCE_ID });
           } catch (e) {
             if (e instanceof SelfUpdateInProgressError) return err(409, e.message);
             return err(500, e instanceof Error ? e.message : String(e));

@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## September 19, 2026 - Updates wait for a restart (v0.6.75)
+
+- A new release is downloaded in the background. The running process stays up. Restart when you want it, or wait for the next service start. Settings and the What's new drawer say Restart.
+
 ## September 18, 2026 - Local installs update themselves (v0.6.74)
 
 - A computer installed with `omg computer setup` now applies a newer GitHub release on start, and checks again every 6 hours. The Update button still works. Skip still skips that version.

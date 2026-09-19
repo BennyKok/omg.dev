@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import {
   isInstallUpdateInfo,
   shouldShowUpdateNudge,
+  updateActionLabel,
   updateIdentifier,
+  updateNudgeLabel,
   type InstallUpdateStatus,
 } from "./install-update.ts";
 
@@ -88,6 +90,14 @@ describe("a staged update is still something to act on", () => {
 
   test("falls back to the latest version when no staged version is reported", () => {
     expect(updateIdentifier(staged({ stagedVersion: undefined }))).toBe("staged:0.6.23");
+  });
+
+  test("the action is Restart, not Update", () => {
+    expect(updateActionLabel(staged())).toBe("Restart");
+    expect(updateNudgeLabel(staged())).toBe("Restart to update");
+    expect(updateActionLabel(available())).toBe("Update");
+    expect(updateNudgeLabel(available())).toBe("Update available");
+    expect(updateActionLabel(available({ state: "up-to-date" }))).toBe("Check");
   });
 });
 

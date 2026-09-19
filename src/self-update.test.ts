@@ -562,7 +562,7 @@ describe("auto-update on start", () => {
     })).toBe("staged:0.6.74");
   });
 
-  test("release + available + restart applies", () => {
+  test("release + available applies", () => {
     expect(planAutoUpdate({
       enabled: true,
       hosted: false,
@@ -572,7 +572,7 @@ describe("auto-update on start", () => {
     })).toEqual({ action: "apply", reason: "available" });
   });
 
-  test("a staged update only restarts", () => {
+  test("a staged update waits for the next restart", () => {
     expect(planAutoUpdate({
       enabled: true,
       hosted: false,
@@ -584,7 +584,7 @@ describe("auto-update on start", () => {
         stagedVersion: "0.6.74",
         latestVersion: "0.6.74",
       },
-    })).toEqual({ action: "restart", reason: "staged" });
+    })).toEqual({ action: "noop", reason: "staged" });
   });
 
   test("hosted, source, disabled, skipped, and no-restart stay put", () => {
@@ -620,9 +620,8 @@ describe("auto-update on start", () => {
     }).action).toBe("apply");
   });
 
-  test("applies a release and restarts", async () => {
+  test("applies a release and leaves the restart to the user", async () => {
     const applied: string[] = [];
-    const restarts: string[] = [];
     const result = await maybeAutoUpdateOnStart({
       root: "/opt/omg",
       install: { channel: "release", repoSlug: "BennyKok/omg.dev" },
@@ -634,11 +633,9 @@ describe("auto-update on start", () => {
         applied.push("ok");
         return { updated: true, status: { ...available, state: "staged", stagedVersion: "0.6.74" } };
       },
-      restart: () => restarts.push("now"),
     });
     expect(result).toEqual({ updated: true, plan: { action: "apply", reason: "available" } });
     expect(applied).toEqual(["ok"]);
-    expect(restarts).toEqual(["now"]);
   });
 
   test("does not fetch GitHub for a source or hosted box", async () => {
@@ -668,9 +665,9 @@ describe("auto-update on start", () => {
     expect(checked).toBe(0);
   });
 
-  test("a staged update restarts without downloading again", async () => {
+  test("a staged update does not download or restart on its own", async () => {
     let applied = 0;
-    const restarts: string[] = [];
+    const logs: string[] = [];
     const result = await maybeAutoUpdateOnStart({
       root: "/opt/omg",
       install: { channel: "release", repoSlug: "BennyKok/omg.dev" },
@@ -687,11 +684,11 @@ describe("auto-update on start", () => {
         applied++;
         return { updated: true, status: available };
       },
-      restart: () => restarts.push("now"),
+      log: (line) => logs.push(line),
     });
-    expect(result).toEqual({ updated: true, plan: { action: "restart", reason: "staged" } });
+    expect(result).toEqual({ updated: false, plan: { action: "noop", reason: "staged" } });
     expect(applied).toBe(0);
-    expect(restarts).toEqual(["now"]);
+    expect(logs.some((line) => line.includes("restart to apply"))).toBe(true);
   });
 
   test("a skipped version does not download", async () => {
