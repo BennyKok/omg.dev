@@ -21,6 +21,9 @@ export type GlobalSettings = {
   // The update the "What's new" drawer's Skip button last dismissed. See
   // UpdateProvider in components/update-drawer.tsx.
   skippedUpdateVersion: string;
+  // Download a newer GitHub release in the background. Off leaves checking
+  // and updating to the Settings button. Default on.
+  autoUpdateEnabled: boolean;
   // Standing instructions appended to the launch envelope of every new
   // session. "" means nothing extra is sent.
   customInstructions: string;
@@ -109,6 +112,7 @@ export const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
   computerMcpEnabled: false,
   transcriptView: "full",
   skippedUpdateVersion: "",
+  autoUpdateEnabled: true,
   customInstructions: "",
   ...DEFAULT_VIEW_PREFS,
 };

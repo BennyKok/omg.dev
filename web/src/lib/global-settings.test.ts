@@ -25,6 +25,7 @@ describe("resolveGlobalSettings", () => {
     expect(settings.timeZone).toBe("Asia/Hong_Kong");
     expect(settings.maxLiveAgents).toBe(4);
     expect(settings.showComposerFastMode).toBe(true);
+    expect(settings.autoUpdateEnabled).toBe(true);
   });
 
   test("a null or absent answer resolves to the defaults", () => {
@@ -48,12 +49,14 @@ describe("resolveGlobalSettings", () => {
       skippedUpdateVersion: "",
       showBots: false,
       maxLiveAgents: 0,
+      autoUpdateEnabled: false,
     });
 
     expect(settings.customInstructions).toBe("Always run the tests.");
     expect(settings.skippedUpdateVersion).toBe("");
     expect(settings.showBots).toBe(false);
     expect(settings.maxLiveAgents).toBe(0);
+    expect(settings.autoUpdateEnabled).toBe(false);
   });
 
   test("the resolved object carries every key the UI renders", () => {

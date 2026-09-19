@@ -766,8 +766,10 @@ export function resetSelfUpdateLockForTests(): void {
 }
 
 /**
- * Off switch for the on-start updater. Unset means on. `LFG_AUTO_UPDATE=0`
- * (or false/off/no) is the ops kill switch; there is no second setting.
+ * Ops kill switch for the on-start updater. Unset means on.
+ * `LFG_AUTO_UPDATE=0` (or false/off/no) disables even when Settings has
+ * auto-update on. The user-facing switch is `autoUpdateEnabled` in
+ * global settings.
  */
 export function autoUpdateEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   const raw = env.LFG_AUTO_UPDATE?.trim().toLowerCase();

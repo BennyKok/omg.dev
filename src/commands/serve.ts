@@ -5264,6 +5264,11 @@ a{color:#60a5fa}
               return err(400, "skippedUpdateVersion must be a string of 100 characters or fewer");
             patch.skippedUpdateVersion = b.skippedUpdateVersion;
           }
+          if (b?.autoUpdateEnabled !== undefined) {
+            if (typeof b.autoUpdateEnabled !== "boolean")
+              return err(400, "autoUpdateEnabled must be a boolean");
+            patch.autoUpdateEnabled = b.autoUpdateEnabled;
+          }
           if (b?.defaultAgent !== undefined) {
             if (
               typeof b.defaultAgent !== "string" ||
@@ -11312,7 +11317,7 @@ a{color:#60a5fa}
     root: PATHS.root,
     install: () => installInfo(),
     hosted: () => hasHostedOmgAiProxy(),
-    enabled: () => autoUpdateEnabled(),
+    enabled: () => autoUpdateEnabled() && getGlobalSettingsSync().autoUpdateEnabled,
     skippedUpdateVersion: () => getGlobalSettingsSync().skippedUpdateVersion,
     log: (line) => console.log(line),
   });

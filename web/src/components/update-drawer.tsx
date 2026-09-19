@@ -20,6 +20,7 @@ import {
 } from "react";
 import { ArrowDown, CheckCircle2, Loader2, RotateCcw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { cn } from "@/lib/utils";
@@ -41,7 +42,7 @@ import {
   updateFlowReducer,
 } from "@/lib/update-flow";
 
-type UpdateSettings = { skippedUpdateVersion: string };
+type UpdateSettings = { skippedUpdateVersion: string; autoUpdateEnabled: boolean };
 
 type UpdateContextValue = {
   info: InstallUpdateInfo | null;
@@ -58,6 +59,8 @@ type UpdateContextValue = {
   openDrawer: () => void;
   closeDrawer: () => void;
   skip: () => Promise<void>;
+  autoUpdateEnabled: boolean;
+  setAutoUpdateEnabled: (next: boolean) => Promise<void>;
 };
 
 const UpdateContext = createContext<UpdateContextValue | null>(null);
@@ -74,7 +77,7 @@ export function UpdateProvider({
   children,
 }: {
   settings: UpdateSettings;
-  onSettingsChange: (patch: UpdateSettings) => Promise<void>;
+  onSettingsChange: (patch: Partial<UpdateSettings>) => Promise<void>;
   children: ReactNode;
 }) {
   const [info, setInfo] = useState<InstallUpdateInfo | null>(null);
@@ -132,6 +135,14 @@ export function UpdateProvider({
     setDrawerOpen(false);
   }, [latestId, onSettingsChange]);
 
+  const setAutoUpdateEnabled = useCallback(async (next: boolean) => {
+    try {
+      await onSettingsChange({ autoUpdateEnabled: next });
+    } catch {
+      toast.error("Could not save auto-update");
+    }
+  }, [onSettingsChange]);
+
   const value: UpdateContextValue = {
     info,
     status,
@@ -147,6 +158,8 @@ export function UpdateProvider({
     openDrawer: () => setDrawerOpen(true),
     closeDrawer: () => setDrawerOpen(false),
     skip,
+    autoUpdateEnabled: settings.autoUpdateEnabled !== false,
+    setAutoUpdateEnabled,
   };
 
   return (
@@ -186,8 +199,18 @@ export function UpdateNavButton() {
 // there's something to see, and hands the actual update flow to the drawer
 // instead of running it inline.
 export function UpdateSettingsRow() {
-  const { status, channel, updateCommand, checking, error, refresh, nudgeVisible, openDrawer } =
-    useUpdateStatus();
+  const {
+    status,
+    channel,
+    updateCommand,
+    checking,
+    error,
+    refresh,
+    nudgeVisible,
+    openDrawer,
+    autoUpdateEnabled,
+    setAutoUpdateEnabled,
+  } = useUpdateStatus();
 
   // Both states are actionable: `available` needs a download, `staged` needs
   // only the restart that applies bits already on disk.
@@ -202,10 +225,13 @@ export function UpdateSettingsRow() {
     ?? blockedReason
     ?? (checking
       ? "Checking for updates…"
-      : status?.message
-        ?? (channel && updateCommand
-          ? `Updates for ${channel} installs use: ${updateCommand}`
-          : ""));
+      : available
+        ? status?.message
+        : channel === "release"
+          ? (autoUpdateEnabled
+            ? "Downloads new releases. Restart to apply."
+            : "Off — check and update yourself")
+          : null);
 
   return (
     // A bare row, not a card. It sits inside the Computer card next to the
@@ -226,10 +252,7 @@ export function UpdateSettingsRow() {
             </span>
             <div className="min-w-0">
               <div className="text-sm font-medium">Updates</div>
-              {/* Only when it says something you can act on. The resting
-                  message restated the channel, which the version rows above
-                  already imply. */}
-              {error || blockedReason || checking || available ? (
+              {detail ? (
                 <div
                   className={cn(
                     "text-xs text-muted-foreground",
@@ -242,17 +265,26 @@ export function UpdateSettingsRow() {
               ) : null}
             </div>
           </div>
-          {available ? (
-            <Button size="sm" onClick={openDrawer}>
-              {status?.state === "staged" ? <RotateCcw className="size-4" /> : <ArrowDown className="size-4" />}
-              {updateActionLabel(status)}
-            </Button>
-          ) : (
-            <Button size="sm" variant="outline" onClick={() => void refresh(true)} disabled={checking || !supported}>
-              <RotateCcw className={cn("size-4", checking && "animate-spin")} />
-              Check
-            </Button>
-          )}
+          <div className="flex shrink-0 items-center gap-2">
+            {channel === "release" ? (
+              <Switch
+                checked={autoUpdateEnabled}
+                onCheckedChange={(next) => void setAutoUpdateEnabled(next)}
+                aria-label="Automatically download updates"
+              />
+            ) : null}
+            {available ? (
+              <Button size="sm" onClick={openDrawer}>
+                {status?.state === "staged" ? <RotateCcw className="size-4" /> : <ArrowDown className="size-4" />}
+                {updateActionLabel(status)}
+              </Button>
+            ) : (
+              <Button size="sm" variant="outline" onClick={() => void refresh(true)} disabled={checking || !supported}>
+                <RotateCcw className={cn("size-4", checking && "animate-spin")} />
+                Check
+              </Button>
+            )}
+          </div>
     </div>
   );
 }
