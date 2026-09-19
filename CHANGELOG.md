@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## September 19, 2026 - A switch to turn auto-update off (v0.6.76)
+
+- Settings > System > Updates now has a switch on a release install. Off stops the background download. Check and Update still work. `LFG_AUTO_UPDATE=0` still disables it from the environment.
+
 ## September 19, 2026 - Updates wait for a restart (v0.6.75)
 
 - A new release is downloaded in the background. The running process stays up. Restart when you want it, or wait for the next service start. Settings and the What's new drawer say Restart.

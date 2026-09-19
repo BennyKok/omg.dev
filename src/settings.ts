@@ -46,6 +46,11 @@ export type GlobalSettings = {
   // Durable per-instance rather than localStorage so the dismissal survives
   // across browsers/devices for this box.
   skippedUpdateVersion: string;
+  // Download a newer GitHub release in the background on a release install.
+  // Off leaves checking and updating to the Settings button. Missing means
+  // on: a box that predates this key must keep the behaviour it already had.
+  // `LFG_AUTO_UPDATE=0` still wins as an ops kill switch.
+  autoUpdateEnabled: boolean;
   // Free-text standing instructions the owner writes once and every new
   // managed session then carries. Appended to the launch envelope by
   // withOmgRuntimeContract, so it lands in the same preamble region as the
@@ -163,6 +168,7 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
   const skippedUpdateVersion = typeof input?.skippedUpdateVersion === "string"
     ? input.skippedUpdateVersion
     : "";
+  const autoUpdateEnabled = input?.autoUpdateEnabled !== false;
   const customInstructions = typeof input?.customInstructions === "string"
     ? input.customInstructions.trim().slice(0, CUSTOM_INSTRUCTIONS_MAX_LENGTH)
     : "";
@@ -200,6 +206,7 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
     computerMcpEnabled,
     botCompactionThresholdPercent,
     skippedUpdateVersion,
+    autoUpdateEnabled,
     customInstructions,
     defaultAgent,
     defaultModel,
@@ -317,6 +324,7 @@ export async function setGlobalSettings(patch: Partial<GlobalSettings>): Promise
     write.run("computerMcpEnabled", JSON.stringify(next.computerMcpEnabled), now);
     write.run("botCompactionThresholdPercent", JSON.stringify(next.botCompactionThresholdPercent), now);
     write.run("skippedUpdateVersion", JSON.stringify(next.skippedUpdateVersion), now);
+    write.run("autoUpdateEnabled", JSON.stringify(next.autoUpdateEnabled), now);
     write.run("customInstructions", JSON.stringify(next.customInstructions), now);
     write.run("defaultAgent", JSON.stringify(next.defaultAgent), now);
     write.run("defaultModel", JSON.stringify(next.defaultModel), now);

@@ -101,3 +101,15 @@ describe("persistent bot compaction settings", () => {
     });
   });
 });
+
+describe("auto-update setting", () => {
+  test("defaults on when the key has never been stored", () => {
+    expect(settings.getGlobalSettingsSync().autoUpdateEnabled).toBe(true);
+  });
+
+  test("persists off across a reconnect", async () => {
+    await settings.setGlobalSettings({ autoUpdateEnabled: false });
+    settings.resetSettingsDbConnectionForTests();
+    expect(settings.getGlobalSettingsSync().autoUpdateEnabled).toBe(false);
+  });
+});
