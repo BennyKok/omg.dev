@@ -8,25 +8,22 @@ export const SESSION_TITLE_MODEL = OMG_CHEAPEST_MODEL.replace(/^omg\//, "");
 const TITLE_MAX = 72;
 const PROMPT_MAX = 2_000;
 /**
- * Big enough for a reasoning model to think before it answers.
+ * `OMG_CHEAPEST_MODEL` is a reasoning model, and a title request must not let
+ * it think.
  *
- * This was 24, which is generous for a 3-7 word title and useless for the
- * model that actually serves it. `OMG_CHEAPEST_MODEL` is a reasoning model:
- * measured against the live route on 2026-09-19, a title request spent 24 of
- * 24 tokens on reasoning and returned `content: null` with
- * `finish_reason: "length"`. So did 200. At 512 it answered in 391 tokens.
+ * Measured against the live route on 2026-09-19 with the real prompt. At the
+ * original `max_tokens: 24` it spent every token on reasoning and returned
+ * `content: null` with `finish_reason: "length"`. At 512, three runs gave one
+ * title, one `content: null`, and one paragraph that answered the task
+ * instead of naming it. With `reasoning: { effort: "none" }` three runs each
+ * returned the same 7-token title.
  *
- * Every automatic title was therefore empty, at both spawn time and on the
- * manual trigger, and the failure was invisible because the generator turns
- * any bad response into null.
- *
- * `reasoning: { effort: "none" }` is the cheaper fix and answered the same
- * prompt in 13 tokens, but it is a non-standard body field and this same
- * function also posts to the guest sandbox proxy, which was not available to
- * test against. A budget costs nothing when it is not spent, so raise the
- * ceiling rather than add a field that might be rejected.
+ * So the request turns reasoning off. The 512 budget stays as a floor in case
+ * a proxy drops the non-standard `reasoning` field: a budget costs nothing
+ * when it is not spent, and the alternative is the silent empty title again.
  */
 const TITLE_MAX_TOKENS = 512;
+const TITLE_REASONING = { effort: "none" } as const;
 
 type AutoTitleOptions = {
   env?: Record<string, string | undefined>;
@@ -92,6 +89,7 @@ export async function generateSessionTitle(
         model: SESSION_TITLE_MODEL,
         max_tokens: TITLE_MAX_TOKENS,
         temperature: 0.2,
+        reasoning: TITLE_REASONING,
         messages: [
           {
             role: "system",
