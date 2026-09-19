@@ -1420,6 +1420,43 @@ export function enqueueTranscriptIndex(path: string, sessionId: string): void {
 // through an unchanged transcript reuses the cached count instead of re-scanning.
 const pageTotalCache = new Map<string, { offset: number; total: number }>();
 
+/**
+ * The earliest human turn in a transcript, for automatic titling.
+ *
+ * `firstUserTextFromTop` reads the raw rollout and only understands Codex
+ * lines, so it returns null for claude, aisdk and cursor sessions. The index
+ * has already normalised every adapter into the same rows, so one ordered
+ * query works for all of them.
+ *
+ * `role = 'user'` alone is not enough: tool results are also stored under the
+ * user role, and in an agent session they vastly outnumber real turns. Only
+ * `kind = 'text'` is something a person typed.
+ *
+ * The text still carries the omg runtime contract prelude. Stripping that is
+ * the caller's job, because `generateSessionTitle` already does it.
+ */
+export async function firstIndexedUserText(
+  path: string,
+  sessionId: string,
+): Promise<string | null> {
+  init();
+  await importTranscriptForRead(path, sessionId);
+  const row = database()
+    .query<{ text: string | null }, [string]>(`
+        SELECT m.text
+        FROM transcript_messages m
+        WHERE m.path = ?
+          AND m.role = 'user'
+          AND m.kind = 'text'
+          AND m.text IS NOT NULL
+          AND trim(m.text) <> ''
+        ORDER BY m.order_seq ASC, m.rowid ASC
+        LIMIT 1
+      `)
+    .get(path);
+  return row?.text?.trim() || null;
+}
+
 export async function indexedMessagePage(
   path: string,
   sessionId: string,
