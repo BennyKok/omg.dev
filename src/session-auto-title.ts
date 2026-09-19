@@ -7,6 +7,26 @@ import { stripOmgRuntimeContract } from "./omg-capabilities.ts";
 export const SESSION_TITLE_MODEL = OMG_CHEAPEST_MODEL.replace(/^omg\//, "");
 const TITLE_MAX = 72;
 const PROMPT_MAX = 2_000;
+/**
+ * Big enough for a reasoning model to think before it answers.
+ *
+ * This was 24, which is generous for a 3-7 word title and useless for the
+ * model that actually serves it. `OMG_CHEAPEST_MODEL` is a reasoning model:
+ * measured against the live route on 2026-09-19, a title request spent 24 of
+ * 24 tokens on reasoning and returned `content: null` with
+ * `finish_reason: "length"`. So did 200. At 512 it answered in 391 tokens.
+ *
+ * Every automatic title was therefore empty, at both spawn time and on the
+ * manual trigger, and the failure was invisible because the generator turns
+ * any bad response into null.
+ *
+ * `reasoning: { effort: "none" }` is the cheaper fix and answered the same
+ * prompt in 13 tokens, but it is a non-standard body field and this same
+ * function also posts to the guest sandbox proxy, which was not available to
+ * test against. A budget costs nothing when it is not spent, so raise the
+ * ceiling rather than add a field that might be rejected.
+ */
+const TITLE_MAX_TOKENS = 512;
 
 type AutoTitleOptions = {
   env?: Record<string, string | undefined>;
@@ -70,7 +90,7 @@ export async function generateSessionTitle(
       },
       body: JSON.stringify({
         model: SESSION_TITLE_MODEL,
-        max_tokens: 24,
+        max_tokens: TITLE_MAX_TOKENS,
         temperature: 0.2,
         messages: [
           {
