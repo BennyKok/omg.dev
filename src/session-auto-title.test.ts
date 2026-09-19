@@ -51,9 +51,11 @@ describe("automatic session titles", () => {
 
   // The model that serves this is a reasoning model. At the original budget of
   // 24 it spent every token thinking and returned content: null with
-  // finish_reason "length", so every automatic title was silently empty.
-  test("asks for enough tokens that a reasoning model can still answer", async () => {
-    const sent: { body?: { max_tokens?: number } } = {};
+  // finish_reason "length", so every automatic title was silently empty. Even
+  // at 512 it sometimes answered the task instead of naming it, so the
+  // request also turns reasoning off.
+  test("turns reasoning off and keeps a budget a reasoning model can answer in", async () => {
+    const sent: { body?: { max_tokens?: number; reasoning?: unknown } } = {};
     await generateSessionTitle("Rename a session", {
       env: { OMG_AI_URL: "http://proxy" },
       fetch: async (_input, init) => {
@@ -62,6 +64,7 @@ describe("automatic session titles", () => {
       },
     });
     expect(sent.body?.max_tokens).toBeGreaterThanOrEqual(512);
+    expect(sent.body?.reasoning).toEqual({ effort: "none" });
   });
 
   test("keeps failures harmless and cleans model formatting", async () => {
