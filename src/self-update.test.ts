@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -246,6 +246,68 @@ describe("installing a release bundle", () => {
     const result = await installReleaseBundle(archive, target);
     expect(result.dependenciesInstalled).toBe(true);
     expect(existsSync(join(target, "node_modules", "left-pad"))).toBe(false);
+  });
+
+  function writeFakeBun(root: string, body: string): string {
+    const bun = join(root, "fake-bun");
+    writeFileSync(bun, `#!/usr/bin/env bash\n${body}`);
+    chmodSync(bun, 0o755);
+    return bun;
+  }
+
+  // Guest Bun 1.3.x reports a lockfile from a newer packer as frozen even
+  // without --frozen-lockfile. The updater must drop it and retry, or the
+  // Computer is left with no node_modules after the old tree was removed.
+  test("retries the install after a frozen lockfile error", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lfg-bundle-install-"));
+    cleanup.push(root);
+    stage(root, "frozen", {
+      "package.json": JSON.stringify({ name: "omg", version: "9.9.9", dependencies: {} }),
+      "bun.lock": "# stale\n",
+      "src/cli.ts": "new\n",
+    });
+    const archive = packBundle(root, "frozen");
+    const bun = writeFakeBun(
+      root,
+      `set -e
+if [ "$1" != "install" ]; then echo "unexpected: $*" >&2; exit 1; fi
+if [ -f bun.lock ]; then
+  echo "error: lockfile had changes, but lockfile is frozen" >&2
+  exit 1
+fi
+mkdir -p node_modules/recovered
+echo recovered > node_modules/recovered/index.js
+`,
+    );
+
+    const target = join(root, "install");
+    mkdirSync(target, { recursive: true });
+    const result = await installReleaseBundle(archive, target, bun);
+    expect(result.dependenciesInstalled).toBe(true);
+    expect(readFileSync(join(target, "node_modules", "recovered", "index.js"), "utf8")).toBe("recovered\n");
+    expect(existsSync(join(target, "bun.lock"))).toBe(false);
+  });
+
+  test("does not drop the lockfile on a different install failure", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lfg-bundle-install-"));
+    cleanup.push(root);
+    stage(root, "network", {
+      "package.json": JSON.stringify({ name: "omg", version: "9.9.9", dependencies: {} }),
+      "bun.lock": "# keep\n",
+      "src/cli.ts": "new\n",
+    });
+    const archive = packBundle(root, "network");
+    const bun = writeFakeBun(
+      root,
+      `echo "error: failed to resolve package" >&2
+exit 1
+`,
+    );
+
+    const target = join(root, "install");
+    mkdirSync(target, { recursive: true });
+    await expect(installReleaseBundle(archive, target, bun)).rejects.toThrow("failed to resolve package");
+    expect(readFileSync(join(target, "bun.lock"), "utf8")).toBe("# keep\n");
   });
 });
 

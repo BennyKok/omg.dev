@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## September 19, 2026 - Update install recovers from a frozen lockfile (v0.6.79)
+
+- `omg update` still finishes when the Computer's Bun rejects the release lockfile. It drops that lockfile and installs from package.json.
+
 ## September 19, 2026 - Cloud verbs on an updated Computer (v0.6.78)
 
 - `omg update` now ships the Cloud client with the release. `omg whoami` and `omg deploy` run on a Computer after that update.

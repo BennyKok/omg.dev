@@ -149,6 +149,34 @@ function hasEntries(dir: string): boolean {
   }
 }
 
+function isFrozenLockfileError(result: CommandResult): boolean {
+  return /lockfile had changes, but lockfile is frozen/i.test(
+    `${result.stderr}\n${result.stdout}`,
+  );
+}
+
+function productionInstallEnv(): Record<string, string | undefined> {
+  const env = { ...process.env };
+  delete env.CI;
+  return env;
+}
+
+async function installProductionDependencies(
+  root: string,
+  bun: string,
+): Promise<CommandResult> {
+  const env = productionInstallEnv();
+  const first = await run([bun, "install", "--production"], root, env);
+  if (first.ok || !isFrozenLockfileError(first)) return first;
+  // Computers still ship Bun 1.3.x. The release packer runs a newer Bun,
+  // and 1.3 treats that lockfile as frozen even without --frozen-lockfile.
+  // Dropping it lets the target resolve from package.json. That is how the
+  // v0.6.78 Computer update recovered after the first install failed.
+  rmSync(join(root, "bun.lock"), { force: true });
+  rmSync(join(root, "bun.lockb"), { force: true });
+  return run([bun, "install", "--production"], root, env);
+}
+
 /**
  * Extract a downloaded release over an install and make its dependencies match.
  *
@@ -170,6 +198,7 @@ function hasEntries(dir: string): boolean {
 export async function installReleaseBundle(
   archive: string,
   root: string,
+  bun = process.execPath,
 ): Promise<{ dependenciesInstalled: boolean }> {
   const modules = join(root, "node_modules");
   rmSync(modules, { recursive: true, force: true });
@@ -179,7 +208,7 @@ export async function installReleaseBundle(
 
   if (hasEntries(modules)) return { dependenciesInstalled: false };
 
-  const installResult = await run([process.execPath, "install", "--production"], root);
+  const installResult = await installProductionDependencies(root, bun);
   if (!installResult.ok) {
     throw new Error(installResult.stderr || installResult.stdout || "Dependency installation failed.");
   }
