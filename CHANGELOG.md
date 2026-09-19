@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## September 19, 2026 - Cloud verbs on an updated Computer (v0.6.78)
+
+- `omg update` now ships the Cloud client with the release. `omg whoami` and `omg deploy` run on a Computer after that update.
+
 ## September 19, 2026 - Agents decide when to publish (v0.6.77)
 
 - Publishing a project folder is an agent action (`omg deploy` / `omg_deploy`). The web project sheet and the iOS Folders sheet no longer have a Deploy button.

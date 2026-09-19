@@ -125,6 +125,10 @@ stage_runtime_workspace_package "$STAGE/lfg" connectors
 # Fast capability rules are shared with the native composer through this
 # import-free source package. The server imports them by relative path.
 stage_runtime_workspace_package "$STAGE/lfg" protocol
+# Cloud whoami/deploy/apps live in this source package. src/cloud-apps.ts
+# imports it by relative path, not a tsconfig alias, so a connectors-only
+# list dropped it from every release after the verbs landed.
+stage_runtime_workspace_package "$STAGE/lfg" cloud
 # Source maps are built with sourcemap: "hidden", so no bundle references them
 # and no browser ever fetches one. They were still 27MB of a 61MB download -
 # 700 files, 117MB unpacked, shipped to every install for a debugging aid that

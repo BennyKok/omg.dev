@@ -1,23 +1,48 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import { prepareReleaseManifest } from "../scripts/prepare-release-manifest";
 
 const read = (rel: string) =>
   readFileSync(new URL(`../${rel}`, import.meta.url), "utf8");
 
-// Every @omg-dev/* alias in tsconfig.json "paths" is a workspace package the
-// server imports from source. Bun resolves those aliases at runtime, so each
-// package directory must be staged into every runtime bundle.
+const SRC_ROOT = new URL("../src", import.meta.url).pathname;
+
+function walkProductionTs(dir: string): string[] {
+  const out: string[] = [];
+  for (const ent of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, ent.name);
+    if (ent.isDirectory()) {
+      out.push(...walkProductionTs(path));
+      continue;
+    }
+    if (ent.name.endsWith(".ts") && !ent.name.endsWith(".test.ts")) out.push(path);
+  }
+  return out;
+}
+
+// Workspace packages the server imports from source: tsconfig.json "paths"
+// aliases, plus relative `packages/<name>/src` imports. Bun resolves both at
+// runtime, so each package directory must be staged into every runtime bundle.
 function sourceWorkspacePackages(): string[] {
   const tsconfig = JSON.parse(read("tsconfig.json")) as {
     compilerOptions?: { paths?: Record<string, string[]> };
   };
   const paths = tsconfig.compilerOptions?.paths ?? {};
-  return Object.values(paths)
-    .flat()
-    .map((target) => target.match(/^\.\/packages\/([^/]+)\/src\//)?.[1])
-    .filter((name): name is string => Boolean(name));
+  const names = new Set<string>();
+  for (const target of Object.values(paths).flat()) {
+    const name = target.match(/^\.\/packages\/([^/]+)\/src\//)?.[1];
+    if (name) names.add(name);
+  }
+  const relativeImport = /from ["'](?:\.\.\/)+packages\/([^/]+)\/src\//;
+  for (const file of walkProductionTs(SRC_ROOT)) {
+    for (const line of readFileSync(file, "utf8").split("\n")) {
+      const match = line.match(relativeImport);
+      if (match) names.add(match[1]);
+    }
+  }
+  return [...names].sort();
 }
 
 describe("release bundle manifest", () => {
@@ -52,6 +77,8 @@ describe("release bundle manifest", () => {
     const releaseScript = read("scripts/release.sh");
     const packages = sourceWorkspacePackages();
     expect(packages).toContain("connectors");
+    expect(packages).toContain("protocol");
+    expect(packages).toContain("cloud");
     for (const name of packages) {
       expect(releaseScript).toContain(
         `stage_runtime_workspace_package "$STAGE/lfg" ${name}`,
