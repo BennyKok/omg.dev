@@ -16,7 +16,8 @@ import { desktopRuntimeReadyPayload } from "../desktop-parent.ts";
 import { handleServerAccessRequest } from "../server-access.ts";
 import { createCloudAccount } from "../cloud-account.ts";
 import { generateSessionTitle } from "../session-auto-title.ts";
-import { hasHostedOmgAiProxy } from "../omg-provider.ts";
+import { regenerateSessionTitle } from "../session-title-regenerate.ts";
+import { hasHostedOmgAiProxy, hasOmgProviderAccess } from "../omg-provider.ts";
 import { createCloudMachineProxy, type CloudProxySocketData } from "../cloud-machine-proxy.ts";
 import {
   importSessionPins,
@@ -306,6 +307,7 @@ import { CODING_AGENT_ADAPTERS, pickDefaultSessionAgent, resolveActiveSessionAge
 import { launchCodingAgentSession } from "../coding-agent-provider.ts";
 import {
   enqueueTranscriptIndex,
+  firstIndexedUserText,
   indexedMessagePage,
   indexedMessageRowPage,
   indexedToolUseArgs,
@@ -10423,6 +10425,35 @@ a{color:#60a5fa}
           } | null;
           await setSessionTitle(m[1], body?.title ?? "");
           return json({ ok: true });
+        }
+      }
+
+      {
+        // Re-run the automatic title for a session the user already has open.
+        // The spawn-time pass is fire-and-forget and only runs for sessions
+        // created without an explicit title, so this is the only way back to a
+        // generated title after a rename or a failed first attempt.
+        const m = path.match(/^\/api\/sessions\/([0-9a-fA-F-]{36})\/title\/generate$/);
+        if (m && req.method === "POST") {
+          const result = await regenerateSessionTitle(m[1], {
+            // NOT `hasHostedOmgAiProxy`. That one is true only inside a
+            // hosted omg sandbox, but `generateSessionTitle` also works on a
+            // self-hosted box through the signed-in CLI route. Using the
+            // narrow guard here made the action fail with 503 on every
+            // self-hosted install, which is most of them.
+            aiAvailable: hasOmgProviderAccess,
+            resolveTranscript,
+            // Index-backed, so this works for every adapter. The raw-rollout
+            // reader only understands Codex lines and returns null for
+            // claude, aisdk and cursor sessions.
+            firstUserText: (p) => firstIndexedUserText(p, m[1]),
+            // The override store, the same one a human rename writes, so the
+            // generated name beats any managed registry title.
+            setTitle: setSessionTitle,
+          });
+          if (!result.ok) return err(result.status, result.error);
+          invalidateListSessionsCache();
+          return json({ ok: true, title: result.title });
         }
       }
 

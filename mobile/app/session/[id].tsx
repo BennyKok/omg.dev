@@ -1557,6 +1557,28 @@ export function SessionScreenBody({
   }, [client, id, title]);
 
   /**
+   * Rename with AI. The server re-runs the same automatic titling that names a
+   * session at spawn time, then stores the result as the same override the
+   * manual rename writes. Only the title comes back, so nothing else refreshes.
+   */
+  const renameWithAi = useCallback(() => {
+    if (!client || !id) return;
+    void (async () => {
+      try {
+        const result = await client.transport.request<{ title?: string }>(
+          `/api/sessions/${id}/title/generate`,
+          { method: "POST" },
+        );
+        const next = (result?.title ?? "").trim();
+        if (!next) throw new Error("no title was generated");
+        setSessionInfo((info) => (info ? { ...info, title: next } : info));
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    })();
+  }, [client, id]);
+
+  /**
    * Fork: a new session that starts from this transcript. The server does the
    * copying (`POST /api/sessions/<id>/fork`); the phone only has to say which
    * session and then go to whatever comes back.
@@ -1659,6 +1681,7 @@ export function SessionScreenBody({
       options.push({ label: "Stop the agent", icon: "stop.fill", onPress: () => void stop() });
     }
     options.push({ label: "Rename", icon: "pencil", onPress: rename });
+    options.push({ label: "Rename with AI", icon: "sparkles", onPress: renameWithAi });
     if (!busy) {
       const launchableAgents = agents.length
         ? agents
@@ -1706,6 +1729,7 @@ export function SessionScreenBody({
     stop,
     archive,
     rename,
+    renameWithAi,
     continueWithAgent,
     fork,
     copyReference,
