@@ -1,0 +1,14 @@
+# Open the folder arrangement sheet and prove there is no Deploy control.
+# Publishing is an agent action (`omg_deploy` / `omg deploy`), not a button here.
+# The sheet is behind a long-press on a home rail pill. Jev only taps, so
+# this flow is the proof that the control is gone.
+appId: dev.omg.computer
+---
+- launchApp
+- assertVisible: "Create something new"
+- longPressOn:
+    text: ".* folder"
+- assertVisible: "Folders"
+- assertNotVisible:
+    text: "Deploy .*"
+- takeScreenshot: folders-no-deploy

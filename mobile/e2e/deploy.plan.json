@@ -1,5 +1,8 @@
 {
   "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": false
+  },
   "steps": [
     {
       "name": "01 Home",
@@ -12,17 +15,13 @@
     {
       "name": "02 Folders sheet",
       "goal": "Open the folder arrangement sheet. Long-press a folder pill on the home rail, or use the folders control that opens the same sheet.",
-      "done": "The Folders sheet is open and lists at least one project folder",
+      "done": "The Folders sheet is open and lists at least one project folder. There is no Deploy or Redeploy control on a folder row.",
       "expect": [
         "Folders"
-      ]
-    },
-    {
-      "name": "03 Deploy row",
-      "goal": "Find the Deploy control on a folder row. Do not tap it. Confirm the row can publish that folder.",
-      "done": "A Deploy or Redeploy control is visible on a folder row",
-      "expect": [
-        "Deploy"
+      ],
+      "forbid": [
+        "Deploy",
+        "Redeploy"
       ]
     }
   ]

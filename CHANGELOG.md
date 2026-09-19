@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## September 19, 2026 - Agents decide when to publish (v0.6.77)
+
+- Publishing a project folder is an agent action (`omg deploy` / `omg_deploy`). The web project sheet and the iOS Folders sheet no longer have a Deploy button.
+
 ## September 19, 2026 - A switch to turn auto-update off (v0.6.76)
 
 - Settings > System > Updates now has a switch on a release install. Off stops the background download. Check and Update still work. `LFG_AUTO_UPDATE=0` still disables it from the environment.

@@ -16,7 +16,6 @@ import { Sheet } from "./sheet";
 import { SheetScrollView as ScrollView, useBlockSheetDrag } from "./sheet-scroll";
 import { PressableScale } from "./motion";
 import { useOmg } from "./provider";
-import { useProjectDeploy } from "./project-deploy";
 import type { FolderRow } from "./session-options";
 import { Text, TextInput } from "./text";
 import { useTheme } from "./theme";
@@ -120,7 +119,6 @@ function FolderList({
   onCreate: () => void;
 }) {
   const { colors, type, space, radius } = useTheme();
-  const { deploy, open, busyCwd, error, urlFor } = useProjectDeploy();
   const byCwd = useMemo(() => new Map(folders.map((f) => [f.cwd, f] as const)), [folders]);
   const [order, setLocalOrder] = useState(() => folders.map((f) => f.cwd));
   const [drag, setDrag] = useState<{ cwd: string; from: number; dy: number } | null>(null);
@@ -228,27 +226,6 @@ function FolderList({
                 >
                   {folder.label}
                 </Text>
-                {urlFor(folder.cwd) ? (
-                  <RowButton
-                    label={`Open ${folder.label} site`}
-                    ios="safari"
-                    android="language"
-                    onPress={() => {
-                      void Haptics.selectionAsync();
-                      void open(folder.cwd);
-                    }}
-                  />
-                ) : null}
-                <RowButton
-                  label={urlFor(folder.cwd) ? `Redeploy ${folder.label}` : `Deploy ${folder.label}`}
-                  ios="paperplane"
-                  android="send"
-                  disabled={busyCwd === folder.cwd}
-                  onPress={() => {
-                    void Haptics.selectionAsync();
-                    void deploy(folder.cwd, folder.label);
-                  }}
-                />
                 <RowButton
                   label={folder.hidden ? `Add ${folder.label} to the rail` : `Remove ${folder.label} from the rail`}
                   ios={folder.hidden ? "plus.circle" : "minus.circle"}
@@ -277,14 +254,6 @@ function FolderList({
         <ActionButton label="Add folder…" ios="folder.badge.plus" android="create_new_folder" onPress={onBrowse} />
         <ActionButton label="New folder…" ios="plus" android="add" onPress={onCreate} />
       </View>
-      {error ? (
-        <Text style={{ ...type.footnote, color: colors.danger, paddingHorizontal: space.lg }}>{error}</Text>
-      ) : null}
-      {busyCwd ? (
-        <Text style={{ ...type.caption, color: colors.textMuted, paddingHorizontal: space.lg }}>
-          Publishing {byCwd.get(busyCwd)?.label ?? "folder"}…
-        </Text>
-      ) : null}
     </>
   );
 }

@@ -118,12 +118,7 @@ export type CodingAgent = {
  * session filter must compare against -- see `project-filter.ts`. Optional
  * only because an older box may not send it.
  */
-export type Repo = {
-  name: string;
-  cwd: string;
-  project?: string;
-  deploy?: { slug: string; url: string; projectId?: string; name?: string };
-};
+export type Repo = { name: string; cwd: string; project?: string };
 
 /** Shape returned by control-plane getCloudComputer. */
 export type CloudComputer = {

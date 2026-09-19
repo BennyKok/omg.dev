@@ -7,8 +7,8 @@ proxy origin. Date: 2026-09-18. `vibes` owns injecting the owner's token on
 ## Problem
 
 A user on the iOS app can create a project folder on a Computer and let an
-agent build it. The user cannot deploy it. There is no deploy action in the
-protocol, the server, the web UI, the mobile app, or the agent tool set.
+agent build it. Publishing that folder is an agent decision (`omg_deploy` /
+`omg deploy`), not a button on the project or folder sheet.
 
 The only deploy path in the system is `omg deploy` in the retired vibes CLI
 (`@omg-dev/cli` 0.4.42). `packages/cli` 0.5.1 downloads that tarball on
@@ -175,9 +175,8 @@ Done in this repository:
    the runtime CLI. The npm wrapper forwards those verbs to the install. The
    0.4.42 tarball shim is gone.
 3. MCP tools `omg_deploy`, `omg_apps`, `omg_whoami`, `omg_app_visibility`.
-4. Web and iOS Deploy on the project / folder sheet, with status and URL.
-5. `/api/repos` includes `deploy` from `.omg/project.json`.
-6. A Cloud Computer with no token on disk uses `http://169.254.0.1:9090/cloud`
+4. `/api/repos` includes `deploy` from `.omg/project.json`.
+5. A Cloud Computer with no token on disk uses `http://169.254.0.1:9090/cloud`
    so Infra can attach the owner's credential. `omg login` is a no-op there.
 
 

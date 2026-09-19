@@ -618,7 +618,6 @@ import {
 } from "./views/custom-instructions-page";
 import { RemoteAccessSettingsSection } from "./components/remote-access-settings";
 import { CloudAccountSettingsSection } from "./components/cloud-account-settings";
-import { ProjectDeployControls } from "./components/project-deploy-controls";
 import { MachineSwitcher } from "./components/machine-switcher";
 import { ConnectorsPage, ConnectorsRow } from "./views/connectors-page";
 import {
@@ -21935,32 +21934,21 @@ function ComposerProjectSheet({
                   )}
                 </div>
               ) : (
-                <div key={repo.cwd} className={rowClass}>
-                  <button
-                    type="button"
-                    onClick={() => onSelect(repo)}
-                    className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
-                  >
-                    <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-blue-500/10 text-blue-500"><Folder className="size-4" /></span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium">{repo.name}</span>
-                      {showPaths ? (
-                        <span className="block truncate text-xs text-muted-foreground">{repo.cwd}</span>
-                      ) : repo.deploy?.url ? (
-                        <span className="block truncate text-xs text-muted-foreground">{repo.deploy.url.replace(/^https:\/\//, "")}</span>
-                      ) : null}
-                    </span>
-                    {repo.cwd === selected ? <Check className="size-4 shrink-0 text-emerald-500" /> : <ChevronRight className="size-4 shrink-0 text-muted-foreground" />}
-                  </button>
-                  {managing ? null : (
-                    <ProjectDeployControls
-                      cwd={repo.cwd}
-                      name={repo.name}
-                      deploy={repo.deploy}
-                      onDeployed={() => void onReposChanged?.()}
-                    />
-                  )}
-                </div>
+                <button
+                  key={repo.cwd}
+                  type="button"
+                  onClick={() => onSelect(repo)}
+                  className={rowClass}
+                >
+                  <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-blue-500/10 text-blue-500"><Folder className="size-4" /></span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">{repo.name}</span>
+                    {showPaths ? (
+                      <span className="block truncate text-xs text-muted-foreground">{repo.cwd}</span>
+                    ) : null}
+                  </span>
+                  {repo.cwd === selected ? <Check className="size-4 shrink-0 text-emerald-500" /> : <ChevronRight className="size-4 shrink-0 text-muted-foreground" />}
+                </button>
               ),
             )}
             {visibleRepos.length === 0 ? (
