@@ -1,4 +1,5 @@
 import { generateSessionTitle } from "./session-auto-title.ts";
+import { buildSessionTitleDigest, type SessionTitleDigestParts } from "./session-title-digest.ts";
 
 /**
  * Re-run the automatic title for a session that already exists.
@@ -17,8 +18,11 @@ export type RegenerateSessionTitleDeps = {
   aiAvailable: () => boolean;
   /** Transcript file path for the session, or null when there is none. */
   resolveTranscript: (sessionId: string) => Promise<string | null>;
-  /** First user prompt in that transcript, or null. */
-  firstUserText: (path: string) => Promise<string | null>;
+  /**
+   * The turns a title is generated from: first user, last user, last
+   * assistant. Only user and assistant prose; never tool output.
+   */
+  digestRows: (path: string) => Promise<SessionTitleDigestParts>;
   /** Persist the title. This is the same override store a human rename uses. */
   setTitle: (sessionId: string, title: string) => Promise<void>;
   /** Injection point for the model call. Defaults to the real one. */
@@ -39,8 +43,13 @@ export async function regenerateSessionTitle(
   const path = await deps.resolveTranscript(sessionId).catch(() => null);
   if (!path) return { ok: false, status: 404, error: "session transcript not found" };
 
-  const prompt = await deps.firstUserText(path).catch(() => null);
-  if (!prompt?.trim()) {
+  // Not just the first user turn. On a continued session that turn is the
+  // continue envelope, which titles the template rather than the work, and on
+  // a session that opened vaguely it describes something the session stopped
+  // being about several turns ago.
+  const rows = await deps.digestRows(path).catch(() => null);
+  const prompt = rows ? buildSessionTitleDigest(rows) : "";
+  if (!prompt) {
     return { ok: false, status: 422, error: "session has no prompt to title" };
   }
 

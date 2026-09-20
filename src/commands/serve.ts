@@ -16,6 +16,7 @@ import { desktopRuntimeReadyPayload } from "../desktop-parent.ts";
 import { handleServerAccessRequest } from "../server-access.ts";
 import { createCloudAccount } from "../cloud-account.ts";
 import { generateSessionTitle } from "../session-auto-title.ts";
+import { buildContinueSessionPrompt } from "../session-continue-prompt.ts";
 import { regenerateSessionTitle } from "../session-title-regenerate.ts";
 import { hasHostedOmgAiProxy, hasOmgProviderAccess } from "../omg-provider.ts";
 import { createCloudMachineProxy, type CloudProxySocketData } from "../cloud-machine-proxy.ts";
@@ -307,7 +308,7 @@ import { CODING_AGENT_ADAPTERS, pickDefaultSessionAgent, resolveActiveSessionAge
 import { launchCodingAgentSession } from "../coding-agent-provider.ts";
 import {
   enqueueTranscriptIndex,
-  firstIndexedUserText,
+  indexedTitleDigestRows,
   indexedMessagePage,
   indexedMessageRowPage,
   indexedToolUseArgs,
@@ -531,6 +532,7 @@ import {
   getGlobalSettingsSync,
   MAX_LIVE_AGENTS_LIMIT,
   setGlobalSettings,
+  validAutoSessionTitles,
   validTimeZone,
   validTranscriptView,
   type GlobalSettings,
@@ -5337,6 +5339,11 @@ a{color:#60a5fa}
               return err(400, 'composerSendMode must be "steer" or "queue"');
             patch.composerSendMode = b.composerSendMode;
           }
+          if (b?.autoSessionTitles !== undefined) {
+            if (!validAutoSessionTitles(b.autoSessionTitles))
+              return err(400, 'autoSessionTitles must be "on", "manual" or "off"');
+            patch.autoSessionTitles = b.autoSessionTitles;
+          }
           if (b?.customInstructions !== undefined) {
             if (
               typeof b.customInstructions !== "string" ||
@@ -8678,21 +8685,13 @@ a{color:#60a5fa}
             source?.tmuxName ||
             source?.project ||
             sourceId;
-          const prompt = [
-            "You are starting a fresh agent session from an existing lfg session.",
-            "",
-            "This is NOT a resume. Treat the source transcript as read-only context, then follow the user's extra prompt below.",
-            "",
-            `Source session id: ${sourceId}`,
-            `Source title: ${title}`,
-            `Source cwd: ${sourceCwd}`,
-            `Source transcript JSONL: ${transcript}`,
-            "",
-            "Read the transcript file directly before acting.",
-            "",
-            "User's extra prompt:",
-            extra || "Review the source transcript and continue with the most useful next step.",
-          ].join("\n");
+          const prompt = buildContinueSessionPrompt({
+            sourceId,
+            title,
+            cwd: sourceCwd,
+            transcript,
+            extra,
+          });
 
           const r = await fetch(`http://127.0.0.1:${PORT}/api/sessions/new`, {
             method: "POST",
@@ -9058,7 +9057,19 @@ a{color:#60a5fa}
         // Keep creation fast and resilient. The prompt-derived title appears
         // immediately, then managed AI may replace it. A human rename wins the
         // compare-and-swap if it happens before this best-effort call finishes.
-        if (hasHostedOmgAiProxy() && !requestedTitle && fallbackTitle) {
+        //
+        // NOT `hasHostedOmgAiProxy`. That guard is true only inside a hosted
+        // omg sandbox, so on a self-hosted box this branch never ran and no
+        // session was ever titled at spawn, even with an account signed in.
+        // `generateSessionTitle` works through the CLI route there, which is
+        // what the session menu already uses. When nothing is reachable the
+        // generator returns null and the prompt-derived title simply stays.
+        if (
+          getGlobalSettingsSync().autoSessionTitles === "on" &&
+          hasOmgProviderAccess() &&
+          !requestedTitle &&
+          fallbackTitle
+        ) {
           void generateSessionTitle(body?.prompt)
             .then((generatedTitle) => {
               if (!generatedTitle) return;
@@ -10435,6 +10446,10 @@ a{color:#60a5fa}
         // generated title after a rename or a failed first attempt.
         const m = path.match(/^\/api\/sessions\/([0-9a-fA-F-]{36})\/title\/generate$/);
         if (m && req.method === "POST") {
+          // "manual" still allows this: it is the mode where a title is only
+          // ever written because the user asked for one. Only "off" refuses.
+          if (getGlobalSettingsSync().autoSessionTitles === "off")
+            return err(403, "automatic session titles are turned off");
           const result = await regenerateSessionTitle(m[1], {
             // NOT `hasHostedOmgAiProxy`. That one is true only inside a
             // hosted omg sandbox, but `generateSessionTitle` also works on a
@@ -10446,7 +10461,7 @@ a{color:#60a5fa}
             // Index-backed, so this works for every adapter. The raw-rollout
             // reader only understands Codex lines and returns null for
             // claude, aisdk and cursor sessions.
-            firstUserText: (p) => firstIndexedUserText(p, m[1]),
+            digestRows: (p) => indexedTitleDigestRows(p, m[1]),
             // The override store, the same one a human rename writes, so the
             // generated name beats any managed registry title.
             setTitle: setSessionTitle,
