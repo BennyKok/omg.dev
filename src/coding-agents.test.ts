@@ -965,3 +965,22 @@ describe("runCodingAgentUpdate", () => {
     expect(calls[1]).toBe("refresh:codex");
   });
 });
+
+describe("warmOpencodeDb", () => {
+  test("runs one opencode command so the DB migrates before any session", async () => {
+    const { warmOpencodeDb } = await import("./coding-agents.ts");
+    const dir = mkdtempSync(join(tmpdir(), "lfg-oc-warm-"));
+    const log = join(dir, "calls.log");
+    const bin = join(dir, "opencode");
+    writeFileSync(bin, `#!/bin/sh\necho "$@" >> "${log}"\n`);
+    chmodSync(bin, 0o755);
+    try {
+      await warmOpencodeDb(bin);
+      expect(readFileSync(log, "utf8").trim()).toBe("mcp list");
+      await warmOpencodeDb(null);
+      expect(readFileSync(log, "utf8").trim()).toBe("mcp list");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

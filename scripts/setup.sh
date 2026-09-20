@@ -592,6 +592,12 @@ ensure_path_line 'export PATH="$HOME/.local/bin:$PATH"'
 
 ensure_agent codex    "$LFG_INSTALL_CODEX"    command -v codex
 ensure_agent opencode "$LFG_INSTALL_OPENCODE" command -v opencode
+# OpenCode migrates its SQLite DB on every command with no lock. Two commands
+# racing on a fresh DB (first session + status probe) crash one of them with
+# "CREATE TABLE workspace ... already exists". Migrate once here, serially.
+if command -v opencode >/dev/null 2>&1; then
+  timeout 30 opencode mcp list >/dev/null 2>&1 || true
+fi
 ensure_agent jcode    "$LFG_INSTALL_JCODE"    command -v jcode
 ensure_agent grok     "$LFG_INSTALL_GROK"     command -v grok
 ensure_agent cursor   "$LFG_INSTALL_CURSOR"   has_cursor_cli
