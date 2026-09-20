@@ -16535,6 +16535,11 @@ function useRegenerateSessionTitle(
   onRenameSession: RenameSession,
   onError: (error: string | null) => void,
 ) {
+  // "off" hides the row rather than letting it fail: the server answers 403
+  // for that mode, and an action whose only outcome is an error toast is worse
+  // than no action. "manual" keeps it, because that mode exists precisely to
+  // make this the only way a title is generated.
+  const { autoSessionTitles } = useContext(ViewPrefsContext);
   const [pending, setPending] = useState(false);
   const run = useCallback(async () => {
     if (!sid || pending) return;
@@ -16554,7 +16559,7 @@ function useRegenerateSessionTitle(
       setPending(false);
     }
   }, [sid, pending, onRenameSession, onError]);
-  return run;
+  return autoSessionTitles === "off" ? null : run;
 }
 
 function SessionActionsMenu({
@@ -17665,7 +17670,7 @@ function SessionTitleSheet({
               session.shippedReview ? undefined : () => setRenamingInline(true)
             }
             onRegenerateTitle={
-              session.shippedReview ? undefined : regenerateTitle
+              session.shippedReview ? undefined : (regenerateTitle ?? undefined)
             }
             triggerClassName="size-9"
             pinned={pinned}
@@ -18565,7 +18570,7 @@ const onTouchStart = (e: ReactTouchEvent) => {
             onError={setError}
             onRename={session.shippedReview ? undefined : startRename}
             onRegenerateTitle={
-              session.shippedReview ? undefined : regenerateTitle
+              session.shippedReview ? undefined : (regenerateTitle ?? undefined)
             }
             pinned={pinned}
             onTogglePin={session.shippedReview ? undefined : onTogglePin}
@@ -29047,6 +29052,41 @@ function ViewSettingsSection({
                     className={cn(
                       "px-3 py-1 capitalize transition-colors",
                       settings.composerSendMode === mode
+                        ? "bg-foreground text-background"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {mode}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-4 px-4 py-2.5">
+              <div className="min-w-0">
+                <div className="text-sm font-medium">Name sessions with AI</div>
+                <div className="text-xs text-muted-foreground">
+                  {settings.autoSessionTitles === "off"
+                    ? "Sessions keep the name taken from their first prompt. Rename with AI is hidden."
+                    : settings.autoSessionTitles === "manual"
+                      ? "Only when you pick Rename with AI. Nothing is sent while a session starts."
+                      : "A new session is named automatically, and Rename with AI can redo it later."}
+                </div>
+              </div>
+              <div
+                role="radiogroup"
+                aria-label="Name sessions with AI"
+                className="flex shrink-0 overflow-hidden rounded-full border border-border text-xs"
+              >
+                {(["on", "manual", "off"] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    role="radio"
+                    aria-checked={settings.autoSessionTitles === mode}
+                    onClick={() => void onChange({ autoSessionTitles: mode })}
+                    className={cn(
+                      "px-3 py-1 capitalize transition-colors",
+                      settings.autoSessionTitles === mode
                         ? "bg-foreground text-background"
                         : "text-muted-foreground hover:text-foreground",
                     )}

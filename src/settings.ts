@@ -87,9 +87,22 @@ export type GlobalSettings = {
   // editable card until the turn ends. The other mode stays one gesture away
   // (Cmd/Ctrl+Enter, hold the send button).
   composerSendMode: ComposerSendMode;
+
+  // Whether a session may have its title written by the managed AI route.
+  // "on": at spawn and from the session menu. "manual": only from the menu,
+  // so nothing leaves the box until the user asks for it. "off": neither, and
+  // the menu row is hidden.
+  //
+  // Default "on". A box with no reachable model is NOT a reason to default
+  // this off: the generator already returns null when there is no account and
+  // the caller keeps the prompt-derived title, so "on" costs such a box
+  // nothing and needs no setup from the user who does have an account.
+  autoSessionTitles: AutoSessionTitles;
 };
 
 export type ComposerSendMode = "steer" | "queue";
+
+export type AutoSessionTitles = "on" | "manual" | "off";
 
 export const DEFAULT_AGENT_KEY_MAX_LENGTH = 40;
 export const DEFAULT_MODEL_MAX_LENGTH = 120;
@@ -144,6 +157,10 @@ export function validTranscriptView(value: unknown): value is TranscriptView {
   return value === "full" || value === "user-lfg-output";
 }
 
+export function validAutoSessionTitles(value: unknown): value is AutoSessionTitles {
+  return value === "on" || value === "manual" || value === "off";
+}
+
 // input may still carry agentsPaused / idleAgentArchiveMinutes: an install
 // upgraded from before both features were removed still has those two keys
 // sitting in app_settings, and readStoredSettings() reads every row without
@@ -196,6 +213,11 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
   const showSessionDiffBar = input?.showSessionDiffBar !== false;
   const showComposerFastMode = input?.showComposerFastMode !== false;
   const composerSendMode: ComposerSendMode = input?.composerSendMode === "queue" ? "queue" : "steer";
+  // Anything unrecognised, including a value written by a newer build, reads
+  // as the default rather than disabling the feature.
+  const autoSessionTitles: AutoSessionTitles = validAutoSessionTitles(input?.autoSessionTitles)
+    ? input.autoSessionTitles
+    : "on";
   return {
     machineName: typeof input?.machineName === "string" ? input.machineName.trim().replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 80) : "",
     timeZone,
@@ -220,6 +242,7 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
     showSessionDiffBar,
     showComposerFastMode,
     composerSendMode,
+    autoSessionTitles,
   };
 }
 
@@ -338,6 +361,7 @@ export async function setGlobalSettings(patch: Partial<GlobalSettings>): Promise
     write.run("showSessionDiffBar", JSON.stringify(next.showSessionDiffBar), now);
     write.run("showComposerFastMode", JSON.stringify(next.showComposerFastMode), now);
     write.run("composerSendMode", JSON.stringify(next.composerSendMode), now);
+    write.run("autoSessionTitles", JSON.stringify(next.autoSessionTitles), now);
   })();
   return next;
 }

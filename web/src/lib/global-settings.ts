@@ -50,9 +50,15 @@ export type GlobalSettings = {
   // interrupts the turn, "queue" holds the text as an editable card under the
   // composer until the turn ends. The other mode stays one gesture away.
   composerSendMode: ComposerSendMode;
+  // Whether the managed AI route may write a session's title. "on": at spawn
+  // and from the session menu. "manual": only when the user picks Rename with
+  // AI. "off": neither, and that menu row is hidden.
+  autoSessionTitles: AutoSessionTitles;
 };
 
 export type ComposerSendMode = "steer" | "queue";
+
+export type AutoSessionTitles = "on" | "manual" | "off";
 
 /**
  * The box-wide view preferences, read by the pieces of UI they switch: the
@@ -75,6 +81,7 @@ export type ViewPrefs = Pick<
   | "showSessionDiffBar"
   | "showComposerFastMode"
   | "composerSendMode"
+  | "autoSessionTitles"
 >;
 export const DEFAULT_VIEW_PREFS: ViewPrefs = {
   defaultAgent: "",
@@ -89,6 +96,7 @@ export const DEFAULT_VIEW_PREFS: ViewPrefs = {
   showSessionDiffBar: true,
   showComposerFastMode: true,
   composerSendMode: "steer",
+  autoSessionTitles: "on",
 };
 
 /**
