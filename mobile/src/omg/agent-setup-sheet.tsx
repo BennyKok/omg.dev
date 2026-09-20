@@ -75,6 +75,8 @@ export function AgentSetupSheet({
           {(modelLabel || modelOptions.length > 0) ? <Pressable accessibilityRole="button" accessibilityLabel={`Model ${modelLabel ?? modelOptions.find(o => o.selected)?.label ?? "default"}. Change model`}
             onPress={() => setPage("models")} disabled={!modelOptions.length}
             style={{ flex: 1, minHeight: 52, paddingHorizontal: 14, borderRadius: 14, backgroundColor: surface, flexDirection: "row", alignItems: "center", gap: 10 }}>
+            {modelOptions.find(o => o.selected)?.image ? <Image source={modelOptions.find(o => o.selected)!.image!} accessible={false}
+              style={{ width: 18, height: 18, tintColor: colors.text }} /> : null}
             <Text numberOfLines={1} style={{ ...type.callout, flex: 1, color: colors.text }}>{modelLabel ?? modelOptions.find(o => o.selected)?.label ?? "Choose model"}</Text>
             {modelOptions.length ? <SymbolView name="chevron.right" size={14} tintColor={colors.textMuted} /> : null}
           </Pressable> : null}
@@ -168,8 +170,18 @@ function Row({ option, first, onPress }: { option: MenuOption; first: boolean; o
         borderTopWidth: first ? 0 : StyleSheet.hairlineWidth,
         borderTopColor: colors.borderSoft,
         opacity: option.disabled ? 0.4 : 1,
+        gap: 10,
       }}
     >
+      {option.image ? (
+        // A provider mark, black on transparent; the tint makes it follow
+        // the label's colour in both themes.
+        <Image
+          source={option.image}
+          accessible={false}
+          style={{ width: 18, height: 18, tintColor: selected ? colors.text : colors.textSecondary }}
+        />
+      ) : null}
       <Text
         numberOfLines={1}
         style={{
@@ -197,7 +209,9 @@ function ModelList({ options, recent, onPick }: { options: MenuOption[]; recent:
   const expanded = useSheetExpanded();
   const q = query.trim().toLowerCase();
   const shown = useMemo(() => {
-    const matched = q ? options.filter((o) => o.label.toLowerCase().includes(q)) : options;
+    // The short name is what the row shows; the id still matches so a pasted
+    // router id, or a provider slug like "z-ai", finds its row.
+    const matched = q ? options.filter((o) => o.label.toLowerCase().includes(q) || (o.id?.toLowerCase().includes(q) ?? false)) : options;
     const current = matched.find(o => o.selected);
     return [...(current ? [current] : []), ...matched.filter(o => o !== current)];
   }, [options, q]);

@@ -1,4 +1,6 @@
 import { OMG_MODELS } from "../../src/omg-models";
+import { omgModelLabel, omgModelSearchText, parseOmgModel } from "../../packages/protocol/src/omg-model-display";
+import { ModelProviderIcon } from "./lib/model-provider-icons";
 import { useRuntimeLifecycle } from "./lib/runtime-lifecycle";
 import { LiveHeaderContext } from "./components/live-header-context";
 import { activeMachine } from "./lib/machines";
@@ -24654,7 +24656,7 @@ function ModelPicker({
       className={triggerClass}
     >
       <span className={cn("truncate text-xs font-medium", isMobile && "text-sm", width)}>
-        {value || "model"}
+        {omgModelLabel(value) || "model"}
       </span>
       <ChevronDown className={cn("shrink-0 text-muted-foreground/70", isMobile ? "size-4" : "size-3")} />
     </button>
@@ -24683,7 +24685,7 @@ function ModelPicker({
           className={triggerClass}
         >
           <span className={cn("truncate text-sm font-medium", width)}>
-            {value || "model"}
+            {omgModelLabel(value) || "model"}
           </span>
           <ChevronDown className="size-4 shrink-0 text-muted-foreground/70" />
         </button>
@@ -24744,8 +24746,8 @@ function modelListSearchable(models: string[]): boolean {
 
 // Filter box + option list shared by the model pill and the combined
 // agent/model pill. Owns the query, so closing the popover (which unmounts
-// this) is what clears it.
-function ModelOptionList({
+// this) is what clears it. Exported for the render test.
+export function ModelOptionList({
   value,
   models,
   onChoose,
@@ -24764,7 +24766,9 @@ function ModelOptionList({
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return models;
-    return models.filter((item) => item.toLowerCase().includes(q));
+    // Hosted omg ids match on the router id AND the short name, so "flash"
+    // and "deepseek v4" both find omg/deepseek/deepseek-v4-flash-0731.
+    return models.filter((item) => omgModelSearchText(item).includes(q));
   }, [models, query]);
   return (
     <div className={large ? "min-h-0 space-y-3" : "space-y-2"}>
@@ -24789,11 +24793,16 @@ function ModelOptionList({
         {filtered.length ? (
           filtered.map((item) => {
             const selected = value === item;
+            // A hosted omg id reads as the lab's mark plus the short model
+            // name; the full router id stays in the tooltip. Other agents'
+            // ids are already short and stay as they are.
+            const hosted = parseOmgModel(item);
             return (
               <button
                 key={item}
                 type="button"
                 onClick={() => onChoose(item)}
+                title={hosted ? `${hosted.providerLabel} · ${item}` : undefined}
                 className={cn(
                   "flex w-full min-w-0 items-center gap-3 rounded-xl px-3 text-left text-sm outline-none transition-colors",
                   large ? "h-12" : "h-10",
@@ -24803,7 +24812,13 @@ function ModelOptionList({
                 )}
               >
                 <Check className={cn("size-4 shrink-0 text-primary", selected ? "opacity-100" : "opacity-0")} />
-                <span className="min-w-0 flex-1 truncate">{item}</span>
+                {hosted ? (
+                  <ModelProviderIcon
+                    provider={hosted.provider}
+                    className={cn("size-4 shrink-0", selected ? "text-foreground" : "text-muted-foreground")}
+                  />
+                ) : null}
+                <span className="min-w-0 flex-1 truncate">{hosted ? hosted.label : item}</span>
               </button>
             );
           })
@@ -24867,7 +24882,7 @@ function AgentModelPicker<K extends AgentKind>({
   const trigger = (
     <button
       type="button"
-      aria-label={`Agent ${agentLabel}, model ${model || "not set"}. Change agent or model`}
+      aria-label={`Agent ${agentLabel}, model ${omgModelLabel(model) || "not set"}. Change agent or model`}
       title={`${agentLabel} · ${model || "model"}`}
       aria-haspopup="dialog"
       aria-expanded={open}
@@ -24882,7 +24897,7 @@ function AgentModelPicker<K extends AgentKind>({
         ) : null}
       </span>
       <span className="max-w-32 truncate text-xs font-medium">
-        {showModels ? model || "model" : agentLabel}
+        {showModels ? omgModelLabel(model) || "model" : agentLabel}
       </span>
       <ChevronDown className="size-3 shrink-0 text-muted-foreground/70" />
     </button>

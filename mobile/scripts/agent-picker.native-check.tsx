@@ -12,7 +12,11 @@ mock.module(resolve(import.meta.dir, '../src/omg/config.ts'), () => ({ STORAGE_K
 mock.module(resolve(import.meta.dir, '../src/omg/agent-icons.ts'), () => ({
   agentIcon: () => undefined, agentLabel: (key: string) => key,
 }));
-const agents = [{ key: 'aisdk', label: 'Claude' }, { key: 'codex-aisdk', label: 'Codex' }];
+// Provider marks are PNG requires; bun cannot load those, so name the mark instead.
+mock.module(resolve(import.meta.dir, '../src/omg/model-provider-icons.ts'), () => ({
+  modelProviderIcon: (provider?: string | null) => provider ? { uri: `provider-${provider}` } : null,
+}));
+const agents = [{ key: 'aisdk', label: 'Claude' }, { key: 'codex-aisdk', label: 'Codex' }, { key: 'omg', label: 'omg agent' }];
 let bindingId = 'machine-a';
 /**
  * The box's own state, which the picker's two fetches are gated on. A test
@@ -31,6 +35,7 @@ const client = { transport: { request: async (path: string) => { requests++; if 
 } : { models: [
   { key: 'aisdk', defaultModel: 'opus', models: ['opus', 'sonnet'], thinkingLevels: ['low', 'medium', 'high'] },
   { key: 'codex-aisdk', defaultModel: 'gpt-6-astra', models: ['gpt-6-astra', 'gpt-5.3-codex'], thinkingLevels: ['low', 'high'] },
+  { key: 'omg', defaultModel: 'omg/deepseek/deepseek-v4-flash-0731', models: ['omg/deepseek/deepseek-v4-flash-0731', 'omg/z-ai/glm-5.2'] },
 ] }; } } };
 mock.module(resolve(import.meta.dir, '../src/omg/provider.tsx'), () => ({
   useOmg: () => ({ agents, bindingId, client, readiness }),
@@ -122,4 +127,23 @@ test('a fetch that fails once is tried again', async () => {
     expect(picker.modelOptions.map(o => o.label)).toEqual(['opus', 'sonnet']);
     expect(picker.accountOptions.map(o => o.label)).toEqual(['Auto', '1', '2']);
   } finally { ui.cleanup(); failures = 0; }
+});
+
+test('omg rows carry the short name and the provider mark, and keep the router id', async () => {
+  const ui = mount();
+  let picker!: ReturnType<typeof useAgentPicker>;
+  function Fixture() { picker = useAgentPicker({ initialAgent: 'omg' }); return null; }
+  bindingId = 'machine-omg';
+  readiness = { status: 'ready' };
+  try {
+    await ui.flushAsync(async () => { ui.render(<Fixture />); });
+    expect(picker.modelOptions.map(o => [o.id, o.label, o.image])).toEqual([
+      ['omg/deepseek/deepseek-v4-flash-0731', 'DeepSeek V4 Flash', { uri: 'provider-deepseek' }],
+      ['omg/z-ai/glm-5.2', 'GLM 5.2', { uri: 'provider-z-ai' }],
+    ]);
+    expect(picker.modelLabel).toBe('DeepSeek V4 Flash');
+    await ui.flushAsync(async () => { picker.modelOptions[1]!.onPress!(); });
+    expect(picker.modelLabel).toBe('GLM 5.2');
+    expect(picker.model).toBe('omg/z-ai/glm-5.2');
+  } finally { ui.cleanup(); }
 });

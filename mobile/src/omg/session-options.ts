@@ -7,6 +7,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { supportsFastMode } from "../../../packages/protocol/src/fast-mode-support";
+import { omgModelLabel, parseOmgModel } from "../../../packages/protocol/src/omg-model-display";
+import { modelProviderIcon } from "./model-provider-icons";
 import { STORAGE_KEYS } from "./config";
 
 import { preferredAgent } from "./agent-default";
@@ -281,10 +283,13 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
   const modelOptions = useMemo<MenuOption[]>(() => {
     const models = entry?.models ?? [];
 
-    // No icons: these are strings the box reported, not things with faces, and
-    // one icon in a menu indents every other label to make room for a gutter.
+    // The router id stays the value. A hosted `omg/<provider>/<model>` id
+    // shows the lab's mark and its short name ("DeepSeek V4 Flash"); other
+    // agents' ids are already short strings with no face, and get no gutter.
     return models.map((m) => ({
-      label: m,
+      id: m,
+      label: omgModelLabel(m),
+      image: modelProviderIcon(parseOmgModel(m)?.provider) ?? undefined,
       selected: m === activeModelName,
       onPress: () => {
         setModel(m);
@@ -364,7 +369,7 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
     toggleFast: fastAvailable ? () => setFast(value => !value) : undefined,
     model: activeModel,
     /** What the model pill shows: the choice, or the default it would use. */
-    modelLabel: activeModelName,
+    modelLabel: activeModelName ? omgModelLabel(activeModelName) : null,
     modelOptions,
     thinking: activeThinking,
     thinkingLabel: activeThinking

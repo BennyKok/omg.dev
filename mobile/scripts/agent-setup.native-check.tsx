@@ -10,7 +10,7 @@ const View = ({children,style,accessibilityLabel,onLayout}: any) => {
  return <div aria-label={accessibilityLabel} style={Array.isArray(style) ? Object.assign({}, ...style) : style}>{children}</div>;
 };
 const Pressable = ({children,onPress,onLongPress,accessibilityLabel,disabled}: any) => <button aria-label={accessibilityLabel} disabled={disabled} onClick={onPress} onContextMenu={e=>{e.preventDefault();onLongPress?.();}}>{children}</button>;
-mock.module(resolve(import.meta.dir, '../node_modules/react-native/index.js'), () => ({View, ScrollView:View, Image:()=>null, ActivityIndicator:()=>null, Pressable, Platform:{OS:'ios'}, StyleSheet:{hairlineWidth:1}, PanResponder:{create:(handlers:any)=>{responders.push(handlers);return {panHandlers:{}};}}}));
+mock.module(resolve(import.meta.dir, '../node_modules/react-native/index.js'), () => ({View, ScrollView:View, Image:({source}:any)=><img data-source={typeof source==='object'?JSON.stringify(source):String(source)}/>, ActivityIndicator:()=>null, Pressable, Platform:{OS:'ios'}, StyleSheet:{hairlineWidth:1}, PanResponder:{create:(handlers:any)=>{responders.push(handlers);return {panHandlers:{}};}}}));
 mock.module(import.meta.resolve('react-native-reanimated'), () => ({default:{View},useSharedValue:(value:any)=>React.useRef({value}).current,useAnimatedStyle:(fn:any)=>fn(),withTiming:(x:any)=>x}));
 let haptics = 0;
 mock.module(import.meta.resolve('expo-haptics'), () => ({selectionAsync:async()=>{haptics++;}}));
@@ -155,4 +155,24 @@ test('dots grow continuously with finger proximity and settle at their original 
  expect(thinkingDotScale(150,100,1)).toBe(1);
  expect(thinkingDotScale(0,100,0)).toBe(1);
  expect(thinkingDotScale(0,100,0.5)).toBeCloseTo(1.9);
+});
+
+test('a model with a provider mark draws it in its row and on the model button',()=>{
+ const ui=mount();
+ try {
+  const mark = { uri: 'provider-deepseek' } as any;
+  ui.render(<AgentSetupSheet visible onClose={()=>{}} agentOptions={[{id:'omg',label:'omg',selected:true}]}
+   modelOptions={[{id:'omg/deepseek/deepseek-v4-flash-0731',label:'DeepSeek V4 Flash',image:mark,selected:true},{id:'gpt-5.6',label:'gpt-5.6'}]}/>);
+  expect(ui.text()).toContain('DeepSeek V4 Flash');
+  expect(ui.queryAll('img').length).toBe(1);
+  ui.flush(()=> (ui.query('button[aria-label^="Model DeepSeek V4 Flash"]') as HTMLElement).click());
+  const rows=Array.from(ui.queryAll('button')).filter(n=>n.textContent==='DeepSeek V4 Flash'||n.textContent==='gpt-5.6');
+  expect(rows.length).toBe(2);
+  expect(rows[0]!.querySelectorAll('img').length).toBe(1);
+  expect(rows[1]!.querySelectorAll('img').length).toBe(0);
+  const input=ui.query('input') as HTMLInputElement;
+  ui.flush(()=>{input.value='omg/deepseek';input.dispatchEvent(new Event('input',{bubbles:true}));});
+  expect(ui.text()).toContain('DeepSeek V4 Flash');
+  expect(ui.text()).not.toContain('gpt-5.6');
+ } finally {ui.cleanup();}
 });
