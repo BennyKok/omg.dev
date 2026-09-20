@@ -549,6 +549,14 @@ function SessionScreenContent({
   const [continueOpen, setContinueOpen] = useState(false);
   const continuePicker = useAgentPicker({ initialAgent: sessionInfo?.agent });
   /**
+   * Fork gets the same picker. A fork used to POST an empty body, so the new
+   * session took the server default agent and that agent's default model —
+   * the one thing you most often fork in order to change. The sheet starts on
+   * this session's agent, so accepting it forks like-for-like.
+   */
+  const [forkOpen, setForkOpen] = useState(false);
+  const forkPicker = useAgentPicker({ initialAgent: sessionInfo?.agent });
+  /**
    * Whether an agent is attached to this session right now. `null` until the
    * machine has answered — the composer says nothing about resuming while it
    * does not yet know, because guessing wrong in either direction is worse
@@ -1478,21 +1486,32 @@ function SessionScreenContent({
    * copying (`POST /api/sessions/<id>/fork`); the phone only has to say which
    * session and then go to whatever comes back.
    */
-  const fork = useCallback(() => {
-    if (!client || !id) return;
-    void (async () => {
-      try {
-        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        const res = await client.transport.request<{ sessionId?: string }>(
-          `/api/sessions/${id}/fork`,
-          { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" },
-        );
-        if (res?.sessionId) router.replace(`/session/${res.sessionId}`);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-      }
-    })();
-  }, [client, id, router]);
+  const fork = useCallback(
+    (agent?: string, model?: string | null, thinkingLevel?: string | null) => {
+      if (!client || !id) return;
+      void (async () => {
+        try {
+          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          const res = await client.transport.request<{ sessionId?: string }>(
+            `/api/sessions/${id}/fork`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                agent: agent || undefined,
+                model: model || undefined,
+                thinkingLevel: thinkingLevel || undefined,
+              }),
+            },
+          );
+          if (res?.sessionId) router.replace(`/session/${res.sessionId}`);
+        } catch (e) {
+          setError(e instanceof Error ? e.message : String(e));
+        }
+      })();
+    },
+    [client, id, router],
+  );
 
   /**
    * Continue: open a replacement session from this transcript, then archive
@@ -1598,7 +1617,11 @@ function SessionScreenContent({
         onPress: () => setContinueOpen(true),
       });
     }
-    options.push({ label: "Fork", icon: "arrow.triangle.branch", onPress: fork });
+    options.push({
+      label: "Fork…",
+      icon: "arrow.triangle.branch",
+      onPress: () => setForkOpen(true),
+    });
     options.push({ label: "Copy reference", icon: "link", onPress: copyReference });
     if (!busy) {
       options.push({
@@ -2173,6 +2196,24 @@ function SessionScreenContent({
           onPress: () => {
             setContinueOpen(false);
             continueWithAgent(continuePicker.agent, continuePicker.model, continuePicker.thinking);
+          },
+        }}
+      />
+
+      <AgentSetupSheet
+        visible={forkOpen}
+        onClose={() => setForkOpen(false)}
+        title="Fork with"
+        agentOptions={forkPicker.options}
+        modelOptions={forkPicker.modelOptions}
+        modelLabel={forkPicker.modelLabel}
+        agentLabel={forkPicker.label}
+        thinkingOptions={forkPicker.thinkingOptions}
+        action={{
+          label: `Fork with ${forkPicker.label}`,
+          onPress: () => {
+            setForkOpen(false);
+            fork(forkPicker.agent, forkPicker.model, forkPicker.thinking);
           },
         }}
       />
