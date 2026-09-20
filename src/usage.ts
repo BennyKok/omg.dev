@@ -763,6 +763,12 @@ async function opencodeUsage(ref: UsageProviderRef): Promise<ProviderUsage> {
 // Settings page shows, through the CLI gate, with the `omg login` credential.
 export type OmgBalance = {
   plan?: string | null;
+  /**
+   * The non-windowed AI credit pool: the $2 signup grant every new customer
+   * receives (vibes catalog, `grants.signup`), plus any top-up. A plan with a
+   * monthly allowance reports that allowance in `build` instead.
+   */
+  balanceUsd?: number;
   build?: {
     limitUsd: number;
     usedUsd: number;
@@ -780,14 +786,22 @@ const GUEST_BALANCE_URL = "http://169.254.0.1:9090/v1/billing/balance";
  */
 export function normalizeOmgBalance(raw: Record<string, any>): OmgBalance {
   const build = raw?.build;
-  if (!build || typeof build !== "object") return { plan: raw?.plan ?? null, build: null };
+  const balanceUsd =
+    typeof raw?.balanceMicros === "number"
+      ? raw.balanceMicros / 1_000_000
+      : typeof raw?.balanceUsd === "number"
+        ? raw.balanceUsd
+        : 0;
+  const plan = raw?.plan ?? null;
+  if (!build || typeof build !== "object") return { plan, balanceUsd, build: null };
   const micros = typeof build.limitMicros === "number";
   const usd = (key: string) => {
     const value = micros ? build[`${key}Micros`] / 1_000_000 : build[`${key}Usd`];
     return typeof value === "number" && Number.isFinite(value) ? value : 0;
   };
   return {
-    plan: raw?.plan ?? null,
+    plan,
+    balanceUsd,
     build: {
       limitUsd: usd("limit"),
       usedUsd: usd("used"),
@@ -798,6 +812,7 @@ export function normalizeOmgBalance(raw: Record<string, any>): OmgBalance {
 }
 
 const OMG_PLAN_LABELS: Record<string, string> = {
+  free: "Free",
   computer_s40: "Starter Plus",
   computer_5: "Personal",
   computer_10: "Pro",
@@ -807,6 +822,9 @@ function usd(value: number): string {
   return `$${value.toFixed(value >= 100 || Number.isInteger(value) ? 0 : 2)}`;
 }
 
+/** The one-time signup grant in the vibes billing catalog (`grants.signup`). */
+export const OMG_SIGNUP_CREDIT_USD = 2;
+
 /** The composer ring for the plan's monthly AI credit. Exported for tests. */
 export function omgUsageFromBalance(
   ref: UsageProviderRef,
@@ -815,6 +833,21 @@ export function omgUsageFromBalance(
   const plan = balance.plan ? (OMG_PLAN_LABELS[balance.plan] ?? balance.plan) : null;
   const build = balance.build;
   if (!build || build.limitUsd <= 0) {
+    // The free plan has no monthly window. It spends the one-time signup
+    // credit, so the ring shows that pool against the grant it started from
+    // (or the current balance when a top-up pushed it above the grant).
+    const balanceUsd = balance.balanceUsd ?? 0;
+    if (balanceUsd > 0) {
+      const limitUsd = Math.max(OMG_SIGNUP_CREDIT_USD, balanceUsd);
+      const pct = Math.max(0, Math.min(100, ((limitUsd - balanceUsd) / limitUsd) * 100));
+      return {
+        ...ref,
+        available: true,
+        plan,
+        windows: [{ label: `Free credit · ${usd(limitUsd)}`, pct, resetsAt: null }],
+        note: `AI credit: ${usd(balanceUsd)} of ${usd(limitUsd)} left. It does not renew; upgrade on omg.dev for a monthly allowance.`,
+      };
+    }
     return {
       ...ref,
       available: false,
