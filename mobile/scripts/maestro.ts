@@ -340,8 +340,17 @@ async function startRecording(udid: string) {
         `kill -INT ${pid}; for i in 1 2 3 4 5 6 7 8 9 10; do sleep 1; kill -0 ${pid} 2>/dev/null || break; done`,
         { allowFail: true },
       );
+      // The composed proof is 1080p. Resize on the Mac before transfer so a
+      // long simulator run does not hold the device lock while copying 4K video.
+      const compact = remote.replace(".mp4", "-1080.mp4");
+      const encoded = await ssh(
+        `/opt/homebrew/bin/ffmpeg -nostdin -y -i ${remote} -vf 'scale=-2:1080' ` +
+        `-c:v libx264 -preset fast -crf 22 -an -movflags +faststart ${compact} >/dev/null 2>&1`,
+        { allowFail: true },
+      );
+      const source = encoded.code === 0 ? compact : remote;
       const dest = `${LOCAL_E2E}/${flowName}.mp4`;
-      const p = Bun.spawn(["scp", "-q", "-o", "BatchMode=yes", `${HOST}:${remote}`, dest], { stdout: "inherit", stderr: "inherit" });
+      const p = Bun.spawn(["scp", "-q", "-o", "BatchMode=yes", `${HOST}:${source}`, dest], { stdout: "inherit", stderr: "inherit" });
       if ((await p.exited) !== 0) {
         console.warn("Could not fetch the recording.");
         return null;

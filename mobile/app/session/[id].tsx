@@ -1,3 +1,5 @@
+import { createdSessionPrompt } from "../../src/omg/pending-session";
+import { openingReveal } from "../../src/omg/opening-reveal";
 import { useTranscriptPage } from "../../src/omg/use-transcript-page";
 import { appendTranscriptDraft, INITIAL_TRANSCRIPT_ITEMS, TranscriptWindow } from "../../src/omg/transcript-items";
 import { ChatIdentityContext, useChatIdentity } from "../../src/omg/chat-identity";
@@ -161,12 +163,6 @@ const isOptimisticId = (id: unknown): boolean =>
 
 
 
-/**
- * How long the opening reveal waits for the list to stop changing size, and
- * the longest it will ever wait — see `armReveal`.
- */
-const SETTLE_QUIET_MS = 140;
-const SETTLE_CAP_MS = 1200;
 
 /**
  * ONE SIZE FOR EVERY ITEM IN THE BAR — the back chevron, the title capsule and
@@ -272,7 +268,7 @@ function SessionScreenContent({
 
   const [error, setError] = useState<string | null>(null);
   const { messages, setMessages, loading, loadingMore, reachedStart, loadMore } =
-    useTranscriptPage(client, bindingId, id, setError);
+    useTranscriptPage(client, bindingId, id, setError, createdSessionPrompt(`${user?.id}:${bindingId}`, id));
   const [historyExpanded, setHistoryExpanded] = useState(false);
   const [transcriptWindow] = useState(() => new TranscriptWindow());
   const [streamText, setStreamText] = useState("");
@@ -919,66 +915,15 @@ function SessionScreenContent({
     return () => timers.forEach(clearTimeout);
   }, []);
 
-  /**
-   * REVEAL WHEN THE LIST HAS STOPPED MOVING, NOT ONE FRAME IN.
-   *
-   * This used to be a single `requestAnimationFrame` on the assumption that
-   * `pinToEnd`'s synchronous first correction plus one frame was enough for
-   * the list to be laid out at its true bottom. It is not, and `pinToEnd`
-   * says so itself: it retries out to 2800ms BECAUSE a FlatList with no
-   * `getItemLayout` only measures what it has rendered, images whose wire
-   * record carries no dimensions have no height until they load, and rows
-   * mount in batches. On this simulator the gap between "one frame" and
-   * "settled" is invisible. On Benny's phone it is not: he has photographed
-   * the transcript parked mid-conversation with a user bubble drawn over the
-   * tail of the reply above it, which is what this window looks like when it
-   * lasts long enough to see. Reproduced here by rendering the first page in
-   * batches of three instead of forty, which stretches the same settle into
-   * something a screen recording can catch.
-   *
-   * So wait for quiet instead of counting frames. Every content-size change
-   * restarts a short timer; the list is revealed once one elapses without
-   * another change. `SETTLE_CAP_MS` is the safety valve, in the same spirit
-   * as `SESSIONS_SETTLE_TIMEOUT_MS` on the home list: a session opened while
-   * a reply is actively streaming never goes quiet, and it must still be
-   * shown. Nothing new appears during the wait — the opening spinner already
-   * covers exactly this beat — so the cost is a slightly longer spinner
-   * instead of a visibly wrong transcript.
-   */
-  const revealRef = useRef<(() => void) | null>(null);
-  const quietTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  /**
-   * Called from `handleContentSizeChange`, which is a `useCallback` with an
-   * empty dependency list and has to stay that way — the FlatList prop
-   * identity is part of what keeps it from re-rendering. A ref is how the
-   * settle wait gets re-armed without putting it in those deps.
-   */
+  // Mount only the bounded tail, then reveal after two frames without a
+  // layout change. A continuously streaming reply cannot hold this past 300ms.
   const noteContentActivityRef = useRef(() => {});
   const armReveal = useCallback(() => {
-    const reveal = () => {
-      if (!revealRef.current) return;
-      revealRef.current = null;
-      if (quietTimerRef.current) clearTimeout(quietTimerRef.current);
-      quietTimerRef.current = null;
-      setContentReady(true);
-    };
-    revealRef.current = reveal;
-    const restartQuiet = () => {
-      if (!revealRef.current) return;
-      if (quietTimerRef.current) clearTimeout(quietTimerRef.current);
-      quietTimerRef.current = setTimeout(reveal, SETTLE_QUIET_MS);
-    };
-    noteContentActivityRef.current = restartQuiet;
-    // Arm it once up front: a page short enough to emit no further
-    // content-size change at all still has to be revealed.
-    restartQuiet();
-    const cap = setTimeout(reveal, SETTLE_CAP_MS);
+    const opening = openingReveal(() => setContentReady(true), requestAnimationFrame, cancelAnimationFrame);
+    noteContentActivityRef.current = opening.changed;
     return () => {
-      revealRef.current = null;
       noteContentActivityRef.current = () => {};
-      if (quietTimerRef.current) clearTimeout(quietTimerRef.current);
-      quietTimerRef.current = null;
-      clearTimeout(cap);
+      opening.cancel();
     };
   }, []);
 
@@ -1026,7 +971,7 @@ function SessionScreenContent({
     // Follow the stream only while the reader is already at the bottom, and
     // never while their finger is on the glass — see touchingRef.
     if (!atBottomRef.current || touchingRef.current) return;
-    const glide = delta > 24 && delta < 600;
+    const glide = userMovedRef.current && delta > 24 && delta < 600;
     listRef.current?.scrollToOffset({ offset: glide ? bottomOffset() : 10 ** 7, animated: glide });
   }, []);
 
@@ -1048,11 +993,12 @@ function SessionScreenContent({
    * arriving message, and React runs the PREVIOUS run's cleanup first —
    * tearing down the reveal wait it armed before the body's `pinnedForRef`
    * guard returns without arming a new one. With the old one-frame reveal
-   * that window was ~16ms and effectively unreachable. `SETTLE_CAP_MS` makes
-   * it up to 1200ms, which a session opened while a reply is streaming lands
+   * that window was ~16ms and effectively unreachable. the reveal limit makes
+   * it up to 300ms, which a session opened while a reply is streaming lands
    * in routinely, and the result would be a spinner that never resolves.
    */
   const hasData = data.length > 0;
+  const waitingForData = !hasData && loading;
   const pinnedForRef = useRef<string | null>(null);
   useEffect(() => {
     // A bot's first-ever chat opens with no id and nothing to pin to (see the
@@ -1063,7 +1009,13 @@ function SessionScreenContent({
       setContentReady(true);
       return;
     }
-    if (!hasData) return;
+    if (!hasData) {
+      if (!waitingForData) {
+        pinnedForRef.current = id;
+        setContentReady(true);
+      }
+      return;
+    }
     if (pinnedForRef.current === id) return;
     pinnedForRef.current = id;
     setContentReady(false);
@@ -1078,7 +1030,7 @@ function SessionScreenContent({
       stopRetries?.();
       stopReveal();
     };
-  }, [hasData, id, pinToEnd, armReveal]);
+  }, [hasData, waitingForData, id, pinToEnd, armReveal]);
 
   /**
    * One path for everything that puts words into the session, so the optimistic

@@ -1,3 +1,4 @@
+import { sessionCache } from "./session-cache-store";
 import { useCallback, useEffect, useState } from "react";
 import type { Entry } from "./transcript";
 import {
@@ -9,10 +10,11 @@ type Client = { getMessages(id: string, limit: number): Promise<{ messages?: Ent
 
 /** The screen's single page owner: synchronous cache seed, then background REST. */
 export function useTranscriptPage(client: Client | null, bindingId: string | null | undefined,
-  id: string | null, onError: (error: string | null) => void) {
+  id: string | null, onError: (error: string | null) => void, initialPrompt?: string) {
+  const [scopeEpoch] = useState(() => sessionCache.epoch);
   const cacheKey = id ? transcriptCacheKey(bindingId, id) : null;
   const [initialCache] = useState(() => cacheKey ? readTranscriptCache<Entry>(cacheKey) : null);
-  const [messages, setMessages] = useState<Entry[]>(() => initialCache?.messages ?? []);
+  const [messages, setMessages] = useState<Entry[]>(() => initialCache?.messages ?? (initialPrompt ? [{ id: `local-create-${id}`, role: "user", text: initialPrompt }] : []));
   const [loading, setLoading] = useState(!!id && !initialCache);
   const [limit, setLimit] = useState(TRANSCRIPT_PAGE);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -25,7 +27,7 @@ export function useTranscriptPage(client: Client | null, bindingId: string | nul
     // Never overwrite an expanded page with the cached tail on pagination.
     if (limit === TRANSCRIPT_PAGE) setLoading(!cached);
     client.getMessages(id, limit).then((res) => {
-      if (cancelled) return;
+      if (cancelled || sessionCache.epoch !== scopeEpoch) return;
       const next = res.messages ?? [];
       setMessages(next);
       setReachedStart(next.length < limit);
@@ -37,11 +39,11 @@ export function useTranscriptPage(client: Client | null, bindingId: string | nul
       if (!cancelled) { setLoading(false); setLoadingMore(false); }
     });
     return () => { cancelled = true; };
-  }, [client, id, limit, cacheKey, onError]);
+  }, [client, id, limit, cacheKey, onError, scopeEpoch]);
 
   useEffect(() => {
-    if (cacheKey) updateTranscriptCacheMessages(cacheKey, messages, TRANSCRIPT_PAGE);
-  }, [cacheKey, messages]);
+    if (cacheKey && sessionCache.epoch === scopeEpoch) updateTranscriptCacheMessages(cacheKey, messages, TRANSCRIPT_PAGE);
+  }, [cacheKey, messages, scopeEpoch]);
 
   const loadMore = useCallback(() => {
     if (loading || loadingMore || reachedStart) return;

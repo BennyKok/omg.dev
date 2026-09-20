@@ -66,3 +66,44 @@ test("late responses from a previous session cannot overwrite the newly mounted 
     expect(ui.text()).toBe("Session B");
   } finally { ui.cleanup(); }
 });
+
+test("disk-restored text paints before a slow reconnect and keeps the submitted prompt until history arrives", async () => {
+  const { sessionCache } = await import("../src/omg/session-cache-store");
+  const stored = new Map<string, string>();
+  const disk = { getItem: async (key: string) => stored.get(key) ?? null,
+    setItem: async (key: string, value: string) => { stored.set(key, value); },
+    removeItem: async (key: string) => { stored.delete(key); } };
+  await sessionCache.open("alice", disk);
+  writeTranscriptCache(transcriptCacheKey("mac", "saved"), rows(3), 40);
+  await sessionCache.flush(); clearTranscriptCache();
+  await sessionCache.open("other", disk); await sessionCache.open("alice", disk);
+  const client = { getMessages: () => new Promise<any>(() => {}) };
+  function Probe({ id }: { id: string }) {
+    const page = useTranscriptPage(client, "mac", id, noop, "Submitted prompt");
+    return <div>{page.messages.at(-1)?.text}</div>;
+  }
+  const ui = mount();
+  try {
+    ui.render(<Probe key="saved" id="saved" />);
+    expect(ui.text()).toContain("Reply 2");
+    ui.render(<Probe key="created" id="created" />);
+    expect(ui.text()).toContain("Submitted prompt");
+  } finally { ui.cleanup(); clearTranscriptCache(); await sessionCache.clear(); }
+});
+
+test("a reply from the previous account cannot populate the new account's cache", async () => {
+  const { sessionCache } = await import("../src/omg/session-cache-store");
+  const disk = { getItem: async () => null, setItem: async () => {}, removeItem: async () => {} };
+  await sessionCache.open("alice", disk);
+  let finish!: (value: any) => void;
+  const client = { getMessages: () => new Promise<any>(resolve => { finish = resolve; }) };
+  function Probe() { const page = useTranscriptPage(client, "mac", "private", noop); return <div>{page.messages[0]?.text}</div>; }
+  const ui = mount();
+  try {
+    ui.render(<Probe />);
+    await sessionCache.open("bob", disk);
+    await ui.flushAsync(async () => { finish({ messages: rows(2) }); });
+    expect(ui.text()).not.toContain("Reply");
+    expect(sessionCache.read("transcript:mac:private")).toBeNull();
+  } finally { ui.cleanup(); await sessionCache.clear(); }
+});

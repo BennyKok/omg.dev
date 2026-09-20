@@ -1,0 +1,27 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": false
+  },
+  "steps": [
+    {
+      "name": "Saved Home after restart",
+      "goal": "Wait for the saved Home session list after relaunch",
+      "done": "Saved sessions are visible while the computer is still reconnecting",
+      "expect": [
+        "Showing saved sessions",
+        "Refactor the rate limiter to a sliding window"
+      ],
+      "timeoutMs": 45000
+    },
+    {
+      "name": "Saved conversation after restart",
+      "goal": "Tap the existing busy session row whose label starts with \"Refactor the rate limiter to a sliding window\". It is an existing item in the session list. Open that row to read its transcript. Do not tap the message composer.",
+      "done": "Saved history is readable",
+      "expect": [
+        "History message 100.",
+        "Dictate a message"
+      ]
+    }
+  ]
+}

@@ -1,3 +1,6 @@
+import { clearPendingSessions } from "./pending-session";
+import { sessionCache } from "./session-cache-store";
+import { clearTranscriptCache } from "./transcript-cache";
 /**
  * The app's single source of truth for "who am I, which Computer, and is it up".
  *
@@ -219,14 +222,14 @@ export function OmgProvider({ children }: PropsWithChildren) {
   const [readiness, setReadiness] = useState<ComputerReadiness | null>(null);
 
   const refreshSession = useCallback(async () => {
+    setAuthStatus("loading");
     // Demo mode is signed into a fixed fake account, and never touches the
     // real auth jar. See demo.ts.
-    if (isDemoMode()) {
-      setUser(DEMO_USER);
-      setAuthStatus("signed-in");
-      return;
-    }
-    const found = await getSession();
+    const found = isDemoMode() ? DEMO_USER : await getSession();
+    clearTranscriptCache();
+    await sessionCache.open(found?.id ?? null, AsyncStorage);
+    const savedBinding = sessionCache.read<string>("binding");
+    setBindingId(typeof savedBinding === "string" ? savedBinding : null);
     setUser(found);
     setAuthStatus(found ? "signed-in" : "signed-out");
   }, []);
@@ -236,6 +239,7 @@ export function OmgProvider({ children }: PropsWithChildren) {
   }, [refreshSession]);
 
   const refreshMachines = useCallback(async () => {
+    const epoch = sessionCache.epoch;
     // Demo mode owns exactly one machine and never calls the control plane.
     // The auto-select effect below then picks it, its transport is the seeded
     // one, and the readiness probe reads "ready" off the fixtures.
@@ -250,11 +254,25 @@ export function OmgProvider({ children }: PropsWithChildren) {
     }
     setMachinesLoading(true);
     try {
-      const [bindingsResult, cloudResult, sharedResult] = await Promise.allSettled([
+      const [bindingsResult, cloudResult, sharedResult, legacySelection] = await Promise.allSettled([
         controlPlane<{ bindings?: ComputerBinding[] }>("listComputerBindings"),
         controlPlane<CloudComputer>("getCloudComputer"),
         controlPlane<{ computers?: SharedComputerView[] }>("listSharedComputers"),
+        AsyncStorage.getItem(STORAGE_KEYS.binding),
       ]);
+      if (epoch !== sessionCache.epoch) return;
+      // Migrate the old unscoped preference only after this account's
+      // computer list confirms access. All later reads use the scoped cache.
+      if (!sessionCache.read("binding") && legacySelection.status === "fulfilled") {
+        const previous = legacySelection.value;
+        const owns = bindingsResult.status === "fulfilled" && bindingsResult.value.bindings?.some(b => b.id === previous);
+        const hasCloud = previous === CLOUD_BINDING_ID && cloudResult.status === "fulfilled" &&
+          cloudResult.value && !["upgrade_required", "recycled"].includes(cloudResult.value.status ?? "");
+        if (previous && (owns || hasCloud)) {
+          sessionCache.write("binding", previous);
+          setBindingId(previous);
+        }
+      }
       if (bindingsResult.status === "fulfilled") {
         setBindings(bindingsResult.value?.bindings ?? []);
       }
@@ -279,8 +297,10 @@ export function OmgProvider({ children }: PropsWithChildren) {
         setMachinesError(null);
       }
     } finally {
-      setMachinesLoading(false);
-      setMachinesLoaded(true);
+      if (epoch === sessionCache.epoch) {
+        setMachinesLoading(false);
+        setMachinesLoaded(true);
+      }
     }
   }, []);
 
@@ -288,15 +308,15 @@ export function OmgProvider({ children }: PropsWithChildren) {
     if (authStatus === "signed-in") void refreshMachines();
   }, [authStatus, refreshMachines]);
 
-  // Restore the last machine, so the app reopens where it was left.
   useEffect(() => {
-    let cancelled = false;
-    void AsyncStorage.getItem(STORAGE_KEYS.binding).then((saved) => {
-      if (!cancelled && saved) setBindingId(saved);
+    if (user && bindingId) sessionCache.write("binding", bindingId);
+  }, [user, bindingId]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state !== "active") void sessionCache.flush();
     });
-    return () => {
-      cancelled = true;
-    };
+    return () => subscription.remove();
   }, []);
 
   /**
@@ -309,20 +329,20 @@ export function OmgProvider({ children }: PropsWithChildren) {
     const online = bindings.find((b) => b.online);
     if (online) {
       setBindingId(online.id);
-      void AsyncStorage.setItem(STORAGE_KEYS.binding, online.id);
+
       return;
     }
     const cloudUsable = cloud && cloud.status !== "upgrade_required" && cloud.status !== "recycled";
     if (cloudUsable && bindings.length === 0) {
       setBindingId(CLOUD_BINDING_ID);
-      void AsyncStorage.setItem(STORAGE_KEYS.binding, CLOUD_BINDING_ID);
+
     }
   }, [bindingId, authStatus, bindings, cloud]);
 
   const selectBinding = useCallback(async (id: string) => {
     setBindingId(id);
     setReadiness(null);
-    await AsyncStorage.setItem(STORAGE_KEYS.binding, id);
+    sessionCache.write("binding", id);
   }, []);
 
   // One client per machine, rebuilt only when the machine changes. The
@@ -542,6 +562,9 @@ export function OmgProvider({ children }: PropsWithChildren) {
     // failed and that they should retry.
     await authSignOut();
     forgetAllTransports();
+    clearTranscriptCache();
+    await sessionCache.clear();
+    clearPendingSessions();
     // The presence keys stay on purpose: the server-side lease can outlive a
     // failed release, and wiping the seq ratchet would restart eventSeq at 1
     // against it — which the server then silently ignores as stale forever.

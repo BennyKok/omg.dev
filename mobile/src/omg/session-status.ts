@@ -47,7 +47,9 @@ export class SessionStatusState {
   private refreshAgain = false;
   private unknown = new Set<string>();
 
-  constructor(private readonly changed: (sessions: OmgSession[]) => void) {}
+  constructor(private readonly changed: (sessions: OmgSession[]) => void, initial: OmgSession[] = []) {
+    this.sessions = initial;
+  }
 
   apply(rows: readonly OmgStatusRow[]): StatusApplyResult {
     if (this.pending) this.duringRequest.push(...rows);

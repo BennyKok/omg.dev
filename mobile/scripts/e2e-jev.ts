@@ -154,6 +154,9 @@ async function typeVerified(
   log: (l: string) => void,
 ): Promise<boolean> {
   const yamlText = value.replace(/"/g, '\\"');
+  // A plan may reopen a persisted draft. Replace its field contents rather
+  // than appending the same test text on every rerun.
+  await mcp.run(`${header}- eraseText\n`);
   for (let attempt = 1; attempt <= 3; attempt++) {
     const r = await mcp.run(`${header}- inputText: "${yamlText}"\n`);
     if (!r.ok) log(`  inputText failed: ${r.text.slice(0, 200)}`);

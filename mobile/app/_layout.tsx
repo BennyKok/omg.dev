@@ -1,3 +1,4 @@
+import { sessionCache } from "../src/omg/session-cache-store";
 import { DarkTheme, DefaultTheme, router, Stack, ThemeProvider } from "expo-router";
 import { IpadWorkspaceLayout } from "../src/omg/sessions-screen";
 import { StatusBar } from "expo-status-bar";
@@ -134,10 +135,12 @@ function LaunchGate() {
    * computers arrived, the list was on screen saying "Connecting to No
    * computer…" with no cover left to hide it. Reported from the device twice.
    */
+  const cachedRoster = bindingId ? sessionCache.read<unknown[]>(`roster:${bindingId}`) : null;
+  const canShowSaved = Array.isArray(cachedRoster) && cachedRoster.length > 0;
   const settling =
     !expired &&
     (authStatus === "loading" ||
-      (authStatus === "signed-in" &&
+      (authStatus === "signed-in" && !canShowSaved &&
         (!machinesLoaded ||
           (!!bindingId &&
             (readiness === null ||
@@ -441,6 +444,7 @@ function RootNavigator() {
             <Stack.Screen name="index" options={{ title: "Sessions" }} />
             <Stack.Screen name="archive" options={{ title: "Archive", headerLargeTitle: true }} />
             <Stack.Screen name="session/[id]" options={{ title: "Session" }} />
+            <Stack.Screen name="session/new" options={{ headerShown: false }} />
             <Stack.Screen name="computers" />
             <Stack.Screen name="settings" />
             <Stack.Screen name="notifications" />
@@ -725,6 +729,7 @@ function RootNavigator() {
           <Stack.Screen name="index" options={{ title: "" }} />
           <Stack.Screen name="archive" options={{ title: "Archive", headerLargeTitle: true }} />
           <Stack.Screen name="session/[id]" options={{ title: "Session" }} />
+            <Stack.Screen name="session/new" options={{ headerShown: false }} />
           {/* Switching machines is the frequent action and belongs in the menu
               on the machine chip; pairing and per-machine detail still need a
               screen. See computer-picker.ts for why both exist. */}

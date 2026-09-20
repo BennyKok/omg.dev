@@ -1,3 +1,4 @@
+import { sessionCache } from "./session-cache-store";
 /**
  * Session-switch transcript cache, for the phone.
  *
@@ -100,11 +101,13 @@ function settledOnly<M extends CachedMessage>(messages: M[]): M[] {
 export function readTranscriptCache<M extends CachedMessage>(
   key: string,
 ): TranscriptCacheEntry<M> | null {
-  const entry = cache.get(key) as TranscriptCacheEntry<M> | undefined;
+  const saved = sessionCache.read<TranscriptCacheEntry<M>>(`transcript:${key}`);
+  const entry = (cache.get(key) ?? (saved && Array.isArray(saved.messages) ? saved : undefined)) as TranscriptCacheEntry<M> | undefined;
   if (!entry) return null;
   // Refresh LRU position on read.
   cache.delete(key);
   cache.set(key, entry as TranscriptCacheEntry);
+  trim();
   return entry;
 }
 
@@ -131,6 +134,7 @@ export function writeTranscriptCache<M extends CachedMessage>(
     at: Date.now(),
   });
   trim();
+  sessionCache.write(`transcript:${key}`, cache.get(key));
 }
 
 /**
@@ -148,14 +152,17 @@ export function updateTranscriptCacheMessages<M extends CachedMessage>(
   if (!entry) return;
   entry.messages = settledOnly(messages).slice(-keep) as CachedMessage[];
   entry.at = Date.now();
+  sessionCache.write(`transcript:${key}`, entry);
 }
 
 export function clearTranscriptCache(key?: string) {
   if (key) {
     cache.delete(key);
+    sessionCache.remove(`transcript:${key}`);
     attempted.delete(key);
     return;
   }
+  cacheGeneration++;
   cache.clear();
   attempted.clear();
   queue.length = 0;
@@ -172,6 +179,7 @@ const PREFETCH_COUNT = 8;
 const attempted = new Set<string>();
 const queue: string[] = [];
 let sweeping = false;
+let cacheGeneration = 0;
 
 /** Off the critical path of the list's first paint. */
 function whenIdle(run: () => void) {
@@ -196,17 +204,18 @@ export function prefetchTranscripts<M extends CachedMessage>(
   }
   if (!queue.length || sweeping) return;
   sweeping = true;
+  const generation = cacheGeneration;
   whenIdle(async () => {
     try {
       // Serial: background work must never contend with the fetch for a
       // session the reader actually opened.
-      while (queue.length) {
+      while (queue.length && generation === cacheGeneration) {
         const key = queue.shift() as string;
         if (attempted.has(key) || cache.has(key)) continue;
         attempted.add(key);
         try {
           const messages = await load(key);
-          if (cache.has(key)) continue;
+          if (generation !== cacheGeneration || cache.has(key)) continue;
           writeTranscriptCache(key, messages, keep);
         } catch {
           // Best-effort; opening the session still fetches normally.

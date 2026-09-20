@@ -1,3 +1,5 @@
+import { startPendingSession } from "./pending-session";
+import { sessionCache } from "./session-cache-store";
 import { WindowedSessionList } from "./windowed-session-list";
 /**
  * The session list — the app's home, matching the web Computer one-to-one:
@@ -391,7 +393,12 @@ export function SessionsScreen({
   const rosterUsers = useUserRoster();
   const [userFilter, setUserFilter] = useUserFilter(rosterUsers);
 
-  const [sessions, setSessions] = useState<OmgSession[]>([]);
+  const rosterKey = `roster:${bindingId}`;
+  const cachedSessions = () => {
+    const saved = sessionCache.read<OmgSession[]>(rosterKey);
+    return Array.isArray(saved) ? saved : [];
+  };
+  const [sessions, setSessions] = useState<OmgSession[]>(cachedSessions);
   /**
    * HAS SESSIONS HAD ITS TURN YET — see the long note on `SESSIONS_SETTLE_TIMEOUT_MS`
    * below for what this exists to prevent. Kept as its own flag rather than
@@ -400,13 +407,13 @@ export function SessionsScreen({
    * attempted (indistinguishable from "already resolved"), and an EMPTY
    * `sessions` result is a fully valid, resolved answer, not an unresolved one.
    */
-  const [sessionsSettled, setSessionsSettled] = useState(false);
+  const [sessionsSettled, setSessionsSettled] = useState(() => cachedSessions().length > 0);
   // A machine switch invalidates this the same way it invalidates `sessions`
   // itself (see the load() effect) — the new machine's Auto/Recent rows must
   // wait their turn behind the new machine's OWN session list, not ride in on
   // however settled the PREVIOUS machine's flag happened to be.
   useEffect(() => {
-    setSessionsSettled(false);
+    setSessionsSettled(cachedSessions().length > 0);
   }, [bindingId]);
   const [loading, setLoading] = useState(false);
   /**
@@ -568,19 +575,23 @@ export function SessionsScreen({
   const sessionsSignatureRef = useRef<string | null>(null);
   const currentClient = useRef(client);
   currentClient.current = client;
-  const statusState = useMemo(() => new SessionStatusState((fresh) => {
-    if (currentClient.current !== client) return;
+  const statusState = useMemo(() => {
+    const epoch = sessionCache.epoch;
+    return new SessionStatusState((fresh) => {
+    if (currentClient.current !== client || epoch !== sessionCache.epoch) return;
+    sessionCache.write(rosterKey, fresh);
     const signature = sessionsSignature(fresh);
     if (signature !== sessionsSignatureRef.current) {
       sessionsSignatureRef.current = signature;
       setSessions(fresh);
     }
-  }), [client]);
+  }, cachedSessions());
+  }, [client, rosterKey, user?.id]);
   const previousBinding = useRef(bindingId);
   useEffect(() => {
     sessionsSignatureRef.current = null;
-    setSessions([]);
-    setSessionsSettled(false);
+    setSessions(cachedSessions());
+    setSessionsSettled(cachedSessions().length > 0);
     setLoading(false);
     setError(null);
     if (workspace && previousBinding.current !== bindingId)
@@ -834,9 +845,13 @@ export function SessionsScreen({
   const roots = useMemo(
     () =>
       buildSessionTree(
-        visibleSessions.filter((session) => projectPicker.matches(session)),
+        // Before bootstrap, the project roster has not arrived. Show the
+        // saved machine roster until a real project filter is available.
+        visibleSessions.filter((session) =>
+          (!ready && !projectPicker.filter) || projectPicker.matches(session),
+        ),
       ),
-    [visibleSessions, projectPicker],
+    [visibleSessions, projectPicker, ready],
   );
 
   /**
@@ -869,7 +884,7 @@ export function SessionsScreen({
    * The order passed is the order on screen, not the order the machine
    * returned, so the warmed rows are the visible ones.
    */
-  const homeRows = useMemo(() => bindingId && readiness?.status === "ready"
+  const homeRows = useMemo(() => bindingId && readiness?.status !== "unauthorized"
     ? projectGroups.flatMap((group) => group.nodes.map((node, index) => ({
         key: `${group.key}:${sessionStableId(node.session)}`, node,
         gap: index < group.nodes.length - 1 ? 2 : 0,
@@ -1059,28 +1074,32 @@ export function SessionsScreen({
    * The create card's way in: the same request as Start, with the prompt
    * and folder handed over instead of read from the composer and the rail.
    */
-  const launch = useCallback(
-    async ({ prompt, cwd }: { prompt: string; cwd: string }) => {
-      if (!client) throw new Error("No machine selected");
-      const res = await client.transport.request<{ sessionId?: string }>("/api/sessions/new", {
+  const beginConversation = useCallback((prompt: string, cwd?: string) => {
+    if (!client) throw new Error("No machine selected");
+    const pending = startPendingSession(`${user?.id}:${bindingId}`, prompt, () =>
+      client.transport.request<{ sessionId?: string }>("/api/sessions/new", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt,
-          agent: agentPicker.agent,
-          model: agentPicker.model ?? undefined,
-          thinkingLevel: agentPicker.thinking ?? undefined,
-          fastMode: agentPicker.fastMode,
-          claudeAccountId: agentPicker.claudeAccountId,
-          cwd,
-        }),
-      });
+        body: JSON.stringify({ prompt, cwd, agent: agentPicker.agent,
+          model: agentPicker.model ?? undefined, thinkingLevel: agentPicker.thinking ?? undefined,
+          fastMode: agentPicker.fastMode, claudeAccountId: agentPicker.claudeAccountId }),
+      }));
+    setCreateOpen(false);
+    const href = `/session/new?request=${pending.token}` as Href;
+    if (workspace) navigateWorkspace(href);
+    else router.push(href);
+    return pending.result;
+  }, [client, user?.id, bindingId, agentPicker.agent, agentPicker.model, agentPicker.thinking,
+    agentPicker.fastMode, agentPicker.claudeAccountId, workspace, navigateWorkspace, router]);
+
+  const launch = useCallback(
+    async ({ prompt, cwd }: { prompt: string; cwd: string }) => {
+      await beginConversation(prompt, cwd);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      await load();
-      if (res?.sessionId) openSession(res.sessionId);
+      void load(true);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [client, agentPicker.agent, agentPicker.model, agentPicker.thinking, agentPicker.fastMode, agentPicker.claudeAccountId, load],
+    [beginConversation, load],
   );
 
   const startSession = useCallback(
@@ -1093,37 +1112,13 @@ export function SessionsScreen({
       let acceptedSend = false;
       setStarting(true);
       try {
-        const res = await client.transport.request<{ sessionId?: string }>(
-          "/api/sessions/new",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              prompt,
-              agent: agentPicker.agent,
-              // Omitted unless it was actually chosen: the box's own default is a
-              // better answer than a model this app guessed at.
-              model: agentPicker.model ?? undefined,
-              // Omitted unless chosen: the box has its own default per agent, and
-              // sending a level it does not recognise is a 400 rather than a
-              // fallback.
-              thinkingLevel: agentPicker.thinking ?? undefined,
-              // Omitted unless chosen: the box picks the login with the most
-              // capacity left when it hears nothing, which beats this app
-              // pinning one at random.
-              claudeAccountId: agentPicker.claudeAccountId,
-              fastMode: agentPicker.fastMode,
-              cwd: projectPicker.cwd ?? undefined,
-            }),
-          },
-        );
+        await beginConversation(prompt, projectPicker.cwd ?? undefined);
         acceptedSend = true;
         attachments.clear();
         void Haptics.notificationAsync(
           Haptics.NotificationFeedbackType.Success,
         );
-        await load();
-        if (res?.sessionId) router.push(`/session/${res.sessionId}`);
+        void load(true);
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       } finally {
@@ -1132,6 +1127,7 @@ export function SessionsScreen({
       }
     },
     [
+      beginConversation,
       attachments,
       client,
       agentPicker.agent,
@@ -1685,7 +1681,11 @@ export function SessionsScreen({
           ) : null}
 
           {/* Readiness owns the screen when the machine is not serving. */}
-          {!bindingId ? (
+          {bindingId && sessions.length > 0 && !ready && readiness?.status !== "unauthorized" ? (
+            <Text style={{ ...type.footnote, color: colors.textMuted, padding: space.md }}>
+              Showing saved sessions · Reconnecting…
+            </Text>
+          ) : !bindingId ? (
             <EmptyState
               title="No computer selected"
               detail="Choose which computer this app should talk to."

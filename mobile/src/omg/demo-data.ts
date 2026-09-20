@@ -356,6 +356,10 @@ function demoUsageProviders() {
 /** Route a path to its seeded body. Returns null for an unknown path. */
 function answer(path: string): unknown | null {
   const clean = path.split("?")[0];
+  if (openingFixture && clean === "/api/sessions/demo-created/messages") {
+    return { messages: [{ id: "demo-created-prompt", role: "user", text: createdPrompt },
+      { id: "demo-created-reply", role: "assistant", text: "Your new conversation is ready." }] };
+  }
   if (clean === "/api/bootstrap") return demoBootstrap();
   if (clean === "/api/sessions") return { sessions: demoSessions() };
   if (clean === "/api/ask") return demoAsk();
@@ -386,6 +390,15 @@ function answer(path: string): unknown | null {
   return {};
 }
 
+// Opt-in slow-network fixture for recorded opening/navigation checks only.
+const openingFixture = process.env.EXPO_PUBLIC_OMG_OPENING_FIXTURE === "1";
+let createdPrompt = "";
+async function openingDelay(path: string) {
+  if (openingFixture && /\/api\/(bootstrap|sessions)/.test(path)) {
+    await new Promise(resolve => setTimeout(resolve, path === "/api/sessions/new" ? 60000 : path === "/api/bootstrap" ? 90000 : 5000));
+  }
+}
+
 let demoTransport: OmgTransport | null = null;
 
 /**
@@ -398,6 +411,7 @@ export function getDemoTransport(): OmgTransport {
   if (demoTransport) return demoTransport;
   demoTransport = {
     async fetch(path: string) {
+      await openingDelay(path);
       const body = answer(path);
       return {
         ok: true,
@@ -410,7 +424,12 @@ export function getDemoTransport(): OmgTransport {
         },
       } as unknown as Response;
     },
-    async request<T>(path: string): Promise<T> {
+    async request<T>(path: string, init?: RequestInit): Promise<T> {
+      await openingDelay(path);
+      if (openingFixture && path === "/api/sessions/new") {
+        createdPrompt = JSON.parse(String(init?.body ?? "{}")).prompt ?? "";
+        return { sessionId: "demo-created" } as T;
+      }
       return (answer(path) ?? {}) as T;
     },
     async openSocket() {

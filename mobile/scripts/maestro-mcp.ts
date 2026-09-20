@@ -22,6 +22,14 @@ export async function openMaestroMcp(
   remoteEnv: string,
   deviceId: string,
 ): Promise<McpSession> {
+  const port = process.env.OMG_MAESTRO_DRIVER_PORT;
+  if (port && (!/^\d+$/.test(port) || +port < 1024 || +port > 65535)) {
+    throw new Error("OMG_MAESTRO_DRIVER_PORT must be a port from 1024 to 65535");
+  }
+  if (port) {
+    const { isolatedMaestroSession } = await import("./maestro-cli-session");
+    return isolatedMaestroSession(host, remoteEnv, deviceId, Number(port));
+  }
   const p = Bun.spawn(["ssh", "-o", "BatchMode=yes", host, `${remoteEnv} maestro mcp 2>/dev/null`], {
     stdin: "pipe",
     stdout: "pipe",

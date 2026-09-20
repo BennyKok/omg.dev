@@ -36,7 +36,8 @@
  */
 
 const HOST = process.env.OMG_SIM_HOST ?? "bennykok@bennys-macbook-pro-2";
-const REMOTE_SRC = ".omg-e2e-src";
+const REMOTE_SRC = process.env.OMG_E2E_REMOTE_SRC ?? ".omg-e2e-src";
+if (!/^\.[a-zA-Z0-9_-]+$/.test(REMOTE_SRC)) throw new Error("OMG_E2E_REMOTE_SRC must be a simple hidden directory name");
 const LOCAL_MOBILE = new URL("..", import.meta.url).pathname;
 const LOCAL_PROTOCOL = new URL("../../packages/protocol/src", import.meta.url).pathname;
 
@@ -103,7 +104,7 @@ export async function buildSimulatorApp(): Promise<string> {
   await rsync(`${LOCAL_PROTOCOL}/`, `${REMOTE_SRC}/packages/protocol/src/`);
 
   const script = [
-    "set -e",
+    "set -eo pipefail",
     REMOTE_ENV,
     `cd ~/${REMOTE_SRC}/mobile`,
     "bun install --frozen-lockfile 2>&1 | tail -2",
@@ -113,8 +114,8 @@ export async function buildSimulatorApp(): Promise<string> {
     "cd ios",
     'xcodebuild -workspace omg.xcworkspace -scheme omg -configuration Release ' +
       '-sdk iphonesimulator -destination "generic/platform=iOS Simulator" ' +
-      "-derivedDataPath build CODE_SIGNING_ALLOWED=NO build " +
-      "| grep -E \"error:|warning: no rule|BUILD (SUCCEEDED|FAILED)\" || true",
+      "-derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | tee ../xcode-build.log " +
+      "| grep -E \"error:|warning: no rule|BUILD (SUCCEEDED|FAILED)\"",
     // An absolute path: `simctl install` runs from the home directory.
     'ls -d "$PWD"/build/Build/Products/Release-iphonesimulator/*.app | head -1',
   ].join("\n");
