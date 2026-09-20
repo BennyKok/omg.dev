@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## September 20, 2026 - Thinking levels for omg models (v0.6.82)
+
+- The omg agent now offers a thinking level (low, medium, high) on models where the hosted router honours it: DeepSeek, Z.ai, Anthropic and OpenAI. Qwen3.7 Plus, MiniMax M3 and Qwen3 Coder Next show no selector because the router has no control for them. Web and iOS.
+- iOS: the agent picker sheet keeps one height. The expanded tray made the model list hard to scroll.
+
 ## September 20, 2026 - Session names that describe the session (v0.6.81)
 
 - A session name is now written from three turns: the first request, the most recent request, and the most recent reply. Before, only the first message was read. A session continued from another one was named after the continue instruction, so it read "Review auto-rename feature status" instead of naming the work.
