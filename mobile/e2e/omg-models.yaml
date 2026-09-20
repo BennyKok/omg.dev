@@ -54,7 +54,7 @@ onFlowStart:
 - extendedWaitUntil:
     visible: "Search 13 models"
     timeout: 10000
-- tapOn: "DeepSeek V4 Flash"
+- tapOn: "DeepSeek V4 Flash(, selected)?"
 - extendedWaitUntil:
     visible: "Model DeepSeek V4 Flash.*"
     timeout: 10000
@@ -73,7 +73,7 @@ onFlowStart:
 - assertVisible: "Qwen3.7 Plus"
 - assertNotVisible: "omg/z-ai/glm-5.2"
 - takeScreenshot: omg-models-list
-- tapOn: "GLM 5.2"
+- tapOn: "GLM 5.2(, selected)?"
 - extendedWaitUntil:
     visible: "Model GLM 5.2.*"
     timeout: 10000
@@ -84,7 +84,10 @@ onFlowStart:
 - extendedWaitUntil:
     visible: "Search 13 models"
     timeout: 10000
-- tapOn: "Qwen3 Coder Next"
+# Sixth row of a 5.5-row list: filter so the row is fully on screen.
+- tapOn: "Search 13 models"
+- inputText: "coder"
+- tapOn: "Qwen3 Coder Next(, selected)?"
 - extendedWaitUntil:
     visible: "Model Qwen3 Coder Next.*"
     timeout: 10000
