@@ -306,14 +306,23 @@ function SessionScreenContent({
    */
   const [sendMode, setSendMode] = useState<SendMode>("steer");
   const alternateSendMode: SendMode = sendMode === "queue" ? "steer" : "queue";
+  /**
+   * Whether the machine allows AI-written session titles (`autoSessionTitles`).
+   * Only "off" concerns this screen: it hides the Rename with AI row, because
+   * the server answers 403 in that mode and a row that can only fail is worse
+   * than no row. Read in the same one-shot as the send mode, and a failed read
+   * leaves the default, which shows the row.
+   */
+  const [aiTitlesOff, setAiTitlesOff] = useState(false);
   useEffect(() => {
     if (!client || !id) return;
     let cancelled = false;
     client.transport
-      .request<{ settings?: { composerSendMode?: unknown } }>("/api/settings")
+      .request<{ settings?: { composerSendMode?: unknown; autoSessionTitles?: unknown } }>("/api/settings")
       .then((res) => {
         if (cancelled) return;
         setSendMode(res?.settings?.composerSendMode === "queue" ? "queue" : "steer");
+        setAiTitlesOff(res?.settings?.autoSessionTitles === "off");
       })
       .catch(() => {});
     return () => {
@@ -1567,7 +1576,9 @@ function SessionScreenContent({
       options.push({ label: "Stop the agent", icon: "stop.fill", onPress: () => void stop() });
     }
     options.push({ label: "Rename", icon: "pencil", onPress: rename });
-    options.push({ label: "Rename with AI", icon: "sparkles", onPress: renameWithAi });
+    if (!aiTitlesOff) {
+      options.push({ label: "Rename with AI", icon: "sparkles", onPress: renameWithAi });
+    }
     if (!busy) {
       const launchableAgents = agents.length
         ? agents
@@ -1616,6 +1627,7 @@ function SessionScreenContent({
     archive,
     rename,
     renameWithAi,
+    aiTitlesOff,
     continueWithAgent,
     fork,
     copyReference,
