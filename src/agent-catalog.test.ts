@@ -323,3 +323,18 @@ test("omg agent lists the 13 routed models in hosted picker order", async () => 
     label: "omg agent", models: OMG_MODELS, defaultModel: OMG_MODELS[0], session: true, auto: true,
   });
 });
+
+test("omg thinking levels follow the model: effort where OpenRouter honours it, nothing elsewhere", async () => {
+  const { listModelCatalog, thinkingLevelsForAgent } = await import("./agent-catalog.ts");
+  expect(thinkingLevelsForAgent("omg", "omg/deepseek/deepseek-v4-flash-0731")).toEqual(["low", "medium", "high"]);
+  expect(thinkingLevelsForAgent("omg", "omg/anthropic/claude-opus-4.8")).toEqual(["low", "medium", "high"]);
+  expect(thinkingLevelsForAgent("omg", "omg/openai/gpt-5.6-sol")).toEqual(["low", "medium", "high"]);
+  expect(thinkingLevelsForAgent("omg", "omg/qwen/qwen3-coder-next")).toBeNull();
+  expect(thinkingLevelsForAgent("omg", "omg/qwen/qwen3.7-plus")).toBeNull();
+  expect(thinkingLevelsForAgent("omg", "omg/minimax/minimax-m3")).toBeNull();
+  expect(thinkingLevelsForAgent("omg")).toEqual(["low", "medium", "high"]);
+  const item = listModelCatalog().find((entry) => entry.key === "omg")!;
+  expect(item.thinkingLevels).toEqual(["low", "medium", "high"]);
+  expect(Object.keys(item.thinkingLevelsByModel ?? {})).toHaveLength(10);
+  expect(item.thinkingLevelsByModel?.["omg/qwen/qwen3-coder-next"]).toBeUndefined();
+});

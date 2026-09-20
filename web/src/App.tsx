@@ -1544,7 +1544,9 @@ function thinkingLevelsForSelection(
   if (model && catalog.thinkingLevelsByModel[agent]?.[model]) {
     return catalog.thinkingLevelsByModel[agent][model];
   }
-  if (model && agent === "opencode") return [];
+  // Per-model agents: a model with no entry has no control; the agent-wide
+  // union must not hand it a level that does nothing.
+  if (model && (agent === "opencode" || agent === "omg")) return [];
   return catalog.thinkingLevels[agent] ?? AGENT_THINKING_LEVELS[agent] ?? [];
 }
 

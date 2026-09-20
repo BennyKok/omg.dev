@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, wri
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { ensureOmgProvider, hasHostedOmgAiProxy, hasOmgProviderAccess, isHostedOmgSandbox, OMG_SIGN_IN_REQUIRED } from "./omg-provider.ts";
-import { OMG_MODELS } from "./omg-models.ts";
+import { OMG_MODELS, omgThinkingLevels } from "./omg-models.ts";
 
 let home: string;
 let apiUrl: string | undefined;
@@ -47,13 +47,30 @@ test("hosted proxy environment writes the guest provider without credentials", (
   expect(existsSync(configPath())).toBe(false);
 });
 
-test("hosted proxy environment leaves a guest config that already names omg alone", () => {
+test("hosted proxy environment leaves a complete guest config alone", () => {
   const opts = { ...options(), env: { OMG_AI_URL: "http://169.254.0.1:9090" } };
   const guest = join(home, ".config/opencode/opencode.jsonc");
-  const source = '{ // guest managed\n "provider": { "omg": { "options": { "baseURL": "http://169.254.0.1:9090/v1", "apiKey": "x" } } } }';
+  const models = Object.fromEntries(OMG_MODELS.map((model) => {
+    const levels = omgThinkingLevels(model);
+    return [model.slice(4), levels ? { variants: Object.fromEntries(levels.map((l) => [l, { reasoningEffort: l }])) } : {}];
+  }));
+  const source = `{ // guest managed\n "provider": { "omg": { "options": { "baseURL": "http://169.254.0.1:9090/v1", "apiKey": "x" }, "models": ${JSON.stringify(models)} } } }`;
   put(guest, source);
   ensureOmgProvider(opts);
   expect(readFileSync(guest, "utf8")).toBe(source);
+});
+
+test("hosted guest config that names omg without thinking variants gets them, options intact", () => {
+  // A Computer whose template pre-baked the provider before levels existed:
+  // the chosen level would ride as a variant OpenCode does not know.
+  const opts = { ...options(), env: { OMG_AI_URL: "http://169.254.0.1:9090" } };
+  const guest = join(home, ".config/opencode/opencode.jsonc");
+  put(guest, '{ // guest managed\n "provider": { "omg": { "options": { "baseURL": "http://169.254.0.1:9090/v1", "apiKey": "x", "timeout": 9 } } } }');
+  ensureOmgProvider(opts);
+  const config = JSON.parse(readFileSync(guest, "utf8"));
+  expect(config.provider.omg.options).toEqual({ baseURL: "http://169.254.0.1:9090/v1", apiKey: "x", timeout: 9 });
+  expect(config.provider.omg.models["deepseek/deepseek-v4-pro"].variants.high).toEqual({ reasoningEffort: "high" });
+  expect(config.provider.omg.models["qwen/qwen3-coder-next"].variants).toBeUndefined();
 });
 
 test("guest's existing omg provider is a no-op and stays byte-for-byte intact", () => {
@@ -83,9 +100,18 @@ for (const kind of ["api-key", "oauth", "jwt"]) {
       options: { baseURL: "https://api.example.test/api/cli/llm/v1", apiKey: `test-${kind}-token` },
       models: Object.fromEntries(OMG_MODELS.map((model) => {
         const id = model.slice(4);
-        return [id, { name: id }];
+        const levels = omgThinkingLevels(model);
+        return [id, {
+          name: id,
+          ...(levels ? { variants: Object.fromEntries(levels.map((level) => [level, { reasoningEffort: level }])) } : {}),
+        }];
       })),
     } } });
+    // The level rides as an OpenCode variant named after itself.
+    expect(config.provider.omg.models["deepseek/deepseek-v4-pro"].variants).toEqual({
+      low: { reasoningEffort: "low" }, medium: { reasoningEffort: "medium" }, high: { reasoningEffort: "high" },
+    });
+    expect(config.provider.omg.models["qwen/qwen3-coder-next"].variants).toBeUndefined();
     expect(statSync(configPath()).mode & 0o777).toBe(0o600);
   });
 }
