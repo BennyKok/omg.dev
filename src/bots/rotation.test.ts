@@ -233,7 +233,9 @@ describe("continuity checkpoint", () => {
     expect(rendered).toContain("Source session: old-runtime");
     expect(rendered).toContain("user (person@example.com)");
     expect(rendered).toContain("user (legacy:unknown)");
-    expect(rendered).toContain("[redacted]");
+    // Labelled by shape since the patterns moved into redact-secrets.ts: a
+    // provider key reads as [redacted-key], not a bare [redacted].
+    expect(rendered).toContain("[redacted-key]");
     expect(rendered).not.toContain("sk-abcdefghijklmnopqrstuvwxyz");
   });
 

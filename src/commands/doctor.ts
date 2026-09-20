@@ -27,38 +27,18 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { redactSecrets } from "../redact-secrets.ts";
 
 /**
  * Strip anything that looks like a credential.
  *
- * Deliberately pattern-based, not name-based. An allowlist of known variable
- * names ("ANTHROPIC_API_KEY", …) only protects against the secrets we already
- * thought of; the token that leaks will be the one added next week under a name
- * nobody updated here. These patterns match the SHAPE of a secret, so a new
- * provider's key is covered on the day it appears.
+ * The patterns live in `redact-secrets.ts`, which is shared with bot rotation
+ * and automatic session titles. They used to live here, and rotation kept a
+ * second list that knew about Slack, AWS and Google keys while this one knew
+ * about Tailscale keys and passwords in URLs. Neither caller was safe.
  */
 export function redact(text: string): string {
-  return text
-    // Provider keys: sk-…, sk-ant-…, omg_sk_…, xai-…, ghp_…, github_pat_…
-    .replace(/\b(sk-[A-Za-z0-9_-]{8,}|omg_sk_[A-Za-z0-9_-]{8,}|xai-[A-Za-z0-9_-]{8,})/g, "[redacted-key]")
-    .replace(/\b(gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,})/g, "[redacted-token]")
-    // Tailscale auth keys and OAuth client secrets.
-    .replace(/\btskey-[A-Za-z0-9-]{8,}/g, "[redacted-tailscale-key]")
-    // Credentials embedded in a URL (https://user:pass@host). These reach logs
-    // through git remotes and proxy settings, and no key-name pattern sees them
-    // because the secret is positional rather than named.
-    .replace(/\b([a-z][a-z0-9+.-]*:\/\/)([^/\s:@]+):([^/\s@]+)@/gi, "$1$2:[redacted]@")
-    // Bearer tokens and anything assigned to a key/token/secret/password name.
-    .replace(/\b(bearer\s+)[A-Za-z0-9._~+/-]{12,}=*/gi, "$1[redacted]")
-    .replace(
-      /\b([A-Za-z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)[A-Za-z0-9_]*)(\s*[=:]\s*)("?)([^"\s,}]{6,})\3/gi,
-      "$1$2$3[redacted]$3",
-    )
-    // JWTs, which carry identity even when no name gives them away.
-    .replace(/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, "[redacted-jwt]")
-    // Long hex/base64 runs are almost never useful in a report and are exactly
-    // what an unrecognised secret looks like.
-    .replace(/\b[A-Fa-f0-9]{40,}\b/g, "[redacted-hash]");
+  return redactSecrets(text);
 }
 
 /** Replace the user's home directory with ~, so paths do not leak a username. */
