@@ -37,6 +37,7 @@ const local = (file: string, exports: any) =>
 local("sheet.tsx", { Sheet: ({ children }: any) => <section>{children}</section> });
 local("text.tsx", { Text: ({ children }: any) => <span>{children}</span>, TextInput: () => null });
 local("agent-icons.ts", { agentIcon: () => null });
+local("model-provider-icons.ts", { modelProviderIcon: () => null });
 local("usage.ts", {
   orderWindows: (x: any) => x,
   providerKindForAgent: () => undefined,

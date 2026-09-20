@@ -1,0 +1,67 @@
+# The omg agent's model picker shows short names with provider marks.
+#
+# Hosted ids like omg/deepseek/deepseek-v4-flash-0731 used to be the row text
+# and truncated. Each row is now the lab's mark plus "DeepSeek V4 Flash";
+# the router id stays the value (packages/protocol/src/omg-model-display.ts).
+#
+# A static flow, not a plan: the omg tile is the last one in the agent row and
+# sits past the screen edge, so reaching it takes a swipe, which the Jev runner
+# does not do.
+#
+#   bun run test:e2e --flow omg-models --record
+appId: dev.omg.computer
+onFlowStart:
+  - runFlow:
+      when:
+        visible:
+          id: "xmark"
+      commands:
+        - tapOn:
+            id: "xmark"
+  - runFlow:
+      when:
+        visible: "Dictate a message"
+      commands:
+        - tapOn: "Back"
+---
+# A release build with the bundle embedded, so launching is safe (no dev
+# client hunting for Metro). Keeps state: this is a signed-in Home.
+- launchApp
+
+# HOME — the composer's agent control. By id: its label ends in ". Change",
+# and so does the header's user filter, which a text regex tapped first.
+- extendedWaitUntil:
+    visible: "Dictate a prompt"
+    timeout: 30000
+- tapOn:
+    id: "composer-agent"
+# The tile row is always in the sheet; the usage ring is not (it waits on a fetch).
+- extendedWaitUntil:
+    visible: "Claude agent"
+    timeout: 10000
+
+# AGENT ROW — swipe the tile row so the omg tile is on screen, then pick it.
+- swipe:
+    start: 90%, 77%
+    end: 15%, 77%
+- tapOn: "omg agent"
+- extendedWaitUntil:
+    visible: "Model DeepSeek V4 Flash.*"
+    timeout: 10000
+- assertNotVisible: ".*omg/deepseek/deepseek-v4-flash-0731.*"
+- takeScreenshot: omg-models-agent
+
+# MODEL LIST — short names with a search field over the 13 hosted models.
+- tapOn: "Model DeepSeek V4 Flash.*"
+- extendedWaitUntil:
+    visible: "Search 13 models"
+    timeout: 10000
+- assertVisible: "DeepSeek V4 Pro"
+- assertVisible: "GLM 5.2"
+- assertVisible: "Qwen3.7 Plus"
+- assertNotVisible: "omg/z-ai/glm-5.2"
+- takeScreenshot: omg-models-list
+- tapOn: "GLM 5.2"
+- extendedWaitUntil:
+    visible: "Model GLM 5.2.*"
+    timeout: 10000

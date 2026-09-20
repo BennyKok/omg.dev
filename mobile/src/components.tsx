@@ -35,6 +35,8 @@ import {
 } from "expo-symbols";
 
 import { agentIcon } from "./omg/agent-icons";
+import { modelProviderIcon } from "./omg/model-provider-icons";
+import { parseOmgModel } from "../../packages/protocol/src/omg-model-display";
 import type { Attachment } from "./omg/attachments";
 import { GlassSurface, LIQUID_GLASS } from "./omg/glass";
 import { LucideIcon, type LucideName } from "./omg/lucide";
@@ -471,11 +473,18 @@ export const AVATAR_SIZE = 40;
 
 export function AgentAvatar({
   agent,
+  model,
   size = AVATAR_SIZE,
   busy,
   plain,
 }: {
   agent?: string | null;
+  /**
+   * The chosen model. For the omg agent a hosted `omg/<provider>/<model>` id
+   * turns the mark into the provider's mark, with a small omg mark in the
+   * bottom-right corner so the agent is still readable.
+   */
+  model?: string | null;
   size?: number;
   /** Draws the working ring around the mark. See below for why a RING. */
   busy?: boolean;
@@ -529,6 +538,9 @@ export function AgentAvatar({
    */
   const ringSize = size;
   const markSize = busy ? size - 9 : size;
+  const providerMark =
+    (agent ?? "").trim().toLowerCase() === "omg" ? modelProviderIcon(parseOmgModel(model)?.provider) : null;
+  const badgeSize = Math.round(markSize * 0.45);
   return (
     <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
       {busy ? (
@@ -560,18 +572,48 @@ export function AgentAvatar({
           overflow: "hidden",
         }}
       >
-        <Image
-          source={agentIcon(agent)}
-          // Without a disc the artwork can use the whole box; inside one it has
-          // to leave the disc a margin or it reads as a sticker on a coin.
-          style={
-            plain
-              ? { width: markSize, height: markSize }
-              : { width: Math.round(markSize * 0.62), height: Math.round(markSize * 0.62) }
-          }
-          resizeMode="contain"
-        />
+        {providerMark ? (
+          <Image
+            source={providerMark}
+            accessible={false}
+            style={{ width: Math.round(markSize * 0.56), height: Math.round(markSize * 0.56), tintColor: colors.text }}
+            resizeMode="contain"
+          />
+        ) : (
+          <Image
+            source={agentIcon(agent)}
+            // Without a disc the artwork can use the whole box; inside one it has
+            // to leave the disc a margin or it reads as a sticker on a coin.
+            style={
+              plain
+                ? { width: markSize, height: markSize }
+                : { width: Math.round(markSize * 0.62), height: Math.round(markSize * 0.62) }
+            }
+            resizeMode="contain"
+          />
+        )}
       </View>
+      {providerMark ? (
+        // Outside the disc, which clips its children; ringed in the page
+        // colour so the badge reads as sitting on the mark, not inside it.
+        <View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            right: (size - markSize) / 2 - 2,
+            bottom: (size - markSize) / 2 - 2,
+            width: badgeSize,
+            height: badgeSize,
+            borderRadius: badgeSize / 2,
+            borderWidth: 1.5,
+            borderColor: colors.bg,
+            overflow: "hidden",
+            backgroundColor: colors.bg,
+          }}
+        >
+          <Image source={agentIcon("omg")} accessible={false} style={{ width: "100%", height: "100%" }} resizeMode="cover" />
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -1172,15 +1214,16 @@ export function HomeComposer({
       onLongPress={agent === "aisdk" && accountOptions?.length ? () => { setSetupPage("profiles"); setSetupOpen(true); } : undefined}
       scale={0.94}
       accessibilityRole="button"
+      testID="composer-agent"
       accessibilityLabel={`${agentLabel ?? "Coding agent"}, ${modelLabel ?? "default model"}, ${thinkingLabel ?? "default thinking"}. Change`}
       accessibilityActions={agent === "aisdk" && accountOptions?.length ? [{ name: "profiles", label: "Choose Claude profile" }] : undefined}
       onAccessibilityAction={event => { if (event.nativeEvent.actionName === "profiles") { setSetupPage("profiles"); setSetupOpen(true); } }}
       style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}
     >
-      <AgentAvatar agent={agent} size={32} />
+      <AgentAvatar agent={agent} model={modelOptions?.find(o => o.selected)?.id ?? null} size={32} />
     </PressableScale>
   ) : (
-    <AgentAvatar agent={agent} size={32} />
+    <AgentAvatar agent={agent} model={modelOptions?.find(o => o.selected)?.id ?? null} size={32} />
   );
   const attachmentControl = (
     <DropdownMenu options={attachments.options} style={{ width: 34, height: 34 }}>

@@ -63,3 +63,57 @@ describe("ModelOptionList", () => {
     expect(ui.query("input")).toBeNull();
   });
 });
+
+// The composer pill: a hosted omg model wears the lab's mark with a small omg
+// mark in the corner; any other agent keeps its own mark alone.
+describe("AgentModelPicker pill", () => {
+  let ui: Mounted;
+  beforeEach(() => {
+    ui = mount();
+  });
+  afterEach(() => ui.cleanup());
+
+  const options = [
+    { key: "omg" as const, label: "omg agent" },
+    { key: "aisdk" as const, label: "Claude" },
+  ];
+
+  test("an omg model shows the provider mark plus the omg badge", async () => {
+    const { AgentModelPicker } = await import("./App");
+    ui.render(
+      <AgentModelPicker
+        options={options}
+        agent="omg"
+        agentLabel="omg agent"
+        onSelectAgent={() => {}}
+        model="omg/z-ai/glm-5.2"
+        models={OMG_MODELS}
+        onModelChange={() => {}}
+      />,
+    );
+    const pill = ui.query("button[aria-label^='Agent omg agent']") as HTMLButtonElement;
+    expect(pill).not.toBeNull();
+    expect(pill.textContent).toContain("GLM 5.2");
+    expect(pill.querySelectorAll("svg[role='img']").length).toBe(1);
+    expect(pill.querySelector("img[data-testid='omg-model-badge']")).not.toBeNull();
+  });
+
+  test("another agent keeps its own mark and no badge", async () => {
+    const { AgentModelPicker } = await import("./App");
+    ui.render(
+      <AgentModelPicker
+        options={options}
+        agent="aisdk"
+        agentLabel="Claude"
+        onSelectAgent={() => {}}
+        model="opus"
+        models={["opus", "sonnet"]}
+        onModelChange={() => {}}
+      />,
+    );
+    const pill = ui.query("button[aria-label^='Agent Claude']") as HTMLButtonElement;
+    expect(pill.querySelectorAll("svg[role='img']").length).toBe(0);
+    expect(pill.querySelector("img[data-testid='omg-model-badge']")).toBeNull();
+    expect(pill.querySelectorAll("img").length).toBe(1);
+  });
+});

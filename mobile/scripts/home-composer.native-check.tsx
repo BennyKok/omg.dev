@@ -28,6 +28,7 @@ local('sheet.tsx',{Sheet:()=>null});
 local('session-activity.tsx',{useSessionActivity:(active:boolean)=>({present:active}), SessionActivityTitle:({title}:any)=><span>{title}</span>, SessionActivityField:({activity}:any)=>activity.present?<div data-activity="active"/>:null});
 local('text.tsx',{Text:View,TextInput:(props:any)=>{input=props;return <textarea value={props.value} readOnly/>;}});
 local('agent-icons.ts',{agentIcon:()=>null});
+local('model-provider-icons.ts',{modelProviderIcon:()=>null});
 local('glass.tsx',{GlassSurface:View,LIQUID_GLASS:false});
 local('lucide.tsx',{LucideIcon:()=>null});
 local('usage.ts',{orderWindows:(x:any)=>x,providerKindForAgent:()=>undefined,detailsForKind:(_k:any,accounts:any,merged:any)=>accounts.length?accounts:merged});
