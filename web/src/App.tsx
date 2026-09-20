@@ -24838,7 +24838,7 @@ export function ModelOptionList({
  * chosen agent under it. Picking an agent keeps the popover open (the model
  * list changes with it); picking a model closes it.
  */
-function AgentModelPicker<K extends AgentKind>({
+export function AgentModelPicker<K extends AgentKind>({
   options,
   agent,
   agentLabel,
@@ -24879,6 +24879,9 @@ function AgentModelPicker<K extends AgentKind>({
   const inputRef = useRef<HTMLInputElement>(null);
   // Nothing to choose: the pill would open an empty popover.
   if (!showAgents && !showModels) return null;
+  // A hosted omg model makes the pill wear the lab's mark, with a small omg
+  // mark in the corner so the agent is still readable at a glance.
+  const hostedModel = showModels && agent === "omg" ? parseOmgModel(model) : null;
   const trigger = (
     <button
       type="button"
@@ -24889,7 +24892,19 @@ function AgentModelPicker<K extends AgentKind>({
       className="inline-flex h-8 min-w-0 cursor-pointer items-center gap-1.5 rounded-full bg-muted pl-1 pr-2.5 text-foreground transition active:scale-[0.98]"
     >
       <span className="relative flex size-6 shrink-0 items-center justify-center rounded-full bg-background shadow-sm">
-        <img src={agentIconSrc(agent)} alt="" className="size-4" />
+        {hostedModel ? (
+          <>
+            <ModelProviderIcon provider={hostedModel.provider} className="size-3.5 text-foreground" />
+            <img
+              src={agentIconSrc("omg")}
+              alt=""
+              data-testid="omg-model-badge"
+              className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full ring-1 ring-background"
+            />
+          </>
+        ) : (
+          <img src={agentIconSrc(agent)} alt="" className="size-4" />
+        )}
         {agentBadge != null ? (
           <span className="absolute -bottom-0.5 -right-0.5 flex size-3.5 items-center justify-center rounded-full bg-foreground text-[8px] font-bold leading-none text-background ring-1 ring-background">
             {agentBadge}
