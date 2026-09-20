@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## September 20, 2026 - OpenCode starts on a new account (v0.6.83)
+
+- OpenCode no longer fails on the first session of a new account with "CREATE TABLE workspace ... already exists". OpenCode migrates its database on every command with no lock, and the first session raced the agent status probe. Setup now migrates the database once, before any session or probe can start. Hosted Computers get the same fix from template v235.
+- iOS: a conversation opens immediately. The session preview is kept, so the screen does not wait for the transcript before it shows the session.
+
 ## September 20, 2026 - Thinking levels for omg models (v0.6.82)
 
 - The omg agent now offers a thinking level (low, medium, high) on models where the hosted router honours it: DeepSeek, Z.ai, Anthropic and OpenAI. Qwen3.7 Plus, MiniMax M3 and Qwen3 Coder Next show no selector because the router has no control for them. Web and iOS.
