@@ -2,10 +2,17 @@
 
 Recent product updates and deployment notes.
 
+## September 20, 2026 - Faster mobile sessions
+
+- Streaming replies reuse completed transcript rows, which reduces work while you read or scroll.
+- Home mounts a window of session rows and pauses activity animations outside the visible area.
+- Sessions open on a smaller recent section. Previously loaded messages appear from the memory cache while the app refreshes them. Scrolling up reveals cached history before fetching more.
+
 ## September 20, 2026 - Short omg model names, provider marks, free-plan credit (v0.6.80)
 
 - The omg agent's model picker shows a short name with the provider's mark: "DeepSeek V4 Flash", "GLM 5.2", "GPT-5.6 Sol". The router id (`omg/deepseek/deepseek-v4-flash-0731`) stays the value and still matches the filter. Web and iOS (delivered by OTA).
 - The omg usage ring now shows the free plan's signup credit. It was blank there because the free plan has no monthly window. Web usage page and the iOS usage sheet.
+
 
 ## September 19, 2026 - Smoother native loading animations (iOS 1.0.11)
 
