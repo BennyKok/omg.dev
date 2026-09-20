@@ -3,6 +3,7 @@ import { omgModelLabel, omgModelSearchText, parseOmgModel } from "../../packages
 import { ModelProviderIcon } from "./lib/model-provider-icons";
 import { useRuntimeLifecycle } from "./lib/runtime-lifecycle";
 import { LiveHeaderContext } from "./components/live-header-context";
+import { ProjectPillRail } from "./components/project-pill-rail";
 import { activeMachine } from "./lib/machines";
 import { useHeaderProfile } from "./lib/header-profile";
 import { RuntimeAvailabilityContext, useRuntimeAvailability, shouldReloadRuntime } from "./lib/runtime-availability";
@@ -13172,7 +13173,7 @@ function RailStage({
               {/* Folders, not a filter. This used to be the scope control and
                   wore the current folder's name, which made it read as "you
                   are here" while also being the only way to add a folder.
-                  Scoping is the folder title's job now, so this is just the
+                  Scoping belongs to the project pills, so this is just the
                   door to the folder manager and says one thing. */}
               {canUseProjectSheet ? (
                 <button
@@ -13214,6 +13215,13 @@ function RailStage({
             <SurfaceToggle active={railSurface} onOpenSessions={onOpenSessions} onOpenBots={onOpenBots} onOpenAuto={onOpenAuto} />
           </div>
         )}
+        {!railCollapsed && railSurface !== "chat" && onProjectChange && projectOptions.length > 0 ? (
+          <ProjectPillRail
+            projects={projectOptions.map((project) => ({ value: project, label: shortProject(project) }))}
+            value={projectFilter}
+            onChange={onProjectChange}
+          />
+        ) : null}
         <div className="session-list-scroll min-h-0 flex-1 overflow-y-auto px-1.5 py-2">
           {railSurface === "chat" ? botRailList : <>
           {/* Leads the list, the way New bot leads the roster: it belongs to
