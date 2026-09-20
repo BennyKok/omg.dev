@@ -49,6 +49,8 @@ onFlowStart:
     visible: "Model DeepSeek V4 Flash.*"
     timeout: 10000
 - assertNotVisible: ".*omg/deepseek/deepseek-v4-flash-0731.*"
+# DeepSeek takes a reasoning effort, so the thinking slider is on the sheet.
+- assertVisible: "Thinking level"
 - takeScreenshot: omg-models-agent
 
 # MODEL LIST — short names with a search field over the 13 hosted models.
@@ -65,3 +67,16 @@ onFlowStart:
 - extendedWaitUntil:
     visible: "Model GLM 5.2.*"
     timeout: 10000
+- assertVisible: "Thinking level"
+
+# A model the router cannot steer gets no slider.
+- tapOn: "Model GLM 5.2.*"
+- extendedWaitUntil:
+    visible: "Search 13 models"
+    timeout: 10000
+- tapOn: "Qwen3 Coder Next"
+- extendedWaitUntil:
+    visible: "Model Qwen3 Coder Next.*"
+    timeout: 10000
+- assertNotVisible: "Thinking level"
+- takeScreenshot: omg-models-no-thinking

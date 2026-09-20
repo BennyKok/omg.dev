@@ -1,4 +1,4 @@
-import { OMG_MODELS } from "./omg-models.ts";
+import { OMG_MODELS, OMG_THINKING_LEVELS_BY_MODEL, omgThinkingLevels } from "./omg-models.ts";
 export { OMG_MODELS } from "./omg-models.ts";
 
 import type { Agent } from "./agents/registry.ts";
@@ -614,6 +614,13 @@ export function thinkingLevelsForAgent(
     const levels = [...new Set(Object.values(variants).flat())];
     return levels.length ? levels : null;
   }
+  // Hosted models differ per model: OpenRouter honours reasoning_effort for
+  // some and has no control for others. See OMG_THINKING_LEVELS_BY_MODEL.
+  if (agent === "omg") {
+    if (model) return omgThinkingLevels(model);
+    const levels = [...new Set(Object.values(OMG_THINKING_LEVELS_BY_MODEL).flat())];
+    return levels.length ? levels : null;
+  }
   if (agent === "claude" || agent === "aisdk") return CLAUDE_THINKING_LEVELS;
   // grok and pi drive their own CLIs with narrower vocabularies; offering more
   // hands the user a level that either kills the session or does nothing.
@@ -795,7 +802,8 @@ export function listModelCatalog(codingAgents: CodingAgentInfo[] = []): ModelCat
       piProviders,
       openCodeConnected,
     );
-    const thinkingLevelsByModel = key === "opencode"
+    const perModelLevels = key === "opencode" || key === "omg";
+    const thinkingLevelsByModel = perModelLevels
       ? Object.fromEntries(
           models.flatMap((model) => {
             const levels = thinkingLevelsForAgent(key, model);
@@ -803,7 +811,7 @@ export function listModelCatalog(codingAgents: CodingAgentInfo[] = []): ModelCat
           }),
         )
       : undefined;
-    const thinkingLevels = key === "opencode"
+    const thinkingLevels = perModelLevels
       ? [...new Set(Object.values(thinkingLevelsByModel ?? {}).flat())]
       : [...(thinkingLevelsForAgent(key) ?? [])];
     return {

@@ -35,7 +35,9 @@ const client = { transport: { request: async (path: string) => { requests++; if 
 } : { models: [
   { key: 'aisdk', defaultModel: 'opus', models: ['opus', 'sonnet'], thinkingLevels: ['low', 'medium', 'high'] },
   { key: 'codex-aisdk', defaultModel: 'gpt-6-astra', models: ['gpt-6-astra', 'gpt-5.3-codex'], thinkingLevels: ['low', 'high'] },
-  { key: 'omg', defaultModel: 'omg/deepseek/deepseek-v4-flash-0731', models: ['omg/deepseek/deepseek-v4-flash-0731', 'omg/z-ai/glm-5.2'] },
+  { key: 'omg', defaultModel: 'omg/deepseek/deepseek-v4-flash-0731', models: ['omg/deepseek/deepseek-v4-flash-0731', 'omg/z-ai/glm-5.2', 'omg/qwen/qwen3-coder-next'],
+    thinkingLevels: ['low', 'medium', 'high'],
+    thinkingLevelsByModel: { 'omg/deepseek/deepseek-v4-flash-0731': ['low', 'medium', 'high'], 'omg/z-ai/glm-5.2': ['low', 'medium', 'high'] } },
 ] }; } } };
 mock.module(resolve(import.meta.dir, '../src/omg/provider.tsx'), () => ({
   useOmg: () => ({ agents, bindingId, client, readiness }),
@@ -140,10 +142,17 @@ test('omg rows carry the short name and the provider mark, and keep the router i
     expect(picker.modelOptions.map(o => [o.id, o.label, o.image])).toEqual([
       ['omg/deepseek/deepseek-v4-flash-0731', 'DeepSeek V4 Flash', { uri: 'provider-deepseek' }],
       ['omg/z-ai/glm-5.2', 'GLM 5.2', { uri: 'provider-z-ai' }],
+      ['omg/qwen/qwen3-coder-next', 'Qwen3 Coder Next', { uri: 'provider-qwen' }],
     ]);
     expect(picker.modelLabel).toBe('DeepSeek V4 Flash');
+    // Levels follow the model: effort for DeepSeek, none for a model the router cannot steer.
+    expect(picker.thinkingOptions.map(o => o.label)).toEqual(['Low', 'Medium', 'High']);
+    expect(picker.thinkingOptions.find(o => o.selected)?.label).toBe('Medium');
     await ui.flushAsync(async () => { picker.modelOptions[1]!.onPress!(); });
     expect(picker.modelLabel).toBe('GLM 5.2');
     expect(picker.model).toBe('omg/z-ai/glm-5.2');
+    await ui.flushAsync(async () => { picker.modelOptions[2]!.onPress!(); });
+    expect(picker.modelLabel).toBe('Qwen3 Coder Next');
+    expect(picker.thinkingOptions).toEqual([]);
   } finally { ui.cleanup(); }
 });

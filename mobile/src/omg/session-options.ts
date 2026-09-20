@@ -42,7 +42,20 @@ type ModelCatalogEntry = {
   models?: string[];
   /** e.g. low | medium | high | xhigh. Per agent, and not every agent has any. */
   thinkingLevels?: string[];
+  /**
+   * Per model, for agents whose levels differ by model (opencode, omg). When
+   * present, a model with no entry has no thinking control at all; the
+   * agent-wide list above is only the union for display elsewhere.
+   */
+  thinkingLevelsByModel?: Record<string, string[]>;
 };
+
+/** The levels the box honours for this agent and model. */
+export function thinkingLevelsFor(entry: ModelCatalogEntry | null | undefined, model: string | null): string[] {
+  if (!entry) return [];
+  if (entry.thinkingLevelsByModel) return model ? entry.thinkingLevelsByModel[model] ?? [] : [];
+  return entry.thinkingLevels ?? [];
+}
 
 /** One Claude login on the box. Mirrors ClaudeAccount in src/claude-accounts.ts. */
 export type ClaudeAccountRow = {
@@ -265,7 +278,7 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
     if (remembered.model && entry.models?.includes(remembered.model)) {
       setModel((current) => current ?? remembered.model ?? null);
     }
-    if (remembered.thinking && entry.thinkingLevels?.includes(remembered.thinking)) {
+    if (remembered.thinking && thinkingLevelsFor(entry, remembered.model ?? entry.defaultModel ?? null).includes(remembered.thinking)) {
       setThinking((current) => current ?? remembered.thinking ?? null);
     }
     // `saved` is deliberately not a dependency: this restores ONCE per agent,
@@ -313,15 +326,15 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
    * and remembered afterwards.
    */
   const activeThinking = useMemo(() => {
-    const levels = entry?.thinkingLevels ?? [];
+    const levels = thinkingLevelsFor(entry, activeModelName);
     if (!levels.length) return null;
     if (thinking && levels.includes(thinking)) return thinking;
     if (levels.includes("medium")) return "medium";
     return levels[Math.floor(levels.length / 2)] ?? null;
-  }, [entry, thinking]);
+  }, [entry, activeModelName, thinking]);
 
   const thinkingOptions = useMemo<MenuOption[]>(() => {
-    const levels = entry?.thinkingLevels ?? [];
+    const levels = thinkingLevelsFor(entry, activeModelName);
 
     // No "Default" row: the pill now always shows a real level, so a row that
     // means "whatever the box decides" would be a second answer to a question
@@ -336,7 +349,7 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
         },
       })),
     ];
-  }, [entry, activeThinking, remember, bindingId, agent]);
+  }, [entry, activeModelName, activeThinking, remember, bindingId, agent]);
 
   /** Null means "the box's default", which is what omitting it asks for. */
   const activeModel = useMemo(() => {

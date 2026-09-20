@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { cloudApiBaseUrl, loadCloudCredentials } from "./cloud-account.ts";
-import { OMG_MODELS } from "./omg-models.ts";
+import { OMG_MODELS, omgThinkingLevels } from "./omg-models.ts";
 
 const GUEST_PROXY = "http://169.254.0.1:9090";
 export const OMG_SIGN_IN_REQUIRED = "Sign in with `omg login` to use the omg agent.";
@@ -61,6 +61,16 @@ const GUEST_API_KEY = "omg-guest";
  * "ProviderModelNotFoundError: Model not found: omg/...". A guest config that
  * already names the provider is still left byte-for-byte alone.
  */
+/** True when a hosted model that takes a level has no variants in this provider. */
+function missingOmgVariants(provider: { models?: Record<string, { variants?: unknown }> }): boolean {
+  return OMG_MODELS.some((model) => {
+    const levels = omgThinkingLevels(model);
+    if (!levels) return false;
+    const variants = provider.models?.[model.slice("omg/".length)]?.variants;
+    return !variants || typeof variants !== "object" || levels.some((level) => !(level in (variants as object)));
+  });
+}
+
 export function ensureOmgProvider(options: OmgProviderOptions = {}): void {
   const env = options.env ?? process.env;
   const hosted = hasHostedOmgAiProxy(options);
@@ -71,7 +81,10 @@ export function ensureOmgProvider(options: OmgProviderOptions = {}): void {
   const jsonc = join(dir, "opencode.jsonc");
   const path = existsSync(jsonc) ? jsonc : join(dir, "opencode.json");
   const current = readConfig(path);
-  if (hosted && current.provider?.omg) return;
+  // A guest config that already names the provider is left alone, unless a
+  // model that takes a thinking level has no variants yet: the level travels
+  // as a variant, so without them a chosen level would silently do nothing.
+  if (hosted && current.provider?.omg && !missingOmgVariants(current.provider.omg)) return;
   const credentials = hosted ? null : loadCloudCredentials(join(home, ".omg", "credentials.json"));
   if (!hosted && !credentials) throw new Error(OMG_SIGN_IN_REQUIRED);
   const previous = current.provider?.omg ?? {};
@@ -90,12 +103,20 @@ export function ensureOmgProvider(options: OmgProviderOptions = {}): void {
         ...previous,
         npm: "@ai-sdk/openai-compatible",
         name: "omg",
-        options: { ...previous.options, baseURL, apiKey },
+        // A guest config that already routes stays routed its own way; only
+        // the thinking variants are added to it.
+        options: hosted && current.provider?.omg ? { ...previous.options } : { ...previous.options, baseURL, apiKey },
         models: {
           ...previous.models,
           ...Object.fromEntries(OMG_MODELS.map((model) => {
             const id = model.slice("omg/".length);
-            return [id, { ...previous.models?.[id], name: id }];
+            // A thinking level travels as an OpenCode variant; the
+            // openai-compatible provider sends it as `reasoning_effort`.
+            const levels = omgThinkingLevels(model);
+            const variants = levels
+              ? Object.fromEntries(levels.map((level) => [level, { reasoningEffort: level }]))
+              : undefined;
+            return [id, { ...previous.models?.[id], name: id, ...(variants ? { variants } : {}) }];
           })),
         },
       },

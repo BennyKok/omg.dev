@@ -15,13 +15,20 @@ import { GestureHandlerRootView, PanGestureHandler, State } from "react-native-g
 const TRAY_DURATION = 260;
 const TRAY_EASE = Easing.bezier(0.2, 0.8, 0.2, 1);
 
-export function Sheet({ visible, onClose, children, placement = "bottom", maxWidth = 560, pageKey = "root", pageDirection = "forward", surfaceStyle }: {
+export function Sheet({ visible, onClose, children, placement = "bottom", maxWidth = 560, pageKey = "root", pageDirection = "forward", surfaceStyle, resizable = true }: {
   visible: boolean;
   onClose: () => void;
   children: ReactNode;
   placement?: "bottom" | "center";
   maxWidth?: number;
   surfaceStyle?: StyleProp<ViewStyle>;
+  /**
+   * Off: the sheet keeps its compact height. A drag up does nothing and the
+   * "Drawer height" accessibility control only offers Dismiss. For a sheet
+   * whose pages size their own scrollers (the agent picker's model list): an
+   * expanded tray around a list that kept its own height was hard to scroll.
+   */
+  resizable?: boolean;
   /** Change only for navigation, never for edits or selections within a page. */
   pageKey?: string;
   pageDirection?: "forward" | "back";
@@ -48,7 +55,7 @@ export function Sheet({ visible, onClose, children, placement = "bottom", maxWid
   const limit = Math.max(44, availableHeight - insets.top - bottomGap - 44);
   const [stage, setStage] = useState<SheetStage>("compact");
   const compact = Math.min(contentHeight, limit, screenHeight * 0.65);
-  const expanded = placement === "bottom" ? limit : compact;
+  const expanded = resizable && placement === "bottom" ? limit : compact;
   const targetHeight = stage === "expanded" ? expanded : compact;
   const geometry = useRef({ compact, expanded, stage });
   geometry.current = { compact, expanded, stage };
@@ -184,7 +191,9 @@ export function Sheet({ visible, onClose, children, placement = "bottom", maxWid
             {/* The full surface participates; nested scrollers declare their touch origin. */}
             <View onTouchStart={() => { origin.current = null; }} accessibilityRole="adjustable" accessibilityLabel="Drawer height"
               accessibilityValue={{ text: stage }}
-              accessibilityActions={[{ name: "increment", label: "Expand" }, { name: "decrement", label: "Collapse" }, { name: "dismiss", label: "Dismiss" }]}
+              accessibilityActions={resizable
+                ? [{ name: "increment", label: "Expand" }, { name: "decrement", label: "Collapse" }, { name: "dismiss", label: "Dismiss" }]
+                : [{ name: "dismiss", label: "Dismiss" }]}
               onAccessibilityAction={event => {
                 if (event.nativeEvent.actionName === "dismiss") dismiss(true);
                 else settle(event.nativeEvent.actionName === "increment" ? "expanded" : "compact");
