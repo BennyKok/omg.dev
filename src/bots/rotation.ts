@@ -36,6 +36,7 @@
 // below is testable without a harness. The effectful half (spawn, rebind,
 // archive) lives in serve.ts's `rotateBotSession`, which is the only writer.
 
+import { redactSecrets } from "../redact-secrets.ts";
 import { stripOmgRuntimeContract } from "../omg-capabilities.ts";
 import { stripBotLaunchEnvelope } from "./transcript.ts";
 import type { Bot } from "./store.ts";
@@ -563,27 +564,13 @@ export const CHECKPOINT_MAX_SECTION_ITEMS = 8;
 export const CHECKPOINT_MAX_ITEM_CHARS = 300;
 export const CHECKPOINT_MAX_TOTAL_CHARS = 12_000;
 
-/**
- * Patterns that must never cross the boundary.
- *
- * A checkpoint is written into the next session's launch prompt, which is
- * persisted, indexed, and readable anywhere the transcript is. Anything secret
- * that lands there has been copied into a second durable place. Cheap prefix
- * matching on the well-known shapes is not a general secret scanner and is not
- * claimed to be one; it is the floor, and the real defence is that only user
- * and assistant prose is eligible in the first place (no tool results, no
- * environment, no contract text).
- */
-const SECRET_PATTERNS: RegExp[] = [
-  /\bsk-[A-Za-z0-9_-]{16,}/g,
-  /\bghp_[A-Za-z0-9]{20,}/g,
-  /\bgithub_pat_[A-Za-z0-9_]{20,}/g,
-  /\bxox[baprs]-[A-Za-z0-9-]{10,}/g,
-  /\bAKIA[0-9A-Z]{16}\b/g,
-  /\bAIza[0-9A-Za-z_-]{30,}/g,
-  /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g,
-  /\b(?:api[_-]?key|secret|password|passwd|token|bearer)\s*[:=]\s*\S{8,}/gi,
-];
+// Why a checkpoint is redacted at all: it is written into the next session's
+// launch prompt, which is persisted, indexed, and readable anywhere the
+// transcript is. Anything secret that lands there has been copied into a
+// second durable place. The shapes live in `redact-secrets.ts`; they are not a
+// general secret scanner and are not claimed to be one. They are the floor,
+// and the real defence is that only user and assistant prose is eligible in
+// the first place (no tool results, no environment, no contract text).
 
 /**
  * Strip anything that must not be copied forward.
@@ -607,7 +594,7 @@ export function redactForCheckpoint(text: string): string {
   out = out.replace(/^\[Peer message from [^\]]*\]\s*/gm, "");
   out = out.replace(/^Message ID: \S+$/gm, "");
   out = out.replace(/^Correlation ID: \S+$/gm, "");
-  for (const pattern of SECRET_PATTERNS) out = out.replace(pattern, "[redacted]");
+  out = redactSecrets(out);
   return out.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
 }
 
