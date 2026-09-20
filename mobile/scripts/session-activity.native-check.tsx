@@ -261,3 +261,18 @@ test("the title uses one animated surface and preserves its complete accessible 
     expect(Number(text.style.opacity)).toBe(1);
   } finally { ui.cleanup(); }
 });
+
+test("a visible row cannot restart animations under a covered parent pane", () => {
+  const ui = mount();
+  try {
+    const before = starts;
+    ui.render(<SessionActivityPane onScreen={false}>
+      <SessionActivityPane onScreen={true}><Field /></SessionActivityPane>
+    </SessionActivityPane>);
+    expect(starts).toBe(before);
+    ui.render(<SessionActivityPane onScreen={true}>
+      <SessionActivityPane onScreen={true}><Field /></SessionActivityPane>
+    </SessionActivityPane>);
+    expect(starts).toBeGreaterThan(before);
+  } finally { ui.cleanup(); }
+});

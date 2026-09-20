@@ -152,7 +152,9 @@ async function lock(udid: string): Promise<() => Promise<void>> {
 async function pushFlows() {
   await ssh(`mkdir -p ~/${REMOTE_DIR}`);
   const p = Bun.spawn(
-    ["scp", "-q", "-o", "BatchMode=yes", "-r", `${LOCAL_E2E}/.`, `${HOST}:${REMOTE_DIR}/`],
+    // Root-level MP4s are recordings from previous runs, not test inputs.
+    // Keep nested fixtures, but do not upload hundreds of MB before a flow.
+    ["rsync", "-a", "-e", "ssh -o BatchMode=yes", "--exclude=/*.mp4", `${LOCAL_E2E}/`, `${HOST}:${REMOTE_DIR}/`],
     { stdout: "inherit", stderr: "inherit" },
   );
   if ((await p.exited) !== 0) throw new Error("Could not copy e2e/ to the Mac.");

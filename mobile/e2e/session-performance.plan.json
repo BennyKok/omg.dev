@@ -1,0 +1,78 @@
+{
+  "appId": "dev.omg.computer",
+  "steps": [
+    {
+      "name": "Working rows",
+      "goal": "Dismiss any development menu or notice to see the demo session list",
+      "done": "Home shows both working sessions and the api-gateway folder",
+      "expect": [
+        "Refactor the rate limiter to a sliding window",
+        "Fix the token refresh race on cold start",
+        "api-gateway folder"
+      ],
+      "forbid": [
+        "Dictate a message"
+      ],
+      "timeoutMs": 180000
+    },
+    {
+      "name": "Cover the activity pane",
+      "goal": "Tap the existing busy session row whose label starts with \"Refactor the rate limiter to a sliding window\". It is an existing item in the session list. Open that row to read its transcript.",
+      "done": "The session transcript and its message composer are visible",
+      "expect": [
+        "History message 100.",
+        "Dictate a message"
+      ]
+    },
+    {
+      "name": "Return to working rows",
+      "goal": "Tap Back to return to Home",
+      "done": "Home shows its project folder and both working sessions again",
+      "expect": [
+        "api-gateway folder",
+        "Refactor the rate limiter to a sliding window",
+        "Fix the token refresh race on cold start"
+      ],
+      "forbid": [
+        "Dictate a message"
+      ]
+    },
+    {
+      "name": "Reopen cached session",
+      "goal": "Tap the existing busy session row whose label starts with \"Refactor the rate limiter to a sliding window\". It is an existing item in the session list. Open that row to read its transcript.",
+      "done": "The session transcript and its message composer are visible",
+      "expect": [
+        "History message 100.",
+        "Dictate a message"
+      ]
+    },
+    {
+      "name": "Return from cached session",
+      "goal": "Tap Back to return to Home",
+      "done": "Home shows its project folder and both working sessions again",
+      "expect": [
+        "api-gateway folder",
+        "Refactor the rate limiter to a sliding window",
+        "Fix the token refresh race on cold start"
+      ],
+      "forbid": [
+        "Dictate a message"
+      ]
+    },
+    {
+      "name": "Open another session",
+      "goal": "Tap the existing busy session row whose label starts with \"Fix the token refresh race on cold start\". It is an existing item in the session list. Open that row to read its transcript.",
+      "done": "The second session transcript is visible, without text from the first session",
+      "expect": [
+        "Done and pushed to main. Tests are green.",
+        "Dictate a message"
+      ],
+      "forbid": [
+        "History message 100."
+      ]
+    }
+  ],
+  "launch": {
+    "clearState": false
+  }
+}

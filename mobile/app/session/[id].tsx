@@ -1,3 +1,5 @@
+import { useTranscriptPage } from "../../src/omg/use-transcript-page";
+import { appendTranscriptDraft, INITIAL_TRANSCRIPT_ITEMS, TranscriptWindow } from "../../src/omg/transcript-items";
 import { ChatIdentityContext, useChatIdentity } from "../../src/omg/chat-identity";
 /**
  * A session: the transcript, and the composer.
@@ -134,13 +136,7 @@ import { useOmg } from "../../src/omg/provider";
 import { SessionActivityTitle, useSessionActivity } from "../../src/omg/session-activity";
 import { useTheme } from "../../src/omg/theme";
 import { useToast } from "../../src/omg/toast";
-import {
-  readTranscriptCache,
-  TRANSCRIPT_PAGE,
-  transcriptCacheKey,
-  updateTranscriptCacheMessages,
-  writeTranscriptCache,
-} from "../../src/omg/transcript-cache";
+
 import { useOverlapWatch } from "../../src/omg/list-overlap-watch";
 import {
   buildTranscriptItems,
@@ -163,14 +159,7 @@ let localSeq = 0;
 const isOptimisticId = (id: unknown): boolean =>
   typeof id === "string" && id.startsWith("local-");
 
-/**
- * One screenful of history, and the step every "load more" adds.
- *
- * Defined in src/omg/transcript-cache.ts rather than here, because the cache
- * and the prefetch sweep have to store and warm exactly the page this screen
- * asks for. Two constants that must agree are one constant.
- */
-const PAGE = TRANSCRIPT_PAGE;
+
 
 /**
  * How long the opening reveal waits for the list to stop changing size, and
@@ -208,7 +197,12 @@ export default function SessionScreen() {
  * are the only two bot-specific seams, and everything below that is not
  * behind one of them behaves exactly as it did for a normal session.
  */
-export function SessionScreenBody({
+export function SessionScreenBody(props: React.ComponentProps<typeof SessionScreenContent>) {
+  const { bindingId } = useOmg();
+  return <SessionScreenContent key={`${bindingId}:${props.bot?.id ?? props.sessionId ?? "new"}`} {...props} />;
+}
+
+function SessionScreenContent({
   sessionId,
   bot = null,
   onDeliver,
@@ -276,7 +270,11 @@ export function SessionScreenBody({
   const dictationTail =
     dictation.live && dictation.state === "recording" ? (dictation.partial ?? "").trim() : "";
 
-  const [messages, setMessages] = useState<Entry[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const { messages, setMessages, loading, loadingMore, reachedStart, loadMore } =
+    useTranscriptPage(client, bindingId, id, setError);
+  const [historyExpanded, setHistoryExpanded] = useState(false);
+  const [transcriptWindow] = useState(() => new TranscriptWindow());
   const [streamText, setStreamText] = useState("");
   /**
    * A THOUGHT BEING STREAMED. The machine streams reasoning as `ai_part`
@@ -403,7 +401,6 @@ export function SessionScreenBody({
   const [prompt, setPrompt] = useState<OmgSessionPrompt | null>(null);
 
   const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const toast = useToast();
   /**
    * The same geometric trip-wire the home list has carried since #149, now on
@@ -424,37 +421,18 @@ export function SessionScreenBody({
   useEffect(() => {
     if (dictation.error) toast.show(dictation.error, { intent: "error" });
   }, [dictation.error, toast]);
-  // Starts false when there is no id yet — a bot's first-ever chat, before
-  // any message has minted a backing session (see the `onDeliver` doc
-  // above). Every existing call site always has an id from the route, so
-  // this is `true` exactly as it always was for a normal session.
-  const [loading, setLoading] = useState(!!id);
   /**
    * THE TRANSCRIPT STAYS INVISIBLE UNTIL IT HAS SOMETHING SETTLED TO SHOW.
    *
-   * Rows used to mount as soon as they existed, which on a fresh 80-message
-   * (now 40) page meant FlatList's default batching painted maybe ten of them,
-   * then more, then more, while `pinToEnd` corrected the scroll position each
-   * time the content height changed under it — a visible pop-in followed by a
-   * jump to a different chunk of the conversation. Holding this false keeps
-   * the spinner up (see the overlay near the FlatList below) while the first
-   * page renders and gets pinned to the bottom off-screen; the reader's first
-   * paint of the list is already-settled, not settling.
+   * Only the recent window mounts on open. Keep it hidden until native
+   * layout has pinned that window to the bottom, so cached text does not
+   * flash at the top before the opening scroll completes.
    *
    * This is NOT a replacement for `loading` — `loading` covers "the fetch
    * hasn't returned"; this covers "the fetch returned but the list hasn't
    * finished laying out and scrolling". Both gate the same spinner.
    */
   const [contentReady, setContentReady] = useState(false);
-  /**
-   * HOW MUCH HISTORY IS ON SCREEN. The SDK's `getMessages` takes a limit and
-   * returns the tail, so "load more" is the same request with a bigger number
-   * rather than a cursor — the messages already rendered stay rendered and
-   * older ones appear above them.
-   */
-  const [limit, setLimit] = useState(PAGE);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [reachedStart, setReachedStart] = useState(false);
   /** Set while the reader is away from the bottom and the agent says something. */
   const [unseen, setUnseen] = useState(false);
   const [atBottom, setAtBottom] = useState(true);
@@ -731,67 +709,6 @@ export function SessionScreenBody({
     };
   }, [client, id]);
 
-  /** Where this session's page lives in the cross-screen cache. */
-  const cacheKey = useMemo(
-    () => (id ? transcriptCacheKey(bindingId, id) : null),
-    [bindingId, id],
-  );
-
-  // Seed from the cache if there is one, then from REST, then let the socket
-  // take over. The socket also sends a snapshot, but the REST read paints
-  // something immediately instead of waiting on a connection that may still
-  // be waking.
-  //
-  // THE CACHE READ IS SYNCHRONOUS AND HAPPENS BEFORE THE FETCH IS EVEN SENT.
-  // That is the whole point: this screen is a route, so returning to a session
-  // mounts it from scratch with an empty `messages`, and every re-open used to
-  // pay a full relay round trip before it could draw a single row. A hit means
-  // `loading` never goes true and the reader sees the transcript they left.
-  // The fetch still runs behind it and reconciles.
-  useEffect(() => {
-    let cancelled = false;
-    if (!client || !id) return;
-    const cached = cacheKey ? readTranscriptCache<Entry>(cacheKey) : null;
-    if (cached) setMessages(cached.messages);
-    setLoading(!cached);
-    // The SDK declares the same capabilities here as on the socket (see
-    // provider.tsx), so history and the live stream arrive in one shape.
-    client
-      .getMessages(id, limit)
-      .then((res) => {
-        if (cancelled) return;
-        const next = (res.messages ?? []) as Entry[];
-        setMessages(next);
-        if (cacheKey) writeTranscriptCache(cacheKey, next, PAGE);
-        setError(null);
-      })
-      .catch((e) => {
-        // A cached page already on screen is better than an error banner over
-        // nothing. The reader keeps reading; only a cold open reports.
-        if (!cancelled && !cached) setError(e instanceof Error ? e.message : String(e));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [client, id, limit, cacheKey]);
-
-  /**
-   * Keep the cached page current while the screen is mounted, so the next
-   * re-open paints the newest state rather than the snapshot from whenever
-   * the page was fetched. Every path that changes the transcript runs through
-   * `messages` — the socket's `message` and `snapshot` events, the optimistic
-   * send and its rollback — so one effect here covers all of them instead of
-   * a write at each call site. `updateTranscriptCacheMessages` never creates
-   * an entry, so this cannot cache a session whose page never loaded.
-   */
-  useEffect(() => {
-    if (!cacheKey) return;
-    updateTranscriptCacheMessages(cacheKey, messages, PAGE);
-  }, [cacheKey, messages]);
-
   useEffect(() => {
     if (!client || !id) return;
     return client.live.subscribeTranscript(id, (event) => {
@@ -879,33 +796,15 @@ export function SessionScreenBody({
     });
   }, [client, id]);
 
-  // Tool traffic is grouped into single rows here rather than in renderItem, so
-  // a call and the result it produced stay one cell of the list.
-  const data = useMemo<TranscriptItem[]>(() => {
-    const entries: Entry[] = [...messages];
-    // A streaming thought is a `work` row of one step at the tail. It joins
-    // the open run above it (buildTranscriptItems merges adjacent rows), so
-    // the reasoning reads as "Working for 4s" and opens into the sheet, and
-    // never as a paragraph of the reply.
-    if (streamThought) {
-      entries.push({
-        id: "__thinking__",
-        role: "assistant",
-        kind: "work",
-        text: "",
-        steps: [{ id: "__thinking_step__", role: "assistant", kind: "thinking", text: streamThought }],
-      });
-    }
-    if (streamText) {
-      entries.push({ id: "__streaming__", role: "assistant", text: streamText, streaming: true });
-    }
-    // Bot chat reads as a conversation, not a session log — tool calls,
-    // results and thinking blocks are hidden, and the launch envelope
-    // folded into the first turn is stripped back to what the human
-    // actually typed. See bot-transcript.ts. A normal session (bot === null)
-    // never runs this filter.
-    return buildTranscriptItems(bot ? filterBotChatEntries(entries) : entries, { busy });
-  }, [messages, streamText, streamThought, bot, busy]);
+  // Draft tokens do not regroup settled history or recreate completed rows.
+  const settledMessages = useMemo(() => bot ? filterBotChatEntries(messages) : messages, [messages, bot]);
+  const settledItems = useMemo(() => buildTranscriptItems(settledMessages, { busy }), [settledMessages, busy]);
+  const allItems = useMemo(() => appendTranscriptDraft(
+    settledItems, settledMessages, streamText, bot ? "" : streamThought, busy,
+  ), [settledItems, settledMessages, streamText, streamThought, bot, busy]);
+  const { items: data, hasEarlier: hasLocalHistory } = useMemo(
+    () => transcriptWindow.view(allItems, historyExpanded), [transcriptWindow, allItems, historyExpanded],
+  );
 
   const replySpace = useMemo(() => {
     if (!sendTurn) return 0;
@@ -948,29 +847,16 @@ export function SessionScreenBody({
        * threshold is generous so the fetch is already running by the time the
        * top arrives.
        */
-      if (contentOffset.y < 400 && !loadingMore && !reachedStart && messages.length) {
-        setLoadingMore(true);
-        setLimit((current) => current + PAGE);
+      if (contentOffset.y < 400 && hasLocalHistory) {
+        setHistoryExpanded(true);
+        return;
+      }
+      if (contentOffset.y < 400 && !loading && !loadingMore && !reachedStart && messages.length) {
+        loadMore();
       }
     },
-    [loadingMore, reachedStart, messages.length],
+    [loading, loadingMore, reachedStart, messages.length, hasLocalHistory, loadMore],
   );
-
-  // A page that comes back no larger than the one before it means the session
-  // has no more history, so stop asking on every scroll.
-  const lastCountRef = useRef(0);
-  useEffect(() => {
-    if (!loadingMore) return;
-    if (messages.length > lastCountRef.current) {
-      lastCountRef.current = messages.length;
-      setLoadingMore(false);
-      return;
-    }
-    if (messages.length && messages.length === lastCountRef.current) {
-      setReachedStart(true);
-      setLoadingMore(false);
-    }
-  }, [messages.length, loadingMore]);
 
   /**
    * SCROLLING TO THE END ONCE DOES NOT REACH THE END.
@@ -2033,20 +1919,10 @@ export function SessionScreenBody({
         onLayout={(e) => {
           viewportHeight.current = e.nativeEvent.layout.height;
         }}
-        /**
-         * THE WHOLE FIRST PAGE, IN ONE BATCH — not RN's default of 10.
-         *
-         * Batching the initial page across several frames is the pop-in
-         * itself: a reader opening a session used to watch maybe ten rows
-         * appear, then more, then more, each arrival nudging the ones already
-         * on screen. Rendering all of `PAGE` synchronously on mount means
-         * there is nothing to batch — the first paint (which stays hidden
-         * behind the spinner until `contentReady`; see below) already has the
-         * full page laid out, so `pinToEnd`'s correction lands once instead
-         * of visibly chasing a moving content height.
-         */
-        initialNumToRender={PAGE}
-        maxToRenderPerBatch={PAGE}
+        // Only the recent window mounts on open. Scrollback expands from the
+        // loaded page first, then asks the server for older history.
+        initialNumToRender={INITIAL_TRANSCRIPT_ITEMS}
+        maxToRenderPerBatch={INITIAL_TRANSCRIPT_ITEMS}
         // Laid out and measured normally either way — opacity does not
         // affect layout — so this hides the pop-in/jump without adding a
         // second "is it ready" code path for the FlatList itself. See

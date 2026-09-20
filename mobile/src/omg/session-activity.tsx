@@ -43,7 +43,8 @@ const ActivityPane = createContext(true);
 
 /** Wrap the rows a screen owns, and say when that screen is visible. */
 export function SessionActivityPane({ onScreen, children }: { onScreen: boolean; children: ReactNode }) {
-  return <ActivityPane.Provider value={onScreen}>{children}</ActivityPane.Provider>;
+  const parentOnScreen = useContext(ActivityPane);
+  return <ActivityPane.Provider value={parentOnScreen && onScreen}>{children}</ActivityPane.Provider>;
 }
 
 /** One row clock drives both its title and its field, including entry/exit. */

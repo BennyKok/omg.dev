@@ -26,9 +26,10 @@ ssh bennykok@bennys-macbook-pro-2 "xcrun simctl terminate UDID dev.omg.computer;
 
 The benchmark runs six trials in ABBAAB order. Each uses the same 40 rows,
 initial render count, padding, and four linear native scroll legs over 16 seconds.
-A 50ms timer updates the streaming tail. Baseline uses the original Markdown
-path and ordinary state updates. Optimized uses memoized VirtualView bodies and
-transition updates. Both rebuild item wrappers when the draft changes.
+A 50ms timer updates the streaming tail. Both modes use ordinary Markdown bodies and transition updates. Baseline rebuilds
+completed item wrappers on each draft. Optimized retains their identity so the
+memoized TranscriptRow can skip completed replies. This isolates row reuse; it
+does not measure the Home list or the smaller opening transcript window.
 
 Results are appended as JSONL. JS requestAnimationFrame intervals measure JS
 responsiveness, not display FPS. updatesReceived counts timer callbacks served;

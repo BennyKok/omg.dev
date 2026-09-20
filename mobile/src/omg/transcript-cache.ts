@@ -31,15 +31,9 @@
  * it declare the start of the session reached; a smaller one would paint a
  * short transcript and jump. Two constants that must agree are one constant.
  *
- * Was 80. Opening a session means the FIRST page renders synchronously (see
- * `initialNumToRender` on that screen) so the reader never sees rows pop in,
- * and 80 of them is enough markdown and tool badges to make that synchronous
- * layout pass itself visible as a beat of nothing happening. 40 is still
- * several screens of scrollback before "load more" has to fire, and cuts the
- * initial layout cost roughly in half. `packages/client/src/index.ts`'s
- * `getMessages` default is deliberately left at 80: that is a general SDK
- * fallback for callers who do not pass a limit, not a mirror of this screen's
- * tuning, and the screen always passes its own `limit` explicitly.
+ * Fetch/cache 40 messages. The screen initially mounts only the latest
+ * 12 grouped items and expands this cached page locally when the reader
+ * scrolls up. Fetch size and mounted size serve different purposes.
  */
 export const TRANSCRIPT_PAGE = 40;
 

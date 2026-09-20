@@ -47,7 +47,7 @@ type DemoSession = OmgSession & { botId?: string };
  */
 function demoSessions(): DemoSession[] {
   const t = now();
-  return [
+  const sessions: DemoSession[] = [
     // ── api-gateway: the default folder, shown full on home ────────────────
     {
       sessionId: "demo-rate-limiter",
@@ -176,11 +176,29 @@ function demoSessions(): DemoSession[] {
       last: { role: "assistant", text: "SSO flow lands on /admin, 4 files changed.", ts: t - 6 * HOUR },
     },
   ];
+  // Explicit local stress fixture. Never used by a real transport or default demo.
+  if (process.env.EXPO_PUBLIC_OMG_PERFORMANCE_FIXTURE === "1") {
+    for (let i = 1; i <= 60; i++) sessions.push({
+      ...sessions[0], sessionId: `demo-perf-${i}`, tmuxTarget: `omg-demo:perf-${i}`,
+      title: `Performance session ${String(i).padStart(2, "0")}`,
+      busy: i % 3 === 0, lastActivityAt: t - (i + 30) * MIN,
+    });
+  }
+  return sessions;
 }
 
 /** A single session's transcript, for the opened-chat screen. */
 function demoMessages(sessionId: string): OmgMessage[] {
   const t = now();
+  if (process.env.EXPO_PUBLIC_OMG_PERFORMANCE_FIXTURE === "1" && sessionId === "demo-rate-limiter") {
+    return Array.from({ length: 100 }, (_, i) => ({
+      id: `perf-message-${i + 1}`, role: i % 2 ? "assistant" : "user", kind: "text",
+      text: `History message ${String(i + 1).padStart(3, "0")}. ` +
+        (i % 2 ? "Checked the sliding window. The per-key limits remain unchanged." : "Check the next sliding-window case."),
+      ts: t - (101 - i) * MIN,
+    }));
+  }
+
   if (sessionId === "demo-rate-limiter") {
     return [
       { id: "m1", role: "user", kind: "text", text: "Switch the rate limiter from a fixed window to a sliding one. Keep the same per-key limits.", ts: t - 22 * MIN },
@@ -359,7 +377,10 @@ function answer(path: string): unknown | null {
     return provider ? { provider } : {};
   }
   const messages = clean.match(/^\/api\/sessions\/([^/]+)\/messages$/);
-  if (messages) return { messages: demoMessages(decodeURIComponent(messages[1])) };
+  if (messages) {
+    const limit = Number(new URL(path, "https://demo.invalid").searchParams.get("limit")) || 40;
+    return { messages: demoMessages(decodeURIComponent(messages[1])).slice(-limit) };
+  }
   // Writes (send / interrupt / toggles) succeed silently — demo mode never
   // reaches a real box, and a screenshot is not going to send a message.
   return {};

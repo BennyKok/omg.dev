@@ -1,0 +1,27 @@
+appId: dev.omg.computer
+---
+# Run after session-performance: it leaves the second session open.
+- tapOn: "Back"
+- tapOn: ".*Refactor the rate limiter to a sliding window.*"
+- assertVisible: ".*History message 100.*"
+# Cross both boundaries: the local recent window, then the 40-message page.
+- scrollUntilVisible:
+    element:
+      text: ".*History message 065.*"
+    direction: UP
+    timeout: 90000
+- assertVisible: ".*History message 065.*"
+- scrollUntilVisible:
+    element:
+      text: ".*History message 055.*"
+    direction: UP
+    timeout: 90000
+- assertVisible: ".*History message 055.*"
+- tapOn: "Back"
+- scrollUntilVisible:
+    element:
+      text: ".*Performance session 40.*"
+    direction: DOWN
+    timeout: 90000
+- tapOn: ".*Performance session 40.*"
+- assertVisible: ".*Done and pushed to main.*"

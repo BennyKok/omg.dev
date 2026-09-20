@@ -1,0 +1,21 @@
+{
+  "device": "iPhone 17 simulator",
+  "udid": "84C3046E-1FDF-48C7-9751-6C245C2D9620",
+  "runtime": "iOS 26.0",
+  "productionJavaScript": true,
+  "nativeBinary": "development client with Skia",
+  "rows": 40,
+  "durationMs": 16000,
+  "order": [
+    "baseline",
+    "reuse",
+    "reuse",
+    "baseline",
+    "baseline",
+    "reuse"
+  ],
+  "files": {
+    "mobile/bench/transcript-entry.tsx": "9384f395981c69ba247be9b497218aad9ffce7a69f9949c10f562f9b899aa915",
+    "mobile/src/omg/transcript.tsx": "ae79aec5656b1a49d779a236a700ad5f651eb0b1f7e11e63572b847b0e68d879"
+  }
+}

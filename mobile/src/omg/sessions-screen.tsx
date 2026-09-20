@@ -1,3 +1,4 @@
+import { WindowedSessionList } from "./windowed-session-list";
 /**
  * The session list — the app's home, matching the web Computer one-to-one:
  * the mark and a machine chip up top, WORKING/IDLE sections as dot + label +
@@ -22,6 +23,7 @@ import * as Haptics from "expo-haptics";
 import { usePromptDraft, stashScope } from "./prompt-stash";
 import {
   createContext,
+  memo,
   type ReactNode,
   useCallback,
   useContext,
@@ -154,7 +156,7 @@ type ListedSession = OmgSession & UnreadSessionRow;
 const SessionUnreadContext = createContext<Set<string>>(new Set());
 
 /** A parent row with its subagents behind a compact, expandable stack. */
-function SessionFamily({
+const SessionFamily = memo(function SessionFamily({
   node,
   onOpen,
   onArchive,
@@ -231,7 +233,7 @@ function SessionFamily({
       ) : null}
     </View>
   );
-}
+});
 
 /**
  * A conservative floor for the composer's height, before it has been
@@ -867,6 +869,12 @@ export function SessionsScreen({
    * The order passed is the order on screen, not the order the machine
    * returned, so the warmed rows are the visible ones.
    */
+  const homeRows = useMemo(() => bindingId && readiness?.status === "ready"
+    ? projectGroups.flatMap((group) => group.nodes.map((node, index) => ({
+        key: `${group.key}:${sessionStableId(node.session)}`, node,
+        gap: index < group.nodes.length - 1 ? 2 : 0,
+      }))) : [], [bindingId, readiness?.status, projectGroups]);
+
   const prefetchKeys = useMemo(
     () =>
       projectGroups.flatMap((group) =>
@@ -919,7 +927,7 @@ export function SessionsScreen({
     return selectHomeAutoFindings(autoAgents, scoped);
   }, [autoAgents, autoFindings, projectPicker]);
 
-  const openSession = (id: string | null) => {
+  const openSession = useCallback((id: string | null) => {
     if (!id) return;
     void Haptics.selectionAsync();
     /**
@@ -934,7 +942,7 @@ export function SessionsScreen({
     setUnreadSessions((current) => clearSessionUnread(current, id));
     if (workspace) navigateWorkspace(`/session/${id}`);
     else router.push(`/session/${id}`);
-  };
+  }, [workspace, navigateWorkspace, router]);
 
   /**
    * HARDWARE KEYBOARD, mostly the iPad. The bindings mirror the web's where
@@ -1576,7 +1584,7 @@ export function SessionsScreen({
             In the iPad workspace the rail is permanent at width, and only the
             narrow layout ever covers it. */}
         <SessionActivityPane onScreen={workspace ? wide || home : paneOnScreen}>
-        <ScrollView
+        <WindowedSessionList
           style={{ flex: 1, position: "relative", zIndex: 0 }}
           /**
            * The list runs UNDER the composer, which floats over it. The padding
@@ -1621,7 +1629,17 @@ export function SessionsScreen({
               tintColor={colors.textMuted}
             />
           }
-        >
+          data={homeRows}
+          renderItem={({ item }) => (
+            <View style={{ paddingBottom: item.gap }}>
+              <OverlapRow id={item.key}>
+                <SessionFamily node={item.node} onOpen={openSession}
+                  onArchive={nodeBusy(item.node) ? undefined : archiveSession}
+                  animateEntry={animateEntry} />
+              </OverlapRow>
+            </View>
+          )}
+          ListHeaderComponent={<>
           {/* NEW SESSION IS THE FIRST ROW of the list it adds to, as on the
               web (a 40px row with a dashed disc). It used to be an 18pt
               padded block above the list, outside the thing it acts on. */}
@@ -1797,69 +1815,11 @@ export function SessionsScreen({
                 />
               ) : null}
 
-              {/**
-               * ONE GROUP PER FOLDER.
-               *
-               * A folder header carries no status dot — it names a place, not a
-               * state. The row's own mark still says whether that session is
-               * running, which is the point: status belongs to the row, grouping
-               * belongs to the folder.
-               *
-               * Archive is offered per NODE rather than per section. It used to
-               * be a property of the Idle section — everything in it was
-               * archivable because everything in it was stopped. A folder mixes
-               * both, so the rule moves onto the row it was always really about:
-               * a running session has nothing to archive.
-               */}
-              {projectGroups.map((group) => (
-                <View key={group.key}>
-                  {/* The selected folder pill already names this list. */}
-                  {/* 2pt, not 8. Rows are a list, not a stack of cards; the
-                    fixed row height does the separating. */}
-                  <View style={{ gap: 2 }}>
-                    {group.nodes.map((node) => {
-                      const id = sessionStableId(node.session);
-                      return (
-                        <OverlapRow key={id} id={`${group.key}:${id}`}>
-                          <SessionFamily
-                            node={node}
-                            onOpen={openSession}
-                            onArchive={
-                              nodeBusy(node) ? undefined : archiveSession
-                            }
-                            animateEntry={animateEntry}
-                          />
-                        </OverlapRow>
-                      );
-                    })}
-                  </View>
-                </View>
-              ))}
 
-              {/**
-               * NO "AUTO" SECTION EITHER. Open findings used to sit here, one
-               * 80pt row per agent, between Idle and the old Recent slot.
-               * Three findings pushed the running sessions off the fold, so
-               * they moved behind the pill that floats at the foot of the
-               * list (FindingsPill, below) and open in a drawer. Same rows,
-               * same tap target, same "draw nothing when nothing is open".
-               */}
-              {/**
-               * NO "RECENT" SECTION.
-               *
-               * Finished sessions used to get their own group at the foot of the
-               * list. The web's mobile list does not carry one — resumable work
-               * is reached from the composer's history rather than from the live
-               * list — and on a phone the section was competing for the same
-               * scroll as the sessions that are actually running.
-               *
-               * Work that shipped is still reachable: the Recently shipped feed
-               * behind the bell lists it, and each entry opens its session. If
-               * that stops being true, this section is the thing to bring back.
-               */}
             </>
           )}
-        </ScrollView>
+          </>}
+        />
         </SessionActivityPane>
         {/* THE PILL ON THE RAIL: in flow at the foot of the column, below the
             list. It sat above the nav footer before that footer moved into the

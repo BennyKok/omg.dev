@@ -7,6 +7,7 @@ import { TranscriptRow, type TranscriptItem } from "../src/omg/transcript";
 import { virtualTranscriptBodiesSupported } from "../src/omg/transcript-body";
 import { useLucideFont } from "../src/omg/lucide";
 
+const RUN_ID = process.env.EXPO_PUBLIC_OMG_TRANSCRIPT_RUN_ID;
 const REPORT = "http://localhost:8098/result";
 const COUNT = 40;
 const DURATION = 16000;
@@ -61,7 +62,7 @@ function Trial({ optimized, trial, done }: { optimized: boolean; trial: number; 
       timer = setInterval(() => {
         received++;
         const update = () => setTick(received);
-        if (optimized) startTransition(update); else update();
+        startTransition(update);
       }, 50);
       const distance = Math.max(0, extent.current - viewport.current);
       for (let leg = 0; leg < 4; leg++) {
@@ -73,7 +74,7 @@ function Trial({ optimized, trial, done }: { optimized: boolean; trial: number; 
       cancelAnimationFrame(raf);
       measuring.value = false;
       active.current = false;
-      const result = { trial, optimized, nativeVirtualView: virtualTranscriptBodiesSupported, platform: Platform.OS, dev: __DEV__, rows: COUNT, durationMs: performance.now() - begin, updatesReceived: received, mountAndWarmupMs, react: render.current, ui: frames.value, js: { count: js.length, p50: quantile(js, .5), p95: quantile(js, .95), max: Math.max(...js), over25: js.filter(x => x > 25).length, over50: js.filter(x => x > 50).length }, distance };
+      const result = { runId: RUN_ID, trial, optimized, nativeVirtualView: virtualTranscriptBodiesSupported, platform: Platform.OS, dev: __DEV__, rows: COUNT, durationMs: performance.now() - begin, updatesReceived: received, mountAndWarmupMs, react: render.current, ui: frames.value, js: { count: js.length, p50: quantile(js, .5), p95: quantile(js, .95), max: Math.max(...js), over25: js.filter(x => x > 25).length, over50: js.filter(x => x > 50).length }, distance };
       setStatus("Recorded");
       try { await fetch(REPORT, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(result) }); }
       catch (error) { console.error("BENCH_REPORT_FAILED", error); }
@@ -82,9 +83,12 @@ function Trial({ optimized, trial, done }: { optimized: boolean; trial: number; 
     })();
     return () => { cancelled = true; active.current = false; measuring.value = false; clearInterval(timer); cancelAnimationFrame(raf); };
   }, []);
-  // The session screen rebuilds item wrappers when each draft arrives. Keep
-  // message content fixed except for the streaming tail, as it does there.
-  const data = fixture.map((item, i) => item.type === "message" ? { ...item, message: i === COUNT - 1 ? { ...item.message, streaming: true, text: markdown(i) + `\n\nDelta ${tick}` } : item.message } : item);
+  // Isolate stable row identity. Both modes use the same body renderer,
+  // transition priority, mounted count, and scroll path.
+  const data = fixture.map((item, i) => item.type === "message"
+    ? i === COUNT - 1 ? { ...item, message: { ...item.message, streaming: true, text: markdown(i) + `\n\nDelta ${tick}` } }
+      : optimized ? item : { ...item }
+    : item);
   return <View style={{ flex: 1, backgroundColor: "#fff", paddingTop: 60 }}>
     <Text style={{ padding: 12, color: "#111" }}>Trial {trial + 1}/{ORDER.length} · {optimized ? "Optimized" : "Baseline"} · {status}</Text>
     <Profiler id="transcript" onRender={(_, __, ms) => { if (active.current) { render.current.count++; render.current.ms += ms; } }}>
@@ -94,7 +98,7 @@ function Trial({ optimized, trial, done }: { optimized: boolean; trial: number; 
         onContentSizeChange={(_, h) => { extent.current = h; }}
         keyExtractor={item => item.key}
         contentContainerStyle={{ padding: 20 }}
-        renderItem={({ item }) => <View style={{ paddingBottom: 12 }}><TranscriptRow item={item} virtualize={optimized} /></View>}
+        renderItem={({ item }) => <View style={{ paddingBottom: 12 }}><TranscriptRow item={item} virtualize={false} /></View>}
       />
     </Profiler>
   </View>;

@@ -1,3 +1,5 @@
+import { entryKey, isInterruptedTurn } from "./transcript-items";
+export { buildTranscriptItems } from "./transcript-items";
 /**
  * The transcript, rendered per message KIND rather than as one stream of prose.
  *
@@ -44,7 +46,7 @@ import * as Clipboard from "expo-clipboard";
 import MenuView, { type MenuAction } from "@expo/ui/community/menu";
 import * as Haptics from "expo-haptics";
 import type { AndroidSymbol, SFSymbol } from "expo-symbols";
-import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Animated,
   Platform,
@@ -192,8 +194,6 @@ export function transcriptSpeaker(item: TranscriptItem): string {
   return "system";
 }
 
-const isCall = (message?: Entry) => message?.kind === "tool_use";
-const isResult = (message?: Entry) => message?.kind === "tool_result";
 
 /** Code voice, matching markdown.tsx. Kept local because that module owns its own. */
 const MONO = Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" });
@@ -227,115 +227,6 @@ const ATTACHMENT_TILE = 150;
 
 const isThought = (message?: Entry) => message?.kind === "thinking";
 
-/** A pause long enough to earn a stamp between groups. Messages uses about an hour; this is a working chat. */
-const STAMP_GAP_MS = 15 * 60_000;
-/**
- * A RUN ARRIVES FOLDED. The machine sends every stretch of thoughts and tool
- * calls as one message of kind `work` carrying its `steps` — the `workRows`
- * capability, declared on the socket URL in transport.ts and on the page
- * fetch in app/session/[id].tsx. The rule is src/transcript-rows.ts in the
- * lfg repository, and it runs there: this screen no longer decides what a run
- * is. A `work` row is a run, two adjacent ones are one run (a page seam), and
- * a row with no steps was withdrawn and draws nothing.
- *
- * A raw tool call or thought — from a machine whose server predates the
- * capability — lands on its own readable row rather than being folded here,
- * so there is one copy of the rule and it is not this one.
- *
- * `busy` marks the run at the end of the transcript as live: its label counts
- * up until the agent moves on.
- */
-export function buildTranscriptItems(
-  messages: Entry[],
-  options: { busy?: boolean } = {},
-): TranscriptItem[] {
-  const items: TranscriptItem[] = [];
-  let index = 0;
-  let lastStampTs: number | null = null;
-
-  /** One stamp per pause: the first row, then any row more than STAMP_GAP_MS after the last stamp. */
-  const stamp = (ts: number | null | undefined, key: string) => {
-    if (!ts) return;
-    if (lastStampTs !== null && ts - lastStampTs < STAMP_GAP_MS) return;
-    lastStampTs = ts;
-    items.push({ type: "stamp", key: `stamp-${key}`, ts });
-  };
-
-  const pushMessage = (message: Entry, at: number) => {
-    const key = entryKey(message, at);
-    stamp(message.ts, key);
-    items.push({
-      type: "message",
-      key,
-      message,
-      nextTs: messages[at + 1]?.ts ?? null,
-    });
-  };
-
-  while (index < messages.length) {
-    const message = messages[index];
-    // Claude's steering marker carries no words a person wrote. It used to be
-    // an "Interrupted" line; now it is not a row at all.
-    if (isInterruptedTurn(message)) {
-      index += 1;
-      continue;
-    }
-    if (message.kind !== "work") {
-      pushMessage(message, index);
-      index += 1;
-      continue;
-    }
-    let end = index;
-    const run: Entry[] = [];
-    while (end < messages.length && messages[end].kind === "work") {
-      run.push(...(messages[end].steps ?? []));
-      end += 1;
-    }
-    if (run.length) {
-      const tools = run.filter((entry) => !isThought(entry));
-      const key = `tools-${entryKey(message, index)}`;
-      stamp(message.ts, key);
-      items.push({
-        type: "tools",
-        key,
-        pairs: buildToolPairs(tools, index),
-        entries: run,
-        nextTs: messages[end]?.ts ?? null,
-        live: !!options.busy && end === messages.length,
-      });
-    }
-    index = end;
-  }
-
-  return items;
-}
-
-/** See the file header: adjacency only, and only when the call stands alone. */
-function buildToolPairs(run: Entry[], offset: number): ToolPair[] {
-  const pairs: ToolPair[] = [];
-  for (let i = 0; i < run.length; i += 1) {
-    const message = run[i];
-    const key = entryKey(message, offset + i);
-    if (!isCall(message)) {
-      pairs.push({ key, call: null, result: message });
-      continue;
-    }
-    const solitary = !isCall(run[i - 1]) && !isCall(run[i + 1]);
-    if (solitary && isResult(run[i + 1])) {
-      pairs.push({ key, call: message, result: run[i + 1] });
-      i += 1;
-      continue;
-    }
-    pairs.push({ key, call: message, result: null });
-  }
-  return pairs;
-}
-
-/** Ids are nullable on the wire, so position is the fallback that keeps keys unique. */
-function entryKey(message: Entry, index: number): string {
-  return message.localKey ?? message.id ?? `${message.kind ?? message.role ?? "msg"}-${index}`;
-}
-
 /**
  * ROWS ARRIVE, THEY DO NOT APPEAR.
  *
@@ -354,7 +245,7 @@ function entryKey(message: Entry, index: number): string {
  * above it grows — a streaming reply gaining a paragraph, a thinking block
  * resolving into text.
  */
-export function TranscriptRow({
+export const TranscriptRow = memo(function TranscriptRow({
   item,
   fresh,
   bot,
@@ -400,7 +291,7 @@ export function TranscriptRow({
       )}
     </Reanimated.View>
   );
-}
+});
 
 /** The centred time between groups of rows. */
 function Stamp({ ts }: { ts: number }) {
@@ -729,10 +620,6 @@ function ToolStepHeader({
  * is the same rule, matched to `isRequestInterruptedMessage` in
  * web/src/lib/transcript-status.ts so the two cannot drift.
  */
-function isInterruptedTurn(message: Entry): boolean {
-  if (message.role !== "user") return false;
-  return /^\[Request interrupted by user(?: for tool use)?\]$/i.test((message.text ?? "").trim());
-}
 
 export function TranscriptEntry({
   message,
