@@ -2,7 +2,14 @@
 
 Recent product updates and deployment notes.
 
-## September 20, 2026 - Faster mobile sessions
+## September 20, 2026 - Session names that describe the session (v0.6.81)
+
+- A session name is now written from three turns: the first request, the most recent request, and the most recent reply. Before, only the first message was read. A session continued from another one was named after the continue instruction, so it read "Review auto-rename feature status" instead of naming the work.
+- Settings > More > View has a new choice, "Name sessions with AI". "On" names a new session and keeps Rename with AI. "Manual" only names a session when you pick Rename with AI, so nothing is sent while a session starts. "Off" turns both off and hides the menu row on web and iOS.
+- A self-hosted Computer now names a new session when it starts. This worked only on a hosted Computer before.
+- Text that looks like a key, a token, a password, or a private key is removed before a name is requested. Tool output is never read for a name.
+
+## September 20, 2026 - Faster mobile sessions (v0.6.81)
 
 - Streaming replies reuse completed transcript rows, which reduces work while you read or scroll.
 - Home mounts a window of session rows and pauses activity animations outside the visible area.
