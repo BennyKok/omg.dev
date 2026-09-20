@@ -1796,6 +1796,19 @@ async function installOpencodeMcp(args: string[]): Promise<void> {
   const path = join(userHome(), ".config", "opencode", "opencode.json");
   await mkdir(dirname(path), { recursive: true });
   mergeJsonConfig(path, (current) => withOpencodeOmgMcp(current, args));
+  await warmOpencodeDb(opencodePath());
+}
+
+// Every OpenCode command runs the SQLite migrations on its data DB, and there
+// is no lock around them. On a fresh account the first `opencode serve`,
+// `opencode mcp list` (status check) and `opencode models` (discovery) can
+// overlap, and the loser dies at boot with `CREATE TABLE workspace ... already
+// exists` (reproduced with three concurrent `opencode mcp list` on an empty
+// XDG_DATA_HOME). Run one cheap command here, during setup, so the schema
+// exists before any session or probe starts. Takes about 2 s on a fresh DB.
+export async function warmOpencodeDb(opencode: string | null): Promise<void> {
+  if (!opencode) return;
+  await commandOutputAsync([opencode, "mcp", "list"]);
 }
 
 function installGrokMcp(grok: string, args: string[]): void {
