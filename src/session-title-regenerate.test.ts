@@ -13,7 +13,7 @@ function deps(overrides: Partial<RegenerateSessionTitleDeps> = {}): {
     deps: {
       aiAvailable: () => true,
       resolveTranscript: async () => "/tmp/transcript.jsonl",
-      firstUserText: async () => "Please fix the mobile session list overflow",
+      digestRows: async () => ({ firstUser: "Please fix the mobile session list overflow" }),
       generate: async () => "Fix Mobile Session Overflow",
       setTitle: async (sessionId, title) => {
         written.push({ sessionId, title });
@@ -24,7 +24,7 @@ function deps(overrides: Partial<RegenerateSessionTitleDeps> = {}): {
 }
 
 describe("regenerateSessionTitle", () => {
-  test("titles the session from its first prompt and persists the result", async () => {
+  test("titles the session from its digest and persists the result", async () => {
     const seen: string[] = [];
     const h = deps({
       generate: async (prompt) => {
@@ -36,7 +36,7 @@ describe("regenerateSessionTitle", () => {
     const result = await regenerateSessionTitle(SID, h.deps);
 
     expect(result).toEqual({ ok: true, title: "Fix Mobile Session Overflow" });
-    expect(seen).toEqual(["Please fix the mobile session list overflow"]);
+    expect(seen).toEqual(["First request: Please fix the mobile session list overflow"]);
     expect(h.written).toEqual([{ sessionId: SID, title: "Fix Mobile Session Overflow" }]);
   });
 
@@ -64,10 +64,10 @@ describe("regenerateSessionTitle", () => {
     expect(h.written).toEqual([]);
   });
 
-  test("a blank first prompt is not sent to the model", async () => {
+  test("a blank digest is not sent to the model", async () => {
     let called = false;
     const h = deps({
-      firstUserText: async () => "   ",
+      digestRows: async () => ({ firstUser: "   ", lastUser: null, lastAssistant: null }),
       generate: async () => {
         called = true;
         return "Whatever";

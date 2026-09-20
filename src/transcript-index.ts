@@ -1421,40 +1421,51 @@ export function enqueueTranscriptIndex(path: string, sessionId: string): void {
 const pageTotalCache = new Map<string, { offset: number; total: number }>();
 
 /**
- * The earliest human turn in a transcript, for automatic titling.
+ * The three turns an automatic title is generated from.
  *
  * `firstUserTextFromTop` reads the raw rollout and only understands Codex
  * lines, so it returns null for claude, aisdk and cursor sessions. The index
- * has already normalised every adapter into the same rows, so one ordered
- * query works for all of them.
+ * has already normalised every adapter into the same rows, so ordered queries
+ * work for all of them.
  *
  * `role = 'user'` alone is not enough: tool results are also stored under the
  * user role, and in an agent session they vastly outnumber real turns. Only
- * `kind = 'text'` is something a person typed.
+ * `kind = 'text'` is something a person typed or an agent said in prose, and
+ * restricting to it is also what keeps tool output — the part of a transcript
+ * that actually carries credentials — out of the title payload entirely.
  *
- * The text still carries the omg runtime contract prelude. Stripping that is
- * the caller's job, because `generateSessionTitle` already does it.
+ * The text still carries the omg runtime contract prelude and, on a continued
+ * session, the continue envelope. Unwrapping and redacting both is the
+ * caller's job; `buildSessionTitleDigest` does it.
  */
-export async function firstIndexedUserText(
+export async function indexedTitleDigestRows(
   path: string,
   sessionId: string,
-): Promise<string | null> {
+): Promise<{ firstUser: string | null; lastUser: string | null; lastAssistant: string | null }> {
   init();
   await importTranscriptForRead(path, sessionId);
-  const row = database()
-    .query<{ text: string | null }, [string]>(`
+  const d = database();
+  const pick = (role: "user" | "assistant", order: "ASC" | "DESC"): string | null => {
+    const row = d
+      .query<{ text: string | null }, [string, string]>(`
         SELECT m.text
         FROM transcript_messages m
         WHERE m.path = ?
-          AND m.role = 'user'
+          AND m.role = ?
           AND m.kind = 'text'
           AND m.text IS NOT NULL
           AND trim(m.text) <> ''
-        ORDER BY m.order_seq ASC, m.rowid ASC
+        ORDER BY m.order_seq ${order}, m.rowid ${order}
         LIMIT 1
       `)
-    .get(path);
-  return row?.text?.trim() || null;
+      .get(path, role);
+    return row?.text?.trim() || null;
+  };
+  return {
+    firstUser: pick("user", "ASC"),
+    lastUser: pick("user", "DESC"),
+    lastAssistant: pick("assistant", "DESC"),
+  };
 }
 
 export async function indexedMessagePage(

@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { cloudApiBaseUrl, loadCloudCredentials, type FetchLike } from "./cloud-account.ts";
 import { OMG_CHEAPEST_MODEL } from "./omg-models.ts";
 import { stripOmgRuntimeContract } from "./omg-capabilities.ts";
+import { redactSecrets } from "./redact-secrets.ts";
+import { unwrapContinueSessionPrompt } from "./session-continue-prompt.ts";
 
 export const SESSION_TITLE_MODEL = OMG_CHEAPEST_MODEL.replace(/^omg\//, "");
 const TITLE_MAX = 72;
@@ -24,6 +26,25 @@ const PROMPT_MAX = 2_000;
  */
 const TITLE_MAX_TOKENS = 512;
 const TITLE_REASONING = { effort: "none" } as const;
+
+/**
+ * Everything that must happen to text before it is sent to the title model.
+ *
+ * Both callers go through here, which is the point. The spawn-time path gets
+ * the raw launch prompt and the manual path gets an assembled digest, and both
+ * can carry a runtime contract, a continue envelope, or a credential. Doing
+ * this in one place means a caller cannot forget a step; in particular
+ * redaction is not optional and is not left to the caller.
+ *
+ * `buildSessionTitleDigest` already applies the same three steps per turn.
+ * They are idempotent, so running them again on the assembled string costs a
+ * few string operations and removes the question of which layer is
+ * responsible.
+ */
+function prepareTitleInput(raw: string): string {
+  const unwrapped = unwrapContinueSessionPrompt(stripOmgRuntimeContract(raw));
+  return redactSecrets(unwrapped).replace(/\s+/g, " ").trim().slice(0, PROMPT_MAX);
+}
 
 type AutoTitleOptions = {
   env?: Record<string, string | undefined>;
@@ -74,7 +95,7 @@ export async function generateSessionTitle(
   options: AutoTitleOptions = {},
 ): Promise<string | null> {
   if (!prompt) return null;
-  const task = stripOmgRuntimeContract(prompt).replace(/\s+/g, " ").trim().slice(0, PROMPT_MAX);
+  const task = prepareTitleInput(prompt);
   if (!task) return null;
   const endpoint = titleEndpoint(options);
   if (!endpoint) return null;
