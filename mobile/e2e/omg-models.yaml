@@ -45,6 +45,16 @@ onFlowStart:
     start: 90%, 77%
     end: 15%, 77%
 - tapOn: "omg agent"
+# The app remembers the last omg model per machine, so put it on a known one
+# before asserting anything about it.
+- extendedWaitUntil:
+    visible: 'Model .*\. Change model'
+    timeout: 10000
+- tapOn: 'Model .*\. Change model'
+- extendedWaitUntil:
+    visible: "Search 13 models"
+    timeout: 10000
+- tapOn: "DeepSeek V4 Flash"
 - extendedWaitUntil:
     visible: "Model DeepSeek V4 Flash.*"
     timeout: 10000
