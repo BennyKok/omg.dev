@@ -31,7 +31,7 @@ export function BrowserLoginCard({ sessionId, user }: { sessionId: string | null
       <div className="font-medium">Sign in to {new URL(request.origin).hostname}</div>
       <p className="mt-1 text-muted-foreground">{request.reason}</p>
       <p className="text-muted-foreground">Login for {request.computerName}</p>
-      <p className="mt-2">{done ? request.message : request.status === "importing" ? "Transferring login…" : request.status === "in_progress" ? "Login is open on a device." : state?.iosAvailable ? "Open this chat in the iOS app and tap Sign in on iPhone." : "Sign in from this chat in the latest iOS app, or use the Computer below."}</p>
+      <p className="mt-2">{done ? request.message : request.status === "importing" ? "Transferring login…" : request.status === "in_progress" ? "Login is open on a device." : state?.iosAvailable ? "Open this chat in the iOS app and tap the website login button." : "Sign in from this chat in the latest iOS app, or use the Computer below."}</p>
       {!done && <div className="mt-2 flex gap-4">
         <button className="font-medium text-primary" onClick={() => setShowComputer(true)}>Open Computer</button>
         <button disabled={request.status === "importing"} className="text-muted-foreground" onClick={async () => {

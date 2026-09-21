@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AppState, Pressable, View } from "react-native";
+import { AppState, Image, Pressable, View } from "react-native";
 import * as Crypto from "expo-crypto";
 import type { BrowserLoginRequest, BrowserLoginSnapshot } from "../../../packages/protocol/src/browser-login";
 import { browserLoginNative } from "./browser-login-native";
@@ -7,6 +7,18 @@ import { useOmg } from "./provider";
 import { useTheme } from "./theme";
 import { Text } from "./text";
 import type { OmgTransport } from "@omg-dev/client";
+
+function WebsiteIcon({ origin }: { origin: string }) {
+  const { colors } = useTheme();
+  const [failed, setFailed] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const host = new URL(origin).hostname;
+  return <View style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: colors.muted, alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+    {failed ? <Text accessibilityLabel={`${host} website`} style={{ color: colors.mutedForeground, fontSize: 20, fontWeight: "600" }}>{host.replace(/^www\./, "").charAt(0).toUpperCase()}</Text>
+      : <Image source={{ uri: `${origin}/favicon.ico` }} accessible accessibilityLabel={loaded ? `${host} icon` : "Loading website icon"}
+        onLoad={() => setLoaded(true)} onError={() => setFailed(true)} resizeMode="contain" style={{ width: 28, height: 28 }} />}
+  </View>;
+}
 
 export function BrowserLoginCard({ sessionId }: { sessionId: string | null }) {
   const { client, user } = useOmg();
@@ -82,7 +94,13 @@ export function BrowserLoginPanel({ sessionId, transport, email }: {
   if (!request && !error) return null;
   return <View testID="browser-login-card" style={{ backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1, borderRadius: 16, padding: 14, gap: 8 }}>
     {request && <>
-      <Text style={{ color: colors.foreground, fontSize: 16, fontWeight: "600" }}>{new URL(request.origin).hostname}</Text>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+        <WebsiteIcon key={request.origin} origin={request.origin} />
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text style={{ color: colors.foreground, fontSize: 16, fontWeight: "600" }}>{new URL(request.origin).hostname}</Text>
+          <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>Website login</Text>
+        </View>
+      </View>
       <Text style={{ color: colors.mutedForeground }}>{request.reason}</Text>
       <Text style={{ color: colors.mutedForeground }}>Login for {request.computerName}</Text>
       {request.status === "imported" ? <Text style={{ color: colors.success }}>{request.agentNotified ? "Login transferred. The agent has been notified." : "Login transferred. Tell the agent to check the page."}</Text>
@@ -90,9 +108,9 @@ export function BrowserLoginPanel({ sessionId, transport, email }: {
         : <>
           <Text style={{ color: colors.mutedForeground }}>{busy || request.status === "importing" ? "Transferring login…" : request.status === "in_progress" ? "Login is open on a device." : "Sign in, then choose whether to share this login with your computer."}</Text>
           {!browserLoginNative && <Text style={{ color: colors.mutedForeground }}>Update the iOS app to sign in here, or use the web Computer view.</Text>}
-          <View style={{ flexDirection: "row", gap: 16 }}>
-            {!!browserLoginNative && request.status === "pending" && <Pressable accessibilityRole="button" testID="browser-login-open" disabled={busy} onPress={() => void open(request)} style={{ paddingVertical: 10 }}>
-              <Text style={{ color: colors.primary, fontWeight: "600" }}>Sign in on iPhone</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 16, marginTop: 4 }}>
+            {!!browserLoginNative && request.status === "pending" && <Pressable accessibilityRole="button" testID="browser-login-open" disabled={busy} onPress={() => void open(request)} style={{ flex: 1, minHeight: 44, paddingVertical: 12, paddingHorizontal: 14, borderRadius: 12, backgroundColor: colors.primary, opacity: busy ? 0.6 : 1, justifyContent: "center" }}>
+              <Text style={{ color: colors.primaryForeground, fontWeight: "600", textAlign: "center" }}>Log in to {new URL(request.origin).hostname}</Text>
             </Pressable>}
             <Pressable accessibilityRole="button" disabled={busy || request.status === "importing"} onPress={() => {
               void post(request.id, "cancel").then(refresh).catch(() => setError("Could not cancel. Try again."));

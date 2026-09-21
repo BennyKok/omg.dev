@@ -35,6 +35,7 @@ const web = Bun.serve({
   tls: { cert: Bun.file(join(dir, "cert.pem")), key: Bun.file(join(dir, "key.pem")) },
   fetch(req) {
     const path = new URL(req.url).pathname;
+    if (path === "/favicon.ico") return new Response(Bun.file(new URL("../mobile/assets/icon.png", import.meta.url)), { headers: { "Content-Type": "image/png" } });
     if (path === "/sign-in") return new Response(null, { status: 302, headers: {
       Location: "/", "Set-Cookie": `__Host-session=${secret}; Path=/; HttpOnly; Secure; SameSite=Lax`,
     } });

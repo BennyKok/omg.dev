@@ -6,16 +6,17 @@
   "steps": [
     {
       "name": "Login request",
-      "goal": "Read the website login request",
-      "done": "The request has a Sign in on iPhone button",
+      "goal": "Wait for the website login card to appear. Only observe the card. Do not tap any button in this step.",
+      "done": "The website login request card is visible. No action is needed.",
       "expect": [
-        "Sign in on iPhone",
+        "127.0.0.1.nip.io icon",
+        "Log in to 127.0.0.1.nip.io",
         "Login for Test Computer"
       ]
     },
     {
       "name": "Native browser",
-      "goal": "Open the native browser by tapping Sign in on iPhone only if the card is still visible. Once Website login is visible, wait for the test page. Do not tap Use login or Transfer login in this step.",
+      "goal": "Open the native browser by tapping Log in to 127.0.0.1.nip.io only if the card is still visible. Once the native browser navigation bar with Use login is visible, wait for the test page. Do not tap Use login or Transfer login in this step.",
       "done": "The native browser is open: its title is Website login and the page has a Sign in to test site link. This step does not sign in or transfer anything.",
       "expect": [
         "Website login",
