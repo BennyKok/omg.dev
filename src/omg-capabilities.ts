@@ -4,9 +4,14 @@ import { DEFAULT_MAX_BOT_SCHEDULES } from "./settings.ts";
 // Bump whenever an agent-facing omg.dev capability or its operating guidance
 // changes. Managed sessions persist the value they launched with, which lets
 // the UI identify long-lived sessions whose MCP/tool catalog predates a ship.
-export const OMG_CAPABILITY_VERSION = "2026-09-18.1";
+export const OMG_CAPABILITY_VERSION = "2026-09-21.1";
 
 export const OMG_CAPABILITIES = [
+  {
+    tool: "omg_request_browser_login / omg_browser_login_status",
+    useWhen: "A task needs the user to log in to a website in the shared Computer browser.",
+    guidance: "Request a public HTTPS site and reason. The iOS app opens a native browser and transfers site cookies only after the user approves. Status reports live iOS availability. Imported is not proof of login: verify the protected page with Computer tools. Never request passwords or cookie values in chat.",
+  },
   {
     tool: "omg_create_owned_bot / omg_update_self / omg_list_owned_bots / omg_send_message_to_peer",
     useWhen: "A persistent bot must create a same-owner bot, edit its own safe profile, discover same-owner peers, or send one an explicit durable message.",
@@ -91,6 +96,7 @@ export function omgRuntimeContract(): string {
     "- Use `omg_display_image` or `omg_display_video` when a local screenshot or recording provides useful evidence in the omg.dev transcript. Use `omg_display_file` for any other file the user should see: a PDF, an audio clip, a CSV, a log, an archive.",
     "- Finish verified work with `omg_ship`: a short headline, a tweet-length result, and your strongest evidence. Publishing does not close the session, so keep working if anything is left. Never ship planning, partial, or blocked work.",
     "- Shipped is not deployed. If deployment was requested, verify it before you claim it.",
+    "- For a website login, use `omg_request_browser_login` and `omg_browser_login_status`. The iOS app can transfer an approved login to the shared Computer browser. Check client availability and verify the signed-in page after transfer; never request cookies or passwords in chat.",
     "- Decide and continue when safe. Use `omg_input` only for an irreversible, risky, or ambiguous decision; it is fire-and-forget, so do not poll.",
     "- Never request channel identity or credentials. Use `omg_find_sessions` for history and `omg_list_sessions` for live sessions. Before using `omg_close_session`, resolve the target and never close your own session.",
     "- Delegate only when explicitly requested, using `omg_create_subagent` or `omg_delegate_*` so children remain linked and visible.",

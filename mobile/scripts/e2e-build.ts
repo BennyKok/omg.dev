@@ -91,13 +91,17 @@ async function rsync(from: string, to: string, excludes: string[] = []) {
  * `scheme` is the Xcode scheme `expo prebuild` generates from the app name.
  */
 export async function buildSimulatorApp(): Promise<string> {
+  const testEntry = process.env.OMG_E2E_ENTRY_FILE;
+  if (testEntry && !/^scripts\/[a-z0-9-]+-e2e-entry\.tsx$/.test(testEntry)) {
+    throw new Error("OMG_E2E_ENTRY_FILE must name a scripts/*-e2e-entry.tsx harness");
+  }
   const started = Date.now();
   console.log("Syncing the source to the Mac...");
   await sh(["ssh", "-o", "BatchMode=yes", HOST, `mkdir -p ~/${REMOTE_SRC}/mobile ~/${REMOTE_SRC}/packages/protocol`]);
   await rsync(`${LOCAL_MOBILE}`, `${REMOTE_SRC}/mobile/`, [
     "node_modules",
-    "ios",
-    "android",
+    "/ios",
+    "/android",
     ".expo",
     "e2e/*.mp4",
   ]);
@@ -111,6 +115,9 @@ export async function buildSimulatorApp(): Promise<string> {
     // The native project is kept between runs; regenerate it only when it is
     // gone. `expo prebuild` rewrites ios/ and would throw away DerivedData.
     'if [ ! -d ios ]; then npx expo prebuild --platform ios --no-install; (cd ios && pod install); fi',
+    // An explicit simulator harness tests native UI against local fixtures.
+    // An ordinary build always keeps the normal Expo Router entry point.
+    ...(testEntry ? [`export ENTRY_FILE="$PWD/${testEntry}"`] : []),
     "cd ios",
     'xcodebuild -workspace omg.xcworkspace -scheme omg -configuration Release ' +
       '-sdk iphonesimulator -destination "generic/platform=iOS Simulator" ' +

@@ -22,6 +22,24 @@
 //     long-lived view and activate its target so the tab is the visible one.
 
 import { cdpWebSocketUrl, desktopStatus } from "./desktop.ts";
+import type { BrowserLoginCookie } from "../../packages/protocol/src/browser-login";
+
+/** Import only cookies already validated against the user's approved origin. */
+export async function importBrowserLogin(url: string, cookies: BrowserLoginCookie[]): Promise<void> {
+  const v = await agentView();
+  await transferBrowserLogin(v, url, cookies);
+  await captureViewTarget(v);
+}
+
+export async function transferBrowserLogin(v: Pick<WebViewLike, "navigate" | "cdp">, url: string, cookies: BrowserLoginCookie[]): Promise<void> {
+  await v.navigate(new URL(url).origin);
+  await v.cdp("Network.setCookies", { cookies: cookies.map(({ domain, ...cookie }) => ({
+    ...cookie,
+    // CDP's URL form preserves host-only cookies, including __Host- cookies.
+    ...(domain.startsWith(".") ? { domain } : { url: `https://${domain}${cookie.path}` }),
+  })) });
+  await v.navigate(url);
+}
 
 // Bun.WebView is newer than the bundled bun-types in some checkouts, and the
 // API is still marked experimental upstream. Keep the surface we use behind one

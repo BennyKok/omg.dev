@@ -101,6 +101,22 @@ async function listToolNames(): Promise<string[]> {
 }
 
 describe("caller identity over the shared MCP endpoint", () => {
+  test("browser login tools inherit the caller and never expose an import tool", async () => {
+    const names = await listToolNames();
+    expect(names).toContain("omg_request_browser_login");
+    expect(names).toContain("omg_browser_login_status");
+    expect(names).not.toContain("omg_import_cookies");
+    const requests: Array<{ url: string; body: any; caller: string | null }> = [];
+    globalThis.fetch = (async (url: any, init?: RequestInit) => {
+      requests.push({ url: String(url), body: init?.body ? JSON.parse(String(init.body)) : null, caller: new Headers(init?.headers).get("x-omg-caller-session-id") });
+      return Response.json({ requests: [] });
+    }) as typeof fetch;
+    expect((await callTool("omg_request_browser_login", { url: "https://example.com", reason: "Read my dashboard" }, { session: SESSION })).isError).toBe(false);
+    expect(requests.at(-1)?.body.sessionId).toBe(SESSION);
+    expect(requests.at(-1)?.caller).toBe(SESSION);
+    expect((await callTool("omg_browser_login_status", {}, { session: SESSION })).isError).toBe(false);
+    expect(requests.at(-1)?.url).toContain(`/api/browser-login?sessionId=${SESSION}`);
+  });
   test("input questions inherit the calling session owner", async () => {
     const requests: Array<{ url: string; method: string; body: unknown }> = [];
     globalThis.fetch = (async (

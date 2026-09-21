@@ -1,0 +1,105 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AppState, Pressable, View } from "react-native";
+import * as Crypto from "expo-crypto";
+import type { BrowserLoginRequest, BrowserLoginSnapshot } from "../../../packages/protocol/src/browser-login";
+import { browserLoginNative } from "./browser-login-native";
+import { useOmg } from "./provider";
+import { useTheme } from "./theme";
+import { Text } from "./text";
+import type { OmgTransport } from "@omg-dev/client";
+
+export function BrowserLoginCard({ sessionId }: { sessionId: string | null }) {
+  const { client, user } = useOmg();
+  return <BrowserLoginPanel key={`${sessionId}:${user?.email}`} sessionId={sessionId} transport={client?.transport ?? null} email={user?.email} />;
+}
+
+export function BrowserLoginPanel({ sessionId, transport, email }: {
+  sessionId: string | null; transport: Pick<OmgTransport, "request"> | null; email?: string;
+}) {
+  const { colors } = useTheme();
+  const [requests, setRequests] = useState<BrowserLoginRequest[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [clientId] = useState(() => Crypto.randomUUID());
+  const mounted = useRef(true);
+  const suffix = `?sessionId=${encodeURIComponent(sessionId ?? "")}&user=${encodeURIComponent(email ?? "")}`;
+  const refresh = useCallback(async () => {
+    if (!transport || !sessionId || AppState.currentState !== "active") return;
+    try {
+      const data = await transport.request<BrowserLoginSnapshot>(`/api/browser-login${suffix}`);
+      if (mounted.current) setRequests(data.requests ?? []);
+    } catch { /* Older computers do not have this endpoint. */ }
+  }, [transport, sessionId, suffix]);
+  useEffect(() => {
+    mounted.current = true;
+    setRequests([]);
+    const presence = async () => {
+      if (!transport || !sessionId) return;
+      await transport.request(`/api/browser-login/clients${suffix}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientId, supported: !!browserLoginNative && AppState.currentState === "active" }),
+      }).catch(() => {});
+    };
+    void refresh(); void presence();
+    const poll = setInterval(() => void refresh(), 3000);
+    const lease = setInterval(() => void presence(), 15_000);
+    const app = AppState.addEventListener("change", () => { void presence(); void refresh(); });
+    return () => {
+      mounted.current = false;
+      clearInterval(poll); clearInterval(lease); app.remove();
+      void browserLoginNative?.close();
+      void transport?.request(`/api/browser-login/clients${suffix}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientId, supported: false }),
+      }).catch(() => {});
+    };
+  }, [transport, sessionId, suffix, clientId, refresh]);
+  const post = async (id: string, action: string, body: unknown = {}) => transport!.request<{ request: BrowserLoginRequest; token?: string }>(
+    `/api/browser-login/${id}/${action}${suffix}`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+  );
+  const open = async (request: BrowserLoginRequest) => {
+    if (!transport || !browserLoginNative || busy) return;
+    setBusy(true); setError(null);
+    let claimed = false;
+    try {
+      const { token } = await post(request.id, "claim"); claimed = true;
+      const result = await browserLoginNative.open(request.url, request.computerName);
+      if (result.cancelled || !mounted.current) { await post(request.id, "cancel"); return; }
+      try {
+        await post(request.id, "complete", { token, approved: true, cookies: result.cookies });
+      } finally { if (result.cookies) result.cookies.length = 0; }
+    } catch {
+      // Native/transport exceptions can include request bodies. Do not log them.
+      if (claimed) await post(request.id, "cancel").catch(() => {});
+      if (mounted.current) setError("The login could not be transferred. Ask the agent to request it again.");
+    } finally {
+      if (mounted.current) { setBusy(false); await refresh(); }
+    }
+  };
+  const visible = requests.filter(r => r.status !== "cancelled" && r.status !== "expired");
+  const request = visible[visible.length - 1];
+  if (!request && !error) return null;
+  return <View testID="browser-login-card" style={{ backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1, borderRadius: 16, padding: 14, gap: 8 }}>
+    {request && <>
+      <Text style={{ color: colors.foreground, fontSize: 16, fontWeight: "600" }}>{new URL(request.origin).hostname}</Text>
+      <Text style={{ color: colors.mutedForeground }}>{request.reason}</Text>
+      <Text style={{ color: colors.mutedForeground }}>Login for {request.computerName}</Text>
+      {request.status === "imported" ? <Text style={{ color: colors.success }}>{request.agentNotified ? "Login transferred. The agent has been notified." : "Login transferred. Tell the agent to check the page."}</Text>
+        : request.status === "failed" ? <Text style={{ color: colors.destructive }}>{request.message}</Text>
+        : <>
+          <Text style={{ color: colors.mutedForeground }}>{busy || request.status === "importing" ? "Transferring login…" : request.status === "in_progress" ? "Login is open on a device." : "Sign in, then choose whether to share this login with your computer."}</Text>
+          {!browserLoginNative && <Text style={{ color: colors.mutedForeground }}>Update the iOS app to sign in here, or use the web Computer view.</Text>}
+          <View style={{ flexDirection: "row", gap: 16 }}>
+            {!!browserLoginNative && request.status === "pending" && <Pressable accessibilityRole="button" testID="browser-login-open" disabled={busy} onPress={() => void open(request)} style={{ paddingVertical: 10 }}>
+              <Text style={{ color: colors.primary, fontWeight: "600" }}>Sign in on iPhone</Text>
+            </Pressable>}
+            <Pressable accessibilityRole="button" disabled={busy || request.status === "importing"} onPress={() => {
+              void post(request.id, "cancel").then(refresh).catch(() => setError("Could not cancel. Try again."));
+            }} style={{ paddingVertical: 10 }}><Text style={{ color: colors.mutedForeground }}>Cancel</Text></Pressable>
+          </View>
+        </>}
+    </>}
+    {error && <Text accessibilityRole="alert" style={{ color: colors.destructive }}>{error}</Text>}
+  </View>;
+}

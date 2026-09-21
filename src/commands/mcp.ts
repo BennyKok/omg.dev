@@ -1429,6 +1429,24 @@ export function buildOmgMcpServer(): McpServer {
     },
   );
 
+  server.registerTool("omg_request_browser_login", {
+    title: "Request Website Login",
+    description: "Ask the user to sign in to a website in the omg iOS app and approve transfer to this Computer's Chrome. Returns a request ID and whether a compatible iOS client is active. Never ask for passwords or cookies in chat. After transfer, verify the signed-in page with Computer tools; imported does not mean authenticated. This uses the shared Computer browser, not a separate browser you launched.",
+    inputSchema: {
+      url: z.string().url().describe("Public HTTPS website to sign in to. Do not include credentials."),
+      reason: z.string().min(1).max(500).describe("Why this task needs access to this website."),
+    },
+  }, async ({ url, reason }) => {
+    const sessionId = await activeSessionId();
+    return result(await api("/api/browser-login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId, url, reason }) }));
+  });
+
+  server.registerTool("omg_browser_login_status", {
+    title: "Website Login Status",
+    description: "Check this session's website login requests and live iOS availability. A transfer is not proof of authentication: inspect the protected page in the shared Computer browser after status imported. No cookies or credentials are returned. Check when the user says they finished; do not poll in a tight loop.",
+    inputSchema: {},
+  }, async () => result(await api(`/api/browser-login?sessionId=${encodeURIComponent(await activeSessionId())}`)));
+
   // ---- Auto agents ---------------------------------------------------------
   // The scheduled-agent fleet, previously reachable only from the web UI. An
   // auto agent is a prompt plus a 5-field cron expression; each run may emit at

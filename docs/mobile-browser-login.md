@@ -1,107 +1,75 @@
-# Mobile browser login and computer control
+# Website login from iPhone
 
-Research and proposed experiment, 2026-09-21. The iOS features below are not implemented.
+An agent can request a website login with `omg_request_browser_login`.
+The user opens the request in the iOS chat and taps **Sign in on iPhone**.
+The app opens a private `WKWebView`. After signing in, the user taps
+**Use login**, checks the site and target computer, and taps **Transfer login**.
+The runtime imports the approved site cookies into its shared Chrome browser.
+It then sends a status message to the requesting agent.
 
-## Current owners
+The agent must inspect the protected page before treating the login as complete.
+`imported` means cookie import succeeded. It does not prove authentication.
 
-- `web/src/views/computer-page.tsx` owns the remote desktop UI and touch input.
-- `web/src/lib/rfb-channel.ts` adapts the authenticated transport to noVNC.
-- `src/computer/` owns the desktop, RFB bridge, and agent browser control.
-- `mobile/src/omg/transport.ts` owns the phone's authenticated computer transport.
-- `mobile/app/computers.tsx` selects a computer. It does not display its desktop.
-- `mobile/src/omg/agent-connect.ts` already opens provider login flows for coding agents.
-  Those flows do not export arbitrary website sessions.
-- `src/live-ws.ts` owns live subscriptions. Its User-Agent field is for logs.
-  It does not establish an agent-facing mobile login capability.
-- Hosted identity and grants belong to `vibes`.
+## Requirements and limits
 
-## Login routes
+- Runtime v0.6.85 or later, with the Computer browser dependencies installed.
+- iOS app 1.0.12 or later. The native module requires a new binary, not an OTA.
+- A public HTTPS website. Existing Safari cookies are not read.
+- Cookies only. Local storage, passkeys, device-bound credentials, and browser
+  profiles are not transferred. Some providers reject embedded login.
+- The destination is the shared Computer Chrome profile. Agents using another
+  browser or profile will not receive the login.
+- If native login is unavailable, the web chat offers **Open Computer**.
 
-| Route | Result | Limit |
-| --- | --- | --- |
-| System login sheet (`ASWebAuthenticationSession`) | Provider callback to the app | No general Safari cookie export. Requires provider support. |
-| Safari web extension | Candidate for a user-approved transfer from Safari | Requires extension setup, host permission, and a device proof of cookie access. |
-| In-app `WKWebView` | Access to that web view's cookie store | Separate from existing Safari sessions. Some identity providers block embedded login. |
-| Remote desktop takeover | User logs in directly on the VM | No session transfer needed. Phone keyboard and pointer UX must work well. |
+## Agent tools
 
-Apple documents [authentication callbacks](https://developer.apple.com/documentation/authenticationservices/aswebauthenticationsession),
-[web-view cookie storage](https://developer.apple.com/documentation/webkit/wkhttpcookiestore),
-[iOS Safari extensions](https://developer.apple.com/documentation/safariservices/safari-web-extensions),
-[extension permissions](https://developer.apple.com/documentation/safariservices/managing-safari-web-extension-permissions),
-and [extension API differences](https://developer.apple.com/documentation/safariservices/assessing-your-safari-web-extension-s-browser-compatibility).
-Google's [OAuth policy](https://developers.google.com/identity/protocols/oauth2/policies) rules out controlled embedded user agents for its authorization flow.
+`omg_request_browser_login({url, reason})` uses the calling session. It returns
+an expiring request and whether a compatible iOS chat client is active.
+`omg_browser_login_status({})` returns that session's requests and availability.
+Neither tool returns cookie values or can approve a transfer.
 
-The extension route is a proposed experiment, not proof that a particular site's session can move.
-Cookie transfer alone can be insufficient. A site can also require browser storage or device-bound state.
-Do not promise universal login transfer.
+A successful transfer sends a new message to the agent through the existing
+session send path. If notification fails, the card asks the user to tell the
+agent. The agent can then check status. It must not poll in a tight loop.
 
-## Proposed user flow
+## Ownership
 
-1. The agent requests login for a specific HTTPS origin and target computer.
-2. The user sees the site, computer, and reason in a login card.
-3. The card offers only routes supported by the connected client.
-4. On iOS with the extension ready, offer “Continue in Safari”.
-5. After login, the user chooses “Use this login on [computer]”.
-6. The runtime imports only the approved site's session into the existing agent browser.
-7. The runtime verifies the logged-in page before reporting success to the agent.
+- `src/computer/login.ts`: request lifecycle and HTTP handler. One instance in
+  `serve` owns all state. It validates session ownership, site scope, expiry,
+  one-use claims, body limits, and transfer concurrency.
+- `src/computer/browser.ts`: import into the existing agent browser via CDP.
+- `packages/protocol/src/browser-login.ts`: shared public state and transfer DTOs.
+- `mobile/modules/omg-browser-login`: native browser sheet and explicit consent.
+- `mobile/src/omg/browser-login-card.tsx`: chat card and active-client heartbeat.
+- `web/src/components/browser-login-card.tsx`: status and Computer fallback.
+- `src/commands/mcp.ts` and `src/omg-capabilities.ts`: agent tools and guidance.
 
-Keep “Log in on this computer” as the fallback.
-On other clients, offer “Continue on iPhone” only when a paired iPhone can handle the request.
-Otherwise, an iOS setup link can be secondary. Do not block desktop login behind an install prompt.
+The native sheet creates a separate, nonpersistent cookie store per request.
+It exports matching site cookies only after consent. The server checks their
+registrable domain, including private suffixes, before CDP import.
+Cookies and claim tokens are not persisted in request state or included in
+public status. Browser cookies persist in Chrome under its normal behavior.
+Requests expire after ten minutes. Client presence expires after 45 seconds.
+A runtime restart clears requests and claims. Ask for a new login after restart.
 
-## Agent and runtime contract
+Hosted requests use the existing authenticated computer transport and trusted
+viewer header. Direct local access has the same network trust boundary as the
+rest of this runtime. Hosted identity and grants remain owned by `vibes`.
 
-Prefer an MCP operation for the action. A skill can explain when to call it.
-A skill alone cannot open a native sheet or transfer an authenticated session.
+## Verification
 
-Proposed names, not existing tools:
+Run the backend and MCP tests, web card render tests, and all three type checks.
+The native plan is `mobile/e2e/browser-login.plan.json`.
 
-- `request_browser_login(origin, reason)` returns a request ID and supported routes.
-- `browser_login_status(requestId)` returns pending, completed, cancelled, expired, or failed.
+`mobile/scripts/browser-login-e2e-entry.tsx` mounts the production card and native
+module against `scripts/browser-login-fixture.ts`. The fixture creates a login
+request through the actual MCP tool. Its HTTPS test site sets a Secure, HttpOnly
+cookie. The real runtime handler imports it into an isolated Chrome profile and
+checks the protected page. No real account or production browser is involved.
 
-Extend the authenticated live connection with explicit client capabilities.
-Examples are `remoteDesktop`, `nativeAuthCallback`, and `safariSessionTransfer`.
-Scope them to the authenticated viewer and active connection. Expire them on disconnect.
-Do not infer transfer support from “iOS” or from a saved push token.
-Account for a user with several active clients and for conversations with several users.
-
-Keep request state in one runtime owner. Bind each request to its viewer, session,
-computer, origin, and expiry. Accept a completion only once.
-Send the session material directly through the authenticated transfer path.
-Never include cookie values in tool results, transcript messages, or logs.
-Use the existing browser owner for import and verification.
-
-## iOS computer control
-
-Feasible first implementation: a dedicated Computer screen with a bundled web
-viewer inside `WKWebView`. Reuse noVNC and the existing authenticated RFB route.
-Use the current mobile transport/grant owner. Do not put durable credentials in URLs.
-The native bridge and web viewer must have a narrow, reviewed message contract.
-
-Start in view-only mode. Add explicit control, a relative trackpad, keyboard,
-paste, scrolling, right-click, and drag. Preserve input mode across taps.
-Handle rotation, keyboard insets, app backgrounding, and reconnects.
-The controlled computer is the VM. This does not mean controlling other iOS apps.
-
-## Experiment acceptance
-
-Prove the Safari extension route on one selected site and one paired computer.
-Verify a protected page in the same Chrome tab the agent uses.
-Test cancellation, expiry, replay, and a wrong-computer completion.
-Use remote takeover if the site's login cannot transfer.
-
-For a native screen implementation, add a Maestro plan and run
-`bun run test:e2e --plan <name> --record` as required by `mobile/AGENTS.md`.
-Cover repeated tap-then-drag, keyboard input, rotation, and reconnect.
-
-## Web trackpad finding
-
-The synthetic press reaches noVNC's canvas and installs its window capture proxy.
-The old synthetic release also went straight to the canvas. noVNC stops event
-propagation there, so its window proxy never released the full-screen capture layer.
-That layer intercepted the next touch above the trackpad.
-
-`dispatchComputerMouse` now sends the release through the window proxy.
-noVNC forwards it to the canvas and clears its own capture.
-The regression tests use the installed noVNC input handlers and capture layer.
-They reproduced the failure before the routing change.
+Build the simulator harness with `OMG_E2E_ENTRY_FILE=scripts/browser-login-e2e-entry.tsx`
+and a dedicated `OMG_E2E_REMOTE_SRC`. Reverse-forward fixture ports 18767 and
+19443 to the Mac, trust the fixture certificate only in the test simulator, then
+run `bun run test:e2e --plan browser-login --record`. The fixture `/proof`
+endpoint must report `verified: true` and `notified: true`.
+Normal builds use the Expo Router entry point and have no fixture transport.

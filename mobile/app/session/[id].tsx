@@ -135,6 +135,7 @@ import { DropdownMenu, type MenuOption } from "../../src/omg/menu";
 import { agentLabel as agentDisplayName } from "../../src/omg/agent-icons";
 import { usePromptDraft, stashScope } from "../../src/omg/prompt-stash";
 import { useOmg } from "../../src/omg/provider";
+import { BrowserLoginCard } from "../../src/omg/browser-login-card";
 import { SessionActivityTitle, useSessionActivity } from "../../src/omg/session-activity";
 import { useTheme } from "../../src/omg/theme";
 import { useToast } from "../../src/omg/toast";
@@ -2259,6 +2260,7 @@ function SessionScreenContent({
       >
         {/* Questions for the person, inside the floating composer — see
             QuestionCard. Ask-user rows first, then a native prompt. */}
+        <BrowserLoginCard sessionId={id ?? null} />
         {asks.map((q) => (
           <QuestionCard
             key={q.id}
