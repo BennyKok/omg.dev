@@ -618,7 +618,7 @@ export function managedLaunchRow(
     : pid
       ? tmux.targetForPid(pid) ?? `${m.tmuxName}:0.0`
       : `${m.tmuxName}:0.0`;
-  const project = m.project || projectName(m.cwd, { repoRoot: m.repoRoot });
+  const project = m.project ?? projectName(m.cwd, { repoRoot: m.repoRoot });
   const title =
     managedTitle(m, sessionId, m.nativeSessionId, overrides) ||
     (m.cwd ? basename(m.cwd) : project);
@@ -2470,7 +2470,7 @@ export async function listSessions(): Promise<Session[]> {
   const managedByName = new Map(managedSessions.map((m) => [m.tmuxName, m]));
   const sessionProject = (cwd: string | null, tmuxName: string | null | undefined) => {
     const managed = tmuxName ? managedByName.get(tmuxName) : undefined;
-    return managed?.project || projectName(cwd, { repoRoot: managed?.repoRoot });
+    return managed?.project ?? projectName(cwd, { repoRoot: managed?.repoRoot });
   };
   const out: Session[] = [];
   for (const e of enriched) {
@@ -2776,7 +2776,7 @@ export async function listSessions(): Promise<Session[]> {
       lastUser = meta.lastUser;
     }
 
-    const project = managedRec?.project || projectName(cwd, { repoRoot: managedRec?.repoRoot });
+    const project = managedRec?.project ?? projectName(cwd, { repoRoot: managedRec?.repoRoot });
     let title = overrides[sessionId] || overrides[grokSessionId] || null;
     if (!title && summary?.generated_title) title = summary.generated_title;
     if (!title && transcriptPath)
@@ -2816,7 +2816,7 @@ export async function listSessions(): Promise<Session[]> {
     if (!pid || isClosing(pid)) continue;
     const tmuxTarget = tmux.targetForPid(pid) ?? `${m.tmuxName}:0.0`;
     const cmd = readProcCmd(pid, "grok");
-    const project = m.project || projectName(m.cwd, { repoRoot: m.repoRoot });
+    const project = m.project ?? projectName(m.cwd, { repoRoot: m.repoRoot });
     // Process left active_sessions.json but the pane is still up — still bind
     // the transcript via the remembered native id so the live view does not
     // flash empty mid-exit.
@@ -2866,7 +2866,7 @@ export async function listSessions(): Promise<Session[]> {
     if (!pid || isClosing(pid)) continue;
     const tmuxTarget = tmux.targetForPid(pid) ?? `${m.tmuxName}:0.0`;
     const cmd = readProcCmd(pid, "hermes");
-    const project = m.project || projectName(m.cwd, { repoRoot: m.repoRoot });
+    const project = m.project ?? projectName(m.cwd, { repoRoot: m.repoRoot });
     out.push({
       agent: "hermes",
       pid,
@@ -2904,7 +2904,7 @@ export async function listSessions(): Promise<Session[]> {
     if (!pid || isClosing(pid)) continue;
     const tmuxTarget = tmux.targetForPid(pid) ?? `${m.tmuxName}:0.0`;
     const cmd = readProcCmd(pid, `cursor-agent --model ${m.model ?? ""}`.trim());
-    const project = m.project || projectName(m.cwd, { repoRoot: m.repoRoot });
+    const project = m.project ?? projectName(m.cwd, { repoRoot: m.repoRoot });
     const foundById = m.nativeSessionId
       ? await profileAsync(profile, "findCursorTranscriptById_ms", () => findCursorTranscriptById(m.nativeSessionId!))
       : null;
@@ -2970,7 +2970,7 @@ export async function listSessions(): Promise<Session[]> {
     if (!pid || isClosing(pid)) continue;
     const tmuxTarget = tmux.targetForPid(pid) ?? `${m.tmuxName}:0.0`;
     const cmd = readProcCmd(pid, `jcode --model ${m.model ?? ""} repl`.trim());
-    const project = m.project || projectName(m.cwd, { repoRoot: m.repoRoot });
+    const project = m.project ?? projectName(m.cwd, { repoRoot: m.repoRoot });
     const found = await profileAsync(profile, "findJcodeTranscript_ms", () =>
       findJcodeTranscriptForManaged(m),
     );
@@ -3069,7 +3069,7 @@ export async function listSessions(): Promise<Session[]> {
         }
       }
     }
-    const project = managedRec?.project || projectName(e.cwd, { repoRoot: managedRec?.repoRoot });
+    const project = managedRec?.project ?? projectName(e.cwd, { repoRoot: managedRec?.repoRoot });
     let title = managedTitle(managedRec, sessionId, nativeSessionId, overrides);
     if (!title && transcriptPath)
       title = await profileAsync(profile, "cachedFirstTitle_ms", () => cachedFirstTitle(transcriptPath));
@@ -3599,7 +3599,7 @@ async function refreshResumableCacheOnce(focusSessionId?: string): Promise<void>
     changed.push({
       sessionId: c.id,
       cwd,
-      project: managedRec?.project || projectName(cwd, { repoRoot: managedRec?.repoRoot }),
+      project: managedRec?.project ?? projectName(cwd, { repoRoot: managedRec?.repoRoot }),
       title,
       lastActivityAt: c.mtime,
       lastUserText: await lastUserText(c.path).catch(() => null),
@@ -3625,7 +3625,7 @@ async function refreshResumableCacheOnce(focusSessionId?: string): Promise<void>
     changed.push({
       sessionId: t.id,
       cwd: t.cwd,
-      project: managedRec?.project || projectName(t.cwd, { repoRoot: managedRec?.repoRoot }),
+      project: managedRec?.project ?? projectName(t.cwd, { repoRoot: managedRec?.repoRoot }),
       title:
         managedHistoricalTitle(managedRec, t.id, overrides) ||
         codexPrompt ||
@@ -3682,7 +3682,7 @@ async function refreshResumableCacheOnce(focusSessionId?: string): Promise<void>
     changed.push({
       sessionId: id,
       cwd,
-      project: managedRec?.project || projectName(cwd, { repoRoot: managedRec?.repoRoot }),
+      project: managedRec?.project ?? projectName(cwd, { repoRoot: managedRec?.repoRoot }),
       title:
         overrides[id] ||
         summary?.generated_title ||
@@ -3749,7 +3749,7 @@ async function refreshResumableCacheOnce(focusSessionId?: string): Promise<void>
       sessionId: id,
       cwd,
       project:
-        owner?.project ||
+        owner?.project ??
         (cwd ? projectName(cwd, { repoRoot: owner?.repoRoot }) : encodedProject),
       title:
         overrides[id] ||
@@ -3815,7 +3815,7 @@ async function refreshResumableCacheOnce(focusSessionId?: string): Promise<void>
     changed.push({
       sessionId: m.sessionId,
       cwd: m.cwd,
-      project: m.project || projectName(m.cwd, { repoRoot: m.repoRoot }),
+      project: m.project ?? projectName(m.cwd, { repoRoot: m.repoRoot }),
       title: overrides[m.sessionId] || m.title || (m.cwd ? basename(m.cwd) : "—"),
       lastActivityAt,
       lastUserText: lastUser?.text.trim().replace(/\s+/g, " ").slice(0, 140) || null,

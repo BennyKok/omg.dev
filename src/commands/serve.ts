@@ -1,3 +1,4 @@
+import { createNoProjectWorkspace, NO_PROJECT } from "../no-project-chat.ts";
 import { mkdir, open, readdir, realpath, stat } from "node:fs/promises";
 import { appendFileSync, existsSync, statfsSync, statSync, mkdirSync, readFileSync } from "node:fs";
 import { tmpdir, homedir, loadavg, cpus, totalmem, freemem } from "node:os";
@@ -4122,7 +4123,10 @@ export async function cmdServe() {
     },
     async fetch(req, server) {
       const url = new URL(req.url);
-      const path = url.pathname;
+      // Separate entry point lets older runtimes fail safely instead of
+      // ignoring no-project intent and choosing a repository.
+      const newUnassigned = url.pathname === "/api/sessions/new-unassigned" && req.method === "POST";
+      const path = newUnassigned ? "/api/sessions/new" : url.pathname;
       const apiTimingStart = BOOT_API_TIMING_ENDPOINTS.has(path) ? performance.now() : 0;
 
       // Mark the handful of paths a PWA cold start must hit. This is the only
@@ -8368,7 +8372,7 @@ a{color:#60a5fa}
               ? { claudeAccountId: pinnedClaudeAccountId }
               : {}),
             title: cachedResume.title,
-            project: cachedResume.project || undefined,
+            project: cachedResume.project ?? undefined,
             repoRoot: repoRootForManagedCwd(cwd),
           });
           if (assignedUser) assignUser(tmuxName, assignedUser);
@@ -8531,7 +8535,7 @@ a{color:#60a5fa}
             launchState: "launching",
             model: resumeModel,
             title: cachedResume.title,
-            project: cachedResume.project || undefined,
+            project: cachedResume.project ?? undefined,
             repoRoot: repoRootForManagedCwd(cwd),
           });
           if (assignedUser) assignUser(tmuxName, assignedUser);
@@ -8610,7 +8614,7 @@ a{color:#60a5fa}
             launchState: "running",
             model: model ?? "gpt-5.5",
             title: body?.prompt?.slice(0, 72),
-            project: cachedResume?.project || undefined,
+            project: cachedResume?.project ?? undefined,
             repoRoot: repoRootForManagedCwd(cwd),
           });
           if (body?.user) assignUser(tmuxName, body.user);
@@ -8651,7 +8655,7 @@ a{color:#60a5fa}
           launchState: "launching",
           model: claudeResumeModel,
           claudeAccountId: pinnedClaudeAccountId,
-          project: cachedResume?.project || undefined,
+          project: cachedResume?.project ?? undefined,
           repoRoot: repoRootForManagedCwd(cwd),
         });
         invalidateListSessionsCache();
@@ -8779,6 +8783,8 @@ a{color:#60a5fa}
         if (replay?.sessionId) return replaySessionCreation(replay);
         const body = (await req.json().catch(() => null)) as {
           cwd?: string;
+          /** Explicitly start outside the project picker. */
+          unassigned?: boolean;
           prompt?: string;
           title?: string;
           user?: string;
@@ -8796,6 +8802,11 @@ a{color:#60a5fa}
           role?: string;
           agent?: "claude" | "codex" | "aisdk" | "codex-aisdk" | "opencode" | "omg" | "jcode" | "grok" | "cursor" | "copilot" | "hermes" | "pi";
         } | null;
+        if (body?.unassigned !== undefined && typeof body.unassigned !== "boolean")
+          return err(400, "unassigned must be a boolean");
+        if ((body?.unassigned || newUnassigned) && (body?.cwd || body?.parentSessionId || body?.worktree))
+          return err(400, "unassigned cannot be combined with cwd, parentSessionId, or worktree");
+        const unassigned = newUnassigned || body?.unassigned === true;
         const requestedRole = typeof body?.role === "string" ? body.role.trim() : "";
         if (requestedRole && !getRole(requestedRole)) return err(400, `unknown role "${requestedRole}"`);
         // Resolved below once the user tag is known: an explicit role wins,
@@ -8916,7 +8927,7 @@ a{color:#60a5fa}
             // like any other project, so fall back to any listed repo rather
             // than 400-ing every root session for a user who hid it.
             : (repos.find((r) => r.cwd === SELF_REPO) ?? repos[0]);
-        if (!repo) {
+        if (!repo && !unassigned) {
           return err(
             400,
             requestedCwd
@@ -8978,10 +8989,12 @@ a{color:#60a5fa}
         try {
         const tmuxName = `lfg-${randomBytes(3).toString("hex")}`;
         const isSubagent = spawnedBy === "subagent";
-        const cwdResolved = await resolveSessionCwd(repo.cwd, tmuxName, {
-          worktree: body?.worktree,
-          selfRepo: SELF_REPO,
-        });
+        const cwdResolved = unassigned
+          ? { ok: true as const, cwd: await createNoProjectWorkspace(tmuxName), worktree: undefined }
+          : await resolveSessionCwd(repo!.cwd, tmuxName, {
+              worktree: body?.worktree,
+              selfRepo: SELF_REPO,
+            });
         if (!cwdResolved.ok) {
           return err(502, cwdResolved.error);
         }
@@ -9037,7 +9050,7 @@ a{color:#60a5fa}
           fastMode,
           claudeAccountId,
           title: requestedTitle || body?.prompt?.slice(0, 72),
-          project: repo.project,
+          project: unassigned ? NO_PROJECT : repo!.project,
           parentSessionId: parent?.sessionId ?? parentId,
           parentNativeSessionId: parent?.nativeSessionId ?? undefined,
           parentAgent: parent?.agent,

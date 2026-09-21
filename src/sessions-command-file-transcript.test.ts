@@ -67,6 +67,14 @@ function writeJcodeJournal(id = NATIVE_ID): string {
 }
 
 describe("resolveTranscript command-file vs legacy tmux", () => {
+  test("an explicit unassigned project survives launch-row projection", () => {
+    const row = managedLaunchRow({
+      cwd: CWD, createdAt: Date.now(), agent: "codex-aisdk", sessionId: SESSION_ID,
+      tmuxName: "lfg-unassigned", runtime: "command-file", launchState: "running", project: "",
+    }, {}, {}, { hasSession: () => true, panePid: () => process.pid, targetForPid: () => "lfg-unassigned:0.0" });
+    expect(row?.project).toBe("");
+  });
+
   test("only command-file launch rows advertise the direct transcript index", () => {
     const base = {
       cwd: CWD,

@@ -52,7 +52,7 @@ export type ManagedSession = {
   /** Isolated Claude subscription account pinned when this session launched. */
   claudeAccountId?: string;
   title?: string;
-  /** Stable UI project label. Kept because resumed sessions can report a stale cwd. */
+  /** Stable UI project label. Empty string means explicitly no project; undefined is legacy. */
   project?: string;
   parentSessionId?: string;
   parentNativeSessionId?: string;
