@@ -25,6 +25,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { omgFetch, openOmgSocket } from "@/lib/omg-client";
 import { RfbChannel } from "@/lib/rfb-channel";
+import { dispatchComputerMouse } from "@/lib/computer-pointer";
 
 interface DepReport {
   ok: boolean;
@@ -188,16 +189,7 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
       const c = canvas();
       const at = cursorRef.current;
       if (!c || !at) return;
-      c.dispatchEvent(
-        new MouseEvent(type, {
-          bubbles: true,
-          cancelable: true,
-          clientX: at.x,
-          clientY: at.y,
-          button,
-          buttons,
-        }),
-      );
+      dispatchComputerMouse(c, at, type, buttons, button);
     },
     [canvas],
   );
