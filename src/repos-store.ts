@@ -214,6 +214,15 @@ export async function useProjectFolder(rawPath: string): Promise<CustomRepo> {
   return addCustomRepo(cwd);
 }
 
+/** Install the managed app-builder skill without changing an existing repo's instructions or Git history. */
+export async function prepareProjectFolder(rawPath: string): Promise<string> {
+  const cwd = await canonical(rawPath);
+  const info = await stat(cwd);
+  if (!info.isDirectory()) throw new Error(`not a directory: ${cwd}`);
+  await installProjectBuilderSkill(cwd);
+  return cwd;
+}
+
 export async function createProjectFolder(
   rawParent: string | undefined,
   rawName: string,

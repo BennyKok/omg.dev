@@ -3,10 +3,9 @@
  *
  * Four kinds, one full-screen form. Pick what to make, say where (a new project folder
  * beside the others, or an existing one), read or edit the preset prompt,
- * Start. Websites, slides and images go through the artifacts the agent can
- * already publish; the iOS app preset points the agent at Expo and the
- * omg.dev backend docs. The card only assembles a prompt and a folder; the
- * session itself starts through the same request the composer uses.
+ * Start. App and website presets point to the managed app-builder skill;
+ * slides and images use the artifact tools. The card prepares the folder,
+ * assembles a prompt, and starts through the same request the composer uses.
  */
 import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, View } from "react-native";
@@ -37,13 +36,13 @@ const KINDS: Array<{ kind: CreateKind; title: string; blurb: string; ios: SFSymb
  */
 export const CREATE_PRESETS: Record<CreateKind, string> = {
   ios: [
-    "Use the bundled omg-app-builder skill to build and verify an iOS app with Expo, expo-router, and TypeScript.",
+    "Read .agents/skills/omg-app-builder/SKILL.md completely, then use it to build and verify an iOS app with Expo, expo-router, and TypeScript.",
     "Use omg.dev for the hosted backend when needed. Deliver a simulator-tested app and deploy any requested hosted surface. Do not submit to TestFlight or the App Store unless I ask.",
     "",
     "The app: {describe}",
   ].join("\n"),
   website: [
-    "Use the bundled omg-app-builder skill to build a responsive website or web app.",
+    "Read .agents/skills/omg-app-builder/SKILL.md completely, then use it to build a responsive website or web app.",
     "Deploy it with omg_deploy, verify the live user path, and return the hosted URL with a screenshot.",
     "",
     "The site: {describe}",
@@ -67,6 +66,7 @@ export function CreateSheet({
   folders,
   projectsRoot,
   createFolder,
+  prepareFolder,
   launch,
 }: {
   visible: boolean;
@@ -75,6 +75,8 @@ export function CreateSheet({
   folders: FolderRow[];
   projectsRoot: string | null;
   createFolder: (name: string) => Promise<string>;
+  /** Installs the managed builder skill into a selected existing folder. */
+  prepareFolder: (path: string) => Promise<void>;
   /** Starts the session the way the composer does, with an explicit folder. */
   launch: (args: { prompt: string; cwd: string }) => Promise<void>;
 }) {
@@ -130,6 +132,7 @@ export function CreateSheet({
     setError(null);
     try {
       const folder = where === "new" ? await createFolder(cleanName) : target!;
+      if (where === "existing") await prepareFolder(folder);
       const prompt = preset.includes("{describe}")
         ? preset.replace("{describe}", describe.trim())
         : `${preset.trim()}\n\n${describe.trim()}`;
