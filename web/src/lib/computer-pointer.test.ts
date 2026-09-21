@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { window } from "../test-support/render";
+import "../test-support/render";
 import { dispatchComputerMouse } from "./computer-pointer";
 
 Object.assign(globalThis, {
