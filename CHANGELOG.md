@@ -4,7 +4,7 @@ Recent product updates and deployment notes.
 
 ## September 21, 2026 - Rounder question card and drawer
 
-- iOS: the session question card and the bottom drawer use larger continuous corners. The question card was 12pt against a 24/32pt composer. The agent picker drawer was 22pt.
+- iOS: the session question card and the bottom drawer use the same 32pt continuous corners as the expanded composer. The question card was 12pt. The agent picker drawer was 22pt.
 
 ## September 21, 2026 - Website login from iPhone (v0.6.85)
 
