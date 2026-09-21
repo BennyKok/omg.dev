@@ -53,6 +53,16 @@ export type Step = {
   type?: string;
   /** The field is already focused; type without a tap. */
   focused?: boolean;
+  /**
+   * Whether the typed text appears on screen. Default true.
+   *
+   * Set false for a field that is not meant to show what it receives — the
+   * Computer viewer forwards every key to a remote desktop and keeps nothing
+   * — so the runner does not fail a correct run on a read-back that can never
+   * match. Nothing is erased first either: there is no visible value to clear,
+   * and the backspaces would go to the desktop.
+   */
+  echo?: boolean;
   /** Type the sign-in code the runner reads from Gmail. */
   otp?: boolean;
   /** Wall-clock ceiling for this step. Default 60s; provisioning gets more. */
@@ -152,11 +162,12 @@ async function typeVerified(
   value: string,
   expected: string | null,
   log: (l: string) => void,
+  erase = true,
 ): Promise<boolean> {
   const yamlText = value.replace(/"/g, '\\"');
   // A plan may reopen a persisted draft. Replace its field contents rather
   // than appending the same test text on every rerun.
-  await mcp.run(`${header}- eraseText\n`);
+  if (erase) await mcp.run(`${header}- eraseText\n`);
   for (let attempt = 1; attempt <= 3; attempt++) {
     const r = await mcp.run(`${header}- inputText: "${yamlText}"\n`);
     if (!r.ok) log(`  inputText failed: ${r.text.slice(0, 200)}`);
@@ -353,7 +364,8 @@ export async function runPlan(opts: {
             if (!r.ok) log(`  tap failed: ${r.text.slice(0, 200)}`);
           }
           const value = step.otp ? await opts.readOtp!() : sub(step.type!);
-          typed = await typeVerified(mcp, header, value, step.otp ? null : value, log);
+          const echoes = !step.otp && step.echo !== false;
+          typed = await typeVerified(mcp, header, value, echoes ? value : null, log, echoes);
           if (!typed) {
             verdict = { name: step.name, status: "fail", at: Date.now(), looks, detail: `could not type "${value}" correctly after 3 tries` };
             break;

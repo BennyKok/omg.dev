@@ -8,15 +8,86 @@
       "name": "01 Settings",
       "goal": "Open Settings: tap the Navigation button, then tap Settings in the side menu.",
       "done": "The Settings screen shows the Computer section and a Control Computer row.",
-      "expect": ["Settings", "Computer", "Control Computer"],
+      "expect": [
+        "Settings",
+        "Computer",
+        "Control Computer"
+      ],
       "timeoutMs": 90000
     },
     {
-      "name": "02 Open and control Computer",
-      "goal": "Tap Control Computer. When the Computer screen opens, tap Take control.",
-      "done": "The Computer is in Controlling mode and explains the trackpad gesture.",
-      "expect": ["Computer", "Controlling", "Right click", "Drag to move the pointer. Tap to click."],
+      "name": "02 Open the Computer, view only",
+      "goal": "Tap Control Computer and wait for the Computer screen to open. Do not tap anything on it.",
+      "done": "The Computer screen shows the live desktop with a floating control pill that offers Take control. Nothing on it asks you to compose or send a message.",
+      "expect": [
+        "Computer",
+        "Take control",
+        "Show keyboard",
+        "Right click"
+      ],
+      "forbid": [
+        "Send",
+        "Type or paste text"
+      ],
       "timeoutMs": 90000
+    },
+    {
+      "name": "03 Take control",
+      "goal": "Tap Take control on the floating pill.",
+      "done": "The pill reads Controlling and explains the trackpad gesture.",
+      "expect": [
+        "Controlling",
+        "Drag to move the pointer. Tap to click."
+      ],
+      "timeoutMs": 60000
+    },
+    {
+      "name": "04 Open the keyboard over the screen",
+      "goal": "Tap Show keyboard on the floating pill.",
+      "done": "The iOS keyboard is open, a key row above it offers esc, tab, ctrl and arrows, and the live screen is still visible above the pill.",
+      "expect": [
+        "Hide keyboard",
+        "esc",
+        "tab",
+        "ctrl"
+      ],
+      "forbid": [
+        "Send",
+        "Type or paste text"
+      ],
+      "timeoutMs": 60000
+    },
+    {
+      "name": "05 Type straight onto the desktop",
+      "goal": "Type into the Computer. The keyboard is already open and the field already has focus.",
+      "done": "The keys went to the Computer. The keyboard is still open, nothing was drafted on screen, and there is no Send button.",
+      "expect": [
+        "Hide keyboard",
+        "esc",
+        "Controlling"
+      ],
+      "forbid": [
+        "Send",
+        "hello"
+      ],
+      "focused": true,
+      "type": "hello",
+      "echo": false,
+      "timeoutMs": 60000
+    },
+    {
+      "name": "06 Put the keyboard away, keep control",
+      "goal": "Tap Hide keyboard.",
+      "done": "The keyboard and its key row are gone, the whole desktop is visible again, and the pill still reads Controlling.",
+      "expect": [
+        "Controlling",
+        "Right click"
+      ],
+      "forbid": [
+        "esc",
+        "Hide keyboard"
+      ],
+      "timeoutMs": 60000
     }
   ]
 }
