@@ -37,16 +37,14 @@ const KINDS: Array<{ kind: CreateKind; title: string; blurb: string; ios: SFSymb
  */
 export const CREATE_PRESETS: Record<CreateKind, string> = {
   ios: [
-    "Build an iOS app with Expo (managed workflow, expo-router, TypeScript).",
-    "Use omg.dev as the backend: read https://docs.omg.dev first and follow its API and auth contracts for sign-in, sessions and data.",
-    "Set the project up so `npx expo start` runs, then build the first screen.",
-    "Ask me before adding any native module.",
+    "Use the bundled omg-app-builder skill to build and verify an iOS app with Expo, expo-router, and TypeScript.",
+    "Use omg.dev for the hosted backend when needed. Deliver a simulator-tested app and deploy any requested hosted surface. Do not submit to TestFlight or the App Store unless I ask.",
     "",
     "The app: {describe}",
   ].join("\n"),
   website: [
-    "Build a website as a single self-contained HTML file (inline CSS and JS, no build step), responsive on phone and desktop.",
-    "Publish it with omg_publish_artifact so I can open it here, and refresh the same artifact when you change it.",
+    "Use the bundled omg-app-builder skill to build a responsive website or web app.",
+    "Deploy it with omg_deploy, verify the live user path, and return the hosted URL with a screenshot.",
     "",
     "The site: {describe}",
   ].join("\n"),

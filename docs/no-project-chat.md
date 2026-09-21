@@ -9,7 +9,9 @@ Long-press a project pill or the plus tab to manage folders.
 `POST /api/sessions/new-unassigned` uses the normal session creation pipeline.
 It gives each conversation a persistent `~/.omg/chats/<managed-name>` workspace.
 `AGENTS.md` and `CLAUDE.md` provide project-creation guidance without changing
-the user's message. The normal selected agent and model still run the chat.
+the user's message. The workspace also receives the managed
+`.agents/skills/omg-app-builder/SKILL.md` workflow. The normal selected agent
+and model still run the chat.
 
 The session's explicit `project: ""` means unassigned. A missing project field
 on a legacy record still falls back to its working directory. Live, historical,
@@ -24,6 +26,9 @@ This change does not add Tasks.
 The agent reads current hosted SDK guidance when the user requests a web app.
 It uses `omg_create_project` to create a folder and register it through the
 existing project store. The folder starts with Git and a committed README.
+It also commits the same app-builder skill plus short `AGENTS.md` and
+`CLAUDE.md` entry points, so the initial run and future project sessions use
+one build, verification, and deployment workflow.
 `parent` is optional on the MCP tool and `POST /api/projects/create-folder`;
 omitting it uses `LFG_REPOS_ROOT` (or `~/repos`). Existing folders are rejected.
 

@@ -1254,7 +1254,7 @@ export function buildOmgMcpServer(): McpServer {
     "omg_create_project",
     {
       title: "Create omg.dev Project",
-      description: "Create and register a new project folder with Git and a committed README. Defaults to the configured projects directory. Returns repo.cwd for building and deploying; does not move the calling chat. Existing folders are never overwritten. Inspect omg_list_repos after an uncertain response before retrying.",
+      description: "Create and register a new project folder with Git, a committed README, and the omg-app-builder skill. Defaults to the configured projects directory. Returns repo.cwd for building and deploying; does not move the calling chat. Read the generated skill before building. Existing folders are never overwritten. Inspect omg_list_repos after an uncertain response before retrying.",
       inputSchema: {
         name: z.string().min(1).describe("Short project folder name"),
         parent: z.string().optional().describe("Existing parent folder; omit to use the configured projects directory"),

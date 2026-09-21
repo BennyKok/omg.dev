@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PATHS } from "./config.ts";
 import { createProjectFolder, useProjectFolder } from "./repos-store.ts";
+import { PROJECT_BUILDER_SKILL } from "./project-starter.ts";
 import {
   prepareSessionWorktree,
   resolveSessionCwd,
@@ -43,6 +44,9 @@ describe("project creation", () => {
 
     expect(git(repo.cwd, "branch", "--show-current")).toBe("main");
     expect(git(repo.cwd, "show", "HEAD:README.md")).toBe("# test");
+    expect(git(repo.cwd, "show", `HEAD:${PROJECT_BUILDER_SKILL}`)).toContain("name: omg-app-builder");
+    expect(git(repo.cwd, "show", "HEAD:AGENTS.md")).toContain(PROJECT_BUILDER_SKILL);
+    expect(git(repo.cwd, "show", "HEAD:CLAUDE.md")).toContain(PROJECT_BUILDER_SKILL);
     expect(git(repo.cwd, "status", "--short")).toBe("");
     expect(JSON.parse(readFileSync(join(PATHS.data, "custom-repos.json"), "utf8"))).toEqual([
       { name: "test", cwd: repo.cwd },
