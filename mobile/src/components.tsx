@@ -19,7 +19,6 @@ import {
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Reanimated, {
   Easing,
-  FadeIn,
   LinearTransition,
   ReduceMotion,
   useAnimatedStyle,
@@ -1352,18 +1351,13 @@ export function HomeComposer({
         backgroundColor: "transparent",
       }}
     >
-      {/* Reserve the rail before focus so revealing it does not retarget the
-          composer's layout transition during the keyboard lift. Keep the
-          touch area inside the parent; an overflowing rail cannot scroll on iOS. */}
+      {/* Keep this rail mounted on the unassigned-chat page. Showing it with
+          the keyboard made the two animations compete on iOS. The inset lets
+          the first and last cards rest clear of the scroll viewport edges. */}
       {onStarter ? <View pointerEvents="box-none" style={{ height: 84 }}>
-      {composerFocused && !hasMessage && attachments.items.length === 0 && dictation.state === "idle" ? (
-        <Reanimated.View
-          entering={FadeIn.duration(150).reduceMotion(stillMotion ? ReduceMotion.Always : ReduceMotion.Never)}
-          style={{ height: 72 }}
-        >
         <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always"
           keyboardDismissMode="none" directionalLockEnabled testID="chat-starter-row"
-          style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 8 }}>
+          style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 8, paddingHorizontal: 4 }}>
           {([
             ["Website", "Design and publish a site", "Help me create a website.", "globe", "language"],
             ["App", "Build a mobile or web app", "Help me create an app.", "iphone", "smartphone"],
@@ -1389,8 +1383,6 @@ export function HomeComposer({
             </Pressable>
           ))}
         </ScrollView>
-        </Reanimated.View>
-      ) : null}
       </View> : null}
       {/* "/" lists the box's skills above the field, as on the web. */}
       <SkillSuggest value={value} onChangeText={onChangeText} />

@@ -166,14 +166,14 @@ test('the field survives expanding because of typed text',()=>{
  } finally {ui.cleanup();}
 });
 
-test('no-project starters appear on focus and send one prompt without replacing the field',()=>{
+test('no-project starters stay visible through focus and send one prompt without replacing the field',()=>{
  const ui=mount();
  const sent:string[]=[];
  const base={onChangeText:()=>{},onStart:()=>{},projectOptions:[],agentOptions:[],attachments:{items:[],options:[],remove:()=>{}},dictation:{state:'idle' as const,toggle:()=>{}}};
  const render=(value='',starting=false,onStarter:((s:string)=>void)|undefined=(s)=>sent.push(s))=>ui.render(<HomeComposer {...base} value={value} starting={starting} onStarter={onStarter}/>);
  try {
   render();
-  expect(ui.query('[aria-label^="Start website."]')).toBeNull();
+  expect(ui.query('[aria-label^="Start website."]')).not.toBeNull();
   const field=ui.query('textarea');
   ui.flush(()=>input.onFocus?.());
   expect(ui.query('textarea')).toBe(field);
@@ -183,7 +183,7 @@ test('no-project starters appear on focus and send one prompt without replacing 
   expect(ui.text()).toContain('Create an endpoint or service');
   expect(ui.text()).toContain('Generate a custom visual');
   ui.flush(()=>input.onBlur?.());
-  expect(ui.query('[aria-label^="Start website."]')).toBeNull();
+  expect(ui.query('[aria-label^="Start website."]')).not.toBeNull();
   expect(ui.query('textarea')).toBe(field);
   ui.flush(()=>input.onFocus?.());
   expect(ui.query('textarea')).toBe(field);
@@ -192,7 +192,7 @@ test('no-project starters appear on focus and send one prompt without replacing 
   render('',true);
   expect(ui.query<HTMLButtonElement>('[aria-label^="Start app."]')!.disabled).toBe(true);
   render('My own question');
-  expect(ui.query('[aria-label^="Start website."]')).toBeNull();
+  expect(ui.query('[aria-label^="Start website."]')).not.toBeNull();
   ui.render(<HomeComposer {...base} value=""/>);
   expect(ui.query('[aria-label^="Start website."]')).toBeNull();
  } finally {ui.cleanup();}

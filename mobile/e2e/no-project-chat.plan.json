@@ -18,20 +18,21 @@
       "goal": "Tap ONLY the element labelled Chats without a project. It is the first chip in the top project rail below Welcome. Do not tap add or Attach a file in the bottom composer. If a menu is open, close it first.",
       "done": "The plus tab is selected and the session list is blank. Do not focus the composer yet.",
       "expect": [
-        "Chats without a project"
+        "Chats without a project",
+        "Start website",
+        "Design and publish a site"
       ],
       "forbid": [
         "Refactor the rate limiter",
         "What would you like to create",
-        "No sessions yet",
-        "Start website"
+        "No sessions yet"
       ],
       "selected": "Chats without a project"
     },
     {
-      "name": "Starter cards with details",
+      "name": "Starter cards stay during focus",
       "goal": "Tap the message composer to focus it and show the keyboard. If iOS shows its slide-to-type tutorial, tap Continue to dismiss that tutorial.",
-      "done": "The starter cards have moderate corners, an icon, and a short description above the composer. The keyboard remains visible. The separate starter-row-scroll flow checks both horizontal directions.",
+      "done": "The starter cards were visible before focus and stay unchanged while the keyboard opens. The keyboard remains visible. The separate starter-row-scroll flow checks both horizontal edges.",
       "expect": [
         "Start website",
         "Design and publish a site",

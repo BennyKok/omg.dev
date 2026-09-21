@@ -6,6 +6,8 @@ appId: dev.omg.computer
     text: Continue
     optional: true
 - tapOn: "Chats without a project"
+- assertVisible: ".*Start website.*"
+- takeScreenshot: starter-row-before-focus
 - tapOn:
     id: home-composer-input
 - tapOn:
@@ -23,7 +25,7 @@ appId: dev.omg.computer
     direction: LEFT
 - assertVisible: ".*Generate a custom visual.*"
 - assertVisible: "Typing Predictions"
-- takeScreenshot: starter-row-right
+- takeScreenshot: starter-row-right-edge
 - swipe:
     from:
       id: chat-starter-row
@@ -34,9 +36,9 @@ appId: dev.omg.computer
     direction: RIGHT
 - assertVisible: ".*Start website.*"
 - assertVisible: "Typing Predictions"
-- takeScreenshot: starter-row-left
+- takeScreenshot: starter-row-left-edge
 - inputText: "My own idea"
-- assertNotVisible: ".*Start website.*"
+- assertVisible: ".*Start website.*"
 - eraseText: 50
 - assertVisible: ".*Start website.*"
 - assertVisible: "Typing Predictions"
