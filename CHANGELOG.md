@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## September 21, 2026 - Quick Chat and project creation (v0.6.87)
+
+- iOS: the plus tab holds chats without a selected project. Start with the normal composer or choose a Website, App, API, or Image starter.
+- Quick Chat agents can create a project folder for future chats. New web projects get guidance for omg.dev hosting, backend setup, live verification, and delivery of a preview link.
+- The original chat stays in the plus tab. New projects appear when you return to Home.
+
 ## September 21, 2026 - Website login cards (v0.6.86)
 
 - iOS login requests show the website icon and domain, with a clear “Log in to [website]” button. Sites without a usable icon show a domain initial.
