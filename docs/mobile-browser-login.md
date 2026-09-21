@@ -10,7 +10,10 @@ The runtime imports the approved site cookies into its shared Chrome browser.
 It then sends a status message to the requesting agent.
 
 The agent must inspect the protected page before treating the login as complete.
-`imported` means cookie import succeeded. It does not prove authentication.
+`imported` means Chrome retained every approved cookie value. It does not prove authentication.
+The importer maps insecure iOS SameSite=None cookies to the browser default.
+Chrome otherwise silently discards these cookies. The importer reads back the
+cookies before opening the target page and fails if any approved cookie is missing.
 
 ## Requirements and limits
 
