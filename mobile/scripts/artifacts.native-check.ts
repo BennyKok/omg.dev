@@ -29,10 +29,10 @@ test("authored HTML is confined to one opaque sandbox with no network access", (
 test("session list scans past other sessions and deduplicates overlapping pages", async () => {
   const own = { id: "a", sessionId: "own", kind: "html" } as SessionArtifact;
   const paths: string[] = [];
-  const pages = [{ artifacts: [{ id: "other", sessionId: "other" }], total: 4 }, { artifacts: [own, own, { ...own, id: "b", kind: "file" }], total: 4 }];
+  const pages = [{ artifacts: [{ id: "other", sessionId: "other" }], total: 4 }, { artifacts: [own, own, { ...own, id: "b", kind: "html" }], total: 4 }];
   const items = await loadSessionArtifacts(async <T>(path: string) => { paths.push(path); return pages.shift() as T; }, "own");
   expect(items.map(item => item.id)).toEqual(["a", "b"]);
-  expect(paths).toEqual(["/api/artifacts?limit=500&offset=0", "/api/artifacts?limit=500&offset=1"]);
+  expect(paths).toEqual(["/api/artifacts?limit=500&offset=0&kind=html", "/api/artifacts?limit=500&offset=1&kind=html"]);
 });
 
 test("session list stops after navigation and propagates failures", async () => {
@@ -59,7 +59,20 @@ test("legacy artifact indexes without a total do not loop", async () => {
 test("all artifacts includes different chats and retains their source ids", async () => {
   const items = await loadSessionArtifacts(async <T>() => ({ artifacts: [
     { id: "a", sessionId: "first", kind: "html" },
-    { id: "b", sessionId: "second", kind: "file" },
+    { id: "b", sessionId: "second", kind: "html" },
   ], total: 2 }) as T, undefined);
   expect(items.map(item => item.sessionId)).toEqual(["first", "second"]);
+});
+
+
+test("artifact lists omit images, videos, and files even if an older server ignores kind", async () => {
+  const request = async <T>() => ({ artifacts: [
+    { id: "html", sessionId: "own", kind: "html" },
+    { id: "image", sessionId: "own", kind: "image" },
+    { id: "video", sessionId: "own", kind: "video" },
+    { id: "file", sessionId: "own", kind: "file" },
+  ], total: 4 }) as T;
+  for (const sessionId of [undefined, "own"]) {
+    expect((await loadSessionArtifacts(request, sessionId)).map(item => item.id)).toEqual(["html"]);
+  }
 });

@@ -99,3 +99,26 @@ activation is not part of the simulator proof.
 The follow-up landed as `f1ec8f0ef`. The landing script verified the restarted
 local service and its served bundle. Production OTA delivery is tracked by
 [mobile-ota run 35614655735](https://github.com/BennyKok/omg.dev/actions/runs/35614655735).
+
+
+## HTML-only list and compact chat action
+
+The web reference is `web/src/views/shipped-page.tsx`: its gallery requests
+`kind=html`. Both iOS artifact lists now use that same server filter and reject
+other kinds locally for older servers that ignore the filter. Transcript media
+rendering stays owned by the transcript.
+
+Open chat is a secondary text link with a 44-point touch target. It has no
+filled background. Artifact cards remain the main action.
+
+Seven focused artifact checks and the mobile type check passed. The fixture
+includes an image and a file alongside HTML output; the recorded plan requires
+both media items to be absent from the all-session and session lists.
+
+This correction changes JavaScript only. Delivery uses the production OTA
+release for runtime 1.0.12; a separate CLI package release is not needed.
+
+The updated recorded plan passed **8/8 steps** in 244.0 seconds on the pinned
+iPhone 17 Pro Max. The isolated Maestro driver used port 7113. The screenshot
+was inspected: only the two HTML cards appear, with small Open chat links and
+no filled chat buttons. The run released the simulator lock.

@@ -2,10 +2,16 @@
 
 Recent product updates and deployment notes.
 
+## September 21, 2026 - Focused iOS artifact list
+
+- The iOS Artifacts page now matches the web: only HTML artifacts appear. Images, videos, and other files stay in their chats.
+- Open chat is now a small text link below the artifact card.
+
 ## September 21, 2026 - Direct iPhone keyboard control (v0.6.96)
 
 - The iPhone keyboard now types directly into the remote Computer. Every key is sent immediately, with no compose field or Send button.
 - The live desktop stays visible above the keyboard. A compact floating control pill replaces the large control panel and adds Escape, Tab, modifiers, arrows, right click, and keyboard dismissal.
+
 
 ## September 21, 2026 - All artifacts in the iOS side menu (v0.6.95)
 

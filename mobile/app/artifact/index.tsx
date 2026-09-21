@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { ActivityIndicator, FlatList, View } from "react-native";
+import { ActivityIndicator, FlatList, Pressable, View } from "react-native";
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { PrimaryButton } from "../../src/components";
 import { useOmg } from "../../src/omg/provider";
@@ -34,9 +34,13 @@ export default function SessionArtifactsScreen() {
       <FlatList contentInsetAdjustmentBehavior="automatic" data={items} keyExtractor={item => item.id}
         contentContainerStyle={{ padding: space.lg, gap: space.lg }}
         refreshing={loading && items.length > 0} onRefresh={() => setRevision(n => n + 1)}
-        renderItem={({ item }) => <View style={{ gap: space.sm }}>
+        renderItem={({ item }) => <View>
           <TranscriptEntry message={item} />
-          {!sessionId && item.sessionId ? <PrimaryButton label="Open chat" onPress={() => router.push(`/session/${encodeURIComponent(item.sessionId)}`)} /> : null}
+          {!sessionId && item.sessionId ? <Pressable accessibilityRole="link" accessibilityLabel="Open chat"
+            onPress={() => router.push(`/session/${encodeURIComponent(item.sessionId)}`)}
+            style={({ pressed }) => ({ alignSelf: "flex-start", minHeight: 44, justifyContent: "center", paddingHorizontal: space.sm, opacity: pressed ? 0.5 : 1 })}>
+            <Text style={{ ...type.footnote, color: colors.textSecondary }}>Open chat ›</Text>
+          </Pressable> : null}
         </View>}
         ListEmptyComponent={loading ? <ActivityIndicator accessibilityLabel="Loading artifacts" /> : <Text style={{ ...type.callout, color: colors.textMuted }}>{error ? "Artifacts could not load." : (sessionId ? "No artifacts in this session yet." : "No artifacts on this computer yet.")}</Text>}
         ListFooterComponent={error ? <PrimaryButton label="Try again" onPress={() => setRevision(n => n + 1)} /> : null}

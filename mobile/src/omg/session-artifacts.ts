@@ -8,9 +8,9 @@ export async function loadSessionArtifacts(
   const found = new Map<string, SessionArtifact>();
   let offset = 0;
   while (active()) {
-    const page = await request<{ artifacts: SessionArtifact[]; total?: number }>(`/api/artifacts?limit=500&offset=${offset}`);
+    const page = await request<{ artifacts: SessionArtifact[]; total?: number }>(`/api/artifacts?limit=500&offset=${offset}&kind=html`);
     for (const artifact of page.artifacts) {
-      if (!sessionId || artifact.sessionId === sessionId) found.set(artifact.id, artifact);
+      if (artifact.kind === "html" && (!sessionId || artifact.sessionId === sessionId)) found.set(artifact.id, artifact);
     }
     offset += page.artifacts.length;
     if (!page.artifacts.length || offset >= (page.total ?? offset)) break;
