@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## September 21, 2026 - Reliable New Project skill handoff (v0.6.93)
+
+- App and Website presets now name `.agents/skills/omg-app-builder/SKILL.md` directly, so the agent reads the correct workflow before it builds.
+- Selecting an existing folder installs the current app-builder skill before the session starts. Existing instructions, files, and Git history remain unchanged.
+- iOS Settings now shows the connected computer version and uses native grouped lists.
+
 ## September 21, 2026 - iOS session artifacts (v0.6.92)
 
 - iOS: Open Artifacts from a session menu to browse its images, videos, files, and HTML output.
