@@ -447,6 +447,8 @@ function RootNavigator() {
             <Stack.Screen name="session/new" options={{ headerShown: false }} />
             <Stack.Screen name="computers" />
             <Stack.Screen name="settings" />
+            <Stack.Screen name="settings/coding-agents" options={{ title: "Coding agents", headerLargeTitle: true }} />
+            <Stack.Screen name="settings/agent" options={{ title: "" }} />
             <Stack.Screen name="notifications" />
             <Stack.Screen name="schedules" />
             <Stack.Screen name="plan" />
@@ -591,7 +593,13 @@ function RootNavigator() {
     return (
       <>
         <StatusBar style={isDark ? "light" : "dark"} />
-        <SetupScreen onDone={onboarding.complete} agents={agents} waking={waking} onConnected={probe} />
+        <SetupScreen
+          onDone={onboarding.complete}
+          agents={agents}
+          waking={waking}
+          onConnected={probe}
+          transport={client?.transport ?? null}
+        />
       </>
     );
   }

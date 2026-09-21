@@ -38,6 +38,7 @@
     "expo-symbols": "~57.0.2",
     "expo-updates": "~57.0.13",
     "expo-video": "~57.0.4",
+    "expo-web-browser": "~57.0.3",
     "expo-widgets": "~57.0.19",
     "jpeg-js": "^0.4.4",
     "marked": "^18.0.9",

@@ -1,0 +1,60 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": false
+  },
+  "steps": [
+    {
+      "name": "01 Settings",
+      "goal": "Open Settings from the session list",
+      "done": "The Settings screen with the Computer section, a Coding agents row and Subscription and plan",
+      "expect": [
+        "Coding agents",
+        "Subscription and plan"
+      ],
+      "timeoutMs": 90000
+    },
+    {
+      "name": "02 Coding agents",
+      "goal": "Tap the Coding agents row",
+      "done": "The native Coding agents screen: a note that the sign-in happens on your Computer, and a list with Claude Code and Codex rows that have Connect buttons",
+      "expect": [
+        "Coding agents",
+        "The sign-in happens on your Computer",
+        "Claude Code",
+        "Codex",
+        "Connect"
+      ],
+      "forbid": [
+        "Safari",
+        "omg.dev/settings"
+      ],
+      "timeoutMs": 90000
+    },
+    {
+      "name": "03 Open Claude sheet",
+      "goal": "Tap Connect on the Claude Code row",
+      "done": "A tray titled Sign in to Claude with Step 1 of 2, a two-step rail, and an Open Claude button",
+      "expect": [
+        "Sign in to Claude.",
+        "Open Claude and sign in",
+        "Paste the code here",
+        "Open Claude"
+      ],
+      "timeoutMs": 60000
+    },
+    {
+      "name": "04 Close sheet",
+      "goal": "Close the tray with the Close button",
+      "done": "Back on the Coding agents list with the Claude Code and Codex rows",
+      "expect": [
+        "Claude Code",
+        "Codex"
+      ],
+      "forbid": [
+        "Sign in to Claude."
+      ],
+      "timeoutMs": 60000
+    }
+  ]
+}

@@ -42,8 +42,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Image, LayoutAnimation, Linking, Pressable, ScrollView, View } from "react-native";
-import * as Clipboard from "expo-clipboard";
+import { ActivityIndicator, Image, Pressable, ScrollView, View } from "react-native";
 import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -60,16 +59,10 @@ import Reanimated, {
   withTiming,
 } from "react-native-reanimated";
 
-import { Icon, Separator } from "../components";
+import { Icon } from "../components";
 import { agentIcon } from "./agent-icons";
-import {
-  type ClaudeConnectAttempt,
-  type CodexDeviceAuth,
-  finishClaudeConnect,
-  pollCodexConnect,
-  startClaudeConnect,
-  startCodexConnect,
-} from "./agent-connect";
+import { CONNECT_PROVIDER, PROVIDER_LABEL, type AgentAuthTransport, type ConnectProvider } from "./agent-auth";
+import { ConnectAgentSheet } from "./connect-agent-sheet";
 import { fetchPurchaseAccount } from "./billing";
 import { FALLBACK_TIERS } from "./plan-specs";
 import type { ComputerReadiness } from "./readiness";
@@ -77,7 +70,7 @@ import { connectStore, fetchTiers, isStoreAvailable, type StoreProduct } from ".
 import { TierCard } from "./tier-card";
 import { BrandMark } from "./brand-mark";
 import { useReduceMotionEnabled } from "./motion";
-import { Text, TextInput } from "./text";
+import { Text } from "./text";
 import { brand, useTheme } from "./theme";
 
 /**
@@ -127,17 +120,7 @@ export const PANELS: Panel[] = [
  * account linking anywhere, so a "Connect GitHub" row would be a button that
  * cannot do anything. Add it when the linking exists, not before.
  */
-/**
- * Roster key -> which account connects it. The cloud Computer reports Claude
- * as `aisdk` (its label is "claude") and Codex as `codex-aisdk`; a local box
- * reports `claude` and `codex`. Both spellings are the same account.
- */
-export const CONNECT_PROVIDER: Record<string, "claude" | "codex"> = {
-  claude: "claude",
-  aisdk: "claude",
-  codex: "codex",
-  "codex-aisdk": "codex",
-};
+export { CONNECT_PROVIDER };
 const AGENT_LABELS: Record<string, string> = {
   claude: "Claude Code",
   aisdk: "Claude Code",
@@ -146,8 +129,8 @@ const AGENT_LABELS: Record<string, string> = {
 };
 /** The two featured cards, in order, and what each one is sold on. */
 const FEATURED: { provider: "claude" | "codex"; fallbackKey: string; label: string; detail: string }[] = [
-  { provider: "claude", fallbackKey: "claude", label: "Claude Code", detail: "Use your Claude subscription" },
-  { provider: "codex", fallbackKey: "codex", label: "Codex", detail: "Use your ChatGPT subscription" },
+  { provider: "claude", fallbackKey: "claude", label: "Claude Code", detail: "Pro or Max subscription" },
+  { provider: "codex", fallbackKey: "codex", label: "Codex", detail: "ChatGPT Plus or Pro" },
 ];
 
 /** Explainers, then connect, then plans. */
@@ -688,411 +671,68 @@ function Dots({ count, index }: { count: number; index: number }) {
  */
 
 /**
- * A featured agent: the card someone is expected to act on.
- *
- * The connect panel opens INSIDE the card, below a separator, so the thing
- * being connected and the controls that connect it are one object. The
- * header is the tap target; the panel has its own buttons.
+ * One connectable agent on the connect step. A tap opens ConnectAgentSheet
+ * for that provider; nothing unfolds inside the card.
  */
-function FeaturedCard({
+function OptionCard({
   agent,
   label,
   detail,
   connected,
-  open,
-  onToggle,
-  children,
+  disabled,
+  onPress,
 }: {
   agent: string;
   label: string;
   detail: string;
   connected: boolean;
-  open: boolean;
-  onToggle: () => void;
-  children?: React.ReactNode;
-}) {
-  const { colors, radius, space, type } = useTheme();
-  return (
-    <View
-      style={{
-        borderRadius: radius.xl,
-        backgroundColor: colors.card,
-        borderWidth: 1,
-        borderColor: open ? brand.orange : colors.border,
-        overflow: "hidden",
-      }}
-    >
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`${label}, ${connected ? "connected" : "not connected"}`}
-        disabled={connected}
-        onPress={onToggle}
-        style={({ pressed }) => ({
-          flexDirection: "row",
-          alignItems: "center",
-          gap: space.md,
-          padding: space.lg,
-          backgroundColor: pressed && !connected ? colors.cardPressed : "transparent",
-        })}
-      >
-        <View
-          style={{
-            width: 48,
-            height: 48,
-            borderRadius: radius.lg,
-            backgroundColor: colors.fieldFill,
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Image source={agentIcon(agent)} style={{ width: 30, height: 30 }} resizeMode="contain" />
-        </View>
-        <View style={{ flex: 1, gap: 2 }}>
-          <Text style={{ ...type.headline, color: colors.text }}>{label}</Text>
-          <Text style={{ ...type.footnote, color: colors.textMuted }}>{detail}</Text>
-        </View>
-        {connected ? (
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 4,
-              paddingHorizontal: 10,
-              paddingVertical: 5,
-              borderRadius: radius.pill,
-              backgroundColor: "rgba(48, 209, 88, 0.14)",
-            }}
-          >
-            <Icon ios="checkmark" android="check" size={11} weight="semibold" color={colors.success} />
-            <Text style={{ ...type.caption, fontWeight: "600", color: colors.success }}>Connected</Text>
-          </View>
-        ) : (
-          <View
-            style={{
-              paddingHorizontal: 14,
-              paddingVertical: 7,
-              borderRadius: radius.pill,
-              backgroundColor: open ? colors.secondary : brand.orange,
-            }}
-          >
-            <Text style={{ ...type.subhead, fontWeight: "600", color: open ? colors.text : "#ffffff" }}>
-              {open ? "Close" : "Connect"}
-            </Text>
-          </View>
-        )}
-      </Pressable>
-      {open && children ? (
-        <View style={{ paddingHorizontal: space.lg, paddingBottom: space.lg }}>
-          <Separator />
-          <View style={{ paddingTop: space.md }}>{children}</View>
-        </View>
-      ) : null}
-    </View>
-  );
-}
-
-/** Everything that is not featured: compact, behind a disclosure. */
-function OtherAgentRow({ agent, label, connected }: { agent: string; label: string; connected: boolean }) {
-  const { colors, space, type } = useTheme();
-  return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: space.md, paddingVertical: 10 }}>
-      <Image source={agentIcon(agent)} style={{ width: 22, height: 22 }} resizeMode="contain" />
-      <Text style={{ ...type.callout, color: colors.text, flex: 1 }}>{label}</Text>
-      <Text style={{ ...type.footnote, color: connected ? colors.success : colors.textMuted }}>
-        {connected ? "Connected" : "Set up on the web"}
-      </Text>
-    </View>
-  );
-}
-
-function OtherAgents({ agents }: { agents: SetupAgent[] }) {
-  const { colors, radius, space, type } = useTheme();
-  const [open, setOpen] = useState(false);
-  if (agents.length === 0) return null;
-  const connectedCount = agents.filter((a) => a.connected).length;
-  return (
-    <View style={{ borderRadius: radius.xl, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border }}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityState={{ expanded: open }}
-        onPress={() => {
-          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-          setOpen((v) => !v);
-        }}
-        style={({ pressed }) => ({
-          flexDirection: "row",
-          alignItems: "center",
-          gap: space.md,
-          padding: space.lg,
-          borderRadius: radius.xl,
-          backgroundColor: pressed ? colors.cardPressed : "transparent",
-        })}
-      >
-        <View style={{ flexDirection: "row" }}>
-          {agents.slice(0, 4).map((a, i) => (
-            <View
-              key={a.key}
-              style={{
-                width: 28,
-                height: 28,
-                borderRadius: 8,
-                backgroundColor: colors.fieldFill,
-                borderWidth: 2,
-                borderColor: colors.card,
-                alignItems: "center",
-                justifyContent: "center",
-                marginLeft: i === 0 ? 0 : -8,
-              }}
-            >
-              <Image source={agentIcon(a.key)} style={{ width: 16, height: 16 }} resizeMode="contain" />
-            </View>
-          ))}
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={{ ...type.headline, color: colors.text }}>Other agents</Text>
-          <Text style={{ ...type.footnote, color: colors.textMuted }}>
-            {agents.length} available{connectedCount > 0 ? `, ${connectedCount} connected` : ""}
-          </Text>
-        </View>
-        <Icon
-          ios={open ? "chevron.up" : "chevron.down"}
-          android={open ? "expand_less" : "expand_more"}
-          size={14}
-          weight="semibold"
-          color={colors.textMuted}
-        />
-      </Pressable>
-      {open ? (
-        <View style={{ paddingHorizontal: space.lg, paddingBottom: space.sm }}>
-          <Separator />
-          {agents.map((a) => (
-            <OtherAgentRow key={a.key} agent={a.key} label={a.label} connected={a.connected} />
-          ))}
-        </View>
-      ) : null}
-    </View>
-  );
-}
-
-/**
- * Connect Claude: Safari for the sign-in, a field for the code.
- *
- * Anthropic shows the code on a page of its own after login, and there is no
- * redirect back to the app, so the person has to bring it here. The steps say
- * so, the paste button exists because that is how the code arrives, and
- * pressing Connect is the only thing that talks to omg.
- */
-function ClaudeConnectPanel({ onConnected }: { onConnected: () => void }) {
-  const { colors, radius, space, type } = useTheme();
-  const [attempt, setAttempt] = useState<ClaudeConnectAttempt | null>(null);
-  const [code, setCode] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const open = useCallback(async () => {
-    setError(null);
-    try {
-      const next = await startClaudeConnect();
-      setAttempt(next);
-      setCode("");
-      await Linking.openURL(next.authorizationUrl);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not open Claude.");
-    }
-  }, []);
-
-  const paste = useCallback(async () => {
-    const text = await Clipboard.getStringAsync().catch(() => "");
-    if (text) setCode(text.trim());
-  }, []);
-
-  const connect = useCallback(async () => {
-    if (!attempt || busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await finishClaudeConnect(attempt, code);
-      onConnected();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not connect Claude.");
-    } finally {
-      setBusy(false);
-    }
-  }, [attempt, busy, code, onConnected]);
-
-  return (
-    <View style={{ gap: space.md }}>
-      <Text style={{ ...type.footnote, color: colors.textMuted, lineHeight: 18 }}>
-        1. Sign in to Claude in Safari. 2. Copy the code it shows. 3. Paste it here.
-      </Text>
-      <SmallButton label={attempt ? "Open Claude again" : "Open Claude"} onPress={() => void open()} />
-      {attempt ? (
-        <>
-          <View style={{ flexDirection: "row", gap: space.sm, alignItems: "center" }}>
-            <TextInput
-              autoCapitalize="none"
-              autoCorrect={false}
-              editable={!busy}
-              onChangeText={(v) => {
-                setCode(v);
-                setError(null);
-              }}
-              placeholder="Paste the code"
-              placeholderTextColor={colors.textMuted}
-              style={{
-                ...type.body,
-                flex: 1,
-                height: 44,
-                paddingHorizontal: 12,
-                borderRadius: radius.md,
-                backgroundColor: colors.fieldFill,
-                borderWidth: 1,
-                borderColor: error ? colors.danger : colors.borderStrong,
-                color: colors.text,
-              }}
-              value={code}
-            />
-            <SmallButton label="Paste" onPress={() => void paste()} quiet />
-          </View>
-          <SmallButton
-            label={busy ? "Connecting…" : "Connect"}
-            onPress={() => void connect()}
-            disabled={!code.trim() || busy}
-          />
-        </>
-      ) : null}
-      {error ? <Text style={{ ...type.footnote, color: colors.danger }}>{error}</Text> : null}
-    </View>
-  );
-}
-
-/**
- * Connect Codex: a device code. Show it big, copy it, open the page, and poll
- * until OpenAI says the person approved. The poll stops when the panel goes
- * away, so backing out does not leave a timer hitting the server.
- */
-function CodexConnectPanel({ onConnected }: { onConnected: () => void }) {
-  const { colors, radius, space, type } = useTheme();
-  const [auth, setAuth] = useState<CodexDeviceAuth | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [starting, setStarting] = useState(false);
-  const alive = useRef(true);
-  useEffect(() => {
-    alive.current = true;
-    return () => {
-      alive.current = false;
-    };
-  }, []);
-
-  const start = useCallback(async () => {
-    setStarting(true);
-    setError(null);
-    try {
-      const next = await startCodexConnect();
-      if (!alive.current) return;
-      setAuth(next);
-      await Clipboard.setStringAsync(next.userCode).catch(() => {});
-      await Linking.openURL(next.verificationUrl);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not start ChatGPT sign-in.");
-    } finally {
-      setStarting(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!auth) return;
-    let cancelled = false;
-    const tick = async () => {
-      if (cancelled) return;
-      try {
-        const status = await pollCodexConnect(auth);
-        if (cancelled) return;
-        if (status === "connected") {
-          onConnected();
-          return;
-        }
-      } catch (e) {
-        if (cancelled) return;
-        setError(e instanceof Error ? e.message : "ChatGPT sign-in failed.");
-        setAuth(null);
-        return;
-      }
-      timer = setTimeout(() => void tick(), auth.intervalMs);
-    };
-    let timer = setTimeout(() => void tick(), auth.intervalMs);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [auth, onConnected]);
-
-  return (
-    <View style={{ gap: space.md }}>
-      {auth ? (
-        <>
-          <Text style={{ ...type.footnote, color: colors.textMuted, lineHeight: 18 }}>
-            Enter this code on the ChatGPT page that opened. It is already copied.
-          </Text>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => void Clipboard.setStringAsync(auth.userCode)}
-            style={{
-              alignItems: "center",
-              paddingVertical: 12,
-              borderRadius: radius.md,
-              backgroundColor: colors.fieldFill,
-            }}
-          >
-            <Text style={{ ...type.title, color: colors.text, letterSpacing: 3 }}>{auth.userCode}</Text>
-          </Pressable>
-          <View style={{ flexDirection: "row", gap: space.sm, alignItems: "center" }}>
-            <ActivityIndicator color={colors.textMuted} />
-            <Text style={{ ...type.footnote, color: colors.textMuted }}>Waiting for you to approve…</Text>
-          </View>
-          <SmallButton label="Open ChatGPT again" onPress={() => void Linking.openURL(auth.verificationUrl)} quiet />
-        </>
-      ) : (
-        <>
-          <Text style={{ ...type.footnote, color: colors.textMuted, lineHeight: 18 }}>
-            Sign in to ChatGPT in Safari and enter a short code. Your Codex subscription is then used here.
-          </Text>
-          <SmallButton label={starting ? "Starting…" : "Open ChatGPT"} onPress={() => void start()} disabled={starting} />
-        </>
-      )}
-      {error ? <Text style={{ ...type.footnote, color: colors.danger }}>{error}</Text> : null}
-    </View>
-  );
-}
-
-/** A compact brand button for inside a panel; BigButton is the page action. */
-function SmallButton({
-  label,
-  onPress,
-  disabled,
-  quiet,
-}: {
-  label: string;
-  onPress: () => void;
   disabled?: boolean;
-  quiet?: boolean;
+  onPress: () => void;
 }) {
-  const { colors, radius, type } = useTheme();
+  const { colors, radius, space, type } = useTheme();
   return (
     <Pressable
       accessibilityRole="button"
-      disabled={disabled}
+      accessibilityLabel={`${label}, ${connected ? "connected" : "not connected"}`}
+      accessibilityState={{ disabled: !!disabled }}
+      disabled={connected || disabled}
       onPress={onPress}
+      testID={`connect-${agent}`}
       style={({ pressed }) => ({
-        backgroundColor: quiet ? colors.secondary : brand.orange,
-        borderRadius: radius.md,
-        paddingVertical: 12,
-        paddingHorizontal: 16,
+        flexDirection: "row",
         alignItems: "center",
-        opacity: disabled ? 0.5 : pressed ? 0.85 : 1,
+        gap: space.md,
+        padding: 18,
+        borderRadius: radius.xl,
+        borderWidth: 1.5,
+        borderColor: connected ? colors.border : colors.text,
+        backgroundColor: pressed && !connected ? colors.cardPressed : colors.card,
+        opacity: disabled && !connected ? 0.5 : 1,
       })}
     >
-      <Text style={{ ...type.subhead, fontWeight: "600", color: quiet ? colors.text : "#ffffff" }}>{label}</Text>
+      <View
+        style={{
+          width: 52,
+          height: 52,
+          borderRadius: 14,
+          backgroundColor: colors.secondary,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Image source={agentIcon(agent)} style={{ width: 28, height: 28 }} resizeMode="contain" />
+      </View>
+      <View style={{ flex: 1, gap: 3 }}>
+        <Text style={{ ...type.title, fontSize: 19, color: colors.text }}>{label}</Text>
+        <Text style={{ ...type.subhead, fontWeight: "400", color: connected ? colors.success : colors.text2 }}>
+          {connected ? "Connected" : detail}
+        </Text>
+      </View>
+      {connected ? (
+        <Icon ios="checkmark.circle.fill" android="check_circle" size={22} color={colors.success} />
+      ) : (
+        <Icon ios="chevron.right" android="chevron_right" size={14} weight="semibold" color={colors.text} />
+      )}
     </Pressable>
   );
 }
@@ -1118,12 +758,15 @@ export function SetupScreen({
   agents,
   waking,
   onConnected,
+  transport = null,
 }: {
   onDone: () => void;
   agents: SetupAgent[];
   waking: boolean;
   /** Re-read the roster after a connect, so the row flips to Connected. */
   onConnected?: () => void | Promise<void>;
+  /** The selected Computer. Null while none is selected; the cards then wait. */
+  transport?: AgentAuthTransport | null;
 }) {
   const { colors, space, type } = useTheme();
   const insets = useSafeAreaInsets();
@@ -1137,12 +780,12 @@ export function SetupScreen({
    * to see the new credential, so the row is marked from the server's own
    * "ok" first and the roster confirms it when it catches up.
    */
-  const [openAgent, setOpenAgent] = useState<string | null>(null);
+  const [connecting, setConnecting] = useState<{ provider: ConnectProvider; key: string } | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
   const [justConnected, setJustConnected] = useState<Set<string>>(new Set());
   const connected = useCallback(
     (agent: string) => {
       setJustConnected((prev) => new Set(prev).add(agent));
-      setOpenAgent(null);
       void onConnected?.();
     },
     [onConnected],
@@ -1191,8 +834,10 @@ export function SetupScreen({
 
   /** The plan step is showing the ladder, so layout gives it the room. */
   const cards = step === 1 && products !== null && products.length > 0;
-  /** The connect step has rows, and a panel can open under one. Same treatment. */
+  /** The connect step has rows. Same treatment. */
   const rows = step === 0;
+  const others = agents.filter((a) => CONNECT_PROVIDER[a.key] === undefined);
+  const anyConnected = agents.some((a) => a.connected) || justConnected.size > 0;
   const tall = cards || rows;
 
   return (
@@ -1227,52 +872,72 @@ export function SetupScreen({
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          <View style={{ gap: space.md, marginBottom: space.lg }}>
-            <Text style={{ ...type.largeTitle, color: colors.text, textAlign: "center" }}>
-              Connect an agent
-            </Text>
-            <Text
-              style={{ ...type.body, color: colors.textMuted, textAlign: "center", lineHeight: 24 }}
-            >
-              Sessions run on a coding agent. Connect Claude or Codex here, or add more later in Settings.
+          <View style={{ gap: space.sm, marginBottom: space.xl }}>
+            <Text style={{ ...type.largeTitle, color: colors.text }}>Bring your agent.</Text>
+            <Text style={{ ...type.callout, color: colors.text2, lineHeight: 22 }}>
+              Use the subscription you already pay for. Takes about a minute.
             </Text>
           </View>
           <View style={{ gap: space.md }}>
             {FEATURED.map((f) => {
               const fromRoster = agents.find((a) => CONNECT_PROVIDER[a.key] === f.provider);
               const key = fromRoster?.key ?? f.fallbackKey;
-              const isConnected =
-                fromRoster?.connected === true || justConnected.has(key);
-              const open = openAgent === key;
+              const isConnected = fromRoster?.connected === true || justConnected.has(key);
               return (
-                <FeaturedCard
+                <OptionCard
                   key={key}
                   agent={key}
                   label={f.label}
-                  detail={isConnected ? "Ready to run sessions" : f.detail}
+                  detail={f.detail}
                   connected={isConnected}
-                  open={open}
-                  onToggle={() => {
-                    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                    setOpenAgent(open ? null : key);
+                  disabled={!transport}
+                  onPress={() => {
+                    setConnecting({ provider: f.provider, key });
+                    setSheetOpen(true);
                   }}
-                >
-                  {f.provider === "claude" ? (
-                    <ClaudeConnectPanel onConnected={() => connected(key)} />
-                  ) : (
-                    <CodexConnectPanel onConnected={() => connected(key)} />
-                  )}
-                </FeaturedCard>
+                />
               );
             })}
-            <OtherAgents agents={agents.filter((a) => CONNECT_PROVIDER[a.key] === undefined)} />
-            {agents.length === 0 ? (
-              <Text style={{ ...type.footnote, color: colors.textMuted, textAlign: "center", lineHeight: 18 }}>
-                {waking
-                  ? "Your Computer is starting up. Its other agents will appear here in a moment."
-                  : "Other agents appear here once your Computer is ready."}
+          </View>
+          {others.length > 0 ? (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginTop: space.lg }}>
+              <View style={{ flexDirection: "row" }}>
+                {others.slice(0, 4).map((a, i) => (
+                  <View
+                    key={a.key}
+                    style={{
+                      width: 26,
+                      height: 26,
+                      borderRadius: 8,
+                      backgroundColor: colors.secondary,
+                      borderWidth: 2,
+                      borderColor: colors.bg,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      marginLeft: i === 0 ? 0 : -8,
+                    }}
+                  >
+                    <Image source={agentIcon(a.key)} style={{ width: 14, height: 14 }} resizeMode="contain" />
+                  </View>
+                ))}
+              </View>
+              <Text style={{ ...type.footnote, color: colors.textMuted, flex: 1, lineHeight: 18 }}>
+                {others.map((a) => a.label).join(" and ")} {others.length === 1 ? "is" : "are"} already on your Computer.
               </Text>
-            ) : null}
+            </View>
+          ) : null}
+          {agents.length === 0 ? (
+            <Text style={{ ...type.footnote, color: colors.textMuted, marginTop: space.lg, lineHeight: 18 }}>
+              {waking
+                ? "Your Computer is starting up. Its other agents will appear here in a moment."
+                : "Other agents appear here once your Computer is ready."}
+            </Text>
+          ) : null}
+          <View style={{ flexDirection: "row", gap: space.md, alignItems: "flex-start", marginTop: space.xl }}>
+            <Icon ios="lock" android="lock" size={15} color={colors.text} />
+            <Text style={{ ...type.footnote, lineHeight: 18, color: colors.text2, flex: 1 }}>
+              The sign-in runs on your Computer. The token stays there, never on this phone. You can disconnect any time.
+            </Text>
           </View>
         </ScrollView>
       ) : cards ? (
@@ -1360,7 +1025,7 @@ export function SetupScreen({
 
       <View style={{ padding: space.lg, paddingBottom: insets.bottom + space.lg, gap: space.sm }}>
         <BigButton
-          label={step === 0 ? "Continue" : "See plans"}
+          label={step === 0 ? (anyConnected ? "Continue" : "Continue without an agent") : "See plans"}
           onPress={step === 0 ? () => setStep(1) : seePlans}
         />
         {/*
@@ -1376,6 +1041,17 @@ export function SetupScreen({
           </Pressable>
         ) : null}
       </View>
+      {connecting ? (
+        <ConnectAgentSheet
+          visible={sheetOpen}
+          provider={connecting.provider}
+          agentKey={connecting.key}
+          transport={transport}
+          onClose={() => setSheetOpen(false)}
+          onConnected={() => connected(connecting.key)}
+          doneLabel={`Continue with ${PROVIDER_LABEL[connecting.provider]}`}
+        />
+      ) : null}
     </View>
   );
 }

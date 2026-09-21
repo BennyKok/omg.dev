@@ -119,8 +119,11 @@
     {
       "name": "06 Continue for now",
       "goal": "Skip the plan with Continue for now",
-      "done": "The connect-an-agent step with a Skip option",
+      "done": "The Bring your agent step listing Claude Code and Codex, with a Skip option",
       "expect": [
+        "Bring your agent.",
+        "Claude Code",
+        "Codex",
         "Skip"
       ]
     },

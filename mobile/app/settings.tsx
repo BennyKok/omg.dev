@@ -103,7 +103,6 @@ const LEGAL_PAGES: { label: string; path: string }[] = [
 ];
 
 const WEB_PAGES: { label: string; path: string }[] = [
-  { label: "Coding agents", path: "/settings/computer/coding-agents" },
   { label: "Schedules", path: "/settings/computer/auto" },
   { label: "Storage", path: "/settings/computer/storage" },
 ];
@@ -325,6 +324,17 @@ export default function SettingsScreen() {
             difference, and it is why the web link must not come back alongside
             it: a paywall with an external escape hatch is the same violation
             with an extra step. */}
+        <Separator inset="text" />
+        <Row onPress={() => router.push("/settings/coding-agents")}>
+          <Text style={{ ...type.callout, color: colors.text, flex: 1 }}>Coding agents</Text>
+          <Icon
+            ios="chevron.right"
+            android="chevron_right"
+            size={13}
+            weight="semibold"
+            color={colors.textMuted}
+          />
+        </Row>
         <Separator inset="text" />
         <Row onPress={() => router.push("/plan")}>
           <Text style={{ ...type.callout, color: colors.text, flex: 1 }}>
