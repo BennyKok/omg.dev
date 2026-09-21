@@ -2618,7 +2618,10 @@ function QuestionCard({
       style={{
         padding: space.md,
         backgroundColor: colors.card,
-        borderRadius: radius.lg,
+        // Same family as the composer under it (24/32) and the sheet drawer.
+        // radius.lg is 12, which read as a box against those continuous pills.
+        borderRadius: 32,
+        borderCurve: "continuous",
         borderWidth: StyleSheet.hairlineWidth,
         // borderStrong: this is a card the transcript can hand you at any
         // moment, asking for a tap that unblocks the agent — it needs to

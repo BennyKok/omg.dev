@@ -51,7 +51,7 @@ export function AgentSetupSheet({
   const goBack = () => setPage("root");
   return (
     <Sheet visible={visible} onClose={onClose} pageKey={page} pageDirection={page === "root" ? "back" : "forward"} maxWidth={414} resizable={false}
-      surfaceStyle={{ borderRadius: 22, borderWidth: 1, borderColor: isDark ? "#454545" : colors.borderSoft, backgroundColor: isDark ? "#242424" : colors.popover }}>
+      surfaceStyle={{ borderWidth: 1, borderColor: isDark ? "#454545" : colors.borderSoft, backgroundColor: isDark ? "#242424" : colors.popover }}>
       <View style={{ padding: 12, paddingTop: 0, gap: 12 }}>
         <View style={{ flexDirection: "row", alignItems: "center", minHeight: 44, gap: 8 }}>
           {page !== "root" ? <Pressable onPress={goBack} accessibilityRole="button" accessibilityLabel="Back to agent controls"
