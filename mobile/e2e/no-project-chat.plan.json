@@ -29,9 +29,9 @@
       "selected": "Chats without a project"
     },
     {
-      "name": "Focused starters",
+      "name": "Rounded starter rail",
       "goal": "Tap the message composer to focus it and show the keyboard. If iOS shows its slide-to-type tutorial, tap Continue to dismiss that tutorial.",
-      "done": "Small starter cards appear immediately above the composer with the keyboard visible.",
+      "done": "The rounded starter cards appear above the composer with the keyboard visible. The input keeps focus. The separate starter-row-scroll flow checks both horizontal directions.",
       "expect": [
         "Start website",
         "Start app",

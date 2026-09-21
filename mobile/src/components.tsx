@@ -19,6 +19,7 @@ import {
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Reanimated, {
   Easing,
+  FadeIn,
   LinearTransition,
   ReduceMotion,
   useAnimatedStyle,
@@ -1316,7 +1317,7 @@ export function HomeComposer({
     />
   );
   return (
-    <View onTouchStart={blockNavGesture}
+    <View onTouchStart={blockNavGesture} pointerEvents="box-none"
       /**
        * SOLID, NOT GLASS — deliberately, unlike the pills inside it.
        *
@@ -1351,9 +1352,18 @@ export function HomeComposer({
         backgroundColor: "transparent",
       }}
     >
-      {onStarter && composerFocused && !hasMessage && attachments.items.length === 0 && dictation.state === "idle" ? (
+      {/* Reserve the rail before focus so revealing it does not retarget the
+          composer's layout transition during the keyboard lift. Keep the
+          touch area inside the parent; an overflowing rail cannot scroll on iOS. */}
+      {onStarter ? <View pointerEvents="box-none" style={{ height: 72 }}>
+      {composerFocused && !hasMessage && attachments.items.length === 0 && dictation.state === "idle" ? (
+        <Reanimated.View
+          entering={FadeIn.duration(150).reduceMotion(stillMotion ? ReduceMotion.Always : ReduceMotion.Never)}
+          style={{ height: 60 }}
+        >
         <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always"
-          style={{ flexGrow: 0, marginBottom: 12 }} contentContainerStyle={{ gap: 8 }}>
+          keyboardDismissMode="none" directionalLockEnabled testID="chat-starter-row"
+          style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 8 }}>
           {([
             ["Website", "Help me create a website."],
             ["App", "Help me create an app."],
@@ -1363,15 +1373,17 @@ export function HomeComposer({
             <Pressable key={label} accessibilityRole="button" accessibilityLabel={`Start ${label.toLowerCase()}`}
               accessibilityHint="Sends a starter prompt" testID={`chat-starter-${label.toLowerCase()}`}
               disabled={starting} onPress={() => onStarter(prompt)}
-              style={({ pressed }) => ({ minWidth: 80, minHeight: 60, paddingHorizontal: 14,
-                alignItems: "center", justifyContent: "center", borderRadius: 18,
+              style={({ pressed }) => ({ minWidth: 104, minHeight: 60, paddingHorizontal: 20,
+                alignItems: "center", justifyContent: "center", borderRadius: 30, borderCurve: "continuous",
                 backgroundColor: colors.card, borderWidth: StyleSheet.hairlineWidth,
                 borderColor: colors.borderStrong, opacity: pressed || starting ? 0.5 : 1 })}>
               <Text style={{ ...type.subhead, color: colors.text }}>{label}</Text>
             </Pressable>
           ))}
         </ScrollView>
+        </Reanimated.View>
       ) : null}
+      </View> : null}
       {/* "/" lists the box's skills above the field, as on the web. */}
       <SkillSuggest value={value} onChangeText={onChangeText} />
       <SessionMentionSuggest

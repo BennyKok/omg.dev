@@ -25,6 +25,7 @@ mock.module(import.meta.resolve("react-native-reanimated"), () => ({
   default: { View, createAnimatedComponent: (C: any) => C },
   Easing: { linear: (x: any) => x, bezier: () => (x: any) => x },
   LinearTransition: chain,
+  FadeIn: chain,
   ReduceMotion: { Always: "always", Never: "never" },
   useSharedValue: (value: any) => React.useRef({ value }).current,
   useAnimatedStyle: (fn: any) => fn(),

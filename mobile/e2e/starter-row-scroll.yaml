@@ -1,0 +1,34 @@
+# Run after the no-project-chat plan on its isolated demo build.
+# Swipe from the rail's real element bounds, not guessed screen coordinates.
+appId: dev.omg.computer
+---
+- tapOn:
+    text: Continue
+    optional: true
+- tapOn: "Chats without a project"
+- tapOn:
+    id: home-composer-input
+- tapOn:
+    text: Continue
+    optional: true
+- assertVisible: "Start website"
+- swipe:
+    from:
+      id: chat-starter-row
+    direction: LEFT
+- assertVisible: "Start image"
+- assertVisible: "Typing Predictions"
+- takeScreenshot: starter-row-right
+- swipe:
+    from:
+      id: chat-starter-row
+    direction: RIGHT
+- assertVisible: "Start website"
+- assertVisible: "Typing Predictions"
+- takeScreenshot: starter-row-left
+- inputText: "My own idea"
+- assertNotVisible: "Start website"
+- eraseText: 50
+- assertVisible: "Start website"
+- assertVisible: "Typing Predictions"
+- takeScreenshot: starter-row-restored

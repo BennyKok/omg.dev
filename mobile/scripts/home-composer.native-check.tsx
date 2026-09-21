@@ -16,6 +16,7 @@ mock.module(import.meta.resolve('react-native-reanimated'), () => ({
  default:{View, createAnimatedComponent:(C:any)=>C},
  Easing:{linear:(x:any)=>x, bezier:()=>(x:any)=>x},
  LinearTransition: chain,
+ FadeIn: chain,
  ReduceMotion:{Always:'always',Never:'never'},
  useSharedValue:(value:any)=>React.useRef({value}).current,
  useAnimatedStyle:(fn:any)=>fn(),
@@ -177,6 +178,11 @@ test('no-project starters appear on focus and send one prompt without replacing 
   ui.flush(()=>input.onFocus?.());
   expect(ui.query('textarea')).toBe(field);
   expect(ui.text()).toContain('Website');
+  ui.flush(()=>input.onBlur?.());
+  expect(ui.query('[aria-label="Start website"]')).toBeNull();
+  expect(ui.query('textarea')).toBe(field);
+  ui.flush(()=>input.onFocus?.());
+  expect(ui.query('textarea')).toBe(field);
   ui.flush(()=>ui.query<HTMLButtonElement>('[aria-label="Start website"]')!.click());
   expect(sent).toEqual(['Help me create a website.']);
   render('',true);
