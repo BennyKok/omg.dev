@@ -749,6 +749,18 @@ function RootNavigator() {
             name="settings"
             options={{ title: "Settings", headerLargeTitle: true }}
           />
+          {/* Connecting a coding agent, natively. Both screens live under
+              app/settings/ and MUST be declared here as well as in the
+              signed-out Stack above: a route that only appears there gets no
+              options in the signed-in tree, and the native header falls back
+              to printing the route name ("settings/coding-agents").
+              settings/agent draws its own large title, so its header title
+              stays empty. */}
+          <Stack.Screen
+            name="settings/coding-agents"
+            options={{ title: "Coding agents", headerLargeTitle: true }}
+          />
+          <Stack.Screen name="settings/agent" options={{ title: "" }} />
           {/* Questions waiting on you, and what shipped. Pushed from the
               greeting, which is where the web puts the same door. */}
           <Stack.Screen

@@ -24,9 +24,13 @@
  *    that path directly and `metro.config.js` watches it, so a sync of
  *    `mobile/` alone fails in the bundle phase.
  * 2. `bun install --frozen-lockfile`.
- * 3. `expo prebuild` and `pod install` only when `ios/` is absent. The native
- *    project and its DerivedData are kept between runs; that is the whole
- *    source of the speed.
+ * 3. `expo prebuild` when `ios/` is absent, and `pod install` whenever the
+ *    dependency list in package.json has moved since the last build. The
+ *    native project and its DerivedData are kept between runs; that is the
+ *    whole source of the speed. Pods must still be re-installed on a new
+ *    package, because autolinking runs in the Podfile: skipping that step
+ *    builds an app that is missing the native module and crashes when the JS
+ *    reaches for it.
  * 4. `xcodebuild -sdk iphonesimulator -configuration Release`.
  *
  * `expo run:ios --device <udid>` is NOT used. It resolves a simulator UDID as
@@ -60,6 +64,24 @@ const REMOTE_ENV =
   'N=$(ls ~/.nvm/versions/node 2>/dev/null | sed "s/^v//" | sort -t. -k1,1n -k2,2n -k3,3n | tail -1); ' +
   'export PATH="$HOME/.nvm/versions/node/v$N/bin:$HOME/.bun/bin:/opt/homebrew/bin:$PATH"; ' +
   `export EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=${GOOGLE_IOS_CLIENT_ID};`;
+
+/**
+ * A stable signature of every dependency name and version in
+ * mobile/package.json. The remote build compares it with the copy stored in
+ * ios/ to decide whether pods are stale. Names and versions only: a change to
+ * a script or the app name does not touch autolinking.
+ */
+function depsFingerprint(): string {
+  const pkg = require("../package.json") as {
+    dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+  };
+  const all = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) };
+  return Object.keys(all)
+    .sort()
+    .map((name) => `${name}@${all[name]}`)
+    .join(" ");
+}
 
 async function sh(argv: string[]): Promise<number> {
   const p = Bun.spawn(argv, { stdout: "inherit", stderr: "inherit" });
@@ -115,6 +137,26 @@ export async function buildSimulatorApp(): Promise<string> {
     // The native project is kept between runs; regenerate it only when it is
     // gone. `expo prebuild` rewrites ios/ and would throw away DerivedData.
     'if [ ! -d ios ]; then npx expo prebuild --platform ios --no-install; (cd ios && pod install); fi',
+    /*
+     * A NEW dependency needs `pod install` even though ios/ is present.
+     *
+     * Autolinking happens in the Podfile, so an expo module added to
+     * package.json is absent from the built binary until pods are installed
+     * again. The condition above only asked whether ios/ existed, so the
+     * build kept succeeding and shipped an app without the module. Adding
+     * expo-web-browser this way crashed the app on 2026-09-21 the moment the
+     * JS called it: "Cannot find native module 'ExpoWebBrowser'", a fatal.
+     * The build was green; the app was broken.
+     *
+     * So fingerprint the dependency list and re-install pods when it moves.
+     * This is not the full expo fingerprint (config plugins and app.config.js
+     * also change native state) -- it is the cheap part that covers adding,
+     * removing or bumping a package, which is how this broke.
+     */
+    `NEW_DEPS=${JSON.stringify(depsFingerprint())}`,
+    'if [ "$NEW_DEPS" != "$(cat ios/.omg-deps 2>/dev/null)" ]; then',
+    '  echo "dependencies changed: pod install"; (cd ios && pod install) && printf %s "$NEW_DEPS" > ios/.omg-deps',
+    "fi",
     // An explicit simulator harness tests native UI against local fixtures.
     // An ordinary build always keeps the normal Expo Router entry point.
     ...(testEntry ? [`export ENTRY_FILE="$PWD/${testEntry}"`] : []),

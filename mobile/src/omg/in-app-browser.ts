@@ -3,12 +3,33 @@
  *
  * `expo-web-browser` wraps SFSafariViewController. It is a native module, so a
  * binary built before it was added does not have it, and an OTA bundle that
- * imports it at module scope would crash that binary on launch. The module is
- * loaded lazily inside a try, and a binary without it falls back to Safari,
- * which is what the flow did before. The caller is told which one happened so
- * it can wait for the sheet to close, or for the app to come back to the
- * foreground.
+ * imports it at module scope would crash that binary on launch. A binary
+ * without it must fall back to Safari, which is what the flow did before. The
+ * caller is told which one happened so it can wait for the sheet to close, or
+ * for the app to come back to the foreground.
+ *
+ * ── Why the probe, and not `try { require(...) } catch` ───────────────────
+ *
+ * A lazy require inside a try looks like it covers the missing binary. It does
+ * not, and it crashed the app on 2026-09-21: tapping Connect on a build whose
+ * pods predate the package killed the process with
+ *
+ *   Unhandled JS Exception: Error: Cannot find native module 'ExpoWebBrowser'
+ *     requireNativeModule -> ... -> webBrowser -> hasInAppBrowser
+ *   *** Terminating app due to uncaught exception 'RCTFatalException'
+ *
+ * Metro's `guardedLoadModule` wraps the OUTERMOST require of a module graph
+ * and, when that graph throws while loading, hands the error to
+ * `ErrorUtils.reportFatalError` instead of re-throwing it to whoever called
+ * `require`. The `catch` is never entered, and a fatal in a release build is a
+ * crash. Any `try { require(native package) } catch` here is the same trap.
+ *
+ * So ask expo-modules-core whether the native module is registered FIRST.
+ * `requireOptionalNativeModule` returns null rather than throwing -- that is
+ * the API built for this question. Only when it answers do we load the JS
+ * wrapper, and by then the wrapper's own `requireNativeModule` cannot fail.
  */
+import { requireOptionalNativeModule } from "expo-modules-core";
 import { Linking } from "react-native";
 
 type WebBrowserModule = {
@@ -19,14 +40,18 @@ type WebBrowserModule = {
 
 let loaded: WebBrowserModule | null | undefined;
 
+/**
+ * The name the native side registers. It is the podspec/module name, not the
+ * npm package name, and it is what expo-web-browser itself asks for.
+ */
+const NATIVE_MODULE = "ExpoWebBrowser";
+
 function webBrowser(): WebBrowserModule | null {
   if (loaded === undefined) {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      loaded = require("expo-web-browser") as WebBrowserModule;
-    } catch {
-      loaded = null;
-    }
+    loaded = requireOptionalNativeModule(NATIVE_MODULE)
+      ? // eslint-disable-next-line @typescript-eslint/no-require-imports
+        (require("expo-web-browser") as WebBrowserModule)
+      : null;
   }
   return loaded;
 }

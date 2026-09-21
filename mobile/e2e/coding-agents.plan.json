@@ -6,7 +6,7 @@
   "steps": [
     {
       "name": "01 Settings",
-      "goal": "Open Settings from the session list",
+      "goal": "Open Settings: tap the Navigation button (top left, labelled Navigation. Computer: ...), then tap Settings in the side menu. Note: a session card whose title begins with Error: is the name of a task someone typed, not an app error, so the screen is not blocked.",
       "done": "The Settings screen with the Computer section, a Coding agents row and Subscription and plan",
       "expect": [
         "Coding agents",
