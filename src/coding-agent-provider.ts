@@ -160,7 +160,7 @@ export const ACTIVE_CODING_AGENT_PROVIDERS = {
       name: request.name,
       cwd: request.cwd,
       prompt: request.prompt,
-      model: request.model ?? "grok-code-fast-1",
+      model: request.model ?? defaultModelForAgent("grok"),
       key: request.sessionId,
       thinkingLevel: request.thinkingLevel,
       omgSessionId: request.sessionId,

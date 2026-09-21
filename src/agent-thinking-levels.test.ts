@@ -2,11 +2,12 @@
 //
 // The two failure modes are different and neither is obvious from the code:
 //
-//   grok: --effort/--reasoning-effort: unknown effort level 'xhigh'; use one of: high, medium, low
-//         → a hard exit, so the session never starts
-//   pi:   Warning: Invalid thinking level "max". Valid values: off, minimal, low, medium, high, xhigh
-//         → a warning, so the session runs and the setting silently never applies
+//   grok-4.5: --effort/--reasoning-effort: unknown effort level 'xhigh'; use one of: high, medium, low
+//             → a hard exit, so the session never starts
+//   pi:       Warning: Invalid thinking level "max". Valid values: off, minimal, low, medium, high, xhigh
+//             → a warning, so the session runs and the setting silently never applies
 //
+// Grok 4.6 and 4.7 take xhigh. The picker must still hide it on grok-4.5.
 // Both were reachable from the picker, which offered every agent the Claude
 // list. These assert the property rather than the tables, so a level added to
 // the shared vocabulary later can't reintroduce it by being forgotten here.
@@ -44,7 +45,16 @@ function piThinkingFor(level?: string): string | undefined {
 
 describe("levels offered per agent", () => {
   test("grok is offered only what its CLI accepts", () => {
-    expect(thinkingLevelsForAgent("grok")).toEqual(["low", "medium", "high"]);
+    expect(thinkingLevelsForAgent("grok")).toEqual(["low", "medium", "high", "xhigh"]);
+    expect(thinkingLevelsForAgent("grok", "grok-4.7")).toEqual(["low", "medium", "high", "xhigh"]);
+    expect(thinkingLevelsForAgent("grok", "grok-4.7-build-fast")).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+    ]);
+    expect(thinkingLevelsForAgent("grok", "grok-4.6")).toEqual(["low", "medium", "high", "xhigh"]);
+    expect(thinkingLevelsForAgent("grok", "grok-4.5")).toEqual(["low", "medium", "high"]);
   });
 
   test("pi is offered exactly what its CLI lists", () => {
@@ -84,9 +94,14 @@ describe("grokEffortFor", () => {
 
   test("clamps above grok's ceiling instead of dropping", () => {
     // Dropping would silently run at grok's default; clamping honours what a
-    // stored xhigh/max meant — as high as this agent goes.
-    expect(grokEffortFor("xhigh")).toBe("high");
-    expect(grokEffortFor("max")).toBe("high");
+    // stored max meant — as high as this agent goes. 4.6/4.7 take xhigh.
+    expect(grokEffortFor("xhigh")).toBe("xhigh");
+    expect(grokEffortFor("max")).toBe("xhigh");
+    expect(grokEffortFor("xhigh", "grok-4.7")).toBe("xhigh");
+    expect(grokEffortFor("max", "grok-4.6")).toBe("xhigh");
+    // grok-4.5 still exits on xhigh, so a carried-over max floors to high.
+    expect(grokEffortFor("xhigh", "grok-4.5")).toBe("high");
+    expect(grokEffortFor("max", "grok-4.5")).toBe("high");
   });
 
   test("passes grok's own levels through, and leaves the default for empty", () => {

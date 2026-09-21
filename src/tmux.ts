@@ -653,17 +653,22 @@ export function claudeEffortFor(level?: string): string | undefined {
   return undefined;
 }
 
-// grok's --effort takes only low|medium|high and exits on anything else, so a
-// level carried over from another agent can't simply be forwarded. Clamp rather
-// than drop: a stored xhigh/max meant "as high as this agent goes", and dropping
-// it would silently leave the session at grok's default.
-export function grokEffortFor(level?: string): string | undefined {
+// grok's --effort is per model. 4.6 and 4.7 take low|medium|high|xhigh; 4.5
+// still exits on xhigh. A level carried over from another agent can't simply
+// be forwarded. Clamp rather than drop: a stored max meant "as high as this
+// agent goes", and dropping it would silently leave the session at grok's
+// default.
+export function grokEffortFor(level?: string, model?: string): string | undefined {
   if (!level) return undefined;
   // grok has no way to turn thinking off, so pi's "off" floors to its lowest.
   if (level === "off") return "low";
   const effort = claudeEffortFor(level);
   if (!effort) return undefined;
-  return effort === "xhigh" || effort === "max" ? "high" : effort;
+  const xhighCeiling = effort === "xhigh" || effort === "max";
+  if (!xhighCeiling) return effort;
+  // grok-4.5 is the last id that still rejects xhigh with a hard exit.
+  if (model === "grok-4.5") return "high";
+  return "xhigh";
 }
 
 export function spawnManagedSession(opts: {
@@ -845,7 +850,7 @@ export function managedGrokSessionArgv(opts: ManagedGrokSessionOptions): string[
   if (opts.model) argv.push("--model", opts.model);
   // grok's own vocabulary: it exits on an unknown effort level, so an
   // xhigh/max carried over from another agent would stop the session launching.
-  const effort = grokEffortFor(opts.thinkingLevel);
+  const effort = grokEffortFor(opts.thinkingLevel, opts.model);
   if (effort) argv.push("--effort", effort);
   const prompt = launchEnvelope(opts.prompt);
   if (prompt?.trim()) argv.push("--", prompt);

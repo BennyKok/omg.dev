@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## September 21, 2026 - Grok 4.7 in the model picker
+
+- Grok, Cursor, fx, Copilot, and the omg agent can now launch Grok 4.7. New Grok sessions use it by default.
+- Grok 4.7 Fast is in the Grok picker as `grok-4.7-build-fast`.
+- Grok 4.7 and 4.6 accept Extra High thinking. Grok 4.5 still stops at High.
+
 ## September 21, 2026 - Focused iOS artifact list
 
 - The iOS Artifacts page now matches the web: only HTML artifacts appear. Images, videos, and other files stay in their chats.
