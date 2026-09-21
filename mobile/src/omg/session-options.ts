@@ -612,6 +612,19 @@ export function useProjectPicker() {
     [client, probe, projectsRoot],
   );
 
+  /** Put the managed app-builder skill into an existing project before launch. */
+  const prepareFolder = useCallback(
+    async (path: string): Promise<void> => {
+      if (!client) throw new Error("No machine selected");
+      await client.transport.request("/api/projects/prepare-folder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      });
+    },
+    [client],
+  );
+
   return {
     unassigned,
     selectUnassigned: () => setChosen(""),
@@ -626,9 +639,9 @@ export function useProjectPicker() {
     setHidden,
     addFolder,
     createFolder,
+    prepareFolder,
     projectsRoot,
   };
 }
 
 /** A repo's project key — see the note in useProjectPicker. */
-

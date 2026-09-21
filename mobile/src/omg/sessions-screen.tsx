@@ -1877,6 +1877,7 @@ export function SessionsScreen({
         folders={projectPicker.folders}
         projectsRoot={projectPicker.projectsRoot}
         createFolder={projectPicker.createFolder}
+        prepareFolder={projectPicker.prepareFolder}
         launch={launch}
       />
       <FolderRailSheet
