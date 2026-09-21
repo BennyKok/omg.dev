@@ -2,7 +2,7 @@
 
 Recent product updates and deployment notes.
 
-## September 21, 2026 - Control the Computer from iPhone
+## September 21, 2026 - Control the Computer from iPhone (v0.6.94)
 
 - iOS can open the selected Computer, watch its live desktop, and take control with a touch trackpad.
 - The control screen includes a software keyboard, text paste, Return, Tab, Escape, Backspace, and right click. It starts in view-only mode to prevent accidental input.
