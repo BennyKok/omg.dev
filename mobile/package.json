@@ -12,6 +12,7 @@
     "@expo/ui": "57.0.10",
     "@omg-dev/client": "^0.6.67",
     "@omg-dev/protocol": "^0.6.67",
+    "@novnc/novnc": "^1.7.0",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-google-signin/google-signin": "^16.1.4",
     "@shopify/react-native-skia": "2.12.0",
@@ -72,6 +73,7 @@
   },
   "private": true,
   "patchedDependencies": {
-    "@expo/ui@57.0.10": "patches/@expo%2Fui@57.0.10.patch"
+    "@expo/ui@57.0.10": "patches/@expo%2Fui@57.0.10.patch",
+    "@novnc/novnc@1.7.0": "patches/@novnc%2Fnovnc@1.7.0.patch"
   }
 }

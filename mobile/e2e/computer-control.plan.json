@@ -1,0 +1,22 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": false
+  },
+  "steps": [
+    {
+      "name": "01 Settings",
+      "goal": "Open Settings: tap the Navigation button, then tap Settings in the side menu.",
+      "done": "The Settings screen shows the Computer section and a Control Computer row.",
+      "expect": ["Settings", "Computer", "Control Computer"],
+      "timeoutMs": 90000
+    },
+    {
+      "name": "02 Open and control Computer",
+      "goal": "Tap Control Computer. When the Computer screen opens, tap Take control.",
+      "done": "The Computer is in Controlling mode and explains the trackpad gesture.",
+      "expect": ["Computer", "Controlling", "Right click", "Drag to move the pointer. Tap to click."],
+      "timeoutMs": 90000
+    }
+  ]
+}

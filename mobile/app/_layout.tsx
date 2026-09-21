@@ -458,6 +458,7 @@ function RootNavigator() {
                 These are the only screens that use `Card`, which is the other
                 half of the pair (see `groupedCard` in palette.ts). */}
             <Stack.Screen name="computers" options={groupedScreen} />
+            <Stack.Screen name="computer" options={{ title: "Computer" }} />
             <Stack.Screen name="settings" options={groupedScreen} />
             <Stack.Screen
               name="settings/coding-agents"
@@ -762,6 +763,7 @@ function RootNavigator() {
             name="computers"
             options={{ title: "Computers", headerLargeTitle: true }}
           />
+          <Stack.Screen name="computer" options={{ title: "Computer" }} />
           <Stack.Screen
             name="settings"
             options={{ title: "Settings", headerLargeTitle: true }}

@@ -28,6 +28,8 @@ import {
   SHARED_REVOKED_DETAIL,
 } from "./computer-shared-binding";
 import { signedArtifactUrl } from "./signed-asset-url";
+import { computerSocketUrl, type ComputerSocketAccess } from "./computer-socket";
+export type { ComputerSocketAccess } from "./computer-socket";
 
 export class ComputerGrantError extends Error {
   /**
@@ -168,6 +170,26 @@ function createGrantOwner(bindingId: string): GrantOwner {
 }
 
 const transports = new Map<string, { transport: OmgTransport; owner: GrantOwner }>();
+
+/**
+ * Give the isolated noVNC DOM component one short-lived RFB connection.
+ *
+ * The native app cannot render noVNC's canvas itself. The DOM component can,
+ * but it runs in another JavaScript process and cannot share this module's
+ * transport. Passing only the socket URL and bearer subprotocol keeps grant
+ * ownership here while preserving the same authenticated websocket contract
+ * used by every other client.
+ */
+export async function getComputerSocketAccess(bindingId: string): Promise<ComputerSocketAccess> {
+  getHostedTransport(bindingId);
+  const entry = transports.get(bindingId);
+  if (!entry) throw new ComputerGrantError("Couldn't open your Computer. Try again in a moment.");
+  const current = await entry.owner.get({ forceRefresh: false });
+  return {
+    url: computerSocketUrl(SESSION_ORIGIN),
+    protocol: `lfg-bearer.${current.token}`,
+  };
+}
 
 /**
  * The hosted transport for a machine, shared across every screen that talks to

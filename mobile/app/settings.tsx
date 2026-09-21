@@ -431,6 +431,13 @@ export default function SettingsScreen() {
             color={colors.textMuted}
           />
         </SettingsRow>
+        <Separator inset="icon" />
+        <SettingsRow
+          glyph={{ ios: "display", android: "desktop_windows" }}
+          tint={TINT.green}
+          label="Control Computer"
+          onPress={() => router.push("/computer")}
+        />
         {/* THE ROW THAT REPLACES "Plan & billing".
             The removed one opened app.omg.dev/settings/billing, which is a call
             to action pointing at a purchasing mechanism other than in-app

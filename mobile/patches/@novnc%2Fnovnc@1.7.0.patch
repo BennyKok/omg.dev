@@ -1,0 +1,16 @@
+diff --git a/core/util/browser.js b/core/util/browser.js
+index 58de283..eac94e7 100644
+--- a/core/util/browser.js
++++ b/core/util/browser.js
+@@ -149,7 +149,10 @@ async function _checkWebCodecsH264DecodeSupport() {
+     return true;
+ }
+ 
+-supportsWebCodecsH264Decode = await _checkWebCodecsH264DecodeSupport();
++// Metro's release minifier cannot parse top-level await. The Computer uses
++// x11vnc's ordinary RFB encodings, so H.264 probing is neither needed nor
++// useful in this native viewer.
++supportsWebCodecsH264Decode = false;
+ 
+ /*
+  * The functions for detection of platforms and browsers below are exported

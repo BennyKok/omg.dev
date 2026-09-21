@@ -7,6 +7,7 @@
       "dependencies": {
         "@expo/metro-runtime": "~57.0.9",
         "@expo/ui": "57.0.10",
+        "@novnc/novnc": "^1.7.0",
         "@omg-dev/client": "^0.6.67",
         "@omg-dev/protocol": "^0.6.67",
         "@react-native-async-storage/async-storage": "2.2.0",
@@ -60,6 +61,7 @@
     },
   },
   "patchedDependencies": {
+    "@novnc/novnc@1.7.0": "patches/@novnc%2Fnovnc@1.7.0.patch",
     "@expo/ui@57.0.10": "patches/@expo%2Fui@57.0.10.patch",
   },
   "overrides": {
@@ -325,6 +327,8 @@
     "@jridgewell/sourcemap-codec": ["@jridgewell/sourcemap-codec@1.5.5", "", {}, "sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og=="],
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
+
+    "@novnc/novnc": ["@novnc/novnc@1.7.0", "", {}, "sha512-ucEJOx4T2avIRCleodk7YobZj5O2Ga2AeLfQ69A/yjG9HHba2+PDgwSkN3FttrmG+70ZGx21sElNFouK13RzyA=="],
 
     "@omg-dev/client": ["@omg-dev/client@0.6.67", "", { "dependencies": { "@omg-dev/protocol": "0.6.67" } }, "sha512-O/zv5PyYkEYZ63WSCcC+9FEeJkZfjBs9JPFiWL++9teVsN8BXghGiQ6CEakLHESsViDWIt3eTk95laI1Q34sbw=="],
 
