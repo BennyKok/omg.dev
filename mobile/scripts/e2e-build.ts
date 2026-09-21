@@ -63,7 +63,13 @@ const GOOGLE_IOS_CLIENT_ID =
 const REMOTE_ENV =
   'N=$(ls ~/.nvm/versions/node 2>/dev/null | sed "s/^v//" | sort -t. -k1,1n -k2,2n -k3,3n | tail -1); ' +
   'export PATH="$HOME/.nvm/versions/node/v$N/bin:$HOME/.bun/bin:/opt/homebrew/bin:$PATH"; ' +
-  `export EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=${GOOGLE_IOS_CLIENT_ID};`;
+  `export EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=${GOOGLE_IOS_CLIENT_ID};` +
+  // Demo mode and its fixtures (demo.ts, demo-data.ts) are read at bundle
+  // time, so a plan that needs them must set them on the machine that builds.
+  Object.entries(process.env)
+    .filter(([key, value]) => /^EXPO_PUBLIC_OMG_[A-Z_]+$/.test(key) && /^[A-Za-z0-9_.-]*$/.test(value ?? ""))
+    .map(([key, value]) => ` export ${key}=${value};`)
+    .join("");
 
 /**
  * A stable signature of every dependency name and version in

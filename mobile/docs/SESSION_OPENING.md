@@ -5,9 +5,14 @@ AsyncStorage snapshot. The provider opens that snapshot after confirming the
 signed-in account. Computer and session IDs separate records within the account.
 Sign-out clears the snapshot and the in-memory transcript cache.
 
-The cache is a preview, not an authority. Home labels saved rows while the
-computer reconnects. REST and live events remain the owners of current session
-state. Authentication still needs a connection. A cache cannot authenticate an
+The cache is a preview, not an authority. REST and live events remain the owners
+of current session state. Home draws the saved rows as the SAME screen it becomes
+once the computer answers: the folder roster is cached with them, so the rail
+keeps its pills and the rows stay filtered by the selected folder instead of
+appearing as one flat list and then regrouping. Nothing labels the list as
+saved. The greeting in the top bar reads "Reconnecting…" while the machine has
+not answered, in the normal label colour, and the readiness block stays off a
+screen that already has rows. Authentication still needs a connection. A cache cannot authenticate an
 offline user or grant access to a computer.
 
 Snapshots expire after seven days. Storage is bounded to 64 records and four

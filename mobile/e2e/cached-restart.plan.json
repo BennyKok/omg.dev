@@ -7,12 +7,16 @@
     {
       "name": "Saved Home after restart",
       "goal": "Wait for the saved Home session list after relaunch",
-      "done": "Saved sessions are visible while the computer is still reconnecting",
+      "done": "The saved Home list is up with its folder pills, and the greeting in the top bar reads Reconnecting",
       "expect": [
-        "Showing saved sessions",
+        "Reconnecting",
+        "api-gateway folder",
         "Refactor the rate limiter to a sliding window"
       ],
-      "timeoutMs": 45000
+      "timeoutMs": 45000,
+      "forbid": [
+        "Showing saved sessions"
+      ]
     },
     {
       "name": "Saved conversation after restart",

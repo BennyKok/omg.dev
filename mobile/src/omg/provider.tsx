@@ -604,10 +604,30 @@ export function OmgProvider({ children }: PropsWithChildren) {
     [readiness],
   );
 
+  /**
+   * THE FOLDER ROSTER OUTLIVES THE CONNECTION.
+   *
+   * This used to be empty until readiness said `ready`, so home drew its
+   * cached session rows with no folder rail and no folder filter: a flat list
+   * of every session on the machine, which is not the screen it turns into a
+   * second later. The roster is small and changes rarely, so it is kept in the
+   * same account-scoped snapshot that already holds the session rows and is
+   * served from there until the machine answers. Live readiness still owns it;
+   * the cache is only what to draw while the answer is in flight.
+   */
+  const reposKey = bindingId ? `repos:${bindingId}` : null;
   const repos = useMemo<Repo[]>(
-    () => (readiness?.status === "ready" ? readiness.roster.repos : []),
-    [readiness],
+    () =>
+      readiness?.status === "ready"
+        ? readiness.roster.repos
+        : (reposKey ? sessionCache.read<Repo[]>(reposKey) : null) ?? [],
+    [readiness, reposKey],
   );
+  useEffect(() => {
+    if (reposKey && readiness?.status === "ready") {
+      sessionCache.write(reposKey, readiness.roster.repos);
+    }
+  }, [reposKey, readiness]);
 
   const value = useMemo<OmgContextValue>(
     () => ({

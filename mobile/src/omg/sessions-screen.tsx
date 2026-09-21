@@ -265,17 +265,26 @@ function LiveWelcome({
   firstName,
   busyCount,
   connection,
+  showingSaved,
   onPress,
 }: {
   firstName: string;
   busyCount: number;
   /** Live-socket health. A drop takes over the greeting, as the web's status text does. */
   connection?: OmgConnectionStatus;
+  /**
+   * The list on screen is the saved one and the machine has not answered yet.
+   * The greeting says so, because that is the one place home has to say it.
+   * The list itself must NOT: it is the same component with the same rows and
+   * the same folder rail it keeps once the answer lands, and a banner under it
+   * announced a difference a person cannot see.
+   */
+  showingSaved?: boolean;
   /** The greeting is the door to the Notification Center, as on the web. */
   onPress?: () => void;
 }) {
   const { colors, type } = useTheme();
-  const dropped = connection === "reconnecting" || connection === "offline";
+  const dropped = showingSaved || connection === "reconnecting" || connection === "offline";
   const [showActivity, setShowActivity] = useState(false);
 
   useEffect(() => {
@@ -296,7 +305,7 @@ function LiveWelcome({
     <Pressable onPress={onPress} accessibilityRole="button" hitSlop={8}>
       <Text
         numberOfLines={1}
-        style={{ ...type.headline, color: dropped ? colors.warning : colors.text, maxWidth: 210 }}
+        style={{ ...type.headline, color: colors.text, maxWidth: 210 }}
       >
         {dropped ? "Reconnecting…" : busyCount > 0 && showActivity ? activity : welcome}
       </Text>
@@ -549,6 +558,16 @@ export function SessionsScreen({
   const startRef = useRef<((prompt: string) => void) | null>(null);
 
   const ready = readiness?.status === "ready";
+  /**
+   * SAVED ROWS ON SCREEN, MACHINE NOT ANSWERED YET.
+   *
+   * One owner for the whole idea. It decides what the greeting says and it
+   * holds the readiness block off the screen, so the two can never disagree.
+   * `unauthorized` is excluded because that is not a connection state: the
+   * server has answered, and its own block owns the screen.
+   */
+  const showingSaved =
+    !!bindingId && sessions.length > 0 && !ready && readiness?.status !== "unauthorized";
 
   /** Keep unchanged rows stable across REST reconciliations and status frames. */
   function sessionsSignature(list: OmgSession[]): string {
@@ -847,8 +866,12 @@ export function SessionsScreen({
   const roots = useMemo(
     () =>
       buildSessionTree(
-        // Before bootstrap, the project roster has not arrived. Show the
-        // saved machine roster until a real project filter is available.
+        // The folder roster is cached with the rows (see `repos` in
+        // provider.tsx), so before bootstrap there normally IS a real filter
+        // and the saved list is already grouped the way it will stay. This
+        // fallback is for the first launch on a machine, where no roster has
+        // ever been saved: show every row rather than an empty screen, which
+        // is indistinguishable from a new account.
         visibleSessions.filter((session) =>
           (!ready && projectPicker.filter === null) || projectPicker.matches(session),
         ),
@@ -1395,7 +1418,12 @@ export function SessionsScreen({
       bottomInset={wide ? 0 : insets.bottom}
     />
   );
-  const folderRail = ready ? (
+  // The rail is drawn from the folder roster, not from the connection: the
+  // roster is cached (see `repos` in provider.tsx), so the saved list keeps the
+  // pills it had and the rows stay filtered by the selected folder. Without
+  // this, a cold open drew every session on the machine in one flat list and
+  // then rearranged itself into folders a second later.
+  const folderRail = ready || showingSaved ? (
     <ScrollView
       horizontal
       onTouchStart={navGesture.blockOpeningGesture}
@@ -1495,6 +1523,7 @@ export function SessionsScreen({
               online={currentBinding?.online ?? false} machineName={machineName} />
             <LiveWelcome firstName={firstName} busyCount={flattenNodes(working).length}
               connection={connection}
+              showingSaved={showingSaved}
               onPress={() => (navOpen ? setNavOpen(false) : router.push("/notifications"))} />
           </View>
           <GlassSurface fallbackColor={colors.card} variant="regular"
@@ -1568,6 +1597,7 @@ export function SessionsScreen({
                     firstName={firstName}
                     busyCount={flattenNodes(working).length}
                     connection={connection}
+                    showingSaved={showingSaved}
                     onPress={() => navigateWorkspace("/notifications")}
                   />
                 </View>
@@ -1689,12 +1719,13 @@ export function SessionsScreen({
             </Pressable>
           ) : null}
 
-          {/* Readiness owns the screen when the machine is not serving. */}
-          {bindingId && sessions.length > 0 && !ready && readiness?.status !== "unauthorized" ? (
-            <Text style={{ ...type.footnote, color: colors.textMuted, padding: space.md }}>
-              Showing saved sessions · Reconnecting…
-            </Text>
-          ) : !bindingId ? (
+          {/* Readiness owns the screen when the machine is not serving — but not
+              while the saved list is up. That branch renders nothing on
+              purpose: it is what keeps "Connecting to <machine>…" and its
+              skeleton cards from landing under a list that is already there.
+              The greeting in the bar carries the state instead (see
+              `showingSaved`), so the list is the same list either way. */}
+          {showingSaved ? null : !bindingId ? (
             <EmptyState
               title="No computer selected"
               detail="Choose which computer this app should talk to."
