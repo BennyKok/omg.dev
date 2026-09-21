@@ -1,0 +1,44 @@
+# A new conversation opens as the real chat screen, with no waiting page.
+#
+# Static twin of instant-opening.plan.json for the one step Jev cannot drive:
+# its picker keeps choosing the composer (whose label is the typed prompt)
+# over the "Start session" button, so this flow taps the button by name.
+#
+# Needs the demo build with the opening fixture, the same one the plan uses:
+#   EXPO_PUBLIC_OMG_DEMO=1 EXPO_PUBLIC_OMG_OPENING_FIXTURE=1 \
+#   EXPO_PUBLIC_OMG_PERFORMANCE_FIXTURE=1 bun run test:e2e --build --plan instant-opening
+#   bun run test:e2e --flow instant-opening --record
+# The fixture holds /api/bootstrap for 90 s and /api/sessions/new for 60 s, so
+# the waits below are long on purpose.
+appId: dev.omg.computer
+---
+- launchApp:
+    clearState: false
+# `--build` installs a fresh app, so the first launch shows the one-time
+# data-consent gate. It is not part of this check; clear it as the other demo
+# flows do, and stay silent when a warm install has already passed it.
+- runFlow:
+    when:
+      visible: "Agree and continue"
+    commands:
+      - tapOn: "Agree and continue"
+- extendedWaitUntil:
+    visible: ".*api-gateway.*"
+    timeout: 150000
+- tapOn: "(What should we work on\\?.*|Instant opening check.*)"
+- eraseText: 200
+- inputText: "Instant opening check"
+- tapOn: "Start session"
+# The chat screen, at once: the prompt is its first row and the mic is its
+# composer. The old interstitial is gone.
+- assertVisible: "Instant opening check"
+- assertVisible: "Dictate a message"
+- assertNotVisible: "Starting conversation.*"
+- assertNotVisible: "New conversation"
+# The created session's reply lands in the same screen. The fixture stacks its
+# 60 s creation delay on top of the reads that follow it, so 120 s was not a
+# real bound: the reply arrived, just after the wait had given up.
+- extendedWaitUntil:
+    visible: "Your new conversation is ready."
+    timeout: 240000
+- assertVisible: "Dictate a message"

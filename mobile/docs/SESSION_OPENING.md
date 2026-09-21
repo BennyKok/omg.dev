@@ -28,10 +28,15 @@ Older local history still expands before another server page is requested.
 
 Starting a conversation navigates immediately to `/session/new`. The request is
 owned by `pending-session.ts`, so leaving the screen does not cancel or repeat the
-POST. The screen shows the prompt and creation status, then replaces itself with
-the real session. That screen keeps the prompt visible until history arrives.
-Errors keep the prompt readable. The existing prompt stash records failed sends.
-The Home list refresh runs in the background.
+POST. That route is the real chat screen, not a waiting page in front of it. It
+mounts `SessionScreenBody` with no session id and the typed prompt as the first
+row. When the POST resolves, the id is handed to the same mounted screen. There is
+no second screen and no `router.replace`, so nothing transitions. A message typed
+before the id lands waits for the id, then takes the plain send path.
+`screenKey` keeps the instance mounted while the id changes under it. Only a
+creation failure shows a separate page, which keeps the prompt readable. The
+existing prompt stash records failed sends. The Home list refresh runs in the
+background.
 
 ## Verification
 
@@ -45,6 +50,10 @@ The Home list refresh runs in the background.
   The fixture delays bootstrap by ninety seconds, history/list reads by five
   seconds, and creation by sixty seconds.
   It cannot affect the real transport.
+- Static flow `e2e/instant-opening.yaml` for the Start step. The Jev picker keeps
+  choosing the composer over the Start button, because the composer's label is
+  the typed prompt. The flow taps the button by name instead. It needs the same
+  demo build as the plan.
 
 Use a private Mac build directory when the shared directory is in use:
 `OMG_E2E_REMOTE_SRC=.omg-e2e-<session>`. Set `OMG_SIM_DEVICE` to an exclusive device.

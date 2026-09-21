@@ -196,15 +196,25 @@ export default function SessionScreen() {
  */
 export function SessionScreenBody(props: React.ComponentProps<typeof SessionScreenContent>) {
   const { bindingId } = useOmg();
-  return <SessionScreenContent key={`${bindingId}:${props.bot?.id ?? props.sessionId ?? "new"}`} {...props} />;
+  return <SessionScreenContent key={`${bindingId}:${props.bot?.id ?? props.screenKey ?? props.sessionId ?? "new"}`} {...props} />;
 }
 
 function SessionScreenContent({
   sessionId,
   bot = null,
   onDeliver,
+  initialPrompt,
 }: {
   sessionId: string | null;
+  /**
+   * Keeps this instance mounted while `sessionId` changes underneath it. A
+   * conversation still being created (app/session/new.tsx) opens with no id
+   * and receives one in place; without a stable key the id landing would
+   * remount the screen and blank it.
+   */
+  screenKey?: string;
+  /** The first row to show before the machine has any transcript to page. */
+  initialPrompt?: string;
   /**
    * Present only for a bot's own conversation. Swaps the header identity for
    * the bot's face and name, hides fork/close/continue (a bot session never
@@ -269,7 +279,7 @@ function SessionScreenContent({
 
   const [error, setError] = useState<string | null>(null);
   const { messages, setMessages, loading, loadingMore, reachedStart, loadMore } =
-    useTranscriptPage(client, bindingId, id, setError, createdSessionPrompt(`${user?.id}:${bindingId}`, id));
+    useTranscriptPage(client, bindingId, id, setError, initialPrompt ?? createdSessionPrompt(`${user?.id}:${bindingId}`, id));
   const [historyExpanded, setHistoryExpanded] = useState(false);
   const [transcriptWindow] = useState(() => new TranscriptWindow());
   const [streamText, setStreamText] = useState("");
@@ -1001,13 +1011,23 @@ function SessionScreenContent({
   const hasData = data.length > 0;
   const waitingForData = !hasData && loading;
   const pinnedForRef = useRef<string | null>(null);
+  const revealedWithoutIdRef = useRef(false);
   useEffect(() => {
     // A bot's first-ever chat opens with no id and nothing to pin to (see the
     // `onDeliver` doc above) — reveal the empty transcript immediately rather
     // than holding the opening spinner for a page that has no reason to
     // arrive until the first message mints one.
     if (!id) {
+      revealedWithoutIdRef.current = true;
       setContentReady(true);
+      return;
+    }
+    if (revealedWithoutIdRef.current) {
+      // The id landed on a screen that is already showing its rows (a
+      // conversation created from this screen, or a bot's first send). It is
+      // visible and pinned already; hiding it for a second reveal would blink.
+      revealedWithoutIdRef.current = false;
+      pinnedForRef.current = id;
       return;
     }
     if (!hasData) {

@@ -7,7 +7,7 @@
     {
       "name": "Home",
       "goal": "Tap Agree and continue if visible. Otherwise wait for Home.",
-      "done": "The rate limiter session is visible",
+      "done": "Home is fully loaded: the rate limiter session row AND a folder pill labeled api-gateway are both visible. While the folder pills are still missing, the screen is NOT done; keep waiting.",
       "expect": [
         "Refactor the rate limiter to a sliding window",
         "api-gateway folder"
@@ -66,14 +66,17 @@
     },
     {
       "name": "Immediate navigation",
-      "goal": "Tap the button labeled Start session to send Instant opening check.",
-      "done": "The new conversation screen shows the prompt while the server is still creating the session",
+      "goal": "Tap the button labeled Start session. Do not tap the text field again; the prompt is already typed.",
+      "done": "The real conversation screen shows the prompt as its first message while the server is still creating the session. There is no separate waiting page.",
       "expect": [
-        "New conversation",
         "Instant opening check",
-        "Starting conversation"
+        "Dictate a message"
       ],
-      "timeoutMs": 45000
+      "timeoutMs": 45000,
+      "forbid": [
+        "New conversation",
+        "Starting conversation"
+      ]
     },
     {
       "name": "Created conversation",
