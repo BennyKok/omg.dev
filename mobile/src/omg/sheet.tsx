@@ -55,10 +55,11 @@ export function Sheet({ visible, onClose, children, placement = "bottom", maxWid
   const limit = Math.max(44, availableHeight - insets.top - bottomGap - 44);
   const [stage, setStage] = useState<SheetStage>("compact");
   const compact = Math.min(contentHeight, limit, screenHeight * 0.65);
-  const expanded = resizable && placement === "bottom" ? limit : compact;
+  const canGrow = resizable && placement === "bottom";
+  const expanded = canGrow ? limit : compact;
   const targetHeight = stage === "expanded" ? expanded : compact;
-  const geometry = useRef({ compact, expanded, stage });
-  geometry.current = { compact, expanded, stage };
+  const geometry = useRef({ compact, expanded, stage, canGrow });
+  geometry.current = { compact, expanded, stage, canGrow };
   const origin = useRef<SheetTouchOrigin | null>(null);
   const [dragging, setDragging] = useState(false);
   const [gestureBlocked, setGestureBlocked] = useState(false);
@@ -121,7 +122,10 @@ export function Sheet({ visible, onClose, children, placement = "bottom", maxWid
     opacity.value = withTiming(1, { duration });
     pull.value = withTiming(0, { duration, easing: TRAY_EASE });
   };
-  const settle = (next: SheetStage) => {
+  const settle = (requested: SheetStage) => {
+    // A fixed sheet has no expanded stage. Reporting one would tell nested
+    // scrollers (the model list) to grow inside a body that does not.
+    const next = geometry.current.canGrow ? requested : "compact";
     setStage(next);
     bodyHeight.value = withTiming(next === "expanded" ? geometry.current.expanded : geometry.current.compact,
       { duration: durationRef.current, easing: TRAY_EASE });
@@ -132,7 +136,8 @@ export function Sheet({ visible, onClose, children, placement = "bottom", maxWid
   const panRef = useRef<PanGestureHandler>(null);
   const ownsDrag = useRef(false);
   const beginDrag = (dx: number, dy: number) => {
-    ownsDrag.current = !closing.current && canDragSheet(dx, dy, origin.current, geometry.current.stage === "expanded");
+    // With no room to grow, an upward drag over a scroller is a scroll.
+    ownsDrag.current = !closing.current && canDragSheet(dx, dy, origin.current, geometry.current.stage === "expanded" || !geometry.current.canGrow);
     if (!ownsDrag.current) return;
     // Simultaneous native scrolling can move a few points before activation.
     // Keep the starting offsets when the sheet takes this gesture.
