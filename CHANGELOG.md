@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## September 21, 2026 - Website login from iPhone (v0.6.85)
+
+- Agents can request a website login in chat. The iOS app opens a private browser sheet. You choose when to transfer that website's login to the shared Computer browser.
+- The agent gets a transfer result and must check the signed-in page. Login requests expire and can be cancelled. Other clients can use the web Computer view.
+- The native login sheet requires iOS app 1.0.12 or later. It cannot be added to an older binary by an over-the-air update.
+
 ## September 21, 2026 - Mobile web trackpad stays responsive (v0.6.84)
 
 - The Computer trackpad releases mouse capture after a tap. The next finger gesture can move the cursor without an extra click.

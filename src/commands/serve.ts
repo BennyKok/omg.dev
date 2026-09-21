@@ -43,6 +43,8 @@ import {
 import { compressedAssetResponse, maybeCompressResponse } from "../http-compress.ts";
 import { serveOmgMcpRequest, serveComputerMcpRequest } from "../mcp-http.ts";
 import { resolveCaller } from "../policy/caller.ts";
+import { createBrowserLoginService } from "../computer/login.ts";
+import { importBrowserLogin } from "../computer/browser.ts";
 import {
   configureConnectors,
   serveConnectorsMcpRequest,
@@ -380,6 +382,7 @@ import {
 } from "../computer/desktop.ts";
 import {
   browserClick,
+  browserControlAvailable,
   browserNavigate,
   browserPaste,
   browserPress,
@@ -3882,6 +3885,33 @@ export async function cmdServe() {
     subscribeAgentRun,
   });
   const connectManager = createConnectManager();
+  const browserLogin = createBrowserLoginService({
+    session: async (id) => {
+      const row = (await listSessions()).find(s => s.sessionId === id || s.nativeSessionId === id);
+      return row?.sessionId ? { id: row.sessionId, owner: row.assignedUser ?? null } : null;
+    },
+    viewer: req => botViewerFromRequest(req, new URL(req.url).searchParams.get("user")).identity,
+    available: () => desktopStatus().deps.ok && browserControlAvailable(),
+    computerName: () => getGlobalSettingsSync().machineName || "this computer",
+    completed: async (request) => {
+      const response = await fetch(`http://127.0.0.1:${PORT}/api/sessions/${encodeURIComponent(request.sessionId)}/send`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: `[Browser login ${request.id}] The user approved a login transfer for ${request.origin} to the shared Computer browser. Cookies were imported. Verify the protected page with Computer tools before continuing; imported cookies alone do not prove authentication.`, mode: "steer" }),
+      });
+      return response.ok;
+    },
+    importCookies: async (url, cookies) => {
+      await startDesktop();
+      await importBrowserLogin(url, cookies);
+    },
+    notify: async (request, owner) => {
+      await notifyAll({ user: owner, notification: {
+        title: "Website login requested", body: `${new URL(request.origin).hostname}: ${request.reason}`,
+        url: `/?session=${encodeURIComponent(request.sessionId)}`, tag: `browser-login-${request.id}`,
+        requireInteraction: true,
+      } });
+    },
+  });
   const cloudAccount = createCloudAccount({
     thisBoxId: readRelayBoxId,
     localName: () => getGlobalSettingsSync().machineName,
@@ -4258,6 +4288,10 @@ export async function cmdServe() {
         });
         if (ok) return undefined; // upgraded — Bun takes over the socket
         return err(400, "expected a websocket upgrade");
+      }
+
+      if (path === "/api/browser-login" || path.startsWith("/api/browser-login/")) {
+        return await browserLogin(req);
       }
 
       // ---- the computer: a shared desktop, streamed and controllable ----
