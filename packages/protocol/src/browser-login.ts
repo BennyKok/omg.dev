@@ -20,6 +20,28 @@ export interface BrowserLoginSnapshot {
   desktopAvailable: boolean;
 }
 
+/**
+ * Pick the request the UI should show without depending on response order.
+ * Older servers and restored state can return rows in a different order, so
+ * `.at(-1)` can let an old failure hide a newer request that still needs the
+ * user. Creation time is the source of truth for which request supersedes it.
+ */
+export function latestBrowserLoginRequest(requests: readonly BrowserLoginRequest[]): BrowserLoginRequest | undefined {
+  let latest: BrowserLoginRequest | undefined;
+  for (const request of requests) {
+    if (request.status === "cancelled" || request.status === "expired") continue;
+    if (!latest || request.createdAt > latest.createdAt ||
+      (request.createdAt === latest.createdAt && liveRequestRank(request) > liveRequestRank(latest))) {
+      latest = request;
+    }
+  }
+  return latest;
+}
+
+function liveRequestRank(request: BrowserLoginRequest): number {
+  return request.status === "pending" || request.status === "in_progress" || request.status === "importing" ? 1 : 0;
+}
+
 /** Sent only by the approved native sheet over the computer transport. */
 export interface BrowserLoginCookie {
   name: string;

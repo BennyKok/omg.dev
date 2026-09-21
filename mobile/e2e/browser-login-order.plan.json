@@ -1,0 +1,22 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": false
+  },
+  "steps": [
+    {
+      "name": "Newest login request",
+      "goal": "Wait for the website login card. Only inspect it and do not tap anything.",
+      "done": "The current pending request is visible and the older failed request is absent.",
+      "expect": [
+        "Current login request",
+        "Log in to example.com",
+        "Login for Test Computer"
+      ],
+      "forbid": [
+        "Old login request",
+        "Could not transfer the login."
+      ]
+    }
+  ]
+}

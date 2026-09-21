@@ -50,3 +50,18 @@ test("a completed import reports the verification requirement", async () => {
   expect(ui.text()).toContain("must verify");
   expect(ui.query("button")).toBeNull();
 });
+
+test("a newer pending request replaces an older failure even when the response is out of order", async () => {
+  const newer = { ...request, id: "req-new", reason: "Use the new request", createdAt: 20 };
+  const olderFailure = { ...request, id: "req-old", reason: "Old failed request", status: "failed", createdAt: 10,
+    message: "Could not transfer the login." };
+  globalThis.fetch = (async () => Response.json({
+    requests: [newer, olderFailure], iosAvailable: true, desktopAvailable: true,
+  })) as typeof fetch;
+  ui.render(<BrowserLoginCard sessionId="session-1" />);
+  await ui.flushAsync();
+  expect(ui.text()).toContain("Use the new request");
+  expect(ui.text()).toContain("Open this chat in the iOS app");
+  expect(ui.text()).not.toContain("Old failed request");
+  expect(ui.text()).not.toContain("Could not transfer the login");
+});

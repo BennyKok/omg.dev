@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, Image, Pressable, View } from "react-native";
 import * as Crypto from "expo-crypto";
-import type { BrowserLoginRequest, BrowserLoginSnapshot } from "../../../packages/protocol/src/browser-login";
+import { latestBrowserLoginRequest, type BrowserLoginRequest, type BrowserLoginSnapshot } from "../../../packages/protocol/src/browser-login";
 import { browserLoginNative } from "./browser-login-native";
 import { useOmg } from "./provider";
 import { useTheme } from "./theme";
@@ -89,8 +89,7 @@ export function BrowserLoginPanel({ sessionId, transport, email }: {
       if (mounted.current) { setBusy(false); await refresh(); }
     }
   };
-  const visible = requests.filter(r => r.status !== "cancelled" && r.status !== "expired");
-  const request = visible[visible.length - 1];
+  const request = latestBrowserLoginRequest(requests);
   if (!request && !error) return null;
   return <View testID="browser-login-card" style={{ backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1, borderRadius: 16, padding: 14, gap: 8 }}>
     {request && <>
