@@ -37,7 +37,7 @@ const KINDS: Array<{ kind: CreateKind; title: string; blurb: string; ios: SFSymb
 export const CREATE_PRESETS: Record<CreateKind, string> = {
   ios: [
     "Read .agents/skills/omg-app-builder/SKILL.md completely, then use it to build and verify an iOS app with Expo, expo-router, and TypeScript.",
-    "Use omg.dev for the hosted backend when needed. Deliver a simulator-tested app and deploy any requested hosted surface. Do not submit to TestFlight or the App Store unless I ask.",
+    "Use omg.dev for the hosted backend when needed. Deliver a verified hosted Expo web preview, and offer an Expo Go tunnel QR code for device testing when possible. Do not require a simulator. Do not submit to TestFlight or the App Store unless I ask.",
     "",
     "The app: {describe}",
   ].join("\n"),
