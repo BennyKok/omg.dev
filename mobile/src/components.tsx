@@ -1355,29 +1355,37 @@ export function HomeComposer({
       {/* Reserve the rail before focus so revealing it does not retarget the
           composer's layout transition during the keyboard lift. Keep the
           touch area inside the parent; an overflowing rail cannot scroll on iOS. */}
-      {onStarter ? <View pointerEvents="box-none" style={{ height: 72 }}>
+      {onStarter ? <View pointerEvents="box-none" style={{ height: 84 }}>
       {composerFocused && !hasMessage && attachments.items.length === 0 && dictation.state === "idle" ? (
         <Reanimated.View
           entering={FadeIn.duration(150).reduceMotion(stillMotion ? ReduceMotion.Always : ReduceMotion.Never)}
-          style={{ height: 60 }}
+          style={{ height: 72 }}
         >
         <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always"
           keyboardDismissMode="none" directionalLockEnabled testID="chat-starter-row"
           style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 8 }}>
           {([
-            ["Website", "Help me create a website."],
-            ["App", "Help me create an app."],
-            ["API", "Help me create an API."],
-            ["Image", "Help me create an image."],
-          ] as const).map(([label, prompt]) => (
-            <Pressable key={label} accessibilityRole="button" accessibilityLabel={`Start ${label.toLowerCase()}`}
+            ["Website", "Design and publish a site", "Help me create a website.", "globe", "language"],
+            ["App", "Build a mobile or web app", "Help me create an app.", "iphone", "smartphone"],
+            ["API", "Create an endpoint or service", "Help me create an API.", "terminal", "terminal"],
+            ["Image", "Generate a custom visual", "Help me create an image.", "photo", "image"],
+          ] as const satisfies ReadonlyArray<readonly [string, string, string, SFSymbol, AndroidSymbol]>).map(([label, description, prompt, ios, android]) => (
+            <Pressable key={label} accessibilityRole="button"
+              accessibilityLabel={`Start ${label.toLowerCase()}. ${description}`}
               accessibilityHint="Sends a starter prompt" testID={`chat-starter-${label.toLowerCase()}`}
               disabled={starting} onPress={() => onStarter(prompt)}
-              style={({ pressed }) => ({ minWidth: 104, minHeight: 60, paddingHorizontal: 20,
-                alignItems: "center", justifyContent: "center", borderRadius: 30, borderCurve: "continuous",
+              style={({ pressed }) => ({ width: 184, minHeight: 72, paddingHorizontal: 12,
+                flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 18, borderCurve: "continuous",
                 backgroundColor: colors.card, borderWidth: StyleSheet.hairlineWidth,
                 borderColor: colors.borderStrong, opacity: pressed || starting ? 0.5 : 1 })}>
-              <Text style={{ ...type.subhead, color: colors.text }}>{label}</Text>
+              <View style={{ width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center",
+                backgroundColor: colors.secondary }}>
+                <Icon ios={ios} android={android} size={18} color={colors.primary} weight="semibold" />
+              </View>
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text style={{ ...type.subhead, color: colors.text }}>{label}</Text>
+                <Text numberOfLines={2} style={{ ...type.caption, color: colors.textMuted }}>{description}</Text>
+              </View>
             </Pressable>
           ))}
         </ScrollView>

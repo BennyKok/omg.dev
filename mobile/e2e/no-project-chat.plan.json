@@ -1,7 +1,7 @@
 {
   "appId": "dev.omg.computer",
   "launch": {
-    "clearState": false
+    "clearState": true
   },
   "steps": [
     {
@@ -29,14 +29,14 @@
       "selected": "Chats without a project"
     },
     {
-      "name": "Rounded starter rail",
+      "name": "Starter cards with details",
       "goal": "Tap the message composer to focus it and show the keyboard. If iOS shows its slide-to-type tutorial, tap Continue to dismiss that tutorial.",
-      "done": "The rounded starter cards appear above the composer with the keyboard visible. The input keeps focus. The separate starter-row-scroll flow checks both horizontal directions.",
+      "done": "The starter cards have moderate corners, an icon, and a short description above the composer. The keyboard remains visible. The separate starter-row-scroll flow checks both horizontal directions.",
       "expect": [
         "Start website",
+        "Design and publish a site",
         "Start app",
-        "Start api",
-        "Start image",
+        "Build a mobile or web app",
         "Chats without a project",
         "Typing Predictions"
       ],

@@ -11,24 +11,33 @@ appId: dev.omg.computer
 - tapOn:
     text: Continue
     optional: true
-- assertVisible: "Start website"
+- assertVisible: ".*Start website.*"
 - swipe:
     from:
       id: chat-starter-row
     direction: LEFT
-- assertVisible: "Start image"
+- assertVisible: ".*Create an endpoint or service.*"
+- swipe:
+    from:
+      id: chat-starter-row
+    direction: LEFT
+- assertVisible: ".*Generate a custom visual.*"
 - assertVisible: "Typing Predictions"
 - takeScreenshot: starter-row-right
 - swipe:
     from:
       id: chat-starter-row
     direction: RIGHT
-- assertVisible: "Start website"
+- swipe:
+    from:
+      id: chat-starter-row
+    direction: RIGHT
+- assertVisible: ".*Start website.*"
 - assertVisible: "Typing Predictions"
 - takeScreenshot: starter-row-left
 - inputText: "My own idea"
-- assertNotVisible: "Start website"
+- assertNotVisible: ".*Start website.*"
 - eraseText: 50
-- assertVisible: "Start website"
+- assertVisible: ".*Start website.*"
 - assertVisible: "Typing Predictions"
 - takeScreenshot: starter-row-restored
