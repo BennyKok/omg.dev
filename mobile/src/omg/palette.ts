@@ -20,6 +20,23 @@
 export type Palette = {
   background: string;
   foreground: string;
+  /**
+   * THE iOS GROUPED-LIST SURFACES, for Settings and the screens reached from
+   * it. Separate from `background`/`card` on purpose.
+   *
+   * Apple's grouped list is a pure-black page with a #1C1C1E card on it: a
+   * delta of 28. Our `background` is #141414 and `card` was deliberately
+   * raised to #242428 so a SessionCard would sit far enough above it (see the
+   * note on `card`), a delta of 16. Copying #1C1C1E onto `card` would undo
+   * that decision for every surface in the app, and dropping `background` to
+   * black would change Home. So the grouped list gets its own pair, measured
+   * from Settings on iOS 26 (iPhone 17 Pro, both appearances), and the rest of
+   * the app keeps the surfaces it was tuned for.
+   */
+  groupedBackground: string;
+  groupedCard: string;
+  /** Measured; a real separator is lighter than our general-purpose `border`. */
+  groupedSeparator: string;
   card: string;
   cardPressed: string;
   popover: string;
@@ -87,6 +104,9 @@ export const darkColors: Palette = {
   // own bg->card gap (~11). `popover` moves with it (same surface family);
   // `fieldFill` is left at the old #1c1c1e — untouched by this request, and
   // only used on the sign-in screen.
+  groupedBackground: "#000000",
+  groupedCard: "#1c1c1e",
+  groupedSeparator: "#38383b",
   card: "#242428",
   cardPressed: "#2c2c2e",
   popover: "#242428",
@@ -127,6 +147,9 @@ export const darkColors: Palette = {
 export const lightColors: Palette = {
   background: "#f2f2f7",
   foreground: "#000000",
+  groupedBackground: "#f2f2f7",
+  groupedCard: "#ffffff",
+  groupedSeparator: "#e8e8e8",
   card: "#ffffff",
   cardPressed: "#f2f2f7",
   popover: "#ffffff",
@@ -194,7 +217,8 @@ export const brand = {
   inkRaised: "#211C17",
 } as const;
 
-export const radius = { sm: 8, md: 10, lg: 12, xl: 18, pill: 999 } as const;
+// `group` is the iOS 26 grouped-list card. Measured at 64px on a 3x device.
+export const radius = { sm: 8, md: 10, lg: 12, xl: 18, group: 22, pill: 999 } as const;
 
 export const space = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 } as const;
 

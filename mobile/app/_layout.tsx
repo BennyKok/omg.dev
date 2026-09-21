@@ -316,6 +316,11 @@ function RootNavigator() {
     }
   }, [authStatus, intro]);
   const { colors, isDark } = useTheme();
+  // See the note at the Settings family below.
+  const groupedScreen = {
+    headerStyle: { backgroundColor: colors.groupedBackground },
+    contentStyle: { backgroundColor: colors.groupedBackground },
+  } as const;
   // Shares the splash with auth, rather than flashing an icon-less bar for a
   // frame: the font resolves from a bundled asset, so this is never a wait
   // the user can perceive on a warm start.
@@ -445,12 +450,22 @@ function RootNavigator() {
             <Stack.Screen name="archive" options={{ title: "Archive", headerLargeTitle: true }} />
             <Stack.Screen name="session/[id]" options={{ title: "Session" }} />
             <Stack.Screen name="session/new" options={{ headerShown: false }} />
-            <Stack.Screen name="computers" />
-            <Stack.Screen name="settings" />
-            <Stack.Screen name="settings/coding-agents" options={{ title: "Coding agents", headerLargeTitle: true }} />
-            <Stack.Screen name="settings/agent" options={{ title: "" }} />
+            {/* THE SETTINGS FAMILY IS A GROUPED LIST, so it takes iOS's
+                grouped background rather than the app's own `bg`.
+                `contentStyle` and `headerStyle` have to move together: the
+                large title sits in the header, and a header one shade off the
+                page is visible as a seam the moment the list scrolls under it.
+                These are the only screens that use `Card`, which is the other
+                half of the pair (see `groupedCard` in palette.ts). */}
+            <Stack.Screen name="computers" options={groupedScreen} />
+            <Stack.Screen name="settings" options={groupedScreen} />
+            <Stack.Screen
+              name="settings/coding-agents"
+              options={{ ...groupedScreen, title: "Coding agents", headerLargeTitle: true }}
+            />
+            <Stack.Screen name="settings/agent" options={{ ...groupedScreen, title: "" }} />
             <Stack.Screen name="notifications" />
-            <Stack.Screen name="schedules" />
+            <Stack.Screen name="schedules" options={groupedScreen} />
             <Stack.Screen name="plan" />
             <Stack.Screen name="bots/index" />
             <Stack.Screen name="bots/new" />

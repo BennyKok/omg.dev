@@ -381,6 +381,22 @@ function answer(path: string): unknown | null {
       { id: "demo-created-reply", role: "assistant", text: "Your new conversation is ready." }] };
   }
   if (clean === "/api/bootstrap") return demoBootstrap();
+  // The Settings software row reads this. Without an answer the row is absent,
+  // so demo mode could not show the version it exists to show.
+  if (clean === "/api/install") {
+    return {
+      install: { channel: "release", updateCommand: "omg update" },
+      update: {
+        channel: "release",
+        state: "up-to-date",
+        currentVersion: "0.6.89",
+        message: "omg.dev 0.6.89 is up to date.",
+        restartSupported: true,
+      },
+      changelog: [],
+      bootId: "demo",
+    };
+  }
   if (clean === "/api/sessions") return { sessions: demoSessions() };
   if (clean === "/api/ask") return demoAsk();
   if (clean === "/api/shipped") return demoShipped();

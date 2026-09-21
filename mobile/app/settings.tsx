@@ -25,13 +25,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Text } from "../src/omg/text";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Card, Icon, Row, SectionLabel, Separator, StatusDot } from "../src/components";
+import { Card, GROUPED_INSET, Icon, Row, SectionLabel, Separator, SettingsIcon, StatusDot } from "../src/components";
 import { useOmg } from "../src/omg/provider";
 import { useTheme } from "../src/omg/theme";
 import { cloudComputerLabel, bindingLabel } from "../src/omg/format";
 import { CLOUD_BINDING_ID } from "../src/omg/config";
 import { useDemoMode } from "../src/omg/demo";
 import { sharedBindingLabel } from "../src/omg/computer-shared-binding";
+import { useComputerUpdate } from "../src/omg/computer-update";
+import { ComputerSoftwareRow } from "../src/omg/computer-software-row";
 import {
   getStoredPushToken,
   pushPermissionStatus,
@@ -102,10 +104,108 @@ const LEGAL_PAGES: { label: string; path: string }[] = [
   { label: "Terms of Use", path: "/terms" },
 ];
 
-const WEB_PAGES: { label: string; path: string }[] = [
-  { label: "Schedules", path: "/settings/computer/auto" },
-  { label: "Storage", path: "/settings/computer/storage" },
+const WEB_PAGES: {
+  label: string;
+  path: string;
+  glyph: { ios: string; android: string };
+  tint: keyof typeof TINT;
+}[] = [
+  // One tile per destination. A column of identical globes tells you only
+  // that these rows leave the app, which the trailing glyph already says.
+  {
+    label: "Schedules",
+    path: "/settings/computer/auto",
+    glyph: { ios: "calendar", android: "calendar_month" },
+    tint: "red",
+  },
+  {
+    label: "Storage",
+    path: "/settings/computer/storage",
+    glyph: { ios: "internaldrive", android: "storage" },
+    tint: "grey",
+  },
 ];
+
+/**
+ * iOS's own tile colours for a settings row. Flat system colours, not our
+ * brand palette: the tile's job is to make a row findable by colour in a list
+ * you scroll past, which only works if it matches the muscle memory the rest
+ * of the phone builds. Values are the iOS dark-appearance system colours.
+ */
+const TINT = {
+  grey: "#8e8e93",
+  blue: "#0a84ff",
+  green: "#30d158",
+  orange: "#ff9f0a",
+  red: "#ff453a",
+  purple: "#5e5ce6",
+} as const;
+
+/**
+ * A grouped-list row: tile, title, optional trailing value, chevron.
+ *
+ * The chevron is drawn only when the row goes somewhere. A row with a value
+ * and no chevron is a fact; a row with both is a destination — that
+ * distinction is load-bearing in iOS and worth keeping honest here.
+ */
+function SettingsRow({
+  glyph,
+  lucide,
+  tint,
+  label,
+  value,
+  onPress,
+  children,
+}: {
+  glyph?: { ios: string; android: string };
+  lucide?: string;
+  tint: string;
+  label: string;
+  value?: string | null;
+  onPress?: () => void;
+  /** A control that replaces the value and the chevron, such as a Switch. */
+  children?: React.ReactNode;
+}) {
+  const { colors, type } = useTheme();
+  return (
+    <Row
+      onPress={onPress}
+      icon={
+        <SettingsIcon tint={tint}>
+          {lucide ? (
+            <Icon lucide={lucide as never} size={17} color="#ffffff" />
+          ) : (
+            <Icon ios={glyph!.ios as never} android={glyph!.android as never} size={17} color="#ffffff" />
+          )}
+        </SettingsIcon>
+      }
+    >
+      {/* 17pt regular is the iOS row label. Our `body` is 16, tuned for the
+          dense session list, and a settings list is not that. */}
+      <Text style={{ fontSize: 17, color: colors.text, flex: 1 }} numberOfLines={1}>
+        {label}
+      </Text>
+      {children ?? (
+        <>
+          {value ? (
+            <Text style={{ fontSize: 17, color: colors.textMuted }} numberOfLines={1}>
+              {value}
+            </Text>
+          ) : null}
+          {onPress ? (
+            <Icon
+              ios="chevron.right"
+              android="chevron_right"
+              size={13}
+              weight="semibold"
+              color={colors.textMuted}
+            />
+          ) : null}
+        </>
+      )}
+    </Row>
+  );
+}
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
@@ -209,6 +309,15 @@ export default function SettingsScreen() {
    * no idea whether they're still signed in. signingOutRef guards against a
    * second tap firing a second request while the first is in flight.
    */
+  /**
+   * THE COMPUTER'S OWN SOFTWARE VERSION, and the button that changes it.
+   *
+   * The version shows even when there is nothing to do, because "which version
+   * is my computer running" is a question you ask when nothing is wrong. Only
+   * the button is conditional. See computer-software-row.tsx for the rest.
+   */
+  const updater = useComputerUpdate(client?.transport ?? null);
+
   const [signingOut, setSigningOut] = useState(false);
   const confirmSignOut = () => {
     Alert.alert("Sign out?", "You'll need a new sign-in code to get back in.", [
@@ -287,13 +396,11 @@ export default function SettingsScreen() {
     >
       <SectionLabel>Account</SectionLabel>
       <Card>
-        <Row>
-          <View style={{ flex: 1 }}>
-            <Text style={{ ...type.callout, color: colors.text }}>
-              {user?.email ?? "Signed in"}
-            </Text>
-          </View>
-        </Row>
+        <SettingsRow
+          glyph={{ ios: "person.crop.circle.fill", android: "account_circle" }}
+          tint={TINT.grey}
+          label={user?.email ?? "Signed in"}
+        />
       </Card>
 
       <SectionLabel>Computer</SectionLabel>
@@ -304,9 +411,18 @@ export default function SettingsScreen() {
             per-machine detail and the blocked-plan reason have room. The
             chevron is honest here for the same reason it would have been a lie
             on a row that only opened a menu. */}
-        <Row onPress={() => router.push("/computers")}>
+        <SettingsRow
+          glyph={{ ios: "desktopcomputer", android: "computer" }}
+          tint={TINT.blue}
+          label="Computer"
+          onPress={() => router.push("/computers")}
+        >
+          {/* The dot stays: "which computer" and "is it up" are one glance in
+              this app, and the value text alone cannot carry the second. */}
           <StatusDot busy={selectedMachine?.online ?? false} />
-          <Text style={{ ...type.callout, color: colors.text, flex: 1 }}>{machineName}</Text>
+          <Text style={{ fontSize: 17, color: colors.textMuted }} numberOfLines={1}>
+            {machineName}
+          </Text>
           <Icon
             ios="chevron.right"
             android="chevron_right"
@@ -314,7 +430,7 @@ export default function SettingsScreen() {
             weight="semibold"
             color={colors.textMuted}
           />
-        </Row>
+        </SettingsRow>
         {/* THE ROW THAT REPLACES "Plan & billing".
             The removed one opened app.omg.dev/settings/billing, which is a call
             to action pointing at a purchasing mechanism other than in-app
@@ -324,39 +440,42 @@ export default function SettingsScreen() {
             difference, and it is why the web link must not come back alongside
             it: a paywall with an external escape hatch is the same violation
             with an extra step. */}
-        <Separator inset="text" />
-        <Row onPress={() => router.push("/settings/coding-agents")}>
-          <Text style={{ ...type.callout, color: colors.text, flex: 1 }}>Coding agents</Text>
-          <Icon
-            ios="chevron.right"
-            android="chevron_right"
-            size={13}
-            weight="semibold"
-            color={colors.textMuted}
-          />
-        </Row>
-        <Separator inset="text" />
-        <Row onPress={() => router.push("/plan")}>
-          <Text style={{ ...type.callout, color: colors.text, flex: 1 }}>
-            Subscription and plan
-          </Text>
-          <Icon
-            ios="chevron.right"
-            android="chevron_right"
-            size={13}
-            weight="semibold"
-            color={colors.textMuted}
-          />
-        </Row>
+        <Separator inset="icon" />
+        <SettingsRow
+          glyph={{ ios: "cpu", android: "memory" }}
+          tint={TINT.purple}
+          label="Coding agents"
+          onPress={() => router.push("/settings/coding-agents")}
+        />
+        <Separator inset="icon" />
+        <SettingsRow
+          glyph={{ ios: "creditcard.fill", android: "credit_card" }}
+          tint={TINT.green}
+          label="Subscription and plan"
+          onPress={() => router.push("/plan")}
+        />
+        <ComputerSoftwareRow
+          install={updater.install}
+          loading={updater.loading}
+          busy={updater.busy}
+          restarting={updater.restarting}
+          error={updater.error}
+          onCheck={() => void updater.check(true)}
+          onApply={() => void updater.apply()}
+        />
       </Card>
 
       {permission !== "unavailable" ? (
         <>
           <SectionLabel>Notifications</SectionLabel>
           <Card>
-            <Row>
+            <Row icon={
+              <SettingsIcon tint={TINT.red}>
+                <Icon ios="bell.badge.fill" android="notifications" size={17} color="#ffffff" />
+              </SettingsIcon>
+            }>
               <View style={{ flex: 1 }}>
-                <Text style={{ ...type.callout, color: colors.text }}>Push notifications</Text>
+                <Text style={{ fontSize: 17, color: colors.text }}>Push notifications</Text>
                 {permission === "denied" ? (
                   <Text style={{ ...type.footnote, color: colors.textMuted, marginTop: 2 }}>
                     Blocked in iOS Settings — turn them on there first.
@@ -374,7 +493,8 @@ export default function SettingsScreen() {
             style={{
               ...type.footnote,
               color: colors.textMuted,
-              paddingHorizontal: space.lg,
+              // Tracks the card, like the section label above it.
+              paddingHorizontal: GROUPED_INSET + 8,
               paddingTop: space.sm,
               lineHeight: 18,
             }}
@@ -389,12 +509,23 @@ export default function SettingsScreen() {
       <Card>
         {WEB_PAGES.map((page, i) => (
           <View key={page.path}>
-            {/* No leading StatusDot/icon on this row — its text already sits
-                flush with the card's own padding, so this is that padding,
-                not "text" mode (which accounts for a leading dot). */}
-            {i > 0 ? <Separator inset={space.lg} /> : null}
-            <Row onPress={() => open(page.path)}>
-              <Text style={{ ...type.callout, color: colors.text, flex: 1 }}>{page.label}</Text>
+            {i > 0 ? <Separator inset="icon" /> : null}
+            <Row
+              onPress={() => open(page.path)}
+              icon={
+                <SettingsIcon tint={TINT[page.tint]}>
+                  <Icon
+                    ios={page.glyph.ios as never}
+                    android={page.glyph.android as never}
+                    size={17}
+                    color="#ffffff"
+                  />
+                </SettingsIcon>
+              }
+            >
+              <Text style={{ fontSize: 17, color: colors.text, flex: 1 }}>{page.label}</Text>
+              {/* Not a chevron: this row leaves the app for Safari, and the
+                  two must not look like the same kind of destination. */}
               <Icon
                 ios="arrow.up.forward.app"
                 android="open_in_new"
@@ -409,7 +540,7 @@ export default function SettingsScreen() {
         style={{
           ...type.footnote,
           color: colors.textMuted,
-          paddingHorizontal: space.lg,
+          paddingHorizontal: GROUPED_INSET + 8,
           paddingTop: space.sm,
           lineHeight: 18,
         }}
@@ -419,25 +550,25 @@ export default function SettingsScreen() {
 
       <SectionLabel>Help</SectionLabel>
       <Card>
-        <Row onPress={() => router.push("/onboarding")}>
-          <Text style={{ ...type.callout, color: colors.text, flex: 1 }}>Replay the welcome tour</Text>
-          <Icon
-            ios="chevron.right"
-            android="chevron_right"
-            size={13}
-            weight="semibold"
-            color={colors.textMuted}
-          />
-        </Row>
+        <SettingsRow
+          glyph={{ ios: "sparkles", android: "auto_awesome" }}
+          tint={TINT.orange}
+          label="Replay the welcome tour"
+          onPress={() => router.push("/onboarding")}
+        />
       </Card>
 
       {devUnlocked ? (
         <>
           <SectionLabel>Developer</SectionLabel>
           <Card>
-            <Row>
+            <Row icon={
+              <SettingsIcon tint={TINT.grey}>
+                <Icon ios="hammer.fill" android="build" size={17} color="#ffffff" />
+              </SettingsIcon>
+            }>
               <View style={{ flex: 1 }}>
-                <Text style={{ ...type.callout, color: colors.text }}>Demo mode</Text>
+                <Text style={{ fontSize: 17, color: colors.text }}>Demo mode</Text>
                 <Text style={{ ...type.footnote, color: colors.textMuted, marginTop: 2 }}>
                   Fills every screen with seeded content for screenshots. Reloads the app.
                 </Text>
@@ -456,13 +587,18 @@ export default function SettingsScreen() {
 
       <View style={{ marginTop: space.xl }}>
         <Card>
+          {/* No tiles on these two, which is what iOS does with Sign Out: a
+              destructive row is identified by its red label, and giving it a
+              coloured tile would file it alongside the places you navigate to.
+              They were also missing the separator every other pair has. */}
           <Row onPress={confirmSignOut}>
-            <Text style={{ ...type.callout, color: colors.danger, flex: 1 }}>
+            <Text style={{ fontSize: 17, color: colors.danger, flex: 1 }}>
               {signingOut ? "Signing out…" : "Sign out"}
             </Text>
           </Row>
+          <Separator inset={space.lg} />
           <Row onPress={confirmDeleteAccount}>
-            <Text style={{ ...type.callout, color: colors.danger, flex: 1 }}>Delete account</Text>
+            <Text style={{ fontSize: 17, color: colors.danger, flex: 1 }}>Delete account</Text>
           </Row>
         </Card>
       </View>
@@ -476,7 +612,7 @@ export default function SettingsScreen() {
                 for one. */}
             {i > 0 ? <Separator inset={space.lg} /> : null}
             <Row onPress={() => void Linking.openURL(`https://omg.dev${page.path}`)}>
-              <Text style={{ ...type.callout, color: colors.text, flex: 1 }}>{page.label}</Text>
+              <Text style={{ fontSize: 17, color: colors.text, flex: 1 }}>{page.label}</Text>
               <Icon
                 ios="arrow.up.forward.app"
                 android="open_in_new"

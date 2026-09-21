@@ -182,21 +182,62 @@ export function StatusDot({
   );
 }
 
+/**
+ * A grouped-list section header.
+ *
+ * iOS 26 draws these as a bold, sentence-case label in the normal text colour.
+ * They used to be 11pt uppercase grey, which is the pre-iOS-13 look and was
+ * the single thing that most gave our Settings away as not-native.
+ *
+ * The padding carries the gap BETWEEN cards: 35pt measured, which is this
+ * label's top padding plus its bottom padding plus its own line box.
+ */
 export function SectionLabel({ children }: { children: React.ReactNode }) {
   const { colors, type, space } = useTheme();
   return (
     <Text
       style={{
-        ...type.overline,
-        color: colors.textMuted,
-        textTransform: "uppercase",
-        paddingHorizontal: space.lg,
-        paddingTop: space.lg,
+        ...type.title,
+        color: colors.text,
+        // Sits 8pt inside the card's own edge, as iOS does.
+        paddingHorizontal: GROUPED_INSET + 8,
+        paddingTop: space.xl,
         paddingBottom: space.sm,
       }}
     >
       {children}
     </Text>
+  );
+}
+
+/**
+ * The 29pt rounded-square tile that leads a settings row.
+ *
+ * iOS fills it with a flat system colour and centres a white glyph in it. The
+ * colour is the row's identity — you find Wi-Fi by looking for the blue one —
+ * so it is a required prop rather than a themed default.
+ */
+export function SettingsIcon({
+  tint,
+  children,
+}: {
+  tint: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <View
+      style={{
+        width: ICON_TILE,
+        height: ICON_TILE,
+        borderRadius: 7,
+        borderCurve: "continuous",
+        backgroundColor: tint,
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      {children}
+    </View>
   );
 }
 
@@ -213,9 +254,12 @@ export function Card({
     <View
       style={[
         {
-          backgroundColor: colors.card,
-          borderRadius: radius.lg,
-          marginHorizontal: space.lg,
+          backgroundColor: colors.groupedCard,
+          borderRadius: radius.group,
+          // `continuous` is the squircle iOS actually draws. At 22pt the
+          // difference from a circular corner is visible side by side.
+          borderCurve: "continuous",
+          marginHorizontal: GROUPED_INSET,
           overflow: "hidden",
         },
         style,
@@ -226,7 +270,7 @@ export function Card({
   );
 }
 
-export function Separator({ inset = 0 }: { inset?: number | "text" }) {
+export function Separator({ inset = 0 }: { inset?: number | "text" | "icon" }) {
   const { colors, space } = useTheme();
   /**
    * A real iOS grouped-list separator stops under the row's TEXT, not the
@@ -236,26 +280,56 @@ export function Separator({ inset = 0 }: { inset?: number | "text" }) {
    * row with no leading dot/icon has its text flush with the card padding
    * already, so it passes that padding as a plain number instead.
    */
-  const resolvedInset = inset === "text" ? space.lg + 8 + space.md : inset;
+  const resolvedInset = inset === "text"
+    ? space.lg + 8 + space.md
+    // An icon-led row stops the separator under the TITLE, past the 29pt tile
+    // and its gap. Measured at 56pt from the card edge on iOS 26; this is
+    // Row's own padding plus the tile plus the gap, so it follows the row
+    // rather than restating a number that would drift.
+    : inset === "icon" ? 14 + ICON_TILE + space.md
+    : inset;
   return (
     <View
       style={{
-        height: StyleSheet.hairlineWidth,
-        backgroundColor: colors.border,
+        // 1pt, not a hairline: iOS 26 draws a 3px separator on a 3x screen.
+        height: 1,
+        backgroundColor: colors.groupedSeparator,
         marginLeft: resolvedInset,
       }}
     />
   );
 }
 
+/** The iOS settings-icon tile, measured at 85px on a 3x screen. */
+export const ICON_TILE = 29;
+
+/**
+ * How far a grouped card sits from the screen edge.
+ *
+ * Apple measures 16pt and we matched it, but Benny read the result as cramped
+ * and asked for more room on the sides. This is therefore a deliberate 20 —
+ * four points wider than the reference. It is one constant on purpose: it is
+ * the number to change if the sides want dialling again, and the section
+ * label keeps its inset relative to it rather than restating a literal.
+ */
+export const GROUPED_INSET = 20;
+
 export function Row({
   children,
   onPress,
   disabled,
+  icon,
 }: {
   children: React.ReactNode;
   onPress?: () => void;
   disabled?: boolean;
+  /**
+   * The leading tile, for a settings-style row. Its presence is also what
+   * makes the row 52pt instead of 44 — the two are one decision in iOS, and
+   * splitting them into two props let a row be tall with no tile or short
+   * with one, neither of which is a shape iOS draws.
+   */
+  icon?: React.ReactNode;
 }) {
   const { colors, space } = useTheme();
   return (
@@ -268,9 +342,16 @@ export function Row({
       scale={0.98}
       style={({ pressed }) => ({
         // 44pt is the Apple minimum touch target; rows that carry two lines of
-        // text clear it on their own, but a single-line row would not.
-        minHeight: 44,
-        paddingHorizontal: space.lg,
+        // text clear it on their own, but a single-line row would not. An
+        // icon-led row is 52, measured off iOS 26's own grouped list.
+        minHeight: icon ? 52 : 44,
+        // MEASURED, not guessed. Apple starts the tile 14pt from the card
+        // edge and lands the trailing chevron about 19pt in from the other
+        // side. Ours was 12 on both, which read as cramped against the card
+        // edges: the leading padding is now 14, and the trailing stays at the
+        // full 16 so the chevron's own optical bearing puts its ink at ~19.
+        paddingLeft: icon ? 14 : space.lg,
+        paddingRight: space.lg,
         paddingVertical: space.md,
         backgroundColor: pressed && onPress ? colors.cardPressed : "transparent",
         opacity: disabled ? 0.5 : 1,
@@ -279,6 +360,7 @@ export function Row({
         gap: space.md,
       })}
     >
+      {icon}
       {children}
     </PressableScale>
   );

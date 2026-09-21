@@ -7,10 +7,13 @@
     {
       "name": "01 Settings",
       "goal": "Open Settings: tap the Navigation button (top left, labelled Navigation. Computer: ...), then tap Settings in the side menu. Note: a session card whose title begins with Error: is the name of a task someone typed, not an app error, so the screen is not blocked.",
-      "done": "The Settings screen with the Computer section, a Coding agents row and Subscription and plan",
+      "done": "The Settings screen with the Computer section, a Coding agents row, Subscription and plan, and a Software row naming the computer's version",
       "expect": [
         "Coding agents",
-        "Subscription and plan"
+        "Subscription and plan",
+        "Software",
+        "0.6.89",
+        "Check"
       ],
       "timeoutMs": 90000
     },
