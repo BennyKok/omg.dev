@@ -748,8 +748,10 @@ export function SessionsScreen({
   useFocusEffect(
     useCallback(() => {
       setPaneOnScreen(true);
+      // An agent can register a project while this screen stays mounted.
+      void probe();
       return () => setPaneOnScreen(false);
-    }, []),
+    }, [probe]),
   );
 
   // Observe the fleet only while Home is visible and the app is foregrounded.

@@ -16,6 +16,7 @@ import { mkdir, stat, realpath, rm } from "node:fs/promises";
 import { join, resolve, basename } from "node:path";
 import { homedir } from "node:os";
 import { PATHS } from "./config.ts";
+import { reposRoot } from "./projects.ts";
 
 export type CustomRepo = { name: string; cwd: string };
 
@@ -210,14 +211,16 @@ export async function useProjectFolder(rawPath: string): Promise<CustomRepo> {
 }
 
 export async function createProjectFolder(
-  rawParent: string,
+  rawParent: string | undefined,
   rawName: string,
 ): Promise<CustomRepo> {
-  const parent = await canonical(rawParent);
   const name = rawName.trim();
   if (!name || !/^[\w .-]+$/.test(name) || name === "." || name === "..") {
     throw new Error("enter a valid folder name");
   }
+  const root = rawParent ?? reposRoot();
+  if (rawParent === undefined) await mkdir(root, { recursive: true });
+  const parent = await canonical(root);
   const cwd = join(parent, name);
   try {
     await stat(cwd);

@@ -286,6 +286,7 @@ function demoBootstrap() {
       { key: "codex", label: "Codex", visible: true, status: { configured: true, accountConnected: true } },
     ],
     repos: [
+      ...(projectCreationFixture && unassignedChats.length ? [{ name: "demo-website", cwd: "/home/user/demo-website", project: "demo-website" }] : []),
       { name: "api-gateway", cwd: "/home/user/api-gateway", project: "api-gateway" },
       { name: "checkout", cwd: "/home/user/checkout", project: "checkout" },
       { name: "docs", cwd: "/home/user/docs", project: "docs" },
@@ -459,3 +460,7 @@ export function getDemoTransport(): OmgTransport {
   };
   return demoTransport;
 }
+
+/** Explicit simulator fixture: register a project while a chat is open. */
+let projectCreationFixture = false;
+export function enableProjectCreationFixture() { projectCreationFixture = true; }

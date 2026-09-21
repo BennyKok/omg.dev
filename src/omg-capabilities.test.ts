@@ -162,6 +162,7 @@ describe("omg.dev runtime capabilities", () => {
 
   test("publishes a bootstrap entry for every promoted workflow", () => {
     expect(OMG_CAPABILITIES.map((item) => item.tool)).toEqual([
+      "omg_create_project / omg_list_repos",
       "omg_request_browser_login / omg_browser_login_status",
       "omg_create_owned_bot / omg_update_self / omg_list_owned_bots / omg_send_message_to_peer",
       "omg_ship",

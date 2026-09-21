@@ -1,0 +1,104 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": false
+  },
+  "steps": [
+    {
+      "name": "Project navigation",
+      "goal": "Reach the demo Home screen with its project rail. If a conversation is open, tap Back at the top left to return to Home. If the system Home screen is visible, tap the omg app icon. If an AI data consent screen appears, accept it for this isolated demo fixture. Do not type into Message or open a conversation.",
+      "done": "The normal project navigation and composer are visible.",
+      "expect": [
+        "Chats without a project",
+        "api-gateway folder"
+      ],
+      "forbid": [
+        "demo-website folder"
+      ]
+    },
+    {
+      "name": "Empty unassigned chats",
+      "goal": "Tap ONLY the element labelled Chats without a project. It is the first chip in the top project rail below Welcome. Do not tap add or Attach a file in the bottom composer. If a menu is open, close it first.",
+      "done": "The plus tab is selected and the session list is blank. Do not focus the composer yet.",
+      "expect": [
+        "Chats without a project"
+      ],
+      "forbid": [
+        "Refactor the rate limiter",
+        "What would you like to create",
+        "No sessions yet",
+        "Start website"
+      ],
+      "selected": "Chats without a project"
+    },
+    {
+      "name": "Focused starters",
+      "goal": "Tap the message composer to focus it and show the keyboard. If iOS shows its slide-to-type tutorial, tap Continue to dismiss that tutorial.",
+      "done": "Small starter cards appear immediately above the composer with the keyboard visible.",
+      "expect": [
+        "Start website",
+        "Start app",
+        "Start api",
+        "Start image",
+        "Chats without a project",
+        "Typing Predictions"
+      ],
+      "forbid": [
+        "Speed up your typing"
+      ]
+    },
+    {
+      "name": "Create a chat",
+      "goal": "Tap Start website once. Wait for the normal conversation screen.",
+      "done": "The conversation shows the starter prompt and the fixture reply. No mode toggle is present.",
+      "expect": [
+        "Help me create a website.",
+        "What would you like your website to do?"
+      ],
+      "forbid": [
+        "Mark complete",
+        "Chat / Task"
+      ]
+    },
+    {
+      "name": "Unassigned session row",
+      "goal": "Use the back button to return to Home. Stay on the plus tab.",
+      "done": "The new chat appears as a normal session row in the unassigned list.",
+      "expect": [
+        "Chats without a project",
+        "Help me create a website.",
+        "demo-website folder"
+      ],
+      "forbid": [
+        "Refactor the rate limiter"
+      ],
+      "selected": "Chats without a project"
+    },
+    {
+      "name": "Project separation",
+      "goal": "Tap api-gateway folder in the project navigation.",
+      "done": "The existing project conversations return and the unassigned chat is excluded.",
+      "expect": [
+        "Refactor the rate limiter"
+      ],
+      "forbid": [
+        "Help me create a website."
+      ],
+      "selected": "api-gateway folder"
+    },
+    {
+      "name": "Created project is selectable",
+      "goal": "Tap demo-website folder in the project rail. If the iOS slide-to-type tutorial appears, tap Continue to dismiss it.",
+      "done": "The newly registered project is selected. The original Quick Chat stays in the unassigned list.",
+      "expect": [
+        "demo-website folder"
+      ],
+      "selected": "demo-website folder",
+      "forbid": [
+        "Help me create a website.",
+        "Refactor the rate limiter",
+        "Speed up your typing"
+      ]
+    }
+  ]
+}
