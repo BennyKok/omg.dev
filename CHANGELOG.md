@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## September 21, 2026 - Mobile web trackpad stays responsive (v0.6.84)
+
+- The Computer trackpad releases mouse capture after a tap. The next finger gesture can move the cursor without an extra click.
+
 ## September 20, 2026 - OpenCode starts on a new account (v0.6.83)
 
 - OpenCode no longer fails on the first session of a new account with "CREATE TABLE workspace ... already exists". OpenCode migrates its database on every command with no lock, and the first session raced the agent status probe. Setup now migrates the database once, before any session or probe can start. Hosted Computers get the same fix from template v235.
