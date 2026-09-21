@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## September 21, 2026 - Website login cards (v0.6.86)
+
+- iOS login requests show the website icon and domain, with a clear “Log in to [website]” button. Sites without a usable icon show a domain initial.
+- The web handoff text matches the updated mobile card. This update works with iOS app 1.0.12 (55).
+
 ## September 21, 2026 - Rounder question card and drawer
 
 - iOS: the session question card, its answer chips, and the bottom drawer use the same 32pt continuous corners as the expanded composer. The question card was 12pt. Answer chips were pills. The agent picker drawer was 22pt.
