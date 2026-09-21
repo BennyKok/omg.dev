@@ -27,7 +27,7 @@ export async function pipeToGrokCli(
     "--verbatim",
   ];
   if (opts.writable) argv.push("--always-approve");
-  const effort = grokEffortFor(opts.thinkingLevel);
+  const effort = grokEffortFor(opts.thinkingLevel, model);
   if (effort) argv.push("--effort", effort);
   argv.push("-p", prompt);
 

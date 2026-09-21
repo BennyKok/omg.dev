@@ -18,6 +18,7 @@ describe("omg model display", () => {
       ["omg/qwen/qwen3.7-plus", "qwen", "Qwen3.7 Plus"],
       ["omg/qwen/qwen3-coder-next", "qwen", "Qwen3 Coder Next"],
       ["omg/minimax/minimax-m3", "minimax", "MiniMax M3"],
+      ["omg/x-ai/grok-4.7", "x-ai", "Grok 4.7"],
       ["omg/anthropic/claude-fable-5.1", "anthropic", "Claude Fable 5.1"],
       ["omg/anthropic/claude-opus-4.8", "anthropic", "Claude Opus 4.8"],
       ["omg/anthropic/claude-sonnet-4.6", "anthropic", "Claude Sonnet 4.6"],
@@ -36,6 +37,7 @@ describe("omg model display", () => {
     expect(parseOmgModel("omg/z-ai/glm-5.2")!.providerLabel).toBe("Z.ai");
     expect(parseOmgModel("omg/minimax/minimax-m3")!.providerLabel).toBe("MiniMax");
     expect(parseOmgModel("omg/openai/gpt-5.6-sol")!.providerLabel).toBe("OpenAI");
+    expect(parseOmgModel("omg/x-ai/grok-4.7")!.providerLabel).toBe("xAI");
     expect(parseOmgModel("omg/newvendor/thing-1")!.providerLabel).toBe("Newvendor");
   });
 

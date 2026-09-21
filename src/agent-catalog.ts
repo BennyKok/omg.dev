@@ -54,7 +54,7 @@ export const CODEX_AISDK_MODELS: string[] = [
   "gpt-5.4-mini",
   "gpt-5.3-codex-spark",
 ];
-export const GROK_MODELS: string[] = ["grok-4.6", "grok-4.5", "grok-composer-2.5-fast"];
+export const GROK_MODELS: string[] = ["grok-4.7", "grok-4.7-build-fast", "grok-4.6", "grok-4.5"];
 export const CURSOR_MODELS: string[] = [
   "auto",
   "composer-2.5",
@@ -62,7 +62,7 @@ export const CURSOR_MODELS: string[] = [
   "gpt-5.5",
   "claude-opus-4.8",
   "gemini-3.1-pro",
-  "cursor-grok-4.6",
+  "grok-4.7",
 ];
 // fx routes every model through Vercel AI Gateway, so its ids are the
 // gateway's `provider/model` strings, not a private vocabulary. The list is a
@@ -74,7 +74,7 @@ export const FX_MODELS: string[] = [
   "anthropic/claude-sonnet-5",
   "openai/gpt-5.6-sol",
   "openai/gpt-5.5",
-  "xai/grok-4.6",
+  "spacexai/grok-4.7",
   "moonshotai/kimi-k3",
   "zai/glm-5.2",
 ];
@@ -174,6 +174,7 @@ export const COPILOT_MODELS: string[] = [
   "claude-sonnet-4.5",
   "claude-sonnet-4",
   "gpt-5",
+  "grok-4.7",
 ];
 
 export const AUTO_AGENT_BACKENDS = [
@@ -208,15 +209,17 @@ const MODEL_CATALOG_KEYS: CodingAgentKind[] = [
 export const CODEX_THINKING_LEVELS = ["none", "minimal", "low", "medium", "high", "xhigh"] as const;
 export const CLAUDE_THINKING_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
 /**
- * What grok's CLI accepts. It rejects anything else outright —
+ * What grok's CLI accepts for Grok 4.6 and 4.7. Grok 4.5 still rejects
+ * `xhigh` with a hard exit:
  *
  *   --effort/--reasoning-effort: unknown effort level 'xhigh'; use one of: high, medium, low
  *
- * — and that is a hard exit, so offering a level grok can't take stops the
- * session launching at all rather than just being ignored. Verified against
- * grok 0.2.114.
+ * Offer xhigh only on models that take it — see thinkingLevelsForAgent.
+ * Verified 2026-09-21 against grok 0.2.97 (`grok models` cache + a live
+ * `--effort xhigh` probe).
  */
-export const GROK_THINKING_LEVELS = ["low", "medium", "high"] as const;
+export const GROK_THINKING_LEVELS = ["low", "medium", "high", "xhigh"] as const;
+export const GROK_THINKING_LEVELS_NO_XHIGH = ["low", "medium", "high"] as const;
 /**
  * What pi's CLI lists in `pi --help`. pi differs from grok twice over: it warns
  * and carries on at its own default rather than exiting, so a mismatch is a
@@ -267,7 +270,7 @@ export const MODEL_OPTIONS: Record<CodingAgentKind, { defaultModel: string; mode
   aisdk: { defaultModel: "opus", models: AISDK_MODELS },
   codex: { defaultModel: "gpt-5.6-sol", models: CODEX_MODELS },
   "codex-aisdk": { defaultModel: "gpt-5.6-sol", models: CODEX_AISDK_MODELS },
-  grok: { defaultModel: "grok-4.6", models: GROK_MODELS },
+  grok: { defaultModel: "grok-4.7", models: GROK_MODELS },
   cursor: { defaultModel: "auto", models: CURSOR_MODELS },
   fx: { defaultModel: "auto", models: FX_MODELS },
   muse: { defaultModel: "muse-spark-1.2", models: MUSE_MODELS },
@@ -624,7 +627,12 @@ export function thinkingLevelsForAgent(
   if (agent === "claude" || agent === "aisdk") return CLAUDE_THINKING_LEVELS;
   // grok and pi drive their own CLIs with narrower vocabularies; offering more
   // hands the user a level that either kills the session or does nothing.
-  if (agent === "grok") return GROK_THINKING_LEVELS;
+  if (agent === "grok") {
+    // grok-4.5 is the last Grok Build id that still rejects xhigh with a hard
+    // exit. 4.6 and 4.7 (and the 4.7 fast variant) accept it.
+    if (model === "grok-4.5") return GROK_THINKING_LEVELS_NO_XHIGH;
+    return GROK_THINKING_LEVELS;
+  }
   if (agent === "pi") return PI_THINKING_LEVELS;
   if (agent === "jcode") return JCODE_THINKING_LEVELS;
   if (agent === "codex" || agent === "codex-aisdk") return CODEX_THINKING_LEVELS;
@@ -802,7 +810,7 @@ export function listModelCatalog(codingAgents: CodingAgentInfo[] = []): ModelCat
       piProviders,
       openCodeConnected,
     );
-    const perModelLevels = key === "opencode" || key === "omg";
+    const perModelLevels = key === "opencode" || key === "omg" || key === "grok";
     const thinkingLevelsByModel = perModelLevels
       ? Object.fromEntries(
           models.flatMap((model) => {

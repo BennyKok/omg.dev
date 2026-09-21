@@ -2,6 +2,8 @@
 import { spawn } from "node:child_process";
 import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
+import { defaultModelForAgent } from "../../agent-catalog.ts";
+import { grokEffortFor } from "../../tmux.ts";
 import { omgAcpMcpServers } from "./acp-mcp.ts";
 import {
   applyAcpSessionUpdate,
@@ -22,7 +24,7 @@ function grokPath(): string {
 export async function cmdGrokAcpSession(argv: string[]): Promise<void> {
   const key = arg(argv, "--key");
   const cwd = arg(argv, "--cwd") ?? process.cwd();
-  const model = arg(argv, "--model") ?? "grok-code-fast-1";
+  const model = arg(argv, "--model") ?? defaultModelForAgent("grok");
   const managedName = arg(argv, "--managed-name") ?? "";
   const resume = arg(argv, "--resume");
   const thinkingLevel = arg(argv, "--thinking-level");
@@ -44,7 +46,8 @@ export async function cmdGrokAcpSession(argv: string[]): Promise<void> {
     async createRuntime(sink) {
       const childArgs = ["agent", "--always-approve"];
       if (model) childArgs.push("--model", model);
-      if (thinkingLevel) childArgs.push("--effort", thinkingLevel);
+      const effort = grokEffortFor(thinkingLevel, model);
+      if (effort) childArgs.push("--effort", effort);
       childArgs.push("stdio");
       const child = spawn(grokPath(), childArgs, {
         cwd,

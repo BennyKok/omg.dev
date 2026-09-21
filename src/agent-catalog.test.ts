@@ -278,16 +278,24 @@ const CURSOR_DISCOVERED = [
   "cursor-grok-4.6-high",
   "cursor-grok-4.6-high-fast",
   "cursor-grok-4.6-xhigh",
+  "grok-4.7-low",
+  "grok-4.7-medium",
+  "grok-4.7-high",
+  "grok-4.7-high-fast",
+  "grok-4.7-xhigh",
+  "grok-4.7-xhigh-fast",
 ];
 
 describe("curateCursorModels", () => {
   test("surfaces Cursor's prefixed Grok builds", () => {
-    expect(curateCursorModels(CURSOR_DISCOVERED)).toContain("cursor-grok-4.6");
+    expect(curateCursorModels(CURSOR_DISCOVERED.filter((model) => !model.startsWith("grok-4.7")))).toContain(
+      "cursor-grok-4.6",
+    );
   });
 
   test("offers exactly one Grok entry, the newest", () => {
     const grok = curateCursorModels(CURSOR_DISCOVERED).filter((model) => /grok/.test(model));
-    expect(grok).toEqual(["cursor-grok-4.6"]);
+    expect(grok).toEqual(["grok-4.7"]);
   });
 
   test("still matches an unprefixed grok id", () => {
@@ -300,7 +308,19 @@ describe("curateCursorModels", () => {
   });
 });
 
-test("omg agent lists the 13 routed models in hosted picker order", async () => {
+test("grok catalog defaults to Grok 4.7 and keeps the fast variant", async () => {
+  const { GROK_MODELS, defaultModelForAgent, listModelCatalog } = await import("./agent-catalog.ts");
+  expect(GROK_MODELS[0]).toBe("grok-4.7");
+  expect(GROK_MODELS).toContain("grok-4.7-build-fast");
+  expect(defaultModelForAgent("grok")).toBe("grok-4.7");
+  const grok = listModelCatalog().find((item) => item.key === "grok");
+  expect(grok?.defaultModel).toBe("grok-4.7");
+  expect(grok?.thinkingLevels).toEqual(["low", "medium", "high", "xhigh"]);
+  expect(grok?.thinkingLevelsByModel?.["grok-4.7"]).toEqual(["low", "medium", "high", "xhigh"]);
+  expect(grok?.thinkingLevelsByModel?.["grok-4.5"]).toEqual(["low", "medium", "high"]);
+});
+
+test("omg agent lists the 14 routed models in hosted picker order", async () => {
   const { OMG_MODELS } = await import("./agent-catalog.ts");
   expect(OMG_MODELS).toEqual([
     "omg/deepseek/deepseek-v4-flash-0731",
@@ -310,6 +330,7 @@ test("omg agent lists the 13 routed models in hosted picker order", async () => 
     "omg/qwen/qwen3.7-plus",
     "omg/qwen/qwen3-coder-next",
     "omg/minimax/minimax-m3",
+    "omg/x-ai/grok-4.7",
     "omg/anthropic/claude-fable-5.1",
     "omg/anthropic/claude-opus-4.8",
     "omg/anthropic/claude-sonnet-4.6",
@@ -332,9 +353,10 @@ test("omg thinking levels follow the model: effort where OpenRouter honours it, 
   expect(thinkingLevelsForAgent("omg", "omg/qwen/qwen3-coder-next")).toBeNull();
   expect(thinkingLevelsForAgent("omg", "omg/qwen/qwen3.7-plus")).toBeNull();
   expect(thinkingLevelsForAgent("omg", "omg/minimax/minimax-m3")).toBeNull();
+  expect(thinkingLevelsForAgent("omg", "omg/x-ai/grok-4.7")).toEqual(["low", "medium", "high"]);
   expect(thinkingLevelsForAgent("omg")).toEqual(["low", "medium", "high"]);
   const item = listModelCatalog().find((entry) => entry.key === "omg")!;
   expect(item.thinkingLevels).toEqual(["low", "medium", "high"]);
-  expect(Object.keys(item.thinkingLevelsByModel ?? {})).toHaveLength(10);
+  expect(Object.keys(item.thinkingLevelsByModel ?? {})).toHaveLength(11);
   expect(item.thinkingLevelsByModel?.["omg/qwen/qwen3-coder-next"]).toBeUndefined();
 });

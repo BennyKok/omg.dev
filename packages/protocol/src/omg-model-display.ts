@@ -27,6 +27,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   openai: "OpenAI",
   google: "Google",
   xai: "xAI",
+  "x-ai": "xAI",
   meta: "Meta",
   mistral: "Mistral",
   moonshot: "Moonshot",

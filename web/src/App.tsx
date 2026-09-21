@@ -1356,7 +1356,7 @@ const CODEX_AISDK_MODELS = [
   "gpt-5.4-mini",
   "gpt-5.3-codex-spark",
 ];
-const GROK_MODELS = ["grok-4.6", "grok-4.5", "grok-composer-2.5-fast"];
+const GROK_MODELS = ["grok-4.7", "grok-4.7-build-fast", "grok-4.6", "grok-4.5"];
 const CURSOR_MODELS = [
   "auto",
   "composer-2.5",
@@ -1364,7 +1364,7 @@ const CURSOR_MODELS = [
   "gpt-5.5",
   "claude-opus-4.8",
   "gemini-3.1-pro",
-  "cursor-grok-4.6",
+  "grok-4.7",
 ];
 const OPENCODE_MODELS = [
   "opencode/nemotron-3.5-lightning-free",
@@ -1379,7 +1379,7 @@ const DEEPSEEK_MODELS = ["deepseek-v4-flash", "deepseek-v4-pro"];
 const DEVIN_MODELS = ["adaptive", "swe", "opus", "gpt", "sonnet", "gemini", "codex"];
 // Kept in sync with COPILOT_MODELS in src/agent-catalog.ts (the server catalog
 // overrides this fallback at bootstrap).
-const COPILOT_MODELS = ["claude-sonnet-4.5", "claude-sonnet-4", "gpt-5"];
+const COPILOT_MODELS = ["claude-sonnet-4.5", "claude-sonnet-4", "gpt-5", "grok-4.7"];
 const JCODE_MODELS = ["auto"];
 // fx routes through Vercel AI Gateway, so its ids are `provider/model` strings.
 // Kept in sync with FX_MODELS in src/agent-catalog.ts (the server catalog
@@ -1391,7 +1391,7 @@ const FX_MODELS = [
   "anthropic/claude-sonnet-5",
   "openai/gpt-5.6-sol",
   "openai/gpt-5.5",
-  "xai/grok-4.6",
+  "spacexai/grok-4.7",
   "moonshotai/kimi-k3",
   "zai/glm-5.2",
 ];
@@ -1453,7 +1453,7 @@ const AGENT_DEFAULT_MODEL: Record<AgentKind, string> = {
   aisdk: "opus",
   codex: "gpt-5.6-sol",
   "codex-aisdk": "gpt-5.6-sol",
-  grok: "grok-4.6",
+  grok: "grok-4.7",
   cursor: "auto",
   fx: "auto",
   muse: "muse-spark-1.2",
@@ -1470,8 +1470,9 @@ const AGENT_THINKING_LEVELS: Record<AgentKind, string[]> = {
   aisdk: ["low", "medium", "high", "xhigh", "max"],
   codex: ["none", "minimal", "low", "medium", "high", "xhigh"],
   "codex-aisdk": ["none", "minimal", "low", "medium", "high", "xhigh"],
-  // grok's CLI exits on anything above high, so these are all it can take.
-  grok: ["low", "medium", "high"],
+  // Grok 4.6/4.7 take xhigh. Grok 4.5 still exits on it; the server catalog
+  // hides xhigh for that id via thinkingLevelsByModel.
+  grok: ["low", "medium", "high", "xhigh"],
   cursor: ["low", "medium", "high", "xhigh", "max"],
   // fx keeps reasoning effort in ~/.fx/settings.json and takes no per-launch
   // flag on `fx acp`, so the selector stays hidden.
