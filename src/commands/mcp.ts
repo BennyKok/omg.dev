@@ -1251,6 +1251,23 @@ export function buildOmgMcpServer(): McpServer {
   );
 
   server.registerTool(
+    "omg_create_project",
+    {
+      title: "Create omg.dev Project",
+      description: "Create and register a new project folder with Git and a committed README. Defaults to the configured projects directory. Returns repo.cwd for building and deploying; does not move the calling chat. Existing folders are never overwritten. Inspect omg_list_repos after an uncertain response before retrying.",
+      inputSchema: {
+        name: z.string().min(1).describe("Short project folder name"),
+        parent: z.string().optional().describe("Existing parent folder; omit to use the configured projects directory"),
+      },
+    },
+    async ({ name, parent }) => result(await api("/api/projects/create-folder", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, parent }),
+    })),
+  );
+
+  server.registerTool(
     "omg_list_repos",
     {
       title: "List omg.dev Repos",

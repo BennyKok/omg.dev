@@ -17,7 +17,34 @@ and resumed managed sessions must retain the explicit empty value.
 
 Release the runtime endpoint before the mobile client. An older runtime returns
 404 for this endpoint. It must not silently create a chat in its default repo.
-This change does not add Tasks or automatically register generated projects.
+This change does not add Tasks.
+
+## From Quick Chat to a website
+
+The agent reads current hosted SDK guidance when the user requests a web app.
+It uses `omg_create_project` to create a folder and register it through the
+existing project store. The folder starts with Git and a committed README.
+`parent` is optional on the MCP tool and `POST /api/projects/create-folder`;
+omitting it uses `LFG_REPOS_ROOT` (or `~/repos`). Existing folders are rejected.
+
+The agent uses the returned `repo.cwd` explicitly for building and deployment.
+Quick Chat keeps its original scratch cwd and empty project. Home re-probes the
+existing readiness owner on focus, so a project created during chat appears
+when the user returns. Future sessions can select it normally.
+
+A hosted preview is the default outcome for a new web project. User constraints
+and applicable approval requirements still apply. Instructions direct the agent to test,
+commit the source, deploy with `omg_deploy` and `wait: true`, verify the live
+page and backend, then return a screenshot and URL. This uses the existing
+Cloud credential and `.omg/project.json` deployment link. The agent commits
+that non-secret link locally after deployment so future worktrees retain the
+app identity. This is guidance for
+the selected coding agent, not a deterministic scaffold or deploy pipeline.
+Existing scratch instructions are preserved; new instructions apply to new chats.
+
+The project-creation simulator fixture registers a demo project while a chat
+is open. It exercises roster refresh and selection, not a real deployment.
+Use entry `scripts/project-creation-e2e-entry.tsx` and plan `project-creation`.
 
 ## Verification
 

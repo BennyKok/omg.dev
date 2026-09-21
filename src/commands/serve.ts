@@ -7818,8 +7818,8 @@ a{color:#60a5fa}
           parent?: unknown;
           name?: unknown;
         } | null;
-        if (typeof b?.parent !== "string" || typeof b?.name !== "string") {
-          return err(400, "parent and name are required");
+        if (typeof b?.name !== "string" || (b.parent !== undefined && typeof b.parent !== "string")) {
+          return err(400, "name is required; parent must be a string when provided");
         }
         try {
           const repo = await createProjectFolder(b.parent, b.name);
