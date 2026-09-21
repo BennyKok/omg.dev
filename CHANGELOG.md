@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## September 21, 2026 - Current website login request (v0.6.98)
+
+- Website login cards now select the newest request by creation time. An older failed transfer can no longer hide a newer pending login request when the server returns them out of order.
+
 ## September 21, 2026 - Portable Expo project delivery (v0.6.97)
 
 - New Expo projects now target a verified hosted web preview first and offer an Expo Go tunnel QR code for physical-device testing.
