@@ -13,6 +13,7 @@ describe("mobile side nav rows", () => {
     const rows = sideNavRows({ pathname: "/", keyboardShortcuts: false });
     expect(rows.map((row) => row.key)).toEqual([
       "live",
+      "artifacts",
       "archive",
       "notifications",
       "schedules",
@@ -51,6 +52,7 @@ describe("mobile side nav rows", () => {
 
   test("a page's own sub-routes stay on that page", () => {
     expect(sideNavCurrentPage("/auto/agent-7/finding-2")).toBe("live");
+    expect(sideNavCurrentPage("/artifact/html")).toBe("artifacts");
     expect(sideNavCurrentPage("/notifications")).toBe("notifications");
     expect(sideNavCurrentPage("/schedules")).toBe("schedules");
   });
