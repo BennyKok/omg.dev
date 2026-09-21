@@ -37,6 +37,7 @@ const now = () => Date.now();
  * The seeded rows carry it the same way so a bot's live session lights up.
  */
 type DemoSession = OmgSession & { botId?: string };
+const unassignedChats: DemoSession[] = [];
 
 /**
  * The home is scoped to ONE folder on the phone (session-options.ts picks the
@@ -184,12 +185,17 @@ function demoSessions(): DemoSession[] {
       busy: i % 3 === 0, lastActivityAt: t - (i + 30) * MIN,
     });
   }
-  return sessions;
+  return [...unassignedChats, ...sessions];
 }
 
 /** A single session's transcript, for the opened-chat screen. */
 function demoMessages(sessionId: string): OmgMessage[] {
   const t = now();
+  const chat = unassignedChats.find((entry) => entry.sessionId === sessionId);
+  if (chat) return [
+    { id: `${sessionId}-prompt`, role: "user", kind: "text", text: chat.lastUserText ?? "", ts: t - 1000 },
+    { id: `${sessionId}-reply`, role: "assistant", kind: "text", text: "What would you like your website to do?", ts: t },
+  ];
   if (process.env.EXPO_PUBLIC_OMG_PERFORMANCE_FIXTURE === "1" && sessionId === "demo-rate-limiter") {
     return Array.from({ length: 100 }, (_, i) => ({
       id: `perf-message-${i + 1}`, role: i % 2 ? "assistant" : "user", kind: "text",
@@ -429,6 +435,18 @@ export function getDemoTransport(): OmgTransport {
       if (openingFixture && path === "/api/sessions/new") {
         createdPrompt = JSON.parse(String(init?.body ?? "{}")).prompt ?? "";
         return { sessionId: "demo-created" } as T;
+      }
+      if (path === "/api/sessions/new-unassigned" && init?.method === "POST") {
+        const body = JSON.parse(String(init.body ?? "{}"));
+        const sessionId = `demo-unassigned-${unassignedChats.length + 1}`;
+        unassignedChats.unshift({
+          sessionId, tmuxTarget: `omg-demo:${sessionId}`, agent: body.agent ?? "codex",
+          title: body.prompt, lastUserText: body.prompt, project: "",
+          cwd: `/home/user/.omg/chats/${sessionId}`, startedAt: now(), lastActivityAt: now(),
+          busy: false, model: body.model,
+          last: { role: "assistant", text: "What would you like your website to do?", ts: now() },
+        });
+        return { sessionId } as T;
       }
       return (answer(path) ?? {}) as T;
     },

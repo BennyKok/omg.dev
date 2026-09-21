@@ -848,7 +848,7 @@ export function SessionsScreen({
         // Before bootstrap, the project roster has not arrived. Show the
         // saved machine roster until a real project filter is available.
         visibleSessions.filter((session) =>
-          (!ready && !projectPicker.filter) || projectPicker.matches(session),
+          (!ready && projectPicker.filter === null) || projectPicker.matches(session),
         ),
       ),
     [visibleSessions, projectPicker, ready],
@@ -1074,10 +1074,10 @@ export function SessionsScreen({
    * The create card's way in: the same request as Start, with the prompt
    * and folder handed over instead of read from the composer and the rail.
    */
-  const beginConversation = useCallback((prompt: string, cwd?: string) => {
+  const beginConversation = useCallback((prompt: string, cwd?: string, unassigned = false) => {
     if (!client) throw new Error("No machine selected");
     const pending = startPendingSession(`${user?.id}:${bindingId}`, prompt, () =>
-      client.transport.request<{ sessionId?: string }>("/api/sessions/new", {
+      client.transport.request<{ sessionId?: string }>(unassigned ? "/api/sessions/new-unassigned" : "/api/sessions/new", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt, cwd, agent: agentPicker.agent,
@@ -1112,7 +1112,7 @@ export function SessionsScreen({
       let acceptedSend = false;
       setStarting(true);
       try {
-        await beginConversation(prompt, projectPicker.cwd ?? undefined);
+        await beginConversation(prompt, projectPicker.cwd ?? undefined, projectPicker.unassigned);
         acceptedSend = true;
         attachments.clear();
         void Haptics.notificationAsync(
@@ -1136,6 +1136,7 @@ export function SessionsScreen({
       agentPicker.claudeAccountId,
       agentPicker.fastMode,
       projectPicker.cwd,
+      projectPicker.unassigned,
       draft,
       stageDraft,
       finishDraft,
@@ -1369,6 +1370,7 @@ export function SessionsScreen({
       onChangeText={setDraft}
       onStart={() => void startSession()}
       starting={starting}
+      onStarter={projectPicker.unassigned && !attachments.uploading ? (prompt) => void startSession(prompt) : undefined}
       projectLabel={projectPicker.label}
       projectOptions={projectPicker.options}
       projectCwd={projectPicker.cwd ?? null}
@@ -1391,7 +1393,7 @@ export function SessionsScreen({
       bottomInset={wide ? 0 : insets.bottom}
     />
   );
-  const folderRail = ready && projectPicker.options.length ? (
+  const folderRail = ready ? (
     <ScrollView
       horizontal
       onTouchStart={navGesture.blockOpeningGesture}
@@ -1409,14 +1411,17 @@ export function SessionsScreen({
         paddingBottom: space.sm,
       }}
     >
-      {/* "+" FIRST: start something new with a preset (create-sheet.tsx). */}
+      {/* The virtual folder holds chats without a project. Long press manages folders. */}
       <PressableScale
         onPress={() => {
           void Haptics.selectionAsync();
-          setCreateOpen(true);
+          projectPicker.selectUnassigned();
         }}
         accessibilityRole="button"
-        accessibilityLabel="Create something new"
+        onLongPress={() => setRailSheetOpen(true)}
+        accessibilityLabel="Chats without a project"
+        testID="no-project-tab"
+        accessibilityState={{ selected: projectPicker.unassigned }}
         scale={0.96}
         style={{
           width: 34,
@@ -1424,7 +1429,9 @@ export function SessionsScreen({
           alignItems: "center",
           justifyContent: "center",
           borderRadius: radius.pill,
-          backgroundColor: colors.secondary,
+          backgroundColor: projectPicker.unassigned ? colors.card : colors.secondary,
+          borderWidth: 1,
+          borderColor: projectPicker.unassigned ? colors.borderStrong : "transparent",
         }}
       >
         <Icon ios="plus" android="add" size={15} weight="semibold" color={colors.text} />
@@ -1808,7 +1815,7 @@ export function SessionsScreen({
                 // is the loading affordance instead — real rows must never be
                 // swapped out for skeletons under someone's thumb.
                 <SessionListSkeleton style={{ paddingTop: space.xl }} />
-              ) : visibleSessions.length === 0 && !loading ? (
+              ) : visibleSessions.length === 0 && !loading && !projectPicker.unassigned ? (
                 <EmptyState
                   title="No sessions yet"
                   detail="Start one below and it shows up here."

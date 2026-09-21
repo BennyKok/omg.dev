@@ -37,7 +37,7 @@
  */
 
 const HOST = process.env.OMG_SIM_HOST ?? "bennykok@bennys-macbook-pro-2";
-const DEVICE = process.env.OMG_SIM_DEVICE ?? "iPhone 17 Pro";
+const DEVICE = arg("device") ?? process.env.OMG_SIM_DEVICE ?? "iPhone 17 Pro";
 
 /**
  * Maestro is a Kotlin/JVM application and needs Java 17+. The Mac has no

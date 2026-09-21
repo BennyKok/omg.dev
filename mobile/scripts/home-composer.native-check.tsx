@@ -164,3 +164,26 @@ test('the field survives expanding because of typed text',()=>{
   expect(ui.query('textarea')).toBe(field);
  } finally {ui.cleanup();}
 });
+
+test('no-project starters appear on focus and send one prompt without replacing the field',()=>{
+ const ui=mount();
+ const sent:string[]=[];
+ const base={onChangeText:()=>{},onStart:()=>{},projectOptions:[],agentOptions:[],attachments:{items:[],options:[],remove:()=>{}},dictation:{state:'idle' as const,toggle:()=>{}}};
+ const render=(value='',starting=false,onStarter:((s:string)=>void)|undefined=(s)=>sent.push(s))=>ui.render(<HomeComposer {...base} value={value} starting={starting} onStarter={onStarter}/>);
+ try {
+  render();
+  expect(ui.query('[aria-label="Start website"]')).toBeNull();
+  const field=ui.query('textarea');
+  ui.flush(()=>input.onFocus?.());
+  expect(ui.query('textarea')).toBe(field);
+  expect(ui.text()).toContain('Website');
+  ui.flush(()=>ui.query<HTMLButtonElement>('[aria-label="Start website"]')!.click());
+  expect(sent).toEqual(['Help me create a website.']);
+  render('',true);
+  expect(ui.query<HTMLButtonElement>('[aria-label="Start app"]')!.disabled).toBe(true);
+  render('My own question');
+  expect(ui.query('[aria-label="Start website"]')).toBeNull();
+  ui.render(<HomeComposer {...base} value=""/>);
+  expect(ui.query('[aria-label="Start website"]')).toBeNull();
+ } finally {ui.cleanup();}
+});

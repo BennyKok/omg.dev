@@ -481,11 +481,12 @@ export function useProjectPicker() {
   const visible = useMemo(() => ordered.filter((r) => !hiddenSet.has(r.cwd)), [ordered, hiddenSet]);
 
   /**
-   * One folder owns both the list and the next session. There is no unscoped
-   * state: an explicit pick wins, then the machine default, then the first
-   * folder the rail shows.
+   * Empty chosen means the explicit no-project tab. Null keeps the existing
+   * machine default. One selection owns both filtering and session creation.
    */
+  const unassigned = chosen === "";
   const cwd = useMemo(() => {
+    if (chosen === "") return null;
     if (chosen && repos.some((r) => r.cwd === chosen)) return chosen;
     const fallback = binding?.defaultFolder ?? null;
     if (fallback && visible.some((r) => r.cwd === fallback)) return fallback;
@@ -501,7 +502,7 @@ export function useProjectPicker() {
     () => repos.find((r) => r.cwd === cwd) ?? null,
     [cwd, repos],
   );
-  const activeFilter = activeProject ? projectKey(activeProject) : null;
+  const activeFilter = unassigned ? "" : activeProject ? projectKey(activeProject) : null;
 
   const matches = useCallback(
     (session: { project?: string; cwd?: string }) => sessionMatchesProject(session, activeFilter),
@@ -612,6 +613,8 @@ export function useProjectPicker() {
   );
 
   return {
+    unassigned,
+    selectUnassigned: () => setChosen(""),
     cwd,
     label,
     options,

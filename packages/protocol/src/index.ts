@@ -17,6 +17,7 @@ export interface OmgSession {
   pid?: number;
   cmd?: string;
   cwd?: string;
+  /** Empty string means a chat explicitly started without a project. */
   project?: string;
   title?: string | null;
   lastUserText?: string | null;

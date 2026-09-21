@@ -56,3 +56,10 @@ test("basename ignores a trailing slash", () => {
   expect(basename("/home/user/project/")).toBe("project");
   expect(basename("project")).toBe("project");
 });
+
+test("the unassigned tab matches only explicit no-project chats", () => {
+  expect(sessionMatchesProject({ project: "", cwd: "/home/user/.omg/chats/one" }, "")).toBe(true);
+  expect(sessionMatchesProject({ project: "lfg" }, "")).toBe(false);
+  expect(sessionMatchesProject({ cwd: "/home/user/repos/lfg" }, "")).toBe(false);
+  expect(sessionMatchesProject({ project: "", cwd: "/home/user/.omg/chats/one" }, "one")).toBe(false);
+});

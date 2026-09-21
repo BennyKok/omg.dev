@@ -50,7 +50,8 @@ export function sessionMatchesProject(
   session: { project?: string; cwd?: string },
   activeFilter: string | null,
 ): boolean {
-  if (!activeFilter) return false;
+  if (activeFilter === "") return session.project === "";
+  if (!activeFilter || session.project === "") return false;
   if (session.project) return session.project === activeFilter;
   return !!session.cwd && basename(session.cwd) === activeFilter;
 }

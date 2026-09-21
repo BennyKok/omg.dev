@@ -1042,6 +1042,7 @@ export function HomeComposer({
   value,
   onChangeText,
   onStart,
+  onStarter,
   starting,
   projectLabel,
   projectOptions,
@@ -1067,6 +1068,8 @@ export function HomeComposer({
   value: string;
   onChangeText: (text: string) => void;
   onStart: () => void;
+  /** Available only in the no-project tab; tapping sends the starter immediately. */
+  onStarter?: (prompt: string) => void;
   starting?: boolean;
   projectLabel?: string | null;
   projectOptions: MenuOption[];
@@ -1348,6 +1351,27 @@ export function HomeComposer({
         backgroundColor: "transparent",
       }}
     >
+      {onStarter && composerFocused && !hasMessage && attachments.items.length === 0 && dictation.state === "idle" ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always"
+          style={{ flexGrow: 0, marginBottom: 12 }} contentContainerStyle={{ gap: 8 }}>
+          {([
+            ["Website", "Help me create a website."],
+            ["App", "Help me create an app."],
+            ["API", "Help me create an API."],
+            ["Image", "Help me create an image."],
+          ] as const).map(([label, prompt]) => (
+            <Pressable key={label} accessibilityRole="button" accessibilityLabel={`Start ${label.toLowerCase()}`}
+              accessibilityHint="Sends a starter prompt" testID={`chat-starter-${label.toLowerCase()}`}
+              disabled={starting} onPress={() => onStarter(prompt)}
+              style={({ pressed }) => ({ minWidth: 80, minHeight: 60, paddingHorizontal: 14,
+                alignItems: "center", justifyContent: "center", borderRadius: 18,
+                backgroundColor: colors.card, borderWidth: StyleSheet.hairlineWidth,
+                borderColor: colors.borderStrong, opacity: pressed || starting ? 0.5 : 1 })}>
+              <Text style={{ ...type.subhead, color: colors.text }}>{label}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      ) : null}
       {/* "/" lists the box's skills above the field, as on the web. */}
       <SkillSuggest value={value} onChangeText={onChangeText} />
       <SessionMentionSuggest
