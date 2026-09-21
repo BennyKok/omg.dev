@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## September 21, 2026 - Direct iPhone keyboard control (v0.6.96)
+
+- The iPhone keyboard now types directly into the remote Computer. Every key is sent immediately, with no compose field or Send button.
+- The live desktop stays visible above the keyboard. A compact floating control pill replaces the large control panel and adds Escape, Tab, modifiers, arrows, right click, and keyboard dismissal.
+
 ## September 21, 2026 - All artifacts in the iOS side menu (v0.6.95)
 
 - Open Artifacts from the iOS side menu to see output from all chats on the selected Computer. Each item links back to its source chat.
