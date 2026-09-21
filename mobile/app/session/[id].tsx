@@ -1551,7 +1551,7 @@ function SessionScreenContent({
      * to closing/forking, so both stay.
      */
     if (bot) {
-      const options: MenuOption[] = [];
+      const options: MenuOption[] = id ? [{ label: "Artifacts", icon: "square.stack", onPress: () => router.push({ pathname: "/artifact", params: { sessionId: id } }) }] : [];
       if (busy) {
         options.push({ label: "Stop the agent", icon: "stop.fill", onPress: () => void stop() });
       }
@@ -1563,7 +1563,7 @@ function SessionScreenContent({
       options.push({ label: "Copy reference", icon: "link", onPress: copyReference });
       return options;
     }
-    const options: MenuOption[] = [];
+    const options: MenuOption[] = id ? [{ label: "Artifacts", icon: "square.stack", onPress: () => router.push({ pathname: "/artifact", params: { sessionId: id } }) }] : [];
     if (busy) {
       options.push({ label: "Stop the agent", icon: "stop.fill", onPress: () => void stop() });
     }
@@ -1616,6 +1616,7 @@ function SessionScreenContent({
      * lines of transcript.
      */
   }, [
+    id,
     agents,
     bot,
     busy,

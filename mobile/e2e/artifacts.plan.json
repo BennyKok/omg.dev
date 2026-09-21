@@ -1,0 +1,76 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": false
+  },
+  "steps": [
+    {
+      "name": "Home",
+      "goal": "If Your data and AI providers is visible, tap Agree and continue to enter the local demo. Otherwise only wait for the existing session list. Do not tap the composer.",
+      "done": "Home shows the api-gateway folder and the existing rate limiter session.",
+      "expect": [
+        "Refactor the rate limiter to a sliding window",
+        "api-gateway folder"
+      ]
+    },
+    {
+      "name": "Session",
+      "goal": "Tap the existing busy session row whose accessibility label starts with Refactor the rate limiter to a sliding window. This is an existing item in the session list. Open that row to read its transcript. Do not tap the message composer or start a new session.",
+      "done": "The transcript has its HTML artifact card",
+      "expect": [
+        "Open Rate limit dashboard"
+      ]
+    },
+    {
+      "name": "Open HTML",
+      "goal": "Tap Rate limit dashboard to open the artifact",
+      "done": "The rendered dashboard is visible",
+      "expect": [
+        "Requests allowed:",
+        "12",
+        "Add request",
+        "Reload artifact"
+      ]
+    },
+    {
+      "name": "Interaction",
+      "goal": "Tap Add request once",
+      "done": "The dashboard counter has changed",
+      "expect": [
+        "13",
+        "Add request"
+      ]
+    },
+    {
+      "name": "Reload",
+      "goal": "Tap Reload artifact",
+      "done": "The freshly loaded dashboard counter is reset",
+      "expect": [
+        "12",
+        "Add request"
+      ]
+    },
+    {
+      "name": "Artifact list",
+      "goal": "Go back to the transcript, open the session overflow menu, and select Artifacts",
+      "done": "The session artifact list is open",
+      "expect": [
+        "Artifacts",
+        "Open Rate limit dashboard"
+      ],
+      "forbid": [
+        "Dictate a message"
+      ]
+    },
+    {
+      "name": "Reopen",
+      "goal": "Tap Rate limit dashboard",
+      "done": "The HTML artifact opens from the artifact list",
+      "expect": [
+        "Requests allowed:",
+        "12",
+        "Add request"
+      ]
+    }
+  ]
+}

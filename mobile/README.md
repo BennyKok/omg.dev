@@ -28,3 +28,17 @@ composer in the detail pane.
 
 Narrow iPad windows show one pane at a time. Resizing keeps the same navigator
 and selected route mounted. iPhone uses the existing full-screen navigation.
+
+## Session artifacts
+
+Open **Artifacts** from a session's overflow menu to browse its images, videos,
+files, and HTML output. Tap an HTML card in the list or transcript to open its
+interactive viewer. Use **Reload artifact** to fetch the current version.
+HTML uses the same theme and content policy as the web client, inside an isolated
+frame without app credentials. Existing file artifacts remain download/text previews.
+The HTML viewer requires a native build with `react-native-webview`; older binaries
+show an update message. Verify with:
+
+```bash
+EXPO_PUBLIC_OMG_DEMO=1 EXPO_PUBLIC_OMG_ARTIFACT_FIXTURE=1 bun run test:e2e --build --plan artifacts --record
+```

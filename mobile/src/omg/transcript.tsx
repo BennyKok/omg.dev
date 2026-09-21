@@ -690,6 +690,10 @@ export function TranscriptEntry({
     return <FileEntry message={message} />;
   }
 
+  if (message.kind === "html" && (message.url || message.artifactId)) {
+    return <HtmlEntry message={message} />;
+  }
+
   const isAttachment =
     !!message.url || !!message.artifactId || message.kind === "image" || message.kind === "file";
   if (isAttachment && !message.text) return <AttachmentEntry message={message} />;
@@ -1369,6 +1373,17 @@ function DisplayedImage({ message }: { message: Entry }) {
  * having. The caption sits under the name in the same row, no divider. The
  * row itself never fetches the bytes.
  */
+function HtmlEntry({ message }: { message: Entry }) {
+  const router = useRouter();
+  const path = message.url ?? `/api/artifacts/${encodeURIComponent(message.artifactId!)}`;
+  const title = message.title || message.caption || message.name || "Artifact";
+  return <AttachmentEntry message={{ ...message, name: title }}
+    detail={`Open artifact${message.version ? ` · v${message.version}` : ""}`}
+    onPress={() => router.push({ pathname: "/artifact/html", params: {
+      url: path, title, version: String(message.version ?? 1),
+    } })} />;
+}
+
 function FileEntry({ message }: { message: Entry }) {
   const router = useRouter();
   const path = message.url ?? (message.artifactId ? `/api/artifacts/${message.artifactId}` : null);

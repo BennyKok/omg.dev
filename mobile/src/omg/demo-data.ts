@@ -188,9 +188,18 @@ function demoSessions(): DemoSession[] {
   return [...unassignedChats, ...sessions];
 }
 
+const artifactFixture = process.env.EXPO_PUBLIC_OMG_ARTIFACT_FIXTURE === "1";
+const demoArtifact: OmgMessage & { sessionId: string } = {
+  id: "demo-dashboard", artifactId: "demo-dashboard", role: "assistant", kind: "html",
+  sessionId: "demo-rate-limiter", title: "Rate limit dashboard", name: "dashboard.html",
+  text: "Interactive rate limit dashboard", url: "/api/artifacts/demo-dashboard", version: 2,
+};
+const demoArtifactHtml = `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{font:18px -apple-system;padding:24px}button{font:inherit;padding:16px;border-radius:12px}</style></head><body><h1>Rate limit dashboard</h1><p>Requests allowed: <span id="count">12</span></p><button onclick="document.getElementById('count').textContent='13'">Add request</button></body></html>`;
+
 /** A single session's transcript, for the opened-chat screen. */
 function demoMessages(sessionId: string): OmgMessage[] {
   const t = now();
+  if (artifactFixture && sessionId === "demo-rate-limiter") return [demoArtifact];
   const chat = unassignedChats.find((entry) => entry.sessionId === sessionId);
   if (chat) return [
     { id: `${sessionId}-prompt`, role: "user", kind: "text", text: chat.lastUserText ?? "", ts: t - 1000 },
@@ -363,6 +372,10 @@ function demoUsageProviders() {
 /** Route a path to its seeded body. Returns null for an unknown path. */
 function answer(path: string): unknown | null {
   const clean = path.split("?")[0];
+  if (artifactFixture && clean === "/api/artifacts") {
+    const offset = Number(new URL(path, "https://demo.invalid").searchParams.get("offset"));
+    return { artifacts: offset ? [] : [demoArtifact], total: 1 };
+  }
   if (openingFixture && clean === "/api/sessions/demo-created/messages") {
     return { messages: [{ id: "demo-created-prompt", role: "user", text: createdPrompt },
       { id: "demo-created-reply", role: "assistant", text: "Your new conversation is ready." }] };
@@ -424,6 +437,7 @@ export function getDemoTransport(): OmgTransport {
         ok: true,
         status: 200,
         async text() {
+          if (artifactFixture && path.split("?")[0] === "/api/artifacts/demo-dashboard") return demoArtifactHtml;
           return JSON.stringify(body ?? {});
         },
         async json() {
