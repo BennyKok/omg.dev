@@ -113,6 +113,8 @@ try {
     assert.equal(loadProjectLink(result.cwd), null);
     assert.ok(uploads[0].files.some((file: any) => file.path.endsWith("/index.html")));
     assert.ok(!uploads[0].files.some((file: any) => file.path.endsWith("/AGENTS.md")));
+    assert.ok(!uploads[0].files.some((file: any) => file.path.endsWith("/CLAUDE.md")));
+    assert.ok(!uploads[0].files.some((file: any) => file.path.includes("/.agents/")));
     await deployFolder(cloud, { cwd: body.repo.cwd, wait: true });
     assert.equal(uploads[1].projectId, "project-fixture");
     for (const args of [["add", "index.html", ".omg/project.json"], ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-m", "Save fixture website and deploy identity"]]) {

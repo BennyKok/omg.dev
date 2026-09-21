@@ -17,6 +17,7 @@ import { join, resolve, basename } from "node:path";
 import { homedir } from "node:os";
 import { PATHS } from "./config.ts";
 import { reposRoot } from "./projects.ts";
+import { installProjectBuilderSkill, writeProjectAgentInstructions } from "./project-starter.ts";
 
 export type CustomRepo = { name: string; cwd: string };
 
@@ -183,8 +184,8 @@ async function gitInit(cwd: string): Promise<void> {
   await runGit(cwd, ["init", "-b", "main"], "git init");
 }
 
-async function commitStarterReadme(cwd: string): Promise<void> {
-  await runGit(cwd, ["add", "--", "README.md"], "stage starter README");
+async function commitStarterProject(cwd: string): Promise<void> {
+  await runGit(cwd, ["add", "--", "README.md", "AGENTS.md", "CLAUDE.md", ".agents"], "stage starter project");
   await runGit(
     cwd,
     [
@@ -197,6 +198,9 @@ async function commitStarterReadme(cwd: string): Promise<void> {
       "Initial commit",
       "--",
       "README.md",
+      "AGENTS.md",
+      "CLAUDE.md",
+      ".agents",
     ],
     "initial git commit",
   );
@@ -231,8 +235,10 @@ export async function createProjectFolder(
   await mkdir(cwd);
   try {
     await Bun.write(join(cwd, "README.md"), `# ${name}\n`);
+    await installProjectBuilderSkill(cwd);
+    await writeProjectAgentInstructions(cwd);
     await gitInit(cwd);
-    await commitStarterReadme(cwd);
+    await commitStarterProject(cwd);
     return await addCustomRepo(cwd, name);
   } catch (error) {
     // This function owns the new directory. Do not leave a half-created,

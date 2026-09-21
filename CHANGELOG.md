@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## September 21, 2026 - App-builder skills for New Project (v0.6.91)
+
+- New projects and Quick Chats receive one reusable `omg-app-builder` skill for setup, implementation, verification, and delivery. Future project sessions inherit the same workflow from Git.
+- The Website preset now produces a verified omg.dev deployment instead of a temporary HTML artifact. The iOS preset separates simulator proof, hosted deployment, and optional App Store delivery.
+- Agent instructions remain in the project repository but are excluded from the deployed app bundle.
+
 ## September 21, 2026 - Stable Quick Chat starters (v0.6.90)
 
 - iOS: Quick Chat starter cards stay visible on the plus tab before and during keyboard focus. The row no longer runs a competing reveal animation, and both scroll edges include space for the end cards.

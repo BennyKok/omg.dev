@@ -29,6 +29,7 @@ export const MAX_TOTAL_BYTES = 40_000_000;
 const ALWAYS_SKIP = new Set([
   "node_modules",
   "dist",
+  ".agents",
   ".vibes",
   ".git",
   ".omg",
@@ -36,6 +37,8 @@ const ALWAYS_SKIP = new Set([
   ".next",
   ".turbo",
   "coverage",
+  "AGENTS.md",
+  "CLAUDE.md",
 ]);
 
 export type ProjectLink = {

@@ -4,13 +4,13 @@ import { DEFAULT_MAX_BOT_SCHEDULES } from "./settings.ts";
 // Bump whenever an agent-facing omg.dev capability or its operating guidance
 // changes. Managed sessions persist the value they launched with, which lets
 // the UI identify long-lived sessions whose MCP/tool catalog predates a ship.
-export const OMG_CAPABILITY_VERSION = "2026-09-21.2";
+export const OMG_CAPABILITY_VERSION = "2026-09-21.3";
 
 export const OMG_CAPABILITIES = [
   {
     tool: "omg_create_project / omg_list_repos",
     useWhen: "A chat needs a new project that future sessions can select.",
-    guidance: "Create a named folder in the configured projects directory, then work and deploy with the returned repo.cwd explicitly. The current chat stays in place. For new web apps, read the current hosted SDK and deploy docs at https://docs.omg.dev/llms-full.txt; the new folder has Git and a README, not a preinstalled starter. Runtime deploy tools supply credentials.",
+    guidance: "Create a named folder in the configured projects directory, then use the returned repo.cwd explicitly. New folders include .agents/skills/omg-app-builder/SKILL.md; read it and follow its build, verification, and delivery workflow. The current chat stays in place. Runtime deploy tools supply credentials.",
   },
   {
     tool: "omg_request_browser_login / omg_browser_login_status",

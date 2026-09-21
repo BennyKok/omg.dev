@@ -33,6 +33,10 @@ test("collectProjectFiles walks a folder and prefixes /home/user/project", () =>
   writeFileSync(join(dir, "node_modules", "x", "index.js"), "skip");
   writeFileSync(join(dir, ".env"), "SECRET=1");
   writeFileSync(join(dir, ".env.local"), "SECRET=2");
+  mkdirSync(join(dir, ".agents", "skills"), { recursive: true });
+  writeFileSync(join(dir, ".agents", "skills", "SKILL.md"), "agent-only");
+  writeFileSync(join(dir, "AGENTS.md"), "agent-only");
+  writeFileSync(join(dir, "CLAUDE.md"), "agent-only");
 
   const collected = collectProjectFiles(dir);
   const paths = collected.files.map((file) => file.path).sort();
