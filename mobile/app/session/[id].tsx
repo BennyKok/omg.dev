@@ -2612,7 +2612,7 @@ function QuestionCard({
   options: { index: number; label: string }[];
   onAnswer: (label: string) => void;
 }) {
-  const { colors, type, space, radius } = useTheme();
+  const { colors, type, space } = useTheme();
   return (
     <View
       style={{
@@ -2644,7 +2644,8 @@ function QuestionCard({
               justifyContent: "center",
               paddingHorizontal: space.md,
               paddingVertical: space.sm,
-              borderRadius: radius.pill,
+              borderRadius: 32,
+              borderCurve: "continuous",
               backgroundColor: pressed ? colors.cardPressed : colors.secondary,
               borderWidth: StyleSheet.hairlineWidth,
               borderColor: colors.borderStrong,
