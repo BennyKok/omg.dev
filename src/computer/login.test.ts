@@ -106,11 +106,14 @@ test("CDP import preserves host-only, domain, HttpOnly and SameSite fields", asy
   const calls: unknown[] = [];
   await transferBrowserLogin({
     navigate: async url => { calls.push(url); },
-    cdp: async (method, params) => { calls.push({ method, params }); },
+    cdp: async (method, params) => {
+      calls.push({ method, params });
+      if (method === "Network.getCookies") return { cookies: [cookie, { ...cookie, name: "__Host-session", domain: "www.example.com" }] };
+    },
   }, "https://www.example.com/account", [cookie as any, { ...cookie, name: "__Host-session", domain: "www.example.com" } as any]);
-  expect(calls).toEqual(["https://www.example.com", { method: "Network.setCookies", params: { cookies: [cookie, {
+  expect(calls).toEqual(["about:blank", { method: "Network.setCookies", params: { cookies: [cookie, {
     name: "__Host-session", value: cookie.value, path: "/", secure: true, httpOnly: true, sameSite: "Lax", url: "https://www.example.com/",
-  }] } }, "https://www.example.com/account"]);
+  }] } }, { method: "Network.getCookies", params: { urls: ["https://www.example.com/"] } }, "https://www.example.com/account"]);
 });
 
 test("import failures return a safe message without exposing credentials", async () => {
@@ -143,4 +146,32 @@ test("an in-flight transfer cannot be replayed or cancelled", async () => {
   expect((await call(`/${row.id}/cancel`, {})).status).toBe(409);
   finish();
   expect((await transfer).data.request.status).toBe("imported");
+});
+
+
+test("iOS insecure SameSite=None cookies use the browser default without dropping secure None", async () => {
+  const plain = { ...cookie, name: "plain", secure: false, sameSite: "None" as const };
+  const secure = { ...cookie, sameSite: "None" as const };
+  let sent: any;
+  await transferBrowserLogin({
+    navigate: async () => {},
+    cdp: async (method, params) => {
+      if (method === "Network.setCookies") sent = params;
+      if (method === "Network.getCookies") return { cookies: [plain, secure] };
+    },
+  }, "https://www.example.com/account", [plain, secure]);
+  expect(sent.cookies[0]).not.toHaveProperty("sameSite");
+  expect(sent.cookies[0].secure).toBe(false);
+  expect(sent.cookies[1].sameSite).toBe("None");
+});
+
+test("silent cookie rejection or an old value fails before opening the protected page", async () => {
+  for (const stored of [[], [{ ...cookie, value: "old-session" }]]) {
+    const navigations: string[] = [];
+    await expect(transferBrowserLogin({
+      navigate: async url => { navigations.push(url); },
+      cdp: async method => method === "Network.getCookies" ? { cookies: stored } : {},
+    }, "https://www.example.com/account", [cookie as any])).rejects.toThrow("did not retain every login cookie");
+    expect(navigations).toEqual(["about:blank"]);
+  }
 });

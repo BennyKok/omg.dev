@@ -32,12 +32,31 @@ export async function importBrowserLogin(url: string, cookies: BrowserLoginCooki
 }
 
 export async function transferBrowserLogin(v: Pick<WebViewLike, "navigate" | "cdp">, url: string, cookies: BrowserLoginCookie[]): Promise<void> {
-  await v.navigate(new URL(url).origin);
-  await v.cdp("Network.setCookies", { cookies: cookies.map(({ domain, ...cookie }) => ({
+  // Establish the CDP session without starting an unauthenticated site load
+  // whose responses could overwrite cookies during the transfer.
+  await v.navigate("about:blank");
+  const normalized = cookies.map(({ sameSite, ...cookie }) => ({
+    ...cookie,
+    // iOS can report unspecified SameSite as None, even on insecure cookies.
+    // Chrome silently drops None without Secure. Use its Lax-by-default
+    // behavior, as Chromium's iOS system-cookie conversion does.
+    ...(sameSite && !(sameSite === "None" && !cookie.secure) ? { sameSite } : {}),
+  }));
+  await v.cdp("Network.setCookies", { cookies: normalized.map(({ domain, ...cookie }) => ({
     ...cookie,
     // CDP's URL form preserves host-only cookies, including __Host- cookies.
     ...(domain.startsWith(".") ? { domain } : { url: `https://${domain}${cookie.path}` }),
   })) });
+  const urls = [...new Set(normalized.map(cookie =>
+    `https://${cookie.domain.startsWith(".") ? new URL(url).hostname : cookie.domain}${cookie.path}`))];
+  const stored = await v.cdp("Network.getCookies", { urls }) as { cookies?: BrowserLoginCookie[] };
+  // setCookies can succeed while discarding an individual cookie. Never
+  // announce an import until every approved value exists in this profile.
+  if (!Array.isArray(stored?.cookies) || normalized.some(cookie => !stored.cookies!.some(actual =>
+    actual.name === cookie.name && actual.domain === cookie.domain && actual.path === cookie.path &&
+    actual.value === cookie.value && actual.secure === cookie.secure && actual.httpOnly === cookie.httpOnly))) {
+    throw new Error("The browser did not retain every login cookie");
+  }
   await v.navigate(url);
 }
 

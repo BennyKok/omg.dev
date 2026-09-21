@@ -6,6 +6,11 @@ Recent product updates and deployment notes.
 
 - iOS: the Quick Chat starter row fades in without adding a second layout jump as the keyboard opens. Its wider, rounder cards scroll horizontally within the composer margins and keep the keyboard open.
 
+## September 21, 2026 - Reliable iPhone cookie imports
+
+- Website login transfers preserve cookies that iOS reports with an incompatible SameSite value. Chrome now confirms that every cookie was retained before reporting a successful transfer.
+- A successful cookie transfer still requires the agent to check the signed-in page.
+
 ## September 21, 2026 - Quick Chat and project creation (v0.6.87)
 
 - iOS: the plus tab holds chats without a selected project. Start with the normal composer or choose a Website, App, API, or Image starter.
