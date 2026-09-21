@@ -95,3 +95,7 @@ OMG_MAESTRO_DRIVER_PORT=7113 bun run test:e2e \
 No native module, native configuration, or runtime version changed in this
 follow-up. It can be delivered over the air to runtime 1.0.12. Physical-phone
 activation is not part of the simulator proof.
+
+The follow-up landed as `f1ec8f0ef`. The landing script verified the restarted
+local service and its served bundle. Production OTA delivery is tracked by
+[mobile-ota run 35614655735](https://github.com/BennyKok/omg.dev/actions/runs/35614655735).
