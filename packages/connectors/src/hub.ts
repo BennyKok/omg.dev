@@ -121,6 +121,26 @@ export function isUnauthorizedError(e: unknown): boolean {
   return /\b(401|403)\b/.test(message) || /unauthorized/i.test(message);
 }
 
+const NOT_MCP =
+  "This URL is not an MCP server: it did not answer JSON-RPC. Check the endpoint (an API spec or docs page will not work).";
+const MAX_ERROR_CHARS = 240;
+
+/**
+ * One short line a person can read in the connector row. The SDK reports a
+ * non-MCP answer (an OpenAPI document, an HTML page) as a Zod issue list,
+ * which is several kilobytes of JSON; that becomes one sentence here.
+ */
+export function readableConnectorError(e: unknown): string {
+  const issues = (e as { issues?: unknown } | null)?.issues;
+  const message = (e instanceof Error ? e.message : String(e ?? "")).trim();
+  if (Array.isArray(issues) || /^\[\s*\{/.test(message) || /invalid_union|unrecognized_keys|invalid_type/.test(message)) {
+    return NOT_MCP;
+  }
+  const line = message.split("\n")[0] ?? "";
+  if (!line) return "could not reach this connector";
+  return line.length > MAX_ERROR_CHARS ? `${line.slice(0, MAX_ERROR_CHARS - 1)}…` : line;
+}
+
 /**
  * A quick health probe: can omg reach and initialize this endpoint?
  * `needsAuth` marks the failures that a sign-in can fix.
@@ -132,7 +152,8 @@ export async function probeConnector(
     const tools = await listConnectorTools(connector);
     return { ok: true, tools: tools.length };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e), needsAuth: isUnauthorizedError(e) };
+    const needsAuth = isUnauthorizedError(e);
+    return { ok: false, error: needsAuth ? (e instanceof Error ? e.message : String(e)) : readableConnectorError(e), needsAuth };
   }
 }
 

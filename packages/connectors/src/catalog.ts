@@ -75,7 +75,12 @@ export async function loadCatalog(force = false, fetchImpl: typeof fetch = fetch
         (json as { items?: unknown[] }).items ??
         (json as { data?: unknown[] }).data ??
         []);
-    const entries = (list as unknown[]).map(project).filter((e): e is CatalogEntry => e !== null);
+    // The hub speaks MCP only. The index also lists OpenAPI specs, CLIs and
+    // GraphQL schemas; offering those would save a spec URL as an MCP endpoint
+    // and fail with a JSON-RPC parse error on first use.
+    const entries = (list as unknown[])
+      .map(project)
+      .filter((e): e is CatalogEntry => e !== null && e.kind === "mcp");
     cache = { at: Date.now(), entries };
     return entries;
   } catch (e) {

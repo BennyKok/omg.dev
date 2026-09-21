@@ -21,7 +21,19 @@ function buildServer(): McpServer {
   return server;
 }
 
+// What a catalog "openapi" entry serves at its connectUrl: a spec, not MCP.
+const OPENAPI_DOC = {
+  openapi: "3.1.0",
+  info: { title: "Gmail API", version: "v1" },
+  servers: [{ url: "https://www.googleapis.com/" }],
+  paths: {},
+  components: {},
+  security: [],
+  "x-executor-origin": "https://integrations.sh",
+};
+
 async function answer(req: Request): Promise<Response> {
+  if (new URL(req.url).pathname === "/spec.json") return Response.json(OPENAPI_DOC);
   // Gate on the header, proving omg injects the connector credential.
   if (req.headers.get(KEY) !== SECRET) {
     return new Response("unauthorized", { status: 401 });
@@ -70,6 +82,16 @@ function connector(headers: Record<string, string>): Connector {
 }
 
 describe("connector hub", () => {
+  test("an endpoint that serves an OpenAPI document probes as one readable line, not a Zod dump", async () => {
+    const c = { ...connector({}), endpoint: endpoint.replace(/\/mcp$/, "/spec.json") };
+    const probe = await probeConnector(c);
+    expect(probe.ok).toBe(false);
+    expect(probe.needsAuth).toBe(false);
+    expect(probe.error).toMatch(/not an MCP server/);
+    expect(probe.error).not.toContain("invalid_union");
+    expect((probe.error ?? "").length).toBeLessThan(200);
+  });
+
   test("lists and calls a remote MCP tool with the injected header", async () => {
     const c = connector({ [KEY]: SECRET });
     const tools = await listConnectorTools(c);
