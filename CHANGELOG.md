@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## September 21, 2026 - Smoother Quick Chat starters (v0.6.88)
+
+- iOS: the Quick Chat starter row fades in without adding a second layout jump as the keyboard opens. Its wider, rounder cards scroll horizontally within the composer margins and keep the keyboard open.
+
 ## September 21, 2026 - Quick Chat and project creation (v0.6.87)
 
 - iOS: the plus tab holds chats without a selected project. Start with the normal composer or choose a Website, App, API, or Image starter.
