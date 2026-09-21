@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## September 21, 2026 - Control the Computer from iPhone
+
+- iOS can open the selected Computer, watch its live desktop, and take control with a touch trackpad.
+- The control screen includes a software keyboard, text paste, Return, Tab, Escape, Backspace, and right click. It starts in view-only mode to prevent accidental input.
+
 ## September 21, 2026 - Faster chat opening and saved Home
 
 - iOS: starting a conversation opens the real chat screen at once. The prompt is its first message and the reply lands in the same screen. The separate "Starting conversation" page is gone.
