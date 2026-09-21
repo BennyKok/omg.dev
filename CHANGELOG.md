@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## September 21, 2026 - Detailed Quick Chat starters (v0.6.89)
+
+- iOS: Quick Chat starter cards use moderate corners instead of capsules. Each card now has an icon and a short description, while the row keeps its horizontal scrolling and keyboard focus.
+
 ## September 21, 2026 - Smoother Quick Chat starters (v0.6.88)
 
 - iOS: the Quick Chat starter row fades in without adding a second layout jump as the keyboard opens. Its wider, rounder cards scroll horizontally within the composer margins and keep the keyboard open.
