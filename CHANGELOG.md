@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## September 21, 2026 - iOS session artifacts (v0.6.92)
+
+- iOS: Open Artifacts from a session menu to browse its images, videos, files, and HTML output.
+- Interactive HTML artifacts now open inside the app with reload and retry controls. HTML follows the app theme and runs in an isolated frame.
+- The HTML viewer needs the new native iOS build. Older binaries show an update message.
+
 ## September 21, 2026 - App-builder skills for New Project (v0.6.91)
 
 - New projects and Quick Chats receive one reusable `omg-app-builder` skill for setup, implementation, verification, and delivery. Future project sessions inherit the same workflow from Git.
