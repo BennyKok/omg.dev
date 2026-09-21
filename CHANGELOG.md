@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## September 21, 2026 - Faster chat opening and saved Home
+
+- iOS: starting a conversation opens the real chat screen at once. The prompt is its first message and the reply lands in the same screen. The separate "Starting conversation" page is gone.
+- iOS: Home draws its saved sessions as the same screen it becomes once your computer answers. The folder pills stay, the rows stay grouped by folder, and no banner announces that the list is saved. The top bar reads "Reconnecting" until the computer answers, in the normal label colour.
+- iOS: the Settings software row updates the computer as well as naming its version. The button reads Update when a release is available and Restart when the update is already on disk. An update restarts the computer service; it does not stop running sessions.
+
 ## September 21, 2026 - Reliable New Project skill handoff (v0.6.93)
 
 - App and Website presets now name `.agents/skills/omg-app-builder/SKILL.md` directly, so the agent reads the correct workflow before it builds.
