@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## September 21, 2026 - Stable Quick Chat starters (v0.6.90)
+
+- iOS: Quick Chat starter cards stay visible on the plus tab before and during keyboard focus. The row no longer runs a competing reveal animation, and both scroll edges include space for the end cards.
+
 ## September 21, 2026 - Detailed Quick Chat starters (v0.6.89)
 
 - iOS: Quick Chat starter cards use moderate corners instead of capsules. Each card now has an icon and a short description, while the row keeps its horizontal scrolling and keyboard focus.
