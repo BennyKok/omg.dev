@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## September 21, 2026 - Portable Expo project delivery (v0.6.97)
+
+- New Expo projects now target a verified hosted web preview first and offer an Expo Go tunnel QR code for physical-device testing.
+- The app-builder skill no longer requires a local iOS simulator, Xcode, or a Mac. Development builds and TestFlight remain optional user-authorized delivery paths.
+
 ## September 21, 2026 - Grok 4.7 in the model picker
 
 - Grok, Cursor, fx, Copilot, and the omg agent can now launch Grok 4.7. New Grok sessions use it by default.
