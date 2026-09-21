@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## September 21, 2026 - All artifacts in the iOS side menu
+
+- Open Artifacts from the iOS side menu to see output from all chats on the selected Computer. Each item links back to its source chat.
+- The compact Live Activity shows each agent icon once. Multiple sessions using the same agent keep their full session count.
+
 ## September 21, 2026 - Control the Computer from iPhone (v0.6.94)
 
 - iOS can open the selected Computer, watch its live desktop, and take control with a touch trackpad.

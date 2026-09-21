@@ -54,3 +54,12 @@ test("legacy artifact indexes without a total do not loop", async () => {
   expect(items.map(item => item.id)).toEqual(["legacy"]);
   expect(calls).toBe(1);
 });
+
+
+test("all artifacts includes different chats and retains their source ids", async () => {
+  const items = await loadSessionArtifacts(async <T>() => ({ artifacts: [
+    { id: "a", sessionId: "first", kind: "html" },
+    { id: "b", sessionId: "second", kind: "file" },
+  ], total: 2 }) as T, undefined);
+  expect(items.map(item => item.sessionId)).toEqual(["first", "second"]);
+});

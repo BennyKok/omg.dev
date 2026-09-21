@@ -162,3 +162,14 @@ for (const [agent, mark] of [
     expect(tree.find(node => node.type === "Image")?.props.assetName).toBe(mark);
   });
 }
+
+
+test("compact activity shows one mark per agent while preserving the session count and rows", () => {
+  const result = render({ ...props, runningCount: 2, blockedCount: 0, sessions: [
+    { id: "one", agent: "codex", title: "First", state: "working" },
+    { id: "two", agent: "codex-aisdk", title: "Second", state: "working" },
+  ] }, { colorScheme: "dark" });
+  expect(nodes(result.compactLeading).filter(n => n.type === "Image").map(n => n.props.assetName)).toEqual(["agent-codex"]);
+  expect(result.compactTrailing.props.children).toBe(2);
+  expect(nodes(result.expandedBottom).filter(n => n.type === "Image")).toHaveLength(2);
+});

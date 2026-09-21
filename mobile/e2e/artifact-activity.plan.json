@@ -1,0 +1,12 @@
+{
+  "appId": "dev.omg.computer",
+  "steps": [
+    {
+      "name": "One agent, two sessions",
+      "goal": "Wait on the iOS Home screen. Do not open an app or tap the Dynamic Island. The artifact fixture has two running Codex sessions.",
+      "done": "The compact Live Activity shows one Codex mark and the count 2.",
+      "expect": ["agent-codex, 2"],
+      "forbid": ["agent-codex, agent-codex, 2"]
+    }
+  ]
+}

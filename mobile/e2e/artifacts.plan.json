@@ -14,16 +14,30 @@
       ]
     },
     {
-      "name": "Session",
-      "goal": "Tap the existing busy session row whose accessibility label starts with Refactor the rate limiter to a sliding window. This is an existing item in the session list. Open that row to read its transcript. Do not tap the message composer or start a new session.",
-      "done": "The transcript has its HTML artifact card",
+      "name": "All artifacts",
+      "goal": "Open the side navigation using the computer button at the top left, then tap Artifacts.",
+      "done": "The all artifacts page includes output from two chats.",
       "expect": [
-        "Open Rate limit dashboard"
+        "Open Rate limit dashboard",
+        "Open Another chat output",
+        "Open chat"
+      ]
+    },
+    {
+      "name": "Source chat",
+      "goal": "Tap the first Open chat button under Rate limit dashboard.",
+      "done": "The source chat opens with its artifact card.",
+      "expect": [
+        "Open Rate limit dashboard",
+        "Dictate a message"
+      ],
+      "forbid": [
+        "Open Another chat output"
       ]
     },
     {
       "name": "Open HTML",
-      "goal": "Tap Rate limit dashboard to open the artifact",
+      "goal": "Tap the button labeled Open Rate limit dashboard near the top of the transcript. Do not tap Message or any composer control. If the keyboard is open, tap the artifact once to dismiss it and tap the artifact again to open it.",
       "done": "The rendered dashboard is visible",
       "expect": [
         "Requests allowed:",

@@ -147,7 +147,9 @@ export function AgentActivity(props: AgentActivityProps, environment: LiveActivi
       </VStack>
     );
   };
-  const cluster = <HStack spacing={-6}>{(sessions.length ? sessions : [{ agent: "omg" }]).slice(0, 3).map((session, index) => <HStack key={`${session.agent}-${index}`}>{icon(session.agent, 14)}</HStack>)}</HStack>;
+  // The count represents sessions. The compact marks represent distinct agents.
+  const agents = sessions.map(session => keyFor(session.agent)).filter((agent, index, all) => all.indexOf(agent) === index);
+  const cluster = <HStack spacing={-6}>{(agents.length ? agents : ["omg"]).map(agent => <HStack key={agent}>{icon(agent, 14)}</HStack>)}</HStack>;
   return {
     banner: <VStack modifiers={[background("#20211E")]}>{list()}</VStack>,
     bannerSmall: <HStack spacing={8}>{cluster}<Text modifiers={[bold(), foregroundColor(accent)]}>{summary}</Text></HStack>,
@@ -205,6 +207,27 @@ async function registerActivityWithRetry(bindingId: string, activityId: string, 
  * selected Computer owns the aggregate status. */
 export function AgentLiveActivityBridge() {
   const { authStatus, bindingId, bindings } = useOmg();
+
+  // Opt-in simulator fixture for the compact duplicate-agent regression.
+  useEffect(() => {
+    if (Platform.OS !== "ios" || process.env.EXPO_PUBLIC_OMG_DEMO !== "1" || process.env.EXPO_PUBLIC_OMG_ARTIFACT_FIXTURE !== "1") return;
+    let cancelled = false;
+    let cleanup = () => {};
+    void (async () => {
+      for (const activity of AgentLiveActivity.getInstances()) await activity.end("immediate");
+      if (cancelled) return;
+      const activity = AgentLiveActivity.start({
+        machineName: "Demo Computer", runningCount: 2, blockedCount: 0,
+        attentionSessionId: null, updatedAt: Date.now(),
+        sessions: [
+          { id: "fixture-one", title: "First task", agent: "codex", state: "working" },
+          { id: "fixture-two", title: "Second task", agent: "codex-aisdk", state: "working" },
+        ],
+      }, "omg:///");
+      cleanup = () => { void activity.end("immediate").catch(() => {}); };
+    })().catch(console.warn);
+    return () => { cancelled = true; cleanup(); };
+  }, []);
 
   useEffect(() => {
     if (!__DEV__ || Platform.OS !== "ios") return;

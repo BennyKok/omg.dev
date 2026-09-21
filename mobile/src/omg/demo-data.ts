@@ -374,7 +374,7 @@ function answer(path: string): unknown | null {
   const clean = path.split("?")[0];
   if (artifactFixture && clean === "/api/artifacts") {
     const offset = Number(new URL(path, "https://demo.invalid").searchParams.get("offset"));
-    return { artifacts: offset ? [] : [demoArtifact], total: 1 };
+    return { artifacts: offset ? [] : [demoArtifact, { ...demoArtifact, id: "demo-other-artifact", artifactId: "demo-other-artifact", sessionId: "demo-other-chat", title: "Another chat output" }], total: 2 };
   }
   if (openingFixture && clean === "/api/sessions/demo-created/messages") {
     return { messages: [{ id: "demo-created-prompt", role: "user", text: createdPrompt },

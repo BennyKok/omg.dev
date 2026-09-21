@@ -14,7 +14,7 @@
  * state, and its options already have an owner in computer-picker.ts.
  */
 
-export type SideNavPageKey = "live" | "archive" | "notifications" | "schedules" | "settings";
+export type SideNavPageKey = "live" | "artifacts" | "archive" | "notifications" | "schedules" | "settings";
 
 /** Every row key the nav can draw, pages plus the one action. */
 export type SideNavRowKey = SideNavPageKey | "shortcuts";
@@ -36,6 +36,7 @@ const PAGES: { key: SideNavPageKey; label: string; href: string }[] = [
    * and is matched against elsewhere; only the word a person reads changes.
    */
   { key: "live", label: "Chat", href: "/" },
+  { key: "artifacts", label: "Artifacts", href: "/artifact" },
   { key: "archive", label: "Archive", href: "/archive" },
   { key: "notifications", label: "Notifications", href: "/notifications" },
   { key: "schedules", label: "Schedules", href: "/schedules" },

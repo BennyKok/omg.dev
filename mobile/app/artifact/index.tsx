@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { ActivityIndicator, FlatList, View } from "react-native";
-import { Stack, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { PrimaryButton } from "../../src/components";
 import { useOmg } from "../../src/omg/provider";
 import { loadSessionArtifacts, type SessionArtifact } from "../../src/omg/session-artifacts";
@@ -10,6 +10,7 @@ import { TranscriptEntry } from "../../src/omg/transcript";
 
 export default function SessionArtifactsScreen() {
   const { sessionId } = useLocalSearchParams<{ sessionId: string }>();
+  const router = useRouter();
   const { client } = useOmg();
   const { colors, type, space } = useTheme();
   const [items, setItems] = useState<SessionArtifact[]>([]);
@@ -21,20 +22,23 @@ export default function SessionArtifactsScreen() {
     setItems([]);
     setLoading(true);
     setError(false);
-    if (!client || !sessionId) { setError(true); setLoading(false); return; }
+    if (!client) { setError(true); setLoading(false); return; }
     void loadSessionArtifacts(path => client.transport.request(path), sessionId, () => active)
       .then(result => { if (active) setItems(result); })
       .catch(() => { if (active) setError(true); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [client, sessionId, revision]));
-  return <View testID="session-artifacts-screen" style={{ flex: 1, backgroundColor: colors.bg }}>
+  return <View testID={sessionId ? "session-artifacts-screen" : "all-artifacts-screen"} style={{ flex: 1, backgroundColor: colors.bg }}>
     <Stack.Screen options={{ title: "Artifacts" }} />
       <FlatList contentInsetAdjustmentBehavior="automatic" data={items} keyExtractor={item => item.id}
         contentContainerStyle={{ padding: space.lg, gap: space.lg }}
-        refreshing={loading} onRefresh={() => setRevision(n => n + 1)}
-        renderItem={({ item }) => <TranscriptEntry message={item} />}
-        ListEmptyComponent={loading ? <ActivityIndicator accessibilityLabel="Loading artifacts" /> : <Text style={{ ...type.callout, color: colors.textMuted }}>{error ? "Artifacts could not load." : "No artifacts in this session yet."}</Text>}
+        refreshing={loading && items.length > 0} onRefresh={() => setRevision(n => n + 1)}
+        renderItem={({ item }) => <View style={{ gap: space.sm }}>
+          <TranscriptEntry message={item} />
+          {!sessionId && item.sessionId ? <PrimaryButton label="Open chat" onPress={() => router.push(`/session/${encodeURIComponent(item.sessionId)}`)} /> : null}
+        </View>}
+        ListEmptyComponent={loading ? <ActivityIndicator accessibilityLabel="Loading artifacts" /> : <Text style={{ ...type.callout, color: colors.textMuted }}>{error ? "Artifacts could not load." : (sessionId ? "No artifacts in this session yet." : "No artifacts on this computer yet.")}</Text>}
         ListFooterComponent={error ? <PrimaryButton label="Try again" onPress={() => setRevision(n => n + 1)} /> : null}
       />
   </View>;

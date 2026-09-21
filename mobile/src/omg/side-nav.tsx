@@ -81,6 +81,7 @@ const GLYPH: Record<SideNavRowKey, LucideName> = {
   // "fast" about a page that is a conversation.
   live: "message-circle",
   archive: "archive",
+  artifacts: "monitor",
   notifications: "bell",
   schedules: "calendar-clock",
   settings: "settings",
