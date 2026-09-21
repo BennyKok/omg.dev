@@ -2618,8 +2618,8 @@ function QuestionCard({
       style={{
         padding: space.md,
         backgroundColor: colors.card,
-        // Same family as the composer under it (24/32) and the sheet drawer.
-        // radius.lg is 12, which read as a box against those continuous pills.
+        // Same 32 as the expanded composer under it.
+        // radius.lg is 12, which read as a box against that field.
         borderRadius: 32,
         borderCurve: "continuous",
         borderWidth: StyleSheet.hairlineWidth,

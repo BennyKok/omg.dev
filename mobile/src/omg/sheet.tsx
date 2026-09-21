@@ -187,7 +187,7 @@ export function Sheet({ visible, onClose, children, placement = "bottom", maxWid
               else if (g.state === State.CANCELLED || g.state === State.FAILED) endDrag(0, 0, true);
             }}>
           <View onStartShouldSetResponderCapture={() => { origin.current = null; return false; }}
-            onTouchEnd={() => setGestureBlocked(false)} onTouchCancel={() => setGestureBlocked(false)} style={[{ borderRadius: 44, borderCurve: "continuous", overflow: "hidden", backgroundColor: colors.popover }, surfaceStyle]}>
+            onTouchEnd={() => setGestureBlocked(false)} onTouchCancel={() => setGestureBlocked(false)} style={[{ borderRadius: 32, borderCurve: "continuous", overflow: "hidden", backgroundColor: colors.popover }, surfaceStyle]}>
             {/* The full surface participates; nested scrollers declare their touch origin. */}
             <View onTouchStart={() => { origin.current = null; }} accessibilityRole="adjustable" accessibilityLabel="Drawer height"
               accessibilityValue={{ text: stage }}
