@@ -39,7 +39,13 @@ passed. The runner released the simulator lock and stopped recording.
 
 ## Delivery
 
-Changes are local. No push, OTA update, TestFlight release, or deployment was
-performed. HTML viewing needs a native iOS build that includes
-`react-native-webview` 13.16.1. Existing file artifacts keep their download/text
-preview behavior.
+At the implementation handoff, changes were local. The user then authorized
+merge and deployment. Commit `89e316704` reached `origin/main`, and the local
+landing script verified the restarted service and its served bundle.
+
+The native production build and App Store Connect submission were requested in
+[mobile-release run 35597631954](https://github.com/BennyKok/omg.dev/actions/runs/35597631954),
+which builds that exact commit. The workflow is the source for its final status.
+No OTA or public App Store review submission was requested. HTML viewing needs
+the native iOS build with `react-native-webview` 13.16.1. Existing file artifacts
+keep their download/text preview behavior.
