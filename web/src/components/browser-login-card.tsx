@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import type { BrowserLoginSnapshot } from "../../../packages/protocol/src/browser-login";
+import { latestBrowserLoginRequest, type BrowserLoginSnapshot } from "../../../packages/protocol/src/browser-login";
 import { omgFetch } from "../lib/omg-client";
 const Computer = lazy(() => import("../views/computer-page").then(m => ({ default: m.ComputerPage })));
 
@@ -23,7 +23,7 @@ export function BrowserLoginCard({ sessionId, user }: { sessionId: string | null
     const timer = setInterval(() => { if (!document.hidden) void refresh(); }, 3000);
     return () => { live = false; clearInterval(timer); };
   }, [sessionId, suffix]);
-  const request = state?.requests.filter(r => r.status !== "cancelled" && r.status !== "expired").at(-1);
+  const request = state && latestBrowserLoginRequest(state.requests);
   if (!request) return null;
   const done = request.status === "imported" || request.status === "failed";
   return <>

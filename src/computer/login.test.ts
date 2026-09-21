@@ -1,5 +1,6 @@
 import { beforeEach, expect, test } from "bun:test";
 import { createBrowserLoginService, validateLoginCookies } from "./login";
+import { latestBrowserLoginRequest } from "../../packages/protocol/src/browser-login";
 import { transferBrowserLogin } from "./browser";
 
 const cookie = { name: "session", value: "secret-login", domain: ".example.com", path: "/", secure: true, httpOnly: true, sameSite: "Lax" };
@@ -74,6 +75,17 @@ test("duplicate requests reuse the open request; cancellation and expiry prevent
   now += 601_000;
   expect((await call(`/${second.id}/claim`, {})).status).toBe(409);
   expect(imported).toHaveLength(0);
+});
+
+test("clients choose the newest visible login request without trusting response order", () => {
+  const base = {
+    sessionId: "a", url: "https://example.com", origin: "https://example.com", computerName: "Computer",
+    reason: "Sign in", expiresAt: now + 600_000,
+  };
+  const newest = { ...base, id: "new", status: "pending" as const, createdAt: 20 };
+  const staleFailure = { ...base, id: "old", status: "failed" as const, createdAt: 10, message: "Failed" };
+  expect(latestBrowserLoginRequest([newest, staleFailure])?.id).toBe("new");
+  expect(latestBrowserLoginRequest([{ ...newest, status: "cancelled" }, staleFailure])?.id).toBe("old");
 });
 
 test("a competing claim and unapproved transfer cannot consume the request", async () => {
