@@ -437,6 +437,7 @@ import {
   unlinkRepo,
   cloneRepo,
   createProjectFolder,
+  prepareProjectFolder,
   useProjectFolder,
 } from "../repos-store.ts";
 import { projectName, reposRoot } from "../projects.ts";
@@ -7824,6 +7825,16 @@ a{color:#60a5fa}
         try {
           const repo = await createProjectFolder(b.parent, b.name);
           return json({ repo, repos: await listRepos() });
+        } catch (e) {
+          return err(400, e instanceof Error ? e.message : String(e));
+        }
+      }
+
+      if (path === "/api/projects/prepare-folder" && req.method === "POST") {
+        const b = (await req.json().catch(() => null)) as { path?: unknown } | null;
+        if (typeof b?.path !== "string") return err(400, "path is required");
+        try {
+          return json({ path: await prepareProjectFolder(b.path) });
         } catch (e) {
           return err(400, e instanceof Error ? e.message : String(e));
         }

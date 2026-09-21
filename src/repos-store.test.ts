@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PATHS } from "./config.ts";
-import { createProjectFolder, useProjectFolder } from "./repos-store.ts";
+import { createProjectFolder, prepareProjectFolder, useProjectFolder } from "./repos-store.ts";
 import { PROJECT_BUILDER_SKILL } from "./project-starter.ts";
 import {
   prepareSessionWorktree,
@@ -107,5 +107,19 @@ describe("project creation", () => {
     const resolved = await resolveSessionCwd(repo.cwd, `unborn-${crypto.randomUUID().slice(0, 8)}`);
     expect(resolved).toEqual({ ok: true, cwd: repo.cwd });
     expect(readFileSync(join(folder, "notes.txt"), "utf8")).toBe("keep me\n");
+  });
+
+  test("installs the app-builder skill in an existing folder without changing its files or Git history", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lfg-project-prepare-"));
+    roots.push(root);
+    const folder = join(root, "existing");
+    mkdirSync(folder);
+    writeFileSync(join(folder, "notes.txt"), "keep me\n");
+
+    expect(await prepareProjectFolder(folder)).toBe(folder);
+    expect(readFileSync(join(folder, PROJECT_BUILDER_SKILL), "utf8")).toContain("name: omg-app-builder");
+    expect(readFileSync(join(folder, "notes.txt"), "utf8")).toBe("keep me\n");
+    expect(existsSync(join(folder, "AGENTS.md"))).toBe(false);
+    expect(existsSync(join(folder, ".git"))).toBe(false);
   });
 });
