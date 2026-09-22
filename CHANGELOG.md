@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## September 22, 2026 - Reliable hosted agent startup (v0.6.102)
+
+- Hosted omg agents now allow enough time for the bundled MCP tools to start on a cold Computer.
+
 ## September 22, 2026 - Hosted omg agent tools (v0.6.101)
 
 - DeepSeek Flash and other omg models now receive the omg.dev MCP tools in hosted sandboxes, including live port previews.

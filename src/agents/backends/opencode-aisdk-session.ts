@@ -593,7 +593,11 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
   // ports work transparently.
   let server: Awaited<ReturnType<typeof createOpencodeServer>>;
   try {
-    server = await createOpencodeServer({ port: 0 });
+    // A hosted Computer may need to cold-start the bundled omg MCP command
+    // while OpenCode loads its config. The SDK default is five seconds, which
+    // is shorter than that valid first launch and kills an otherwise healthy
+    // server. Keep the bound finite, but allow the cold path to finish.
+    server = await createOpencodeServer({ port: 0, timeout: 15_000 });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error(`opencode-aisdk-session: failed to start opencode server: ${msg}`);
