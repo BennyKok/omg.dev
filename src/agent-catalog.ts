@@ -29,7 +29,23 @@ export type SkillCatalogItem = {
 // (Fable 5 today). `claude-fable-5-1` is pinned on purpose: the CLI accepts the
 // full id and serves it first-party, but no short alias points at 5.1 yet, so
 // without this entry the picker cannot reach it.
-export const CLAUDE_MODELS: string[] = ["fable", "claude-fable-5-1", "opus", "sonnet", "haiku"];
+//
+// `claude-opus-5-5` is pinned for a different reason. The `opus` alias already
+// resolves to Opus 5.5 (verified 2026-09-22 against Claude Code 2.1.280: a
+// `--model opus` run reports modelUsage for claude-opus-5-5), but that alias
+// floats to whatever Opus ships next. The full id is the only way to stay on
+// 5.5 on purpose, and it is the only entry that names the version in the
+// picker. Claude Code before 2.1.280 rejects the full id with
+// "does not support this model; version 2.1.280 or newer is required", so a
+// stale CLI must take the alias instead.
+export const CLAUDE_MODELS: string[] = [
+  "fable",
+  "claude-fable-5-1",
+  "opus",
+  "claude-opus-5-5",
+  "sonnet",
+  "haiku",
+];
 export const CODEX_MODELS: string[] = [
   "gpt-6-astra",
   "gpt-5.6-sol",
@@ -42,8 +58,16 @@ export const CODEX_MODELS: string[] = [
 ];
 // The Agent SDK takes the same model strings as the CLI, aliases or full ids
 // (see claude-ai-sdk.ts, which passes this straight to query({ model })), so
-// `claude-fable-5-1` is carried here for the same reason as CLAUDE_MODELS.
-export const AISDK_MODELS: string[] = ["fable", "claude-fable-5-1", "opus", "sonnet", "haiku"];
+// `claude-fable-5-1` and `claude-opus-5-5` are carried here for the same
+// reasons as CLAUDE_MODELS.
+export const AISDK_MODELS: string[] = [
+  "fable",
+  "claude-fable-5-1",
+  "opus",
+  "claude-opus-5-5",
+  "sonnet",
+  "haiku",
+];
 export const CODEX_AISDK_MODELS: string[] = [
   "gpt-6-astra",
   "gpt-5.6-sol",

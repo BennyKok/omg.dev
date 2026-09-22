@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## September 22, 2026 - Claude Opus 5.5 in the model picker
+
+- Claude and Agent SDK sessions can select `claude-opus-5-5` by name. The `opus` alias also resolves to Opus 5.5.
+- The full id needs Claude Code 2.1.280 or newer. An older CLI rejects it, so use the `opus` alias until you update.
+
 ## September 22, 2026 - Expo Go uses the sandbox proxy (v0.6.110)
 
 - `omg_expose_port` now prepares a short-lived `exps://` link for Expo Go on any Metro port.
