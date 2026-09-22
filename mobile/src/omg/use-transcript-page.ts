@@ -14,7 +14,13 @@ export function useTranscriptPage(client: Client | null, bindingId: string | nul
   const [scopeEpoch] = useState(() => sessionCache.epoch);
   const cacheKey = id ? transcriptCacheKey(bindingId, id) : null;
   const [initialCache] = useState(() => cacheKey ? readTranscriptCache<Entry>(cacheKey) : null);
-  const [messages, setMessages] = useState<Entry[]>(() => initialCache?.messages ?? (initialPrompt ? [{ id: `local-create-${id}`, role: "user", text: initialPrompt }] : []));
+  const [messages, setMessages] = useState<Entry[]>(() => initialCache?.messages
+    // `ts` is not decoration. `buildTranscriptItems` stamps the first row of a
+    // transcript and skips any row without a time (`if (!ts) return`), so an
+    // optimistic opener with no `ts` drew no stamp — and then the settled row
+    // arrived carrying one, pushing the whole conversation down. Local clock
+    // is right to the minute the stamp actually prints.
+    ?? (initialPrompt ? [{ id: `local-create-${id}`, role: "user", text: initialPrompt, ts: Date.now() }] : []));
   const [loading, setLoading] = useState(!!id && !initialCache);
   const [limit, setLimit] = useState(TRANSCRIPT_PAGE);
   const [loadingMore, setLoadingMore] = useState(false);
