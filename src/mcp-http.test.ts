@@ -123,13 +123,13 @@ describe("caller identity over the shared MCP endpoint", () => {
     const requests: Array<{ url: string; body: any; caller: string | null }> = [];
     globalThis.fetch = (async (url: any, init?: RequestInit) => {
       requests.push({ url: String(url), body: init?.body ? JSON.parse(String(init.body)) : null, caller: new Headers(init?.headers).get("x-omg-caller-session-id") });
-      return Response.json({ preview: { url: "https://sandbox-8081.preview.omgs.app", port: 8081 } });
+      return Response.json({ preview: { url: "https://sandbox-8081.preview.omgs.app", port: 8081 }, expoGo: { proxyUrl: "https://token.preview.omgs.app", url: "exps://token.preview.omgs.app" } });
     }) as typeof fetch;
-    const reply = await callTool("omg_expose_port", { port: 8081, title: "Expo" }, { session: SESSION });
+    const reply = await callTool("omg_expose_port", { port: 8081, title: "Expo", expoGo: true }, { session: SESSION });
     expect(reply.isError).toBe(false);
     expect(requests).toEqual([{
       url: "http://127.0.0.1:9876/api/project-preview",
-      body: { sessionId: SESSION, port: 8081, title: "Expo" },
+      body: { sessionId: SESSION, port: 8081, title: "Expo", expoGo: true },
       caller: SESSION,
     }]);
   });

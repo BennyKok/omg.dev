@@ -57,7 +57,7 @@ function saveRows(path: string, rows: ProjectPreview[]): void {
 export function createProjectPreviewService(deps: {
   session(id: string): Promise<Session | null>;
   viewer(req: Request): string;
-  resolve(port: number): Promise<{ url: string }>;
+  resolve(port: number, options?: { expoGo?: boolean }): Promise<{ url: string; expoGoUrl?: string }>;
   listening?: (port: number) => Promise<boolean>;
   storePath?: string;
   now?: () => number;
@@ -104,13 +104,14 @@ export function createProjectPreviewService(deps: {
       if (!caller) throw new PreviewError(403, "Only the session agent can publish a project preview");
       const port = data.port === undefined ? DEFAULT_PREVIEW_PORT : data.port;
       if (!validPreviewPort(port)) throw new PreviewError(400, "Preview port must be an integer from 1 to 65535");
-      if (!(await listening(port))) {
+      const expoGo = data.expoGo === true;
+      if (!expoGo && !(await listening(port))) {
         throw new PreviewError(409, `Nothing is listening on port ${port}. Start the web development server first.`);
       }
       const title = typeof data.title === "string" && data.title.trim()
         ? data.title.trim().slice(0, 120)
         : "Live project preview";
-      const resolved = await deps.resolve(port);
+      const resolved = await deps.resolve(port, { expoGo });
       const target = new URL(resolved.url);
       if (target.protocol !== "https:" || target.username || target.password) {
         throw new PreviewError(502, "Cloud returned an invalid preview URL");
@@ -127,6 +128,15 @@ export function createProjectPreviewService(deps: {
       };
       rows.set(session.id, preview);
       saveRows(storePath, [...rows.values()]);
+      if (expoGo) {
+        if (!resolved.expoGoUrl) throw new PreviewError(502, "Cloud returned no Expo Go preview URL");
+        const expoProxy = new URL(resolved.expoGoUrl);
+        if (expoProxy.protocol !== "https:" || expoProxy.username || expoProxy.password) {
+          throw new PreviewError(502, "Cloud returned an invalid Expo Go preview URL");
+        }
+        const proxyUrl = expoProxy.href.replace(/\/$/, "");
+        return json({ preview, expoGo: { proxyUrl, url: `exps://${expoProxy.host}` } });
+      }
       return json({ preview });
     } catch (error) {
       const externalStatus = typeof (error as { status?: unknown } | null)?.status === "number"

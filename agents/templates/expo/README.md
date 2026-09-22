@@ -15,10 +15,10 @@ The local web preview needs a deployed database URL. Copy `.env.example` to `.en
 
 1. Deploy the app with `omg_deploy`.
 2. Put the returned app URL in `.env.local` as `EXPO_PUBLIC_OMG_API_URL`.
-3. Run `npm run tunnel`.
-4. Scan the QR code with Expo Go.
+3. In an omg.dev Cloud Computer, ask the agent to start the Expo preview. It exposes Metro through the sandbox proxy and gives you an `exps://` link.
+4. Open that link with Expo Go.
 
-The tunnel is temporary. The database is durable and is hosted with the deployed web app.
+The preview link is temporary. The database is durable and is hosted with the deployed web app.
 
 ## Structure
 

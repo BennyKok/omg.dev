@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## September 22, 2026 - Expo Go uses the sandbox proxy (v0.6.110)
+
+- `omg_expose_port` now prepares a short-lived `exps://` link for Expo Go on any Metro port.
+- Expo agents start one Metro server for web and device testing through the omg.dev sandbox proxy.
+- New Expo projects no longer use Expo tunnel, `exp.direct`, ngrok, or LAN exposure.
+
 ## September 22, 2026 - Expo previews use the sandbox proxy first (v0.6.109)
 
 - Expo Web agents now expose the development server's actual port through the omg.dev preview card before trying any other route.

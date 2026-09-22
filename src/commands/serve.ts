@@ -3928,16 +3928,16 @@ export async function cmdServe() {
       return row?.sessionId ? { id: row.sessionId, owner: row.assignedUser ?? null } : null;
     },
     viewer: req => botViewerFromRequest(req, new URL(req.url).searchParams.get("user")).identity,
-    resolve: async (port) => {
+    resolve: async (port, options) => {
       if (!cloudAccount.status().inherited) {
         throw new CloudAccountError("Live sandbox previews are available inside an omg.dev Cloud Computer.", 409);
       }
-      const response = await cloudAccount.cloudFetch(`/api/cli/computer/preview?port=${port}`);
-      const body = await response.json().catch(() => ({})) as { url?: string; error?: string };
+      const response = await cloudAccount.cloudFetch(`/api/cli/computer/preview?port=${port}${options?.expoGo ? "&expoGo=1" : ""}`);
+      const body = await response.json().catch(() => ({})) as { url?: string; expoGoUrl?: string; error?: string };
       if (!response.ok || !body.url) {
         throw new CloudAccountError(body.error || `Could not expose port ${port}.`, response.status || 502);
       }
-      return { url: body.url };
+      return { url: body.url, expoGoUrl: body.expoGoUrl };
     },
   });
   const cloudMachineProxy = createCloudMachineProxy({ account: cloudAccount });
