@@ -69,6 +69,23 @@ describe("classifySystemMessage", () => {
     expect(out?.body).toBe("ship it");
   });
 
+  test("browser login transfer: label names the site, not the cookie warning", () => {
+    const out = classifySystemMessage(
+      "[Browser login 841fe13e-e60a-43e4-9cf5-8338179ae574] The user approved a login transfer for https://accounts.hetzner.com to the shared Computer browser. Cookies were imported. Verify the protected page with Computer tools before continuing; imported cookies alone do not prove authentication.",
+    );
+    expect(out?.kind).toBe("browser-login");
+    expect(out?.label).toBe("Signed in to accounts.hetzner.com");
+    expect(out?.id).toBe("841fe13e");
+    expect(out?.body).toContain("Verify the protected page");
+  });
+
+  test("browser login transfer with no readable origin still classifies", () => {
+    const out = classifySystemMessage("[Browser login abc] The user approved a login transfer.");
+    expect(out?.kind).toBe("browser-login");
+    expect(out?.label).toBe("Login transferred");
+    expect(out?.id).toBeUndefined();
+  });
+
   test("fork and continue opener: label names the source, body is the extra prompt", () => {
     const out = classifySystemMessage(
       [
