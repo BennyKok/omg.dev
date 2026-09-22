@@ -23566,7 +23566,20 @@ function NewSessionDialog({
       <Plus className="size-4" />
     </Button>
   );
-  const startButton = (
+  // Mobile sends with the iOS button: a round arrow, filled when there is
+  // something to send. Thinking is set in the agent sheet, so the desktop
+  // Start button's hold-to-choose-thinking is not needed here.
+  const startButton = variant === "inline" ? (
+    <button
+      type="submit"
+      disabled={!canSubmit}
+      aria-label="Start session"
+      title="Start session"
+      className="flex size-10 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition active:scale-95 disabled:bg-secondary disabled:text-muted-foreground"
+    >
+      <ArrowUp className="size-5" strokeWidth={2.5} />
+    </button>
+  ) : (
     <ComposerStartButton
       disabled={!canSubmit}
       thinkingLevel={thinkingLevel}
