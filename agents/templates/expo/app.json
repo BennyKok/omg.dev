@@ -6,7 +6,7 @@
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "web": {
-      "output": "server"
+      "output": "static"
     },
     "plugins": ["expo-router"],
     "experiments": {
