@@ -317,18 +317,53 @@ export async function setCodingAgentVisibility(
 }
 
 /**
+ * Agents that stay OFF until the owner switches them on, even when the CLI is
+ * installed and ready.
+ *
+ * OpenCode is here because omg.dev now ships its own managed coding agent.
+ * OpenCode was the one agent that needed no credential, so it was every
+ * box's floor: it was ready on any install that had the CLI, it was the only
+ * kind the hosted access gate exempted, and the composer's
+ * pick-the-first-available rule therefore landed on it and its deepseek
+ * default. The omg agent covers that role now. OpenCode stays a full,
+ * supported backend for anyone who wants it — it is one toggle away in
+ * Settings, and turning it on sticks.
+ */
+const OPT_IN_AGENT_KINDS = new Set<CodingAgentKind>(["opencode"]);
+
+/**
  * Composer toggle for one coding agent.
  *
  * An agent is ON only when it can actually run. No saved choice follows
  * readiness: ready defaults ON, unready defaults OFF. An explicit hide stays
  * off after the agent becomes ready. An old implicit-on value (`true`, or
  * missing) does not keep an unready agent on.
+ *
+ * An opt-in kind inverts only the default: it needs an explicit `true`, so a
+ * missing value reads OFF instead of ON. Readiness still gates it, and an
+ * explicit choice in either direction still wins.
  */
 export function codingAgentVisible(
+  kind: CodingAgentKind,
   saved: boolean | undefined,
   configured: boolean,
 ): boolean {
-  return saved === false ? false : configured;
+  if (!configured) return false;
+  return OPT_IN_AGENT_KINDS.has(kind) ? saved === true : saved !== false;
+}
+
+/**
+ * Record that someone asked for this agent by name.
+ *
+ * Installing an agent from onboarding or Settings IS the opt-in. Without this
+ * the two gestures disagree: a person picks OpenCode, watches it install, and
+ * then cannot find it in the composer because an opt-in kind needs an explicit
+ * yes and the install never wrote one. Only opt-in kinds are touched, so a
+ * normal install still leaves an explicit hide alone.
+ */
+export async function markCodingAgentRequested(kind: CodingAgentKind): Promise<void> {
+  if (!OPT_IN_AGENT_KINDS.has(kind)) return;
+  await setCodingAgentVisibility(kind, true);
 }
 
 function which(name: string, extra: string[] = []): string | null {
@@ -1608,7 +1643,7 @@ export async function listCodingAgents(): Promise<CodingAgentInfo[]> {
       return {
         key,
         label: CODING_AGENT_LABELS[key],
-        visible: codingAgentVisible(cfg.agents[key]?.visible, status.configured),
+        visible: codingAgentVisible(key, cfg.agents[key]?.visible, status.configured),
         status,
       };
     }),

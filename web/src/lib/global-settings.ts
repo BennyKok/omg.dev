@@ -31,6 +31,14 @@ export type GlobalSettings = {
   // saved choice. "" = host default / catalog default.
   defaultAgent: string;
   defaultModel: string;
+  // The agent + model this box last LAUNCHED from the composer, written only
+  // when the person picked it themselves. The cross-device half of the saved
+  // choice that otherwise lives in this browser's localStorage, so a new
+  // phone or a cleared webview does not start over on whatever the roster
+  // offers first. Never written by the Settings page; see lastAgent in
+  // src/settings.ts for why it is separate from defaultAgent.
+  lastAgent: string;
+  lastModel: string;
   // Box-wide view switches. All true by default. See ViewPrefsContext.
   showSidebarAgentIcons: boolean;
   // Off hides the project favicon on each session row in the sidebar.
@@ -71,6 +79,8 @@ export type ViewPrefs = Pick<
   GlobalSettings,
   | "defaultAgent"
   | "defaultModel"
+  | "lastAgent"
+  | "lastModel"
   | "showSidebarAgentIcons"
   | "showSidebarFavicons"
   | "showSessionAgentIcons"
@@ -86,6 +96,8 @@ export type ViewPrefs = Pick<
 export const DEFAULT_VIEW_PREFS: ViewPrefs = {
   defaultAgent: "",
   defaultModel: "",
+  lastAgent: "",
+  lastModel: "",
   showSidebarAgentIcons: true,
   showSidebarFavicons: true,
   showSessionAgentIcons: true,
