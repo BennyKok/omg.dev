@@ -25,10 +25,19 @@ Keep setup details in agent work. Ask the user about product decisions only when
 Do not change unrelated repositories. Do not claim a project was registered in omg.dev unless it was.
 `;
 
+/** Keep chat workspaces in user-owned data, not ~/.omg. Hosted Computers use
+ * ~/.omg for root-written runtime files, so it is not a safe workspace root. */
+export function noProjectChatsRoot(
+  home = homedir(),
+  dataHome = process.env.XDG_DATA_HOME,
+): string {
+  return join(dataHome?.trim() || join(home, ".local", "share"), "omg", "chats");
+}
+
 /** One workspace per conversation, outside repository instruction ancestry. */
 export async function createNoProjectWorkspace(
   name: string,
-  root = join(homedir(), ".omg", "chats"),
+  root = noProjectChatsRoot(),
 ): Promise<string> {
   if (!/^[a-zA-Z0-9-]+$/.test(name)) throw new Error("Invalid chat workspace name");
   const cwd = join(root, name);
