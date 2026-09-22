@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { ExternalLink, Globe2, X } from "lucide-react";
+import { ExternalLink, Globe2, Smartphone, X } from "lucide-react";
+import { renderSVG } from "uqr";
 import type { ProjectPreviewSnapshot } from "../../../packages/protocol/src/project-preview";
 import { omgFetch } from "../lib/omg-client";
 
@@ -24,17 +25,21 @@ export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | nu
   }, [sessionId, suffix]);
   const preview = state?.preview;
   if (!preview) return null;
+  const expoGoUrl = preview.expoGoUrl;
   return <>
     <div className="mb-2 rounded-xl border bg-card p-3 text-sm" role="status" data-testid="project-preview-card">
       <div className="flex items-center gap-3">
-        <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><Globe2 className="size-5" /></span>
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          {expoGoUrl ? <Smartphone className="size-5" /> : <Globe2 className="size-5" />}
+        </span>
         <div className="min-w-0 flex-1">
           <div className="truncate font-medium">{preview.title}</div>
-          <div className="text-xs text-muted-foreground">Live preview · Private to you · Temporary</div>
+          <div className="text-xs text-muted-foreground">{expoGoUrl ? "Expo app" : "Live preview"} · Private to you · Temporary</div>
         </div>
       </div>
-      <div className="mt-3 flex gap-4">
-        <button className="font-medium text-primary" onClick={() => setOpen(true)}>Open preview</button>
+      {expoGoUrl && <ExpoGoGuide url={expoGoUrl} />}
+      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2">
+        <button className="font-medium text-primary" onClick={() => setOpen(true)}>{expoGoUrl ? "Open web preview" : "Open preview"}</button>
         <a className="inline-flex items-center gap-1 text-muted-foreground" href={preview.url} target="_blank" rel="noreferrer">Open in new tab <ExternalLink className="size-3" /></a>
       </div>
     </div>
@@ -51,4 +56,22 @@ export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | nu
       document.body,
     )}
   </>;
+}
+
+const EXPO_GO_IOS = "https://apps.apple.com/app/expo-go/id982107779";
+const EXPO_GO_ANDROID = "https://play.google.com/store/apps/details?id=host.exp.exponent";
+
+function ExpoGoGuide({ url }: { url: string }) {
+  const qr = `data:image/svg+xml;utf8,${encodeURIComponent(renderSVG(url, { border: 1 }))}`;
+  return <div className="mt-3 flex gap-3 rounded-lg bg-muted/50 p-3" data-testid="expo-go-guide">
+    <img className="size-28 shrink-0 rounded-md bg-white p-1" src={qr} alt="QR code that opens this app in Expo Go" />
+    <ol className="min-w-0 flex-1 list-decimal space-y-1.5 pl-4 text-xs text-muted-foreground">
+      <li>Install <span className="font-medium text-foreground">Expo Go</span> from the{" "}
+        <a className="text-primary" href={EXPO_GO_IOS} target="_blank" rel="noreferrer">App Store</a> or{" "}
+        <a className="text-primary" href={EXPO_GO_ANDROID} target="_blank" rel="noreferrer">Google Play</a>.</li>
+      <li>Scan this code with your phone camera, or{" "}
+        <a className="font-medium text-primary" href={url}>open in Expo Go</a> on this phone.</li>
+      <li>The first load can take up to a minute.</li>
+    </ol>
+  </div>;
 }

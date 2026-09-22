@@ -33,3 +33,32 @@ test("renders nothing when the session has no preview", async () => {
   await ui.flushAsync();
   expect(ui.text()).toBe("");
 });
+
+test("an Expo preview shows the Expo Go guide with a scannable link", async () => {
+  globalThis.fetch = (async () => Response.json({ preview: {
+    sessionId: "session-1", title: "Todo app", url: "https://sandbox-8081.preview.omgs.app",
+    port: 8081, kind: "sandbox-preview", visibility: "owner", temporary: true, createdAt: 1,
+    expoGoUrl: "exps://cap-token.preview.omgs.app",
+  } })) as typeof fetch;
+  ui.render(<ProjectPreviewCard sessionId="session-1" user="person@example.com" />);
+  await ui.flushAsync();
+  expect(ui.text()).toContain("Expo app");
+  expect(ui.text()).toContain("Install Expo Go");
+  const guide = document.querySelector('[data-testid="expo-go-guide"]');
+  expect(guide?.querySelector("img")?.getAttribute("src")).toStartWith("data:image/svg+xml");
+  expect(guide?.querySelector('a[href="exps://cap-token.preview.omgs.app"]')).not.toBeNull();
+  const button = ui.queryAll("button").find((node) => node.textContent === "Open web preview") as HTMLElement;
+  ui.flush(() => button.click());
+  expect(document.querySelector('[role="dialog"] iframe')?.getAttribute("src")).toBe("https://sandbox-8081.preview.omgs.app");
+});
+
+test("a web-only preview has no Expo Go guide", async () => {
+  globalThis.fetch = (async () => Response.json({ preview: {
+    sessionId: "session-1", title: "Site", url: "https://sandbox-5173.preview.omgs.app",
+    port: 5173, kind: "sandbox-preview", visibility: "owner", temporary: true, createdAt: 1,
+  } })) as typeof fetch;
+  ui.render(<ProjectPreviewCard sessionId="session-1" />);
+  await ui.flushAsync();
+  expect(document.querySelector('[data-testid="expo-go-guide"]')).toBeNull();
+  expect(ui.text()).toContain("Live preview");
+});

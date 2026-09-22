@@ -6,12 +6,35 @@
   "steps": [
     {
       "name": "Live preview card",
-      "goal": "Wait for the project preview card. Only inspect it and do not tap anything.",
+      "goal": "Wait for the web project preview card. Only inspect it and do not tap anything.",
       "done": "The card names the Expo app, explains that the preview is live and private, and offers an open action.",
       "expect": [
         "My Expo app",
-        "Live preview · Private to you · Temporary",
+        "Live preview \u00b7 Private to you \u00b7 Temporary",
         "Open preview"
+      ]
+    },
+    {
+      "name": "Expo Go card",
+      "goal": "Find the second card, for the Expo app. Only inspect it and do not tap anything.",
+      "done": "The card names the todo app, says it is an Expo app, and offers to open it in Expo Go.",
+      "expect": [
+        "My todo app",
+        "Expo app \u00b7 Private to you \u00b7 Temporary",
+        "Open in Expo Go",
+        "First time? See how it works"
+      ]
+    },
+    {
+      "name": "Expo Go guide",
+      "goal": "Tap 'First time? See how it works' on the Expo app card. Do not tap 'Open in Expo Go'.",
+      "done": "Numbered steps explain how to get Expo Go and open the app.",
+      "expect": [
+        "Get Expo Go. It is free.",
+        "Get it on the App Store",
+        "Come back and tap Open in Expo Go.",
+        "The first load can take up to a minute.",
+        "Hide steps"
       ]
     }
   ]
