@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## September 22, 2026 - Headless Expo preview startup (v0.6.100)
+
+- Expo Web previews no longer try to open a desktop browser inside a headless Cloud Computer.
+
 ## September 22, 2026 - Live sandbox project previews (v0.6.99)
 
 - Agents can now expose a live web or Expo Web server from a Cloud Computer as a private preview card in the session.
