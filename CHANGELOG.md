@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## September 22, 2026 - Live sandbox project previews (v0.6.99)
+
+- Agents can now expose a live web or Expo Web server from a Cloud Computer as a private preview card in the session.
+- The card opens inside the web app or iOS app, and it also offers an external browser action.
+- New project skills use the portable local Expo dependency and do not depend on Xcode, a simulator, SSH hosts, or omg.dev repository paths.
+
 ## September 21, 2026 - Current website login request (v0.6.98)
 
 - Website login cards now select the newest request by creation time. An older failed transfer can no longer hide a newer pending login request when the server returns them out of order.
