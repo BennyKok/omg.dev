@@ -20,6 +20,20 @@ test("offers Astra to Codex sessions", () => {
   expect(CODEX_AISDK_MODELS).toContain("gpt-6-astra");
 });
 
+// The `opus` alias already resolves to Opus 5.5, so this is about naming a
+// version on purpose: the full id is the only entry that stays on 5.5 when the
+// alias moves to the next Opus, and the only one that shows the version in the
+// picker. Both Claude backends take the same model strings.
+test("Claude and the Agent SDK can name Opus 5.5 by full id", async () => {
+  const { CLAUDE_MODELS, AISDK_MODELS } = await import("./agent-catalog.ts");
+  for (const models of [CLAUDE_MODELS, AISDK_MODELS]) {
+    expect(models).toContain("claude-opus-5-5");
+    expect(models).toContain("opus");
+  }
+  expect(modelsForAgent("claude")).toContain("claude-opus-5-5");
+  expect(modelsForAgent("aisdk")).toContain("claude-opus-5-5");
+});
+
 const DISCOVERED = [
   "openai/gpt-5.3-codex-spark",
   "openai/gpt-5.4",

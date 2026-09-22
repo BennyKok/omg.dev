@@ -1357,7 +1357,7 @@ type SlashSkillState = {
   query: string;
 };
 
-const CLAUDE_MODELS = ["sonnet", "opus", "haiku", "fable", "claude-fable-5-1"];
+const CLAUDE_MODELS = ["sonnet", "opus", "claude-opus-5-5", "haiku", "fable", "claude-fable-5-1"];
 const CODEX_MODELS = [
   "gpt-6-astra",
   "gpt-5.6-sol",
@@ -1370,7 +1370,7 @@ const CODEX_MODELS = [
 ];
 // Models the one-shot AI-SDK test option supports (the provider maps these
 // aliases). Kept in sync with the AISDK_MODELS allowlist in serve.ts.
-const AISDK_MODELS = ["fable", "claude-fable-5-1", "opus", "sonnet", "haiku"];
+const AISDK_MODELS = ["fable", "claude-fable-5-1", "opus", "claude-opus-5-5", "sonnet", "haiku"];
 const CODEX_AISDK_MODELS = [
   "gpt-6-astra",
   "gpt-5.6-sol",
@@ -22699,7 +22699,7 @@ function NewSessionDialog({
     });
     const resumeModel =
       session.agent === "claude"
-        ? ["fable", "claude-fable-5-1", "opus", "sonnet", "haiku"].includes(model)
+        ? ["fable", "claude-fable-5-1", "opus", "claude-opus-5-5", "sonnet", "haiku"].includes(model)
           ? model
           : undefined
         : session.agent === "opencode" || session.agent === "omg"
