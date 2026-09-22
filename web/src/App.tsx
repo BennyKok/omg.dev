@@ -159,6 +159,7 @@ import {
   reconcileUserFilter,
   sessionMatchesUserFilter,
   userFilterUpdatesStandaloneIdentity,
+  composerDefaultOwner,
 } from "./lib/user-filter";
 import {
   buildFindRowIndex,
@@ -9343,9 +9344,7 @@ export function App() {
                   scopedProject={projectFilter}
                   onReposChanged={loadCore}
                   codingAgents={codingAgents}
-                  defaultUser={
-                    userFilter !== "__all" && userFilter !== "__unassigned" ? userFilter : ""
-                  }
+                  defaultUser={composerDefaultOwner(identity, userFilter)}
                   onClose={handlers.onClose}
                   onCreated={async (result) => {
                     await refreshSessions({ seed: result?.session ?? null });
@@ -9633,9 +9632,7 @@ export function App() {
               onProjectSwipe={cycleMobileProjectFilter}
               onReposChanged={loadCore}
               codingAgents={codingAgents}
-              defaultUser={
-                userFilter !== "__all" && userFilter !== "__unassigned" ? userFilter : ""
-              }
+              defaultUser={composerDefaultOwner(identity, userFilter)}
               onClose={() => setComposerExpanded(false)}
               onCreated={async (result) => {
                 const launchId = result?.launchId;
@@ -9714,9 +9711,7 @@ export function App() {
         scopedProject={projectFilter}
         onReposChanged={loadCore}
         codingAgents={codingAgents}
-        defaultUser={
-          userFilter !== "__all" && userFilter !== "__unassigned" ? userFilter : ""
-        }
+        defaultUser={composerDefaultOwner(identity, userFilter)}
         onClose={() => {
           setNewOpen(false);
         }}
@@ -22339,7 +22334,7 @@ function NewSessionDialog({
   // hides it, so "I created a session but don't see it". The Owner dropdown still
   // lets you pick Unassigned explicitly.
   const [user, setUser] = useState(() =>
-    resolveRosterUser(defaultUser || localStorage.getItem("lfg_user"), users),
+    resolveRosterUser(defaultUser || localStorage.getItem("lfg_user") || "", users),
   );
   const [prompt, setPromptState] = useState(
     () => readPromptDraft("new-session")?.text ?? "",
@@ -22791,11 +22786,12 @@ function NewSessionDialog({
     resume(false);
   }
 
-  // Each time the dialog opens, default the owner to the currently selected
-  // user (the live-view filter / active profile) so a new session lands with us.
+  // Each time the dialog opens, default the owner to the selected profile (the
+  // header's "who are you"), so a new session lands with us. With no profile,
+  // the session stays unassigned rather than going to the first roster entry.
   useEffect(() => {
     if (open) {
-      setUser(resolveRosterUser(defaultUser || localStorage.getItem("lfg_user"), users));
+      setUser(resolveRosterUser(defaultUser || localStorage.getItem("lfg_user") || "", users));
     }
   }, [open, defaultUser, users]);
 
