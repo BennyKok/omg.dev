@@ -78,3 +78,9 @@ test("mouse arrows scroll the viewport and Tab stays native inside the filter", 
     window.removeEventListener("keydown", listener);
   }
 });
+
+test("the phone rail has no scroll arrows", () => {
+  ui.render(<ProjectPillRail touch projects={[{ value: "lfg", label: "lfg" }]} value="__all" onChange={() => {}} />);
+  expect(ui.text()).toContain("lfg");
+  expect(ui.query('[aria-label="Scroll projects left"]')).toBeNull();
+});

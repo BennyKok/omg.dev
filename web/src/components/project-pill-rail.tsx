@@ -18,10 +18,12 @@ export type ProjectPill = {
 };
 
 /** A scrollable view of the shell's project filter; owns no selection state. */
-export function ProjectPillRail({ projects, value, onChange }: {
+export function ProjectPillRail({ projects, value, onChange, touch = false }: {
   projects: ProjectPill[];
   value: string;
   onChange: (value: string) => void;
+  /** Phone layout, as on iOS: swipe to scroll, so no arrows and no divider. */
+  touch?: boolean;
 }) {
   const viewport = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
@@ -66,7 +68,7 @@ export function ProjectPillRail({ projects, value, onChange }: {
 
   return (
     <div role="group" aria-label="Filter sessions by project"
-      className="flex h-[50px] shrink-0 items-center border-b border-border"
+      className={`flex h-[50px] shrink-0 items-center ${touch ? "" : "border-b border-border"}`}
       onKeyDown={(event) => { if (event.key === "Tab") event.stopPropagation(); }}
       onWheel={(event) => event.stopPropagation()}>
       <div className="relative min-w-0 flex-1">
@@ -87,7 +89,7 @@ export function ProjectPillRail({ projects, value, onChange }: {
         {edges.left && <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-0 w-4 bg-linear-to-r from-background to-transparent" />}
         {edges.right && <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-linear-to-l from-background to-transparent" />}
       </div>
-      {(edges.left || edges.right) && <div className="flex shrink-0 pr-1">
+      {!touch && (edges.left || edges.right) && <div className="flex shrink-0 pr-1">
         <button type="button" aria-label="Scroll projects left" disabled={!edges.left} onClick={() => move(-1)} className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted disabled:opacity-30"><ChevronLeft className="size-4" /></button>
         <button type="button" aria-label="Scroll projects right" disabled={!edges.right} onClick={() => move(1)} className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted disabled:opacity-30"><ChevronRight className="size-4" /></button>
       </div>}
