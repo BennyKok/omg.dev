@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## September 22, 2026 - App starters work on managed Computers
+
+- App, Website, API, and Image starters now create their chat workspace in a user-owned data folder.
+- A root-owned managed runtime folder no longer makes the starter fail with `cloud_runtime_unavailable`.
+
 ## September 22, 2026 - Reliable mobile and web UI checks (v0.6.106)
 
 - The model picker now shows the xAI mark for Grok models.

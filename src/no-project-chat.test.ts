@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createNoProjectWorkspace, NO_PROJECT_INSTRUCTIONS } from "./no-project-chat";
+import { createNoProjectWorkspace, noProjectChatsRoot, NO_PROJECT_INSTRUCTIONS } from "./no-project-chat";
 import { PROJECT_BUILDER_SKILL } from "./project-starter";
 
 test("each unassigned chat has a persistent workspace and project guidance", async () => {
@@ -23,5 +23,19 @@ test("each unassigned chat has a persistent workspace and project guidance", asy
     await expect(createNoProjectWorkspace("../escape", root)).rejects.toThrow("Invalid chat workspace name");
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("the default chat root avoids a root-owned runtime directory", async () => {
+  const home = await mkdtemp(join(tmpdir(), "omg-chat-home-"));
+  try {
+    await mkdir(join(home, ".omg"));
+    await chmod(join(home, ".omg"), 0o555);
+    const root = noProjectChatsRoot(home, "");
+    expect(root).toBe(join(home, ".local", "share", "omg", "chats"));
+    expect(await createNoProjectWorkspace("new-app", root)).toBe(join(root, "new-app"));
+  } finally {
+    await chmod(join(home, ".omg"), 0o755).catch(() => {});
+    await rm(home, { recursive: true, force: true });
   }
 });
