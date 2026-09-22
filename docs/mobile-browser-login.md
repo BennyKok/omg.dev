@@ -2,11 +2,12 @@
 
 An agent can request a website login with `omg_request_browser_login`.
 The user opens the request in the iOS chat and taps **Log in**.
-The card is at the end of the transcript, not on the composer, because the
-request is an event in the conversation. It shows the website's icon and
-domain and nothing else. If the icon cannot load, it shows the first letter of
-the domain. The reason the agent gave is in the agent's own message above the
-card, so the card does not repeat it.
+The request is one row at the end of the transcript, not a card on the
+composer, because it is an event in the conversation. The row is the website's
+icon and domain, a **Log in** button, and a cross to dismiss it. If the icon
+cannot load, it shows the first letter of the domain. The reason the agent
+gave is in the agent's own message above the row, and the target computer is
+named in the native consent alert, so the row repeats neither.
 The app opens a private `WKWebView`. After signing in, the user taps
 **Use login**, checks the site and target computer, and taps **Transfer login**.
 The runtime imports the approved site cookies into its shared Chrome browser.

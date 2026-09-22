@@ -26,16 +26,17 @@
     },
     {
       "name": "Login request card is in the transcript",
-      "goal": "Read the website login card at the end of the transcript. Do not tap Log in and do not tap Cancel.",
-      "done": "The login card shows the site and its Log in button.",
+      "goal": "Read the website login row at the end of the transcript. Do not tap Log in and do not tap the cross.",
+      "done": "The login row shows the site, a Log in button, and a cross to dismiss it.",
       "expect": [
         "accounts.hetzner.com",
-        "Website login",
-        "Log in"
+        "Log in",
+        "Cancel the login request"
       ],
       "forbid": [
         "Login for Your Computer",
-        "To read the current Hetzner Robot invoice."
+        "To read the current Hetzner Robot invoice.",
+        "Website login"
       ]
     },
     {

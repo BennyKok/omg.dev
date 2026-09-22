@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, Image, Pressable, View } from "react-native";
+import { SymbolView } from "expo-symbols";
 import * as Crypto from "expo-crypto";
 import { latestBrowserLoginRequest, type BrowserLoginRequest, type BrowserLoginSnapshot } from "../../../packages/protocol/src/browser-login";
 import { browserLoginNative } from "./browser-login-native";
@@ -91,31 +92,52 @@ export function BrowserLoginPanel({ sessionId, transport, email }: {
   };
   const request = latestBrowserLoginRequest(requests);
   if (!request && !error) return null;
-  return <View testID="browser-login-card" style={{ backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1, borderRadius: 16, padding: 14, gap: 8 }}>
-    {request && <>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-        <WebsiteIcon key={request.origin} origin={request.origin} />
-        <View style={{ flex: 1, gap: 2 }}>
-          <Text style={{ color: colors.foreground, fontSize: 16, fontWeight: "600" }}>{new URL(request.origin).hostname}</Text>
-          <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>Website login</Text>
-        </View>
-      </View>
-      {request.status === "imported" ? <Text style={{ color: colors.success }}>{request.agentNotified ? "Login transferred. The agent has been notified." : "Login transferred. Tell the agent to check the page."}</Text>
-        : request.status === "failed" ? <Text style={{ color: colors.destructive }}>{request.message}</Text>
-        : <>
-          {busy || request.status === "importing" ? <Text style={{ color: colors.mutedForeground }}>Transferring login…</Text>
-            : request.status === "in_progress" ? <Text style={{ color: colors.mutedForeground }}>Login is open on a device.</Text> : null}
-          {!browserLoginNative && <Text style={{ color: colors.mutedForeground }}>Update the iOS app to sign in here, or use the web Computer view.</Text>}
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 16, marginTop: 4 }}>
-            {!!browserLoginNative && request.status === "pending" && <Pressable accessibilityRole="button" testID="browser-login-open" disabled={busy} onPress={() => void open(request)} style={{ flex: 1, minHeight: 44, paddingVertical: 12, paddingHorizontal: 14, borderRadius: 12, backgroundColor: colors.primary, opacity: busy ? 0.6 : 1, justifyContent: "center" }}>
-              <Text style={{ color: colors.primaryForeground, fontWeight: "600", textAlign: "center" }}>Log in</Text>
-            </Pressable>}
-            <Pressable accessibilityRole="button" disabled={busy || request.status === "importing"} onPress={() => {
-              void post(request.id, "cancel").then(refresh).catch(() => setError("Could not cancel. Try again."));
-            }} style={{ paddingVertical: 10 }}><Text style={{ color: colors.mutedForeground }}>Cancel</Text></Pressable>
-          </View>
-        </>}
-    </>}
+  /**
+   * ONE ROW: the site, then the verb, then the dismissal.
+   *
+   * This used to be a five-line card — icon and host, "Website login", the
+   * reason the agent gave, "Login for <computer>", a sentence telling you to
+   * sign in, then a full-width button and a "Cancel" word. Standing in the
+   * transcript that is a panel, and every line of it was already known: the
+   * reason is in the agent's own message directly above, and the target
+   * computer is named again in the native consent alert you have to pass
+   * through anyway. What is left is the only thing the row has to say —
+   * WHICH SITE — and the only thing it has to offer: log in, or do not.
+   *
+   * The right-hand slot is one slot, not a stack. It holds the button while
+   * the request is live, and the outcome once it is not, so the row never
+   * changes height and never grows a second line.
+   */
+  const dismiss = () => {
+    void post(request!.id, "cancel").then(refresh).catch(() => setError("Could not cancel. Try again."));
+  };
+  const status = !request ? null
+    : request.status === "imported" ? { text: request.agentNotified ? "Signed in" : "Signed in. Tell the agent.", color: colors.success }
+    : request.status === "failed" ? { text: request.message || "Could not transfer the login.", color: colors.destructive }
+    : busy || request.status === "importing" ? { text: "Transferring…", color: colors.mutedForeground }
+    : request.status === "in_progress" ? { text: "Open on a device", color: colors.mutedForeground }
+    : !browserLoginNative ? { text: "Use the web Computer view", color: colors.mutedForeground }
+    : null;
+  return <View testID="browser-login-card" style={{ backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1, borderRadius: 16, paddingVertical: 8, paddingLeft: 12, paddingRight: 8, gap: 8 }}>
+    {request && <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+      <WebsiteIcon key={request.origin} origin={request.origin} />
+      <Text numberOfLines={1} style={{ flex: 1, color: colors.foreground, fontSize: 16, fontWeight: "600" }}>{new URL(request.origin).hostname}</Text>
+      {status
+        ? <Text numberOfLines={1} style={{ flexShrink: 1, color: status.color, fontSize: 13 }}>{status.text}</Text>
+        : <Pressable accessibilityRole="button" testID="browser-login-open" disabled={busy} onPress={() => void open(request)}
+          style={{ minHeight: 34, paddingVertical: 7, paddingHorizontal: 16, borderRadius: 999, backgroundColor: colors.primary, opacity: busy ? 0.6 : 1, justifyContent: "center" }}>
+          <Text style={{ color: colors.primaryForeground, fontWeight: "600" }}>Log in</Text>
+        </Pressable>}
+      {/* A cross, not the word. "Cancel" beside "Log in" read as a second
+          choice of equal weight; this is the dismissal every card on iOS
+          carries in its corner. 44pt of target through hitSlop, because the
+          glyph is small on purpose. */}
+      {request.status !== "imported" && <Pressable accessibilityRole="button" accessibilityLabel="Cancel the login request"
+        testID="browser-login-cancel" hitSlop={10} disabled={busy || request.status === "importing"} onPress={dismiss}
+        style={({ pressed }) => ({ width: 30, height: 30, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.5 : 1 })}>
+        <SymbolView name="xmark" size={14} weight="semibold" tintColor={colors.mutedForeground} style={{ width: 14, height: 14 }} />
+      </Pressable>}
+    </View>}
     {error && <Text accessibilityRole="alert" style={{ color: colors.destructive }}>{error}</Text>}
   </View>;
 }

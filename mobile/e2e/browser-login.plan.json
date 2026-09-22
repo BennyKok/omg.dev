@@ -7,11 +7,11 @@
     {
       "name": "Login request",
       "goal": "Wait for the website login card to appear. Only observe the card. Do not tap any button in this step.",
-      "done": "The website login request card is visible. No action is needed.",
+      "done": "The website login request card is one row: the site, a Log in button, and a cross to dismiss it.",
       "expect": [
         "127.0.0.1.nip.io icon",
-        "Website login",
-        "Log in"
+        "Log in",
+        "Cancel the login request"
       ]
     },
     {
@@ -45,9 +45,9 @@
     {
       "name": "Approved transfer",
       "goal": "Tap Transfer login to approve the login transfer",
-      "done": "The request card says the login was transferred and the agent was notified",
+      "done": "The request row says the login was transferred and the agent was notified.",
       "expect": [
-        "Login transferred. The agent has been notified."
+        "Signed in"
       ],
       "forbid": [
         "could not be transferred"
