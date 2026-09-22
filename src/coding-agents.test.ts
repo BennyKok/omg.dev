@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +7,8 @@ import {
   cleanAuthOutput,
   codingAgentVisible,
   getCodingAgentAuth,
+  getCodingAgentConfig,
+  markCodingAgentRequested,
   isLoginPending,
   codingAgentHasInstaller,
   listCodingAgents,
@@ -840,12 +842,25 @@ describe("pending login reporting", () => {
 
 describe("coding agent visibility", () => {
   test("defaults on when ready and off when not, and keeps an explicit hide", () => {
-    expect(codingAgentVisible(undefined, false)).toBe(false);
-    expect(codingAgentVisible(undefined, true)).toBe(true);
-    expect(codingAgentVisible(true, false)).toBe(false);
-    expect(codingAgentVisible(true, true)).toBe(true);
-    expect(codingAgentVisible(false, true)).toBe(false);
-    expect(codingAgentVisible(false, false)).toBe(false);
+    expect(codingAgentVisible("aisdk", undefined, false)).toBe(false);
+    expect(codingAgentVisible("aisdk", undefined, true)).toBe(true);
+    expect(codingAgentVisible("aisdk", true, false)).toBe(false);
+    expect(codingAgentVisible("aisdk", true, true)).toBe(true);
+    expect(codingAgentVisible("aisdk", false, true)).toBe(false);
+    expect(codingAgentVisible("aisdk", false, false)).toBe(false);
+  });
+
+  test("opencode is opt-in: ready is not enough, an explicit yes is", () => {
+    // The omg managed agent is the credential-free default now. A box that
+    // merely has the OpenCode CLI installed must not get it in the composer,
+    // because "installed" used to mean "selected for you" on every hosted
+    // Computer. Switching it on in Settings still works and still sticks.
+    expect(codingAgentVisible("opencode", undefined, true)).toBe(false);
+    expect(codingAgentVisible("opencode", true, true)).toBe(true);
+    expect(codingAgentVisible("opencode", true, false)).toBe(false);
+    expect(codingAgentVisible("opencode", false, true)).toBe(false);
+    // The managed agent keeps the ordinary ready-means-on rule.
+    expect(codingAgentVisible("omg", undefined, true)).toBe(true);
   });
 
   const savedEnv: Record<string, string | undefined> = {};
@@ -909,12 +924,27 @@ describe("coding agent visibility", () => {
     expect(grok?.visible).toBe(false);
   });
 
-  test("listCodingAgents turns a ready agent on when nothing is saved", async () => {
+  test("listCodingAgents leaves a ready opt-in agent off when nothing is saved", async () => {
+    // OpenCode is ready the moment its CLI exists — no account needed — which
+    // is exactly why it used to be selected for people who never asked for it.
+    // Ready is no longer enough for an opt-in kind.
     const { home } = useIsolatedBox();
     const bin = join(home, "opencode");
     writeFileSync(bin, "#!/bin/sh\nexit 0\n");
     chmodSync(bin, 0o755);
     setEnv("LFG_OPENCODE_PATH", bin);
+    const opencode = (await listCodingAgents()).find((agent) => agent.key === "opencode");
+    expect(opencode?.status.configured).toBe(true);
+    expect(opencode?.visible).toBe(false);
+  });
+
+  test("listCodingAgents turns an opt-in agent on once it is switched on", async () => {
+    const { home } = useIsolatedBox();
+    const bin = join(home, "opencode");
+    writeFileSync(bin, "#!/bin/sh\nexit 0\n");
+    chmodSync(bin, 0o755);
+    setEnv("LFG_OPENCODE_PATH", bin);
+    await setCodingAgentVisibility("opencode", true);
     const opencode = (await listCodingAgents()).find((agent) => agent.key === "opencode");
     expect(opencode?.status.configured).toBe(true);
     expect(opencode?.visible).toBe(true);
@@ -982,5 +1012,37 @@ describe("warmOpencodeDb", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("markCodingAgentRequested", () => {
+  const originalData = PATHS.data;
+  let tmpData = "";
+
+  beforeEach(() => {
+    tmpData = mkdtempSync(join(tmpdir(), "lfg-agent-request-"));
+    PATHS.data = tmpData;
+  });
+
+  afterEach(() => {
+    PATHS.data = originalData;
+    if (tmpData) {
+      rmSync(tmpData, { recursive: true, force: true });
+      tmpData = "";
+    }
+  });
+
+  test("an install request is the opt-in for a kind that needs one", async () => {
+    // Otherwise the two gestures disagree: someone picks OpenCode in
+    // onboarding, watches it install, and never sees it in the composer.
+    await markCodingAgentRequested("opencode");
+    expect((await getCodingAgentConfig()).agents.opencode?.visible).toBe(true);
+  });
+
+  test("leaves a kind that is already on by default untouched", async () => {
+    // Writing `true` here would turn a later explicit hide into a value this
+    // function silently overwrites on the next install.
+    await markCodingAgentRequested("omg");
+    expect((await getCodingAgentConfig()).agents.omg).toBeUndefined();
   });
 });

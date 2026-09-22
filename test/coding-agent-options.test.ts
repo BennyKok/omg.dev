@@ -27,7 +27,7 @@ describe("coding agent options", () => {
           status: { configured: true, accountConnected: false },
         },
       ],
-      "connected-or-opencode",
+      "connected-or-hosted",
     );
 
     expect(displayedAgentOption(catalog, visible, "opencode", "opencode")).toEqual(

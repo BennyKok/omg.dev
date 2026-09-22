@@ -644,7 +644,9 @@ import {
   AGENT_CATALOG,
   configuredAgentOptions,
   displayedAgentOption,
+  knownAgentKind,
   lockedAgentOptions,
+  reconcileSelectedAgent,
   resolveInitialAgent,
   scheduledAgentOptions,
   type AgentAccessMode,
@@ -1196,6 +1198,19 @@ type ModelCatalogItem = {
 };
 
 const ViewPrefsContext = createContext<ViewPrefs>(DEFAULT_VIEW_PREFS);
+
+/**
+ * Write a box-level setting from a surface that is not the Settings page.
+ *
+ * The composer needs exactly one of these: remembering the agent someone
+ * launched, so the choice survives a new device or a cleared webview instead
+ * of living only in this browser's localStorage. It is fire-and-forget on
+ * purpose — a failed write costs the cross-device memory of a preference,
+ * which is not worth a toast over the send the person actually asked for.
+ * The default no-op keeps every unwrapped consumer (tests, embedded stories)
+ * working without a provider.
+ */
+const SettingsWriteContext = createContext<(patch: Partial<GlobalSettings>) => void>(() => {});
 
 
 type TranscriptViewPreference = {
@@ -8014,12 +8029,15 @@ export function App() {
       repos: repos.map((repo) => ({ cwd: repo.cwd, project: repoProject(repo) })),
       fallbackCwd: localStorage.getItem("lfg_v2_repo"),
     });
-    const launchAgent = resolveInitialAgent(
-      localStorage.getItem("lfg_v2_agent"),
-      resolveInitialAgent(settings.defaultAgent, defaultAgent),
-    );
+    // Same order the composer uses: this browser, then the box's memory of the
+    // last agent someone launched, then the box default, then the host's.
+    const launchAgent =
+      knownAgentKind(localStorage.getItem("lfg_v2_agent")) ??
+      knownAgentKind(settings.lastAgent) ??
+      resolveInitialAgent(settings.defaultAgent, defaultAgent);
     const launchModel =
       localStorage.getItem(`lfg_model_${launchAgent}`) ||
+      (launchAgent === settings.lastAgent ? settings.lastModel : "") ||
       (launchAgent === settings.defaultAgent ? settings.defaultModel : "") ||
       localStorage.getItem("lfg_model") ||
       modelCatalog.defaults[launchAgent] ||
@@ -8071,6 +8089,15 @@ export function App() {
     setSettings(next);
     setSchedTz(next.timeZone);
   }, []);
+  // Fire-and-forget settings write for surfaces outside the Settings page.
+  // See SettingsWriteContext: losing one of these costs a remembered
+  // preference, never the action the person was actually taking.
+  const persistSetting = useCallback(
+    (patch: Partial<GlobalSettings>) => {
+      void updateSettings(patch).catch(() => {});
+    },
+    [updateSettings],
+  );
   // A hidden surface is not a destination. Land on Chat if the URL, a
   // shortcut, or a stale menu still names Bots or Schedules while it is off.
   useEffect(() => {
@@ -8814,7 +8841,7 @@ export function App() {
 
   return (
     <AgentAccessModeContext.Provider
-      value={embedded ? "connected-or-opencode" : "configured"}
+      value={embedded ? "connected-or-hosted" : "configured"}
     >
     <SessionRestoreContext.Provider value={restoreSession}>
     <CodingAgentsContext.Provider value={codingAgents}>
@@ -8823,6 +8850,7 @@ export function App() {
     <AskProvider>
     <UpdateProvider settings={settings} onSettingsChange={updateSettings}>
     <TranscriptViewContext.Provider value={transcriptViewPreference}>
+    <SettingsWriteContext.Provider value={persistSetting}>
     <ViewPrefsContext.Provider value={viewPrefs}>
     <RoleViewerContext.Provider value={roleViewerState}>
     <ArtifactViewerContext.Provider value={openArtifactViewer}>
@@ -9686,7 +9714,7 @@ export function App() {
             configuredAgentOptions(
               AGENT_CATALOG,
               codingAgents,
-              embedded ? "connected-or-opencode" : "configured",
+              embedded ? "connected-or-hosted" : "configured",
             ).map((o) => o.key),
           );
           const kind = (preference[usageKind] ?? [usageKind as AgentKind]).find((k) =>
@@ -9736,6 +9764,7 @@ export function App() {
     </ArtifactViewerContext.Provider>
     </RoleViewerContext.Provider>
     </ViewPrefsContext.Provider>
+    </SettingsWriteContext.Provider>
     </TranscriptViewContext.Provider>
     </UpdateProvider>
     </AskProvider>
@@ -22126,22 +22155,45 @@ function NewSessionDialog({
   // choice and the host's built-in default.
   const defaultAgent = resolveInitialAgent(view.defaultAgent, hostDefaultAgent);
   const defaultModelFor = (key: AgentKind) => catalog.defaults[key] ?? AGENT_DEFAULT_MODEL[key];
+  // The box's cross-device memory of the last model launched, which only
+  // answers for the agent it was launched with.
+  const lastModelFor = (key: AgentKind) => (key === view.lastAgent ? view.lastModel : "");
   // The model an agent starts on. With the model list hidden the box default
   // is the only choice, so it wins over anything this browser saved earlier;
   // otherwise the saved pick leads and the box default is the fallback.
   const preferredModelFor = (key: AgentKind) => {
     const boxDefault = key === view.defaultAgent && view.defaultModel ? view.defaultModel : "";
     if (!view.showComposerModels && boxDefault) return boxDefault;
-    return localStorage.getItem(`lfg_model_${key}`) || boxDefault || defaultModelFor(key);
+    return (
+      localStorage.getItem(`lfg_model_${key}`) ||
+      lastModelFor(key) ||
+      boxDefault ||
+      defaultModelFor(key)
+    );
   };
+  // The agent this person chose, if they ever have: this browser first, then
+  // the box's memory of the last agent launched here. Both hold explicit picks
+  // only (see the launch write below), so they outrank whatever the roster
+  // happens to list first. Null means nobody has chosen, and the composer is
+  // free to follow the box or host default.
+  const savedAgentChoice = (): AgentKind | null =>
+    knownAgentKind(localStorage.getItem("lfg_v2_agent")) ?? knownAgentKind(view.lastAgent);
   // With the agent picker hidden the box default is the only agent; the
   // browser's saved pick is ignored rather than silently launching something
   // the composer never showed.
-  const [agent, setAgent] = useState<AgentKind>(() =>
-    view.showComposerAgents
-      ? resolveInitialAgent(localStorage.getItem("lfg_v2_agent"), defaultAgent)
-      : defaultAgent,
+  const [agent, setAgent] = useState<AgentKind>(
+    () => (view.showComposerAgents ? savedAgentChoice() : null) ?? defaultAgent,
   );
+  // What the person actually asked for, as opposed to what is launchable right
+  // now. Only an explicit pick writes it, and it is restored the moment that
+  // agent can run again — see reconcileSelectedAgent. `undefined` is the
+  // one-time init marker, so the localStorage read happens once rather than on
+  // every render; `null` is the settled "nobody has picked".
+  const desiredAgentRef = useRef<AgentKind | null | undefined>(undefined);
+  if (desiredAgentRef.current === undefined) {
+    desiredAgentRef.current = view.showComposerAgents ? savedAgentChoice() : null;
+  }
+  const persistSetting = useContext(SettingsWriteContext);
   const [claudeAccountId, setClaudeAccountId] = useState("");
   // No role picker here. The server gives a new session the role of the
   // user it is tagged with (src/policy/roles.ts members); a member cannot
@@ -22151,10 +22203,25 @@ function NewSessionDialog({
     () =>
       (view.showComposerModels ? "" : preferredModelFor(agent)) ||
       localStorage.getItem(`lfg_model_${agent}`) ||
+      lastModelFor(agent) ||
       (agent === view.defaultAgent ? view.defaultModel : "") ||
       localStorage.getItem("lfg_model") ||
       defaultModelFor(agent),
   );
+  // The box's remembered choice travels with bootstrap, which can land after
+  // this composer has already mounted on its defaults. Adopt it once, and only
+  // while nobody has picked anything here: a local choice, saved or just
+  // tapped, always outranks what another device remembered.
+  useEffect(() => {
+    if (desiredAgentRef.current) return;
+    if (!view.showComposerAgents) return;
+    const remembered = knownAgentKind(view.lastAgent);
+    if (!remembered) return;
+    desiredAgentRef.current = remembered;
+    setAgent(remembered);
+    setModel(preferredModelFor(remembered));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view.lastAgent, view.showComposerAgents]);
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(
     () => savedThinkingLevel(),
   );
@@ -22760,13 +22827,21 @@ function NewSessionDialog({
   const selectedLaunchId =
     agent === "aisdk" && claudeAccountId ? `aisdk:${claudeAccountId}` : agent;
 
+  // Keep the selection on something this box can launch without overwriting
+  // what the person chose. The rules, and why they exist, live with
+  // reconcileSelectedAgent.
   useEffect(() => {
-    if (visibleAgentOptions.some((option) => option.key === agent)) return;
-    const next = visibleAgentOptions[0]?.key;
+    const next = reconcileSelectedAgent(
+      visibleAgentOptions,
+      agent,
+      desiredAgentRef.current ?? "",
+      defaultAgent,
+    ) as AgentKind | null;
     if (!next) return;
     setAgent(next);
-    setModel(localStorage.getItem(`lfg_model_${next}`) || defaultModelFor(next));
-  }, [agent, visibleAgentOptions]);
+    setModel(preferredModelFor(next));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agent, defaultAgent, visibleAgentOptions]);
 
   useEffect(() => {
     if (agent !== "aisdk") return;
@@ -22785,6 +22860,7 @@ function NewSessionDialog({
     if (!agentRequest) return;
     if (appliedAgentNonce.current === agentRequest.nonce) return;
     appliedAgentNonce.current = agentRequest.nonce;
+    desiredAgentRef.current = agentRequest.kind;
     setAgent(agentRequest.kind);
     if (agentRequest.kind === "aisdk") setClaudeAccountId(agentRequest.accountId ?? "");
     setModel(preferredModelFor(agentRequest.kind));
@@ -22849,7 +22925,15 @@ function NewSessionDialog({
       ),
     ]);
     setPendingCreates((n) => n + 1);
-    localStorage.setItem("lfg_v2_agent", launchAgent);
+    // Remember an agent only when it is the one the person picked. A launch on
+    // an agent this composer SUBSTITUTED (theirs was not launchable at that
+    // moment) must never become the new saved choice: that is how a single bad
+    // roster read used to pin a device to an agent nobody selected. The box
+    // copy is what carries the choice to their next device.
+    if (launchAgent === desiredAgentRef.current) {
+      localStorage.setItem("lfg_v2_agent", launchAgent);
+      persistSetting({ lastAgent: launchAgent, lastModel: launchModel });
+    }
     localStorage.setItem("lfg_v2_repo", selectedRepo);
     localStorage.setItem(`lfg_model_${launchAgent}`, launchModel);
     if (thinkingLevels.length) localStorage.setItem("lfg_thinking_level", launchThinkingLevel);
@@ -23004,6 +23088,7 @@ function NewSessionDialog({
     if ((next.selectorId ?? nextKey) === selectedLaunchId) return;
     setAgentIconDir(dir);
     setAgentIconNonce((n) => n + 1);
+    desiredAgentRef.current = nextKey;
     setAgent(nextKey);
     if (nextKey === "aisdk") setClaudeAccountId(next.accountId ?? "");
     setModel(preferredModelFor(nextKey));
@@ -23035,6 +23120,7 @@ function NewSessionDialog({
       onExpandedChange?.(false);
       return;
     }
+    desiredAgentRef.current = key;
     setAgent(key);
     if (key === "aisdk") setClaudeAccountId(option?.accountId ?? "");
     setModel(preferredModelFor(key));

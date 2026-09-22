@@ -56,6 +56,17 @@ export const AGENT_CATALOG: readonly AgentCatalogEntry[] = [
 const AGENT_KEYS = new Set<AgentKind>(AGENT_CATALOG.map((entry) => entry.key));
 
 /**
+ * The catalog key this value names, or null when it names none.
+ *
+ * Separate from resolveInitialAgent so a caller can try several saved sources
+ * in order (this browser, then the box's cross-device memory, then the box
+ * default) without each miss collapsing into the final fallback.
+ */
+export function knownAgentKind(value: string | null | undefined): AgentKind | null {
+  return value && AGENT_KEYS.has(value as AgentKind) ? (value as AgentKind) : null;
+}
+
+/**
  * Use a saved agent when it is valid. Otherwise, use the default selected by
  * the host. This keeps the host default in one place for every launch path.
  */
@@ -63,9 +74,7 @@ export function resolveInitialAgent(
   savedAgent: string | null,
   defaultAgent: AgentKind,
 ): AgentKind {
-  return savedAgent && AGENT_KEYS.has(savedAgent as AgentKind)
-    ? (savedAgent as AgentKind)
-    : defaultAgent;
+  return knownAgentKind(savedAgent) ?? defaultAgent;
 }
 
 /** The catalog subset a scheduled auto agent can actually run. */
@@ -101,7 +110,22 @@ export type CodingAgentAvailability = {
   status: { configured: boolean; accountConnected?: boolean };
 };
 
-export type AgentAccessMode = "configured" | "connected-or-opencode";
+/**
+ * How strictly a surface narrows the roster.
+ *
+ * "configured": anything this box has installed and switched on.
+ * "connected-or-hosted": a hosted/embedded surface, where the runtime's own
+ * proxy keys are not user-owned access. An agent has to carry a real account,
+ * with two exemptions that need no credential of their own: the omg managed
+ * agent, which the hosted Computer provides, and OpenCode, whose free Zen
+ * tier runs with no key at all. OpenCode still has to be switched on first —
+ * it is opt-in now (see codingAgentVisible), so this exemption only reaches
+ * someone who asked for it.
+ */
+export type AgentAccessMode = "configured" | "connected-or-hosted";
+
+/** Agents a hosted surface may offer without a user-owned account. */
+const HOSTED_CREDENTIAL_FREE = new Set<string>(["omg", "opencode"]);
 
 /**
  * Resolve the agent icon/label while the configured roster is still loading.
@@ -125,6 +149,40 @@ export function displayedAgentOption<T extends { key: string; selectorId?: strin
   );
 }
 
+/**
+ * Which agent a picker should be on, given what it can launch right now.
+ * Returns null to mean "leave the selection alone".
+ *
+ * This used to be inline in the composer as "not launchable -> take the first
+ * option", and it is the reason a hosted Computer kept landing people on an
+ * agent they never picked. The roster is not a stable fact: it is empty before
+ * bootstrap, it changes while a CLI installs, and an agent can read as
+ * not-connected for a moment on a cold load. Every one of those windows looked
+ * identical to "your agent is gone", so the pick was replaced — and the
+ * replacement was then saved over the original at launch, making one bad read
+ * permanent on that device.
+ *
+ * Three rules, in order:
+ * 1. An empty roster means NOT LOADED, never "nothing is available".
+ * 2. What the person actually chose wins the moment it can run, so a transient
+ *    gap heals itself instead of costing them the choice.
+ * 3. A substitution prefers the box default over the head of the list, which
+ *    is an ordering accident rather than anybody's decision.
+ */
+export function reconcileSelectedAgent(
+  options: readonly { key: string }[],
+  selected: string,
+  desired: string,
+  fallback: string,
+): string | null {
+  if (!options.length) return null;
+  const launchable = (key: string) => !!key && options.some((option) => option.key === key);
+  if (launchable(desired)) return desired === selected ? null : desired;
+  if (launchable(selected)) return null;
+  const next = launchable(fallback) ? fallback : options[0]?.key;
+  return next && next !== selected ? next : null;
+}
+
 /** Keep agent pickers limited to choices that can actually launch. */
 export function configuredAgentOptions<
   T extends { key: string },
@@ -135,11 +193,13 @@ export function configuredAgentOptions<
 ): T[] {
   // Before bootstrap has returned, preserve the existing choices to avoid a
   // loading-state flash. Hosted surfaces are the exception: their runtime
-  // proxy keys are not user-owned access, so only the anonymous OpenCode path
-  // is safe to advertise until account state arrives.
+  // proxy keys are not user-owned access, so only the credential-free agents
+  // are safe to advertise until account state arrives. That used to be
+  // OpenCode alone, which is how a hosted box with a saved omg selection got
+  // snapped onto OpenCode and its deepseek default on every cold load.
   if (codingAgents === undefined) {
-    return accessMode === "connected-or-opencode"
-      ? options.filter((option) => option.key === "opencode")
+    return accessMode === "connected-or-hosted"
+      ? options.filter((option) => HOSTED_CREDENTIAL_FREE.has(option.key))
       : [...options];
   }
   const available = new Set(
@@ -149,7 +209,7 @@ export function configuredAgentOptions<
           agent.visible &&
           agent.status.configured &&
           (accessMode === "configured" ||
-            agent.key === "opencode" ||
+            HOSTED_CREDENTIAL_FREE.has(agent.key) ||
             agent.status.accountConnected === true),
       )
       .map((agent) => agent.key),

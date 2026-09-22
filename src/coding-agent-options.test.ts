@@ -36,7 +36,7 @@ describe("configuredAgentOptions", () => {
       { key: "aisdk", visible: true, status: { configured: true, accountConnected: false } },
       { key: "codex-aisdk", visible: true, status: { configured: true, accountConnected: false } },
       { key: "opencode", visible: true, status: { configured: true, accountConnected: false } },
-    ], "connected-or-opencode")).toEqual([{ key: "opencode", label: "opencode" }]);
+    ], "connected-or-hosted")).toEqual([{ key: "opencode", label: "opencode" }]);
   });
 
   test("adds hosted agents only after their user-owned account is connected", () => {
@@ -44,14 +44,14 @@ describe("configuredAgentOptions", () => {
       { key: "aisdk", visible: true, status: { configured: true, accountConnected: true } },
       { key: "codex-aisdk", visible: true, status: { configured: true, accountConnected: false } },
       { key: "opencode", visible: true, status: { configured: true, accountConnected: false } },
-    ], "connected-or-opencode")).toEqual([
+    ], "connected-or-hosted")).toEqual([
       { key: "aisdk", label: "claude" },
       { key: "opencode", label: "opencode" },
     ]);
   });
 
   test("does not flash account-backed agents while hosted availability loads", () => {
-    expect(configuredAgentOptions(options, undefined, "connected-or-opencode")).toEqual([
+    expect(configuredAgentOptions(options, undefined, "connected-or-hosted")).toEqual([
       { key: "opencode", label: "opencode" },
     ]);
   });
@@ -89,7 +89,7 @@ describe("lockedAgentOptions", () => {
           },
           { key: "opencode", visible: true, status: { configured: true, accountConnected: false } },
         ],
-        "connected-or-opencode",
+        "connected-or-hosted",
       ),
     ).toEqual([
       { key: "aisdk", label: "claude" },
@@ -110,7 +110,7 @@ describe("lockedAgentOptions", () => {
           },
           { key: "opencode", visible: true, status: { configured: true, accountConnected: true } },
         ],
-        "connected-or-opencode",
+        "connected-or-hosted",
       ).map((option) => option.key),
     ).toEqual(["codex-aisdk"]);
   });
@@ -138,7 +138,7 @@ describe("lockedAgentOptions", () => {
           },
           { key: "opencode", visible: true, status: { configured: true, accountConnected: false } },
         ],
-        "connected-or-opencode",
+        "connected-or-hosted",
       ).map((option) => option.key),
     ).toEqual(["codex-aisdk"]);
   });
@@ -159,7 +159,7 @@ describe("lockedAgentOptions", () => {
     // locked before every bootstrap, and would strand a signed-out demo
     // surface (empty collections by design) on five agents it cannot connect.
     for (const loading of [undefined, []]) {
-      expect(lockedAgentOptions(options, loading, "connected-or-opencode")).toEqual([]);
+      expect(lockedAgentOptions(options, loading, "connected-or-hosted")).toEqual([]);
       expect(lockedAgentOptions(options, loading)).toEqual([]);
     }
   });
@@ -173,7 +173,7 @@ describe("lockedAgentOptions", () => {
         visible: true,
         status: { configured: true, accountConnected: false },
       })),
-      "connected-or-opencode",
+      "connected-or-hosted",
     ).map((option) => option.key);
     expect(locked).not.toContain("pi");
     expect(locked).not.toContain("copilot");

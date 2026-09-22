@@ -482,6 +482,7 @@ import {
   getCodingAgentAuth,
   getCodingAgentSetupLog,
   loginCommandFor,
+  markCodingAgentRequested,
   pendingCodingAgentLogins,
   registerClaudeMcpForAccount,
   runCodingAgentSetup,
@@ -5350,6 +5351,25 @@ a{color:#60a5fa}
               return err(400, `defaultModel must be a string of ${DEFAULT_MODEL_MAX_LENGTH} characters or fewer`);
             patch.defaultModel = b.defaultModel;
           }
+          // The composer's own memory of the last agent the person launched.
+          // Same shapes as defaultAgent/defaultModel, separate field: see the
+          // note on lastAgent in settings.ts for why it does not write the
+          // owner's explicit default.
+          if (b?.lastAgent !== undefined) {
+            if (
+              typeof b.lastAgent !== "string" ||
+              b.lastAgent.length > DEFAULT_AGENT_KEY_MAX_LENGTH ||
+              !/^[a-z0-9-]*$/i.test(b.lastAgent)
+            ) {
+              return err(400, "lastAgent must be an agent key (letters, digits, dashes) or empty");
+            }
+            patch.lastAgent = b.lastAgent;
+          }
+          if (b?.lastModel !== undefined) {
+            if (typeof b.lastModel !== "string" || b.lastModel.length > DEFAULT_MODEL_MAX_LENGTH)
+              return err(400, `lastModel must be a string of ${DEFAULT_MODEL_MAX_LENGTH} characters or fewer`);
+            patch.lastModel = b.lastModel;
+          }
           // One explicit branch per switch: settings-validation.test.ts reads
           // this handler for a `patch.<field> =` per GlobalSettings key.
           if (b?.showSidebarAgentIcons !== undefined) {
@@ -5564,6 +5584,8 @@ a{color:#60a5fa}
           }
           const kinds = [...new Set(b.kinds)];
           if (!kinds.every(isCodingAgentKind)) return err(404, "unknown coding agent");
+          // Asking for an agent by name is the opt-in for a kind that needs one.
+          for (const kind of kinds) await markCodingAgentRequested(kind);
           void runCodingAgentSetups(kinds).catch((e) =>
             console.error(`[coding-agents] batch setup failed:`, e),
           );
@@ -5588,6 +5610,7 @@ a{color:#60a5fa}
         if (m && req.method === "POST") {
           const kind = m[1];
           if (!isCodingAgentKind(kind)) return err(404, "unknown coding agent");
+          await markCodingAgentRequested(kind);
           void runCodingAgentSetup(kind).catch((e) =>
             console.error(`[coding-agents] ${kind} setup failed:`, e),
           );
