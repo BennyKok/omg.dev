@@ -95,3 +95,18 @@ test("keeps a saved profile while the roster is unavailable, but drops a deleted
   expect(reconcileUserFilter("ada@example.com", [], true)).toBe("__all");
   expect(reconcileUserFilter("ada@example.com", [{ email: "ada@example.com" }], true)).toBe("ada@example.com");
 });
+
+describe("composerDefaultOwner", () => {
+  test("the selected profile wins over the list filter", async () => {
+    const { composerDefaultOwner } = await import("./user-filter");
+    expect(composerDefaultOwner("benny@example.com", "angel@example.com")).toBe("benny@example.com");
+    expect(composerDefaultOwner("benny@example.com", "__all")).toBe("benny@example.com");
+  });
+
+  test("without a profile, only a concrete filter names an owner", async () => {
+    const { composerDefaultOwner } = await import("./user-filter");
+    expect(composerDefaultOwner(null, "angel@example.com")).toBe("angel@example.com");
+    expect(composerDefaultOwner(null, "__all")).toBe("");
+    expect(composerDefaultOwner(null, "__unassigned")).toBe("");
+  });
+});

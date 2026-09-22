@@ -57,3 +57,14 @@ export function reconcileUserFilter(value: string, users: readonly { email: stri
   if (!ready || value === "__all" || value === "__unassigned") return value;
   return users.some((user) => user.email === value) ? value : "__all";
 }
+
+/**
+ * The owner a new session defaults to: the selected profile (the header's
+ * "who are you"). The list filter only answers "whose sessions am I looking
+ * at", so it is used only when this browser has no profile, as on a hosted
+ * surface. "All" and "Unassigned" name nobody.
+ */
+export function composerDefaultOwner(identity: string | null, filter: string): string {
+  if (identity) return identity;
+  return filter === "__all" || filter === "__unassigned" ? "" : filter;
+}
