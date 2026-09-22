@@ -47,6 +47,28 @@ test("hosted proxy environment writes the guest provider without credentials", (
   expect(existsSync(configPath())).toBe(false);
 });
 
+test("hosted omg launch installs MCP into the active JSONC config", () => {
+  const command = ["/usr/bin/bun", "/opt/omg/src/cli.ts", "mcp"];
+  const opts = {
+    ...options(),
+    env: { OMG_AI_URL: "http://169.254.0.1:9090" },
+    mcpCommand: command,
+  };
+  const guest = join(home, ".config/opencode/opencode.jsonc");
+  put(guest, JSON.stringify({
+    mcp: { lfg: { type: "local", command: ["old"], enabled: true }, custom: { enabled: true } },
+    provider: { omg: { options: {}, models: {} } },
+  }));
+
+  ensureOmgProvider(opts);
+
+  const written = JSON.parse(readFileSync(guest, "utf8"));
+  expect(written.mcp.lfg).toBeUndefined();
+  expect(written.mcp.custom).toEqual({ enabled: true });
+  expect(written.mcp.omg).toEqual({ type: "local", command, enabled: true });
+  expect(existsSync(configPath())).toBe(false);
+});
+
 test("hosted proxy environment leaves a complete guest config alone", () => {
   const opts = { ...options(), env: { OMG_AI_URL: "http://169.254.0.1:9090" } };
   const guest = join(home, ".config/opencode/opencode.jsonc");
