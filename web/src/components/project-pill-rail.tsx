@@ -1,9 +1,25 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
+
+export type ProjectPill = {
+  value: string;
+  /** Shown on the pill, and used as its title and accessible name. */
+  label: string;
+  /**
+   * Draw a square icon pill instead of the label.
+   *
+   * Only the no-project scope uses this, and it matches iOS, where the same
+   * scope is a 34pt round plus at the head of the rail. A rail of folder
+   * names with one entry that is not a folder name reads as a folder called
+   * "No project"; the plus reads as "start something that has no folder yet",
+   * which is what it does.
+   */
+  icon?: "plus";
+};
 
 /** A scrollable view of the shell's project filter; owns no selection state. */
 export function ProjectPillRail({ projects, value, onChange }: {
-  projects: { value: string; label: string }[];
+  projects: ProjectPill[];
   value: string;
   onChange: (value: string) => void;
 }) {
@@ -57,12 +73,13 @@ export function ProjectPillRail({ projects, value, onChange }: {
         <div ref={viewport} onScroll={measure}
           className="overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <div ref={content} className="flex w-max items-center gap-2 px-2 py-1">
-            {[{ value: "__all", label: "All" }, ...projects].map((project) => (
+            {[{ value: "__all", label: "All" } as ProjectPill, ...projects].map((project) => (
               <button key={project.value} type="button" aria-pressed={value === project.value}
-                title={project.label} onClick={() => onChange(project.value)}
+                title={project.label} aria-label={project.icon ? project.label : undefined}
+                onClick={() => onChange(project.value)}
                 onFocus={(event) => reveal(event.currentTarget)}
-                className={`h-[34px] max-w-[180px] shrink-0 truncate rounded-full border px-3.5 text-[13px] font-semibold outline-offset-2 focus-visible:outline-2 focus-visible:outline-primary ${value === project.value ? "border-[var(--border-strong)] bg-card text-foreground" : "border-transparent bg-secondary text-muted-foreground hover:text-foreground"}`}>
-                {project.label}
+                className={`h-[34px] shrink-0 rounded-full border outline-offset-2 focus-visible:outline-2 focus-visible:outline-primary ${project.icon ? "flex w-[34px] items-center justify-center" : "max-w-[180px] truncate px-3.5 text-[13px] font-semibold"} ${value === project.value ? "border-[var(--border-strong)] bg-card text-foreground" : "border-transparent bg-secondary text-muted-foreground hover:text-foreground"}`}>
+                {project.icon === "plus" ? <Plus className="size-4" /> : project.label}
               </button>
             ))}
           </div>
