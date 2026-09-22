@@ -78,7 +78,8 @@ describe("project creation", () => {
         "lucide-react-native": "^1.47.0",
         "@omg-dev/schema": "^0.4.45",
       },
-      devDependencies: { "@expo/ngrok": "4.1.3", "@omg-dev/vite-plugin": "^0.4.45" },
+      scripts: { preview: "expo start --go --web --host lan --port 8081" },
+      devDependencies: { "@omg-dev/vite-plugin": "^0.4.45" },
       omg: { clientBuild: "prebuilt" },
     });
     expect(JSON.parse(readFileSync(join(repo.cwd, "app.json"), "utf8"))).toMatchObject({

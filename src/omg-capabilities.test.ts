@@ -177,12 +177,12 @@ describe("omg.dev runtime capabilities", () => {
     ]);
   });
 
-  test("makes the sandbox proxy the first web preview path", () => {
+  test("makes the sandbox proxy the Expo Go path", () => {
     const preview = OMG_CAPABILITIES.find((item) => item.tool === "omg_expose_port");
-    expect(preview?.guidance).toContain("exact port");
-    expect(preview?.guidance).toContain("before trying any other exposure method");
-    expect(preview?.guidance).toContain("Expo's tunnel is a separate native Expo Go path");
-    expect(OMG_MCP_INSTRUCTIONS).toContain("pass its exact port to omg_expose_port before trying another exposure method");
+    expect(preview?.guidance).toContain("expoGo:true");
+    expect(preview?.guidance).toContain("EXPO_PACKAGER_PROXY_URL");
+    expect(preview?.guidance).toContain("Do not use Expo tunnel");
+    expect(OMG_MCP_INSTRUCTIONS).toContain("prepare the Metro port with expoGo:true");
   });
 
   test("keeps visual display tools without registering omg_output", () => {

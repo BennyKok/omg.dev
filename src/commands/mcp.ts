@@ -1155,20 +1155,21 @@ export function buildOmgMcpServer(): McpServer {
     {
       title: "Show A Live Sandbox Preview",
       description:
-        "Expose a live HTTP development server on this omg.dev Cloud Computer and create a preview card in the current session. Start one server on 0.0.0.0, verify its exact port, and call this before trying another exposure method. This is temporary and owner-only; it is not omg_deploy or a native Expo build.",
+        "Expose a development port through the omg.dev sandbox proxy and create a preview card. For Expo Go, call with expoGo:true before Metro starts, then start Metro with the returned expoGo.proxyUrl as EXPO_PACKAGER_PROXY_URL and share expoGo.url. Both URLs are temporary.",
       inputSchema: {
         port: z.number().int().min(1).max(65_535).optional().describe("Development server port. Defaults to 5173."),
         title: z.string().max(120).optional().describe("Short label for the preview card."),
+        expoGo: z.boolean().optional().describe("Prepare a short-lived Expo Go URL before Metro starts."),
         sessionId: z.string().optional().describe("Owning session. Defaults to OMG_SESSION_ID."),
       },
     },
-    async ({ port, title, sessionId }) => {
+    async ({ port, title, expoGo, sessionId }) => {
       const sid = await activeSessionId(sessionId);
       return result(
         await api("/api/project-preview", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sessionId: sid, port: port ?? 5173, title }),
+          body: JSON.stringify({ sessionId: sid, port: port ?? (expoGo ? 8081 : 5173), title, expoGo: expoGo === true }),
         }),
       );
     },

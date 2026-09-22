@@ -4,7 +4,7 @@ import { DEFAULT_MAX_BOT_SCHEDULES } from "./settings.ts";
 // Bump whenever an agent-facing omg.dev capability or its operating guidance
 // changes. Managed sessions persist the value they launched with, which lets
 // the UI identify long-lived sessions whose MCP/tool catalog predates a ship.
-export const OMG_CAPABILITY_VERSION = "2026-09-22.2";
+export const OMG_CAPABILITY_VERSION = "2026-09-22.3";
 
 export const OMG_CAPABILITIES = [
   {
@@ -39,7 +39,7 @@ export const OMG_CAPABILITIES = [
     tool: "omg_expose_port",
     useWhen: "A live HTTP development server in an omg.dev Cloud Computer should appear as a preview card.",
     guidance:
-      "Start the server once on 0.0.0.0, verify its exact port is listening, then expose that port before trying any other exposure method. Use only the returned URL for the web preview. The URL is temporary and owner-only. Expo's tunnel is a separate native Expo Go path, not a web-preview fallback.",
+      "For web previews, start one server on 0.0.0.0 and expose its exact port. For Expo Go, choose a free Metro port and call with expoGo:true before Metro starts. Start Metro with EXPO_PACKAGER_PROXY_URL set to expoGo.proxyUrl, then give the user expoGo.url. Do not use Expo tunnel, exp.direct, ngrok, or LAN exposure.",
   },
   {
     tool: "omg_display_image / omg_display_video / omg_display_file",
@@ -96,7 +96,7 @@ export const OMG_MCP_INSTRUCTIONS = [
   "In a task session, publish every verified result with omg_ship; work that is never shipped never reaches the human. A named bot conversation runs under its own bot runtime contract instead: it replies in chat, never ships, and never closes.",
   "Decide autonomously; use omg_input only for a genuinely irreversible, risky, or ambiguous decision. Use omg.dev-managed delegation only when delegation is explicitly requested.",
   "Recurring scheduled work belongs to the auto agent tools (omg_list_auto_agents, omg_compose_auto_agent, omg_save_auto_agent, omg_run_auto_agent, omg_list_findings).",
-  "Hosted apps use omg_deploy, omg_apps, omg_whoami, and omg_app_visibility. For a live Cloud Computer preview, start one server on 0.0.0.0 and pass its exact port to omg_expose_port before trying another exposure method. The runtime supplies the Cloud credential.",
+  "Hosted apps use omg_deploy, omg_apps, omg_whoami, and omg_app_visibility. For a live Cloud Computer preview, use omg_expose_port. For Expo Go, prepare the Metro port with expoGo:true and use the returned sandbox proxy URL. The runtime supplies the Cloud credential.",
   `Session ids are returned in short form (${SHORT_SESSION_ID_LENGTH}-char prefix, like a git short sha). Pass them back exactly as given — any unambiguous prefix resolves to the full id.`,
 ].join(" ");
 
