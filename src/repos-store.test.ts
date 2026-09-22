@@ -71,19 +71,26 @@ describe("project creation", () => {
     expect(JSON.parse(readFileSync(join(repo.cwd, "package.json"), "utf8"))).toMatchObject({
       name: "pocket-kitchen",
       main: "expo-router/entry",
-      dependencies: { expo: "~57.0.24", "expo-router": "~57.0.22" },
-      devDependencies: { "@expo/ngrok": "4.1.3" },
+      dependencies: {
+        expo: "~57.0.24",
+        "expo-router": "~57.0.22",
+        "expo-glass-effect": "~57.0.3",
+        "lucide-react-native": "^1.47.0",
+        "@omg-dev/schema": "^0.4.45",
+      },
+      devDependencies: { "@expo/ngrok": "4.1.3", "@omg-dev/vite-plugin": "^0.4.45" },
+      omg: { clientBuild: "prebuilt" },
     });
     expect(JSON.parse(readFileSync(join(repo.cwd, "app.json"), "utf8"))).toMatchObject({
-      expo: { name: "Pocket Kitchen", slug: "pocket-kitchen", web: { output: "server" } },
+      expo: { name: "Pocket Kitchen", slug: "pocket-kitchen", web: { output: "static" } },
     });
     expect(JSON.parse(readFileSync(join(repo.cwd, ".omg/template.json"), "utf8"))).toEqual({
       name: "expo",
       version: 1,
     });
-    expect(readFileSync(join(repo.cwd, "src/app/health+api.ts"), "utf8")).toContain("pocket-kitchen");
-    expect(readFileSync(join(repo.cwd, "src/app/index.tsx"), "utf8")).toContain("Pocket Kitchen");
+    expect(readFileSync(join(repo.cwd, "README.md"), "utf8")).toContain("Pocket Kitchen");
     expect(git(repo.cwd, "show", "HEAD:package.json")).toContain('"expo-router"');
+    expect(git(repo.cwd, "show", "HEAD:schema.ts")).toContain("tasks: collection");
     expect(git(repo.cwd, "status", "--short")).toBe("");
   });
 

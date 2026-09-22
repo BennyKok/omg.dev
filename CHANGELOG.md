@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## September 22, 2026 - A useful Expo app from the first message (v0.6.105)
+
+- New app projects start as a working todo app with Lucide icons and native Liquid Glass on supported iPhones.
+- The todo list uses the omg.dev database. The same data works in the hosted Expo Web app and in Expo Go.
+- The project skill now guides the agent through the web deploy, the Expo Go QR code, and the native API URL setup.
+- Apple Sign In stays optional because it requires an Apple Developer account, an app identifier, and a native development build.
+
 ## September 22, 2026 - The composer keeps the agent you chose (v0.6.104)
 
 - The composer no longer replaces your selected agent when the agent list is still loading or is briefly incomplete. Your choice is restored as soon as that agent can run again.
