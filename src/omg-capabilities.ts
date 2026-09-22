@@ -4,7 +4,7 @@ import { DEFAULT_MAX_BOT_SCHEDULES } from "./settings.ts";
 // Bump whenever an agent-facing omg.dev capability or its operating guidance
 // changes. Managed sessions persist the value they launched with, which lets
 // the UI identify long-lived sessions whose MCP/tool catalog predates a ship.
-export const OMG_CAPABILITY_VERSION = "2026-09-21.3";
+export const OMG_CAPABILITY_VERSION = "2026-09-22.1";
 
 export const OMG_CAPABILITIES = [
   {
@@ -34,6 +34,12 @@ export const OMG_CAPABILITIES = [
     useWhen: "A project folder must be published to omg Infra, listed, or have its URL visibility changed.",
     guidance:
       "These verbs inherit the runtime Cloud credential. A local box uses ~/.omg/credentials.json. A Cloud Computer gets the binding token from Infra. Do not ask the user to paste a token. omg_ship is a feed post, not a deploy.",
+  },
+  {
+    tool: "omg_expose_port",
+    useWhen: "A live web or Expo Web development server in an omg.dev Cloud Computer should appear as a preview card.",
+    guidance:
+      "Start the server on 0.0.0.0:5173, verify it is listening, then expose it. The returned URL is temporary and owner-only. This is a live sandbox preview, not omg_deploy, a public link, Expo Go, TestFlight, or an app-store release.",
   },
   {
     tool: "omg_display_image / omg_display_video / omg_display_file",
@@ -90,7 +96,7 @@ export const OMG_MCP_INSTRUCTIONS = [
   "In a task session, publish every verified result with omg_ship; work that is never shipped never reaches the human. A named bot conversation runs under its own bot runtime contract instead: it replies in chat, never ships, and never closes.",
   "Decide autonomously; use omg_input only for a genuinely irreversible, risky, or ambiguous decision. Use omg.dev-managed delegation only when delegation is explicitly requested.",
   "Recurring scheduled work belongs to the auto agent tools (omg_list_auto_agents, omg_compose_auto_agent, omg_save_auto_agent, omg_run_auto_agent, omg_list_findings).",
-  "Hosted apps use omg_deploy, omg_apps, omg_whoami, and omg_app_visibility; the runtime supplies the Cloud credential.",
+  "Hosted apps use omg_deploy, omg_apps, omg_whoami, and omg_app_visibility. Live Cloud Computer previews use omg_expose_port after a server is listening on 0.0.0.0:5173. The runtime supplies the Cloud credential.",
   `Session ids are returned in short form (${SHORT_SESSION_ID_LENGTH}-char prefix, like a git short sha). Pass them back exactly as given — any unambiguous prefix resolves to the full id.`,
 ].join(" ");
 
