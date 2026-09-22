@@ -31,3 +31,45 @@ export function cacheProjectFilter(
     // current page still keeps the selection in React state.
   }
 }
+
+/**
+ * The filter value for chats that were started without a project.
+ *
+ * It cannot be the empty string the server stores on the session, because
+ * `readCachedProjectFilter` reads "" back as "no saved value" and falls to
+ * "__all". It also cannot be a real project key, so it carries the same
+ * "__"-prefix as "__all". It matches the group key `groupNodesByProject`
+ * already uses for the folder-less group, so the rail group header and the
+ * filter pill name the same thing.
+ */
+export const NO_PROJECT_FILTER = "__no_project";
+
+/** What the no-project filter is called in the rail, the menu and the sheet. */
+export const NO_PROJECT_FILTER_LABEL = "No project";
+
+/**
+ * Does this session belong in the list the current filter is showing?
+ *
+ * The no-project filter matches ONLY an explicit empty project. A legacy row
+ * has no project field at all and still falls back to its working directory
+ * (see docs/no-project-chat.md), so folding `undefined` in here would drag
+ * every pre-project session into a list of scratch chats.
+ */
+export function sessionMatchesProjectFilter(
+  session: { project?: string | null },
+  projectFilter: string,
+): boolean {
+  if (projectFilter === "__all") return true;
+  if (projectFilter === NO_PROJECT_FILTER) return session.project === "";
+  return session.project === projectFilter;
+}
+
+/** The label for one entry of the project filter, sentinels included. */
+export function projectFilterLabel(
+  value: string,
+  shortProject: (project: string) => string,
+): string {
+  if (value === "__all") return "All projects";
+  if (value === NO_PROJECT_FILTER) return NO_PROJECT_FILTER_LABEL;
+  return shortProject(value);
+}

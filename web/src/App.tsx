@@ -71,7 +71,15 @@ import {
   type ComputerVersionState,
   type VersionRelation,
 } from "./lib/version-diagnostics";
-import { cacheProjectFilter, readCachedProjectFilter } from "./lib/project-filter";
+import {
+  cacheProjectFilter,
+  NO_PROJECT_FILTER,
+  NO_PROJECT_FILTER_LABEL,
+  projectFilterLabel,
+  readCachedProjectFilter,
+  sessionMatchesProjectFilter,
+} from "./lib/project-filter";
+import { ChatStarterRow } from "./components/chat-starter-row";
 import { groupNodesByProject, type ProjectGroup } from "./lib/session-groups";
 import { pathnameToSessionId, sessionToPath } from "./lib/app-search";
 import {
@@ -6618,6 +6626,27 @@ export function App() {
 
   // Pull auto agents + open findings. New findings (after the first load) raise
   // a toast in the live view.
+  /**
+   * Re-read the project roster.
+   *
+   * An agent can register a project while this page stays open: a chat with no
+   * project calls omg_create_project, the server adds the folder to the repo
+   * store, and nothing tells us. Before this, the new project stayed invisible
+   * until a full reload — no live event carries the roster (the status channel
+   * is nine session fields) and `/api/bootstrap` runs only on mount. iOS
+   * re-probes on screen focus and on app foreground for exactly this reason.
+   *
+   * This reads `/api/repos` rather than calling `loadCore()`. It is the same
+   * list from the same server owner (measured identical to `bootstrap.repos`),
+   * at 1.4 KB against the 247 KB of a bootstrap payload that also rebuilds
+   * identity, onboarding, bots and findings. `sameJson` keeps the array's
+   * identity when nothing changed, so the ordinary case re-renders nothing.
+   */
+  const refreshRepos = useCallback(async () => {
+    const payload = await api<{ repos: Repo[] }>("/api/repos");
+    setRepos((prev) => sameJson(prev, payload.repos ?? []));
+  }, []);
+
   const refreshAuto = useCallback(async () => {
     const [ag, fd] = await Promise.all([
       api<{ agents: AutoAgent[]; tz?: string }>("/api/auto/agents"),
@@ -6918,6 +6947,12 @@ export function App() {
       refreshSessionPins().catch(() => {});
       refreshAuto().catch(() => {});
       refreshBots().catch(() => {});
+      // Rides this cycle instead of a focus listener of its own. On a phone
+      // iOS can wait for focus, because the project rail is only on Home and
+      // you leave the chat to reach it. On the web the rail sits beside the
+      // open chat, so "when the user returns" never happens: they watch the
+      // agent create the project with the stale rail in view.
+      refreshRepos().catch(() => {});
     };
     const cycle = () => {
       cyclesSinceTick += 1;
@@ -6949,7 +6984,7 @@ export function App() {
       stop();
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [refreshSessions, refreshSessionPins, refreshAuto, refreshBots]);
+  }, [refreshSessions, refreshSessionPins, refreshAuto, refreshBots, refreshRepos]);
 
   // Refresh the user roster when the tab regains focus. The roster rarely
   // changes, so it isn't worth the 5s poll above — but avatars carry a
@@ -7050,17 +7085,21 @@ export function App() {
     [allLiveSessions, userFilter],
   );
 
-  const projectOptions = useMemo(
-    () =>
-      Array.from(
-        new Set([
-          ...repos.map((repo) => repoProject(repo)),
-          ...autoAgents.map((agent) => autoAgentProject(agent, repos)),
-          ...userScopedSessions.map((s) => s.project).filter((p): p is string => !!p),
-        ]),
-      ).sort((a, b) => shortProject(a).localeCompare(shortProject(b))),
-    [autoAgents, repos, userScopedSessions],
-  );
+  const projectOptions = useMemo(() => {
+    const folders = Array.from(
+      new Set([
+        ...repos.map((repo) => repoProject(repo)),
+        ...autoAgents.map((agent) => autoAgentProject(agent, repos)),
+        ...userScopedSessions.map((s) => s.project).filter((p): p is string => !!p),
+      ]),
+    ).sort((a, b) => shortProject(a).localeCompare(shortProject(b)));
+    // First, and never sorted in among the folders, because it is not one.
+    // iOS leads its rail with the same entry. Last is where this started, and
+    // with sixteen folders that put the only way to start a no-folder chat off
+    // the end of a scroller. It is offered even when no unassigned chat exists
+    // yet, because starting one is its whole job.
+    return [NO_PROJECT_FILTER, ...folders];
+  }, [autoAgents, repos, userScopedSessions]);
   const mobileProjectOptions = useMemo(
     () => projectOptions,
     [projectOptions],
@@ -7077,7 +7116,9 @@ export function App() {
 
   const liveSessions = useMemo(() => {
     if (projectFilter === "__all") return userScopedSessions;
-    return userScopedSessions.filter((session) => session.project === projectFilter);
+    return userScopedSessions.filter((session) =>
+      sessionMatchesProjectFilter(session, projectFilter),
+    );
   }, [userScopedSessions, projectFilter]);
 
   // Resolve a pending `/?session=<id>` deep link. This lives at the app level
@@ -7175,7 +7216,7 @@ export function App() {
     if (!sessionMatchesUserFilter(target, userFilter)) {
       setUserFilter("__all");
     }
-    if (projectFilter !== "__all" && target.project !== projectFilter) {
+    if (!sessionMatchesProjectFilter(target, projectFilter)) {
       setProjectFilter("__all");
     }
     setTab("live");
@@ -10263,12 +10304,14 @@ function ProjectFilterMenu({
         ? "border-primary/30 bg-primary/10 text-primary"
         : "border-border bg-muted/70 text-muted-foreground",
   );
-  const triggerTitle = active ? shortProject(value) : "All projects";
+  const triggerTitle = projectFilterLabel(value, shortProject);
   const triggerContent = (
     <>
       <Folder className="size-3.5 shrink-0" />
       {active ? (
-        <span className="truncate text-xs font-medium">{shortProject(value)}</span>
+        <span className="truncate text-xs font-medium">
+          {projectFilterLabel(value, shortProject)}
+        </span>
       ) : null}
     </>
   );
@@ -10327,7 +10370,7 @@ function ProjectFilterMenu({
         <option value="__all">All projects</option>
         {projects.map((project) => (
           <option key={project} value={project}>
-            {shortProject(project)}
+            {projectFilterLabel(project, shortProject)}
           </option>
         ))}
       </select>
@@ -13248,7 +13291,18 @@ function RailStage({
         )}
         {!railCollapsed && railSurface !== "chat" && onProjectChange && projectOptions.length > 0 ? (
           <ProjectPillRail
-            projects={projectOptions.map((project) => ({ value: project, label: shortProject(project) }))}
+            projects={projectOptions.map((project) => ({
+              value: project,
+              // The rail is the one place this is an icon, so it says what it
+              // does rather than naming an absence. Everywhere the scope is
+              // named in prose — the menu, the sheet, the composer chip — it
+              // stays "No project".
+              label:
+                project === NO_PROJECT_FILTER
+                  ? "Chats without a project"
+                  : projectFilterLabel(project, shortProject),
+              icon: project === NO_PROJECT_FILTER ? ("plus" as const) : undefined,
+            }))}
             value={projectFilter}
             onChange={onProjectChange}
           />
@@ -21806,6 +21860,8 @@ function ComposerProjectSheet({
   onCreate,
   allSelected = false,
   onSelectAll,
+  noProjectSelected = false,
+  onSelectNoProject,
   manageOnly = false,
   onReposChanged,
 }: {
@@ -21818,6 +21874,16 @@ function ComposerProjectSheet({
   onCreate: () => void;
   allSelected?: boolean;
   onSelectAll?: () => void;
+  /** The composer is already on "No project". */
+  noProjectSelected?: boolean;
+  /**
+   * Start chats with no folder at all.
+   *
+   * This sheet is the only route to that scope on a phone, where the rail of
+   * project pills is not drawn. Leaving it out would make the feature
+   * desktop-only on the web while iOS has it on the home screen.
+   */
+  onSelectNoProject?: () => void;
   /**
    * Open as "add and manage folders", with no selection in it at all.
    *
@@ -22004,6 +22070,28 @@ function ComposerProjectSheet({
                   ) : null}
                 </span>
                 {allTicked ? (
+                  <Check className="size-4 shrink-0 text-emerald-500" />
+                ) : (
+                  <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+                )}
+              </button>
+            ) : null}
+            {onSelectNoProject && !manageOnly && !needle && !managing ? (
+              <button type="button" onClick={onSelectNoProject} className={rowClass}>
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                  <Sparkles className="size-4" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium">
+                    {NO_PROJECT_FILTER_LABEL}
+                  </span>
+                  {showPaths ? (
+                    <span className="block truncate text-xs text-muted-foreground">
+                      Start something new, and pick a folder later
+                    </span>
+                  ) : null}
+                </span>
+                {noProjectSelected ? (
                   <Check className="size-4 shrink-0 text-emerald-500" />
                 ) : (
                   <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
@@ -22701,32 +22789,46 @@ function NewSessionDialog({
   // that project's repo (and hide the picker below). Falls back to the normal
   // localStorage/first-repo default when viewing "All projects" or when the
   // filtered project has no matching repo in the list.
+  // "No project" is a scope, not a folder, so it never resolves to a repo.
+  // This is the whole hazard of the feature: the normal fallback chain would
+  // quietly hand the chat the last folder you used, and the person would have
+  // started a session in a real repository while the UI said "No project".
+  const unassigned = scopedProject === NO_PROJECT_FILTER;
   const scopedRepo =
-    scopedProject !== "__all"
+    scopedProject !== "__all" && !unassigned
       ? repos.find((r) => repoProject(r) === scopedProject)
       : undefined;
   const projectScoped = !!scopedRepo;
   // The live view is unfiltered. There is no chosen folder to name, only the
   // fallback the next session would land in, so the chip does not claim one.
   const allProjects = scopedProject === "__all";
-  const selectedRepo = resolveComposerRepo({
-    scopedCwd: scopedRepo?.cwd,
-    lastCwd: repo,
-    repos,
-  });
-  const selectedRepoName =
-    repos.find((candidate) => candidate.cwd === selectedRepo)?.name ||
-    (selectedRepo ? shortProject(selectedRepo) : "Project");
+  const selectedRepo = unassigned
+    ? ""
+    : resolveComposerRepo({
+        scopedCwd: scopedRepo?.cwd,
+        lastCwd: repo,
+        repos,
+      });
+  const selectedRepoName = unassigned
+    ? projectFilterLabel(NO_PROJECT_FILTER, shortProject)
+    : repos.find((candidate) => candidate.cwd === selectedRepo)?.name ||
+      (selectedRepo ? shortProject(selectedRepo) : "Project");
   const launching = pendingCreates > 0;
   // The project the resume picker should open scoped to: the composer's currently
   // selected repo (which already folds in the live-view filter via `scopedRepo`),
   // falling back to the live filter, then "all". Matches the backend `project`
   // field on resumable rows (both derive from the repo's top-folder name).
   const composerProject = (() => {
+    if (unassigned) return NO_PROJECT_FILTER;
     const r = repos.find((x) => x.cwd === selectedRepo);
     if (r) return repoProject(r);
     return scopedProject !== "__all" ? scopedProject : "__all";
   })();
+  // The resume picker asks the server for one project by name. "No project" is
+  // not a name the server knows, so scoping the picker to it would return an
+  // empty list rather than the scratch chats it is supposed to find. Open it
+  // unscoped instead; it has its own project control inside.
+  const resumeScope = unassigned ? "__all" : composerProject;
 
   function setPrompt(text: string) {
     setPromptState(text);
@@ -22934,7 +23036,9 @@ function NewSessionDialog({
       localStorage.setItem("lfg_v2_agent", launchAgent);
       persistSetting({ lastAgent: launchAgent, lastModel: launchModel });
     }
-    localStorage.setItem("lfg_v2_repo", selectedRepo);
+    // A no-project chat has no folder to remember. Writing "" here would erase
+    // the folder the next ordinary session is supposed to open in.
+    if (!unassigned) localStorage.setItem("lfg_v2_repo", selectedRepo);
     localStorage.setItem(`lfg_model_${launchAgent}`, launchModel);
     if (thinkingLevels.length) localStorage.setItem("lfg_thinking_level", launchThinkingLevel);
     if (launchAgent === "claude") localStorage.setItem("lfg_model", launchModel);
@@ -22958,11 +23062,17 @@ function NewSessionDialog({
       // exactly this request. It takes the already-composed prompt, which means
       // a retry never re-uploads the attachments — their ids are in that string.
       const postCreate = (composedPrompt: string, overLimit: boolean) =>
-        api<CreateResult>("/api/sessions/new", {
+        // A chat with no project goes to its own endpoint, which gives it a
+        // persistent ~/.omg/chats workspace and stamps project: "". It rejects
+        // `cwd`, so none is sent. An older box 404s this path; that surfaces as
+        // an error here on purpose, because the alternative — falling back to
+        // /api/sessions/new — would start the chat in the default repository
+        // without saying so. See docs/no-project-chat.md.
+        api<CreateResult>(unassigned ? "/api/sessions/new-unassigned" : "/api/sessions/new", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            cwd: selectedRepo,
+            cwd: unassigned ? undefined : selectedRepo,
             prompt: composedPrompt || undefined,
             user: launchUser || undefined,
             agent: launchAgent,
@@ -23057,7 +23167,7 @@ function NewSessionDialog({
   const compact = variant === "inline" && !expanded;
   const canSubmit =
     !runtime.loading && runtime.ready && runtime.status === "live" && !runtime.error &&
-    !!selectedRepo &&
+    (unassigned || !!selectedRepo) &&
     visibleAgentOptions.some((option) => option.key === agent) &&
     (!!prompt.trim() || attachments.length > 0);
   const selectedAgentOption = displayedAgentOption<AgentLaunchOption>(
@@ -23213,7 +23323,9 @@ function NewSessionDialog({
             aria-label="Choose project"
             className="max-w-28 truncate pr-1 text-xs font-medium outline-none"
           >
-            {repos.find((item) => item.cwd === selectedRepo)?.name || "Choose project"}
+            {unassigned
+              ? selectedRepoName
+              : repos.find((item) => item.cwd === selectedRepo)?.name || "Choose project"}
           </button>
         </FieldPill>
       )}
@@ -23344,6 +23456,17 @@ function NewSessionDialog({
       )}
     >
       {files.fileInput}
+      {/* A chat with no folder starts from these four, the way it does on iOS.
+          They sit above the field and only while the field is empty: once
+          there is anything to send, the person has said what they want and
+          four suggestions are in the way. */}
+      {unassigned && !prompt.trim() && attachments.length === 0 ? (
+        <ChatStarterRow
+          className="mb-2"
+          disabled={launching}
+          onStart={(starterPrompt) => submit(undefined, starterPrompt)}
+        />
+      ) : null}
       <div
         className={cn(
           "lfg-gfield relative rounded-2xl",
@@ -23476,7 +23599,7 @@ function NewSessionDialog({
                   ? "Choose project. Showing all projects"
                   : `Choose project. Current project: ${selectedRepoName}`
               }
-              title={allProjects ? "All projects" : selectedRepo || "Choose project"}
+              title={allProjects ? "All projects" : selectedRepo || selectedRepoName}
             >
               <Folder className="size-4 shrink-0" />
               {allProjects ? null : <span className="truncate">{selectedRepoName}</span>}
@@ -23515,7 +23638,7 @@ function NewSessionDialog({
         <Suspense fallback={null}>
           <ResumeSessionSheet
             initial={resumable}
-            scopedProject={composerProject}
+            scopedProject={resumeScope}
             onRestore={(entry) => setPrompt(entry.text)}
             onPick={(session) => {
               closeResume();
@@ -23561,6 +23684,15 @@ function NewSessionDialog({
               }
             : undefined
         }
+        noProjectSelected={unassigned}
+        onSelectNoProject={
+          onProjectChange
+            ? () => {
+                onProjectChange(NO_PROJECT_FILTER);
+                setProjectSheetOpen(false);
+              }
+            : undefined
+        }
         onReposChanged={async (removedCwd?: string) => {
           // A composer pointed at a project that no longer exists would launch
           // into a 400 "unknown repo", so drop the selection when the thing it
@@ -23600,7 +23732,7 @@ function NewSessionDialog({
       <Suspense fallback={null}>
         <ResumeSessionSheet
           initial={resumable}
-          scopedProject={composerProject}
+          scopedProject={resumeScope}
           onRestore={(entry) => setPrompt(entry.text)}
           onPick={(session) => {
             closeResume();
