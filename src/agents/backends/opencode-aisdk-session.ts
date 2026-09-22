@@ -78,6 +78,44 @@ function resolveOpencodePath(): string | undefined {
   }
 }
 
+// omg.dev runs OpenCode unattended, so both OpenCode-backed agent kinds
+// ("opencode" and "omg") trust the workspace by default: no permission gate,
+// the same posture as the Claude harness `permissionMode: "bypassPermissions"`
+// (./aisdk-session.ts) and grok-cli.ts. Every permission type in OpenCode's
+// config schema is listed, so a new "ask" default cannot appear silently.
+//
+// `doom_loop` is deliberately NOT allowed. It is not a capability grant: it
+// fires when the model repeats a tool call with byte-identical input, so it is
+// the only circuit breaker against an infinite tool loop. It stays "ask", and
+// the question reaches the user through the normal prompt path below.
+//
+// OPENCODE_PERMISSION is merged LAST by OpenCode's config loader, after the
+// global config, the project config, OPENCODE_CONFIG_CONTENT and managed
+// preferences, so it wins over a stale `permission` block on the box. An
+// operator who sets OPENCODE_PERMISSION before the harness starts keeps it.
+const TRUST_ALL_PERMISSIONS = {
+  edit: "allow",
+  bash: "allow",
+  webfetch: "allow",
+  doom_loop: "ask",
+  external_directory: "allow",
+} as const;
+
+/** @internal exported for unit tests */
+export function trustAllPermissionEnv(
+  env: Record<string, string | undefined>,
+): string {
+  const existing = env.OPENCODE_PERMISSION?.trim();
+  if (existing) return existing;
+  return JSON.stringify(TRUST_ALL_PERMISSIONS);
+}
+
+// Call before createOpencodeServer(): the SDK spawns `opencode serve` with a
+// copy of process.env.
+function ensureOpencodeTrustAll(): void {
+  process.env.OPENCODE_PERMISSION = trustAllPermissionEnv(process.env);
+}
+
 function ensureOpencodeOnPath(): void {
   const bin = resolveOpencodePath();
   if (!bin) return;
@@ -479,6 +517,7 @@ export async function pipeToOpencodeAiSdk(
   const cwd = opts.cwd ?? process.cwd();
   if (model.startsWith("omg/")) ensureOmgProvider();
   ensureOpencodeOnPath();
+  ensureOpencodeTrustAll();
   const { createOpencodeServer, createOpencodeClient } = await import("@opencode-ai/sdk");
 
   log(`[runner] piping ${prompt.length} chars to opencode via opencode-sdk (${model})`);
@@ -543,6 +582,7 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
 
   if (model.startsWith("omg/")) ensureOmgProvider();
   ensureOpencodeOnPath();
+  ensureOpencodeTrustAll();
   const { createOpencodeServer, createOpencodeClient } = await import("@opencode-ai/sdk");
 
   // One server + client per harness, reused across every turn.

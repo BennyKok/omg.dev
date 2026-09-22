@@ -8,6 +8,7 @@ import {
   sessionErrorText,
   shouldPublishDraftPart,
   toolPartMessages,
+  trustAllPermissionEnv,
 } from "./opencode-aisdk-session.ts";
 
 describe("OpenCode model variants", () => {
@@ -269,5 +270,25 @@ describe("opencode session.error handling", () => {
 test("omg model preserves the nested router id in the OpenCode request", () => {
   expect(opencodePromptBody("omg/deepseek/deepseek-v4-flash-0731", undefined, "hello").model).toEqual({
     providerID: "omg", modelID: "deepseek/deepseek-v4-flash-0731",
+  });
+});
+
+describe("opencode permission posture", () => {
+  test("trusts every capability, but keeps the repeat-loop guard", () => {
+    expect(JSON.parse(trustAllPermissionEnv({}))).toEqual({
+      edit: "allow",
+      bash: "allow",
+      webfetch: "allow",
+      doom_loop: "ask",
+      external_directory: "allow",
+    });
+  });
+
+  test("keeps an operator-supplied OPENCODE_PERMISSION", () => {
+    expect(trustAllPermissionEnv({ OPENCODE_PERMISSION: '{"bash":"ask"}' })).toBe('{"bash":"ask"}');
+  });
+
+  test("replaces a blank OPENCODE_PERMISSION", () => {
+    expect(JSON.parse(trustAllPermissionEnv({ OPENCODE_PERMISSION: "  " })).edit).toBe("allow");
   });
 });
