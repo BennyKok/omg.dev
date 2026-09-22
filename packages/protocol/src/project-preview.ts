@@ -2,7 +2,7 @@ export interface ProjectPreview {
   sessionId: string;
   title: string;
   url: string;
-  port: 5173;
+  port: number;
   kind: "sandbox-preview";
   visibility: "owner";
   temporary: true;

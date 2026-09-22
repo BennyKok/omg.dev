@@ -33,22 +33,24 @@ async function call(method: string, sessionId: string, body?: unknown, agent = f
   return { status: response.status, data: await response.json() as any };
 }
 
-test("the session agent publishes one durable owner-only live preview", async () => {
-  const created = await call("POST", "native-a", { port: 5173, title: "Expo web" }, true);
+test("the session agent publishes one durable owner-only live preview on any valid port", async () => {
+  const created = await call("POST", "native-a", { port: 8081, title: "Expo" }, true);
   expect(created.status).toBe(200);
   expect(created.data.preview).toEqual({
-    sessionId: "a", title: "Expo web", url: "https://sandbox-5173.preview.omgs.app",
-    port: 5173, kind: "sandbox-preview", visibility: "owner", temporary: true, createdAt: 123,
+    sessionId: "a", title: "Expo", url: "https://sandbox-8081.preview.omgs.app",
+    port: 8081, kind: "sandbox-preview", visibility: "owner", temporary: true, createdAt: 123,
   });
   expect((await call("GET", "a")).data.preview).toEqual(created.data.preview);
   expect(JSON.parse(readFileSync(join(dir, "previews.json"), "utf8"))).toEqual([created.data.preview]);
   expect(resolves).toBe(1);
 });
 
-test("refuses an idle or undeclared port before resolving cloud state", async () => {
+test("refuses an idle or invalid port before resolving cloud state", async () => {
   listening = false;
   expect((await call("POST", "a", { port: 5173 }, true)).status).toBe(409);
-  expect((await call("POST", "a", { port: 8081 }, true)).status).toBe(400);
+  expect((await call("POST", "a", { port: 0 }, true)).status).toBe(400);
+  expect((await call("POST", "a", { port: 65_536 }, true)).status).toBe(400);
+  expect((await call("POST", "a", { port: 8081.5 }, true)).status).toBe(400);
   expect(resolves).toBe(0);
 });
 

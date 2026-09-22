@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## September 22, 2026 - Live previews support any port (v0.6.108)
+
+- `omg_expose_port` now accepts any valid TCP port from 1 through 65535.
+- Agents can expose the port that an existing web or Expo server already uses instead of restarting it on port 5173.
+
 ## September 22, 2026 - App starters work on managed Computers (v0.6.107)
 
 - App, Website, API, and Image starters now create their chat workspace in a user-owned data folder.

@@ -4,12 +4,16 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import type { ProjectPreview } from "../packages/protocol/src/project-preview.ts";
 import { PATHS } from "./config.ts";
 
-const PREVIEW_PORT = 5173 as const;
+const DEFAULT_PREVIEW_PORT = 5173;
 const MAX_BODY = 16 * 1024;
 type Session = { id: string; owner: string | null };
 
 class PreviewError extends Error {
   constructor(public code: number, message: string) { super(message); }
+}
+
+function validPreviewPort(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 65_535;
 }
 
 export async function portIsListening(port: number, timeoutMs = 1_500): Promise<boolean> {
@@ -35,7 +39,7 @@ function readRows(path: string): ProjectPreview[] {
     return value.filter((row): row is ProjectPreview =>
       row && typeof row === "object" && typeof row.sessionId === "string" &&
       typeof row.title === "string" && typeof row.url === "string" &&
-      row.port === PREVIEW_PORT && row.kind === "sandbox-preview" &&
+      validPreviewPort(row.port) && row.kind === "sandbox-preview" &&
       row.visibility === "owner" && row.temporary === true &&
       typeof row.createdAt === "number");
   } catch {
@@ -98,8 +102,8 @@ export function createProjectPreviewService(deps: {
       if (req.method === "GET") return json({ preview: rows.get(session.id) ?? null });
       if (req.method !== "POST") throw new PreviewError(405, "Method not allowed");
       if (!caller) throw new PreviewError(403, "Only the session agent can publish a project preview");
-      const port = data.port === undefined ? PREVIEW_PORT : Number(data.port);
-      if (port !== PREVIEW_PORT) throw new PreviewError(400, `Project previews use port ${PREVIEW_PORT}`);
+      const port = data.port === undefined ? DEFAULT_PREVIEW_PORT : data.port;
+      if (!validPreviewPort(port)) throw new PreviewError(400, "Preview port must be an integer from 1 to 65535");
       if (!(await listening(port))) {
         throw new PreviewError(409, `Nothing is listening on port ${port}. Start the web development server first.`);
       }
@@ -115,7 +119,7 @@ export function createProjectPreviewService(deps: {
         sessionId: session.id,
         title,
         url: target.href.replace(/\/$/, ""),
-        port: PREVIEW_PORT,
+        port,
         kind: "sandbox-preview",
         visibility: "owner",
         temporary: true,
