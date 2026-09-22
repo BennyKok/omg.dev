@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## September 22, 2026 - Expo previews use the sandbox proxy first
+
+- Expo Web agents now expose the development server's actual port through the omg.dev preview card before trying any other route.
+- Expo tunnel stays a separate path for explicit native Expo Go device testing.
+
 ## September 22, 2026 - Live previews support any port (v0.6.108)
 
 - `omg_expose_port` now accepts any valid TCP port from 1 through 65535.

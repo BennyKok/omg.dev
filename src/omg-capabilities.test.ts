@@ -177,6 +177,14 @@ describe("omg.dev runtime capabilities", () => {
     ]);
   });
 
+  test("makes the sandbox proxy the first web preview path", () => {
+    const preview = OMG_CAPABILITIES.find((item) => item.tool === "omg_expose_port");
+    expect(preview?.guidance).toContain("exact port");
+    expect(preview?.guidance).toContain("before trying any other exposure method");
+    expect(preview?.guidance).toContain("Expo's tunnel is a separate native Expo Go path");
+    expect(OMG_MCP_INSTRUCTIONS).toContain("pass its exact port to omg_expose_port before trying another exposure method");
+  });
+
   test("keeps visual display tools without registering omg_output", () => {
     const mcpSource = readFileSync(new URL("./commands/mcp.ts", import.meta.url), "utf8");
     const serveSource = readFileSync(new URL("./commands/serve.ts", import.meta.url), "utf8");

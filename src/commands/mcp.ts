@@ -1155,7 +1155,7 @@ export function buildOmgMcpServer(): McpServer {
     {
       title: "Show A Live Sandbox Preview",
       description:
-        "Expose a live HTTP development server on this omg.dev Cloud Computer and create a preview card in the current session. Start the server on 0.0.0.0 first. This is temporary and owner-only; it is not omg_deploy or a native Expo build.",
+        "Expose a live HTTP development server on this omg.dev Cloud Computer and create a preview card in the current session. Start one server on 0.0.0.0, verify its exact port, and call this before trying another exposure method. This is temporary and owner-only; it is not omg_deploy or a native Expo build.",
       inputSchema: {
         port: z.number().int().min(1).max(65_535).optional().describe("Development server port. Defaults to 5173."),
         title: z.string().max(120).optional().describe("Short label for the preview card."),
