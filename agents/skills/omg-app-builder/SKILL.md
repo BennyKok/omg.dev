@@ -34,7 +34,7 @@ Turn the user's product description into a working, verified result. Keep setup 
 ## Deploy and prove it
 
 - For a new website, web app, or API, a working hosted preview is the default result unless the user asks for local-only work or publication needs new authority.
-- In a Cloud Computer, start Expo Web on the declared preview port with `npx expo start --web --host lan --port 5173`. Wait until `http://127.0.0.1:5173` answers, then call `omg_expose_port` with port `5173`. Keep that process running. The resulting owner-only card is the real live development server, including reloads; it is temporary and is not a static deployment.
+- In a Cloud Computer, start Expo Web on the declared preview port with `BROWSER=none npx expo start --web --host lan --port 5173`. `BROWSER=none` prevents Expo from requiring a desktop browser in the headless sandbox. Wait until `http://127.0.0.1:5173` answers, then call `omg_expose_port` with port `5173`. Keep that process running. The resulting owner-only card is the real live development server, including reloads; it is temporary and is not a static deployment.
 - If `omg_expose_port` is unavailable or the session is on a local computer, report that limit. Do not invent a public URL, expose credentials, or depend on this repository's simulator, SSH hosts, filesystem layout, or globally installed tools.
 - Keep an Expo tunnel running only while the user needs the Expo Go QR session. Expo Go is a separate native test path; the sandbox preview URL is Expo Web and cannot replace it.
 - Use `omg_deploy` only when the user wants a durable hosted deployment. An Expo Web export deployed there is static output, not the live sandbox preview.
