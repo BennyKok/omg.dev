@@ -83,6 +83,7 @@ import {
 import { parseOmgPromptEnvelope } from "./omg-prompt-envelope";
 import {
   classifySystemMessage,
+  systemMessageHasPreview,
   systemMessagePreview,
   type SystemMessage,
   type SystemMessageKind,
@@ -1586,6 +1587,7 @@ const SYSTEM_SYMBOLS: Record<SystemMessageKind, Symbols> = {
   peer: { ios: "bubble.left.and.bubble.right", android: "forum" },
   "bot-message": { ios: "bubble.left.and.bubble.right", android: "forum" },
   "ask-answer": { ios: "questionmark.circle", android: "help" },
+  "browser-login": { ios: "lock.open", android: "lock_open" },
   fork: { ios: "arrow.triangle.branch", android: "call_split" },
   rotation: { ios: "arrow.clockwise", android: "refresh" },
   routine: { ios: "clock", android: "schedule" },
@@ -1615,7 +1617,7 @@ function SystemLine({ system, raw }: { system: SystemMessage; raw: string }) {
   const body = useBodyText();
   const [open, setOpen] = useState(false);
   const symbol = SYSTEM_SYMBOLS[system.kind];
-  const preview = systemMessagePreview(system.body);
+  const preview = systemMessageHasPreview(system) ? systemMessagePreview(system.body) : "";
 
   return (
     <>

@@ -1,0 +1,52 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": false
+  },
+  "steps": [
+    {
+      "name": "Open the seeded session",
+      "goal": "Open the session named Refactor the rate limiter to a sliding window from the session list.",
+      "done": "The session transcript is open and the agent's own replies are readable.",
+      "expect": [
+        "Replaced the fixed-window counter"
+      ]
+    },
+    {
+      "name": "Transfer notice is a line, not a bubble",
+      "goal": "Read the login transfer notice at the end of the transcript. Do not tap anything in this step.",
+      "done": "The transfer notice reads as one short line that names the site.",
+      "expect": [
+        "Signed in to accounts.hetzner.com"
+      ],
+      "forbid": [
+        "imported cookies alone do not prove authentication",
+        "The user approved a login transfer"
+      ]
+    },
+    {
+      "name": "Login request card is in the transcript",
+      "goal": "Read the website login card at the end of the transcript. Do not tap Log in and do not tap Cancel.",
+      "done": "The login card shows the site and its Log in button.",
+      "expect": [
+        "accounts.hetzner.com",
+        "Website login",
+        "Log in"
+      ],
+      "forbid": [
+        "Login for Your Computer",
+        "To read the current Hetzner Robot invoice."
+      ]
+    },
+    {
+      "name": "Question card is in the transcript",
+      "goal": "Read the agent's question at the end of the transcript. Do not tap an answer.",
+      "done": "The question and both of its one-tap answers are visible above the message field.",
+      "expect": [
+        "cancel box-1 now, or wait for the billing cycle",
+        "Cancel now",
+        "Wait"
+      ]
+    }
+  ]
+}

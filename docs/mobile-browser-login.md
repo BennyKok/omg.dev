@@ -1,9 +1,12 @@
 # Website login from iPhone
 
 An agent can request a website login with `omg_request_browser_login`.
-The user opens the request in the iOS chat and taps **Log in to [website]**.
-The card shows the website's icon and domain. If the icon cannot load, it shows
-the first letter of the domain.
+The user opens the request in the iOS chat and taps **Log in**.
+The card is at the end of the transcript, not on the composer, because the
+request is an event in the conversation. It shows the website's icon and
+domain and nothing else. If the icon cannot load, it shows the first letter of
+the domain. The reason the agent gave is in the agent's own message above the
+card, so the card does not repeat it.
 The app opens a private `WKWebView`. After signing in, the user taps
 **Use login**, checks the site and target computer, and taps **Transfer login**.
 The runtime imports the approved site cookies into its shared Chrome browser.
@@ -65,6 +68,10 @@ rest of this runtime. Hosted identity and grants remain owned by `vibes`.
 
 Run the backend and MCP tests, web card render tests, and all three type checks.
 The native plan is `mobile/e2e/browser-login.plan.json`.
+
+`mobile/e2e/session-inline-cards.plan.json` proves where the card sits and what
+it says, against the seeded demo transport. Build it with
+`EXPO_PUBLIC_OMG_DEMO=1 EXPO_PUBLIC_OMG_INLINE_CARDS_FIXTURE=1`.
 
 `mobile/scripts/browser-login-e2e-entry.tsx` mounts the production card and native
 module against `scripts/browser-login-fixture.ts`. The fixture creates a login

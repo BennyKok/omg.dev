@@ -14,12 +14,14 @@ import {
   Clock3,
   CornerDownRight,
   GitFork,
+  LockKeyholeOpen,
   MessagesSquare,
   RotateCw,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import {
+  systemMessageHasPreview,
   systemMessagePreview,
   type SystemMessage,
   type SystemMessageKind,
@@ -31,6 +33,7 @@ const SYSTEM_ICONS: Record<SystemMessageKind, LucideIcon> = {
   peer: MessagesSquare,
   "bot-message": MessagesSquare,
   "ask-answer": CircleHelp,
+  "browser-login": LockKeyholeOpen,
   fork: GitFork,
   rotation: RotateCw,
   routine: Clock3,
@@ -45,7 +48,7 @@ export function SystemMessageLine({
 }) {
   const [open, setOpen] = useState(false);
   const Icon = SYSTEM_ICONS[system.kind];
-  const preview = systemMessagePreview(system.body);
+  const preview = systemMessageHasPreview(system) ? systemMessagePreview(system.body) : "";
   const body = system.body || raw;
 
   return (

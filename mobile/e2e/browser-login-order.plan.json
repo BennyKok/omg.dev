@@ -7,14 +7,12 @@
     {
       "name": "Newest login request",
       "goal": "Wait for the website login card. Only inspect it and do not tap anything.",
-      "done": "The current pending request is visible and the older failed request is absent.",
+      "done": "The current pending request is visible: the card offers its Log in button and shows no failure text from the older request.",
       "expect": [
-        "Current login request",
-        "Log in to example.com",
-        "Login for Test Computer"
+        "example.com",
+        "Log in"
       ],
       "forbid": [
-        "Old login request",
         "Could not transfer the login."
       ]
     }

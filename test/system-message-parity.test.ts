@@ -15,6 +15,8 @@ const samples = [
   "[Peer message from Scout (bot_1a2b3c4d5e) to Angel (bot_9f8e7d6c5b)]\n\nnice try",
   "[Message from itechbenny@gmail.com to bot iOS Manager] try again",
   "[ask-user answer 4f2a9c1e-1111-2222-3333-444444444444] Their reply: ship it\n",
+  "[Browser login 841fe13e-e60a-43e4-9cf5-8338179ae574] The user approved a login transfer for https://accounts.hetzner.com to the shared Computer browser. Cookies were imported. Verify the protected page with Computer tools before continuing; imported cookies alone do not prove authentication.",
+  "[Browser login abc] The user approved a login transfer.",
   [
     "You are starting a fresh agent session from an existing lfg session.",
     "",

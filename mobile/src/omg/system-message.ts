@@ -28,6 +28,7 @@ export type SystemMessageKind =
   | "peer"
   | "bot-message"
   | "ask-answer"
+  | "browser-login"
   | "fork"
   | "rotation"
   | "routine";
@@ -49,6 +50,17 @@ function shortId(text: string): string | undefined {
   return m ? m[1].toLowerCase() : undefined;
 }
 
+/** Hostname of the site a browser-login notice names, when it names one. */
+function loginHost(body: string): string | undefined {
+  const m = body.match(BROWSER_LOGIN_ORIGIN);
+  if (!m) return undefined;
+  try {
+    return new URL(m[1]).hostname.replace(/^www\./, "");
+  } catch {
+    return undefined;
+  }
+}
+
 /** Text after the first line, for the wrappers that put the body on its own lines. */
 function afterHeader(text: string, headerEnd: number): string {
   return text.slice(headerEnd).trim();
@@ -59,6 +71,12 @@ const SUBAGENT = /^\s*\[subagent (progress|complete|blocked|failed)\]/i;
 const PEER = /^\s*\[Peer message from ([^\]]*?)(?: \([^)]*\))? to [^\]]*\]/i;
 const BOT_MESSAGE = /^\s*\[Message from ([^\]]+?) to bot ([^\]]+)\]/i;
 const ASK_ANSWER = /^\s*\[ask-user answer ([^\]]+)\]\s*(?:Their reply:\s*)?/i;
+// The steer message src/commands/serve.ts sends when the phone finished a
+// login transfer. It is written for the MODEL (it carries the "verify the page
+// before you trust these cookies" instruction), so the person gets the one
+// fact they care about: which site is now signed in.
+const BROWSER_LOGIN = /^\s*\[Browser login ([^\]]+)\]\s*/i;
+const BROWSER_LOGIN_ORIGIN = /\bfor (https?:\/\/[^\s,]+)/i;
 const ROTATION = /^\s*\[This conversation continues ([^\]]*)\]/i;
 const ROUTINE = /^\s*\[Scheduled routine: ([^\]]*)\]/i;
 // The fork route's opener. Continue uses the same prompt (it differs only in
@@ -137,6 +155,18 @@ export function classifySystemMessage(text: string | null | undefined): SystemMe
     };
   }
 
+  m = value.match(BROWSER_LOGIN);
+  if (m) {
+    const body = afterHeader(value, m[0].length);
+    const host = loginHost(body);
+    return {
+      kind: "browser-login",
+      label: host ? `Signed in to ${host}` : "Login transferred",
+      id: shortId(m[1]),
+      body,
+    };
+  }
+
   m = value.match(ROTATION);
   if (m) {
     const why = m[1].trim();
@@ -170,6 +200,19 @@ export function classifySystemMessage(text: string | null | undefined): SystemMe
   }
 
   return null;
+}
+
+/**
+ * Whether the body is worth showing under the label.
+ *
+ * Most wrappers carry something a person wrote or an agent reported, and two
+ * lines of it is the point of the row. A browser-login notice carries
+ * instructions to the MODEL — verify the page, imported cookies alone do not
+ * prove authentication — so previewing it puts the sentence the label exists
+ * to replace straight back on screen. The sheet still holds all of it.
+ */
+export function systemMessageHasPreview(system: SystemMessage): boolean {
+  return system.kind !== "browser-login";
 }
 
 /** Collapse a body to one run of prose for the two-line preview under the label. */

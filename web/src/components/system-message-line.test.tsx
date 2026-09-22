@@ -29,6 +29,18 @@ describe("SystemMessageLine", () => {
     expect(ui.text()).not.toContain("You are starting a fresh agent session");
   });
 
+  test("a login transfer names the site instead of quoting the cookie warning", () => {
+    const raw =
+      "[Browser login 841fe13e-e60a-43e4-9cf5-8338179ae574] The user approved a login transfer for " +
+      "https://accounts.hetzner.com to the shared Computer browser. Cookies were imported. Verify the " +
+      "protected page with Computer tools before continuing; imported cookies alone do not prove authentication.";
+    const system = classifySystemMessage(raw)!;
+    ui.render(<SystemMessageLine system={system} raw={raw} />);
+    expect(ui.text()).toContain("Signed in to accounts.hetzner.com");
+    expect(ui.text()).toContain("841fe13e");
+    expect(ui.text()).not.toContain("[Browser login");
+  });
+
   test("clicking the line reveals the full body", async () => {
     const raw = "[Background task ios app · 542a7801]\n\nExact shipping tip is 0964f06ea.";
     const system = classifySystemMessage(raw)!;

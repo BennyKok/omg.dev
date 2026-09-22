@@ -189,6 +189,22 @@ function demoSessions(): DemoSession[] {
 }
 
 const artifactFixture = process.env.EXPO_PUBLIC_OMG_ARTIFACT_FIXTURE === "1";
+/**
+ * The three things a session can put at the END of its transcript: a website
+ * login request, an ask-user question, and the notice that a login transfer
+ * landed. Each one needs a live session to appear at all, so the e2e plan
+ * `session-inline-cards` seeds them here instead. Off by default: plain demo
+ * mode is what the App Store screenshots capture, and a pending login request
+ * is not part of that story.
+ */
+const inlineCardFixture = process.env.EXPO_PUBLIC_OMG_INLINE_CARDS_FIXTURE === "1";
+/** The one session the inline-card fixture attaches everything to. */
+const INLINE_CARD_SESSION = "demo-rate-limiter";
+/** Exactly the wrapper src/commands/serve.ts sends after a transfer. */
+const TRANSFER_NOTICE =
+  "[Browser login 841fe13e-e60a-43e4-9cf5-8338179ae574] The user approved a login transfer for " +
+  "https://accounts.hetzner.com to the shared Computer browser. Cookies were imported. Verify the " +
+  "protected page with Computer tools before continuing; imported cookies alone do not prove authentication.";
 const demoArtifact: OmgMessage & { sessionId: string } = {
   id: "demo-dashboard", artifactId: "demo-dashboard", role: "assistant", kind: "html",
   sessionId: "demo-rate-limiter", title: "Rate limit dashboard", name: "dashboard.html",
@@ -221,6 +237,9 @@ function demoMessages(sessionId: string): OmgMessage[] {
       { id: "m3", role: "assistant", kind: "text", text: "Replaced the fixed-window counter in `limiter.ts` with a sliding log keyed by client id. Added a test that fires two bursts across a window boundary and asserts the second is throttled.", ts: t - 12 * MIN },
       { id: "m4", role: "user", kind: "text", text: "Nice. Run the suite and push if it's green.", ts: t - 6 * MIN },
       { id: "m5", role: "assistant", kind: "text", text: "Running the limiter tests…", ts: t - 20_000, pending: true },
+      ...(inlineCardFixture
+        ? [{ id: "m6", role: "user", kind: "text", text: TRANSFER_NOTICE, ts: t - 10_000 } as OmgMessage]
+        : []),
     ];
   }
   return [
@@ -234,6 +253,12 @@ function demoAsk() {
   const t = now();
   return {
     questions: [
+      ...(inlineCardFixture
+        ? [{
+            id: "q0", question: "The invoice page needs a product-owner call: cancel box-1 now, or wait for the billing cycle?",
+            options: ["Cancel now", "Wait"], sessionId: INLINE_CARD_SESSION, agent: "claude", createdAt: t - 1 * MIN,
+          }]
+        : []),
       { id: "q1", question: "Pricing page headline A/B — should the control be A (\"Deploy AI agents for teams\") or B (\"Ship while you sleep\")?", sessionId: "demo-growth", agent: "claude", createdAt: t - 6 * MIN },
       { id: "q2", question: "The changelog has two entries that need a product-owner to confirm the wording. Approve as written?", sessionId: "demo-changelog", agent: "claude", createdAt: t - 28 * MIN },
     ],
@@ -401,6 +426,19 @@ function answer(path: string): unknown | null {
   }
   if (clean === "/api/sessions") return { sessions: demoSessions() };
   if (clean === "/api/ask") return demoAsk();
+  if (clean.startsWith("/api/browser-login")) {
+    if (!inlineCardFixture) return { requests: [], iosAvailable: false, desktopAvailable: false };
+    return {
+      iosAvailable: true,
+      desktopAvailable: true,
+      requests: [{
+        id: "demo-login", sessionId: INLINE_CARD_SESSION, url: "https://accounts.hetzner.com/login",
+        origin: "https://accounts.hetzner.com", computerName: "Your Computer",
+        reason: "To read the current Hetzner Robot invoice.", status: "pending",
+        createdAt: now(), expiresAt: now() + 600_000,
+      }],
+    };
+  }
   if (clean === "/api/shipped") return demoShipped();
   if (clean === "/api/bots") return demoBots();
   if (clean === "/api/auto/agents") return demoAutoAgents();

@@ -100,16 +100,15 @@ export function BrowserLoginPanel({ sessionId, transport, email }: {
           <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>Website login</Text>
         </View>
       </View>
-      <Text style={{ color: colors.mutedForeground }}>{request.reason}</Text>
-      <Text style={{ color: colors.mutedForeground }}>Login for {request.computerName}</Text>
       {request.status === "imported" ? <Text style={{ color: colors.success }}>{request.agentNotified ? "Login transferred. The agent has been notified." : "Login transferred. Tell the agent to check the page."}</Text>
         : request.status === "failed" ? <Text style={{ color: colors.destructive }}>{request.message}</Text>
         : <>
-          <Text style={{ color: colors.mutedForeground }}>{busy || request.status === "importing" ? "Transferring login…" : request.status === "in_progress" ? "Login is open on a device." : "Sign in, then choose whether to share this login with your computer."}</Text>
+          {busy || request.status === "importing" ? <Text style={{ color: colors.mutedForeground }}>Transferring login…</Text>
+            : request.status === "in_progress" ? <Text style={{ color: colors.mutedForeground }}>Login is open on a device.</Text> : null}
           {!browserLoginNative && <Text style={{ color: colors.mutedForeground }}>Update the iOS app to sign in here, or use the web Computer view.</Text>}
           <View style={{ flexDirection: "row", alignItems: "center", gap: 16, marginTop: 4 }}>
             {!!browserLoginNative && request.status === "pending" && <Pressable accessibilityRole="button" testID="browser-login-open" disabled={busy} onPress={() => void open(request)} style={{ flex: 1, minHeight: 44, paddingVertical: 12, paddingHorizontal: 14, borderRadius: 12, backgroundColor: colors.primary, opacity: busy ? 0.6 : 1, justifyContent: "center" }}>
-              <Text style={{ color: colors.primaryForeground, fontWeight: "600", textAlign: "center" }}>Log in to {new URL(request.origin).hostname}</Text>
+              <Text style={{ color: colors.primaryForeground, fontWeight: "600", textAlign: "center" }}>Log in</Text>
             </Pressable>}
             <Pressable accessibilityRole="button" disabled={busy || request.status === "importing"} onPress={() => {
               void post(request.id, "cancel").then(refresh).catch(() => setError("Could not cancel. Try again."));
