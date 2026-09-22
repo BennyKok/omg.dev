@@ -17,7 +17,12 @@ import { join, resolve, basename } from "node:path";
 import { homedir } from "node:os";
 import { PATHS } from "./config.ts";
 import { reposRoot } from "./projects.ts";
-import { installProjectBuilderSkill, writeProjectAgentInstructions } from "./project-starter.ts";
+import {
+  installProjectBuilderSkill,
+  installProjectTemplate,
+  type ProjectTemplate,
+  writeProjectAgentInstructions,
+} from "./project-starter.ts";
 
 export type CustomRepo = { name: string; cwd: string };
 
@@ -185,7 +190,7 @@ async function gitInit(cwd: string): Promise<void> {
 }
 
 async function commitStarterProject(cwd: string): Promise<void> {
-  await runGit(cwd, ["add", "--", "README.md", "AGENTS.md", "CLAUDE.md", ".agents"], "stage starter project");
+  await runGit(cwd, ["add", "--", "."], "stage starter project");
   await runGit(
     cwd,
     [
@@ -197,10 +202,7 @@ async function commitStarterProject(cwd: string): Promise<void> {
       "-m",
       "Initial commit",
       "--",
-      "README.md",
-      "AGENTS.md",
-      "CLAUDE.md",
-      ".agents",
+      ".",
     ],
     "initial git commit",
   );
@@ -226,6 +228,7 @@ export async function prepareProjectFolder(rawPath: string): Promise<string> {
 export async function createProjectFolder(
   rawParent: string | undefined,
   rawName: string,
+  template: ProjectTemplate = "blank",
 ): Promise<CustomRepo> {
   const name = rawName.trim();
   if (!name || !/^[\w .-]+$/.test(name) || name === "." || name === "..") {
@@ -243,7 +246,7 @@ export async function createProjectFolder(
   }
   await mkdir(cwd);
   try {
-    await Bun.write(join(cwd, "README.md"), `# ${name}\n`);
+    await installProjectTemplate(cwd, template, name);
     await installProjectBuilderSkill(cwd);
     await writeProjectAgentInstructions(cwd);
     await gitInit(cwd);
