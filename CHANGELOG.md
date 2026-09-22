@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## September 22, 2026 - Hosted omg agent tools (v0.6.101)
+
+- DeepSeek Flash and other omg models now receive the omg.dev MCP tools in hosted sandboxes, including live port previews.
+
 ## September 22, 2026 - Headless Expo preview startup (v0.6.100)
 
 - Expo Web previews no longer try to open a desktop browser inside a headless Cloud Computer.
