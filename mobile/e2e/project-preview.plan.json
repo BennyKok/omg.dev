@@ -1,0 +1,18 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": false
+  },
+  "steps": [
+    {
+      "name": "Live preview card",
+      "goal": "Wait for the project preview card. Only inspect it and do not tap anything.",
+      "done": "The card names the Expo app, explains that the preview is live and private, and offers an open action.",
+      "expect": [
+        "My Expo app",
+        "Live preview · Private to you · Temporary",
+        "Open preview"
+      ]
+    }
+  ]
+}

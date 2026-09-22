@@ -432,6 +432,7 @@ import {
 } from "lucide-react";
 import { toast } from "@/lib/notify";
 import { BrowserLoginCard } from "@/components/browser-login-card";
+import { ProjectPreviewCard } from "@/components/project-preview-card";
 import { haptic } from "@/lib/haptics";
 import { feedback } from "@/lib/feedback";
 import { waitForRefine, type AutoAgentRefine } from "@/lib/auto-refine";
@@ -16145,6 +16146,7 @@ function SessionChatBody({
               rather than in ChatStream's TypingIndicator slot so the two can
               never be mistaken for each other. */}
           <HumanTypingIndicator participants={typingParticipants} />
+          <ProjectPreviewCard sessionId={sid} user={session.assignedUser} />
           <BrowserLoginCard sessionId={sid} user={session.assignedUser} />
           {files.fileInput}
           <ComposerAttachmentChips

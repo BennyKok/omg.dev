@@ -117,6 +117,22 @@ describe("caller identity over the shared MCP endpoint", () => {
     expect((await callTool("omg_browser_login_status", {}, { session: SESSION })).isError).toBe(false);
     expect(requests.at(-1)?.url).toContain(`/api/browser-login?sessionId=${SESSION}`);
   });
+  test("live preview exposure is session-owned and structured", async () => {
+    const names = await listToolNames();
+    expect(names).toContain("omg_expose_port");
+    const requests: Array<{ url: string; body: any; caller: string | null }> = [];
+    globalThis.fetch = (async (url: any, init?: RequestInit) => {
+      requests.push({ url: String(url), body: init?.body ? JSON.parse(String(init.body)) : null, caller: new Headers(init?.headers).get("x-omg-caller-session-id") });
+      return Response.json({ preview: { url: "https://sandbox-5173.preview.omgs.app", port: 5173 } });
+    }) as typeof fetch;
+    const reply = await callTool("omg_expose_port", { title: "Expo web" }, { session: SESSION });
+    expect(reply.isError).toBe(false);
+    expect(requests).toEqual([{
+      url: "http://127.0.0.1:9876/api/project-preview",
+      body: { sessionId: SESSION, port: 5173, title: "Expo web" },
+      caller: SESSION,
+    }]);
+  });
   test("input questions inherit the calling session owner", async () => {
     const requests: Array<{ url: string; method: string; body: unknown }> = [];
     globalThis.fetch = (async (
