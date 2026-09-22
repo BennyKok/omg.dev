@@ -5,6 +5,8 @@ Recent product updates and deployment notes.
 ## September 22, 2026 - Reliable hosted agent startup (v0.6.102)
 
 - Hosted omg agents now allow enough time for the bundled MCP tools to start on a cold Computer.
+- The opencode agent and the omg agent no longer stop to ask permission to edit a file, run a command, fetch a web page, or read an external directory. A headless session does not wait for an answer that nobody is there to give.
+- The loop guard stays on. A tool call that repeats with the same input still asks before it continues.
 
 ## September 22, 2026 - Hosted omg agent tools (v0.6.101)
 
