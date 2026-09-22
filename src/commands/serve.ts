@@ -441,6 +441,7 @@ import {
   prepareProjectFolder,
   useProjectFolder,
 } from "../repos-store.ts";
+import { isProjectTemplate } from "../project-starter.ts";
 import { projectName, reposRoot } from "../projects.ts";
 import { listConfiguredRepos } from "../repo-list.ts";
 import { runExecCommand, clampExecTimeout, MAX_EXEC_TIMEOUT_MS } from "../exec.ts";
@@ -7840,12 +7841,17 @@ a{color:#60a5fa}
         const b = (await req.json().catch(() => null)) as {
           parent?: unknown;
           name?: unknown;
+          template?: unknown;
         } | null;
-        if (typeof b?.name !== "string" || (b.parent !== undefined && typeof b.parent !== "string")) {
-          return err(400, "name is required; parent must be a string when provided");
+        if (
+          typeof b?.name !== "string" ||
+          (b.parent !== undefined && typeof b.parent !== "string") ||
+          (b.template !== undefined && !isProjectTemplate(b.template))
+        ) {
+          return err(400, "name is required; parent must be a string and template must be blank or expo when provided");
         }
         try {
-          const repo = await createProjectFolder(b.parent, b.name);
+          const repo = await createProjectFolder(b.parent, b.name, b.template ?? "blank");
           return json({ repo, repos: await listRepos() });
         } catch (e) {
           return err(400, e instanceof Error ? e.message : String(e));
