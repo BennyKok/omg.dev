@@ -35,6 +35,9 @@ Object.assign(globalThis, {
   Node: window.Node,
   Event: window.Event,
   CustomEvent: window.CustomEvent,
+  KeyboardEvent: window.KeyboardEvent,
+  // Vaul drawers mount a Radix focus scope, which watches its subtree.
+  MutationObserver: window.MutationObserver,
   getComputedStyle: window.getComputedStyle.bind(window),
   // Base UI schedules its open/close transitions on animation frames. Without
   // these, mounting any popup part (menu, dialog, tooltip) throws before it
