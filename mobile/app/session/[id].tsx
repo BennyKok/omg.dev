@@ -2656,9 +2656,12 @@ function QuestionCard({
       style={{
         padding: space.md,
         backgroundColor: colors.card,
-        // Same 32 as the expanded composer under it.
-        // radius.lg is 12, which read as a box against that field.
-        borderRadius: 32,
+        // Same 16 as the website login row above it. It used to be 32, to
+        // match the expanded composer it was parked on; now that both cards
+        // stand in the transcript, the thing it has to agree with is the
+        // other card, and two different corner radii on two stacked cards
+        // read as two unrelated surfaces.
+        borderRadius: 16,
         borderCurve: "continuous",
         borderWidth: StyleSheet.hairlineWidth,
         // borderStrong: this is a card the transcript can hand you at any
