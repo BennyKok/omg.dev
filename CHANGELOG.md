@@ -8,6 +8,9 @@ Recent product updates and deployment notes.
 - The todo list uses the omg.dev database. The same data works in the hosted Expo Web app and in Expo Go.
 - The project skill now guides the agent through the web deploy, the Expo Go QR code, and the native API URL setup.
 - Apple Sign In stays optional because it requires an Apple Developer account, an app identifier, and a native development build.
+- Chats without a project are now in the web app, as they are on iOS. A plus tab leads the project rail. It scopes the list to chats with no folder, and an empty composer offers the Website, App, API, and Image starters.
+- A project that the agent creates during one of those chats now appears in the web project list without a page reload.
+- The Computer screenshot and read tools no longer fail when they run before anything opens a page.
 
 ## September 22, 2026 - The composer keeps the agent you chose (v0.6.104)
 
