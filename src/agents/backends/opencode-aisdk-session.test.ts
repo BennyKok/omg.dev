@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   answersForIndex,
+  answersForText,
   isTrustedUploadPermission,
   pendingToPrompt,
   opencodePromptBody,
@@ -118,6 +119,30 @@ describe("opencode question prompt helpers", () => {
       ],
     };
     expect(answersForIndex(multi, 1)).toEqual([["B"], ["X"]]);
+  });
+});
+
+describe("opencode answer from a sent message", () => {
+  // The exact two-question shape that stranded an App session on iOS.
+  const appType = {
+    id: "que_app",
+    questions: [
+      { question: "What kind of app would you like to build?", header: "App type", options: [
+        { label: "Mobile app (Expo)" }, { label: "Website / web app" }, { label: "Web API / backend" },
+      ] },
+      { question: "Roughly, what should this app do?", header: "Purpose", options: [
+        { label: "I'll describe it now" },
+      ] },
+    ],
+  };
+
+  test("a sent option label answers with that option", () => {
+    expect(answersForText(appType, "Mobile app (Expo)")).toEqual([["Mobile app (Expo)"], ["I'll describe it now"]]);
+    expect(answersForText(appType, "  website / WEB app ")).toEqual([["Website / web app"], ["I'll describe it now"]]);
+  });
+
+  test("other text is a custom answer to the first question", () => {
+    expect(answersForText(appType, "A habit tracker")).toEqual([["A habit tracker"], ["I'll describe it now"]]);
   });
 });
 

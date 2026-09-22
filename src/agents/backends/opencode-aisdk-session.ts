@@ -367,6 +367,26 @@ export function answersForIndex(pending: OcPendingQuestion, index: number): stri
 }
 
 /**
+ * @internal exported for unit tests
+ *
+ * A client can answer by sending the chosen label as a normal message. The iOS
+ * question card does exactly that. While OpenCode's question tool is open the
+ * turn cannot end, so a queued message would wait forever. Treat the text as
+ * the answer to the first question: an exact label picks that option, anything
+ * else is a custom answer. Later questions take their first option, as they
+ * do for an index answer.
+ */
+export function answersForText(pending: OcPendingQuestion, text: string): string[][] {
+  const typed = text.trim();
+  const first = pending.questions?.[0];
+  const options = Array.isArray(first?.options) ? first.options : [];
+  const match = options.findIndex((o) => typeof o?.label === "string" && o.label.trim().toLowerCase() === typed.toLowerCase());
+  const answers = answersForIndex(pending, match >= 0 ? match : 0);
+  if (match < 0 && answers.length) answers[0] = [typed];
+  return answers;
+}
+
+/**
  * Readable one-liner for a `session.error` event, or null when the event says
  * nothing worth surfacing.
  *
@@ -839,6 +859,25 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
     clearQuestionState(true);
   }
 
+  async function handleAnswerText(pending: OcPendingQuestion, text: string): Promise<boolean> {
+    const answers = answersForText(pending, text);
+    if (!(await replyQuestion(serverUrl, pending.id, answers))) {
+      console.error(`opencode-aisdk-session: failed to reply to question ${pending.id}`);
+      return false;
+    }
+    indexSessionMessagesDirect(key, [
+      {
+        id: crypto.randomUUID(),
+        role: "user",
+        kind: "text",
+        text: `[answered OpenCode question] ${answers[0]?.[0] ?? text.trim()}`,
+        ts: Date.now(),
+      },
+    ]);
+    if (openQuestionRef.current?.id === pending.id) clearQuestionState(true);
+    return true;
+  }
+
   async function handleDismissQuestion(reason = "dismissed"): Promise<void> {
     const permission = openPermissionRef.current;
     if (permission) {
@@ -1196,10 +1235,21 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
 
   function dispatch(cmd: AisdkCommand): void {
     if (cmd.type === "send") {
-      if (cmd.text.trim()) {
-        queue.push(cmd.text);
-        void drain();
+      if (!cmd.text.trim()) return;
+      const pending = openQuestionRef.current;
+      if (pending && !openPermissionRef.current) {
+        // Answer the open question instead of queueing behind the turn that
+        // is waiting on it. Queue the text only if OpenCode refused the reply.
+        void handleAnswerText(pending, cmd.text).then((ok) => {
+          if (!ok) {
+            queue.push(cmd.text);
+            void drain();
+          }
+        });
+        return;
       }
+      queue.push(cmd.text);
+      void drain();
     } else if (cmd.type === "set_model") {
       const next = cmd.model.trim();
       if (next) {
