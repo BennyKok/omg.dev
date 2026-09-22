@@ -14,7 +14,7 @@ export type GlobalSettings = {
   maxBotSchedules: number;
   botAutoCompactionEnabled: boolean;
   botCompactionThresholdPercent: number;
-  // Whether this box offers the Computer Use MCP to agents. Off by default;
+  // Whether this box offers the Computer Use MCP to agents. On by default;
   // see the MCP servers section in SettingsView.
   computerMcpEnabled: boolean;
   transcriptView: TranscriptView;
@@ -117,7 +117,7 @@ export const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
   maxBotSchedules: 5,
   botAutoCompactionEnabled: true,
   botCompactionThresholdPercent: 78,
-  computerMcpEnabled: false,
+  computerMcpEnabled: true,
   transcriptView: "full",
   skippedUpdateVersion: "",
   autoUpdateEnabled: true,

@@ -2,6 +2,9 @@ import { join, dirname, resolve } from "node:path";
 // Cyclic on purpose: session-token reads PATHS from here, and this module only
 // calls sessionToken() at launch time, never during module evaluation.
 import { SESSION_TOKEN_HEADER, sessionToken } from "./policy/session-token.ts";
+// Cyclic for the same reason: settings.ts reads PATHS from here, and this
+// module only calls getGlobalSettingsSync() at launch time.
+import { getGlobalSettingsSync } from "./settings.ts";
 import { fileURLToPath } from "node:url";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -106,11 +109,34 @@ export function omgMcpServers(
     url: `${localServeBaseUrl()}/mcp/connectors${session}`,
     headers,
   };
+  // The Computer Use MCP, registered with every new session because the box
+  // setting defaults on. It is gated rather than unconditional because
+  // /mcp/computer answers 404 when the setting is off, and a registered URL
+  // that 404s shows the agent a broken server instead of no server. A failed
+  // settings read is treated as off for the same reason.
+  if (computerMcpEnabled()) {
+    mcpServers[COMPUTER_MCP_SERVER_NAME] = {
+      type: "http",
+      url: `${localServeBaseUrl()}/mcp/computer${session}`,
+      headers,
+    };
+  }
   return { mcpServers };
+}
+
+function computerMcpEnabled(): boolean {
+  try {
+    return getGlobalSettingsSync().computerMcpEnabled;
+  } catch {
+    return false;
+  }
 }
 
 /** The tool namespace agents see for native connectors (`mcp__connectors__*`). */
 export const CONNECTORS_MCP_SERVER_NAME = "connectors";
+
+/** The tool namespace agents see for the Computer (`mcp__computer__computer_*`). */
+export const COMPUTER_MCP_SERVER_NAME = "computer";
 
 function readVersionFromDisk(): string {
   try {

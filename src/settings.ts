@@ -28,11 +28,12 @@ export type GlobalSettings = {
   // rotates when a human applies a configuration change, and a long-lived
   // conversation eventually fails at the wall the way it does today.
   botAutoCompactionEnabled: boolean;
-  // Expose the Computer Use MCP to agents on this box. Off by default and
-  // deliberately opt-in: its tools drive a real desktop that only exists where
-  // someone installed the X stack, and advertising them where there is no
-  // screen would offer an agent capabilities it cannot use. Local only -- this
-  // never travels to a hosted Computer.
+  // Expose the Computer Use MCP to agents on this box. ON by default: every
+  // box this runtime ships on now has a Computer tab, and the common case is
+  // an agent that needs the desktop and browser. A box with no X stack still
+  // gets the tools; computer_start is the one that reports the missing stack,
+  // and the owner can turn the whole server off here. Local only -- this never
+  // travels to a hosted Computer.
   computerMcpEnabled: boolean;
   // Share of the model's context window at which that rotation fires. Bounded
   // well away from both ends: see sanitizeBotCompactionThreshold for why 40 and
@@ -190,8 +191,9 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
     ? input.customInstructions.trim().slice(0, CUSTOM_INSTRUCTIONS_MAX_LENGTH)
     : "";
   const botAutoCompactionEnabled = input?.botAutoCompactionEnabled !== false;
-  // Note the polarity: unlike bot auto-compaction, this defaults OFF.
-  const computerMcpEnabled = input?.computerMcpEnabled === true;
+  // Missing means on: a new box offers the Computer Use MCP without anyone
+  // opting in. Only an explicit stored `false` turns it off.
+  const computerMcpEnabled = input?.computerMcpEnabled !== false;
   const botCompactionThresholdPercent = sanitizeBotCompactionThreshold(
     input?.botCompactionThresholdPercent,
   );
