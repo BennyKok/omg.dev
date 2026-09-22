@@ -62,7 +62,7 @@ describe("thinking level menu", () => {
       "function useOrganicActivityPresence(",
     );
     // No trailing "(" — AgentModelRow is generic, so its signature opens with "<".
-    const autoPicker = region(source, "function AgentModelRow", "function BottomSheet(");
+    const autoPicker = region(source, "function AgentModelRow", "// ---------- auto agents");
 
     // New-session composer, fork dialog, and finding/auto-agent picker.
     expect(source.match(/\simmersive\s*\/>/g)?.length).toBe(3);

@@ -88,6 +88,7 @@ import {
   mobileSurfaceDockBottom,
   mobileSurfaceToggleActive,
   shouldShowBotsInSessionList,
+  shouldShowMobileBackToLive,
   shouldShowInlineBotsSurfaceToggle,
   shouldShowMobileSurfaceToggle,
 } from "./lib/mobile-bots-nav";
@@ -9100,7 +9101,7 @@ export function App() {
       <header className="relative z-40 flex shrink-0 items-center justify-between gap-2 px-2 pb-3 pt-[calc(0.5rem+env(safe-area-inset-top))] md:px-3 md:pb-1">
         <NavIsland className="shrink-0">
           <div className="glass-island flex h-11 items-center rounded-full px-1.5">
-            {isMobile && (tab === "notifications" || tab === "artifacts" || tab === "board") ? (
+            {shouldShowMobileBackToLive(isMobile, tab) ? (
               <button
                 type="button"
                 onClick={() => setTab("live")}

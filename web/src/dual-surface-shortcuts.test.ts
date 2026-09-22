@@ -79,7 +79,7 @@ const okJson = (body: unknown) =>
   });
 
 /** A transport whose live view holds exactly one, named, session. */
-function mockTransport(sessions: ReturnType<typeof session>[]) {
+function mockTransport(sessions: ReturnType<typeof session>[], requests: string[] = []) {
   const socket = () => ({
     send() {}, close() {}, addEventListener() {}, removeEventListener() {},
   });
@@ -101,7 +101,10 @@ function mockTransport(sessions: ReturnType<typeof session>[]) {
       if (url.includes("/api/sessions") && !url.includes("/close")) return okJson({ sessions });
       return okJson({});
     },
-    request: async () => ({}),
+    request: async (path: string) => {
+      requests.push(path);
+      return {};
+    },
     openSocket: async () => socket(),
     openLiveSocket: async () => socket(),
   };
@@ -124,7 +127,10 @@ afterEach(async () => {
 });
 
 /** Mount the given surfaces side by side and let bootstrap settle. */
-async function mountSurfaces(sessionsPerSurface: ReturnType<typeof session>[][]) {
+async function mountSurfaces(
+  sessionsPerSurface: ReturnType<typeof session>[][],
+  requestsPerSurface: string[][] = [],
+) {
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
   const { act } = await import("react");
@@ -144,7 +150,7 @@ async function mountSurfaces(sessionsPerSurface: ReturnType<typeof session>[][])
           React.createElement(OmgAppSurface, {
             key: index,
             className: `surface-${index}`,
-            transport: mockTransport(sessions),
+            transport: mockTransport(sessions, requestsPerSurface[index]),
             viewer: { name: "Benny" },
           } as never),
         ),
@@ -184,14 +190,16 @@ test("one surface: shift+E asks once", async () => {
 
   const dialogs = archiveDialogs();
   expect(dialogs.length).toBe(1);
-  expect(dialogs[0]).toContain("Archive Only?");
+  expect(dialogs[0]).toContain("Archive this session?");
 }, 120_000);
 
 test("two surfaces: shift+E asks once, in the surface the user touched", async () => {
+  const firstRequests: string[] = [];
+  const secondRequests: string[] = [];
   await mountSurfaces([
     [session("aaaa1111", "Alpha")],
     [session("bbbb2222", "Bravo")],
-  ]);
+  ], [firstRequests, secondRequests]);
   expect(win.document.querySelectorAll("[data-rail-sid]").length).toBe(2);
 
   // The user is working in the second surface.
@@ -209,5 +217,10 @@ test("two surfaces: shift+E asks once, in the surface the user touched", async (
     dialogs.length,
     "one shift+E raised an archive dialog in every mounted surface",
   ).toBe(1);
-  expect(dialogs[0]).toContain("Archive Bravo?");
+  expect(dialogs[0]).toContain("Archive this session?");
+  const confirm = win.document.querySelector('[role="alertdialog"] button:last-of-type') as HTMLElement;
+  expect(confirm).not.toBeNull();
+  await act(async () => confirm.click());
+  expect(firstRequests.some((path) => path.includes("/close"))).toBe(false);
+  expect(secondRequests.some((path) => path.includes("/api/sessions/bbbb2222/close"))).toBe(true);
 }, 120_000);

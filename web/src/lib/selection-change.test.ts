@@ -1,9 +1,15 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { Window } from "happy-dom";
 import { selectionChangeStateForTests, subscribeSelectionChange } from "./selection-change";
 
 const win = new Window();
+const originalDocument = globalThis.document;
 globalThis.document = win.document as unknown as Document;
+
+afterAll(() => {
+  globalThis.document = originalDocument;
+  win.close();
+});
 
 afterEach(() => {
   // Every test must unsubscribe; this catches one that forgot.
