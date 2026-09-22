@@ -2,6 +2,15 @@
 
 Recent product updates and deployment notes.
 
+## September 22, 2026 - The composer keeps the agent you chose (v0.6.104)
+
+- The composer no longer replaces your selected agent when the agent list is still loading or is briefly incomplete. Your choice is restored as soon as that agent can run again.
+- A substituted agent is never saved as your new choice. Before, one incorrect read of the agent list could pin a device to an agent that nobody selected.
+- The opencode agent is now off by default. It stays a full agent, and one switch in Settings turns it on. Installing it from onboarding or from Settings also turns it on.
+- A hosted Computer now offers the omg agent when no account is connected. Before, only the opencode agent was offered, and it came with a DeepSeek model.
+- Your agent and model choice is now stored on the box. The choice follows you to a new phone, a reinstalled app, or a cleared browser.
+- The Computer Use MCP is now on for each new session. The desktop tools reach the agent with no manual configuration. The Settings switch still turns the server off.
+
 ## September 22, 2026 - Managed Expo project starters (v0.6.103)
 
 - New Expo projects can start from a versioned Expo Router template with Expo Web, a server API route, and EAS build profiles already configured.
