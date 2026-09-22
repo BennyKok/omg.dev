@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## September 22, 2026 - Managed Expo project starters (v0.6.103)
+
+- New Expo projects can start from a versioned Expo Router template with Expo Web, a server API route, and EAS build profiles already configured.
+- Expo Go device testing now uses a project-local tunnel dependency. A fresh Cloud Computer can show a QR code without installing a global tool.
+- The project builder skill verifies Expo Web first, then offers the temporary Expo Go tunnel for real device testing.
+- Website login requests and agent questions now appear as inline message cards with consistent corners.
+
 ## September 22, 2026 - Reliable hosted agent startup (v0.6.102)
 
 - Hosted omg agents now allow enough time for the bundled MCP tools to start on a cold Computer.
