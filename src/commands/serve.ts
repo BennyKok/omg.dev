@@ -15,7 +15,7 @@ import {
 import { PATHS, appVersion, installInfo, localServeBaseUrl } from "../config.ts";
 import { desktopRuntimeReadyPayload } from "../desktop-parent.ts";
 import { handleServerAccessRequest } from "../server-access.ts";
-import { createCloudAccount } from "../cloud-account.ts";
+import { CloudAccountError, createCloudAccount } from "../cloud-account.ts";
 import { generateSessionTitle } from "../session-auto-title.ts";
 import { buildContinueSessionPrompt } from "../session-continue-prompt.ts";
 import { regenerateSessionTitle } from "../session-title-regenerate.ts";
@@ -45,6 +45,7 @@ import { compressedAssetResponse, maybeCompressResponse } from "../http-compress
 import { serveOmgMcpRequest, serveComputerMcpRequest } from "../mcp-http.ts";
 import { resolveCaller } from "../policy/caller.ts";
 import { createBrowserLoginService } from "../computer/login.ts";
+import { createProjectPreviewService } from "../project-previews.ts";
 import { importBrowserLogin } from "../computer/browser.ts";
 import {
   configureConnectors,
@@ -3919,6 +3920,24 @@ export async function cmdServe() {
     localName: () => getGlobalSettingsSync().machineName,
     renameLocal: async (machineName) => { await setGlobalSettings({ machineName }); },
   });
+  const projectPreview = createProjectPreviewService({
+    session: async (id) => {
+      const row = (await listSessions()).find(s => s.sessionId === id || s.nativeSessionId === id);
+      return row?.sessionId ? { id: row.sessionId, owner: row.assignedUser ?? null } : null;
+    },
+    viewer: req => botViewerFromRequest(req, new URL(req.url).searchParams.get("user")).identity,
+    resolve: async (port) => {
+      if (!cloudAccount.status().inherited) {
+        throw new CloudAccountError("Live sandbox previews are available inside an omg.dev Cloud Computer.", 409);
+      }
+      const response = await cloudAccount.cloudFetch(`/api/cli/computer/preview?port=${port}`);
+      const body = await response.json().catch(() => ({})) as { url?: string; error?: string };
+      if (!response.ok || !body.url) {
+        throw new CloudAccountError(body.error || `Could not expose port ${port}.`, response.status || 502);
+      }
+      return { url: body.url };
+    },
+  });
   const cloudMachineProxy = createCloudMachineProxy({ account: cloudAccount });
   const server = Bun.serve<AppSocketData>({
     port: PORT,
@@ -4297,6 +4316,9 @@ export async function cmdServe() {
 
       if (path === "/api/browser-login" || path.startsWith("/api/browser-login/")) {
         return await browserLogin(req);
+      }
+      if (path === "/api/project-preview") {
+        return await projectPreview(req);
       }
 
       // ---- the computer: a shared desktop, streamed and controllable ----

@@ -64,7 +64,7 @@ export function hasInAppBrowser(): boolean {
  * Resolves when the in-app sheet is dismissed ("closed"), or right after the
  * hand-off to Safari ("external").
  */
-export async function openSignInPage(url: string): Promise<"closed" | "external"> {
+export async function openInAppPage(url: string): Promise<"closed" | "external"> {
   const wb = webBrowser();
   if (wb) {
     try {
@@ -80,6 +80,8 @@ export async function openSignInPage(url: string): Promise<"closed" | "external"
   await Linking.openURL(url);
   return "external";
 }
+
+export const openSignInPage = openInAppPage;
 
 export function dismissSignInPage(): void {
   try {

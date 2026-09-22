@@ -1151,6 +1151,30 @@ export function buildOmgMcpServer(): McpServer {
   );
 
   server.registerTool(
+    "omg_expose_port",
+    {
+      title: "Show A Live Sandbox Preview",
+      description:
+        "Expose the live web development server on this omg.dev Cloud Computer and create a preview card in the current session. Start the server on 0.0.0.0:5173 first. This is temporary and owner-only; it is not omg_deploy or a native Expo build.",
+      inputSchema: {
+        port: z.literal(5173).optional().describe("Development server port. Currently fixed to 5173."),
+        title: z.string().max(120).optional().describe("Short label for the preview card."),
+        sessionId: z.string().optional().describe("Owning session. Defaults to OMG_SESSION_ID."),
+      },
+    },
+    async ({ port, title, sessionId }) => {
+      const sid = await activeSessionId(sessionId);
+      return result(
+        await api("/api/project-preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId: sid, port: port ?? 5173, title }),
+        }),
+      );
+    },
+  );
+
+  server.registerTool(
     "omg_list_owned_bots",
     {
       title: "List Same-Owner Bots",
