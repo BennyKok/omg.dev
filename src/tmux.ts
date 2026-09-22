@@ -4,6 +4,7 @@ import { ensureOmgProvider } from "./omg-provider.ts";
 // its parent chain to the pane's top process, and `send-keys` into that pane.
 import { readFileSync, writeFileSync, existsSync, realpathSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
+import { join } from "node:path";
 import { reposRoot } from "./projects";
 import { OMG_CAPABILITY_VERSION, withOmgRuntimeContract } from "./omg-capabilities.ts";
 import { getGlobalSettingsSync } from "./settings.ts";
@@ -1363,7 +1364,11 @@ export function spawnManagedOpencodeAisdkSession(opts: {
   recoveredAt?: number;
 }): ManagedHarnessSpawnResult {
   if (opts.model.startsWith("omg/")) {
-    try { ensureOmgProvider(); } catch (error) {
+    try {
+      ensureOmgProvider({
+        mcpCommand: [process.execPath, join(PATHS.root, "src", "cli.ts"), "mcp"],
+      });
+    } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
   }
