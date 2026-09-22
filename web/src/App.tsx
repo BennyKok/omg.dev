@@ -9213,6 +9213,25 @@ export function App() {
       </header>
       )}
 
+      {/* The folder rail under the header, as on iOS. It is the mobile
+          composer's folder control: the chosen project is where a new
+          session starts. */}
+      {isMobile && tab === "live" && projectOptions.length > 0 ? (
+        <ProjectPillRail
+          projects={projectOptions.map((project) => ({
+            value: project,
+            label:
+              project === NO_PROJECT_FILTER
+                ? "Chats without a project"
+                : projectFilterLabel(project, shortProject),
+            icon: project === NO_PROJECT_FILTER ? ("plus" as const) : undefined,
+          }))}
+          value={projectFilter}
+          onChange={setProjectFilter}
+          touch
+        />
+      ) : null}
+
       {embedded ? null : <PwaInstallCallout />}
 
       {/* The desktop workspace shows this in the rail's brand row instead, so
@@ -23384,16 +23403,16 @@ function NewSessionDialog({
         setAgentPopoverOpen(true);
       }}
       style={{ touchAction: "none" }}
-      className="relative flex size-9 shrink-0 items-center justify-center rounded-full text-foreground transition active:scale-[0.96]"
+      className="relative flex size-8 shrink-0 items-center justify-center rounded-full text-foreground transition active:scale-[0.96]"
     >
-      <span className="pointer-events-none relative flex size-7 items-center justify-center overflow-hidden">
+      <span className="pointer-events-none relative flex size-5 items-center justify-center overflow-hidden">
         <img
           key={`${agent}-${agentIconNonce}`}
           src={agentIconSrc(agent)}
           alt=""
           draggable={false}
           className={cn(
-            "size-7 select-none",
+            "size-5 select-none",
             agentIconNonce > 0 &&
               (agentIconDir === 1
                 ? "animate-in fade-in-0 slide-in-from-bottom-2 duration-200"
@@ -23564,34 +23583,6 @@ function NewSessionDialog({
       }}
     />
   );
-  const projectButton =
-    variant === "inline" && projectOptions && onProjectChange ? (
-      <Button
-        size="sm"
-        type="button"
-        variant="outline"
-        className={cn(
-          "h-8 shrink-0 rounded-full shadow-sm",
-          // Icon alone when nothing is scoped — the same shape
-          // MobileProjectPicker collapses to for "__all". Naming the
-          // composer's fallback repo here made choosing "All projects"
-          // look ignored: the list widened while the chip went on
-          // showing the folder you had just moved away from.
-          allProjects ? "size-8 px-0" : "max-w-36 px-2.5",
-        )}
-        onClick={openProjectSheet}
-        aria-label={
-          allProjects
-            ? "Choose project. Showing all projects"
-            : `Choose project. Current project: ${selectedRepoName}`
-        }
-        title={allProjects ? "All projects" : selectedRepo || selectedRepoName}
-      >
-        <Folder className="size-4 shrink-0" />
-        {allProjects ? null : <span className="truncate">{selectedRepoName}</span>}
-      </Button>
-    ) : null;
-
   const formBody = (
     <>
     <form
@@ -23716,7 +23707,8 @@ function NewSessionDialog({
                 first words expand the composer. */}
             {inlineExpanded ? agentPopover : null}
             {attachButton}
-            {inlineExpanded ? projectButton : null}
+            {/* The project rail under the mobile header chooses the folder,
+                as on iOS, so the composer carries no folder button. */}
             {inlineExpanded ? resumeButton : null}
             {inlineExpanded ? <span className="flex-1" /> : null}
             {micButton}
