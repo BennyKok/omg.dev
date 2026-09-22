@@ -2,7 +2,7 @@
 
 Recent product updates and deployment notes.
 
-## September 22, 2026 - App starters work on managed Computers
+## September 22, 2026 - App starters work on managed Computers (v0.6.107)
 
 - App, Website, API, and Image starters now create their chat workspace in a user-owned data folder.
 - A root-owned managed runtime folder no longer makes the starter fail with `cloud_runtime_unavailable`.
