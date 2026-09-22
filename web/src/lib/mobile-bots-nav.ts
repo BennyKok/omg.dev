@@ -70,6 +70,11 @@ export function isPrimarySurfaceTab(tab: string): tab is PrimaryMobileTab {
   return tab === "live" || tab === "bots" || tab === "auto";
 }
 
+/** Secondary pages replace the mobile brand button with an explicit Live return. */
+export function shouldShowMobileBackToLive(isMobile: boolean, tab: string): boolean {
+  return isMobile && (tab === "notifications" || tab === "artifacts" || tab === "board");
+}
+
 /** Maps the current tab to `SurfaceToggle`'s active-segment value. */
 export function mobileSurfaceToggleActive(tab: string): SurfaceToggleActive {
   if (tab === "bots") return "chat";

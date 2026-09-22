@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { shouldShowMobileBackToLive } from "../web/src/lib/mobile-bots-nav";
 
 const app = readFileSync("web/src/App.tsx", "utf8");
 
@@ -32,6 +33,12 @@ describe("mobile secondary page hierarchy", () => {
 
   test("secondary mobile pages provide an explicit return to Live", () => {
     expect(app.match(/aria-label="Back to Live"/g)?.length).toBeGreaterThanOrEqual(2);
-    expect(app).toContain('isMobile && (tab === "notifications" || tab === "artifacts")');
+    for (const tab of ["notifications", "artifacts", "board"]) {
+      expect(shouldShowMobileBackToLive(true, tab)).toBe(true);
+    }
+    expect(shouldShowMobileBackToLive(false, "notifications")).toBe(false);
+    for (const tab of ["live", "bots", "auto", "settings"]) {
+      expect(shouldShowMobileBackToLive(true, tab)).toBe(false);
+    }
   });
 });

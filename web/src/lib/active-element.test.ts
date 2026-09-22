@@ -10,6 +10,7 @@ import { deepActiveElement, isTypingTarget } from "./active-element";
 // search or the editor opened dialogs and jumped between sessions mid-word.
 
 let window: Window;
+const originalDocument = globalThis.document;
 
 beforeEach(() => {
   window = new Window();
@@ -18,6 +19,7 @@ beforeEach(() => {
 
 afterEach(() => {
   window.close();
+  globalThis.document = originalDocument;
 });
 
 function hostWith(inner: string): HTMLElement {

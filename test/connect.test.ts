@@ -289,9 +289,9 @@ describe("fleetStatusFrame", () => {
       blockedCount: 1,
       attentionSessionId: "blocked",
       sessions: [
-        { id: "blocked", title: "build a todo app", agent: "claude", state: "blocked" },
-        { id: "working", title: "build a todo app", agent: "claude", state: "working" },
-        { id: "idle", title: "build a todo app", agent: "claude", state: "done" },
+        { id: "blocked", title: "build a todo app", agent: "claude", state: "blocked", startedAt: null },
+        { id: "working", title: "build a todo app", agent: "claude", state: "working", startedAt: null },
+        { id: "idle", title: "build a todo app", agent: "claude", state: "done", startedAt: null },
       ],
       sessionCount: 3,
       ts: 1234,

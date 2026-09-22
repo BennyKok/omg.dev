@@ -5,6 +5,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 import { resolve } from "node:path";
 
 const native = !process.env.TRANSCRIPT_FALLBACK;
+(globalThis as { __DEV__?: boolean }).__DEV__ = false;
 const Hidden = createContext(false);
 let mounts = 0;
 let renders = 0;
@@ -13,9 +14,23 @@ const NativeView = ({ children, style }: { children?: ReactNode; style?: Record<
   <div data-background={style?.backgroundColor ?? ""}>{children}</div>;
 mock.module(resolve(import.meta.dir, "../node_modules/react-native/index.js"), () => ({
   Platform: { OS: process.env.TRANSCRIPT_FALLBACK === "web" ? "web" : "ios", select: (values: Record<string, unknown>) => values.ios },
-  View: NativeView, Image: NativeView, Pressable: NativeView, ScrollView: NativeView, Modal: NativeView,
+  View: NativeView, Text: NativeView, Image: NativeView, Pressable: NativeView, ScrollView: NativeView,
+  Modal: NativeView, ActivityIndicator: NativeView, KeyboardAvoidingView: NativeView,
   Animated: { View: NativeView }, StyleSheet: { hairlineWidth: 1 },
   AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) },
+  AppRegistry: { registerComponent() {}, registerRunnable() {} },
+  LogBox: { ignoreAllLogs() {}, ignoreLogs() {} },
+  NativeEventEmitter: class {
+    addListener() { return { remove() {} }; }
+    removeAllListeners() {}
+  },
+  NativeModules: {},
+  Linking: { openURL: async () => {}, canOpenURL: async () => true },
+  Keyboard: { dismiss() {}, addListener: () => ({ remove() {} }) },
+  Alert: { alert() {} },
+  PanResponder: { create: () => ({ panHandlers: {} }) },
+  PixelRatio: { get: () => 2, getFontScale: () => 1, roundToNearestPixel: (value: number) => value },
+  TurboModuleRegistry: { get: () => null, getEnforcing: () => ({}) },
   useWindowDimensions: () => ({ width: 390, height: 844 }),
   UIManager: { hasViewManagerConfig: (name: string) => native && name === "VirtualView" },
   unstable_VirtualView: ({ children }: { children?: ReactNode }) =>
@@ -89,10 +104,21 @@ test.skipIf(native)("unsupported clients keep readable bodies without a native w
 mock.module(import.meta.resolve("expo-clipboard"), () => ({ setStringAsync: async () => {} }));
 mock.module(import.meta.resolve("expo-haptics"), () => ({}));
 mock.module(import.meta.resolve("@expo/ui/community/menu"), () => ({ default: NativeView }));
-mock.module(import.meta.resolve("expo-router"), () => ({ useRouter: () => ({}) }));
+mock.module(import.meta.resolve("expo-router"), () => ({
+  router: {},
+  useRouter: () => ({}),
+}));
 mock.module(import.meta.resolve("react-native-reanimated"), () => ({
-  default: { View: NativeView }, Easing: {}, FadeIn: {}, FadeInDown: {},
-  LinearTransition: {}, useAnimatedStyle: () => ({}), useSharedValue: () => ({ value: 0 }), withTiming: (v: number) => v,
+  default: { View: NativeView }, Easing: {}, FadeIn: {}, FadeOut: {}, FadeInDown: {},
+  LinearTransition: {}, ReduceMotion: {}, cancelAnimation: () => {},
+  runOnJS: (fn: (...args: unknown[]) => unknown) => fn,
+  useAnimatedStyle: () => ({}), useReducedMotion: () => false,
+  useSharedValue: () => ({ value: 0 }),
+  withDelay: (_delay: number, value: unknown) => value,
+  withRepeat: (value: unknown) => value,
+  withSequence: (...values: unknown[]) => values.at(-1),
+  withSpring: (value: unknown) => value,
+  withTiming: (v: number) => v,
 }));
 mock.module(resolve(import.meta.dir, "../src/omg/send-motion.tsx"), () => ({
   SendOriginContext: createContext(null), useSendEntrance: () => ({}),
@@ -100,6 +126,7 @@ mock.module(resolve(import.meta.dir, "../src/omg/send-motion.tsx"), () => ({
 mock.module(resolve(import.meta.dir, "../src/components.tsx"), () => ({ Icon: () => null, IconButton: () => null }));
 mock.module(resolve(import.meta.dir, "../src/omg/file-preview.ts"), () => ({ formatFileSize: () => "" }));
 mock.module(resolve(import.meta.dir, "../src/omg/remote-image.tsx"), () => ({ AuthenticatedImage: () => null }));
+mock.module(resolve(import.meta.dir, "../src/omg/remote-video.tsx"), () => ({ RemoteVideo: () => null }));
 mock.module(resolve(import.meta.dir, "../src/omg/text.tsx"), () => ({ Text: NativeView }));
 mock.module(resolve(import.meta.dir, "../src/omg/theme.ts"), () => ({
   useTheme: () => ({ colors: { card: "card", border: "border" }, type: {}, space: { xs: 4 }, radius: { xl: 18 } }),

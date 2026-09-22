@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## September 22, 2026 - Reliable mobile and web UI checks (v0.6.106)
+
+- The model picker now shows the xAI mark for Grok models.
+- Mobile and web behavior checks now follow the current navigation, plan, archive, finding-page, and transcript behavior.
+- Browser test state no longer leaks into later server tests. The full test suite passes again.
+
 ## September 22, 2026 - A useful Expo app from the first message (v0.6.105)
 
 - New app projects start as a working todo app with Lucide icons and native Liquid Glass on supported iPhones.

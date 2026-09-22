@@ -148,16 +148,12 @@ describe("the bundled fallback carries ids, never facts", () => {
     }
   });
 
-  test("iOS sells Starter through Pro, and does not offer Always On", () => {
-    // Benny's call. Enforced here rather than left to the accident that the
-    // product does not exist in App Store Connect — StoreKit silently drops
-    // ids it cannot find, so without this the list would look wrong and
-    // behave right until someone created the product for a sandbox test.
+  test("iOS fallback sells Starter Plus and Personal only", () => {
+    // The fallback must match the control-plane ladder. Pro upgrades belong
+    // on the web, and Starter is not part of the web offer.
     expect(FALLBACK_TIERS.map((tier) => tier.plan)).toEqual([
-      "computer_s20",
       "computer_s40",
       "computer_5",
-      "computer_10",
     ]);
   });
 

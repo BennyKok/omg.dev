@@ -11,6 +11,11 @@ import { pinShadowTextSizeForTouch } from "./shadow-text-size";
 // into the sheet with no way back out.
 
 let window: Window;
+const originalWindow = globalThis.window;
+const originalDocument = globalThis.document;
+const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
+const originalCancelAnimationFrame = globalThis.cancelAnimationFrame;
+const originalMutationObserver = globalThis.MutationObserver;
 
 beforeEach(() => {
   window = new Window();
@@ -25,6 +30,11 @@ beforeEach(() => {
 
 afterEach(() => {
   window.close();
+  globalThis.window = originalWindow;
+  globalThis.document = originalDocument;
+  globalThis.requestAnimationFrame = originalRequestAnimationFrame;
+  globalThis.cancelAnimationFrame = originalCancelAnimationFrame;
+  globalThis.MutationObserver = originalMutationObserver;
 });
 
 function setPointer(kind: "coarse" | "fine") {
