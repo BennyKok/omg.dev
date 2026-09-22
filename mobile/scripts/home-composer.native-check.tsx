@@ -35,6 +35,9 @@ local('lucide.tsx',{LucideIcon:()=>null});
 local('usage.ts',{orderWindows:(x:any)=>x,providerKindForAgent:()=>undefined,detailsForKind:(_k:any,accounts:any,merged:any)=>accounts.length?accounts:merged});
 local('menu.tsx',{DropdownMenu:View});
 local('agent-setup-sheet.tsx',{AgentSetupSheet:()=>null});
+// The rail's edge paint pulls in expo-linear-gradient, which imports
+// `Platform` from the react-native module this file replaces with a stub.
+local('edge-fade.tsx',{RailEdgeFades:()=>null});
 local('skill-suggest.tsx',{SkillSuggest:()=>null});
 local('session-mention-suggest.tsx',{SessionMentionSuggest:()=>null});
 local('motion.tsx',{PressableScale:Pressable,useListItemMotion:()=>({}),useReduceMotionEnabled:()=>false});

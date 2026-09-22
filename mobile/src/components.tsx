@@ -50,6 +50,7 @@ import {
 import type { OmgColors } from "./omg/palette";
 import { DropdownMenu, type MenuOption } from "./omg/menu";
 import { AgentSetupSheet } from "./omg/agent-setup-sheet";
+import { RailEdgeFades } from "./omg/edge-fade";
 import { SkillSuggest } from "./omg/skill-suggest";
 import { SessionMentionSuggest } from "./omg/session-mention-suggest";
 import { PressableScale, useListItemMotion, useReduceMotionEnabled } from "./omg/motion";
@@ -1465,6 +1466,13 @@ export function HomeComposer({
             </Pressable>
           ))}
         </ScrollView>
+        {/* FADED EDGES, not a hard cut. The row is always wider than the
+            viewport, so one card is always sliced in half at an edge. The
+            slice read as a rendering fault. Paint the page colour over the
+            last few points instead, so the cut card dissolves and the row
+            says "there is more this way". Paint only: taps still reach the
+            cards underneath. */}
+        <RailEdgeFades color={colors.bg} />
       </View> : null}
       {/* "/" lists the box's skills above the field, as on the web. */}
       <SkillSuggest value={value} onChangeText={onChangeText} />

@@ -51,7 +51,7 @@ import Reanimated, {
 } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
 import { composerReservation } from "./composer-reservation";
-import { COMPOSER_FADE_HEIGHT, EdgeFade, fadeStops, TOP_FADE_HEIGHT } from "./edge-fade";
+import { COMPOSER_FADE_HEIGHT, EdgeFade, fadeStops, RailEdgeFades, TOP_FADE_HEIGHT } from "./edge-fade";
 import { keyCommandsAvailable, useKeyCommand } from "./key-commands";
 import { ShortcutsSheet } from "./shortcuts-sheet";
 import { FolderRailSheet } from "./folder-rail-sheet";
@@ -1424,88 +1424,94 @@ export function SessionsScreen({
   // this, a cold open drew every session on the machine in one flat list and
   // then rearranged itself into folders a second later.
   const folderRail = ready || showingSaved ? (
-    <ScrollView
-      horizontal
-      onTouchStart={navGesture.blockOpeningGesture}
-      showsHorizontalScrollIndicator={false}
-      keyboardShouldPersistTaps="handled"
-      // flexGrow 0: a ScrollView grows by default, and in the iPad rail's
-      // column this one shared the height with the session list beneath it,
-      // opening a blank band under the pills. The phone never saw it because
-      // there the rail sits in an absolute 50pt box.
-      style={{ height: 50, flexGrow: 0, flexShrink: 0, backgroundColor: "transparent" }}
-      contentContainerStyle={{
-        gap: 8,
-        paddingHorizontal: space.lg,
-        paddingTop: space.sm,
-        paddingBottom: space.sm,
-      }}
-    >
-      {/* The virtual folder holds chats without a project. Long press manages folders. */}
-      <PressableScale
-        onPress={() => {
-          void Haptics.selectionAsync();
-          projectPicker.selectUnassigned();
-        }}
-        accessibilityRole="button"
-        onLongPress={() => setRailSheetOpen(true)}
-        accessibilityLabel="Chats without a project"
-        testID="no-project-tab"
-        accessibilityState={{ selected: projectPicker.unassigned }}
-        scale={0.96}
-        style={{
-          width: 34,
-          minHeight: 34,
-          alignItems: "center",
-          justifyContent: "center",
-          borderRadius: radius.pill,
-          backgroundColor: projectPicker.unassigned ? colors.card : colors.secondary,
-          borderWidth: 1,
-          borderColor: projectPicker.unassigned ? colors.borderStrong : "transparent",
+    /* The pills overflow the rail at every width, so the row used to end in
+       a pill sliced down the middle at the viewport edge. The wrapper exists
+       only to hold the edge paint over the scroller. */
+    <View style={{ height: 50, flexGrow: 0, flexShrink: 0 }}>
+      <ScrollView
+        horizontal
+        onTouchStart={navGesture.blockOpeningGesture}
+        showsHorizontalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        // flexGrow 0: a ScrollView grows by default, and in the iPad rail's
+        // column this one shared the height with the session list beneath it,
+        // opening a blank band under the pills. The phone never saw it because
+        // there the rail sits in an absolute 50pt box.
+        style={{ height: 50, flexGrow: 0, flexShrink: 0, backgroundColor: "transparent" }}
+        contentContainerStyle={{
+          gap: 8,
+          paddingHorizontal: space.lg,
+          paddingTop: space.sm,
+          paddingBottom: space.sm,
         }}
       >
-        <Icon ios="plus" android="add" size={15} weight="semibold" color={colors.text} />
-      </PressableScale>
-      {projectPicker.options.map((folder, index) => (
+        {/* The virtual folder holds chats without a project. Long press manages folders. */}
         <PressableScale
-          key={`${folder.label}:${index}`}
-          onPress={folder.onPress}
-          // Hold a pill to arrange the rail: order, hide, add, create.
-          onLongPress={() => {
-            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            setRailSheetOpen(true);
+          onPress={() => {
+            void Haptics.selectionAsync();
+            projectPicker.selectUnassigned();
           }}
-          delayLongPress={350}
           accessibilityRole="button"
-          accessibilityState={{ selected: folder.selected }}
-          accessibilityLabel={`${folder.label} folder`}
+          onLongPress={() => setRailSheetOpen(true)}
+          accessibilityLabel="Chats without a project"
+          testID="no-project-tab"
+          accessibilityState={{ selected: projectPicker.unassigned }}
           scale={0.96}
-          // Selected is an OUTLINE and a shade lighter, not a white block.
-          // A solid white pill in a row of grey ones was the loudest thing
-          // on the screen, for a filter.
           style={{
+            width: 34,
             minHeight: 34,
+            alignItems: "center",
             justifyContent: "center",
-            paddingHorizontal: 14,
             borderRadius: radius.pill,
+            backgroundColor: projectPicker.unassigned ? colors.card : colors.secondary,
             borderWidth: 1,
-            borderColor: folder.selected ? colors.borderStrong : "transparent",
-            backgroundColor: folder.selected ? colors.card : colors.secondary,
+            borderColor: projectPicker.unassigned ? colors.borderStrong : "transparent",
           }}
         >
-          <Text
-            numberOfLines={1}
+          <Icon ios="plus" android="add" size={15} weight="semibold" color={colors.text} />
+        </PressableScale>
+        {projectPicker.options.map((folder, index) => (
+          <PressableScale
+            key={`${folder.label}:${index}`}
+            onPress={folder.onPress}
+            // Hold a pill to arrange the rail: order, hide, add, create.
+            onLongPress={() => {
+              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setRailSheetOpen(true);
+            }}
+            delayLongPress={350}
+            accessibilityRole="button"
+            accessibilityState={{ selected: folder.selected }}
+            accessibilityLabel={`${folder.label} folder`}
+            scale={0.96}
+            // Selected is an OUTLINE and a shade lighter, not a white block.
+            // A solid white pill in a row of grey ones was the loudest thing
+            // on the screen, for a filter.
             style={{
-              ...type.footnote,
-              fontWeight: "600",
-              color: folder.selected ? colors.text : colors.textSecondary,
+              minHeight: 34,
+              justifyContent: "center",
+              paddingHorizontal: 14,
+              borderRadius: radius.pill,
+              borderWidth: 1,
+              borderColor: folder.selected ? colors.borderStrong : "transparent",
+              backgroundColor: folder.selected ? colors.card : colors.secondary,
             }}
           >
-            {folder.label}
-          </Text>
-        </PressableScale>
-      ))}
-    </ScrollView>
+            <Text
+              numberOfLines={1}
+              style={{
+                ...type.footnote,
+                fontWeight: "600",
+                color: folder.selected ? colors.text : colors.textSecondary,
+              }}
+            >
+              {folder.label}
+            </Text>
+          </PressableScale>
+        ))}
+      </ScrollView>
+      <RailEdgeFades color={colors.bg} />
+    </View>
   ) : null;
 
   return (

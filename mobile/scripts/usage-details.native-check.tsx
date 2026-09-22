@@ -48,6 +48,9 @@ local("glass.tsx", { GlassSurface: View, LIQUID_GLASS: false });
 local("lucide.tsx", { LucideIcon: () => null });
 local("menu.tsx", { DropdownMenu: View });
 local("agent-setup-sheet.tsx", { AgentSetupSheet: () => null });
+// The starter rail's edge paint pulls in expo-linear-gradient, which
+// imports `Platform` from the react-native module stubbed above.
+local("edge-fade.tsx", { RailEdgeFades: () => null });
 local("skill-suggest.tsx", { SkillSuggest: () => null });
 local("session-mention-suggest.tsx", { SessionMentionSuggest: () => null });
 local("motion.tsx", {
