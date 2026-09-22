@@ -4,6 +4,12 @@ import { ModelProviderIcon } from "./lib/model-provider-icons";
 import { useRuntimeLifecycle } from "./lib/runtime-lifecycle";
 import { LiveHeaderContext } from "./components/live-header-context";
 import { ProjectPillRail } from "./components/project-pill-rail";
+import {
+  AgentSetupSheet,
+  type SetupAgentTile,
+  type SetupChoice,
+  type SetupSheetPage,
+} from "./components/agent-setup-sheet";
 import { activeMachine } from "./lib/machines";
 import { useHeaderProfile } from "./lib/header-profile";
 import { RuntimeAvailabilityContext, useRuntimeAvailability, shouldReloadRuntime } from "./lib/runtime-availability";
@@ -10011,6 +10017,56 @@ function UsageRingsLoadingIndicator() {
   );
 }
 
+// One provider's limit windows: label, percent and next reset. Shared by the
+// desktop rings popover and the mobile agent sheet's Usage page.
+function UsageDetailsBody({ provider }: { provider: ProviderUsage }) {
+  const windows = activityRingOrder(provider.windows ?? []);
+  return (
+    <>
+      <div className="mb-2 flex items-center gap-2">
+        <img src={agentIconSrc(provider.kind)} alt="" className="size-4" />
+        <span className="text-sm font-medium">{provider.label}</span>
+        {provider.plan ? (
+          <span className="rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            {provider.plan}
+          </span>
+        ) : null}
+      </div>
+      {windows.length ? (
+        <div className="flex items-center gap-3">
+          <UsageRings windows={windows} size={52} className="my-0.5" />
+          <div className="min-w-0 flex-1 space-y-1.5">
+            {windows.map((w, i) => (
+              <div key={w.label} className="flex items-center gap-2 text-xs">
+                <span
+                  className="size-2.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: USAGE_RING_COLORS[i % USAGE_RING_COLORS.length] }}
+                />
+                <span className="min-w-0 flex-1 truncate text-muted-foreground">{w.label}</span>
+                <span className="shrink-0 font-medium tabular-nums">
+                  {w.pct == null ? "—" : `${Math.round(w.pct)}%`}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          {provider.available ? provider.note ?? "No limit data reported" : provider.note ?? "Not signed in"}
+        </p>
+      )}
+      {windows.length && provider.note ? (
+        <p className="mt-2 text-[11px] leading-snug text-muted-foreground/80">{provider.note}</p>
+      ) : null}
+      {windows.some((w) => w.resetsAt) ? (
+        <p className="mt-2 border-t border-border/60 pt-2 text-[11px] text-muted-foreground/80">
+          {windows.find((w) => w.resetsAt) ? fmtReset(windows.find((w) => w.resetsAt)!.resetsAt) : ""}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
 // The composer's usage indicator: compact rings that expand into an animated
 // popover breaking down each limit window (label, %, reset time). Works for any
 // provider that reports windows; falls back to the provider note otherwise.
@@ -10059,46 +10115,7 @@ function UsageRingsButton({
         }
       />
       <DropdownMenuContent side="top" align="start" sideOffset={8} className="w-64 p-3">
-        <div className="mb-2 flex items-center gap-2">
-          <img src={agentIconSrc(provider.kind)} alt="" className="size-4" />
-          <span className="text-sm font-medium">{provider.label}</span>
-          {provider.plan ? (
-            <span className="rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-              {provider.plan}
-            </span>
-          ) : null}
-        </div>
-        {windows.length ? (
-          <div className="flex items-center gap-3">
-            <UsageRings windows={windows} size={52} className="my-0.5" />
-            <div className="min-w-0 flex-1 space-y-1.5">
-              {windows.map((w, i) => (
-                <div key={w.label} className="flex items-center gap-2 text-xs">
-                  <span
-                    className="size-2.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: USAGE_RING_COLORS[i % USAGE_RING_COLORS.length] }}
-                  />
-                  <span className="min-w-0 flex-1 truncate text-muted-foreground">{w.label}</span>
-                  <span className="shrink-0 font-medium tabular-nums">
-                    {w.pct == null ? "—" : `${Math.round(w.pct)}%`}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <p className="text-xs text-muted-foreground">
-            {provider.available ? provider.note ?? "No limit data reported" : provider.note ?? "Not signed in"}
-          </p>
-        )}
-        {windows.length && provider.note ? (
-          <p className="mt-2 text-[11px] leading-snug text-muted-foreground/80">{provider.note}</p>
-        ) : null}
-        {windows.some((w) => w.resetsAt) ? (
-          <p className="mt-2 border-t border-border/60 pt-2 text-[11px] text-muted-foreground/80">
-            {windows.find((w) => w.resetsAt) ? fmtReset(windows.find((w) => w.resetsAt)!.resetsAt) : ""}
-          </p>
-        ) : null}
+        <UsageDetailsBody provider={provider} />
         <p className="mt-2 border-t border-border/60 pt-2 text-[11px] text-muted-foreground/70">
           Long-press rings for all agents ·{" "}
           <kbd className="rounded bg-muted px-1 font-mono text-[10px]">Shift</kbd> to toggle
@@ -22365,11 +22382,21 @@ function NewSessionDialog({
   // expands the section so opening the dialog stays instant; reset on close.
   const [resumeOpen, setResumeOpen] = useState(false);
   const [resumable, setResumable] = useState<ResumableSession[] | null>(null);
+  // Mobile agent sheet (the iOS AgentSetupSheet layout). `setupPage` is where
+  // it opens: the root controls, or straight to the Claude profiles.
   const [agentPopoverOpen, setAgentPopoverOpen] = useState(false);
+  const [setupPage, setSetupPage] = useState<SetupSheetPage>("root");
+  const setupModelInputRef = useRef<HTMLInputElement>(null);
+  // The inline composer morphs like iOS HomeComposer: one row at rest, then the
+  // field on its own line with the controls under it while focused or filled.
+  const [composerFocused, setComposerFocused] = useState(false);
+  const blurTimerRef = useRef<number | null>(null);
+  useEffect(() => () => {
+    if (blurTimerRef.current != null) window.clearTimeout(blurTimerRef.current);
+  }, []);
   const [folderBrowserOpen, setFolderBrowserOpen] = useState(false);
   const [projectSheetOpen, setProjectSheetOpen] = useState(false);
   const [folderBrowserCreate, setFolderBrowserCreate] = useState(false);
-  const [modelLayerOpen, setModelLayerOpen] = useState(false);
   // Swipe-to-switch state for the inline composer's agent icon. `dir`/`nonce`
   // drive the slide+fade animation when the icon swaps; the button ref lets us
   // own the gesture with native listeners.
@@ -22377,17 +22404,9 @@ function NewSessionDialog({
   const cycleAgentRef = useRef<(dir: 1 | -1) => void>(() => {});
   const [agentIconDir, setAgentIconDir] = useState<1 | -1>(1);
   const [agentIconNonce, setAgentIconNonce] = useState(0);
-  const handleModelLayerOpenChange = useCallback((next: boolean) => {
-    setModelLayerOpen(next);
-  }, []);
-  const handleAgentPopoverOpenChange = useCallback(
-    (next: boolean) => {
-      // Keep the agent popover open while its nested model layer is open.
-      if (!next && modelLayerOpen) return;
-      setAgentPopoverOpen(next);
-    },
-    [modelLayerOpen],
-  );
+  const inlineExpanded =
+    variant === "inline" &&
+    (composerFocused || !!prompt.trim() || attachments.length > 0 || pendingUploads.length > 0);
 
   // Own the agent-icon gesture end-to-end with pointer events (one code path
   // for mouse-drag, touch and pen) plus wheel/trackpad. Base UI's trigger opens
@@ -22443,9 +22462,10 @@ function NewSessionDialog({
       window.removeEventListener("pointermove", onPointerMove, true);
       window.removeEventListener("pointerup", endDrag, true);
       window.removeEventListener("pointercancel", endDrag, true);
-      // A clean press with no drag is a tap → toggle the popover ourselves.
+      // A clean press with no drag is a tap → open the agent sheet.
       if (d && !d.dragged && e.type === "pointerup") {
-        setAgentPopoverOpen((current) => !current);
+        setSetupPage("root");
+        setAgentPopoverOpen(true);
       }
     };
     const onPointerDown = (e: PointerEvent) => {
@@ -22490,7 +22510,9 @@ function NewSessionDialog({
       window.removeEventListener("pointerup", endDrag, true);
       window.removeEventListener("pointercancel", endDrag, true);
     };
-  }, [open, variant]);
+    // The icon moves between the resting row and the expanded controls row,
+    // which mounts a new button; rebind the gesture to it.
+  }, [open, variant, inlineExpanded]);
   // Close the resume sheet and drop the cached list so the next open refetches
   // (and shows the skeleton) instead of flashing a stale roster.
   const closeResume = useCallback(() => {
@@ -23237,31 +23259,9 @@ function NewSessionDialog({
     setModel(preferredModelFor(key));
   };
 
-  const agentSelector = (
-    <AgentIconStrip
-      options={agentButtons}
-      value={agent}
-      selectedId={selectedLaunchId}
-      flat={variant === "inline"}
-      onLocked={onAgentLocked}
-      onSelect={onAgentSelect}
-    />
-  );
-
   const modelControls = (
     <>
-      {variant === "inline" ? (
-        view.showComposerModels ? (
-          <ModelPicker
-            value={model}
-            models={models}
-            onChange={setModel}
-            flat
-            width="max-w-28"
-            onMobileLayerOpenChange={handleModelLayerOpenChange}
-          />
-        ) : null
-      ) : (
+      {
         // Desktop: one pill for "which agent, which model". The agent strip
         // and the model list live in the same popover, so the row carries one
         // control fewer and the two choices that belong together are made
@@ -23280,7 +23280,7 @@ function NewSessionDialog({
           showModels={view.showComposerModels}
           showAgents={view.showComposerAgents}
         />
-      )}
+      }
 
       {/* Tibo mode pins Fast plus High, so its own pill is the single control
           for both. Showing the thinking and Fast pills next to it would offer
@@ -23333,22 +23333,9 @@ function NewSessionDialog({
     </>
   );
 
-  // In the inline composer the controls reveal as two independent mini cards:
-  // agent choices first, then model/thinking/project. Each card enters from the
-  // trigger's bottom-left corner so the stack feels emitted by the agent icon.
-  // The drawer keeps the same controls in its existing wrapping row.
-  const controlsInner = variant === "inline" ? (
-    <div className="flex w-max max-w-[calc(100vw-1rem)] origin-bottom-left flex-col items-start gap-1.5">
-      {agentButtons.length && view.showComposerAgents ? (
-        <div className="origin-bottom-left rounded-2xl bg-popover px-2 py-1.5 shadow-xl ring-1 ring-foreground/5 animate-in fade-in-0 zoom-in-75 slide-in-from-bottom-3 duration-200 ease-out">
-          {agentSelector}
-        </div>
-      ) : null}
-      <div className="flex max-w-full origin-bottom-left items-center gap-1.5 overflow-hidden rounded-2xl bg-popover px-2.5 py-1.5 shadow-xl ring-1 ring-foreground/5 animate-in fade-in-0 zoom-in-75 slide-in-from-bottom-3 duration-200 ease-out [animation-delay:55ms] [animation-fill-mode:backwards]">
-        {modelControls}
-      </div>
-    </div>
-  ) : (
+  // The drawer and the stage keep every control in one wrapping row. The inline
+  // mobile composer carries them in the agent sheet instead.
+  const controlsInner = (
     <div className="flex flex-wrap items-center gap-1.5 pb-0.5">
       {modelControls}
     </div>
@@ -23374,63 +23361,240 @@ function NewSessionDialog({
     </button>
   );
 
-  // Inline composer: the agent icon sits at the start of the input's action row
-  // and opens the full agent / model / thinking / repo controls in a popover
-  // *above* it — reclaiming the separate row those controls used to occupy while
-  // the tall field leaves plenty of empty space.
+  // Inline composer: the agent icon opens the agent sheet, the web copy of the
+  // iOS AgentSetupSheet. A vertical swipe on the icon still steps through the
+  // agents without opening anything.
   const agentPopover = (
-    <DropdownMenu open={agentPopoverOpen} onOpenChange={handleAgentPopoverOpenChange}>
-      <DropdownMenuTrigger
-        render={
-          <button
-            ref={agentIconBtnRef}
-            type="button"
-            title={
-              view.showComposerAgents
-                ? `${selectedAgentOption.label} — swipe to switch agent`
-                : selectedAgentOption.label
-            }
-            aria-label={
-              view.showComposerAgents
-                ? `Agent: ${selectedAgentOption.label}. Swipe up or down to switch.`
-                : `Agent: ${selectedAgentOption.label}. Open composer options.`
-            }
-            style={{ touchAction: "none" }}
-            className="relative flex size-8 shrink-0 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-sm transition active:scale-[0.96]"
-          >
-            <span className="pointer-events-none relative flex size-5 items-center justify-center overflow-hidden">
-              <img
-                key={`${agent}-${agentIconNonce}`}
-                src={agentIconSrc(agent)}
-                alt=""
-                draggable={false}
-                className={cn(
-                  "size-5 select-none",
-                  agentIconNonce > 0 &&
-                    (agentIconDir === 1
-                      ? "animate-in fade-in-0 slide-in-from-bottom-2 duration-200"
-                      : "animate-in fade-in-0 slide-in-from-top-2 duration-200"),
-                )}
-              />
-            </span>
-            {selectedAgentOption.badge != null ? (
-              <span className="pointer-events-none absolute -bottom-0.5 -right-0.5 flex size-3.5 items-center justify-center rounded-full bg-foreground text-[8px] font-bold leading-none text-background ring-1 ring-background">
-                {selectedAgentOption.badge}
-              </span>
-            ) : null}
-          </button>
-        }
-      />
-      <DropdownMenuContent
-        side="top"
-        align="start"
-        sideOffset={8}
-        className="w-max min-w-0 max-w-[calc(100vw-1rem)] origin-bottom-left overflow-visible bg-transparent p-0 shadow-none ring-0"
-      >
-        {controlsInner}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <button
+      ref={agentIconBtnRef}
+      type="button"
+      title={
+        view.showComposerAgents
+          ? `${selectedAgentOption.label} — swipe to switch agent`
+          : selectedAgentOption.label
+      }
+      aria-label={
+        view.showComposerAgents
+          ? `Agent: ${selectedAgentOption.label}. Swipe up or down to switch.`
+          : `Agent: ${selectedAgentOption.label}. Open composer options.`
+      }
+      aria-haspopup="dialog"
+      aria-expanded={agentPopoverOpen}
+      // Pointer taps are handled by the gesture listener, which swallows their
+      // click. Only keyboard activation (detail 0) reaches this handler.
+      onClick={(event) => {
+        if (event.detail !== 0) return;
+        setSetupPage("root");
+        setAgentPopoverOpen(true);
+      }}
+      style={{ touchAction: "none" }}
+      className="relative flex size-9 shrink-0 items-center justify-center rounded-full text-foreground transition active:scale-[0.96]"
+    >
+      <span className="pointer-events-none relative flex size-7 items-center justify-center overflow-hidden">
+        <img
+          key={`${agent}-${agentIconNonce}`}
+          src={agentIconSrc(agent)}
+          alt=""
+          draggable={false}
+          className={cn(
+            "size-7 select-none",
+            agentIconNonce > 0 &&
+              (agentIconDir === 1
+                ? "animate-in fade-in-0 slide-in-from-bottom-2 duration-200"
+                : "animate-in fade-in-0 slide-in-from-top-2 duration-200"),
+          )}
+        />
+      </span>
+      {selectedAgentOption.badge != null ? (
+        <span className="pointer-events-none absolute -bottom-0.5 -right-0.5 flex size-3.5 items-center justify-center rounded-full bg-foreground text-[8px] font-bold leading-none text-background ring-1 ring-background">
+          {selectedAgentOption.badge}
+        </span>
+      ) : null}
+    </button>
   );
+
+  // One tile per agent, as on iOS. The per-account Claude entries fold into the
+  // Claude tile; the sheet's profile page chooses between them.
+  const claudeLaunchOptions = visibleAgentOptions.filter((option) => option.key === "aisdk");
+  const setupTiles: SetupAgentTile[] = view.showComposerAgents
+    ? agentButtons
+        .filter((option, index, all) => all.findIndex((other) => other.key === option.key) === index)
+        .map((option) => ({
+          id: option.key,
+          label: AGENT_CATALOG.find((entry) => entry.key === option.key)?.label ?? option.label,
+          iconSrc: agentIconSrc(option.key),
+          selected: !option.locked && option.key === agent,
+          locked: option.locked,
+          badge:
+            option.key === "aisdk" && claudeAccountId
+              ? claudeLaunchOptions.find((item) => item.accountId === claudeAccountId)?.badge
+              : undefined,
+        }))
+    : [];
+  const setupProfiles: SetupChoice[] =
+    claudeLaunchOptions.length > 1
+      ? claudeLaunchOptions.map((option) => ({
+          id: option.accountId ?? "",
+          label: option.accountId ? String(option.badge ?? option.label) : "Auto",
+          selected: (option.accountId ?? "") === claudeAccountId,
+        }))
+      : [];
+  const agentSheet =
+    variant === "inline" ? (
+      <AgentSetupSheet
+        open={agentPopoverOpen}
+        onOpenChange={setAgentPopoverOpen}
+        initialPage={setupPage}
+        title={(() => {
+          const label = AGENT_CATALOG.find((entry) => entry.key === agent)?.label ?? selectedAgentOption.label;
+          return label.charAt(0).toUpperCase() + label.slice(1);
+        })()}
+        agents={setupTiles}
+        onSelectAgent={(id) => {
+          const key = id as AgentKind;
+          if (key === agent) return;
+          desiredAgentRef.current = key;
+          setAgent(key);
+          if (key === "aisdk") setClaudeAccountId("");
+          setModel(preferredModelFor(key));
+        }}
+        onLockedAgent={() => {
+          setAgentPopoverOpen(false);
+          onAgentLocked();
+        }}
+        profiles={setupProfiles}
+        onSelectProfile={(id) => setClaudeAccountId(id)}
+        modelLabel={view.showComposerModels ? omgModelLabel(model) || model || null : null}
+        renderModels={
+          view.showComposerModels
+            ? (done) => (
+                <ModelOptionList
+                  value={model}
+                  models={models}
+                  onChoose={(next) => {
+                    setModel(next);
+                    done();
+                  }}
+                  onEscape={done}
+                  inputRef={setupModelInputRef}
+                  large
+                />
+              )
+            : undefined
+        }
+        fast={
+          fastModeAvailable && !tiboModeActive
+            ? { enabled: fastModeEnabled, onToggle: () => setFastMode(!fastModeEnabled) }
+            : null
+        }
+        tibo={tiboModeAvailable ? { enabled: tiboModeActive, onToggle: () => setTiboMode(!tiboMode) } : null}
+        thinking={
+          !tiboModeActive && agentSupportsThinking(agent)
+            ? {
+                options: thinkingLevels.map((level) => ({
+                  id: level,
+                  label: thinkingLevelLabel(level),
+                  selected: level === thinkingLevel,
+                })),
+                onPick: (level) => changeComposerThinkingLevel(level as ThinkingLevel),
+              }
+            : null
+        }
+        usageRing={
+          usage ? (
+            <UsageRings
+              windows={
+                usage.windows?.length
+                  ? activityRingOrder(usage.windows)
+                  : [{ label: "usage", pct: null, resetsAt: null }]
+              }
+            />
+          ) : usageLoading ? (
+            <UsageRingsLoading />
+          ) : null
+        }
+        usageDetails={usage ? <UsageDetailsBody provider={usage} /> : null}
+      />
+    ) : null;
+
+  const micButton = (
+    <MicButton
+      minimal
+      className={cn("size-9 shrink-0", variant !== "inline" && "absolute bottom-1 right-1")}
+      silenceMs={2500}
+      baseText={prompt}
+      onText={(text, base) => {
+        setPrompt(base.trim() ? `${base.trimEnd()} ${text}` : text);
+        setDictationScrollNonce((nonce) => nonce + 1);
+      }}
+      onInterim={(text, base) => {
+        setPrompt(base.trim() ? `${base.trimEnd()} ${text}` : text);
+        setDictationScrollNonce((nonce) => nonce + 1);
+      }}
+      onAutoSubmit={(text, base) => {
+        const combined = base.trim() ? `${base.trimEnd()} ${text}` : text;
+        void submit(undefined, combined);
+      }}
+      onCancel={(base) => setPrompt(base)}
+    />
+  );
+  const attachButton = (
+    <Button
+      size="icon-sm"
+      type="button"
+      variant={draggingFiles ? "brand-soft" : variant === "inline" ? "ghost" : "outline"}
+      className={cn("size-8 rounded-full", variant !== "inline" && "shadow-sm")}
+      onClick={files.openFilePicker}
+      aria-label="Attach files"
+      title="Attach files"
+    >
+      <Plus className="size-4" />
+    </Button>
+  );
+  const startButton = (
+    <ComposerStartButton
+      disabled={!canSubmit}
+      thinkingLevel={thinkingLevel}
+      thinkingLevels={
+        tiboModeActive
+          ? ["high"]
+          : agentSupportsThinking(agent)
+            ? thinkingLevels
+            : []
+      }
+      onLaunch={(next) => {
+        changeComposerThinkingLevel(next);
+        submit(undefined, undefined, next);
+      }}
+    />
+  );
+  const projectButton =
+    variant === "inline" && projectOptions && onProjectChange ? (
+      <Button
+        size="sm"
+        type="button"
+        variant="outline"
+        className={cn(
+          "h-8 shrink-0 rounded-full shadow-sm",
+          // Icon alone when nothing is scoped — the same shape
+          // MobileProjectPicker collapses to for "__all". Naming the
+          // composer's fallback repo here made choosing "All projects"
+          // look ignored: the list widened while the chip went on
+          // showing the folder you had just moved away from.
+          allProjects ? "size-8 px-0" : "max-w-36 px-2.5",
+        )}
+        onClick={openProjectSheet}
+        aria-label={
+          allProjects
+            ? "Choose project. Showing all projects"
+            : `Choose project. Current project: ${selectedRepoName}`
+        }
+        title={allProjects ? "All projects" : selectedRepo || selectedRepoName}
+      >
+        <Folder className="size-4 shrink-0" />
+        {allProjects ? null : <span className="truncate">{selectedRepoName}</span>}
+      </Button>
+    ) : null;
 
   const formBody = (
     <>
@@ -23470,17 +23634,45 @@ function NewSessionDialog({
       ) : null}
       <div
         className={cn(
-          "lfg-gfield relative rounded-2xl",
-          // Inline: a single row with the agent icon, field, and mic all
-          // centered at rest, then pinned to the bottom as the textarea grows.
+          "lfg-gfield relative",
+          // Inline follows iOS HomeComposer. At rest it is one row: agent,
+          // field, attach, mic. Focus or content gives the field its own line
+          // and moves agent, attach, mic and Start under it.
           variant === "inline"
             ? cn(
-                "flex gap-1.5 overflow-visible px-2.5 py-2",
-                promptMultiline ? "items-end" : "items-center",
+                "flex overflow-visible transition-[border-radius,padding] duration-200 ease-out motion-reduce:transition-none",
+                inlineExpanded
+                  ? "flex-col items-stretch gap-3 rounded-[30px] px-3.5 pb-3 pt-3.5"
+                  : cn("flex-row gap-2 rounded-[26px] px-2 py-[7px]", promptMultiline ? "items-end" : "items-center"),
               )
-            : "relative px-2 py-1",
+            : "relative rounded-2xl px-2 py-1",
         )}
         ref={fieldRef}
+        onFocus={
+          variant === "inline"
+            ? (event) => {
+                if (event.target instanceof HTMLTextAreaElement) {
+                  if (blurTimerRef.current != null) window.clearTimeout(blurTimerRef.current);
+                  blurTimerRef.current = null;
+                  setComposerFocused(true);
+                }
+              }
+            : undefined
+        }
+        onBlur={
+          variant === "inline"
+            ? (event) => {
+                if (!(event.target instanceof HTMLTextAreaElement)) return;
+                // Collapse a moment later, so a tap on a control that is about
+                // to move still lands on it.
+                if (blurTimerRef.current != null) window.clearTimeout(blurTimerRef.current);
+                blurTimerRef.current = window.setTimeout(() => {
+                  blurTimerRef.current = null;
+                  setComposerFocused(false);
+                }, 200);
+              }
+            : undefined
+        }
       >
         {launching ? (
           <div
@@ -23491,7 +23683,9 @@ function NewSessionDialog({
             <ShimmerText className="text-sm font-medium">Creating session…</ShimmerText>
           </div>
         ) : null}
-        {variant === "inline" ? agentPopover : null}
+        {/* The field keeps its child index in both shapes, so React updates it
+            in place and focus survives the morph. `null` holds a slot. */}
+        {variant === "inline" && !inlineExpanded ? agentPopover : null}
         <ComposerTextarea
           value={prompt}
           onValueChange={setPrompt}
@@ -23509,30 +23703,36 @@ function NewSessionDialog({
           className={cn(
             "border-0 bg-transparent text-base leading-relaxed shadow-none focus-visible:border-0 focus-visible:ring-0",
             variant === "inline"
-              ? "min-h-9 flex-1 px-1 py-1.5"
+              ? cn("min-h-9 px-1 py-1.5", !inlineExpanded && "flex-1")
               : "min-h-40 max-h-[42dvh] px-1 py-1 pr-10",
           )}
         />
-        <MicButton
-          minimal
-          className={cn("size-9 shrink-0", variant !== "inline" && "absolute bottom-1 right-1")}
-          silenceMs={2500}
-          baseText={prompt}
-          onText={(text, base) => {
-            setPrompt(base.trim() ? `${base.trimEnd()} ${text}` : text);
-            setDictationScrollNonce((nonce) => nonce + 1);
-          }}
-          onInterim={(text, base) => {
-            setPrompt(base.trim() ? `${base.trimEnd()} ${text}` : text);
-            setDictationScrollNonce((nonce) => nonce + 1);
-          }}
-          onAutoSubmit={(text, base) => {
-            const combined = base.trim() ? `${base.trimEnd()} ${text}` : text;
-            void submit(undefined, combined);
-          }}
-          onCancel={(base) => setPrompt(base)}
-        />
+        {variant === "inline" ? (
+          <div
+            className="flex shrink-0 items-center gap-2"
+            // Keep the field focused while a control is tapped, so the
+            // composer does not collapse under the finger.
+            onMouseDown={(event) => {
+              if (inlineExpanded) event.preventDefault();
+            }}
+          >
+            {/* Fixed slots, so the mic never remounts mid-dictation when the
+                first words expand the composer. */}
+            {inlineExpanded ? agentPopover : null}
+            {attachButton}
+            {inlineExpanded ? projectButton : null}
+            {inlineExpanded ? resumeButton : null}
+            {inlineExpanded ? <span className="flex-1" /> : null}
+            {micButton}
+            {inlineExpanded ? startButton : null}
+          </div>
+        ) : (
+          micButton
+        )}
       </div>
+      {variant === "inline" && error ? (
+        <p className="mt-1.5 truncate px-3 text-xs text-destructive">{error}</p>
+      ) : null}
 
       <ComposerAttachmentChips
         className="mt-2"
@@ -23553,88 +23753,38 @@ function NewSessionDialog({
           ONLY the configuration pills (agent / model / thinking / project) —
           usage and resume live in the action row below, so both variants read
           as the same two-row composer instead of a ragged four-row stack. */}
+      {/* The drawer and the stage keep an always-open controls row and an
+          action row. The inline composer carries the controls in the agent
+          sheet and its actions inside the field, as on iOS. */}
       {variant !== "inline" ? (
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">{controlsInner}</div>
+        <>
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">{controlsInner}</div>
+          <div className={cn("flex items-center gap-2", compact ? "mt-2" : "mt-3")}>
+            {/* Left: Apple-Watch-style usage rings; tap to expand the breakdown. */}
+            {usageLoading ? (
+              <UsageRingsLoadingIndicator />
+            ) : usage ? (
+              <UsageRingsButton provider={usage} />
+            ) : null}
+            <span
+              className={cn(
+                "min-w-0 flex-1 truncate text-xs",
+                error ? "text-destructive" : "text-muted-foreground",
+              )}
+            >
+              {error || ""}
+            </span>
+            {/* Right cluster: resume + photo + send, stacked together. */}
+            <div className="flex shrink-0 items-center gap-2">
+              {resumeButton}
+              {attachButton}
+              {startButton}
+            </div>
+          </div>
+        </>
       ) : null}
 
-      <div
-        className={cn(
-          "flex items-center gap-2",
-          compact ? "mt-2" : "mt-3",
-        )}
-      >
-        {/* Left: Apple-Watch-style usage rings; tap to expand the breakdown. */}
-        {usageLoading ? (
-          <UsageRingsLoadingIndicator />
-        ) : usage ? (
-          <UsageRingsButton provider={usage} />
-        ) : null}
-        <span
-          className={cn(
-            "min-w-0 flex-1 truncate text-xs",
-            error ? "text-destructive" : "text-muted-foreground",
-          )}
-        >
-          {error || ""}
-        </span>
-        {/* Right cluster: resume + folder + photo + send, stacked together. */}
-        <div className="flex shrink-0 items-center gap-2">
-          {resumeButton}
-          {variant === "inline" && projectOptions && onProjectChange ? (
-            <Button
-              size="sm"
-              type="button"
-              variant="outline"
-              className={cn(
-                "h-8 shrink-0 rounded-full shadow-sm",
-                // Icon alone when nothing is scoped — the same shape
-                // MobileProjectPicker collapses to for "__all". Naming the
-                // composer's fallback repo here made choosing "All projects"
-                // look ignored: the list widened while the chip went on
-                // showing the folder you had just moved away from.
-                allProjects ? "size-8 px-0" : "max-w-36 px-2.5",
-              )}
-              onClick={openProjectSheet}
-              aria-label={
-                allProjects
-                  ? "Choose project. Showing all projects"
-                  : `Choose project. Current project: ${selectedRepoName}`
-              }
-              title={allProjects ? "All projects" : selectedRepo || selectedRepoName}
-            >
-              <Folder className="size-4 shrink-0" />
-              {allProjects ? null : <span className="truncate">{selectedRepoName}</span>}
-            </Button>
-          ) : null}
-          <Button
-            size="icon-sm"
-            type="button"
-            variant={draggingFiles ? "brand-soft" : "outline"}
-            className="size-8 rounded-full shadow-sm"
-            onClick={files.openFilePicker}
-            aria-label="Attach files"
-            title="Attach files"
-          >
-            <Plus className="size-4" />
-          </Button>
-          <ComposerStartButton
-            disabled={!canSubmit}
-            thinkingLevel={thinkingLevel}
-            thinkingLevels={
-              tiboModeActive
-                ? ["high"]
-                : agentSupportsThinking(agent)
-                  ? thinkingLevels
-                  : []
-            }
-            onLaunch={(next) => {
-              changeComposerThinkingLevel(next);
-              submit(undefined, undefined, next);
-            }}
-          />
-        </div>
-      </div>
-
+      {agentSheet}
       {resumeOpen ? (
         <Suspense fallback={null}>
           <ResumeSessionSheet
