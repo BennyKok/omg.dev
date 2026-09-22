@@ -2,7 +2,7 @@
 
 Recent product updates and deployment notes.
 
-## September 22, 2026 - Expo previews use the sandbox proxy first
+## September 22, 2026 - Expo previews use the sandbox proxy first (v0.6.109)
 
 - Expo Web agents now expose the development server's actual port through the omg.dev preview card before trying any other route.
 - Expo tunnel stays a separate path for explicit native Expo Go device testing.
