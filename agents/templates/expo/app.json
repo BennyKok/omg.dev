@@ -1,0 +1,16 @@
+{
+  "expo": {
+    "name": "__OMG_PROJECT_NAME__",
+    "slug": "__OMG_PROJECT_SLUG__",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "web": {
+      "output": "server"
+    },
+    "plugins": ["expo-router"],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

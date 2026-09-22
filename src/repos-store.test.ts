@@ -61,6 +61,32 @@ describe("project creation", () => {
     expect(git(worktree.worktree.path, "rev-parse", "HEAD")).toBe(git(repo.cwd, "rev-parse", "HEAD"));
   });
 
+  test("creates a committed Expo app from the managed template", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lfg-project-expo-"));
+    roots.push(root);
+    PATHS.data = join(root, "data");
+
+    const repo = await createProjectFolder(root, "Pocket Kitchen", "expo");
+
+    expect(JSON.parse(readFileSync(join(repo.cwd, "package.json"), "utf8"))).toMatchObject({
+      name: "pocket-kitchen",
+      main: "expo-router/entry",
+      dependencies: { expo: "~57.0.24", "expo-router": "~57.0.22" },
+      devDependencies: { "@expo/ngrok": "4.1.3" },
+    });
+    expect(JSON.parse(readFileSync(join(repo.cwd, "app.json"), "utf8"))).toMatchObject({
+      expo: { name: "Pocket Kitchen", slug: "pocket-kitchen", web: { output: "server" } },
+    });
+    expect(JSON.parse(readFileSync(join(repo.cwd, ".omg/template.json"), "utf8"))).toEqual({
+      name: "expo",
+      version: 1,
+    });
+    expect(readFileSync(join(repo.cwd, "src/app/health+api.ts"), "utf8")).toContain("pocket-kitchen");
+    expect(readFileSync(join(repo.cwd, "src/app/index.tsx"), "utf8")).toContain("Pocket Kitchen");
+    expect(git(repo.cwd, "show", "HEAD:package.json")).toContain('"expo-router"');
+    expect(git(repo.cwd, "status", "--short")).toBe("");
+  });
+
   test("isolates LFG's own repository instead of honoring the old self-repo skip", async () => {
     const root = mkdtempSync(join(tmpdir(), "lfg-self-worktree-"));
     roots.push(root);
