@@ -228,6 +228,7 @@ export async function deployFolder(
   input: DeployFolderInput,
 ): Promise<DeployFolderResult> {
   const cwd = input.cwd;
+  const startedAt = (input.now ?? Date.now)();
   const link = loadProjectLink(cwd);
   const collected = collectProjectFiles(cwd);
   const name = input.name?.trim() || link?.name || basename(cwd);
@@ -242,7 +243,11 @@ export async function deployFolder(
   if (!input.wait) return started;
   const status = await waitForDeploy(client, started.slug, {
     intervalMs: input.intervalMs,
-    timeoutMs: input.waitBudgetMs ?? input.timeoutMs,
+    // The budget covers the whole call, upload included, so the agent's
+    // request still answers before its client gives up.
+    timeoutMs: input.waitBudgetMs !== undefined
+      ? Math.max(0, input.waitBudgetMs - ((input.now ?? Date.now)() - startedAt))
+      : input.timeoutMs,
     sleep: input.sleep,
     now: input.now,
     onStatus: input.onStatus,
