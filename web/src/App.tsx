@@ -4,7 +4,7 @@ import { ModelProviderIcon } from "./lib/model-provider-icons";
 import { useRuntimeLifecycle } from "./lib/runtime-lifecycle";
 import { LiveHeaderContext } from "./components/live-header-context";
 import { ProjectPillRail, projectPillsFor } from "./components/project-pill-rail";
-import { SideNavButton, SideNavDrawer } from "./components/side-nav";
+import { HostDrawerSlot, SideNavButton, SideNavDrawer } from "./components/side-nav";
 import { FindingsPill, FindingsSheet } from "./components/findings-pill";
 import { sideNavRows } from "./lib/side-nav-items";
 import {
@@ -6297,6 +6297,7 @@ export function App() {
   // The mobile side navigation. One drawer now answers "where do I go",
   // replacing both the bottom surface bar and the overflow menu.
   const [navOpen, setNavOpen] = useState(false);
+  const closeNav = useCallback(() => setNavOpen(false), []);
   // Read straight from the stored choice rather than through MachineSwitcher,
   // which owns the list. The button only needs the current name for its label.
   const navMachineName = activeMachine().name;
@@ -9092,6 +9093,7 @@ export function App() {
                     that still floats keeps working exactly as before. */}
                 <span
                   data-lfg-host-slot="header-actions"
+                  data-lfg-host-drawer={embedded && isMobile ? "footer" : undefined}
                   /* Tells the host its own Settings control is redundant here:
                      our menu is carrying one that calls back into it. A flag
                      on the slot, not an assumed version — a host that docks
@@ -9154,6 +9156,7 @@ export function App() {
               header is still just the back button. */}
           <span
             data-lfg-host-slot="header-actions"
+            data-lfg-host-drawer={embedded && isMobile ? "footer" : undefined}
             className="glass-island flex h-11 shrink-0 items-center gap-1.5 rounded-full px-2"
           />
         </header>
@@ -9222,6 +9225,7 @@ export function App() {
             {embedded ? (
               <span
                 data-lfg-host-slot="header-actions"
+                data-lfg-host-drawer={embedded && isMobile ? "footer" : undefined}
                 data-lfg-host-settings={hostSettingsInMenu ? "menu" : undefined}
                 className="flex items-center gap-1.5"
               />
@@ -9704,7 +9708,11 @@ export function App() {
             !embedded || hostMachines ? <MachineSwitcher variant="nav" /> : null
           }
           footer={
-            hostSettingsInMenu && onOpenHostSettings ? (
+            embedded || (hostSettingsInMenu && onOpenHostSettings) ? (
+              <>
+              {/* Host rows first (for example Upgrade), then Settings. */}
+              {embedded ? <HostDrawerSlot onClose={closeNav} /> : null}
+              {hostSettingsInMenu && onOpenHostSettings ? (
               <button
                 type="button"
                 onClick={() => {
@@ -9716,6 +9724,8 @@ export function App() {
                 <Settings className="size-[18px] shrink-0" />
                 <span className="min-w-0 flex-1 truncate">Settings</span>
               </button>
+              ) : null}
+              </>
             ) : null
           }
         />

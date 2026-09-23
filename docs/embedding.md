@@ -58,7 +58,8 @@ host portals into them:
 | Slot | Where | Extra attributes |
 | --- | --- | --- |
 | `rail-footer` | Bottom of the desktop rail | `data-lfg-rail-collapsed="true"` when the rail is at 56px, so the host can stack vertically |
-| `header-actions` | Inside the mobile header island, before the Pages menu | `data-lfg-host-settings="menu"` when the Pages menu is already offering your Settings, so your own control there is redundant |
+| `header-actions` | Inside the mobile header island, before the Pages menu | `data-lfg-host-settings="menu"` when the Pages menu is already offering your Settings, so your own control there is redundant. `data-lfg-host-drawer="footer"` when the phone navigation drawer offers a `drawer-footer` slot |
+| `drawer-footer` | Footer of the phone navigation drawer, above Settings | Exists only while the drawer is open. Read `data-lfg-host-drawer="footer"` on `header-actions` to know it is available. A tap inside it closes the drawer |
 
 Two host callbacks address settings, and they are not interchangeable:
 
