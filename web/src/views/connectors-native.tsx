@@ -1,13 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronRight, Plug, Plus, Search, ShieldQuestion, Trash2 } from "lucide-react";
+import { ChevronRight, Plug, Plus, ShieldQuestion, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { omgFetch } from "@/lib/omg-client";
 
-// The native connector manager: browse the integrations.sh catalog and manage
+// The native connector manager: omg's tested connectors (Recommended) and
 // this member's connections, all through omg's own API (/api/connectors...),
 // so it works over remote access and is scoped per member. No Executor.
+//
+// The ~1,300-entry integrations.sh catalog is not offered here. Most of it
+// was never tested with omg, and a list of things that may not work is worse
+// than a short list that does. A custom MCP server stays available under
+// Advanced for someone who knows what they are adding.
 
 export type PublicConnector = {
   id: string;
@@ -58,15 +63,6 @@ export type OAuthAppStatus = {
   configured: boolean;
   clientIdHint: string | null;
 };
-
-/**
- * Whether adding this entry may open a sign-in. True when the catalog says
- * OAuth, and also when the catalog says nothing: the server is asked on add,
- * and a popup must be reserved during the click to survive the popup blocker.
- */
-export function mayNeedAuth(entry: Pick<CatalogEntry, "needsOAuth" | "authKind">): boolean {
-  return entry.needsOAuth || entry.authKind === null || entry.authKind === undefined;
-}
 
 /** A logo, falling back to a plug glyph when the image is missing or fails. */
 function Logo({ src, alt }: { src?: string | null; alt: string }) {
@@ -345,7 +341,6 @@ export function ConnectorsNativePanel() {
           />
         ) : null}
 
-        <CatalogBrowser user={user} scope={scope} addConnector={addConnector} />
         <AddByUrl user={user} scope={scope} addConnector={addConnector} />
       </div>
     </section>
@@ -544,7 +539,7 @@ function AddByUrl({ user, scope, addConnector }: { user: string; scope: Scope; a
         className="flex w-full items-center gap-2 rounded-2xl border border-dashed border-border px-4 py-2.5 text-left text-xs text-muted-foreground hover:bg-foreground/[0.03]"
       >
         <Plus className="size-4 shrink-0" />
-        Add a custom MCP server by URL
+        Advanced: add a custom MCP server by URL
       </button>
     );
   }
@@ -631,104 +626,6 @@ function AddByUrlForm({ user, scope, addConnector, onClose }: { user: string; sc
       </div>
       {error ? <p className="px-1 text-xs text-destructive">{error}</p> : null}
     </form>
-  );
-}
-
-function CatalogBrowser({ user, scope, addConnector }: { user: string; scope: Scope; addConnector: AddConnector }) {
-  const [q, setQ] = useState("");
-  const [results, setResults] = useState<CatalogEntry[] | null>(null);
-  const [total, setTotal] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [adding, setAdding] = useState<string | null>(null);
-
-  const search = useCallback(async (query: string) => {
-    try {
-      const { results, total } = await api<{ total: number; results: CatalogEntry[] }>(
-        `/api/connectors/catalog?q=${encodeURIComponent(query)}&limit=40`,
-      );
-      // omg's own connectors live in Recommended, where Connect sets them up
-      // as native. An "Add" here would save a plain MCP row against Google's
-      // preview-only server, which never works, so they are not listed twice.
-      const curated = results.filter((e) => e.recommended);
-      setResults(results.filter((e) => !e.recommended));
-      setTotal(Math.max(total - curated.length, 0));
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "could not load the catalog");
-      setResults([]);
-    }
-  }, []);
-
-  useEffect(() => {
-    const t = setTimeout(() => void search(q), 250);
-    return () => clearTimeout(t);
-  }, [q, search]);
-
-  const add = async (entry: CatalogEntry) => {
-    if (!entry.connectUrl) {
-      setError(`${entry.name} has no MCP endpoint in the catalog; add it by URL.`);
-      return;
-    }
-    setAdding(entry.slug);
-    setError(null);
-    try {
-      await addConnector({
-        ...scopeBody(scope, user),
-        name: entry.name,
-        endpoint: entry.connectUrl,
-        catalogSlug: entry.slug,
-        icon: entry.icon ?? undefined,
-        oauth: entry.needsOAuth,
-        maybeOauth: mayNeedAuth(entry),
-      });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "could not add");
-    } finally {
-      setAdding(null);
-    }
-  };
-
-  return (
-    <div className="space-y-2 rounded-2xl border border-border bg-card/40 px-4 py-3">
-      <div className="flex items-center gap-2 text-sm font-medium">
-        <Search className="size-4 text-muted-foreground" /> Browse the catalog
-        {total !== null ? <span className="text-xs font-normal text-muted-foreground">({total})</span> : null}
-      </div>
-      <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search connectors, e.g. github, notion, stripe" aria-label="Search catalog" className="h-8 text-xs" />
-      {error ? <p className="px-1 text-xs text-destructive">{error}</p> : null}
-      <ul className="max-h-72 space-y-1 overflow-y-auto">
-        {results === null ? (
-          <li className="px-1 text-xs text-muted-foreground">Loading.</li>
-        ) : results.length === 0 ? (
-          <li className="px-1 text-xs text-muted-foreground">No matches.</li>
-        ) : (
-          results.map((e) => (
-            <li key={e.slug} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-foreground/[0.03]" data-catalog={e.slug}>
-              <Logo src={e.icon} alt="" />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate font-medium">{e.name}</span>
-                <span className="block truncate text-[11px] text-muted-foreground">{e.description || e.slug}</span>
-              </span>
-              {e.needsOAuth ? (
-                <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground" title="Adding opens sign-in">
-                  OAuth
-                </span>
-              ) : null}
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                disabled={adding === e.slug || !e.connectUrl}
-                onClick={() => void add(e)}
-                title={!e.connectUrl ? "No MCP endpoint; add by URL" : "Add"}
-              >
-                {adding === e.slug ? "Adding…" : "Add"}
-              </Button>
-            </li>
-          ))
-        )}
-      </ul>
-    </div>
   );
 }
 
