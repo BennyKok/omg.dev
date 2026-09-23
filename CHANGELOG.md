@@ -2,6 +2,14 @@
 
 Recent product updates and deployment notes.
 
+## September 23, 2026 - One navigation on a phone (v0.6.112)
+
+- The web app on a phone now has a side navigation. Chat, Bots, Schedules, Notifications, Artifacts, Computer, Board and Settings are all in it, and the bar at the bottom of the screen is gone.
+- The navigation opens from the button at the top left. It starts with the computer you are working on, and that button shows whether the computer is online.
+- The project rail no longer has an "All" pill. Press the selected folder again to see every folder.
+- The agent sheet no longer draws a block below itself, and it now changes smoothly between the agent list and the model list.
+- The Coding agents settings page has a Refresh models button. It asks the computer to read every provider again.
+
 ## September 23, 2026 - Expo Go card and unstuck OpenCode answers (v0.6.111)
 
 - An Expo preview card now offers Open in Expo Go. On iOS it shows setup steps with an App Store button, and on web it shows a QR code.
