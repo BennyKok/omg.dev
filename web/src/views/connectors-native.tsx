@@ -665,7 +665,7 @@ export function RecommendedConnectors({
   }, []);
 
   useEffect(() => {
-    void api<{ recommended?: CatalogEntry[] }>("/api/connectors/catalog?limit=1")
+    void api<{ recommended?: CatalogEntry[] }>("/api/connectors/catalog?recommended=1")
       .then((res) => setEntries(res.recommended ?? []))
       .catch(() => setEntries([]));
     void loadApps();
