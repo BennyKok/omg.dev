@@ -118,8 +118,15 @@ export function AgentSetupSheet({
           // band showed as an opaque square-cornered slab of bg-popover under
           // the card's rounded corners, sitting over the dimmed backdrop.
           data-vaul-custom-container="true"
-          className="fixed inset-x-2 bottom-[max(var(--lfg-safe-bottom),0.5rem)] z-[180] mx-auto flex max-h-[86dvh] max-w-[414px] select-none flex-col rounded-[2rem] border border-border bg-popover px-3 pb-3 text-popover-foreground shadow-2xl outline-none"
+          // Anchored at bottom-0, NOT inset from it, even though the card
+          // floats. vaul dismisses with translate3d(0, 100%, 0) — 100% of
+          // this element's own height — so an element held 8px off the bottom
+          // stops 8px short and leaves a sliver of itself on screen. The
+          // float is drawn by the padding here and the card below, the same
+          // way components/ui/drawer.tsx does it with before:inset-2.
+          className="fixed inset-x-0 bottom-0 z-[180] flex max-h-[90dvh] select-none flex-col bg-transparent px-2 pb-[max(var(--lfg-safe-bottom),0.5rem)] outline-none"
         >
+          <div className="mx-auto flex min-h-0 w-full max-w-[414px] flex-col rounded-[2rem] border border-border bg-popover px-3 pb-3 text-popover-foreground shadow-2xl">
           <div className="mx-auto mb-1 mt-2.5 h-1.5 w-10 shrink-0 rounded-full bg-muted-foreground/30" />
           <div className="flex min-h-11 items-center gap-2">
             {page !== "root" ? (
@@ -242,6 +249,7 @@ export function AgentSetupSheet({
               ))}
             </div>
           )}
+          </div>
           </div>
           </div>
         </VaulDrawer.Content>

@@ -9028,6 +9028,9 @@ export function App() {
             // also has no other entry point on mobile, so the island carries
             // the roster filter, host actions, then our overflow menu.
             <NavIsland className="shrink-0">
+              {/* Still a card here: the host portals its own actions into the
+                  slot below, so this island is usually holding several
+                  controls rather than the avatar alone. */}
               <div className="glass-island flex h-11 items-center gap-1.5 rounded-full px-2">
                 {tab === "auto" ? null : (
                   <UserFilterMenu
@@ -9064,23 +9067,23 @@ export function App() {
               </div>
             </NavIsland>
           ) : (
+            /* No card. The island existed to group the roster filter with the
+               overflow menu; the menu moved into the side navigation, so the
+               card was left drawing a pill around one avatar. */
             <NavIsland className="shrink-0">
-              <div className="glass-island flex h-11 items-center gap-1.5 rounded-full px-2">
-                {/* Not on Scheduled. The roster filter scopes sessions, and
-                    Schedules reads the unscoped list — it groups by OWNER
-                    (Unassigned, then each bot) instead. Carrying the control
-                    onto a page it cannot change would make the shared header
-                    a promise the page does not keep. */}
-                {tab === "auto" ? null : (
-                  <UserFilterMenu
-                    value={userFilter}
-                    users={users}
-                    displayUser={headerProfile}
-                    onChange={changeUserFilter}
-                  />
-                )}
-
-              </div>
+              {/* Not on Scheduled. The roster filter scopes sessions, and
+                  Schedules reads the unscoped list — it groups by OWNER
+                  (Unassigned, then each bot) instead. Carrying the control
+                  onto a page it cannot change would make the shared header
+                  a promise the page does not keep. */}
+              {tab === "auto" ? null : (
+                <UserFilterMenu
+                  value={userFilter}
+                  users={users}
+                  displayUser={headerProfile}
+                  onChange={changeUserFilter}
+                />
+              )}
             </NavIsland>
           )}
         </header>
@@ -9647,7 +9650,12 @@ export function App() {
             hiddenPages,
             showBots: settings.showBots,
             showSchedules: settings.showSchedules,
-            showSettings: !hostSettingsInMenu,
+            // A host owns its own settings surface. Before the drawer, the
+            // embedded header passed showSettings={false} unconditionally and
+            // offered the host's control only when it asked for it, so
+            // deciding this on hostSettingsInMenu alone put an in-app
+            // Settings row under hosts that never had one.
+            showSettings: !embedded,
             extensions: extNavTabs,
           })}
           onNavigate={setTab}
