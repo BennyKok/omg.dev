@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## September 23, 2026 - Faster Expo previews that recover after sleep (v0.6.113)
+
+- New Expo projects start their preview with one command, `bash scripts/start-expo-preview.sh`. It waits for Metro, builds the iOS and web bundles ahead of time so the first Expo Go open is fast, and checks the sandbox proxy.
+- When a Computer sleeps and its preview stops, the preview card now says Stopped and offers Restart preview. The button asks the agent to start it again.
+- App-building agents ask one question at a time and wait for you to say what the app should do.
+- An OpenCode question no longer appears twice in the transcript.
+
 ## September 23, 2026 - One navigation on a phone (v0.6.112)
 
 - The web app on a phone now has a side navigation. Chat, Bots, Schedules, Notifications, Artifacts, Computer, Board and Settings are all in it, and the bar at the bottom of the screen is gone.
