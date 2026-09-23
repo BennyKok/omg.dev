@@ -4511,6 +4511,11 @@ export async function cmdServe() {
         return json({ connector: publicView(connector) });
       }
       if (path === "/api/connectors/catalog" && req.method === "GET") {
+        // The page asks only for omg's tested connectors. Answer from memory
+        // rather than waiting on the remote index download after a restart.
+        if (url.searchParams.get("recommended") === "1") {
+          return json({ total: RECOMMENDED_CATALOG.length, results: RECOMMENDED_CATALOG, recommended: RECOMMENDED_CATALOG });
+        }
         try {
           const q = url.searchParams.get("q") ?? "";
           const limit = Math.min(Math.max(Number(url.searchParams.get("limit")) || 50, 1), 200);
