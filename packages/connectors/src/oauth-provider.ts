@@ -182,3 +182,46 @@ export async function completeConnectorOAuth(
 export function hubAuthProvider(connector: Connector, redirectBase: string): OAuthClientProvider {
   return new ConnectorOAuthProvider(connector, redirectBase);
 }
+
+/** An error the hub reads as "this connection needs a sign-in" (isUnauthorizedError). */
+export class ConnectorUnauthorizedError extends Error {
+  readonly code = 401;
+  constructor(message = "This connection needs a sign-in. Click Connect.") {
+    super(message);
+  }
+}
+
+const EXPIRY_MARGIN_MS = 60_000;
+const refreshing = new Map<string, Promise<string>>();
+
+/**
+ * A bearer for a native connector's REST calls. Uses the stored access token
+ * until shortly before it expires, then refreshes through the SDK's auth()
+ * (which exchanges the refresh token and saves the result). `force` refreshes
+ * regardless, for a 401 on a token that should still be valid. Concurrent
+ * callers share one refresh.
+ */
+export function connectorTokenSource(connector: Connector, redirectBase: string): (force?: boolean) => Promise<string> {
+  return async (force = false) => {
+    const state = getOAuthState(connector.id);
+    const tokens = state?.tokens;
+    if (!tokens?.access_token) throw new ConnectorUnauthorizedError();
+    const expiresAt =
+      state?.tokensSavedAt && typeof tokens.expires_in === "number"
+        ? state.tokensSavedAt + tokens.expires_in * 1000 - EXPIRY_MARGIN_MS
+        : Number.POSITIVE_INFINITY;
+    if (!force && Date.now() < expiresAt) return tokens.access_token;
+    if (!tokens.refresh_token) throw new ConnectorUnauthorizedError();
+    const inflight = refreshing.get(connector.id);
+    if (inflight) return inflight;
+    const run = (async () => {
+      const provider = new ConnectorOAuthProvider(connector, redirectBase);
+      const result = await auth(provider, { serverUrl: connector.endpoint }).catch(() => "FAILED" as const);
+      const fresh = getOAuthState(connector.id)?.tokens?.access_token;
+      if (result !== "AUTHORIZED" || !fresh) throw new ConnectorUnauthorizedError("The sign-in expired. Click Connect to sign in again.");
+      return fresh;
+    })().finally(() => refreshing.delete(connector.id));
+    refreshing.set(connector.id, run);
+    return run;
+  };
+}

@@ -12,7 +12,13 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import type { Connector } from "./store.ts";
 import { connectorBaseUrl } from "./context.ts";
 import { hasTokens } from "./oauth-store.ts";
-import { hubAuthProvider } from "./oauth-provider.ts";
+import { ConnectorUnauthorizedError, connectorTokenSource, hubAuthProvider } from "./oauth-provider.ts";
+import { NATIVE_CONNECTORS } from "./native.ts";
+import { getConnector, setConnectorAccount } from "./store.ts";
+
+function nativeDef(connector: Connector) {
+  return connector.kind === "native" && connector.native ? NATIVE_CONNECTORS[connector.native] : undefined;
+}
 
 export interface ConnectorTool {
   name: string;
@@ -68,6 +74,14 @@ async function dropClient(id: string): Promise<void> {
 
 /** List the tools a connector exposes. Throws with a readable message on failure. */
 export async function listConnectorTools(connector: Connector): Promise<ConnectorTool[]> {
+  const def = nativeDef(connector);
+  if (def) {
+    // A native connector's tools are fixed, but offering them before the
+    // sign-in would only produce failed calls, so it reports 401 like a
+    // protected MCP server does.
+    if (!hasTokens(connector.id)) throw new ConnectorUnauthorizedError();
+    return def.tools.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema }));
+  }
   const client = await connect(connector);
   try {
     const result = await client.listTools();
@@ -93,6 +107,11 @@ export async function callConnectorTool(
   toolName: string,
   args: Record<string, unknown>,
 ): Promise<CallResult> {
+  const def = nativeDef(connector);
+  if (def) {
+    const result = await def.call(connectorTokenSource(connector, connectorBaseUrl()), toolName, args);
+    return { content: result.content, isError: result.isError };
+  }
   const client = await connect(connector);
   try {
     const result = (await client.callTool({ name: toolName, arguments: args })) as {
@@ -154,6 +173,22 @@ export async function probeConnector(
   } catch (e) {
     const needsAuth = isUnauthorizedError(e);
     return { ok: false, error: needsAuth ? (e instanceof Error ? e.message : String(e)) : readableConnectorError(e), needsAuth };
+  }
+}
+
+/**
+ * After a sign-in: record which account a native connector is signed in as.
+ * Best effort; a failure leaves the connection unlabeled, not broken.
+ */
+export async function recordConnectorAccount(id: string): Promise<void> {
+  const connector = getConnector(id);
+  const def = connector ? nativeDef(connector) : undefined;
+  if (!connector || !def) return;
+  try {
+    const account = await def.account(connectorTokenSource(connector, connectorBaseUrl()));
+    if (account) setConnectorAccount(id, account);
+  } catch {
+    // Unlabeled is fine.
   }
 }
 

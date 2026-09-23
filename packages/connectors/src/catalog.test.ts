@@ -46,12 +46,12 @@ test("only MCP entries are offered; OpenAPI specs and CLIs are dropped", async (
   expect(searchCatalog(entries, "gmail")).toEqual([]);
 });
 
-test("the Google MCP servers are offered from the curated list, before the index", async () => {
+test("Gmail is offered from the curated list as a native connector, before the index", async () => {
   const entries = withRecommended(await loadCatalog(true, fakeFetch));
   const [gmail] = searchCatalog(entries, "gmail");
-  expect(gmail?.connectUrl).toBe("https://gmailmcp.googleapis.com/mcp/v1");
+  expect(gmail?.slug).toBe("gmail");
+  expect(gmail?.native).toBe("gmail");
   expect(gmail?.oauthApp).toBe("google");
-  expect(gmail?.recommended).toBe(true);
   expect(entries.slice(0, RECOMMENDED_CATALOG.length)).toEqual(RECOMMENDED_CATALOG);
   expect(entries.filter((e) => e.slug === "exa-ai")).toHaveLength(1);
 });

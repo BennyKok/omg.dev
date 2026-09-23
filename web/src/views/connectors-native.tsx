@@ -20,6 +20,10 @@ export type PublicConnector = {
   icon?: string;
   oauth?: boolean;
   oauthApp?: string;
+  /** Set for a connector omg runs itself, e.g. "gmail". */
+  native?: string;
+  /** The signed-in account, e.g. the mailbox address. */
+  account?: string;
   oauthConnected?: boolean;
   requireApproval: boolean;
   createdAt: number;
@@ -41,6 +45,8 @@ export type CatalogEntry = {
   authKind?: string | null;
   /** Signs in with this provider's pre-registered client on the box. */
   oauthApp?: string;
+  /** A connector omg runs itself. */
+  native?: string;
   /** omg's curated entries, shown above the searchable catalog. */
   recommended?: boolean;
 };
@@ -166,6 +172,7 @@ type ConnectorDraft = {
   icon?: string;
   oauth?: boolean;
   oauthApp?: string;
+  native?: string;
   /** The server may still ask for a sign-in; reserve the popup on the click. */
   maybeOauth?: boolean;
 };
@@ -424,7 +431,11 @@ function ConnectorRow({
               ) : null;
             })()}
           </span>
-          <code className="block truncate text-xs text-muted-foreground">{connector.endpoint}</code>
+          {connector.native ? (
+            <span className="block truncate text-xs text-muted-foreground">{connector.account ?? "Not signed in yet"}</span>
+          ) : (
+            <code className="block truncate text-xs text-muted-foreground">{connector.endpoint}</code>
+          )}
         </span>
         {connector.oauth ? (
           connector.oauthConnected ? (
@@ -715,9 +726,10 @@ export function RecommendedConnectors({
     void loadApps();
   }, [loadApps]);
 
-  // Hide what this member already added. Added rows live in the list above.
+  // A native connector can be added once per account, so it stays offered
+  // ("Add another account"). Anything else already added is hidden.
   const added = new Set(connectors.map((c) => c.catalogSlug).filter(Boolean));
-  const available = entries.filter((e) => !added.has(e.slug));
+  const available = entries.filter((e) => e.native || !added.has(e.slug));
   if (available.length === 0) return null;
 
   const neededApps = [...new Set(available.map((e) => e.oauthApp).filter((a): a is string => !!a))];
@@ -736,6 +748,7 @@ export function RecommendedConnectors({
         icon: entry.icon ?? undefined,
         oauth: true,
         oauthApp: entry.oauthApp,
+        native: entry.native,
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "could not connect");
@@ -761,7 +774,7 @@ export function RecommendedConnectors({
                 <span className="block truncate text-[11px] text-muted-foreground">{e.description}</span>
               </span>
               <Button type="button" size="sm" disabled={blocked || adding === e.slug} onClick={() => void connect(e)}>
-                {adding === e.slug ? "Connecting…" : "Connect"}
+                {adding === e.slug ? "Connecting…" : added.has(e.slug) ? "Add another account" : "Connect"}
               </Button>
             </li>
           );

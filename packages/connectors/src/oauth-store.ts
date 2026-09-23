@@ -32,6 +32,8 @@ export interface ConnectorOAuthState {
   connectorId: string;
   clientInformation?: OAuthClientInfo;
   tokens?: OAuthTokenSet;
+  /** When `tokens` was stored, so `expires_in` can be read as an expiry time. */
+  tokensSavedAt?: number;
   /** PKCE verifier for an in-flight authorization, keyed by state below. */
   pending?: { state: string; codeVerifier: string; redirectUri: string; createdAt: number };
 }
@@ -117,7 +119,7 @@ export function saveTokens(connectorId: string, tokens: OAuthTokenSet): void {
   const file = read();
   const cur = file.byConnector[connectorId] ?? { connectorId };
   // A completed authorization clears the pending PKCE material.
-  file.byConnector[connectorId] = { ...cur, tokens, pending: undefined };
+  file.byConnector[connectorId] = { ...cur, tokens, tokensSavedAt: Date.now(), pending: undefined };
   write(file);
 }
 

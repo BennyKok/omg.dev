@@ -15,6 +15,7 @@ import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { connectorDataDir } from "./context.ts";
 import { isOAuthAppProvider } from "./oauth-apps.ts";
+import { NATIVE_CONNECTORS, isNativeProvider } from "./native.ts";
 
 /** Connections everyone in the team may use. */
 export const ORG_OWNER = "*org*";
@@ -31,7 +32,7 @@ export function roleOfOwner(owner: string): string | null {
   return owner.startsWith(ROLE_OWNER_PREFIX) ? owner.slice(ROLE_OWNER_PREFIX.length) || null : null;
 }
 
-export type ConnectorKind = "mcp";
+export type ConnectorKind = "mcp" | "native";
 
 export interface Connector {
   id: string;
@@ -41,8 +42,12 @@ export interface Connector {
   name: string;
   slug: string;
   kind: ConnectorKind;
-  /** Remote MCP endpoint. */
+  /** Remote MCP endpoint. For a native connector, the OAuth resource it signs in against. */
   endpoint: string;
+  /** For `kind: "native"`: which built-in connector runs the tools (./native.ts). */
+  native?: string;
+  /** The signed-in account (e.g. the mailbox address), when the connector knows it. */
+  account?: string;
   /** Header credentials injected host-side. Secret; never sent to an agent. */
   headers: Record<string, string>;
   /** Catalog slug this came from, when added from integrations.sh. */
@@ -103,7 +108,7 @@ function isConnector(v: unknown): v is Connector {
     typeof c.owner === "string" &&
     typeof c.name === "string" &&
     typeof c.endpoint === "string" &&
-    c.kind === "mcp"
+    (c.kind === "mcp" || c.kind === "native")
   );
 }
 
@@ -176,6 +181,7 @@ export type ConnectorInput = {
   icon?: string;
   oauth?: boolean;
   oauthApp?: string;
+  native?: string;
   requireApproval?: boolean;
 };
 
@@ -198,6 +204,11 @@ export function createConnector(input: ConnectorInput): ConnectorResult {
   if (input.oauthApp !== undefined && !isOAuthAppProvider(input.oauthApp)) {
     return { ok: false, error: `unknown OAuth app "${input.oauthApp}"` };
   }
+  if (input.native !== undefined && !isNativeProvider(input.native)) {
+    return { ok: false, error: `unknown native connector "${input.native}"` };
+  }
+  // A native connector always signs in with its provider's app.
+  const oauthApp = input.native ? NATIVE_CONNECTORS[input.native]!.oauthApp : input.oauthApp;
   const file = read();
   if (file.connectors.length >= MAX) return { ok: false, error: `at most ${MAX} connectors` };
   const now = Date.now();
@@ -210,13 +221,14 @@ export function createConnector(input: ConnectorInput): ConnectorResult {
     owner: input.owner,
     name,
     slug,
-    kind: "mcp",
+    kind: input.native ? "native" : "mcp",
+    ...(input.native ? { native: input.native } : {}),
     endpoint: input.endpoint.trim(),
     headers: sanitizeHeaders(input.headers),
     catalogSlug: input.catalogSlug,
     icon: typeof input.icon === "string" ? input.icon : undefined,
-    oauth: input.oauth === true || !!input.oauthApp,
-    ...(input.oauthApp ? { oauthApp: input.oauthApp } : {}),
+    oauth: input.oauth === true || !!oauthApp,
+    ...(oauthApp ? { oauthApp } : {}),
     requireApproval: input.requireApproval === true,
     createdAt: now,
     updatedAt: now,
@@ -269,6 +281,24 @@ export function setConnectorOAuth(id: string, oauth: boolean): Connector | null 
   const c = file.connectors.find((x) => x.id === id);
   if (!c || c.oauth === oauth) return null;
   c.oauth = oauth;
+  c.updatedAt = Date.now();
+  write(file);
+  return c;
+}
+
+/**
+ * Record the account a connection signed in as, and show it in the name so
+ * two Gmail connections are told apart in the list and in the tool
+ * descriptions agents read. Returns the stored connection, or null.
+ */
+export function setConnectorAccount(id: string, account: string): Connector | null {
+  const file = read();
+  const c = file.connectors.find((x) => x.id === id);
+  const value = account.trim().slice(0, 200);
+  if (!c || !value) return null;
+  const base = c.account && c.name.endsWith(` (${c.account})`) ? c.name.slice(0, -` (${c.account})`.length) : c.name;
+  c.account = value;
+  c.name = `${base} (${value})`.slice(0, 120);
   c.updatedAt = Date.now();
   write(file);
   return c;
