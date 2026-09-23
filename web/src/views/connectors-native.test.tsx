@@ -75,26 +75,16 @@ afterEach(() => {
   configureOmgTransport(createSameOriginTransport());
 });
 
-async function renderCatalog() {
+async function renderPanel() {
   ui.render(<ConnectorsNativePanel />);
   await ui.flushAsync(() => new Promise(resolve => setTimeout(resolve, 280)));
-}
-
-async function addCatalog() {
-  await renderCatalog();
-  await ui.flushAsync(() => {
-    (ui.query('[data-catalog="test"] button') as HTMLButtonElement).click();
-    // The popup must exist before the asynchronous save has completed.
-    expect(events).toContain("popup");
-    expect(events).not.toContain("auth");
-  });
 }
 
 async function customForm(auth = "oauth") {
   ui.render(<ConnectorsNativePanel />);
   await ui.flushAsync();
   ui.flush(() => {
-    (ui.queryAll("button").find(b => b.textContent?.includes("Add a custom MCP server by URL")) as HTMLButtonElement).click();
+    (ui.queryAll("button").find(b => b.textContent?.includes("Advanced: add a custom MCP server by URL")) as HTMLButtonElement).click();
   });
   const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
   ui.flush(() => {
@@ -118,8 +108,8 @@ async function customForm(auth = "oauth") {
   });
 }
 
-test("catalog Add reserves a popup and starts OAuth for the saved connector", async () => {
-  await addCatalog();
+test("Add reserves a popup before the save, starts OAuth, and shows Connected", async () => {
+  await customForm();
   expect(drafts[0]?.oauth).toBe(true);
   expect(popup.location.href).toBe("https://example.com/authorize");
   expect(events.indexOf("popup")).toBeLessThan(events.indexOf("auth"));
@@ -151,32 +141,15 @@ for (const mode of ["header", "none"]) test(`custom ${mode} authentication does 
   if (mode === "none") expect(closed).toBe(true);
 });
 
-test("a catalog entry marked none still offers Connect when the server demands a sign-in", async () => {
-  // The catalog says "none", so no popup is reserved. The server probes the
-  // endpoint, finds it protected, and the saved row offers Connect.
-  oauth = false;
+test("an auth-header server that still demands a sign-in offers Connect", async () => {
+  // A header means no popup is reserved. The server probes the endpoint,
+  // finds it protected, and the saved row offers Connect.
   detectAuth = true;
-  await renderCatalog();
-  await ui.flushAsync(() => (ui.query('[data-catalog="test"] button') as HTMLButtonElement).click());
+  await customForm("header");
   expect(events).not.toContain("popup");
   const connect = ui.queryAll("button").find(b => b.textContent === "Connect") as HTMLButtonElement;
   expect(connect).not.toBeUndefined();
   await ui.flushAsync(() => connect.click());
-  expect(events).toContain("auth");
-  expect(popup.location.href).toBe("https://example.com/authorize");
-});
-
-test("a catalog entry with no auth metadata reserves a popup and signs in", async () => {
-  oauth = false;
-  detectAuth = true;
-  unknownAuth = true;
-  await renderCatalog();
-  await ui.flushAsync(() => {
-    (ui.query('[data-catalog="test"] button') as HTMLButtonElement).click();
-    // The popup is reserved during the click, before the server answers.
-    expect(events).toContain("popup");
-  });
-  expect(drafts[0]?.oauth).toBe(false);
   expect(events).toContain("auth");
   expect(popup.location.href).toBe("https://example.com/authorize");
 });
@@ -188,17 +161,9 @@ test("a custom URL that demands a sign-in starts OAuth from the none option", as
   expect(popup.location.href).toBe("https://example.com/authorize");
 });
 
-test("catalog entries without OAuth only save", async () => {
-  oauth = false;
-  await renderCatalog();
-  await ui.flushAsync(() => (ui.query('[data-catalog="test"] button') as HTMLButtonElement).click());
-  expect(drafts).toHaveLength(1);
-  expect(events).not.toContain("popup");
-});
-
 test("save failure closes the popup and does not start OAuth", async () => {
   createFails = true;
-  await addCatalog();
+  await customForm();
   expect(closed).toBe(true);
   expect(events).not.toContain("auth");
   expect(ui.text()).toContain("Could not save");
@@ -226,7 +191,7 @@ test("blocked popup leaves Connect available with a useful error", async () => {
 
 test("already authorized closes the blank popup", async () => {
   alreadyAuthorized = true;
-  await addCatalog();
+  await customForm();
   expect(closed).toBe(true);
   expect(popup.location.href).toBe("");
 });
@@ -238,7 +203,7 @@ test("connections are grouped by who can use them, and a role's group stays list
     { id: "3", owner: "*org*", name: "Notion", slug: "notion", endpoint: "https://notion/mcp", headerNames: [], requireApproval: false },
   ];
   connected = true;
-  await renderCatalog();
+  await renderPanel();
   const groups = ui.queryAll("[data-group]").map((g) => g.getAttribute("data-group"));
   expect(groups).toEqual(["owner", "role:growth", "*org*"]);
   const growth = ui.query('[data-group="role:growth"]')!;
@@ -250,13 +215,15 @@ test("connections are grouped by who can use them, and a role's group stays list
 });
 
 test("the scope picker offers each role, not the owner", async () => {
-  await renderCatalog();
+  await renderPanel();
   const options = [...(ui.query('[aria-label="Connector scope"]') as HTMLSelectElement).options].map((o) => o.textContent);
   expect(options).toEqual(["Only me (owner)", "Everyone in Growth", "Whole team"]);
 });
 
-test("omg's own connectors are not offered a second time in the catalog", async () => {
-  await renderCatalog();
-  expect(ui.query('[data-catalog="gmail"]')).toBeNull();
-  expect(ui.query('[data-catalog="test"]')).not.toBeNull();
+test("the untested catalog is not on the page; a custom server hides under Advanced", async () => {
+  await renderPanel();
+  expect(ui.text()).not.toContain("Browse the catalog");
+  expect(ui.query("[data-catalog]")).toBeNull();
+  expect(ui.query('input[aria-label="Connector endpoint"]')).toBeNull();
+  expect(ui.text()).toContain("Advanced: add a custom MCP server by URL");
 });
