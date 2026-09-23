@@ -35,7 +35,10 @@ beforeEach(() => {
   }) as typeof window.open;
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input instanceof Request ? input.url : input);
-    if (url.includes("/catalog")) return Response.json({ total: 1, results: [{
+    if (url.includes("/catalog")) return Response.json({ total: 2, results: [{
+      id: "omg/gmail", slug: "gmail", name: "Gmail", description: "mail", needsOAuth: true, authKind: "oauth",
+      connectUrl: "https://gmailmcp.googleapis.com/mcp/v1", native: "gmail", oauthApp: "google", recommended: true,
+    }, {
       id: "test", slug: "test", name: "Example", description: "Example connector",
       needsOAuth: oauth, authKind: unknownAuth ? null : oauth ? "oauth" : "none", connectUrl: "https://example.com/mcp",
     }] });
@@ -250,4 +253,10 @@ test("the scope picker offers each role, not the owner", async () => {
   await renderCatalog();
   const options = [...(ui.query('[aria-label="Connector scope"]') as HTMLSelectElement).options].map((o) => o.textContent);
   expect(options).toEqual(["Only me (owner)", "Everyone in Growth", "Whole team"]);
+});
+
+test("omg's own connectors are not offered a second time in the catalog", async () => {
+  await renderCatalog();
+  expect(ui.query('[data-catalog="gmail"]')).toBeNull();
+  expect(ui.query('[data-catalog="test"]')).not.toBeNull();
 });
