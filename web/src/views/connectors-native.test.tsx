@@ -39,7 +39,7 @@ beforeEach(() => {
       id: "test", slug: "test", name: "Example", description: "Example connector",
       needsOAuth: oauth, authKind: unknownAuth ? null : oauth ? "oauth" : "none", connectUrl: "https://example.com/mcp",
     }] });
-    if (url.endsWith("/api/roles")) return Response.json({ roles: [] });
+    if (url.endsWith("/api/roles")) return Response.json({ roles: [{ id: "owner", name: "Owner" }, { id: "growth", name: "Growth" }] });
     if (url.endsWith("/oauth/start")) {
       events.push("auth");
       if (authFails) return Response.json({ error: "Sign-in unavailable" }, { status: 502 });
@@ -226,4 +226,28 @@ test("already authorized closes the blank popup", async () => {
   await addCatalog();
   expect(closed).toBe(true);
   expect(popup.location.href).toBe("");
+});
+
+test("connections are grouped by who can use them, and a role's group stays listed", async () => {
+  connectors = [
+    { id: "1", owner: "owner", name: "Exa", slug: "exa", endpoint: "https://mcp.exa.ai/mcp", headerNames: [], requireApproval: false },
+    { id: "2", owner: "role:growth", name: "Gmail (benny@example.com)", slug: "gmail", endpoint: "https://gmail", headerNames: [], native: "gmail", account: "benny@example.com", oauth: true, requireApproval: false },
+    { id: "3", owner: "*org*", name: "Notion", slug: "notion", endpoint: "https://notion/mcp", headerNames: [], requireApproval: false },
+  ];
+  connected = true;
+  await renderCatalog();
+  const groups = ui.queryAll("[data-group]").map((g) => g.getAttribute("data-group"));
+  expect(groups).toEqual(["owner", "role:growth", "*org*"]);
+  const growth = ui.query('[data-group="role:growth"]')!;
+  expect(growth.textContent).toContain("Growth");
+  expect(growth.textContent).toContain("Agents of every member in this role");
+  expect(growth.textContent).toContain("benny@example.com");
+  expect(growth.textContent).toContain("Connected");
+  expect(ui.query('[data-group="*org*"]')!.textContent).toContain("Whole team");
+});
+
+test("the scope picker offers each role, not the owner", async () => {
+  await renderCatalog();
+  const options = [...(ui.query('[aria-label="Connector scope"]') as HTMLSelectElement).options].map((o) => o.textContent);
+  expect(options).toEqual(["Only me (owner)", "Everyone in Growth", "Whole team"]);
 });

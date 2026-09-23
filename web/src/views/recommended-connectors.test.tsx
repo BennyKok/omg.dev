@@ -95,3 +95,14 @@ test("an added Gmail account stays offered as another account", async () => {
   await ui.flushAsync();
   expect(connectButton().textContent).toBe("Add another account");
 });
+
+test("Gmail added for you still reads Connect when the scope is a role, and says who it is for", async () => {
+  configured = true;
+  const mine = [{ id: "a", owner: "owner", name: "Gmail (benny@example.com)", slug: "gmail", endpoint: GMAIL.connectUrl, headerNames: [], catalogSlug: "gmail", native: "gmail", account: "benny@example.com", requireApproval: false, createdAt: 1, updatedAt: 1 }];
+  ui.render(<RecommendedConnectors user="owner" scope={{ kind: "role", roleId: "growth" }} scopeLabel="everyone in Growth" connectors={mine} addConnector={addConnector} />);
+  await ui.flushAsync();
+  expect(connectButton().textContent).toBe("Connect");
+  expect(ui.query("[data-scope-label]")?.textContent).toBe("For everyone in Growth");
+  await ui.flushAsync(() => connectButton().click());
+  expect(drafts[0]).toMatchObject({ role: "growth", native: "gmail" });
+});

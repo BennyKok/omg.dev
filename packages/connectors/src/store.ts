@@ -14,6 +14,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { connectorDataDir } from "./context.ts";
+import { emitConnectorsChanged } from "./changes.ts";
 import { isOAuthAppProvider } from "./oauth-apps.ts";
 import { NATIVE_CONNECTORS, isNativeProvider } from "./native.ts";
 
@@ -98,6 +99,7 @@ function write(file: FileShape): void {
   const tmp = `${filePath()}.tmp`;
   writeFileSync(tmp, JSON.stringify(file, null, 2));
   renameSync(tmp, filePath());
+  emitConnectorsChanged();
 }
 
 function isConnector(v: unknown): v is Connector {
@@ -160,6 +162,18 @@ export function connectorsForOwner(owner: string): Connector[] {
   return connectorsForMember(owner, null);
 }
 
+/**
+ * For the owner's UI: their own connections, the team's, and every role's.
+ * Roles and the team are the owner's to manage, so a connection added for a
+ * role must stay visible after the scope picker moves on. Other members'
+ * personal connections stay private to them.
+ */
+export function listConnectorsForAdmin(owner: string): Connector[] {
+  return read().connectors.filter(
+    (c) => c.owner === owner || c.owner === ORG_OWNER || c.owner.startsWith(ROLE_OWNER_PREFIX),
+  );
+}
+
 /** For the UI: every connection in the member's buckets, no shadowing. */
 export function listConnectors(owner?: string, roleId?: string | null): Connector[] {
   const all = read().connectors;
@@ -213,7 +227,10 @@ export function createConnector(input: ConnectorInput): ConnectorResult {
   if (file.connectors.length >= MAX) return { ok: false, error: `at most ${MAX} connectors` };
   const now = Date.now();
   const base = slugify(name) || "connector";
-  const taken = new Set(file.connectors.filter((c) => c.owner === input.owner).map((c) => c.slug));
+  // Unique across the box, not per bucket. A member reads team, role and
+  // own buckets together, and tool names are `<slug>__<tool>`, so a personal
+  // "gmail" and a role "gmail" would collide and one account would vanish.
+  const taken = new Set(file.connectors.map((c) => c.slug));
   let slug = base;
   for (let n = 2; taken.has(slug); n += 1) slug = `${base}-${n}`;
   const connector: Connector = {

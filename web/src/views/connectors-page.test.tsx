@@ -22,7 +22,7 @@ type Call = { url: string; method: string; body: unknown };
 
 function fakeServer(
   initialRoles: { id: string; name: string; defaultAction: string; rules: { pattern: string; action: string }[]; sandbox?: string; network?: string; allowHosts?: string[]; views?: { hide: string[]; hiddenPages: string[] }; members?: string[] }[],
-  connectors: { slug: string; name: string }[] = [],
+  connectors: { slug: string; name: string; owner?: string }[] = [],
 ) {
   const calls: Call[] = [];
   let roles = initialRoles;
@@ -88,6 +88,16 @@ describe("RolesPanel", () => {
     expect(options).toContain("connectors.gmail.*");
     expect(options).toContain("connectors.linear-2.*");
     expect(options).toContain("connectors.*");
+  });
+
+  test("a blocking role says which connections it is still allowed", async () => {
+    fakeServer(
+      [OWNER, { id: "growth", name: "Growth", defaultAction: "block", rules: [], sandbox: "none", network: "shared", allowHosts: [] }],
+      [{ slug: "gmail", name: "Gmail", owner: "role:growth" }, { slug: "exa", name: "Exa", owner: "owner" }],
+    );
+    ui.render(<RolesPanel />);
+    await ui.flushAsync();
+    expect(ui.query('[data-role-id="growth"]')!.textContent).toContain("Block by default · no rules · 1 connector allowed");
   });
 
   test("creates a role and adds a rule to it", async () => {
@@ -166,6 +176,6 @@ describe("ConnectorsPage", () => {
     await ui.flushAsync(async () => (ui.queryAll('[role="tab"]')[1] as HTMLElement).click());
     // Native connectors panel: no iframe, reads /api/connectors, not Executor.
     expect(ui.query("iframe")).toBeNull();
-    expect(ui.text()).toContain("MCP servers you add");
+    expect(ui.text()).toContain("Apps your agents can use");
   });
 });
