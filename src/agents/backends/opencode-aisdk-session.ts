@@ -339,6 +339,12 @@ export function permissionToPrompt(pending: OcPendingPermission): AisdkPrompt {
   };
 }
 
+/**
+ * The answer a timed-out OpenCode question receives. @internal exported for tests.
+ */
+export const QUESTION_TIMEOUT_ANSWER =
+  "The user did not answer in time. Do not use the question tool for this again. Ask once in a normal chat message, then end your turn and wait for the reply.";
+
 /** @internal exported for unit tests */
 export function pendingToPrompt(pending: OcPendingQuestion): AisdkPrompt | null {
   const q = pending.questions?.[0];
@@ -787,7 +793,7 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
     ]);
     questionTimer = setTimeout(() => {
       if (openQuestionRef.current?.id === pending.id) {
-        void handleDismissQuestion("timed out waiting for an answer");
+        void handleDismissQuestion("timed out waiting for an answer", true);
       }
     }, QUESTION_TIMEOUT_MS);
   }
@@ -880,7 +886,7 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
     return true;
   }
 
-  async function handleDismissQuestion(reason = "dismissed"): Promise<void> {
+  async function handleDismissQuestion(reason = "dismissed", timedOut = false): Promise<void> {
     const permission = openPermissionRef.current;
     if (permission) {
       const ok = await replyPermission(serverUrl, permission, "reject");
@@ -892,7 +898,13 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
     }
     const pending = openQuestionRef.current;
     if (!pending) return;
-    const ok = await rejectQuestion(serverUrl, pending.id);
+    // A rejected question reads to the model as "dismissed", and models then
+    // ask the same question again with the question tool. On a timeout, answer
+    // with the instruction instead, so the next ask is a normal message the
+    // user sees when they come back.
+    const ok = timedOut
+      ? await replyQuestion(serverUrl, pending.id, (pending.questions ?? []).map(() => [QUESTION_TIMEOUT_ANSWER]))
+      : await rejectQuestion(serverUrl, pending.id);
     if (!ok) {
       console.error(`opencode-aisdk-session: failed to reject question ${pending.id}`);
       // Still clear local state so the UI unsticks even if OpenCode already

@@ -1097,7 +1097,7 @@ export function buildOmgMcpServer(): McpServer {
     {
       title: "Deploy A Folder To omg Infra",
       description:
-        "Publish a project folder to omg Infra and return the live URL. Defaults to this session's cwd. omg_ship is a feed post and does not deploy.",
+        "Publish a project folder to omg Infra and return the live URL. Defaults to this session's cwd. Waits at most 45 seconds. If the result has pending: true, the build is still running: call omg_deploy_status with the returned slug until it is ready or failed. Do not deploy again. omg_ship is a feed post and does not deploy.",
       inputSchema: {
         cwd: z.string().optional().describe("Absolute folder to publish. Defaults to the calling session cwd."),
         name: z.string().optional().describe("App name on first deploy. Later deploys reuse .omg/project.json."),
@@ -1119,10 +1119,23 @@ export function buildOmgMcpServer(): McpServer {
         await api("/api/cloud/apps/deploy", {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-OMG-Session-ID": sid },
-          body: JSON.stringify({ cwd: folder, name, wait: wait !== false, generateIcon }),
+          body: JSON.stringify({ cwd: folder, name, wait: wait !== false, agentWait: true, generateIcon }),
         }),
       );
     },
+  );
+
+  server.registerTool(
+    "omg_deploy_status",
+    {
+      title: "Wait For A Hosted Deploy",
+      description:
+        "Wait up to 45 seconds for a hosted app build started by omg_deploy and return its status. Call again while the result has pending: true. A failed build returns the build error.",
+      inputSchema: {
+        slug: z.string().min(1).describe("App slug returned by omg_deploy."),
+      },
+    },
+    async ({ slug }) => result(await api(`/api/cloud/apps/status?slug=${encodeURIComponent(slug)}&wait=1`)),
   );
 
   server.registerTool(

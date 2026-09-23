@@ -79,10 +79,14 @@ export type DeployFolderInput = {
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
   onStatus?: (status: CloudDeployStatus) => void;
+  /** Stop waiting after this long and return `pending: true` while the build continues. */
+  waitBudgetMs?: number;
 };
 
 export type DeployFolderResult = CloudDeployResult & {
   latest?: CloudDeployStatus;
+  /** True when the build was still running when the wait budget ended. */
+  pending?: true;
 };
 
 export function projectLinkPath(cwd: string): string {
@@ -189,8 +193,10 @@ export async function waitForDeploy(
     sleep?: (ms: number) => Promise<void>;
     now?: () => number;
     onStatus?: (status: CloudDeployStatus) => void;
+    /** Return the last status marked `pending` instead of throwing at the deadline. */
+    pendingOnTimeout?: boolean;
   } = {},
-): Promise<CloudDeployStatus> {
+): Promise<CloudDeployStatus & { pending?: true }> {
   const intervalMs = options.intervalMs ?? 2_000;
   const timeoutMs = options.timeoutMs ?? 10 * 60 * 1000;
   const sleep = options.sleep ?? defaultSleep;
@@ -206,8 +212,16 @@ export async function waitForDeploy(
     }
     await sleep(intervalMs);
   }
+  if (options.pendingOnTimeout) return { ...last, pending: true };
   throw new CloudAppsError(`deploy timed out for ${slug}`, 504, last);
 }
+
+/**
+ * How long one agent tool call may wait for a build. MCP clients abort a
+ * request after 60 seconds (-32001), and the build keeps running after that,
+ * so a longer wait turns a working deploy into a reported failure.
+ */
+export const AGENT_DEPLOY_WAIT_MS = 45_000;
 
 export async function deployFolder(
   client: CloudAppsClient,
@@ -228,16 +242,18 @@ export async function deployFolder(
   if (!input.wait) return started;
   const status = await waitForDeploy(client, started.slug, {
     intervalMs: input.intervalMs,
-    timeoutMs: input.timeoutMs,
+    timeoutMs: input.waitBudgetMs ?? input.timeoutMs,
     sleep: input.sleep,
     now: input.now,
     onStatus: input.onStatus,
+    pendingOnTimeout: input.waitBudgetMs !== undefined,
   });
   return {
     ...started,
     url: typeof status.url === "string" && status.url ? status.url : started.url,
     status: status.status ?? started.status,
     latest: status,
+    ...(status.pending ? { pending: true as const } : {}),
   };
 }
 
@@ -286,6 +302,9 @@ export async function handleCloudAppsRequest(
     if (path === "/api/cloud/apps/status" && req.method === "GET") {
       const slug = url.searchParams.get("slug")?.trim() ?? "";
       if (!slug) return jsonResponse({ error: "slug is required" }, 400);
+      if (url.searchParams.get("wait") === "1") {
+        return jsonResponse(await waitForDeploy(client, slug, { timeoutMs: AGENT_DEPLOY_WAIT_MS, pendingOnTimeout: true }));
+      }
       return jsonResponse(await client.getStatus(slug));
     }
     if (path === "/api/cloud/apps/visibility" && req.method === "GET") {
@@ -308,6 +327,7 @@ export async function handleCloudAppsRequest(
         cwd?: unknown;
         name?: unknown;
         wait?: unknown;
+        agentWait?: unknown;
         generateIcon?: unknown;
       } | null;
       if (typeof body?.cwd !== "string" || !body.cwd.trim()) {
@@ -317,6 +337,8 @@ export async function handleCloudAppsRequest(
         cwd: body.cwd.trim(),
         name: typeof body.name === "string" ? body.name : undefined,
         wait: body.wait === true,
+        // An agent tool call must answer before its client aborts the request.
+        waitBudgetMs: body.agentWait === true ? AGENT_DEPLOY_WAIT_MS : undefined,
         generateIcon: body.generateIcon === true,
       });
       return jsonResponse(deployed);
