@@ -10,8 +10,13 @@ describe("bot unread surface wiring", () => {
     expect(APP).toContain("hasUnreadBotConversation(botConversations)");
   });
 
-  test("the mobile switch stays on the conversation list and out of an open bot chat", () => {
-    expect(APP).toContain("shouldShowMobileSurfaceToggle(isMobile, tab, selectedBotId)");
+  // The mobile switch bar is gone; Chat, Bots and Schedules are rows in the
+  // side navigation. The drawer is an overlay, so it does not need the old
+  // "not inside an open bot chat" guard the bar needed — it is never in the
+  // way. What still has to hold is that a phone mounts it at all.
+  test("a phone mounts the side navigation that replaced the switch", () => {
+    expect(APP).toContain("<SideNavDrawer");
+    expect(APP).not.toContain("<MobileSurfaceDock");
   });
 
   // Desktop regressed here once: an earlier revision copied the mobile

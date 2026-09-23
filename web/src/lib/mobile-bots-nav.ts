@@ -36,21 +36,6 @@ export const BOT_ROSTER_ROW_CLASS =
   "flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-muted";
 
 /**
- * The persistent mobile bottom toggle shows only at real mobile widths, and
- * only on the three tabs it switches between. Other
- * pages (Notifications, Artifacts, Settings, extension tabs) stay reachable
- * through the existing `PagesMenu` overflow — this keeps exactly one
- * additional navigation affordance, not a competing tab-bar model.
- */
-export function shouldShowMobileSurfaceToggle(
-  isMobile: boolean,
-  tab: string,
-  selectedBotId: string | null = null,
-): tab is PrimaryMobileTab {
-  return isMobile && (tab === "live" || tab === "auto" || (tab === "bots" && !selectedBotId));
-}
-
-/**
  * Live, Bots and Scheduled are peers. The switch bar owns the choice between
  * them, so none of the three is reached by descending from another page and
  * none of them owes you a back button.
@@ -75,13 +60,6 @@ export function shouldShowMobileBackToLive(isMobile: boolean, tab: string): bool
   return isMobile && (tab === "notifications" || tab === "artifacts" || tab === "board");
 }
 
-/** Maps the current tab to `SurfaceToggle`'s active-segment value. */
-export function mobileSurfaceToggleActive(tab: string): SurfaceToggleActive {
-  if (tab === "bots") return "chat";
-  if (tab === "auto") return "auto";
-  return "sessions";
-}
-
 /**
  * Chat and Bots are strict, mutually exclusive data surfaces on every width.
  *
@@ -99,12 +77,6 @@ export function shouldShowBotsInSessionList(): boolean {
   return false;
 }
 
-export function mobileSurfaceDockBottom(aboveComposer: boolean): string {
-  return aboveComposer
-    ? "var(--lfg-inline-composer-height, var(--lfg-composer-clear))"
-    : "var(--lfg-safe-bottom)";
-}
-
 /**
  * `BotsView`'s roster page carries its own inline `SurfaceToggle` (used by
  * the tablet band, where `!isWide && !isMobile`). The persistent mobile dock
@@ -114,3 +86,11 @@ export function mobileSurfaceDockBottom(aboveComposer: boolean): string {
 export function shouldShowInlineBotsSurfaceToggle(isMobile: boolean): boolean {
   return !isMobile;
 }
+
+/**
+ * The mobile bottom surface dock is gone. Chat, Bots and Schedules are rows
+ * in the side navigation (components/side-nav.tsx, lib/side-nav-items.ts),
+ * along with every page that used to sit behind the overflow menu, so a
+ * phone has one navigation instead of two that each held half of it. The
+ * helpers that placed and gated the dock went with it.
+ */

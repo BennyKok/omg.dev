@@ -4,6 +4,8 @@ import { ModelProviderIcon } from "./lib/model-provider-icons";
 import { useRuntimeLifecycle } from "./lib/runtime-lifecycle";
 import { LiveHeaderContext } from "./components/live-header-context";
 import { ProjectPillRail, projectPillsFor } from "./components/project-pill-rail";
+import { SideNavButton, SideNavDrawer } from "./components/side-nav";
+import { sideNavRows } from "./lib/side-nav-items";
 import {
   AgentSetupSheet,
   type SetupAgentTile,
@@ -92,12 +94,9 @@ import { pathnameToSessionId, sessionToPath } from "./lib/app-search";
 import {
   BOT_ROSTER_ROW_CLASS,
   isPrimarySurfaceTab,
-  mobileSurfaceDockBottom,
-  mobileSurfaceToggleActive,
   shouldShowBotsInSessionList,
   shouldShowMobileBackToLive,
   shouldShowInlineBotsSurfaceToggle,
-  shouldShowMobileSurfaceToggle,
 } from "./lib/mobile-bots-nav";
 import { botChatSessionId, botDetachedSession, botStageSession, findBotMainSession } from "./lib/bot-session";
 import {
@@ -6268,6 +6267,12 @@ export function App() {
     });
   });
   const [projectFilter, setProjectFilter] = useState(readCachedProjectFilter);
+  // The mobile side navigation. One drawer now answers "where do I go",
+  // replacing both the bottom surface bar and the overflow menu.
+  const [navOpen, setNavOpen] = useState(false);
+  // Read straight from the stored choice rather than through MachineSwitcher,
+  // which owns the list. The button only needs the current name for its label.
+  const navMachineName = activeMachine().name;
   const didDefaultFilter = useRef(false);
   const viewPrefs = useMemo(() => applyRoleViews(settings, roleViewer), [settings, roleViewer]);
   const hiddenPages = roleViewer.hiddenPages;
@@ -8817,10 +8822,12 @@ export function App() {
   // `bottom-[var(--lfg-host-bottom-inset)]`), so the padding here only has to
   // clear the composer. The visual fade overlays the scroll surface and must
   // not also become blank layout space.
+  // No dock to clear any more: the surfaces moved into the side navigation,
+  // so the composer is the only thing left at the bottom of a phone.
   const mainBottomPadding = mobileComposerVisible
-    ? "pb-[calc(var(--lfg-inline-composer-height,var(--lfg-composer-clear))+var(--lfg-mobile-surface-dock-height))] [scroll-padding-bottom:calc(var(--lfg-inline-composer-height,var(--lfg-composer-clear))+var(--lfg-mobile-surface-dock-height))]"
+    ? "pb-[var(--lfg-inline-composer-height,var(--lfg-composer-clear))] [scroll-padding-bottom:var(--lfg-inline-composer-height,var(--lfg-composer-clear))]"
     : isMobile && (tab === "bots" || tab === "auto")
-      ? "pb-[calc(var(--lfg-mobile-surface-dock-height)+var(--lfg-device-safe-bottom))] [scroll-padding-bottom:calc(var(--lfg-mobile-surface-dock-height)+var(--lfg-device-safe-bottom))]"
+      ? "pb-[var(--lfg-device-safe-bottom)] [scroll-padding-bottom:var(--lfg-device-safe-bottom)]"
     : tab === "live"
       ? keyboardOpen
         ? "pb-[calc(var(--lfg-inline-composer-height,var(--lfg-composer-clear))+0.75rem)] md:pb-3"
@@ -8979,9 +8986,15 @@ export function App() {
               : "px-2 md:px-3",
           )}
         >
-          {/* Top left on mobile: an icon only, the header has no room for a
-              name. Same menu as the desktop rail row. */}
-          {!embedded || hostMachines ? <MachineSwitcher variant="icon" /> : null}
+          {/* Top left on mobile: the drawer, where the machine chip used to
+              be. The chip moved inside the drawer as its first row, and its
+              status dot moved onto this button, so the one thing the chip
+              told you at a glance still does. */}
+          <SideNavButton
+            onOpen={() => setNavOpen(true)}
+            machineName={navMachineName}
+            online={useWsLive ? wsLiveStream.connection.status === "live" : true}
+          />
           <LiveHeaderContext
             intro={showHeaderBrandIntro && !error}
             brand={<ProductBrand compact hosted={embedded} />}
@@ -9031,14 +9044,7 @@ export function App() {
                   data-lfg-host-settings={hostSettingsInMenu ? "menu" : undefined}
                   className="flex items-center gap-1.5"
                 />
-                <PagesMenu
-                  tab={tab}
-                  hiddenPages={hiddenPages}
-                  onOpenTab={setTab}
-                  extraTabs={extNavTabs}
-                  showSettings={false}
-                  onOpenHostSettings={hostSettingsInMenu ? onOpenHostSettings : undefined}
-                />
+
               </div>
             </NavIsland>
           ) : (
@@ -9057,13 +9063,7 @@ export function App() {
                     onChange={changeUserFilter}
                   />
                 )}
-                <PagesMenu
-                  tab={tab}
-                  hiddenPages={hiddenPages}
-                  onOpenTab={setTab}
-                  extraTabs={extNavTabs}
-                  showSettings
-                />
+
               </div>
             </NavIsland>
           )}
@@ -9199,16 +9199,27 @@ export function App() {
                 />
               </>
             )}
-            {/* Same menu as the rail's, so the page axis has one shape wherever
-                the chrome happens to live in a given layout. */}
-            <PagesMenu
-              tab={tab}
-              hiddenPages={hiddenPages}
-              onOpenTab={setTab}
-              extraTabs={extNavTabs}
-              showSettings={!embedded}
-              onOpenHostSettings={embedded && hostSettingsInMenu ? onOpenHostSettings : undefined}
-            />
+            {/* On a phone the drawer is the whole page axis, so this header
+                offers it too rather than a second, smaller list beside it.
+                The tablet band has no drawer and keeps the menu, which is
+                also what the rail shows, so the page axis has one shape at
+                every width that has one. */}
+            {isMobile ? (
+              <SideNavButton
+                onOpen={() => setNavOpen(true)}
+                machineName={navMachineName}
+                online={useWsLive ? wsLiveStream.connection.status === "live" : true}
+              />
+            ) : (
+              <PagesMenu
+                tab={tab}
+                hiddenPages={hiddenPages}
+                onOpenTab={setTab}
+                extraTabs={extNavTabs}
+                showSettings={!embedded}
+                onOpenHostSettings={embedded && hostSettingsInMenu ? onOpenHostSettings : undefined}
+              />
+            )}
           </div>
         </NavIsland>
       </header>
@@ -9610,13 +9621,38 @@ export function App() {
         </>}
       </main>
 
-      {shouldShowMobileSurfaceToggle(isMobile, tab, selectedBotId) ? (
-        <MobileSurfaceDock
-          active={mobileSurfaceToggleActive(tab)}
-          aboveComposer={mobileComposerVisible}
-          onOpenSessions={() => setTab("live")}
-          onOpenBots={() => setTab("bots")}
-          onOpenAuto={() => setTab("auto")}
+      {isMobile ? (
+        <SideNavDrawer
+          open={navOpen}
+          onOpenChange={setNavOpen}
+          rows={sideNavRows({
+            tab,
+            hiddenPages,
+            showBots: settings.showBots,
+            showSchedules: settings.showSchedules,
+            showSettings: !hostSettingsInMenu,
+            extensions: extNavTabs,
+          })}
+          onNavigate={setTab}
+          brand={<ProductBrand hosted={embedded} />}
+          machineSwitcher={
+            !embedded || hostMachines ? <MachineSwitcher variant="nav" /> : null
+          }
+          footer={
+            hostSettingsInMenu && onOpenHostSettings ? (
+              <button
+                type="button"
+                onClick={() => {
+                  onOpenHostSettings();
+                  setNavOpen(false);
+                }}
+                className="flex min-h-12 w-full items-center gap-3 rounded-xl px-3 text-left text-[15px] text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+              >
+                <Settings className="size-[18px] shrink-0" />
+                <span className="min-w-0 flex-1 truncate">Settings</span>
+              </button>
+            ) : null
+          }
         />
       ) : null}
 
@@ -29674,34 +29710,10 @@ function SurfaceToggle({
   );
 }
 
-function MobileSurfaceDock({
-  active,
-  aboveComposer,
-  onOpenSessions,
-  onOpenBots,
-  onOpenAuto,
-}: {
-  active: "sessions" | "chat" | "auto";
-  aboveComposer: boolean;
-  onOpenSessions: () => void;
-  onOpenBots: () => void;
-  onOpenAuto: () => void;
-}) {
-  return (
-    <div
-      className="pointer-events-none fixed inset-x-0 z-[56] flex justify-center px-4 pb-2"
-      style={{ bottom: mobileSurfaceDockBottom(aboveComposer) }}
-    >
-      <SurfaceToggle
-        compact
-        active={active}
-        onOpenSessions={onOpenSessions}
-        onOpenBots={onOpenBots}
-        onOpenAuto={onOpenAuto}
-      />
-    </div>
-  );
-}
+// The mobile surface dock is gone. Chat, Bots and Schedules moved into the
+// side navigation (components/side-nav.tsx) along with every page that used
+// to sit behind the overflow menu, so a phone has one answer to "where do I
+// go" instead of two that each held half the destinations.
 
 /** Stable per-bot phase offset, so a roster breathes out of lockstep. */
 function botSeed(id: string): number {
