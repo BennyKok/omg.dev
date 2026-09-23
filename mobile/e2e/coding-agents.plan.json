@@ -64,6 +64,7 @@
       "goal": "Tap the Refresh models row below the agent list. Scroll down if it is not visible. Then wait for it to finish.",
       "done": "The Refresh models row reads Models refreshed",
       "expect": [
+        "Update all agents",
         "Refresh models",
         "Models refreshed"
       ],

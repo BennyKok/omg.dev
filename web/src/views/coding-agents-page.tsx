@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import {
   Check,
   ChevronDown,
+  Download,
   Globe,
   KeyRound,
   Loader2,
@@ -190,6 +191,7 @@ export default function CodingAgentsPage({
   onVisibleChange,
   onSetup,
   onUpdate,
+  onUpdateAll,
   onLogin,
   onAddClaudeAccount,
   onRemoveClaudeAccount,
@@ -205,6 +207,8 @@ export default function CodingAgentsPage({
   onVisibleChange: (kind: AgentKind, visible: boolean) => void;
   onSetup: (kind: AgentKind) => void;
   onUpdate: (kind: AgentKind) => void;
+  /** Reinstall every installed CLI, then refresh models. */
+  onUpdateAll: () => void;
   onLogin: (kind: AgentKind, claudeAccountId?: string) => void;
   onAddClaudeAccount: () => void;
   onRemoveClaudeAccount: (account: ClaudeAccountInfo) => void;
@@ -218,6 +222,10 @@ export default function CodingAgentsPage({
   const [refreshing, setRefreshing] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const toggle = (key: string) => setExpanded((current) => (current === key ? null : key));
+  const anySetupRunning = agents.some((agent) => agent.status.setupRunning);
+  const canUpdateAll = agents.some(
+    (agent) => agent.status.canAutoSetup && !binaryMissing(agent.status.checks),
+  );
 
   async function refresh() {
     if (refreshing) return;
@@ -238,6 +246,19 @@ export default function CodingAgentsPage({
         <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Coding agents
         </h2>
+        <div className="flex items-center gap-3">
+        {canUpdateAll ? (
+          <button
+            type="button"
+            onClick={onUpdateAll}
+            disabled={anySetupRunning}
+            title="Install the latest CLI for every installed agent, then refresh models"
+            className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+          >
+            <Download className={cn("size-3.5", anySetupRunning && "animate-pulse")} />
+            {anySetupRunning ? "Updating…" : "Update all"}
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={() => void refresh()}
@@ -247,6 +268,7 @@ export default function CodingAgentsPage({
           <RotateCcw className={cn("size-3.5", refreshing && "animate-spin")} />
           Refresh models
         </button>
+        </div>
       </div>
 
       {setupChecks.length ? (

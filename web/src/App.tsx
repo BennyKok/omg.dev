@@ -8393,6 +8393,22 @@ export function App() {
     );
   }
 
+  function updateAllCodingAgents() {
+    toast.promise(
+      api<{ agents: CodingAgentInfo[]; models?: ModelCatalogItem[] | null }>("/api/coding-agents/update-all", {
+        method: "POST",
+      }).then((payload) => {
+        setCodingAgents(payload.agents ?? []);
+        setModelCatalog(buildAgentModelCatalog(payload.models));
+      }),
+      {
+        loading: "Starting updates…",
+        success: "Updating every installed agent",
+        error: (e) => (e instanceof Error ? e.message : "Couldn't start updates"),
+      },
+    );
+  }
+
   // Preparing a login NEVER opens a browser tab. The dialog does, from its own
   // button, on a second real click.
   //
@@ -9474,6 +9490,7 @@ export function App() {
             onVisibleChange={(kind, visible) => void setCodingAgentVisible(kind, visible)}
             onSetup={setupCodingAgent}
             onUpdate={updateCodingAgent}
+            onUpdateAll={updateAllCodingAgents}
             onLogin={(kind, accountId) => loginCodingAgent(kind, undefined, accountId)}
             onAddClaudeAccount={addClaudeAccount}
             onRemoveClaudeAccount={removeClaudeAccountFromSettings}

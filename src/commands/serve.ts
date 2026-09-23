@@ -488,6 +488,8 @@ import {
   runCodingAgentSetup,
   runCodingAgentSetups,
   runCodingAgentUpdate,
+  runCodingAgentUpdates,
+  updatableCodingAgentKinds,
   runSetupAction,
   setCodingAgentVisibility,
   startCodingAgentAuth,
@@ -5592,6 +5594,22 @@ a{color:#60a5fa}
           const agents = await listCodingAgents();
           return json({ ok: true, agents, models: listModelCatalog(agents) });
         }
+      }
+      // One tap for every installed agent. Starts the run and answers at once;
+      // clients watch `setupRunning` on the agents to see it finish. Sits
+      // above the `/api/coding-agents/:kind` POST, which would take the path.
+      if (path === "/api/coding-agents/update-all" && req.method === "POST") {
+        const current = await listCodingAgents();
+        if (current.some((agent) => agent.status.setupRunning)) {
+          return err(409, "an agent setup or update is already running");
+        }
+        const kinds = updatableCodingAgentKinds(current);
+        if (!kinds.length) return err(400, "no installed coding agent can be updated");
+        void runCodingAgentUpdates(kinds).catch((e) =>
+          console.error("[coding-agents] update-all failed:", e),
+        );
+        const agents = await listCodingAgents();
+        return json({ ok: true, kinds, agents, models: listModelCatalog(agents) });
       }
       {
         const m = path.match(/^\/api\/coding-agents\/([a-z0-9_-]+)$/);
