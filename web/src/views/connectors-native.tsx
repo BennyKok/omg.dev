@@ -646,8 +646,12 @@ function CatalogBrowser({ user, scope, addConnector }: { user: string; scope: Sc
       const { results, total } = await api<{ total: number; results: CatalogEntry[] }>(
         `/api/connectors/catalog?q=${encodeURIComponent(query)}&limit=40`,
       );
-      setResults(results);
-      setTotal(total);
+      // omg's own connectors live in Recommended, where Connect sets them up
+      // as native. An "Add" here would save a plain MCP row against Google's
+      // preview-only server, which never works, so they are not listed twice.
+      const curated = results.filter((e) => e.recommended);
+      setResults(results.filter((e) => !e.recommended));
+      setTotal(Math.max(total - curated.length, 0));
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "could not load the catalog");
