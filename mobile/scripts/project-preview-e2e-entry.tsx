@@ -29,12 +29,24 @@ const expoSnapshot: ProjectPreviewSnapshot = {
   },
 };
 
+const stoppedSnapshot: ProjectPreviewSnapshot = {
+  live: false,
+  preview: {
+    ...snapshot.preview!,
+    sessionId: "33333333-3333-4333-8333-333333333333",
+    title: "My sleeping app",
+    port: 8082,
+    expoGoUrl: "exps://example.com",
+  },
+};
+
 function fixed(value: ProjectPreviewSnapshot): Pick<OmgTransport, "request"> {
   return { async request<T>(): Promise<T> { return value as T; } };
 }
 
 const transport = fixed(snapshot);
 const expoTransport = fixed(expoSnapshot);
+const stoppedTransport = fixed(stoppedSnapshot);
 
 function App() {
   return <SafeAreaView style={{ flex: 1, backgroundColor: "#141414" }}>
@@ -42,6 +54,7 @@ function App() {
       <Text style={{ fontSize: 24, color: "#fff" }}>Project preview test</Text>
       <ProjectPreviewPanel sessionId="11111111-1111-4111-8111-111111111111" email="test@example.com" transport={transport} />
       <ProjectPreviewPanel sessionId="22222222-2222-4222-8222-222222222222" email="test@example.com" transport={expoTransport} />
+      <ProjectPreviewPanel sessionId="33333333-3333-4333-8333-333333333333" email="test@example.com" transport={stoppedTransport} />
     </ScrollView>
   </SafeAreaView>;
 }

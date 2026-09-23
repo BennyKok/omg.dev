@@ -100,7 +100,10 @@ export function createProjectPreviewService(deps: {
         throw new PreviewError(403, "This preview belongs to another user");
       }
 
-      if (req.method === "GET") return json({ preview: rows.get(session.id) ?? null });
+      if (req.method === "GET") {
+        const preview = rows.get(session.id) ?? null;
+        return json(preview ? { preview, live: await listening(preview.port) } : { preview });
+      }
       if (req.method !== "POST") throw new PreviewError(405, "Method not allowed");
       if (!caller) throw new PreviewError(403, "Only the session agent can publish a project preview");
       const port = data.port === undefined ? DEFAULT_PREVIEW_PORT : data.port;

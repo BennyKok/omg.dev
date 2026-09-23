@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, Linking, Platform, Pressable, View } from "react-native";
-import type { ProjectPreview, ProjectPreviewSnapshot } from "../../../packages/protocol/src/project-preview";
+import { PROJECT_PREVIEW_RESTART_MESSAGE, type ProjectPreview, type ProjectPreviewSnapshot } from "../../../packages/protocol/src/project-preview";
 import type { OmgTransport } from "@omg-dev/client";
 import { Icon } from "../components";
 import { openInAppPage } from "./in-app-browser";
@@ -19,13 +19,17 @@ export function ProjectPreviewPanel({ sessionId, transport, email }: {
   const { colors } = useTheme();
   const [preview, setPreview] = useState<ProjectPreview | null>(null);
   const [guide, setGuide] = useState(false);
+  const [live, setLive] = useState<boolean | undefined>(undefined);
+  const [restartAsked, setRestartAsked] = useState(false);
   const mounted = useRef(true);
   const suffix = `?sessionId=${encodeURIComponent(sessionId ?? "")}&user=${encodeURIComponent(email ?? "")}`;
   const refresh = useCallback(async () => {
     if (!transport || !sessionId || AppState.currentState !== "active") return;
     try {
       const data = await transport.request<ProjectPreviewSnapshot>(`/api/project-preview${suffix}`);
-      if (mounted.current) setPreview(data.preview ?? null);
+      if (!mounted.current) return;
+      setPreview(data.preview ?? null);
+      setLive(data.live);
     } catch { /* Compatible with Computers from before preview cards. */ }
   }, [transport, sessionId, suffix]);
   useEffect(() => {
@@ -36,8 +40,22 @@ export function ProjectPreviewPanel({ sessionId, transport, email }: {
     const app = AppState.addEventListener("change", () => void refresh());
     return () => { mounted.current = false; clearInterval(poll); app.remove(); };
   }, [refresh]);
+  // A new preview row means the agent restarted it; allow another restart ask.
+  useEffect(() => { setRestartAsked(false); }, [preview?.createdAt]);
   if (!preview) return null;
   const expoGoUrl = preview.expoGoUrl;
+  const stopped = live === false;
+  const restart = async () => {
+    if (!transport || !sessionId || restartAsked) return;
+    setRestartAsked(true);
+    try {
+      await transport.request(`/api/sessions/${encodeURIComponent(sessionId)}/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: PROJECT_PREVIEW_RESTART_MESSAGE }),
+      });
+    } catch { setRestartAsked(false); }
+  };
   const openExpoGo = async () => {
     // Opening an unregistered scheme rejects, so a failure means Expo Go is
     // not installed. canOpenURL would need a native scheme allowlist.
@@ -52,9 +70,15 @@ export function ProjectPreviewPanel({ sessionId, transport, email }: {
       </View>
       <View style={{ flex: 1, gap: 2 }}>
         <Text numberOfLines={1} style={{ color: colors.foreground, fontSize: 16, fontWeight: "600" }}>{preview.title}</Text>
-        <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>{expoGoUrl ? "Expo app" : "Live preview"} · Private to you · Temporary</Text>
+        <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>{stopped ? "Stopped" : expoGoUrl ? "Expo app" : "Live preview"} · Private to you · Temporary</Text>
       </View>
     </View>
+    {stopped ? <View testID="project-preview-stopped" style={{ gap: 10 }}>
+      <Text style={{ color: colors.mutedForeground, fontSize: 14 }}>The development server is not running. This happens when the Computer sleeps.</Text>
+      <Pressable accessibilityRole="button" testID="project-preview-restart" disabled={restartAsked} onPress={() => void restart()} style={{ minHeight: 44, paddingHorizontal: 14, borderRadius: 12, backgroundColor: restartAsked ? colors.muted : colors.primary, justifyContent: "center" }}>
+        <Text style={{ color: restartAsked ? colors.mutedForeground : colors.primaryForeground, fontWeight: "600", textAlign: "center" }}>{restartAsked ? "Asked the agent to restart it" : "Restart preview"}</Text>
+      </Pressable>
+    </View> : <>
     <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
       <Pressable accessibilityRole="button" testID={expoGoUrl ? "project-preview-expo-go" : "project-preview-open"} onPress={() => void (expoGoUrl ? openExpoGo() : openInAppPage(preview.url))} style={{ flex: 1, minHeight: 44, paddingHorizontal: 14, borderRadius: 12, backgroundColor: colors.primary, justifyContent: "center" }}>
         <Text style={{ color: colors.primaryForeground, fontWeight: "600", textAlign: "center" }}>{expoGoUrl ? "Open in Expo Go" : "Open preview"}</Text>
@@ -78,6 +102,7 @@ export function ProjectPreviewPanel({ sessionId, transport, email }: {
       <GuideStep colors={colors} n={2} text="Come back and tap Open in Expo Go." />
       <GuideStep colors={colors} n={3} text="The first load can take up to a minute." />
     </View>}
+    </>}
   </View>;
 
 }
