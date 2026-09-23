@@ -102,8 +102,9 @@ describe("bots page roster chrome", () => {
     expect(BOT_RAIL).not.toContain("avatarSize={railCollapsed ? 24 : 28}");
     expect(BOT_RAIL).not.toContain("size={56}");
     // The type scale itself now lives once, on the shared shell, rather than
-    // being copied by eye at each call site (see RailRow's docstring).
-    expect(RAIL_ROW).toContain("text-base font-semibold leading-tight");
+    // being copied by eye at each call site (see RailRow's docstring). It is
+    // the iOS session row's scale: a 17px title, and the same 14px preview.
+    expect(RAIL_ROW).toContain('"min-w-0 flex-1 truncate text-[17px] leading-tight tracking-[-0.2px]"');
     expect(RAIL_ROW).toContain("text-sm leading-tight text-muted-foreground");
     expect(BOT_ROSTER_ROW).not.toContain("text-sm font-medium");
     expect(BOT_ROSTER_ROW).not.toContain("text-xs leading-tight text-muted-foreground");
@@ -122,8 +123,11 @@ describe("bots page roster chrome", () => {
     // lives on the shared RailRow shell now; BOT_RAIL still carries its own
     // "New bot" row at the same height, but the data rows get theirs from
     // RailRow, not a locally copied class.
-    expect(RAIL_ROW).toContain("h-[3.75rem]");
-    expect(BOT_RAIL).toContain("h-[3.75rem]");
+    // 5rem, matching SESSION_ROW.height in mobile/src/components.tsx. The web
+    // row ran at 3.75rem, so the same fleet read denser on the web than in
+    // the app.
+    expect(RAIL_ROW).toContain("h-20");
+    expect(BOT_RAIL).toContain("h-20");
     expect(BOT_RAIL).not.toContain("py-1.5");
   });
 

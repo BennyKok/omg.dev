@@ -2048,6 +2048,7 @@ function AgentMark({
   busy,
   rounding = "rounded-lg",
   compact = false,
+  large = false,
   showAccountNumber = true,
 }: {
   session: Session;
@@ -2055,6 +2056,12 @@ function AgentMark({
   rounding?: string;
   /** Smaller secondary identity used in the rail's project badge. */
   compact?: boolean;
+  /**
+   * The session row's own mark, at the size iOS draws it (SESSION_ROW.avatar
+   * is 36). At 24 the mark sat in a 40px box looking like a badge for the
+   * text rather than the row's identity.
+   */
+  large?: boolean;
   /** The rail omits account routing detail; headers keep it by default. */
   showAccountNumber?: boolean;
 }) {
@@ -2065,7 +2072,7 @@ function AgentMark({
           aria-label="working"
           className={cn(
             "pointer-events-none absolute inset-0 m-auto animate-spin text-warning motion-reduce:animate-none",
-            compact ? "size-4" : "size-6",
+            compact ? "size-4" : large ? "size-9" : "size-6",
           )}
           strokeWidth={1.75}
         />
@@ -2076,7 +2083,17 @@ function AgentMark({
         className={cn(
           rounding,
           "transition-all duration-300 ease-ios",
-          busy ? (compact ? "size-3" : "size-4") : compact ? "size-4" : "size-6",
+          busy
+            ? compact
+              ? "size-3"
+              : large
+                ? "size-7"
+                : "size-4"
+            : compact
+              ? "size-4"
+              : large
+                ? "size-9"
+                : "size-6",
         )}
         size={busy || compact ? "sm" : "md"}
       />
@@ -13274,7 +13291,7 @@ function RailStage({
         <button
           type="button"
           onClick={onNewBot}
-          className="flex h-[3.75rem] w-full items-center gap-3 rounded-lg px-2 text-left text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="flex h-20 w-full items-center gap-3 rounded-lg pl-4 pr-3.5 text-left text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
           <span className="flex size-11 shrink-0 items-center justify-center rounded-full border border-dashed border-border">
             <Plus className="size-4" />
@@ -14038,6 +14055,7 @@ const RailRow = memo(function RailRow({
   onActivate,
   onSwipeRight,
   onSwipeLeft,
+  unread = false,
 }: {
   /** `data-rail-sid`, for surfaces that scroll/cursor rows by id. Omit where nothing looks a row up this way. */
   railKey?: string;
@@ -14053,6 +14071,8 @@ const RailRow = memo(function RailRow({
   preview: ReactNode;
   /** Extra state shown only in the expanded row, between the text column and the trailing slot (e.g. an unread dot). */
   indicator?: ReactNode;
+  /** Draws the title at full weight, so unread does not rest on the dot alone. */
+  unread?: boolean;
   trailingStatic?: ReactNode;
   trailingHover?: ReactNode;
   /** Keeps the hover content shown once it represents committed state rather than an offer (a session's pin, once pinned). */
@@ -14176,7 +14196,10 @@ const RailRow = memo(function RailRow({
           // cursor and shoved every row below it — the whole list twitching
           // while anything was working. The row reserves its one preview
           // line whether or not there is text to put in it yet.
-          collapsed ? "h-11 justify-center px-0" : "h-[3.75rem] px-2",
+          // 5rem and 16/14 padding, from SESSION_ROW in mobile/src/components.tsx.
+          // The web row was 60px with 8px of padding, so the same fleet read
+          // as a denser product on the web than in the app.
+          collapsed ? "h-11 justify-center px-0" : "h-20 pl-4 pr-3.5",
           swiping
             ? "border-transparent bg-card"
             : active
@@ -14201,7 +14224,15 @@ const RailRow = memo(function RailRow({
           <>
             <span className="flex min-w-0 flex-1 flex-col gap-0.5">
               <span className="flex items-baseline gap-1.5">
-                <span className="min-w-0 flex-1 truncate text-base font-semibold leading-tight">
+                <span
+                className={cn(
+                  "min-w-0 flex-1 truncate text-[17px] leading-tight tracking-[-0.2px]",
+                  // Unread is not the dot's job alone: the title carries full
+                  // weight until it is read, then settles back. Same rule as
+                  // the iOS row.
+                  unread ? "font-bold" : "font-semibold",
+                )}
+              >
                   {title}
                 </span>
                 {titleBadge}
@@ -14314,6 +14345,7 @@ const RailItem = memo(function RailItem({
       collapsed={collapsed}
       active={active}
       cursored={cursored}
+      unread={unread}
       ariaLabel={sessionRosterRowAriaLabel({
         title,
         working: busy,
@@ -14354,7 +14386,7 @@ const RailItem = memo(function RailItem({
                 src={faviconSrc}
                 alt=""
                 aria-hidden="true"
-                className="size-6 rounded-md object-contain"
+                className="size-9 rounded-md object-contain"
                 loading="lazy"
                 decoding="async"
                 onError={() => setFailedFaviconSrc(faviconSrc)}
@@ -14365,6 +14397,7 @@ const RailItem = memo(function RailItem({
               session={session}
               busy={busy}
               rounding="rounded-none"
+              large
               showAccountNumber={false}
             />
           ) : (
@@ -14548,6 +14581,7 @@ function BotRosterRow({
       collapsed={collapsed}
       active={active}
       cursored={false}
+      unread={unread}
       ariaLabel={botRosterRowAriaLabel({
         name: bot.name,
         enabled: bot.enabled,
