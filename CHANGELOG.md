@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## September 23, 2026 - Expo Go card and unstuck OpenCode answers (v0.6.111)
+
+- An Expo preview card now offers Open in Expo Go. On iOS it shows setup steps with an App Store button, and on web it shows a QR code.
+- An OpenCode session no longer stops when the iOS app answers its question with a chat message. The message now answers the open question.
+
 ## September 22, 2026 - Claude Opus 5.5 in the model picker
 
 - Claude and Agent SDK sessions can select `claude-opus-5-5` by name. The `opus` alias also resolves to Opus 5.5.
