@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## September 23, 2026 - Expo Go links are limited to Metro ports (v0.6.114)
+
+- Expo Go links now work only for a Metro port from 8081 to 8099. An Expo Go link skips the owner sign-in, so it must not open other services on your Computer. `omg_expose_port` explains the range when an agent picks another port.
+
 ## September 23, 2026 - Faster Expo previews that recover after sleep (v0.6.113)
 
 - New Expo projects start their preview with one command, `bash scripts/start-expo-preview.sh`. It waits for Metro, builds the iOS and web bundles ahead of time so the first Expo Go open is fast, and checks the sandbox proxy.
