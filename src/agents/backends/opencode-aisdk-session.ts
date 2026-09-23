@@ -478,7 +478,9 @@ export function toolPartMessages(
   // and, worse, would permanently occupy the id that the real call needs.
   const hasInput = !!input && input !== "{}";
   const settled = status === "completed" || status === "error";
-  if ((hasInput || settled) && !emitted.has(id)) {
+  // surfaceQuestion() owns the row for an OpenCode question. Its tool call
+  // would show the same question a second time.
+  if (name !== "question" && (hasInput || settled) && !emitted.has(id)) {
     emitted.add(id);
     out.push({
       id,

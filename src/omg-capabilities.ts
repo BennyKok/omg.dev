@@ -4,7 +4,7 @@ import { DEFAULT_MAX_BOT_SCHEDULES } from "./settings.ts";
 // Bump whenever an agent-facing omg.dev capability or its operating guidance
 // changes. Managed sessions persist the value they launched with, which lets
 // the UI identify long-lived sessions whose MCP/tool catalog predates a ship.
-export const OMG_CAPABILITY_VERSION = "2026-09-22.3";
+export const OMG_CAPABILITY_VERSION = "2026-09-23.1";
 
 export const OMG_CAPABILITIES = [
   {
@@ -39,7 +39,7 @@ export const OMG_CAPABILITIES = [
     tool: "omg_expose_port",
     useWhen: "A live HTTP development server in an omg.dev Cloud Computer should appear as a preview card.",
     guidance:
-      "For web previews, start one server on 0.0.0.0 and expose its exact port. For Expo Go, choose a free Metro port and call with expoGo:true before Metro starts. Start Metro with EXPO_PACKAGER_PROXY_URL set to expoGo.proxyUrl, then give the user expoGo.url. Do not use Expo tunnel, exp.direct, ngrok, or LAN exposure.",
+      "For web previews, start one server on 0.0.0.0 and expose its exact port. For Expo Go, choose a free Metro port and call with expoGo:true before Metro starts. In an Expo template project, start Metro with `bash scripts/start-expo-preview.sh <expoGo.proxyUrl> <port>`; elsewhere start Metro with EXPO_PACKAGER_PROXY_URL set to expoGo.proxyUrl. Then give the user expoGo.url. Do not use Expo tunnel, exp.direct, ngrok, or LAN exposure.",
   },
   {
     tool: "omg_display_image / omg_display_video / omg_display_file",

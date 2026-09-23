@@ -36,6 +36,17 @@
         "The first load can take up to a minute.",
         "Hide steps"
       ]
+    },
+    {
+      "name": "Stopped preview",
+      "goal": "Scroll down to the third card, for 'My sleeping app'. Tap 'Restart preview' once.",
+      "done": "The stopped card says the agent was asked to restart the preview.",
+      "expect": [
+        "My sleeping app",
+        "Stopped \u00b7 Private to you \u00b7 Temporary",
+        "The development server is not running. This happens when the Computer sleeps.",
+        "Asked the agent to restart it"
+      ]
     }
   ]
 }
