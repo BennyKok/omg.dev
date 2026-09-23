@@ -1,0 +1,25 @@
+diff --git a/apple/scripts/build-xcframework.sh b/apple/scripts/build-xcframework.sh
+index fbb40943a219cc9b63190d55e981ee300feafbcc..3f669fd0232066c959a9be586d7ec3a2c49908bf 100755
+--- a/apple/scripts/build-xcframework.sh
++++ b/apple/scripts/build-xcframework.sh
+@@ -205,6 +205,12 @@ build_slice() {
+   # `___profc_*` symbols and `__llvm_prf_*` sections) plus ~40% extra binary size. Setting
+   # CLANG_COVERAGE_MAPPING=NO is what removes the flags; CLANG_ENABLE_CODE_COVERAGE=NO alone
+   # does not, and `-enableCodeCoverage NO` is rejected outside of `test`.
++  # NOTE: -quiet is deliberately NOT passed. Under Xcode 27 it makes xcodebuild
++  # emit a bogus "error: the following command failed with exit code 0 but
++  # produced no further output" line for a SwiftCompile job that SUCCEEDED. The
++  # outer script phase reads that line and fails the archive even though the
++  # xcframework was written correctly. See expo/expo#50482 and PR 50483; drop
++  # this patch once that lands.
+   (cd "$PACKAGE_DIR" && env -i PATH="$PATH" HOME="$HOME" PODS_ROOT="$PODS_ROOT" RN_ROOT="$RN_ROOT" \
+     xcodebuild \
+     build \
+@@ -213,7 +219,6 @@ build_slice() {
+     -destination "generic/platform=${destination}" \
+     -derivedDataPath "$DERIVED_DATA_PATH" \
+     -configuration "$CONFIGURATION" \
+-    -quiet \
+     -disableAutomaticPackageResolution \
+     -skipPackagePluginValidation \
+     -skipMacroValidation \

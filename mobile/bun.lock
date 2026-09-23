@@ -64,6 +64,7 @@
   "patchedDependencies": {
     "react-native-key-command@1.0.16": "patches/react-native-key-command@1.0.16.patch",
     "@novnc/novnc@1.7.0": "patches/@novnc%2Fnovnc@1.7.0.patch",
+    "expo-modules-jsi@58.0.3": "patches/expo-modules-jsi@58.0.3.patch",
     "@expo/ui@58.0.4": "patches/@expo%2Fui@58.0.4.patch",
   },
   "overrides": {

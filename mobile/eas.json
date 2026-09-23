@@ -72,32 +72,7 @@
         "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "470443022473-sj262et812jqi3pvl05ccr8spuq2th45.apps.googleusercontent.com"
       },
       "autoIncrement": true,
-      "channel": "production",
-      "ios": {
-        // PINNED, and not to be moved back to the default without a green
-        // build to show for it.
-        //
-        // EAS defaults this project to an Xcode 27 image (iPhoneOS27.0.sdk).
-        // On 2026-09-23, builds 61 and 62 both died there in the SAME place:
-        //
-        //   error: the following command failed with exit code 0 but produced
-        //     no further output
-        //   SwiftCompile normal arm64 (in target 'ExpoModulesJSI')
-        //
-        // No crash trace, no diagnostic, and a truncated JSON output file that
-        // the Swift driver then failed to decode. Two identical failures, so
-        // it is the toolchain and not a flaky worker. EAS's own error summary
-        // blames expo-apple-authentication; that is its scraper picking up
-        // nearby text and it is wrong.
-        //
-        // 26.6 is the Xcode on bennys-macbook-pro-2, where the same commit
-        // builds Release for arm64 device cleanly. Pinning buys a working
-        // store build at the cost of the iOS 27 SDK. That matters later: the
-        // App Intent in app-intents/ needs only iOS 16.4, but the iOS 27
-        // conversational Siri surface will need the 27 SDK. Revisit when
-        // expo-modules-jsi compiles under Xcode 27.
-        "image": "macos-tahoe-26.5-xcode-26.6"
-      }
+      "channel": "production"
     }
   },
   "submit": {
