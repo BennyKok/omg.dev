@@ -393,6 +393,7 @@ import {
   Check,
   CheckCheck,
   ChevronDown,
+  ChevronUp,
   ChevronLeft,
   Cpu,
   Gauge,
@@ -12228,6 +12229,8 @@ function RailStage({
   // The desktop rail uses the same polished project sheet and folder browser as
   // the composer, replacing the cramped native-style project dropdown.
   const [projectSheetOpen, setProjectSheetOpen] = useState(false);
+  // Open findings live behind the rail's Updates pill.
+  const [railFindingsOpen, setRailFindingsOpen] = useState(false);
   const [folderBrowserOpen, setFolderBrowserOpen] = useState(false);
   const [folderBrowserCreate, setFolderBrowserCreate] = useState(false);
   const canUseProjectSheet = repos.length > 0 && !!onProjectChange;
@@ -13141,38 +13144,62 @@ function RailStage({
     );
   };
 
-  const autoRailGroup =
+  // Open findings are a pill above the rail's footer, not a group at the end
+  // of the list. A group there put more work under a list that is already
+  // about work, and every finding pushed the running sessions further off
+  // the fold. Same shape as iOS at every width
+  // (mobile/src/omg/findings-pill.tsx), which floats it over the list on the
+  // phone and over the rail footer on iPad.
+  const autoRailPill =
     findings.length && !railCollapsed ? (
-      <RailGroup
-        label="Auto"
-        count={findings.length}
-        collapsed={railCollapsed}
-        foldKey="__auto"
-        action={
-          <span className="flex items-center gap-1">
-            <ClearFindingsButton
-              count={findings.length}
-              busy={clearFindingsBusy}
-              onClear={() => onClearFindings(findings)}
+      <>
+        <div className="pointer-events-none relative z-10 -mb-1 flex justify-center pb-1">
+          <button
+            type="button"
+            onClick={() => setRailFindingsOpen(true)}
+            data-testid="rail-findings-pill"
+            aria-label={`${findings.length} update${findings.length === 1 ? "" : "s"} from auto agents. Open`}
+            className="pointer-events-auto flex h-7 items-center gap-1.5 rounded-full border border-border/70 bg-card/90 px-2.5 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur-xl transition-colors hover:text-foreground"
+          >
+            <span className="tabular-nums">
+              {findings.length} update{findings.length === 1 ? "" : "s"}
+            </span>
+            <ChevronUp className="size-3 shrink-0 opacity-70" />
+          </button>
+        </div>
+        <FindingsSheet
+          open={railFindingsOpen}
+          onOpenChange={setRailFindingsOpen}
+          count={findings.length}
+          actions={
+            <span className="flex items-center gap-1">
+              <ClearFindingsButton
+                count={findings.length}
+                busy={clearFindingsBusy}
+                onClear={() => onClearFindings(findings)}
+              />
+              <AutoTriageButton
+                count={findings.length}
+                busy={autoTriageBusy}
+                onClick={onTriageFindings}
+                compact
+              />
+            </span>
+          }
+        >
+          {groupFindingsByAgent(findings).map((report) => (
+            <AutoReportRow
+              key={report.agentId}
+              report={report}
+              agentName={nameFor(report.agentId)}
+              onOpen={() => {
+                setRailFindingsOpen(false);
+                onOpenReport(report.agentId);
+              }}
             />
-            <AutoTriageButton
-              count={findings.length}
-              busy={autoTriageBusy}
-              onClick={onTriageFindings}
-              compact
-            />
-          </span>
-        }
-      >
-        {groupFindingsByAgent(findings).map((report) => (
-          <AutoReportRow
-            key={report.agentId}
-            report={report}
-            agentName={nameFor(report.agentId)}
-            onOpen={() => onOpenReport(report.agentId)}
-          />
-        ))}
-      </RailGroup>
+          ))}
+        </FindingsSheet>
+      </>
     ) : null;
 
   // On the bot surface the stage shows exactly one column — the bot you picked.
@@ -13431,7 +13458,6 @@ function RailStage({
             projectFilter={projectFilter}
             onProjectChange={onProjectChange}
             renderItem={renderRailItem}
-            trailing={autoRailGroup}
           />
           </>}
         </div>
@@ -13449,6 +13475,7 @@ function RailStage({
             its navigation into. Empty until the box is signed in to omg Cloud
             with a machine it can reach, so a plain install sees no change.
             A hosted surface never shows it: the host owns machine selection. */}
+        {autoRailPill}
         {!hosted || hostMachines ? <MachineSwitcher variant="rail" collapsed={railCollapsed} /> : null}
         {hosted ? (
           <div
@@ -25198,9 +25225,20 @@ function ModelPicker({
         >
           <Popover.Popup
             initialFocus={searchable ? inputRef : true}
-            className="w-80 max-w-[calc(100vw-1rem)] rounded-2xl border border-border bg-popover p-2 text-popover-foreground shadow-2xl ring-1 ring-foreground/5 outline-none"
+            // Clamped to the room below the trigger. It is pinned under the
+            // pill on purpose (collisionAvoidance above), so without a cap a
+            // long list simply ran off the bottom of the screen and its last
+            // models could not be reached at all.
+            className="flex max-h-[var(--available-height)] w-80 max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-2xl border border-border bg-popover p-2 text-popover-foreground shadow-2xl ring-1 ring-foreground/5 outline-none"
           >
-            {optionList}
+            <ModelOptionList
+              value={value}
+              models={models}
+              onChoose={choose}
+              onEscape={() => setOpen(false)}
+              inputRef={inputRef}
+              fill
+            />
           </Popover.Popup>
         </Popover.Positioner>
       </Popover.Portal>
@@ -25222,6 +25260,7 @@ export function ModelOptionList({
   onEscape,
   inputRef,
   large = false,
+  fill = false,
 }: {
   value: string;
   models: string[];
@@ -25229,6 +25268,14 @@ export function ModelOptionList({
   onEscape?: () => void;
   inputRef?: { current: HTMLInputElement | null };
   large?: boolean;
+  /**
+   * Take the height the container gives instead of a fixed cap.
+   *
+   * The desktop popover is clamped to the space below the trigger, so the
+   * list has to shrink into whatever is left. With its own max-height it
+   * kept asking for 18rem and the popover ran off the bottom of the screen.
+   */
+  fill?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const filtered = useMemo(() => {
@@ -25239,7 +25286,12 @@ export function ModelOptionList({
     return models.filter((item) => omgModelSearchText(item).includes(q));
   }, [models, query]);
   return (
-    <div className={large ? "min-h-0 space-y-3" : "space-y-2"}>
+    <div
+      className={cn(
+        large ? "min-h-0 space-y-3" : "space-y-2",
+        fill && "flex min-h-0 flex-1 flex-col gap-2 space-y-0",
+      )}
+    >
       {modelListSearchable(models) ? (
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -25257,7 +25309,12 @@ export function ModelOptionList({
           />
         </div>
       ) : null}
-      <div className={cn("overflow-y-auto pr-1", large ? "max-h-[52dvh]" : "max-h-72")}>
+      <div
+        className={cn(
+          "overflow-y-auto pr-1",
+          fill ? "min-h-0 flex-1" : large ? "max-h-[52dvh]" : "max-h-72",
+        )}
+      >
         {filtered.length ? (
           filtered.map((item) => {
             const selected = value === item;
@@ -25400,7 +25457,13 @@ export function AgentModelPicker<K extends AgentKind>({
         >
           <Popover.Popup
             initialFocus={showModels && modelListSearchable(models) ? inputRef : true}
-            className="w-80 max-w-[calc(100vw-1rem)] rounded-2xl border border-border bg-popover p-2 text-popover-foreground shadow-2xl ring-1 ring-foreground/5 outline-none"
+            // Clamped to the room below the trigger, like the model pill's
+            // own popover. It is pinned under the composer on purpose
+            // (collisionAvoidance above), so without a cap the list ran off
+            // the bottom of the screen and its last models could not be
+            // reached at all — reported on an iPad, where the composer sits
+            // low and the agent strip eats the space above the list.
+            className="flex max-h-[var(--available-height)] w-80 max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-2xl border border-border bg-popover p-2 text-popover-foreground shadow-2xl ring-1 ring-foreground/5 outline-none"
           >
             {/* No section labels. The icon strip is obviously the agent
                 row and the list under it is obviously models; the words
@@ -25429,6 +25492,7 @@ export function AgentModelPicker<K extends AgentKind>({
                 }}
                 onEscape={() => setOpen(false)}
                 inputRef={inputRef}
+                fill
               />
             ) : null}
           </Popover.Popup>
