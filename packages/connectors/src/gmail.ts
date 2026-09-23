@@ -107,6 +107,8 @@ export const GMAIL_TOOLS: NativeTool[] = [
   },
 ];
 
+import { scopeHint } from "./drive.ts";
+
 class GmailError extends Error {
   constructor(
     message: string,
@@ -137,7 +139,7 @@ async function request(token: TokenSource, path: string, init: RequestInit, fetc
   }
   if (!res.ok) {
     const message = (body as { error?: { message?: string } }).error?.message ?? `Gmail request failed (${res.status})`;
-    throw new GmailError(message, res.status);
+    throw new GmailError(scopeHint(message), res.status);
   }
   return body;
 }
