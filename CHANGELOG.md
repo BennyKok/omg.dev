@@ -2,8 +2,13 @@
 
 Recent product updates and deployment notes.
 
-## September 23, 2026 - Upgrade moves into the phone menu (v0.6.117)
+## September 23, 2026 - Google Drive, and Upgrade in the phone menu (v0.6.117)
 
+- Google Drive now works through omg's own connector, on the same Google sign-in as Gmail. Agents can search, read, create and trash files. Docs and Slides read as text, and Sheets read as CSV.
+- When Google's consent screen left a permission unticked, Gmail and Drive now say how to fix it.
+- A connection you give to a role, or to the whole team, now works for that role's agents. A running agent sees new connections without a restart.
+- Your connections list shows your own, each role's and the team's connections, grouped by who can use them.
+- On a phone, the home composer and the chat input sit 16px from the screen edge, as in the app.
 - The phone navigation menu has a place for the host's own rows, above Settings. On omg.dev the Upgrade button moves there, so it no longer sits in the top bar.
 
 ## September 23, 2026 - Reliable agent deploys (v0.6.116)
