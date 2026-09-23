@@ -380,11 +380,15 @@ Revert the probe colours before committing.
 
 # Expo HAS CHANGED
 
-Read the exact versioned docs at https://docs.expo.dev/versions/v57.0.0/ before writing any code.
+Read the exact versioned docs at https://docs.expo.dev/versions/v58.0.0/ before writing any code.
 
 ## SDK / Expo Go coupling — read before bumping
 
-This project is on **SDK 57**, which requires an Expo Go 57 client.
+This project is on **SDK 58**, which is a PREVIEW release
+(`expo@58.0.0-preview.4`, `react-native@0.88.0-rc.1`), taken on 2026-09-22 to
+reach the iOS 27 App Intents surface through `expo-app-intents`. There is no
+Expo Go 58, so use a development build. Expect to re-run
+`npx expo install --fix` as 58 moves toward stable.
 
 As of 2026-07-26, Expo Go for SDK 57 was **not on the App Store** — Expo was
 still awaiting Apple's approval, so it had to be obtained via `eas go`. If you

@@ -36,9 +36,12 @@ function withKeyCommandsAppDelegate(config) {
     }
     const src = mod.modResults.contents;
     if (src.includes(MARK)) return mod;
-    const anchor = /class AppDelegate: ExpoAppDelegate \{\n/;
+    // Tolerate extra conformances after the superclass. SDK 58 generates
+    // `class AppDelegate: ExpoAppDelegate, ExpoReactNativeFactoryProvider {`,
+    // and an exact-match anchor failed prebuild outright on the bump.
+    const anchor = /class AppDelegate: ExpoAppDelegate[^\n{]*\{\n/;
     if (!anchor.test(src)) {
-      throw new Error("with-key-commands: could not find `class AppDelegate: ExpoAppDelegate {` in AppDelegate.swift");
+      throw new Error("with-key-commands: could not find the `class AppDelegate: ExpoAppDelegate` declaration in AppDelegate.swift");
     }
     mod.modResults.contents = src.replace(anchor, (m) => m + SWIFT_METHODS);
     return mod;

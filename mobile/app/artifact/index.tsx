@@ -43,7 +43,7 @@ export default function SessionArtifactsScreen() {
           </Pressable> : null}
         </View>}
         ListEmptyComponent={loading ? <ActivityIndicator accessibilityLabel="Loading artifacts" /> : <Text style={{ ...type.callout, color: colors.textMuted }}>{error ? "Artifacts could not load." : (sessionId ? "No artifacts in this session yet." : "No artifacts on this computer yet.")}</Text>}
-        ListFooterComponent={error ? <PrimaryButton label="Try again" onPress={() => setRevision(n => n + 1)} /> : null}
+        ListFooterComponent={error ? <PrimaryButton label="Try again" onPress={() => setRevision(n => n + 1)} /> : undefined}
       />
   </View>;
 }

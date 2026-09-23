@@ -33,6 +33,7 @@ import { shouldMarkOnboarded, shouldShowSetup } from "../src/omg/onboarding-gate
 import { stashOnboardingChoice } from "../src/omg/onboarding-handoff";
 import { registerForPushNotifications, useNotificationTapRouting } from "../src/omg/push";
 import { useRootOpenRouting } from "../src/omg/root-open";
+import { useAppIntentRouting } from "../src/omg/app-intent-routing";
 import { useOtaUpdates } from "../src/omg/ota";
 import { launch } from "../src/omg/palette";
 import { useTheme } from "../src/omg/theme";
@@ -188,7 +189,7 @@ function OpenWhenMounted({ sessionId, onOpened }: { sessionId: string; onOpened:
 }
 
 function RootNavigator() {
-  const { authStatus, signOut, user, readiness, bindings, cloud, client, machinesLoaded, machinesError, probe } =
+  const { authStatus, signOut, user, readiness, bindings, bindingId, cloud, client, machinesLoaded, machinesError, probe } =
     useOmg();
   const consent = useAiDataConsent(user?.id ?? null);
   const onboarding = useOnboarding(user?.id ?? null);
@@ -272,6 +273,17 @@ function RootNavigator() {
    * widget tap on a cold start arrives before there is a Stack to pop within.
    */
   useRootOpenRouting(authStatus === "signed-in" && consent.state === "granted");
+  /*
+   * The third way in, and the one most likely to arrive on a cold start: a
+   * Siri or Shortcuts phrase. Same gate, same reason. The scope must match the
+   * one `app/session/new.tsx` looks the request up with, or the chat opens on
+   * the "no longer available" page.
+   */
+  useAppIntentRouting(
+    authStatus === "signed-in" && consent.state === "granted",
+    client ?? null,
+    `${user?.id}:${bindingId}`,
+  );
   /**
    * Land on sign-in the moment ANY path sets authStatus to "signed-out" —
    * an explicit Sign out, a session that expired underneath the app, a

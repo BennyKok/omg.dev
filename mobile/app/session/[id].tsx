@@ -71,6 +71,7 @@ import {
   View,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
+  type HostInstance,
 } from "react-native";
 import Reanimated, {
   FadeIn,
@@ -581,7 +582,7 @@ function SessionScreenContent({
   }, [resuming, toast]);
 
   const listRef = useAnimatedRef<FlatList<TranscriptItem>>();
-  const composerSource = useRef<View>(null);
+  const composerSource = useRef<HostInstance>(null);
   const preparingSend = useRef(false);
   const reducedMotion = useReducedMotion();
   const [sendTurn, setSendTurn] = useState<{ key: string; reserve: number; origin: SendOrigin | null } | null>(null);
@@ -1992,7 +1993,7 @@ function SessionScreenContent({
         ListHeaderComponent={
           loadingMore ? (
             <ActivityIndicator color={colors.textMuted} style={{ paddingVertical: space.md }} />
-          ) : null
+          ) : undefined
         }
         keyboardDismissMode="interactive"
         // A drag is the only thing that means "I am reading somewhere else".

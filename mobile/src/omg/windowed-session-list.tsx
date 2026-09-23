@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { FlatList, type FlatListProps, type ViewToken } from "react-native";
+import { FlatList, type FlatListProps, type ListViewToken } from "react-native";
 import { SessionActivityPane } from "./session-activity";
 
 const viewabilityConfig = { itemVisiblePercentThreshold: 1 };
@@ -9,8 +9,10 @@ export function WindowedSessionList<T extends { key: string }>({
   renderItem, ...props
 }: FlatListProps<T>) {
   const [visible, setVisible] = useState<Set<string>>(() => new Set());
-  const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: ViewToken<T>[] }) => {
-    const next = new Set(viewableItems.filter((item) => item.isViewable).map((item) => item.item.key));
+  // `ListViewToken` is not generic in RN 0.88, so `token.item` arrives as
+  // `any`. Narrow it back to T here rather than letting `any` spread.
+  const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: ListViewToken[] }) => {
+    const next = new Set(viewableItems.filter((token) => token.isViewable).map((token) => (token.item as T).key));
     setVisible((current) => current.size === next.size && [...current].every((key) => next.has(key)) ? current : next);
   }, []);
   return <FlatList {...props}

@@ -81,7 +81,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { View, type LayoutChangeEvent } from "react-native";
+import { View, type HostInstance, type LayoutChangeEvent } from "react-native";
 
 import type { useToast } from "./toast";
 
@@ -127,7 +127,7 @@ const VERIFY_DELAY_MS = 200;
 
 export function useOverlapWatch(toast: ReturnType<typeof useToast>, notifyUser: boolean) {
   const measurements = useRef(new Map<string, RowMeasurement>());
-  const rowRefs = useRef(new Map<string, React.RefObject<View | null>>());
+  const rowRefs = useRef(new Map<string, React.RefObject<HostInstance | null>>());
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const firedRef = useRef(false);
   /** When this hook itself first ran — a proxy for "screen mounted." */
@@ -282,7 +282,7 @@ export function useOverlapWatch(toast: ReturnType<typeof useToast>, notifyUser: 
    */
   const Row = useMemo(() => {
     return function OverlapWatchRow({ id, children }: { id: string; children: React.ReactNode }) {
-      const ref = useRef<View>(null);
+      const ref = useRef<HostInstance>(null);
       rowRefs.current.set(id, ref);
       /**
        * DROP THE FRAME WHEN THE ROW GOES AWAY. On the home list this barely

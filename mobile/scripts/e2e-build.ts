@@ -89,6 +89,51 @@ function depsFingerprint(): string {
     .join(" ");
 }
 
+/**
+ * A signature of everything that decides what the NATIVE project looks like:
+ * the app config and the config plugins it names.
+ *
+ * `depsFingerprint` above only sees package.json, so it catches a new pod but
+ * not a new config plugin. Adding `expo-app-intents` on 2026-09-23 moved the
+ * config alone: the plugin adds an `app-intents` synchronized group to the
+ * Xcode project, and ONLY `expo prebuild` writes that. The remote `ios/` is
+ * kept between runs, so prebuild never re-ran, the group never appeared, and
+ * the app built green with no App Intent inside it. Nothing failed. The
+ * feature was simply absent, which is the worst shape a build result can take.
+ *
+ * Config plugin FILES are included, not just their names: editing
+ * `plugins/with-key-commands.js` changes the generated AppDelegate with no
+ * change to any config.
+ */
+function nativeFingerprint(): string {
+  const files = ["../app.json", "../app.config.js", ...readPluginFiles()];
+  const hash = new Bun.CryptoHasher("sha256");
+  for (const file of files.sort()) {
+    hash.update(file);
+    hash.update(readIfPresent(new URL(file, import.meta.url).pathname));
+  }
+  return hash.digest("hex");
+}
+
+function readIfPresent(path: string): string {
+  try {
+    return require("node:fs").readFileSync(path, "utf8") as string;
+  } catch {
+    return "";
+  }
+}
+
+/** Every local config plugin, which the app config reaches by relative path. */
+function readPluginFiles(): string[] {
+  try {
+    const fs = require("node:fs") as typeof import("node:fs");
+    const dir = new URL("../plugins", import.meta.url).pathname;
+    return fs.readdirSync(dir).filter((name) => name.endsWith(".js")).map((name) => `../plugins/${name}`);
+  } catch {
+    return [];
+  }
+}
+
 async function sh(argv: string[]): Promise<number> {
   const p = Bun.spawn(argv, { stdout: "inherit", stderr: "inherit" });
   return await p.exited;
@@ -140,9 +185,28 @@ export async function buildSimulatorApp(): Promise<string> {
     REMOTE_ENV,
     `cd ~/${REMOTE_SRC}/mobile`,
     "bun install --frozen-lockfile 2>&1 | tail -2",
-    // The native project is kept between runs; regenerate it only when it is
-    // gone. `expo prebuild` rewrites ios/ and would throw away DerivedData.
-    'if [ ! -d ios ]; then npx expo prebuild --platform ios --no-install; (cd ios && pod install); fi',
+    `NEW_DEPS=${JSON.stringify(depsFingerprint())}`,
+    `NEW_NATIVE=${JSON.stringify(nativeFingerprint())}`,
+    // The native project is kept between runs, because DerivedData is the
+    // whole speed of this path. Regenerate it when it is gone, and ALSO when
+    // the app config or a config plugin moved: only prebuild writes what those
+    // produce, so keeping a stale ios/ there builds an app that silently lacks
+    // the feature. `--clean` rather than a bare prebuild, so a removed plugin
+    // takes its native output with it.
+    'if [ ! -d ios ] || [ "$NEW_NATIVE" != "$(cat ios/.omg-native 2>/dev/null)" ]; then',
+    '  echo "native config changed: prebuild"',
+    '  npx expo prebuild --platform ios --no-install --clean',
+    // A fresh prebuild records BOTH fingerprints straight away. Without the
+    // deps line the staleness check below saw no `ios/.omg-deps` and ran a
+    // SECOND `pod install` over pods that were already current. On 2026-09-22
+    // that second run stopped on "could not find compatible versions for pod
+    // ExpoModulesCore" and left `ios/Pods` half written, and the build then
+    // failed on source files that the stale project referenced but the
+    // installed packages do not have.
+    '  (cd ios && pod install)',
+    '  printf %s "$NEW_DEPS" > ios/.omg-deps',
+    '  printf %s "$NEW_NATIVE" > ios/.omg-native',
+    "fi",
     /*
      * A NEW dependency needs `pod install` even though ios/ is present.
      *
@@ -159,7 +223,6 @@ export async function buildSimulatorApp(): Promise<string> {
      * also change native state) -- it is the cheap part that covers adding,
      * removing or bumping a package, which is how this broke.
      */
-    `NEW_DEPS=${JSON.stringify(depsFingerprint())}`,
     'if [ "$NEW_DEPS" != "$(cat ios/.omg-deps 2>/dev/null)" ]; then',
     '  echo "dependencies changed: pod install"; (cd ios && pod install) && printf %s "$NEW_DEPS" > ios/.omg-deps',
     "fi",

@@ -24,7 +24,7 @@
  * than a stale view.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ScrollView, View, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
+import { ScrollView, View, type NativeScrollEvent, type NativeSyntheticEvent, type ScrollViewInstance } from "react-native";
 import type { OmgClient } from "@omg-dev/client";
 
 import { buildTranscriptItems, TranscriptRow, type Entry } from "./transcript";
@@ -41,7 +41,7 @@ export function OnboardingTranscript({
   const [messages, setMessages] = useState<Entry[]>([]);
   const [streamText, setStreamText] = useState("");
   const [busy, setBusy] = useState(true);
-  const scroller = useRef<ScrollView>(null);
+  const scroller = useRef<ScrollViewInstance>(null);
   const following = useRef(true);
 
   useEffect(() => {

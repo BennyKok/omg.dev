@@ -13,7 +13,7 @@
 
 import { GlassView, isLiquidGlassAvailable } from "expo-glass-effect";
 import { forwardRef, type ReactNode } from "react";
-import { View, type StyleProp, type ViewStyle } from "react-native";
+import { View, type HostInstance, type StyleProp, type ViewStyle } from "react-native";
 
 /**
  * Checked once at module scope rather than per render: it is a static property
@@ -43,7 +43,7 @@ export const LIQUID_GLASS = (() => {
  * without the wider style type an animated style will not type-check. The
  * composer morph is the first caller that needs either.
  */
-export const GlassSurface = forwardRef<View, {
+export const GlassSurface = forwardRef<HostInstance, {
   children?: ReactNode;
   style?: StyleProp<ViewStyle>;
   /** Solid colour used when the OS cannot draw glass. */

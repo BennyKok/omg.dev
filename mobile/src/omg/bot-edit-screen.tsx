@@ -23,6 +23,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, KeyboardAvoidingView, Platform, ScrollView, View } from "react-native";
 import { useNavigation, useRouter } from "expo-router";
+import type { NavigationAction } from "expo-router/react-navigation";
 
 import {
   AvatarHero,
@@ -47,9 +48,25 @@ import { useToast } from "./toast";
 import { useOmg } from "./provider";
 import { type Bot, type BotColorway, type BotShape } from "./bots";
 
+/**
+ * Only the slice of the navigation object this screen touches.
+ *
+ * `useNavigation()` with no generic resolves to the CORE event map, which
+ * carries focus/blur/state and not `beforeRemove` -- that one belongs to the
+ * stack navigator. Naming the shape here is narrower than importing a full
+ * stack navigation prop and does not tie the screen to a param list.
+ */
+type RemovalNavigation = {
+  addListener: (
+    type: "beforeRemove",
+    callback: (event: { preventDefault: () => void; data: { action: NavigationAction } }) => void,
+  ) => () => void;
+  dispatch: (action: NavigationAction) => void;
+};
+
 export function BotEditScreen({ bot }: { bot: Bot }) {
   const router = useRouter();
-  const navigation = useNavigation();
+  const navigation = useNavigation<RemovalNavigation>();
   const { colors, space } = useTheme();
   const { client, user, agents, repos } = useOmg();
   const toast = useToast();

@@ -1,8 +1,8 @@
 diff --git a/ios/Modifiers/ViewModifierRegistry.swift b/ios/Modifiers/ViewModifierRegistry.swift
-index b1956cec24eb467590f3c5b7b3816f8d6efe0033..7142754d38d0cb8619e5e866c46988e994a51a7e 100644
+index d74c67fc2c3c69ca764ea711cf54116416ccae16..2c372d6b0819d4d5721a0421b7b3952c46cbe011 100644
 --- a/ios/Modifiers/ViewModifierRegistry.swift
 +++ b/ios/Modifiers/ViewModifierRegistry.swift
-@@ -120,6 +120,35 @@ internal struct OpacityModifier: ViewModifier, Record {
+@@ -164,6 +164,35 @@ internal struct OpacityModifier: ViewModifier, Record {
    }
  }
  
@@ -38,14 +38,14 @@ index b1956cec24eb467590f3c5b7b3816f8d6efe0033..7142754d38d0cb8619e5e866c46988e9
  internal struct ScaleEffectModifier: ViewModifier, Record {
    @Field var x: CGFloat = 1.0
    @Field var y: CGFloat = 1.0
-@@ -1692,6 +1721,10 @@ extension ViewModifierRegistry {
-       return try ScaleEffectModifier(from: params, appContext: appContext)
+@@ -1850,6 +1879,10 @@ extension ViewModifierRegistry {
+       return try OpacityModifier(from: params, appContext: appContext)
      }
  
 +    register("transition") { params, appContext, _ in
 +      return try TransitionModifier(from: params, appContext: appContext)
 +    }
 +
-     register("rotationEffect") { params, appContext, _ in
-       return try RotationEffectModifier(from: params, appContext: appContext)
+     register("scaleEffect") { params, appContext, _ in
+       return try ScaleEffectModifier(from: params, appContext: appContext)
      }

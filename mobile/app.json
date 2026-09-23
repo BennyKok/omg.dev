@@ -2,7 +2,7 @@
   "expo": {
     "name": "omg",
     "slug": "lfg-native",
-    "version": "1.0.12",
+    "version": "1.0.13",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -59,8 +59,17 @@
           "photosPermission": "omg.dev opens your photo library only when you choose to attach a photo to a message. The photo is uploaded to your own omg.dev cloud computer, and the coding agent you are messaging can then open that file. For example, attach a screenshot of a failing test so the agent can read the error."
         }
       ],
-      "expo-apple-authentication"
+      "expo-apple-authentication",
+      "expo-web-browser",
+      "expo-app-intents"
     ],
+    "experiments": {
+      "inlineModules": {
+        "watchedDirectories": [
+          "app-intents"
+        ]
+      }
+    },
     "scheme": "omg",
     "extra": {
       "router": {},

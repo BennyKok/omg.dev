@@ -1,5 +1,5 @@
 import { createContext, forwardRef, useCallback, useContext, useRef, type RefObject } from "react";
-import { ScrollView, type ScrollViewProps } from "react-native";
+import { ScrollView, type ScrollViewInstance, type ScrollViewProps } from "react-native";
 
 import { NativeViewGestureHandler, type PanGestureHandler } from "react-native-gesture-handler";
 export const SheetNativePanContext = createContext<RefObject<PanGestureHandler | null> | null>(null);
@@ -17,15 +17,15 @@ export function useBlockSheetDrag() {
 }
 
 /** The innermost scroller identifies the gesture before the sheet can capture it. */
-export const SheetScrollView = forwardRef<ScrollView, ScrollViewProps>(function SheetScrollView(
+export const SheetScrollView = forwardRef<ScrollViewInstance, ScrollViewProps>(function SheetScrollView(
   { onTouchStart, onScroll, scrollEventThrottle = 16, horizontal, scrollEnabled, ...props }, ref,
 ) {
   const claim = useContext(SheetGestureContext);
   const pan = useContext(SheetNativePanContext);
   const dragging = useContext(SheetDraggingContext);
   const offset = useRef(0);
-  const scroll = useRef<ScrollView | null>(null);
-  const setRef = useCallback((node: ScrollView | null) => {
+  const scroll = useRef<ScrollViewInstance | null>(null);
+  const setRef = useCallback((node: ScrollViewInstance | null) => {
     scroll.current = node;
     if (typeof ref === "function") ref(node);
     else if (ref) ref.current = node;

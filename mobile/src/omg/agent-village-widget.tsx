@@ -1,6 +1,6 @@
 import { Capsule, Circle, Ellipse, Image, RoundedRectangle, Text, VStack, ZStack } from "@expo/ui/swift-ui";
 import { bold, clipShape, resizable, lineLimit, containerBackground, font, foregroundColor, frame, offset, widgetURL, widgetAccentedRenderingMode } from "@expo/ui/swift-ui/modifiers";
-import { createWidget } from "expo-widgets";
+import { createWidget, type WidgetEnvironment } from "expo-widgets";
 
 /** What one character needs to draw itself. */
 export type VillageCharacter = {
@@ -53,7 +53,7 @@ export type VillageProps = {
   updatedAt: number;
 };
 
-function AgentVillage(props: VillageProps, environment: { widgetFamily: string; colorScheme?: "light" | "dark"; widgetRenderingMode?: "fullColor" | "accented" | "vibrant"; date?: number | string | Date }) {
+function AgentVillage(props: VillageProps, environment: WidgetEnvironment) {
   "widget";
   if (!props.scenes) {
     return <Text modifiers={[font({ size: 14 }), widgetURL("omg:///")]}>Open omg.dev to start your garden</Text>;
@@ -71,7 +71,7 @@ function AgentVillage(props: VillageProps, environment: { widgetFamily: string; 
    * own in the extension and cannot see module scope, which the native check
    * caught the moment this lived at the top of the file.
    *
-   * The native half is `patches/@expo%2Fui@57.0.10.patch`, registering a
+   * The native half is `patches/@expo%2Fui@58.0.4.patch`, registering a
    * `TransitionModifier`. Being native, it rides a BUILD and not an update.
    */
   const transition = (kind: string) => ({ $type: "transition", kind });

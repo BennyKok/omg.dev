@@ -1,0 +1,15 @@
+diff --git a/ios/HardwareShortcuts.m b/ios/HardwareShortcuts.m
+index 5a177166c9f39893c1cf776890997625b3c6d38b..221f231eba1413f8ceed90da8f360c5e8f3f5c13 100644
+--- a/ios/HardwareShortcuts.m
++++ b/ios/HardwareShortcuts.m
+@@ -1,5 +1,9 @@
+ #import "HardwareShortcuts.h"
+-#import "RCTUtils.h"
++// RN 0.88 ships React Native as prebuilt artifacts, so React-Core headers are
++// no longer on the flat header search path and a quoted import fails with
++// "'RCTUtils.h' file not found". The framework form resolves on every RN
++// version this project has used. Upstream 1.0.18 still has the quoted import.
++#import <React/RCTUtils.h>
+ 
+ @implementation HardwareShortcuts
+ 

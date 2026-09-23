@@ -1,6 +1,6 @@
 /** Shared content-sized tray. Its surface stays mounted as pages and height change. */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View, type StyleProp, type ViewStyle } from "react-native";
+import { Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View, type ScrollViewInstance, type StyleProp, type ViewStyle } from "react-native";
 import Reanimated, { cancelAnimation, Easing, FadeInLeft, FadeInRight, FadeOut, runOnJS, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useReduceMotionEnabled } from "./motion";
@@ -45,7 +45,7 @@ export function Sheet({ visible, onClose, children, placement = "bottom", maxWid
   const opacity = useSharedValue(0);
   const bodyHeight = useSharedValue(0);
   const closing = useRef(false);
-  const scroll = useRef<ScrollView>(null);
+  const scroll = useRef<ScrollViewInstance>(null);
   useEffect(() => { scroll.current?.scrollTo({ y: 0, animated: false }); }, [pageKey]);
   const measured = useRef(false);
   const closeRef = useRef(onClose);

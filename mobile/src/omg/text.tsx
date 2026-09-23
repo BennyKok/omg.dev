@@ -31,15 +31,19 @@ import {
   TextInput as RNTextInput,
   type TextProps,
   type TextInputProps,
+  type TextInputInstance,
+  type HostInstance,
 } from "react-native";
 
 /**
  * Re-exported so callers can still type a ref (`useRef<TextInputHandle>`). The
- * wrapper is a different value from react-native's TextInput, so the class that
- * a ref actually points at has to come from somewhere.
+ * wrapper is a different value from react-native's TextInput, so the type a ref
+ * actually points at has to come from somewhere. Since RN 0.88 the components
+ * are function components and no longer usable as instance types, so these
+ * alias the host-instance types instead.
  */
-export type TextInputHandle = RNTextInput;
-export type TextHandle = RNText;
+export type TextInputHandle = TextInputInstance;
+export type TextHandle = HostInstance;
 
 /**
  * How far the OS may scale our type. Chosen against the reference: at 1.15 the
@@ -69,7 +73,7 @@ export const MAX_FONT_SCALE = 1.15;
  */
 const NO_INHERITED_TRACKING = { letterSpacing: 0 } as const;
 
-export const Text = forwardRef<RNText, TextProps>(
+export const Text = forwardRef<TextHandle, TextProps>(
   ({ maxFontSizeMultiplier, style, ...props }, ref) => (
     <RNText
       ref={ref}
@@ -81,7 +85,7 @@ export const Text = forwardRef<RNText, TextProps>(
 );
 Text.displayName = "Text";
 
-export const TextInput = forwardRef<RNTextInput, TextInputProps>(
+export const TextInput = forwardRef<TextInputHandle, TextInputProps>(
   ({ maxFontSizeMultiplier, style, onTouchStart, ...props }, ref) => {
     const blockNavGesture = useBlockNavGesture();
     return <RNTextInput

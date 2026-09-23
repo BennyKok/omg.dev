@@ -31,6 +31,7 @@ import {
   View,
   type ImageStyle,
   type StyleProp,
+  type HostInstance,
 } from "react-native";
 import Reanimated, {
   Easing,
@@ -250,7 +251,7 @@ function TappableImage({
   const gallery = useContext(ImageGalleryContext);
   const rowKey = useContext(ImageGalleryRow);
   const galleryId = rowKey ? galleryImageId(rowKey, path) : null;
-  const thumb = useRef<View>(null);
+  const thumb = useRef<HostInstance>(null);
   const [origin, setOrigin] = useState<Rect | null>(null);
 
   const thumbnail = useMemo(() => ({ uri, radius, measure: () => new Promise<ImageRect | null>(resolve => {
