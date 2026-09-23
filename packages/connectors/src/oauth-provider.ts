@@ -10,6 +10,7 @@ import type { OAuthClientMetadata, OAuthClientInformationFull, OAuthTokens } fro
 import { randomBytes } from "node:crypto";
 import type { Connector } from "./store.ts";
 import { OAUTH_APPS } from "./oauth-apps.ts";
+import { NATIVE_CONNECTORS } from "./native.ts";
 import {
   connectorByState,
   getOAuthApp,
@@ -138,7 +139,11 @@ export async function startConnectorOAuth(
     // auth() runs discovery → dynamic client registration → PKCE, then either
     // reports AUTHORIZED (a valid token already exists) or REDIRECT (it called
     // provider.redirectToAuthorization with the URL to send the browser to).
-    const result = await auth(provider, { serverUrl: connector.endpoint });
+    // A native connector asks only for what its tools use. Without this the
+    // SDK requests every scope the resource advertises, and Google shows one
+    // unticked checkbox per scope: twelve for Calendar.
+    const scopes = connector.native ? NATIVE_CONNECTORS[connector.native]?.scopes : undefined;
+    const result = await auth(provider, { serverUrl: connector.endpoint, ...(scopes?.length ? { scope: scopes.join(" ") } : {}) });
     if (result === "AUTHORIZED") return { ok: true, alreadyAuthorized: true };
     if (provider.authorizationUrl) {
       return { ok: true, authorizeUrl: provider.authorizationUrl.toString(), state: provider.state() };
