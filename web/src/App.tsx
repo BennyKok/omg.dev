@@ -16424,7 +16424,13 @@ function SessionChatBody({
             // composer reads as part of the conversation, not a bolted-on panel.
             // pb uses global --lfg-safe-bottom so embed host chrome never covers
             // the input (session portal is full-bleed outside the shell pad).
-            "relative overflow-x-clip bg-background px-2 pb-[calc(0.5rem+var(--lfg-safe-bottom))] pt-1.5 transition-colors",
+            // px-4 on a phone, matching the app's composer inset
+            // (space.lg in mobile/src/omg/palette.ts). At 8px the bar ran
+            // almost edge to edge and read as a docked panel rather than a
+            // field sitting in the page. Wider screens keep the tighter inset:
+            // the transcript column is already centred there, so the bar is
+            // not near an edge to begin with.
+            "relative overflow-x-clip bg-background px-4 pb-[calc(0.5rem+var(--lfg-safe-bottom))] pt-1.5 transition-colors md:px-2",
             "before:pointer-events-none before:absolute before:inset-x-0 before:-top-6 before:h-8 before:bg-gradient-to-t before:from-background before:to-transparent before:content-['']",
             draggingFiles && "bg-primary/8",
             launching && "lfg-composer-launching",
@@ -23780,7 +23786,11 @@ function NewSessionDialog({
         // Embed cancels --lfg-device-safe-bottom to 0 (host owns that zone) and
         // the shell still applies host-inset, so Start clears the pill without
         // a double gap. Drawer / dialog are full-bleed → global safe bottom.
-        "relative overscroll-contain px-2 transition-colors",
+        "relative overscroll-contain transition-colors",
+        // The inline home composer takes the app's 16px inset; the drawer and
+        // the stage are already inset by their own container, so widening
+        // them would only narrow the field.
+        variant === "inline" ? "px-4" : "px-2",
         variant === "inline"
           ? "overflow-visible pb-[max(var(--lfg-device-safe-bottom),0.5rem)] pt-1.5"
           : variant === "stage"
