@@ -65,6 +65,14 @@ import {
   resetConnector,
   loadCatalog,
   searchCatalog,
+  withRecommended,
+  RECOMMENDED_CATALOG,
+  getOAuthApp,
+  saveOAuthApp,
+  clearOAuthApp,
+  isOAuthAppProvider,
+  oauthAppStatuses,
+  callbackUrl as connectorCallbackUrl,
   startConnectorOAuth,
   completeConnectorOAuth,
   hasTokens as hasOAuthTokens,
@@ -4392,8 +4400,34 @@ export async function cmdServe() {
             (typeof body?.state === "string" && body.state.length >= 16 ? body.state : undefined) ??
             oauthRelayState();
           const result = await startConnectorOAuth(connector, base, state);
+          // A connector on a pre-registered app that the box has no client
+          // for yet: the client shows the setup form instead of an error.
+          if (!result.ok && result.needsOAuthApp) return json({ error: result.error, needsOAuthApp: result.needsOAuthApp }, { status: 409 });
           if (!result.ok) return err(502, result.error);
           return json(result);
+        }
+      }
+      // Pre-registered OAuth clients (Google has no dynamic registration).
+      // One per provider per box, stored encrypted. `redirectUri` is the
+      // value the owner registers with the client, the same base
+      // oauth/start uses for this request.
+      if (path === "/api/connectors/oauth-apps" && req.method === "GET") {
+        return json({ apps: oauthAppStatuses(getOAuthApp), redirectUri: connectorCallbackUrl(oauthRedirectBase(req)) });
+      }
+      {
+        const m = path.match(/^\/api\/connectors\/oauth-apps\/([a-z0-9-]+)$/);
+        if (m && !isOAuthAppProvider(m[1]!)) return err(404, `unknown OAuth app "${m[1]}"`);
+        if (m && req.method === "PUT") {
+          const body = (await req.json().catch(() => null)) as { clientId?: unknown; clientSecret?: unknown } | null;
+          const clientId = typeof body?.clientId === "string" ? body.clientId.trim() : "";
+          const clientSecret = typeof body?.clientSecret === "string" ? body.clientSecret.trim() : "";
+          if (!clientId) return err(400, "clientId is required");
+          saveOAuthApp(m[1]!, { clientId, clientSecret });
+          return json({ apps: oauthAppStatuses(getOAuthApp) });
+        }
+        if (m && req.method === "DELETE") {
+          clearOAuthApp(m[1]!);
+          return json({ apps: oauthAppStatuses(getOAuthApp) });
         }
       }
       if (path === "/api/connectors/oauth/callback" && req.method === "GET") {
@@ -4425,7 +4459,7 @@ export async function cmdServe() {
       }
       if (path === "/api/connectors" && req.method === "POST") {
         const body = (await req.json().catch(() => null)) as
-          | { user?: string; org?: boolean; role?: string; name?: string; endpoint?: string; headers?: Record<string, string>; catalogSlug?: string; icon?: string; oauth?: boolean; requireApproval?: boolean }
+          | { user?: string; org?: boolean; role?: string; name?: string; endpoint?: string; headers?: Record<string, string>; catalogSlug?: string; icon?: string; oauth?: boolean; oauthApp?: string; requireApproval?: boolean }
           | null;
         if (!body) return err(400, "invalid JSON body");
         // Three levels: `org` is the team, `role` is every member of that
@@ -4441,6 +4475,7 @@ export async function cmdServe() {
           catalogSlug: body.catalogSlug,
           icon: body.icon,
           oauth: body.oauth,
+          oauthApp: typeof body.oauthApp === "string" ? body.oauthApp : undefined,
           requireApproval: body.requireApproval,
         });
         if (!result.ok) return err(400, result.error);
@@ -4462,10 +4497,17 @@ export async function cmdServe() {
       }
       if (path === "/api/connectors/catalog" && req.method === "GET") {
         try {
-          const entries = await loadCatalog(url.searchParams.get("refresh") === "1");
           const q = url.searchParams.get("q") ?? "";
           const limit = Math.min(Math.max(Number(url.searchParams.get("limit")) || 50, 1), 200);
-          return json({ total: entries.length, results: searchCatalog(entries, q, limit) });
+          // The curated entries need no network, so they stay offered when
+          // the public index is unreachable.
+          const entries = await loadCatalog(url.searchParams.get("refresh") === "1")
+            .then(withRecommended)
+            .catch((e: unknown) => {
+              if (q.trim()) throw e;
+              return RECOMMENDED_CATALOG;
+            });
+          return json({ total: entries.length, results: searchCatalog(entries, q, limit), recommended: RECOMMENDED_CATALOG });
         } catch (e) {
           return err(502, e instanceof Error ? e.message : "could not load the catalog");
         }

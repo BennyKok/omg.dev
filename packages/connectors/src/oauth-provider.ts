@@ -9,8 +9,10 @@ import { auth, type OAuthClientProvider } from "@modelcontextprotocol/sdk/client
 import type { OAuthClientMetadata, OAuthClientInformationFull, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { randomBytes } from "node:crypto";
 import type { Connector } from "./store.ts";
+import { OAUTH_APPS } from "./oauth-apps.ts";
 import {
   connectorByState,
+  getOAuthApp,
   getOAuthState,
   saveClientInformation,
   savePending,
@@ -62,11 +64,24 @@ export class ConnectorOAuthProvider implements OAuthClientProvider {
   }
 
   clientInformation(): OAuthClientInformationFull | undefined {
+    // A connector on a pre-registered app always uses that app's client, so
+    // the SDK skips dynamic registration. No app configured yet means
+    // undefined here, and startConnectorOAuth reports that before auth() runs.
+    if (this.connector.oauthApp) {
+      const app = getOAuthApp(this.connector.oauthApp);
+      if (!app) return undefined;
+      return {
+        client_id: app.clientId,
+        ...(app.clientSecret ? { client_secret: app.clientSecret } : {}),
+        redirect_uris: [this.redirectUrl],
+      } as OAuthClientInformationFull;
+    }
     const info = getOAuthState(this.connector.id)?.clientInformation;
     return info as OAuthClientInformationFull | undefined;
   }
 
   saveClientInformation(info: OAuthClientInformationFull): void {
+    if (this.connector.oauthApp) return;
     saveClientInformation(this.connector.id, info as unknown as OAuthClientInfo);
   }
 
@@ -79,6 +94,8 @@ export class ConnectorOAuthProvider implements OAuthClientProvider {
   }
 
   redirectToAuthorization(authorizationUrl: URL): void {
+    const extra = this.connector.oauthApp ? OAUTH_APPS[this.connector.oauthApp]?.authorizeParams : undefined;
+    for (const [k, v] of Object.entries(extra ?? {})) authorizationUrl.searchParams.set(k, v);
     this.authorizationUrl = authorizationUrl;
   }
 
@@ -96,7 +113,7 @@ export class ConnectorOAuthProvider implements OAuthClientProvider {
 export type StartResult =
   | { ok: true; authorizeUrl: string; state: string }
   | { ok: true; alreadyAuthorized: true }
-  | { ok: false; error: string };
+  | { ok: false; error: string; needsOAuthApp?: string };
 
 /**
  * Begin OAuth for a connector: connect the transport with the provider, which
@@ -112,6 +129,10 @@ export async function startConnectorOAuth(
   // A caller may supply the `state` so a hosted relay can encode which box the
   // provider's redirect belongs to (see docs/team-tooling-design.md). It stays
   // the CSRF token, so a caller-supplied state must still be unguessable.
+  if (connector.oauthApp && !getOAuthApp(connector.oauthApp)) {
+    const name = OAUTH_APPS[connector.oauthApp]?.name ?? connector.oauthApp;
+    return { ok: false, error: `${name} sign-in is not set up on this box. Add a ${name} OAuth client first.`, needsOAuthApp: connector.oauthApp };
+  }
   const provider = new ConnectorOAuthProvider(connector, redirectBase, state);
   try {
     // auth() runs discovery → dynamic client registration → PKCE, then either

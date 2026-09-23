@@ -19,6 +19,7 @@ export type PublicConnector = {
   catalogSlug?: string;
   icon?: string;
   oauth?: boolean;
+  oauthApp?: string;
   oauthConnected?: boolean;
   requireApproval: boolean;
   createdAt: number;
@@ -38,6 +39,18 @@ export type CatalogEntry = {
   needsOAuth: boolean;
   /** The catalog's `auth.kind`, or null when the entry says nothing. */
   authKind?: string | null;
+  /** Signs in with this provider's pre-registered client on the box. */
+  oauthApp?: string;
+  /** omg's curated entries, shown above the searchable catalog. */
+  recommended?: boolean;
+};
+
+export type OAuthAppStatus = {
+  id: string;
+  name: string;
+  consoleUrl: string;
+  configured: boolean;
+  clientIdHint: string | null;
 };
 
 /**
@@ -152,6 +165,7 @@ type ConnectorDraft = {
   catalogSlug?: string;
   icon?: string;
   oauth?: boolean;
+  oauthApp?: string;
   /** The server may still ask for a sign-in; reserve the popup on the click. */
   maybeOauth?: boolean;
 };
@@ -297,6 +311,10 @@ export function ConnectorsNativePanel() {
         )}
       </div>
       {error ? <p className="px-1 text-xs text-destructive">{error}</p> : null}
+
+      {connectors !== null ? (
+        <RecommendedConnectors user={user} scope={scope} connectors={connectors} addConnector={addConnector} />
+      ) : null}
 
       <CatalogBrowser user={user} scope={scope} addConnector={addConnector} />
       <AddByUrl user={user} scope={scope} addConnector={addConnector} />
@@ -655,5 +673,161 @@ function CatalogBrowser({ user, scope, addConnector }: { user: string; scope: Sc
         )}
       </ul>
     </div>
+  );
+}
+
+/**
+ * omg's curated connectors (Google's official MCP servers), one Connect click
+ * each. They sign in with a pre-registered OAuth client, so until the box has
+ * one the section shows the one-time setup form in place of the buttons.
+ */
+export function RecommendedConnectors({
+  user,
+  scope,
+  connectors,
+  addConnector,
+}: {
+  user: string;
+  scope: Scope;
+  connectors: PublicConnector[];
+  addConnector: AddConnector;
+}) {
+  const [entries, setEntries] = useState<CatalogEntry[]>([]);
+  const [apps, setApps] = useState<OAuthAppStatus[] | null>(null);
+  const [redirectUri, setRedirectUri] = useState("");
+  const [adding, setAdding] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadApps = useCallback(async () => {
+    try {
+      const res = await api<{ apps: OAuthAppStatus[]; redirectUri: string }>("/api/connectors/oauth-apps");
+      setApps(res.apps);
+      setRedirectUri(res.redirectUri);
+    } catch {
+      setApps([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    void api<{ recommended?: CatalogEntry[] }>("/api/connectors/catalog?limit=1")
+      .then((res) => setEntries(res.recommended ?? []))
+      .catch(() => setEntries([]));
+    void loadApps();
+  }, [loadApps]);
+
+  // Hide what this member already added. Added rows live in the list above.
+  const added = new Set(connectors.map((c) => c.catalogSlug).filter(Boolean));
+  const available = entries.filter((e) => !added.has(e.slug));
+  if (available.length === 0) return null;
+
+  const neededApps = [...new Set(available.map((e) => e.oauthApp).filter((a): a is string => !!a))];
+  const missing = (apps ?? []).filter((a) => neededApps.includes(a.id) && !a.configured);
+
+  const connect = async (entry: CatalogEntry) => {
+    if (!entry.connectUrl) return;
+    setAdding(entry.slug);
+    setError(null);
+    try {
+      await addConnector({
+        ...scopeBody(scope, user),
+        name: entry.name,
+        endpoint: entry.connectUrl,
+        catalogSlug: entry.slug,
+        icon: entry.icon ?? undefined,
+        oauth: true,
+        oauthApp: entry.oauthApp,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "could not connect");
+    } finally {
+      setAdding(null);
+    }
+  };
+
+  return (
+    <div className="space-y-2 rounded-2xl border border-border bg-card/40 px-4 py-3" aria-label="Recommended connectors">
+      <div className="text-sm font-medium">Recommended</div>
+      {missing.map((app) => (
+        <OAuthAppSetup key={app.id} app={app} redirectUri={redirectUri} onSaved={loadApps} />
+      ))}
+      <ul className="space-y-1">
+        {available.map((e) => {
+          const blocked = apps === null || missing.some((a) => a.id === e.oauthApp);
+          return (
+            <li key={e.slug} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs" data-recommended={e.slug}>
+              <Logo src={e.icon} alt="" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium">{e.name}</span>
+                <span className="block truncate text-[11px] text-muted-foreground">{e.description}</span>
+              </span>
+              <Button type="button" size="sm" disabled={blocked || adding === e.slug} onClick={() => void connect(e)}>
+                {adding === e.slug ? "Connecting…" : "Connect"}
+              </Button>
+            </li>
+          );
+        })}
+      </ul>
+      {error ? <p className="px-1 text-xs text-destructive">{error}</p> : null}
+    </div>
+  );
+}
+
+/** One-time form: paste the provider's OAuth client, registered with this box's callback. */
+function OAuthAppSetup({ app, redirectUri, onSaved }: { app: OAuthAppStatus; redirectUri: string; onSaved: () => Promise<void> }) {
+  const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api(`/api/connectors/oauth-apps/${app.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ clientId: clientId.trim(), clientSecret: clientSecret.trim() }),
+      });
+      await onSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "could not save");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form
+      className="space-y-2 rounded-xl border border-dashed border-border px-3 py-2.5 text-xs"
+      data-oauth-app-setup={app.id}
+      onSubmit={(e) => {
+        e.preventDefault();
+        void save();
+      }}
+    >
+      <p className="font-medium">Set up {app.name} sign-in once</p>
+      <p className="text-muted-foreground">
+        {app.name} needs an OAuth client for this box. Create a Web application client in the{" "}
+        <a href={app.consoleUrl} target="_blank" rel="noreferrer" className="underline">
+          {app.name} console
+        </a>
+        , add this redirect URI, then paste the client here.
+      </p>
+      <code className="block select-all break-all rounded-md bg-muted px-2 py-1" data-redirect-uri>
+        {redirectUri}
+      </code>
+      <Input value={clientId} onChange={(e) => setClientId(e.target.value)} placeholder="Client ID" aria-label={`${app.name} client ID`} className="h-8 font-mono text-xs" />
+      <Input
+        value={clientSecret}
+        onChange={(e) => setClientSecret(e.target.value)}
+        placeholder="Client secret"
+        type="password"
+        aria-label={`${app.name} client secret`}
+        className="h-8 font-mono text-xs"
+      />
+      <Button type="submit" size="sm" disabled={busy || !clientId.trim()}>
+        Save
+      </Button>
+      {error ? <p className="text-destructive">{error}</p> : null}
+    </form>
   );
 }

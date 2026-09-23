@@ -14,6 +14,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { connectorDataDir } from "./context.ts";
+import { isOAuthAppProvider } from "./oauth-apps.ts";
 
 /** Connections everyone in the team may use. */
 export const ORG_OWNER = "*org*";
@@ -50,6 +51,12 @@ export interface Connector {
   icon?: string;
   /** This server authenticates with OAuth (connect flow, not a static header). */
   oauth?: boolean;
+  /**
+   * A provider whose pre-registered OAuth client this connector signs in with
+   * (see OAUTH_APPS in ./oauth-apps.ts), for servers without dynamic client
+   * registration. Unset means dynamic registration.
+   */
+  oauthApp?: string;
   /** Calls to this connector's tools pause for owner approval in chat. */
   requireApproval: boolean;
   createdAt: number;
@@ -168,6 +175,7 @@ export type ConnectorInput = {
   catalogSlug?: string;
   icon?: string;
   oauth?: boolean;
+  oauthApp?: string;
   requireApproval?: boolean;
 };
 
@@ -187,6 +195,9 @@ export function createConnector(input: ConnectorInput): ConnectorResult {
   if (!name) return { ok: false, error: "name is required" };
   if (!validEndpoint(input.endpoint)) return { ok: false, error: "endpoint must be an http(s) URL" };
   if (!input.owner) return { ok: false, error: "owner is required" };
+  if (input.oauthApp !== undefined && !isOAuthAppProvider(input.oauthApp)) {
+    return { ok: false, error: `unknown OAuth app "${input.oauthApp}"` };
+  }
   const file = read();
   if (file.connectors.length >= MAX) return { ok: false, error: `at most ${MAX} connectors` };
   const now = Date.now();
@@ -204,7 +215,8 @@ export function createConnector(input: ConnectorInput): ConnectorResult {
     headers: sanitizeHeaders(input.headers),
     catalogSlug: input.catalogSlug,
     icon: typeof input.icon === "string" ? input.icon : undefined,
-    oauth: input.oauth === true,
+    oauth: input.oauth === true || !!input.oauthApp,
+    ...(input.oauthApp ? { oauthApp: input.oauthApp } : {}),
     requireApproval: input.requireApproval === true,
     createdAt: now,
     updatedAt: now,
