@@ -14251,26 +14251,42 @@ const RailRow = memo(function RailRow({
                 {preview}
               </span>
             </span>
-            {indicator}
-            {/* One slot on the trailing edge, so every row's secondary
-                readout lands on the same edge instead of trailing whatever
-                length its title happened to be. A hover action cross-fades
-                in over it: the static content is what you read while
-                scanning, the action is what you want once you have stopped
-                on a row. Fixed width so the swap cannot reflow the title
-                beside it. */}
-            <span className="relative flex h-10 w-9 shrink-0 items-center justify-end">
-              {trailingStatic ? (
-                <span
-                  className={cn(
-                    "text-xs leading-tight tabular-nums text-muted-foreground/70 transition-opacity duration-150",
-                    !trailingHoverAlwaysVisible && "group-hover:opacity-0",
-                  )}
-                >
-                  {trailingStatic}
-                </span>
-              ) : null}
-              {trailingHover}
+            {/* When it last moved, then what state it is in — the iOS row's
+                order (mobile/src/components.tsx). The web had the mark first,
+                so the two put the same two facts on the trailing edge in
+                opposite orders.
+
+                They travel together in one group at the row's own gap, rather
+                than as two children of the row: at the row's 12px they read as
+                two separate columns instead of one readout. */}
+            <span className="flex shrink-0 items-center gap-1.5">
+              {/* One slot on the trailing edge, so every row's secondary
+                  readout lands on the same edge instead of trailing whatever
+                  length its title happened to be. A hover action cross-fades
+                  in over it: the static content is what you read while
+                  scanning, the action is what you want once you have stopped
+                  on a row. Fixed width so the swap cannot reflow the title
+                  beside it. */}
+              <span className="relative flex h-10 w-9 shrink-0 items-center justify-end">
+                {trailingStatic ? (
+                  <span
+                    className={cn(
+                      "text-xs leading-tight tabular-nums text-muted-foreground/70 transition-opacity duration-150",
+                      !trailingHoverAlwaysVisible && "group-hover:opacity-0",
+                    )}
+                  >
+                    {trailingStatic}
+                  </span>
+                ) : null}
+                {trailingHover}
+              </span>
+              {/* Reserved whether or not there is a mark, so marking a reply
+                  read cannot shift the time column beside it. Sized for the
+                  largest thing that lands here (the working spinner), not
+                  just the unread dot. */}
+              <span className="flex size-4 shrink-0 items-center justify-center">
+                {indicator}
+              </span>
             </span>
           </>
         ) : null}
