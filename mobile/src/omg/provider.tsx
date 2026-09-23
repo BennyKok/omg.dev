@@ -174,6 +174,13 @@ type OmgContextValue = {
    */
   agents: CodingAgent[];
   repos: Repo[];
+  /**
+   * Ask the box to re-query every provider for its model list, then tell
+   * every model picker to read the new catalog. Throws when the box fails.
+   */
+  refreshModels: () => Promise<void>;
+  /** Bumped after each successful refreshModels. Pickers refetch on change. */
+  modelsVersion: number;
 };
 
 const Context = createContext<OmgContextValue | null>(null);
@@ -629,6 +636,14 @@ export function OmgProvider({ children }: PropsWithChildren) {
     }
   }, [reposKey, readiness]);
 
+  const [modelsVersion, setModelsVersion] = useState(0);
+  const refreshModels = useCallback(async () => {
+    if (!client) throw new Error("No Computer selected.");
+    await client.transport.request("/api/coding-agents?refreshModels=1");
+    setModelsVersion((n) => n + 1);
+    void probe();
+  }, [client, probe]);
+
   const value = useMemo<OmgContextValue>(
     () => ({
       authStatus,
@@ -649,6 +664,8 @@ export function OmgProvider({ children }: PropsWithChildren) {
       probe,
       agents,
       repos,
+      refreshModels,
+      modelsVersion,
     }),
     [
       authStatus,
@@ -669,6 +686,8 @@ export function OmgProvider({ children }: PropsWithChildren) {
       probe,
       agents,
       repos,
+      refreshModels,
+      modelsVersion,
     ],
   );
 

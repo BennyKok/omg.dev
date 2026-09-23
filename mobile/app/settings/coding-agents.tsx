@@ -8,7 +8,7 @@
  */
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Image, RefreshControl, ScrollView, View } from "react-native";
+import { ActivityIndicator, Image, RefreshControl, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Card, Icon, Row, Separator } from "../../src/components";
@@ -24,7 +24,7 @@ export default function CodingAgentsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors, type, space } = useTheme();
-  const { agents, client, readiness, probe } = useOmg();
+  const { agents, client, readiness, probe, refreshModels } = useOmg();
   const ready = readiness?.status === "ready";
   const waking = readiness === null || readiness.status === "connecting" || readiness.status === "waking";
 
@@ -54,6 +54,19 @@ export default function CodingAgentsScreen() {
       setRefreshing(false);
     }
   }, [loadAccounts, probe]);
+
+  /** idle | running | done | an error message. */
+  const [modelsState, setModelsState] = useState<"idle" | "running" | "done" | { error: string }>("idle");
+  const runModelsRefresh = useCallback(async () => {
+    if (modelsState === "running") return;
+    setModelsState("running");
+    try {
+      await refreshModels();
+      setModelsState("done");
+    } catch (e) {
+      setModelsState({ error: e instanceof Error ? e.message : "Could not refresh models" });
+    }
+  }, [modelsState, refreshModels]);
 
   const visible = useMemo(() => agents.filter((a) => a.visible !== false), [agents]);
   const connectedClaude = accounts.filter((a) => a.connected);
@@ -161,6 +174,27 @@ export default function CodingAgentsScreen() {
                 </Row>
               </View>
             ))}
+          </Card>
+        ) : null}
+
+        {ready ? (
+          <Card style={{ marginTop: space.lg }}>
+            <Row onPress={modelsState === "running" ? undefined : () => void runModelsRefresh()}>
+              <Icon ios="arrow.clockwise" android="refresh" size={17} color={colors.text} />
+              <View style={{ flex: 1, gap: 3 }}>
+                <Text style={{ ...type.callout, color: colors.text }}>Refresh models</Text>
+                <Text style={{ ...type.footnote, color: typeof modelsState === "object" ? colors.danger : colors.textMuted }} numberOfLines={2}>
+                  {modelsState === "running"
+                    ? "Asking each provider for its models…"
+                    : modelsState === "done"
+                      ? "Models refreshed"
+                      : typeof modelsState === "object"
+                        ? modelsState.error
+                        : "Get the newest models from each provider"}
+                </Text>
+              </View>
+              {modelsState === "running" ? <ActivityIndicator size="small" color={colors.textMuted} /> : null}
+            </Row>
           </Card>
         ) : null}
 

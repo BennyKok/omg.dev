@@ -68,7 +68,7 @@ export type ClaudeAccountRow = {
 };
 
 export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
-  const { agents, bindingId, client, readiness } = useOmg();
+  const { agents, bindingId, client, readiness, modelsVersion } = useOmg();
   const { initialAgent } = init;
   /**
    * NOTHING IS FETCHED UNTIL THE BOX ANSWERS, AND A FAILED FETCH RETRIES.
@@ -189,7 +189,7 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
     return () => {
       cancelled = true;
     };
-  }, [client, ready, fetchAttempt, retryLater]);
+  }, [client, ready, fetchAttempt, retryLater, modelsVersion]);
 
   // A machine switch cannot keep the previous box's agent: the roster is
   // per-machine, so the old selection may not exist here. Clearing falls back

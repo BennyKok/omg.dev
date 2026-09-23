@@ -58,6 +58,19 @@
         "Sign in to Claude."
       ],
       "timeoutMs": 60000
+    },
+    {
+      "name": "05 Refresh models",
+      "goal": "Tap the Refresh models row below the agent list. Scroll down if it is not visible. Then wait for it to finish.",
+      "done": "The Refresh models row reads Models refreshed",
+      "expect": [
+        "Refresh models",
+        "Models refreshed"
+      ],
+      "forbid": [
+        "Could not refresh models"
+      ],
+      "timeoutMs": 120000
     }
   ]
 }
