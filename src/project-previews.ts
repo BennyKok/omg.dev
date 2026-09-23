@@ -5,6 +5,8 @@ import type { ProjectPreview } from "../packages/protocol/src/project-preview.ts
 import { PATHS } from "./config.ts";
 
 const DEFAULT_PREVIEW_PORT = 5173;
+const EXPO_GO_MIN_PORT = 8081;
+const EXPO_GO_MAX_PORT = 8099;
 const MAX_BODY = 16 * 1024;
 type Session = { id: string; owner: string | null };
 
@@ -109,6 +111,11 @@ export function createProjectPreviewService(deps: {
       const port = data.port === undefined ? DEFAULT_PREVIEW_PORT : data.port;
       if (!validPreviewPort(port)) throw new PreviewError(400, "Preview port must be an integer from 1 to 65535");
       const expoGoRequested = data.expoGo === true;
+      // The Cloud refuses Expo Go links outside the Metro range, because the
+      // link skips owner sign-in. Say so before any network call.
+      if (expoGoRequested && (port < EXPO_GO_MIN_PORT || port > EXPO_GO_MAX_PORT)) {
+        throw new PreviewError(400, `Expo Go needs a Metro port from ${EXPO_GO_MIN_PORT} to ${EXPO_GO_MAX_PORT}. Start Metro on one of those ports.`);
+      }
       if (!expoGoRequested && !(await listening(port))) {
         throw new PreviewError(409, `Nothing is listening on port ${port}. Start the web development server first.`);
       }

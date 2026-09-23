@@ -82,6 +82,15 @@ test("reading a preview reports whether its port still listens", async () => {
   expect(stopped.data.live).toBe(false);
 });
 
+test("Expo Go is refused outside the Metro port range before the Cloud is called", async () => {
+  listening = false;
+  for (const port of [3001, 8766, 5173, 8100]) {
+    const res = await call("POST", "a", { port, expoGo: true }, true);
+    expect(res.status).toBe(400);
+  }
+  expect(resolves).toBe(0);
+});
+
 test("a web preview has no Expo Go link", async () => {
   const created = await call("POST", "a", { port: 5173 }, true);
   expect(created.data.preview.expoGoUrl).toBeUndefined();

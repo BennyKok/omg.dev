@@ -1159,7 +1159,7 @@ export function buildOmgMcpServer(): McpServer {
       inputSchema: {
         port: z.number().int().min(1).max(65_535).optional().describe("Development server port. Defaults to 5173."),
         title: z.string().max(120).optional().describe("Short label for the preview card."),
-        expoGo: z.boolean().optional().describe("Prepare a short-lived Expo Go URL before Metro starts."),
+        expoGo: z.boolean().optional().describe("Prepare a short-lived Expo Go URL before Metro starts. The port must be a Metro port from 8081 to 8099."),
         sessionId: z.string().optional().describe("Owning session. Defaults to OMG_SESSION_ID."),
       },
     },
