@@ -1,10 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
-import {
-  shouldShowInlineBotsSurfaceToggle,
-  shouldShowMobileSurfaceToggle,
-} from "../web/src/lib/mobile-bots-nav.ts";
+import { shouldShowInlineBotsSurfaceToggle } from "../web/src/lib/mobile-bots-nav.ts";
 
 const APP = readFileSync(new URL("../web/src/App.tsx", import.meta.url), "utf8");
 
@@ -67,13 +64,11 @@ describe("the list surfaces keep their switch", () => {
     expect(APP).not.toContain('&& !(tab === "bots" && selectedBotId)');
   });
 
-  test("the helper shows the switch on the lists and hides it in a conversation", () => {
-    expect(shouldShowMobileSurfaceToggle(true, "live")).toBe(true);
-    expect(shouldShowMobileSurfaceToggle(true, "bots")).toBe(true);
-    expect(shouldShowMobileSurfaceToggle(true, "bots", "bot_scout")).toBe(false);
-    // A bot open while the user is on Live must not resurrect the dock's twin.
-    expect(shouldShowMobileSurfaceToggle(false, "bots")).toBe(false);
-  });
+  // The helper this used to exercise (shouldShowMobileSurfaceToggle) went
+  // with the dock. The side navigation is an overlay, so it has no
+  // equivalent rule: it is never hidden by an open bot conversation because
+  // it is never in the way of one. What replaced this coverage is
+  // web/src/lib/side-nav-items.test.ts.
 
   test("the inline roster toggle stays tablet-only so mobile shows exactly one", () => {
     expect(shouldShowInlineBotsSurfaceToggle(true)).toBe(false);

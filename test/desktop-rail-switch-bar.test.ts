@@ -15,9 +15,11 @@ const CSS = readFileSync(new URL("../web/src/index.css", import.meta.url), "utf8
  * switching. The result: selecting any bot on desktop hid the switch bar
  * with no way back to the Chat surface.
  *
- * `shouldShowMobileSurfaceToggle` (web/src/lib/mobile-bots-nav.ts) already
- * pins the *mobile* half of this rule. This file pins the desktop half: the
- * rail's `SurfaceToggle` mount must never be gated on `selectedBotId`.
+ * The mobile half of this rule no longer exists: the dock and its
+ * `shouldShowMobileSurfaceToggle` guard were replaced by the side
+ * navigation, which is an overlay and needs no such gate. This file pins
+ * the desktop half, which does still apply: the rail's `SurfaceToggle`
+ * mount must never be gated on `selectedBotId`.
  */
 function railStageBody(): string {
   const start = APP.indexOf("function RailStage({");
