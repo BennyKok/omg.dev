@@ -144,3 +144,41 @@ test("the thinking bar steps with the keyboard", () => {
   });
   expect(onPick.mock.calls).toEqual([["high"]]);
 });
+
+test("reopening the sheet never pins its body at 0px", async () => {
+  // happy-dom has no layout, so every page measures 0 tall, the same reading
+  // a detached page gives while the sheet closes. The body must fall back to
+  // its natural height rather than adopt it.
+  const original = globalThis.ResizeObserver;
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+  try {
+    const sheet = (open: boolean) => (
+      <AgentSetupSheet
+        open={open}
+        onOpenChange={() => {}}
+        title="Grok"
+        agents={agents}
+        onSelectAgent={() => {}}
+        modelLabel="grok-4.6"
+        renderModels={() => <div>model list</div>}
+      />
+    );
+    ui.render(sheet(true));
+    await ui.flushAsync();
+    ui.render(sheet(false));
+    await ui.flushAsync();
+    ui.render(sheet(true));
+    await ui.flushAsync();
+    const content = body().querySelector('[data-slot="agent-setup-sheet"]');
+    expect(content).not.toBeNull();
+    const pinned = [...(content?.querySelectorAll<HTMLElement>("div") ?? [])].filter((el) => el.style.height === "0px");
+    expect(pinned).toHaveLength(0);
+    expect(body().querySelector('[aria-label="Codex agent"]')).not.toBeNull();
+  } finally {
+    globalThis.ResizeObserver = original;
+  }
+});

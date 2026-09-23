@@ -6,7 +6,7 @@
  * Presentational only. The composer owns the selection and passes it in, the
  * same way HomeComposer feeds the iOS sheet from useAgentPicker.
  */
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Drawer as VaulDrawer } from "vaul";
 import { ChevronLeft, ChevronRight, Gauge, Plus, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -90,17 +90,35 @@ export function AgentSetupSheet({
   // Measured from the live page rather than its scroll height, so a page that
   // caps itself (the model list, the usage panel) animates to the height it
   // actually takes, not the height of all its content.
-  const pageRef = useRef<HTMLDivElement>(null);
+  //
+  // The observer follows the page ELEMENT through a callback ref, not an
+  // effect. The page mounts inside vaul's portal, which can land after an
+  // effect keyed on `open` has already run and found nothing, and a closing
+  // sheet detaches the page, which reports a 0 height. Together those left
+  // the body pinned at 0 px on reopen: a sheet with a title and nothing under
+  // it. A 0 reading is never a real page, so it is ignored, and a closed sheet
+  // forgets its height so the next open starts from the natural size.
   const [bodyHeight, setBodyHeight] = useState<number | null>(null);
-  useLayoutEffect(() => {
-    const el = pageRef.current;
+  const observerRef = useRef<ResizeObserver | null>(null);
+  const pageRef = useCallback((el: HTMLDivElement | null) => {
+    observerRef.current?.disconnect();
+    observerRef.current = null;
     if (!el) return;
-    const sync = () => setBodyHeight(el.getBoundingClientRect().height);
+    const sync = () => {
+      if (!el.isConnected) return;
+      const height = el.getBoundingClientRect().height;
+      if (height > 0) setBodyHeight(height);
+    };
     sync();
+    if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(sync);
     observer.observe(el);
-    return () => observer.disconnect();
-  }, [page, open]);
+    observerRef.current = observer;
+  }, []);
+  useEffect(() => {
+    if (!open) setBodyHeight(null);
+  }, [open]);
+  useEffect(() => () => observerRef.current?.disconnect(), []);
   const heading =
     page === "usage" ? "Usage" : page === "models" ? "Models" : page === "profiles" ? "Claude profile" : title;
 
