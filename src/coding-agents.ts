@@ -2091,29 +2091,76 @@ export async function runCodingAgentUpdate(
   kind: CodingAgentKind,
   hooks: CodingAgentUpdateHooks = {},
 ): Promise<void> {
-  if (setupRuns.has(kind)) throw new Error(`${kind} setup is already running`);
-  if (!codingAgentHasInstaller(kind)) throw new Error(`${kind} does not have an automatic setup path`);
-  const command = installCommandFor(kind);
-  if (!command) throw new Error(`${kind} does not have an automatic setup path`);
+  return runCodingAgentUpdates([kind], hooks);
+}
 
-  setupProgress.set(kind, { percent: 10, label: "Updating…" });
+/**
+ * The agents "Update all" reinstalls: the CLI is on disk and this box knows
+ * how to install it again. A missing CLI is an Install, not an Update, so it
+ * stays out; the user did not ask for new agents.
+ */
+export function updatableCodingAgentKinds(agents: CodingAgentInfo[]): CodingAgentKind[] {
+  return agents
+    .filter((agent) => agent.status.canAutoSetup && codingAgentHasInstaller(agent.key))
+    .filter((agent) => {
+      const binary = agent.status.checks.filter((check) => /CLI$|runtime$/i.test(check.label));
+      return binary.length > 0 && binary.every((check) => check.ok);
+    })
+    .map((agent) => agent.key);
+}
+
+/**
+ * Reinstall the CLI for each kind, then re-probe the model catalog once.
+ *
+ * Kinds that share a CLI (claude and aisdk, codex and codex-aisdk) run their
+ * installer once. Installers run one after another because they share the
+ * global package store. One failing installer does not stop the rest; the
+ * catalog is still refreshed and the failures are thrown together at the end.
+ */
+export async function runCodingAgentUpdates(
+  kinds: CodingAgentKind[],
+  hooks: CodingAgentUpdateHooks = {},
+): Promise<void> {
+  const uniqueKinds = [...new Set(kinds)];
+  if (!uniqueKinds.length) throw new Error("no coding agent to update");
+  const runningKind = uniqueKinds.find((kind) => setupRuns.has(kind));
+  if (runningKind) throw new Error(`${runningKind} setup is already running`);
+
+  const groups = new Map<string, CodingAgentKind[]>();
+  for (const kind of uniqueKinds) {
+    if (!codingAgentHasInstaller(kind)) throw new Error(`${kind} does not have an automatic setup path`);
+    const command = installCommandFor(kind);
+    if (!command) throw new Error(`${kind} does not have an automatic setup path`);
+    groups.set(command, [...(groups.get(command) ?? []), kind]);
+  }
+
+  for (const kind of uniqueKinds) setupProgress.set(kind, { percent: 10, label: "Updating…" });
   setupLog = {
     running: true,
-    kinds: [kind],
+    kinds: [...uniqueKinds],
     lines: [],
     error: null,
     finishedAt: null,
   };
-  appendSetupLog(`Updating ${CODING_AGENT_LABELS[kind]}…`);
-  appendSetupLog(command);
 
   const run = (async () => {
-    setupProgress.set(kind, { percent: 40, label: "Installing latest CLI…" });
     const runInstaller = hooks.runInstaller ?? ((cmd) => runInstallerCommand(cmd, appendSetupLog));
-    await runInstaller(command);
-    const keys = modelDiscoveryKeysForAgent(kind);
+    const failures: string[] = [];
+    for (const [command, group] of groups) {
+      appendSetupLog(`Updating ${[...new Set(group.map((kind) => CODING_AGENT_LABELS[kind]))].join(", ")}…`);
+      appendSetupLog(command);
+      for (const kind of group) setupProgress.set(kind, { percent: 40, label: "Installing latest CLI…" });
+      try {
+        await runInstaller(command);
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        failures.push(`${CODING_AGENT_LABELS[group[0]!]}: ${message}`);
+        appendSetupLog(`Error: ${message}`);
+      }
+    }
+    const keys = [...new Set(uniqueKinds.flatMap((kind) => modelDiscoveryKeysForAgent(kind)))];
     if (keys.length) {
-      setupProgress.set(kind, { percent: 80, label: "Refreshing models…" });
+      for (const kind of uniqueKinds) setupProgress.set(kind, { percent: 80, label: "Refreshing models…" });
       const refresh =
         hooks.refreshCatalog ??
         (async (probe) => {
@@ -2125,10 +2172,11 @@ export async function runCodingAgentUpdate(
         });
       await refresh(keys);
     }
-    setupProgress.set(kind, { percent: 100, label: "Done" });
+    if (failures.length) throw new Error(failures.join("\n"));
+    for (const kind of uniqueKinds) setupProgress.set(kind, { percent: 100, label: "Done" });
     appendSetupLog("Done.");
   })();
-  setupRuns.set(kind, run);
+  for (const kind of uniqueKinds) setupRuns.set(kind, run);
   try {
     await run;
   } catch (e) {
@@ -2138,8 +2186,10 @@ export async function runCodingAgentUpdate(
   } finally {
     setupLog.running = false;
     setupLog.finishedAt = Date.now();
-    if (setupRuns.get(kind) === run) setupRuns.delete(kind);
-    setupProgress.delete(kind);
+    for (const kind of uniqueKinds) {
+      if (setupRuns.get(kind) === run) setupRuns.delete(kind);
+      setupProgress.delete(kind);
+    }
   }
 }
 

@@ -106,6 +106,7 @@ function renderPage(ui: Mounted, agents: CodingAgentInfo[]) {
       onVisibleChange={noop}
       onSetup={noop}
       onUpdate={noop}
+      onUpdateAll={noop}
       onLogin={noop}
       onAddClaudeAccount={noop}
       onRemoveClaudeAccount={noop}
@@ -131,6 +132,20 @@ describe("CodingAgentsPage", () => {
       agent({ status: { profile: { label: "person@example.com", source: "local-cli" } } as never }),
     ]);
     expect(ui.text()).toContain("person@example.com");
+  });
+
+  test("Update all shows for an installed agent and reads Updating while one runs", () => {
+    renderPage(ui, [agent({ status: { canAutoSetup: true, checks: [{ label: "Codex CLI", ok: true }] } as never })]);
+    expect(ui.text()).toContain("Update all");
+    renderPage(ui, [
+      agent({ status: { canAutoSetup: true, setupRunning: true, checks: [{ label: "Codex CLI", ok: true }] } as never }),
+    ]);
+    expect(ui.text()).toContain("Updating…");
+  });
+
+  test("Update all hides when no agent is installed", () => {
+    renderPage(ui, [agent({ status: { canAutoSetup: true, checks: [{ label: "Codex CLI", ok: false }] } as never })]);
+    expect(ui.text()).not.toContain("Update all");
   });
 
   test("a collapsed row with no detected account says nothing extra", () => {

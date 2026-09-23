@@ -14,6 +14,8 @@ import {
   listCodingAgents,
   loginCommandFor,
   runCodingAgentUpdate,
+  runCodingAgentUpdates,
+  updatableCodingAgentKinds,
   parseAuthOutput,
   pendingCodingAgentLogins,
   setCodingAgentVisibility,
@@ -993,6 +995,61 @@ describe("runCodingAgentUpdate", () => {
     });
     expect(calls[0]).toContain("@openai/codex");
     expect(calls[1]).toBe("refresh:codex");
+  });
+});
+
+describe("runCodingAgentUpdates", () => {
+  test("runs a shared CLI installer once and refreshes the catalog once", async () => {
+    const calls: string[] = [];
+    await runCodingAgentUpdates(["codex", "codex-aisdk", "opencode"], {
+      runInstaller: async (command) => {
+        calls.push(command);
+      },
+      refreshCatalog: async (keys) => {
+        calls.push(`refresh:${[...keys].sort().join(",")}`);
+      },
+    });
+    expect(calls.filter((c) => c.includes("@openai/codex"))).toHaveLength(1);
+    expect(calls.filter((c) => c.includes("opencode-ai"))).toHaveLength(1);
+    expect(calls.filter((c) => c.startsWith("refresh:"))).toHaveLength(1);
+    expect(calls.at(-1)).toStartWith("refresh:");
+  });
+
+  test("one failing installer does not stop the others, and the run still fails", async () => {
+    const calls: string[] = [];
+    const run = runCodingAgentUpdates(["codex", "opencode"], {
+      runInstaller: async (command) => {
+        calls.push(command);
+        if (command.includes("@openai/codex")) throw new Error("network down");
+      },
+      refreshCatalog: async () => {
+        calls.push("refresh");
+      },
+    });
+    await expect(run).rejects.toThrow("network down");
+    expect(calls.some((c) => c.includes("opencode-ai"))).toBe(true);
+    expect(calls.at(-1)).toBe("refresh");
+  });
+});
+
+describe("updatableCodingAgentKinds", () => {
+  const agent = (key: string, cliOk: boolean, canAutoSetup = true) =>
+    ({
+      key,
+      label: key,
+      visible: true,
+      status: { canAutoSetup, checks: [{ label: "Some CLI", ok: cliOk, detail: "" }] },
+    }) as unknown as Parameters<typeof updatableCodingAgentKinds>[0][number];
+
+  test("keeps installed agents that have an installer", () => {
+    expect(
+      updatableCodingAgentKinds([
+        agent("codex-aisdk", true),
+        agent("grok", false),
+        agent("pi", true),
+        agent("cursor", true, false),
+      ]),
+    ).toEqual(["codex-aisdk"]);
   });
 });
 
