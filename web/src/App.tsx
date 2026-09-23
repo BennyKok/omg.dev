@@ -3,7 +3,7 @@ import { omgModelLabel, omgModelSearchText, parseOmgModel } from "../../packages
 import { ModelProviderIcon } from "./lib/model-provider-icons";
 import { useRuntimeLifecycle } from "./lib/runtime-lifecycle";
 import { LiveHeaderContext } from "./components/live-header-context";
-import { ProjectPillRail } from "./components/project-pill-rail";
+import { ProjectPillRail, projectPillsFor } from "./components/project-pill-rail";
 import {
   AgentSetupSheet,
   type SetupAgentTile,
@@ -80,6 +80,7 @@ import {
 import {
   cacheProjectFilter,
   NO_PROJECT_FILTER,
+  projectFilterAfterPress,
   NO_PROJECT_FILTER_LABEL,
   projectFilterLabel,
   readCachedProjectFilter,
@@ -9218,16 +9219,9 @@ export function App() {
           session starts. */}
       {isMobile && tab === "live" && projectOptions.length > 0 ? (
         <ProjectPillRail
-          projects={projectOptions.map((project) => ({
-            value: project,
-            label:
-              project === NO_PROJECT_FILTER
-                ? "Chats without a project"
-                : projectFilterLabel(project, shortProject),
-            icon: project === NO_PROJECT_FILTER ? ("plus" as const) : undefined,
-          }))}
+          projects={projectPillsFor(projectOptions, shortProject)}
           value={projectFilter}
-          onChange={setProjectFilter}
+          onChange={(next) => setProjectFilter(projectFilterAfterPress(next, projectFilter))}
           touch
         />
       ) : null}
@@ -13323,20 +13317,9 @@ function RailStage({
         )}
         {!railCollapsed && railSurface !== "chat" && onProjectChange && projectOptions.length > 0 ? (
           <ProjectPillRail
-            projects={projectOptions.map((project) => ({
-              value: project,
-              // The rail is the one place this is an icon, so it says what it
-              // does rather than naming an absence. Everywhere the scope is
-              // named in prose — the menu, the sheet, the composer chip — it
-              // stays "No project".
-              label:
-                project === NO_PROJECT_FILTER
-                  ? "Chats without a project"
-                  : projectFilterLabel(project, shortProject),
-              icon: project === NO_PROJECT_FILTER ? ("plus" as const) : undefined,
-            }))}
+            projects={projectPillsFor(projectOptions, shortProject)}
             value={projectFilter}
-            onChange={onProjectChange}
+            onChange={(next) => onProjectChange(projectFilterAfterPress(next, projectFilter))}
           />
         ) : null}
         <div className="session-list-scroll min-h-0 flex-1 overflow-y-auto px-1.5 py-2">

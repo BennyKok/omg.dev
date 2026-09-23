@@ -6,7 +6,7 @@
  * Presentational only. The composer owns the selection and passes it in, the
  * same way HomeComposer feeds the iOS sheet from useAgentPicker.
  */
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Drawer as VaulDrawer } from "vaul";
 import { ChevronLeft, ChevronRight, Gauge, Plus, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -74,6 +74,33 @@ export function AgentSetupSheet({
     if (open) setPage(initialPage);
   }, [open, initialPage]);
   const back = () => setPage("root");
+
+  // Which way the next page arrives. Every sub-page is reached from root and
+  // returns to it, so the page itself says the direction: a sub-page is a
+  // push and enters from the right, root is a pop and enters from the left.
+  // Without this both directions slid the same way and the back chevron
+  // looked like it opened something new.
+  const forward = page !== "root";
+
+  // Morph the sheet between pages instead of snapping. The pages have very
+  // different heights (four agent tiles against a full model list), so a plain
+  // content swap resized the sheet in one frame and read as a different sheet
+  // appearing rather than this one changing.
+  //
+  // Measured from the live page rather than its scroll height, so a page that
+  // caps itself (the model list, the usage panel) animates to the height it
+  // actually takes, not the height of all its content.
+  const pageRef = useRef<HTMLDivElement>(null);
+  const [bodyHeight, setBodyHeight] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const el = pageRef.current;
+    if (!el) return;
+    const sync = () => setBodyHeight(el.getBoundingClientRect().height);
+    sync();
+    const observer = new ResizeObserver(sync);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [page, open]);
   const heading =
     page === "usage" ? "Usage" : page === "models" ? "Models" : page === "profiles" ? "Claude profile" : title;
 
@@ -84,6 +111,13 @@ export function AgentSetupSheet({
         <VaulDrawer.Content
           data-slot="agent-setup-sheet"
           aria-describedby={undefined}
+          // Opt out of vaul's overshoot filler. It paints a ::after with
+          // `background: inherit`, full width and 200% tall, starting at this
+          // element's bottom edge. On a sheet that is flush to bottom-0 that
+          // band is off screen; this one floats inset from the bottom, so the
+          // band showed as an opaque square-cornered slab of bg-popover under
+          // the card's rounded corners, sitting over the dimmed backdrop.
+          data-vaul-custom-container="true"
           className="fixed inset-x-2 bottom-[max(var(--lfg-safe-bottom),0.5rem)] z-[180] mx-auto flex max-h-[86dvh] max-w-[414px] select-none flex-col rounded-[2rem] border border-border bg-popover px-3 pb-3 text-popover-foreground shadow-2xl outline-none"
         >
           <div className="mx-auto mb-1 mt-2.5 h-1.5 w-10 shrink-0 rounded-full bg-muted-foreground/30" />
@@ -113,6 +147,18 @@ export function AgentSetupSheet({
             ) : null}
           </div>
 
+          <div
+            className="relative overflow-hidden transition-[height] duration-[260ms] ease-out motion-reduce:transition-none"
+            style={bodyHeight === null ? undefined : { height: bodyHeight }}
+          >
+          <div
+            ref={pageRef}
+            key={page}
+            className={cn(
+              "animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none",
+              forward ? "slide-in-from-right-6" : "slide-in-from-left-6",
+            )}
+          >
           {page === "root" ? (
             <div className="flex flex-col gap-3 pt-2">
               <div className="-mx-3 flex gap-2 overflow-x-auto px-3 pb-0.5 [scrollbar-width:none]">
@@ -196,6 +242,8 @@ export function AgentSetupSheet({
               ))}
             </div>
           )}
+          </div>
+          </div>
         </VaulDrawer.Content>
       </VaulDrawer.Portal>
     </VaulDrawer.Root>

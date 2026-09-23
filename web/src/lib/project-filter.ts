@@ -73,3 +73,20 @@ export function projectFilterLabel(
   if (value === NO_PROJECT_FILTER) return NO_PROJECT_FILTER_LABEL;
   return shortProject(value);
 }
+
+/**
+ * The filter a rail press produces.
+ *
+ * Pressing the pill that is already selected clears the scope. The rail lost
+ * its "All" pill, so this is the only way back to every folder from the rail
+ * itself, and without it choosing a folder on a phone would be a one-way
+ * door: the other clear control lives on the list's group headers, and a
+ * scoped list has only one header.
+ *
+ * Here rather than in the rail because the rail owns no selection state, and
+ * here rather than at each call site because there are two rails, one per
+ * width, and they have already drifted once.
+ */
+export function projectFilterAfterPress(pressed: string, current: string): string {
+  return pressed === current ? "__all" : pressed;
+}

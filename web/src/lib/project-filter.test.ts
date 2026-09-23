@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   NO_PROJECT_FILTER,
+  projectFilterAfterPress,
   NO_PROJECT_FILTER_LABEL,
   projectFilterLabel,
   sessionMatchesProjectFilter,
@@ -39,5 +40,20 @@ describe("projectFilterLabel", () => {
     expect(projectFilterLabel("__all", shortProject)).toBe("All projects");
     expect(projectFilterLabel(NO_PROJECT_FILTER, shortProject)).toBe(NO_PROJECT_FILTER_LABEL);
     expect(projectFilterLabel("/home/dev/repos/duet", shortProject)).toBe("duet");
+  });
+});
+
+describe("projectFilterAfterPress", () => {
+  test("an unselected pill scopes to it", () => {
+    expect(projectFilterAfterPress("duet", "__all")).toBe("duet");
+    expect(projectFilterAfterPress("duet", "lfg")).toBe("duet");
+    expect(projectFilterAfterPress(NO_PROJECT_FILTER, "lfg")).toBe(NO_PROJECT_FILTER);
+  });
+
+  test("the selected pill clears the scope, including the no-project pill", () => {
+    // The rail has no "All" pill, so a second press is the only way back to
+    // every folder from the rail itself.
+    expect(projectFilterAfterPress("duet", "duet")).toBe("__all");
+    expect(projectFilterAfterPress(NO_PROJECT_FILTER, NO_PROJECT_FILTER)).toBe("__all");
   });
 });
