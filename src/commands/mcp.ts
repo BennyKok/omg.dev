@@ -1155,7 +1155,7 @@ export function buildOmgMcpServer(): McpServer {
     {
       title: "Show A Live Sandbox Preview",
       description:
-        "Expose a development port through the omg.dev sandbox proxy and create a preview card. For Expo Go, call with expoGo:true before Metro starts, then start Metro with the returned expoGo.proxyUrl as EXPO_PACKAGER_PROXY_URL and share expoGo.url. Both URLs are temporary.",
+        "Expose a development port through the omg.dev sandbox proxy and create a preview card. For Expo Go, call with expoGo:true before Metro starts, then start Metro with the returned expoGo.proxyUrl as EXPO_PACKAGER_PROXY_URL (in an Expo template project: bash scripts/start-expo-preview.sh <proxyUrl> <port>) and share expoGo.url. Both URLs are temporary.",
       inputSchema: {
         port: z.number().int().min(1).max(65_535).optional().describe("Development server port. Defaults to 5173."),
         title: z.string().max(120).optional().describe("Short label for the preview card."),

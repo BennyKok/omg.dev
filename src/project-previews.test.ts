@@ -73,6 +73,15 @@ test("prepares Expo Go before Metro starts and returns the secure launch URL", a
   expect(read.data.preview.expoGoUrl).toBe("exps://sandbox-8081-expires-token.preview.omgs.app");
 });
 
+test("reading a preview reports whether its port still listens", async () => {
+  await call("POST", "a", { port: 5173 }, true);
+  expect((await call("GET", "a", undefined, false, "a@example.com")).data.live).toBe(true);
+  listening = false;
+  const stopped = await call("GET", "a", undefined, false, "a@example.com");
+  expect(stopped.data.preview.port).toBe(5173);
+  expect(stopped.data.live).toBe(false);
+});
+
 test("a web preview has no Expo Go link", async () => {
   const created = await call("POST", "a", { port: 5173 }, true);
   expect(created.data.preview.expoGoUrl).toBeUndefined();

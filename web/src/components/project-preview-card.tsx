@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { ExternalLink, Globe2, Smartphone, X } from "lucide-react";
+import { ExternalLink, Globe2, RotateCw, Smartphone, X } from "lucide-react";
 import { renderSVG } from "uqr";
-import type { ProjectPreviewSnapshot } from "../../../packages/protocol/src/project-preview";
+import { PROJECT_PREVIEW_RESTART_MESSAGE, type ProjectPreviewSnapshot } from "../../../packages/protocol/src/project-preview";
 import { omgFetch } from "../lib/omg-client";
 
 export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | null; user?: string | null }) {
   const [state, setState] = useState<ProjectPreviewSnapshot | null>(null);
   const [open, setOpen] = useState(false);
+  const [restartAsked, setRestartAsked] = useState(false);
   const suffix = `?sessionId=${encodeURIComponent(sessionId ?? "")}&user=${encodeURIComponent(user ?? "")}`;
   useEffect(() => {
     if (!sessionId) return;
@@ -24,8 +25,23 @@ export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | nu
     return () => { live = false; clearInterval(timer); };
   }, [sessionId, suffix]);
   const preview = state?.preview;
+  // A new preview row means the agent restarted it; allow another restart ask.
+  useEffect(() => { setRestartAsked(false); }, [preview?.createdAt]);
   if (!preview) return null;
   const expoGoUrl = preview.expoGoUrl;
+  const stopped = state?.live === false;
+  const restart = async () => {
+    if (!sessionId || restartAsked) return;
+    setRestartAsked(true);
+    try {
+      const response = await omgFetch(`/api/sessions/${encodeURIComponent(sessionId)}/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: PROJECT_PREVIEW_RESTART_MESSAGE }),
+      });
+      if (!response.ok) setRestartAsked(false);
+    } catch { setRestartAsked(false); }
+  };
   return <>
     <div className="mb-2 rounded-xl border bg-card p-3 text-sm" role="status" data-testid="project-preview-card">
       <div className="flex items-center gap-3">
@@ -34,14 +50,21 @@ export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | nu
         </span>
         <div className="min-w-0 flex-1">
           <div className="truncate font-medium">{preview.title}</div>
-          <div className="text-xs text-muted-foreground">{expoGoUrl ? "Expo app" : "Live preview"} · Private to you · Temporary</div>
+          <div className="text-xs text-muted-foreground">{stopped ? "Stopped" : expoGoUrl ? "Expo app" : "Live preview"} · Private to you · Temporary</div>
         </div>
       </div>
+      {stopped ? <div className="mt-3 space-y-2" data-testid="project-preview-stopped">
+        <p className="text-xs text-muted-foreground">The development server is not running. This happens when the Computer sleeps.</p>
+        <button className="inline-flex items-center gap-1.5 font-medium text-primary disabled:text-muted-foreground" disabled={restartAsked} onClick={() => void restart()}>
+          <RotateCw className="size-3.5" />{restartAsked ? "Asked the agent to restart it" : "Restart preview"}
+        </button>
+      </div> : <>
       {expoGoUrl && <ExpoGoGuide url={expoGoUrl} />}
       <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2">
         <button className="font-medium text-primary" onClick={() => setOpen(true)}>{expoGoUrl ? "Open web preview" : "Open preview"}</button>
         <a className="inline-flex items-center gap-1 text-muted-foreground" href={preview.url} target="_blank" rel="noreferrer">Open in new tab <ExternalLink className="size-3" /></a>
       </div>
+      </>}
     </div>
     {open && createPortal(
       <div className="fixed inset-0 z-[110] flex flex-col bg-background" role="dialog" aria-label={preview.title}>

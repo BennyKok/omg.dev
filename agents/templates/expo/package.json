@@ -6,7 +6,7 @@
   "scripts": {
     "start": "expo start",
     "web": "expo start --web",
-    "preview": "expo start --go --web --host lan --port 8081",
+    "preview": "bash scripts/start-expo-preview.sh",
     "build": "expo export --platform web --output-dir dist",
     "typecheck": "tsc --noEmit"
   },

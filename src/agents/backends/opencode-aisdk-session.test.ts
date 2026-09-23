@@ -208,6 +208,20 @@ describe("opencode tool part streaming", () => {
     return rows;
   };
 
+  test("leaves the question call to the question row, keeps its result", () => {
+    const emitted = new Set<string>();
+    const running = toolPartMessages(
+      { id: "prt_q", type: "tool", tool: "question", state: { status: "running", input: { questions: [{ question: "App type?" }] } } },
+      "fallback", emitted,
+    );
+    expect(running).toEqual([]);
+    const done = toolPartMessages(
+      { id: "prt_q", type: "tool", tool: "question", state: { status: "completed", input: { questions: [] }, output: "User has answered" } },
+      "fallback", emitted,
+    );
+    expect(done.map((row) => row.id)).toEqual(["prt_q:result"]);
+  });
+
   test("skips the empty pending snapshot", () => {
     expect(feed([{ status: "pending", input: {} }])).toEqual([]);
   });

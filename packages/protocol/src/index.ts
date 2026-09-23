@@ -1,5 +1,6 @@
 export type { BrowserLoginRequest, BrowserLoginSnapshot, BrowserLoginCookie } from "./browser-login";
 export type { ProjectPreview, ProjectPreviewSnapshot } from "./project-preview";
+export { PROJECT_PREVIEW_RESTART_MESSAGE } from "./project-preview.js";
 
 export type OmgSessionStatus =
   | "ok"

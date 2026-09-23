@@ -78,7 +78,7 @@ describe("project creation", () => {
         "lucide-react-native": "^1.47.0",
         "@omg-dev/schema": "^0.4.45",
       },
-      scripts: { preview: "expo start --go --web --host lan --port 8081" },
+      scripts: { preview: "bash scripts/start-expo-preview.sh" },
       devDependencies: { "@omg-dev/vite-plugin": "^0.4.45" },
       omg: { clientBuild: "prebuilt" },
     });
@@ -92,6 +92,7 @@ describe("project creation", () => {
     expect(readFileSync(join(repo.cwd, "README.md"), "utf8")).toContain("Pocket Kitchen");
     expect(git(repo.cwd, "show", "HEAD:package.json")).toContain('"expo-router"');
     expect(git(repo.cwd, "show", "HEAD:schema.ts")).toContain("tasks: collection");
+    expect(git(repo.cwd, "show", "HEAD:scripts/start-expo-preview.sh")).toContain("EXPO_PACKAGER_PROXY_URL");
     expect(git(repo.cwd, "status", "--short")).toBe("");
   });
 

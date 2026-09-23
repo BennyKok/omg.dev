@@ -62,3 +62,27 @@ test("a web-only preview has no Expo Go guide", async () => {
   expect(document.querySelector('[data-testid="expo-go-guide"]')).toBeNull();
   expect(ui.text()).toContain("Live preview");
 });
+
+test("a stopped preview offers a restart that asks the session agent", async () => {
+  const sent: Array<{ url: string; body: string }> = [];
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes("/send")) { sent.push({ url, body: String(init?.body) }); return Response.json({ ok: true }); }
+    return Response.json({ live: false, preview: {
+      sessionId: "session-1", title: "Todo app", url: "https://sandbox-8081.preview.omgs.app",
+      port: 8081, kind: "sandbox-preview", visibility: "owner", temporary: true, createdAt: 1,
+      expoGoUrl: "exps://cap-token.preview.omgs.app",
+    } });
+  }) as typeof fetch;
+  ui.render(<ProjectPreviewCard sessionId="session-1" user="person@example.com" />);
+  await ui.flushAsync();
+  expect(ui.text()).toContain("Stopped");
+  expect(document.querySelector('[data-testid="expo-go-guide"]')).toBeNull();
+  const button = ui.queryAll("button").find((node) => node.textContent === "Restart preview") as HTMLElement;
+  ui.flush(() => button.click());
+  await ui.flushAsync();
+  expect(sent).toHaveLength(1);
+  expect(sent[0]!.url).toContain("/api/sessions/session-1/send");
+  expect(JSON.parse(sent[0]!.body).text).toContain("Restart it");
+  expect(ui.text()).toContain("Asked the agent to restart it");
+});
