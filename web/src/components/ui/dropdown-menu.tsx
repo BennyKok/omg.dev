@@ -42,8 +42,15 @@ function DropdownMenuContent({
       <MenuPrimitive.Positioner
         // Menus are portalled to body, so they do not inherit the stacking
         // context of the dialog that opened them. Keep floating controls above
-        // dialogs (z-160) so dialog-owned menus remain visible and clickable.
-        className="isolate z-[170] outline-none"
+        // dialogs (z-160) and bottom/side drawers (overlay z-179, content
+        // z-180) so a menu opened from one stays visible and clickable. The
+        // mobile side navigation's computer switcher opened under the drawer
+        // at z-170. Stays below the image annotator (z-190).
+        //
+        // pointer-events-auto: a modal drawer sets `pointer-events: none` on
+        // body and re-enables only its own content. This menu is portalled
+        // beside that content, so without it the menu drew but ignored taps.
+        className="pointer-events-auto isolate z-[185] outline-none"
         align={align}
         alignOffset={alignOffset}
         side={side}
@@ -53,7 +60,7 @@ function DropdownMenuContent({
           data-slot="dropdown-menu-content"
           className={cn(
             popoverSurfaceClass,
-            "dark z-[170] max-h-(--available-height) w-(--anchor-width) min-w-48 origin-(--transform-origin) overflow-x-hidden overflow-y-auto text-popover-foreground data-open:duration-[var(--duration-fast)] data-closed:duration-[var(--duration-quick)] ease-ios outline-none data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 dark:ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-[0.97] data-closed:animate-out data-closed:overflow-hidden data-closed:fade-out-0 data-closed:zoom-out-[0.99] relative **:data-[slot$=-item]:focus:bg-foreground/10 **:data-[slot$=-item]:data-highlighted:bg-foreground/10 **:data-[slot$=-separator]:bg-foreground/5 **:data-[slot$=-trigger]:focus:bg-foreground/10 **:data-[slot$=-trigger]:aria-expanded:bg-foreground/10! **:data-[variant=destructive]:focus:bg-foreground/10! **:data-[variant=destructive]:text-accent-foreground! **:data-[variant=destructive]:**:text-accent-foreground!",
+            "dark z-[185] max-h-(--available-height) w-(--anchor-width) min-w-48 origin-(--transform-origin) overflow-x-hidden overflow-y-auto text-popover-foreground data-open:duration-[var(--duration-fast)] data-closed:duration-[var(--duration-quick)] ease-ios outline-none data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 dark:ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-[0.97] data-closed:animate-out data-closed:overflow-hidden data-closed:fade-out-0 data-closed:zoom-out-[0.99] relative **:data-[slot$=-item]:focus:bg-foreground/10 **:data-[slot$=-item]:data-highlighted:bg-foreground/10 **:data-[slot$=-separator]:bg-foreground/5 **:data-[slot$=-trigger]:focus:bg-foreground/10 **:data-[slot$=-trigger]:aria-expanded:bg-foreground/10! **:data-[variant=destructive]:focus:bg-foreground/10! **:data-[variant=destructive]:text-accent-foreground! **:data-[variant=destructive]:**:text-accent-foreground!",
             className
           )}
           {...props}

@@ -295,7 +295,17 @@ export function MachineActionsDialog({
         if (!open) close();
       }}
     >
-      <DialogContent className="sm:max-w-md" innerClassName="gap-5 p-5" data-machine-dialog={action}>
+      {/* Opened from the machine switcher, which on a phone sits inside the
+          side navigation drawer (z-[180]) and a modal drawer turns off
+          pointer events outside itself. Lift the dialog above the drawer and
+          turn its pointer events back on, or it opens behind the drawer and
+          ignores taps. Same band as the image annotator. */}
+      <DialogContent
+        className="pointer-events-auto z-[190] sm:max-w-md"
+        overlayClassName="pointer-events-auto z-[190]"
+        innerClassName="gap-5 p-5"
+        data-machine-dialog={action}
+      >
         <DialogHeader className="gap-1.5 pr-8">
           {action === "add" && step !== "choose" ? (
             <button
