@@ -9,6 +9,9 @@ Recent product updates and deployment notes.
 - The project rail no longer has an "All" pill. Press the selected folder again to see every folder.
 - The agent sheet no longer draws a block below itself, and it now changes smoothly between the agent list and the model list.
 - The iOS app's Coding agents settings have a Refresh models button. It asks your computer to read the model list from every provider again.
+- On a phone, the web composer now works like the iOS composer. Tap the agent icon to open the agent sheet. It holds the agent, the model, Fast mode, and the thinking level. Long-press Claude to choose a Claude profile.
+- The web composer on a phone is one row until you type. Then the text moves to its own line, and the controls move below it. It sends with a round arrow button, as on iOS.
+- A new session now belongs to the profile that you selected. Before, it belonged to the person that the session list was filtered to.
 
 ## September 23, 2026 - Expo Go card and unstuck OpenCode answers (v0.6.111)
 
