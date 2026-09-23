@@ -84,6 +84,7 @@ import {
   cacheProjectFilter,
   NO_PROJECT_FILTER,
   projectFilterAfterPress,
+  resolveInitialProjectFilter,
   NO_PROJECT_FILTER_LABEL,
   projectFilterLabel,
   readCachedProjectFilter,
@@ -3049,6 +3050,13 @@ function projectName(cwd: string): string {
 
 function repoProject(repo: Repo): string {
   return repo.project || projectName(repo.cwd);
+}
+
+/** The project key of a remembered cwd, if that folder is still listed. */
+function repoProjectForCwd(repos: Repo[], cwd: string | null): string | null {
+  if (!cwd) return null;
+  const repo = repos.find((candidate) => candidate.cwd === cwd);
+  return repo ? repoProject(repo) : null;
 }
 
 function autoAgentProject(agent: AutoAgent, repos: Repo[]): string {
@@ -7121,14 +7129,20 @@ export function App() {
     [projectOptions],
   );
 
-  // If the chosen project is no longer a known repo and has no visible session,
-  // fall back to "all" rather than keeping a dead filter.
+  // Open on a folder. The rail has no "All" pill any more, so an unscoped
+  // filter — a first visit, or a saved folder that has since gone away —
+  // showed every folder with no pill lit and nothing saying why. Resolve it
+  // to a real folder instead, the way iOS always has. The browser's last
+  // session folder leads, because it is the best guess this surface holds.
   useEffect(() => {
-    if (loading) return;
-    if (projectFilter !== "__all" && !projectOptions.includes(projectFilter)) {
-      setProjectFilter("__all");
-    }
-  }, [isMobile, loading, projectFilter, projectOptions]);
+    if (loading || !projectOptions.length) return;
+    const resolved = resolveInitialProjectFilter({
+      saved: projectFilter,
+      options: projectOptions,
+      preferred: repoProjectForCwd(repos, localStorage.getItem("lfg_v2_repo")),
+    });
+    if (resolved !== projectFilter) setProjectFilter(resolved);
+  }, [loading, projectFilter, projectOptions, repos]);
 
   const liveSessions = useMemo(() => {
     if (projectFilter === "__all") return userScopedSessions;
@@ -7233,7 +7247,11 @@ export function App() {
       setUserFilter("__all");
     }
     if (!sessionMatchesProjectFilter(target, projectFilter)) {
-      setProjectFilter("__all");
+      // Scope to the session's own folder. Clearing to "__all" used to work
+      // because unscoped showed everything; now an unscoped filter resolves
+      // straight back to a folder, which could be the one that was hiding
+      // this session in the first place.
+      setProjectFilter(target.project ? target.project : NO_PROJECT_FILTER);
     }
     setTab("live");
     setLiveFocus({ sid: target.sessionId ?? sid, n: Date.now() });
