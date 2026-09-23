@@ -2,7 +2,7 @@
 
 Recent product updates and deployment notes.
 
-## September 23, 2026 - Reliable agent deploys (v0.6.115)
+## September 23, 2026 - Reliable agent deploys (v0.6.116)
 
 - An agent's `omg_deploy` now answers within 45 seconds. A longer build returns `pending`, and the new `omg_deploy_status` tool waits for it. Agents no longer report a failed deploy for an app that went live.
 - When you do not answer an agent's question in time, the agent asks again once in a normal chat message instead of repeating the question card.
