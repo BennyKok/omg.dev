@@ -5,6 +5,7 @@
 // `endpoint` is the OAuth resource the sign-in discovers scopes from; the
 // tools run in-process against the provider's REST API with the stored token.
 import { GMAIL_TOOLS, callGmailTool, gmailAccount, type NativeCallResult, type NativeTool, type TokenSource } from "./gmail.ts";
+import { DRIVE_TOOLS, callDriveTool, driveAccount } from "./drive.ts";
 
 export interface NativeConnectorDef {
   id: string;
@@ -18,6 +19,7 @@ export interface NativeConnectorDef {
 
 export const NATIVE_CONNECTORS: Record<string, NativeConnectorDef> = {
   gmail: { id: "gmail", oauthApp: "google", tools: GMAIL_TOOLS, call: callGmailTool, account: gmailAccount },
+  "google-drive": { id: "google-drive", oauthApp: "google", tools: DRIVE_TOOLS, call: callDriveTool, account: driveAccount },
 };
 
 export function isNativeProvider(id: string): boolean {

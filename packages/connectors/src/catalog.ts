@@ -124,8 +124,9 @@ export function resetCatalogCacheForTests(): void {
  *
  * Google's own MCP servers (gmailmcp.googleapis.com and the rest) are not
  * listed: they answer tool calls only for Cloud projects enrolled in the
- * Workspace Developer Preview Program. Gmail runs natively over the REST API
- * instead and signs in against the MCP server's resource metadata for scopes.
+ * Workspace Developer Preview Program. Gmail and Drive run natively over the
+ * REST API instead and sign in against the MCP server's resource metadata for
+ * scopes.
  */
 export const RECOMMENDED_CATALOG: CatalogEntry[] = [
   {
@@ -142,6 +143,22 @@ export const RECOMMENDED_CATALOG: CatalogEntry[] = [
     authKind: "oauth",
     oauthApp: "google",
     native: "gmail",
+    recommended: true,
+  },
+  {
+    id: "omg/google-drive",
+    slug: "google-drive",
+    name: "Google Drive",
+    description: "Search, read, create and trash files. Docs, Sheets and Slides read as text.",
+    kind: "native",
+    categories: ["google", "files"],
+    connectUrl: "https://drivemcp.googleapis.com/mcp/v1",
+    icon: "https://fonts.gstatic.com/s/i/productlogos/drive_2020q4/v8/web-96dp/logo_drive_2020q4_color_2x_web_96dp.png",
+    domain: "drive.google.com",
+    needsOAuth: true,
+    authKind: "oauth",
+    oauthApp: "google",
+    native: "google-drive",
     recommended: true,
   },
 ];

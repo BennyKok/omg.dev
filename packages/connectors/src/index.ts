@@ -14,3 +14,4 @@ export * from "./oauth-apps.ts";
 export * from "./approvals.ts";
 export * from "./native.ts";
 export * from "./gmail.ts";
+export * from "./drive.ts";
