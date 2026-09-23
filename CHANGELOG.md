@@ -8,6 +8,7 @@ Recent product updates and deployment notes.
 - When you do not answer an agent's question in time, the agent asks again once in a normal chat message instead of repeating the question card.
 - A new project on an older Computer gets a default git identity, so the agent's first commit works. Your own git identity always wins.
 - When another project's Metro holds the preview port, the Expo preview script names the next port to use.
+- The phone navigation menu has a place for the host's own rows, above Settings. On omg.dev the Upgrade button moves there, so it no longer sits in the top bar.
 
 ## September 23, 2026 - The app's list, on the web (v0.6.115)
 

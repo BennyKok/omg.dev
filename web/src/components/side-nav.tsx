@@ -15,7 +15,7 @@
  * most. So the panel slides over a dimmed page instead, keeping the iOS
  * timings and dim.
  */
-import { type ReactNode } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 import { Drawer as VaulDrawer } from "vaul";
 import {
   Bell,
@@ -83,6 +83,31 @@ export function SideNavButton({
       />
     </button>
   );
+}
+
+/**
+ * An empty node a host can portal its own drawer rows into, such as an Upgrade
+ * row. It sits in the drawer footer, above our Settings row.
+ *
+ * The drawer only mounts while it is open, so a host cannot find this node
+ * while it is closed. The mobile `header-actions` slots therefore carry
+ * `data-lfg-host-drawer="footer"`, which tells the host that this slot will be
+ * there when the drawer opens.
+ *
+ * A tap on anything the host puts here closes the drawer, the same as a tap on
+ * one of our rows. The listener is native because the host renders into this
+ * node from its own React root, so our React tree never sees that click.
+ * Without it, a dialog the host opens would sit under the drawer (z-180).
+ */
+export function HostDrawerSlot({ onClose }: { onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    node.addEventListener("click", onClose);
+    return () => node.removeEventListener("click", onClose);
+  }, [onClose]);
+  return <div ref={ref} data-lfg-host-slot="drawer-footer" className="flex flex-col" />;
 }
 
 export function SideNavDrawer({

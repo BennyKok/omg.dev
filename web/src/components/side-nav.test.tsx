@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mount, type Mounted } from "../test-support/render";
 import { sideNavRows } from "../lib/side-nav-items";
 
-const { SideNavButton, SideNavDrawer } = await import("./side-nav");
+const { HostDrawerSlot, SideNavButton, SideNavDrawer } = await import("./side-nav");
 
 let ui: Mounted;
 beforeEach(() => {
@@ -92,4 +92,24 @@ test("the machine switcher leads the panel, above the first row", () => {
   );
   expect(order[0]).toBe("machine-slot");
   expect(order[1]).toBe("side-nav-row-live");
+});
+
+test("a host gets a drawer-footer slot, and a tap in it closes the drawer", () => {
+  let open = true;
+  ui.render(
+    <SideNavDrawer
+      open
+      onOpenChange={() => {}}
+      rows={sideNavRows({ tab: "live" })}
+      onNavigate={() => {}}
+      footer={<HostDrawerSlot onClose={() => (open = false)} />}
+    />,
+  );
+  const slot = inDoc('[data-lfg-host-slot="drawer-footer"]') as HTMLElement | null;
+  expect(slot).not.toBeNull();
+  // The host renders from its own React root, so simulate a plain DOM child.
+  const hostButton = document.createElement("button");
+  slot!.appendChild(hostButton);
+  ui.flush(() => hostButton.click());
+  expect(open).toBe(false);
 });
