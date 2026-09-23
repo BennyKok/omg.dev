@@ -34,7 +34,7 @@ up() { curl -fsS -m 3 "$LOCAL/status" 2>/dev/null | grep -q "packager-status:run
 if up; then
   pkill -f "expo start .*--port ${PORT}" || true
   for _ in $(seq 1 40); do up || break; sleep 0.5; done
-  up && fail "another Metro still answers on port ${PORT}"
+  up && fail "another project's Metro answers on port ${PORT}. Call omg_expose_port with port $((PORT + 1)) and expoGo: true, then run this script with that port."
 fi
 
 # setsid + nohup: the agent's shell tool kills its process group on timeout.
