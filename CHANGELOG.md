@@ -8,7 +8,7 @@ Recent product updates and deployment notes.
 - The navigation opens from the button at the top left. It starts with the computer you are working on, and that button shows whether the computer is online.
 - The project rail no longer has an "All" pill. Press the selected folder again to see every folder.
 - The agent sheet no longer draws a block below itself, and it now changes smoothly between the agent list and the model list.
-- The Coding agents settings page has a Refresh models button. It asks the computer to read every provider again.
+- The iOS app's Coding agents settings have a Refresh models button. It asks your computer to read the model list from every provider again.
 
 ## September 23, 2026 - Expo Go card and unstuck OpenCode answers (v0.6.111)
 
