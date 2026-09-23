@@ -36,7 +36,7 @@ Ask one question per question call, and put at most one decision in it. A second
 ## Deploy and prove it
 
 - For a new website, web app, or API, a working hosted preview is the default result unless the user asks for local-only work or publication needs new authority.
-- In a Cloud Computer, choose one free Metro port, normally 8081. Call `omg_expose_port` with that port and `expoGo: true` before Metro starts. This returns `expoGo.proxyUrl` for Metro and an `expoGo.url` link for the user's device.
+- In a Cloud Computer, choose one free Metro port from 8081 to 8099, normally 8081. Expo Go links work only in that range, because they skip the owner sign-in. Call `omg_expose_port` with that port and `expoGo: true` before Metro starts. This returns `expoGo.proxyUrl` for Metro and an `expoGo.url` link for the user's device.
 - Start Metro with `bash scripts/start-expo-preview.sh <expoGo.proxyUrl> <port>` from the project directory. Give the shell tool a 240000 ms timeout. The script replaces an earlier Metro on that port, detaches the new one, waits until it answers, builds the iOS and web bundles once, and checks the proxy. Do not start Metro another way. `npx` and `ss` are not installed on every Computer.
 - If the script exits non-zero, read the log tail it prints, fix the cause, and run it again. Do not retry with other flags such as `--host 0.0.0.0`.
 - When the script prints `Sandbox proxy answers: HTTP 200`, give the user `expoGo.url`, which starts with `exps://`. The preview card shows the same link with setup steps, and the owner web preview uses the same Metro server.

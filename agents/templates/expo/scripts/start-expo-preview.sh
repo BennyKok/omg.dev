@@ -14,6 +14,8 @@ set -euo pipefail
 PROXY_URL="${1:?usage: bash scripts/start-expo-preview.sh <expoGo.proxyUrl> [port]}"
 PORT="${2:-8081}"
 PROXY_URL="${PROXY_URL%/}"
+case "$PORT" in 80[89][0-9]) ;; *) echo "FAILED: use a Metro port from 8081 to 8099, not ${PORT}" >&2; exit 1 ;; esac
+[ "$PORT" -ge 8081 ] && [ "$PORT" -le 8099 ] || { echo "FAILED: use a Metro port from 8081 to 8099, not ${PORT}" >&2; exit 1; }
 cd "$(dirname "$0")/.."
 LOG="${TMPDIR:-/tmp}/expo-preview-${PORT}.log"
 LOCAL="http://127.0.0.1:${PORT}"
