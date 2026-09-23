@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   NO_PROJECT_FILTER,
   projectFilterAfterPress,
+  resolveInitialProjectFilter,
   NO_PROJECT_FILTER_LABEL,
   projectFilterLabel,
   sessionMatchesProjectFilter,
@@ -55,5 +56,54 @@ describe("projectFilterAfterPress", () => {
     // every folder from the rail itself.
     expect(projectFilterAfterPress("duet", "duet")).toBe("__all");
     expect(projectFilterAfterPress(NO_PROJECT_FILTER, NO_PROJECT_FILTER)).toBe("__all");
+  });
+});
+
+describe("resolveInitialProjectFilter", () => {
+  const options = [NO_PROJECT_FILTER, "duet", "lfg", "vibes"];
+
+  test("keeps a remembered folder that still exists", () => {
+    expect(resolveInitialProjectFilter({ saved: "lfg", options })).toBe("lfg");
+    expect(resolveInitialProjectFilter({ saved: NO_PROJECT_FILTER, options })).toBe(
+      NO_PROJECT_FILTER,
+    );
+  });
+
+  test("never parks on all, because the rail has no pill for it", () => {
+    expect(resolveInitialProjectFilter({ saved: "__all", options })).toBe("duet");
+  });
+
+  test("a folder that has gone away falls to the preferred one", () => {
+    expect(
+      resolveInitialProjectFilter({ saved: "deleted", options, preferred: "vibes" }),
+    ).toBe("vibes");
+  });
+
+  test("a preferred folder that is not listed is ignored", () => {
+    expect(
+      resolveInitialProjectFilter({ saved: "__all", options, preferred: "gone" }),
+    ).toBe("duet");
+  });
+
+  test("prefers a real folder over the no-project scope", () => {
+    // That scope is for starting something new, not somewhere to be parked
+    // on by default.
+    expect(resolveInitialProjectFilter({ saved: "__all", options })).not.toBe(
+      NO_PROJECT_FILTER,
+    );
+  });
+
+  test("a box with only the no-project scope settles there", () => {
+    expect(
+      resolveInitialProjectFilter({ saved: "__all", options: [NO_PROJECT_FILTER] }),
+    ).toBe(NO_PROJECT_FILTER);
+  });
+
+  test("with nothing to choose from, it changes nothing", () => {
+    // Options arrive after the first render. Resolving against an empty list
+    // would overwrite the saved folder with a guess before the real list
+    // lands, and the guess would stick.
+    expect(resolveInitialProjectFilter({ saved: "lfg", options: [] })).toBe("lfg");
+    expect(resolveInitialProjectFilter({ saved: "__all", options: [] })).toBe("__all");
   });
 });

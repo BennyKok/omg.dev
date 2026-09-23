@@ -90,3 +90,33 @@ export function projectFilterLabel(
 export function projectFilterAfterPress(pressed: string, current: string): string {
   return pressed === current ? "__all" : pressed;
 }
+
+/**
+ * The folder to open on, when nothing usable is remembered.
+ *
+ * The rail has no "All" pill any more, so starting unscoped left the list
+ * showing every folder with no pill lit and nothing saying why. iOS has
+ * never had an unscoped state at all: it resolves a concrete folder from
+ * the machine's default, then the first one it can see.
+ *
+ * `preferred` is the caller's best guess before the first pill exists — the
+ * project of the folder this browser last started a session in.
+ */
+export function resolveInitialProjectFilter(input: {
+  /** What storage remembered. May be "__all", or a folder that is gone. */
+  saved: string;
+  /** Every selectable value, as the rail lists them. */
+  options: readonly string[];
+  preferred?: string | null;
+}): string {
+  const { saved, options, preferred } = input;
+  if (!options.length) return saved;
+  const has = (value: string | null | undefined): value is string =>
+    !!value && value !== "__all" && options.includes(value);
+  if (has(saved)) return saved;
+  if (has(preferred)) return preferred;
+  // A real folder before the no-project scope: that scope is for starting
+  // something new, not a place to be parked on by default.
+  const folder = options.find((option) => option !== NO_PROJECT_FILTER);
+  return folder ?? options[0]!;
+}
