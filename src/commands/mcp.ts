@@ -1164,6 +1164,29 @@ export function buildOmgMcpServer(): McpServer {
   );
 
   server.registerTool(
+    "omg_app_identity",
+    {
+      title: "Set A Hosted App's Name, Tagline And Icon",
+      description:
+        "Set how a hosted app appears on its link preview, its sign-in page and the omg.dev dashboard. Pass only the fields to change; tagline \"\" clears it. The owner can edit the same fields in app settings; the last write wins. Pass only slug to read the current values.",
+      inputSchema: {
+        slug: z.string().min(1).describe("App slug, for example hello from hello.omgs.app."),
+        name: z.string().min(1).max(80).optional().describe("Display name, up to 80 characters."),
+        tagline: z.string().max(120).optional().describe("One line about what the app does, up to 120 characters. Do not repeat the name."),
+        iconPath: z.string().optional().describe("Absolute path to a square .svg, .png or .jpg icon, 512 KB or smaller. SVG must not contain scripts."),
+      },
+    },
+    async ({ slug, name, tagline, iconPath }) =>
+      result(
+        await api("/api/cloud/apps/identity", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ slug, name, tagline, iconPath }),
+        }),
+      ),
+  );
+
+  server.registerTool(
     "omg_expose_port",
     {
       title: "Show A Live Sandbox Preview",

@@ -5251,6 +5251,7 @@ a{color:#60a5fa}
         path === "/api/cloud/apps/deploy" ||
         path === "/api/cloud/apps/status" ||
         path === "/api/cloud/apps/visibility" ||
+        path === "/api/cloud/apps/identity" ||
         path === "/api/cloud/env" ||
         path === "/api/cloud/env/pull" ||
         path === "/api/cloud/env/rm" ||

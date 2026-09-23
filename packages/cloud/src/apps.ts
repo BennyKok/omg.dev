@@ -85,6 +85,21 @@ export type CloudEnvSummary = {
   [extra: string]: unknown;
 };
 
+export type CloudAppIdentityInput = {
+  slug: string;
+  name?: string;
+  tagline?: string;
+  icon?: { contentType: string; dataBase64: string };
+};
+
+export type CloudAppIdentity = {
+  ok?: boolean;
+  slug: string;
+  name: string;
+  tagline: string | null;
+  iconUrl: string | null;
+};
+
 export interface CloudAppsClient {
   whoami(): Promise<CloudWhoami>;
   listApps(): Promise<CloudAppRow[]>;
@@ -92,6 +107,7 @@ export interface CloudAppsClient {
   getStatus(slug: string): Promise<CloudDeployStatus>;
   getVisibility(slug: string): Promise<CloudVisibility>;
   setVisibility(slug: string, visibility: string): Promise<{ ok?: boolean; visibility: string }>;
+  updateIdentity(input: CloudAppIdentityInput): Promise<CloudAppIdentity>;
   listEnv(slug: string, projectId?: string): Promise<{ slug?: string; vars: CloudEnvSummary[] }>;
   pullEnv(slug: string, projectId?: string): Promise<{ slug?: string; env: Record<string, string> }>;
   setEnv(body: unknown): Promise<unknown>;
@@ -183,6 +199,9 @@ export function createCloudAppsClient(options: CloudAppsOptions): CloudAppsClien
         ok?: boolean;
         visibility: string;
       };
+    },
+    async updateIdentity(input) {
+      return (await post("/api/cli/apps/identity", input)) as CloudAppIdentity;
     },
     async listEnv(slug, projectId) {
       const query = new URLSearchParams({ slug });

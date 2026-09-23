@@ -161,3 +161,70 @@ test("handleCloudAppsRequest returns null for unrelated paths", async () => {
   const req = new Request("http://127.0.0.1/api/cloud/session");
   expect(await handleCloudAppsRequest(req, new URL(req.url), { getAccessToken: async () => null })).toBeNull();
 });
+
+function identityRequest(body: unknown) {
+  return new Request("http://127.0.0.1/api/cloud/apps/identity", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+test("omg_app_identity sends name, tagline and the icon file to Cloud", async () => {
+  const iconPath = join(dir, "icon.svg");
+  writeFileSync(iconPath, '<svg xmlns="http://www.w3.org/2000/svg"></svg>');
+  let sent: any = null;
+  const req = identityRequest({ slug: "hi", name: "Hi There", tagline: "Say hi", iconPath });
+  const response = await handleCloudAppsRequest(req, new URL(req.url), {
+    getAccessToken: async () => "tok",
+    controlPlaneUrl: "https://backend.example",
+    fetch: async (input, init) => {
+      expect(String(input)).toBe("https://backend.example/api/cli/apps/identity");
+      sent = JSON.parse(String(init?.body));
+      return json({ ok: true, slug: "hi", name: "Hi There", tagline: "Say hi", iconUrl: "https://cdn/x.svg" });
+    },
+  });
+  expect(response?.status).toBe(200);
+  expect(sent).toEqual({
+    slug: "hi",
+    name: "Hi There",
+    tagline: "Say hi",
+    icon: {
+      contentType: "image/svg+xml",
+      dataBase64: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"></svg>').toString("base64"),
+    },
+  });
+});
+
+test("omg_app_identity with only a slug sends no fields", async () => {
+  let sent: any = null;
+  const req = identityRequest({ slug: "hi" });
+  await handleCloudAppsRequest(req, new URL(req.url), {
+    getAccessToken: async () => "tok",
+    controlPlaneUrl: "https://backend.example",
+    fetch: async (_input, init) => {
+      sent = JSON.parse(String(init?.body));
+      return json({ ok: true, slug: "hi", name: "Hi", tagline: null, iconUrl: null });
+    },
+  });
+  expect(sent).toEqual({ slug: "hi" });
+});
+
+test("omg_app_identity refuses a bad icon before any upload", async () => {
+  writeFileSync(join(dir, "icon.webp"), "RIFF");
+  writeFileSync(join(dir, "big.png"), Buffer.alloc(512 * 1024 + 1));
+  for (const iconPath of [join(dir, "icon.webp"), join(dir, "big.png"), join(dir, "missing.png")]) {
+    let called = false;
+    const req = identityRequest({ slug: "hi", iconPath });
+    const response = await handleCloudAppsRequest(req, new URL(req.url), {
+      getAccessToken: async () => "tok",
+      controlPlaneUrl: "https://backend.example",
+      fetch: async () => {
+        called = true;
+        return json({});
+      },
+    });
+    expect(response?.status).toBe(400);
+    expect(called).toBe(false);
+  }
+});

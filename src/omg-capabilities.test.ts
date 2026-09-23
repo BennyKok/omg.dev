@@ -166,7 +166,7 @@ describe("omg.dev runtime capabilities", () => {
       "omg_request_browser_login / omg_browser_login_status",
       "omg_create_owned_bot / omg_update_self / omg_list_owned_bots / omg_send_message_to_peer",
       "omg_ship",
-      "omg_deploy / omg_deploy_status / omg_apps / omg_whoami / omg_app_visibility",
+      "omg_deploy / omg_deploy_status / omg_apps / omg_whoami / omg_app_visibility / omg_app_identity",
       "omg_expose_port",
       "omg_display_image / omg_display_video / omg_display_file",
       "omg_input",

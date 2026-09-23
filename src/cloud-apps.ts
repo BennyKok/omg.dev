@@ -5,7 +5,7 @@
 // deploy updates the same slug. CLI, HTTP, and MCP are thin callers.
 
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, posix, relative, sep } from "node:path";
+import { basename, dirname, extname, join, posix, relative, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 
 import {
@@ -257,6 +257,34 @@ export async function deployFolder(
   };
 }
 
+const ICON_TYPES: Record<string, string> = {
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+};
+const MAX_ICON_BYTES = 512 * 1024;
+
+/**
+ * Read a local icon file for omg_app_identity. The type comes from the
+ * extension; Cloud checks the bytes match. Limits mirror Cloud's so the agent
+ * gets the error before an upload.
+ */
+export function readIconFile(path: string): { contentType: string; dataBase64: string } {
+  const ext = extname(path).toLowerCase();
+  const contentType = ICON_TYPES[ext];
+  if (!contentType) throw new CloudAppsError("icon must be an .svg, .png or .jpg file", 400);
+  let data: Buffer;
+  try {
+    data = readFileSync(path);
+  } catch {
+    throw new CloudAppsError(`icon file not found: ${path}`, 400);
+  }
+  if (data.byteLength === 0) throw new CloudAppsError("icon file is empty", 400);
+  if (data.byteLength > MAX_ICON_BYTES) throw new CloudAppsError("icon must be 512 KB or smaller", 400);
+  return { contentType, dataBase64: data.toString("base64") };
+}
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -270,6 +298,7 @@ export const CLOUD_APPS_PATHS = [
   "/api/cloud/apps/deploy",
   "/api/cloud/apps/status",
   "/api/cloud/apps/visibility",
+  "/api/cloud/apps/identity",
   "/api/cloud/env",
   "/api/cloud/env/pull",
   "/api/cloud/env/rm",
@@ -321,6 +350,26 @@ export async function handleCloudAppsRequest(
         return jsonResponse({ error: "visibility is required" }, 400);
       }
       return jsonResponse(await client.setVisibility(body.slug.trim(), body.visibility.trim()));
+    }
+    if (path === "/api/cloud/apps/identity" && req.method === "POST") {
+      const body = (await req.json().catch(() => null)) as {
+        slug?: unknown;
+        name?: unknown;
+        tagline?: unknown;
+        iconPath?: unknown;
+      } | null;
+      if (typeof body?.slug !== "string" || !body.slug.trim()) {
+        return jsonResponse({ error: "slug is required" }, 400);
+      }
+      const icon = typeof body.iconPath === "string" && body.iconPath.trim()
+        ? readIconFile(body.iconPath.trim())
+        : undefined;
+      return jsonResponse(await client.updateIdentity({
+        slug: body.slug.trim(),
+        ...(typeof body.name === "string" ? { name: body.name } : {}),
+        ...(typeof body.tagline === "string" ? { tagline: body.tagline } : {}),
+        ...(icon ? { icon } : {}),
+      }));
     }
     if (path === "/api/cloud/apps/deploy" && req.method === "POST") {
       const body = (await req.json().catch(() => null)) as {
