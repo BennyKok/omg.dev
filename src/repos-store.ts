@@ -189,6 +189,28 @@ async function gitInit(cwd: string): Promise<void> {
   await runGit(cwd, ["init", "-b", "main"], "git init");
 }
 
+async function gitValue(cwd: string, args: string[]): Promise<string> {
+  const proc = Bun.spawn({
+    cmd: ["git", "-C", cwd, ...args],
+    stdout: "pipe",
+    stderr: "ignore",
+    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+  });
+  const out = await new Response(proc.stdout).text();
+  await proc.exited;
+  return out.trim();
+}
+
+// An agent commits in the project it creates. A Computer made before its image
+// set a system git identity has none, and that first commit fails with
+// "empty ident name". Give the project a local default only in that case, so a
+// user's own global or system identity always wins.
+async function ensureProjectGitIdentity(cwd: string): Promise<void> {
+  if (await gitValue(cwd, ["config", "user.email"])) return;
+  await runGit(cwd, ["config", "user.name", "omg.dev agent"], "set git user.name");
+  await runGit(cwd, ["config", "user.email", "agent@omg.dev"], "set git user.email");
+}
+
 async function commitStarterProject(cwd: string): Promise<void> {
   await runGit(cwd, ["add", "--", "."], "stage starter project");
   await runGit(
@@ -250,6 +272,7 @@ export async function createProjectFolder(
     await installProjectBuilderSkill(cwd);
     await writeProjectAgentInstructions(cwd);
     await gitInit(cwd);
+    await ensureProjectGitIdentity(cwd);
     await commitStarterProject(cwd);
     return await addCustomRepo(cwd, name);
   } catch (error) {

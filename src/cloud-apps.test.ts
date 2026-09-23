@@ -84,6 +84,51 @@ test("deployFolder posts files, waits until ready, and writes .omg/project.json"
   expect(loadProjectLink(dir)).toEqual({ slug: "hi", projectId: "proj-1", name: "Hi" });
 });
 
+test("a deploy that outlasts the wait budget returns pending instead of failing", async () => {
+  writeFileSync(join(dir, "index.html"), "<h1>hi</h1>");
+  let clock = 0;
+  const client = createCloudAppsClient({
+    getAuthToken: async () => "tok",
+    fetch: async (input) => {
+      const url = String(input);
+      if (url.includes("/deploy-source")) {
+        return json({ slug: "hi", url: "https://hi.omgs.app", status: "accepted", projectId: "proj-1", runId: "run-1" });
+      }
+      return json({ slug: "hi", phase: "building", status: "building" });
+    },
+    endpoints: { controlPlaneOrigin: "https://backend.example" },
+  });
+  const result = await deployFolder(client, {
+    cwd: dir,
+    name: "Hi",
+    wait: true,
+    waitBudgetMs: 45_000,
+    intervalMs: 1,
+    now: () => clock,
+    sleep: async () => { clock += 10_000; },
+  });
+  expect(result.pending).toBe(true);
+  expect(result.slug).toBe("hi");
+  expect(result.latest?.phase).toBe("building");
+  expect(clock).toBeLessThanOrEqual(50_000);
+});
+
+test("a failed build within the budget still reports the build error", async () => {
+  writeFileSync(join(dir, "index.html"), "<h1>hi</h1>");
+  const client = createCloudAppsClient({
+    getAuthToken: async () => "tok",
+    fetch: async (input) => {
+      if (String(input).includes("/deploy-source")) {
+        return json({ slug: "hi", url: "https://hi.omgs.app", status: "accepted", projectId: "proj-1", runId: "run-1" });
+      }
+      return json({ slug: "hi", phase: "failed", status: "failed", buildError: "tsc failed" });
+    },
+    endpoints: { controlPlaneOrigin: "https://backend.example" },
+  });
+  await expect(deployFolder(client, { cwd: dir, wait: true, waitBudgetMs: 45_000, intervalMs: 1, sleep: async () => {} }))
+    .rejects.toThrow("tsc failed");
+});
+
 test("handleCloudAppsRequest deploys through the local /api/cloud/apps/deploy route", async () => {
   writeFileSync(join(dir, "index.html"), "<h1>hi</h1>");
   const req = new Request("http://127.0.0.1/api/cloud/apps/deploy", {

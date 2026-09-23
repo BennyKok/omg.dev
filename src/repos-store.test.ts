@@ -61,7 +61,33 @@ describe("project creation", () => {
     expect(git(worktree.worktree.path, "rev-parse", "HEAD")).toBe(git(repo.cwd, "rev-parse", "HEAD"));
   });
 
-  test("creates a committed Expo app from the managed template", async () => {
+    test("a new project gets a local git identity only when the machine has none", async () => {
+  const saved = { home: process.env.HOME, nosystem: process.env.GIT_CONFIG_NOSYSTEM, global: process.env.GIT_CONFIG_GLOBAL };
+  const home = mkdtempSync(join(tmpdir(), "lfg-noident-"));
+  const root = mkdtempSync(join(tmpdir(), "lfg-project-ident-"));
+  roots.push(root);
+  PATHS.data = join(root, "data");
+  try {
+    process.env.HOME = home;
+    process.env.GIT_CONFIG_NOSYSTEM = "1";
+    process.env.GIT_CONFIG_GLOBAL = join(home, "empty-gitconfig");
+    const bare = await createProjectFolder(root, "No Identity", "blank");
+    expect(git(bare.cwd, "config", "--local", "user.email")).toBe("agent@omg.dev");
+
+    writeFileSync(join(home, "empty-gitconfig"), "[user]\n\tname = Real Person\n\temail = real@example.com\n");
+    const owned = await createProjectFolder(root, "Has Identity", "blank");
+    expect(Bun.spawnSync(["git", "-C", owned.cwd, "config", "--local", "user.email"], { env: { ...process.env } }).exitCode).not.toBe(0);
+    const effective = Bun.spawnSync(["git", "-C", owned.cwd, "config", "user.email"], { env: { ...process.env } });
+    expect(effective.stdout.toString().trim()).toBe("real@example.com");
+  } finally {
+    for (const [key, value] of [["HOME", saved.home], ["GIT_CONFIG_NOSYSTEM", saved.nosystem], ["GIT_CONFIG_GLOBAL", saved.global]] as const) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("creates a committed Expo app from the managed template", async () => {
     const root = mkdtempSync(join(tmpdir(), "lfg-project-expo-"));
     roots.push(root);
     PATHS.data = join(root, "data");
