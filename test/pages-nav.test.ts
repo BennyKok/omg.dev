@@ -37,11 +37,18 @@ describe("page navigation reachability", () => {
     expect(app).toMatch(
       /onClick=\{\(\) => setTab\("live"\)\}[\s\S]{0,200}aria-label="Live"/,
     );
-    // And the switch bar reaches Bots from there.
+    // Wide layouts reach Bots from the rail's switch bar.
     expect(app).toContain(
       "<SurfaceToggle active={railSurface} onOpenSessions={onOpenSessions} onOpenBots={onOpenBots} onOpenAuto={onOpenAuto} />",
     );
-    expect(app).toContain("shouldShowMobileSurfaceToggle(isMobile, tab, selectedBotId)");
+    // A phone reaches every page through the side navigation, which replaced
+    // both the bottom surface bar and this menu. WHICH pages it lists is a
+    // behavioural test, not a string match: see
+    // web/src/lib/side-nav-items.test.ts and
+    // web/src/components/side-nav.test.tsx. All this file can check is that
+    // the shell still mounts it and feeds it the real row model.
+    expect(app).toContain("<SideNavDrawer");
+    expect(app).toContain("rows={sideNavRows({");
   });
 
   test("settings can be hidden when the host owns it", () => {

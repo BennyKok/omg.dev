@@ -92,7 +92,7 @@ export function MachineSwitcher({
   collapsed = false,
   onSelect = selectMachine,
 }: {
-  variant: "rail" | "icon";
+  variant: "rail" | "icon" | "nav";
   /** Rail placement only: the rail is at its 56px width, show the icon alone. */
   collapsed?: boolean;
   onSelect?: (choice: MachineChoice) => void;
@@ -141,7 +141,7 @@ export function MachineSwitcher({
         type="button"
         aria-label={`Machine: ${currentName}. Change machine`}
         title={currentName}
-        data-machine-switcher="rail"
+        data-machine-switcher={variant === "nav" ? "nav" : "rail"}
         className={cn(
           "flex h-10 shrink-0 items-center rounded-lg text-left text-[13px] font-medium text-foreground transition-colors hover:bg-muted",
           collapsed ? "w-10 justify-center" : "w-full gap-2 px-2",

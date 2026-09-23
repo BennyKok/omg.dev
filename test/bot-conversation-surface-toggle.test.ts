@@ -58,10 +58,12 @@ describe("the Chat/Bots switch stays out of an open bot conversation", () => {
 });
 
 describe("the list surfaces keep their switch", () => {
-  test("the app shell dock renders, guarded by the helper alone", () => {
-    expect(APP).toContain("{shouldShowMobileSurfaceToggle(isMobile, tab, selectedBotId) ? (");
-    expect(APP).toContain("<MobileSurfaceDock");
-    // The guard lives in the helper; no second inline copy to drift out of sync.
+  test("the app shell mounts the side navigation that replaced the dock", () => {
+    // The dock is gone. Its three surfaces are rows in the side navigation,
+    // which is an overlay and so never has to be hidden inside a bot chat.
+    expect(APP).toContain("<SideNavDrawer");
+    expect(APP).not.toContain("<MobileSurfaceDock");
+    // No inline copy of a visibility guard to drift out of sync.
     expect(APP).not.toContain('&& !(tab === "bots" && selectedBotId)');
   });
 
