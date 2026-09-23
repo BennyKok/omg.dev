@@ -174,7 +174,7 @@ Done in this repository:
 2. `omg deploy` / `omg apps` / `omg whoami` / `omg visibility` / `omg env` on
    the runtime CLI. The npm wrapper forwards those verbs to the install. The
    0.4.42 tarball shim is gone.
-3. MCP tools `omg_deploy`, `omg_apps`, `omg_whoami`, `omg_app_visibility`.
+3. MCP tools `omg_deploy`, `omg_apps`, `omg_whoami`, `omg_app_visibility`, `omg_app_identity`.
 4. `/api/repos` includes `deploy` from `.omg/project.json`.
 5. A Cloud Computer with no token on disk uses `http://169.254.0.1:9090/cloud`
    so Infra can attach the owner's credential. `omg login` is a no-op there.
