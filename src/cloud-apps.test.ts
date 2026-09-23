@@ -113,6 +113,31 @@ test("a deploy that outlasts the wait budget returns pending instead of failing"
   expect(clock).toBeLessThanOrEqual(50_000);
 });
 
+test("the wait budget includes the upload, so a slow upload leaves less wait", async () => {
+  writeFileSync(join(dir, "index.html"), "<h1>hi</h1>");
+  let clock = 0;
+  let statusCalls = 0;
+  const client = createCloudAppsClient({
+    getAuthToken: async () => "tok",
+    fetch: async (input) => {
+      if (String(input).includes("/deploy-source")) {
+        clock += 40_000; // the upload itself took 40 seconds
+        return json({ slug: "hi", url: "https://hi.omgs.app", status: "accepted", projectId: "proj-1", runId: "run-1" });
+      }
+      statusCalls += 1;
+      return json({ slug: "hi", phase: "building", status: "building" });
+    },
+    endpoints: { controlPlaneOrigin: "https://backend.example" },
+  });
+  const result = await deployFolder(client, {
+    cwd: dir, wait: true, waitBudgetMs: 45_000, intervalMs: 1,
+    now: () => clock, sleep: async () => { clock += 2_000; },
+  });
+  expect(result.pending).toBe(true);
+  expect(clock).toBeLessThanOrEqual(47_000);
+  expect(statusCalls).toBeLessThanOrEqual(4);
+});
+
 test("a failed build within the budget still reports the build error", async () => {
   writeFileSync(join(dir, "index.html"), "<h1>hi</h1>");
   const client = createCloudAppsClient({
