@@ -45,6 +45,22 @@ Object.assign(globalThis, {
   // below only ever showed up in production.
   requestAnimationFrame: window.requestAnimationFrame.bind(window),
   cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
+  // happy-dom ships no ResizeObserver, and a component that measures itself
+  // constructs one in a layout effect — which throws during commit, so the
+  // whole render fails and the failure reads like a bug in the component.
+  // Several real components measure (the project rail, the agent sheet).
+  //
+  // Deliberately inert: it never fires. happy-dom does no layout, so every
+  // box it could report would be 0, and a test that believed those numbers
+  // would be asserting on fiction. Measurement behaviour belongs in a real
+  // browser; this only has to let the component mount.
+  ResizeObserver:
+    window.ResizeObserver ??
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
   // React reads this to decide whether `act` is legal. Without it every
   // render logs a warning and async updates are not flushed.
   IS_REACT_ACT_ENVIRONMENT: true,

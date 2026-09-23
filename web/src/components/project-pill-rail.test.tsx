@@ -18,17 +18,24 @@ afterEach(() => { ui.cleanup(); globalThis.ResizeObserver = originalObserver; })
 const projects = [{ value: "repo-id", label: "Friendly name" }, { value: "other", label: "Other" }];
 const button = (name: string) => ui.query(`button[aria-label="${name}"]`) as HTMLButtonElement | null;
 
-test("uses project identity, keeps All, and reflects controlled selection", () => {
+test("uses project identity, offers no All pill, and reflects controlled selection", () => {
   const selected: string[] = [];
   const render = (value: string) => ui.render(<ProjectPillRail projects={projects} value={value} onChange={(id) => selected.push(id)} />);
   render("__all");
-  expect(ui.query('[aria-pressed="true"]')?.textContent).toBe("All");
+  // The rail is folders and nothing else. Unscoped means no pill is pressed,
+  // rather than a pill that names the absence of a folder.
+  expect(ui.query('button[title="All"]')).toBeNull();
+  expect(ui.query('[aria-pressed="true"]')).toBeNull();
+  expect(ui.queryAll("button[aria-pressed]").length).toBe(projects.length);
   ui.flush(() => (ui.query('button[title="Friendly name"]') as HTMLButtonElement).click());
   expect(selected).toEqual(["repo-id"]);
   render("repo-id");
   expect(ui.query('[aria-pressed="true"]')?.textContent).toBe("Friendly name");
-  ui.flush(() => (ui.query('button[title="All"]') as HTMLButtonElement).click());
-  expect(selected).toEqual(["repo-id", "__all"]);
+  // Pressing the selected pill reports that same pill. Turning the second
+  // press into "clear" is the shell's decision, not the rail's — see
+  // projectFilterAfterPress.
+  ui.flush(() => (ui.query('button[title="Friendly name"]') as HTMLButtonElement).click());
+  expect(selected).toEqual(["repo-id", "repo-id"]);
   expect(button("Scroll projects right") === null).toBe(true);
 });
 
@@ -71,7 +78,7 @@ test("mouse arrows scroll the viewport and Tab stays native inside the filter", 
   window.addEventListener("keydown", listener);
   try {
     const event = new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
-    ui.query('button[title="All"]')!.dispatchEvent(event);
+    ui.query('button[title="Friendly name"]')!.dispatchEvent(event);
     expect(bubbled).toBe(false);
     expect(event.defaultPrevented).toBe(false);
   } finally {

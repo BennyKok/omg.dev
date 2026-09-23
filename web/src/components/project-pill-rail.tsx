@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { NO_PROJECT_FILTER, projectFilterLabel } from "../lib/project-filter";
 
 export type ProjectPill = {
   value: string;
@@ -16,6 +17,33 @@ export type ProjectPill = {
    */
   icon?: "plus";
 };
+
+/**
+ * The pills for a set of project filter values.
+ *
+ * One owner for both rails. The phone rail and the desktop rail each built
+ * this list themselves, so the plus pill's label and icon were written out
+ * twice, and a change to either had to be made in two places to take effect
+ * on both widths.
+ *
+ * `shortProject` is passed in because it belongs to the shell, not here.
+ */
+export function projectPillsFor(
+  projectOptions: readonly string[],
+  shortProject: (project: string) => string,
+): ProjectPill[] {
+  return projectOptions.map((project) => ({
+    value: project,
+    // The rail is the one place this scope is an icon, so the label says what
+    // it does rather than naming an absence. Everywhere the scope is named in
+    // prose — the menu, the sheet, the composer chip — it stays "No project".
+    label:
+      project === NO_PROJECT_FILTER
+        ? "Chats without a project"
+        : projectFilterLabel(project, shortProject),
+    icon: project === NO_PROJECT_FILTER ? "plus" : undefined,
+  }));
+}
 
 /** A scrollable view of the shell's project filter; owns no selection state. */
 export function ProjectPillRail({ projects, value, onChange, touch = false }: {
@@ -75,7 +103,12 @@ export function ProjectPillRail({ projects, value, onChange, touch = false }: {
         <div ref={viewport} onScroll={measure}
           className="overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <div ref={content} className="flex w-max items-center gap-2 px-2 py-1">
-            {[{ value: "__all", label: "All" } as ProjectPill, ...projects].map((project) => (
+            {/* No "All" pill. It was the one entry here that named no folder,
+                and iOS has never had one: its rail is the plus and the
+                folders. Clearing the scope is the selected pill's own job
+                now — press it again — so the row is folders and nothing
+                else. */}
+            {projects.map((project) => (
               <button key={project.value} type="button" aria-pressed={value === project.value}
                 title={project.label} aria-label={project.icon ? project.label : undefined}
                 onClick={() => onChange(project.value)}
