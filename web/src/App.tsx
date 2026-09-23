@@ -5,6 +5,7 @@ import { useRuntimeLifecycle } from "./lib/runtime-lifecycle";
 import { LiveHeaderContext } from "./components/live-header-context";
 import { ProjectPillRail, projectPillsFor } from "./components/project-pill-rail";
 import { SideNavButton, SideNavDrawer } from "./components/side-nav";
+import { FindingsPill, FindingsSheet } from "./components/findings-pill";
 import { sideNavRows } from "./lib/side-nav-items";
 import {
   AgentSetupSheet,
@@ -9375,6 +9376,9 @@ export function App() {
               onNew={() =>
                 isMobile ? setComposerFocusNonce((n) => n + 1) : setNewOpen(true)
               }
+              // The Updates pill floats over this list and has to clear the
+              // composer, which the shell owns.
+              composerVisible={mobileComposerVisible}
               // Desktop, empty stage: the composer fills the pane instead of
               // the drawer. Same props as the drawer below, so both read the
               // same draft, agents and repos.
@@ -11501,6 +11505,8 @@ function LiveView({
   onNew,
   findings = [],
   autoAgents = [],
+  /** Phone only: the inline composer is on screen, so the pill clears it. */
+  composerVisible = false,
   onOpenReport,
   onDismissFinding,
   onTriageFindings,
@@ -11578,6 +11584,7 @@ function LiveView({
   onNew: () => void;
   findings: AutoFinding[];
   autoAgents: AutoAgent[];
+  composerVisible?: boolean;
   /** Open the report sheet for one agent's open findings. */
   onOpenReport: (agentId: string) => void;
   onDismissFinding: (f: AutoFinding) => void;
@@ -11605,6 +11612,8 @@ function LiveView({
   // component's. Only the morph origin is local: it anchors the open/close
   // animation to the row that was tapped, and a DOMRect cannot live in a URL.
   const [sheetOrigin, setSheetOrigin] = useState<DOMRect | null>(null);
+  // Open findings live behind the Updates pill on a phone, not in the list.
+  const [findingsOpen, setFindingsOpen] = useState(false);
   useEffect(() => {
     // The open session ended and is no longer listed: leave its page instead
     // of holding a URL that names nothing.
@@ -11991,42 +12000,49 @@ function LiveView({
         onProjectChange={onProjectChange}
         renderItem={renderMobileItem}
         headerless
-        trailing={
-          findings.length ? (
-            <RailGroup
-              label="Auto"
-              count={findings.length}
-              collapsed={false}
-              foldKey="__auto"
-              action={
-                <span className="flex items-center gap-1">
-                  <ClearFindingsButton
-                    count={findings.length}
-                    busy={clearFindingsBusy}
-                    onClear={() => onClearFindings(findings)}
-                  />
-                  <AutoTriageButton
-                    count={findings.length}
-                    busy={autoTriageBusy}
-                    onClick={onTriageFindings}
-                    compact
-                  />
-                </span>
-              }
-            >
-              {groupFindingsByAgent(findings).map((report) => (
-                <AutoReportRow
-                  key={report.agentId}
-                  report={report}
-                  agentName={nameFor(report.agentId)}
-                  onOpen={() => onOpenReport(report.agentId)}
-                />
-              ))}
-            </RailGroup>
-          ) : null
-        }
       />
     </div>
+    {/* Open findings live behind a pill, not at the end of the list. A group
+        of them there put more work under a list that is already about work,
+        and each one pushed the running sessions further off the fold. Same
+        answer as iOS (mobile/src/omg/findings-pill.tsx). */}
+    <FindingsPill
+      count={findings.length}
+      aboveComposer={composerVisible}
+      onOpen={() => setFindingsOpen(true)}
+    />
+    <FindingsSheet
+      open={findingsOpen && findings.length > 0}
+      onOpenChange={setFindingsOpen}
+      count={findings.length}
+      actions={
+        <span className="flex items-center gap-1">
+          <ClearFindingsButton
+            count={findings.length}
+            busy={clearFindingsBusy}
+            onClear={() => onClearFindings(findings)}
+          />
+          <AutoTriageButton
+            count={findings.length}
+            busy={autoTriageBusy}
+            onClick={onTriageFindings}
+            compact
+          />
+        </span>
+      }
+    >
+      {groupFindingsByAgent(findings).map((report) => (
+        <AutoReportRow
+          key={report.agentId}
+          report={report}
+          agentName={nameFor(report.agentId)}
+          onOpen={() => {
+            setFindingsOpen(false);
+            onOpenReport(report.agentId);
+          }}
+        />
+      ))}
+    </FindingsSheet>
     {openSessionId && sheetSession ? (
       <SessionTitleSheet
         sid={openSessionId}
