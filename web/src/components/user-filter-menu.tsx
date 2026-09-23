@@ -46,8 +46,25 @@ export function UserFilterMenu({
               selected ? (selected.name ?? shortUser(selected.email)) : active ? "Unassigned" : "All users"
             }
             className={cn(
-              "relative inline-flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-full border transition",
-              active ? "border-primary/40 text-primary" : "border-border bg-muted/70 text-foreground",
+              // 32px, not 24. This used to sit inside a glass island that gave
+              // it presence; the island went when the overflow menu moved into
+              // the side navigation, and a 24px disc alone in the corner read
+              // as a stray dot rather than the person you are filtered to.
+              "relative inline-flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full transition",
+              // A photo is its own shape. Drawing a plate and a border behind
+              // it left a ring of card colour around the face, which is what
+              // made it look like a card with the island already gone. The
+              // icon fallbacks are line art and still need a body.
+              selected?.avatar
+                ? active
+                  ? "ring-2 ring-primary/40"
+                  : ""
+                : cn(
+                    "border",
+                    active
+                      ? "border-primary/40 text-primary"
+                      : "border-border bg-muted/70 text-foreground",
+                  ),
             )}
           />
         }
@@ -55,9 +72,9 @@ export function UserFilterMenu({
         {selected?.avatar ? (
           <img src={selected.avatar} alt="" className="size-full object-cover" />
         ) : active ? (
-          <UserRound className="size-4 shrink-0" />
+          <UserRound className="size-[18px] shrink-0" />
         ) : (
-          <Globe className="size-4 shrink-0" />
+          <Globe className="size-[18px] shrink-0" />
         )}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-48">
