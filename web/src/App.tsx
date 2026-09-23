@@ -11990,6 +11990,7 @@ function LiveView({
         projectFilter={projectFilter}
         onProjectChange={onProjectChange}
         renderItem={renderMobileItem}
+        headerless
         trailing={
           findings.length ? (
             <RailGroup
@@ -13665,6 +13666,7 @@ function SessionGroups({
   projectFilter,
   onProjectChange,
   renderItem,
+  headerless = false,
   leading,
   trailing,
 }: {
@@ -13675,6 +13677,16 @@ function SessionGroups({
   projectFilter: string;
   onProjectChange?: (value: string) => void;
   renderItem: (session: Session) => ReactNode;
+  /**
+   * Draw the folder groups as plain runs of rows, with no header.
+   *
+   * The phone has the project rail directly above this list: the pills name
+   * every folder and one of them is lit, so a header repeating that name
+   * under it said the same thing twice. Its two controls are covered there
+   * too — the pill scopes, and pressing the lit pill clears. The desktop
+   * rail has no pills, so it keeps its headers and they stay the filter.
+   */
+  headerless?: boolean;
   /** Above every group. The rail puts New session here. */
   leading?: ReactNode;
   /** Below every group. Auto findings. */
@@ -13763,7 +13775,12 @@ function SessionGroups({
           {pinnedNodes.map((node) => renderNode(node))}
         </RailGroup>
       ) : null}
-      {groups.map((group) => (
+      {groups.map((group) =>
+        headerless ? (
+          <div key={group.key} className="flex flex-col gap-2">
+            {group.nodes.map((node) => renderNode(node))}
+          </div>
+        ) : (
         <RailGroup
           key={group.key}
           label={group.label}
@@ -13788,7 +13805,8 @@ function SessionGroups({
         >
           {group.nodes.map((node) => renderNode(node))}
         </RailGroup>
-      ))}
+        ),
+      )}
       {trailing}
     </>
   );
