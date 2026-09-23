@@ -9,4 +9,5 @@ export * from "./catalog.ts";
 export * from "./mcp-endpoint.ts";
 export * from "./oauth-store.ts";
 export * from "./oauth-provider.ts";
+export * from "./oauth-apps.ts";
 export * from "./approvals.ts";

@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { configureConnectors } from "./context.ts";
 
 import type { Connector } from "./store.ts";
-import { ConnectorOAuthProvider, OAUTH_CALLBACK_PATH, callbackUrl } from "./oauth-provider.ts";
-import { getOAuthState } from "./oauth-store.ts";
+import { ConnectorOAuthProvider, OAUTH_CALLBACK_PATH, callbackUrl, completeConnectorOAuth, startConnectorOAuth } from "./oauth-provider.ts";
+import { getOAuthState, saveOAuthApp } from "./oauth-store.ts";
 
 let tmp: string;
 
@@ -58,5 +58,78 @@ describe("ConnectorOAuthProvider", () => {
   test("codeVerifier throws when there is no pending authorization", () => {
     const p = new ConnectorOAuthProvider(connector, "https://box");
     expect(() => p.codeVerifier()).toThrow();
+  });
+});
+
+// Google has no dynamic client registration. A connector on the "google" app
+// signs in with the box's pre-registered client instead, and the authorize
+// URL asks for offline access so a refresh token comes back.
+describe("pre-registered OAuth app", () => {
+  const gmail: Connector = { ...connector, id: "g1", name: "Gmail", slug: "gmail", endpoint: "https://gmailmcp.test/mcp/v1", oauth: true, oauthApp: "google" };
+  const realFetch = globalThis.fetch;
+  let tokenBody: URLSearchParams | null = null;
+  let tokenAuth: string | null = null;
+
+  beforeEach(() => {
+    tokenBody = null;
+    tokenAuth = null;
+    // Shaped like Google's real metadata: PRM names the issuer, and the
+    // issuer's OpenID configuration has no registration_endpoint.
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input instanceof Request ? input.url : input));
+      if (url.pathname.startsWith("/.well-known/oauth-protected-resource")) {
+        return Response.json({ resource: gmail.endpoint, authorization_servers: ["https://accounts.test/"], scopes_supported: ["https://mail.google.com/"] });
+      }
+      if (url.host === "accounts.test" && url.pathname === "/.well-known/openid-configuration") {
+        return Response.json({
+          issuer: "https://accounts.test",
+          authorization_endpoint: "https://accounts.test/o/oauth2/v2/auth",
+          token_endpoint: "https://accounts.test/token",
+          response_types_supported: ["code"],
+          code_challenge_methods_supported: ["S256"],
+          token_endpoint_auth_methods_supported: ["client_secret_post", "client_secret_basic"],
+          subject_types_supported: ["public"],
+          id_token_signing_alg_values_supported: ["RS256"],
+          jwks_uri: "https://accounts.test/certs",
+        });
+      }
+      if (url.host === "accounts.test" && url.pathname === "/token") {
+        tokenBody = new URLSearchParams(String(init?.body ?? ""));
+        tokenAuth = new Headers(init?.headers).get("authorization");
+        return Response.json({ access_token: "at", token_type: "Bearer", refresh_token: "rt", expires_in: 3599 });
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  test("start without a configured app asks for one instead of registering", async () => {
+    const result = await startConnectorOAuth(gmail, "https://box");
+    expect(result).toMatchObject({ ok: false, needsOAuthApp: "google" });
+  });
+
+  test("start and complete use the app client, with offline access", async () => {
+    saveOAuthApp("google", { clientId: "cid.apps.googleusercontent.com", clientSecret: "shh" });
+    const start = await startConnectorOAuth(gmail, "https://box", "S".repeat(20));
+    if (!start.ok || !("authorizeUrl" in start)) throw new Error(`start failed: ${JSON.stringify(start)}`);
+    const url = new URL(start.authorizeUrl);
+    expect(url.origin + url.pathname).toBe("https://accounts.test/o/oauth2/v2/auth");
+    expect(url.searchParams.get("client_id")).toBe("cid.apps.googleusercontent.com");
+    expect(url.searchParams.get("redirect_uri")).toBe(`https://box${OAUTH_CALLBACK_PATH}`);
+    expect(url.searchParams.get("access_type")).toBe("offline");
+    expect(url.searchParams.get("prompt")).toBe("consent");
+    expect(url.searchParams.get("scope")).toBe("https://mail.google.com/");
+    // The app client is never written into the per-connector DCR slot.
+    expect(getOAuthState("g1")?.clientInformation).toBeUndefined();
+
+    const done = await completeConnectorOAuth("S".repeat(20), "the-code", (id) => (id === "g1" ? gmail : null));
+    expect(done).toEqual({ ok: true, connectorId: "g1" });
+    expect(tokenBody?.get("code")).toBe("the-code");
+    const sentId = tokenBody?.get("client_id") ?? Buffer.from((tokenAuth ?? "").replace(/^Basic /, ""), "base64").toString().split(":")[0];
+    expect(sentId).toBe("cid.apps.googleusercontent.com");
+    expect(getOAuthState("g1")?.tokens?.refresh_token).toBe("rt");
   });
 });

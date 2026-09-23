@@ -26,6 +26,10 @@ export interface CatalogEntry {
    * the endpoint instead of trusting the catalog.
    */
   authKind: string | null;
+  /** Sign in with this provider's pre-registered client (./oauth-apps.ts). */
+  oauthApp?: string;
+  /** Shown above the searchable catalog. Only curated entries set it. */
+  recommended?: boolean;
 }
 
 const TTL_MS = 60 * 60 * 1000;
@@ -110,4 +114,45 @@ export function searchCatalog(entries: CatalogEntry[], query: string, limit = 50
 
 export function resetCatalogCacheForTests(): void {
   cache = null;
+}
+
+const G = "https://fonts.gstatic.com/s/i/productlogos";
+function google(slug: string, name: string, host: string, description: string, icon: string): CatalogEntry {
+  return {
+    id: `omg/google-${slug}`,
+    slug: `google-${slug}`,
+    name,
+    description,
+    kind: "mcp",
+    categories: ["google"],
+    connectUrl: `https://${host}.googleapis.com/mcp/v1`,
+    icon,
+    domain: `${host}.googleapis.com`,
+    needsOAuth: true,
+    authKind: "oauth",
+    oauthApp: "google",
+    recommended: true,
+  };
+}
+
+/**
+ * Entries omg curates itself, because the public index does not carry them as
+ * MCP servers. Google's official MCP servers sign in with a pre-registered
+ * client, not dynamic registration, so each one names the "google" app.
+ */
+export const RECOMMENDED_CATALOG: CatalogEntry[] = [
+  google("gmail", "Gmail", "gmailmcp", "Search, read, draft, label and trash mail.", `${G}/gmail_2020q4/v8/web-96dp/logo_gmail_2020q4_color_2x_web_96dp.png`),
+  google("calendar", "Google Calendar", "calendarmcp", "Read and manage calendar events.", `${G}/calendar_2020q4/v8/web-96dp/logo_calendar_2020q4_color_2x_web_96dp.png`),
+  google("drive", "Google Drive", "drivemcp", "Search and read files in Drive.", `${G}/drive_2020q4/v8/web-96dp/logo_drive_2020q4_color_2x_web_96dp.png`),
+  google("docs", "Google Docs", "docsmcp", "Read and edit documents.", `${G}/docs_2020q4/v12/web-96dp/logo_docs_2020q4_color_2x_web_96dp.png`),
+  google("sheets", "Google Sheets", "sheetsmcp", "Read and edit spreadsheets.", `${G}/sheets_2020q4/v8/web-96dp/logo_sheets_2020q4_color_2x_web_96dp.png`),
+  google("slides", "Google Slides", "slidesmcp", "Read and edit presentations.", `${G}/slides_2020q4/v12/web-96dp/logo_slides_2020q4_color_2x_web_96dp.png`),
+  google("chat", "Google Chat", "chatmcp", "Read and send messages in Chat spaces.", `${G}/chat_2020q4/v8/web-96dp/logo_chat_2020q4_color_2x_web_96dp.png`),
+  google("people", "Google Contacts", "people", "Look up contacts and directory people.", `${G}/contacts_2022/v1/web-96dp/logo_contacts_2022_color_2x_web_96dp.png`),
+];
+
+/** The curated entries first, then the index, without a second copy of an endpoint. */
+export function withRecommended(entries: CatalogEntry[]): CatalogEntry[] {
+  const curated = new Set(RECOMMENDED_CATALOG.map((e) => e.connectUrl));
+  return [...RECOMMENDED_CATALOG, ...entries.filter((e) => !curated.has(e.connectUrl))];
 }
