@@ -2,14 +2,6 @@
 
 Recent product updates and deployment notes.
 
-## September 23, 2026 - Connections a role can actually use (v0.6.117)
-
-- A connection you give to a role, or to the whole team, now works for that role's agents. Before, a connection added for a role was saved but could not be used, and the owner could not see it afterwards.
-- A running agent picks up a new connection without a restart. Changing a role does the same.
-- Connection names are unique across the computer, so a personal connection no longer hides a role's connection of the same name.
-- The Connectors page groups connections by who can use them, and the scope control sits next to Connect as "Who can use it".
-- The composer and the chat input bar have more space at the left and right edges on a phone.
-
 ## September 23, 2026 - Google Drive, and Upgrade in the phone menu (v0.6.117)
 
 - Google Drive now works through omg's own connector, on the same Google sign-in as Gmail. Agents can search, read, create and trash files. Docs and Slides read as text, and Sheets read as CSV.
