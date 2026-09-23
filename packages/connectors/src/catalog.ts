@@ -124,7 +124,7 @@ export function resetCatalogCacheForTests(): void {
  *
  * Google's own MCP servers (gmailmcp.googleapis.com and the rest) are not
  * listed: they answer tool calls only for Cloud projects enrolled in the
- * Workspace Developer Preview Program. Gmail and Drive run natively over the
+ * Workspace Developer Preview Program. Gmail, Drive, Calendar and Sheets run natively over the
  * REST API instead and sign in against the MCP server's resource metadata for
  * scopes.
  */
@@ -159,6 +159,38 @@ export const RECOMMENDED_CATALOG: CatalogEntry[] = [
     authKind: "oauth",
     oauthApp: "google",
     native: "google-drive",
+    recommended: true,
+  },
+  {
+    id: "omg/google-calendar",
+    slug: "google-calendar",
+    name: "Google Calendar",
+    description: "See events, find free time, and create, move or cancel events.",
+    kind: "native",
+    categories: ["google", "calendar"],
+    connectUrl: "https://calendarmcp.googleapis.com/mcp/v1",
+    icon: "https://fonts.gstatic.com/s/i/productlogos/calendar_2020q4/v8/web-96dp/logo_calendar_2020q4_color_2x_web_96dp.png",
+    domain: "calendar.google.com",
+    needsOAuth: true,
+    authKind: "oauth",
+    oauthApp: "google",
+    native: "google-calendar",
+    recommended: true,
+  },
+  {
+    id: "omg/google-sheets",
+    slug: "google-sheets",
+    name: "Google Sheets",
+    description: "Find, read, write and append rows, and create spreadsheets.",
+    kind: "native",
+    categories: ["google", "spreadsheets"],
+    connectUrl: "https://sheetsmcp.googleapis.com/mcp/v1",
+    icon: "https://fonts.gstatic.com/s/i/productlogos/sheets_2020q4/v8/web-96dp/logo_sheets_2020q4_color_2x_web_96dp.png",
+    domain: "sheets.google.com",
+    needsOAuth: true,
+    authKind: "oauth",
+    oauthApp: "google",
+    native: "google-sheets",
     recommended: true,
   },
 ];

@@ -15,3 +15,6 @@ export * from "./approvals.ts";
 export * from "./native.ts";
 export * from "./gmail.ts";
 export * from "./drive.ts";
+export * from "./google-api.ts";
+export * from "./calendar.ts";
+export * from "./sheets.ts";

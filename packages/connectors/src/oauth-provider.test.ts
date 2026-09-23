@@ -132,6 +132,16 @@ describe("pre-registered OAuth app", () => {
     expect(sentId).toBe("cid.apps.googleusercontent.com");
     expect(getOAuthState("g1")?.tokens?.refresh_token).toBe("rt");
   });
+
+  test("a native connector asks only for its own scopes, not everything the resource lists", async () => {
+    saveOAuthApp("google", { clientId: "cid.apps.googleusercontent.com", clientSecret: "shh" });
+    const native: Connector = { ...gmail, id: "g2", kind: "native", native: "google-calendar" };
+    const start = await startConnectorOAuth(native, "https://box", "T".repeat(20));
+    if (!start.ok || !("authorizeUrl" in start)) throw new Error(`start failed: ${JSON.stringify(start)}`);
+    expect(new URL(start.authorizeUrl).searchParams.get("scope")).toBe(
+      "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly",
+    );
+  });
 });
 
 describe("connectorTokenSource", () => {
