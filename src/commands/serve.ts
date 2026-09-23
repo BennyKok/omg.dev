@@ -73,6 +73,7 @@ import {
   isOAuthAppProvider,
   oauthAppStatuses,
   callbackUrl as connectorCallbackUrl,
+  recordConnectorAccount,
   startConnectorOAuth,
   completeConnectorOAuth,
   hasTokens as hasOAuthTokens,
@@ -4436,7 +4437,10 @@ export async function cmdServe() {
         const errorParam = url.searchParams.get("error");
         if (errorParam) return oauthClosePage(`Authorization was cancelled: ${errorParam}`, false);
         const result = code && state ? await completeConnectorOAuth(state, code, getConnector) : { ok: false as const, error: "missing code or state" };
-        if (result.ok) await resetConnector(result.connectorId);
+        if (result.ok) {
+          await resetConnector(result.connectorId);
+          await recordConnectorAccount(result.connectorId);
+        }
         return oauthClosePage(result.ok ? "Connected. You can close this window." : `Could not connect: ${result.error}`, result.ok);
       }
       if (path === "/api/connectors/oauth/callback" && req.method === "POST") {
@@ -4446,6 +4450,7 @@ export async function cmdServe() {
         const result = await completeConnectorOAuth(body.state, body.code, getConnector);
         if (!result.ok) return err(502, result.error);
         await resetConnector(result.connectorId);
+        await recordConnectorAccount(result.connectorId);
         return json({ ok: true });
       }
       {
@@ -4459,7 +4464,7 @@ export async function cmdServe() {
       }
       if (path === "/api/connectors" && req.method === "POST") {
         const body = (await req.json().catch(() => null)) as
-          | { user?: string; org?: boolean; role?: string; name?: string; endpoint?: string; headers?: Record<string, string>; catalogSlug?: string; icon?: string; oauth?: boolean; oauthApp?: string; requireApproval?: boolean }
+          | { user?: string; org?: boolean; role?: string; name?: string; endpoint?: string; headers?: Record<string, string>; catalogSlug?: string; icon?: string; oauth?: boolean; oauthApp?: string; native?: string; requireApproval?: boolean }
           | null;
         if (!body) return err(400, "invalid JSON body");
         // Three levels: `org` is the team, `role` is every member of that
@@ -4476,6 +4481,7 @@ export async function cmdServe() {
           icon: body.icon,
           oauth: body.oauth,
           oauthApp: typeof body.oauthApp === "string" ? body.oauthApp : undefined,
+          native: typeof body.native === "string" ? body.native : undefined,
           requireApproval: body.requireApproval,
         });
         if (!result.ok) return err(400, result.error);

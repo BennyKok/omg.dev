@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { configureConnectors } from "./context.ts";
 
 import type { Connector } from "./store.ts";
-import { ConnectorOAuthProvider, OAUTH_CALLBACK_PATH, callbackUrl, completeConnectorOAuth, startConnectorOAuth } from "./oauth-provider.ts";
-import { getOAuthState, saveOAuthApp } from "./oauth-store.ts";
+import { ConnectorOAuthProvider, OAUTH_CALLBACK_PATH, callbackUrl, completeConnectorOAuth, connectorTokenSource, startConnectorOAuth } from "./oauth-provider.ts";
+import { getOAuthState, saveOAuthApp, saveTokens } from "./oauth-store.ts";
 
 let tmp: string;
 
@@ -131,5 +131,58 @@ describe("pre-registered OAuth app", () => {
     const sentId = tokenBody?.get("client_id") ?? Buffer.from((tokenAuth ?? "").replace(/^Basic /, ""), "base64").toString().split(":")[0];
     expect(sentId).toBe("cid.apps.googleusercontent.com");
     expect(getOAuthState("g1")?.tokens?.refresh_token).toBe("rt");
+  });
+});
+
+describe("connectorTokenSource", () => {
+  const gmail: Connector = { ...connector, id: "n1", name: "Gmail", slug: "gmail", kind: "native", native: "gmail", endpoint: "https://gmailmcp.test/mcp/v1", oauth: true, oauthApp: "google" };
+  const realFetch = globalThis.fetch;
+  let refreshes = 0;
+
+  beforeEach(() => {
+    refreshes = 0;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input instanceof Request ? input.url : input));
+      if (url.pathname.startsWith("/.well-known/oauth-protected-resource")) {
+        return Response.json({ resource: gmail.endpoint, authorization_servers: ["https://accounts.test/"] });
+      }
+      if (url.pathname === "/.well-known/openid-configuration") {
+        return Response.json({
+          issuer: "https://accounts.test", authorization_endpoint: "https://accounts.test/auth", token_endpoint: "https://accounts.test/token",
+          response_types_supported: ["code"], subject_types_supported: ["public"], id_token_signing_alg_values_supported: ["RS256"], jwks_uri: "https://accounts.test/certs",
+        });
+      }
+      if (url.pathname === "/token") {
+        refreshes += 1;
+        expect(new URLSearchParams(String(init?.body)).get("grant_type")).toBe("refresh_token");
+        return Response.json({ access_token: `at-${refreshes}`, token_type: "Bearer", expires_in: 3599 });
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+    saveOAuthApp("google", { clientId: "cid", clientSecret: "shh" });
+  });
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  test("no token means a sign-in is needed", async () => {
+    await expect(connectorTokenSource(gmail, "https://box")()).rejects.toMatchObject({ code: 401 });
+  });
+
+  test("a valid token is used as is; force and expiry refresh it once, keeping the refresh token", async () => {
+    saveTokens("n1", { access_token: "at-0", token_type: "Bearer", refresh_token: "rt", expires_in: 3599 });
+    const source = connectorTokenSource(gmail, "https://box");
+    expect(await source()).toBe("at-0");
+    expect(refreshes).toBe(0);
+
+    // Two concurrent forced callers share one refresh.
+    const [a, b] = await Promise.all([source(true), source(true)]);
+    expect([a, b]).toEqual(["at-1", "at-1"]);
+    expect(refreshes).toBe(1);
+    expect(getOAuthState("n1")?.tokens?.refresh_token).toBe("rt");
+
+    saveTokens("n1", { access_token: "old", token_type: "Bearer", refresh_token: "rt", expires_in: 30 });
+    expect(await source()).toBe("at-2");
   });
 });

@@ -6,9 +6,9 @@ import { configureOmgTransport } from "../lib/omg-client";
 const { RecommendedConnectors } = await import("./connectors-native");
 
 const GMAIL = {
-  id: "omg/google-gmail", slug: "google-gmail", name: "Gmail", description: "Search, read, draft, label and trash mail.",
-  kind: "mcp", categories: ["google"], connectUrl: "https://gmailmcp.googleapis.com/mcp/v1", icon: null, domain: null,
-  needsOAuth: true, authKind: "oauth", oauthApp: "google", recommended: true,
+  id: "omg/gmail", slug: "gmail", name: "Gmail", description: "Search, read, draft, send, label and trash mail.",
+  kind: "native", categories: ["google"], connectUrl: "https://gmailmcp.googleapis.com/mcp/v1", icon: null, domain: null,
+  needsOAuth: true, authKind: "oauth", oauthApp: "google", native: "gmail", recommended: true,
 };
 
 let ui: Mounted;
@@ -52,7 +52,7 @@ const addConnector = async (draft: Record<string, unknown>) => {
 };
 
 function connectButton(): HTMLButtonElement {
-  return ui.query('[data-recommended="google-gmail"] button') as HTMLButtonElement;
+  return ui.query('[data-recommended="gmail"] button') as HTMLButtonElement;
 }
 
 test("without a Google client, shows the setup form with the redirect URI and blocks Connect", async () => {
@@ -85,12 +85,13 @@ test("saving the client unblocks Connect, which adds Gmail on the google app", a
   expect(connectButton().disabled).toBe(false);
 
   await ui.flushAsync(() => connectButton().click());
-  expect(drafts[0]).toMatchObject({ name: "Gmail", endpoint: "https://gmailmcp.googleapis.com/mcp/v1", oauth: true, oauthApp: "google", catalogSlug: "google-gmail" });
+  expect(drafts[0]).toMatchObject({ name: "Gmail", endpoint: "https://gmailmcp.googleapis.com/mcp/v1", oauth: true, oauthApp: "google", native: "gmail", catalogSlug: "gmail" });
 });
 
-test("an entry the member already added is not offered again", async () => {
-  const added = [{ id: "a", owner: "owner", name: "Gmail", slug: "gmail", endpoint: GMAIL.connectUrl, headerNames: [], catalogSlug: "google-gmail", requireApproval: false, createdAt: 1, updatedAt: 1 }];
+test("an added Gmail account stays offered as another account", async () => {
+  configured = true;
+  const added = [{ id: "a", owner: "owner", name: "Gmail (benny@example.com)", slug: "gmail", endpoint: GMAIL.connectUrl, headerNames: [], catalogSlug: "gmail", native: "gmail", account: "benny@example.com", requireApproval: false, createdAt: 1, updatedAt: 1 }];
   ui.render(<RecommendedConnectors user="owner" scope={{ kind: "me" }} connectors={added} addConnector={addConnector} />);
   await ui.flushAsync();
-  expect(ui.query('[data-recommended="google-gmail"]')).toBeNull();
+  expect(connectButton().textContent).toBe("Add another account");
 });
