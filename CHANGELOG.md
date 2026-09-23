@@ -2,6 +2,21 @@
 
 Recent product updates and deployment notes.
 
+## September 23, 2026 - The app's list, on the web (v0.6.115)
+
+- Gmail now works through omg's own connector. It searches, reads, sends, replies, drafts, labels and trashes mail directly with the Gmail API. Google's own Gmail server answers only for accounts in a Google preview programme, so Gmail never worked through it.
+- The signed-in mailbox is shown in the Gmail connection name, so two Google accounts are told apart.
+- The session list on the web now matches the app. Rows are taller, the agent mark is larger, and the title is larger. The title of an unread chat stays at full weight until you read it.
+- The time a chat last moved is shown before its unread mark, as it is in the app.
+- The web list opens on a folder. Before, it could open with no folder selected and nothing to say why.
+- Open findings are behind an "Updates" pill, on the phone and in the sidebar. They were a list section at the end of the chats.
+- The folder name above each group of chats is gone on the phone. The folder pills above the list say the same thing.
+- The profile picture at the top right is larger, and it no longer sits on a grey plate.
+- The model list no longer goes below the bottom of the screen. It fits the space under the composer and scrolls.
+- The agent sheet no longer opens as an empty card after you close it and open it again.
+- Expo previews name the next port to use when another project holds the one you asked for.
+- Production builds for iOS use Xcode 26.6.
+
 ## September 23, 2026 - Expo Go links are limited to Metro ports (v0.6.114)
 
 - Expo Go links now work only for a Metro port from 8081 to 8099. An Expo Go link skips the owner sign-in, so it must not open other services on your Computer. `omg_expose_port` explains the range when an agent picks another port.
