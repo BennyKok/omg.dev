@@ -137,3 +137,39 @@ describe("connectors MCP endpoint", () => {
     expect(denied.result.isError).toBe(true);
   });
 });
+
+describe("tools-changed stream", () => {
+  test("initialize advertises listChanged, and a store write pushes tools/list_changed", async () => {
+    const init = await serveConnectorsMcpRequest(
+      new Request("http://box/mcp/connectors", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
+      }),
+      "benny",
+    );
+    const initBody = (await init.json()) as { result: { capabilities: { tools: { listChanged: boolean } } } };
+    expect(initBody.result.capabilities.tools.listChanged).toBe(true);
+
+    const abort = new AbortController();
+    const res = await serveConnectorsMcpRequest(
+      new Request("http://box/mcp/connectors", { method: "GET", headers: { accept: "text/event-stream" }, signal: abort.signal }),
+      "benny",
+    );
+    expect(res.headers.get("content-type")).toBe("text/event-stream");
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    expect(decoder.decode((await reader.read()).value)).toContain(": open");
+
+    createConnector({ owner: roleOwner("growth"), name: "Gmail", endpoint: "https://x/mcp" });
+    const frame = decoder.decode((await reader.read()).value);
+    expect(frame).toContain('"method":"notifications/tools/list_changed"');
+    abort.abort();
+    await reader.cancel().catch(() => {});
+  });
+
+  test("a GET without an event-stream Accept is still 405", async () => {
+    const res = await serveConnectorsMcpRequest(new Request("http://box/mcp/connectors", { method: "GET" }), "benny");
+    expect(res.status).toBe(405);
+  });
+});

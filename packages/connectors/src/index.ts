@@ -4,6 +4,7 @@
 // hosted omg.dev sandbox).
 export * from "./context.ts";
 export * from "./store.ts";
+export * from "./changes.ts";
 export * from "./hub.ts";
 export * from "./catalog.ts";
 export * from "./mcp-endpoint.ts";

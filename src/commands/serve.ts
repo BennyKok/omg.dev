@@ -86,8 +86,12 @@ import {
   pendingConnectorApprovalByAsk,
   registerPendingConnectorApproval,
   resolveConnectorApproval,
+  connectorsForMember,
+  listConnectorsForAdmin,
+  emitConnectorsChanged,
 } from "@omg-dev/connectors";
 import { enforceRole } from "../policy/mcp-filter.ts";
+import { withConnectorGrants } from "../policy/connector-grants.ts";
 import { createRole, deleteRole, getRole, listRoles, roleEgress, roleForUser, roleSandbox, updateRole, OWNER_ROLE_ID, VIEW_TOGGLE_KEYS } from "../policy/roles.ts";
 import { DEFAULT_ALLOW_HOSTS, startEgressProxy, type EgressProxy } from "../sandbox/egress-proxy.ts";
 import { sessionToken, verifySessionToken, boxSecretMaterial } from "../policy/session-token.ts";
@@ -4286,7 +4290,9 @@ export async function cmdServe() {
             return { held: false };
           }
         };
-        return await enforceRole(req, caller.role, { namespace: "connectors", split: "__" }, (r) =>
+        // A connection given to this role (or the team) is its own permission.
+        const role = withConnectorGrants(caller.role, connectorsForMember(owner, caller.role.id));
+        return await enforceRole(req, role, { namespace: "connectors", split: "__" }, (r) =>
           serveConnectorsMcpRequest(r, owner, gate, caller.role.id),
         );
       }
@@ -4378,8 +4384,11 @@ export async function cmdServe() {
         const user = url.searchParams.get("user");
         const owner = ownerForUser(user);
         const roleId = roleForUser(user).id;
+        // The owner manages every role's and the team's connections, so they
+        // all stay listed whatever the scope picker last added.
+        const rows = roleId === OWNER_ROLE_ID ? listConnectorsForAdmin(owner) : listConnectors(owner, roleId);
         return json({
-          connectors: listConnectors(owner, roleId).map((c) => ({ ...publicView(c), oauthConnected: hasOAuthTokens(c.id) })),
+          connectors: rows.map((c) => ({ ...publicView(c), oauthConnected: hasOAuthTokens(c.id) })),
         });
       }
 
@@ -4607,6 +4616,8 @@ export async function cmdServe() {
           if (!body) return err(400, "invalid JSON body");
           const result = updateRole(m[1]!, body);
           if (!result.ok) return err(result.error === "role not found" ? 404 : 400, result.error);
+          // New rules change which connector tools pass for running sessions.
+          emitConnectorsChanged();
           return json({ role: result.role });
         }
         if (m && req.method === "DELETE") {
@@ -4644,6 +4655,7 @@ export async function cmdServe() {
           if (!row) return err(404, "session not found");
           patchManaged(row.tmuxName, { role: requested === OWNER_ROLE_ID ? undefined : requested });
           invalidateListSessionsCache();
+          emitConnectorsChanged();
           return json({ ok: true, role: requested });
         }
       }

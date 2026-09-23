@@ -14,6 +14,7 @@
 // serve.ts, on the `connectors.<slug>.<tool>` id.
 import { connectorsForMember, type Connector } from "./store.ts";
 import { callConnectorTool, listConnectorTools } from "./hub.ts";
+import { onConnectorsChanged } from "./changes.ts";
 
 export const NS = "__";
 
@@ -80,7 +81,7 @@ async function handleMessage(msg: Rpc, owner: string, gate: ApprovalGate, roleId
         id,
         result: {
           protocolVersion: "2025-06-18",
-          capabilities: { tools: { listChanged: false } },
+          capabilities: { tools: { listChanged: true } },
           serverInfo: { name: "omg-connectors", version: "0.1.0" },
         },
       } as Rpc;
@@ -124,6 +125,57 @@ function toolError(text: string) {
   return { isError: true, content: [{ type: "text", text }] };
 }
 
+const LIST_CHANGED = `data: ${JSON.stringify({ jsonrpc: "2.0", method: "notifications/tools/list_changed" })}\n\n`;
+
+/** Keepalive under the serve idle timeout, so an idle stream is not cut. */
+export const STREAM_KEEPALIVE_MS = 30_000;
+
+/**
+ * The server-to-client stream of Streamable HTTP. It carries one message:
+ * `notifications/tools/list_changed`, sent whenever the connector store or a
+ * role changes (./changes.ts). Without it an agent keeps the tool list it
+ * fetched at launch, so a connection added or allowed later never appears in
+ * a running session. The stream does not filter by caller: a spurious
+ * re-list is one cheap local request and returns the caller's own tools.
+ */
+function toolsChangedStream(req: Request): Response {
+  if (!(req.headers.get("accept") ?? "").includes("text/event-stream")) {
+    return new Response(null, { status: 405, headers: { "Cache-Control": "no-store" } });
+  }
+  const encoder = new TextEncoder();
+  let stop = () => {};
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const send = (chunk: string) => {
+        try {
+          controller.enqueue(encoder.encode(chunk));
+        } catch {
+          stop();
+        }
+      };
+      const unsubscribe = onConnectorsChanged(() => send(LIST_CHANGED));
+      const keepalive = setInterval(() => send(": keepalive\n\n"), STREAM_KEEPALIVE_MS);
+      stop = () => {
+        unsubscribe();
+        clearInterval(keepalive);
+      };
+      req.signal?.addEventListener("abort", () => {
+        stop();
+        try {
+          controller.close();
+        } catch {}
+      });
+      send(": open\n\n");
+    },
+    cancel() {
+      stop();
+    },
+  });
+  return new Response(body, {
+    headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive" },
+  });
+}
+
 /** Answer one `/mcp/connectors` request for `owner`, a member in `roleId`. */
 export async function serveConnectorsMcpRequest(
   req: Request,
@@ -131,10 +183,7 @@ export async function serveConnectorsMcpRequest(
   gate: ApprovalGate = runInline,
   roleId?: string | null,
 ): Promise<Response> {
-  if (req.method === "GET") {
-    // No server-initiated stream; the client falls back to POST request/response.
-    return new Response(null, { status: 405, headers: { "Cache-Control": "no-store" } });
-  }
+  if (req.method === "GET") return toolsChangedStream(req);
   if (req.method !== "POST") return new Response(null, { status: 405 });
   let parsed: unknown;
   try {

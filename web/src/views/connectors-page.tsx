@@ -161,7 +161,7 @@ const PATTERN_HELP = [
 ];
 
 /** A connector as `/api/connectors` lists it; only the slug matters here. */
-type ConnectorSlug = { slug: string; name: string };
+type ConnectorSlug = { slug: string; name: string; owner?: string };
 
 export function RolesPanel() {
   const [roles, setRoles] = useState<Role[] | null>(null);
@@ -345,9 +345,14 @@ function RoleCard({
     ...(role.sandbox === "bwrap" ? ["Sandboxed"] : []),
   ]);
   const membersSummary = memberNames.length === 0 ? "Nobody yet" : memberNames.join(", ");
+  // A connection given to this role or the team is allowed for it even when
+  // the role blocks by default (src/policy/connector-grants.ts). Say so, or
+  // "Block by default · no rules" reads as if Gmail could not work here.
+  const granted = connectors.filter((c) => c.owner === `role:${role.id}` || c.owner === "*org*").length;
   const toolsSummary = joinSummary([
     role.defaultAction === "allow" ? "Allow by default" : "Block by default",
     role.rules.length === 0 ? "no rules" : plural(role.rules.length, "rule"),
+    ...(granted > 0 && role.defaultAction === "block" ? [`${plural(granted, "connector")} allowed`] : []),
   ]);
   const viewsSummary = hiddenCount === 0 ? "Sees everything" : `Hides ${plural(hiddenCount, "item")}`;
   const safetySummary = joinSummary([

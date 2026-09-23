@@ -13,10 +13,12 @@ import {
   deleteConnectorsForOwner,
   getConnector,
   listConnectors,
+  listConnectorsForAdmin,
   publicView,
   setConnectorOAuth,
   updateConnector,
 } from "./store.ts";
+import { onConnectorsChanged } from "./changes.ts";
 
 let tmp: string;
 
@@ -30,7 +32,7 @@ afterEach(() => {
 });
 
 describe("connector store", () => {
-  test("create validates and slugs uniquely per owner", () => {
+  test("create validates and slugs uniquely", () => {
     const bad = createConnector({ owner: "benny", name: "", endpoint: "https://x" });
     expect(bad.ok).toBe(false);
     expect(createConnector({ owner: "benny", name: "X", endpoint: "not a url" }).ok).toBe(false);
@@ -52,16 +54,19 @@ describe("connector store", () => {
     expect(forAngel).toEqual(["Angel GH", "Shared"]);
   });
 
-  test("three levels: team, role, own; the most specific wins a slug collision", () => {
+  test("three levels: team, role, own; same-name connections in two buckets both stay reachable", () => {
     createConnector({ owner: ORG_OWNER, name: "Shared", endpoint: "https://z/mcp" });
     createConnector({ owner: roleOwner("support"), name: "Zendesk", endpoint: "https://r/mcp" });
     createConnector({ owner: roleOwner("support"), name: "GitHub", endpoint: "https://role-gh/mcp" });
     createConnector({ owner: roleOwner("design"), name: "Figma", endpoint: "https://d/mcp" });
     createConnector({ owner: "benny", name: "GitHub", endpoint: "https://own-gh/mcp" });
 
+    // Slugs are unique across the box, so a personal GitHub no longer hides
+    // the role's GitHub: both reach the member's agents, as two tool sets.
     const support = connectorsForMember("benny", "support");
-    expect(support.map((c) => c.name).sort()).toEqual(["GitHub", "Shared", "Zendesk"]);
-    expect(support.find((c) => c.slug === "github")?.endpoint).toBe("https://own-gh/mcp");
+    expect(support.map((c) => c.name).sort()).toEqual(["GitHub", "GitHub", "Shared", "Zendesk"]);
+    expect(support.find((c) => c.slug === "github")?.endpoint).toBe("https://role-gh/mcp");
+    expect(support.find((c) => c.slug === "github-2")?.endpoint).toBe("https://own-gh/mcp");
 
     const angelInDesign = connectorsForMember("angel", "design").map((c) => c.name).sort();
     expect(angelInDesign).toEqual(["Figma", "Shared"]);
@@ -70,8 +75,27 @@ describe("connector store", () => {
     expect(connectorsForMember("angel", null).map((c) => c.name)).toEqual(["Shared"]);
     expect(connectorsForMember("angel", "owner").map((c) => c.name)).toEqual(["Shared"]);
 
-    // The UI list keeps the shadowed role GitHub so it can be managed.
-    expect(listConnectors("benny", "support").filter((c) => c.slug === "github")).toHaveLength(2);
+    expect(listConnectors("benny", "support").filter((c) => c.name === "GitHub")).toHaveLength(2);
+  });
+
+  test("the owner's list holds their own, the team's and every role's, not other members'", () => {
+    createConnector({ owner: "benny", name: "Mine", endpoint: "https://a/mcp" });
+    createConnector({ owner: "angel", name: "Angel's", endpoint: "https://b/mcp" });
+    createConnector({ owner: roleOwner("growth"), name: "Gmail", endpoint: "https://c/mcp" });
+    createConnector({ owner: ORG_OWNER, name: "Shared", endpoint: "https://d/mcp" });
+    expect(listConnectorsForAdmin("benny").map((c) => c.name).sort()).toEqual(["Gmail", "Mine", "Shared"]);
+  });
+
+  test("every write tells listeners the tool sets may have changed", () => {
+    let changes = 0;
+    const off = onConnectorsChanged(() => (changes += 1));
+    const made = createConnector({ owner: "benny", name: "X", endpoint: "https://x/mcp" });
+    expect(changes).toBe(1);
+    if (made.ok) deleteConnector(made.connector.id);
+    expect(changes).toBe(2);
+    off();
+    createConnector({ owner: "benny", name: "Y", endpoint: "https://y/mcp" });
+    expect(changes).toBe(2);
   });
 
   test("deleting a role bucket removes only that role's connectors", () => {
