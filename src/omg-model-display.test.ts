@@ -64,16 +64,16 @@ describe("omg model display", () => {
 });
 
 describe("claude model display", () => {
-  test("Claude CLI ids and aliases get the same names as hosted ids", () => {
+  test("Claude CLI ids and aliases get a short family name", () => {
     const ids = ["opus", "claude-opus-5-5", "claude-fable-5-1", "fable", "sonnet", "haiku", "claude-opus-4-8-20260101"];
     expect(ids.map((id) => omgModelLabel(id))).toEqual([
-      "Claude Opus",
-      "Claude Opus 5.5",
-      "Claude Fable 5.1",
-      "Claude Fable",
-      "Claude Sonnet",
-      "Claude Haiku",
-      "Claude Opus 4.8",
+      "Opus",
+      "Opus 5.5",
+      "Fable 5.1",
+      "Fable",
+      "Sonnet",
+      "Haiku",
+      "Opus 4.8",
     ]);
   });
 
