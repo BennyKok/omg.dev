@@ -13556,12 +13556,15 @@ function RailStage({
             // "New session in <folder>". The folder picker sits on this row's
             // trailing edge, where the C shortcut hint was, instead of taking
             // a row of its own above the list. The hint lives in the title.
-            <div className="group/new mb-1 flex h-10 w-full items-center gap-1 rounded-lg pr-1.5 transition-colors hover:bg-muted">
+            // Two items side by side, each with its own surface and hover, at
+            // one height. A highlight on the row with a second one on the
+            // chip inside it read as two levels of the same control.
+            <div className="mb-1 flex h-10 w-full items-stretch gap-1.5">
               <button
                 type="button"
                 onClick={startNew}
                 title="New session (C)"
-                className="flex min-w-0 flex-1 items-center gap-2 self-stretch rounded-lg pl-2 text-left text-[13px] font-medium text-muted-foreground outline-none transition-colors group-hover/new:text-foreground focus-visible:ring-2 focus-visible:ring-primary/60"
+                className="flex min-w-0 flex-1 items-center gap-2 rounded-lg bg-secondary pl-2 pr-2.5 text-left text-[13px] font-medium text-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-primary/60"
               >
                 <span className="flex size-7 shrink-0 items-center justify-center rounded-full border border-dashed border-border">
                   <Plus className="size-3.5" />
@@ -16786,19 +16789,11 @@ function SessionChatBody({
               }}
               onCancel={(base) => setMessageText(base)}
             />
-            {chatBusy && canDriveSession(session) ? (
-              <Button
-                size="icon"
-                type="button"
-                variant="tint"
-                className="size-10 shrink-0 rounded-full md:size-8"
-                onClick={() => void interrupt()}
-                aria-label="Stop (Esc or Ctrl/Cmd+.)"
-                title="Stop — Esc or Ctrl/Cmd+."
-              >
-                <Pause className="size-4" />
-              </Button>
-            ) : null}
+            {/* No Stop button here. It sat between the mic and send for the
+                whole of every turn, one more circle in a bar that should be
+                about what you type. Stop lives in the session's menu (the
+                header's ⋯, the row's right-click, the phone's title sheet)
+                and on Esc or Ctrl/Cmd+. */}
             {/* Mounted only once there's something to send (typed text, a
                 dictation interim/final already folded into messageText, or an
                 attachment) — an arrow with nothing behind it was dead chrome.

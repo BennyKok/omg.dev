@@ -127,7 +127,7 @@ export function ProjectFolderMenu({
               trigger === "chip"
                 ? // Capped so a long folder name cannot push New session
                   // out of its own row; the full name is in the title.
-                  "h-8 max-w-[10rem] shrink-0 gap-1.5 rounded-lg bg-secondary px-2.5 text-[13px] font-medium hover:bg-background"
+                  "h-10 max-w-[10rem] shrink-0 gap-1.5 rounded-lg bg-secondary px-3 text-[13px] font-medium hover:bg-muted"
                 : "h-8 w-full gap-2 rounded-lg bg-secondary px-2.5 text-[13px] font-semibold hover:bg-muted",
             )}
           >
