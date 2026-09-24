@@ -50,6 +50,8 @@ export type ProjectFolderMenuProps = {
   /** The display name for one value, sentinels included. */
   labelFor: (value: string) => string;
   onChange: (value: string) => void;
+  /** Sessions in each folder, keyed like `projects`. Zero or absent draws nothing. */
+  counts?: ReadonlyMap<string, number>;
   /** Which folders can leave the machine's list. Session-only folders cannot. */
   canRemove?: (project: string) => boolean;
   /** Take a folder off the machine's list. The folder stays on disk. */
@@ -65,6 +67,7 @@ export function ProjectFolderMenu({
   projects,
   labelFor,
   onChange,
+  counts,
   canRemove,
   onRemove,
   onAddFolder,
@@ -157,6 +160,7 @@ export function ProjectFolderMenu({
                       selected={value === NO_PROJECT_FILTER}
                       icon={<Plus className="size-3.5" />}
                       label={labelFor(NO_PROJECT_FILTER)}
+                      count={counts?.get(NO_PROJECT_FILTER)}
                       onClick={() => choose(NO_PROJECT_FILTER)}
                     />
                   ) : null}
@@ -166,6 +170,7 @@ export function ProjectFolderMenu({
                       selected={value === folder.value}
                       icon={<Folder className="size-3.5" />}
                       label={labelFor(folder.value)}
+                      count={counts?.get(folder.value)}
                       onClick={() => choose(folder.value)}
                     />
                   ))}
@@ -225,11 +230,13 @@ function PickRow({
   selected,
   icon,
   label,
+  count,
   onClick,
 }: {
   selected: boolean;
   icon: ReactNode;
   label: string;
+  count?: number;
   onClick: () => void;
 }) {
   return (
@@ -245,6 +252,11 @@ function PickRow({
     >
       <span className="shrink-0 text-muted-foreground">{icon}</span>
       <span className="min-w-0 flex-1 truncate">{label}</span>
+      {count ? (
+        <span className="shrink-0 text-xs tabular-nums text-muted-foreground" aria-label={`${count} session${count === 1 ? "" : "s"}`}>
+          {count}
+        </span>
+      ) : null}
       <Check className={cn("size-3.5 shrink-0 text-primary", selected ? "opacity-100" : "opacity-0")} />
     </button>
   );

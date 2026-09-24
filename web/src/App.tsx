@@ -5,9 +5,9 @@ import { useRuntimeLifecycle } from "./lib/runtime-lifecycle";
 import { LiveHeaderContext } from "./components/live-header-context";
 import { ProjectPillRail, projectPillsFor } from "./components/project-pill-rail";
 import { ProjectFolderMenu } from "./components/project-folder-menu";
-import { HostDrawerSlot, SideNavButton, SideNavDrawer } from "./components/side-nav";
+import { HostDrawerSlot, SideNavButton, SideNavDrawer, SideNavGlyph, SideNavPanel } from "./components/side-nav";
 import { FindingsPill, FindingsSheet } from "./components/findings-pill";
-import { sideNavRows } from "./lib/side-nav-items";
+import { sideNavRows, type SideNavRow } from "./lib/side-nav-items";
 import {
   AgentSetupSheet,
   type SetupAgentTile,
@@ -636,7 +636,7 @@ import {
   useAsk,
   useSessionQuestions,
 } from "./components/ask-center";
-import { PwaInstallCallout, PwaInstallSettingsSection } from "./components/pwa-install";
+import { GetAppsRailCard, PwaInstallCallout, PwaInstallSettingsSection } from "./components/pwa-install";
 import {
   CustomInstructionsPage,
   CustomInstructionsRow,
@@ -7145,6 +7145,18 @@ export function App() {
     // yet, because starting one is its whole job.
     return [NO_PROJECT_FILTER, ...folders];
   }, [autoAgents, repos, userScopedSessions]);
+  // Sessions per folder, for the folder menu. Bot conversations are left out,
+  // the same as the Chat list leaves them out.
+  const projectSessionCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const session of userScopedSessions) {
+      if (isBotConversation(session)) continue;
+      const key = session.project === "" ? NO_PROJECT_FILTER : session.project;
+      if (!key) continue;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return counts;
+  }, [userScopedSessions]);
   const mobileProjectOptions = useMemo(
     () => projectOptions,
     [projectOptions],
@@ -9300,7 +9312,9 @@ export function App() {
         />
       ) : null}
 
-      {embedded ? null : <PwaInstallCallout />}
+      {/* Wide layouts offer this at the foot of the rail instead (see
+          GetAppsRailCard), not as a banner across the whole layout. */}
+      {embedded || isWide ? null : <PwaInstallCallout />}
 
       {/* The desktop workspace shows this in the rail's brand row instead, so
           the line does not sit unaligned above the layout and push it down. */}
@@ -9363,6 +9377,7 @@ export function App() {
               userFilter={userFilter}
               projectFilter={projectFilter}
               projectOptions={projectOptions}
+              projectCounts={projectSessionCounts}
               // Project selection remains available in embed mode: on desktop
               // the rail is the only visible folder UI because the normal
               // header is hidden. The host owns identity/settings chrome, not
@@ -9393,18 +9408,22 @@ export function App() {
               // state and the extension registry, and the rail should not have to
               // know either to render a menu.
               hostSettingsInMenu={hostSettingsInMenu}
-              pagesMenu={
-                <PagesMenu
-                  tab={tab}
-                  hiddenPages={hiddenPages}
-                  onOpenTab={setTab}
-                  extraTabs={extNavTabs}
-                  showSettings={!embedded}
-                  // Hosted: Settings rides in this menu, same as the mobile
-                  // island, instead of a separate control in the rail footer.
-                  onOpenHostSettings={hostSettingsInMenu ? onOpenHostSettings : undefined}
-                />
-              }
+              sideNav={{
+                // The phone drawer's rows, from the same model, so the rail
+                // and the drawer list the same places in the same order.
+                rows: sideNavRows({
+                  tab,
+                  hiddenPages,
+                  showBots: settings.showBots,
+                  showSchedules: settings.showSchedules,
+                  showSettings: !embedded,
+                  extensions: extNavTabs,
+                }),
+                onNavigate: setTab,
+                // Hosted: Settings is the host's, and rides in this menu the
+                // way it rode in the old pages menu.
+                onOpenHostSettings: hostSettingsInMenu ? onOpenHostSettings : undefined,
+              }}
               repos={repos}
               onReposChanged={loadCore}
               messagesBySid={liveStream.messagesBySid}
@@ -11563,6 +11582,7 @@ function LiveView({
   onClearFindings,
   clearFindingsBusy = false,
   projectOptions = [],
+  projectCounts,
   onProjectChange,
   onUserChange,
   onOpenSettings,
@@ -11577,7 +11597,7 @@ function LiveView({
   onNewBot,
   onEditBot,
   onRefreshBots,
-  pagesMenu,
+  sideNav,
   repos = [],
   onReposChanged,
   hosted = false,
@@ -11600,6 +11620,8 @@ function LiveView({
   userFilter: string;
   projectFilter: string;
   projectOptions?: string[];
+  /** Sessions per folder, for the folder menu. */
+  projectCounts?: ReadonlyMap<string, number>;
   onProjectChange?: (v: string) => void;
   onUserChange?: (v: string) => void;
   onOpenSettings?: () => void;
@@ -11615,8 +11637,8 @@ function LiveView({
   onNewBot?: () => void;
   onEditBot?: (bot: PersistentBot) => void;
   onRefreshBots?: () => Promise<void>;
-  /** Rail overflow menu, built by the shell so RailStage stays unaware of tabs. */
-  pagesMenu?: ReactNode;
+  /** The rail's menu, built by the shell so RailStage stays unaware of tabs. */
+  sideNav?: RailSideNav;
   repos?: Repo[];
   onReposChanged?: () => Promise<void>;
   hosted?: boolean;
@@ -11952,6 +11974,7 @@ function LiveView({
         onNew={onNew}
         userFilter={userFilter}
         projectOptions={projectOptions}
+        projectCounts={projectCounts}
         onProjectChange={onProjectChange}
         onUserChange={onUserChange}
         onOpenSettings={onOpenSettings}
@@ -11966,7 +11989,7 @@ function LiveView({
         onNewBot={onNewBot}
         onEditBot={onEditBot}
         onRefreshBots={onRefreshBots}
-        pagesMenu={pagesMenu}
+        sideNav={sideNav}
         repos={repos}
         onReposChanged={onReposChanged}
         hosted={hosted}
@@ -12151,6 +12174,7 @@ function RailStage({
   onNew,
   userFilter = "__all",
   projectOptions = [],
+  projectCounts,
   onProjectChange,
   onUserChange,
   onOpenSettings,
@@ -12165,7 +12189,7 @@ function RailStage({
   onNewBot,
   onEditBot,
   onRefreshBots,
-  pagesMenu,
+  sideNav,
   repos = [],
   onReposChanged,
   hosted = false,
@@ -12183,6 +12207,8 @@ function RailStage({
   projectFilter: string;
   userFilter?: string;
   projectOptions?: string[];
+  /** Sessions per folder, for the folder menu. */
+  projectCounts?: ReadonlyMap<string, number>;
   onProjectChange?: (v: string) => void;
   onUserChange?: (v: string) => void;
   onOpenSettings?: () => void;
@@ -12197,8 +12223,8 @@ function RailStage({
   onNewBot?: () => void;
   onEditBot?: (bot: PersistentBot) => void;
   onRefreshBots?: () => Promise<void>;
-  /** Rail overflow menu, built by the shell so RailStage stays unaware of tabs. */
-  pagesMenu?: ReactNode;
+  /** The rail's menu, built by the shell so RailStage stays unaware of tabs. */
+  sideNav?: RailSideNav;
   repos?: Repo[];
   onReposChanged?: () => Promise<void>;
   hosted?: boolean;
@@ -12241,7 +12267,37 @@ function RailStage({
   // A host that supplies its own machine list gets the switcher too.
   const hostMachines = useEmbeddedHostOptions().machines;
   const appDialog = useAppDialog();
-  const { conversations: botConversationsForRail, selectedConversationId: selectedBotConversationForRail, markRead: markBotRowRead } = useContext(BotUnreadContext);
+  const { conversations: botConversationsForRail, selectedConversationId: selectedBotConversationForRail, markRead: markBotRowRead, any: botsUnreadAny } = useContext(BotUnreadContext);
+  const { any: sessionsUnreadAny } = useContext(SessionUnreadContext);
+  // The rail's menu, drawn over its list. See SideNavPanel.
+  const [railNavOpen, setRailNavOpen] = useState(false);
+  // Unread lives on the menu rows now that the switch that carried it is
+  // gone. The menu button carries it too while the list hides a surface
+  // with news, so closing the menu cannot hide it.
+  const railNavUnread = useMemo(() => {
+    const keys = new Set<string>();
+    if (sessionsUnreadAny) keys.add("live");
+    if (botsUnreadAny) keys.add("bots");
+    return keys;
+  }, [botsUnreadAny, sessionsUnreadAny]);
+  const railNavHasNews =
+    (sessionsUnreadAny && railSurface !== "sessions") || (botsUnreadAny && railSurface !== "chat");
+  // Trailing edge of the rail header, and of the menu's header over it, so
+  // it stays in one place whichever face the rail is showing.
+  const railCollapseButton = (
+    <button
+      type="button"
+      onClick={() => {
+        setRailNavOpen(false);
+        setRailCollapsed(true);
+      }}
+      aria-label="Collapse sidebar"
+      title="Collapse sidebar (⌘B)"
+      className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+    >
+      <PanelLeftClose className="size-4" />
+    </button>
+  );
   const MAX_COLUMNS = 4;
   const layoutScope = projectFilter || "__all";
   const layoutKey = encodeURIComponent(layoutScope);
@@ -13324,15 +13380,16 @@ function RailStage({
     // and how many, which is what the other rail lists all say.
     <RailGroup label="Bots" count={botRailRows.length} collapsed={railCollapsed}>
       {!railCollapsed && onNewBot ? (
+        // The same row as the Chat list's New session.
         <button
           type="button"
           onClick={onNewBot}
-          className="flex h-20 w-full items-center gap-3 rounded-lg pl-4 pr-3.5 text-left text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="mb-1 flex h-10 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
-          <span className="flex size-11 shrink-0 items-center justify-center rounded-full border border-dashed border-border">
-            <Plus className="size-4" />
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-full border border-dashed border-border">
+            <Plus className="size-3.5" />
           </span>
-          <span className="truncate">New bot</span>
+          <span className="min-w-0 flex-1 truncate">New bot</span>
         </button>
       ) : null}
       {botRailRows.map((row) => {
@@ -13368,7 +13425,10 @@ function RailStage({
               busy={busy}
               active={active}
               collapsed={railCollapsed}
-              avatarSize={railCollapsed ? 32 : 44}
+              // The desktop session row's density and bot face size, so the
+              // two rail lists read as one list.
+              dense
+              avatarSize={railCollapsed ? 32 : 36}
               preview={preview}
               unread={row.unread}
               timestamp={row.lastMessageTs || bot.lastMessageAt}
@@ -13396,6 +13456,9 @@ function RailStage({
         // rail is what has to make room for it.
         style={{ width: railCollapsed ? 56 : 320, overscrollBehaviorX: "contain" }}
       >
+        {/* Everything above the footer. The menu covers exactly this, so the
+            machine switcher under it stays in view either way. */}
+        <div className="relative flex min-h-0 flex-1 flex-col">
         {railCollapsed ? (
           <div className="flex shrink-0 flex-col items-center gap-1 border-b border-border py-2">
             <button
@@ -13417,62 +13480,67 @@ function RailStage({
             >
               <Plus className="size-4" />
             </button>
-            {/* Replaces a lone Shipped megaphone. That button was the collapsed
-                rail's only page link, so Artifacts had no entry point here at
-                all — and it named one destination where the rail needs a place
-                to put several. */}
-            {pagesMenu}
-          </div>
-        ) : (
-          <div className="flex shrink-0 flex-col gap-2 border-b border-border px-2 py-2">
-            {/* Hosted replaces the LFG mark with omg.dev and moves project
-                scope to the action row so the lockup always has room. */}
-            <div className="flex items-center gap-1.5">
-              {/* Leads the row, which is where the collapsed strip puts its
-                  expand button. The control then stays in one place in both
-                  states instead of moving when you use it. Collapsing used to
-                  be ⌘B only — a shortcut you could find nowhere but the `?`
-                  overlay — while expanding had a button, so the affordance
-                  existed in one direction. */}
+            {/* The collapsed strip's only way to other places: open the rail
+                straight onto its menu. */}
+            {sideNav ? (
               <button
                 type="button"
-                onClick={() => setRailCollapsed((v) => !v)}
-                aria-label="Collapse sidebar"
-                title="Collapse sidebar (⌘B)"
-                className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                onClick={() => {
+                  setRailCollapsed(false);
+                  setRailNavOpen(true);
+                }}
+                aria-label="Menu"
+                title="Menu"
+                className="relative flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
               >
-                <PanelLeftClose className="size-4" />
+                <SideNavGlyph />
+                {railNavHasNews ? (
+                  <span className={cn(UNREAD_DOT_CLASS, "absolute right-1 top-1")} aria-hidden="true" />
+                ) : null}
               </button>
-              <RuntimeStatusBrand>
-                <ProductBrand hosted={hosted} />
-              </RuntimeStatusBrand>
-              <div className="ml-auto flex items-center gap-1">
-                {onOpenAsk ? (
-                  <>
-                    {hosted ? null : <UpdateNavButton />}
-                    <AskNavButton active={false} onOpen={onOpenAsk} />
-                  </>
+            ) : null}
+          </div>
+        ) : (
+          <div className="flex h-12 shrink-0 items-center gap-1.5 border-b border-border px-2">
+            {/* The menu leads the row. It holds every place the rail can
+                show and every page besides, which used to be split between a
+                Chat / Bots / Schedules switch under this row and a three-dot
+                menu at its end. */}
+            {sideNav ? (
+              <button
+                type="button"
+                onClick={() => setRailNavOpen(true)}
+                aria-label="Menu"
+                aria-expanded={railNavOpen}
+                title="Menu"
+                data-testid="rail-menu-button"
+                className="relative flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <SideNavGlyph />
+                {railNavHasNews ? (
+                  <span className={cn(UNREAD_DOT_CLASS, "absolute right-1 top-1")} aria-hidden="true" />
                 ) : null}
-                {onUserChange ? (
-                  <UserFilterMenu
-                    value={userFilter}
-                    users={users}
-                    onChange={onUserChange}
-                  />
-                ) : null}
-                {pagesMenu}
-              </div>
+              </button>
+            ) : null}
+            <RuntimeStatusBrand>
+              <ProductBrand hosted={hosted} />
+            </RuntimeStatusBrand>
+            <div className="ml-auto flex items-center gap-1">
+              {onOpenAsk ? (
+                <>
+                  {hosted ? null : <UpdateNavButton />}
+                  <AskNavButton active={false} onOpen={onOpenAsk} />
+                </>
+              ) : null}
+              {onUserChange ? (
+                <UserFilterMenu
+                  value={userFilter}
+                  users={users}
+                  onChange={onUserChange}
+                />
+              ) : null}
+              {railCollapseButton}
             </div>
-            {/* Sits below the actions, directly above the list it switches.
-                Above the brand row it read as app-level navigation; what it
-                actually does is change which list the rail is showing.
-                Unlike the mobile dock, this never sits inside a full-screen
-                bot conversation — the desktop rail always keeps showing the
-                roster, with the stage panes doing the switching. Hiding it
-                once a bot is selected (`selectedBotId`, mirroring the mobile
-                guard added in 1b3ca7d) stranded desktop users on the Bots
-                surface with no way back to Chat. Always render it here. */}
-            <SurfaceToggle active={railSurface} onOpenSessions={onOpenSessions} onOpenBots={onOpenBots} onOpenAuto={onOpenAuto} />
           </div>
         )}
         {showFolderMenu ? (
@@ -13485,6 +13553,7 @@ function RailStage({
               projects={projectOptions}
               labelFor={(value) => projectFilterLabel(value, shortProject)}
               onChange={(next) => onProjectChange?.(next)}
+              counts={projectCounts}
               canRemove={(project) => repos.some((repo) => repoProject(repo) === project)}
               onRemove={async (project) => {
                 const repo = repos.find((candidate) => repoProject(candidate) === project);
@@ -13548,6 +13617,33 @@ function RailStage({
             with a machine it can reach, so a plain install sees no change.
             A hosted surface never shows it: the host owns machine selection. */}
         {autoRailPill}
+        {sideNav && !railCollapsed ? (
+          <SideNavPanel
+            open={railNavOpen}
+            onBack={() => setRailNavOpen(false)}
+            rows={sideNav.rows}
+            onNavigate={sideNav.onNavigate}
+            unread={railNavUnread}
+            trailing={railCollapseButton}
+            footer={
+              sideNav.onOpenHostSettings ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRailNavOpen(false);
+                    sideNav.onOpenHostSettings?.();
+                  }}
+                  className="flex min-h-10 w-full items-center gap-3 rounded-xl px-3 text-left text-[14px] text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+                >
+                  <Settings className="size-4 shrink-0" />
+                  <span className="min-w-0 flex-1 truncate">Settings</span>
+                </button>
+              ) : null
+            }
+          />
+        ) : null}
+        </div>
+        {!hosted && !railCollapsed ? <GetAppsRailCard /> : null}
         {!hosted || hostMachines ? <MachineSwitcher variant="rail" collapsed={railCollapsed} /> : null}
         {hosted ? (
           <div
@@ -13760,6 +13856,14 @@ function collectGroupSids(nodes: SessionTreeNode[], into: string[] = []): string
   }
   return into;
 }
+
+/** What the desktop rail's menu lists and where its rows go. */
+type RailSideNav = {
+  rows: SideNavRow[];
+  onNavigate: (key: string) => void;
+  /** A host that owns Settings gets a row that opens its own. */
+  onOpenHostSettings?: () => void;
+};
 
 function SessionGroups({
   groups,
@@ -14613,6 +14717,7 @@ function BotRosterRow({
   busy,
   active,
   collapsed,
+  dense = false,
   avatarSize,
   preview,
   previewClassName,
@@ -14625,6 +14730,8 @@ function BotRosterRow({
   busy: boolean;
   active: boolean;
   collapsed: boolean;
+  /** Desktop rail: the session rows' shorter row and smaller type. */
+  dense?: boolean;
   avatarSize: number;
   preview: ReactNode;
   previewClassName?: string;
@@ -14644,6 +14751,8 @@ function BotRosterRow({
   return (
     <RailRow
       collapsed={collapsed}
+      dense={dense}
+      markBoxClassName={dense && !collapsed ? "size-9" : undefined}
       active={active}
       cursored={false}
       unread={unread}

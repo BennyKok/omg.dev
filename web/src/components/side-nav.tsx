@@ -21,6 +21,7 @@ import {
   Bell,
   Bot,
   CalendarClock,
+  ChevronLeft,
   Flag,
   LayoutDashboard,
   MessageSquare,
@@ -153,35 +154,151 @@ export function SideNavDrawer({
             {/* The machine, first. It is the thing every other row is scoped
                 to, so it reads as the heading for them. */}
             {machineSwitcher ? <div className="pb-3">{machineSwitcher}</div> : null}
-            {rows.map((row) => {
-              const Icon = GLYPH[row.icon];
-              return (
-                <button
-                  key={row.key}
-                  type="button"
-                  data-testid={`side-nav-row-${row.key}`}
-                  aria-current={row.current ? "page" : undefined}
-                  onClick={() => {
-                    // Tapping the row you are on just closes, as on iOS.
-                    if (!row.current) onNavigate(row.key);
-                    onOpenChange(false);
-                  }}
-                  className={cn(
-                    "flex min-h-12 items-center gap-3 rounded-xl px-3 text-left text-[15px] transition-colors",
-                    row.current
-                      ? "bg-muted font-semibold text-foreground"
-                      : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
-                  )}
-                >
-                  <Icon className="size-[18px] shrink-0" />
-                  <span className="min-w-0 flex-1 truncate">{row.label}</span>
-                </button>
-              );
-            })}
+            <SideNavRows rows={rows} onNavigate={onNavigate} onClose={() => onOpenChange(false)} />
             {footer ? <div className="mt-2 border-t border-border pt-2">{footer}</div> : null}
           </div>
         </VaulDrawer.Content>
       </VaulDrawer.Portal>
     </VaulDrawer.Root>
+  );
+}
+
+/**
+ * The rows themselves, shared by the phone drawer and the desktop rail panel,
+ * so the two cannot list different places or mark the current one
+ * differently.
+ */
+function SideNavRows({
+  rows,
+  onNavigate,
+  onClose,
+  unread,
+  dense = false,
+}: {
+  rows: SideNavRow[];
+  onNavigate: (key: string) => void;
+  onClose: () => void;
+  /** Row keys that carry an unread dot. */
+  unread?: ReadonlySet<string>;
+  /** Pointer-sized rows for the desktop rail. */
+  dense?: boolean;
+}) {
+  return (
+    <>
+      {rows.map((row) => {
+        const Icon = GLYPH[row.icon];
+        return (
+          <button
+            key={row.key}
+            type="button"
+            data-testid={`side-nav-row-${row.key}`}
+            aria-current={row.current ? "page" : undefined}
+            onClick={() => {
+              // Tapping the row you are on just closes, as on iOS.
+              if (!row.current) onNavigate(row.key);
+              onClose();
+            }}
+            className={cn(
+              "flex items-center gap-3 rounded-xl px-3 text-left transition-colors",
+              dense ? "min-h-10 text-[14px]" : "min-h-12 text-[15px]",
+              row.current
+                ? "bg-muted font-semibold text-foreground"
+                : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+            )}
+          >
+            <Icon className={cn("shrink-0", dense ? "size-4" : "size-[18px]")} />
+            <span className="min-w-0 flex-1 truncate">{row.label}</span>
+            {unread?.has(row.key) ? (
+              <span role="status" aria-label={`${row.label} has unread`} className="size-2 shrink-0 rounded-full bg-primary" />
+            ) : null}
+          </button>
+        );
+      })}
+    </>
+  );
+}
+
+/** Two bars of different widths, the iOS menu glyph. */
+export function SideNavGlyph() {
+  return (
+    <span className="flex flex-col items-start gap-[4px]" aria-hidden="true">
+      <span className="block h-0.5 w-[18px] rounded-full bg-current" />
+      <span className="block h-0.5 w-3 rounded-full bg-current" />
+    </span>
+  );
+}
+
+/**
+ * THE DESKTOP RAIL'S MENU. The same places as the phone drawer, drawn over
+ * the rail's list inside the rail itself, with Back to return to the list.
+ *
+ * It replaces the Chat / Bots / Schedules switch and the three-dot pages
+ * menu, which were two ways to answer one question. The stage beside the rail
+ * does not move: the menu changes what the rail lists, never what is open.
+ *
+ * Mounted at all times and slid off to the left when closed, so opening it is
+ * a transform and not a mount. `inert` keeps the hidden rows out of the tab
+ * order and away from screen readers.
+ */
+export function SideNavPanel({
+  open,
+  onBack,
+  rows,
+  onNavigate,
+  unread,
+  trailing,
+  footer,
+}: {
+  open: boolean;
+  onBack: () => void;
+  rows: SideNavRow[];
+  onNavigate: (key: string) => void;
+  unread?: ReadonlySet<string>;
+  /** Right side of the header. The rail puts its collapse control here. */
+  trailing?: ReactNode;
+  footer?: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    node.inert = !open;
+    if (open) node.querySelector<HTMLElement>('[aria-current="page"]')?.focus({ preventScroll: true });
+  }, [open]);
+  return (
+    <div
+      ref={ref}
+      data-testid="side-nav-panel"
+      role="navigation"
+      aria-label="Navigation"
+      aria-hidden={!open}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.stopPropagation();
+          onBack();
+        }
+      }}
+      className={cn(
+        "absolute inset-0 z-30 flex flex-col bg-background transition-transform duration-200 ease-ios motion-reduce:transition-none",
+        open ? "translate-x-0" : "pointer-events-none -translate-x-full",
+      )}
+    >
+      <div className="flex h-12 shrink-0 items-center gap-1 border-b border-border px-2">
+        <button
+          type="button"
+          onClick={onBack}
+          data-testid="side-nav-back"
+          className="flex h-8 items-center gap-1 rounded-lg pl-1 pr-2.5 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <ChevronLeft className="size-4" />
+          Back
+        </button>
+        {trailing ? <div className="ml-auto flex items-center">{trailing}</div> : null}
+      </div>
+      <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 py-2">
+        <SideNavRows rows={rows} onNavigate={onNavigate} onClose={onBack} unread={unread} dense />
+        {footer ? <div className="mt-2 border-t border-border pt-2">{footer}</div> : null}
+      </div>
+    </div>
   );
 }

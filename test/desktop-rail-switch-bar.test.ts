@@ -29,7 +29,7 @@ function railStageBody(): string {
   return APP.slice(start, end);
 }
 
-describe("the desktop rail keeps its Chat/Bots switch bar", () => {
+describe("the desktop rail keeps its way between Chat and Bots", () => {
   test("RailStage's SurfaceToggle mount is not guarded by selectedBotId", () => {
     const body = railStageBody();
     // The exact regression: a bot-selection guard wrapped around the rail's
@@ -38,11 +38,14 @@ describe("the desktop rail keeps its Chat/Bots switch bar", () => {
     expect(body).not.toContain("selectedBotId ? null :");
   });
 
-  test("RailStage always mounts a SurfaceToggle wired to railSurface", () => {
+  test("RailStage mounts its menu, which replaced the rail's switch bar", () => {
+    // The Chat / Bots / Schedules switch moved into the rail's menu (see
+    // SideNavPanel, render-tested in web/src/components/side-nav.test.tsx).
+    // The rule above still holds for it: nothing about a selected bot may
+    // take away the way back to Chat.
     const body = railStageBody();
-    expect(body).toContain(
-      "<SurfaceToggle active={railSurface} onOpenSessions={onOpenSessions} onOpenBots={onOpenBots} onOpenAuto={onOpenAuto} />",
-    );
+    expect(body).toContain("<SideNavPanel");
+    expect(body).not.toMatch(/selectedBotId[^\n]*<SideNavPanel/);
   });
 
   test("the shared toggle exposes Schedules as its third destination", () => {

@@ -58,7 +58,7 @@ describe("embedded header host-slot parity across breakpoints", () => {
     // and not the wide desktop rail workspace (>=1024px). A host mounted in
     // that band — tablet portrait, split view, a resized embedded window —
     // had no node to dock into and fell back to floating its own pill.
-    const body = sliceBetween(") : chromelessSurface ? null : (", "{embedded ? null : <PwaInstallCallout");
+    const body = sliceBetween(") : chromelessSurface ? null : (", "{embedded || isWide ? null : <PwaInstallCallout");
     expect(body).toContain(SLOT);
     // The slot must be conditional on `embedded` — standalone LFG owns this
     // header itself and must never advertise a host dock target.
@@ -92,7 +92,7 @@ describe("embedded header host-slot parity across breakpoints", () => {
       "isMobile && isPrimarySurfaceTab(tab) ? (",
       ") : embedded && isMobile ? (",
     );
-    const tabletHeader = sliceBetween(") : chromelessSurface ? null : (", "{embedded ? null : <PwaInstallCallout");
+    const tabletHeader = sliceBetween(") : chromelessSurface ? null : (", "{embedded || isWide ? null : <PwaInstallCallout");
     for (const [name, body] of [["mobile Live", liveHeader], ["generic/tablet", tabletHeader]] as const) {
       expect(body, `${name} header slot is missing the host-settings flag`).toContain(
         "data-lfg-host-settings={hostSettingsInMenu",

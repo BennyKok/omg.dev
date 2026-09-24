@@ -44,8 +44,15 @@ export function cacheProjectFilter(
  */
 export const NO_PROJECT_FILTER = "__no_project";
 
-/** What the no-project filter is called in the rail, the menu and the sheet. */
-export const NO_PROJECT_FILTER_LABEL = "No project";
+/**
+ * What the no-project filter is called in the folder menu, the sheet and the
+ * composer chip.
+ *
+ * "New project", not "No project". The scope exists to start something that
+ * has no folder yet, and it sits at the head of a list of folders, where
+ * "No project" read as a folder by that name.
+ */
+export const NO_PROJECT_FILTER_LABEL = "New project";
 
 /**
  * Does this session belong in the list the current filter is showing?

@@ -37,10 +37,10 @@ describe("page navigation reachability", () => {
     expect(app).toMatch(
       /onClick=\{\(\) => setTab\("live"\)\}[\s\S]{0,200}aria-label="Live"/,
     );
-    // Wide layouts reach Bots from the rail's switch bar.
-    expect(app).toContain(
-      "<SurfaceToggle active={railSurface} onOpenSessions={onOpenSessions} onOpenBots={onOpenBots} onOpenAuto={onOpenAuto} />",
-    );
+    // Wide layouts reach Bots from the rail's menu, which lists the same
+    // rows as the phone drawer.
+    expect(app).toContain("<SideNavPanel");
+    expect(app).toMatch(/sideNav=\{\{[\s\S]{0,300}rows: sideNavRows\(\{/);
     // A phone reaches every page through the side navigation, which replaced
     // both the bottom surface bar and this menu. WHICH pages it lists is a
     // behavioural test, not a string match: see
@@ -67,19 +67,18 @@ describe("page navigation reachability", () => {
     expect(body).toContain("extraTabs.map");
   });
 
-  test("both rail layouts render the menu", () => {
+  test("both rail layouts reach the menu", () => {
     // Collapsed and expanded. The collapsed strip previously had a lone Shipped
-    // megaphone and no Artifacts entry at all.
-    // Count standalone renders only — `pagesMenu={pagesMenu}` (the prop forward)
-    // contains the same substring and must not be counted as a render site.
-    const renders = app
-      .split("\n")
-      .filter((line) => line.trim() === "{pagesMenu}").length;
-    expect(renders, "expected the rail to render pagesMenu twice").toBe(2);
+    // megaphone and no Artifacts entry at all. Both open the rail's menu now:
+    // the expanded header directly, the collapsed strip by expanding onto it.
+    const opens = app.split("setRailNavOpen(true)").length - 1;
+    expect(opens, "expected two places that open the rail menu").toBe(2);
   });
 
-  test("the shell builds the menu and passes it down", () => {
-    expect(app).toMatch(/pagesMenu=\{\s*<PagesMenu/);
+  test("the shell builds the menus and passes them down", () => {
+    // The rail's menu, from the shared row model.
+    expect(app).toContain("onNavigate: setTab,");
+    // The page headers outside the rail still carry the pages menu.
     expect(app).toContain("<PagesMenu");
     expect(app).toContain("onOpenTab={setTab}");
     expect(app).toContain("extraTabs={extNavTabs}");

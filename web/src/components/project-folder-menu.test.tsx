@@ -15,7 +15,7 @@ beforeEach(() => {
 afterEach(() => ui.cleanup());
 
 const projects = [NO_PROJECT_FILTER, "alpha", "beta", "gamma"];
-const labelFor = (value: string) => (value === NO_PROJECT_FILTER ? "No project" : value);
+const labelFor = (value: string) => (value === NO_PROJECT_FILTER ? "New project" : value);
 // The global document, not the harness module's window: another file in the
 // same run may have installed its own, and the popover portals into this one.
 const body = () => document.body;
@@ -43,7 +43,7 @@ test("picks a folder from the dropdown", async () => {
   expect(byLabel("Folder: alpha")).not.toBeNull();
   ui.flush(() => byLabel("Folder: alpha")!.click());
   await ui.flushAsync();
-  expect(menuRows()).toEqual(["No project", "alpha", "beta", "gamma"]);
+  expect(menuRows()).toEqual(["New project", "alpha", "beta", "gamma"]);
   ui.flush(() => (body().querySelector('button[title="beta"][aria-pressed]') as HTMLButtonElement).click());
   expect(picked).toEqual(["beta"]);
 });
@@ -75,7 +75,7 @@ test("manage hides a folder from the menu and removes one from the list", async 
   expect(removed).toEqual(["alpha"]);
   ui.flush(() => byLabel("Back to folders")!.click());
   // Hidden folders leave the menu. The current one stays so it keeps its tick.
-  expect(menuRows()).toEqual(["No project", "alpha", "gamma"]);
+  expect(menuRows()).toEqual(["New project", "alpha", "gamma"]);
 });
 
 test("the reorder handle moves a folder with the arrow keys", async () => {
@@ -87,4 +87,23 @@ test("the reorder handle moves a folder with the arrow keys", async () => {
   const handle = byLabel("Reorder gamma")!;
   ui.flush(() => handle.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true })));
   expect(getFolderMenuPrefs().order).toEqual(["alpha", "gamma", "beta"]);
+});
+
+test("each folder row shows how many sessions it holds", async () => {
+  ui.render(
+    <ProjectFolderMenu
+      value="alpha"
+      projects={projects}
+      labelFor={labelFor}
+      onChange={() => {}}
+      counts={new Map([["alpha", 9], ["beta", 1]])}
+    />,
+  );
+  ui.flush(() => byLabel("Folder: alpha")!.click());
+  await ui.flushAsync();
+  const row = (name: string) => body().querySelector(`button[title="${name}"][aria-pressed]`)!;
+  expect(row("alpha").querySelector('[aria-label="9 sessions"]')?.textContent).toBe("9");
+  expect(row("beta").querySelector('[aria-label="1 session"]')).not.toBeNull();
+  // An empty folder draws no zero.
+  expect(row("gamma").textContent).toBe("gamma");
 });
