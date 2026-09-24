@@ -49,6 +49,7 @@ import Reanimated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { Icon } from "../components";
 import { LucideIcon, type LucideName } from "./lucide";
 import { BrandWordmark } from "./brand-mark";
 import { GlassSurface } from "./glass";
@@ -112,6 +113,8 @@ export type SideNavProps = {
    * the route would stack a second copy of the screen you can see.
    */
   onDismiss?: () => void;
+  /** The wordmark above the rows. Defaults to on in the drawer, off inline. */
+  showBrand?: boolean;
 };
 
 function NavRow({
@@ -185,12 +188,13 @@ export function SideNavPanel({
   navigate,
   onShortcuts,
   onDismiss,
+  showBrand = !!onDismiss,
 }: SideNavProps) {
   const { colors, radius, type, space } = useTheme();
   const rows = sideNavRows({ pathname, keyboardShortcuts: !!onShortcuts });
   return (
     <View style={{ gap: space.xs }}>
-      {onDismiss ? (
+      {showBrand ? (
         <View style={{ paddingHorizontal: 12, paddingTop: 8, paddingBottom: 20 }}>
           <BrandWordmark size={28} holeColor={colors.bg} />
         </View>
@@ -449,6 +453,94 @@ export function SideNavDrawer({ progress, controller, ...panel }: SideNavProps &
         </View>
       </Reanimated.View>
     </View>
+  );
+}
+
+/** The rail menu's slide, the web rail's 380ms on its softer curve. */
+export const RAIL_NAV_DURATION = 380;
+// A function, not a constant: built when the slide runs, not at import.
+export const railNavEasing = () => Easing.bezier(0.25, 0.8, 0.25, 1);
+
+/**
+ * THE IPAD RAIL'S MENU, ported from the web's desktop rail (SideNavPanel in
+ * web/src/components/side-nav.tsx). The same rows as the phone drawer, drawn
+ * over the rail's own list with Back to return, instead of a drawer that
+ * pushes the whole window sideways.
+ *
+ * It covers the rail and nothing else. The pane beside it does not move: the
+ * menu changes what the rail shows, never what is open. This is not the old
+ * rail footer either, which stacked six rows UNDER the list and cramped it;
+ * here the list steps back while the menu is up and returns on Back.
+ *
+ * Mounted at all times and slid off to the left when closed, so opening it is
+ * a transform and not a mount. Hidden from touch and VoiceOver while closed.
+ */
+export function SideNavRailPanel({
+  open,
+  progress,
+  width,
+  topInset,
+  onBack,
+  ...panel
+}: Omit<SideNavProps, "onDismiss" | "showBrand"> & {
+  open: boolean;
+  /** 0 closed, 1 open. The caller also steps the list back with it. */
+  progress: SharedValue<number>;
+  /** The rail's width, which is how far the panel travels. */
+  width: number;
+  /** The rail's own top padding, so Back sits on the header's line. */
+  topInset: number;
+  onBack: () => void;
+}) {
+  const { colors, type, space, radius } = useTheme();
+  const insets = useSafeAreaInsets();
+  const style = useAnimatedStyle(() => ({
+    opacity: progress.value,
+    transform: [{ translateX: (progress.value - 1) * width }],
+  }));
+  return (
+    <Reanimated.View
+      pointerEvents={open ? "auto" : "none"}
+      accessibilityElementsHidden={!open}
+      importantForAccessibility={open ? "auto" : "no-hide-descendants"}
+      accessibilityLabel="Navigation"
+      style={[
+        StyleSheet.absoluteFill,
+        { zIndex: 30, backgroundColor: colors.bg, paddingTop: topInset },
+        style,
+      ]}
+    >
+      <View style={{ height: 40, flexDirection: "row", alignItems: "center", paddingHorizontal: space.sm }}>
+        <Pressable
+          onPress={onBack}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Back"
+          style={({ pressed }) => ({
+            height: 36,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 4,
+            paddingLeft: 6,
+            paddingRight: 10,
+            borderRadius: radius.md,
+            backgroundColor: pressed ? colors.cardPressed : "transparent",
+          })}
+        >
+          <Icon ios="chevron.left" android="chevron_left" size={15} color={colors.textSecondary} />
+          <Text style={{ ...type.subhead, fontWeight: "500", color: colors.textSecondary }}>Back</Text>
+        </Pressable>
+      </View>
+      <ScrollView
+        contentContainerStyle={{
+          paddingTop: space.sm,
+          paddingBottom: insets.bottom + space.lg,
+          paddingHorizontal: 12,
+        }}
+      >
+        <SideNavPanel {...panel} showBrand={false} onDismiss={onBack} />
+      </ScrollView>
+    </Reanimated.View>
   );
 }
 

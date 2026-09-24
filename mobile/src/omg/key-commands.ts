@@ -108,6 +108,7 @@ export const SHORTCUTS: Array<{ keys: string; does: string; where: "Session" | "
   { keys: "⌘ 1 … 9", does: "Open the nth session", where: "Anywhere" },
   { keys: "⌘ .", does: "Interrupt the running agent", where: "Session" },
   { keys: "⌘ ,", does: "Settings", where: "Anywhere" },
+  { keys: "⌘ B", does: "Collapse or expand the sidebar (iPad)", where: "Anywhere" },
   { keys: "⌘ /", does: "Show these shortcuts", where: "Anywhere" },
   { keys: "Esc", does: "Close a sheet or menu", where: "Anywhere" },
   { keys: "Return", does: "Send (Shift-Return for a new line)", where: "Session" },

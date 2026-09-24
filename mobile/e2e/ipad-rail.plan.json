@@ -1,0 +1,97 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": false
+  },
+  "steps": [
+    {
+      "name": "Data notice",
+      "goal": "If Your data and AI providers is visible, tap the Agree and continue button at the bottom. Otherwise only wait for the session list in the left rail.",
+      "done": "The data notice is gone and the session list shows in the left rail.",
+      "expect": [
+        "New session",
+        "Collapse sidebar"
+      ]
+    },
+    {
+      "name": "Updates pill on the rail",
+      "goal": "If the round plus labelled Chats without a project is selected, tap the api-gateway folder pill in the left rail. Otherwise only wait. Do not tap any element labelled add.",
+      "done": "The rail lists the api-gateway sessions and the updates pill shows at the foot of the rail.",
+      "expect": [
+        "Refactor the rate limiter to a sliding window",
+        "updates from auto agents. Open"
+      ]
+    },
+    {
+      "name": "Rail menu opens inside the rail",
+      "goal": "Tap the Navigation button at the top left of the rail (labelled Navigation. Computer: ...). Do not tap anything else.",
+      "done": "The rail shows a Back button and the navigation rows (Chat, Artifacts, Archive, Notifications, Schedules, Settings) in place of the session list. The composer pane on the right is still visible.",
+      "expect": [
+        "Back",
+        "Archive",
+        "Schedules",
+        "What should we work on?"
+      ],
+      "forbid": [
+        "New session"
+      ]
+    },
+    {
+      "name": "Back to the list",
+      "goal": "Tap the button labelled exactly Back, at the top left of the rail. It is the only way out of this menu.",
+      "done": "The rail shows its list again and the navigation rows are gone.",
+      "expect": [
+        "New session",
+        "updates from auto agents. Open",
+        "Navigation. Computer: Your Computer"
+      ],
+      "forbid": [
+        "Archive",
+        "Keyboard shortcuts"
+      ]
+    },
+    {
+      "name": "Updates open in the rail",
+      "goal": "Tap the updates pill at the foot of the rail (labelled ... updates from auto agents. Open).",
+      "done": "An Updates list is open at the foot of the rail, under the sessions, with a Hide updates control. It is not a bottom sheet.",
+      "expect": [
+        "Hide updates",
+        "Triage new bug reports",
+        "New session"
+      ]
+    },
+    {
+      "name": "Updates fold back",
+      "goal": "Tap Hide updates.",
+      "done": "The Updates list is gone and the updates pill is back at the foot of the rail.",
+      "expect": [
+        "updates from auto agents. Open"
+      ],
+      "forbid": [
+        "Hide updates"
+      ]
+    },
+    {
+      "name": "Collapse the rail",
+      "goal": "Tap the Collapse sidebar handle on the rail's divider.",
+      "done": "The rail is gone, the composer pane fills the screen, and an Expand sidebar handle sits at the left edge.",
+      "expect": [
+        "Expand sidebar",
+        "What should we work on?"
+      ],
+      "forbid": [
+        "New session",
+        "Collapse sidebar"
+      ]
+    },
+    {
+      "name": "Expand the rail",
+      "goal": "Tap the Expand sidebar handle at the left edge.",
+      "done": "The rail and its list are back.",
+      "expect": [
+        "Collapse sidebar",
+        "New session"
+      ]
+    }
+  ]
+}

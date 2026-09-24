@@ -288,13 +288,17 @@ function demoBots() {
   };
 }
 
-/** Schedules: agents that run on a timer. */
+/**
+ * Schedules: agents that run on a timer. Two sit in api-gateway, the default
+ * folder, because Home scopes findings by folder and an agent with no folder
+ * matches no scope, so demo mode would never show the Updates pill.
+ */
 function demoAutoAgents() {
   return {
     tz: "Asia/Hong_Kong",
     agents: [
-      { id: "demo-auto-prs", name: "Review open PRs", enabled: true, schedule: "Every weekday at 09:00", lastRunAt: now() - 3 * HOUR },
-      { id: "demo-auto-bugs", name: "Triage new bug reports", enabled: true, schedule: "Every 6 hours", lastRunAt: now() - 2 * HOUR },
+      { id: "demo-auto-prs", project: "api-gateway", cwd: "/home/user/api-gateway", name: "Review open PRs", enabled: true, schedule: "Every weekday at 09:00", lastRunAt: now() - 3 * HOUR },
+      { id: "demo-auto-bugs", project: "api-gateway", cwd: "/home/user/api-gateway", name: "Triage new bug reports", enabled: true, schedule: "Every 6 hours", lastRunAt: now() - 2 * HOUR },
       { id: "demo-auto-deps", name: "Weekly dependency audit", enabled: false, schedule: "Mondays at 08:00", lastRunAt: now() - 30 * HOUR },
     ],
   };

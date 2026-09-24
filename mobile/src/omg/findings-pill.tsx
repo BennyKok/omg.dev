@@ -12,12 +12,18 @@
  * drawer rows so the badge does not compete with active sessions. It draws nothing
  * when there is nothing open, the same rule the section followed.
  *
+ * ON THE IPAD RAIL the pill opens its list IN the rail, under the sessions,
+ * not in the sheet (FindingsRailPanel below). Same change as the web's
+ * desktop rail: a bottom sheet is a phone shape, and on a wide screen it
+ * pulled the eye away from the rail the pill lives in.
+ *
  * THE DRAWER is the app's one card (Sheet) with the same rows the section
  * showed (AutoReportRow), so a finding looks the same here as it did in the
  * list and tapping it still opens the agent's report. The rows do not
  * animate in: the sheet's own slide is the entrance.
  */
-import { StyleSheet, useWindowDimensions, View } from "react-native";
+import { Pressable, ScrollView as PlainScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
+import Reanimated, { FadeIn, FadeInUp } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 
 import { Icon, withAlpha } from "../components";
@@ -168,3 +174,81 @@ export function FindingsDrawer({
     </Sheet>
   );
 }
+
+/**
+ * The Updates list, inline at the foot of the iPad rail.
+ *
+ * Takes at most half the rail, so the sessions above it stay on screen. It
+ * slides up as it opens, and the header folds it back into the pill. Rows are
+ * the drawer's rows, so a finding reads the same in both places.
+ */
+export function FindingsRailPanel({
+  groups,
+  onHide,
+  onOpenAgent,
+  maxHeight,
+}: {
+  groups: ReadonlyArray<AutoFindingGroup>;
+  onHide: () => void;
+  onOpenAgent: (agentId: string) => void;
+  maxHeight: number;
+}) {
+  const { colors, type, space } = useTheme();
+  const count = findingsCount(groups);
+  if (!count) return null;
+  return (
+    <Reanimated.View
+      entering={FadeInUp.duration(260)}
+      accessibilityLabel="Updates"
+      style={{
+        maxHeight,
+        borderTopWidth: StyleSheet.hairlineWidth,
+        borderTopColor: colors.border,
+      }}
+    >
+      <Pressable
+        onPress={onHide}
+        accessibilityRole="button"
+        accessibilityLabel="Hide updates"
+        accessibilityState={{ expanded: true }}
+        hitSlop={4}
+        style={{
+          height: 40,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: space.sm,
+          paddingHorizontal: space.md,
+        }}
+      >
+        <Text style={{ ...type.subhead, fontWeight: "600", color: colors.text }}>Updates</Text>
+        <Text
+          style={{ ...type.footnote, flex: 1, color: colors.textMuted, fontVariant: ["tabular-nums"] }}
+        >
+          {count} open
+        </Text>
+        <Icon ios="chevron.down" android="keyboard_arrow_down" size={12} color={colors.textMuted} />
+      </Pressable>
+      <PlainScrollView
+        style={{ flexGrow: 0 }}
+        contentContainerStyle={{ paddingHorizontal: space.xs, paddingBottom: space.sm, gap: space.xs }}
+        showsVerticalScrollIndicator={false}
+      >
+        {groups.map((group) => (
+          <View key={group.agentId} style={{ borderRadius: 10, backgroundColor: withAlpha(colors.text, 0.04) }}>
+            <AutoReportRow
+              group={group}
+              animateEntry={false}
+              onOpen={() => {
+                void Haptics.selectionAsync();
+                onOpenAgent(group.agentId);
+              }}
+            />
+          </View>
+        ))}
+      </PlainScrollView>
+    </Reanimated.View>
+  );
+}
+
+/** The pill fading back in when the rail's list folds away. */
+export const PILL_RETURN = FadeIn.duration(200);
