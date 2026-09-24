@@ -179,31 +179,21 @@ describe("MachineSwitcher", () => {
   });
 });
 
-test("refreshes a stale computer dot on foreground", async () => {
-  let online = false;
-  respond({
-    "/api/cloud/session": () => Response.json(signedIn),
-    "/api/cloud/computers": () => Response.json({ computers: [{ ...computers.computers[0], online, status: online ? "live" : "paused" }] }),
-  });
-  store().setItem(MACHINE_STORAGE_KEY, JSON.stringify({ id: "cloud", name: "Cloud computer" }));
-  ui.render(<MachineSwitcher variant="icon" />);
-  await ui.flushAsync();
-  expect(ui.query('[aria-label="Computer offline"]')).not.toBeNull();
-  online = true;
-  await ui.flushAsync(() => window.dispatchEvent(new Event("focus")));
-  expect(ui.query('[aria-label="Computer online"]')).not.toBeNull();
-});
-
-test("a live transport confirms the selected computer despite an old account snapshot", async () => {
-  const { RuntimeAvailabilityContext } = await import("../lib/runtime-availability");
-  respond({
-    "/api/cloud/session": () => Response.json(signedIn),
-    "/api/cloud/computers": () => Response.json(computers),
-  });
-  store().setItem(MACHINE_STORAGE_KEY, JSON.stringify({ id: "cloud", name: "Cloud computer" }));
-  ui.render(<RuntimeAvailabilityContext.Provider value={{ status: "live", transportLive: true, loading: false, ready: true, error: null, retry: () => {} }}><MachineSwitcher variant="icon" /></RuntimeAvailabilityContext.Provider>);
-  await ui.flushAsync();
-  expect(ui.query('[aria-label="Computer online"]')).not.toBeNull();
+test("the trigger shows no online dot, live or paused", async () => {
+  // The dot read gray for a live computer often enough to mislead, so it was
+  // removed (2026-09-24). Neither state may bring it back.
+  for (const online of [false, true]) {
+    respond({
+      "/api/cloud/session": () => Response.json(signedIn),
+      "/api/cloud/computers": () => Response.json({ computers: [{ ...computers.computers[0], online, status: online ? "live" : "paused" }] }),
+    });
+    store().setItem(MACHINE_STORAGE_KEY, JSON.stringify({ id: "cloud", name: "Cloud computer" }));
+    ui.render(<MachineSwitcher variant="icon" />);
+    await ui.flushAsync();
+    expect(ui.query('[data-machine-switcher="icon"]')).not.toBeNull();
+    expect(ui.query('[aria-label="Computer online"]')).toBeNull();
+    expect(ui.query('[aria-label="Computer offline"]')).toBeNull();
+  }
 });
 
 test("host machine actions use the host owner and never call the local account", async () => {
