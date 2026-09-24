@@ -1,15 +1,11 @@
 /**
- * The sign-in drawer, over the prompt. IT SIGNS IN HERE.
+ * The sign-in drawer, over the Welcome screen. IT SIGNS IN HERE.
  *
- * "Save your first task." is doing real work as a title: it says what signing
- * in is FOR at the only moment the person has something to lose. The prompt
- * stays visible behind it, dimmed, for the same reason.
- *
- * ── Dismissing returns to the prompt ──────────────────────────────────────
- *
- * Not to the task list, and not to a cleared editor. The close button and the
- * scrim both mean "not yet", and the text is owned above this component so
- * neither can drop it.
+ * "Get started" opens it (Benny, 2026-09-24). It used to sit after the
+ * questionnaire, so a returning customer had to walk three screens to reach
+ * it. Now it is the second thing anybody sees, and it serves both cases: an
+ * existing account signs in and goes straight to the app, a new one is
+ * created and continues into the questions while its Computer starts.
  *
  * ── No promise here ───────────────────────────────────────────────────────
  *
@@ -21,22 +17,12 @@
  *
  * They used to hand the choice up and land on the full sign-in screen, so
  * tapping "Continue with Apple" produced a different screen with another
- * "Continue with Apple" on it. The bargain this flow makes is "write the task,
- * then sign in"; bouncing to a second screen to repeat the same tap breaks it.
+ * "Continue with Apple" on it. Bouncing to a second screen to repeat the same
+ * tap is pointless.
  *
  * Email still hands up, and that is not an inconsistency: email is a code sent
  * and typed back, which needs a field, a keyboard and a second step. There is
  * nothing to do in place.
- *
- * ── The prompt is stashed BEFORE authenticating ───────────────────────────
- *
- * Signing in re-mounts the tree under this sheet, and Apple and Google both
- * leave the app entirely -- a system sheet or a browser, either of which can
- * be killed while somebody is over there. Anything still in component state at
- * that moment is gone. `onBeforeAuthenticate` is awaited first for exactly
- * that reason, so the words survive whatever happens next.
- *
- * Design: artboard "03 · Sign-in drawer · After prompt".
  */
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Image, Pressable, View } from "react-native";
@@ -60,7 +46,6 @@ export function SignInDrawer({
   visible,
   onClose,
   onChoose,
-  onBeforeAuthenticate,
   onTerms,
   onPrivacy,
 }: {
@@ -68,8 +53,7 @@ export function SignInDrawer({
   onClose: () => void;
   /** Only ever called with "email": the one method that needs another screen. */
   onChoose: (method: SignInMethod) => void;
-  /** Save the prompt. Awaited before leaving the app to authenticate. */
-  onBeforeAuthenticate: () => Promise<void>;
+
   onTerms: () => void;
   onPrivacy: () => void;
 }) {
@@ -97,9 +81,6 @@ export function SignInDrawer({
     setBusy(provider);
     setError(null);
     try {
-      // The words first. See the header: the app can be killed while the
-      // person is in Apple's sheet or a browser.
-      await onBeforeAuthenticate();
       const user = provider === "apple" ? await signInWithApple() : await signInWithGoogle();
       // A dismissed sheet resolves to null. That is a decision, not a failure,
       // and it leaves the drawer exactly as it was.
@@ -120,8 +101,8 @@ export function SignInDrawer({
       <View style={{ paddingHorizontal: space.lg + 4, paddingBottom: space.xl, gap: space.lg }}>
         <View style={{ flexDirection: "row", alignItems: "flex-start", gap: space.md }}>
           <View style={{ flex: 1, gap: space.xs }}>
-            <Text style={{ ...type.title, color: colors.text }}>Save your first task.</Text>
-            <Text style={{ ...type.body, color: colors.textMuted }}>Sign in to start.</Text>
+            <Text style={{ ...type.title, color: colors.text }}>Get started.</Text>
+            <Text style={{ ...type.body, color: colors.textMuted }}>Sign in, or create your account.</Text>
           </View>
           <Pressable
             accessibilityRole="button"

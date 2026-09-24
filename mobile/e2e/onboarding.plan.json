@@ -6,45 +6,19 @@
   "steps": [
     {
       "name": "01 Welcome",
-      "goal": "Start onboarding from the welcome screen",
-      "done": "A question asks what the person works on daily, with lane options such as Code & reviews",
+      "goal": "Tap Get started on the welcome screen",
+      "done": "A sign-in sheet titled Get started. with Continue with email",
       "expect": [
+        "Get started.",
+        "Continue with email"
+      ],
+      "forbid": [
         "Code & reviews"
       ]
     },
     {
-      "name": "02 Lane",
-      "goal": "Pick the Code & reviews lane",
-      "done": "The Code & reviews lane is selected",
-      "timeoutMs": 20000,
-      "selected": "Code & reviews"
-    },
-    {
-      "name": "02 Continue",
-      "goal": "Continue past the lane picker",
-      "done": "A list of starter tasks such as Explain an error is shown, with a Continue button",
-      "expect": [
-        "Explain an error"
-      ]
-    },
-    {
-      "name": "03 Task",
-      "goal": "Pick the task Explain an error",
-      "done": "Explain an error is selected",
-      "timeoutMs": 20000,
-      "selected": "Explain an error"
-    },
-    {
-      "name": "03 Continue",
-      "goal": "Continue past the task list to the prompt",
-      "done": "The prompt screen with a Sign in to start button",
-      "expect": [
-        "Sign in to start"
-      ]
-    },
-    {
       "name": "Sign in",
-      "goal": "Open sign-in and choose email",
+      "goal": "Choose Continue with email",
       "done": "The email entry screen: Welcome to omg.dev, an empty you@example.com field, and Continue with Apple and Continue with Google buttons",
       "expect": [
         "you@example.com"
@@ -74,6 +48,48 @@
     {
       "name": "Data notice",
       "goal": "Agree to the data notice",
+      "done": "A question asks what the person works on daily, with lane options such as Code & reviews",
+      "expect": [
+        "Code & reviews"
+      ],
+      "timeoutMs": 60000
+    },
+    {
+      "name": "02 Lane",
+      "goal": "Pick the Code & reviews lane",
+      "done": "The Code & reviews lane is selected",
+      "timeoutMs": 20000,
+      "selected": "Code & reviews"
+    },
+    {
+      "name": "02 Continue",
+      "goal": "Continue past the lane picker",
+      "done": "A list of starter tasks such as Explain an error is shown, with a Continue button",
+      "expect": [
+        "Explain an error"
+      ]
+    },
+    {
+      "name": "03 Task",
+      "goal": "Pick the task Explain an error",
+      "done": "Explain an error is selected",
+      "timeoutMs": 20000,
+      "selected": "Explain an error"
+    },
+    {
+      "name": "03 Continue",
+      "goal": "Continue past the task list to the prompt",
+      "done": "The prompt screen with a Start button",
+      "expect": [
+        "Start"
+      ],
+      "forbid": [
+        "Sign in to start"
+      ]
+    },
+    {
+      "name": "03 Start",
+      "goal": "Tap Start to run the prompt",
       "done": "The Working screen: Your agents are on it, a task in progress, Notify me and Not now",
       "expect": [
         "Notify me"

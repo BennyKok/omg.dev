@@ -8,6 +8,21 @@ appId: dev.omg.computer
     visible: "Agree and continue"
     timeout: 60000
 - tapOn: "Agree and continue"
+# 02 and 03, the questions, now after sign-in.
+- extendedWaitUntil:
+    visible: "Code & reviews"
+    timeout: 60000
+- tapOn: "Code & reviews"
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Explain an error"
+    timeout: 15000
+- tapOn: "Explain an error"
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Start"
+    timeout: 15000
+- tapOn: "Start"
 # 04 · Working. The Computer provisions and the first task launches here; a
 # cold provision is seconds, a slow one is a minute.
 - extendedWaitUntil:

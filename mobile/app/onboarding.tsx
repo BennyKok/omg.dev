@@ -8,9 +8,9 @@
  * ── A replay is a look, not a re-run ──────────────────────────────────────
  *
  * Nothing here writes the onboarding flags, nothing stashes a prompt, and
- * nothing creates a session. The flow is handed `signedIn`, so its last button
- * reads "Continue" and the sign-in drawer never opens -- asking somebody to
- * sign in while they are signed in is a dead end.
+ * nothing creates a session. The sign-in drawer is not shown: asking somebody
+ * to sign in while they are signed in is a dead end. So the replay runs
+ * Welcome straight into the questions, and the last button reads "Continue".
  *
  * ── It shows the CURRENT flow ─────────────────────────────────────────────
  *
@@ -24,7 +24,6 @@
  */
 
 import { useCallback, useState } from "react";
-import { Linking } from "react-native";
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 
@@ -50,15 +49,12 @@ export default function OnboardingReplayScreen() {
       <StatusBar style={isDark ? "light" : "dark"} />
       {phase === "intro" ? (
         <OnboardingFlow
-          signedIn
+          startAt="welcome"
+          finalLabel="Continue"
           // The written prompt is DROPPED on purpose. Running it would create a
           // real session from a screen somebody opened to look at, which is the
           // opposite of what "replay" means.
-          onSignIn={() => setPhase("setup")}
-          // A replay never authenticates and never stores a prompt.
-          onStash={async () => {}}
-          onTerms={() => void Linking.openURL("https://omg.dev/terms")}
-          onPrivacy={() => void Linking.openURL("https://omg.dev/privacy")}
+          onDone={() => setPhase("setup")}
         />
       ) : (
         <SetupScreen onDone={done} agents={agents} waking={waking} onConnected={probe} />

@@ -14,21 +14,9 @@ appId: dev.omg.computer
 - extendedWaitUntil:
     visible: "Get started"
     timeout: 60000
+# Sign-in comes straight after Welcome; the questions run after sign-in and
+# are walked by 02-verify.yaml.
 - tapOn: "Get started"
-- extendedWaitUntil:
-    visible: "Code & reviews"
-    timeout: 15000
-- tapOn: "Code & reviews"
-- tapOn: "Continue"
-- extendedWaitUntil:
-    visible: "Explain an error"
-    timeout: 15000
-- tapOn: "Explain an error"
-- tapOn: "Continue"
-- extendedWaitUntil:
-    visible: "Sign in to start"
-    timeout: 15000
-- tapOn: "Sign in to start"
 - extendedWaitUntil:
     visible: "Continue with email"
     timeout: 15000

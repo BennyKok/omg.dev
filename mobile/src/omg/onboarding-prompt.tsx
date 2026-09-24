@@ -1,19 +1,12 @@
 /**
- * Step 03: the first prompt, and the sign-in drawer over it.
+ * Step 03: the first prompt.
  *
- * This screen is the point of the whole revamp. The old flow asked who you
- * were on screen two; this one asks what you want, lets you write it, and only
- * then asks for an account. "Sign in to start" is the whole bargain in four
- * words.
+ * This screen is the point of the whole revamp: it asks what you want and
+ * lets you write it. Since 2026-09-24 it runs AFTER sign-in (see
+ * onboarding-flow.tsx), so its last button starts the task.
  *
- * ── The draft has to survive sign-in ──────────────────────────────────────
- *
- * Signing in is the one moment in this flow that can re-mount everything under
- * it, and losing a prompt somebody just wrote there would be the single worst
- * bug this screen could have. The text is therefore owned by the CALLER and
- * handed in, so it lives above the part of the tree that auth tears down.
- * Dismissing the drawer returns to exactly this text, which is what the design
- * asks for.
+ * The text is owned by the CALLER and handed in, so going back to change the
+ * task and returning does not lose what was written.
  *
  * ── Prefilled, not scripted ───────────────────────────────────────────────
  *
@@ -43,7 +36,7 @@ export function PromptScreen({
   onSignIn,
   onBack,
   custom = false,
-  finalLabel = "Sign in to start",
+  finalLabel,
 }: {
   value: string;
   onChangeText: (next: string) => void;
@@ -56,12 +49,8 @@ export function PromptScreen({
   onBack: () => void;
   /** The own-idea path: blank, with a different title and no editing hint. */
   custom?: boolean;
-  /**
-   * "Sign in to start" is the bargain on first run. A replay from Settings is
-   * someone who already has an account being shown the flow, so the button
-   * there says "Continue" and nothing asks them to sign in again.
-   */
-  finalLabel?: string;
+  /** "Start" on first run, "Continue" in the replay from Settings. */
+  finalLabel: string;
 }) {
   const { colors, radius, space, type } = useTheme();
   const insets = useSafeAreaInsets();
@@ -169,7 +158,7 @@ export function PromptScreen({
 
       <View style={{ paddingHorizontal: space.lg + 4, paddingBottom: insets.bottom + space.lg }}>
         {/*
-         * "Sign in to start", and nothing under it. The design carried "Your
+         * One button, and nothing under it. The design carried "Your
          * first task is on us" here and Benny removed it: the allowance is the
          * control plane's to grant, and this side promising it would be a claim
          * the product breaks on first use.

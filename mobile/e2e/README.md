@@ -42,8 +42,8 @@ OMG_E2E_EMAIL=appreview@omg.dev OMG_REVIEW_CODE=<code> \
   bun run test:e2e --plan reviewer --record
 ```
 
-`reviewer.plan.json` walks what App Review walks: onboarding 01 to 03, the
-sign-in drawer, the demo account, its FIXED code, the data notice, and the
+`reviewer.plan.json` walks what App Review walks: Welcome, the sign-in
+drawer, the demo account, its FIXED code, the data notice, and the
 signed-in session list. `OMG_REVIEW_CODE` short-circuits the Gmail read,
 because that code never arrives by mail. The code lives in App Store Connect
 and in the environment. It is NOT in this repository, which is public.

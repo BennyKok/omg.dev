@@ -28,7 +28,7 @@ import { loadDemoMode } from "../src/omg/demo";
 import { AgentVillageWidgetBridge } from "../src/omg/village-widget-bridge";
 import { AgentLiveActivityBridge } from "../src/omg/agent-live-activity";
 import { OnboardingAfterSignIn } from "../src/omg/onboarding-after";
-import { OnboardingFlow } from "../src/omg/onboarding-flow";
+import { OnboardingFlow, WelcomeGate } from "../src/omg/onboarding-flow";
 import { shouldMarkOnboarded, shouldShowSetup } from "../src/omg/onboarding-gate";
 import { stashOnboardingChoice } from "../src/omg/onboarding-handoff";
 import { registerForPushNotifications, useNotificationTapRouting } from "../src/omg/push";
@@ -201,6 +201,8 @@ function RootNavigator() {
    * a persisted flag would be a second source of truth for the same fact.
    */
   const [afterSignInDone, setAfterSignInDone] = useState(false);
+  /** The signed-in questions (steps 02 and 03) are answered for this launch. */
+  const [questionsDone, setQuestionsDone] = useState(false);
   /**
    * The new flow actually ran for this person, so setup below still owes them
    * a visit -- even though buying a plan in step 06 has just made `established`
@@ -373,40 +375,27 @@ function RootNavigator() {
      */
     if (intro.state === "needed") {
       /*
-       * THE REVAMPED FLOW, and the reason it sits exactly here.
+       * Welcome, and the sign-in drawer over it.
        *
-       * It replaces the three pitch panels, and it inherits their placement
-       * for the reason recorded above: INSIDE the signed-out branch, never as
-       * a gate over it. A gate above this branch is the #237 splash deadlock
-       * -- a condition goes permanently true and sign-in becomes unreachable
-       * with no way out but reinstalling. Nested here, whatever the flow
-       * decides, this branch still owns the signed-out tree.
+       * INSIDE the signed-out branch, never as a gate over it. A gate above
+       * this branch is the #237 splash deadlock -- a condition goes
+       * permanently true and sign-in becomes unreachable with no way out but
+       * reinstalling. Nested here, whatever the flow decides, this branch
+       * still owns the signed-out tree.
        *
-       * Its exits both land on the same sign-in Stack below. `intro.complete`
-       * is what marks the pitch as seen, so a person who reaches sign-in does
-       * not walk the flow again after a failed attempt.
+       * Apple and Google sign in inside the drawer, which replaces this whole
+       * branch. Email completes the intro, which falls through to the sign-in
+       * Stack below with its email field. `intro.complete` marks the welcome
+       * as seen, so a failed attempt does not show it again.
+       *
+       * The questions that used to come BEFORE this now come after sign-in,
+       * and only for a new account. See the questions gate further down.
        */
       return (
         <>
           <StatusBar style={isDark ? "light" : "dark"} />
-          <OnboardingFlow
-            /*
-             * The choice is not dropped -- it is stashed for the session that
-             * gets created after sign-in, which is the whole point of asking
-             * before authenticating. `prompt-stash` already survives the
-             * re-mount that signing in causes.
-             */
-            onSignIn={(choice) => {
-              void stashOnboardingChoice(choice);
-              intro.complete();
-            }}
-            /*
-             * Apple and Google sign in inside the drawer, so the prompt is
-             * saved here and the intro is deliberately NOT completed:
-             * completing it swaps this branch for the sign-in Stack and would
-             * unmount the drawer in the middle of authenticating.
-             */
-            onStash={stashOnboardingChoice}
+          <WelcomeGate
+            onEmail={intro.complete}
             onTerms={() => void Linking.openURL("https://omg.dev/terms")}
             onPrivacy={() => void Linking.openURL("https://omg.dev/privacy")}
           />
@@ -575,7 +564,33 @@ function RootNavigator() {
   }
 
   /*
-   * Steps 04 to 06 of the revamp: the task they wrote before signing in, now
+   * Steps 02 and 03, the questions: interests, task, prompt.
+   *
+   * After sign-in since 2026-09-24 (Benny): sign-in moved up to right after
+   * Welcome, so a returning customer never sees these. `established` is the
+   * same predicate that keeps an existing account out of setup, and it is
+   * safe to read here because the machines gate above has already waited for
+   * the first answer. A new account's Computer starts while they answer.
+   *
+   * The choice is stashed and AWAITED before this gate opens, because the
+   * next gate reads the stash on its first render.
+   */
+  if (onboarding.state === "needed" && !established && !questionsDone) {
+    return (
+      <>
+        <StatusBar style={isDark ? "light" : "dark"} />
+        <OnboardingFlow
+          finalLabel="Start"
+          onDone={(choice) => {
+            void stashOnboardingChoice(choice).finally(() => setQuestionsDone(true));
+          }}
+        />
+      </>
+    );
+  }
+
+  /*
+   * Steps 04 to 06 of the revamp: the task they just wrote, now
    * running, then the real session, then the plan.
    *
    * ABOVE the setup gate on purpose. Benny's rule for the new flow is that

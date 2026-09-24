@@ -10,7 +10,7 @@
  *
  * Design: "v2_omg.dev iOS onboarding", artboard "01 · Welcome (updated)".
  */
-import { Image, View } from "react-native";
+import { Image, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { agentIcon } from "./agent-icons";
@@ -27,11 +27,29 @@ import { useTheme } from "./theme";
  * true before any account exists; a connection state is not knowable until
  * after sign-in and would be a lie on this screen.
  */
-const TEAM = ["claude", "codex", "cursor", "opencode", "devin", "grok"] as const;
+/*
+ * Devin is left out on purpose: its mark here was the wrong logo (Benny,
+ * 2026-09-24). Put it back only with a verified icon.
+ */
+const TEAM = ["claude", "codex", "cursor", "opencode", "grok"] as const;
+
+/** welcome-grass.png is 334x292. The picture never needs a box taller than this. */
+const ILLUSTRATION_ASPECT = 334 / 292;
 
 export function WelcomeScreen({ onStart }: { onStart: () => void }) {
   const { colors, space, type } = useTheme();
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const horizontalPadding = space.lg + 4;
+  /*
+   * The picture's own height at full width. It used to be `flex: 1`, so on a
+   * tall phone the box grew far past the picture and `contain` left the extra
+   * as empty bands above and below it: the title sat at the top edge and the
+   * agent row sat on the button. Now the box asks for the picture's height,
+   * the column centres the whole group, and a short screen still shrinks the
+   * picture first (`flexShrink`), never the words or the button.
+   */
+  const illustrationMax = (width - horizontalPadding * 2) / ILLUSTRATION_ASPECT;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -39,8 +57,9 @@ export function WelcomeScreen({ onStart }: { onStart: () => void }) {
         style={{
           flex: 1,
           paddingTop: insets.top + space.md,
-          paddingHorizontal: space.lg + 4,
+          paddingHorizontal: horizontalPadding,
           gap: space.lg,
+          justifyContent: "center",
         }}
       >
         <View
@@ -62,19 +81,21 @@ export function WelcomeScreen({ onStart }: { onStart: () => void }) {
           {"Keep work moving.\nWherever you are."}
         </Text>
 
-        {/* The illustration takes whatever height is left and fits INSIDE it,
-            so a short window shrinks the picture rather than pushing the button
-            off the bottom -- the words and the action must survive, the picture
-            need not.
+        {/* The illustration asks for its own height and shrinks when there is
+            less, so a short window shrinks the picture rather than pushing the
+            button off the bottom -- the words and the action must survive, the
+            picture need not.
 
-            `flex: 1` with `contain`, NOT an aspect-ratio box. An aspect-ratio
+            A shrinkable height with `contain`, NOT an aspect-ratio box. An aspect-ratio
             box that gets shrunk keeps its content at full size and CROPS it,
             which showed on a real screen as a horizontal slice of the
             illustration. `contain` scales to fit whatever it is given. */}
-        <View style={{ flex: 1, justifyContent: "center", gap: space.md, paddingBottom: space.lg }}>
+        <View
+          style={{ flexShrink: 1, minHeight: 0, gap: space.md, paddingBottom: space.lg }}
+        >
           <Image
             source={require("../../assets/onboarding/welcome-grass.png")}
-            style={{ flex: 1, width: "100%" }}
+            style={{ width: "100%", height: illustrationMax, flexShrink: 1, minHeight: 0 }}
             resizeMode="contain"
             accessible
             accessibilityLabel="Someone lying on the grass, starting a task from their phone"

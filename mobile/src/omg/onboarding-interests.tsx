@@ -47,7 +47,8 @@ export function InterestsScreen({
   chosen: InterestKey | null;
   onChoose: (key: InterestKey) => void;
   onContinue: () => void;
-  onBack: () => void;
+  /** Absent on first run: Welcome was before sign-in, so there is no back. */
+  onBack?: () => void;
 }) {
   const { colors, space, type } = useTheme();
   const insets = useSafeAreaInsets();
