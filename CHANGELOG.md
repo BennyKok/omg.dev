@@ -2,6 +2,18 @@
 
 Recent product updates and deployment notes.
 
+## September 24, 2026 - One menu for the desktop sidebar (v0.6.119)
+
+- The desktop sidebar has one menu button. It opens Chat, Bots, Schedules, Notifications, Artifacts, Computer, Board, Settings and your machine over the list, with Back to return. The Chat / Bots / Schedules tabs and the three-dot menu are gone.
+- The top of the sidebar shows your welcome, what your agents are building, or who needs you. The omg.dev mark moves to the bottom.
+- The folder picker sits next to New session and lists each folder's session count. Manage folders reorders, hides, removes or adds folders.
+- Session and bot rows are shorter, so more of the list fits.
+- Hover the edge of the sidebar to collapse or expand it.
+- Open updates show as a list inside the sidebar.
+- A Get the apps card at the bottom of the sidebar installs omg on your computer or opens the iPhone app with a QR code. It now shows on omg.dev too.
+- The input bar no longer has a Stop button. Stop is in the session menu, and Esc still stops the agent.
+- The machine switcher no longer shows an online dot.
+
 ## September 24, 2026 - Expo apps load real data in Expo Go (v0.6.118)
 
 - An Expo app's agent now deploys the backend before the preview, makes it public, and points the app at it, so Expo Go shows real data from the first open. The agent tells you the backend is public until you add sign-in.
