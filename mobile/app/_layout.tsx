@@ -14,7 +14,6 @@ import Reanimated, {
 
 import { AiConsentScreen, useAiDataConsent } from "../src/omg/ai-consent";
 import {
-  SetupScreen,
   rosterFromReadiness,
   useIntro,
   useOnboarding,
@@ -265,6 +264,13 @@ function RootNavigator() {
       onboarding.complete();
     }
   }, [onboarding, machinesLoaded, established, newArrival]);
+  // No setup pages any more (see the gate below): once steps 04 to 06 are over,
+  // a new account is done. A returning account is marked by the effect above.
+  useEffect(() => {
+    if (afterSignInDone && shouldShowSetup({ state: onboarding.state, established, newArrival, machinesLoaded })) {
+      onboarding.complete();
+    }
+  }, [afterSignInDone, onboarding, machinesLoaded, established, newArrival]);
   /**
    * A tapped notification goes to the thing it is about.
    *
@@ -703,25 +709,18 @@ function RootNavigator() {
     );
   }
 
+  /*
+   * THE CONNECT AND PLAN SETUP PAGES ARE OUT OF ONBOARDING (Benny,
+   * 2026-09-24: "not needed now"). Onboarding ends when steps 04 to 06 end,
+   * and the account is marked done here instead of by SetupScreen's last
+   * button. Connecting an agent stays in Settings > Coding agents.
+   *
+   * `shouldShowSetup` still names who WOULD be owed the step, so it is the
+   * condition for finishing: nobody reaches the app with the flag unwritten.
+   * The plain page shows for the one render before the effect lands.
+   */
   if (shouldShowSetup(gate)) {
-    /*
-     * The roster is whatever the Computer has told us so far. `waking` is a
-     * real answer, not an error, so the screen says "starting up" instead of
-     * drawing an empty list that reads as "no agents exist".
-     */
-    const { agents, waking } = rosterFromReadiness(readiness);
-    return (
-      <>
-        <StatusBar style={isDark ? "light" : "dark"} />
-        <SetupScreen
-          onDone={onboarding.complete}
-          agents={agents}
-          waking={waking}
-          onConnected={probe}
-          transport={client?.transport ?? null}
-        />
-      </>
-    );
+    return hold;
   }
 
 

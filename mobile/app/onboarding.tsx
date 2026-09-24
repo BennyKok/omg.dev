@@ -23,42 +23,35 @@
  * then paid for, and neither is something to re-enact.
  */
 
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 
-import { SetupScreen, rosterFromReadiness } from "../src/omg/onboarding";
 import { OnboardingFlow } from "../src/omg/onboarding-flow";
-import { useOmg } from "../src/omg/provider";
 import { useTheme } from "../src/omg/theme";
 
 export default function OnboardingReplayScreen() {
   const router = useRouter();
   const { isDark } = useTheme();
-  const { readiness, probe } = useOmg();
-  const [phase, setPhase] = useState<"intro" | "setup">("intro");
-  const { agents, waking } = rosterFromReadiness(readiness);
 
   const done = useCallback(() => {
     if (router.canGoBack()) router.back();
     else router.replace("/settings");
   }, [router]);
 
+  // The connect and plan setup pages left onboarding on 2026-09-24, so the
+  // replay ends where the first-run flow's questions end.
   return (
     <>
       <StatusBar style={isDark ? "light" : "dark"} />
-      {phase === "intro" ? (
-        <OnboardingFlow
-          startAt="welcome"
-          finalLabel="Continue"
-          // The written prompt is DROPPED on purpose. Running it would create a
-          // real session from a screen somebody opened to look at, which is the
-          // opposite of what "replay" means.
-          onDone={() => setPhase("setup")}
-        />
-      ) : (
-        <SetupScreen onDone={done} agents={agents} waking={waking} onConnected={probe} />
-      )}
+      <OnboardingFlow
+        startAt="welcome"
+        finalLabel="Continue"
+        // The written prompt is DROPPED on purpose. Running it would create a
+        // real session from a screen somebody opened to look at, which is the
+        // opposite of what "replay" means.
+        onDone={done}
+      />
     </>
   );
 }

@@ -57,14 +57,11 @@ appId: dev.omg.computer
 # Personal is preselected, so the CTA reads its name.
 - assertVisible: "Continue with Personal"
 - tapOn: "Continue for now"
-# Connect step, then home.
-- extendedWaitUntil:
-    visible: "Skip"
-    timeout: 30000
-- tapOn: "Skip"
+# No connect or plan setup pages since 2026-09-24: straight into the session.
 # Lands in the first session itself, header first: the task they wrote is
 # the title, and the model it ran on is under it.
 - extendedWaitUntil:
     visible: "Explain this error.*"
     timeout: 60000
+- assertNotVisible: "Bring your agent."
 - takeScreenshot: onboarding-session
