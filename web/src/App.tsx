@@ -13269,7 +13269,7 @@ function RailStage({
         <section
           aria-label="Updates"
           data-testid="rail-findings-panel"
-          className="flex max-h-[50%] min-h-0 shrink-0 flex-col border-t border-border"
+          className="flex max-h-[50%] min-h-0 shrink-0 flex-col border-t border-border animate-in fade-in slide-in-from-bottom-8 duration-[380ms] ease-[cubic-bezier(0.25,0.8,0.25,1)] motion-reduce:animate-none"
         >
           <div className="flex h-10 shrink-0 items-center gap-2 pl-3 pr-1.5">
             <button
@@ -13317,7 +13317,7 @@ function RailStage({
           </div>
         </section>
       ) : (
-        <div className="pointer-events-none relative z-10 flex justify-center pb-2.5 pt-1.5">
+        <div className="pointer-events-none relative z-10 flex justify-center pb-2.5 pt-1.5 animate-in fade-in zoom-in-95 duration-200 motion-reduce:animate-none">
           <button
             type="button"
             onClick={() => setRailFindingsOpen(true)}
@@ -13465,6 +13465,18 @@ function RailStage({
         {/* Everything above the footer. The menu covers exactly this, so the
             machine switcher under it stays in view either way. */}
         <div className="relative flex min-h-0 flex-1 flex-col">
+        {/* The list's face. When the menu opens over it, it steps back: a
+            short shift right and a dim, so the menu reads as arriving on top
+            of it rather than replacing it. Same idea as an iOS push. */}
+        <div
+          className={cn(
+            "flex min-h-0 flex-1 flex-col transition-[translate,opacity] duration-[380ms] ease-[cubic-bezier(0.25,0.8,0.25,1)] motion-reduce:transition-none",
+            // Closed carries no translate at all, not translate-x-0: any
+            // translate value makes this box the containing block for
+            // position: fixed descendants, which would break any it grows.
+            railNavOpen && !railCollapsed ? "translate-x-8 opacity-30" : "opacity-100",
+          )}
+        >
         {railCollapsed ? (
           <div className="flex shrink-0 flex-col items-center gap-1 border-b border-border py-2">
             <button
@@ -13532,27 +13544,6 @@ function RailStage({
             </div>
           </div>
         )}
-        {showFolderMenu ? (
-          // The folder scope and the folder manager, as one dropdown. It
-          // replaced a row of sideways-scrolling pills plus a separate
-          // manage button in the brand row.
-          <div className="shrink-0 border-b border-border px-2 py-2">
-            <ProjectFolderMenu
-              value={projectFilter}
-              projects={projectOptions}
-              labelFor={(value) => projectFilterLabel(value, shortProject)}
-              onChange={(next) => onProjectChange?.(next)}
-              counts={projectCounts}
-              canRemove={(project) => repos.some((repo) => repoProject(repo) === project)}
-              onRemove={async (project) => {
-                const repo = repos.find((candidate) => repoProject(candidate) === project);
-                if (repo) await unlinkRepoFromList(repo, onReposChanged);
-              }}
-              onAddFolder={() => openFolderBrowser(false)}
-              onNewFolder={() => openFolderBrowser(true)}
-            />
-          </div>
-        ) : null}
         <div className="session-list-scroll min-h-0 flex-1 overflow-y-auto px-1.5 py-2">
           {railSurface === "chat" ? botRailList : <>
           {/* Leads the list, the way New bot leads the roster: it belongs to
@@ -13562,19 +13553,44 @@ function RailStage({
               as the first row of this list. Chat only — the Bots surface has
               its own New bot. */}
           {!railCollapsed ? (
-            <button
-              type="button"
-              onClick={startNew}
-              className="mb-1 flex h-10 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            >
-              <span className="flex size-7 shrink-0 items-center justify-center rounded-full border border-dashed border-border">
-                <Plus className="size-3.5" />
-              </span>
-              <span className="min-w-0 flex-1 truncate">New session</span>
-              <kbd className="shrink-0 rounded-[5px] bg-background/70 px-1.5 py-px font-mono text-[10px] font-medium text-muted-foreground ring-1 ring-inset ring-border">
-                C
-              </kbd>
-            </button>
+            // "New session in <folder>". The folder picker sits on this row's
+            // trailing edge, where the C shortcut hint was, instead of taking
+            // a row of its own above the list. The hint lives in the title.
+            <div className="group/new mb-1 flex h-10 w-full items-center gap-1 rounded-lg pr-1.5 transition-colors hover:bg-muted">
+              <button
+                type="button"
+                onClick={startNew}
+                title="New session (C)"
+                className="flex min-w-0 flex-1 items-center gap-2 self-stretch rounded-lg pl-2 text-left text-[13px] font-medium text-muted-foreground outline-none transition-colors group-hover/new:text-foreground focus-visible:ring-2 focus-visible:ring-primary/60"
+              >
+                <span className="flex size-7 shrink-0 items-center justify-center rounded-full border border-dashed border-border">
+                  <Plus className="size-3.5" />
+                </span>
+                <span className="min-w-0 flex-1 truncate">New session</span>
+                {showFolderMenu ? null : (
+                  <kbd className="shrink-0 rounded-[5px] bg-background/70 px-1.5 py-px font-mono text-[10px] font-medium text-muted-foreground ring-1 ring-inset ring-border">
+                    C
+                  </kbd>
+                )}
+              </button>
+              {showFolderMenu ? (
+                <ProjectFolderMenu
+                  trigger="chip"
+                  value={projectFilter}
+                  projects={projectOptions}
+                  labelFor={(value) => projectFilterLabel(value, shortProject)}
+                  onChange={(next) => onProjectChange?.(next)}
+                  counts={projectCounts}
+                  canRemove={(project) => repos.some((repo) => repoProject(repo) === project)}
+                  onRemove={async (project) => {
+                    const repo = repos.find((candidate) => repoProject(candidate) === project);
+                    if (repo) await unlinkRepoFromList(repo, onReposChanged);
+                  }}
+                  onAddFolder={() => openFolderBrowser(false)}
+                  onNewFolder={() => openFolderBrowser(true)}
+                />
+              ) : null}
+            </div>
           ) : null}
           <SessionGroups
             groups={projectRailGroups}
@@ -13606,6 +13622,7 @@ function RailStage({
             with a machine it can reach, so a plain install sees no change.
             A hosted surface never shows it: the host owns machine selection. */}
         {autoRailPill}
+        </div>
         {sideNav && !railCollapsed ? (
           <SideNavPanel
             open={railNavOpen}

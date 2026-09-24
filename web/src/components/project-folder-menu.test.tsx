@@ -107,3 +107,13 @@ test("each folder row shows how many sessions it holds", async () => {
   // An empty folder draws no zero.
   expect(row("gamma").textContent).toBe("gamma");
 });
+
+test("the chip trigger names the folder and opens the same menu", async () => {
+  ui.render(<ProjectFolderMenu trigger="chip" value="alpha" projects={projects} labelFor={labelFor} onChange={() => {}} />);
+  const chip = byLabel("Folder: alpha")!;
+  expect(chip.textContent).toBe("alpha");
+  expect(chip.className).toContain("max-w-[10rem]");
+  ui.flush(() => chip.click());
+  await ui.flushAsync();
+  expect(menuRows()).toEqual(["New project", "alpha", "beta", "gamma"]);
+});
