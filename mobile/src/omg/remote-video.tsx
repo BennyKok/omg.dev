@@ -207,7 +207,18 @@ export function RemoteVideo({
   // A landscape guess only when the artifact is silent about its shape.
   const box = fitBox(declaredRatio ?? 16 / 9, maxWidth, maxHeight);
 
-  if (uri) return <Player video={loaded.video} uri={uri} box={box} />;
+  if (uri) {
+    // A signed URL carries a grant that lives ten minutes, and the player
+    // keeps requesting ranges from that URL as it plays and seeks. Once the
+    // grant expires those requests get 401 and playback stops, so the player
+    // is handed a way to sign the same path again. A cached local file or a
+    // same-origin URL has no grant and gets no renewal.
+    const renew =
+      bindingId && uri.includes("__omg_grant=")
+        ? () => signedRequestFor(bindingId, path, { forceRefresh: true }).then((r) => r?.url ?? null)
+        : undefined;
+    return <Player video={loaded.video} uri={uri} box={box} renew={renew} />;
+  }
 
   const still = (
     // pointerEvents none is load-bearing. AuthenticatedImage draws a tappable
@@ -265,6 +276,9 @@ export function RemoteVideo({
   );
 }
 
+/** Consecutive re-signs before a failure is reported as final. */
+const MAX_RENEWALS = 2;
+
 /**
  * Split out so `useVideoPlayer` is only ever called with a real file.
  *
@@ -276,10 +290,13 @@ function Player({
   video,
   uri,
   box,
+  renew,
 }: {
   video: VideoModules["video"];
   uri: string;
   box: { width: number; height: number };
+  /** Sign the same path again. Absent when the URL carries no grant. */
+  renew?: () => Promise<string | null>;
 }) {
   const { radius } = useTheme();
   const player = video.useVideoPlayer(uri, (instance) => {
@@ -289,6 +306,33 @@ function Player({
     instance.muted = false;
     instance.play();
   });
+  // Renew on error, resume where it stopped. At most MAX_RENEWALS in a row:
+  // a file that is really gone must still end in an error, not a loop.
+  // Playing again resets the count, so a long video survives every expiry.
+  const failures = useRef(0);
+  useEffect(() => {
+    if (!renew) return;
+    const status = player.addListener("statusChange", ({ status: next }) => {
+      if (next !== "error" || failures.current >= MAX_RENEWALS) return;
+      failures.current += 1;
+      const at = player.currentTime;
+      void renew()
+        .then(async (fresh) => {
+          if (!fresh) return;
+          await player.replaceAsync(fresh);
+          player.currentTime = at;
+          player.play();
+        })
+        .catch(() => {});
+    });
+    const playing = player.addListener("playingChange", ({ isPlaying }) => {
+      if (isPlaying) failures.current = 0;
+    });
+    return () => {
+      status.remove();
+      playing.remove();
+    };
+  }, [player, renew]);
   return (
     <video.VideoView
       player={player}
