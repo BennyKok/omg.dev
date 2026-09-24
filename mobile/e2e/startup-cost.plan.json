@@ -1,0 +1,8 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": { "clearState": false },
+  "steps": [
+    { "name": "Compare startup costs", "goal": "Wait for all six live-network comparisons. Do not tap while they run.", "done": "All comparisons finished, and optimized return visits needed no new grant.", "expect": ["Startup cost comparison passed"], "forbid": ["FAILED"], "timeoutMs": 180000 },
+    { "name": "Inspect socket phases", "goal": "Tap Connection timings to expand the breakdown.", "done": "Socket preparation and handshake have separate measurements.", "expect": ["socket.prepare", "socket.handshake"], "forbid": ["FAILED"], "timeoutMs": 30000 }
+  ]
+}

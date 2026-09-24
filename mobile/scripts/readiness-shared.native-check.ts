@@ -21,3 +21,13 @@ test("switching computers does not share readiness between transports", async ()
   expect(await sharedReadiness(a)).toMatchObject({ status: "ready", version: "a" });
   expect(await sharedReadiness(b)).toMatchObject({ status: "ready", version: "b" });
 });
+
+test("compact and legacy bootstrap responses preserve the readiness roster", async () => {
+  const roster = { codingAgents: [{ key: "codex", label: "Codex", status: { configured: true } }], repos: [{ name: "work", cwd: "/work" }] };
+  for (const body of [roster, { ...roster, sessions: [{ sessionId: "old" }], models: ["unused"] }]) {
+    let requested = "";
+    const transport = { fetch: async (path: string) => { requested = path; return Response.json(body); } } as any;
+    expect(await sharedReadiness(transport)).toMatchObject({ status: "ready", roster: { agents: roster.codingAgents, repos: roster.repos } });
+    expect(requested).toBe("/api/bootstrap?view=readiness");
+  }
+});

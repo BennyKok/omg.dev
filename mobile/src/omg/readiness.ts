@@ -64,7 +64,8 @@ export async function probeReadiness(
 ): Promise<ComputerReadiness> {
   let response: Response;
   try {
-    response = await transport.fetch("/api/bootstrap");
+    // Older runtimes ignore the query and return the full compatible payload.
+    response = await transport.fetch("/api/bootstrap?view=readiness");
   } catch (error) {
     if (error instanceof ComputerGrantError && error.forbidden) {
       return { status: "unauthorized", message: error.message };

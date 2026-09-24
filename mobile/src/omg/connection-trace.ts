@@ -27,6 +27,8 @@ export function requestStage(input: RequestInfo | URL): string {
   try { path = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url).pathname; } catch {}
   if (path === "/api/bootstrap") return "bootstrap";
   if (path === "/api/sessions") return "sessions";
+  if (path === "/api/session-pins") return "pins";
+  if (path === "/api/bots") return "bots";
   if (/^\/api\/sessions\/[^/]+\/messages$/.test(path)) return "messages";
   if (path === "/__omg/session-auth") return "grant";
   return "request";
@@ -35,6 +37,10 @@ export function requestStage(input: RequestInfo | URL): string {
 export const tracedFetch: typeof fetch = async (input, init) => {
   const stage = requestStage(input);
   const response = await timeConnection(`${stage}.headers`, () => fetch(input, init));
+  const serverTime = response.headers.get("Server-Timing")?.match(/(?:^|,)\s*bootstrap;dur=([\d.]+)/);
+  if (serverTime && Number.isFinite(Number(serverTime[1]))) {
+    recordConnectionTiming("bootstrap.server", performance.now() - Number(serverTime[1]));
+  }
   return new Proxy(response, {
     get(target, key) {
       if (key === "text") return () => timeConnection(`${stage}.body`, async () => {
@@ -56,7 +62,9 @@ export function traceConnectionTransport(transport: import("@omg-dev/client").Om
   const open = transport.openLiveSocket.bind(transport);
   transport.openLiveSocket = async query => {
     const started = performance.now();
-    const socket = await open(query);
+    const socket = await timeConnection("socket.prepare", () => open(query));
+    const created = performance.now();
+    socket.addEventListener("open", () => recordConnectionTiming("socket.handshake", created));
     socket.addEventListener("open", () => recordConnectionTiming("socket.open", started));
     let first = true;
     socket.addEventListener("message", event => {
