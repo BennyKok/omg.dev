@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { AppState, View } from "react-native";
 import type { OmgTransport } from "@omg-dev/client";
-import { Row, Separator } from "../components";
+import { Row } from "../components";
 import { Text } from "./text";
 import { useTheme } from "./theme";
 import { startConnectionPing, type ConnectionPing } from "./connection-ping";
@@ -29,7 +29,6 @@ export function ConnectionPingRow({ transport, active, cloud = false, demo = fal
   const value = demo ? "Demo" : !transport ? "No computer selected" : state?.status === "connected"
     ? `${state.ms} ms` : state?.status === "unavailable" ? "Unavailable" : "Measuring…";
   return <>
-    <Separator inset="icon" />
     <Row>
       <View style={{ flex: 1, gap: 4 }}>
         <Text style={{ fontSize: 17, color: colors.text }}>Connection ping</Text>

@@ -1,0 +1,20 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": { "clearState": false },
+  "steps": [
+    {
+      "name": "Debug groups latency and timings",
+      "goal": "Check the Debug section contains Connection ping and Connection timings. Do not tap yet.",
+      "done": "Both connection diagnostics are grouped under Debug.",
+      "expect": ["Debug", "Connection ping", "Connection timings"],
+      "timeoutMs": 30000
+    },
+    {
+      "name": "Expand debug timings",
+      "goal": "Tap Connection timings.",
+      "done": "The timing detail opens within Debug.",
+      "expect": ["Debug", "Connection ping", "bootstrap.parse"],
+      "timeoutMs": 30000
+    }
+  ]
+}
