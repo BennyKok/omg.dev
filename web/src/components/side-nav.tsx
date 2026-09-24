@@ -248,12 +248,15 @@ export function SideNavPanel({
   unread,
   trailing,
   footer,
+  machineSwitcher,
 }: {
   open: boolean;
   onBack: () => void;
   rows: SideNavRow[];
   onNavigate: (key: string) => void;
   unread?: ReadonlySet<string>;
+  /** The machine picker, drawn first, as in the phone drawer. */
+  machineSwitcher?: ReactNode;
   /** Right side of the header. The rail puts its collapse control here. */
   trailing?: ReactNode;
   footer?: ReactNode;
@@ -296,6 +299,7 @@ export function SideNavPanel({
         {trailing ? <div className="ml-auto flex items-center">{trailing}</div> : null}
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 py-2">
+        {machineSwitcher ? <div className="pb-2">{machineSwitcher}</div> : null}
         <SideNavRows rows={rows} onNavigate={onNavigate} onClose={onBack} unread={unread} dense />
         {footer ? <div className="mt-2 border-t border-border pt-2">{footer}</div> : null}
       </div>
