@@ -133,7 +133,7 @@ import type { Bot } from "../../src/omg/bots";
 import { useDictation } from "../../src/omg/dictation";
 import { GlassSurface, LIQUID_GLASS } from "../../src/omg/glass";
 import { DropdownMenu, type MenuOption } from "../../src/omg/menu";
-import { AttachMenuButton } from "../../src/omg/attach-menu";
+import { AttachMenuButton, AttachMenuLayer } from "../../src/omg/attach-menu";
 import { agentLabel as agentDisplayName } from "../../src/omg/agent-icons";
 import { usePromptDraft, stashScope } from "../../src/omg/prompt-stash";
 import { useOmg } from "../../src/omg/provider";
@@ -2346,11 +2346,14 @@ function SessionScreenContent({
         {/* At rest this stays a compact one-line field. Focus, typed text, and
             dictation expand the same surface. */}
         <View ref={composerSource} collapsable={false} style={{ flexDirection: "row", alignItems: "flex-end", gap: space.sm, zIndex: 1 }}>
+        {/* The layer draws the "+" over the glass, never inside it: a native
+            menu opened from inside Liquid Glass morphs the glass. It takes
+            the glass's old `flex: 1`; the glass stretches across it. */}
+        <AttachMenuLayer style={{ flex: 1 }}>
         <GlassSurface
           variant="regular"
           fallbackColor={colors.card}
           style={{
-            flex: 1,
             flexDirection: composerExpanded ? "column" : "row",
             // CENTRED, not bottom-aligned. One line of text in a 52pt box sat
             // on the floor of it with all the slack above — the placeholder
@@ -2583,6 +2586,7 @@ function SessionScreenContent({
             </Pressable>
           )}
         </GlassSurface>
+        </AttachMenuLayer>
         </View>
 
         {/* No stop button down here. Stopping a run is not a composer

@@ -1,39 +1,109 @@
 /**
- * The composer's "+" menu, drawn by the app instead of by SwiftUI.
+ * The composer's "+" menu: the NATIVE menu, with its trigger lifted out of the
+ * glass.
  *
- * WHY NOT DropdownMenu. The "+" sits inside the composer's Liquid Glass
- * surface. On iOS 26 a system menu presented from inside a glass view morphs
- * THAT GLASS into the menu, so pressing "+" made the whole composer turn into
- * the Photo Library / Take Photo / Choose File list and vanish (reported with a
- * screenshot, 2026-09-24). The composer has to stay where it is while you pick.
+ * WHY THE TRIGGER CANNOT LIVE IN THE GLASS. The "+" sits inside the composer's
+ * Liquid Glass surface. On iOS 26 a system menu presented from inside a glass
+ * view morphs THAT GLASS into the menu, so pressing "+" made the whole
+ * composer turn into the Photo Library / Take Photo / Choose File list and
+ * vanish (reported with a screenshot, 2026-09-24).
  *
- * A transparent Modal with a small card anchored above the trigger does that:
- * nothing native is presented from the glass, so there is nothing to morph.
- * Tapping outside the card closes it. The rows are the same MenuOption list the
- * native menu took, so the picking in file-picker.ts is unchanged.
+ * An app-drawn card fixed that and was rejected: Benny wants the system menu.
+ * So the menu stays native and only its ANCHOR moves. `AttachMenuLayer` wraps
+ * the glass; `AttachMenuButton` leaves an empty slot where the "+" belongs and
+ * the layer draws the real trigger on top of that slot, as a SIBLING of the
+ * glass rather than a child of it. The menu then grows from the "+" alone.
+ *
+ * Without a layer (Android, or an OS with no Liquid Glass, or a caller that
+ * never wrapped one) the button is the plain inline DropdownMenu it always was.
  */
-import * as Haptics from "expo-haptics";
-import { type SFSymbol } from "expo-symbols";
-import { type ReactNode, useRef, useState } from "react";
-import { type HostInstance, Modal, Platform, Pressable, useWindowDimensions, View } from "react-native";
+import {
+  createContext,
+  type ReactNode,
+  type RefObject,
+  useCallback,
+  useContext,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { type HostInstance, type StyleProp, View, type ViewStyle } from "react-native";
 
-import { Icon } from "../components";
-import { type MenuOption } from "./menu";
-import { Text } from "./text";
-import { useTheme } from "./theme";
+import { LIQUID_GLASS } from "./glass";
+import { DropdownMenu, type MenuOption } from "./menu";
 
-const CARD_WIDTH = 230;
-const GAP = 8;
-const EDGE = 12;
+type Slot = { x: number; y: number; size: number; options: MenuOption[]; glyph: ReactNode };
 
-/** Material names for the few SF Symbols the attach rows use. */
-const ANDROID: Record<string, string> = {
-  "photo.on.rectangle": "photo-library",
-  camera: "photo-camera",
-  folder: "folder",
+type Layer = {
+  host: RefObject<HostInstance | null>;
+  set: (id: string, slot: Slot | null) => void;
+  /** Bumped whenever the layer resizes, so every slot measures again. */
+  tick: number;
 };
 
-type Anchor = { x: number; y: number };
+const LayerContext = createContext<Layer | null>(null);
+
+function Trigger({ size, options, glyph }: { size: number; options: MenuOption[]; glyph: ReactNode }) {
+  return (
+    <DropdownMenu options={options} style={{ width: size, height: size }}>
+      <View
+        accessibilityRole="button"
+        accessibilityLabel="Attach a file"
+        testID="composer-attach"
+        style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}
+      >
+        {glyph}
+      </View>
+    </DropdownMenu>
+  );
+}
+
+/** Wrap the composer's glass surface in this. It draws the "+" over the glass. */
+export function AttachMenuLayer({
+  style,
+  children,
+}: {
+  style?: StyleProp<ViewStyle>;
+  children: ReactNode;
+}) {
+  const host = useRef<HostInstance>(null);
+  const [slots, setSlots] = useState<Record<string, Slot>>({});
+  const [tick, setTick] = useState(0);
+  const set = useCallback((id: string, slot: Slot | null) => {
+    setSlots((prev) => {
+      if (!slot) {
+        if (!(id in prev)) return prev;
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      }
+      return { ...prev, [id]: slot };
+    });
+  }, []);
+  const value = useMemo(() => ({ host, set, tick }), [set, tick]);
+  if (!LIQUID_GLASS) return <View style={style}>{children}</View>;
+  return (
+    <LayerContext.Provider value={value}>
+      <View
+        ref={host}
+        collapsable={false}
+        style={style}
+        // The glass grows with the text, which moves the slot inside it
+        // without the slot's own frame (relative to ITS parent) changing.
+        onLayout={() => setTick((n) => n + 1)}
+      >
+        {children}
+        {Object.entries(slots).map(([id, slot]) => (
+          <View key={id} style={{ position: "absolute", left: slot.x, top: slot.y, zIndex: 2 }}>
+            <Trigger size={slot.size} options={slot.options} glyph={slot.glyph} />
+          </View>
+        ))}
+      </View>
+    </LayerContext.Provider>
+  );
+}
 
 export function AttachMenuButton({
   options,
@@ -42,129 +112,36 @@ export function AttachMenuButton({
 }: {
   options: MenuOption[];
   size: number;
-  /** The "+" glyph. Pressing it opens the card. */
+  /** The "+" glyph. */
   children: ReactNode;
 }) {
-  const { colors, radius, type, isDark } = useTheme();
-  const { width, height } = useWindowDimensions();
-  const trigger = useRef<HostInstance>(null);
-  const [anchor, setAnchor] = useState<Anchor | null>(null);
+  const layer = useContext(LayerContext);
+  const id = useId();
+  const slot = useRef<HostInstance>(null);
+  const latest = useRef({ options, children, size });
+  latest.current = { options, children, size };
 
-  const open = () => {
-    trigger.current?.measureInWindow((x, y) => {
-      void Haptics.selectionAsync();
-      setAnchor({ x, y });
+  const measure = useCallback(() => {
+    const target = layer?.host.current;
+    if (!layer || !target || !slot.current) return;
+    slot.current.measureLayout(target, (x, y) => {
+      const { options: rows, children: glyph, size: side } = latest.current;
+      layer.set(id, { x, y, size: side, options: rows, glyph });
     });
-  };
-  const close = () => setAnchor(null);
-  /**
-   * The pick waits for the card to be GONE. The pickers present their own
-   * view controller, and iOS refuses to present while this Modal is still
-   * dismissing, so a pick fired straight from the row can silently do nothing.
-   * `onDismiss` is iOS only; Android has no such race and runs it at once.
-   */
-  const pending = useRef<(() => void) | null>(null);
-  const runPending = () => {
-    const run = pending.current;
-    pending.current = null;
-    run?.();
-  };
+  }, [layer, id]);
 
-  const left = anchor
-    ? Math.max(EDGE, Math.min(anchor.x, width - CARD_WIDTH - EDGE))
-    : 0;
-  const bottom = anchor ? height - anchor.y + GAP : 0;
+  // Re-publish when the rows change (they carry the picker callbacks) and
+  // whenever the layer resizes.
+  useEffect(measure, [measure, options, layer?.tick]);
+  useEffect(() => () => layer?.set(id, null), [layer, id]);
 
+  if (!layer) return <Trigger size={size} options={options} glyph={children} />;
   return (
-    <>
-      <Pressable
-        ref={trigger}
-        onPress={open}
-        accessibilityRole="button"
-        accessibilityLabel="Attach a file"
-        testID="composer-attach"
-        hitSlop={6}
-        style={({ pressed }) => ({
-          width: size,
-          height: size,
-          alignItems: "center",
-          justifyContent: "center",
-          opacity: pressed ? 0.6 : 1,
-        })}
-      >
-        {children}
-      </Pressable>
-      <Modal
-        visible={!!anchor}
-        transparent
-        animationType="fade"
-        onRequestClose={close}
-        onDismiss={runPending}
-        supportedOrientations={["portrait", "landscape"]}
-      >
-        {/* The backdrop is a SIBLING of the card, not its parent. A
-            Pressable is one accessibility element on iOS, so wrapping the
-            card in it hid every row from VoiceOver (and from Maestro). */}
-        <View style={{ flex: 1 }}>
-          <Pressable
-            style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
-            onPress={close}
-            accessibilityRole="button"
-            accessibilityLabel="Close attach menu"
-          />
-          <View
-            accessibilityRole="menu"
-            style={{
-              position: "absolute",
-              left,
-              bottom,
-              width: CARD_WIDTH,
-              borderRadius: radius.xl,
-              borderCurve: "continuous",
-              backgroundColor: colors.popover,
-              paddingVertical: 6,
-              shadowColor: "#000",
-              shadowOpacity: isDark ? 0.5 : 0.18,
-              shadowRadius: 24,
-              shadowOffset: { width: 0, height: 8 },
-              elevation: 8,
-            }}
-          >
-            {options.map((option, index) => (
-              <Pressable
-                key={`${index}-${option.label}`}
-                accessibilityRole="menuitem"
-                accessibilityState={{ disabled: !!option.disabled }}
-                disabled={option.disabled}
-                onPress={() => {
-                  void Haptics.selectionAsync();
-                  pending.current = option.onPress ?? null;
-                  close();
-                  if (Platform.OS !== "ios") runPending();
-                }}
-                style={({ pressed }) => ({
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 14,
-                  minHeight: 46,
-                  paddingHorizontal: 18,
-                  backgroundColor: pressed ? colors.cardPressed : "transparent",
-                })}
-              >
-                {option.icon ? (
-                  <Icon
-                    ios={option.icon as SFSymbol}
-                    android={(ANDROID[option.icon] ?? "add") as never}
-                    size={20}
-                    color={colors.text}
-                  />
-                ) : null}
-                <Text style={{ ...type.body, color: colors.text }}>{option.label}</Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
-      </Modal>
-    </>
+    <View
+      ref={slot}
+      collapsable={false}
+      onLayout={measure}
+      style={{ width: size, height: size }}
+    />
   );
 }

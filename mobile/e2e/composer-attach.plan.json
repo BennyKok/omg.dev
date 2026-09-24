@@ -13,26 +13,60 @@
       ]
     },
     {
-      "name": "Plus opens a card, composer stays",
+      "name": "Plus opens the native menu, composer stays",
       "goal": "If an Apple Account Verification alert appears, tap Not Now first. Tap ONLY the element labelled Attach a file in the bottom composer, once.",
-      "done": "A small card with Photo Library, Take Photo and Choose File is open above the composer. The composer itself did not turn into the menu.",
+      "done": "The system menu with Photo Library, Take Photo and Choose File is open next to the plus button. The composer field is still visible; it did not turn into the menu.",
       "expect": [
         "Photo Library",
         "Take Photo",
-        "Choose File",
-        "Close attach menu"
+        "Choose File"
       ]
     },
     {
-      "name": "Tap outside closes it",
-      "goal": "If an Apple Account Verification alert appears, tap Not Now first. Tap the element labelled Close attach menu, which is the empty area outside the card. Do not tap Photo Library, Take Photo or Choose File.",
-      "done": "The card is gone and the Home screen with the composer is back.",
+      "name": "Photo Library opens the picker",
+      "goal": "If an Apple Account Verification alert appears, tap Not Now first. Tap Photo Library in the open menu, once.",
+      "done": "The system photo picker is open, with a Cancel button.",
+      "expect": [
+        "Cancel"
+      ],
+      "forbid": [
+        "Take Photo"
+      ]
+    },
+    {
+      "name": "Cancel returns to the composer",
+      "goal": "If an Apple Account Verification alert appears, tap Not Now first. Tap Cancel in the photo picker.",
+      "done": "The picker is gone and the Home screen with the composer and its Attach a file button is back.",
       "expect": [
         "Attach a file"
       ],
       "forbid": [
+        "Take Photo"
+      ]
+    },
+    {
+      "name": "Open a session",
+      "goal": "If an Apple Account Verification alert appears, tap Not Now first. If a menu is open, close it. Tap the session row titled Refactor the rate limiter to a sliding window to open that conversation. The Home screen header says Welcome, You; the conversation screen does not.",
+      "done": "The conversation screen is open with its composer at the bottom and an Attach a file button in it.",
+      "expect": [
+        "Attach a file"
+      ],
+      "forbid": [
+        "Welcome, You",
+        "2 agents building"
+      ]
+    },
+    {
+      "name": "Session plus opens the native menu",
+      "goal": "If an Apple Account Verification alert appears, tap Not Now first. Tap ONLY the element labelled Attach a file in the conversation composer, once.",
+      "done": "The system menu with Photo Library, Take Photo and Choose File is open next to the plus button, and the composer is still visible.",
+      "expect": [
+        "Photo Library",
         "Take Photo",
-        "Close attach menu"
+        "Choose File"
+      ],
+      "forbid": [
+        "Welcome, You"
       ]
     }
   ]

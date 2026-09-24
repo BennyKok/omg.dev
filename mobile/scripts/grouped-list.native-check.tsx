@@ -75,7 +75,7 @@ local('usage.ts', {
   detailsForKind: () => [],
 });
 local('menu.tsx', { DropdownMenu: Probe });
-local('attach-menu.tsx', { AttachMenuButton: Probe });
+local('attach-menu.tsx', { AttachMenuButton: Probe, AttachMenuLayer: Probe });
 local('agent-setup-sheet.tsx', { AgentSetupSheet: () => null });
 // The starter rail's edge paint pulls in expo-linear-gradient, which
 // imports `Platform` from the react-native module stubbed above.

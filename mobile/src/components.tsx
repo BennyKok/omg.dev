@@ -49,7 +49,7 @@ import {
 } from "./omg/usage";
 import type { OmgColors } from "./omg/palette";
 import { DropdownMenu, type MenuOption } from "./omg/menu";
-import { AttachMenuButton } from "./omg/attach-menu";
+import { AttachMenuButton, AttachMenuLayer } from "./omg/attach-menu";
 import { AgentSetupSheet } from "./omg/agent-setup-sheet";
 import { RailEdgeFades } from "./omg/edge-fade";
 import { SkillSuggest } from "./omg/skill-suggest";
@@ -1479,6 +1479,9 @@ export function HomeComposer({
       />
       {/* Liquid Glass on iOS 26+, a solid card everywhere else. */}
       <AttachmentStrip items={attachments.items} onRemove={attachments.remove} />
+      {/* The layer draws the "+" over the glass, never inside it: a native
+          menu opened from inside Liquid Glass morphs the glass. attach-menu.tsx. */}
+      <AttachMenuLayer>
       <AnimatedGlassSurface
         variant="regular"
         fallbackColor={colors.card}
@@ -1554,6 +1557,7 @@ export function HomeComposer({
           </Reanimated.View>
         )}
       </AnimatedGlassSurface>
+      </AttachMenuLayer>
       <AgentSetupSheet
         visible={setupOpen}
         onClose={() => setSetupOpen(false)}

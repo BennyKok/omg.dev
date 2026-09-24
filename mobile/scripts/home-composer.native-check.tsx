@@ -34,7 +34,7 @@ local('glass.tsx',{GlassSurface:View,LIQUID_GLASS:false});
 local('lucide.tsx',{LucideIcon:()=>null});
 local('usage.ts',{orderWindows:(x:any)=>x,providerKindForAgent:()=>undefined,detailsForKind:(_k:any,accounts:any,merged:any)=>accounts.length?accounts:merged});
 local('menu.tsx',{DropdownMenu:View});
-local('attach-menu.tsx',{AttachMenuButton:View});
+local('attach-menu.tsx',{AttachMenuButton:View,AttachMenuLayer:View});
 local('agent-setup-sheet.tsx',{AgentSetupSheet:()=>null});
 // The rail's edge paint pulls in expo-linear-gradient, which imports
 // `Platform` from the react-native module this file replaces with a stub.
