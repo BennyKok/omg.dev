@@ -108,7 +108,7 @@ test('the catalog waits for the box instead of asking a sleeping one', async () 
     readiness = { status: 'ready' };
     await ui.flushAsync(async () => { ui.render(<Fixture />); });
     expect(requests).toBeGreaterThan(0);
-    expect(picker.modelOptions.map(o => o.label)).toEqual(['opus', 'sonnet']);
+    expect(picker.modelOptions.map(o => o.label)).toEqual(['Opus', 'Sonnet']);
   } finally { ui.cleanup(); }
 });
 
@@ -126,7 +126,7 @@ test('a fetch that fails once is tried again', async () => {
     // One shared retry timer, 3s. Wait past it and let the effect re-run.
     await ui.flushAsync(async () => { await new Promise(r => setTimeout(r, 3400)); });
     await ui.flushAsync(async () => { ui.render(<Fixture />); });
-    expect(picker.modelOptions.map(o => o.label)).toEqual(['opus', 'sonnet']);
+    expect(picker.modelOptions.map(o => o.label)).toEqual(['Opus', 'Sonnet']);
     expect(picker.accountOptions.map(o => o.label)).toEqual(['Auto', '1', '2']);
   } finally { ui.cleanup(); failures = 0; }
 });
