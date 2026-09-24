@@ -417,7 +417,18 @@ export function createGrantTransport(options: CreateGrantTransportOptions): OmgT
       socketUrl(originFor(current), path),
       [`lfg-bearer.${current.token}`],
     ) as OmgSocket;
-    socket.addEventListener("close", () => { refreshRoute = true; });
+    // A screen leaving the foreground is not evidence that the route failed.
+    // Keep valid grants across local disposal; remote closes and errors still
+    // rediscover the route. An explicit reconnect (4000) also refreshes it.
+    let locallyClosed = false;
+    const close = socket.close.bind(socket);
+    socket.close = (code?: number, reason?: string) => {
+      locallyClosed = code === undefined || code === 1000;
+      if (!locallyClosed) refreshRoute = true;
+      close(code, reason);
+    };
+    socket.addEventListener("error", () => { refreshRoute = true; });
+    socket.addEventListener("close", () => { if (!locallyClosed) refreshRoute = true; });
     return socket;
   };
 

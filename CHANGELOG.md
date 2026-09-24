@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## September 24, 2026 - Faster return connections (v0.6.124)
+
+- Returning to a screen can reuse a valid connection grant. Network failures and explicit reconnects still refresh the relay route.
+- Mobile clients can request a small readiness response without downloading the full web bootstrap payload.
+- iOS connection startup runs readiness and live updates in parallel. Connection latency and timing details are available in Settings under Debug.
+
 ## September 24, 2026 - Connectors that just work (v0.6.123)
 
 - Connectors now list only apps omg has tested: Gmail, Google Drive, Google Calendar and Google Sheets. Each runs on omg's own tools, and the untested catalog is gone.
