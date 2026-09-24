@@ -13253,7 +13253,7 @@ function RailStage({
           </div>
         </section>
       ) : (
-        <div className="pointer-events-none relative z-10 -mb-1 flex justify-center pb-1">
+        <div className="pointer-events-none relative z-10 flex justify-center pb-2.5 pt-1.5">
           <button
             type="button"
             onClick={() => setRailFindingsOpen(true)}
