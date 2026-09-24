@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## September 24, 2026 - Nearby Bridge relays (v0.6.122)
+
+- Bridges can choose the fastest healthy relay region and reconnect through another region without pairing again.
+- Hosted clients use the Bridge region for live updates, requests, uploads, and media when the server supplies a regional route.
+
 ## September 24, 2026 - Long videos keep playing (v0.6.121)
 
 - A video from a hosted computer no longer stops after a few minutes. When its access link expires, the player gets a new one and continues from the same point. This works on the web and in the iPhone app.
