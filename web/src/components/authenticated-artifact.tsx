@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { artifactRequestPath } from "../lib/artifact-document";
 import { omgDirectUrl, omgFetch, resolveOmgDirectUrl } from "../lib/omg-client";
@@ -73,14 +73,15 @@ function useArtifactBlobUrl(path: string | null): ArtifactLoad<string> {
  * `assetUrl` returns null there. A current host can resolve a signed artifact
  * URL asynchronously. An older host has no resolver and keeps the blob path.
  */
-function useArtifactSource(path: string | null): ArtifactSource {
+function useArtifactSource(path: string | null, generation = 0): ArtifactSource {
   const direct = path === null ? null : omgDirectUrl(path);
   type Resolution =
-    | { path: string | null; status: "loading"; value: null }
-    | { path: string; status: "direct"; value: string }
-    | { path: string; status: "blob"; value: null };
+    | { path: string | null; generation: number; status: "loading"; value: null }
+    | { path: string; generation: number; status: "direct"; value: string }
+    | { path: string; generation: number; status: "blob"; value: null };
   const [resolution, setResolution] = useState<Resolution>({
     path: null,
+    generation: 0,
     status: "loading",
     value: null,
   });
@@ -92,17 +93,19 @@ function useArtifactSource(path: string | null): ArtifactSource {
       if (!active) return;
       setResolution(
         value === null
-          ? { path, status: "blob", value: null }
-          : { path, status: "direct", value },
+          ? { path, generation, status: "blob", value: null }
+          : { path, generation, status: "direct", value },
       );
     });
     return () => {
       active = false;
     };
-  }, [direct, path]);
+  }, [direct, path, generation]);
 
-  // Do not expose the previous path while a virtualized row is reused.
-  const current = resolution.path === path ? resolution : null;
+  // Do not expose the previous path while a virtualized row is reused, nor
+  // the previous (expired) URL while a renewal resolves.
+  const current =
+    resolution.path === path && resolution.generation === generation ? resolution : null;
   const blob = useArtifactBlobUrl(
     direct === null && current?.status === "blob" ? path : null,
   );
@@ -459,6 +462,9 @@ function PlayGlyph() {
  * the untapped state was a 44px play button with nothing around it, and the
  * caption, which wraps to the media's width, came down one word per line.
  */
+/** Consecutive re-signs before a video error is shown as final. */
+const MAX_VIDEO_RENEWALS = 2;
+
 export function AuthenticatedArtifactVideo({
   path,
   label,
@@ -477,7 +483,17 @@ export function AuthenticatedArtifactVideo({
   className?: string;
 }) {
   const [requested, setRequested] = useState(autoPlay);
-  const source = useArtifactSource(requested ? path : null);
+  // A hosted transport signs the URL with a grant that lives ten minutes, and
+  // the element keeps requesting ranges from that URL as it plays and seeks.
+  // Once the grant expires those requests get 401 and playback stops. So an
+  // error re-signs the URL and resumes at the same time, at most
+  // MAX_VIDEO_RENEWALS times in a row; playing again resets the count. A
+  // same-origin URL carries no grant, so its error is final at once.
+  const [generation, setGeneration] = useState(0);
+  const failures = useRef(0);
+  const resumeAt = useRef<number | null>(null);
+  const renewable = requested && omgDirectUrl(path) === null;
+  const source = useArtifactSource(requested ? path : null, generation);
   // The full-page viewer plays at once, so it never needs the still.
   const poster = useArtifactSource(autoPlay ? null : artifactRequestPath(path, { preview: 1 }));
   const direct = source.status === "direct" ? source.value : null;
@@ -546,7 +562,28 @@ export function AuthenticatedArtifactVideo({
       aria-label={label}
       // Same box as the still it replaces, so nothing moves on the tap.
       style={reserved}
-      onError={direct === null ? undefined : () => setDirectFailed(true)}
+      key={generation}
+      onError={
+        direct === null
+          ? undefined
+          : (event) => {
+              if (renewable && failures.current < MAX_VIDEO_RENEWALS) {
+                failures.current += 1;
+                resumeAt.current = event.currentTarget.currentTime;
+                setGeneration((g) => g + 1);
+                return;
+              }
+              setDirectFailed(true);
+            }
+      }
+      onLoadedMetadata={(event) => {
+        if (resumeAt.current === null) return;
+        event.currentTarget.currentTime = resumeAt.current;
+        resumeAt.current = null;
+      }}
+      onPlaying={() => {
+        failures.current = 0;
+      }}
       className={className}
     />
   );

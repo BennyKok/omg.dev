@@ -270,6 +270,47 @@ describe("AuthenticatedArtifactVideo", () => {
     expect(fetched).toEqual([]);
   });
 
+  // The signed URL's grant lives ten minutes and the element keeps using it
+  // for every range it asks for. An error re-signs and remounts the player;
+  // two failures in a row with no playback between them end in the error.
+  test("an expired signed URL is re-signed, and a dead file still ends in an error", async () => {
+    let minted = 0;
+    configureOmgTransport({
+      async fetch() {
+        throw new Error("fetch is not used for a signed video");
+      },
+      async request() {
+        throw new Error("unused");
+      },
+      async openSocket() {
+        throw new Error("unused");
+      },
+      async openLiveSocket() {
+        throw new Error("unused");
+      },
+      resolveAssetUrl: async (path: string) => `https://sessions.example${path}?__omg_grant=g${++minted}`,
+    });
+    render(<AuthenticatedArtifactVideo path="/api/artifacts/long.mp4" label="long" autoPlay />);
+    await act(async () => {});
+    const src = () => host.querySelector("video")?.getAttribute("src");
+    const fail = () => act(async () => { host.querySelector("video")!.dispatchEvent(new window.Event("error") as unknown as Event); });
+    const play = () => act(async () => { host.querySelector("video")!.dispatchEvent(new window.Event("playing") as unknown as Event); });
+    expect(src()).toBe("https://sessions.example/api/artifacts/long.mp4?__omg_grant=g1");
+
+    await fail();
+    expect(src()).toBe("https://sessions.example/api/artifacts/long.mp4?__omg_grant=g2");
+    // Playback resumed: the next expiry gets its own renewals.
+    await play();
+    await fail();
+    expect(src()).toBe("https://sessions.example/api/artifacts/long.mp4?__omg_grant=g3");
+    await fail();
+    expect(src()).toBe("https://sessions.example/api/artifacts/long.mp4?__omg_grant=g4");
+    // Two renewals with no playback in between: the file is really gone.
+    await fail();
+    expect(host.querySelector("video")).toBeNull();
+    expect(minted).toBe(4);
+  });
+
   test("streams a direct URL instead of buffering the whole file as a blob", async () => {
     installTransport({ direct: true });
     render(
