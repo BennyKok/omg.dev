@@ -18,7 +18,7 @@ describe("thread rail identity marks", () => {
       RAIL_ITEM.indexOf(") : (", RAIL_ITEM.indexOf(") : showFavicon ? (") + 1),
     );
     expect(faviconBranch).toContain('aria-label="working"');
-    expect(faviconBranch).toContain("size-9 animate-spin");
+    expect(faviconBranch).toContain("animate-spin");
     expect(faviconBranch).toContain("src={faviconSrc}");
   });
 

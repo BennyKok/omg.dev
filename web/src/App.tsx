@@ -4,6 +4,7 @@ import { ModelProviderIcon } from "./lib/model-provider-icons";
 import { useRuntimeLifecycle } from "./lib/runtime-lifecycle";
 import { LiveHeaderContext } from "./components/live-header-context";
 import { ProjectPillRail, projectPillsFor } from "./components/project-pill-rail";
+import { ProjectFolderMenu } from "./components/project-folder-menu";
 import { HostDrawerSlot, SideNavButton, SideNavDrawer } from "./components/side-nav";
 import { FindingsPill, FindingsSheet } from "./components/findings-pill";
 import { sideNavRows } from "./lib/side-nav-items";
@@ -12273,18 +12274,17 @@ function RailStage({
   const [cursor, setCursor] = useState<string | null>(null);
   // The desktop rail uses the same polished project sheet and folder browser as
   // the composer, replacing the cramped native-style project dropdown.
-  const [projectSheetOpen, setProjectSheetOpen] = useState(false);
   // Open findings live behind the rail's Updates pill.
   const [railFindingsOpen, setRailFindingsOpen] = useState(false);
   const [folderBrowserOpen, setFolderBrowserOpen] = useState(false);
   const [folderBrowserCreate, setFolderBrowserCreate] = useState(false);
-  const canUseProjectSheet = repos.length > 0 && !!onProjectChange;
   const filterRepo = repos.find((repo) => repoProject(repo) === projectFilter);
-  const openFolderBrowserFromSheet = (create: boolean) => {
-    setProjectSheetOpen(false);
+  const openFolderBrowser = (create: boolean) => {
     setFolderBrowserCreate(create);
-    window.setTimeout(() => setFolderBrowserOpen(true), 180);
+    setFolderBrowserOpen(true);
   };
+  const showFolderMenu =
+    !railCollapsed && railSurface !== "chat" && !!onProjectChange && projectOptions.length > 0;
 
   const [showHelp, setShowHelp] = useState(false);
   // One-shot glow token for the stage pane just chosen from the rail. `n`
@@ -13107,6 +13107,7 @@ function RailStage({
           pinned={validPinned.includes(sid)}
           topPinned={topPinnedSet.has(sid)}
           collapsed={railCollapsed}
+          dense
           onActivate={(shift) => activate(sid, shift)}
           onTogglePin={() => togglePin(sid)}
         />
@@ -13192,32 +13193,32 @@ function RailStage({
   // Open findings are a pill above the rail's footer, not a group at the end
   // of the list. A group there put more work under a list that is already
   // about work, and every finding pushed the running sessions further off
-  // the fold. Same shape as iOS at every width
-  // (mobile/src/omg/findings-pill.tsx), which floats it over the list on the
-  // phone and over the rail footer on iPad.
+  // the fold. Same pill as iOS (mobile/src/omg/findings-pill.tsx).
+  //
+  // Pressing it opens the list IN the rail, under the sessions, not in a
+  // bottom sheet. A sheet is a phone shape: on desktop it covered the stage
+  // and pulled the eye to the bottom of the screen, away from the rail the
+  // pill lives in.
   const autoRailPill =
     findings.length && !railCollapsed ? (
-      <>
-        <div className="pointer-events-none relative z-10 -mb-1 flex justify-center pb-1">
-          <button
-            type="button"
-            onClick={() => setRailFindingsOpen(true)}
-            data-testid="rail-findings-pill"
-            aria-label={`${findings.length} update${findings.length === 1 ? "" : "s"} from auto agents. Open`}
-            className="pointer-events-auto flex h-7 items-center gap-1.5 rounded-full border border-border/70 bg-card/90 px-2.5 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur-xl transition-colors hover:text-foreground"
-          >
-            <span className="tabular-nums">
-              {findings.length} update{findings.length === 1 ? "" : "s"}
-            </span>
-            <ChevronUp className="size-3 shrink-0 opacity-70" />
-          </button>
-        </div>
-        <FindingsSheet
-          open={railFindingsOpen}
-          onOpenChange={setRailFindingsOpen}
-          count={findings.length}
-          actions={
-            <span className="flex items-center gap-1">
+      railFindingsOpen ? (
+        <section
+          aria-label="Updates"
+          data-testid="rail-findings-panel"
+          className="flex max-h-[50%] min-h-0 shrink-0 flex-col border-t border-border"
+        >
+          <div className="flex h-10 shrink-0 items-center gap-2 pl-3 pr-1.5">
+            <button
+              type="button"
+              onClick={() => setRailFindingsOpen(false)}
+              aria-expanded
+              aria-label="Hide updates"
+              className="flex min-w-0 items-baseline gap-2 text-left outline-none focus-visible:text-foreground"
+            >
+              <span className="text-[13px] font-semibold">Updates</span>
+              <span className="text-xs tabular-nums text-muted-foreground">{findings.length} open</span>
+            </button>
+            <span className="ml-auto flex items-center gap-1">
               <ClearFindingsButton
                 count={findings.length}
                 busy={clearFindingsBusy}
@@ -13229,22 +13230,45 @@ function RailStage({
                 onClick={onTriageFindings}
                 compact
               />
+              <button
+                type="button"
+                onClick={() => setRailFindingsOpen(false)}
+                aria-label="Hide updates"
+                title="Hide updates"
+                className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <ChevronDown className="size-4" />
+              </button>
             </span>
-          }
-        >
-          {groupFindingsByAgent(findings).map((report) => (
-            <AutoReportRow
-              key={report.agentId}
-              report={report}
-              agentName={nameFor(report.agentId)}
-              onOpen={() => {
-                setRailFindingsOpen(false);
-                onOpenReport(report.agentId);
-              }}
-            />
-          ))}
-        </FindingsSheet>
-      </>
+          </div>
+          <div className="flex min-h-0 flex-col gap-1 overflow-y-auto px-1.5 pb-2">
+            {groupFindingsByAgent(findings).map((report) => (
+              <AutoReportRow
+                key={report.agentId}
+                report={report}
+                agentName={nameFor(report.agentId)}
+                onOpen={() => onOpenReport(report.agentId)}
+              />
+            ))}
+          </div>
+        </section>
+      ) : (
+        <div className="pointer-events-none relative z-10 -mb-1 flex justify-center pb-1">
+          <button
+            type="button"
+            onClick={() => setRailFindingsOpen(true)}
+            data-testid="rail-findings-pill"
+            aria-expanded={false}
+            aria-label={`${findings.length} update${findings.length === 1 ? "" : "s"} from auto agents. Open`}
+            className="pointer-events-auto flex h-7 items-center gap-1.5 rounded-full border border-border/70 bg-card/90 px-2.5 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur-xl transition-colors hover:text-foreground"
+          >
+            <span className="tabular-nums">
+              {findings.length} update{findings.length === 1 ? "" : "s"}
+            </span>
+            <ChevronUp className="size-3 shrink-0 opacity-70" />
+          </button>
+        </div>
+      )
     ) : null;
 
   // On the bot surface the stage shows exactly one column — the bot you picked.
@@ -13420,22 +13444,6 @@ function RailStage({
               <RuntimeStatusBrand>
                 <ProductBrand hosted={hosted} />
               </RuntimeStatusBrand>
-              {/* Folders, not a filter. This used to be the scope control and
-                  wore the current folder's name, which made it read as "you
-                  are here" while also being the only way to add a folder.
-                  Scoping belongs to the project pills, so this is just the
-                  door to the folder manager and says one thing. */}
-              {canUseProjectSheet ? (
-                <button
-                  type="button"
-                  onClick={() => setProjectSheetOpen(true)}
-                  aria-label="Projects"
-                  title="Projects"
-                  className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                >
-                  <Folder className="size-4" />
-                </button>
-              ) : null}
               <div className="ml-auto flex items-center gap-1">
                 {onOpenAsk ? (
                   <>
@@ -13465,12 +13473,25 @@ function RailStage({
             <SurfaceToggle active={railSurface} onOpenSessions={onOpenSessions} onOpenBots={onOpenBots} onOpenAuto={onOpenAuto} />
           </div>
         )}
-        {!railCollapsed && railSurface !== "chat" && onProjectChange && projectOptions.length > 0 ? (
-          <ProjectPillRail
-            projects={projectPillsFor(projectOptions, shortProject)}
-            value={projectFilter}
-            onChange={(next) => onProjectChange(projectFilterAfterPress(next, projectFilter))}
-          />
+        {showFolderMenu ? (
+          // The folder scope and the folder manager, as one dropdown. It
+          // replaced a row of sideways-scrolling pills plus a separate
+          // manage button in the brand row.
+          <div className="shrink-0 border-b border-border px-2 py-2">
+            <ProjectFolderMenu
+              value={projectFilter}
+              projects={projectOptions}
+              labelFor={(value) => projectFilterLabel(value, shortProject)}
+              onChange={(next) => onProjectChange?.(next)}
+              canRemove={(project) => repos.some((repo) => repoProject(repo) === project)}
+              onRemove={async (project) => {
+                const repo = repos.find((candidate) => repoProject(candidate) === project);
+                if (repo) await unlinkRepoFromList(repo, onReposChanged);
+              }}
+              onAddFolder={() => openFolderBrowser(false)}
+              onNewFolder={() => openFolderBrowser(true)}
+            />
+          </div>
         ) : null}
         <div className="session-list-scroll min-h-0 flex-1 overflow-y-auto px-1.5 py-2">
           {railSurface === "chat" ? botRailList : <>
@@ -13503,6 +13524,10 @@ function RailStage({
             projectFilter={projectFilter}
             onProjectChange={onProjectChange}
             renderItem={renderRailItem}
+            // The folder menu above names the scope, so a header under it
+            // repeating "lfg · 9" said the same thing twice.
+            headerless={showFolderMenu}
+            dense
           />
           </>}
         </div>
@@ -13618,21 +13643,9 @@ function RailStage({
 
       {showHelp ? <ShortcutsHelp onClose={() => setShowHelp(false)} /> : null}
 
-      {canUseProjectSheet ? (
+      {onProjectChange ? (
         <>
-          {/* Manage only. Scoping the list is the folder title's job now, so
-              this button has one meaning: the folders themselves. */}
-          <ComposerProjectSheet
-            manageOnly
-            open={projectSheetOpen}
-            repos={repos}
-            selected=""
-            onOpenChange={setProjectSheetOpen}
-            onSelect={() => setProjectSheetOpen(false)}
-            onBrowse={() => openFolderBrowserFromSheet(false)}
-            onCreate={() => openFolderBrowserFromSheet(true)}
-            onReposChanged={onReposChanged}
-          />
+          {/* Opened from the folder menu's Add folder and New folder. */}
           <ProjectFolderBrowser
             open={folderBrowserOpen}
             initialPath={filterRepo?.cwd || undefined}
@@ -13755,6 +13768,7 @@ function SessionGroups({
   onProjectChange,
   renderItem,
   headerless = false,
+  dense = false,
   leading,
   trailing,
 }: {
@@ -13775,6 +13789,8 @@ function SessionGroups({
    * rail has no pills, so it keeps its headers and they stay the filter.
    */
   headerless?: boolean;
+  /** Desktop rail: headerless runs keep the rows' own tight gap. */
+  dense?: boolean;
   /** Above every group. The rail puts New session here. */
   leading?: ReactNode;
   /** Below every group. Auto findings. */
@@ -13865,7 +13881,7 @@ function SessionGroups({
       ) : null}
       {groups.map((group) =>
         headerless ? (
-          <div key={group.key} className="flex flex-col gap-2">
+          <div key={group.key} className={cn("flex flex-col", dense ? "gap-0.5" : "gap-2")}>
             {group.nodes.map((node) => renderNode(node))}
           </div>
         ) : (
@@ -14049,6 +14065,7 @@ function RailGroup({
 const RailRow = memo(function RailRow({
   railKey,
   collapsed,
+  dense = false,
   active,
   cursored,
   ariaLabel,
@@ -14070,6 +14087,11 @@ const RailRow = memo(function RailRow({
   /** `data-rail-sid`, for surfaces that scroll/cursor rows by id. Omit where nothing looks a row up this way. */
   railKey?: string;
   collapsed: boolean;
+  /**
+   * Desktop rail density. The 5rem row matches the iOS row, which is sized
+   * for a thumb; with a pointer the same fleet took twice the scrolling.
+   */
+  dense?: boolean;
   active: boolean;
   cursored: boolean;
   ariaLabel?: string;
@@ -14200,7 +14222,8 @@ const RailRow = memo(function RailRow({
         onTouchEnd={onTouchEnd}
         title={collapsed ? tooltip : undefined}
         className={cn(
-          "group relative flex cursor-pointer touch-pan-y select-none items-center gap-3 rounded-xl border py-1.5 outline-none transition-[background-color,box-shadow,border-color] duration-150",
+          "group relative flex cursor-pointer touch-pan-y select-none items-center rounded-xl border outline-none transition-[background-color,box-shadow,border-color] duration-150",
+          dense ? "gap-2.5 py-1" : "gap-3 py-1.5",
           // Fixed height. The preview arrives late and is replaced as a row
           // streams, so a row sized to its own text kept resizing under the
           // cursor and shoved every row below it — the whole list twitching
@@ -14209,7 +14232,7 @@ const RailRow = memo(function RailRow({
           // 5rem and 16/14 padding, from SESSION_ROW in mobile/src/components.tsx.
           // The web row was 60px with 8px of padding, so the same fleet read
           // as a denser product on the web than in the app.
-          collapsed ? "h-11 justify-center px-0" : "h-20 pl-4 pr-3.5",
+          collapsed ? "h-11 justify-center px-0" : dense ? "h-[3.75rem] pl-2.5 pr-2" : "h-20 pl-4 pr-3.5",
           swiping
             ? "border-transparent bg-card"
             : active
@@ -14236,7 +14259,8 @@ const RailRow = memo(function RailRow({
               <span className="flex items-baseline gap-1.5">
                 <span
                 className={cn(
-                  "min-w-0 flex-1 truncate text-[17px] leading-tight tracking-[-0.2px]",
+                  "min-w-0 flex-1 truncate leading-tight",
+                  dense ? "text-[14.5px] tracking-[-0.1px]" : "text-[17px] tracking-[-0.2px]",
                   // Unread is not the dot's job alone: the title carries full
                   // weight until it is read, then settles back. Same rule as
                   // the iOS row.
@@ -14256,7 +14280,10 @@ const RailRow = memo(function RailRow({
                   to animate. */}
               <span
                 key={typeof preview === "string" ? preview : undefined}
-                className="rail-preview h-5 truncate text-sm leading-tight text-muted-foreground"
+                className={cn(
+                  "rail-preview truncate leading-tight text-muted-foreground",
+                  dense ? "h-[18px] text-[13px]" : "h-5 text-sm",
+                )}
               >
                 {preview}
               </span>
@@ -14316,6 +14343,7 @@ const RailItem = memo(function RailItem({
   pinned,
   topPinned,
   collapsed,
+  dense = false,
   onActivate,
   onTogglePin,
   onArchive,
@@ -14330,6 +14358,8 @@ const RailItem = memo(function RailItem({
   pinned: boolean;
   topPinned: boolean;
   collapsed: boolean;
+  /** Desktop rail: a shorter row with a smaller mark and type. */
+  dense?: boolean;
   onActivate: (shiftKey: boolean) => void;
   onTogglePin: () => void;
   /** Swipe left to archive. Absent on surfaces where that is not offered. */
@@ -14369,6 +14399,7 @@ const RailItem = memo(function RailItem({
     <RailRow
       railKey={session.sessionId ?? ""}
       collapsed={collapsed}
+      dense={dense}
       active={active}
       cursored={cursored}
       unread={unread}
@@ -14385,7 +14416,7 @@ const RailItem = memo(function RailItem({
         // the bot-backed row a slightly larger slot makes the two weigh the
         // same on screen, and the group is homogeneous so nothing is left
         // ragged.
-        drivingBot ? "size-11" : "size-10"
+        dense ? (drivingBot ? "size-9" : "size-8") : drivingBot ? "size-11" : "size-10"
       }
       mark={plainRow ? null : (
         <>
@@ -14398,13 +14429,16 @@ const RailItem = memo(function RailItem({
           {drivingBot ? (
             // The creature carries busy in its own posture, so a bot-backed
             // row would be saying it twice.
-            <BotAvatar bot={drivingBot} working={busy} size={44} />
+            <BotAvatar bot={drivingBot} working={busy} size={dense ? 36 : 44} />
           ) : showFavicon ? (
             <>
               {busy ? (
                 <Loader2
                   aria-label="working"
-                  className="pointer-events-none absolute inset-0 m-auto size-9 animate-spin text-warning motion-reduce:animate-none"
+                  className={cn(
+                    "pointer-events-none absolute inset-0 m-auto animate-spin text-warning motion-reduce:animate-none",
+                    dense ? "size-8" : "size-9",
+                  )}
                   strokeWidth={1.75}
                 />
               ) : null}
@@ -14412,7 +14446,7 @@ const RailItem = memo(function RailItem({
                 src={faviconSrc}
                 alt=""
                 aria-hidden="true"
-                className="size-9 rounded-md object-contain"
+                className={cn("rounded-md object-contain", dense ? "size-7" : "size-9")}
                 loading="lazy"
                 decoding="async"
                 onError={() => setFailedFaviconSrc(faviconSrc)}
@@ -14423,7 +14457,7 @@ const RailItem = memo(function RailItem({
               session={session}
               busy={busy}
               rounding="rounded-none"
-              large
+              large={!dense}
               showAccountNumber={false}
             />
           ) : (
@@ -14432,7 +14466,10 @@ const RailItem = memo(function RailItem({
           {!drivingBot && showFavicon && showAgentIcons ? (
             <span
               title={session.agentLabel || agentIconAlt(session.agent)}
-              className="absolute bottom-1 right-1 flex size-[18px] items-center justify-center rounded-md bg-card ring-2 ring-card"
+              className={cn(
+                "absolute flex size-[18px] items-center justify-center rounded-md bg-card ring-2 ring-card",
+                dense ? "-bottom-1 -right-1" : "bottom-1 right-1",
+              )}
             >
               <AgentMark
                 session={session}
@@ -22071,6 +22108,27 @@ function ProjectFolderBrowser({
   );
 }
 
+/**
+ * Take a folder off the machine's project list. The folder stays on disk.
+ * Reports the outcome as a toast, so every caller says the same thing.
+ */
+async function unlinkRepoFromList(
+  repo: Repo,
+  onReposChanged?: (removedCwd?: string) => void | Promise<void>,
+): Promise<void> {
+  try {
+    await api("/api/repos", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cwd: repo.cwd }),
+    });
+    toast.success(`Removed ${repo.name}`, { description: "The folder is still on disk." });
+    await onReposChanged?.(repo.cwd);
+  } catch (e) {
+    toast.error(e instanceof Error ? e.message : "Couldn't remove that project");
+  }
+}
+
 function ComposerProjectSheet({
   open,
   repos,
@@ -22152,15 +22210,7 @@ function ComposerProjectSheet({
   async function unlinkRepo(repo: Repo) {
     setBusyCwd(repo.cwd);
     try {
-      await api("/api/repos", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cwd: repo.cwd }),
-      });
-      toast.success(`Removed ${repo.name}`, { description: "The folder is still on disk." });
-      await onReposChanged?.(repo.cwd);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't remove that project");
+      await unlinkRepoFromList(repo, onReposChanged);
     } finally {
       setBusyCwd(null);
     }
