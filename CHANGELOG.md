@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## September 24, 2026 - Faster file downloads on iPhone (v0.6.120)
+
+- On iPhone, Download on a file page is much faster for large files. The file goes straight to disk.
+- The file page shows download progress: bytes done, total size, and percent.
+- On a phone browser, a file, image or video opened from a session now shows on top of the session, not behind it.
+
 ## September 24, 2026 - One menu for the desktop sidebar (v0.6.119)
 
 - The desktop sidebar has one menu button. It opens Chat, Bots, Schedules, Notifications, Artifacts, Computer, Board, Settings and your machine over the list, with Back to return. The Chat / Bots / Schedules tabs and the three-dot menu are gone.
