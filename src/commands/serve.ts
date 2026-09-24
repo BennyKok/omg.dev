@@ -89,6 +89,8 @@ import {
   connectorsForMember,
   listConnectorsForAdmin,
   emitConnectorsChanged,
+  appRelayRedirectUrl,
+  APP_RETURN_URL,
 } from "@omg-dev/connectors";
 import { enforceRole } from "../policy/mcp-filter.ts";
 import { withConnectorGrants } from "../policy/connector-grants.ts";
@@ -4402,19 +4404,27 @@ export async function cmdServe() {
         if (m && req.method === "POST") {
           const connector = getConnector(m[1]!);
           if (!connector) return err(404, "connector not found");
-          const body = (await req.json().catch(() => null)) as { redirectBase?: string; state?: string } | null;
+          const body = (await req.json().catch(() => null)) as { redirectBase?: string; state?: string; via?: string } | null;
           const base = oauthRedirectBase(req, body?.redirectBase);
+          // The phone app signs in through the fixed relay on auth.omg.dev and
+          // then hands the code back itself (POST /api/connectors/oauth/callback).
+          // Only a pre-registered client has that relay on its redirect list.
+          const viaApp = body?.via === "app";
+          if (viaApp && !connector.oauthApp) return err(400, "Connect this one from the web page.");
+          const appRedirect = viaApp
+            ? appRelayRedirectUrl(connector.oauthApp!, process.env.OMG_CONNECTOR_APP_RELAY?.trim() || undefined)
+            : undefined;
           // State that routes the redirect back to this box through a relay: a
           // caller may supply it, else the box mints one from its relay env.
           const state =
             (typeof body?.state === "string" && body.state.length >= 16 ? body.state : undefined) ??
             oauthRelayState();
-          const result = await startConnectorOAuth(connector, base, state);
+          const result = await startConnectorOAuth(connector, base, state, appRedirect);
           // A connector on a pre-registered app that the box has no client
           // for yet: the client shows the setup form instead of an error.
           if (!result.ok && result.needsOAuthApp) return json({ error: result.error, needsOAuthApp: result.needsOAuthApp }, { status: 409 });
           if (!result.ok) return err(502, result.error);
-          return json(result);
+          return json(viaApp ? { ...result, returnUrl: APP_RETURN_URL } : result);
         }
       }
       // Pre-registered OAuth clients (Google has no dynamic registration).
