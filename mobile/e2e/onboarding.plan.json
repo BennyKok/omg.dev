@@ -43,16 +43,14 @@
       "goal": "Type the six-digit sign-in code into the focused code field",
       "otp": true,
       "focused": true,
-      "done": "The code is entered"
-    },
-    {
-      "name": "Data notice",
-      "goal": "Agree to the data notice",
-      "done": "A question asks what the person works on daily, with lane options such as Code & reviews",
+      "done": "The first onboarding question: What do you work on daily?, with lane options such as Code & reviews",
       "expect": [
         "Code & reviews"
       ],
-      "timeoutMs": 60000
+      "forbid": [
+        "Agree and continue"
+      ],
+      "timeoutMs": 30000
     },
     {
       "name": "02 Lane",
@@ -91,11 +89,20 @@
     {
       "name": "03 Start",
       "goal": "Tap the Start button at the bottom of the First prompt. screen",
+      "done": "The data notice: Your data and AI providers, with Agree and continue",
+      "expect": [
+        "Your data and AI providers",
+        "Agree and continue"
+      ]
+    },
+    {
+      "name": "Data notice",
+      "goal": "Agree to the data notice",
       "done": "The Working screen: Your agents are on it, a task in progress, Notify me and Not now",
       "expect": [
         "Notify me"
       ],
-      "timeoutMs": 150000
+      "timeoutMs": 60000
     },
     {
       "name": "04 Working",
@@ -116,7 +123,8 @@
         "Let me in",
         "Keep track of your agent.",
         "Open this session"
-      ]
+      ],
+      "timeoutMs": 120000
     },
     {
       "name": "05 Let me in",

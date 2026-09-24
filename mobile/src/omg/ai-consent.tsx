@@ -35,7 +35,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { AndroidSymbol, SFSymbol } from "expo-symbols";
 
-import { Icon, PrimaryButton, Separator } from "../components";
+import { Icon } from "../components";
+import { PrimaryAction, SecondaryAction, StepHeader, StepHeading } from "./onboarding-chrome";
 import { Text } from "./text";
 import { useTheme } from "./theme";
 
@@ -156,6 +157,12 @@ export async function resetAiDataConsent(userId: string): Promise<void> {
   await AsyncStorage.removeItem(storageKeyFor(userId));
 }
 
+/**
+ * Drawn as an onboarding step (Benny, 2026-09-24): the same header slot,
+ * heading, hairline list and foot buttons as the questions around it, so it
+ * reads as part of the flow rather than a system form dropped into it. The
+ * WORDS are unchanged on purpose. They are what App Review approved.
+ */
 export function AiConsentScreen({
   onAccept,
   onDecline,
@@ -163,45 +170,40 @@ export function AiConsentScreen({
   onAccept: () => void;
   onDecline: () => void;
 }) {
-  const { colors, space, type, radius } = useTheme();
+  const { colors, space, type } = useTheme();
   const insets = useSafeAreaInsets();
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insets.top }}>
+      <StepHeader />
       <ScrollView
-        contentContainerStyle={{
-          padding: space.lg,
-          paddingTop: insets.top + space.xl,
-          gap: space.lg,
-        }}
+        contentContainerStyle={{ paddingHorizontal: space.lg + 4, paddingBottom: space.lg, gap: space.xl }}
       >
-        <Text style={{ ...type.largeTitle, color: colors.text }}>
-          Your data and AI providers
-        </Text>
-        <Text style={{ ...type.body, color: colors.textMuted }}>
-          To run coding agents, omg.dev sends some of your data to AI companies
-          outside omg.dev.
-        </Text>
+        <StepHeading
+          title="Your data and AI providers"
+          body="To run coding agents, omg.dev sends some of your data to AI companies outside omg.dev."
+        />
 
-        <View
-          style={{
-            backgroundColor: colors.card,
-            borderRadius: radius.lg,
-            paddingVertical: space.xs,
-          }}
-        >
+        <View>
           {DISCLOSURES.map((item, index) => (
-            <View key={item.what}>
-              {index > 0 ? <Separator inset="text" /> : null}
-              <View style={{ flexDirection: "row", gap: space.md, padding: space.md }}>
-                <Icon ios={item.icon.ios} android={item.icon.android} size={20} color={colors.textMuted} />
-                <View style={{ flex: 1, gap: space.xs }}>
-                  <Text style={{ ...type.headline, color: colors.text }}>{item.what}</Text>
-                  <Text style={{ ...type.footnote, color: colors.textMuted }}>
-                    Sent to: {item.who}
-                  </Text>
-                  <Text style={{ ...type.footnote, color: colors.textMuted }}>{item.when}</Text>
-                </View>
+            <View
+              key={item.what}
+              style={{
+                flexDirection: "row",
+                gap: space.md,
+                paddingVertical: 16,
+                // Hairlines between rows, like the lane list: listed, not carded.
+                borderTopWidth: index === 0 ? 0 : 1,
+                borderTopColor: colors.border,
+              }}
+            >
+              <View style={{ width: 28, alignItems: "center", flexShrink: 0, paddingTop: 2 }}>
+                <Icon ios={item.icon.ios} android={item.icon.android} size={20} color={colors.text} />
+              </View>
+              <View style={{ flex: 1, gap: space.xs }}>
+                <Text style={{ ...type.headline, color: colors.text }}>{item.what}</Text>
+                <Text style={{ ...type.footnote, color: colors.textMuted }}>Sent to: {item.who}</Text>
+                <Text style={{ ...type.footnote, color: colors.textMuted }}>{item.when}</Text>
               </View>
             </View>
           ))}
@@ -213,17 +215,9 @@ export function AiConsentScreen({
         </Text>
       </ScrollView>
 
-      <View
-        style={{
-          padding: space.lg,
-          paddingBottom: insets.bottom + space.lg,
-          gap: space.sm,
-          borderTopWidth: 1,
-          borderTopColor: colors.border,
-        }}
-      >
-        <PrimaryButton label="Agree and continue" onPress={onAccept} />
-        <PrimaryButton label="Not now" tone="quiet" onPress={onDecline} />
+      <View style={{ paddingHorizontal: space.lg + 4, paddingTop: space.md, paddingBottom: insets.bottom + space.lg, gap: space.md }}>
+        <PrimaryAction label="Agree and continue" onPress={onAccept} />
+        <SecondaryAction label="Not now" onPress={onDecline} />
       </View>
     </View>
   );

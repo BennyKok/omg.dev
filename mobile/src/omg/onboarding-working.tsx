@@ -22,7 +22,7 @@
  *
  * Design: artboard "04 · Working + village [07 + 08]".
  */
-import { Image, ScrollView, View, useWindowDimensions } from "react-native";
+import { ActivityIndicator, Image, ScrollView, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { agentIcon } from "./agent-icons";
@@ -38,7 +38,13 @@ export function WorkingScreen({
   onNotify,
   onSkip,
   onBack,
+  waiting = false,
 }: {
+  /**
+   * Answered, and waiting for the Computer to take the task. The buttons are
+   * done; a line says what is happening, so the screen never looks stuck.
+   */
+  waiting?: boolean;
   title: string;
   agent: string;
   runningCount: number;
@@ -166,8 +172,17 @@ export function WorkingScreen({
       </ScrollView>
 
       <View style={{ paddingHorizontal: space.lg + 4, paddingTop: space.lg, paddingBottom: insets.bottom + space.lg, gap: space.md }}>
-        <PrimaryAction label="Notify me" onPress={onNotify} />
-        <SecondaryAction label="Not now" onPress={onSkip} />
+        {waiting ? (
+          <View style={{ height: 56 + space.md + 22, alignItems: "center", justifyContent: "center", gap: space.sm }}>
+            <ActivityIndicator color={colors.textMuted} />
+            <Text style={{ ...type.subhead, color: colors.textMuted }}>Starting your computer...</Text>
+          </View>
+        ) : (
+          <>
+            <PrimaryAction label="Notify me" onPress={onNotify} />
+            <SecondaryAction label="Not now" onPress={onSkip} />
+          </>
+        )}
       </View>
     </View>
   );

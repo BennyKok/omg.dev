@@ -203,6 +203,8 @@ function RootNavigator() {
   const [afterSignInDone, setAfterSignInDone] = useState(false);
   /** The signed-in questions (steps 02 and 03) are answered for this launch. */
   const [questionsDone, setQuestionsDone] = useState(false);
+  /** The prompt the questions just produced, so step 04 can show it at once. */
+  const [questionsPrompt, setQuestionsPrompt] = useState<string | null>(null);
   /**
    * The new flow actually ran for this person, so setup below still owes them
    * a visit -- even though buying a plan in step 06 has just made `established`
@@ -363,6 +365,29 @@ function RootNavigator() {
   }, [signOut]);
 
   const glyphsReady = useLucideFont();
+
+  /*
+   * What a gate shows while it waits.
+   *
+   * The splash is right for a cold start: nothing is on screen yet. It is
+   * wrong once somebody has just signed in, because then it lands in the
+   * middle of onboarding. Benny's rule, 2026-09-24: no splash inside the
+   * flow. So after a sign-in in this launch the short local waits (consent,
+   * onboarding flag) hold a plain page in the flow's own colour, and the
+   * long ones are not reached by a new account at all (see the gates).
+   *
+   * A ref written during render on purpose: the very first signed-in render
+   * already needs the answer, and an effect would be one frame late.
+   */
+  const sawSignedOut = useRef(false);
+  if (authStatus === "signed-out") sawSignedOut.current = true;
+  const hold = sawSignedOut.current ? (
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <StatusBar style={isDark ? "light" : "dark"} />
+    </View>
+  ) : (
+    <Splash />
+  );
 
   if (authStatus === "loading" || !glyphsReady) {
     return <Splash />;
@@ -525,32 +550,22 @@ function RootNavigator() {
    * reinstalled. Keep every consent check below the signed-out branch.
    */
   if (consent.state === "loading") {
-    return <Splash />;
-  }
-
-  if (consent.state === "needed") {
-    return (
-      <>
-        <StatusBar style={isDark ? "light" : "dark"} />
-        <AiConsentScreen onAccept={consent.accept} onDecline={handleDecline} />
-      </>
-    );
+    return hold;
   }
 
   /*
-   * Onboarding, after consent and below the signed-out branch.
+   * Onboarding, below the signed-out branch.
    *
-   * Order matters twice. It is below signed-out for the reason spelled out
-   * above: any gate above that branch can make sign-in unreachable, which is
-   * exactly the splash deadlock #237 fixed. It is below consent because
-   * consent is the precondition for sending anything anywhere, and explaining
-   * the product to someone who then declines and gets signed out is wasted.
+   * It is below signed-out for the reason spelled out above: any gate above
+   * that branch can make sign-in unreachable, which is exactly the splash
+   * deadlock #237 fixed. The data notice sits after the questions, before
+   * anything can be sent; see the gate for it below.
    *
    * Like consent, this parks in "loading" until there is a user id, so it
    * cannot flash for the moment between signed-in and the account resolving.
    */
   if (onboarding.state === "loading") {
-    return <Splash />;
+    return hold;
   }
 
   /*
@@ -565,6 +580,7 @@ function RootNavigator() {
       <OnboardingFlow
         finalLabel="Start"
         onDone={(choice) => {
+          setQuestionsPrompt(choice.prompt.trim() || null);
           void stashOnboardingChoice(choice).finally(() => setQuestionsDone(true));
         }}
       />
@@ -593,6 +609,7 @@ function RootNavigator() {
    * A load ERROR is not a reason to wait forever, so that falls through and
    * the predicate runs on what we have.
    */
+
   /*
    * A new sign-up goes to the questions AT ONCE. The creation time already
    * says who they are, so there is no reason to hold them on the splash for
@@ -603,8 +620,30 @@ function RootNavigator() {
     return questionsGate;
   }
 
-  if (onboarding.state === "needed" && !machinesLoaded && !machinesError) {
-    return <Splash />;
+  /*
+   * THE DATA NOTICE, after the questions for a new sign-up (Benny,
+   * 2026-09-24): asking about AI providers before somebody has even said what
+   * they want read as a wall. Nothing above this line sends anything to an AI
+   * provider -- the questions keep the prompt and any picked files on the
+   * phone -- and everything below it can, so the guarantee Apple asked for
+   * still holds: no transmission before an affirmative "Agree".
+   *
+   * Everyone else (a returning customer, an unknown account age) still meets
+   * it first, exactly where it was.
+   */
+  if (consent.state === "needed") {
+    return (
+      <>
+        <StatusBar style={isDark ? "light" : "dark"} />
+        <AiConsentScreen onAccept={consent.accept} onDecline={handleDecline} />
+      </>
+    );
+  }
+
+  // A new sign-up never waits here: its questions came first, and step 04
+  // below waits for the Computer on its own screen, not on a splash.
+  if (onboarding.state === "needed" && newAccount !== true && !machinesLoaded && !machinesError) {
+    return hold;
   }
 
   /*
@@ -657,7 +696,8 @@ function RootNavigator() {
           }}
           onOpenSession={setPendingSession}
           onDone={endAfterSignIn}
-          splash={<Splash />}
+          pendingTitle={questionsPrompt}
+          splash={hold}
         />
       </>
     );

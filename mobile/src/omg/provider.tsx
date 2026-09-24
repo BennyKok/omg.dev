@@ -235,7 +235,15 @@ export function OmgProvider({ children }: PropsWithChildren) {
   const [readiness, setReadiness] = useState<ComputerReadiness | null>(null);
 
   const refreshSession = useCallback(async () => {
-    setAuthStatus("loading");
+    /*
+     * "loading" only when there is no answer on screen yet (a cold start) or
+     * the account may be changing. A refresh right after signing in keeps the
+     * signed-out screen up, busy button and all, until the session answers:
+     * dropping to "loading" there put the splash in the middle of onboarding
+     * for as long as `get-session` took. Benny, 2026-09-24: no splash inside
+     * the flow.
+     */
+    setAuthStatus((current) => (current === "signed-out" ? current : "loading"));
     // Demo mode is signed into a fixed fake account, and never touches the
     // real auth jar. See demo.ts.
     const found = isDemoMode() ? DEMO_USER : await getSession();
