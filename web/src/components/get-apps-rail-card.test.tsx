@@ -9,10 +9,10 @@ beforeEach(() => {
 });
 afterEach(() => ui.cleanup());
 
-test("offers the iPhone app, with a QR code and an App Store link", async () => {
+test("offers the phone app, with a QR code and an App Store link", async () => {
   ui.render(<GetAppsRailCard />);
   expect(ui.text()).toContain("Get the apps");
-  const iphone = ui.queryAll("button").find((b) => b.textContent?.includes("iPhone app")) as HTMLButtonElement;
+  const iphone = ui.queryAll("button").find((b) => b.textContent?.includes("Use on your phone")) as HTMLButtonElement;
   expect(iphone).toBeTruthy();
   ui.flush(() => iphone.click());
   await ui.flushAsync();

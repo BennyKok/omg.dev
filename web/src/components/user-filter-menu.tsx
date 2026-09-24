@@ -26,12 +26,18 @@ export function UserFilterMenu({
   users,
   onChange,
   displayUser,
+  size = "md",
 }: {
   value: string;
   users: UserFilterRosterUser[];
   onChange: (value: string) => void;
   /** Cached trigger appearance only; never adds a roster option. */
   displayUser?: UserFilterRosterUser;
+  /**
+   * "sm" for the desktop rail header, where it sits in a row of 32px
+   * controls beside the brand and a 32px face outweighed both.
+   */
+  size?: "sm" | "md";
 }) {
   const active = value !== "__all";
   const selected = users.find((user) => user.email === value) ?? (displayUser?.email === value ? displayUser : undefined);
@@ -50,7 +56,8 @@ export function UserFilterMenu({
               // it presence; the island went when the overflow menu moved into
               // the side navigation, and a 24px disc alone in the corner read
               // as a stray dot rather than the person you are filtered to.
-              "relative inline-flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full transition",
+              "relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full transition",
+              size === "sm" ? "size-6" : "size-8",
               // A photo is its own shape. Drawing a plate and a border behind
               // it left a ring of card colour around the face, which is what
               // made it look like a card with the island already gone. The
@@ -72,9 +79,9 @@ export function UserFilterMenu({
         {selected?.avatar ? (
           <img src={selected.avatar} alt="" className="size-full object-cover" />
         ) : active ? (
-          <UserRound className="size-[18px] shrink-0" />
+          <UserRound className={cn("shrink-0", size === "sm" ? "size-3.5" : "size-[18px]")} />
         ) : (
-          <Globe className="size-[18px] shrink-0" />
+          <Globe className={cn("shrink-0", size === "sm" ? "size-3.5" : "size-[18px]")} />
         )}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-48">
