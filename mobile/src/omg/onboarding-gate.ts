@@ -44,3 +44,29 @@ export function shouldMarkOnboarded(input: OnboardingGateInput): boolean {
 export function shouldShowSetup(input: OnboardingGateInput): boolean {
   return input.state === "needed" && (!input.established || input.newArrival);
 }
+
+/**
+ * How recently an account must have been created to count as a new sign-up.
+ *
+ * An email or Apple sign-in creates the account at the moment of sign-in, so a
+ * new person reaches the gate seconds after `createdAt`. An hour leaves room
+ * for a slow code, the data notice and a phone clock that is a little off,
+ * and anything older is somebody who has been here before.
+ */
+export const NEW_ACCOUNT_WINDOW_MS = 60 * 60 * 1000;
+
+/**
+ * Is this a new sign-up? From the account's own creation time, so it needs no
+ * computer list and cannot be fooled by a Computer that is being provisioned.
+ *
+ * `null` when the time is missing or unreadable (an older server, demo mode).
+ * The caller then falls back to the `established` rule, which waits for the
+ * machines.
+ */
+export function isNewAccount(createdAt: string | undefined, now: number = Date.now()): boolean | null {
+  if (!createdAt) return null;
+  const at = Date.parse(createdAt);
+  if (Number.isNaN(at)) return null;
+  // A creation time slightly in the future is clock skew on a brand-new account.
+  return now - at < NEW_ACCOUNT_WINDOW_MS;
+}

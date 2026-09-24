@@ -29,7 +29,7 @@ import { AgentVillageWidgetBridge } from "../src/omg/village-widget-bridge";
 import { AgentLiveActivityBridge } from "../src/omg/agent-live-activity";
 import { OnboardingAfterSignIn } from "../src/omg/onboarding-after";
 import { OnboardingFlow, WelcomeGate } from "../src/omg/onboarding-flow";
-import { shouldMarkOnboarded, shouldShowSetup } from "../src/omg/onboarding-gate";
+import { isNewAccount, shouldMarkOnboarded, shouldShowSetup } from "../src/omg/onboarding-gate";
 import { stashOnboardingChoice } from "../src/omg/onboarding-handoff";
 import { registerForPushNotifications, useNotificationTapRouting } from "../src/omg/push";
 import { useRootOpenRouting } from "../src/omg/root-open";
@@ -232,7 +232,19 @@ function RootNavigator() {
   const hasComputer = (bindings?.length ?? 0) > 0;
   const cloudPlan = cloud?.plan;
   const paidPlan = typeof cloudPlan === "string" && cloudPlan !== "" && cloudPlan !== "free";
-  const established = hasComputer || paidPlan;
+  /*
+   * The account's own creation time, from the session. `true` is a new
+   * sign-up, `false` a returning customer, `null` unknown (the machines rule
+   * below then decides alone). Read once per render; the window is an hour, so
+   * a flip mid-flow is not a real case.
+   */
+  const newAccount = isNewAccount(user?.createdAt);
+  /*
+   * A returning customer counts as established even on the free plan with no
+   * Computer of their own. Benny, 2026-09-24: an account that already exists
+   * skips onboarding.
+   */
+  const established = hasComputer || paidPlan || newAccount === false;
 
   /*
    * Write the flag for an established account so this stops being asked on
@@ -542,6 +554,24 @@ function RootNavigator() {
   }
 
   /*
+   * Steps 02 and 03, the questions. Built once and returned by two gates: the
+   * early one for a known new sign-up, and the fallback after the machines
+   * load when the creation time is unknown. The same element in the same
+   * position, so moving between the two cannot remount it and lose answers.
+   */
+  const questionsGate = (
+    <>
+      <StatusBar style={isDark ? "light" : "dark"} />
+      <OnboardingFlow
+        finalLabel="Start"
+        onDone={(choice) => {
+          void stashOnboardingChoice(choice).finally(() => setQuestionsDone(true));
+        }}
+      />
+    </>
+  );
+
+  /*
    * Setup is for people who do not have this yet.
    *
    * Benny's rule: an existing Computer OR a non-free plan means established,
@@ -563,6 +593,16 @@ function RootNavigator() {
    * A load ERROR is not a reason to wait forever, so that falls through and
    * the predicate runs on what we have.
    */
+  /*
+   * A new sign-up goes to the questions AT ONCE. The creation time already
+   * says who they are, so there is no reason to hold them on the splash for
+   * the computer list, which took about 24 s for a brand-new account in the
+   * e2e run on 2026-09-24. The list keeps loading behind the questions.
+   */
+  if (onboarding.state === "needed" && newAccount === true && !questionsDone) {
+    return questionsGate;
+  }
+
   if (onboarding.state === "needed" && !machinesLoaded && !machinesError) {
     return <Splash />;
   }
@@ -571,26 +611,17 @@ function RootNavigator() {
    * Steps 02 and 03, the questions: interests, task, prompt.
    *
    * After sign-in since 2026-09-24 (Benny): sign-in moved up to right after
-   * Welcome, so a returning customer never sees these. `established` is the
-   * same predicate that keeps an existing account out of setup, and it is
-   * safe to read here because the machines gate above has already waited for
-   * the first answer. A new account's Computer starts while they answer.
+   * Welcome, so a returning customer never sees these. A known new sign-up
+   * was already sent to them by the early gate above the machines splash.
+   * This one covers an unknown creation time, where `established` decides
+   * after the machines have loaded.
    *
    * The choice is stashed and AWAITED before this gate opens, because the
    * next gate reads the stash on its first render.
    */
+  // Unknown creation time only: a new sign-up was sent here above already.
   if (onboarding.state === "needed" && !established && !questionsDone) {
-    return (
-      <>
-        <StatusBar style={isDark ? "light" : "dark"} />
-        <OnboardingFlow
-          finalLabel="Start"
-          onDone={(choice) => {
-            void stashOnboardingChoice(choice).finally(() => setQuestionsDone(true));
-          }}
-        />
-      </>
-    );
+    return questionsGate;
   }
 
   /*

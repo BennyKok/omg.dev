@@ -4,7 +4,7 @@
  * flow, whether they paid or skipped.
  */
 import { expect, test } from "bun:test";
-import { shouldMarkOnboarded, shouldShowSetup } from "../src/omg/onboarding-gate";
+import { NEW_ACCOUNT_WINDOW_MS, isNewAccount, shouldMarkOnboarded, shouldShowSetup } from "../src/omg/onboarding-gate";
 
 const base = { state: "needed", established: false, newArrival: false, machinesLoaded: true } as const;
 
@@ -50,4 +50,25 @@ test("nothing is decided before the account's onboarding state is known", () => 
  */
 test("a judgement is not made before the machines have loaded", () => {
   expect(shouldMarkOnboarded({ ...base, established: true, machinesLoaded: false })).toBe(false);
+});
+
+test("an account created moments ago is a new sign-up", () => {
+  const now = Date.parse("2026-09-24T10:00:30Z");
+  expect(isNewAccount("2026-09-24T10:00:00.000Z", now)).toBe(true);
+});
+
+test("an older account is a returning customer, even on the free plan", () => {
+  const now = Date.parse("2026-09-24T10:00:00Z");
+  expect(isNewAccount(new Date(now - NEW_ACCOUNT_WINDOW_MS - 1000).toISOString(), now)).toBe(false);
+  expect(isNewAccount("2026-08-01T00:00:00.000Z", now)).toBe(false);
+});
+
+test("a clock a little ahead of the server still reads as new", () => {
+  const now = Date.parse("2026-09-24T10:00:00Z");
+  expect(isNewAccount("2026-09-24T10:02:00.000Z", now)).toBe(true);
+});
+
+test("a missing or unreadable time is unknown, not a guess", () => {
+  expect(isNewAccount(undefined)).toBeNull();
+  expect(isNewAccount("not a date")).toBeNull();
 });

@@ -96,7 +96,18 @@ export async function sendSignInCode(email: string): Promise<void> {
   });
 }
 
-export type SignedInUser = { id: string; email: string; name?: string };
+export type SignedInUser = {
+  id: string;
+  email: string;
+  name?: string;
+  /**
+   * When the account was created, as better-auth sends it (an ISO string).
+   * `get-session` returns the whole user row, so this arrives with sign-in at
+   * no extra cost. onboarding-gate.ts reads it to tell a new sign-up from a
+   * returning customer without waiting for the computer list.
+   */
+  createdAt?: string;
+};
 
 /** Exchange the emailed code for a session cookie held by the platform jar. */
 export async function verifySignInCode(
