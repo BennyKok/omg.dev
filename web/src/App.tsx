@@ -1896,7 +1896,7 @@ function SessionTerminalOverlay({
   );
 }
 
-function ArtifactViewerPage({
+export function ArtifactViewerPage({
   artifact,
   onClose,
 }: {
@@ -1924,9 +1924,16 @@ function ArtifactViewerPage({
       ? artifact.name || artifact.caption || "File"
       : artifact.title || artifact.caption || artifact.name || "Artifact";
   // z-[100] sits above the mobile bottom composer (z-55), ask-center (z-60),
-  // and floating audio chrome (z-75) so the full-page viewer is not clipped
-  // by home-shell overlays. Dialogs/drawers remain higher (z-150+).
-  return (
+  // floating audio chrome (z-75) and the mobile session sheet (z-90), so the
+  // full-page viewer is not clipped by home-shell overlays. Dialogs/drawers
+  // remain higher (z-150+).
+  //
+  // Portalled to <body> for the same reason the session sheet is. A host that
+  // embeds this app wraps it in its own stacking context (omg.dev's Computer
+  // host is `relative z-[46]`), and a z-index inside that context can never
+  // rise above a body-level layer. Rendered in place, a file opened from the
+  // mobile session sheet showed up BEHIND the sheet.
+  return createPortal(
     <div className="fixed inset-0 z-[100] flex flex-col bg-background">
       <header className="flex shrink-0 items-center gap-2 border-b border-border px-2 py-2 pt-[calc(0.5rem+env(safe-area-inset-top))]">
         <button
@@ -1996,7 +2003,8 @@ function ArtifactViewerPage({
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
