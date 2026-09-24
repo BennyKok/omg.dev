@@ -1,4 +1,5 @@
 import { createNoProjectWorkspace, NO_PROJECT } from "../no-project-chat.ts";
+import { readinessBootstrap } from "../bootstrap-readiness.ts";
 import { mkdir, open, readdir, realpath, stat } from "node:fs/promises";
 import { appendFileSync, existsSync, statfsSync, statSync, mkdirSync, readFileSync } from "node:fs";
 import { tmpdir, homedir, loadavg, cpus, totalmem, freemem } from "node:os";
@@ -5547,6 +5548,12 @@ a{color:#60a5fa}
       }
       if (path === "/api/bootstrap" && req.method === "GET") {
         noteListSessionsClientActivity();
+        if (url.searchParams.get("view") === "readiness") {
+          return readinessBootstrap(
+            { codingAgents: listCodingAgentsCached, repos: listRepos },
+            { version: appVersion(), bootId: SERVER_INSTANCE_ID },
+          );
+        }
         const sessionsTask = listSessionsCached().then((sessions) => {
           warmChatTranscripts(sessions);
           return sessions;

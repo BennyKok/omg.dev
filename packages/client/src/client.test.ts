@@ -554,7 +554,36 @@ test("grant routes HTTP, media, and sockets to its region and refreshes the rout
   await transport.request("/api/test");
   expect(await transport.resolveAssetUrl!("/api/artifacts/x")).toStartWith("https://ca.example/");
   const first = await transport.openSocket!("/api/live/ws");
-  first.close();
+  // The server closes this socket, rather than the caller disposing it.
+  for (const listener of (first as unknown as RegionalSocket).listeners) listener();
   await transport.openSocket!("/api/live/ws");
   expect(origins).toEqual(["https://ca.example/api/test", "wss://ca.example/api/live/ws", "wss://de.example/api/live/ws"]);
+});
+
+test("local socket disposal reuses grants; errors and explicit reconnects refresh", async () => {
+  class LifecycleSocket {
+    readyState = 1;
+    listeners = new Map<string, (() => void)[]>();
+    send() {}
+    addEventListener(type: string, listener: () => void) { this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]); }
+    emit(type: string) { for (const listener of this.listeners.get(type) ?? []) listener(); }
+    close() { this.readyState = 3; this.emit("close"); }
+  }
+  const grants: boolean[] = [];
+  const transport = createGrantTransport({
+    baseUrl: "https://sessions.example",
+    getGrant: async ({ forceRefresh }) => { grants.push(forceRefresh); return { token: "test", expiresAt: Date.now() + 600000 }; },
+    WebSocket: LifecycleSocket as unknown as typeof WebSocket,
+  });
+  (await transport.openLiveSocket()).close(1000, "client transition");
+  const second = await transport.openLiveSocket();
+  expect(grants).toEqual([false]);
+  (second as unknown as LifecycleSocket).emit("error");
+  second.close();
+  const third = await transport.openLiveSocket();
+  expect(grants).toEqual([false, true]);
+  third.close(4000, "client transition");
+  (await transport.openLiveSocket()).close();
+  await transport.openLiveSocket();
+  expect(grants).toEqual([false, true, true]);
 });
