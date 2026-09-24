@@ -13656,7 +13656,9 @@ function RailStage({
           />
         ) : null}
         </div>
-        {!hosted && !railCollapsed ? <GetAppsRailCard /> : null}
+        {/* Hosted too. The host offers "Install omg" only inside its
+            account menu, so this card is the one visible offer on either. */}
+        {!railCollapsed ? <GetAppsRailCard /> : null}
         {/* The product mark, at the foot, where the machine switcher was. The
             header carries the status line instead. Without a status line
             (no shell headline), the header keeps the mark and this stays
