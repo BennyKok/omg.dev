@@ -13556,15 +13556,16 @@ function RailStage({
             // "New session in <folder>". The folder picker sits on this row's
             // trailing edge, where the C shortcut hint was, instead of taking
             // a row of its own above the list. The hint lives in the title.
-            // Two items side by side, each with its own surface and hover, at
-            // one height. A highlight on the row with a second one on the
+            // Two items side by side at one height. Neither has a surface at
+            // rest; each lights up only while it is hovered, pressed or (the
+            // folder) open. A highlight on the row with a second one on the
             // chip inside it read as two levels of the same control.
             <div className="mb-1 flex h-10 w-full items-stretch gap-1.5">
               <button
                 type="button"
                 onClick={startNew}
                 title="New session (C)"
-                className="flex min-w-0 flex-1 items-center gap-2 rounded-lg bg-secondary pl-2 pr-2.5 text-left text-[13px] font-medium text-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-primary/60"
+                className="flex min-w-0 flex-1 items-center gap-2 rounded-lg pl-2 pr-2.5 text-left text-[13px] font-medium text-foreground outline-none transition-colors hover:bg-muted active:bg-muted focus-visible:ring-2 focus-visible:ring-primary/60"
               >
                 <span className="flex size-7 shrink-0 items-center justify-center rounded-full border border-dashed border-border">
                   <Plus className="size-3.5" />
