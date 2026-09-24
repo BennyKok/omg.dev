@@ -10,7 +10,7 @@
  * settings surface.
  */
 
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { reloadAppAsync } from "expo";
 import Constants from "expo-constants";
 import {
@@ -33,6 +33,7 @@ import { CLOUD_BINDING_ID } from "../src/omg/config";
 import { useDemoMode } from "../src/omg/demo";
 import { sharedBindingLabel } from "../src/omg/computer-shared-binding";
 import { useComputerUpdate } from "../src/omg/computer-update";
+import { ConnectionPingRow } from "../src/omg/connection-ping-row";
 import { ComputerSoftwareRow } from "../src/omg/computer-software-row";
 import {
   getStoredPushToken,
@@ -213,6 +214,11 @@ export default function SettingsScreen() {
   const { user, client, signOut, bindings, sharedComputers, bindingId, cloud } = useOmg();
   const demo = useDemoMode();
   const router = useRouter();
+  const [focused, setFocused] = useState(false);
+  useFocusEffect(useCallback(() => {
+    setFocused(true);
+    return () => setFocused(false);
+  }, []));
 
   // The Demo mode toggle fills the app with fake data, which is exactly wrong
   // for a real user and exactly right for an App Store screenshot. So it is
@@ -431,6 +437,7 @@ export default function SettingsScreen() {
             color={colors.textMuted}
           />
         </SettingsRow>
+        <ConnectionPingRow transport={client?.transport ?? null} active={focused} cloud={bindingId === CLOUD_BINDING_ID} demo={demo.value} />
         <Separator inset="icon" />
         <SettingsRow
           glyph={{ ios: "display", android: "desktop_windows" }}

@@ -1,0 +1,12 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": { "clearState": false },
+  "steps": [{
+    "name": "Show live ping and relay location",
+    "goal": "Wait for Connection ping to show a measured value in ms and Relay · Canada. Do not tap anything.",
+    "done": "Settings shows the real round-trip ping in milliseconds and Canada relay location.",
+    "expect": ["Connection ping", "Relay · Canada", "ms"],
+    "forbid": ["Unavailable", "Measuring…"],
+    "timeoutMs": 60000
+  }]
+}
