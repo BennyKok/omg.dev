@@ -88,8 +88,9 @@ export async function signIn(t: Transport, connectorId: string): Promise<boolean
   if (start?.alreadyAuthorized) return true;
   if (!start?.authorizeUrl) throw new Error(start?.error ?? "Your Computer did not return a sign-in page.");
   const back = await openAuthSession(start.authorizeUrl, start.returnUrl ?? "omg://connectors/oauth");
-  if (!back) return false;
-  const parsed = parseReturn(back);
+  if (back.status === "unavailable") throw new Error("This version of the app cannot open sign-in pages. Update the app.");
+  if (back.status === "closed") return false;
+  const parsed = parseReturn(back.url);
   if ("error" in parsed) throw new Error(parsed.error);
   await t.request("/api/connectors/oauth/callback", post(parsed));
   return true;

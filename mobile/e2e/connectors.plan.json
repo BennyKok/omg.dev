@@ -6,7 +6,7 @@
   "steps": [
     {
       "name": "01 Settings",
-      "goal": "If an iOS system sheet asks for an Apple Account password, tap its Cancel button; never type into a password field. Then open Settings: tap the Navigation button (top left, labelled Navigation. Computer: ...), then tap Settings in the side menu. Note: a session card whose title begins with Error: is the name of a task someone typed, not an app error, so the screen is not blocked.",
+      "goal": "If an iOS system sheet asks for an Apple Account password, tap its Cancel button; never type into a password field. If a system prompt asks to allow an app to use your location, tap Don't Allow. If another app (not omg) is open, open omg from the Home screen. Then open Settings: tap the Navigation button (top left, labelled Navigation. Computer: ...), then tap Settings in the side menu. Note: a session card whose title begins with Error: is the name of a task someone typed, not an app error, so the screen is not blocked.",
       "done": "The Settings screen with a Coding agents row and a Connectors row under it",
       "expect": [
         "Coding agents",
@@ -33,29 +33,16 @@
       "timeoutMs": 90000
     },
     {
-      "name": "03 Connect opens the sign-in",
-      "goal": "Tap the Connect button on the Google Calendar row (its label is Connect Google Calendar, or Add another Google Calendar account). Do not tap anything else.",
-      "done": "iOS shows the system prompt that omg wants to use a website to sign in, or a Google sign-in page is open",
+      "name": "03 Connect starts the sign-in",
+      "goal": "Tap the button labelled Connect Google Calendar (or Add another Google Calendar account) on the right of the Google Calendar row. It is a small pill button, not the row itself. Tap it once only.",
+      "done": "The Connectors screen shows the message that Google sign-in is not set up on this box. (The managed test Computer has no Google client, so this is the correct answer to Connect there. On a Computer with a Google client, iOS shows the system sign-in prompt instead.)",
       "expect": [
-        "Sign In"
-      ],
-      "forbid": [
-        "Could not load connectors",
-        "sign-in is not set up"
-      ],
-      "timeoutMs": 60000
-    },
-    {
-      "name": "04 Cancel returns to the list",
-      "goal": "Cancel the sign-in: tap Cancel on the system prompt, or close the sign-in page. Do not sign in.",
-      "done": "Back on the Connectors list with the Google Calendar row and no error message",
-      "expect": [
-        "Google Calendar",
-        "works for everyone on your team"
+        "Google sign-in is not set up on this box"
       ],
       "forbid": [
         "Something went wrong",
-        "needs sign-in"
+        "cannot open sign-in pages",
+        "sign-in was closed before it finished"
       ],
       "timeoutMs": 60000
     }

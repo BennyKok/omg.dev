@@ -51,7 +51,8 @@ export default function ConnectorsScreen() {
       const [a, c] = await Promise.all([listApps(transport), listConnectors(transport)]);
       setApps(a);
       setConnectors(c);
-      setError(null);
+      // Not clearing `error` here: run() reloads after every action, and a
+      // clear here erased the action's own failure before anyone saw it.
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load connectors");
       setConnectors((prev) => prev ?? []);
@@ -143,9 +144,12 @@ export default function ConnectorsScreen() {
             const accounts = teamAccounts(connectors, app);
             const adding = busy === `add:${app.slug}`;
             return (
-              <View key={app.slug} testID={`connector-app-${app.slug}`}>
+              <View key={app.slug}>
                 {i > 0 ? <Separator inset={space.lg + 44 + space.md} /> : null}
-                <Row>
+                {/* A plain view, not Row: Row is a pressable, and iOS reads a
+                    pressable and everything in it as one element, which hid
+                    the Connect button from VoiceOver and from Maestro. */}
+                <View style={{ minHeight: 44, flexDirection: "row", alignItems: "center", gap: space.md, paddingHorizontal: space.lg, paddingVertical: space.md }}>
                   <View
                     style={{
                       width: 44,
@@ -170,14 +174,20 @@ export default function ConnectorsScreen() {
                     <ActivityIndicator size="small" color={colors.textMuted} />
                   ) : (
                     <Pill
+                      testID={`connect-${app.slug}`}
                       label={accounts.length ? "Add" : "Connect"}
                       a11y={accounts.length ? `Add another ${app.name} account` : `Connect ${app.name}`}
                       filled={accounts.length === 0}
                       disabled={!canSignIn || busy !== null}
-                      onPress={() => transport && void run(`add:${app.slug}`, () => connectForTeam(transport, app))}
+                      onPress={() =>
+                        transport &&
+                        void run(`add:${app.slug}`, async () => {
+                          if (!(await connectForTeam(transport, app))) throw new Error(`${app.name} sign-in was closed before it finished.`);
+                        })
+                      }
                     />
                   )}
-                </Row>
+                </View>
                 {accounts.map((c) => (
                   <Row key={c.id} onPress={() => manage(c, app)}>
                     <View style={{ width: 44 }} />
@@ -234,12 +244,13 @@ export default function ConnectorsScreen() {
   );
 }
 
-function Pill({ label, a11y, onPress, disabled, filled }: { label: string; a11y: string; onPress: () => void; disabled?: boolean; filled: boolean }) {
+function Pill({ label, a11y, onPress, disabled, filled, testID }: { label: string; a11y: string; onPress: () => void; disabled?: boolean; filled: boolean; testID?: string }) {
   const { colors, type, radius } = useTheme();
   return (
     <PressableScale
       accessibilityRole="button"
       accessibilityLabel={a11y}
+      testID={testID}
       onPress={onPress}
       disabled={disabled}
       scale={0.96}

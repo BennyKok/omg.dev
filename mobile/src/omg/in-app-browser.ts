@@ -94,15 +94,18 @@ export function dismissSignInPage(): void {
 
 
 /**
- * Open a sign-in page in an auth session and return the URL it finished on,
- * or null when the person closed it. The session ends by itself when the page
- * navigates to `returnUrl` (a custom scheme such as omg://…), which is how a
- * provider's redirect comes back to the app without the app ever reading
- * the page. Null too when this build has no web browser module.
+ * Open a sign-in page in an auth session. The session ends by itself when
+ * the page navigates to `returnUrl` (a custom scheme such as omg://…), which
+ * is how a provider's redirect comes back to the app without the app ever
+ * reading the page. "closed" means the person (or iOS) ended it first;
+ * "unavailable" means this build has no auth session module.
  */
-export async function openAuthSession(url: string, returnUrl: string): Promise<string | null> {
+export async function openAuthSession(
+  url: string,
+  returnUrl: string,
+): Promise<{ status: "done"; url: string } | { status: "closed"; type: string } | { status: "unavailable" }> {
   const wb = webBrowser();
-  if (!wb?.openAuthSessionAsync) return null;
+  if (!wb?.openAuthSessionAsync) return { status: "unavailable" };
   const result = await wb.openAuthSessionAsync(url, returnUrl, { preferEphemeralSession: false });
-  return result.type === "success" && result.url ? result.url : null;
+  return result.type === "success" && result.url ? { status: "done", url: result.url } : { status: "closed", type: result.type };
 }
