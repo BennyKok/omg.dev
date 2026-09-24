@@ -282,8 +282,8 @@ export function SideNavPanel({
         }
       }}
       className={cn(
-        "absolute inset-0 z-30 flex flex-col bg-background transition-transform duration-200 ease-ios motion-reduce:transition-none",
-        open ? "translate-x-0" : "pointer-events-none -translate-x-full",
+        "absolute inset-0 z-30 flex flex-col bg-background transition-[translate,opacity] duration-[380ms] ease-[cubic-bezier(0.25,0.8,0.25,1)] motion-reduce:transition-none",
+        open ? "translate-x-0 opacity-100" : "pointer-events-none -translate-x-full opacity-0",
       )}
     >
       <div className="flex h-12 shrink-0 items-center gap-1 border-b border-border px-2">

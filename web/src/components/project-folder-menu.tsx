@@ -58,6 +58,12 @@ export type ProjectFolderMenuProps = {
   onRemove?: (project: string) => Promise<void>;
   onAddFolder?: () => void;
   onNewFolder?: () => void;
+  /**
+   * "bar" is a full-width row. "chip" is a small pill, sized to its label
+   * and capped, for the trailing edge of the rail's New session row, where
+   * it reads as "new session in this folder".
+   */
+  trigger?: "bar" | "chip";
 };
 
 const ROW = "flex h-9 w-full min-w-0 items-center gap-2.5 rounded-lg px-2.5 text-left text-[13px] outline-none transition-colors";
@@ -72,6 +78,7 @@ export function ProjectFolderMenu({
   onRemove,
   onAddFolder,
   onNewFolder,
+  trigger = "bar",
 }: ProjectFolderMenuProps) {
   const [open, setOpen] = useState(false);
   const [page, setPage] = useState<"pick" | "manage">("pick");
@@ -115,20 +122,27 @@ export function ProjectFolderMenu({
             type="button"
             aria-label={`Folder: ${label}`}
             title={label}
-            className="flex h-8 w-full min-w-0 items-center gap-2 rounded-lg bg-secondary px-2.5 text-left text-[13px] font-semibold text-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-primary/60"
+            className={cn(
+              "flex min-w-0 items-center text-left text-foreground outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary/60",
+              trigger === "chip"
+                ? // Capped so a long folder name cannot push New session
+                  // out of its own row; the full name is in the title.
+                  "h-8 max-w-[10rem] shrink-0 gap-1.5 rounded-lg bg-secondary px-2.5 text-[13px] font-medium hover:bg-background"
+                : "h-8 w-full gap-2 rounded-lg bg-secondary px-2.5 text-[13px] font-semibold hover:bg-muted",
+            )}
           >
             {value === NO_PROJECT_FILTER ? (
-              <Plus className="size-3.5 shrink-0 text-muted-foreground" />
+              <Plus className={cn("shrink-0 text-muted-foreground", "size-3.5")} />
             ) : (
-              <Folder className="size-3.5 shrink-0 text-muted-foreground" />
+              <Folder className={cn("shrink-0 text-muted-foreground", "size-3.5")} />
             )}
             <span className="min-w-0 flex-1 truncate">{label}</span>
-            <ChevronDown className="size-3.5 shrink-0 text-muted-foreground/70" />
+            <ChevronDown className={cn("shrink-0 text-muted-foreground/70", "size-3.5")} />
           </button>
         }
       />
       <Popover.Portal>
-        <Popover.Positioner side="bottom" align="start" sideOffset={6} className="isolate z-[170] outline-none">
+        <Popover.Positioner side="bottom" align={trigger === "chip" ? "end" : "start"} sideOffset={6} className="isolate z-[170] outline-none">
           <Popover.Popup
             initialFocus={page === "pick" && searchable ? inputRef : true}
             data-testid="project-folder-menu"
