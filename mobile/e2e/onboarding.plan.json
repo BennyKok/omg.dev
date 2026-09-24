@@ -78,18 +78,19 @@
     },
     {
       "name": "03 Continue",
-      "goal": "Continue past the task list to the prompt",
-      "done": "The prompt screen with a Start button",
+      "goal": "Tap the Continue button at the bottom of the task list. Do not tap Start with my own idea",
+      "done": "The First prompt. screen, with the Explain an error prompt already written in the box",
       "expect": [
-        "Start"
+        "First prompt.",
+        "Edit any part of this prompt."
       ],
       "forbid": [
-        "Sign in to start"
+        "What is your idea?"
       ]
     },
     {
       "name": "03 Start",
-      "goal": "Tap Start to run the prompt",
+      "goal": "Tap the Start button at the bottom of the First prompt. screen",
       "done": "The Working screen: Your agents are on it, a task in progress, Notify me and Not now",
       "expect": [
         "Notify me"
