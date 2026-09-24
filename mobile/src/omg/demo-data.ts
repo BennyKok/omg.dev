@@ -19,6 +19,7 @@
 
 import type { OmgTransport } from "@omg-dev/client";
 import type { OmgMessage, OmgSession } from "@omg-dev/protocol";
+import { DEMO_VIDEO_PATH, demoVideoBytes } from "./demo-video";
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -189,6 +190,8 @@ function demoSessions(): DemoSession[] {
 }
 
 const artifactFixture = process.env.EXPO_PUBLIC_OMG_ARTIFACT_FIXTURE === "1";
+/** A displayed video in the rate limiter chat, for the `video-save` e2e plan. */
+const videoFixture = process.env.EXPO_PUBLIC_OMG_VIDEO_FIXTURE === "1";
 /**
  * The three things a session can put at the END of its transcript: a website
  * login request, an ask-user question, and the notice that a login transfer
@@ -216,6 +219,13 @@ const demoArtifactHtml = `<!doctype html><html><head><meta name="viewport" conte
 function demoMessages(sessionId: string): OmgMessage[] {
   const t = now();
   if (artifactFixture && sessionId === "demo-rate-limiter") return [demoArtifact];
+  if (videoFixture && sessionId === "demo-rate-limiter") {
+    return [{
+      id: "demo-video", artifactId: "demo-video", role: "assistant", kind: "video",
+      name: "limiter-demo.mp4", caption: "Sliding window demo", url: DEMO_VIDEO_PATH,
+      width: 160, height: 284, ts: t - MIN,
+    } as OmgMessage];
+  }
   const chat = unassignedChats.find((entry) => entry.sessionId === sessionId);
   if (chat) return [
     { id: `${sessionId}-prompt`, role: "user", kind: "text", text: chat.lastUserText ?? "", ts: t - 1000 },
@@ -492,6 +502,9 @@ export function getDemoTransport(): OmgTransport {
   demoTransport = {
     async fetch(path: string) {
       await openingDelay(path);
+      if (videoFixture && path.split("?")[0] === DEMO_VIDEO_PATH && !path.includes("preview=1")) {
+        return { ok: true, status: 200, async arrayBuffer() { return demoVideoBytes(); } } as unknown as Response;
+      }
       const body = answer(path);
       return {
         ok: true,

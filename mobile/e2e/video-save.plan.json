@@ -1,0 +1,34 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": true
+  },
+  "steps": [
+    {
+      "name": "Home",
+      "goal": "If Your data and AI providers is visible, tap Agree and continue to enter the local demo. Otherwise only wait for the existing session list. Do not tap the composer.",
+      "done": "Home shows the api-gateway folder and the existing rate limiter session.",
+      "expect": [
+        "Refactor the rate limiter to a sliding window",
+        "api-gateway folder"
+      ]
+    },
+    {
+      "name": "Video in chat",
+      "goal": "Tap the session row that begins with Refactor the rate limiter to a sliding window, in the session list. Never tap What should we work on? or any composer or keyboard control.",
+      "done": "The chat is open and shows a video with a Save or share button under it.",
+      "expect": [
+        "Save or share",
+        "Sliding window demo"
+      ]
+    },
+    {
+      "name": "Share sheet",
+      "goal": "Tap the Save or share button under the video. Do not tap the video itself.",
+      "done": "The iOS share sheet is open and offers Save Video.",
+      "expect": [
+        "Save Video"
+      ]
+    }
+  ]
+}

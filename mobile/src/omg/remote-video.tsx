@@ -29,7 +29,7 @@
  * video had a renderer at all.
  */
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, Share, StyleSheet, View } from "react-native";
 
 import { Icon } from "../components";
 import { useOmg } from "./provider";
@@ -207,6 +207,20 @@ export function RemoteVideo({
   // A landscape guess only when the artifact is silent about its shape.
   const box = fitBox(declaredRatio ?? 16 / 9, maxWidth, maxHeight);
 
+  /*
+   * Save goes through the system share sheet, which lists "Save Video" for a
+   * local video file. The player streams from a signed URL and never has the
+   * whole file, so this pulls one to the cache first (the same stable cache
+   * `download` keeps), then hands the sheet a file URL.
+   *
+   * Share is React Native's own module, so this needs no native module beyond
+   * the two the player already requires, and it ships over the air.
+   */
+  const save = async () => {
+    const local = await download((p) => client.transport.fetch(p), bindingId, path, loaded.fs);
+    await Share.share({ url: local });
+  };
+
   if (uri) {
     // A signed URL carries a grant that lives ten minutes, and the player
     // keeps requesting ranges from that URL as it plays and seeks. Once the
@@ -217,7 +231,12 @@ export function RemoteVideo({
       bindingId && uri.includes("__omg_grant=")
         ? () => signedRequestFor(bindingId, path, { forceRefresh: true }).then((r) => r?.url ?? null)
         : undefined;
-    return <Player video={loaded.video} uri={uri} box={box} renew={renew} />;
+    return (
+      <View style={{ alignSelf: "flex-start", gap: space.xs }}>
+        <Player video={loaded.video} uri={uri} box={box} renew={renew} />
+        <SaveVideoButton save={save} />
+      </View>
+    );
   }
 
   const still = (
@@ -243,35 +262,75 @@ export function RemoteVideo({
   );
 
   return (
-    <Pressable
-      onPress={() => setRequested(true)}
-      disabled={requested}
-      accessibilityRole="button"
-      accessibilityLabel={label ? `Play ${label}` : "Play video"}
-      style={{ alignSelf: "flex-start", opacity: requested ? 0.7 : 1 }}
-    >
-      {still}
-      <View
-        pointerEvents="none"
-        style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center" }}
+    <View style={{ alignSelf: "flex-start", gap: space.xs }}>
+      <Pressable
+        onPress={() => setRequested(true)}
+        disabled={requested}
+        accessibilityRole="button"
+        accessibilityLabel={label ? `Play ${label}` : "Play video"}
+        style={{ alignSelf: "flex-start", opacity: requested ? 0.7 : 1 }}
       >
+        {still}
         <View
-          style={{
-            width: 56,
-            height: 56,
-            borderRadius: 28,
-            alignItems: "center",
-            justifyContent: "center",
-            backgroundColor: "rgba(0,0,0,0.55)",
-          }}
+          pointerEvents="none"
+          style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center" }}
         >
-          {requested ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Icon ios="play.fill" android="play_arrow" size={24} color="#fff" />
-          )}
+          <View
+            style={{
+              width: 56,
+              height: 56,
+              borderRadius: 28,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: "rgba(0,0,0,0.55)",
+            }}
+          >
+            {requested ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Icon ios="play.fill" android="play_arrow" size={24} color="#fff" />
+            )}
+          </View>
         </View>
-      </View>
+      </Pressable>
+      <SaveVideoButton save={save} />
+    </View>
+  );
+}
+
+/**
+ * One small row under the video. Not an overlay: the inline player draws its
+ * own controls in both top corners, and a button over them would cover one.
+ * Separate from the poster's Pressable, so a tap here never starts playback.
+ */
+function SaveVideoButton({ save }: { save: () => Promise<void> }) {
+  const { colors, type, space } = useTheme();
+  const [state, setState] = useState<"idle" | "busy" | "failed">("idle");
+  // iOS only: Android's Share ignores `url`, so it would share nothing.
+  if (Platform.OS !== "ios") return null;
+  const press = () => {
+    if (state === "busy") return;
+    setState("busy");
+    save()
+      .then(() => setState("idle"))
+      .catch(() => setState("failed"));
+  };
+  const label = state === "busy" ? "Preparing video" : state === "failed" ? "Could not download. Try again" : "Save or share";
+  return (
+    <Pressable
+      onPress={press}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      testID="video-save"
+      hitSlop={8}
+      style={{ alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: space.xs, paddingVertical: 2 }}
+    >
+      {state === "busy" ? (
+        <ActivityIndicator size="small" color={colors.textMuted} />
+      ) : (
+        <Icon ios="square.and.arrow.up" android="share" size={14} color={colors.textMuted} />
+      )}
+      <Text style={{ ...type.caption, color: colors.textMuted }}>{label}</Text>
     </Pressable>
   );
 }
