@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { Download, Share, X } from "lucide-react";
+import { Popover } from "@base-ui/react/popover";
+import { renderSVG } from "uqr";
+import { ChevronRight, Download, Share, Smartphone, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -165,6 +167,115 @@ export function PwaInstallSettingsSection() {
             </div>
           </button>
         </div>
+      </section>
+      <InstallInstructions mode={mode} open={action.instructionsOpen} onOpenChange={action.setInstructionsOpen} />
+    </>
+  );
+}
+
+/** The omg.dev iPhone app. Same link as the README's App Store badge. */
+export const IOS_APP_STORE_URL = "https://apps.apple.com/us/app/omg-dev/id6800792515";
+
+const RAIL_CARD_DISMISSED_KEY = "lfg_get_apps_card_dismissed";
+
+function railCardInitiallyDismissed() {
+  try {
+    return window.localStorage.getItem(RAIL_CARD_DISMISSED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * THE DESKTOP RAIL'S "GET THE APPS" CARD.
+ *
+ * The install suggestion used to be a full-width banner over the whole
+ * desktop layout, pushing everything down to sell one thing. It sits at the
+ * foot of the rail now, above the machine switcher, and offers both ways to
+ * have omg outside a browser tab: this computer (the web app install) and the
+ * iPhone app. The iPhone row opens a QR code, because the person reading this
+ * is at a desk and the phone is the device that has to open the link.
+ *
+ * Dismissal is remembered on this browser. The iPhone offer does not depend
+ * on this browser's install state, so a session-only dismissal would bring
+ * the card back every visit to anyone who has already installed.
+ */
+export function GetAppsRailCard() {
+  const { installed, mode, install } = usePwaInstall();
+  const [dismissed, setDismissed] = useState(railCardInitiallyDismissed);
+  const action = useInstallAction(mode, install);
+  if (dismissed) return null;
+  const canInstallHere = !installed && mode !== "none";
+
+  const dismiss = () => {
+    setDismissed(true);
+    try {
+      window.localStorage.setItem(RAIL_CARD_DISMISSED_KEY, "1");
+    } catch {
+      // Storage can be disabled; dismissing for this render is still enough.
+    }
+  };
+  const qr = `data:image/svg+xml;utf8,${encodeURIComponent(renderSVG(IOS_APP_STORE_URL, { border: 1 }))}`;
+  const rowClass =
+    "flex h-9 w-full items-center gap-2.5 rounded-lg px-2 text-left text-[13px] font-medium text-foreground transition-colors hover:bg-muted";
+
+  return (
+    <>
+      <section
+        aria-label="Get the omg apps"
+        data-testid="get-apps-card"
+        className="mx-2 mb-2 rounded-xl border border-border bg-card/70 p-1.5"
+      >
+        <div className="flex items-center gap-2 px-2 pb-1 pt-0.5">
+          <OmgBrandMark className="size-4 text-muted-foreground" />
+          <span className="min-w-0 flex-1 truncate text-xs font-semibold text-muted-foreground">Get the apps</span>
+          <button
+            type="button"
+            onClick={dismiss}
+            aria-label="Dismiss the apps card"
+            className="-mr-1 flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <X className="size-3.5" />
+          </button>
+        </div>
+        {canInstallHere ? (
+          <button type="button" onClick={() => void action.act()} disabled={action.busy} className={rowClass}>
+            <Download className="size-4 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate">Install on this computer</span>
+          </button>
+        ) : null}
+        <Popover.Root>
+          <Popover.Trigger
+            render={
+              <button type="button" className={rowClass}>
+                <Smartphone className="size-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1 truncate">iPhone app</span>
+                <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/70" />
+              </button>
+            }
+          />
+          <Popover.Portal>
+            <Popover.Positioner side="right" align="end" sideOffset={10} className="isolate z-[170] outline-none">
+              <Popover.Popup
+                data-testid="ios-app-popover"
+                className="w-60 rounded-2xl border border-border bg-popover p-3 text-popover-foreground shadow-2xl outline-none"
+              >
+                <img src={qr} alt="QR code for omg.dev on the App Store" className="mx-auto size-40 rounded-lg bg-white p-1.5" />
+                <p className="mt-2.5 text-center text-xs text-muted-foreground">
+                  Scan with your iPhone camera.
+                </p>
+                <a
+                  href={IOS_APP_STORE_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-2 flex h-8 items-center justify-center rounded-lg bg-secondary text-xs font-medium hover:bg-muted"
+                >
+                  Open the App Store
+                </a>
+              </Popover.Popup>
+            </Popover.Positioner>
+          </Popover.Portal>
+        </Popover.Root>
       </section>
       <InstallInstructions mode={mode} open={action.instructionsOpen} onOpenChange={action.setInstructionsOpen} />
     </>

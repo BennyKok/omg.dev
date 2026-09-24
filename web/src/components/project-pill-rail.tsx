@@ -36,7 +36,7 @@ export function projectPillsFor(
     value: project,
     // The rail is the one place this scope is an icon, so the label says what
     // it does rather than naming an absence. Everywhere the scope is named in
-    // prose — the menu, the sheet, the composer chip — it stays "No project".
+    // prose — the menu, the sheet, the composer chip — it is NO_PROJECT_FILTER_LABEL.
     label:
       project === NO_PROJECT_FILTER
         ? "Chats without a project"
