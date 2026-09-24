@@ -32,6 +32,7 @@ import { useTheme } from "./theme";
  */
 type Glyph = Extract<ComponentProps<typeof Icon>, { ios: unknown }>;
 const GLYPH: Record<InterestKey, Glyph> = {
+  build: { ios: "globe", android: "language" },
   design: { ios: "square.3.layers.3d", android: "layers" },
   data: { ios: "chart.bar", android: "bar_chart" },
   code: { ios: "chevron.left.forwardslash.chevron.right", android: "code" },

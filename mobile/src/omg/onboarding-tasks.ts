@@ -13,7 +13,7 @@
  */
 
 /** A lane from step 02. The key is stable; the label is copy. */
-export type InterestKey = "design" | "data" | "code" | "sales";
+export type InterestKey = "build" | "design" | "data" | "code" | "sales";
 
 export type OnboardingTask = {
   /** Stable id, so a choice can be remembered across a relaunch. */
@@ -63,6 +63,38 @@ export type InterestLane = {
 export const FALLBACK_WORD = "chat";
 
 export const INTEREST_LANES: InterestLane[] = [
+  /*
+   * First on purpose (Benny, 2026-09-24): building a website or an app is the
+   * thing omg.dev does that the other lanes' tools do not, so it leads.
+   * Every task ends with something the person can open, because a first run
+   * that finishes with a link is one they can check from the phone.
+   */
+  {
+    key: "build",
+    label: "Websites & apps",
+    word: "project",
+    tools: ["React", "Expo", "GitHub"],
+    tasks: [
+      {
+        id: "build-website",
+        label: "Build a website",
+        prompt:
+          "Build a one-page website for Lumen Yoga Studio with a hero, class schedule, prices and a contact form. Publish it and send me the link.",
+      },
+      {
+        id: "build-web-app",
+        label: "Make a web app",
+        prompt:
+          "Build a web app for Lumen Yoga Studio members to book a class and see their upcoming bookings. Publish it and send me the link.",
+      },
+      {
+        id: "build-mobile-app",
+        label: "Start a mobile app",
+        prompt:
+          "Build a mobile app prototype for Lumen Yoga Studio with a class list, class details and a booking button. Give me a preview I can open on my phone.",
+      },
+    ],
+  },
   {
     key: "design",
     label: "Design & content",

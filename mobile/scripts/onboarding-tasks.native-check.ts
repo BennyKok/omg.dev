@@ -12,7 +12,7 @@ import {
 } from "../src/omg/onboarding-tasks";
 
 test("every lane offers three example tasks and its own tools", () => {
-  expect(INTEREST_LANES).toHaveLength(4);
+  expect(INTEREST_LANES).toHaveLength(5);
   for (const lane of INTEREST_LANES) {
     expect(lane.tasks).toHaveLength(3);
     expect(lane.tools.length).toBeGreaterThan(0);
@@ -105,4 +105,14 @@ test("every lane names its tools, and none of them repeat across lanes", () => {
     }
   }
   expect(seen.size).toBe(INTEREST_LANES.reduce((n, l) => n + l.tools.length, 0));
+});
+
+/** The build lane leads, and every build task ends with something to open. */
+test("websites and apps come first, and each task asks for a link or preview", () => {
+  const build = INTEREST_LANES[0]!;
+  expect(build.key).toBe("build");
+  for (const task of build.tasks) {
+    expect(task.prompt).toContain("Lumen Yoga Studio");
+    expect(/link|preview/.test(task.prompt)).toBe(true);
+  }
 });
