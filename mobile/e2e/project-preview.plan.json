@@ -15,6 +15,17 @@
       ]
     },
     {
+      "name": "Expired Expo Go link",
+      "goal": "Find the second card, for 'My old app'. Only inspect it and do not tap anything. A 'Link expired' message on this card is the expected result of this test, not an error.",
+      "done": "The 'My old app' card says the Expo Go link expired and shows a 'Restart preview' button.",
+      "expect": [
+        "My old app",
+        "Link expired \u00b7 Private to you \u00b7 Temporary",
+        "The Expo Go link expired. Restart the preview to get a new one.",
+        "Restart preview"
+      ]
+    },
+    {
       "name": "Expo Go card",
       "goal": "Find the second card, for the Expo app. Only inspect it and do not tap anything.",
       "done": "The card names the todo app, says it is an Expo app, and offers to open it in Expo Go.",

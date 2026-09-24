@@ -9,12 +9,16 @@ export interface ProjectPreview {
   createdAt: number;
   /** `exps://` link that opens the same live Metro server in Expo Go. */
   expoGoUrl?: string;
+  /** When the Expo Go link stops working, in epoch milliseconds. */
+  expoGoExpiresAt?: number;
 }
 
 export interface ProjectPreviewSnapshot {
   preview: ProjectPreview | null;
   /** False when nothing listens on the preview port, for example after the Computer slept. Absent from older Computers. */
   live?: boolean;
+  /** True when the Expo Go link has expired. `live` is then false as well. */
+  expired?: boolean;
 }
 
 /** Message a preview card sends to ask the session agent to start the preview again. */

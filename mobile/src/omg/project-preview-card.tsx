@@ -20,6 +20,7 @@ export function ProjectPreviewPanel({ sessionId, transport, email }: {
   const [preview, setPreview] = useState<ProjectPreview | null>(null);
   const [guide, setGuide] = useState(false);
   const [live, setLive] = useState<boolean | undefined>(undefined);
+  const [expired, setExpired] = useState(false);
   const [restartAsked, setRestartAsked] = useState(false);
   const mounted = useRef(true);
   const suffix = `?sessionId=${encodeURIComponent(sessionId ?? "")}&user=${encodeURIComponent(email ?? "")}`;
@@ -30,6 +31,7 @@ export function ProjectPreviewPanel({ sessionId, transport, email }: {
       if (!mounted.current) return;
       setPreview(data.preview ?? null);
       setLive(data.live);
+      setExpired(data.expired === true);
     } catch { /* Compatible with Computers from before preview cards. */ }
   }, [transport, sessionId, suffix]);
   useEffect(() => {
@@ -70,11 +72,13 @@ export function ProjectPreviewPanel({ sessionId, transport, email }: {
       </View>
       <View style={{ flex: 1, gap: 2 }}>
         <Text numberOfLines={1} style={{ color: colors.foreground, fontSize: 16, fontWeight: "600" }}>{preview.title}</Text>
-        <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>{stopped ? "Stopped" : expoGoUrl ? "Expo app" : "Live preview"} · Private to you · Temporary</Text>
+        <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>{expired ? "Link expired" : stopped ? "Stopped" : expoGoUrl ? "Expo app" : "Live preview"} · Private to you · Temporary</Text>
       </View>
     </View>
     {stopped ? <View testID="project-preview-stopped" style={{ gap: 10 }}>
-      <Text style={{ color: colors.mutedForeground, fontSize: 14 }}>The development server is not running. This happens when the Computer sleeps.</Text>
+      <Text style={{ color: colors.mutedForeground, fontSize: 14 }}>{expired
+        ? "The Expo Go link expired. Restart the preview to get a new one."
+        : "The development server is not running. This happens when the Computer sleeps."}</Text>
       <Pressable accessibilityRole="button" testID="project-preview-restart" disabled={restartAsked} onPress={() => void restart()} style={{ minHeight: 44, paddingHorizontal: 14, borderRadius: 12, backgroundColor: restartAsked ? colors.muted : colors.primary, justifyContent: "center" }}>
         <Text style={{ color: restartAsked ? colors.mutedForeground : colors.primaryForeground, fontWeight: "600", textAlign: "center" }}>{restartAsked ? "Asked the agent to restart it" : "Restart preview"}</Text>
       </Pressable>
