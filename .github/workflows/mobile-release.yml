@@ -35,6 +35,18 @@ on:
         description: "Submit to App Store Connect after a successful build"
         default: false
         type: boolean
+      runner:
+        description: "Where to build"
+        default: mac
+        type: choice
+        options:
+          # bennys-macbook-pro-2, registered as a self-hosted runner. Free:
+          # `eas build --local` produces the same signed IPA without spending
+          # an EAS build. Needs the Mac awake and on the tailnet.
+          - mac
+          # Expo's macOS cloud. About $2 per iOS build, but always available.
+          # Keep this for when the Mac is asleep, or busy with the e2e suite.
+          - cloud
 
 # EAS Starter includes ONE build concurrency. A second in-flight build would
 # queue behind this one and hold a runner open for no reason, so serialise.
@@ -44,6 +56,7 @@ concurrency:
 
 jobs:
   build:
+    if: ${{ inputs.runner == 'cloud' }}
     runs-on: ubuntu-latest
     # A cloud build regularly runs 20-40 minutes and `--wait` blocks on it.
     timeout-minutes: 90
@@ -146,3 +159,39 @@ jobs:
             --profile "${{ inputs.profile }}" \
             --latest \
             --non-interactive
+
+  # ── The Mac ───────────────────────────────────────────────────────────────
+  #
+  # Same product as the cloud job, built with `eas build --local` on
+  # bennys-macbook-pro-2. It costs no EAS build credit, which is the point:
+  # four cloud builds on 2026-09-23 spent about $8 and two of them failed for
+  # toolchain reasons rather than anything in the app.
+  #
+  # The step is deliberately THIN. Everything that makes a local build work
+  # lives in mobile/scripts/mac-build.ts, next to the comments explaining why,
+  # so a person debugging this can run the identical thing by hand:
+  #
+  #   bun run build:mac --ref main --xcode 27
+  #
+  # This job does NOT check out the repo onto the runner. The script drives a
+  # clone the Mac owns, because `eas build --local` archives from the git root
+  # and metro.config.js watches ../packages/protocol/src, outside mobile/.
+  # A checkout of this workflow's own workspace would not have that sibling.
+  build-mac:
+    if: ${{ inputs.runner == 'mac' }}
+    runs-on: [self-hosted, macOS, ARM64, omg-mac]
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build on the Mac
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          cd mobile
+          bun run scripts/mac-build.ts \
+            --ref "${{ github.sha }}" \
+            --xcode 27 \
+            --profile "${{ inputs.profile }}" \
+            ${{ (inputs.submit && inputs.profile != 'simulator') && '--submit' || '' }}

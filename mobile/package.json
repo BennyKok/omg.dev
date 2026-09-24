@@ -70,7 +70,8 @@
     "typecheck": "tsc --noEmit",
     "test:native": "bun run scripts/native-checks.ts",
     "doctor": "expo-doctor",
-    "test:e2e": "bun run scripts/maestro.ts"
+    "test:e2e": "bun run scripts/maestro.ts",
+    "build:mac": "bun run scripts/mac-build.ts"
   },
   "private": true,
   "patchedDependencies": {
