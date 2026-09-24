@@ -419,7 +419,6 @@ import {
   Bell,
   MoreVertical,
   Moon,
-  PanelLeftClose,
   PanelLeftOpen,
   Paperclip,
   Pause,
@@ -12282,22 +12281,6 @@ function RailStage({
   }, [botsUnreadAny, sessionsUnreadAny]);
   const railNavHasNews =
     (sessionsUnreadAny && railSurface !== "sessions") || (botsUnreadAny && railSurface !== "chat");
-  // Trailing edge of the rail header, and of the menu's header over it, so
-  // it stays in one place whichever face the rail is showing.
-  const railCollapseButton = (
-    <button
-      type="button"
-      onClick={() => {
-        setRailNavOpen(false);
-        setRailCollapsed(true);
-      }}
-      aria-label="Collapse sidebar"
-      title="Collapse sidebar (⌘B)"
-      className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-    >
-      <PanelLeftClose className="size-4" />
-    </button>
-  );
   const MAX_COLUMNS = 4;
   const layoutScope = projectFilter || "__all";
   const layoutKey = encodeURIComponent(layoutScope);
@@ -13480,25 +13463,6 @@ function RailStage({
             >
               <Plus className="size-4" />
             </button>
-            {/* The collapsed strip's only way to other places: open the rail
-                straight onto its menu. */}
-            {sideNav ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setRailCollapsed(false);
-                  setRailNavOpen(true);
-                }}
-                aria-label="Menu"
-                title="Menu"
-                className="relative flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
-              >
-                <SideNavGlyph />
-                {railNavHasNews ? (
-                  <span className={cn(UNREAD_DOT_CLASS, "absolute right-1 top-1")} aria-hidden="true" />
-                ) : null}
-              </button>
-            ) : null}
           </div>
         ) : (
           <div className="flex h-12 shrink-0 items-center gap-1.5 border-b border-border px-2">
@@ -13537,9 +13501,9 @@ function RailStage({
                   value={userFilter}
                   users={users}
                   onChange={onUserChange}
+                  size="sm"
                 />
               ) : null}
-              {railCollapseButton}
             </div>
           </div>
         )}
@@ -13624,7 +13588,6 @@ function RailStage({
             rows={sideNav.rows}
             onNavigate={sideNav.onNavigate}
             unread={railNavUnread}
-            trailing={railCollapseButton}
             footer={
               sideNav.onOpenHostSettings ? (
                 <button
@@ -13656,6 +13619,35 @@ function RailStage({
           />
         ) : null}
       </aside>
+      {/* THE RAIL'S EDGE. Collapse and expand live here, on the divider they
+          act on, instead of as one more icon in the rail's header. Hovering
+          the edge lights it; the grip in its middle is the button. */}
+      <div className="group/rail-edge relative z-40 w-0 shrink-0">
+        <div className="absolute inset-y-0 -left-1.5 flex w-3 items-center justify-center">
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-transparent transition-colors group-hover/rail-edge:bg-primary/40"
+          />
+          <button
+            type="button"
+            onClick={() => {
+              setRailNavOpen(false);
+              setRailCollapsed((v) => !v);
+            }}
+            aria-label={railCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            title={railCollapsed ? "Expand sidebar (⌘B)" : "Collapse sidebar (⌘B)"}
+            data-testid="rail-edge-toggle"
+            className="group/grip relative flex h-10 w-3 items-center justify-center rounded-full opacity-0 outline-none transition-[opacity,width,background-color] duration-150 hover:w-6 hover:bg-card hover:shadow-md hover:ring-1 hover:ring-border focus-visible:w-6 focus-visible:bg-card focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-primary/60 group-hover/rail-edge:opacity-100"
+          >
+            <span className="h-6 w-1 rounded-full bg-muted-foreground/40 group-hover/grip:hidden group-focus-visible/grip:hidden" aria-hidden="true" />
+            {railCollapsed ? (
+              <ChevronRight className="hidden size-3.5 text-foreground group-hover/grip:block group-focus-visible/grip:block" />
+            ) : (
+              <ChevronLeft className="hidden size-3.5 text-foreground group-hover/grip:block group-focus-visible/grip:block" />
+            )}
+          </button>
+        </div>
+      </div>
 
       <div
         className={cn(

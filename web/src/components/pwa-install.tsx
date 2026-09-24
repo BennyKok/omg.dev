@@ -192,9 +192,10 @@ function railCardInitiallyDismissed() {
  * The install suggestion used to be a full-width banner over the whole
  * desktop layout, pushing everything down to sell one thing. It sits at the
  * foot of the rail now, above the machine switcher, and offers both ways to
- * have omg outside a browser tab: this computer (the web app install) and the
- * iPhone app. The iPhone row opens a QR code, because the person reading this
- * is at a desk and the phone is the device that has to open the link.
+ * have omg outside a browser tab: this computer (the web app install) and
+ * your phone. The phone row opens a QR code for the iPhone app, because the
+ * person reading this is at a desk and the phone is the device that has to
+ * open the link.
  *
  * Dismissal is remembered on this browser. The iPhone offer does not depend
  * on this browser's install state, so a session-only dismissal would bring
@@ -249,7 +250,7 @@ export function GetAppsRailCard() {
             render={
               <button type="button" className={rowClass}>
                 <Smartphone className="size-4 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 flex-1 truncate">iPhone app</span>
+                <span className="min-w-0 flex-1 truncate">Use on your phone</span>
                 <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/70" />
               </button>
             }
@@ -261,8 +262,9 @@ export function GetAppsRailCard() {
                 className="w-60 rounded-2xl border border-border bg-popover p-3 text-popover-foreground shadow-2xl outline-none"
               >
                 <img src={qr} alt="QR code for omg.dev on the App Store" className="mx-auto size-40 rounded-lg bg-white p-1.5" />
-                <p className="mt-2.5 text-center text-xs text-muted-foreground">
-                  Scan with your iPhone camera.
+                <p className="mt-2.5 text-center text-[13px] font-semibold">Use omg on your phone</p>
+                <p className="mt-1 text-center text-xs text-muted-foreground">
+                  Scan with your iPhone camera to get the app. Then start and follow your sessions from anywhere.
                 </p>
                 <a
                   href={IOS_APP_STORE_URL}

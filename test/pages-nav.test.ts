@@ -67,12 +67,12 @@ describe("page navigation reachability", () => {
     expect(body).toContain("extraTabs.map");
   });
 
-  test("both rail layouts reach the menu", () => {
-    // Collapsed and expanded. The collapsed strip previously had a lone Shipped
-    // megaphone and no Artifacts entry at all. Both open the rail's menu now:
-    // the expanded header directly, the collapsed strip by expanding onto it.
-    const opens = app.split("setRailNavOpen(true)").length - 1;
-    expect(opens, "expected two places that open the rail menu").toBe(2);
+  test("the rail header reaches the menu", () => {
+    // The collapsed strip previously had a lone Shipped megaphone and no
+    // Artifacts entry at all. The menu lives in the expanded rail now; the
+    // collapsed strip expands from the rail's edge first.
+    expect(app).toContain("onClick={() => setRailNavOpen(true)}");
+    expect(app).toContain('data-testid="rail-edge-toggle"');
   });
 
   test("the shell builds the menus and passes them down", () => {
