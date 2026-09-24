@@ -828,6 +828,20 @@ function oauthRedirectBase(req: Request, explicit?: string): string {
   return localServeBaseUrl();
 }
 
+/**
+ * The return address for a connector on a pre-registered client (Google).
+ * Such a client accepts only the addresses its owner listed, so the box uses
+ * ONE: its public HTTPS address (LFG_PUBLIC_URL, the Tailscale name) when it
+ * has one, whatever address the page was opened on. Without this, the same
+ * box sent 127.0.0.1 from one browser and the .ts.net name from another, and
+ * Google refused whichever was not registered (redirect_uri_mismatch).
+ * Connectors that register themselves (DCR) keep the request's own origin.
+ */
+function connectorRedirectBase(req: Request, preRegistered: boolean, explicit?: string): string {
+  if (!explicit && preRegistered && PUBLIC_URL.startsWith("https://") && !oauthRelayConfig()) return PUBLIC_URL;
+  return oauthRedirectBase(req, explicit);
+}
+
 // A box that cannot receive the provider redirect directly (a hosted sandbox,
 // or a self-hosted box behind NAT) is told at launch to route OAuth through a
 // hosted relay: OMG_OAUTH_RELAY_BASE is the relay origin, and the box's own
@@ -4405,7 +4419,7 @@ export async function cmdServe() {
           const connector = getConnector(m[1]!);
           if (!connector) return err(404, "connector not found");
           const body = (await req.json().catch(() => null)) as { redirectBase?: string; state?: string; via?: string } | null;
-          const base = oauthRedirectBase(req, body?.redirectBase);
+          const base = connectorRedirectBase(req, !!connector.oauthApp, body?.redirectBase);
           // The phone app signs in through the fixed relay on auth.omg.dev and
           // then hands the code back itself (POST /api/connectors/oauth/callback).
           // Only a pre-registered client has that relay on its redirect list.
@@ -4432,7 +4446,7 @@ export async function cmdServe() {
       // value the owner registers with the client, the same base
       // oauth/start uses for this request.
       if (path === "/api/connectors/oauth-apps" && req.method === "GET") {
-        return json({ apps: oauthAppStatuses(getOAuthApp), redirectUri: connectorCallbackUrl(oauthRedirectBase(req)) });
+        return json({ apps: oauthAppStatuses(getOAuthApp), redirectUri: connectorCallbackUrl(connectorRedirectBase(req, true)) });
       }
       {
         const m = path.match(/^\/api\/connectors\/oauth-apps\/([a-z0-9-]+)$/);
