@@ -25,27 +25,56 @@ export type SkillCatalogItem = {
   path: string;
 };
 
-// `fable` is an alias the claude CLI resolves to the current Fable release
-// (Fable 5 today). `claude-fable-5-1` is pinned on purpose: the CLI accepts the
-// full id and serves it first-party, but no short alias points at 5.1 yet, so
-// without this entry the picker cannot reach it.
+// Pinned full ids exist because the short aliases float. `opus`, `fable`,
+// `sonnet` and `haiku` each resolve to the newest release of their family
+// (verified 2026-09-24 against Claude Code: `--model <alias>` reported
+// modelUsage for claude-opus-5-5, claude-fable-5-1, claude-sonnet-5 and
+// claude-haiku-4-5-20251001). `claude-opus-5-5` and `claude-fable-5-1` are the
+// only way to stay on those releases on purpose, and the only entries that
+// name the version in the picker. Claude Code before 2.1.280 rejects
+// `claude-opus-5-5` with "does not support this model; version 2.1.280 or
+// newer is required", so a stale CLI must take the alias instead.
 //
-// `claude-opus-5-5` is pinned for a different reason. The `opus` alias already
-// resolves to Opus 5.5 (verified 2026-09-22 against Claude Code 2.1.280: a
-// `--model opus` run reports modelUsage for claude-opus-5-5), but that alias
-// floats to whatever Opus ships next. The full id is the only way to stay on
-// 5.5 on purpose, and it is the only entry that names the version in the
-// picker. Claude Code before 2.1.280 rejects the full id with
-// "does not support this model; version 2.1.280 or newer is required", so a
-// stale CLI must take the alias instead.
-export const CLAUDE_MODELS: string[] = [
-  "fable",
-  "claude-fable-5-1",
-  "opus",
+// Release dates are `created_at` from Anthropic's GET /v1/models, read
+// 2026-09-24. They only order the picker, newest first. Add a row when a new
+// pinned id joins the list; an alias takes the newest date in its family.
+const CLAUDE_RELEASES: Record<string, string> = {
+  "claude-opus-5-5": "2026-09-21",
+  "claude-fable-5-1": "2026-08-28",
+  "claude-opus-5": "2026-07-24",
+  "claude-sonnet-5": "2026-06-29",
+  "claude-fable-5": "2026-06-07",
+  "claude-opus-4-8": "2026-05-28",
+  "claude-haiku-4-5-20251001": "2025-10-15",
+};
+
+function claudeReleaseDate(model: string): string | null {
+  if (CLAUDE_RELEASES[model]) return CLAUDE_RELEASES[model];
+  if (!/^(opus|fable|sonnet|haiku)$/.test(model)) return null;
+  const family = Object.keys(CLAUDE_RELEASES).filter((id) => id.startsWith(`claude-${model}-`));
+  return family.map((id) => CLAUDE_RELEASES[id]!).sort().at(-1) ?? null;
+}
+
+/**
+ * Newest release first. A tie keeps list order, so a pinned id listed before
+ * its alias stays above it. Ids without a known date keep their place after
+ * the dated ones.
+ */
+export function sortClaudeModelsByRelease(models: readonly string[]): string[] {
+  return models
+    .map((model, index) => ({ model, index, date: claudeReleaseDate(model) ?? "" }))
+    .sort((a, b) => (a.date === b.date ? a.index - b.index : a.date < b.date ? 1 : -1))
+    .map((item) => item.model);
+}
+
+export const CLAUDE_MODELS: string[] = sortClaudeModelsByRelease([
   "claude-opus-5-5",
+  "opus",
+  "claude-fable-5-1",
+  "fable",
   "sonnet",
   "haiku",
-];
+]);
 export const CODEX_MODELS: string[] = [
   "gpt-6-astra",
   "gpt-5.6-sol",
@@ -60,14 +89,7 @@ export const CODEX_MODELS: string[] = [
 // (see claude-ai-sdk.ts, which passes this straight to query({ model })), so
 // `claude-fable-5-1` and `claude-opus-5-5` are carried here for the same
 // reasons as CLAUDE_MODELS.
-export const AISDK_MODELS: string[] = [
-  "fable",
-  "claude-fable-5-1",
-  "opus",
-  "claude-opus-5-5",
-  "sonnet",
-  "haiku",
-];
+export const AISDK_MODELS: string[] = [...CLAUDE_MODELS];
 export const CODEX_AISDK_MODELS: string[] = [
   "gpt-6-astra",
   "gpt-5.6-sol",
@@ -517,18 +539,11 @@ export function curateOpenCodeModels(
 }
 
 function curateCodexModels(models: string[]): string[] {
-  const out: string[] = [];
-  const add = (model: string) => {
-    if (models.includes(model) && !out.includes(model)) out.push(model);
-  };
-
-  for (const model of CODEX_MODELS) add(model);
-  addLatest(out, models.filter((m) => /^gpt-\d/.test(m) && !m.includes("codex") && !m.includes("mini")));
-  addLatest(out, models.filter((m) => /^gpt-\d/.test(m) && m.includes("mini")));
-  addLatest(out, models.filter((m) => /^gpt-\d/.test(m) && m.includes("codex") && !m.includes("spark")));
-  addLatest(out, models.filter((m) => m.includes("spark")));
-  for (const fallback of CODEX_MODELS) if (!out.includes(fallback) && models.includes(fallback)) out.push(fallback);
-  return out.length ? out : models;
+  // `codex debug models` lists the models in Codex's own priority order, which
+  // is newest first, and the parser already drops hidden ones. Keep that
+  // order. Pinning CODEX_MODELS in front used to push a newly shipped model
+  // (gpt-6-sol) below every older pinned one and drop its siblings entirely.
+  return models.length ? models : [...CODEX_MODELS];
 }
 
 function curateGrokModels(models: string[]): string[] {
