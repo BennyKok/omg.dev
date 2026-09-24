@@ -26,6 +26,17 @@ appId: dev.omg.computer
     visible: "Agree and continue"
     timeout: 15000
 - assertVisible: "Your data and AI providers"
+# "Not now" returns a new sign-up to their prompt, words intact, not to sign-in.
+- tapOn: "Not now"
+- extendedWaitUntil:
+    visible: "First prompt."
+    timeout: 10000
+- assertVisible: "Explain this error.*"
+- assertNotVisible: "Welcome to omg.dev"
+- tapOn: "Start"
+- extendedWaitUntil:
+    visible: "Agree and continue"
+    timeout: 15000
 - tapOn: "Agree and continue"
 # 04 · Working. The Computer provisions and the first task launches here; a
 # cold provision is seconds, a slow one is a minute.

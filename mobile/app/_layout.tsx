@@ -27,7 +27,7 @@ import { loadDemoMode } from "../src/omg/demo";
 import { AgentVillageWidgetBridge } from "../src/omg/village-widget-bridge";
 import { AgentLiveActivityBridge } from "../src/omg/agent-live-activity";
 import { OnboardingAfterSignIn } from "../src/omg/onboarding-after";
-import { OnboardingFlow, WelcomeGate } from "../src/omg/onboarding-flow";
+import { OnboardingFlow, WelcomeGate, type OnboardingChoice } from "../src/omg/onboarding-flow";
 import { isNewAccount, shouldMarkOnboarded, shouldShowSetup } from "../src/omg/onboarding-gate";
 import { stashOnboardingChoice } from "../src/omg/onboarding-handoff";
 import { registerForPushNotifications, useNotificationTapRouting } from "../src/omg/push";
@@ -180,11 +180,21 @@ function LaunchGate() {
  * else had to clear first -- setup, a slow plan read, anything added later.
  */
 function OpenWhenMounted({ sessionId, onOpened }: { sessionId: string; onOpened: () => void }) {
+  const { colors } = useTheme();
   useEffect(() => {
-    router.push(`/session/${sessionId}`);
-    onOpened();
+    /*
+     * No slide, and a cover until it is open (Benny, 2026-09-24). The pricing
+     * page used to hand over to Home for about a second while the session
+     * slid in over it: a screen from after onboarding, shown in the middle of
+     * it. `arrive=instant` turns the push animation off (see the session
+     * Stack.Screen), and the cover in the flow's own colour hides the one or
+     * two frames of Home before the session paints.
+     */
+    router.push(`/session/${sessionId}?arrive=instant`);
+    const timer = setTimeout(onOpened, 350);
+    return () => clearTimeout(timer);
   }, [sessionId, onOpened]);
-  return null;
+  return <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: colors.bg }]} />;
 }
 
 function RootNavigator() {
@@ -202,8 +212,12 @@ function RootNavigator() {
   const [afterSignInDone, setAfterSignInDone] = useState(false);
   /** The signed-in questions (steps 02 and 03) are answered for this launch. */
   const [questionsDone, setQuestionsDone] = useState(false);
-  /** The prompt the questions just produced, so step 04 can show it at once. */
-  const [questionsPrompt, setQuestionsPrompt] = useState<string | null>(null);
+  /**
+   * The choice the questions just produced: step 04 shows its prompt at once,
+   * and "Not now" on the data notice reopens the prompt with it.
+   */
+  const [questionsChoice, setQuestionsChoice] = useState<OnboardingChoice | null>(null);
+  const questionsPrompt = questionsChoice?.prompt.trim() || null;
   /**
    * The new flow actually ran for this person, so setup below still owes them
    * a visit -- even though buying a plan in step 06 has just made `established`
@@ -585,8 +599,9 @@ function RootNavigator() {
       <StatusBar style={isDark ? "light" : "dark"} />
       <OnboardingFlow
         finalLabel="Start"
+        initial={questionsChoice}
         onDone={(choice) => {
-          setQuestionsPrompt(choice.prompt.trim() || null);
+          setQuestionsChoice(choice);
           void stashOnboardingChoice(choice).finally(() => setQuestionsDone(true));
         }}
       />
@@ -641,7 +656,20 @@ function RootNavigator() {
     return (
       <>
         <StatusBar style={isDark ? "light" : "dark"} />
-        <AiConsentScreen onAccept={consent.accept} onDecline={handleDecline} />
+        <AiConsentScreen
+          onAccept={consent.accept}
+          /*
+           * A new sign-up who just wrote a prompt goes back to it (Benny,
+           * 2026-09-24). Signing them out would throw away the thing they
+           * came to do. Everyone else meets the notice with nothing written,
+           * and declining still signs out, as it always has.
+           */
+          onDecline={
+            onboarding.state === "needed" && newAccount === true && questionsDone
+              ? () => setQuestionsDone(false)
+              : handleDecline
+          }
+        />
       </>
     );
   }
@@ -855,7 +883,15 @@ function RootNavigator() {
               layout effect runs. */}
           <Stack.Screen name="index" options={{ title: "" }} />
           <Stack.Screen name="archive" options={{ title: "Archive", headerLargeTitle: true }} />
-          <Stack.Screen name="session/[id]" options={{ title: "Session" }} />
+          <Stack.Screen
+            name="session/[id]"
+            options={({ route }) => ({
+              title: "Session",
+              // The first session after onboarding opens in place, not with a
+              // slide over Home. See OpenWhenMounted.
+              ...((route.params as { arrive?: string } | undefined)?.arrive === "instant" ? { animation: "none" as const } : {}),
+            })}
+          />
             <Stack.Screen name="session/new" options={{ headerShown: false }} />
           {/* Switching machines is the frequent action and belongs in the menu
               on the machine chip; pairing and per-machine detail still need a

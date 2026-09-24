@@ -94,24 +94,31 @@ export function OnboardingFlow({
   onDone,
   finalLabel,
   startAt = "interests",
+  initial = null,
 }: {
   onDone: (choice: OnboardingChoice) => void;
   /** The prompt screen's last button. */
   finalLabel: string;
   startAt?: "welcome" | "interests";
+  /**
+   * A choice already made, to reopen on its prompt. Used when "Not now" on the
+   * data notice sends a new sign-up back: they return to the words they wrote,
+   * not to the first question.
+   */
+  initial?: OnboardingChoice | null;
 }) {
   const { colors } = useTheme();
-  const [step, setStep] = useState<Step>(startAt);
-  const [interest, setInterest] = useState<InterestKey | null>(null);
-  const [taskId, setTaskId] = useState<string | null>(null);
-  const [prompt, setPrompt] = useState("");
-  const [custom, setCustom] = useState(false);
+  const [step, setStep] = useState<Step>(initial ? "prompt" : startAt);
+  const [interest, setInterest] = useState<InterestKey | null>(initial?.interest ?? null);
+  const [taskId, setTaskId] = useState<string | null>(initial?.taskId ?? null);
+  const [prompt, setPrompt] = useState(initial?.prompt ?? "");
+  const [custom, setCustom] = useState(initial ? !initial.taskId : false);
   /*
    * Picked, not uploaded. The Computer may still be starting while this flow
    * runs, so the files ride in the handoff as local URIs and are sent by
    * onboarding-launch.ts once there is somewhere to send them.
    */
-  const [files, setFiles] = useState<PickedFile[]>([]);
+  const [files, setFiles] = useState<PickedFile[]>(initial?.files ?? []);
   const attachOptions = useMemo(
     () =>
       filePickerOptions((picked) =>
@@ -190,7 +197,9 @@ export function OnboardingFlow({
           custom={custom}
           finalLabel={finalLabel}
           onSignIn={() => onDone({ interest, taskId, prompt: prompt.trim(), files })}
-          onBack={() => setStep("task")}
+          // The own-idea path can be reached with no lane chosen only by
+          // reopening it; back then goes to the lanes, not an empty task list.
+          onBack={() => setStep(interest ? "task" : "interests")}
         />
       ) : null}
     </View>
