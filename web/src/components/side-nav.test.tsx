@@ -150,3 +150,18 @@ test("the rail panel marks unread places and hides itself when closed", () => {
   expect(panel.getAttribute("aria-hidden")).toBe("true");
   expect(panel.inert).toBe(true);
 });
+
+test("the rail panel draws the machine picker above the rows", () => {
+  ui.render(
+    <SideNavPanel
+      open
+      onBack={() => {}}
+      rows={sideNavRows({ tab: "live" })}
+      onNavigate={() => {}}
+      machineSwitcher={<div data-testid="machine">Work</div>}
+    />,
+  );
+  const machine = ui.query('[data-testid="machine"]')!;
+  const firstRow = ui.query('[data-testid="side-nav-row-live"]')!;
+  expect(machine.compareDocumentPosition(firstRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});

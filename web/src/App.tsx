@@ -9407,6 +9407,22 @@ export function App() {
               // state and the extension registry, and the rail should not have to
               // know either to render a menu.
               hostSettingsInMenu={hostSettingsInMenu}
+              // The phone header's status line, at the top of the rail: the
+              // welcome, then what is building, then questions. The logo it
+              // replaced sits at the foot of the rail now.
+              railHeadline={
+                <LiveHeaderContext
+                  intro={false}
+                  brand={null}
+                  viewerName={viewer?.name}
+                  user={headerProfile}
+                  identity={identity}
+                  busyCount={liveSessions.filter(
+                    (session) => !!liveStream.busyBySid[session.sessionId ?? ""],
+                  ).length}
+                  onOpenNotifications={() => setTab("notifications")}
+                />
+              }
               sideNav={{
                 // The phone drawer's rows, from the same model, so the rail
                 // and the drawer list the same places in the same order.
@@ -11597,6 +11613,7 @@ function LiveView({
   onEditBot,
   onRefreshBots,
   sideNav,
+  railHeadline,
   repos = [],
   onReposChanged,
   hosted = false,
@@ -11638,6 +11655,8 @@ function LiveView({
   onRefreshBots?: () => Promise<void>;
   /** The rail's menu, built by the shell so RailStage stays unaware of tabs. */
   sideNav?: RailSideNav;
+  /** The rail header's status line (welcome, activity, questions). */
+  railHeadline?: ReactNode;
   repos?: Repo[];
   onReposChanged?: () => Promise<void>;
   hosted?: boolean;
@@ -11989,6 +12008,7 @@ function LiveView({
         onEditBot={onEditBot}
         onRefreshBots={onRefreshBots}
         sideNav={sideNav}
+        railHeadline={railHeadline}
         repos={repos}
         onReposChanged={onReposChanged}
         hosted={hosted}
@@ -12189,6 +12209,7 @@ function RailStage({
   onEditBot,
   onRefreshBots,
   sideNav,
+  railHeadline,
   repos = [],
   onReposChanged,
   hosted = false,
@@ -12224,6 +12245,8 @@ function RailStage({
   onRefreshBots?: () => Promise<void>;
   /** The rail's menu, built by the shell so RailStage stays unaware of tabs. */
   sideNav?: RailSideNav;
+  /** The rail header's status line (welcome, activity, questions). */
+  railHeadline?: ReactNode;
   repos?: Repo[];
   onReposChanged?: () => Promise<void>;
   hosted?: boolean;
@@ -13486,9 +13509,11 @@ function RailStage({
                 ) : null}
               </button>
             ) : null}
-            <RuntimeStatusBrand>
-              <ProductBrand hosted={hosted} />
-            </RuntimeStatusBrand>
+            {railHeadline ?? (
+              <RuntimeStatusBrand>
+                <ProductBrand hosted={hosted} />
+              </RuntimeStatusBrand>
+            )}
             <div className="ml-auto flex items-center gap-1">
               {onOpenAsk ? (
                 <>
@@ -13588,6 +13613,10 @@ function RailStage({
             rows={sideNav.rows}
             onNavigate={sideNav.onNavigate}
             unread={railNavUnread}
+            // The machine lives in the menu, first, as in the phone drawer.
+            // It is set once and rarely changed, so it does not need a
+            // permanent row at the foot of the rail.
+            machineSwitcher={!hosted || hostMachines ? <MachineSwitcher variant="nav" /> : null}
             footer={
               sideNav.onOpenHostSettings ? (
                 <button
@@ -13607,7 +13636,20 @@ function RailStage({
         ) : null}
         </div>
         {!hosted && !railCollapsed ? <GetAppsRailCard /> : null}
-        {!hosted || hostMachines ? <MachineSwitcher variant="rail" collapsed={railCollapsed} /> : null}
+        {/* The product mark, at the foot, where the machine switcher was. The
+            header carries the status line instead. Without a status line
+            (no shell headline), the header keeps the mark and this stays
+            empty. */}
+        {railHeadline ? (
+          <div
+            className={cn(
+              "flex h-12 shrink-0 items-center border-t border-border",
+              railCollapsed ? "justify-center" : "px-3",
+            )}
+          >
+            <ProductBrand hosted={hosted} compact={railCollapsed} />
+          </div>
+        ) : null}
         {hosted ? (
           <div
             data-lfg-host-slot="rail-footer"
