@@ -133,6 +133,18 @@ describe("pre-registered OAuth app", () => {
     expect(getOAuthState("g1")?.tokens?.refresh_token).toBe("rt");
   });
 
+  test("a sign-in from the app returns through the relay, and the exchange repeats that exact URL", async () => {
+    saveOAuthApp("google", { clientId: "cid.apps.googleusercontent.com", clientSecret: "shh" });
+    const relay = "https://auth.omg.dev/connectors/google/callback";
+    const start = await startConnectorOAuth(gmail, "http://127.0.0.1:8766", "R".repeat(20), relay);
+    if (!start.ok || !("authorizeUrl" in start)) throw new Error(`start failed: ${JSON.stringify(start)}`);
+    expect(new URL(start.authorizeUrl).searchParams.get("redirect_uri")).toBe(relay);
+    const done = await completeConnectorOAuth("R".repeat(20), "app-code", (id) => (id === "g1" ? gmail : null));
+    expect(done).toEqual({ ok: true, connectorId: "g1" });
+    expect(tokenBody?.get("redirect_uri")).toBe(relay);
+    expect(tokenBody?.get("code")).toBe("app-code");
+  });
+
   test("a native connector asks only for its own scopes, not everything the resource lists", async () => {
     saveOAuthApp("google", { clientId: "cid.apps.googleusercontent.com", clientSecret: "shh" });
     const native: Connector = { ...gmail, id: "g2", kind: "native", native: "google-calendar" };

@@ -42,12 +42,14 @@ export class ConnectorOAuthProvider implements OAuthClientProvider {
     private connector: Connector,
     private redirectBase: string,
     state?: string,
+    /** A full redirect URL that replaces `<base>/api/connectors/oauth/callback`, e.g. the app relay. */
+    private redirectOverride?: string,
   ) {
     this._state = state ?? randomBytes(16).toString("base64url");
   }
 
   get redirectUrl(): string {
-    return callbackUrl(this.redirectBase);
+    return this.redirectOverride ?? callbackUrl(this.redirectBase);
   }
 
   get clientMetadata(): OAuthClientMetadata {
@@ -126,6 +128,8 @@ export async function startConnectorOAuth(
   connector: Connector,
   redirectBase: string,
   state?: string,
+  /** Send the provider back here instead of the box's callback (the phone's relay). */
+  redirectUrl?: string,
 ): Promise<StartResult> {
   // A caller may supply the `state` so a hosted relay can encode which box the
   // provider's redirect belongs to (see docs/team-tooling-design.md). It stays
@@ -134,7 +138,7 @@ export async function startConnectorOAuth(
     const name = OAUTH_APPS[connector.oauthApp]?.name ?? connector.oauthApp;
     return { ok: false, error: `${name} sign-in is not set up on this box. Add a ${name} OAuth client first.`, needsOAuthApp: connector.oauthApp };
   }
-  const provider = new ConnectorOAuthProvider(connector, redirectBase, state);
+  const provider = new ConnectorOAuthProvider(connector, redirectBase, state, redirectUrl);
   try {
     // auth() runs discovery → dynamic client registration → PKCE, then either
     // reports AUTHORIZED (a valid token already exists) or REDIRECT (it called
@@ -170,8 +174,11 @@ export async function completeConnectorOAuth(
   if (!record?.pending) return { ok: false, error: "no pending authorization for this state" };
   const connector = lookup(record.connectorId);
   if (!connector) return { ok: false, error: "connector not found" };
+  // The token exchange must send the exact redirect_uri the sign-in used,
+  // which is not always the box's own callback (the phone signs in through
+  // the relay), so reuse it as stored rather than rebuilding it from a host.
   const base = new URL(record.pending.redirectUri);
-  const provider = new ConnectorOAuthProvider(connector, `${base.protocol}//${base.host}`, state);
+  const provider = new ConnectorOAuthProvider(connector, `${base.protocol}//${base.host}`, state, record.pending.redirectUri);
   try {
     // With the authorization code, auth() exchanges it for tokens (reading the
     // PKCE verifier back from the store) and saves them via the provider.

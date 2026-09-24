@@ -54,3 +54,19 @@ export function oauthAppStatuses(lookup: (id: string) => { clientId: string } | 
     };
   });
 }
+
+/**
+ * Where a provider sends a sign-in started from the phone app. The phone
+ * cannot open the box's own callback (http://127.0.0.1:8766 on a self-hosted
+ * box), and providers only return to addresses registered with the client,
+ * so the phone signs in through one fixed relay on auth.omg.dev. The relay is
+ * stateless: it redirects to APP_RETURN_URL with the code and state, and the
+ * app hands both to the box, which alone holds the PKCE verifier and client
+ * secret. Register `<relay>/connectors/<provider>/callback` with the client.
+ */
+export const APP_RELAY_BASE = "https://auth.omg.dev";
+export const APP_RETURN_URL = "omg://connectors/oauth";
+
+export function appRelayRedirectUrl(provider: string, base: string = APP_RELAY_BASE): string {
+  return `${base.replace(/\/+$/, "")}/connectors/${encodeURIComponent(provider)}/callback`;
+}
