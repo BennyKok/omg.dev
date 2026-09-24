@@ -1,6 +1,7 @@
 import type { Session } from "../App";
 import { titleForSession } from "../lib/session-ui";
 import { api } from "../lib/omg-client";
+import { omgModelLabel } from "../../../packages/protocol/src/omg-model-display";
 import { Reasoning } from "@/components/ai-elements/reasoning";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -332,7 +333,7 @@ export default function SessionTokenUsageDialog({
                       : "Reported totals · estimated categories"}
                   </div>
                   {usage.note}
-                  {usage.model ? ` Model: ${usage.model}.` : ""}
+                  {usage.model ? ` Model: ${omgModelLabel(usage.model)}.` : ""}
                 </div>
               </>
             ) : null}

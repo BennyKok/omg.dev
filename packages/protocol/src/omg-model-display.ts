@@ -1,5 +1,6 @@
 /**
- * Shared, runtime-free display rules for hosted `omg/<provider>/<model>` ids.
+ * Shared, runtime-free display rules for model ids: hosted
+ * `omg/<provider>/<model>` ids and Claude CLI ids.
  *
  * The router id is the wire format and stays the value everywhere. This file
  * owns how a picker SHOWS it: the provider it belongs to (for the mark) and a
@@ -93,13 +94,33 @@ export function parseOmgModel(id: string | null | undefined): OmgModelInfo | nul
   };
 }
 
-/** The short name for a picker row or pill; other agents' ids pass through. */
+/**
+ * Claude CLI ids and aliases: "claude-opus-5-5" -> "Claude Opus 5.5",
+ * "opus" -> "Claude Opus". The hosted omg ids above already read "Claude Opus
+ * 4.8", so both paths name Claude models the same way. Null for anything else.
+ */
+export function claudeModelLabel(id: string | null | undefined): string | null {
+  if (!id) return null;
+  const match = /^(?:claude-)?(opus|sonnet|haiku|fable)(?:-(\d+)(?:[-.](\d{1,2}))?)?(?:-\d{8})?$/.exec(id.trim().toLowerCase());
+  if (!match) return null;
+  const family = caseToken(match[1]!);
+  const version = match[2] ? (match[3] ? `${match[2]}.${match[3]}` : match[2]) : "";
+  return `Claude ${family}${version ? ` ${version}` : ""}`;
+}
+
+/**
+ * The one display name for a model id, for a picker row, pill, or badge.
+ * The id stays the value everywhere; only the text shown changes. Ids with no
+ * rule (codex, cursor, and other agents) pass through unchanged.
+ */
 export function omgModelLabel(id: string | null | undefined): string {
-  return parseOmgModel(id)?.label ?? (id ?? "");
+  return parseOmgModel(id)?.label ?? claudeModelLabel(id) ?? (id ?? "");
 }
 
 /** Lower-case text a filter box should match: the id and the short name. */
 export function omgModelSearchText(id: string): string {
   const info = parseOmgModel(id);
-  return (info ? `${id} ${info.providerLabel} ${info.label}` : id).toLowerCase();
+  if (info) return `${id} ${info.providerLabel} ${info.label}`.toLowerCase();
+  const claude = claudeModelLabel(id);
+  return (claude ? `${id} ${claude}` : id).toLowerCase();
 }

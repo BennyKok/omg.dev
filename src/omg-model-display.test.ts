@@ -62,3 +62,28 @@ describe("omg model display", () => {
     expect(omgModelSearchText("gpt-5.6")).toBe("gpt-5.6");
   });
 });
+
+describe("claude model display", () => {
+  test("Claude CLI ids and aliases get the same names as hosted ids", () => {
+    const ids = ["opus", "claude-opus-5-5", "claude-fable-5-1", "fable", "sonnet", "haiku", "claude-opus-4-8-20260101"];
+    expect(ids.map((id) => omgModelLabel(id))).toEqual([
+      "Claude Opus",
+      "Claude Opus 5.5",
+      "Claude Fable 5.1",
+      "Claude Fable",
+      "Claude Sonnet",
+      "Claude Haiku",
+      "Claude Opus 4.8",
+    ]);
+  });
+
+  test("other agents' ids pass through", () => {
+    expect(omgModelLabel("gpt-5.5")).toBe("gpt-5.5");
+    expect(omgModelLabel("anthropic/claude-opus-5")).toBe("anthropic/claude-opus-5");
+    expect(omgModelLabel(null)).toBe("");
+  });
+
+  test("filter text matches the display name", () => {
+    expect(omgModelSearchText("claude-opus-5-5")).toContain("opus 5.5");
+  });
+});
