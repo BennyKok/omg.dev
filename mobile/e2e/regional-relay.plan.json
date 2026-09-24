@@ -1,0 +1,14 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": { "clearState": false },
+  "steps": [
+    {
+      "name": "Read real sessions through Canada",
+      "goal": "Wait for the native regional relay verification to complete. This test app makes read-only requests to the live Canada gateway.",
+      "done": "The live session HTTP request and WebSocket ping both passed through Canada.",
+      "expect": ["Canada HTTP passed", "Computer and artifact routes passed", "Canada WebSocket passed", "Live regional transport passed"],
+      "forbid": ["FAILED"],
+      "timeoutMs": 60000
+    }
+  ]
+}

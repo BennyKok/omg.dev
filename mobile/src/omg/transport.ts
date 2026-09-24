@@ -108,6 +108,7 @@ export async function mintSessionGrant(bindingId: string): Promise<OmgGrant> {
     cookie?: string;
     exp?: number;
     expiresInMs?: number;
+    sessionOrigin?: string;
   } | null;
   if (!body?.cookie) {
     throw new ComputerGrantError("Your Computer is updating. Try again in a moment.");
@@ -124,7 +125,11 @@ export async function mintSessionGrant(bindingId: string): Promise<OmgGrant> {
         ? body.exp
         : Date.now();
 
-  return { token: body.cookie, expiresAt };
+  return {
+    token: body.cookie,
+    expiresAt,
+    ...(body.sessionOrigin ? { sessionOrigin: body.sessionOrigin } : {}),
+  };
 }
 
 /**
@@ -186,7 +191,7 @@ export async function getComputerSocketAccess(bindingId: string): Promise<Comput
   if (!entry) throw new ComputerGrantError("Couldn't open your Computer. Try again in a moment.");
   const current = await entry.owner.get({ forceRefresh: false });
   return {
-    url: computerSocketUrl(SESSION_ORIGIN),
+    url: computerSocketUrl(current.sessionOrigin ?? SESSION_ORIGIN),
     protocol: `lfg-bearer.${current.token}`,
   };
 }
@@ -289,7 +294,7 @@ export async function signedRequestFor(
   if (!entry) return null;
   const grant = await entry.owner.get({ forceRefresh: options.forceRefresh ?? false });
   return {
-    url: signedArtifactUrl(SESSION_ORIGIN, path, grant.token),
+    url: signedArtifactUrl(grant.sessionOrigin ?? SESSION_ORIGIN, path, grant.token),
     headers: {},
   };
 }
