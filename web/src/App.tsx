@@ -1368,7 +1368,9 @@ type SlashSkillState = {
   query: string;
 };
 
-const CLAUDE_MODELS = ["sonnet", "opus", "claude-opus-5-5", "haiku", "fable", "claude-fable-5-1"];
+// Newest release first, the order the server's catalog sends (see
+// sortClaudeModelsByRelease in src/agent-catalog.ts).
+const CLAUDE_MODELS = ["claude-opus-5-5", "opus", "claude-fable-5-1", "fable", "sonnet", "haiku"];
 const CODEX_MODELS = [
   "gpt-6-astra",
   "gpt-5.6-sol",
@@ -1381,7 +1383,7 @@ const CODEX_MODELS = [
 ];
 // Models the one-shot AI-SDK test option supports (the provider maps these
 // aliases). Kept in sync with the AISDK_MODELS allowlist in serve.ts.
-const AISDK_MODELS = ["fable", "claude-fable-5-1", "opus", "claude-opus-5-5", "sonnet", "haiku"];
+const AISDK_MODELS = CLAUDE_MODELS;
 const CODEX_AISDK_MODELS = [
   "gpt-6-astra",
   "gpt-5.6-sol",

@@ -1,6 +1,6 @@
 /**
  * Shared, runtime-free display rules for model ids: hosted
- * `omg/<provider>/<model>` ids and Claude CLI ids.
+ * `omg/<provider>/<model>` ids, Claude CLI ids and Codex CLI ids.
  *
  * The router id is the wire format and stays the value everywhere. This file
  * owns how a picker SHOWS it: the provider it belongs to (for the mark) and a
@@ -110,18 +110,27 @@ export function claudeModelLabel(id: string | null | undefined): string | null {
 }
 
 /**
+ * Codex CLI ids: "gpt-6-astra" -> "GPT-6 Astra", "gpt-5.4-mini" -> "GPT-5.4
+ * Mini". The same rule the hosted "GPT-5.6 Sol" uses. Null for anything else.
+ */
+export function codexModelLabel(id: string | null | undefined): string | null {
+  if (!id || !/^gpt-\d/i.test(id.trim())) return null;
+  return humanizeOmgModelName(id.trim());
+}
+
+/**
  * The one display name for a model id, for a picker row, pill, or badge.
  * The id stays the value everywhere; only the text shown changes. Ids with no
  * rule (codex, cursor, and other agents) pass through unchanged.
  */
 export function omgModelLabel(id: string | null | undefined): string {
-  return parseOmgModel(id)?.label ?? claudeModelLabel(id) ?? (id ?? "");
+  return parseOmgModel(id)?.label ?? claudeModelLabel(id) ?? codexModelLabel(id) ?? (id ?? "");
 }
 
 /** Lower-case text a filter box should match: the id and the short name. */
 export function omgModelSearchText(id: string): string {
   const info = parseOmgModel(id);
   if (info) return `${id} ${info.providerLabel} ${info.label}`.toLowerCase();
-  const claude = claudeModelLabel(id);
-  return (claude ? `${id} ${claude}` : id).toLowerCase();
+  const label = claudeModelLabel(id) ?? codexModelLabel(id);
+  return (label ? `${id} ${label}` : id).toLowerCase();
 }

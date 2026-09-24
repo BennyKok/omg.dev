@@ -56,9 +56,10 @@ describe("ModelOptionList", () => {
     expect(ui.text()).toContain("No matching models");
   });
 
-  test("other agents' ids stay as they are, without a mark", () => {
+  test("Codex ids show their display name, without a mark", () => {
     ui.render(<ModelOptionList value="gpt-5.6" models={["gpt-5.6", "gpt-5.6-mini"]} onChoose={() => {}} />);
-    expect(ui.text()).toContain("gpt-5.6-mini");
+    expect(ui.text()).toContain("GPT-5.6 Mini");
+    expect(ui.text()).not.toContain("gpt-5.6-mini");
     expect(ui.queryAll("button svg[role='img']").length).toBe(0);
     expect(ui.query("input")).toBeNull();
   });

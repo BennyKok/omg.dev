@@ -221,13 +221,15 @@ function addModel(
   if (cleanLabel && cleanLabel !== id) labels[id] = cleanLabel;
 }
 
-function parseCodexModels(text: string): { models: string[]; labels: Record<string, string> } {
+export function parseCodexModels(text: string): { models: string[]; labels: Record<string, string> } {
   const ids: string[] = [];
   const labels: Record<string, string> = {};
   const parsed = JSON.parse(text) as { models?: Array<{ slug?: unknown; display_name?: unknown; visibility?: unknown }> };
   for (const item of parsed.models ?? []) {
     if (typeof item.slug !== "string") continue;
-    if (item.visibility === "hidden" || item.visibility === "internal") continue;
+    // Codex marks unlisted models `visibility: "hide"` (gpt-reserve,
+    // codex-auto-review); "list" is the only value its own picker shows.
+    if (item.visibility === "hide" || item.visibility === "hidden" || item.visibility === "internal") continue;
     addModel(ids, labels, cleanId(item.slug), typeof item.display_name === "string" ? item.display_name : undefined);
   }
   return { models: ids, labels };
