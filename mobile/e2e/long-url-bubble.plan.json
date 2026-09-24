@@ -1,0 +1,32 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": true
+  },
+  "steps": [
+    {
+      "name": "Home",
+      "goal": "Reach the demo Home screen with its project rail. If the system Home screen is visible, tap the omg app icon. If an AI data consent screen appears, accept it for this isolated demo fixture.",
+      "done": "The normal project navigation and composer are visible.",
+      "expect": ["Chats without a project"]
+    },
+    {
+      "name": "Open a chat",
+      "goal": "Tap ONLY the element labelled Chats without a project, then tap Start website once. Wait for the normal conversation screen.",
+      "done": "The conversation shows the starter prompt and the fixture reply.",
+      "expect": ["Help me create a website."]
+    },
+    {
+      "name": "Type a long URL",
+      "goal": "Tap the message composer at the bottom of the conversation and type the text.",
+      "done": "The composer holds the long URL.",
+      "type": "https://x.com/wasmerio/status/2102849543123456789012345678901234567890"
+    },
+    {
+      "name": "Send it",
+      "goal": "Tap the Send button next to the composer once.",
+      "done": "The URL appears as a sent message bubble in the conversation, and the composer is empty.",
+      "expect": ["https://x.com/wasmerio/status/2102849543123456789012345678901234567890"]
+    }
+  ]
+}

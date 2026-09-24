@@ -1714,6 +1714,19 @@ export function UserMessage({ message, firstOfRun, lastOfRun }: { message: Entry
 
   const [expanded, setExpanded] = useState(false);
 
+  /**
+   * THE BUBBLE NEEDS A NUMBER, not "85%". The bubble sits inside MenuView,
+   * which hosts it in SwiftUI (`RNHostView matchContents`). Since @expo/ui 58
+   * that host measures its RN child as a leaf with no width limit, so the
+   * percentage on the wrapper never reached the text: a long URL laid out on
+   * one line and ran off the screen. A numeric maxWidth on the bubble itself
+   * is honoured by that measure. Seeded from the window so the first frame
+   * already wraps, then corrected from the row's real width.
+   */
+  const { width: windowWidth } = useWindowDimensions();
+  const [rowWidth, setRowWidth] = useState<number | null>(null);
+  const bubbleMaxWidth = Math.floor((rowWidth ?? windowWidth - 2 * space.lg) * 0.85);
+
   const unsettled = !!(message.pending || message.queued);
   const settleOpacity = useSharedValue(unsettled ? 0.55 : 1);
   useEffect(() => {
@@ -1751,7 +1764,13 @@ export function UserMessage({ message, firstOfRun, lastOfRun }: { message: Entry
 
   return (
     <HumanMessageFrame sender={sender} firstOfRun={firstOfRun} lastOfRun={lastOfRun}>
-    <View style={{ alignSelf: "stretch", gap: space.xs }}>
+    <View
+      style={{ alignSelf: "stretch", gap: space.xs }}
+      onLayout={(event) => {
+        const next = Math.round(event.nativeEvent.layout.width);
+        setRowWidth((prev) => (prev === next ? prev : next));
+      }}
+    >
       {envelope ? (
         <OmgInstructionsChip instructions={envelope.instructions} version={envelope.version} />
       ) : null}
@@ -1804,6 +1823,7 @@ export function UserMessage({ message, firstOfRun, lastOfRun }: { message: Entry
             // decorative — the one card in the whole app that most needs the
             // edge you can actually see.
             borderColor: colors.borderStrong,
+            maxWidth: bubbleMaxWidth,
             paddingHorizontal: space.md,
             // 5, not 8: the body style's line height already carries ~3pt of
             // leading above and below the glyphs, so 8 read as 11 and the
