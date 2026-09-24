@@ -18855,7 +18855,7 @@ const onTouchStart = (e: ReactTouchEvent) => {
                 />
               }
             >
-              {session.model || "model"}
+              {omgModelLabel(session.model) || "model"}
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-32">
               <DropdownMenuRadioGroup
@@ -18867,7 +18867,7 @@ const onTouchStart = (e: ReactTouchEvent) => {
                 <DropdownMenuLabel>Model</DropdownMenuLabel>
                 {((catalog.models[session.agent as AgentKind] ?? AGENT_MODELS[session.agent as AgentKind]) ?? CLAUDE_MODELS).map((item) => (
                   <DropdownMenuRadioItem key={item} value={item}>
-                    {item}
+                    {omgModelLabel(item)}
                   </DropdownMenuRadioItem>
                 ))}
               </DropdownMenuRadioGroup>
@@ -18875,7 +18875,7 @@ const onTouchStart = (e: ReactTouchEvent) => {
           </DropdownMenu>
         ) : session.model ? (
           <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-            {session.model}
+            {omgModelLabel(session.model)}
           </span>
         ) : null)}
         {session.fastMode === true || session.serviceTier === "fast" ? (
@@ -25481,7 +25481,7 @@ export function ModelOptionList({
                     className={cn("size-4 shrink-0", selected ? "text-foreground" : "text-muted-foreground")}
                   />
                 ) : null}
-                <span className="min-w-0 flex-1 truncate">{hosted ? hosted.label : item}</span>
+                <span className="min-w-0 flex-1 truncate">{omgModelLabel(item)}</span>
               </button>
             );
           })
@@ -30958,7 +30958,7 @@ function BotEditorPage({
             <ChevronRight className={cn("size-3.5 transition-transform duration-150", advanced && "rotate-90")} />
             Advanced
           </span>
-          <span className="max-w-[55%] truncate text-xs text-muted-foreground">{backend} · {model}</span>
+          <span className="max-w-[55%] truncate text-xs text-muted-foreground">{backend} · {omgModelLabel(model)}</span>
         </CollapsibleTrigger>
         <CollapsibleContent className="pt-2">
           <div className="flex items-center justify-between rounded-xl border border-border px-3 py-2">
@@ -31145,8 +31145,8 @@ function ScheduleAgentPicker({
           <button
             type="button"
             className="flex size-7 shrink-0 items-center justify-center rounded-full hover:bg-muted"
-            aria-label={`Change coding agent — currently ${label}${agent.model ? ` · ${agent.model}` : ""}`}
-            title={agent.model ? `${label} · ${agent.model}` : label}
+            aria-label={`Change coding agent — currently ${label}${agent.model ? ` · ${omgModelLabel(agent.model)}` : ""}`}
+            title={agent.model ? `${label} · ${omgModelLabel(agent.model)}` : label}
           />
         }
       >
@@ -31192,7 +31192,7 @@ function ScheduleAgentPicker({
             <DropdownMenuLabel>Model</DropdownMenuLabel>
             {models.map((item) => (
               <DropdownMenuRadioItem key={item} value={item}>
-                {item}
+                {omgModelLabel(item)}
               </DropdownMenuRadioItem>
             ))}
           </DropdownMenuRadioGroup>

@@ -27,6 +27,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import type { OmgClient } from "@omg-dev/client";
 
 import { agentIcon, agentLabel } from "./agent-icons";
+import { omgModelLabel } from "../../../packages/protocol/src/omg-model-display";
 import { Text } from "./text";
 
 import { headlineWord, type InterestKey } from "./onboarding-tasks";
@@ -127,7 +128,7 @@ export function ContinueScreen({
                 {header.title}
               </Text>
               <Text numberOfLines={1} style={{ ...type.caption, fontWeight: "400", color: colors.textMuted }}>
-                {header.model ?? agentLabel(agent)}
+                {header.model ? omgModelLabel(header.model) : agentLabel(agent)}
               </Text>
             </View>
             <Text style={{ ...type.headline, color: colors.textMuted }}>{"\u22ef"}</Text>

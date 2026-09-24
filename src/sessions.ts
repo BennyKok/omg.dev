@@ -2291,9 +2291,12 @@ async function lastUserText(path: string): Promise<string | null> {
 // Collapse a full model id (e.g. "claude-opus-4-8", "claude-3-5-haiku-...") to
 // the short alias lfg uses everywhere (the same tokens the `/model` command
 // and the model picker speak). Returns the raw value if it matches no family.
-function modelAlias(id: string | null | undefined): string | null {
+export function modelAlias(id: string | null | undefined): string | null {
   if (!id) return null;
   const m = id.toLowerCase();
+  // Opus 5.5 is pinned the same way (see CLAUDE_MODELS). Collapsing it to the
+  // floating "opus" alias hides the version and would resume on the alias.
+  if (/opus-5[-.]5/.test(m)) return "claude-opus-5-5";
   if (m.includes("opus")) return "opus";
   if (m.includes("sonnet")) return "sonnet";
   if (m.includes("haiku")) return "haiku";
