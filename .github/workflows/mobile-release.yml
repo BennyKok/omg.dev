@@ -185,10 +185,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The runner starts from launchd, so it inherits a minimal PATH with no
+      # bun, no nvm node and no Homebrew. The first CI run died on
+      # "bun: command not found". mac-build.ts sets up its own PATH for the
+      # build itself; this is only what is needed to START it.
       - name: Build on the Mac
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
+          export PATH="$HOME/.bun/bin:/opt/homebrew/bin:$PATH"
           cd mobile
           bun run scripts/mac-build.ts \
             --ref "${{ github.sha }}" \

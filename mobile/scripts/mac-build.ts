@@ -134,10 +134,27 @@ async function main(): Promise<number> {
       : ['echo "==> not submitting (pass --submit to upload)"']),
   ].join("\n");
 
-  const p = Bun.spawn(["ssh", "-o", "BatchMode=yes", HOST, script], {
-    stdout: "inherit",
-    stderr: "inherit",
-  });
+  /**
+   * Run the script HERE when we are already on the Mac, and over ssh when we
+   * are not.
+   *
+   * The GitHub self-hosted runner lives on the same machine, so the first CI
+   * run had this script ssh-ing to its own hostname. That is not merely
+   * wasteful: a BatchMode ssh to itself has no key to offer and fails with a
+   * message about authentication, which reads like a credentials problem
+   * rather than a topology one.
+   *
+   * RUNNER_NAME is set by the GitHub Actions runner. The hostname check
+   * covers a person running this by hand on the Mac.
+   */
+  const onTheMac =
+    process.env.OMG_MAC_BUILD_LOCAL === "1" ||
+    (process.env.RUNNER_NAME ?? "").includes("bennys-macbook") ||
+    require("node:os").hostname().startsWith("bennys-macbook");
+
+  const p = onTheMac
+    ? Bun.spawn(["bash", "-lc", script], { stdout: "inherit", stderr: "inherit" })
+    : Bun.spawn(["ssh", "-o", "BatchMode=yes", HOST, script], { stdout: "inherit", stderr: "inherit" });
   return await p.exited;
 }
 
