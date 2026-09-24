@@ -95,9 +95,10 @@ export function parseOmgModel(id: string | null | undefined): OmgModelInfo | nul
 }
 
 /**
- * Claude CLI ids and aliases: "claude-opus-5-5" -> "Claude Opus 5.5",
- * "opus" -> "Claude Opus". The hosted omg ids above already read "Claude Opus
- * 4.8", so both paths name Claude models the same way. Null for anything else.
+ * Claude CLI ids and aliases: "claude-opus-5-5" -> "Opus 5.5", "opus" ->
+ * "Opus". These only appear under a Claude agent, so the name drops "Claude".
+ * Hosted omg ids keep it, because the omg agent mixes providers. Null for
+ * anything else.
  */
 export function claudeModelLabel(id: string | null | undefined): string | null {
   if (!id) return null;
@@ -105,7 +106,7 @@ export function claudeModelLabel(id: string | null | undefined): string | null {
   if (!match) return null;
   const family = caseToken(match[1]!);
   const version = match[2] ? (match[3] ? `${match[2]}.${match[3]}` : match[2]) : "";
-  return `Claude ${family}${version ? ` ${version}` : ""}`;
+  return version ? `${family} ${version}` : family;
 }
 
 /**
