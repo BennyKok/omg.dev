@@ -147,6 +147,20 @@ export function PlanScreen({
         contentContainerStyle={{ paddingHorizontal: space.lg + 4, paddingTop: space.md, paddingBottom: space.xl, gap: space.lg }}
         showsVerticalScrollIndicator={false}
       >
+        {/*
+         * The picnic illustration from App Store screenshot 4 (Benny,
+         * 2026-09-24), cut from the rendered screenshot with its white
+         * background removed, so it sits on either appearance. It sits in
+         * the scroll view, so a short phone scrolls it away instead of
+         * squeezing the plans or pushing the buttons off screen.
+         */}
+        <Image
+          source={require("../../assets/onboarding/plan-picnic.png")}
+          style={{ width: "100%", height: 170 }}
+          resizeMode="contain"
+          accessible
+          accessibilityLabel="Someone having a picnic while an agent works"
+        />
         <View style={{ gap: space.sm }}>
           <Text style={{ ...type.largeTitle, fontSize: 32, color: colors.text }}>Keep work moving.</Text>
           <Text style={{ ...type.body, color: colors.textMuted }}>A workspace that grows with you.</Text>
