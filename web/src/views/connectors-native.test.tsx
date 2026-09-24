@@ -283,3 +283,24 @@ test("the untested catalog is not on the page; a custom server hides under Advan
   expect(ui.query('input[aria-label="Connector endpoint"]')).toBeNull();
   expect(ui.text()).toContain("Advanced: add a custom MCP server by URL");
 });
+
+test("a code relayed back from auth.omg.dev is handed to the box", async () => {
+  await customForm();
+  expect(popup.location.href).toBe("https://example.com/authorize");
+  const posted: unknown[] = [];
+  const base = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.endsWith("/api/connectors/oauth/callback")) {
+      posted.push(JSON.parse(String(init?.body)));
+      return Response.json({ ok: true });
+    }
+    return base(input, init);
+  }) as typeof fetch;
+  configureOmgTransport(createSameOriginTransport());
+  await ui.flushAsync(() => {
+    window.dispatchEvent(new window.MessageEvent("message", { source: popup as unknown as Window, data: { omgConnectorOAuth: { code: "c0de", state: "st4te" } } }));
+  });
+  await ui.flushAsync(() => new Promise((r) => setTimeout(r, 20)));
+  expect(posted).toEqual([{ code: "c0de", state: "st4te" }]);
+});

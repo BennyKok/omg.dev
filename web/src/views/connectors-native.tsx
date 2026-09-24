@@ -138,9 +138,28 @@ function useConnectorSignIn(onChanged: () => Promise<void>) {
         cleanup.current = null;
       };
       const onMsg = (ev: MessageEvent) => {
-        if (ev.source === popup && typeof ev.data?.omgOauth === "boolean") {
+        if (ev.source !== popup) return;
+        if (typeof ev.data?.omgOauth === "boolean") {
           stop();
           void onChanged();
+          return;
+        }
+        // A sign-in through the auth.omg.dev relay (omg.dev's own client on
+        // a managed Computer) comes back here as a code, not to the box. The
+        // box alone holds the verifier and secret, so hand it straight on.
+        const relayed = ev.data?.omgConnectorOAuth as { code?: unknown; state?: unknown; error?: unknown } | undefined;
+        if (relayed && typeof relayed === "object") {
+          stop();
+          if (typeof relayed.code === "string" && typeof relayed.state === "string") {
+            void api("/api/connectors/oauth/callback", {
+              method: "POST",
+              body: JSON.stringify({ code: relayed.code, state: relayed.state }),
+            })
+              .catch(() => undefined)
+              .finally(() => void onChanged());
+          } else {
+            void onChanged();
+          }
         }
       };
       const timer = window.setTimeout(() => {

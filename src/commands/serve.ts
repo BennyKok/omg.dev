@@ -91,6 +91,7 @@ import {
   emitConnectorsChanged,
   appRelayRedirectUrl,
   APP_RETURN_URL,
+  oauthAppSource,
 } from "@omg-dev/connectors";
 import { enforceRole } from "../policy/mcp-filter.ts";
 import { withConnectorGrants } from "../policy/connector-grants.ts";
@@ -4425,7 +4426,12 @@ export async function cmdServe() {
           // Only a pre-registered client has that relay on its redirect list.
           const viaApp = body?.via === "app";
           if (viaApp && !connector.oauthApp) return err(400, "Connect this one from the web page.");
-          const appRedirect = viaApp
+          // omg.dev's own client (a managed Computer) lists only the relay as a
+          // return address, so the web page signs in through it too and gets
+          // the code back from the relay page (it posts to the page that opened it).
+          const platform = !!connector.oauthApp && oauthAppSource(connector.oauthApp) === "platform";
+          const viaRelay = viaApp || platform;
+          const appRedirect = viaRelay
             ? appRelayRedirectUrl(connector.oauthApp!, process.env.OMG_CONNECTOR_APP_RELAY?.trim() || undefined)
             : undefined;
           // State that routes the redirect back to this box through a relay: a
@@ -4438,7 +4444,7 @@ export async function cmdServe() {
           // for yet: the client shows the setup form instead of an error.
           if (!result.ok && result.needsOAuthApp) return json({ error: result.error, needsOAuthApp: result.needsOAuthApp }, { status: 409 });
           if (!result.ok) return err(502, result.error);
-          return json(viaApp ? { ...result, returnUrl: APP_RETURN_URL } : result);
+          return json(viaRelay ? { ...result, returnUrl: APP_RETURN_URL, viaRelay: true } : result);
         }
       }
       // Pre-registered OAuth clients (Google has no dynamic registration).

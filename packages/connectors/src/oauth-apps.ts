@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from "node:fs";
 // Providers whose MCP servers need a pre-registered OAuth client.
 //
 // The MCP spec's sign-in uses dynamic client registration. Google does not
@@ -69,4 +70,46 @@ export const APP_RETURN_URL = "omg://connectors/oauth";
 
 export function appRelayRedirectUrl(provider: string, base: string = APP_RELAY_BASE): string {
   return `${base.replace(/\/+$/, "")}/connectors/${encodeURIComponent(provider)}/callback`;
+}
+
+/**
+ * Where a managed Computer finds omg.dev's own clients. The control plane
+ * writes it on every provision and wake (vibes, control-plane
+ * syncLfgAdmissionPlan), which reaches running Computers without a restart.
+ * Shape: { "<provider>": { "clientId": "...", "clientSecret": "..." } }.
+ */
+export const PLATFORM_CLIENTS_FILE = "/etc/omg/connector-clients.json";
+
+function platformClientsFromFile(path: string): Record<string, { clientId?: string; clientSecret?: string }> {
+  try {
+    if (!existsSync(path)) return {};
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, { clientId?: string; clientSecret?: string }>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * omg.dev's own client for a provider, on a managed Computer: from the
+ * environment (OMG_<PROVIDER>_CONNECTOR_CLIENT_ID and _CLIENT_SECRET, e.g.
+ * OMG_GOOGLE_CONNECTOR_CLIENT_ID), else from PLATFORM_CLIENTS_FILE. Its only
+ * registered return address is the relay (APP_RELAY_BASE), because a managed
+ * box's own address differs per box, so every sign-in on it goes through the
+ * relay, from the web and the app.
+ */
+export function platformOAuthApp(
+  provider: string,
+  file: string = process.env.OMG_CONNECTOR_CLIENTS_FILE?.trim() || PLATFORM_CLIENTS_FILE,
+): { clientId: string; clientSecret?: string; updatedAt: number } | undefined {
+  const key = provider.toUpperCase().replace(/[^A-Z0-9]/g, "_");
+  const envId = process.env[`OMG_${key}_CONNECTOR_CLIENT_ID`]?.trim();
+  if (envId) {
+    return { clientId: envId, clientSecret: process.env[`OMG_${key}_CONNECTOR_CLIENT_SECRET`]?.trim() || undefined, updatedAt: 0 };
+  }
+  const entry = platformClientsFromFile(file)[provider];
+  const clientId = typeof entry?.clientId === "string" ? entry.clientId.trim() : "";
+  if (!clientId) return undefined;
+  const clientSecret = typeof entry?.clientSecret === "string" && entry.clientSecret.trim() ? entry.clientSecret.trim() : undefined;
+  return { clientId, clientSecret, updatedAt: 0 };
 }

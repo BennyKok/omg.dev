@@ -10,6 +10,7 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { platformOAuthApp } from "./oauth-apps.ts";
 import { connectorDataDir } from "./context.ts";
 import { connectorSecret } from "./context.ts";
 
@@ -145,8 +146,19 @@ export function hasTokens(connectorId: string): boolean {
   return !!read().byConnector[connectorId]?.tokens?.access_token;
 }
 
+/**
+ * The client a provider signs in with: one the owner saved on this box, else
+ * the platform's (managed Computers get omg.dev's own client through the
+ * environment, see platformOAuthApp). A saved client always wins.
+ */
 export function getOAuthApp(provider: string): OAuthApp | undefined {
-  return read().apps?.[provider];
+  return read().apps?.[provider] ?? platformOAuthApp(provider);
+}
+
+/** "box" when the owner saved a client here, "platform" when it comes from the environment. */
+export function oauthAppSource(provider: string): "box" | "platform" | null {
+  if (read().apps?.[provider]) return "box";
+  return platformOAuthApp(provider) ? "platform" : null;
 }
 
 export function saveOAuthApp(provider: string, app: { clientId: string; clientSecret?: string }): void {
