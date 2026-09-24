@@ -133,6 +133,7 @@ import type { Bot } from "../../src/omg/bots";
 import { useDictation } from "../../src/omg/dictation";
 import { GlassSurface, LIQUID_GLASS } from "../../src/omg/glass";
 import { DropdownMenu, type MenuOption } from "../../src/omg/menu";
+import { AttachMenuButton } from "../../src/omg/attach-menu";
 import { agentLabel as agentDisplayName } from "../../src/omg/agent-icons";
 import { usePromptDraft, stashScope } from "../../src/omg/prompt-stash";
 import { useOmg } from "../../src/omg/provider";
@@ -2382,21 +2383,9 @@ function SessionScreenContent({
           }}
         >
           {!composerExpanded ? (
-            <DropdownMenu options={attachments.options} style={{ width: 32, height: 32 }}>
-              <View
-                accessibilityRole="button"
-                accessibilityLabel="Attach a file"
-                style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 16,
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <Icon ios="plus" android="add" size={20} color={colors.textSecondary} />
-              </View>
-            </DropdownMenu>
+            <AttachMenuButton options={attachments.options} size={32}>
+              <Icon ios="plus" android="add" size={20} color={colors.textSecondary} />
+            </AttachMenuButton>
           ) : null}
 
           <View
@@ -2496,15 +2485,9 @@ function SessionScreenContent({
           </View>
           {composerExpanded ? (
             <View style={{ minHeight: 40, flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <DropdownMenu options={attachments.options} style={{ width: 34, height: 34 }}>
-                <View
-                  accessibilityRole="button"
-                  accessibilityLabel="Attach a file"
-                  style={{ width: 34, height: 34, alignItems: "center", justifyContent: "center" }}
-                >
-                  <Icon ios="plus" android="add" size={20} color={colors.textSecondary} />
-                </View>
-              </DropdownMenu>
+              <AttachMenuButton options={attachments.options} size={34}>
+                <Icon ios="plus" android="add" size={20} color={colors.textSecondary} />
+              </AttachMenuButton>
               <View style={{ flex: 1 }} />
               {dictation.state === "idle" ? (
                 <>

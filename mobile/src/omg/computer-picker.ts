@@ -86,8 +86,13 @@ export function useComputerPicker() {
       onPress: () => void selectBinding(b.id),
     }));
 
+    // Only a BLOCKED cloud says why. "Ready" / "Paused" are not a choice you
+    // make here: picking the cloud wakes a paused one, and the label kept
+    // reading "Paused" for a box that was about to be live (2026-09-24).
     rows.push({
-      label: `${cloudComputerLabel(cloud)} — ${cloudStatusLabel(cloud?.status, cloud?.blockedReason)}`,
+      label: cloudBlocked
+        ? `${cloudComputerLabel(cloud)} — ${cloudStatusLabel(cloud?.status, cloud?.blockedReason)}`
+        : cloudComputerLabel(cloud),
       selected: bindingId === CLOUD_BINDING_ID && !cloudBlocked,
       disabled: cloudBlocked,
       onPress: () => void selectBinding(CLOUD_BINDING_ID),

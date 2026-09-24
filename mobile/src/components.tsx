@@ -49,6 +49,7 @@ import {
 } from "./omg/usage";
 import type { OmgColors } from "./omg/palette";
 import { DropdownMenu, type MenuOption } from "./omg/menu";
+import { AttachMenuButton } from "./omg/attach-menu";
 import { AgentSetupSheet } from "./omg/agent-setup-sheet";
 import { RailEdgeFades } from "./omg/edge-fade";
 import { SkillSuggest } from "./omg/skill-suggest";
@@ -1312,15 +1313,9 @@ export function HomeComposer({
     <AgentAvatar agent={agent} model={modelOptions?.find(o => o.selected)?.id ?? null} size={32} />
   );
   const attachmentControl = (
-    <DropdownMenu options={attachments.options} style={{ width: 34, height: 34 }}>
-      <View
-        accessibilityRole="button"
-        accessibilityLabel="Attach a file"
-        style={{ width: 34, height: 34, alignItems: "center", justifyContent: "center" }}
-      >
-        <Icon ios="plus" android="add" size={20} color={colors.textSecondary} />
-      </View>
-    </DropdownMenu>
+    <AttachMenuButton options={attachments.options} size={34}>
+      <Icon ios="plus" android="add" size={20} color={colors.textSecondary} />
+    </AttachMenuButton>
   );
   const micControl = (
     <Pressable

@@ -1526,7 +1526,7 @@ export function SessionsScreen({
           flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 16, flexShrink: 1 }}>
             <SideNavButton floating onPress={() => setNavOpen((open) => !open)}
-              online={currentBinding?.online ?? false} machineName={machineName} />
+              machineName={machineName} />
             <LiveWelcome firstName={firstName} busyCount={flattenNodes(working).length}
               connection={connection}
               showingSaved={showingSaved}
@@ -1588,12 +1588,11 @@ export function SessionsScreen({
             >
               <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: space.xs }}>
                 {/* Opens the nav at every width. It also carries the machine
-                    name and its online dot, which is what the rail footer used
+                    name, which is what the rail footer used
                     to show, so nothing goes off screen by moving the rows into
                     the drawer. */}
                 <SideNavButton
                   onPress={() => setNavOpen(true)}
-                  online={currentBinding?.online ?? false}
                   machineName={machineName}
                 />
                 {/* Flat, like the phone's bar item. The glass island it wore
@@ -2071,7 +2070,6 @@ export function SessionsScreen({
           pathname={pathname}
           computerOptions={computerPicker.options}
           machineName={machineName}
-          online={currentBinding?.online ?? false}
           onDismiss={() => setNavOpen(false)}
           navigate={(href) => {
             if (workspace) navigateWorkspace(href as Href);

@@ -1,0 +1,39 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": true
+  },
+  "steps": [
+    {
+      "name": "Home with composer",
+      "goal": "Reach the demo Home screen with its project rail and the bottom composer. If a conversation is open, tap Back at the top left to return to Home. If the system Home screen is visible, tap the omg app icon. If an AI data consent screen appears, accept it for this isolated demo fixture. Do not type into Message.",
+      "done": "The Home screen is visible with the bottom composer and its Attach a file button.",
+      "expect": [
+        "Attach a file"
+      ]
+    },
+    {
+      "name": "Plus opens a card, composer stays",
+      "goal": "Tap ONLY the element labelled Attach a file in the bottom composer, once.",
+      "done": "A small card with Photo Library, Take Photo and Choose File is open above the composer. The composer itself did not turn into the menu.",
+      "expect": [
+        "Photo Library",
+        "Take Photo",
+        "Choose File",
+        "Close attach menu"
+      ]
+    },
+    {
+      "name": "Tap outside closes it",
+      "goal": "Tap the element labelled Close attach menu, which is the empty area outside the card. Do not tap Photo Library, Take Photo or Choose File.",
+      "done": "The card is gone and the Home screen with the composer is back.",
+      "expect": [
+        "Attach a file"
+      ],
+      "forbid": [
+        "Take Photo",
+        "Close attach menu"
+      ]
+    }
+  ]
+}

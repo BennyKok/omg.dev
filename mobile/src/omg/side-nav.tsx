@@ -49,7 +49,6 @@ import Reanimated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { StatusDot } from "../components";
 import { LucideIcon, type LucideName } from "./lucide";
 import { BrandWordmark } from "./brand-mark";
 import { GlassSurface } from "./glass";
@@ -99,7 +98,6 @@ export type SideNavProps = {
   /** Built by computer-picker.ts — the one definition of switching machines. */
   computerOptions: MenuOption[];
   machineName: string;
-  online: boolean;
   /** Pushes on the phone, swaps the pane on the iPad. The caller decides. */
   navigate: (href: string) => void;
   /** Opens the shortcuts card. Omitted when the binary cannot deliver key commands. */
@@ -184,7 +182,6 @@ export function SideNavPanel({
   pathname,
   computerOptions,
   machineName,
-  online,
   navigate,
   onShortcuts,
   onDismiss,
@@ -226,7 +223,6 @@ export function SideNavPanel({
               {machineName}
             </Text>
           </View>
-          <StatusDot busy={online} size={7} />
           <LucideIcon name="chevrons-up-down" size={12} color={colors.textMuted} />
         </View>
       </DropdownMenu>
@@ -459,19 +455,16 @@ export function SideNavDrawer({ progress, controller, ...panel }: SideNavProps &
 /**
  * The control that opens the drawer, for the leading edge of the header.
  *
- * It wears the machine's online dot. The computer chip used to lead the bar
- * and that dot was the only always-visible word on whether the box is up;
- * moving the switcher into the nav must not cost that, so the button that now
- * stands in its place carries it.
+ * No online dot. It used to wear the machine's dot, but that read gray for a
+ * cloud Computer that was live (the cloud has no row in `bindings`, so the
+ * online flag fell back to false), and Benny asked for it gone on 2026-09-24.
  */
 export function SideNavButton({
   onPress,
-  online,
   machineName,
   floating = false,
 }: {
   onPress: () => void;
-  online: boolean;
   machineName: string;
   floating?: boolean;
 }) {
@@ -487,9 +480,6 @@ export function SideNavButton({
       <View accessible={false} style={{ width: 20, height: 16, justifyContent: "center", gap: 5 }}>
         <View style={{ width: 20, height: 2, borderRadius: 1, backgroundColor: colors.textSecondary }} />
         <View style={{ width: 13, height: 2, borderRadius: 1, backgroundColor: colors.textSecondary }} />
-      </View>
-      <View style={{ position: "absolute", right: floating ? 9 : 5, bottom: floating ? 10 : 6 }}>
-        <StatusDot busy={online} size={7} />
       </View>
     </Pressable>
   );
