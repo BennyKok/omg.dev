@@ -2,6 +2,14 @@
 
 Recent product updates and deployment notes.
 
+## September 24, 2026 - Connectors that just work (v0.6.123)
+
+- Connectors now list only apps omg has tested: Gmail, Google Drive, Google Calendar and Google Sheets. Each runs on omg's own tools, and the untested catalog is gone.
+- Pick who a connection is for with tabs (you, a role, or the whole team). A connection given to a role works for that role's agents with no tool rules, and open sessions pick up new tools without a restart.
+- The iPhone app has Settings › Connectors: connect an app for the whole team from your phone.
+- On a hosted Computer, Google apps connect with no setup: omg.dev's own Google sign-in is built in.
+- Google asks for fewer permissions: Calendar asks for 2 instead of 12, and Gmail asks for 1.
+
 ## September 24, 2026 - Nearby Bridge relays (v0.6.122)
 
 - Bridges can choose the fastest healthy relay region and reconnect through another region without pairing again.
