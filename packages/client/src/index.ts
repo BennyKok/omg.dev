@@ -100,6 +100,8 @@ export interface OmgTransport {
 }
 
 export interface OmgGrant {
+  /** Trusted regional origin returned by the authenticated grant minter. */
+  sessionOrigin?: string;
   token: string;
   expiresAt: number;
 }
@@ -339,9 +341,17 @@ export function createGrantTransport(options: CreateGrantTransportOptions): OmgT
   const WebSocketImpl = options.WebSocket ?? globalThis.WebSocket;
   const XMLHttpRequestImpl = options.XMLHttpRequest ?? globalThis.XMLHttpRequest;
   const baseUrl = normalizeBaseUrl(options.baseUrl);
+  const originFor = (current: OmgGrant) => {
+    if (!current.sessionOrigin) return baseUrl;
+    const origin = new URL(current.sessionOrigin);
+    if (origin.protocol !== "https:" || origin.username || origin.password || origin.pathname !== "/" || origin.search || origin.hash) throw new Error("Invalid session origin");
+    return origin.origin;
+  };
   let cached: OmgGrant | null = null;
+  let refreshRoute = false;
 
   const grant = async (forceRefresh = false) => {
+    forceRefresh ||= refreshRoute;
     if (
       !forceRefresh &&
       cached &&
@@ -350,6 +360,7 @@ export function createGrantTransport(options: CreateGrantTransportOptions): OmgT
       return cached;
     }
     cached = await options.getGrant({ forceRefresh });
+    refreshRoute = false;
     return cached;
   };
 
@@ -361,12 +372,16 @@ export function createGrantTransport(options: CreateGrantTransportOptions): OmgT
       const current = await grant(forceRefresh);
       const headers = new Headers(init.headers);
       headers.set("Authorization", `Bearer ${current.token}`);
-      return fetchImpl(`${baseUrl}${path}`, {
-        ...init,
-        headers,
-        mode: "cors",
-        credentials: "omit",
-      });
+      try {
+        return await fetchImpl(`${originFor(current)}${path}`, {
+          ...init, headers, mode: "cors", credentials: "omit",
+        });
+      } catch (error) {
+        // Refresh the route on the next attempt. Never replay a mutation after
+        // a network error: the old gateway may already have applied it.
+        refreshRoute = true;
+        throw error;
+      }
     };
     let response = await execute(false);
     if (response.status === 401) response = await execute(true);
@@ -385,7 +400,7 @@ export function createGrantTransport(options: CreateGrantTransportOptions): OmgT
           headers.set("Authorization", `Bearer ${current.token}`);
           return uploadWithXhr(
             XMLHttpRequestImpl,
-            `${baseUrl}${path}`,
+            `${originFor(current)}${path}`,
             { ...init, headers },
             onProgress,
           );
@@ -398,10 +413,12 @@ export function createGrantTransport(options: CreateGrantTransportOptions): OmgT
 
   const openSocket = async (path: string): Promise<OmgSocket> => {
     const current = await grant(false);
-    return new WebSocketImpl(
-      socketUrl(baseUrl, path),
+    const socket = new WebSocketImpl(
+      socketUrl(originFor(current), path),
       [`lfg-bearer.${current.token}`],
     ) as OmgSocket;
+    socket.addEventListener("close", () => { refreshRoute = true; });
+    return socket;
   };
 
   return {
@@ -414,7 +431,7 @@ export function createGrantTransport(options: CreateGrantTransportOptions): OmgT
       const current = await grant(false);
       // Keep the credential on the configured session origin even if a buggy
       // caller hands this boundary an absolute URL.
-      const url = new URL(`${baseUrl}${normalizedPath(path)}`);
+      const url = new URL(`${originFor(current)}${normalizedPath(path)}`);
       url.searchParams.set("__omg_grant", current.token);
       return url.toString();
     },
