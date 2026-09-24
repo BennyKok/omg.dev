@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## September 24, 2026 - Expo apps load real data in Expo Go (v0.6.118)
+
+- An Expo app's agent now deploys the backend before the preview, makes it public, and points the app at it, so Expo Go shows real data from the first open. The agent tells you the backend is public until you add sign-in.
+- The preview card now says when an Expo Go link has expired, and Restart preview asks the agent for a new one.
+- An agent's `omg_deploy` now counts the upload inside its 45 second wait, so the call always answers before the tool times out.
+
 ## September 23, 2026 - Google Drive, and Upgrade in the phone menu (v0.6.117)
 
 - Google Drive now works through omg's own connector, on the same Google sign-in as Gmail. Agents can search, read, create and trash files. Docs and Slides read as text, and Sheets read as CSV.
