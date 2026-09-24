@@ -102,11 +102,16 @@ export function AttachMenuButton({
         onDismiss={runPending}
         supportedOrientations={["portrait", "landscape"]}
       >
-        <Pressable
-          style={{ flex: 1 }}
-          onPress={close}
-          accessibilityLabel="Close attach menu"
-        >
+        {/* The backdrop is a SIBLING of the card, not its parent. A
+            Pressable is one accessibility element on iOS, so wrapping the
+            card in it hid every row from VoiceOver (and from Maestro). */}
+        <View style={{ flex: 1 }}>
+          <Pressable
+            style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
+            onPress={close}
+            accessibilityRole="button"
+            accessibilityLabel="Close attach menu"
+          />
           <View
             accessibilityRole="menu"
             style={{
@@ -158,7 +163,7 @@ export function AttachMenuButton({
               </Pressable>
             ))}
           </View>
-        </Pressable>
+        </View>
       </Modal>
     </>
   );
