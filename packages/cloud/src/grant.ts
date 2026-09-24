@@ -112,6 +112,7 @@ export function createGrantMinter(options: GrantMinterOptions): MintSessionGrant
       cookie?: string;
       exp?: number;
       expiresInMs?: number;
+      sessionOrigin?: string;
     } | null;
     if (!body?.cookie) {
       throw new ComputerGrantError("Your Computer is updating. Try again in a moment.");
@@ -127,6 +128,6 @@ export function createGrantMinter(options: GrantMinterOptions): MintSessionGrant
           ? body.exp
           : now();
 
-    return { token: body.cookie, expiresAt };
+    return { token: body.cookie, expiresAt, ...(body.sessionOrigin ? { sessionOrigin: body.sessionOrigin } : {}) };
   };
 }

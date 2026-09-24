@@ -530,3 +530,31 @@ test("status-only connection reconnects and asks for a fresh fleet subscription"
   expect(sockets[1]!.readyState).toBe(3);
   live.dispose();
 });
+
+test("grant routes HTTP, media, and sockets to its region and refreshes the route after close", async () => {
+  const origins: string[] = [];
+  let count = 0;
+  class RegionalSocket {
+    readyState = 1;
+    listeners: (() => void)[] = [];
+    constructor(url: string, _protocols?: string[]) { origins.push(url); }
+    send() {}
+    addEventListener(type: string, listener: () => void) { if (type === "close") this.listeners.push(listener); }
+    close() { for (const listener of this.listeners) listener(); }
+  }
+  const transport = createGrantTransport({
+    baseUrl: "https://sessions.example",
+    getGrant: async ({ forceRefresh }) => {
+      if (count++) expect(forceRefresh).toBe(true);
+      return { token: "signed", expiresAt: Date.now() + 600000, sessionOrigin: count === 1 ? "https://ca.example" : "https://de.example" };
+    },
+    WebSocket: RegionalSocket as unknown as typeof WebSocket,
+    fetch: (async (url: string) => { origins.push(String(url)); return Response.json({ ok: true }); }) as typeof fetch,
+  });
+  await transport.request("/api/test");
+  expect(await transport.resolveAssetUrl!("/api/artifacts/x")).toStartWith("https://ca.example/");
+  const first = await transport.openSocket!("/api/live/ws");
+  first.close();
+  await transport.openSocket!("/api/live/ws");
+  expect(origins).toEqual(["https://ca.example/api/test", "wss://ca.example/api/live/ws", "wss://de.example/api/live/ws"]);
+});

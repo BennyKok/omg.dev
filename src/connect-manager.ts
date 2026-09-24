@@ -40,15 +40,17 @@ export function readRelayBoxId(): string | null {
   }
 }
 
+/** Discovery metadata changes must not restart the worker that just measured it. */
+export function relayCredentialRevision(raw: string): string {
+  try {
+    const { relayCandidates: _discovery, ...credentials } = JSON.parse(raw);
+    return JSON.stringify(credentials);
+  } catch { return raw; }
+}
 function credentialRevision(): string | null {
   try {
-    // The full file is the revision. A fresh pairing can produce a token with
-    // the same length inside one filesystem timestamp tick, so mtime + size is
-    // not sufficient to decide whether an auth rejection should be retried.
-    return readFileSync(CREDENTIALS_PATH, "utf8");
-  } catch {
-    return null;
-  }
+    return relayCredentialRevision(readFileSync(CREDENTIALS_PATH, "utf8"));
+  } catch { return null; }
 }
 
 function spawnManagedConnect(): ManagedConnectChild {

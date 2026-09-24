@@ -1,3 +1,4 @@
+import { selectRelay, type RelayCandidate } from "../relay-selection";
 import { mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { hostname } from "node:os";
 import { getGlobalSettingsSync } from "../settings.ts";
@@ -212,6 +213,7 @@ const LOCAL_PORT = Number(process.env.LFG_PORT ?? process.env.PORT ?? 8766);
 const LOCAL_HOST = localServeHost();
 
 interface RelayCredentials {
+  relayCandidates?: RelayCandidate[];
   relayUrl: string;
   token: string;
   boxId: string;
@@ -1208,15 +1210,17 @@ function connectSocket(
 ): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(relayUrl);
+    const deadline = setTimeout(() => { ws.close(); reject(new Error("relay connection timed out")); }, 7500);
     ws.binaryType = "arraybuffer";
     ws.addEventListener("open", () => {
+      clearTimeout(deadline);
       // Advertise what this build speaks. A relay that predates capability
       // negotiation ignores the extra field and answers without one, which is
       // exactly the "no caps" answer that keeps us on the JSON-only path.
       ws.send(JSON.stringify({ ...hello, caps: BOX_CAPS }));
       resolve(ws);
     });
-    ws.addEventListener("error", (event) => reject(new Error(`relay connection failed: ${String(event)}`)));
+    ws.addEventListener("error", (event) => { clearTimeout(deadline); reject(new Error(`relay connection failed: ${String(event)}`)); });
   });
 }
 
@@ -1353,10 +1357,21 @@ async function runConnectLoop(explicitComputerUrl?: string): Promise<void> {
   }
 
   let backoffMs = RECONNECT_MIN_MS;
+  let previousRelay: string | undefined;
+  let connectedAt = 0;
   for (;;) {
     try {
-      console.log(`lfg connect: dialing ${creds.relayUrl} as ${creds.boxId} …`);
-      const ws = await connectSocket(creds.relayUrl, {
+      const selected = await selectRelay(creds.relayUrl, creds.relayCandidates, {
+        avoid: connectedAt && Date.now() - connectedAt < 30_000 ? previousRelay : undefined,
+      });
+      if (selected.candidates.length) {
+        creds.relayCandidates = selected.candidates;
+        await writeCredentials(creds);
+      }
+      previousRelay = selected.url;
+      connectedAt = Date.now();
+      console.log(`lfg connect: dialing ${selected.url} as ${creds.boxId} (probe ${selected.latencyMs?.toFixed(1) ?? "unavailable"} ms) …`);
+      const ws = await connectSocket(selected.url, {
         type: "hello",
         token: creds.token,
         // Re-sent on every reconnect, not just at pairing, so a renamed
@@ -1368,6 +1383,8 @@ async function runConnectLoop(explicitComputerUrl?: string): Promise<void> {
       backoffMs = RECONNECT_MIN_MS;
       console.log(`lfg connect: connected — proxying to local serve on ${LOCAL_HOST}:${LOCAL_PORT}`);
 
+      const helloDeadline = setTimeout(() => ws.close(4000, "relay authentication timed out"), 10000);
+      ws.addEventListener("close", () => clearTimeout(helloDeadline));
       let authRejected: string | null = null;
       // Live WS tunnels for this relay connection. Dropped wholesale when the
       // relay socket closes, so a reconnect never resurrects a stale tunnel.
@@ -1423,6 +1440,7 @@ async function runConnectLoop(explicitComputerUrl?: string): Promise<void> {
             // The relay's answer to hello/pair carries the negotiated set.
             const frameType = (frame as { type?: unknown })?.type;
             if (frameType === "hello-ok" || frameType === "paired") {
+              clearTimeout(helloDeadline);
               for (const cap of negotiateCaps((frame as { caps?: unknown }).caps)) caps.add(cap);
               if (caps.size) console.log(`lfg connect: negotiated ${[...caps].join(", ")}`);
               return;
