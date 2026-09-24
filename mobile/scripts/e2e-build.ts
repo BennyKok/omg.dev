@@ -170,6 +170,30 @@ export async function buildSimulatorApp(): Promise<string> {
   }
   const started = Date.now();
   console.log("Syncing the source to the Mac...");
+  /**
+   * Drop source trees abandoned by sessions that are long gone.
+   *
+   * Every session that sets OMG_E2E_REMOTE_SRC gets its own checkout so two
+   * agents cannot clobber each other, and the tree is KEPT between runs on
+   * purpose: ios/ and its DerivedData are the whole speed of this path.
+   * Nothing ever removed them, though, and on 2026-09-24 the Mac held five
+   * abandoned 10 GB checkouts plus seven scratch dirs -- 64 GB of leftovers
+   * on a disk with 426 MB free. That failed a build with an error about a
+   * missing tarball, which looks nothing like "the disk is full".
+   *
+   * Fourteen days is deliberately generous. The cost of pruning too early is
+   * one slow rebuild; the cost of never pruning is what happened above. The
+   * tree this run is about to use is excluded by name, so an old session
+   * resuming today keeps its cache.
+   */
+  await sh([
+    "ssh",
+    "-o",
+    "BatchMode=yes",
+    HOST,
+    `find ~ -maxdepth 1 -type d -name '.omg-e2e-*' ! -name '${REMOTE_SRC}' -mtime +14 ` +
+      `-exec echo 'pruning stale e2e tree:' {} ';' -exec rm -rf {} ';' 2>/dev/null || true`,
+  ]);
   await sh(["ssh", "-o", "BatchMode=yes", HOST, `mkdir -p ~/${REMOTE_SRC}/mobile ~/${REMOTE_SRC}/packages/protocol`]);
   await rsync(`${LOCAL_MOBILE}`, `${REMOTE_SRC}/mobile/`, [
     "node_modules",

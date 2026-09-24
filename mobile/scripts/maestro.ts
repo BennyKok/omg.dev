@@ -193,17 +193,38 @@ async function inspect(udid: string) {
  */
 async function installApp(udid: string, source: string) {
   let app = source;
+  /**
+   * The scratch directory this download unpacked into, or "" when the source
+   * was already a local path.
+   *
+   * It MUST be removed once the app is installed. `simctl install` copies the
+   * bundle into the device, so nothing needs the scratch copy afterwards, and
+   * each one holds a tarball plus an unpacked .app -- 200 to 500 MB. Seven of
+   * them were found abandoned on the Mac on 2026-09-24, alongside 50 GB of
+   * other e2e leftovers, on a disk with 426 MB free.
+   */
+  let scratch = "";
   if (/^https?:\/\//.test(source)) {
     console.log(`Downloading ${source} on the Mac...`);
     const { out } = await ssh(
       `set -e; D=$(mktemp -d ~/.omg-e2e-build.XXXXXX); curl -fsSL -o "$D/build.tar.gz" "${source}"; ` +
-        `tar xzf "$D/build.tar.gz" -C "$D"; ls -d "$D"/*.app | head -1`,
+        `tar xzf "$D/build.tar.gz" -C "$D"; echo "$D"; ls -d "$D"/*.app | head -1`,
     );
-    app = out.trim();
+    const [dir, bundle] = out.trim().split("\n");
+    scratch = dir?.trim() ?? "";
+    app = bundle?.trim() ?? "";
     if (!app) throw new Error("The EAS artifact did not contain an .app bundle.");
   }
-  await ssh(`xcrun simctl terminate ${udid} dev.omg.computer 2>/dev/null; xcrun simctl install ${udid} "${app}"`);
-  console.log(`Installed ${app} on ${DEVICE}.`);
+  try {
+    await ssh(`xcrun simctl terminate ${udid} dev.omg.computer 2>/dev/null; xcrun simctl install ${udid} "${app}"`);
+    console.log(`Installed ${app} on ${DEVICE}.`);
+  } finally {
+    // In a finally: a failed install leaves the same hundreds of megabytes
+    // behind as a successful one.
+    if (scratch.startsWith("/") && scratch.includes(".omg-e2e-build.")) {
+      await ssh(`rm -rf "${scratch}"`).catch(() => {});
+    }
+  }
 }
 
 /**
