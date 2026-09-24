@@ -72,6 +72,49 @@ export type PurchaseFlow = {
   reload: () => Promise<void>;
 };
 
+type Catalog = { account: PurchaseAccount; products: StoreProduct[] };
+
+/**
+ * The catalog, fetched ahead of the screen that shows it.
+ *
+ * Onboarding's pricing page used to open on a spinner and an empty table for
+ * about 2 s while omg and then StoreKit answered (Benny, 2026-09-24: no
+ * waiting inside the flow). The working screen before it has seconds to
+ * spare, so step 04 starts this load and the pricing page picks it up.
+ *
+ * Used once, then dropped: a later reload, a restore or a purchase always
+ * asks again. Five minutes bounds how old a price or a purchase token can be.
+ */
+const WARM_MS = 5 * 60_000;
+let warm: { at: number; promise: Promise<Catalog>; value?: Catalog } | null = null;
+
+async function loadCatalog(): Promise<Catalog> {
+  const [, account] = await Promise.all([connectStore(), fetchPurchaseAccount()]);
+  // See `reload` below for why the bundled ids stand in for a null catalog.
+  const products = await fetchTiers(account.tiers ?? FALLBACK_TIERS);
+  return { account, products };
+}
+
+function freshWarm() {
+  return warm && Date.now() - warm.at < WARM_MS ? warm : null;
+}
+
+/** Start loading plans now, for a pricing screen that is about to appear. */
+export function prefetchPurchaseCatalog(): void {
+  if (!isStoreAvailable() || freshWarm()) return;
+  const entry: NonNullable<typeof warm> = { at: Date.now(), promise: loadCatalog() };
+  entry.promise.then(
+    (value) => {
+      entry.value = value;
+    },
+    () => {
+      // A failed prefetch is forgotten; the screen loads for itself.
+      if (warm === entry) warm = null;
+    },
+  );
+  warm = entry;
+}
+
 export function usePurchaseFlow(
   /**
    * Mock-only. Changing it reloads, so a deep link with a new scenario does
@@ -82,9 +125,11 @@ export function usePurchaseFlow(
 ): PurchaseFlow {
   const toast = useToast();
   const { refreshMachines } = useOmg();
-  const [phase, setPhase] = useState<PurchasePhase>({ kind: "loading" });
-  const [account, setAccount] = useState<PurchaseAccount | null>(null);
-  const [products, setProducts] = useState<StoreProduct[]>([]);
+  // A prefetch that already finished paints the table on the first frame.
+  const [ready] = useState(() => (scenarioKey === "" ? freshWarm()?.value ?? null : null));
+  const [phase, setPhase] = useState<PurchasePhase>(ready ? { kind: "ready" } : { kind: "loading" });
+  const [account, setAccount] = useState<PurchaseAccount | null>(ready?.account ?? null);
+  const [products, setProducts] = useState<StoreProduct[]>(ready?.products ?? []);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   /**
@@ -105,6 +150,21 @@ export function usePurchaseFlow(
    */
   const reload = useCallback(async () => {
     setLoadError(null);
+    // Take a prefetch once: mock scenarios never use it, and it is dropped
+    // here so any later reload asks the store again.
+    const prefetched = scenarioKey === "" ? freshWarm() : null;
+    warm = null;
+    if (prefetched) {
+      try {
+        const catalog = prefetched.value ?? (await prefetched.promise);
+        setAccount(catalog.account);
+        setProducts(catalog.products);
+        setPhase({ kind: "ready" });
+        return;
+      } catch {
+        // Fall through to a load of its own.
+      }
+    }
     setPhase({ kind: "loading" });
 
     if (!isStoreAvailable()) {

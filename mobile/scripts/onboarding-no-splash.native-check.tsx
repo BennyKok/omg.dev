@@ -42,6 +42,8 @@ local("village-scene.ts", { backgroundsFor: () => ({ large: { dark: 1, light: 1 
 local("onboarding-continue.tsx", { ContinueScreen: () => <p>continue-screen</p> });
 local("onboarding-transcript.tsx", { OnboardingTranscript: () => null });
 local("onboarding-plan.tsx", { PlanScreen: () => <p>plan-screen</p> });
+let prefetches = 0;
+local("purchase-flow.ts", { prefetchPurchaseCatalog: () => { prefetches += 1; } });
 
 // The Computer answers "not ready" until the test says otherwise.
 let launch: any = { kind: "not-ready" };
@@ -92,6 +94,13 @@ test("an answer given while waiting says so, and moves on once the task starts",
   await ui.flushAsync(async () => { await new Promise((r) => setTimeout(r, 1100)); });
   await ui.flushAsync();
   expect(ui.text()).toContain("continue-screen");
+});
+
+test("the pricing page's plans start loading as soon as step 04 opens", async () => {
+  const before = prefetches;
+  render("Explain this error.");
+  await ui.flushAsync();
+  expect(prefetches).toBe(before + 1);
 });
 
 test("a prompt from an earlier launch, with no title in hand, still uses the splash", async () => {

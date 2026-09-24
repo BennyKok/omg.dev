@@ -40,6 +40,7 @@ import { ContinueScreen } from "./onboarding-continue";
 import { launchOnboardingTask, type LaunchOutcome } from "./onboarding-launch";
 import { OnboardingTranscript } from "./onboarding-transcript";
 import { PlanScreen } from "./onboarding-plan";
+import { prefetchPurchaseCatalog } from "./purchase-flow";
 import { PrimaryAction, SecondaryAction, StepHeading } from "./onboarding-chrome";
 import { WorkingScreen } from "./onboarding-working";
 import { Text } from "./text";
@@ -132,6 +133,12 @@ export function OnboardingAfterSignIn({
   const mounted = useRef(true);
   useEffect(() => () => {
     mounted.current = false;
+  }, []);
+
+  // The pricing page (step 06) is seconds away. Load its plans now, so it
+  // opens on the table rather than a spinner.
+  useEffect(() => {
+    prefetchPurchaseCatalog();
   }, []);
 
   useEffect(() => {
