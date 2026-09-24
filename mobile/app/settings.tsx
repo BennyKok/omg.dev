@@ -33,6 +33,7 @@ import { CLOUD_BINDING_ID } from "../src/omg/config";
 import { useDemoMode } from "../src/omg/demo";
 import { sharedBindingLabel } from "../src/omg/computer-shared-binding";
 import { useComputerUpdate } from "../src/omg/computer-update";
+import { ConnectionTimingsRow } from "../src/omg/connection-timings-row";
 import { ConnectionPingRow } from "../src/omg/connection-ping-row";
 import { ComputerSoftwareRow } from "../src/omg/computer-software-row";
 import {
@@ -438,6 +439,7 @@ export default function SettingsScreen() {
           />
         </SettingsRow>
         <ConnectionPingRow transport={client?.transport ?? null} active={focused} cloud={bindingId === CLOUD_BINDING_ID} demo={demo.value} />
+        <ConnectionTimingsRow active={focused} />
         <Separator inset="icon" />
         <SettingsRow
           glyph={{ ios: "display", android: "desktop_windows" }}

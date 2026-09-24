@@ -1,0 +1,8 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": { "clearState": false },
+  "steps": [
+    { "name": "Compare live reconnect sequences", "goal": "Wait for the six real-network runs to finish. Do not tap anything while timing runs are active.", "done": "The previous and parallel startup sequences completed three times each, and concurrent optimized refreshes used one grant.", "expect": ["Live reconnect comparison passed"], "forbid": ["FAILED"], "timeoutMs": 180000 },
+    { "name": "Inspect connection timing breakdown", "goal": "Tap Connection timings to show the recorded request and processing stages.", "done": "The timing breakdown is expanded and includes grant parsing time.", "expect": ["grant.parse", "Recent timings on this device"], "forbid": ["FAILED"], "timeoutMs": 30000 }
+  ]
+}

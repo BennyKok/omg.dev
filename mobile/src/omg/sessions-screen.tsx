@@ -1,3 +1,5 @@
+import { useSessionStatus } from "./use-session-status";
+import { recordConnectionTiming } from "./connection-trace";
 import { startPendingSession } from "./pending-session";
 import { sessionCache } from "./session-cache-store";
 import { WindowedSessionList } from "./windowed-session-list";
@@ -37,7 +39,6 @@ import {
 } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
-  AppState,
   LayoutAnimation,
   Platform,
   Pressable,
@@ -93,7 +94,7 @@ import { canDriveSession, type DriveableSession } from "./session-runtime";
 import { useOverlapWatch } from "./list-overlap-watch";
 import { groupNodesByProject } from "./session-groups";
 import { SessionActivityPane } from "./session-activity";
-import { observeSessionStatus, SessionStatusState } from "./session-status";
+import { SessionStatusState } from "./session-status";
 import { sessionPreview } from "./session-preview";
 import { SubagentGroup } from "./subagent-group";
 import {
@@ -443,6 +444,7 @@ export function SessionsScreen({
     return Array.isArray(saved) ? saved : [];
   };
   const [sessions, setSessions] = useState<OmgSession[]>(cachedSessions);
+  useLayoutEffect(() => { recordConnectionTiming("sessions.commit"); }, [sessions]);
   /**
    * HAS SESSIONS HAD ITS TURN YET — see the long note on `SESSIONS_SETTLE_TIMEOUT_MS`
    * below for what this exists to prevent. Kept as its own flag rather than
@@ -808,30 +810,15 @@ export function SessionsScreen({
     }, [probe]),
   );
 
-  // Observe the fleet only while Home is visible and the app is foregrounded.
-  // REST reconciles membership every minute, or every 10s without live frames.
-  useFocusEffect(
-    useCallback(() => {
-      if (!client || !ready) return;
-      let stop: (() => void) | undefined;
-      const start = () => {
-        if (stop) return;
-        const unsubscribe = observeSessionStatus({
-          live: client.live,
-          apply: (rows) => statusState.apply(rows),
-          refresh: (quiet) => { void load(quiet); },
-          connectionChanged: setConnection,
-        });
-        stop = () => { unsubscribe(); stop = undefined; };
-      };
-      if (AppState.currentState !== "background") start();
-      const appState = AppState.addEventListener("change", (state) => {
-        if (state === "background") stop?.();
-        else if (state === "active") start();
-      });
-      return () => { appState.remove(); stop?.(); };
-    }, [client, ready, load, statusState]),
-  );
+  useSessionStatus({
+    live: client?.live ?? null,
+    state: statusState,
+    ready,
+    cloud: bindingId === CLOUD_BINDING_ID,
+    denied: readiness?.status === "unauthorized",
+    load,
+    connectionChanged: setConnection,
+  });
 
   const currentSharedComputer = useMemo(
     () => sharedComputers.find((c) => c.id === bindingId) ?? null,

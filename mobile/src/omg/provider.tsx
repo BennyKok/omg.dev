@@ -34,7 +34,7 @@ import { unregisterForPushNotifications } from "./push";
 import { useUserActive } from "./idle";
 import { startCloudPresence } from "./presence";
 import { wakeAfterPresence } from "./cloud-startup";
-import { waitForReady, type ComputerReadiness } from "./readiness";
+import { sharedReadiness, type ComputerReadiness } from "./readiness";
 import {
   isSharedBindingId,
   SHARED_REVOKED_DETAIL,
@@ -526,7 +526,7 @@ export function OmgProvider({ children }: PropsWithChildren) {
       }
     }
 
-    const result = await waitForReady(getHostedTransport(bindingId));
+    const result = await sharedReadiness(getHostedTransport(bindingId));
     // A machine switch mid-probe must not overwrite the new machine's state.
     if (ticket === probeToken.current) setReadiness(result);
   }, [bindingId, machinesLoaded, sharedComputers, userActive]);

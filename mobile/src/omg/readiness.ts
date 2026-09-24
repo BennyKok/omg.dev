@@ -15,6 +15,7 @@
 
 import type { OmgTransport } from "@omg-dev/client";
 
+import { readConnectionJson, timeConnection } from "./connection-trace";
 import { ComputerGrantError } from "./transport";
 
 /** What the box can run, and the folders it can run in. */
@@ -74,13 +75,7 @@ export async function probeReadiness(
     };
   }
 
-  const text = await response.text().catch(() => "");
-  let body: any = {};
-  try {
-    body = text ? JSON.parse(text) : {};
-  } catch {
-    body = {};
-  }
+  const body = await readConnectionJson(response, "bootstrap").catch(() => ({}));
 
   if (response.ok) {
     return {
@@ -142,4 +137,16 @@ export async function waitForReady(
     if (Date.now() + intervalMs >= deadline) return readiness;
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
+}
+
+// Focus and foreground can request the same readiness check together.
+const pendingReadiness = new WeakMap<OmgTransport, Promise<ComputerReadiness>>();
+export function sharedReadiness(transport: OmgTransport): Promise<ComputerReadiness> {
+  const pending = pendingReadiness.get(transport);
+  if (pending) return pending;
+  const request = timeConnection("computer.ready", () => waitForReady(transport)).finally(() => {
+    if (pendingReadiness.get(transport) === request) pendingReadiness.delete(transport);
+  });
+  pendingReadiness.set(transport, request);
+  return request;
 }
