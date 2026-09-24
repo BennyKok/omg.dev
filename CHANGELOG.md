@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## September 24, 2026 - Long videos keep playing (v0.6.121)
+
+- A video from a hosted computer no longer stops after a few minutes. When its access link expires, the player gets a new one and continues from the same point. This works on the web and in the iPhone app.
+
 ## September 24, 2026 - Faster file downloads on iPhone (v0.6.120)
 
 - On iPhone, Download on a file page is much faster for large files. The file goes straight to disk.
