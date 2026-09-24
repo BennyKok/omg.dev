@@ -34,6 +34,7 @@ import { Linking } from "react-native";
 
 type WebBrowserModule = {
   openBrowserAsync: (url: string, opts?: Record<string, unknown>) => Promise<{ type: string }>;
+  openAuthSessionAsync?: (url: string, redirectUrl?: string | null, opts?: Record<string, unknown>) => Promise<{ type: string; url?: string }>;
   dismissBrowser?: () => void | Promise<void>;
   WebBrowserPresentationStyle?: { PAGE_SHEET?: string; FORM_SHEET?: string };
 };
@@ -89,4 +90,19 @@ export function dismissSignInPage(): void {
   } catch {
     // Nothing open. Fine.
   }
+}
+
+
+/**
+ * Open a sign-in page in an auth session and return the URL it finished on,
+ * or null when the person closed it. The session ends by itself when the page
+ * navigates to `returnUrl` (a custom scheme such as omg://…), which is how a
+ * provider's redirect comes back to the app without the app ever reading
+ * the page. Null too when this build has no web browser module.
+ */
+export async function openAuthSession(url: string, returnUrl: string): Promise<string | null> {
+  const wb = webBrowser();
+  if (!wb?.openAuthSessionAsync) return null;
+  const result = await wb.openAuthSessionAsync(url, returnUrl, { preferEphemeralSession: false });
+  return result.type === "success" && result.url ? result.url : null;
 }

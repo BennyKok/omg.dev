@@ -465,6 +465,10 @@ function RootNavigator() {
               name="settings/coding-agents"
               options={{ ...groupedScreen, title: "Coding agents", headerLargeTitle: true }}
             />
+            <Stack.Screen
+              name="settings/connectors"
+              options={{ ...groupedScreen, title: "Connectors", headerLargeTitle: true }}
+            />
             <Stack.Screen name="settings/agent" options={{ ...groupedScreen, title: "" }} />
             <Stack.Screen name="notifications" />
             <Stack.Screen name="schedules" options={groupedScreen} />
@@ -805,6 +809,10 @@ function RootNavigator() {
           <Stack.Screen
             name="settings/coding-agents"
             options={{ title: "Coding agents", headerLargeTitle: true }}
+          />
+          <Stack.Screen
+            name="settings/connectors"
+            options={{ title: "Connectors", headerLargeTitle: true }}
           />
           <Stack.Screen name="settings/agent" options={{ title: "" }} />
           {/* Questions waiting on you, and what shipped. Pushed from the

@@ -1,0 +1,63 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": false
+  },
+  "steps": [
+    {
+      "name": "01 Settings",
+      "goal": "If an iOS system sheet asks for an Apple Account password, tap its Cancel button; never type into a password field. Then open Settings: tap the Navigation button (top left, labelled Navigation. Computer: ...), then tap Settings in the side menu. Note: a session card whose title begins with Error: is the name of a task someone typed, not an app error, so the screen is not blocked.",
+      "done": "The Settings screen with a Coding agents row and a Connectors row under it",
+      "expect": [
+        "Coding agents",
+        "Connectors"
+      ],
+      "timeoutMs": 90000
+    },
+    {
+      "name": "02 Connectors",
+      "goal": "Tap the Connectors row",
+      "done": "The native Connectors screen: a note that what you connect works for everyone on your team, and a list of apps (Gmail, Google Drive, Google Calendar, Google Sheets), each with a Connect or Add button",
+      "expect": [
+        "Connectors",
+        "works for everyone on your team",
+        "Gmail",
+        "Google Drive",
+        "Google Calendar",
+        "Google Sheets"
+      ],
+      "forbid": [
+        "Could not load connectors",
+        "Safari"
+      ],
+      "timeoutMs": 90000
+    },
+    {
+      "name": "03 Connect opens the sign-in",
+      "goal": "Tap the Connect button on the Google Calendar row (its label is Connect Google Calendar, or Add another Google Calendar account). Do not tap anything else.",
+      "done": "iOS shows the system prompt that omg wants to use a website to sign in, or a Google sign-in page is open",
+      "expect": [
+        "Sign In"
+      ],
+      "forbid": [
+        "Could not load connectors",
+        "sign-in is not set up"
+      ],
+      "timeoutMs": 60000
+    },
+    {
+      "name": "04 Cancel returns to the list",
+      "goal": "Cancel the sign-in: tap Cancel on the system prompt, or close the sign-in page. Do not sign in.",
+      "done": "Back on the Connectors list with the Google Calendar row and no error message",
+      "expect": [
+        "Google Calendar",
+        "works for everyone on your team"
+      ],
+      "forbid": [
+        "Something went wrong",
+        "needs sign-in"
+      ],
+      "timeoutMs": 60000
+    }
+  ]
+}

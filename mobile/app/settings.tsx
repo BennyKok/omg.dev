@@ -456,6 +456,13 @@ export default function SettingsScreen() {
         />
         <Separator inset="icon" />
         <SettingsRow
+          glyph={{ ios: "square.grid.2x2.fill", android: "apps" }}
+          tint={TINT.orange}
+          label="Connectors"
+          onPress={() => router.push("/settings/connectors")}
+        />
+        <Separator inset="icon" />
+        <SettingsRow
           glyph={{ ios: "creditcard.fill", android: "credit_card" }}
           tint={TINT.green}
           label="Subscription and plan"
