@@ -20,6 +20,12 @@ let oauth: boolean;
 let detectAuth: boolean;
 let unknownAuth: boolean;
 let connected: boolean;
+let withGmail: boolean;
+const GMAIL = {
+  id: "omg/gmail", slug: "gmail", name: "Gmail", description: "Search, read and send mail.", kind: "native", categories: [],
+  connectUrl: "https://gmailmcp.googleapis.com/mcp/v1", icon: null, domain: null, needsOAuth: true, authKind: "oauth",
+  oauthApp: "google", native: "gmail", recommended: true,
+};
 
 beforeEach(() => {
   ui = mount();
@@ -28,6 +34,9 @@ beforeEach(() => {
   connectors = [];
   closed = blocked = createFails = authFails = alreadyAuthorized = connected = detectAuth = unknownAuth = false;
   oauth = true;
+  withGmail = false;
+  (globalThis as { localStorage?: Storage }).localStorage ??= window.localStorage;
+  localStorage.clear();
   popup = { location: { href: "" }, close: () => { closed = true; } };
   window.open = (() => {
     events.push("popup");
@@ -35,6 +44,13 @@ beforeEach(() => {
   }) as typeof window.open;
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input instanceof Request ? input.url : input);
+    if (url.includes("/catalog?recommended=1")) return Response.json({ total: 1, results: [], recommended: withGmail ? [GMAIL] : [] });
+    if (url.endsWith("/oauth-apps")) return Response.json({ apps: [{ id: "google", name: "Google", consoleUrl: "", configured: true, clientIdHint: "cid" }], redirectUri: "" });
+    if (url.includes("/api/connectors/") && init?.method === "DELETE") {
+      events.push("delete");
+      connectors = connectors.filter((c) => !url.endsWith(`/${c.id}`));
+      return Response.json({ ok: true });
+    }
     if (url.includes("/catalog")) return Response.json({ total: 2, results: [{
       id: "omg/gmail", slug: "gmail", name: "Gmail", description: "mail", needsOAuth: true, authKind: "oauth",
       connectUrl: "https://gmailmcp.googleapis.com/mcp/v1", native: "gmail", oauthApp: "google", recommended: true,
@@ -196,28 +212,68 @@ test("already authorized closes the blank popup", async () => {
   expect(popup.location.href).toBe("");
 });
 
-test("connections are grouped by who can use them, and a role's group stays listed", async () => {
-  connectors = [
-    { id: "1", owner: "owner", name: "Exa", slug: "exa", endpoint: "https://mcp.exa.ai/mcp", headerNames: [], requireApproval: false },
-    { id: "2", owner: "role:growth", name: "Gmail (benny@example.com)", slug: "gmail", endpoint: "https://gmail", headerNames: [], native: "gmail", account: "benny@example.com", oauth: true, requireApproval: false },
-    { id: "3", owner: "*org*", name: "Notion", slug: "notion", endpoint: "https://notion/mcp", headerNames: [], requireApproval: false },
-  ];
-  connected = true;
+const ROWS = () => [
+  { id: "1", owner: "owner", name: "Exa", slug: "exa", endpoint: "https://mcp.exa.ai/mcp", headerNames: [], requireApproval: false },
+  { id: "2", owner: "role:growth", name: "Gmail (benny@example.com)", slug: "gmail", catalogSlug: "gmail", endpoint: "https://gmail", headerNames: [], native: "gmail", account: "benny@example.com", oauth: true, requireApproval: false },
+  { id: "3", owner: "*org*", name: "Notion", slug: "notion", endpoint: "https://notion/mcp", headerNames: [], requireApproval: false },
+];
+
+function tab(key: string): HTMLButtonElement {
+  return ui.query(`[data-scope-tab="${key}"]`) as HTMLButtonElement;
+}
+
+test("tabs pick who a connection is for, each with its count; the owner is not a tab", async () => {
+  connectors = ROWS();
   await renderPanel();
-  const groups = ui.queryAll("[data-group]").map((g) => g.getAttribute("data-group"));
-  expect(groups).toEqual(["owner", "role:growth", "*org*"]);
-  const growth = ui.query('[data-group="role:growth"]')!;
-  expect(growth.textContent).toContain("Growth");
-  expect(growth.textContent).toContain("Agents of every member in this role");
-  expect(growth.textContent).toContain("benny@example.com");
-  expect(growth.textContent).toContain("Connected");
-  expect(ui.query('[data-group="*org*"]')!.textContent).toContain("Whole team");
+  const tabs = ui.queryAll("[data-scope-tab]").map((t) => t.textContent);
+  expect(tabs).toEqual(["Me1", "Growth1", "Whole team1"]);
+  expect(tab("me").getAttribute("aria-selected")).toBe("true");
+  expect(ui.query("[data-scope-hint]")!.textContent).toBe("Only your own agents can use these.");
+  // Me shows only personal rows, and says what the team adds.
+  expect(ui.query('[data-connector="exa"]')).not.toBeNull();
+  expect(ui.query('[data-connector="gmail"]')).toBeNull();
+  expect(ui.query("[data-inherited]")!.textContent).toContain("from Whole team: Notion");
 });
 
-test("the scope picker offers each role, not the owner", async () => {
+test("a role's tab shows its apps with the account under each, and says no rules are needed", async () => {
+  connectors = ROWS();
+  connected = true;
+  withGmail = true;
   await renderPanel();
-  const options = [...(ui.query('[aria-label="Connector scope"]') as HTMLSelectElement).options].map((o) => o.textContent);
-  expect(options).toEqual(["Only me (owner)", "Everyone in Growth", "Whole team"]);
+  await ui.flushAsync(() => tab("role:growth").click());
+  expect(ui.query("[data-scope-hint]")!.textContent).toBe("Agents of everyone in Growth can use these. No tool rules needed.");
+  const gmail = ui.query('[data-app="gmail"]')!;
+  expect(gmail.textContent).toContain("benny@example.com");
+  expect(gmail.textContent).toContain("Connected");
+  expect((ui.query('[data-connect="gmail"]') as HTMLButtonElement).textContent).toBe("Add account");
+  expect(ui.query('[data-connector="exa"]')).toBeNull();
+});
+
+test("Connect adds to the tab you are on, and the tab is remembered", async () => {
+  withGmail = true;
+  await renderPanel();
+  await ui.flushAsync(() => tab("role:growth").click());
+  expect((ui.query('[data-connect="gmail"]') as HTMLButtonElement).textContent).toBe("Connect");
+  await ui.flushAsync(() => (ui.query('[data-connect="gmail"]') as HTMLButtonElement).click());
+  expect(drafts[0]).toMatchObject({ role: "growth", native: "gmail", oauthApp: "google" });
+
+  ui.cleanup();
+  ui = mount();
+  await renderPanel();
+  expect(tab("role:growth").getAttribute("aria-selected")).toBe("true");
+});
+
+test("Manage holds ask-before-use, the tools, and a remove that asks twice", async () => {
+  connectors = ROWS();
+  await renderPanel();
+  expect(ui.query("[data-manage]")).toBeNull();
+  await ui.flushAsync(() => (ui.queryAll("button").find((b) => b.getAttribute("aria-label") === "Manage Exa") as HTMLButtonElement).click());
+  expect(ui.query("[data-manage]")!.textContent).toContain("Ask me before each use");
+  await ui.flushAsync(() => (ui.query('[aria-label="Remove connector Exa"]') as HTMLButtonElement).click());
+  expect(events).not.toContain("delete");
+  await ui.flushAsync(() => (ui.queryAll("button").find((b) => b.textContent === "Remove for good") as HTMLButtonElement).click());
+  expect(events).toContain("delete");
+  expect(ui.query('[data-connector="exa"]')).toBeNull();
 });
 
 test("the untested catalog is not on the page; a custom server hides under Advanced", async () => {

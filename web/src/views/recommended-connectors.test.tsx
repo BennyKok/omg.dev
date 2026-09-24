@@ -3,7 +3,7 @@ import { mount, type Mounted } from "../test-support/render";
 import { createSameOriginTransport } from "@omg-dev/client";
 import { configureOmgTransport } from "../lib/omg-client";
 
-const { RecommendedConnectors } = await import("./connectors-native");
+const { AppList } = await import("./connectors-native");
 
 const GMAIL = {
   id: "omg/gmail", slug: "gmail", name: "Gmail", description: "Search, read, draft, send, label and trash mail.",
@@ -50,13 +50,20 @@ afterEach(() => {
 const addConnector = async (draft: Record<string, unknown>) => {
   drafts.push(draft);
 };
+const noop = async () => {};
+
+function renderList(connectors: Record<string, unknown>[] = [], scope: { kind: "me" } | { kind: "role"; roleId: string } = { kind: "me" }) {
+  ui.render(
+    <AppList user="owner" scope={scope} connectors={connectors as never} addConnector={addConnector} onChanged={noop} onError={() => {}} signIn={noop} />,
+  );
+}
 
 function connectButton(): HTMLButtonElement {
-  return ui.query('[data-recommended="gmail"] button') as HTMLButtonElement;
+  return ui.query('[data-connect="gmail"]') as HTMLButtonElement;
 }
 
 test("without a Google client, shows the setup form with the redirect URI and blocks Connect", async () => {
-  ui.render(<RecommendedConnectors user="owner" scope={{ kind: "me" }} connectors={[]} addConnector={addConnector} />);
+  renderList();
   await ui.flushAsync();
   expect(ui.text()).toContain("Gmail");
   expect(ui.text()).toContain("Set up Google sign-in once");
@@ -65,7 +72,7 @@ test("without a Google client, shows the setup form with the redirect URI and bl
 });
 
 test("saving the client unblocks Connect, which adds Gmail on the google app", async () => {
-  ui.render(<RecommendedConnectors user="owner" scope={{ kind: "me" }} connectors={[]} addConnector={addConnector} />);
+  renderList();
   await ui.flushAsync();
   const set = (label: string, value: string) => {
     const input = ui.query(`input[aria-label="${label}"]`) as HTMLInputElement;
@@ -88,21 +95,21 @@ test("saving the client unblocks Connect, which adds Gmail on the google app", a
   expect(drafts[0]).toMatchObject({ name: "Gmail", endpoint: "https://gmailmcp.googleapis.com/mcp/v1", oauth: true, oauthApp: "google", native: "gmail", catalogSlug: "gmail" });
 });
 
-test("an added Gmail account stays offered as another account", async () => {
+test("a connected account sits under its app, which then offers Add account", async () => {
   configured = true;
-  const added = [{ id: "a", owner: "owner", name: "Gmail (benny@example.com)", slug: "gmail", endpoint: GMAIL.connectUrl, headerNames: [], catalogSlug: "gmail", native: "gmail", account: "benny@example.com", requireApproval: false, createdAt: 1, updatedAt: 1 }];
-  ui.render(<RecommendedConnectors user="owner" scope={{ kind: "me" }} connectors={added} addConnector={addConnector} />);
+  renderList([{ id: "a", owner: "role:growth", name: "Gmail (benny@example.com)", slug: "gmail", endpoint: GMAIL.connectUrl, headerNames: [], catalogSlug: "gmail", native: "gmail", account: "benny@example.com", oauth: true, oauthConnected: true, requireApproval: false, createdAt: 1, updatedAt: 1 }], { kind: "role", roleId: "growth" });
   await ui.flushAsync();
-  expect(connectButton().textContent).toBe("Add another account");
-});
-
-test("Gmail added for you still reads Connect when the scope is a role, and says who it is for", async () => {
-  configured = true;
-  const mine = [{ id: "a", owner: "owner", name: "Gmail (benny@example.com)", slug: "gmail", endpoint: GMAIL.connectUrl, headerNames: [], catalogSlug: "gmail", native: "gmail", account: "benny@example.com", requireApproval: false, createdAt: 1, updatedAt: 1 }];
-  ui.render(<RecommendedConnectors user="owner" scope={{ kind: "role", roleId: "growth" }} scopeLabel="everyone in Growth" connectors={mine} addConnector={addConnector} />);
-  await ui.flushAsync();
-  expect(connectButton().textContent).toBe("Connect");
-  expect(ui.query("[data-scope-label]")?.textContent).toBe("For everyone in Growth");
+  expect(ui.query('[data-app="gmail"]')!.textContent).toContain("benny@example.com");
+  expect(connectButton().textContent).toBe("Add account");
   await ui.flushAsync(() => connectButton().click());
   expect(drafts[0]).toMatchObject({ role: "growth", native: "gmail" });
+});
+
+test("an account whose sign-in is missing offers Connect on its own row", async () => {
+  configured = true;
+  renderList([{ id: "a", owner: "owner", name: "Gmail", slug: "gmail", endpoint: GMAIL.connectUrl, headerNames: [], catalogSlug: "gmail", native: "gmail", oauth: true, oauthConnected: false, requireApproval: false, createdAt: 1, updatedAt: 1 }]);
+  await ui.flushAsync();
+  const row = ui.query('[data-connector="gmail"]')!;
+  expect(row.textContent).toContain("Not signed in yet");
+  expect([...row.querySelectorAll("button")].some((b) => b.textContent === "Connect")).toBe(true);
 });
