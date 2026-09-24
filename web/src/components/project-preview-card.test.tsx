@@ -86,3 +86,16 @@ test("a stopped preview offers a restart that asks the session agent", async () 
   expect(JSON.parse(sent[0]!.body).text).toContain("Restart it");
   expect(ui.text()).toContain("Asked the agent to restart it");
 });
+
+test("an expired Expo Go link says so and offers the restart", async () => {
+  globalThis.fetch = (async () => Response.json({ live: false, expired: true, preview: {
+    sessionId: "session-1", title: "Todo app", url: "https://sandbox-8081.preview.omgs.app",
+    port: 8081, kind: "sandbox-preview", visibility: "owner", temporary: true, createdAt: 1,
+    expoGoUrl: "exps://cap-token.preview.omgs.app",
+  } })) as typeof fetch;
+  ui.render(<ProjectPreviewCard sessionId="session-1" />);
+  await ui.flushAsync();
+  expect(ui.text()).toContain("Link expired");
+  expect(ui.text()).toContain("The Expo Go link expired.");
+  expect(ui.queryAll("button").some((node) => node.textContent === "Restart preview")).toBe(true);
+});

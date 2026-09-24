@@ -30,6 +30,12 @@ up() { curl -fsS -m 3 "$LOCAL/status" 2>/dev/null | grep -q "packager-status:run
 
 [ -x "$EXPO" ] || bun install >/dev/null || fail "bun install failed"
 
+# Expo reads .env when it bundles. Without the backend URL the phone app has no
+# data, so say so before starting.
+if [ -z "${EXPO_PUBLIC_OMG_API_URL:-}" ] && ! grep -qs '^EXPO_PUBLIC_OMG_API_URL=.' .env; then
+  echo "WARNING: EXPO_PUBLIC_OMG_API_URL is not set. Deploy the backend with omg_deploy, make it public with omg_app_visibility, write the URL to .env, then run this script again." >&2
+fi
+
 # One Metro per port. `ss` is not installed on every Computer, so probe with curl.
 if up; then
   pkill -f "expo start .*--port ${PORT}" || true

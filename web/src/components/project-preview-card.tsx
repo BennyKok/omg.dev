@@ -30,6 +30,7 @@ export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | nu
   if (!preview) return null;
   const expoGoUrl = preview.expoGoUrl;
   const stopped = state?.live === false;
+  const expired = state?.expired === true;
   const restart = async () => {
     if (!sessionId || restartAsked) return;
     setRestartAsked(true);
@@ -50,11 +51,13 @@ export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | nu
         </span>
         <div className="min-w-0 flex-1">
           <div className="truncate font-medium">{preview.title}</div>
-          <div className="text-xs text-muted-foreground">{stopped ? "Stopped" : expoGoUrl ? "Expo app" : "Live preview"} · Private to you · Temporary</div>
+          <div className="text-xs text-muted-foreground">{expired ? "Link expired" : stopped ? "Stopped" : expoGoUrl ? "Expo app" : "Live preview"} · Private to you · Temporary</div>
         </div>
       </div>
       {stopped ? <div className="mt-3 space-y-2" data-testid="project-preview-stopped">
-        <p className="text-xs text-muted-foreground">The development server is not running. This happens when the Computer sleeps.</p>
+        <p className="text-xs text-muted-foreground">{expired
+          ? "The Expo Go link expired. Restart the preview to get a new one."
+          : "The development server is not running. This happens when the Computer sleeps."}</p>
         <button className="inline-flex items-center gap-1.5 font-medium text-primary disabled:text-muted-foreground" disabled={restartAsked} onClick={() => void restart()}>
           <RotateCw className="size-3.5" />{restartAsked ? "Asked the agent to restart it" : "Restart preview"}
         </button>

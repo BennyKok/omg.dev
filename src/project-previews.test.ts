@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createProjectPreviewService } from "./project-previews.ts";
+import { createProjectPreviewService, expoGoHostExpiry } from "./project-previews.ts";
 
 let dir: string;
 let handle: ReturnType<typeof createProjectPreviewService>;
@@ -106,4 +106,38 @@ test("a viewer or another agent cannot publish or read the preview", async () =>
     method: "POST", headers: { "content-type": "application/json", "x-omg-caller-session-id": "b" }, body: "{}",
   }));
   expect(wrongAgent.status).toBe(403);
+});
+
+test("reads the expiry the Cloud signs into an Expo Go host", () => {
+  const expires = Math.floor(Date.UTC(2026, 8, 24, 12) / 1000);
+  expect(expoGoHostExpiry(`e7408bccf4cd-8081-${expires.toString(36)}-0123456789abcdef.preview.omgs.app`)).toBe(expires * 1000);
+  expect(expoGoHostExpiry("e7408bccf4cd-8081.preview.omgs.app")).toBeUndefined();
+});
+
+test("an expired Expo Go link reads as not live and expired", async () => {
+  const expires = 2_000_000;
+  let clock = 1_000;
+  const service = createProjectPreviewService({
+    session: async id => id === "a" ? { id: "a", owner: "a@example.com" } : null,
+    viewer: req => req.headers.get("x-omg-viewer-email") ?? "",
+    resolve: async port => ({
+      url: `https://sandbox-${port}.preview.omgs.app/`,
+      expoGoUrl: `https://sandbox-${port}-${expires.toString(36)}-0123456789abcdef.preview.omgs.app/`,
+    }),
+    listening: async () => true,
+    storePath: join(dir, "expiry-previews.json"),
+    now: () => clock,
+  });
+  const post = await service(new Request("http://localhost/api/project-preview?sessionId=a", {
+    method: "POST", headers: { "content-type": "application/json", "x-omg-caller-session-id": "a" },
+    body: JSON.stringify({ port: 8081, expoGo: true }),
+  }));
+  expect(((await post.json()) as { preview: { expoGoExpiresAt?: number } }).preview.expoGoExpiresAt).toBe(expires * 1000);
+  const read = () => service(new Request("http://localhost/api/project-preview?sessionId=a", { headers: { "x-omg-viewer-email": "a@example.com" } }))
+    .then(r => r.json() as Promise<{ live?: boolean; expired?: boolean }>);
+  expect(await read()).toMatchObject({ live: true });
+  clock = expires * 1000;
+  const after = await read();
+  expect(after.live).toBe(false);
+  expect(after.expired).toBe(true);
 });
