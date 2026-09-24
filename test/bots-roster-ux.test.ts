@@ -104,8 +104,9 @@ describe("bots page roster chrome", () => {
     // The type scale itself now lives once, on the shared shell, rather than
     // being copied by eye at each call site (see RailRow's docstring). It is
     // the iOS session row's scale: a 17px title, and the same 14px preview.
-    expect(RAIL_ROW).toContain('"min-w-0 flex-1 truncate text-[17px] leading-tight tracking-[-0.2px]"');
-    expect(RAIL_ROW).toContain("text-sm leading-tight text-muted-foreground");
+    // The desktop session rail opts into a denser scale on the same shell.
+    expect(RAIL_ROW).toContain('"text-[17px] tracking-[-0.2px]"');
+    expect(RAIL_ROW).toContain('"h-5 text-sm"');
     expect(BOT_ROSTER_ROW).not.toContain("text-sm font-medium");
     expect(BOT_ROSTER_ROW).not.toContain("text-xs leading-tight text-muted-foreground");
   });
