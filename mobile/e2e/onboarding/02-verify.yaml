@@ -9,6 +9,7 @@ appId: dev.omg.computer
 - extendedWaitUntil:
     visible: "Code & reviews"
     timeout: 20000
+- assertVisible: "Websites & apps"
 - tapOn: "Code & reviews"
 - tapOn: "Continue"
 - extendedWaitUntil:
