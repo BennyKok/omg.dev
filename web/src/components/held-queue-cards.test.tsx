@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mount, window, type Mounted } from "../test-support/render";
 import type { OmgQueueMessage } from "../lib/omg-chat-transport";
 
-const { HeldQueueCards } = await import("./held-queue-cards");
+const { HeldQueueCards, LOCAL_HELD_ID_PREFIX } = await import("./held-queue-cards");
 
 let ui: Mounted;
 beforeEach(() => {
@@ -15,10 +15,17 @@ const held: OmgQueueMessage[] = [
   { id: "bb22", text: "second thing", status: "held", createdAt: 2 },
 ];
 
-function harness(opts?: { request?: <T>(path: string, init?: RequestInit) => Promise<T> }) {
+function harness(opts?: {
+  request?: <T>(path: string, init?: RequestInit) => Promise<T>;
+  items?: OmgQueueMessage[];
+}) {
   const calls: { path: string; method?: string; body?: unknown }[] = [];
   const sent: string[] = [];
-  let items = held;
+  // What the transcript shows while each send-now is in flight: the caller
+  // paints a bubble before it awaits `release`.
+  const painted: string[] = [];
+  const errors: (string | null)[] = [];
+  let items = opts?.items ?? held;
   const request = async <T,>(path: string, init?: RequestInit) => {
     calls.push({
       path,
@@ -38,13 +45,17 @@ function harness(opts?: { request?: <T>(path: string, init?: RequestInit) => Pro
           items = update(items);
           render();
         }}
-        onError={() => {}}
-        onSendNow={(text) => sent.push(text)}
+        onError={(message) => errors.push(message)}
+        onSendNow={async (text, release) => {
+          painted.push(text);
+          await release();
+          sent.push(text);
+        }}
         request={request}
       />,
     );
   render();
-  return { calls, sent, current: () => items };
+  return { calls, sent, painted, errors, current: () => items };
 }
 
 describe("HeldQueueCards", () => {
@@ -85,15 +96,46 @@ describe("HeldQueueCards", () => {
     expect(ui.text()).not.toContain("first thing");
   });
 
-  test("send now does not steer when the delete fails", async () => {
+  test("send now hands the text to the caller before the delete resolves", async () => {
+    let finishDelete: () => void = () => {};
     const h = harness({
-      request: async () => {
-        throw new Error("only a held message can be removed");
+      request: <T,>() => new Promise<T>((resolve) => (finishDelete = () => resolve({ ok: true } as T))),
+    });
+    const send = ui.query('button[aria-label="Send now, into the current turn"]') as HTMLButtonElement;
+    await ui.flushAsync(() => send.click());
+    // The card is gone and the bubble is painted while the DELETE is pending.
+    expect(h.painted).toEqual(["first thing"]);
+    expect(h.sent).toEqual([]);
+    expect(ui.text()).not.toContain("first thing");
+    await ui.flushAsync(() => finishDelete());
+    expect(h.sent).toEqual(["first thing"]);
+  });
+
+  test("send now does not steer when the delete fails, and the card comes back", async () => {
+    const h = harness({
+      request: async <T,>(_path: string, init?: RequestInit) => {
+        if (init?.method === "DELETE") throw new Error("network down");
+        return { queue: held } as T;
       },
     });
     const send = ui.query('button[aria-label="Send now, into the current turn"]') as HTMLButtonElement;
     await ui.flushAsync(() => send.click());
     expect(h.sent).toEqual([]);
+    expect(h.errors).toEqual(["network down"]);
+    expect(h.current().map((item) => item.id)).toEqual(["aa11", "bb22"]);
+    expect(ui.text()).toContain("first thing");
+  });
+
+  test("a card the server has not answered for yet shows a spinner and no actions", () => {
+    harness({
+      items: [{ id: `${LOCAL_HELD_ID_PREFIX}x1`, text: "just typed", status: "held", createdAt: 3 }],
+    });
+    expect(ui.text()).toContain("1 queued");
+    expect(ui.text()).toContain("just typed");
+    expect(ui.query('[aria-label="Queueing"]')).not.toBeNull();
+    expect(ui.query('button[aria-label="Send now, into the current turn"]')).toBeNull();
+    expect(ui.query('button[aria-label="Remove queued message"]')).toBeNull();
+    expect((ui.query('button[title="Edit"]') as HTMLButtonElement).disabled).toBe(true);
   });
 
   test("editing a card patches the held text", async () => {

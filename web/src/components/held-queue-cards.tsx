@@ -1,9 +1,16 @@
 // The held sends under the composer. See HeldQueueCards.
 import { useState } from "react";
-import { ArrowUp, Check, ChevronDown, Clock3, X } from "lucide-react";
+import { ArrowUp, Check, ChevronDown, Clock3, Loader2, X } from "lucide-react";
 import { api } from "../lib/omg-client";
 import { cn } from "../lib/utils";
 import type { OmgQueueMessage } from "../lib/omg-chat-transport";
+
+/**
+ * Id prefix for a card the composer painted before the server answered. Such
+ * a card has no server row yet, so it cannot be edited, sent or removed; it
+ * shows a spinner until the send response swaps in the real held row.
+ */
+export const LOCAL_HELD_ID_PREFIX = "local-held-";
 
 /**
  * The held sends under the composer: queue-mode text the server keeps back
@@ -26,8 +33,13 @@ export function HeldQueueCards({
   busy: boolean;
   onChange: (update: (current: OmgQueueMessage[]) => OmgQueueMessage[]) => void;
   onError: (message: string | null) => void;
-  /** Stop waiting: the card leaves the queue, then this sends the text as steer. */
-  onSendNow: (text: string) => void;
+  /**
+   * Stop waiting and steer this text into the running turn. The caller paints
+   * the bubble first, then awaits `release` (which takes the row out of the
+   * held queue) before it sends, so a failed release never sends twice. A
+   * rejection puts the card back.
+   */
+  onSendNow: (text: string, release: () => Promise<void>) => Promise<void>;
   request?: <T>(path: string, init?: RequestInit) => Promise<T>;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -36,17 +48,16 @@ export function HeldQueueCards({
   const base = `/api/sessions/${encodeURIComponent(sessionId)}/queue`;
   // A card can be released (or removed elsewhere) between opening it and
   // acting on it. The server answers 404/409; the honest message is that the
-  // text already went, and the list is refreshed so the card leaves.
+  // text already went. Any failure re-reads the list: the optimistic edit may
+  // have hidden a card the server still holds, or kept one it already sent.
   const fail = (err: unknown) => {
     const message = err instanceof Error ? err.message : String(err);
-    if (/not found|only a held message/i.test(message)) {
-      onError("That queued message was already sent.");
-      void request<{ queue?: OmgQueueMessage[] }>(base, { cache: "no-store" })
-        .then((res) => onChange(() => (res.queue ?? []).filter((item) => item.status === "held")))
-        .catch(() => null);
-      return;
-    }
-    onError(message);
+    onError(
+      /not found|only a held message/i.test(message) ? "That queued message was already sent." : message,
+    );
+    void request<{ queue?: OmgQueueMessage[] }>(base, { cache: "no-store" })
+      .then((res) => onChange(() => (res.queue ?? []).filter((item) => item.status === "held")))
+      .catch(() => null);
   };
 
   const remove = async (id: string) => {
@@ -72,18 +83,21 @@ export function HeldQueueCards({
       fail(err);
     }
   };
-  // Delete first so a failed send never duplicates the row. A failed delete
-  // leaves the card (fail() refreshes); a failed send after delete is the
-  // same trade as mobile: never twice, even if the text has to be retyped.
+  // The card leaves and the caller paints the bubble in the same tick, so the
+  // text never disappears while the delete is in flight. The delete still runs
+  // before the send, so a failed send never duplicates the row. A failed
+  // delete brings the card back (fail() refreshes); a failed send after the
+  // delete is the same trade as mobile: never twice, even if the text has to
+  // be retyped.
   const sendNow = async (id: string, text: string) => {
     onChange((current) => current.filter((item) => item.id !== id));
     try {
-      await request(`${base}/${id}`, { method: "DELETE" });
+      await onSendNow(text, async () => {
+        await request(`${base}/${id}`, { method: "DELETE" });
+      });
     } catch (err) {
       fail(err);
-      return;
     }
-    onSendNow(text);
   };
 
   const hidden = expanded ? 0 : Math.max(0, items.length - 1);
@@ -123,6 +137,7 @@ export function HeldQueueCards({
       </button>
       {shown.map((item, index) => {
         const editing = editingId === item.id;
+        const local = item.id.startsWith(LOCAL_HELD_ID_PREFIX);
         return (
           <div
             key={item.id}
@@ -150,6 +165,7 @@ export function HeldQueueCards({
             ) : (
               <button
                 type="button"
+                disabled={local}
                 onClick={() => {
                   setDraft(item.text);
                   setEditingId(item.id);
@@ -173,7 +189,11 @@ export function HeldQueueCards({
                 +{hidden}
               </button>
             ) : null}
-            {editing ? (
+            {local ? (
+              <span className="shrink-0 p-1 text-muted-foreground" aria-label="Queueing">
+                <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+              </span>
+            ) : editing ? (
               <button
                 type="button"
                 onClick={() => void save(item.id)}

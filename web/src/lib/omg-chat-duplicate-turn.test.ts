@@ -362,4 +362,31 @@ describe("sending while the assistant is streaming", () => {
     await sleep(200);
     await Promise.allSettled([first, second]);
   });
+
+  test("a passive send joins a running turn without opening a live stream", async () => {
+    const SID = nextSid();
+    const listeners = new Set<(event: OmgTranscriptEvent) => void>();
+    const bodies: unknown[] = [];
+    const transport = new OmgChatTransport({
+      sessionId: SID,
+      fetch: async (_url, init) => {
+        bodies.push(JSON.parse(String(init?.body)));
+        return new Response("{}", { status: 200 });
+      },
+      subscribeTranscript: (_sid, next) => {
+        listeners.add(next);
+        return () => void listeners.delete(next);
+      },
+    });
+    // A turn another client started: nothing in this chat owns a stream.
+    const joining = await transport.sendMessages({
+      messages: [{ id: "u1", role: "user", parts: [{ type: "text", text: "steer in" }] }],
+      body: { mode: "steer", passive: true },
+    } as Parameters<OmgChatTransport["sendMessages"]>[0]);
+    // The send reached the server, but no emitter subscribed mid-turn: the
+    // passive transcript listener keeps drawing the reply it already has.
+    expect(bodies).toEqual([{ text: "steer in", mode: "steer" }]);
+    expect(listeners.size).toBe(0);
+    expect(await joining.getReader().read()).toEqual({ done: true, value: undefined });
+  });
 });
