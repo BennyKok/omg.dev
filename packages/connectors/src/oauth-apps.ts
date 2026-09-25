@@ -135,7 +135,10 @@ export function isPlatformTokenExchangeUrl(raw: string): boolean {
   }
 }
 
-type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+// `RequestInfo` is a DOM lib name. The root tsconfig has no DOM lib, so name
+// the fetch input the same way the rest of this package does.
+type FetchInput = string | URL | Request;
+type FetchLike = (input: FetchInput, init?: RequestInit) => Promise<Response>;
 
 /**
  * Fetch wrapper for a platform client that has no secret. Token posts go to
