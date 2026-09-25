@@ -533,6 +533,7 @@ import { ShimmerText } from "@/components/ui/shimmer-text";
 import { MorphText } from "@/components/ui/morph-text";
 import { DoubleConfirmAction } from "@/components/ui/double-confirm-action";
 import { ClearFindingsButton } from "@/components/clear-findings-button";
+import { AutoReportRow, SEV_DOT, SEV_LABEL, relTime } from "@/components/auto-report-row";
 import {
   Dialog,
   DialogContent,
@@ -9522,7 +9523,7 @@ export function App() {
               autoAgents={projectScopedAutoAgents}
               onOpenReport={setOpenReport}
               onDismissFinding={(finding) => void dismissFinding(finding)}
-              onTriageFindings={() => void launchAutoTriage(projectScopedFindings)}
+              onTriageFindings={(targets) => void launchAutoTriage(targets ?? projectScopedFindings)}
               autoTriageBusy={autoTriageBusy}
               onClearFindings={(targets) => void clearAllFindings(targets)}
               clearFindingsBusy={clearFindingsBusy}
@@ -11688,7 +11689,7 @@ function LiveView({
   /** Open the report sheet for one agent's open findings. */
   onOpenReport: (agentId: string) => void;
   onDismissFinding: (f: AutoFinding) => void;
-  onTriageFindings: () => void;
+  onTriageFindings: (targets?: AutoFinding[]) => void;
   autoTriageBusy?: boolean;
   /** Dismiss every finding passed in. Takes the list rather than reading it
    *  back, so the confirmation count and the rows cleared cannot diverge. */
@@ -12127,7 +12128,7 @@ function LiveView({
           <AutoTriageButton
             count={findings.length}
             busy={autoTriageBusy}
-            onClick={onTriageFindings}
+            onClick={() => onTriageFindings()}
             compact
           />
         </span>
@@ -12142,6 +12143,11 @@ function LiveView({
             setFindingsOpen(false);
             onOpenReport(report.agentId);
           }}
+          onTriage={() => {
+            setFindingsOpen(false);
+            onTriageFindings(report.findings);
+          }}
+          triageBusy={autoTriageBusy}
         />
       ))}
     </FindingsSheet>
@@ -12279,7 +12285,7 @@ function RailStage({
   nameFor: (id: string) => string;
   /** Open the report sheet for one agent's open findings. */
   onOpenReport: (agentId: string) => void;
-  onTriageFindings: () => void;
+  onTriageFindings: (targets?: AutoFinding[]) => void;
   autoTriageBusy?: boolean;
   onClearFindings: (targets: AutoFinding[]) => void;
   clearFindingsBusy?: boolean;
@@ -13302,7 +13308,7 @@ function RailStage({
               <AutoTriageButton
                 count={findings.length}
                 busy={autoTriageBusy}
-                onClick={onTriageFindings}
+                onClick={() => onTriageFindings()}
                 compact
               />
               <button
@@ -13323,6 +13329,8 @@ function RailStage({
                 report={report}
                 agentName={nameFor(report.agentId)}
                 onOpen={() => onOpenReport(report.agentId)}
+                onTriage={() => onTriageFindings(report.findings)}
+                triageBusy={autoTriageBusy}
               />
             ))}
           </div>
@@ -14957,26 +14965,6 @@ function BotRailContextMenu({
       </ContextMenuContent>
     </ContextMenu>
   );
-}
-
-const SEV_DOT: Record<AutoFinding["severity"], string> = {
-  high: "bg-destructive",
-  med: "bg-warning",
-  low: "bg-muted-foreground",
-};
-const SEV_LABEL: Record<AutoFinding["severity"], string> = {
-  high: "High",
-  med: "Medium",
-  low: "Low",
-};
-function relTime(ts: number): string {
-  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
-  if (s < 60) return "now";
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h`;
-  return `${Math.floor(h / 24)}d`;
 }
 
 function AutoFindingCard({
@@ -26448,57 +26436,6 @@ function FindingSheet({ onClose, ...props }: FindingDetailProps & { onClose: () 
         </AutoAgentPage>
       )}
     />
-  );
-}
-
-// One row per agent in the Auto section. The dot is the agent's worst open
-// severity, the pill is how many findings it is sitting on, the caption is
-// the one to read first. Tapping opens the agent's report, not a finding —
-// one row per finding put five "Fleet Health" rows in a list meant for
-// sessions, each distinguishable only by a truncated title.
-function AutoReportRow({
-  report,
-  agentName,
-  onOpen,
-}: {
-  report: AgentReport<AutoFinding>;
-  agentName: string;
-  onOpen: () => void;
-}) {
-  const count = report.findings.length;
-  const lead = report.findings[0];
-  return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-muted"
-    >
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="flex min-w-0 items-center gap-1.5">
-          <span className="truncate text-sm font-medium leading-tight">{agentName}</span>
-          {count > 1 ? (
-            <span
-              className="shrink-0 rounded-full bg-primary/12 px-1.5 py-px text-[10px] font-semibold tabular-nums text-primary"
-              aria-label={`${count} open findings`}
-            >
-              {count}
-            </span>
-          ) : null}
-        </span>
-        <span className="truncate text-xs leading-tight text-muted-foreground">{lead.title}</span>
-      </span>
-      {/* Severity sits where a session row puts its unread dot: same size,
-          same slot, right of the text and left of the time. One place for
-          "this needs you" across the list, coloured by how badly. */}
-      <span
-        role="status"
-        aria-label={`${SEV_LABEL[report.severity]} severity`}
-        className={cn("inline-block size-2 shrink-0 rounded-full", SEV_DOT[report.severity])}
-      />
-      <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/70">
-        {relTime(report.latestAt)}
-      </span>
-    </button>
   );
 }
 
