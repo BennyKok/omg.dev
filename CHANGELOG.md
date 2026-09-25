@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## September 25, 2026 - One typing indicator (v0.6.129)
+
+- A live reply shows one row of typing dots. Before, a reply that was still writing its first paragraph showed two.
+- On iPhone, a new account that already picked its first task on the web is not shown the task cards again.
+- Dictation sends the words on screen when the final transcript is late.
+
 ## September 25, 2026 - DeepSeek replies stop rewriting themselves (v0.6.128)
 
 - Live replies from DeepSeek and other OpenCode models no longer replace themselves while they stream. The model's reasoning now shows as a thought, and the answer text stays in place.
