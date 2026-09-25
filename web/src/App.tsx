@@ -20793,7 +20793,7 @@ const ToolGroup = memo(function ToolGroup({
     <button
       type="button"
       className={cn(
-        "tool-call-row not-prose flex w-fit max-w-full cursor-pointer items-center gap-2 rounded-full px-2.5 py-1 text-left text-xs text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
+        "tool-call-row not-prose flex w-fit max-w-full cursor-pointer items-center gap-1.5 rounded-full py-1 pr-2.5 text-left text-xs text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
         live && "tool-call-row--live text-foreground",
       )}
       aria-label={`${label}: ${summary}. Show details`}
@@ -20814,6 +20814,8 @@ const ToolGroup = memo(function ToolGroup({
         />
       ) : null}
       <span className="relative z-[1] truncate font-mono">{label}</span>
+      {/* The chevron says the row opens, as on the phone. */}
+      <ChevronRight className="relative z-[1] size-3 shrink-0 opacity-60" aria-hidden="true" />
     </button>
   );
 
