@@ -2,6 +2,15 @@
 
 Recent product updates and deployment notes.
 
+## September 25, 2026 - One layout per screen size (v0.6.126)
+
+- The web app now has only a phone layout and a desktop layout. Windows between 768 and 1023 pixels wide get the desktop sidebar instead of a mixed layout.
+- The desktop sidebar is cleaner. The stray dividers are gone, and the icons and titles line up.
+- Live replies appear a paragraph at a time on the web and in the iPhone app, instead of word by word.
+- Finished tool rows in a conversation show only their label and end in a chevron. The pulsing dot shows only while a tool runs.
+- On iPhone, a notification shows the mark of the agent that sent it.
+- On iPhone, press and hold a video to save or share it. The caption under each video is gone.
+
 ## September 24, 2026 - Faster return connections (v0.6.124)
 
 - Returning to a screen can reuse a valid connection grant. Network failures and explicit reconnects still refresh the relay route.
