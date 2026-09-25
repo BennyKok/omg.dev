@@ -8,6 +8,7 @@ import { ProjectFolderMenu } from "./components/project-folder-menu";
 import { HostDrawerSlot, SideNavButton, SideNavDrawer, SideNavGlyph, SideNavPanel } from "./components/side-nav";
 import { FindingsPill, FindingsSheet } from "./components/findings-pill";
 import { sideNavRows, type SideNavRow } from "./lib/side-nav-items";
+import { settledParagraphs } from "./lib/paragraph-stream";
 import {
   AgentSetupSheet,
   type SetupAgentTile,
@@ -21559,7 +21560,13 @@ const MessageBubble = memo(function MessageBubble({
   // markdown on the canvas (spec §4.2). Only turns that have said something:
   // an empty one is the typing state, which is already the creature at work and
   // would otherwise put a second creature inside a bubble beside the first.
-  const botBubble = !!bot && !!message.text;
+  // A live reply shows whole paragraphs, not tokens. See lib/paragraph-stream.
+  // Until the first paragraph completes, the empty text shows the typing state.
+  const shownText =
+    message.kind === "text" && isDraftAssistantMessage(message)
+      ? settledParagraphs(message.text ?? "")
+      : message.text;
+  const botBubble = !!bot && !!shownText;
   const body = (
     <MessageActions text={message.text || ""} isUser={false}>
         {/* Assistant turns render markdown from the raw source via Streamdown,
@@ -21585,13 +21592,13 @@ const MessageBubble = memo(function MessageBubble({
           botBubble && "rounded-[18px] border border-border bg-card px-3.5 py-2.5 text-[14.5px] leading-[1.55]",
         )}
       >
-        {message.text ? (
+        {shownText ? (
           <MessageResponse
             animated={STREAMING_RESPONSE_ANIMATION}
             isAnimating={isDraftAssistantMessage(message) && !message.catchUp}
             mode={isDraftAssistantMessage(message) ? "streaming" : "static"}
           >
-            {message.text}
+            {shownText}
           </MessageResponse>
         ) : (
           <TypingIndicator bot={bot} />

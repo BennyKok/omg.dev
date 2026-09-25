@@ -2,6 +2,7 @@ import { createdSessionPrompt } from "../../src/omg/pending-session";
 import { openingReveal } from "../../src/omg/opening-reveal";
 import { useTranscriptPage } from "../../src/omg/use-transcript-page";
 import { appendTranscriptDraft, INITIAL_TRANSCRIPT_ITEMS, TranscriptWindow } from "../../src/omg/transcript-items";
+import { settledParagraphs } from "../../src/omg/paragraph-stream";
 import { ChatIdentityContext, useChatIdentity } from "../../src/omg/chat-identity";
 /**
  * A session: the transcript, and the composer.
@@ -787,8 +788,12 @@ function SessionScreenContent({
           // The SDK accumulates the deltas and says which kind of draft this
           // is. Reasoning and reply share the wire channel and are told apart
           // only by that; the raw `ai_part` events are ignored here.
+          // A reply shows whole paragraphs, not tokens (see paragraph-stream).
+          // The same prefix is the same string, so React skips the re-render
+          // for every delta that does not complete a paragraph.
           startTransition(() => {
-            (event.draft.kind === "thinking" ? setStreamThought : setStreamText)(event.draft.text);
+            if (event.draft.kind === "thinking") setStreamThought(event.draft.text);
+            else setStreamText(settledParagraphs(event.draft.text));
           });
           break;
         case "busy":

@@ -29,6 +29,7 @@ import type { OmgClient } from "@omg-dev/client";
 
 import { buildTranscriptItems, TranscriptRow, type Entry } from "./transcript";
 import { useTheme } from "./theme";
+import { settledParagraphs } from "./paragraph-stream";
 
 export function OnboardingTranscript({
   client,
@@ -67,7 +68,7 @@ export function OnboardingTranscript({
           // Reply deltas only. A streaming THOUGHT is deliberately dropped:
           // in a card this size a paragraph of reasoning pushes the answer off
           // the bottom, and the session screen is where that belongs.
-          if (event.draft.kind !== "thinking") setStreamText(event.draft.text);
+          if (event.draft.kind !== "thinking") setStreamText(settledParagraphs(event.draft.text));
           break;
         case "busy":
           setBusy(event.busy);
