@@ -61,6 +61,8 @@ export default function NewSessionScreen() {
         screenKey={`pending:${pending.token}`}
         sessionId={sessionId}
         initialPrompt={pending.prompt}
+        initialAgent={pending.agent}
+        initialModel={pending.model}
         onDeliver={sessionId ? undefined : deliver}
       />
     </>;

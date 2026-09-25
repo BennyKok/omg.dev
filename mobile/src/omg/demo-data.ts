@@ -418,8 +418,12 @@ function answer(path: string): unknown | null {
       { ...demoArtifact, id: "demo-hidden-file", kind: "file", title: "Hidden file output", name: "Hidden file output", url: "/api/artifacts/demo-hidden-file" }], total: 4 };
   }
   if ((openingFixture || shareFixture) && clean === "/api/sessions/demo-created/messages") {
-    return { messages: [{ id: "demo-created-prompt", role: "user", text: createdPrompt },
-      { id: "demo-created-reply", role: "assistant", text: "Your new conversation is ready." }] };
+    // Wrapped the way the machine wraps every launch (tmux.ts launchEnvelope),
+    // so the opening checks see the real first row, instructions chip included.
+    const launched = `=== omg.dev RUNTIME CONTRACT (capability version demo) ===\nYou are an omg.dev-managed coding agent.\n=== END omg.dev RUNTIME CONTRACT ===\n\n=== USER TASK ===\n${createdPrompt}`;
+    // Stamped like the machine's rows, so the transcript's time stamp holds.
+    return { messages: [{ id: "demo-created-prompt", role: "user", text: launched, ts: createdAt },
+      { id: "demo-created-reply", role: "assistant", text: "Your new conversation is ready.", ts: createdAt + 1000 }] };
   }
   if (clean === "/api/bootstrap") return demoBootstrap();
   // The Settings software row reads this. Without an answer the row is absent,
@@ -483,6 +487,7 @@ function answer(path: string): unknown | null {
 // Opt-in slow-network fixture for recorded opening/navigation checks only.
 const openingFixture = process.env.EXPO_PUBLIC_OMG_OPENING_FIXTURE === "1";
 let createdPrompt = "";
+let createdAt = 0;
 async function openingDelay(path: string) {
   if (openingFixture && /\/api\/(bootstrap|sessions)/.test(path)) {
     await new Promise(resolve => setTimeout(resolve, path === "/api/sessions/new" ? 60000 : path === "/api/bootstrap" ? 90000 : 5000));
@@ -519,9 +524,11 @@ export function getDemoTransport(): OmgTransport {
       } as unknown as Response;
     },
     async request<T>(path: string, init?: RequestInit): Promise<T> {
+      const requestedAt = Date.now();
       await openingDelay(path);
       if ((openingFixture || shareFixture) && path === "/api/sessions/new") {
         createdPrompt = JSON.parse(String(init?.body ?? "{}")).prompt ?? "";
+        createdAt = requestedAt;
         return { sessionId: "demo-created" } as T;
       }
       if (path === "/api/sessions/new-unassigned" && init?.method === "POST") {

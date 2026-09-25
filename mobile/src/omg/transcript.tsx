@@ -1531,7 +1531,7 @@ function FallbackEntry({ message }: { message: Entry }) {
  * that isn't the conversation" (`ToolRun`'s pill -> sheet), so this reuses
  * that instead of an inline expand fighting the list's layout animation.
  */
-function OmgInstructionsChip({ instructions, version }: { instructions: string; version: string | null }) {
+function OmgInstructionsChip({ instructions, version }: { instructions: string | null; version: string | null }) {
   const { colors, type, space, radius } = useTheme();
   const [open, setOpen] = useState(false);
   const symbol: Symbols = { ios: "scroll", android: "description" };
@@ -1539,6 +1539,10 @@ function OmgInstructionsChip({ instructions, version }: { instructions: string; 
   return (
     <>
       <Pressable
+        // No instructions yet: the opener of a conversation still being
+        // created. The chip holds its place so the bubble does not jump down
+        // when the machine's copy of the row arrives, but has nothing to open.
+        disabled={instructions === null}
         onPress={() => {
           void Haptics.selectionAsync();
           setOpen(true);
@@ -1571,7 +1575,7 @@ function OmgInstructionsChip({ instructions, version }: { instructions: string; 
         <Icon ios="chevron.right" android="chevron_right" size={10} color={colors.textMuted} />
       </Pressable>
 
-      <ToolSheet visible={open} title="omg.dev instructions" symbol={symbol} onClose={() => setOpen(false)}>
+      <ToolSheet visible={open && instructions !== null} title="omg.dev instructions" symbol={symbol} onClose={() => setOpen(false)}>
         <Text selectable style={{ fontFamily: MONO, fontSize: 13, lineHeight: 19, color: colors.text }}>
           {instructions}
         </Text>
@@ -1773,6 +1777,10 @@ export function UserMessage({ message, firstOfRun, lastOfRun }: { message: Entry
     >
       {envelope ? (
         <OmgInstructionsChip instructions={envelope.instructions} version={envelope.version} />
+      ) : String(message.id ?? "").startsWith("local-create-") ? (
+        // Every managed launch wraps its first prompt in the envelope
+        // (tmux.ts launchEnvelope), so the chip is known to be coming.
+        <OmgInstructionsChip instructions={null} version={null} />
       ) : null}
       {attachments.length ? (
         <UserAttachments attachments={attachments} pending={message.pending} otherAuthor={!!sender} />

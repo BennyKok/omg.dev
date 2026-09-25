@@ -18,9 +18,24 @@ type Client = { getMessages(id: string, limit: number): Promise<{ messages?: Ent
  * transcript (onboarding's chat card, 2026-09-25). A non-empty answer always
  * wins; only "nothing yet" is ignored while the opener is all there is.
  */
-export function keepOpener<T extends { id?: string | null }>(prev: T[], next: T[]): T[] {
-  if (next.length > 0) return next;
-  return prev.length > 0 && prev.every((m) => String(m.id ?? "").startsWith("local-create-")) ? prev : next;
+export function keepOpener<T extends { id?: string | null; role?: string | null; text?: string | null; localKey?: string }>(
+  prev: T[],
+  next: T[],
+): T[] {
+  const openerOnly = prev.length > 0 && prev.every((m) => String(m.id ?? "").startsWith("local-create-"));
+  if (next.length === 0) return openerOnly ? prev : next;
+  if (!openerOnly) return next;
+  // The machine's first user row IS the opener arriving (it carries the
+  // launch envelope around the same words). Keep the opener's row key on it,
+  // as the live `message` echo already does, so the list settles one row
+  // instead of unmounting the opener and animating a new row in.
+  const opener = prev[0]!;
+  const words = opener.text?.trim();
+  const index = words ? next.findIndex((m) => m.role === "user" && !!m.text?.includes(words)) : -1;
+  if (index < 0 || next[index]!.localKey) return next;
+  const settled = [...next];
+  settled[index] = { ...next[index]!, localKey: String(opener.id) };
+  return settled;
 }
 
 export function useTranscriptPage(client: Client | null, bindingId: string | null | undefined,

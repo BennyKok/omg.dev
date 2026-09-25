@@ -67,26 +67,34 @@
     {
       "name": "Immediate navigation",
       "goal": "Tap the button labeled Start session. Do not tap the text field again; the prompt is already typed.",
-      "done": "The real conversation screen shows the prompt as its first message while the server is still creating the session. There is no separate waiting page.",
+      "done": "The real conversation screen shows the prompt as its first message, with an omg.dev instructions chip above it and a Working row below it, while the server is still creating the session. There is no separate waiting page and no empty-transcript text. The on-screen keyboard is dismissed; it does not cover the new conversation.",
       "expect": [
         "Instant opening check",
+        "omg.dev instructions",
+        "Working",
         "Dictate a message"
       ],
       "timeoutMs": 45000,
       "forbid": [
         "New conversation",
-        "Starting conversation"
+        "Starting conversation",
+        "No messages yet"
       ]
     },
     {
       "name": "Created conversation",
       "goal": "Wait for creation to finish",
-      "done": "The real conversation displays its reply",
+      "done": "The real conversation displays its reply. The prompt is still shown once, with its omg.dev instructions chip.",
       "expect": [
         "Your new conversation is ready.",
+        "omg.dev instructions",
+        "Instant opening check",
         "Dictate a message"
       ],
-      "timeoutMs": 120000
+      "timeoutMs": 120000,
+      "forbid": [
+        "No messages yet"
+      ]
     }
   ]
 }

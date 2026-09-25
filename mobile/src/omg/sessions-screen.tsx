@@ -39,6 +39,7 @@ import {
 } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
+  Keyboard,
   LayoutAnimation,
   Platform,
   Pressable,
@@ -1173,8 +1174,12 @@ export function SessionsScreen({
         body: JSON.stringify({ prompt, cwd, agent: agentPicker.agent,
           model: agentPicker.model ?? undefined, thinkingLevel: agentPicker.thinking ?? undefined,
           fastMode: agentPicker.fastMode, claudeAccountId: agentPicker.claudeAccountId }),
-      }));
+      }), { agent: agentPicker.agent, model: agentPicker.model });
     setCreateOpen(false);
+    // The Home composer stays mounted (and focused) under the pushed chat, so
+    // the keyboard would ride along and cover the new conversation's first
+    // rows. Starting a conversation is the end of typing here.
+    Keyboard.dismiss();
     const href = `/session/new?request=${pending.token}` as Href;
     if (workspace) navigateWorkspace(href);
     else router.push(href);

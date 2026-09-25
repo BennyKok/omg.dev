@@ -35,10 +35,23 @@ appId: dev.omg.computer
 - assertVisible: "Dictate a message"
 - assertNotVisible: "Starting conversation.*"
 - assertNotVisible: "New conversation"
+# The opener already carries the instructions chip and the working row, so
+# neither pops in (and pushes the bubble down) when the machine's row lands.
+- assertVisible: "omg.dev instructions.*"
+- assertVisible: "Working.*"
+- assertNotVisible: "No messages yet.*"
+# Start ends typing: the Home composer's keyboard must not ride along onto
+# the new conversation. The iOS keyboard exposes its space bar as "space".
+- assertNotVisible: "space"
 # The created session's reply lands in the same screen. The fixture stacks its
 # 60 s creation delay on top of the reads that follow it, so 120 s was not a
 # real bound: the reply arrived, just after the wait had given up.
+# Every assistant message ends in the live-edge caret (markdown.tsx
+# StreamingCaret, transparent when idle), and iOS includes that glyph in the
+# element's text, so the match has to allow it.
 - extendedWaitUntil:
-    visible: "Your new conversation is ready."
+    visible: "Your new conversation is ready\\..*"
     timeout: 240000
 - assertVisible: "Dictate a message"
+- assertVisible: "omg.dev instructions.*"
+- assertNotVisible: "No messages yet.*"

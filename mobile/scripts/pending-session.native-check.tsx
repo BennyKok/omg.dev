@@ -18,7 +18,7 @@ mock.module(resolve(import.meta.dir, "../src/omg/text.tsx"), () => ({ Text: View
 mock.module(resolve(import.meta.dir, "../src/omg/theme.ts"), () => ({ useTheme: () => ({ colors: {}, type: {}, space: {}, radius: {} }) }));
 // The real chat screen, stood in for by a stub that shows what it was handed.
 // The screen itself is covered elsewhere; this check is about the wiring.
-type BodyProps = { screenKey?: string; sessionId: string | null; initialPrompt?: string; onDeliver?: (text: string, mode: "steer" | "queue") => Promise<{ sessionId?: string } | undefined> };
+type BodyProps = { screenKey?: string; sessionId: string | null; initialPrompt?: string; initialAgent?: string | null; initialModel?: string | null; onDeliver?: (text: string, mode: "steer" | "queue") => Promise<{ sessionId?: string } | undefined> };
 let lastBody: BodyProps | null = null;
 mock.module(resolve(import.meta.dir, "../app/session/[id].tsx"), () => ({
   SessionScreenBody: (props: BodyProps) => { lastBody = props; return <div>chat screen {props.initialPrompt} id={props.sessionId ?? "none"} key={props.screenKey}</div>; },
@@ -42,6 +42,16 @@ test("mounts the chat screen with the prompt before POST resolves, then hands it
     expect(lastBody!.screenKey).toBe(keyBefore);
     expect(lastBody!.onDeliver).toBeUndefined();
     expect(routes).toEqual([]);
+  } finally { ui.cleanup(); }
+});
+
+test("hands the launched agent and model to the chat header before the id lands", async () => {
+  request = startPendingSession("alice:mac", "With a face", () => new Promise(() => {}), { agent: "aisdk", model: "claude-opus-5-5" }).token;
+  const ui = mount(); lastBody = null;
+  try {
+    ui.render(<Screen />);
+    expect(lastBody!.initialAgent).toBe("aisdk");
+    expect(lastBody!.initialModel).toBe("claude-opus-5-5");
   } finally { ui.cleanup(); }
 });
 

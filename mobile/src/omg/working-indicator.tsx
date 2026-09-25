@@ -239,8 +239,9 @@ export function WorkingLabel({
 
   return (
     // One accessible label for the whole row: a screen reader must not read
-    // "W o r k i n g".
-    <View style={{ flexDirection: "row" }} accessibilityRole="text" accessibilityLabel={text}>
+    // "W o r k i n g". `accessible` is what makes iOS treat the row as one
+    // element; without it the label is ignored and each letter is exposed.
+    <View style={{ flexDirection: "row" }} accessible accessibilityRole="text" accessibilityLabel={text}>
       {chars.map((char, index) => (
         <LabelChar
           // Position IS the identity: the same letter appears more than once

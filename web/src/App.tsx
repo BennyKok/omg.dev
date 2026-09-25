@@ -301,7 +301,7 @@ import {
   reconcileQueueMessages,
   retryQueuedMessage,
 } from "./lib/queue-reconcile";
-import { HeldQueueCards } from "./components/held-queue-cards";
+import { HeldQueueCards, LOCAL_HELD_ID_PREFIX } from "./components/held-queue-cards";
 import { SystemMessageLine } from "./components/system-message-line";
 import { classifyUserTurn } from "./lib/system-message";
 import { canDriveSession } from "./lib/session-runtime";
@@ -16171,8 +16171,32 @@ function SessionChatBody({
   // frames, and the optimistic updates in the card actions bridge the second
   // until the next frame.
   const [heldQueue, setHeldQueue] = useState<OmgQueueMessage[]>([]);
+  // Queue-mode sends the composer has painted as cards before the server
+  // answered. Kept apart from heldQueue because every queue frame replaces
+  // that list wholesale, and a frame that predates the send would erase the
+  // card. The send response swaps each one for the real held row.
+  //
+  // The live queue frame usually beats the send response. A local card is
+  // hidden as soon as a server row with its text appears that was not already
+  // held when the card was painted (`knownIds`), so the two never show at
+  // once. Matching is one server row per local card.
+  const [localHeld, setLocalHeld] = useState<(OmgQueueMessage & { knownIds: string[] })[]>([]);
+  const heldCards = useMemo(() => {
+    if (!localHeld.length) return heldQueue;
+    const claimed = new Set<string>();
+    const unanswered = localHeld.filter((local) => {
+      const match = heldQueue.find(
+        (row) => !claimed.has(row.id) && !local.knownIds.includes(row.id) && row.text.trim() === local.text.trim(),
+      );
+      if (!match) return true;
+      claimed.add(match.id);
+      return false;
+    });
+    return unanswered.length ? [...heldQueue, ...unanswered] : heldQueue;
+  }, [heldQueue, localHeld]);
   useEffect(() => {
     setHeldQueue([]);
+    setLocalHeld([]);
     if (!sid) return;
     let cancelled = false;
     void api<{ queue: OmgQueueMessage[] }>(`/api/sessions/${encodeURIComponent(sid)}/queue`, {
@@ -16434,11 +16458,31 @@ function SessionChatBody({
     // lapse, or the indicator outlives the message it was announcing and
     // briefly reads as "still typing" beside their delivered turn.
     if (sid) onTyping?.(sid, false);
+    // Paint the held card now. The server decides whether the text is held,
+    // and that answer (plus any upload still in flight) is a round trip the
+    // person should not have to watch an empty composer for.
+    const localHeldId = holdOnServer
+      ? `${LOCAL_HELD_ID_PREFIX}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
+      : null;
+    if (localHeldId) {
+      const knownIds = heldQueue.map((row) => row.id);
+      setLocalHeld((current) => [
+        ...current,
+        { id: localHeldId, text, status: "held", createdAt: Date.now(), knownIds },
+      ]);
+    }
     try {
       // Uploads started when the files were attached; this normally resolves
       // immediately and only actually waits for bytes still in flight.
       const uploaded = files.length ? await Promise.all(files.map(resolveUpload)) : [];
       const outgoingText = composeAttachmentMessage(text, uploaded);
+      // The server holds the text with its attachment links, so the local
+      // card has to carry the same text for the queue frame to claim it.
+      if (localHeldId && outgoingText !== text) {
+        setLocalHeld((current) =>
+          current.map((item) => (item.id === localHeldId ? { ...item, text: outgoingText } : item)),
+        );
+      }
       // Pulse the composer so the send visibly launches into the transcript.
       setLaunching(true);
       window.setTimeout(() => setLaunching(false), 480);
@@ -16453,11 +16497,28 @@ function SessionChatBody({
           }),
         });
         setPromptStashStatus(stashed?.id, "sent");
+        setLocalHeld((current) => current.filter((item) => item.id !== localHeldId));
         if (res.msg?.status === "held") {
           const held = res.msg;
           setHeldQueue((current) =>
             current.some((item) => item.id === held.id) ? current : [...current, held],
           );
+        } else if (res.msg?.text) {
+          // The turn ended before the send landed, so the server delivered it
+          // instead of holding it. Swap the card for an ordinary pending bubble
+          // now; the queue frame that follows claims it by text.
+          const [bubble] = omgMessagesToUIMessages([
+            {
+              id: `local-send-${localHeldId}`,
+              role: "user",
+              kind: "text",
+              text: res.msg.text,
+              html: escapeHtml(res.msg.text).replace(/\n/g, "<br>"),
+              ts: Date.now(),
+              pending: true,
+            },
+          ]);
+          if (bubble) setMessages((current) => [...current, bubble]);
         }
         for (const q of sessionQuestions) void answerInSession(q, text);
         for (const att of files) {
@@ -16487,26 +16548,23 @@ function SessionChatBody({
         await onRefresh();
         return;
       }
-      void ownedChatStreams
-        .run(sid, () =>
-          sendChatMessage(
-            {
+      void sendIntoChat(
+        {
+          text: outgoingText,
+          metadata: {
+            omgMessage: {
+              role: "user",
+              kind: "text",
               text: outgoingText,
-              metadata: {
-                omgMessage: {
-                  role: "user",
-                  kind: "text",
-                  text: outgoingText,
-                  html: escapeHtml(outgoingText).replace(/\n/g, "<br>"),
-                  ts: Date.now(),
-                  pending: true,
-                  queued: queuedBehindTurn,
-                },
-              },
+              html: escapeHtml(outgoingText).replace(/\n/g, "<br>"),
+              ts: Date.now(),
+              pending: true,
+              queued: queuedBehindTurn,
             },
-            { body: { mode } },
-          ),
-        )
+          },
+        },
+        mode,
+      )
         .then(() => setPromptStashStatus(stashed?.id, "sent"))
         .catch((err) => {
           setPromptStashStatus(stashed?.id, "draft");
@@ -16529,6 +16587,7 @@ function SessionChatBody({
         onError(err instanceof Error ? err.message : String(err));
       });
     } catch (err) {
+      if (localHeldId) setLocalHeld((current) => current.filter((item) => item.id !== localHeldId));
       setPromptStashStatus(stashed?.id, "draft");
       onError(err instanceof Error ? err.message : String(err));
       setMessageTextState((current) => current || text);
@@ -16547,35 +16606,72 @@ function SessionChatBody({
     }
   }
 
+  // One way into the chat for a composer or held-card send.
+  //
+  // A turn this chat did not start (another device, a server-released queue
+  // row, a reload mid-turn) is drawn by the passive transcript listener. A
+  // send used to open a live stream and claim ownership in the middle of that
+  // turn: the passive listener stopped drawing it, the new stream only knew the
+  // text from that moment on, and the reply collapsed to a fragment starting
+  // mid-word, with the final row then dropped for not extending it. Joining a
+  // running turn therefore sends passively and leaves the listener in charge.
+  const sendIntoChat = useCallback(
+    (message: Parameters<typeof sendChatMessage>[0], mode: ComposerSendMode) => {
+      if (!sid) return Promise.resolve();
+      if (chatBusy && !ownedChatStreams.owns(sid)) {
+        return sendChatMessage(message, { body: { mode, passive: true } });
+      }
+      return ownedChatStreams.run(sid, () => sendChatMessage(message, { body: { mode } }));
+    },
+    [chatBusy, ownedChatStreams, sendChatMessage, sid],
+  );
+
   // A held card's send-now: steer this text only. Do not reuse sendMessage —
   // that path also clears the composer and would attach whatever is still in
   // the box.
+  //
+  // The bubble paints before `release` (the held row's DELETE) goes out, so
+  // the text moves from the card to the transcript in one frame instead of
+  // vanishing for a round trip. It is a local placeholder until the release
+  // succeeds, because the send must not start before the row has left the
+  // queue: a release that fails means the server may already have sent it.
   const steerHeldText = useCallback(
-    (text: string) => {
+    async (text: string, release: () => Promise<void>) => {
       const outgoingText = text.trim();
       if (!sid || !outgoingText) return;
-      void ownedChatStreams
-        .run(sid, () =>
-          sendChatMessage(
-            {
-              text: outgoingText,
-              metadata: {
-                omgMessage: {
-                  role: "user",
-                  kind: "text",
-                  text: outgoingText,
-                  html: escapeHtml(outgoingText).replace(/\n/g, "<br>"),
-                  ts: Date.now(),
-                  pending: true,
-                },
-              },
-            },
-            { body: { mode: "steer" } },
-          ),
-        )
-        .catch((err) => onError(err instanceof Error ? err.message : String(err)));
+      const omgMessage = {
+        role: "user",
+        kind: "text",
+        text: outgoingText,
+        html: escapeHtml(outgoingText).replace(/\n/g, "<br>"),
+        ts: Date.now(),
+        pending: true,
+      };
+      const placeholderId = `held-steer-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+      const [placeholder] = omgMessagesToUIMessages([{ ...omgMessage, id: placeholderId }]);
+      if (placeholder) setMessages((current) => [...current, placeholder]);
+      const dropPlaceholder = () =>
+        setMessages((current) => current.filter((message) => message.id !== placeholderId));
+      try {
+        await release();
+      } catch (err) {
+        dropPlaceholder();
+        throw err;
+      }
+      // Swap the placeholder for the real send in one tick. `files: []` keeps
+      // AbstractChat's push synchronous (it awaits a file conversion
+      // otherwise), so no frame paints without the bubble.
+      dropPlaceholder();
+      void sendIntoChat(
+        {
+          text: outgoingText,
+          files: [],
+          metadata: { omgMessage: { ...omgMessage, renderKey: placeholderId } },
+        },
+        "steer",
+      ).catch((err) => onError(err instanceof Error ? err.message : String(err)));
     },
-    [onError, ownedChatStreams, sendChatMessage, sid],
+    [onError, sendIntoChat, setMessages, sid],
   );
 
   // Re-queue a failed send. The next queue event repaints the bubble as
@@ -16673,10 +16769,10 @@ function SessionChatBody({
           {/* Held sends rise out of the bar as a narrow island docked to its
               top edge: the next one to go is always visible, the rest fold
               behind a count until tapped. */}
-          {sid && heldQueue.length ? (
+          {sid && heldCards.length ? (
             <HeldQueueCards
               sessionId={sid}
-              items={heldQueue}
+              items={heldCards}
               busy={chatBusy}
               onChange={setHeldQueue}
               onError={onError}

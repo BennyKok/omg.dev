@@ -1,4 +1,5 @@
 import { createdSessionPrompt } from "../../src/omg/pending-session";
+import { parseOmgPromptEnvelope } from "../../src/omg/omg-prompt-envelope";
 import { openingReveal } from "../../src/omg/opening-reveal";
 import { keepOpener, useTranscriptPage } from "../../src/omg/use-transcript-page";
 import { appendTranscriptDraft, INITIAL_TRANSCRIPT_ITEMS, TranscriptWindow } from "../../src/omg/transcript-items";
@@ -210,6 +211,8 @@ function SessionScreenContent({
   bot = null,
   onDeliver,
   initialPrompt,
+  initialAgent = null,
+  initialModel = null,
   readOnly = false,
 }: {
   sessionId: string | null;
@@ -229,6 +232,13 @@ function SessionScreenContent({
   screenKey?: string;
   /** The first row to show before the machine has any transcript to page. */
   initialPrompt?: string;
+  /**
+   * The agent and model the composer launched with. The header draws them
+   * until the session row arrives, so a new conversation opens with its own
+   * face and model line instead of swapping them in a second later.
+   */
+  initialAgent?: string | null;
+  initialModel?: string | null;
   /**
    * Present only for a bot's own conversation. Swaps the header identity for
    * the bot's face and name, hides fork/close/continue (a bot session never
@@ -308,7 +318,11 @@ function SessionScreenContent({
    * `data` memo), the same row it lands in once it is done.
    */
   const [streamThought, setStreamThought] = useState("");
-  const [busy, setBusy] = useState(false);
+  // A conversation that was just launched is working from its first frame: the
+  // machine starts the turn as it creates the session. Starting idle drew
+  // "Message" and no working row, then flipped both once the list or the
+  // socket reported busy. Either of those still has the last word.
+  const [busy, setBusy] = useState(!!initialPrompt && !!initialAgent);
   const headerActivity = useSessionActivity(busy);
   /**
    * HELD SENDS. A queue-mode send while the agent is busy is kept on the
@@ -686,9 +700,17 @@ function SessionScreenContent({
    */
   const touchingRef = useRef(false);
 
-  const firstUserText = messages.find((m) => m.role === "user" && m.text)?.text?.trim();
+  // The machine's copy of the first message carries the launch envelope. The
+  // title falls back to it until the session row loads, and must show the
+  // person's words, not "=== omg.dev RUNTIME CONTRACT".
+  const firstUserRaw = messages.find((m) => m.role === "user" && m.text)?.text ?? "";
+  const firstUserText = (parseOmgPromptEnvelope(firstUserRaw)?.task ?? firstUserRaw).trim() || undefined;
   const title = sessionInfo?.title ?? firstUserText ?? "Session";
-  const agentLabel = sessionInfo?.agent ?? "omg";
+  const agentLabel = sessionInfo?.agent ?? initialAgent ?? "omg";
+  // While the session row is unknown, a launched conversation keeps its model
+  // line: the chosen model, or an empty line of the same height when the box
+  // picks the default. The title then does not jump up and back down.
+  const headerModel = sessionInfo ? sessionInfo.model : initialPrompt && initialAgent ? (initialModel ?? " ") : null;
 
   // Header facts (title, agent) come from the session list, not the
   // transcript. peekSessions paints a cached answer instantly; listSessions
@@ -727,6 +749,10 @@ function SessionScreenContent({
          * this one lookup rather than from a failed send.
          */
         setLive(false);
+        // An ended session is not working. A just-launched conversation
+        // starts busy (see `busy`), and this path is the one that has to take
+        // that back when the socket never reports a turn.
+        if (!socketBusySeen.current) setBusy(false);
         const resumable = await client.transport
           .request<{ sessions?: { sessionId: string; title?: string; lastUserText?: string; agent?: string; model?: string | null }[] }>(
             "/api/sessions/resumable?limit=50",
@@ -1768,15 +1794,15 @@ function SessionScreenContent({
             activity={headerActivity}
             style={{ ...type.subhead, fontWeight: "600", color: colors.text }}
           />
-          {dropped || sessionInfo?.model ? (
+          {dropped || headerModel ? (
             <Text numberOfLines={1} style={{ ...type.caption, color: colors.textSecondary }}>
-              {dropped ? "Reconnecting…" : sessionInfo?.model}
+              {dropped ? "Reconnecting…" : headerModel}
             </Text>
           ) : null}
         </View>
       </View>
     ),
-    [agentLabel, bot, colors, dropped, headerActivity, sessionInfo?.model, space.sm, title, type],
+    [agentLabel, bot, colors, dropped, headerActivity, headerModel, space.sm, title, type],
   );
 
   /**

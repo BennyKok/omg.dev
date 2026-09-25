@@ -901,7 +901,12 @@ export class OmgChatTransport implements ChatTransport<OmgChatMessage> {
     // the SESSION, not to this individual send, so the stream that is already
     // open renders the steered turn too. The extra send only needs to reach the
     // server, and its (empty) stream resolves immediately.
-    const live = this.liveStreams === 0 ? this.createLiveStream(abortSignal) : null;
+    // `passive`: the caller is joining a turn it did not start, which the
+    // passive transcript listener is already drawing. A stream opened now
+    // would only see the reply from this moment on (see sendIntoChat in
+    // App.tsx), so the send only has to reach the server.
+    const passive = (body as { passive?: boolean } | undefined)?.passive === true;
+    const live = this.liveStreams === 0 && !passive ? this.createLiveStream(abortSignal) : null;
     try {
       const response = await this.fetchImpl(this.requestTarget(this.sendEndpoint), {
         method: "POST",
