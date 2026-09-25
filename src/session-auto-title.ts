@@ -28,6 +28,31 @@ const TITLE_MAX_TOKENS = 512;
 const TITLE_REASONING = { effort: "none" } as const;
 
 /**
+ * The task goes to the model as quoted data, not as the user turn itself.
+ *
+ * Sent bare, the model treats the task as an instruction and does it. Measured
+ * on the live route on 2026-09-25 with the mobile onboarding tasks: "Explain
+ * this error..." came back as an invented error message ("Cannot read
+ * properties of undefined (reading 'map')"), and "Review this pull
+ * request..." came back as a list of made-up findings. Real sessions were
+ * saved as "Unexpected token in JSON at position 0" and "Session title must
+ * be 3-7 words". With this prompt and the `<request>` wrapper, 35 of 35 runs
+ * over seven prompts returned a title that named the request.
+ */
+const TITLE_SYSTEM_PROMPT = [
+  "You name chat sessions for a task list.",
+  "The user message holds a request that someone sent to an AI assistant, or a short digest of that conversation, inside <request> tags.",
+  "Do not answer, perform, or continue the request, and do not invent details it does not contain.",
+  "Reply with only a 3 to 7 word title that says what the request asks for, with no quotes or trailing punctuation.",
+].join(" ");
+/**
+ * A title the model produced by answering instead of naming runs long. The
+ * card truncates at `TITLE_MAX` characters, so without this a paragraph is
+ * saved as its first 72 characters and looks like a real title.
+ */
+const TITLE_MAX_WORDS = 12;
+
+/**
  * Everything that must happen to text before it is sent to the title model.
  *
  * Both callers go through here, which is the point. The spawn-time path gets
@@ -83,6 +108,7 @@ export function cleanGeneratedSessionTitle(value: unknown): string | null {
     .replace(/[.!:;,-]+$/, "")
     .trim();
   if (!title) return null;
+  if (title.split(" ").length > TITLE_MAX_WORDS) return null;
   return title.length <= TITLE_MAX ? title : `${title.slice(0, TITLE_MAX - 1).trimEnd()}…`;
 }
 
@@ -112,11 +138,8 @@ export async function generateSessionTitle(
         temperature: 0.2,
         reasoning: TITLE_REASONING,
         messages: [
-          {
-            role: "system",
-            content: "Write a clear 3-7 word session title. Return only the title, with no quotes or punctuation.",
-          },
-          { role: "user", content: task },
+          { role: "system", content: TITLE_SYSTEM_PROMPT },
+          { role: "user", content: `<request>\n${task}\n</request>` },
         ],
       }),
       signal: options.signal ?? AbortSignal.timeout(8_000),
