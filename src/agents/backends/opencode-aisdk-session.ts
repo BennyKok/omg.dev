@@ -45,6 +45,7 @@ import {
 import { normalizeLineMessages } from "../../sessions.ts";
 import { indexSessionMessagesDirect } from "../../transcript-index.ts";
 import { makeDraftPublisher } from "./draft.ts";
+import { OpencodeDraftTracker } from "./opencode-draft.ts";
 import { readFileSync, statSync } from "node:fs";
 import { initialCmdOffset, readNewCmdLines, writeCursor } from "./cmd-tail.ts";
 import { homedir } from "node:os";
@@ -748,6 +749,7 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
   const openPermissionRef: { current: OcPendingPermission | null } = { current: null };
   let questionTimer: ReturnType<typeof setTimeout> | null = null;
   const publishDraft = makeDraftPublisher(key);
+  const draftTracker = new OpencodeDraftTracker();
 
   function clearQuestionTimer(): void {
     if (questionTimer) {
@@ -957,7 +959,6 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
       const stream = (sub as { stream?: AsyncIterable<unknown>; data?: AsyncIterable<unknown> }).stream ??
         (sub as { data?: AsyncIterable<unknown> }).data;
       if (!stream) return;
-      let draft = "";
       // Ids already published for tool parts (`<partId>` and `<partId>:result`).
       // OpenCode re-sends the whole part on every mutation, so this is what keeps
       // a call from being re-emitted on each tick.
@@ -1072,14 +1073,10 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
         if (ev?.type === "message.part.updated" && part?.sessionID === ocSessionId) {
           if ((part.type === "text" || part.type === "reasoning") && typeof part.text === "string") {
             if (!shouldPublishDraftPart(part, messageRoles)) continue;
-            // Prefer the latest assistant text blob for the draft; reasoning
-            // only fills in when we don't have text yet.
-            if (part.type === "text") {
-              draft = part.text;
-              publishDraft(draft);
-            } else if (!draft && part.text) {
-              publishDraft(part.text);
-            }
+            // The tracker owns what the draft shows. Reasoning is published as
+            // kind "thinking" so no client renders it as answer text.
+            const next = draftTracker.apply(part);
+            if (next) publishDraft(next.text, false, next.kind);
           } else if (part.type === "tool") {
             const fallbackId = `${ocSessionId}:tool:${part.id ?? part.tool ?? "tool"}`;
             const rows = toolPartMessages(part, fallbackId, emittedToolIds);
@@ -1092,7 +1089,7 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
           }
         }
         if (ev?.type === "session.idle" && (evSession == null || evSession === ocSessionId)) {
-          draft = "";
+          draftTracker.reset();
         }
         // Provider/stream failure. Record it and wake runTurn out of its
         // (possibly never-returning) session.prompt() so the turn ends with a
@@ -1125,6 +1122,7 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
     waitingOnQuestion = false;
     openQuestionRef.current = null;
     openPermissionRef.current = null;
+    draftTracker.reset();
     publishDraft("", true);
     // Arm the session.error escape hatch for this turn before the prompt is
     // sent, so an error that arrives while the request is still opening still
