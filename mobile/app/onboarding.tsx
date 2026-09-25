@@ -40,17 +40,17 @@ export default function OnboardingReplayScreen() {
   }, [router]);
 
   // The connect and plan setup pages left onboarding on 2026-09-24, so the
-  // replay ends where the first-run flow's questions end.
+  // replay ends where the first-run flow's cards end.
   return (
     <>
       <StatusBar style={isDark ? "light" : "dark"} />
       <OnboardingFlow
         startAt="welcome"
-        finalLabel="Continue"
-        // The written prompt is DROPPED on purpose. Running it would create a
-        // real session from a screen somebody opened to look at, which is the
+        // The pick is DROPPED on purpose. Running it would create a real
+        // session from a screen somebody opened to look at, which is the
         // opposite of what "replay" means.
         onDone={done}
+        onAgents={done}
       />
     </>
   );

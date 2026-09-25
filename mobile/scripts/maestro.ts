@@ -256,8 +256,14 @@ async function runOnboarding(udid: string): Promise<number> {
   }
   const { code, date } = await readSignInCode(mailbox, email, { notBefore: started });
   console.log(`Sign-in code arrived (${date}).`);
+  // The signed-in half to run. `02-verify.yaml` walks a task card to its first
+  // session; OMG_E2E_ONBOARDING_VERIFY names another, e.g. the agents card's.
+  const verifyFlow = process.env.OMG_E2E_ONBOARDING_VERIFY ?? "02-verify.yaml";
+  if (!/^02-verify[a-z0-9-]*\.yaml$/.test(verifyFlow)) {
+    throw new Error("OMG_E2E_ONBOARDING_VERIFY must name an onboarding/02-verify*.yaml flow");
+  }
   const second = await ssh(
-    `${REMOTE_ENV} maestro --udid=${udid} test -e CODE='${code}' ~/${REMOTE_DIR}/onboarding/02-verify.yaml`,
+    `${REMOTE_ENV} maestro --udid=${udid} test -e CODE='${code}' ~/${REMOTE_DIR}/onboarding/${verifyFlow}`,
     { allowFail: true },
   );
   console.log(second.out || second.err);

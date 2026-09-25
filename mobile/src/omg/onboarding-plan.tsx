@@ -156,7 +156,7 @@ export function PlanScreen({
          */}
         <Image
           source={require("../../assets/onboarding/plan-picnic.png")}
-          style={{ width: "100%", height: 120 }}
+          style={{ width: "100%", height: 96, marginBottom: -space.sm }}
           resizeMode="contain"
           accessible
           accessibilityLabel="Someone having a picnic while an agent works"

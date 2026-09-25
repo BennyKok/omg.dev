@@ -1,0 +1,33 @@
+# Onboarding, signed-in half, for the "Control Claude Code and Codex" card.
+# Run with OMG_E2E_ONBOARDING_VERIFY=02-verify-agents.yaml.
+#
+# The card is not a task: no first session and no pricing page. After the data
+# notice it lands on the coding-agent connection screen.
+appId: dev.omg.computer
+---
+- inputText: ${CODE}
+- extendedWaitUntil:
+    visible: "Build my app"
+    timeout: 20000
+# The agents card is the last one, off screen at first: swipe to it, as a
+# person would.
+- repeat:
+    times: 5
+    commands:
+      - swipe: { start: "85%, 45%", end: "10%, 45%" }
+- extendedWaitUntil:
+    visible: "Connect my agent"
+    timeout: 10000
+- tapOn: "Connect my agent"
+- extendedWaitUntil:
+    visible: "Agree and continue"
+    timeout: 15000
+- tapOn: "Agree and continue"
+- extendedWaitUntil:
+    visible: "Coding agents"
+    timeout: 60000
+- assertVisible: "Connect Claude Code"
+- assertVisible: "Connect Codex"
+- assertNotVisible: "Your agents are on it.*"
+- assertNotVisible: "Keep work moving."
+- takeScreenshot: onboarding-agents

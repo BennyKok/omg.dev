@@ -4,42 +4,30 @@ appId: dev.omg.computer
 ---
 - inputText: ${CODE}
 # Data notice (first sign-in only).
-# 02 and 03, the questions, now after sign-in.
-# A new sign-up goes straight to the questions; no splash, no data notice yet.
+# 02, the first-task cards (2026-09-25). A card starts its task at once:
+# no prompt screen.
 - extendedWaitUntil:
-    visible: "Code & reviews"
+    visible: "Build my app"
     timeout: 20000
-- assertVisible: "Websites & apps"
-- tapOn: "Code & reviews"
-- tapOn: "Continue"
-- extendedWaitUntil:
-    visible: "Explain an error"
-    timeout: 15000
-- tapOn: "Explain an error"
-- tapOn: "Continue"
-- extendedWaitUntil:
-    visible: "Start"
-    timeout: 15000
-- tapOn: "Start"
-# The data notice comes here, before anything is sent to an AI provider.
+- assertVisible: "Build an app.*"
+- assertNotVisible: "First prompt."
+- tapOn: "Build my app"
+# The data notice comes before anything is sent to an AI provider.
 - extendedWaitUntil:
     visible: "Agree and continue"
     timeout: 15000
 - assertVisible: "Your data and AI providers"
-# "Not now" returns a new sign-up to their prompt, words intact, not to sign-in.
+# "Not now" returns a new sign-up to the cards, not to sign-in.
 - tapOn: "Not now"
 - extendedWaitUntil:
-    visible: "First prompt."
+    visible: "Build my app"
     timeout: 10000
-- assertVisible: "Explain this error.*"
 - assertNotVisible: "Welcome to omg.dev"
-- tapOn: "Start"
+- tapOn: "Build my app"
 - extendedWaitUntil:
     visible: "Agree and continue"
     timeout: 15000
 - tapOn: "Agree and continue"
-# 04 · Working. The Computer provisions and the first task launches here; a
-# cold provision is seconds, a slow one is a minute.
 - extendedWaitUntil:
     visible: "Notify me"
     timeout: 120000
@@ -73,7 +61,7 @@ appId: dev.omg.computer
 # Lands in the first session itself, header first: the task they wrote is
 # the title, and the model it ran on is under it.
 - extendedWaitUntil:
-    visible: "Explain this error.*"
+    visible: "Build a mobile app prototype.*"
     timeout: 60000
 - assertNotVisible: "Bring your agent."
 - takeScreenshot: onboarding-session

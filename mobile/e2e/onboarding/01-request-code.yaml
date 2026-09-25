@@ -11,6 +11,16 @@ appId: dev.omg.computer
 ---
 - launchApp:
     clearState: true
+# The shared simulator sometimes shows an iCloud "Apple Account Verification"
+# alert over the app. It is the system's, not ours; dismiss it if present.
+- extendedWaitUntil:
+    visible: "Get started|Apple Account Verification"
+    timeout: 60000
+- runFlow:
+    when:
+      visible: "Apple Account Verification"
+    commands:
+      - tapOn: "Not Now"
 - extendedWaitUntil:
     visible: "Get started"
     timeout: 60000

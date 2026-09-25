@@ -39,28 +39,28 @@ const {
 afterEach(() => { store.clear(); });
 
 test("a written prompt survives to be read once", async () => {
-  await stashOnboardingChoice({ interest: "design", taskId: "design-ads", prompt: "Create 3 ad concepts" });
+  await stashOnboardingChoice({ interest: "slides", taskId: "slides", prompt: "Create 3 ad concepts" });
   const first = await takeOnboardingChoice();
   expect(first?.prompt).toBe("Create 3 ad concepts");
-  expect(first?.interest).toBe("design");
+  expect(first?.interest).toBe("slides");
   // Read ONCE. A prompt that survived a second launch would re-run somebody's
   // first task later, which is worse than losing it.
   expect(await takeOnboardingChoice()).toBeNull();
 });
 
 test("an empty prompt is not an answer and is never stashed", async () => {
-  await stashOnboardingChoice({ interest: "design", taskId: null, prompt: "   " });
+  await stashOnboardingChoice({ interest: "slides", taskId: null, prompt: "   " });
   expect(await takeOnboardingChoice()).toBeNull();
 });
 
 test("a stale handoff is thrown away rather than run", async () => {
-  await stashOnboardingChoice({ interest: "code", taskId: "code-review", prompt: "Review this" });
+  await stashOnboardingChoice({ interest: "app", taskId: "app", prompt: "Review this" });
   const later = Date.now() + HANDOFF_MAX_AGE_MS + 1000;
   expect(await takeOnboardingChoice(later)).toBeNull();
 });
 
 test("a handoff inside the window still runs", async () => {
-  await stashOnboardingChoice({ interest: "code", taskId: "code-review", prompt: "Review this" });
+  await stashOnboardingChoice({ interest: "app", taskId: "app", prompt: "Review this" });
   expect((await takeOnboardingChoice(Date.now() + 60_000))?.prompt).toBe("Review this");
 });
 

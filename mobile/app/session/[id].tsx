@@ -775,16 +775,29 @@ function SessionScreenContent({
                * pure, namespace-marked no-op for every non-bot message.
                */
               const echoText = stripBotLaunchEnvelope(event.message.text ?? "");
-              const confirmed = prev.find((m) => isOptimisticId(m.id) && m.text === echoText);
+              /*
+               * The opener shown for a just-created session (`local-create-*`)
+               * is the bare prompt, but the server's copy of that first user
+               * message can carry more (the omg.dev instructions chip rides on
+               * it). An exact match missed it and the prompt showed twice in
+               * onboarding's chat card (2026-09-25). A user message that
+               * contains the opener's words is that opener arriving.
+               */
+              const isEcho = (m: Entry) =>
+                isOptimisticId(m.id) &&
+                (m.text === echoText ||
+                  (String(m.id).startsWith("local-create-") &&
+                    event.message.role === "user" &&
+                    !!m.text?.trim() &&
+                    echoText.includes(m.text.trim())));
+              const confirmed = prev.find(isEcho);
               // The echo keeps the optimistic row's key (see Entry.localKey), so
               // the list sees one row settling rather than one leaving and one
               // arriving — and it is NOT marked fresh, for the same reason.
               const incoming: Entry = confirmed
                 ? { ...event.message, queued: undefined, localKey: confirmed.id ?? undefined }
                 : event.message;
-              const withoutOptimistic = prev.filter(
-                (m) => !(isOptimisticId(m.id) && m.text === echoText),
-              );
+              const withoutOptimistic = prev.filter((m) => !isEcho(m));
               if (incoming.id && !confirmed) liveKeysRef.current.add(incoming.id);
               if (incoming.id && withoutOptimistic.some((m) => m.id === incoming.id)) {
                 return withoutOptimistic.map((m) => (m.id === incoming.id ? incoming : m));

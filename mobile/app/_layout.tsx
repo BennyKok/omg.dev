@@ -1,5 +1,5 @@
 import { sessionCache } from "../src/omg/session-cache-store";
-import { DarkTheme, DefaultTheme, router, Stack, ThemeProvider } from "expo-router";
+import { DarkTheme, DefaultTheme, router, Stack, ThemeProvider, type Href } from "expo-router";
 import { IpadWorkspaceLayout } from "../src/omg/sessions-screen";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -28,6 +28,7 @@ import { AgentVillageWidgetBridge } from "../src/omg/village-widget-bridge";
 import { AgentLiveActivityBridge } from "../src/omg/agent-live-activity";
 import { OnboardingAfterSignIn } from "../src/omg/onboarding-after";
 import { OnboardingFlow, WelcomeGate, type OnboardingChoice } from "../src/omg/onboarding-flow";
+import type { CardKey } from "../src/omg/onboarding-tasks";
 import { isNewAccount, shouldMarkOnboarded, shouldShowSetup } from "../src/omg/onboarding-gate";
 import { stashOnboardingChoice } from "../src/omg/onboarding-handoff";
 import { registerForPushNotifications, useNotificationTapRouting } from "../src/omg/push";
@@ -179,7 +180,7 @@ function LaunchGate() {
  * means its effect cannot run until the Stack above it is mounted, whatever
  * else had to clear first -- setup, a slow plan read, anything added later.
  */
-function OpenWhenMounted({ sessionId, onOpened }: { sessionId: string; onOpened: () => void }) {
+function OpenWhenMounted({ href, onOpened }: { href: Href; onOpened: () => void }) {
   const { colors } = useTheme();
   useEffect(() => {
     /*
@@ -190,10 +191,10 @@ function OpenWhenMounted({ sessionId, onOpened }: { sessionId: string; onOpened:
      * Stack.Screen), and the cover in the flow's own colour hides the one or
      * two frames of Home before the session paints.
      */
-    router.push(`/session/${sessionId}?arrive=instant`);
+    router.push(href);
     const timer = setTimeout(onOpened, 350);
     return () => clearTimeout(timer);
-  }, [sessionId, onOpened]);
+  }, [href, onOpened]);
   return <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: colors.bg }]} />;
 }
 
@@ -217,6 +218,8 @@ function RootNavigator() {
    * and "Not now" on the data notice reopens the prompt with it.
    */
   const [questionsChoice, setQuestionsChoice] = useState<OnboardingChoice | null>(null);
+  /** The card picked, so "Not now" on the data notice reopens on it. */
+  const [pickedKey, setPickedKey] = useState<CardKey | null>(null);
   const questionsPrompt = questionsChoice?.prompt.trim() || null;
   /**
    * The new flow actually ran for this person, so setup below still owes them
@@ -230,8 +233,10 @@ function RootNavigator() {
     setAfterSignInDone(true);
   }, []);
   /** Where the finished flow wants to land, held until a navigator exists. */
-  const [pendingSession, setPendingSession] = useState<string | null>(null);
-  const clearPendingSession = useCallback(() => setPendingSession(null), []);
+  const [pendingHref, setPendingHref] = useState<Href | null>(null);
+  const clearPendingHref = useCallback(() => setPendingHref(null), []);
+  // The first session opens in place, not with a slide over Home.
+  const openFirstSession = useCallback((id: string) => setPendingHref(`/session/${id}?arrive=instant`), []);
 
   /*
    * Who is already established, by Benny's rule: an existing Computer OR a
@@ -598,11 +603,23 @@ function RootNavigator() {
     <>
       <StatusBar style={isDark ? "light" : "dark"} />
       <OnboardingFlow
-        finalLabel="Start"
-        initial={questionsChoice}
+        initialKey={pickedKey}
         onDone={(choice) => {
+          setPickedKey(choice.interest);
           setQuestionsChoice(choice);
           void stashOnboardingChoice(choice).finally(() => setQuestionsDone(true));
+        }}
+        /*
+         * The Claude Code / Codex card is not a task (Benny, 2026-09-25):
+         * these people know what to do. No first session, no pricing page;
+         * after the data notice they land on the connect screen, over Home.
+         */
+        onAgents={() => {
+          setPickedKey("agents");
+          setQuestionsChoice(null);
+          endAfterSignIn(false);
+          setPendingHref("/settings/coding-agents");
+          setQuestionsDone(true);
         }}
       />
     </>
@@ -666,7 +683,13 @@ function RootNavigator() {
            */
           onDecline={
             onboarding.state === "needed" && newAccount === true && questionsDone
-              ? () => setQuestionsDone(false)
+              ? () => {
+                  // Back to the cards, on the one they picked; undo the
+                  // agents path's shortcuts so a task card can still run.
+                  setAfterSignInDone(false);
+                  setPendingHref(null);
+                  setQuestionsDone(false);
+                }
               : handleDecline
           }
         />
@@ -728,7 +751,7 @@ function RootNavigator() {
             // repair path for it.
             if (client) void registerForPushNotifications(client.transport, user?.email).catch(() => {});
           }}
-          onOpenSession={setPendingSession}
+          onOpenSession={openFirstSession}
           onDone={endAfterSignIn}
           pendingTitle={questionsPrompt}
           splash={hold}
@@ -966,8 +989,8 @@ function RootNavigator() {
           <Stack.Screen name="auto/[agentId]/[findingId]" options={{ title: "Finding" }} />
         </Stack.Protected>
       </Stack>
-      {pendingSession ? (
-        <OpenWhenMounted sessionId={pendingSession} onOpened={clearPendingSession} />
+      {pendingHref ? (
+        <OpenWhenMounted href={pendingHref} onOpened={clearPendingHref} />
       ) : null}
     </>
   );

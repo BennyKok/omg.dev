@@ -1,223 +1,117 @@
 /**
- * THE ONBOARDING FLOW'S CONTENT, in one place.
+ * THE ONBOARDING FLOW'S CONTENT, in one place: the first-task cards.
  *
- * Screens 02, 03 and 05 all read from this: the interest lanes, the tool
- * badges, the three example tasks per lane, the prompt each task prefills, and
- * the word screen 05 puts in "Continue your {word}!".
+ * Benny, 2026-09-25: onboarding asks one thing, "what should your agent do
+ * first?", as a carousel of outcomes. Picking a task card STARTS it. There is
+ * no prompt screen to read or edit; the words below are sent as they are, so
+ * each one names a result the person can open from the phone.
+ *
+ * The "agents" card is not a task. It is for people who already use Claude
+ * Code or Codex and know what they want to do; it goes to connecting them.
  *
  * It is DATA, not components, because the copy is the part that will be
- * rewritten most and should never require touching a screen to do it. Every
- * string a person reads in steps 02 to 05 is in this file and nowhere else.
- *
- * Design: "v2_omg.dev iOS onboarding", page "Version 2 · Clean onboarding".
+ * rewritten most and should never require touching a screen to do it.
  */
 
-/** A lane from step 02. The key is stable; the label is copy. */
-export type InterestKey = "build" | "design" | "data" | "code" | "sales";
+/** A task card. The key is stable and is stored in the sign-in handoff. */
+export type InterestKey = "app" | "game" | "website" | "slides" | "news";
 
-export type OnboardingTask = {
-  /** Stable id, so a choice can be remembered across a relaunch. */
-  id: string;
-  /** The row in step 03. */
-  label: string;
+/** Every card, including the one that is not a task. */
+export type CardKey = InterestKey | "agents";
+
+export type FirstCard = {
+  key: CardKey;
+  /** The card's headline. */
+  title: string;
   /**
-   * What step 03's editor opens with, already written out.
-   *
-   * Every one names its deliverables -- "a headline, caption and visual
-   * direction" -- because a prompt whose result cannot be checked teaches
-   * nothing on a first run. They are editable; this is a starting point, not a
-   * script.
+   * One line under it that names the result, not a pitch (Benny,
+   * 2026-09-25): "A game for your friends and family", so the reader thinks
+   * "I could build that".
    */
-  prompt: string;
+  body: string;
+  /** The button under the carousel while this card is in view. */
+  action: string;
 };
 
-export type InterestLane = {
+export type FirstTask = FirstCard & {
   key: InterestKey;
-  /** Step 02's row, and step 03's header. */
-  label: string;
-  /**
-   * The word in "Continue your {word}!" on screen 05. Each lane has its own;
-   * "chat" is the fallback for anyone who took the custom path and never
-   * picked a lane.
-   */
+  /** Sent as the first message, unedited. */
+  prompt: string;
+  /** The word in "Continue your {word}!" once the task is running. */
   word: string;
-  /**
-   * Tool badges above the tasks. They say which workflows this lane fits, and
-   * are NOT connect buttons -- the example tasks use sample inputs, and an
-   * account is connected only when something actually needs it.
-   *
-   * KEEP THIS LIST TO MARKS WE MAY ACTUALLY SHIP. The design draws each badge
-   * with the vendor's logo, and that logo goes into an App Store binary. Excel
-   * and Jira were dropped for exactly that reason: Microsoft and Atlassian
-   * both gate those assets behind a permission or licence page, and a missing
-   * badge is a smaller problem than an unlicensed one. Benny made that call.
-   *
-   * Before adding a name here, check the vendor publishes a mark that may be
-   * used without written permission.
-   */
-  tools: string[];
-  tasks: OnboardingTask[];
 };
 
-/** Screen 05's word when no lane was chosen -- the custom-idea path. */
+/** "Continue your chat!" when the task is unknown (an old handoff). */
 export const FALLBACK_WORD = "chat";
 
-export const INTEREST_LANES: InterestLane[] = [
-  /*
-   * First on purpose (Benny, 2026-09-24): building a website or an app is the
-   * thing omg.dev does that the other lanes' tools do not, so it leads.
-   * Every task ends with something the person can open, because a first run
-   * that finishes with a link is one they can check from the phone.
-   */
+export const FIRST_TASKS: FirstTask[] = [
   {
-    key: "build",
-    label: "Websites & apps",
-    word: "project",
-    tools: ["React", "Expo", "GitHub"],
-    tasks: [
-      {
-        id: "build-website",
-        label: "Build a website",
-        prompt:
-          "Build a one-page website for Lumen Yoga Studio with a hero, class schedule, prices and a contact form. Publish it and send me the link.",
-      },
-      {
-        id: "build-web-app",
-        label: "Make a web app",
-        prompt:
-          "Build a web app for Lumen Yoga Studio members to book a class and see their upcoming bookings. Publish it and send me the link.",
-      },
-      {
-        id: "build-mobile-app",
-        label: "Start a mobile app",
-        prompt:
-          "Build a mobile app prototype for Lumen Yoga Studio with a class list, class details and a booking button. Give me a preview I can open on my phone.",
-      },
-    ],
+    key: "app",
+    title: "Build an app",
+    body: "A native mobile app that works great on iPhone and Android.",
+    action: "Build my app",
+    word: "app",
+    prompt:
+      "Build a mobile app prototype for Lumen Yoga Studio with a class list, class details and a booking button. Give me a preview I can open on my phone.",
   },
   {
-    key: "design",
-    label: "Design & content",
-    word: "design",
-    tools: ["Figma", "Canva", "Google Drive", "Paper"],
-    tasks: [
-      {
-        id: "design-ads",
-        label: "Create 3 ad concepts",
-        prompt:
-          "Create 3 Instagram ad concepts for Daybreak Coffee. Include a headline, caption and visual direction for each.",
-      },
-      {
-        id: "design-social",
-        label: "Draft a week of social posts",
-        prompt:
-          "Draft a week of social posts for Daybreak Coffee. One per day, each with a hook and a call to action.",
-      },
-      {
-        id: "design-launch-email",
-        label: "Write a product launch email",
-        prompt:
-          "Write a product launch email for Daybreak Coffee's new cold brew. Include a subject line and a short body.",
-      },
-    ],
+    key: "game",
+    title: "Build a game",
+    body: "A game for your friends and family.",
+    action: "Build my game",
+    word: "game",
+    prompt:
+      "Build a fun party quiz game for friends and family that we can play together on our phones. Publish it and send me the link.",
   },
   {
-    key: "data",
-    label: "Data & insights",
-    word: "insights",
-    tools: ["Sheets", "PostgreSQL"],
-    tasks: [
-      {
-        id: "data-trends",
-        label: "Find 3 useful trends",
-        prompt:
-          "Find 3 useful trends in this quarterly sales export. Say what changed, by how much, and why it matters.",
-      },
-      {
-        id: "data-chart",
-        label: "Create a summary chart",
-        prompt:
-          "Create a summary chart from this quarterly sales export. Pick the view that makes the pattern clearest.",
-      },
-      {
-        id: "data-summarize",
-        label: "Summarize a spreadsheet",
-        prompt:
-          "Summarize this spreadsheet in plain language. Lead with the finding, then the numbers behind it.",
-      },
-    ],
+    key: "website",
+    title: "Build a website",
+    body: "A website for your business, live with its own link.",
+    action: "Build my website",
+    word: "website",
+    prompt:
+      "Build a one-page website for Lumen Yoga Studio with a hero, class schedule, prices and a contact form. Publish it and send me the link.",
   },
   {
-    key: "code",
-    label: "Code & reviews",
-    word: "code",
-    tools: ["GitHub", "Linear"],
-    tasks: [
-      {
-        id: "code-review",
-        label: "Review a code change",
-        prompt:
-          "Review this pull request. Flag correctness risks first, then anything that could be simpler.",
-      },
-      {
-        id: "code-explain-error",
-        label: "Explain an error",
-        prompt:
-          "Explain this error. Say what caused it, where it came from, and the smallest fix.",
-      },
-      {
-        id: "code-tests",
-        label: "Suggest useful tests",
-        prompt:
-          "Suggest useful tests for this change. Cover the cases most likely to break it, not the obvious ones.",
-      },
-    ],
+    key: "slides",
+    title: "Build slides",
+    body: "A slide deck for your next pitch or class.",
+    action: "Build my slides",
+    word: "slides",
+    prompt:
+      "Make a 6-slide pitch deck for Lumen Yoga Studio: problem, offer, classes, pricing, testimonials and a call to action. Publish it as a web page I can open and present from my phone.",
   },
   {
-    key: "sales",
-    label: "Sales & operations",
-    word: "sales",
-    tools: ["Shopify", "Stripe", "HubSpot"],
-    tasks: [
-      {
-        id: "sales-snapshot",
-        label: "Build a sales snapshot",
-        prompt:
-          "Build a sales snapshot for Northwind Supply this month. Revenue, top accounts, and what moved.",
-      },
-      {
-        id: "sales-follow-up",
-        label: "Draft a customer follow-up",
-        prompt:
-          "Draft a follow-up to a Northwind Supply customer who went quiet after a demo. Keep it short and specific.",
-      },
-      {
-        id: "sales-deals",
-        label: "Summarize this week's deals",
-        prompt:
-          "Summarize this week's deals at Northwind Supply. Which are progressing, which are stuck, and what is next.",
-      },
-    ],
+    key: "news",
+    title: "Daily Hacker News",
+    body: "The top stories of the day, every morning.",
+    action: "Start my digest",
+    word: "digest",
+    prompt:
+      "Make a digest of today's top 10 Hacker News stories, one line each on why it matters. Then set it up to run every morning and notify me.",
   },
 ];
 
-export function laneFor(key: InterestKey | null | undefined): InterestLane | null {
-  return INTEREST_LANES.find((lane) => lane.key === key) ?? null;
+export const AGENTS_CARD: FirstCard = {
+  key: "agents",
+  title: "Control Claude Code and Codex",
+  body: "Your own coding agents, running from your phone.",
+  action: "Connect my agent",
+};
+
+/** The carousel, in order: the tasks, then the agents card. */
+export const FIRST_CARDS: FirstCard[] = [...FIRST_TASKS, AGENTS_CARD];
+
+export function taskFor(key: string | null | undefined): FirstTask | null {
+  return FIRST_TASKS.find((task) => task.key === key) ?? null;
 }
 
-/**
- * The prompt step 03 opens with. Null for the custom path, which starts blank
- * on purpose -- "Describe what you want to make or get done..." is a
- * placeholder, not prefilled text somebody has to delete.
- */
-export function promptFor(
-  key: InterestKey | null | undefined,
-  taskId: string | null | undefined,
-): string | null {
-  return laneFor(key)?.tasks.find((task) => task.id === taskId)?.prompt ?? null;
+/** The prompt a task card starts. Null for the agents card and unknown keys. */
+export function promptFor(key: string | null | undefined): string | null {
+  return taskFor(key)?.prompt ?? null;
 }
 
 /** The word in "Continue your {word}!" on screen 05. */
-export function headlineWord(key: InterestKey | null | undefined): string {
-  return laneFor(key)?.word ?? FALLBACK_WORD;
+export function headlineWord(key: string | null | undefined): string {
+  return taskFor(key)?.word ?? FALLBACK_WORD;
 }

@@ -58,7 +58,7 @@ const clientThat = (reply: unknown, throws?: string) => ({
 }) as never;
 
 const stash = () =>
-  stashOnboardingChoice({ interest: "design", taskId: "design-ads", prompt: "Create 3 ad concepts" });
+  stashOnboardingChoice({ interest: "slides", taskId: "slides", prompt: "Create 3 ad concepts" });
 
 /**
  * THE ORDER MATTERS. Reading consumes, so readiness is checked first --
@@ -71,7 +71,7 @@ test("asking too early does not consume the prompt", async () => {
   expect(await launchOnboardingTask(null, true)).toEqual({ kind: "not-ready" });
   // Still there for the attempt that can actually act on it.
   const ok = await launchOnboardingTask(clientThat({ sessionId: "s-1" }), true);
-  expect(ok).toEqual({ kind: "started", sessionId: "s-1", prompt: "Create 3 ad concepts", interest: "design" });
+  expect(ok).toEqual({ kind: "started", sessionId: "s-1", prompt: "Create 3 ad concepts", interest: "slides" });
 });
 
 /**
@@ -134,7 +134,7 @@ test("a reply with no session id is a failure, not a success", async () => {
  */
 const withFile = (name: string, mimeType = "image/jpeg") =>
   stashOnboardingChoice({
-    interest: "design",
+    interest: "slides",
     taskId: null,
     prompt: "Match this brand",
     files: [{ uri: `file:///cache/${name}`, name, mimeType, kind: "image" }],
@@ -183,7 +183,7 @@ test("a file that will not upload is dropped, and the task still starts", async 
 });
 
 test("no files means no upload traffic at all", async () => {
-  await stashOnboardingChoice({ interest: "code", taskId: null, prompt: "Review this" });
+  await stashOnboardingChoice({ interest: "app", taskId: null, prompt: "Review this" });
   await launchOnboardingTask(clientThat({ sessionId: "s-plain" }), true);
   expect(uploaded).toHaveLength(0);
 });
