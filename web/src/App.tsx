@@ -479,7 +479,6 @@ import {
   windowLiveMessages,
 } from "./lib/transcript-paging";
 import { nextScrollMode } from "./lib/transcript-stick";
-import { showsTypingIndicator } from "./lib/typing-dots";
 import { shouldApplyAnchorCorrection } from "./lib/transcript-anchor";
 import {
   completeTranscriptGlideFrame,
@@ -19316,11 +19315,13 @@ const ChatStream = memo(function ChatStream({
     [visibleMessages],
   );
   const speakers = useMemo(() => items.map(chatRenderItemSpeaker), [items]);
-  // Only the active tail can stand in for the typing dots (see typing-dots):
-  // old reasoning or an old tool run must not make a newly-busy session look
-  // idle. The tail here is the live turn's, not the pinned queue's.
+  // Historical reasoning can remain in the transcript after its turn is done.
+  // Only let reasoning at the active tail replace the typing dots; otherwise an
+  // old thinking block would make a newly-busy session look idle. The tail here
+  // is the live turn's, not the pinned queue's.
   const tailItem = items[items.length - 1];
-  const showTypingIndicator = showsTypingIndicator(busy, tailItem, !!bot);
+  const tailMessage = tailItem?.type === "msg" ? tailItem.message : undefined;
+  const showTypingIndicator = busy && tailMessage?.kind !== "thinking";
 
   // ---- Virtualization ----------------------------------------------------
   //
