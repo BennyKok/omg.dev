@@ -28,7 +28,8 @@
  * a missing module degrades to the same honest card the app showed before
  * video had a renderer at all.
  */
-import { useEffect, useRef, useState } from "react";
+import MenuView, { type MenuAction } from "@expo/ui/community/menu";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, Share, StyleSheet, View } from "react-native";
 
 import { Icon } from "../components";
@@ -220,6 +221,11 @@ export function RemoteVideo({
     const local = await download((p) => client.transport.fetch(p), bindingId, path, loaded.fs);
     await Share.share({ url: local });
   };
+  const withMenu = (content: ReactNode) => (
+    <VideoMenu save={save}>
+      {content}
+    </VideoMenu>
+  );
 
   if (uri) {
     // A signed URL carries a grant that lives ten minutes, and the player
@@ -232,10 +238,7 @@ export function RemoteVideo({
         ? () => signedRequestFor(bindingId, path, { forceRefresh: true }).then((r) => r?.url ?? null)
         : undefined;
     return (
-      <View style={{ alignSelf: "flex-start", gap: space.xs }}>
-        <Player video={loaded.video} uri={uri} box={box} renew={renew} />
-        <SaveVideoButton save={save} />
-      </View>
+      withMenu(<Player video={loaded.video} uri={uri} box={box} renew={renew} />)
     );
   }
 
@@ -261,8 +264,7 @@ export function RemoteVideo({
     </View>
   );
 
-  return (
-    <View style={{ alignSelf: "flex-start", gap: space.xs }}>
+  return withMenu(
       <Pressable
         onPress={() => setRequested(true)}
         disabled={requested}
@@ -292,46 +294,72 @@ export function RemoteVideo({
             )}
           </View>
         </View>
-      </Pressable>
-      <SaveVideoButton save={save} />
-    </View>
+      </Pressable>,
   );
 }
 
 /**
- * One small row under the video. Not an overlay: the inline player draws its
- * own controls in both top corners, and a button over them would cover one.
- * Separate from the poster's Pressable, so a tap here never starts playback.
+ * Save lives in the system context menu: press and hold the video, the way
+ * Photos and Messages offer it. It used to be a caption row under every
+ * video, which read as clutter. The row now appears only while the file is
+ * being pulled or after a failure, because a menu cannot show progress.
+ *
+ * iOS only: Android's Share ignores `url`, so it would share nothing.
  */
-function SaveVideoButton({ save }: { save: () => Promise<void> }) {
-  const { colors, type, space } = useTheme();
+function VideoMenu({ save, children }: { save: () => Promise<void>; children: ReactNode }) {
+  const { colors, type, space, isDark } = useTheme();
   const [state, setState] = useState<"idle" | "busy" | "failed">("idle");
-  // iOS only: Android's Share ignores `url`, so it would share nothing.
-  if (Platform.OS !== "ios") return null;
-  const press = () => {
+  if (Platform.OS !== "ios") return <View style={{ alignSelf: "flex-start" }}>{children}</View>;
+  const run = () => {
     if (state === "busy") return;
     setState("busy");
     save()
       .then(() => setState("idle"))
       .catch(() => setState("failed"));
   };
-  const label = state === "busy" ? "Preparing video" : state === "failed" ? "Could not download. Try again" : "Save or share";
+  const actions: MenuAction[] = [{ id: "save", title: "Save or Share", image: "square.and.arrow.up" }];
   return (
-    <Pressable
-      onPress={press}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      testID="video-save"
-      hitSlop={8}
-      style={{ alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: space.xs, paddingVertical: 2 }}
-    >
-      {state === "busy" ? (
-        <ActivityIndicator size="small" color={colors.textMuted} />
-      ) : (
-        <Icon ios="square.and.arrow.up" android="share" size={14} color={colors.textMuted} />
+    <View style={{ alignSelf: "flex-start", gap: space.xs }}>
+      <MenuView
+        actions={actions}
+        shouldOpenOnLongPress
+        colorScheme={isDark ? "dark" : "light"}
+        onPressAction={({ nativeEvent }) => {
+          if (nativeEvent.event === "save") run();
+        }}
+        testID="video-menu"
+      >
+        <View
+          accessibilityHint="Press and hold for options"
+          accessibilityActions={[{ name: "save", label: "Save or Share" }]}
+          onAccessibilityAction={(event) => {
+            if (event.nativeEvent.actionName === "save") run();
+          }}
+        >
+          {children}
+        </View>
+      </MenuView>
+      {state === "idle" ? null : (
+        <Pressable
+          onPress={run}
+          disabled={state === "busy"}
+          accessibilityRole="button"
+          accessibilityLabel={state === "busy" ? "Preparing video" : "Could not download. Try again"}
+          testID="video-save-status"
+          hitSlop={8}
+          style={{ alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: space.xs, paddingVertical: 2 }}
+        >
+          {state === "busy" ? (
+            <ActivityIndicator size="small" color={colors.textMuted} />
+          ) : (
+            <Icon ios="exclamationmark.circle" android="error" size={14} color={colors.textMuted} />
+          )}
+          <Text style={{ ...type.caption, color: colors.textMuted }}>
+            {state === "busy" ? "Preparing video" : "Could not download. Try again"}
+          </Text>
+        </Pressable>
       )}
-      <Text style={{ ...type.caption, color: colors.textMuted }}>{label}</Text>
-    </Pressable>
+    </View>
   );
 }
 

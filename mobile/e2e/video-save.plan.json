@@ -16,15 +16,26 @@
     {
       "name": "Video in chat",
       "goal": "Tap the session row that begins with Refactor the rate limiter to a sliding window, in the session list. Never tap What should we work on? or any composer or keyboard control.",
-      "done": "The chat is open and shows a video with a Save or share button under it.",
+      "done": "The chat is open and shows a video. There is no Save or share caption under it.",
       "expect": [
-        "Save or share",
         "Sliding window demo"
+      ],
+      "forbid": [
+        "Save or share"
       ]
     },
     {
+      "name": "Context menu",
+      "goal": "Press and hold the video (the element labelled Play limiter-demo.mp4). Do not tap anything else.",
+      "done": "The native iOS context menu is open over the video and offers Save or Share.",
+      "expect": [
+        "Save or Share"
+      ],
+      "longPress": true
+    },
+    {
       "name": "Share sheet",
-      "goal": "Tap the Save or share button under the video. Do not tap the video itself.",
+      "goal": "Tap Save or Share in the context menu.",
       "done": "The iOS share sheet is open and offers Save Video.",
       "expect": [
         "Save Video"

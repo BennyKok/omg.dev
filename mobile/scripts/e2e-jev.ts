@@ -65,6 +65,8 @@ export type Step = {
   echo?: boolean;
   /** Type the sign-in code the runner reads from Gmail. */
   otp?: boolean;
+  /** Press and hold the picked element instead of tapping it (context menus). */
+  longPress?: boolean;
   /** Wall-clock ceiling for this step. Default 60s; provisioning gets more. */
   timeoutMs?: number;
 };
@@ -383,8 +385,9 @@ export async function runPlan(opts: {
             continue;
           }
           lastTap = key;
-          log(`  tap "${c.label || c.id}" @ ${c.x},${c.y}`);
-          const r = await mcp.run(`${header}- tapOn:\n    point: "${c.x},${c.y}"\n`);
+          const verb = step.longPress ? "longPressOn" : "tapOn";
+          log(`  ${step.longPress ? "long press" : "tap"} "${c.label || c.id}" @ ${c.x},${c.y}`);
+          const r = await mcp.run(`${header}- ${verb}:\n    point: "${c.x},${c.y}"\n`);
           if (!r.ok) log(`  tap failed: ${r.text.slice(0, 200)}`);
           continue;
         }
