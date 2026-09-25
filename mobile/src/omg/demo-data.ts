@@ -417,7 +417,7 @@ function answer(path: string): unknown | null {
       { ...demoArtifact, id: "demo-hidden-image", kind: "image", title: "Hidden image output", name: "Hidden image output", url: "/api/artifacts/demo-hidden-image" },
       { ...demoArtifact, id: "demo-hidden-file", kind: "file", title: "Hidden file output", name: "Hidden file output", url: "/api/artifacts/demo-hidden-file" }], total: 4 };
   }
-  if ((openingFixture || shareFixture) && clean === "/api/sessions/demo-created/messages") {
+  if (openingFixture && clean === "/api/sessions/demo-created/messages") {
     // Wrapped the way the machine wraps every launch (tmux.ts launchEnvelope),
     // so the opening checks see the real first row, instructions chip included.
     const launched = `=== omg.dev RUNTIME CONTRACT (capability version demo) ===\nYou are an omg.dev-managed coding agent.\n=== END omg.dev RUNTIME CONTRACT ===\n\n=== USER TASK ===\n${createdPrompt}`;
@@ -526,7 +526,7 @@ export function getDemoTransport(): OmgTransport {
     async request<T>(path: string, init?: RequestInit): Promise<T> {
       const requestedAt = Date.now();
       await openingDelay(path);
-      if ((openingFixture || shareFixture) && path === "/api/sessions/new") {
+      if (openingFixture && path === "/api/sessions/new") {
         createdPrompt = JSON.parse(String(init?.body ?? "{}")).prompt ?? "";
         createdAt = requestedAt;
         return { sessionId: "demo-created" } as T;
@@ -556,9 +556,5 @@ export function getDemoTransport(): OmgTransport {
 }
 
 /** Explicit simulator fixture: register a project while a chat is open. */
-/** Explicit simulator fixture: a share from another app creates a session. */
-let shareFixture = false;
-export function enableShareFixture() { shareFixture = true; }
-
 let projectCreationFixture = false;
 export function enableProjectCreationFixture() { projectCreationFixture = true; }

@@ -49,11 +49,21 @@
       "done": "The conversation shows the shared link in the first message and the fixture reply.",
       "expect": [
         "example.com",
-        "Your new conversation is ready."
+        "What would you like your website to do?"
       ],
       "forbid": [
         "no longer available"
       ]
+    },
+    {
+      "name": "Filed under no project",
+      "goal": "Tap Back at the top left to return to Home. Then tap ONLY the chip labelled Chats without a project in the top project rail. Do not tap the composer.",
+      "done": "The Chats without a project list is selected and shows the shared chat.",
+      "expect": [
+        "Chats without a project",
+        "I shared this with you from another app."
+      ],
+      "selected": "Chats without a project"
     }
   ]
 }
