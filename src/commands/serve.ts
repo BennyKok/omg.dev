@@ -487,10 +487,10 @@ import {
   voiceSetupInfo,
   sttStreamingAvailable,
   openSttStream,
+  sttBatchAvailable,
   type VoiceSettings,
-  type SttStreamBridge,
 } from "../voice-providers.ts";
-import { SttTakeTimer } from "../stt-stream-timing.ts";
+import { SttStreamTake } from "../stt-stream-take.ts";
 import {
   codingAgentHasInstaller,
   isCodingAgentKind,
@@ -3849,8 +3849,7 @@ const termBridges = new WeakMap<object, PtyBridge>();
 // it down. Tagged in ws.data so open/message/close can tell it apart from the
 // terminal and browser-login sockets that share these handlers.
 type SttStreamSocketData = { sttStream: true };
-const sttBridges = new WeakMap<object, SttStreamBridge>();
-const sttTimers = new WeakMap<object, SttTakeTimer>();
+const sttTakes = new WeakMap<object, SttStreamTake>();
 
 // ---- computer (remote desktop) sockets ----
 // The Computer tab holds a websocket to /api/computer carrying raw RFB in both
@@ -4038,23 +4037,24 @@ export async function cmdServe() {
               ws.send(JSON.stringify(o));
             } catch {}
           };
-          const timer = new SttTakeTimer();
-          const bridge = openSttStream({
-            onPartial: (text) => {
-              timer.partial();
-              send({ type: "partial", text });
-            },
-            onFinal: (text) => {
-              timer.final();
-              send({ type: "final", text });
-            },
-            onClose: () => {
+          const take = new SttStreamTake({
+            send,
+            closeClient: () => {
               try {
                 ws.close();
               } catch {}
             },
+            openBridge: openSttStream,
+            batchAvailable: sttBatchAvailable,
+            transcribe: async (wav) => {
+              const r = await transcribeStt(wav);
+              if (!r.ok) return null;
+              const body = (await r.json().catch(() => null)) as { text?: string } | null;
+              return typeof body?.text === "string" ? body.text : null;
+            },
+            log: (line) => console.log(line),
           });
-          if (!bridge) {
+          if (!take.start()) {
             // Documented fallback (see openSttStream): no realtime-capable
             // provider is configured on this machine. This used to close with
             // zero trace anywhere — the exact condition a dictation bug report
@@ -4065,8 +4065,7 @@ export async function cmdServe() {
             } catch {}
             return;
           }
-          sttBridges.set(ws, bridge);
-          sttTimers.set(ws, timer);
+          sttTakes.set(ws, take);
           return;
         }
         if (!("sessionName" in ws.data)) {
@@ -4123,19 +4122,16 @@ export async function cmdServe() {
         }
         // Streaming-STT bridge: binary frames are raw 16 kHz PCM; text frames are
         // the worker's {"type":"flush"|"eof"} control messages.
-        const sttBridge = sttBridges.get(ws);
-        if (sttBridge) {
+        const sttTake = sttTakes.get(ws);
+        if (sttTake) {
           if (typeof message === "string") {
             try {
               const ctrl = JSON.parse(message) as { type?: string };
-              if (ctrl.type === "flush") {
-                sttTimers.get(ws)?.flush();
-                sttBridge.flush();
-              } else if (ctrl.type === "eof") sttBridge.close();
+              if (ctrl.type === "flush") sttTake.flush();
+              else if (ctrl.type === "eof") sttTake.close();
             } catch {}
           } else {
-            sttTimers.get(ws)?.audio((message as Uint8Array).byteLength);
-            sttBridge.pushPcm(message as Uint8Array);
+            sttTake.audio(message as Uint8Array);
           }
           return;
         }
@@ -4176,13 +4172,10 @@ export async function cmdServe() {
           return;
         }
         // Streaming-STT bridge: tear the upstream realtime-STT socket down.
-        const sttBridge = sttBridges.get(ws);
-        if (sttBridge) {
-          sttBridges.delete(ws);
-          sttBridge.close();
-          const timer = sttTimers.get(ws);
-          sttTimers.delete(ws);
-          if (timer) console.log(timer.line());
+        const sttTake = sttTakes.get(ws);
+        if (sttTake) {
+          sttTakes.delete(ws);
+          sttTake.close();
           return;
         }
         const bridge = termBridges.get(ws);
@@ -5039,7 +5032,14 @@ a{color:#60a5fa}
       if (path === "/api/voice/stt" && req.method === "POST") {
         const audio = await req.arrayBuffer();
         if (!audio.byteLength) return err(400, "empty audio");
-        return transcribeStt(audio);
+        // The slow path: the client re-uploaded a whole take. Logged so a slow
+        // dictation shows up next to its stt-stream take line.
+        const started = performance.now();
+        const response = await transcribeStt(audio);
+        console.log(
+          `[voice] stt batch upload: ${audio.byteLength}B -> ${response.status} in ${Math.round(performance.now() - started)}ms`,
+        );
+        return response;
       }
 
       // ---- voice provider config: which STT provider the dictation proxies

@@ -702,6 +702,12 @@ export async function transcribeStt(audio: ArrayBuffer): Promise<Response> {
   return pickStt(s.sttProvider).transcribe(audio);
 }
 
+/** Whether a batch transcription can actually succeed on this machine now. */
+export function sttBatchAvailable(): boolean {
+  const p = pickStt(getVoiceSettingsSync().sttProvider);
+  return p.available() && p.batchCapable !== false;
+}
+
 // Open a realtime STT bridge for the /api/voice/stt-stream websocket. Picks the
 // configured provider; if it has no realtime path, falls back to any other
 // provider that does (the omg relay on a hosted workspace, ElevenLabs on a local
