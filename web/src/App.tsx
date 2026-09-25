@@ -20805,13 +20805,14 @@ const ToolGroup = memo(function ToolGroup({
       onMouseLeave={scheduleHoverClose}
     >
       <OrganicActivityEffect active={live} className="tool-call-organic" />
-      <span
-        className={cn(
-          "relative z-[1] size-1.5 shrink-0 rounded-full bg-muted-foreground/55",
-          live && "animate-pulse bg-foreground",
-        )}
-        aria-hidden="true"
-      />
+      {/* Only a live run carries the dot. A finished "Worked for 14s" row is
+          plain text, as on the phone. */}
+      {live ? (
+        <span
+          className="relative z-[1] size-1.5 shrink-0 animate-pulse rounded-full bg-foreground"
+          aria-hidden="true"
+        />
+      ) : null}
       <span className="relative z-[1] truncate font-mono">{label}</span>
     </button>
   );
