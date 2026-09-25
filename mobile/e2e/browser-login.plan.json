@@ -45,12 +45,15 @@
     {
       "name": "Approved transfer",
       "goal": "Tap Transfer login to approve the login transfer",
-      "done": "The request row says the login was transferred and the agent was notified.",
+      "done": "The transfer finished and the agent was notified, so the login row is gone. The chat carries the outcome as its own Signed in row. Only the test page title remains.",
       "expect": [
-        "Signed in"
+        "Website login test"
       ],
       "forbid": [
-        "could not be transferred"
+        "could not be transferred",
+        "Cancel the login request",
+        "Transferring",
+        "Log in"
       ]
     }
   ]

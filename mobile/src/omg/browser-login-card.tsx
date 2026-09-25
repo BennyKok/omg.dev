@@ -90,7 +90,12 @@ export function BrowserLoginPanel({ sessionId, transport, email }: {
       if (mounted.current) { setBusy(false); await refresh(); }
     }
   };
-  const request = latestBrowserLoginRequest(requests);
+  const latest = latestBrowserLoginRequest(requests);
+  // Once the agent has been told, the transcript carries the outcome as its
+  // own "Signed in to <host>" row, at the point in the chat where it
+  // happened. Keeping the card too left a second copy pinned at the end of
+  // the stream, under "Working", where it read as a tray on the composer.
+  const request = latest?.status === "imported" && latest.agentNotified ? undefined : latest;
   if (!request && !error) return null;
   /**
    * ONE ROW: the site, then the verb, then the dismissal.

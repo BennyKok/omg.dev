@@ -2112,7 +2112,6 @@ function SessionScreenContent({
         ListFooterComponent={
           <View>
             <View onLayout={(event) => setFooterHeight(event.nativeEvent.layout.height)}>
-              {thinking ? bot ? <BotWorkingIndicator bot={bot} /> : <ThinkingPill /> : null}
               {/* THINGS THE AGENT IS WAITING ON, AT THE END OF THE STREAM.
                   A website login request and an ask-user question are events
                   in the conversation, so they belong where the conversation
@@ -2122,7 +2121,7 @@ function SessionScreenContent({
                   with the rest, and the composer stays a composer. The
                   transcript reserves this footer's measured height, so a card
                   appearing does not hide the message above it. */}
-              <View style={{ gap: space.sm, paddingTop: space.md }}>
+              <View style={{ gap: space.sm }}>
                 <BrowserLoginCard sessionId={id ?? null} />
                 {asks.map((q) => (
                   <QuestionCard
@@ -2143,6 +2142,9 @@ function SessionScreenContent({
                   />
                 ) : null}
               </View>
+              {/* The live "Working" line stays the last thing in the stream.
+                  Under it, a card sat detached from the messages it answers. */}
+              {thinking ? bot ? <BotWorkingIndicator bot={bot} /> : <ThinkingPill /> : null}
             </View>
             <View style={{ height: replySpace }} />
           </View>
