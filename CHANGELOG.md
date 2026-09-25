@@ -2,6 +2,15 @@
 
 Recent product updates and deployment notes.
 
+## September 25, 2026 - DeepSeek replies stop rewriting themselves (v0.6.128)
+
+- Live replies from DeepSeek and other OpenCode models no longer replace themselves while they stream. The model's reasoning now shows as a thought, and the answer text stays in place.
+- A steered message keeps its place in the list, and a steer shows the whole reply.
+- A queued message shows as sent at once.
+- The login card goes away once the chat says "Signed in".
+- On the web, each group in the updates list has its own Triage & execute action on hover.
+- On iPhone, new accounts pick a first task from cards and answer three quick questions. You can also share a link from any app to start a session.
+
 ## September 25, 2026 - Session titles that name the task (v0.6.127)
 
 - New sessions get a title that says what the task is. Before, the title model sometimes did the task instead, and a session could be titled with an invented error message or with the model's own instructions.
