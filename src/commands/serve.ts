@@ -490,6 +490,7 @@ import {
   type VoiceSettings,
   type SttStreamBridge,
 } from "../voice-providers.ts";
+import { SttTakeTimer } from "../stt-stream-timing.ts";
 import {
   codingAgentHasInstaller,
   isCodingAgentKind,
@@ -3849,6 +3850,7 @@ const termBridges = new WeakMap<object, PtyBridge>();
 // terminal and browser-login sockets that share these handlers.
 type SttStreamSocketData = { sttStream: true };
 const sttBridges = new WeakMap<object, SttStreamBridge>();
+const sttTimers = new WeakMap<object, SttTakeTimer>();
 
 // ---- computer (remote desktop) sockets ----
 // The Computer tab holds a websocket to /api/computer carrying raw RFB in both
@@ -4036,9 +4038,16 @@ export async function cmdServe() {
               ws.send(JSON.stringify(o));
             } catch {}
           };
+          const timer = new SttTakeTimer();
           const bridge = openSttStream({
-            onPartial: (text) => send({ type: "partial", text }),
-            onFinal: (text) => send({ type: "final", text }),
+            onPartial: (text) => {
+              timer.partial();
+              send({ type: "partial", text });
+            },
+            onFinal: (text) => {
+              timer.final();
+              send({ type: "final", text });
+            },
             onClose: () => {
               try {
                 ws.close();
@@ -4057,6 +4066,7 @@ export async function cmdServe() {
             return;
           }
           sttBridges.set(ws, bridge);
+          sttTimers.set(ws, timer);
           return;
         }
         if (!("sessionName" in ws.data)) {
@@ -4118,10 +4128,13 @@ export async function cmdServe() {
           if (typeof message === "string") {
             try {
               const ctrl = JSON.parse(message) as { type?: string };
-              if (ctrl.type === "flush") sttBridge.flush();
-              else if (ctrl.type === "eof") sttBridge.close();
+              if (ctrl.type === "flush") {
+                sttTimers.get(ws)?.flush();
+                sttBridge.flush();
+              } else if (ctrl.type === "eof") sttBridge.close();
             } catch {}
           } else {
+            sttTimers.get(ws)?.audio((message as Uint8Array).byteLength);
             sttBridge.pushPcm(message as Uint8Array);
           }
           return;
@@ -4167,6 +4180,9 @@ export async function cmdServe() {
         if (sttBridge) {
           sttBridges.delete(ws);
           sttBridge.close();
+          const timer = sttTimers.get(ws);
+          sttTimers.delete(ws);
+          if (timer) console.log(timer.line());
           return;
         }
         const bridge = termBridges.get(ws);

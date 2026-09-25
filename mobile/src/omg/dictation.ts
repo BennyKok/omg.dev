@@ -166,6 +166,9 @@ export function useDictation(
   const socketBrokenRef = useRef(false);
   const pendingRef = useRef<Uint8Array[]>([]);
   const committedRef = useRef("");
+  // The latest partial, mirrored out of state so stop() can read it after its
+  // wait without a stale closure.
+  const partialRef = useRef("");
   // Resolvers waiting on the next "final" frame, settled by the flush stop()
   // sends — mirrors the web composer's finalWaiters so a stop() doesn't hand
   // back a clipped partial instead of the tail the bridge is about to commit.
@@ -205,6 +208,7 @@ export function useDictation(
     setLive(false);
     setError(null);
     committedRef.current = "";
+    partialRef.current = "";
     socketBrokenRef.current = false;
     pendingRef.current = [];
     finalWaitersRef.current = [];
@@ -239,6 +243,7 @@ export function useDictation(
           return; // Not JSON — one bad frame should not end a live take.
         }
         if (msg.type === "partial") {
+          partialRef.current = msg.text ?? "";
           setPartial(msg.text ?? "");
         } else if (msg.type === "final") {
           const text = msg.text ?? "";
@@ -247,6 +252,7 @@ export function useDictation(
               ? `${committedRef.current} ${text}`
               : committedRef.current
             : text;
+          partialRef.current = "";
           setPartial("");
           settleFinalWaiters();
         }
@@ -307,7 +313,11 @@ export function useDictation(
       const socket = socketRef.current;
 
       let text: string | null = null;
+      // Captured before the flush wait: a socket that drops DURING the wait
+      // still leaves these words on screen, and they must not be thrown away.
+      let streamed = false;
       if (socket && !socketBrokenRef.current && socket.readyState === WS_OPEN) {
+        streamed = true;
         // Ask the bridge to commit whatever it has heard, then give it a
         // short window to send the trailing "final" before deciding the
         // stream came up empty.
@@ -322,6 +332,15 @@ export function useDictation(
           // Send failed mid-flush — fall through to the file below.
         }
         text = committedRef.current.trim() || null;
+      }
+      // The final never came in time, but the user already saw these words as
+      // the live partial. Send them. Falling through to the batch POST instead
+      // costs a second full upload of the take, and on a hosted workspace that
+      // endpoint is realtime-only and answers 503 — a slow wait that ends in
+      // an error instead of the text that was on screen.
+      if (streamed) {
+        const tail = partialRef.current.trim();
+        if (tail) text = text ? `${text} ${tail}` : tail;
       }
       closeSocket();
 
