@@ -1,0 +1,21 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": { "clearState": false },
+  "steps": [
+    {
+      "name": "Partial paragraph is held back",
+      "goal": "Wait until the status line says the stream is paused mid-paragraph. Do not tap anything.",
+      "done": "The stream is paused. The first paragraph is visible and the unfinished second paragraph is not.",
+      "expect": ["Stream paused mid-paragraph", "First paragraph is complete now."],
+      "forbid": ["Second paragraph", "Stream finished"],
+      "timeoutMs": 30000
+    },
+    {
+      "name": "Final reply shows everything",
+      "goal": "Wait until the status line says Stream finished. Do not tap anything.",
+      "done": "The whole reply is visible, including the second paragraph and both list items.",
+      "expect": ["Stream finished", "First paragraph is complete now.", "Second paragraph is still being typed and ends here.", "Two list item"],
+      "timeoutMs": 60000
+    }
+  ]
+}
