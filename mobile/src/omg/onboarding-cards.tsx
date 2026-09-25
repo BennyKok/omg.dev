@@ -33,7 +33,7 @@ import { Text } from "./text";
 import { useTheme } from "./theme";
 
 /** Cut from the App Store screenshots, white background removed. */
-const PICTURES: Record<CardKey, ImageSourcePropType> = {
+export const PICTURES: Record<CardKey, ImageSourcePropType> = {
   app: require("../../assets/onboarding/card-app.png"),
   // No game picture of its own yet; the Welcome picture stands in.
   game: require("../../assets/onboarding/welcome-grass.png"),

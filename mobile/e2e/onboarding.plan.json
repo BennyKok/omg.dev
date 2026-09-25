@@ -43,52 +43,39 @@
       "goal": "Type the six-digit sign-in code into the focused code field",
       "otp": true,
       "focused": true,
-      "done": "The first onboarding question: What do you work on daily?, with lane options such as Code & reviews",
+      "done": "The first-task cards, with a Build my app button",
       "expect": [
-        "Code & reviews"
-      ],
-      "forbid": [
-        "Agree and continue"
+        "Build my app"
       ],
       "timeoutMs": 30000
     },
     {
-      "name": "02 Lane",
-      "goal": "Pick the Code & reviews lane",
-      "done": "The Code & reviews lane is selected",
-      "timeoutMs": 20000,
-      "selected": "Code & reviews"
-    },
-    {
-      "name": "02 Continue",
-      "goal": "Continue past the lane picker",
-      "done": "A list of starter tasks such as Explain an error is shown, with a Continue button",
+      "name": "02 Card",
+      "goal": "Tap the Build my app button",
+      "done": "A question: Who is it for?, with answer squares such as Friends",
       "expect": [
-        "Explain an error"
+        "Who is it for?"
       ]
     },
     {
-      "name": "03 Task",
-      "goal": "Pick the task Explain an error",
-      "done": "Explain an error is selected",
-      "timeoutMs": 20000,
-      "selected": "Explain an error"
-    },
-    {
-      "name": "03 Continue",
-      "goal": "Tap the Continue button at the bottom of the task list. Do not tap Start with my own idea",
-      "done": "The First prompt. screen, with the Explain an error prompt already written in the box",
+      "name": "03 Who",
+      "goal": "Tap the Friends answer",
+      "done": "The next question: What is it about?",
       "expect": [
-        "First prompt.",
-        "Edit any part of this prompt."
-      ],
-      "forbid": [
-        "What is your idea?"
+        "What is it about?"
       ]
     },
     {
-      "name": "03 Start",
-      "goal": "Tap the Start button at the bottom of the First prompt. screen",
+      "name": "03 About",
+      "goal": "Tap the Food and recipes answer",
+      "done": "The next question: What should it do?",
+      "expect": [
+        "What should it do?"
+      ]
+    },
+    {
+      "name": "03 Does",
+      "goal": "Tap the Share with others answer",
       "done": "The data notice: Your data and AI providers, with Agree and continue",
       "expect": [
         "Your data and AI providers",
@@ -146,7 +133,7 @@
       "goal": "Skip the plan with Continue for now",
       "done": "The first session is open, titled with the task Explain this error",
       "expect": [
-        "Explain this error"
+        "Build a mobile app for my friends"
       ],
       "forbid": [
         "Bring your agent."

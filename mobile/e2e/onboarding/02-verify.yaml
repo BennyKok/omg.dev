@@ -12,6 +12,19 @@ appId: dev.omg.computer
 - assertVisible: "Build an app.*"
 - assertNotVisible: "First prompt."
 - tapOn: "Build my app"
+# 03, three questions answered with the floating squares.
+- extendedWaitUntil:
+    visible: "Who is it for?"
+    timeout: 10000
+- tapOn: "Friends"
+- extendedWaitUntil:
+    visible: "What is it about?"
+    timeout: 10000
+- tapOn: "Food and recipes"
+- extendedWaitUntil:
+    visible: "What should it do?"
+    timeout: 10000
+- tapOn: "Share with others"
 # The data notice comes before anything is sent to an AI provider.
 - extendedWaitUntil:
     visible: "Agree and continue"
@@ -24,6 +37,19 @@ appId: dev.omg.computer
     timeout: 10000
 - assertNotVisible: "Welcome to omg.dev"
 - tapOn: "Build my app"
+# 03, three questions answered with the floating squares.
+- extendedWaitUntil:
+    visible: "Who is it for?"
+    timeout: 10000
+- tapOn: "Friends"
+- extendedWaitUntil:
+    visible: "What is it about?"
+    timeout: 10000
+- tapOn: "Food and recipes"
+- extendedWaitUntil:
+    visible: "What should it do?"
+    timeout: 10000
+- tapOn: "Share with others"
 - extendedWaitUntil:
     visible: "Agree and continue"
     timeout: 15000
@@ -61,7 +87,7 @@ appId: dev.omg.computer
 # Lands in the first session itself, header first: the task they wrote is
 # the title, and the model it ran on is under it.
 - extendedWaitUntil:
-    visible: "Build a mobile app prototype.*"
+    visible: "Build a mobile app for my friends.*"
     timeout: 60000
 - assertNotVisible: "Bring your agent."
 - takeScreenshot: onboarding-session

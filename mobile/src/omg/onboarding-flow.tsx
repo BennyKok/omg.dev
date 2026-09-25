@@ -29,9 +29,10 @@ import { useState } from "react";
 import { View } from "react-native";
 
 import { CardsScreen } from "./onboarding-cards";
+import { QuestionScreen } from "./onboarding-questions";
 import { SignInDrawer } from "./onboarding-signin-drawer";
 import { WelcomeScreen } from "./onboarding-welcome";
-import { promptFor, type CardKey, type InterestKey } from "./onboarding-tasks";
+import { compose, taskFor, type CardKey, type FirstTask, type InterestKey } from "./onboarding-tasks";
 import type { PickedFile } from "./attachments";
 import { useTheme } from "./theme";
 
@@ -100,12 +101,30 @@ export function OnboardingFlow({
   initialKey?: CardKey | null;
 }) {
   const { colors } = useTheme();
-  const [step, setStep] = useState<"welcome" | "cards">(startAt);
+  const [step, setStep] = useState<"welcome" | "cards" | "questions">(startAt);
+  /** The task card picked, while its questions are open. */
+  const [task, setTask] = useState<FirstTask | null>(null);
+  const [question, setQuestion] = useState(0);
+  const [picks, setPicks] = useState<[number | null, number | null, number | null]>([null, null, null]);
 
   const pick = (key: CardKey) => {
-    const prompt = promptFor(key);
-    if (!prompt) return onAgents();
-    onDone({ interest: key as InterestKey, taskId: key, prompt, files: [] });
+    const next = taskFor(key);
+    if (!next) return onAgents();
+    // A different card starts its questions fresh.
+    if (next.key !== task?.key) setPicks([null, null, null]);
+    setTask(next);
+    setQuestion(0);
+    setStep("questions");
+  };
+
+  const answer = (index: number) => {
+    if (!task) return;
+    const next: typeof picks = [...picks];
+    next[question] = index;
+    setPicks(next);
+    if (question < 2) return setQuestion(question + 1);
+    const chosen = next.map((p) => p ?? 0) as [number, number, number];
+    onDone({ interest: task.key, taskId: task.key, prompt: compose(task, chosen), files: [] });
   };
 
   return (
@@ -117,6 +136,15 @@ export function OnboardingFlow({
           onPick={pick}
           // First run has no screen before this one: Welcome was signed out.
           onBack={startAt === "welcome" ? () => setStep("welcome") : undefined}
+        />
+      ) : null}
+      {step === "questions" && task ? (
+        <QuestionScreen
+          task={task}
+          step={question}
+          chosen={picks[question]}
+          onAnswer={answer}
+          onBack={() => (question > 0 ? setQuestion(question - 1) : setStep("cards"))}
         />
       ) : null}
     </View>

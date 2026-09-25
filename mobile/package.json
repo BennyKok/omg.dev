@@ -21,6 +21,7 @@
     "expo-app-intents": "0.4.2",
     "expo-apple-authentication": "~58.0.1",
     "expo-asset": "~58.0.4",
+    "expo-audio": "~58.0.2",
     "expo-clipboard": "~58.0.1",
     "expo-constants": "~58.0.4",
     "expo-crypto": "~58.0.2",
