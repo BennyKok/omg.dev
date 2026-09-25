@@ -167,7 +167,9 @@ function Bubble({
   const squeeze = useSharedValue(1);
 
   useEffect(() => {
-    enter.value = withDelay(90 * index, withSpring(0, { damping: 15, stiffness: 110, mass: 0.9 }));
+    // Settles with barely any overshoot: the first cut bounced too much
+    // (Benny, 2026-09-25).
+    enter.value = withDelay(90 * index, withSpring(0, { damping: 26, stiffness: 140, mass: 0.9 }));
     const period = 1500 + index * 230;
     bob.value = withDelay(
       600 + 90 * index,
@@ -176,14 +178,14 @@ function Bubble({
   }, [enter, bob, index]);
 
   useEffect(() => {
-    if (selected) squeeze.value = withSequence(withTiming(0.88, { duration: 90 }), withSpring(1.06, { damping: 9 }));
+    if (selected) squeeze.value = withSequence(withTiming(0.94, { duration: 90 }), withSpring(1, { damping: 20 }));
   }, [selected, squeeze]);
 
   const style = useAnimatedStyle(() => ({
     opacity: 1 - enter.value * 0.9,
     transform: [
       { translateX: Math.cos(angle) * far * enter.value },
-      { translateY: Math.sin(angle) * far * enter.value + (bob.value - 0.5) * 8 },
+      { translateY: Math.sin(angle) * far * enter.value + (bob.value - 0.5) * 4 },
       { scale: squeeze.value },
     ],
   }));
