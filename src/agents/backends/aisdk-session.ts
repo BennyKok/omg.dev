@@ -93,8 +93,8 @@ function normalizeSdkEnvelope(msg: Record<string, unknown>): SessionMsg[] {
   }));
 }
 
-function userTextMessage(text: string): SessionMsg {
-  return { id: crypto.randomUUID(), role: "user", kind: "text", text, ts: Date.now() };
+function userTextMessage(text: string, ts = Date.now()): SessionMsg {
+  return { id: crypto.randomUUID(), role: "user", kind: "text", text, ts };
 }
 
 /**
@@ -106,16 +106,32 @@ function userTextMessage(text: string): SessionMsg {
  * interrupt marker. Keep that local row pending until either the SDK echoes
  * the user turn itself or the interrupted turn ends. `order_seq` then records
  * the same append order the SDK produced instead of the command-dispatch race.
+ *
+ * The deferred row is stamped when it is committed, not when it was typed.
+ * Its typed time is older than the interrupted answer written before it, and
+ * the live views place an arriving row by `ts`: the web drew the steering
+ * message ABOVE the answer it interrupted until a reload read the stored order.
  */
 export class AisdkUserRowCommitter {
   private deferred: SessionMsg[] = [];
+  private latestTs = 0;
 
-  constructor(private readonly commit: (messages: SessionMsg[]) => void) {}
+  constructor(
+    private readonly commit: (messages: SessionMsg[]) => void,
+    private readonly now: () => number = Date.now,
+  ) {}
+
+  private commitRows(messages: SessionMsg[]): void {
+    for (const message of messages) {
+      if (typeof message.ts === "number" && message.ts > this.latestTs) this.latestTs = message.ts;
+    }
+    this.commit(messages);
+  }
 
   send(text: string, afterInterrupt: boolean): void {
-    const row = userTextMessage(text);
+    const row = userTextMessage(text, this.now());
     if (afterInterrupt) this.deferred.push(row);
-    else this.commit([row]);
+    else this.commitRows([row]);
   }
 
   sdk(messages: SessionMsg[]): void {
@@ -126,14 +142,15 @@ export class AisdkUserRowCommitter {
       if (index >= 0) unmatched.splice(index, 1);
     }
     this.deferred = unmatched;
-    this.commit(messages);
+    this.commitRows(messages);
   }
 
   turnEnded(): void {
     if (!this.deferred.length) return;
-    const rows = this.deferred;
+    const at = Math.max(this.now(), this.latestTs + 1);
+    const rows = this.deferred.map((row, index) => ({ ...row, ts: Math.max(row.ts ?? 0, at + index) }));
     this.deferred = [];
-    this.commit(rows);
+    this.commitRows(rows);
   }
 }
 

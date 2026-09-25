@@ -1,6 +1,7 @@
 import { useSessionStatus } from "./use-session-status";
 import { recordConnectionTiming } from "./connection-trace";
 import { startPendingSession } from "./pending-session";
+import { archiveSession as archiveSessionOnMachine, forgetArchivedSessions, useArchivingSessionIds } from "./archiving";
 import { sessionCache } from "./session-cache-store";
 import { WindowedSessionList } from "./windowed-session-list";
 /**
@@ -444,7 +445,16 @@ export function SessionsScreen({
     const saved = sessionCache.read<OmgSession[]>(rosterKey);
     return Array.isArray(saved) ? saved : [];
   };
-  const [sessions, setSessions] = useState<OmgSession[]>(cachedSessions);
+  const [listedSessions, setSessions] = useState<OmgSession[]>(cachedSessions);
+  // Sessions being archived (from a swipe here or from the session screen's
+  // own Archive) never draw, whatever a refresh returns. See archiving.ts.
+  const archivingIds = useArchivingSessionIds();
+  const sessions = useMemo(
+    () => archivingIds.size
+      ? listedSessions.filter((session) => !archivingIds.has(session.sessionId ?? ""))
+      : listedSessions,
+    [listedSessions, archivingIds],
+  );
   useLayoutEffect(() => { recordConnectionTiming("sessions.commit"); }, [sessions]);
   /**
    * HAS SESSIONS HAD ITS TURN YET — see the long note on `SESSIONS_SETTLE_TIMEOUT_MS`
@@ -637,6 +647,7 @@ export function SessionsScreen({
     return new SessionStatusState((fresh) => {
     if (currentClient.current !== client || epoch !== sessionCache.epoch) return;
     sessionCache.write(rosterKey, fresh);
+    forgetArchivedSessions(fresh.map((session) => session.sessionId));
     const signature = sessionsSignature(fresh);
     if (signature !== sessionsSignatureRef.current) {
       sessionsSignatureRef.current = signature;
@@ -1267,15 +1278,16 @@ export function SessionsScreen({
       if (!client || !sessionId) return;
       // Drop the row immediately. The request is not instant, and leaving a
       // card that has just been swiped away sitting on screen until the server
-      // answers reads as the gesture having failed.
-      statusState.remove(sessionId);
+      // answers reads as the gesture having failed. archiving.ts keeps it
+      // hidden from any refresh that lands before the close does.
       void (async () => {
         try {
-          await client.transport.request(`/api/sessions/${encodeURIComponent(sessionId)}/close`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ source: "mobile_swipe_archive" }),
-              });
+          await archiveSessionOnMachine(sessionId, () =>
+            client.transport.request(`/api/sessions/${encodeURIComponent(sessionId)}/close`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ source: "mobile_swipe_archive" }),
+            }));
         } catch (e) {
           setError(e instanceof Error ? e.message : String(e));
         } finally {
@@ -1285,7 +1297,7 @@ export function SessionsScreen({
         }
       })();
     },
-    [client, statusState, load],
+    [client, load],
   );
 
   /**

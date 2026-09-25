@@ -1,0 +1,53 @@
+# Archiving from the session screen leaves at once, and the row stays gone.
+#
+# The close request is not instant: the machine stops the agent first. The
+# screen used to wait for it before going back, and Home could draw the row
+# again from a refresh that landed before the close did (archiving.ts).
+#
+# Needs the demo build with the opening fixture, which holds every
+# /api/sessions request, the close included, for five seconds:
+#   EXPO_PUBLIC_OMG_DEMO=1 EXPO_PUBLIC_OMG_OPENING_FIXTURE=1 \
+#   EXPO_PUBLIC_OMG_PERFORMANCE_FIXTURE=1 bun run test:e2e --build --flow session-archive
+# The fixture's list keeps returning the session, so the last check also
+# proves a refresh cannot bring an archived row back.
+appId: dev.omg.computer
+---
+- launchApp:
+    clearState: false
+- runFlow:
+    when:
+      visible: "Agree and continue"
+    commands:
+      - tapOn: "Agree and continue"
+- extendedWaitUntil:
+    visible: ".*api-gateway.*"
+    timeout: 150000
+- extendedWaitUntil:
+    visible: "Write integration tests.*"
+    timeout: 60000
+- tapOn: "Write integration tests.*"
+- extendedWaitUntil:
+    visible: "Dictate a message"
+    timeout: 30000
+- tapOn:
+    id: "ellipsis"
+- tapOn: "Archive session"
+- tapOn: "Archive"
+# Home is back well inside the fixture's five-second close.
+- extendedWaitUntil:
+    visible: ".*api-gateway.*"
+    timeout: 2000
+- extendedWaitUntil:
+    notVisible: "Write integration tests.*"
+    timeout: 2000
+# Spend the close and the refresh after it: another chat's history read is
+# held five seconds too. Coming back, the archived row is still gone.
+- tapOn: "Refactor the rate limiter.*"
+- extendedWaitUntil:
+    visible: "History message 100\\..*"
+    timeout: 60000
+- tapOn: "Back"
+- extendedWaitUntil:
+    visible: ".*api-gateway.*"
+    timeout: 10000
+- assertNotVisible: "Write integration tests.*"

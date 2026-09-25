@@ -1,5 +1,6 @@
 import { createdSessionPrompt } from "../../src/omg/pending-session";
 import { parseOmgPromptEnvelope } from "../../src/omg/omg-prompt-envelope";
+import { archiveSession } from "../../src/omg/archiving";
 import { openingReveal } from "../../src/omg/opening-reveal";
 import { keepOpener, useTranscriptPage } from "../../src/omg/use-transcript-page";
 import { appendTranscriptDraft, INITIAL_TRANSCRIPT_ITEMS, TranscriptWindow } from "../../src/omg/transcript-items";
@@ -1437,18 +1438,20 @@ function SessionScreenContent({
         text: "Archive",
         style: "destructive",
         onPress: () => {
-          void (async () => {
-            try {
-              await client.transport.request(`/api/sessions/${encodeURIComponent(id)}/close`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ source: "session_menu" }),
-              });
-              router.back();
-            } catch (e) {
-              setError(e instanceof Error ? e.message : String(e));
-            }
-          })();
+          // Leave at once. Waiting for the close kept the archived chat on
+          // screen for the whole round trip. Home already leaves the row out
+          // (archiving.ts); a close the machine refuses puts it back there,
+          // and this screen is gone by then, so the refusal is an alert.
+          router.back();
+          void archiveSession(id, () =>
+            client.transport.request(`/api/sessions/${encodeURIComponent(id)}/close`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ source: "session_menu" }),
+            }),
+          ).catch((e) => {
+            Alert.alert("Couldn't archive the session", e instanceof Error ? e.message : String(e));
+          });
         },
       },
     ]);
