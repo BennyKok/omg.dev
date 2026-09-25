@@ -1238,6 +1238,9 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
 
   .tool-call-organic {
     inset: -10px;
+    /* The row has no left padding, so the ring starts 10px left of the dot,
+       mirroring the 10px it keeps past the chevron on the right. */
+    left: -20px;
     --organic-halo-inset: 5px;
     --organic-soft-inset: 8px;
     --organic-sharp-inset: 10px;
