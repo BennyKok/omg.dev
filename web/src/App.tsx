@@ -20812,14 +20812,8 @@ const ToolGroup = memo(function ToolGroup({
       onMouseLeave={scheduleHoverClose}
     >
       <OrganicActivityEffect active={live} className="tool-call-organic" />
-      {/* Only a live run carries the dot. A finished "Worked for 14s" row is
-          plain text, as on the phone. */}
-      {live ? (
-        <span
-          className="relative z-[1] size-1.5 shrink-0 animate-pulse rounded-full bg-foreground"
-          aria-hidden="true"
-        />
-      ) : null}
+      {/* No leading dot, live or finished. The live ring and the ticking
+          "Working for 25s" already say the run is going. */}
       <span className="relative z-[1] truncate font-mono">{label}</span>
       {/* The chevron says the row opens, as on the phone. */}
       <ChevronRight className="relative z-[1] size-3 shrink-0 opacity-60" aria-hidden="true" />
