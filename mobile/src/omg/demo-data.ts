@@ -417,7 +417,7 @@ function answer(path: string): unknown | null {
       { ...demoArtifact, id: "demo-hidden-image", kind: "image", title: "Hidden image output", name: "Hidden image output", url: "/api/artifacts/demo-hidden-image" },
       { ...demoArtifact, id: "demo-hidden-file", kind: "file", title: "Hidden file output", name: "Hidden file output", url: "/api/artifacts/demo-hidden-file" }], total: 4 };
   }
-  if (openingFixture && clean === "/api/sessions/demo-created/messages") {
+  if ((openingFixture || shareFixture) && clean === "/api/sessions/demo-created/messages") {
     return { messages: [{ id: "demo-created-prompt", role: "user", text: createdPrompt },
       { id: "demo-created-reply", role: "assistant", text: "Your new conversation is ready." }] };
   }
@@ -520,7 +520,7 @@ export function getDemoTransport(): OmgTransport {
     },
     async request<T>(path: string, init?: RequestInit): Promise<T> {
       await openingDelay(path);
-      if (openingFixture && path === "/api/sessions/new") {
+      if ((openingFixture || shareFixture) && path === "/api/sessions/new") {
         createdPrompt = JSON.parse(String(init?.body ?? "{}")).prompt ?? "";
         return { sessionId: "demo-created" } as T;
       }
@@ -549,5 +549,9 @@ export function getDemoTransport(): OmgTransport {
 }
 
 /** Explicit simulator fixture: register a project while a chat is open. */
+/** Explicit simulator fixture: a share from another app creates a session. */
+let shareFixture = false;
+export function enableShareFixture() { shareFixture = true; }
+
 let projectCreationFixture = false;
 export function enableProjectCreationFixture() { projectCreationFixture = true; }

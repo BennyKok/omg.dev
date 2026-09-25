@@ -1,0 +1,59 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": true
+  },
+  "steps": [
+    {
+      "name": "Demo Home",
+      "goal": "If an Apple Account Verification alert asks for a password, tap Not Now. Then reach the demo Home screen. If an AI data consent screen appears, accept it for this isolated demo fixture. If the system Home screen is visible, tap the omg app icon. Do not open a conversation.",
+      "done": "The omg Home screen with the composer is visible.",
+      "expect": [
+        "Chats without a project"
+      ]
+    },
+    {
+      "name": "Open a link in Safari",
+      "open": "https://example.com/?omg-share-e2e=1",
+      "goal": "Wait for Safari to show the page. If an Apple Account Verification alert appears, tap Not Now. If Safari shows a first-run sheet or a Continue button, dismiss it. Do not tap links on the page.",
+      "done": "Safari shows the Example Domain page and its toolbar.",
+      "expect": [
+        "Example Domain"
+      ],
+      "timeoutMs": 90000
+    },
+    {
+      "name": "Open the share sheet",
+      "goal": "Open Safari's share sheet. Tap the More button (three dots) at the bottom right of the Safari toolbar, then tap Share in the menu. Stop as soon as the share sheet with app icons is visible. Do not tap any app icon.",
+      "done": "The iOS share sheet is open over Safari and shows a row of app icons.",
+      "expect": [
+        "Copy",
+        "Add to Reading List"
+      ],
+      "timeoutMs": 60000
+    },
+    {
+      "name": "Share to omg",
+      "tapAt": "61%,75%",
+      "goal": "iOS asks Open in \"omg\"? before the extension can open the app. Tap Open on that alert. Tap nothing else.",
+      "done": "The share sheet closed and the omg app opened a new conversation.",
+      "expect": [
+        "I shared this with you from another app.",
+        "read it or watch it"
+      ],
+      "timeoutMs": 60000
+    },
+    {
+      "name": "Session started with the link",
+      "goal": "Wait. Do not tap anything.",
+      "done": "The conversation shows the shared link in the first message and the fixture reply.",
+      "expect": [
+        "example.com",
+        "Your new conversation is ready."
+      ],
+      "forbid": [
+        "no longer available"
+      ]
+    }
+  ]
+}

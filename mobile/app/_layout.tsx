@@ -34,6 +34,7 @@ import { stashOnboardingChoice } from "../src/omg/onboarding-handoff";
 import { registerForPushNotifications, useNotificationTapRouting } from "../src/omg/push";
 import { useRootOpenRouting } from "../src/omg/root-open";
 import { useAppIntentRouting } from "../src/omg/app-intent-routing";
+import { useShareRouting } from "../src/omg/share-routing";
 import { useOtaUpdates } from "../src/omg/ota";
 import { launch } from "../src/omg/palette";
 import { useTheme } from "../src/omg/theme";
@@ -321,6 +322,15 @@ function RootNavigator() {
    * the "no longer available" page.
    */
   useAppIntentRouting(
+    authStatus === "signed-in" && consent.state === "granted",
+    client ?? null,
+    `${user?.id}:${bindingId}`,
+  );
+  /*
+   * The fourth way in: a link shared from another app's share sheet. Same
+   * gate and same scope as the intent, for the same reasons.
+   */
+  useShareRouting(
     authStatus === "signed-in" && consent.state === "granted",
     client ?? null,
     `${user?.id}:${bindingId}`,

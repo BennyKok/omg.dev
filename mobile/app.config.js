@@ -9,6 +9,7 @@ module.exports = ({ config }) => {
     ...(config.plugins ?? []),
     "./plugins/with-activity-icons.js",
     "./plugins/with-agent-notifications.js",
+    "./plugins/with-share-extension.js",
     ["expo-widgets", {
       enablePushNotifications: true,
       widgets: [{

@@ -26,6 +26,7 @@ import { useEffect, useRef } from "react";
 import { Linking } from "react-native";
 import { useRouter } from "expo-router";
 
+import { isSharePath } from "./share-intent";
 import { systemPathTarget } from "./system-path";
 
 export function useRootOpenRouting(ready: boolean): void {
@@ -52,6 +53,9 @@ export function useRootOpenRouting(ready: boolean): void {
       // A URL WITH a destination belongs to expo-router; only the empty one is
       // ours. `systemPathTarget` is the single definition of which is which.
       if (!url || systemPathTarget(url) !== null) return;
+      // A share is also dropped by expo-router, but it has a destination:
+      // `share-routing.tsx` pushes its new session. Going home would race it.
+      if (isSharePath(url)) return;
       if (!ready) { pending.current = url; return; }
       goHome();
     };

@@ -69,6 +69,18 @@ export type Step = {
   longPress?: boolean;
   /** Wall-clock ceiling for this step. Default 60s; provisioning gets more. */
   timeoutMs?: number;
+  /**
+   * A link to open before the first look (Maestro `openLink`). An https link
+   * opens Safari, which is how a plan reaches another app's share sheet.
+   */
+  open?: string;
+  /**
+   * A screen point to tap once before the first look, as Maestro's "x%,y%".
+   * For system UI whose tree reports frames in its own space: the iOS share
+   * sheet lists its app icons relative to the sheet, so a tap on the reported
+   * centre lands above the sheet and closes it.
+   */
+  tapAt?: string;
 };
 
 export type Plan = {
@@ -240,6 +252,14 @@ export async function runPlan(opts: {
       let mismatchLooks = 0;
       let blockedLooks = 0;
       let verdict: StepResult | null = null;
+      if (step.open) {
+        const r = await mcp.run(`${header}- openLink: ${JSON.stringify(sub(step.open))}\n`);
+        if (!r.ok) verdict = { name: step.name, status: "fail", at: Date.now(), looks, detail: `openLink failed: ${r.text.slice(0, 300)}` };
+      }
+      if (!verdict && step.tapAt) {
+        const r = await mcp.run(`${header}- tapOn:\n    point: ${JSON.stringify(step.tapAt)}\n`);
+        if (!r.ok) verdict = { name: step.name, status: "fail", at: Date.now(), looks, detail: `tap at ${step.tapAt} failed: ${r.text.slice(0, 300)}` };
+      }
 
       while (!verdict) {
         let tree: any;

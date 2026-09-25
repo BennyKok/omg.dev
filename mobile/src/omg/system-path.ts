@@ -1,3 +1,5 @@
+import { isSharePath } from "./share-intent";
+
 /**
  * What an incoming system URL should actually do to the stack.
  *
@@ -25,6 +27,8 @@
  */
 export function systemPathTarget(path: string): string | null {
   if (typeof path !== "string" || path === "") return null;
+  // A share from another app is not a screen. `share-routing.tsx` owns it.
+  if (isSharePath(path)) return null;
   const withoutScheme = path.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "");
   const route = withoutScheme.split("?")[0].split("#")[0].replace(/^\/+/, "");
   return route === "" || route === "/" ? null : path;

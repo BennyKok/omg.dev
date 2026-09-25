@@ -23,6 +23,26 @@ import type { OmgClient } from "@omg-dev/client";
 
 import { startPendingSession } from "./pending-session";
 
+/**
+ * Start a session with the server's default agent and open its chat at once.
+ * Shared by the Siri intent and by a share from another app
+ * (`share-routing.tsx`), so both take the composer's creation path.
+ */
+export function openPromptSession(
+  client: OmgClient,
+  scope: string,
+  prompt: string,
+  router: ReturnType<typeof useRouter>,
+): void {
+  const pending = startPendingSession(scope, prompt, () =>
+    client.transport.request<{ sessionId?: string }>("/api/sessions/new", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt }),
+    }));
+  router.push(`/session/new?request=${pending.token}` as Href);
+}
+
 /** The invocation name dispatched by StartOmgSessionIntent.perform(). */
 const START_SESSION = "startSession";
 
@@ -54,13 +74,7 @@ export function useAppIntentRouting(
      * access to the picker state on the home screen, and a spoken "start a
      * session" carries no folder.
      */
-    const pending = startPendingSession(scope, prompt, () =>
-      client.transport.request<{ sessionId?: string }>("/api/sessions/new", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt }),
-      }));
-    router.push(`/session/new?request=${pending.token}` as Href);
+    openPromptSession(client, scope, prompt, router);
   }, [client, scope, router]);
 
   useEffect(() => {
