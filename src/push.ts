@@ -66,6 +66,12 @@ export type PushNotification = {
   tag?: string;
   /** Keep the notice on screen until acted on — used for questions. */
   requireInteraction?: boolean;
+  /**
+   * The session's agent (`claude`, `codex`, ...). The iOS app's notification
+   * service extension shows that agent's mark as the sender avatar. Web push
+   * ignores it.
+   */
+  agent?: string;
 };
 
 type VapidFile = {

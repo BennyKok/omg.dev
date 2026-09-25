@@ -161,7 +161,15 @@ async function sendBatch(tokens: NativeToken[], notification: PushNotification):
     // extra client-side entitlement beyond what expo-notifications already
     // declares.
     ...(notification.requireInteraction ? { priority: "high", interruptionLevel: "time-sensitive" } : {}),
-    data: { url: toNativeAppUrl(notification.url), tag: notification.tag ?? null },
+    // An agent turns on the iOS notification service extension, which
+    // restyles the alert as a Communication Notification with that agent's
+    // mark as the avatar. Without `mutableContent` iOS never runs it.
+    ...(notification.agent ? { mutableContent: true } : {}),
+    data: {
+      url: toNativeAppUrl(notification.url),
+      tag: notification.tag ?? null,
+      ...(notification.agent ? { agent: notification.agent } : {}),
+    },
   }));
 
   let res: Response;

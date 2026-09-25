@@ -115,6 +115,26 @@ describe("notifyNativeAll", () => {
     expect((message.data as { url: string }).url).toBe("/session/abc");
   });
 
+  test("an agent marks the message mutable and carries the agent id", async () => {
+    await saveNativeToken({ token: "ExponentPushToken[benny]", user: "benny@example.com" });
+
+    await notifyNativeAll({
+      user: "benny@example.com",
+      notification: { title: "Fix login", body: "Done.", url: "/?session=abc", tag: "session-abc", agent: "codex" },
+    });
+    await notifyNativeAll({
+      user: "benny@example.com",
+      notification: { title: "Client error", body: "boom" },
+    });
+
+    const [withAgent] = sent[0].body as Array<Record<string, unknown>>;
+    expect(withAgent.mutableContent).toBe(true);
+    expect((withAgent.data as { agent?: string }).agent).toBe("codex");
+    const [plain] = sent[1].body as Array<Record<string, unknown>>;
+    expect(plain.mutableContent).toBeUndefined();
+    expect((plain.data as { agent?: string }).agent).toBeUndefined();
+  });
+
   test("forwards the real title and body, with no folder name", async () => {
     await saveNativeToken({ token: "ExponentPushToken[benny]", user: "benny@example.com" });
     const question = "Should I force-push over the release branch in acme/payments?";
