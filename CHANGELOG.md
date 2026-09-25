@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## September 25, 2026 - Session titles that name the task (v0.6.127)
+
+- New sessions get a title that says what the task is. Before, the title model sometimes did the task instead, and a session could be titled with an invented error message or with the model's own instructions.
+- On phones, the queued-message card under the composer is inset from the edges again.
+- A running tool no longer shows typing dots under it, and live "Worked" rows no longer show a dot.
+
 ## September 25, 2026 - One layout per screen size (v0.6.126)
 
 - The web app now has only a phone layout and a desktop layout. Windows between 768 and 1023 pixels wide get the desktop sidebar instead of a mixed layout.
