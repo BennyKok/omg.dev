@@ -20810,7 +20810,9 @@ const ToolGroup = memo(function ToolGroup({
       onMouseEnter={scheduleHoverOpen}
       onMouseLeave={scheduleHoverClose}
     >
-      <OrganicActivityEffect active={live} className="tool-call-organic" />
+      {/* Live is a gradient line under the label (.tool-call-row--live::after),
+          not a ring around it. The ring reached 20px past the label on the
+          left, so the row looked closer to the edge than the text above it. */}
       {/* No leading dot, live or finished. The live ring and the ticking
           "Working for 25s" already say the run is going. */}
       <span className="relative z-[1] truncate font-mono">{label}</span>

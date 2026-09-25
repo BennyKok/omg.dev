@@ -1236,19 +1236,6 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
     --organic-sharp-radius: 22px;
   }
 
-  .tool-call-organic {
-    inset: -10px;
-    /* The row has no left padding, so the ring starts 20px left of the
-       label, mirroring the 20px it keeps past the chevron on the right. */
-    left: -20px;
-    --organic-halo-inset: 5px;
-    --organic-soft-inset: 8px;
-    --organic-sharp-inset: 10px;
-    --organic-halo-radius: 999px;
-    --organic-soft-radius: 999px;
-    --organic-sharp-radius: 999px;
-  }
-
   .lfg-organic-activity-wash {
     position: absolute;
     inset: 0;
@@ -2067,6 +2054,7 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
     .typing-indicator-slot,
     .typing-indicator > span,
     .tool-call-row,
+    .tool-call-row--live::after,
     .lfg-organic-activity {
       transition: none;
       animation: none;
@@ -2164,8 +2152,9 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
   /* No pill. A tool call is a line in the transcript, not a card in it: the
      border, the gradient fill and the inset highlight gave every "2 Bash" the
      same visual weight as a message, and a turn with six of them read as six
-     objects stacked between the sentences. It is text with a dot now, and the
-     only thing that changes when it is live is the dot and the colour. */
+     objects stacked between the sentences. It is plain text now, and the
+     only things that change when it is live are the colour and the gradient
+     line under it. */
   .tool-call-row {
     position: relative;
     isolation: isolate;
@@ -2181,6 +2170,36 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
     border: 0;
     background: none;
     box-shadow: none;
+  }
+
+  /* The live signal: a thin gradient line under the label that drifts left
+     to right. It sits inside the row's own box, so the label keeps the same
+     left edge as the message text around it. */
+  .tool-call-row--live::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0.625rem;
+    bottom: 0;
+    height: 2px;
+    border-radius: 999px;
+    pointer-events: none;
+    background-image: linear-gradient(
+      90deg,
+      rgba(0, 122, 255, 0.9),
+      rgba(175, 82, 222, 0.9),
+      rgba(52, 199, 89, 0.85),
+      rgba(0, 122, 255, 0.9)
+    );
+    background-size: 200% 100%;
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent);
+    mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent);
+    animation: lfg-tool-row-underline 2.4s linear infinite;
+  }
+
+  @keyframes lfg-tool-row-underline {
+    from { background-position: 0% 0; }
+    to { background-position: -200% 0; }
   }
 
   @keyframes lfg-tool-row-in {
