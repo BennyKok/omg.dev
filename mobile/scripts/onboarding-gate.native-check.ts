@@ -4,7 +4,13 @@
  * flow, whether they paid or skipped.
  */
 import { expect, test } from "bun:test";
-import { NEW_ACCOUNT_WINDOW_MS, isNewAccount, shouldMarkOnboarded, shouldShowSetup } from "../src/omg/onboarding-gate";
+import {
+  NEW_ACCOUNT_WINDOW_MS,
+  firstRunDoneElsewhere,
+  isNewAccount,
+  shouldMarkOnboarded,
+  shouldShowSetup,
+} from "../src/omg/onboarding-gate";
 
 const base = { state: "needed", established: false, newArrival: false, machinesLoaded: true } as const;
 
@@ -71,4 +77,11 @@ test("a clock a little ahead of the server still reads as new", () => {
 test("a missing or unreadable time is unknown, not a guess", () => {
   expect(isNewAccount(undefined)).toBeNull();
   expect(isNewAccount("not a date")).toBeNull();
+});
+
+test("the shared record skips the cards only when another client finished them", () => {
+  expect(firstRunDoneElsewhere({ needed: false, doneAt: 1_800_000_000_000 })).toBe(true);
+  expect(firstRunDoneElsewhere({ needed: true, doneAt: null })).toBe(false);
+  // Unknown (older server, no network) never hides the cards.
+  expect(firstRunDoneElsewhere(null)).toBe(false);
 });

@@ -29,7 +29,13 @@ import { AgentLiveActivityBridge } from "../src/omg/agent-live-activity";
 import { OnboardingAfterSignIn } from "../src/omg/onboarding-after";
 import { OnboardingFlow, WelcomeGate, type OnboardingChoice } from "../src/omg/onboarding-flow";
 import type { CardKey } from "../src/omg/onboarding-tasks";
-import { isNewAccount, shouldMarkOnboarded, shouldShowSetup } from "../src/omg/onboarding-gate";
+import {
+  firstRunDoneElsewhere,
+  isNewAccount,
+  shouldMarkOnboarded,
+  shouldShowSetup,
+  type FirstRunRecord,
+} from "../src/omg/onboarding-gate";
 import { stashOnboardingChoice } from "../src/omg/onboarding-handoff";
 import { registerForPushNotifications, useNotificationTapRouting } from "../src/omg/push";
 import { useRootOpenRouting } from "../src/omg/root-open";
@@ -38,6 +44,7 @@ import { useShareRouting } from "../src/omg/share-routing";
 import { useOtaUpdates } from "../src/omg/ota";
 import { launch } from "../src/omg/palette";
 import { useTheme } from "../src/omg/theme";
+import { getFirstRunRecord, markFirstRunRecordDone } from "../src/omg/first-run-record";
 import { ToastProvider } from "../src/omg/toast";
 
 /**
@@ -259,7 +266,28 @@ function RootNavigator() {
    * below then decides alone). Read once per render; the window is an hour, so
    * a flip mid-flow is not a real case.
    */
-  const newAccount = isNewAccount(user?.createdAt);
+  const createdNew = isNewAccount(user?.createdAt);
+  /*
+   * The account-level first-run record, shared with the web app. Read once per
+   * signed-in account, in the background: the cards never wait for it. If
+   * another client (the web) already finished the first run, this account is
+   * treated as returning, so it is not offered the cards and a second first
+   * task. null = not answered yet, or an older server; the createdAt rule
+   * alone then decides, as before.
+   */
+  const [firstRunRecord, setFirstRunRecord] = useState<FirstRunRecord | null>(null);
+  useEffect(() => {
+    setFirstRunRecord(null);
+    if (!user?.id || createdNew !== true) return;
+    let live = true;
+    void getFirstRunRecord().then((record) => {
+      if (live) setFirstRunRecord(record);
+    });
+    return () => {
+      live = false;
+    };
+  }, [user?.id, createdNew]);
+  const newAccount = createdNew === true && firstRunDoneElsewhere(firstRunRecord) && !newArrival ? false : createdNew;
   /*
    * A returning customer counts as established even on the free plan with no
    * Computer of their own. Benny, 2026-09-24: an account that already exists
@@ -291,6 +319,11 @@ function RootNavigator() {
       onboarding.complete();
     }
   }, [afterSignInDone, onboarding, machinesLoaded, established, newArrival]);
+  // Finishing the flow here (a task, the agents card, or Skip) finishes it for
+  // the whole account, so the web does not offer the cards again.
+  useEffect(() => {
+    if (createdNew === true && onboarding.state === "done") void markFirstRunRecordDone();
+  }, [createdNew, onboarding.state]);
   /**
    * A tapped notification goes to the thing it is about.
    *

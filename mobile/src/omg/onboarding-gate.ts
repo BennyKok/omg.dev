@@ -70,3 +70,15 @@ export function isNewAccount(createdAt: string | undefined, now: number = Date.n
   // A creation time slightly in the future is clock skew on a brand-new account.
   return now - at < NEW_ACCOUNT_WINDOW_MS;
 }
+
+/** The account-level first-run record shared with the web (first-run-record.ts). */
+export type FirstRunRecord = { needed: boolean; doneAt: number | null };
+
+/**
+ * Did another client already finish the first run? Only a positive answer
+ * counts: null (unknown, or an older server) and "not done" both leave the
+ * createdAt rule and the local flag in charge.
+ */
+export function firstRunDoneElsewhere(record: FirstRunRecord | null): boolean {
+  return record !== null && record.doneAt !== null;
+}
