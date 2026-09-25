@@ -27,6 +27,9 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import * as Haptics from "expo-haptics";
+
+import { Icon } from "../components";
 import { PrimaryAction, StepHeader } from "./onboarding-chrome";
 import { FIRST_CARDS, type CardKey } from "./onboarding-tasks";
 import { Text } from "./text";
@@ -72,11 +75,20 @@ export function CardsScreen({
     setIndex(Math.max(0, Math.min(FIRST_CARDS.length - 1, next)));
   };
   const card = FIRST_CARDS[index]!;
+  const go = (next: number) => {
+    const target = Math.max(0, Math.min(FIRST_CARDS.length - 1, next));
+    void Haptics.selectionAsync();
+    setIndex(target);
+    scroller.current?.scrollTo({ x: target * step, animated: true });
+  };
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insets.top }}>
-      {/* No heading (Benny, 2026-09-25): the cards say it themselves. */}
       <StepHeader onBack={onBack} />
+      {/* The page's name, as a question (Benny, 2026-09-25). */}
+      <View style={{ paddingHorizontal: gutter }}>
+        <Text style={{ ...type.largeTitle, color: colors.text }}>What to build?</Text>
+      </View>
 
       <View style={{ flex: 1, justifyContent: "center", paddingVertical: space.lg }}>
         <ScrollView
@@ -99,21 +111,17 @@ export function CardsScreen({
               accessibilityRole="button"
               accessibilityLabel={`${item.title}. ${item.body}`}
               accessibilityState={{ selected: i === index }}
-              onPress={() => {
-                // A tap on a card brings it into view, so the swipe is never
-                // the only way to reach one.
-                setIndex(i);
-                scroller.current?.scrollTo({ x: i * step, animated: true });
-              }}
+              // A tap on a card brings it into view, so the swipe is never
+              // the only way to reach one.
+              onPress={() => go(i)}
               // No card surface (Benny, 2026-09-25): the picture and the words
               // sit on the page, the same way the Welcome screen draws them.
               style={{ width: cardWidth, gap: space.md }}
             >
               <Image source={PICTURES[item.key]} style={{ width: "100%", height: 240 }} resizeMode="contain" />
-              {/* Only the card in view shows its words. With no card surface,
-                  a neighbour's title cut at the screen edge read as broken
-                  text; its picture's edge is enough to say there is more. */}
-              <View style={{ gap: space.xs, opacity: i === index ? 1 : 0 }}>
+              {/* Every card shows its words all the time: hiding the ones out
+                  of view made the text arrive late on every swipe. */}
+              <View style={{ gap: space.xs }}>
                 <Text style={{ ...type.largeTitle, fontSize: 40, lineHeight: 44, color: colors.text }}>{item.title}</Text>
                 <Text style={{ ...type.title, fontWeight: "400", color: colors.textMuted }}>{item.body}</Text>
               </View>
@@ -136,9 +144,63 @@ export function CardsScreen({
         </View>
       </View>
 
-      <View style={{ paddingHorizontal: gutter, paddingTop: space.md, paddingBottom: insets.bottom + space.lg }}>
-        <PrimaryAction label={card.action} onPress={() => onPick(card.key)} />
+      {/* Arrows either side of the button (Benny, 2026-09-25), so moving
+          between cards is a tap as well as a swipe. */}
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          gap: space.sm,
+          paddingHorizontal: gutter,
+          paddingTop: space.md,
+          paddingBottom: insets.bottom + space.lg,
+        }}
+      >
+        <Arrow direction="left" disabled={index === 0} onPress={() => go(index - 1)} />
+        <View style={{ flex: 1 }}>
+          <PrimaryAction label={card.action} onPress={() => onPick(card.key)} />
+        </View>
+        <Arrow direction="right" disabled={index === FIRST_CARDS.length - 1} onPress={() => go(index + 1)} />
       </View>
     </View>
+  );
+}
+
+/** A round arrow button beside the main one. Dimmed at either end. */
+function Arrow({
+  direction,
+  disabled,
+  onPress,
+}: {
+  direction: "left" | "right";
+  disabled: boolean;
+  onPress: () => void;
+}) {
+  const { colors } = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={direction === "left" ? "Previous" : "Next"}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      hitSlop={6}
+      style={({ pressed }) => ({
+        width: 56,
+        height: 56,
+        borderRadius: 28,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: colors.card,
+        opacity: disabled ? 0.35 : pressed ? 0.6 : 1,
+      })}
+    >
+      <Icon
+        ios={direction === "left" ? "chevron.left" : "chevron.right"}
+        android={direction === "left" ? "chevron_left" : "chevron_right"}
+        size={18}
+        color={colors.text}
+      />
+    </Pressable>
   );
 }
