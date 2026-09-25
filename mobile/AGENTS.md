@@ -143,6 +143,15 @@ bun run test:e2e --flow smoke --record               # a static Maestro flow, ma
 The runner is `scripts/maestro.ts`. It resolves the UDID **by device name**,
 takes an exclusive lock on the shared Mac, and releases it in a `finally`.
 
+**Do not wait out a sign-in code block.** The auth service exempts the runner's
+default address, `itechbenny+e2e<id>@gmail.com`, from its per-IP limit and its
+"Please confirm you are a person" check. The list is
+`vibes/apps/auth/src/trusted-senders.ts` (30/hr, 200/day for all runs
+together). If a run hits a block, first check that `OMG_E2E_EMAIL` or
+`OMG_E2E_MAILBOX` has not moved it off that pattern. A new address shape
+needs a new entry there, and only for an inbox we read. Do not count sends
+and sleep until the hour rolls over.
+
 **Every feature change is proven by a `--plan` run with a step for the change,
 and the video goes with the ship.** Benny's rule, 2026-09-17, made the default
 on 2026-09-18. A hand-driven tap session is not proof. For onboarding that

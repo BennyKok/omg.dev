@@ -29,6 +29,12 @@ Each onboarding run signs up a new plus-alias of `OMG_E2E_MAILBOX` (default
 `itechbenny@gmail.com`) and provisions a new hosted Computer. Nothing removes
 them: account deletion finishes in the browser. Expect the accounts to pile up.
 
+Those addresses are on the auth service's trusted-sender list
+(`vibes/apps/auth/src/trusted-senders.ts`), so repeated runs from the one
+Mac are not blocked by the per-IP limit or the Turnstile check. The only cap
+is 30 codes an hour and 200 a day across all runs. Change the address shape,
+and you must change that list too.
+
 Plans need a release build, not the dev client: `launchApp` with `clearState`
 is what puts every run at step 01. `--build` makes one with Xcode on the Mac
 (`scripts/e2e-build.ts`), about 45 seconds when the native project is warm.
