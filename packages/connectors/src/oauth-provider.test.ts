@@ -111,6 +111,53 @@ describe("pre-registered OAuth app", () => {
     expect(result).toMatchObject({ ok: false, needsOAuthApp: "google" });
   });
 
+  test("a platform client with no secret exchanges through auth, not Google", async () => {
+    process.env.OMG_GOOGLE_CONNECTOR_CLIENT_ID = "platform.apps.googleusercontent.com";
+    delete process.env.OMG_GOOGLE_CONNECTOR_CLIENT_SECRET;
+    let tokenUrl = "";
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input instanceof Request ? input.url : input));
+      if (url.pathname.startsWith("/.well-known/oauth-protected-resource")) {
+        return Response.json({ resource: gmail.endpoint, authorization_servers: ["https://accounts.google.com/"], scopes_supported: ["https://mail.google.com/"] });
+      }
+      if (url.host === "accounts.google.com" && url.pathname === "/.well-known/openid-configuration") {
+        return Response.json({
+          issuer: "https://accounts.google.com",
+          authorization_endpoint: "https://accounts.google.com/o/oauth2/v2/auth",
+          token_endpoint: "https://oauth2.googleapis.com/token",
+          response_types_supported: ["code"],
+          code_challenge_methods_supported: ["S256"],
+          token_endpoint_auth_methods_supported: ["client_secret_post", "client_secret_basic"],
+          subject_types_supported: ["public"],
+          id_token_signing_alg_values_supported: ["RS256"],
+          jwks_uri: "https://www.googleapis.com/oauth2/v3/certs",
+        });
+      }
+      if (url.host === "auth.omg.dev" && url.pathname === "/connectors/google/token") {
+        tokenUrl = url.toString();
+        tokenBody = new URLSearchParams(String(init?.body ?? ""));
+        return Response.json({ access_token: "at", token_type: "Bearer", refresh_token: "rt", expires_in: 3599 });
+      }
+      if (url.host === "oauth2.googleapis.com") throw new Error("guest posted the token request to Google");
+      return new Response(`not found ${url}`, { status: 404 });
+    }) as typeof fetch;
+    try {
+      const relay = "https://auth.omg.dev/connectors/google/callback";
+      const start = await startConnectorOAuth(gmail, "http://127.0.0.1:8766", "P".repeat(20), relay);
+      if (!start.ok || !("authorizeUrl" in start)) throw new Error(`start failed: ${JSON.stringify(start)}`);
+      const done = await completeConnectorOAuth("P".repeat(20), "plat-code", (id) => (id === "g1" ? gmail : null));
+      expect(done).toEqual({ ok: true, connectorId: "g1" });
+      expect(tokenUrl).toBe("https://auth.omg.dev/connectors/google/token");
+      expect(tokenBody?.get("code")).toBe("plat-code");
+      expect(tokenBody?.get("redirect_uri")).toBe(relay);
+      expect(tokenBody?.get("code_verifier")).toBeTruthy();
+      expect(tokenBody?.get("client_secret")).toBeNull();
+    } finally {
+      delete process.env.OMG_GOOGLE_CONNECTOR_CLIENT_ID;
+      delete process.env.OMG_GOOGLE_CONNECTOR_CLIENT_SECRET;
+    }
+  });
+
   test("start and complete use the app client, with offline access", async () => {
     saveOAuthApp("google", { clientId: "cid.apps.googleusercontent.com", clientSecret: "shh" });
     const start = await startConnectorOAuth(gmail, "https://box", "S".repeat(20));

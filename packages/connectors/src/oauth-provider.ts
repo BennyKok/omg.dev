@@ -9,7 +9,7 @@ import { auth, type OAuthClientProvider } from "@modelcontextprotocol/sdk/client
 import type { OAuthClientMetadata, OAuthClientInformationFull, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { randomBytes } from "node:crypto";
 import type { Connector } from "./store.ts";
-import { OAUTH_APPS } from "./oauth-apps.ts";
+import { OAUTH_APPS, platformTokenFetch } from "./oauth-apps.ts";
 import { NATIVE_CONNECTORS } from "./native.ts";
 import {
   connectorByState,
@@ -113,6 +113,19 @@ export class ConnectorOAuthProvider implements OAuthClientProvider {
   }
 }
 
+/**
+ * A platform client with no secret cannot post to Google itself. Token calls
+ * go to auth.omg.dev, which holds the secret. A client that still has a
+ * secret (the owner configured it, or the Computer file has not been
+ * rewritten yet) exchanges directly and this returns nothing.
+ */
+export function platformAuthOptions(connector: Connector): { fetchFn: ReturnType<typeof platformTokenFetch> } | Record<string, never> {
+  if (!connector.oauthApp) return {};
+  const app = getOAuthApp(connector.oauthApp);
+  if (!app || app.clientSecret) return {};
+  return { fetchFn: platformTokenFetch(connector.oauthApp) };
+}
+
 export type StartResult =
   | { ok: true; authorizeUrl: string; state: string }
   | { ok: true; alreadyAuthorized: true }
@@ -147,7 +160,7 @@ export async function startConnectorOAuth(
     // SDK requests every scope the resource advertises, and Google shows one
     // unticked checkbox per scope: twelve for Calendar.
     const scopes = connector.native ? NATIVE_CONNECTORS[connector.native]?.scopes : undefined;
-    const result = await auth(provider, { serverUrl: connector.endpoint, ...(scopes?.length ? { scope: scopes.join(" ") } : {}) });
+    const result = await auth(provider, { serverUrl: connector.endpoint, ...(scopes?.length ? { scope: scopes.join(" ") } : {}), ...platformAuthOptions(connector) });
     if (result === "AUTHORIZED") return { ok: true, alreadyAuthorized: true };
     if (provider.authorizationUrl) {
       return { ok: true, authorizeUrl: provider.authorizationUrl.toString(), state: provider.state() };
@@ -182,7 +195,7 @@ export async function completeConnectorOAuth(
   try {
     // With the authorization code, auth() exchanges it for tokens (reading the
     // PKCE verifier back from the store) and saves them via the provider.
-    const result = await auth(provider, { serverUrl: connector.endpoint, authorizationCode: code });
+    const result = await auth(provider, { serverUrl: connector.endpoint, authorizationCode: code, ...platformAuthOptions(connector) });
     if (result !== "AUTHORIZED") return { ok: false, error: "token exchange did not complete" };
     return { ok: true, connectorId: connector.id };
   } catch (e) {
@@ -228,7 +241,7 @@ export function connectorTokenSource(connector: Connector, redirectBase: string)
     if (inflight) return inflight;
     const run = (async () => {
       const provider = new ConnectorOAuthProvider(connector, redirectBase);
-      const result = await auth(provider, { serverUrl: connector.endpoint }).catch(() => "FAILED" as const);
+      const result = await auth(provider, { serverUrl: connector.endpoint, ...platformAuthOptions(connector) }).catch(() => "FAILED" as const);
       const fresh = getOAuthState(connector.id)?.tokens?.access_token;
       if (result !== "AUTHORIZED" || !fresh) throw new ConnectorUnauthorizedError("The sign-in expired. Click Connect to sign in again.");
       return fresh;

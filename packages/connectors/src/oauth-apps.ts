@@ -76,7 +76,10 @@ export function appRelayRedirectUrl(provider: string, base: string = APP_RELAY_B
  * Where a managed Computer finds omg.dev's own clients. The control plane
  * writes it on every provision and wake (vibes, control-plane
  * syncLfgAdmissionPlan), which reaches running Computers without a restart.
- * Shape: { "<provider>": { "clientId": "...", "clientSecret": "..." } }.
+ * Shape: { "<provider>": { "clientId": "..." } }. The client secret is not in
+ * this file. It stays on auth.omg.dev. A file that still carries
+ * clientSecret (a Computer not yet rewritten) keeps working: the box
+ * exchanges the code itself.
  */
 export const PLATFORM_CLIENTS_FILE = "/etc/omg/connector-clients.json";
 
@@ -112,4 +115,45 @@ export function platformOAuthApp(
   if (!clientId) return undefined;
   const clientSecret = typeof entry?.clientSecret === "string" && entry.clientSecret.trim() ? entry.clientSecret.trim() : undefined;
   return { clientId, clientSecret, updatedAt: 0 };
+}
+
+/** Where a Computer with no local secret exchanges a code or a refresh token. */
+export function platformTokenEndpoint(provider: string, base: string = APP_RELAY_BASE): string {
+  return `${base.replace(/\/+$/, "")}/connectors/${encodeURIComponent(provider)}/token`;
+}
+
+const GOOGLE_TOKEN_HOSTS = new Set(["oauth2.googleapis.com", "accounts.google.com"]);
+
+/** Google's token endpoint. Other requests, including discovery, stay as they are. */
+export function isPlatformTokenExchangeUrl(raw: string): boolean {
+  try {
+    const url = new URL(raw);
+    if (!GOOGLE_TOKEN_HOSTS.has(url.hostname)) return false;
+    return url.pathname.replace(/\/+$/, "").endsWith("/token");
+  } catch {
+    return false;
+  }
+}
+
+type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+
+/**
+ * Fetch wrapper for a platform client that has no secret. Token posts go to
+ * auth.omg.dev. Everything else, including OAuth discovery, goes to `inner`.
+ */
+export function platformTokenFetch(provider: string, base: string = APP_RELAY_BASE, inner: FetchLike = fetch): FetchLike {
+  const endpoint = platformTokenEndpoint(provider, base);
+  return async (input, init) => {
+    const raw = input instanceof Request ? input.url : input instanceof URL ? input.href : String(input);
+    const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
+    if (method === "POST" && isPlatformTokenExchangeUrl(raw)) {
+      const body = init?.body ?? (input instanceof Request ? await input.clone().text() : undefined);
+      return inner(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
+        body,
+      });
+    }
+    return inner(input, init);
+  };
 }
