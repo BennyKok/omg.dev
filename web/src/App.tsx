@@ -11355,15 +11355,16 @@ function blocksSessionSwipe(target: EventTarget | null): boolean {
   );
 }
 
-// Wide screens (≥1024px — incl. iPad in landscape) get the rail + stage
-// workspace; below that (phones, iPad portrait) we keep the familiar stacked
-// grid where narrow columns would be too cramped. Mirrors useIsMobile.
+// Desktop layout (rail + stage workspace). This is exactly !useIsMobile: one
+// breakpoint at Tailwind's md (768px). A second breakpoint at 1024 once left
+// 768-1023 in a hybrid state, with desktop chrome but no rail. Do not reintroduce
+// a gap between the two queries.
 function useIsWide() {
   const [wide, setWide] = useState(
-    () => typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches,
+    () => typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches,
   );
   useEffect(() => {
-    const mq = window.matchMedia("(min-width: 1024px)");
+    const mq = window.matchMedia("(min-width: 768px)");
     const sync = () => setWide(mq.matches);
     sync();
     mq.addEventListener("change", sync);
@@ -13509,7 +13510,12 @@ function RailStage({
             </button>
           </div>
         ) : (
-          <div className="flex h-12 shrink-0 items-center gap-1.5 border-b border-border px-2">
+          <div className="flex h-12 shrink-0 items-center gap-2.5 pl-4 pr-3.5">
+            {/* No divider under this row: it spans only the rail, lines up
+                with nothing in the stage, and read as a stray rule. The menu
+                glyph, the New session plus and each row's mark share one
+                centre line (32px from the rail edge), and their text starts
+                together. */}
             {/* The menu leads the row. It holds every place the rail can
                 show and every page besides, which used to be split between a
                 Chat / Bots / Schedules switch under this row and a three-dot
@@ -13574,9 +13580,9 @@ function RailStage({
                 type="button"
                 onClick={startNew}
                 title="New session (C)"
-                className="flex min-w-0 flex-1 items-center gap-2 rounded-lg pl-2 pr-2.5 text-left text-[13px] font-medium text-foreground outline-none transition-colors hover:bg-muted active:bg-muted focus-visible:ring-2 focus-visible:ring-primary/60"
+                className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg pl-2.5 pr-2.5 text-left text-[13px] font-medium text-foreground outline-none transition-colors hover:bg-muted active:bg-muted focus-visible:ring-2 focus-visible:ring-primary/60"
               >
-                <span className="flex size-7 shrink-0 items-center justify-center rounded-full border border-dashed border-border">
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-full border border-dashed border-border">
                   <Plus className="size-3.5" />
                 </span>
                 <span className="min-w-0 flex-1 truncate">New session</span>
@@ -13675,7 +13681,7 @@ function RailStage({
         {railHeadline ? (
           <div
             className={cn(
-              "flex h-12 shrink-0 items-center border-t border-border",
+              "flex h-12 shrink-0 items-center",
               railCollapsed ? "justify-center" : "px-3",
             )}
           >
