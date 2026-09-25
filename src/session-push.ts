@@ -35,25 +35,27 @@ function firstLine(text: string): string {
 
 /**
  * What the session has to say for itself: the first line of its last assistant
- * turn, or the reason it is stuck. Read at emit time, which is safe because the
- * watcher only emits after idle has held for SETTLE_TICKS — the turn is written
- * by then.
+ * turn, or the reason it is stuck, plus which agent it runs. Read at emit time,
+ * which is safe because the watcher only emits after idle has held for
+ * SETTLE_TICKS — the turn is written by then.
  */
-async function bodyForSession(sessionId: string): Promise<string> {
+async function describeSession(sessionId: string): Promise<{ body: string; agent?: string }> {
   try {
     const session = (await listSessionsCached()).find((s) => s.sessionId === sessionId);
+    const agent = session?.agent || undefined;
     if (session?.status === "blocked") {
-      return session.statusDetail || "Session is blocked and needs you.";
+      return { body: session.statusDetail || "Session is blocked and needs you.", agent };
     }
     const last = session?.last;
     if (last && last.role === "assistant" && last.kind === "text") {
       const summary = firstLine(last.text);
-      if (summary) return summary;
+      if (summary) return { body: summary, agent };
     }
+    return { body: "Finished its turn.", agent };
   } catch {
     // Session listing is unavailable — fall through to the generic body.
   }
-  return "Finished its turn.";
+  return { body: "Finished its turn." };
 }
 
 let started = false;
@@ -72,11 +74,13 @@ export function startSessionPushBridge(): void {
 
     const notify = () =>
       void (async () => {
+        const { body, agent } = await describeSession(ev.sessionId);
         await notifyAll({
           user: ev.user,
           notification: {
             title: ev.title,
-            body: await bodyForSession(ev.sessionId),
+            body,
+            agent,
             // Deep-link straight to the session that finished.
             url: `/?session=${encodeURIComponent(ev.sessionId)}`,
             // Per session, so a second completion replaces that session's

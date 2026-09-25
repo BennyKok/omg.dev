@@ -7590,9 +7590,15 @@ a{color:#60a5fa}
         // Carry the question in the push itself. A wake-only push would make
         // the worker fetch /api/push/pending, which it can only reach when the
         // app is served from this box.
+        const askAgent = q.sessionId
+          ? (await listSessionsCached().catch(() => [])).find(
+              (session) => session.sessionId === q.sessionId || session.nativeSessionId === q.sessionId,
+            )?.agent
+          : undefined;
         void notifyAll({
           user: q.user,
           notification: {
+            agent: askAgent || undefined,
             title: "omg needs your input",
             body:
               q.options?.length
@@ -10017,6 +10023,7 @@ a{color:#60a5fa}
             void notifyAll({
               user: notificationUser,
               notification: {
+                agent: sourceSession?.agent || undefined,
                 title: `Shipped: ${post.title}`,
                 body: post.summary || "Tap to review the finished session.",
                 url: post.sessionId
