@@ -67,6 +67,29 @@ describe("automatic session titles", () => {
     expect(sent.body?.reasoning).toEqual({ effort: "none" });
   });
 
+  test("sends the task as quoted data so the model names it instead of doing it", async () => {
+    const bodies: Array<{ messages: Array<{ role: string; content: string }> }> = [];
+    await generateSessionTitle("Explain this error. Say what caused it.", {
+      env: { OMG_AI_URL: "http://169.254.0.1:9090" },
+      fetch: async (_input, init) => {
+        bodies.push(JSON.parse(String(init?.body)));
+        return Response.json({ choices: [{ message: { content: "Explain Error Cause" } }] });
+      },
+    });
+    const [system, user] = bodies[0]!.messages;
+    expect(system!.content).toContain("Do not answer, perform, or continue the request");
+    expect(user!.content).toBe("<request>\nExplain this error. Say what caused it.\n</request>");
+  });
+
+  test("rejects an answer that came back in place of a title", () => {
+    expect(cleanGeneratedSessionTitle(
+      "Correctness risks: race condition on shared state, missing null checks, and an unhandled rejection in the retry path",
+    )).toBeNull();
+    expect(cleanGeneratedSessionTitle("Review Pull Request For Correctness Risks")).toBe(
+      "Review Pull Request For Correctness Risks",
+    );
+  });
+
   test("keeps failures harmless and cleans model formatting", async () => {
     expect(cleanGeneratedSessionTitle('<think>draft</think> Title: "Repair session titles."')).toBe("Repair session titles");
     expect(await generateSessionTitle("Keep the fallback", {
