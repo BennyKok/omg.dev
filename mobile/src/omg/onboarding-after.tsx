@@ -38,7 +38,7 @@ import type { OmgClient } from "@omg-dev/client";
 
 import { ContinueScreen } from "./onboarding-continue";
 import { launchOnboardingTask, type LaunchOutcome } from "./onboarding-launch";
-import { OnboardingTranscript } from "./onboarding-transcript";
+import { SessionScreenBody } from "../../app/session/[id]";
 import { PlanScreen } from "./onboarding-plan";
 import { prefetchPurchaseCatalog } from "./purchase-flow";
 import { PrimaryAction, SecondaryAction, StepHeading } from "./onboarding-chrome";
@@ -259,7 +259,13 @@ export function OnboardingAfterSignIn({
     return (
       <ContinueScreen
         interest={outcome.interest}
-        transcript={<OnboardingTranscript client={client} sessionId={outcome.sessionId} />}
+        /*
+         * THE CHAT PAGE ITSELF, read-only (Benny, 2026-09-24). The old card
+         * had its own transcript that listened for live events only, so it
+         * opened empty; this one loads the saved messages and shows the
+         * prompt at once, exactly as the session does after "Let me in".
+         */
+        transcript={<SessionScreenBody sessionId={outcome.sessionId} initialPrompt={outcome.prompt} readOnly />}
         client={client}
         sessionId={outcome.sessionId}
         agent={agent}

@@ -40,7 +40,7 @@ local("text.tsx", { Text: ({ children }: any) => <span>{children}</span> });
 local("agent-icons.ts", { agentIcon: () => null });
 local("village-scene.ts", { backgroundsFor: () => ({ large: { dark: 1, light: 1 }, small: { dark: 1, light: 1 } }) });
 local("onboarding-continue.tsx", { ContinueScreen: () => <p>continue-screen</p> });
-local("onboarding-transcript.tsx", { OnboardingTranscript: () => null });
+mock.module(resolve(import.meta.dir, "../app/session/[id].tsx"), () => ({ SessionScreenBody: () => <p>chat</p> }));
 local("onboarding-plan.tsx", { PlanScreen: () => <p>plan-screen</p> });
 let prefetches = 0;
 local("purchase-flow.ts", { prefetchPurchaseCatalog: () => { prefetches += 1; } });

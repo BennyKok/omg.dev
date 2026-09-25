@@ -1,6 +1,6 @@
 import { createdSessionPrompt } from "../../src/omg/pending-session";
 import { openingReveal } from "../../src/omg/opening-reveal";
-import { useTranscriptPage } from "../../src/omg/use-transcript-page";
+import { keepOpener, useTranscriptPage } from "../../src/omg/use-transcript-page";
 import { appendTranscriptDraft, INITIAL_TRANSCRIPT_ITEMS, TranscriptWindow } from "../../src/omg/transcript-items";
 import { settledParagraphs } from "../../src/omg/paragraph-stream";
 import { ChatIdentityContext, useChatIdentity } from "../../src/omg/chat-identity";
@@ -181,6 +181,8 @@ const isOptimisticId = (id: unknown): boolean =>
  */
 const BAR_ITEM = 44;
 
+const NO_INSETS = { top: 0, bottom: 0, left: 0, right: 0 };
+
 export default function SessionScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   return <SessionScreenBody sessionId={id ?? null} />;
@@ -208,8 +210,16 @@ function SessionScreenContent({
   bot = null,
   onDeliver,
   initialPrompt,
+  readOnly = false,
 }: {
   sessionId: string | null;
+  /**
+   * The transcript only: no header bar, no composer, no navigation changes.
+   * Onboarding's "Continue your ...!" card draws the real chat this way
+   * (Benny, 2026-09-24) instead of a second transcript component, inside a
+   * card that has its own header and whose tap opens the full screen.
+   */
+  readOnly?: boolean;
   /**
    * Keeps this instance mounted while `sessionId` changes underneath it. A
    * conversation still being created (app/session/new.tsx) opens with no id
@@ -241,7 +251,9 @@ function SessionScreenContent({
   const id = sessionId;
   const navigation = useNavigation();
   const router = useRouter();
-  const insets = useSafeAreaInsets();
+  const safeInsets = useSafeAreaInsets();
+  // Inside a card there are no screen edges to clear.
+  const insets = readOnly ? NO_INSETS : safeInsets;
   const window = useWindowDimensions();
   const { colors, type, space, radius } = useTheme();
   const { client, agents, user, bindingId } = useOmg();
@@ -742,7 +754,7 @@ function SessionScreenContent({
     return client.live.subscribeTranscript(id, (event) => {
       switch (event.type) {
         case "snapshot":
-          setMessages(event.messages ?? []);
+          setMessages((prev) => keepOpener(prev, event.messages ?? []));
           break;
         case "message":
           if (!atBottomRef.current) setUnseen(true);
@@ -1774,8 +1786,10 @@ function SessionScreenContent({
    * along.
    */
   useLayoutEffect(() => {
+    // A read-only card is not a screen; it must not change the one around it.
+    if (readOnly) return;
     navigation.setOptions({ headerShown: false });
-  }, [navigation]);
+  }, [navigation, readOnly]);
 
   if (!client) {
     return (
@@ -1956,7 +1970,7 @@ function SessionScreenContent({
            * us — and getting it wrong means the newest message opens hidden
            * behind the chevron.
            */
-          paddingTop: insets.top + BAR_ITEM + space.xs + space.lg,
+          paddingTop: readOnly ? space.md : insets.top + BAR_ITEM + space.xs + space.lg,
           /**
            * ROOM FOR THE LAST MESSAGE TO CLEAR THE FLOATING COMPOSER — with a
            * floor, because the measurement can arrive late or not at all.
@@ -2124,7 +2138,7 @@ function SessionScreenContent({
           pointerEvents="none"
           style={[
             StyleSheet.absoluteFill,
-            { alignItems: "center", justifyContent: "center", paddingTop: insets.top + BAR_ITEM },
+            { alignItems: "center", justifyContent: "center", paddingTop: readOnly ? 0 : insets.top + BAR_ITEM },
           ]}
         >
           <ActivityIndicator color={colors.textMuted} />
@@ -2140,6 +2154,8 @@ function SessionScreenContent({
        * The list reserves room for it in its own top padding, so nothing
        * starts underneath the chevron.
        */}
+      {readOnly ? null : (
+        <>
       {/* A translucent backdrop and matching fade keep the title legible. */}
       <EdgeFade
         edge="top"
@@ -2172,8 +2188,12 @@ function SessionScreenContent({
         <HeaderIdentity />
         {menuOptions.length ? <OverflowDisc /> : null}
       </View>
+        </>
+      )}
 
 
+      {readOnly ? null : (
+        <>
       {/* THE BOTTOM FADE, behind the composer: the transcript dissolves into
           the page before it reaches the field, as it does on Live. Sized off
           `composerHeight` and carried by the same `composerLift`, so the
@@ -2600,6 +2620,8 @@ function SessionScreenContent({
             for something you rarely do. It lives in the ⋯ menu, which is where
             the session's other verbs already are. */}
       </Reanimated.View>
+        </>
+      )}
     </Reanimated.View>
     </ImageGalleryProvider>
   );

@@ -9,6 +9,20 @@ import {
 type Client = { getMessages(id: string, limit: number): Promise<{ messages?: Entry[] }> };
 
 /** The screen's single page owner: synchronous cache seed, then background REST. */
+/**
+ * An empty answer does not erase the opener.
+ *
+ * A session created a moment ago can answer its first read, and its first
+ * live snapshot, with no messages yet. Replacing the local opener with that
+ * empty list flashed "No messages yet." between the prompt and the real
+ * transcript (onboarding's chat card, 2026-09-25). A non-empty answer always
+ * wins; only "nothing yet" is ignored while the opener is all there is.
+ */
+export function keepOpener<T extends { id?: string | null }>(prev: T[], next: T[]): T[] {
+  if (next.length > 0) return next;
+  return prev.length > 0 && prev.every((m) => String(m.id ?? "").startsWith("local-create-")) ? prev : next;
+}
+
 export function useTranscriptPage(client: Client | null, bindingId: string | null | undefined,
   id: string | null, onError: (error: string | null) => void, initialPrompt?: string) {
   const [scopeEpoch] = useState(() => sessionCache.epoch);
@@ -35,7 +49,7 @@ export function useTranscriptPage(client: Client | null, bindingId: string | nul
     client.getMessages(id, limit).then((res) => {
       if (cancelled || sessionCache.epoch !== scopeEpoch) return;
       const next = res.messages ?? [];
-      setMessages(next);
+      setMessages((prev) => keepOpener(prev, next));
       setReachedStart(next.length < limit);
       if (cacheKey) writeTranscriptCache(cacheKey, next, TRANSCRIPT_PAGE);
       onError(null);
