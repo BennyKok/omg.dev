@@ -96,8 +96,10 @@ export function HeldQueueCards({
         // A card tucked UNDER the composer bar: narrower, centred, on a
         // dimmer surface, and layered below the bar with its bottom 12px
         // hidden behind it, so it reads as the next thing waiting beneath
-        // the field rather than a panel sitting on top of it.
-        "relative z-0 mx-auto -mb-3 flex w-full max-w-2xl flex-col rounded-t-2xl border border-b-0 border-border bg-muted/70 pb-3",
+        // the field rather than a panel sitting on top of it. The 1rem inset
+        // on each side is what keeps it narrower on a phone, where max-w-2xl
+        // never applies and w-full made it exactly as wide as the bar.
+        "relative z-0 mx-auto -mb-3 flex w-[calc(100%-2rem)] max-w-2xl flex-col rounded-t-2xl border border-b-0 border-border bg-muted/70 pb-3",
       )}
     >
       <button
