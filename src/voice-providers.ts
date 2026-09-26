@@ -33,6 +33,9 @@ export type SttStreamHandlers = {
   onPartial: (text: string) => void;
   onFinal: (text: string) => void;
   onClose?: () => void;
+  /** The upstream's final is late and it is transcribing its own copy of the
+   * audio (the hosted media relay does this). A "final" follows. */
+  onFinalizing?: () => void;
 };
 
 export type SttStreamBridge = {
@@ -383,6 +386,7 @@ function omgRelayStream(handlers: SttStreamHandlers): SttStreamBridge | null {
     }
     if (d.type === "partial") handlers.onPartial((d.text || "").trim());
     else if (d.type === "final") handlers.onFinal((d.text || "").trim());
+    else if (d.type === "finalizing") handlers.onFinalizing?.();
     else if (d.type === "error") {
       // Fail loud: an exhausted allowance or a missing Computer grant is a real
       // condition the operator needs to see, not a silent downgrade.

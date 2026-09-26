@@ -110,6 +110,9 @@ export class SttStreamTake {
       },
       onFinal: (text) => this.upstreamFinal(text),
       onClose: () => this.upstreamClosed(),
+      // The hosted relay is finishing the take from its own copy; tell the
+      // client to keep waiting instead of re-uploading.
+      onFinalizing: () => this.deps.send({ type: "finalizing" }),
     });
     return this.bridge != null;
   }

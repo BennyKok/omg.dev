@@ -120,3 +120,9 @@ test("pcm16ToWav writes a 16 kHz mono 16-bit header", () => {
   expect(wav.getUint16(34, true)).toBe(16);
   expect(wav.getUint32(40, true)).toBe(10);
 });
+
+test("a finalizing notice from the upstream reaches the client", () => {
+  const h = harness({ batch: false });
+  h.handlers().onFinalizing?.();
+  expect(h.sent).toEqual([{ type: "finalizing" }]);
+});
