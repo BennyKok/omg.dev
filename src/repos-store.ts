@@ -211,6 +211,43 @@ async function ensureProjectGitIdentity(cwd: string): Promise<void> {
   await runGit(cwd, ["config", "user.email", "agent@omg.dev"], "set git user.email");
 }
 
+/**
+ * Install a template's pinned dependencies while the project is created, so
+ * the agent gets a project that runs. In a production first run the agent
+ * spent minutes on this: it read node_modules to find out what was there,
+ * symlinked another project's node_modules, then installed by hand.
+ *
+ * Best effort. A failed or slow install does not fail the create; the agent
+ * can still run `bun install` itself (the app-builder skill says so).
+ * @internal exported for tests.
+ */
+export async function installStarterDependencies(
+  cwd: string,
+  timeoutMs = 180_000,
+  cmd: string[] = ["bun", "install", "--no-progress"],
+): Promise<boolean> {
+  try {
+    await stat(join(cwd, "package.json"));
+  } catch {
+    return false;
+  }
+  try {
+    const proc = Bun.spawn({ cmd, cwd, stdout: "ignore", stderr: "pipe", env: process.env });
+    const timer = setTimeout(() => proc.kill(), timeoutMs);
+    const code = await proc.exited;
+    clearTimeout(timer);
+    if (code !== 0) {
+      const stderr = (await new Response(proc.stderr).text()).trim().slice(-500);
+      console.warn(`[projects] starter install failed in ${cwd} (exit ${code}): ${stderr}`);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.warn(`[projects] starter install could not start in ${cwd}:`, error);
+    return false;
+  }
+}
+
 async function commitStarterProject(cwd: string): Promise<void> {
   await runGit(cwd, ["add", "--", "."], "stage starter project");
   await runGit(
@@ -251,6 +288,7 @@ export async function createProjectFolder(
   rawParent: string | undefined,
   rawName: string,
   template: ProjectTemplate = "blank",
+  options: { installDependencies?: (cwd: string) => Promise<boolean> } = {},
 ): Promise<CustomRepo> {
   const name = rawName.trim();
   if (!name || !/^[\w .-]+$/.test(name) || name === "." || name === "..") {
@@ -269,6 +307,8 @@ export async function createProjectFolder(
   await mkdir(cwd);
   try {
     await installProjectTemplate(cwd, template, name);
+    // Before the first commit, so the lockfile is part of it.
+    if (template !== "blank") await (options.installDependencies ?? installStarterDependencies)(cwd);
     await installProjectBuilderSkill(cwd);
     await writeProjectAgentInstructions(cwd);
     await gitInit(cwd);

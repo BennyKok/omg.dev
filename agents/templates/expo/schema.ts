@@ -1,16 +1,11 @@
-import { collection, defineSchema, fields } from "@omg-dev/schema";
+import { defineSchema } from "@omg-dev/schema";
 
-// The phone app has no sign-in, so every collection here is `.scoped("global")`.
-// A collection without it is per-user, and the hosted data API then answers
-// the app with 401 "Authentication required".
-
+// The app stores its data on the phone (src/lib/tasks.ts), so there are no
+// hosted collections and the deploy is a static web build.
+//
+// Add a hosted collection only together with sign-in (@omg-dev/sdk), and mark
+// it `.scoped("user")`. A collection without sign-in answers the phone with
+// 401 "Authentication required".
 export default defineSchema({
-  collections: {
-    tasks: collection({
-      fields: {
-        title: fields.string(),
-        done: fields.boolean(),
-      },
-    }).scoped("global"),
-  },
+  collections: {},
 });

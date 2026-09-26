@@ -13,17 +13,41 @@ Ask one question per question call, and put at most one decision in it. A second
 
 ## Establish the project
 
-- In Quick Chat, call `omg_create_project` once with a short descriptive name. Set `template` to `expo` for an Expo or universal mobile app. The Expo template already contains a working todo flow, Expo Router, Liquid Glass, Lucide icons, an omg.dev database schema, web support, and EAS configuration. Use the returned `repo.cwd` for every command, edit, test, and deployment. Inspect `omg_list_repos` before retrying an uncertain create call.
+- In Quick Chat, call `omg_create_project` once with a short descriptive name. Set `template` to `expo` for an Expo or universal mobile app. The Expo template already contains a working todo flow with data stored on the phone, Expo Router, Liquid Glass, Lucide icons, web support, and EAS configuration. Use the returned `repo.cwd` for every command, edit, test, and deployment. Inspect `omg_list_repos` before retrying an uncertain create call.
 - In a New Project session, the current directory is already the project. It contains Git, a README, and this skill. Do not create a second project.
 - Preserve `.git`. Do not overwrite an existing folder or move the current Quick Chat into the new project.
 
 ## Choose the delivery path
 
 - For a website, web app, or API, use the supported omg.dev runtime unless the user requests another platform. Read `https://docs.omg.dev/llms.txt` and only the relevant parts of `https://docs.omg.dev/llms-full.txt` before choosing packages or API contracts.
-- For an Expo app, start from the managed `expo` template. Adapt its screen and root `schema.ts` instead of rebuilding configuration. Keep database requests in the native-safe client helper. Keep secrets in hosted server routes. A production native build needs the server deployed at a secure origin; do not treat a sandbox tunnel as production hosting.
+- For an Expo app, start from the managed `expo` template and follow "Expo app: the fast path" below. Adapt its screens and its data store instead of rebuilding configuration. Keep secrets in hosted server routes. A production native build needs any server deployed at a secure origin; do not treat a sandbox tunnel as production hosting.
 - Use one live Metro server for Expo Web and Expo Go in a Cloud Computer. Expose its port through `omg_expose_port`; do not assume a global Expo CLI, Xcode, a simulator, or machine-specific tools exist.
 - When the app is compatible with Expo Go, give the user the returned `exps://` Expo Go link. Do not use Expo tunnel, LAN exposure, `exp.direct`, or ngrok. If Expo Go cannot load a required native module, use a development build when authorized or report that limit clearly.
 - TestFlight, App Store submission, paid services, domains, and third-party production accounts are separate delivery actions. Do them only when the user requests them and the required account is available. TestFlight needs the user's Expo account and paid Apple Developer account, but an EAS cloud build does not need Xcode or a Mac in the sandbox. Use supported login flows and never ask for passwords or tokens in chat.
+
+## Expo app: the fast path
+
+A new user is waiting. The first screen must reach their phone within about 3 minutes, before any feature work. Follow these steps in order:
+
+1. `omg_create_project` with `template: "expo"`. If `node_modules` is missing, run `bun install` once.
+2. Preview before you write any code. Call `omg_expose_port` with port 8081 and `expoGo: true`. Then run `bash scripts/start-expo-preview.sh <expoGo.proxyUrl> 8081` from the project directory, with a 240000 ms shell timeout. When it prints `Sandbox proxy answers: HTTP 200`, send the user `expoGo.url` (it starts with `exps://`). Metro reloads the app on every save, so the phone follows your edits from here on.
+3. Write the screens, in a few larger edits rather than one small edit per turn.
+4. Run `bun run typecheck` once and fix what it reports.
+5. Deploy once with `omg_deploy` (see below). The data stays on the phone, so this is a static web build.
+6. Finish with `omg_ship`.
+
+Do not browse `node_modules`, fetch documentation, or read the template file by file before the first link: the summary below is enough. Do not run repeated browser test loops. Do not write screenshot scripts when you cannot see images.
+
+The template:
+
+- `src/app/index.tsx`: the home screen. A header, an input with an add button, a list with toggle and delete, an error card, and a reload button. Styles are in one `StyleSheet` at the bottom; the brand colour is `CORAL`.
+- `src/app/_layout.tsx`: an Expo Router stack with no header. A new screen is a new file in `src/app/` (`stats.tsx` is `/stats`). Navigate with `router.push("/stats")` or `<Link href="/stats">` from `expo-router`.
+- `src/lib/tasks.ts`: the data, stored on the phone with AsyncStorage (localStorage on the web). `tasksApi.list()`, `create(title)`, `update(id, patch)`, `remove(id)`. Keep this file. For each new kind of item, copy its shape with its own storage key.
+- Icons: `lucide-react-native`, for example `<Plus color={CORAL} size={22} />`. Glass surfaces: `GlassView` from `expo-glass-effect`.
+
+Data: store it on the phone by default, with the `tasks.ts` pattern. Use hosted data only when the user asks for accounts or data shared between people. Then add sign-in with `@omg-dev/sdk` and `.scoped("user")` collections in `schema.ts`. Never call `/api/...` with a raw `fetch`: a hosted collection answers an anonymous phone with `401 Authentication required`.
+
+Metro rules: use only ports 8081 to 8099, because Expo Go links work only in that range. Start Metro only with the script; `npx` and `ss` are not installed on every Computer.
 
 ## Build
 
@@ -36,11 +60,6 @@ Ask one question per question call, and put at most one decision in it. A second
 ## Deploy and prove it
 
 - For a new website, web app, or API, a working hosted preview is the default result unless the user asks for local-only work or publication needs new authority.
-- A new Expo app shows a first working version on the user's phone within about 3 minutes, before any feature work. After the install: change only the template screen's title and wording to fit the idea, deploy and make the backend public (below), expose the port, start Metro, and send the `exps://` link. Then build the real features in a few larger edits and run the preview script again. Before that first link, do not browse `node_modules` or fetch documentation: the template and this skill are enough.
-- The phone app has no omg.dev sign-in. Keep every collection in `schema.ts` `.scoped("global")`, like the template's `tasks`. A collection without it is per-user, and the hosted data API answers the phone with `401 Authentication required`. Add per-user data only together with sign-in.
-- An Expo app needs its backend before the phone can load real data. Deploy the backend first: call `omg_deploy` as described below, then call `omg_app_visibility` with the slug and `visibility: "public"`. The phone app has no omg.dev sign-in, so a private backend answers its data requests with a sign-in redirect. Write the returned URL to `.env` as `EXPO_PUBLIC_OMG_API_URL=<url>`. Tell the user that the backend URL is public and that anyone with it can reach the app's data, until they add sign-in. Then start the preview.
-- In a Cloud Computer, choose one free Metro port from 8081 to 8099, normally 8081. Expo Go links work only in that range, because they skip the owner sign-in. Call `omg_expose_port` with that port and `expoGo: true` before Metro starts. This returns `expoGo.proxyUrl` for Metro and an `expoGo.url` link for the user's device.
-- Start Metro with `bash scripts/start-expo-preview.sh <expoGo.proxyUrl> <port>` from the project directory. Give the shell tool a 240000 ms timeout. The script replaces an earlier Metro on that port, detaches the new one, waits until it answers, builds the iOS and web bundles once, and checks the proxy. Do not start Metro another way. `npx` and `ss` are not installed on every Computer.
 - If the script exits non-zero, read the log tail it prints, fix the cause, and run it again. Do not retry with other flags such as `--host 0.0.0.0`.
 - When the script prints `Sandbox proxy answers: HTTP 200`, give the user `expoGo.url`, which starts with `exps://`. The preview card shows the same link with setup steps, and the owner web preview uses the same Metro server.
 - A Computer that sleeps stops Metro. When the user asks to restart the preview, or the preview card says it stopped, call `omg_expose_port` again with `expoGo: true` and run the script with the new proxy URL.
@@ -48,8 +67,7 @@ Ask one question per question call, and put at most one decision in it. A second
 - If `omg_expose_port` fails, confirm that the server is still running, is bound to `0.0.0.0`, and answers on the same port. Report the exact tool error if it still fails. Do not silently switch the web preview to another exposure method.
 - If `omg_expose_port` is unavailable or the session is on a local computer, report that limit. Do not invent a public URL, expose credentials, or depend on this repository's simulator, SSH hosts, filesystem layout, or globally installed tools.
 - The Expo Go capability link is short-lived. If it expires, restart the preview the same way.
-- For a website, use `omg_deploy` when the user wants a durable hosted deployment. It stays private to omg.dev users; making it public is the user's publishing decision. For an Expo app, the backend deploy above is part of the preview, not publishing. Publishing the app to TestFlight or the App Store is a separate step the user asks for.
-- The Expo Web client and omg.dev database deploy together at one origin. After the backend URL changes, update `.env` and run the preview script again so the public value is bundled.
+- For a website, use `omg_deploy` when the user wants a durable hosted deployment. It stays private to omg.dev users; making it public is the user's publishing decision. Publishing the app to TestFlight or the App Store is a separate step the user asks for.
 - Call `omg_deploy` with `cwd` set to the project directory and `wait: true`. It waits at most 45 seconds. If the result has `pending: true`, call `omg_deploy_status` with the returned slug until the build is ready or failed. Do not start a second deploy. Reuse `.omg/project.json` on later deploys. After success, commit this non-secret file with the source so the app keeps one identity.
 - Open the returned URL. Exercise the main user path and any relevant backend operation against the deployed app. A successful build or upload is not proof that the deployment works.
 - Show the live result with `omg_display_image` when a screenshot is useful. Return the actual clickable URL and state which parts were verified.
