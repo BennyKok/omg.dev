@@ -29,7 +29,9 @@ export function ProjectPreviewPanel({ sessionId, transport, email }: {
     try {
       const data = await transport.request<ProjectPreviewSnapshot>(`/api/project-preview${suffix}`);
       if (!mounted.current) return;
-      setPreview(data.preview ?? null);
+      // A preview that has never answered is still starting: no card yet,
+      // so a new Expo link does not read as "Stopped" while Metro boots.
+      setPreview(data.starting ? null : data.preview ?? null);
       setLive(data.live);
       setExpired(data.expired === true);
     } catch { /* Compatible with Computers from before preview cards. */ }
