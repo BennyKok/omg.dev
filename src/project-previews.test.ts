@@ -162,3 +162,10 @@ test("an Expo preview made before Metro runs is starting, not stopped, until its
   expect(stopped.data.starting).toBeUndefined();
   expect(JSON.parse(readFileSync(join(dir, "previews.json"), "utf8"))[0].notStartedYet).toBeUndefined();
 });
+
+test("a preview title escaped by the model reads as plain text", async () => {
+  const created = await call("POST", "a", { port: 5173, title: "FitPulse - Health &amp; Fitness Tracker" }, true);
+  expect(created.data.preview.title).toBe("FitPulse - Health & Fitness Tracker");
+  const { plainTitle } = await import("./project-previews.ts");
+  expect(plainTitle("&lt;b&gt; &quot;x&quot; &#39;y&#39; &amp;amp;")).toBe(`<b> "x" 'y' &amp;`);
+});

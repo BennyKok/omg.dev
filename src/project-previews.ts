@@ -70,6 +70,19 @@ function saveRows(path: string, rows: ProjectPreview[]): void {
   renameSync(tmp, path);
 }
 
+/**
+ * The card title as plain text. Some models HTML-escape tool arguments, and a
+ * card showed "FitPulse - Health &amp; Fitness Tracker". Both cards render the
+ * title as text, never as HTML, so decoding the common entities is safe.
+ * @internal exported for tests.
+ */
+export function plainTitle(raw: string): string {
+  return raw
+    .replace(/&(amp|lt|gt|quot|#39|apos);/g, (_, name: string) =>
+      ({ amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'", apos: "'" })[name] ?? _)
+    .trim();
+}
+
 export function createProjectPreviewService(deps: {
   session(id: string): Promise<Session | null>;
   viewer(req: Request): string;
@@ -146,7 +159,7 @@ export function createProjectPreviewService(deps: {
         throw new PreviewError(409, `Nothing is listening on port ${port}. Start the web development server first.`);
       }
       const title = typeof data.title === "string" && data.title.trim()
-        ? data.title.trim().slice(0, 120)
+        ? plainTitle(data.title).slice(0, 120)
         : "Live project preview";
       const resolved = await deps.resolve(port, { expoGo: expoGoRequested });
       const target = new URL(resolved.url);
