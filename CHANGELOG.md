@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## September 26, 2026 - The first task shows what it is doing (v0.6.130)
+
+- While an agent works, its row says what it is doing, such as "Writing code · 4m 10s" or "Deploying · 1m". Before, a new user could see only "Worked for 11m" and dots.
+- A new preview card appears when the preview has started. Before, an Expo preview said "Stopped: the development server is not running" while it was still being built.
+- New Expo apps show a first working version sooner, and their data works on the phone without sign-in.
+- Dictation finishes a take from the Computer's own copy of the audio, and shows when the hosted relay is finalizing.
+
 ## September 25, 2026 - One typing indicator (v0.6.129)
 
 - A live reply shows one row of typing dots. Before, a reply that was still writing its first paragraph showed two.
