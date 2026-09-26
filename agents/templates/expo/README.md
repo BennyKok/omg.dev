@@ -1,30 +1,18 @@
 # __OMG_PROJECT_NAME__
 
-A small universal todo app created by omg.dev. It uses Expo Router, Lucide icons, native Liquid Glass on supported iOS devices, and the omg.dev hosted database.
+A small universal todo app created by omg.dev. It uses Expo Router, Lucide icons, and native Liquid Glass on supported iOS devices. Its data is stored on the phone, so it works in Expo Go and in the web preview with no backend.
 
-## Run on the web
+## Preview
 
-```bash
-npm install
-npm run web
-```
+In an omg.dev Cloud Computer, ask the agent to start the Expo preview. It exposes Metro through the sandbox proxy and gives you an `exps://` link. Open that link with Expo Go. The same Metro server serves the web preview.
 
-The local web preview needs a deployed database URL. Copy `.env.example` to `.env.local`, then replace the example URL after your first `omg_deploy`.
-
-## Run in Expo Go
-
-1. Deploy the app with `omg_deploy`.
-2. Put the returned app URL in `.env.local` as `EXPO_PUBLIC_OMG_API_URL`.
-3. In an omg.dev Cloud Computer, ask the agent to start the Expo preview. It exposes Metro through the sandbox proxy and gives you an `exps://` link.
-4. Open that link with Expo Go.
-
-The preview link is temporary. The database is durable and is hosted with the deployed web app.
+The preview link is temporary.
 
 ## Structure
 
 - `src/app/index.tsx`: todo screen
-- `src/lib/tasks.ts`: native-safe database requests
-- `schema.ts`: omg.dev database schema
+- `src/lib/tasks.ts`: the data, stored on the phone (AsyncStorage)
+- `schema.ts`: hosted collections; empty until the app has sign-in
 - `app.json`: Expo configuration
 - `eas.json`: development, preview, and production build profiles
 

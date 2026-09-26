@@ -92,7 +92,12 @@ test("creates a committed Expo app from the managed template", async () => {
     roots.push(root);
     PATHS.data = join(root, "data");
 
-    const repo = await createProjectFolder(root, "Pocket Kitchen", "expo");
+    const installed: string[] = [];
+    const repo = await createProjectFolder(root, "Pocket Kitchen", "expo", {
+      installDependencies: async (cwd) => { installed.push(cwd); return true; },
+    });
+    // The agent gets a project whose dependencies are installed.
+    expect(installed).toEqual([repo.cwd]);
 
     expect(JSON.parse(readFileSync(join(repo.cwd, "package.json"), "utf8"))).toMatchObject({
       name: "pocket-kitchen",
@@ -102,6 +107,7 @@ test("creates a committed Expo app from the managed template", async () => {
         "expo-router": "~57.0.22",
         "expo-glass-effect": "~57.0.3",
         "lucide-react-native": "^1.47.0",
+        "@react-native-async-storage/async-storage": "2.2.0",
         "@omg-dev/schema": "^0.4.45",
       },
       scripts: { preview: "bash scripts/start-expo-preview.sh" },
@@ -117,7 +123,9 @@ test("creates a committed Expo app from the managed template", async () => {
     });
     expect(readFileSync(join(repo.cwd, "README.md"), "utf8")).toContain("Pocket Kitchen");
     expect(git(repo.cwd, "show", "HEAD:package.json")).toContain('"expo-router"');
-    expect(git(repo.cwd, "show", "HEAD:schema.ts")).toContain("tasks: collection");
+    // Data is stored on the phone by default, so there are no hosted collections.
+    expect(git(repo.cwd, "show", "HEAD:schema.ts")).toContain("collections: {}");
+    expect(git(repo.cwd, "show", "HEAD:src/lib/tasks.ts")).toContain("AsyncStorage");
     expect(git(repo.cwd, "show", "HEAD:scripts/start-expo-preview.sh")).toContain("EXPO_PACKAGER_PROXY_URL");
     expect(git(repo.cwd, "status", "--short")).toBe("");
   });
@@ -183,4 +191,18 @@ test("creates a committed Expo app from the managed template", async () => {
     expect(existsSync(join(folder, "AGENTS.md"))).toBe(false);
     expect(existsSync(join(folder, ".git"))).toBe(false);
   });
+});
+
+test("the starter install is best effort and reports whether it worked", async () => {
+  const { installStarterDependencies } = await import("./repos-store.ts");
+  const dir = mkdtempSync(join(tmpdir(), "lfg-starter-install-"));
+  try {
+    expect(await installStarterDependencies(dir, 5_000, ["true"])).toBe(false); // no package.json
+    writeFileSync(join(dir, "package.json"), "{}");
+    expect(await installStarterDependencies(dir, 5_000, ["true"])).toBe(true);
+    expect(await installStarterDependencies(dir, 5_000, ["false"])).toBe(false);
+    expect(await installStarterDependencies(dir, 5_000, ["definitely-not-a-command-omg"])).toBe(false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

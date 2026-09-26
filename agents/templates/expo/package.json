@@ -16,6 +16,7 @@
   "dependencies": {
     "@omg-dev/schema": "^0.4.45",
     "@omg-dev/server": "^0.4.45",
+    "@react-native-async-storage/async-storage": "2.2.0",
     "expo": "~57.0.24",
     "expo-glass-effect": "~57.0.3",
     "expo-router": "~57.0.22",
