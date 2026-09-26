@@ -63,7 +63,7 @@ test("every task asks three questions, each with four or five short answers", ()
 test("the answers are built into the prompt", () => {
   const app = FIRST_TASKS.find((t) => t.key === "app")!;
   expect(compose(app, [1, 1, 2])).toBe(
-    "Build a mobile app for my friends about food and recipes that lets people share with each other. Give me a preview I can open on my phone.",
+    "Build a mobile app for my friends about food and recipes that lets people share with each other. Make it an Expo app and send me an Expo Go link as soon as the first screen works.",
   );
   const news = FIRST_TASKS.find((t) => t.key === "news")!;
   expect(compose(news, [0, 1, 1])).toContain("top 10 Hacker News stories about AI");

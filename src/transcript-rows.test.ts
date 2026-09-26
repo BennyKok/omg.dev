@@ -202,8 +202,8 @@ describe("the rows a reader sees", () => {
     ];
     expect(toolGroupWorkLabel(run, { live: false })).toBe("Worked for 4s");
     expect(toolGroupWorkLabel(run, { live: false, endTs: 22_000 })).toBe("Worked for 12s");
-    expect(toolGroupWorkLabel(run, { live: true, now: 14_200 })).toBe("Running commands · 4s");
-    expect(toolGroupWorkLabel(run, { live: true, now: 95_000 })).toBe("Running commands · 1m 25s");
+    expect(toolGroupWorkLabel(run, { live: true, now: 14_200 })).toBe("Working for 4s · Running commands");
+    expect(toolGroupWorkLabel(run, { live: true, now: 95_000 })).toBe("Working for 1m 25s · Running commands");
     const untimed: ChatRenderMessage[] = [{ kind: "tool_use", text: "Bash: ls" }];
     expect(toolGroupWorkLabel(untimed, { live: false })).toBe("Worked");
     expect(toolGroupWorkLabel(untimed, { live: true })).toBe("Running commands…");
@@ -230,7 +230,7 @@ describe("the rows a reader sees", () => {
       { kind: "tool_result", text: "ok", ts: 2_000 },
       { kind: "tool_use", text: "mcp__omg__omg_deploy: {}", ts: 3_000 },
     ];
-    expect(toolGroupWorkLabel(run, { live: true, now: 61_000 })).toBe("Deploying · 1m");
+    expect(toolGroupWorkLabel(run, { live: true, now: 61_000 })).toBe("Working for 1m · Deploying");
   });
 });
 

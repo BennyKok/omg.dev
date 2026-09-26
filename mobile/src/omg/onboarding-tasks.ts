@@ -90,9 +90,9 @@ export const FIRST_TASKS: FirstTask[] = [
       ] },
     ],
     template: (who, about, does) =>
-      `Build a mobile app ${who} ${about} that ${does}. Give me a preview I can open on my phone.`,
+      `Build a mobile app ${who} ${about} that ${does}. Make it an Expo app and send me an Expo Go link as soon as the first screen works.`,
     prompt:
-      "Build a mobile app prototype for Lumen Yoga Studio with a class list, class details and a booking button. Give me a preview I can open on my phone.",
+      "Build a mobile app prototype for Lumen Yoga Studio with a class list, class details and a booking button. Make it an Expo app and send me an Expo Go link as soon as the first screen works.",
   },
   {
     key: "game",

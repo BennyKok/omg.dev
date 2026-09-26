@@ -62,7 +62,9 @@ export function workLabel(
   if (options.live) {
     const now = options.now ?? Date.now();
     const step = workStepLabel(latestStep(entries));
-    return start === null ? `${step}…` : `${step} · ${formatWorkDuration(now - start)}`;
+    // The time is the whole run's, so it leads and the step follows. With
+    // the step first, "Writing code · 9m" read as nine minutes of writing.
+    return start === null ? `${step}…` : `Working for ${formatWorkDuration(now - start)} · ${step}`;
   }
   const end = options.endTs ?? last;
   if (start === null || end === null || end <= start) return "Worked";
