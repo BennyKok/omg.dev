@@ -7,6 +7,7 @@ import {
   LiveWorkRows,
   toolGroupLabel,
   toolGroupWorkLabel,
+  workStepLabel,
   transcriptRowWindowStart,
   type ChatRenderMessage,
 } from "./transcript-rows.ts";
@@ -201,11 +202,35 @@ describe("the rows a reader sees", () => {
     ];
     expect(toolGroupWorkLabel(run, { live: false })).toBe("Worked for 4s");
     expect(toolGroupWorkLabel(run, { live: false, endTs: 22_000 })).toBe("Worked for 12s");
-    expect(toolGroupWorkLabel(run, { live: true, now: 14_200 })).toBe("Working for 4s");
-    expect(toolGroupWorkLabel(run, { live: true, now: 95_000 })).toBe("Working for 1m 25s");
+    expect(toolGroupWorkLabel(run, { live: true, now: 14_200 })).toBe("Running commands · 4s");
+    expect(toolGroupWorkLabel(run, { live: true, now: 95_000 })).toBe("Running commands · 1m 25s");
     const untimed: ChatRenderMessage[] = [{ kind: "tool_use", text: "Bash: ls" }];
     expect(toolGroupWorkLabel(untimed, { live: false })).toBe("Worked");
-    expect(toolGroupWorkLabel(untimed, { live: true })).toBe("Working…");
+    expect(toolGroupWorkLabel(untimed, { live: true })).toBe("Running commands…");
+  });
+
+  test("a live run names its latest step in plain words, for every agent", () => {
+    expect(workStepLabel(null)).toBe("Working");
+    expect(workStepLabel({ kind: "thinking" })).toBe("Thinking");
+    const says = (name: string) => workStepLabel({ kind: "tool_use", name });
+    expect(says("Write")).toBe("Writing code");
+    expect(says("apply_patch")).toBe("Writing code");
+    expect(says("edit")).toBe("Writing code");
+    expect(says("Bash")).toBe("Running commands");
+    expect(says("shell")).toBe("Running commands");
+    expect(says("Read")).toBe("Reading files");
+    expect(says("mcp__omg__omg_deploy")).toBe("Deploying");
+    expect(says("mcp__omg__omg_expose_port")).toBe("Starting the preview");
+    expect(says("mcp__computer__computer_screenshot")).toBe("Sharing a result");
+    expect(says("WebSearch")).toBe("Researching");
+    expect(says("TodoWrite")).toBe("Planning");
+    expect(says("something_new")).toBe("Working");
+    const run: ChatRenderMessage[] = [
+      { kind: "tool_use", text: "Bash: npm install", ts: 1_000 },
+      { kind: "tool_result", text: "ok", ts: 2_000 },
+      { kind: "tool_use", text: "mcp__omg__omg_deploy: {}", ts: 3_000 },
+    ];
+    expect(toolGroupWorkLabel(run, { live: true, now: 61_000 })).toBe("Deploying · 1m");
   });
 });
 
@@ -232,5 +257,22 @@ describe("the row window", () => {
     }
     const start = transcriptRowWindowStart(messages, 12);
     expect(countTranscriptRows(messages.slice(start))).toBe(12);
+  });
+});
+
+describe("the phone and the web name a live step the same way", () => {
+  test("mobile/src/omg/work-label.ts matches src/transcript-rows.ts", async () => {
+    const mobile = await import("../mobile/src/omg/work-label.ts");
+    const names = ["Bash", "shell", "Write", "apply_patch", "edit", "Read", "grep", "mcp__omg__omg_deploy",
+      "mcp__omg__omg_expose_port", "mcp__computer__computer_screenshot", "WebSearch", "TodoWrite", "anything"];
+    for (const name of names) {
+      expect(mobile.workStepLabel({ kind: "tool_use", name })).toBe(workStepLabel({ kind: "tool_use", name }));
+    }
+    const run = [
+      { kind: "thinking", text: "plan", ts: 1_000 },
+      { kind: "tool_use", text: "mcp__omg__omg_deploy: {}", ts: 2_000 },
+    ];
+    expect(mobile.workLabel(run, { live: true, now: 62_000 })).toBe(toolGroupWorkLabel(run, { live: true, now: 62_000 }));
+    expect(mobile.workLabel(run, { live: false, endTs: 5_000 })).toBe(toolGroupWorkLabel(run, { live: false, endTs: 5_000 }));
   });
 });

@@ -1,4 +1,5 @@
 import type { ChatRenderItem, ChatRenderMessage } from "./chat-render-items";
+import { settledParagraphs } from "./paragraph-stream";
 
 /**
  * Whether the plain "working" dots show under the transcript.
@@ -36,4 +37,30 @@ function isLiveReply(message: ChatRenderMessage): boolean {
     typeof message.id === "string" &&
     message.id.startsWith("draft-")
   );
+}
+
+/**
+ * Rows to render while a turn is live, with one exception to "render what the
+ * server sent": a live reply that has not finished a paragraph yet, right
+ * after a run of work, is left out.
+ *
+ * Why: some agents (DeepSeek through OpenCode) open a reply draft on almost
+ * every step. The empty draft then sat at the tail, drew its own dots, and
+ * took the "live" row away from the work before it, which froze at "Worked
+ * for 11m" while the agent was still going. A new user's first task read as
+ * stuck and they left. Without the empty draft, the work row is the tail: it
+ * stays live and says what the agent is doing. The draft appears as soon as
+ * it has a paragraph to show.
+ */
+export function rowsWhileLive<T extends ChatRenderMessage>(
+  busy: boolean,
+  items: ChatRenderItem<T>[],
+): ChatRenderItem<T>[] {
+  if (!busy || items.length < 2) return items;
+  const tail = items[items.length - 1];
+  const before = items[items.length - 2];
+  if (tail?.type !== "msg" || before?.type !== "tools") return items;
+  if (!isLiveReply(tail.message)) return items;
+  if (settledParagraphs(tail.message.text ?? "").trim()) return items;
+  return items.slice(0, -1);
 }
