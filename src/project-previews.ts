@@ -56,7 +56,8 @@ function readRows(path: string): ProjectPreview[] {
       validPreviewPort(row.port) && row.kind === "sandbox-preview" &&
       row.visibility === "owner" && row.temporary === true &&
       typeof row.createdAt === "number" &&
-      (row.expoGoUrl === undefined || (typeof row.expoGoUrl === "string" && row.expoGoUrl.startsWith("exps://"))));
+      (row.expoGoUrl === undefined || (typeof row.expoGoUrl === "string" && row.expoGoUrl.startsWith("exps://"))) &&
+      (row.notStartedYet === undefined || row.notStartedYet === true));
   } catch {
     return [];
   }
@@ -118,7 +119,17 @@ export function createProjectPreviewService(deps: {
         const preview = rows.get(session.id) ?? null;
         if (!preview) return json({ preview });
         const expired = preview.expoGoExpiresAt !== undefined && now() >= preview.expoGoExpiresAt;
-        return json({ preview, live: !expired && await listening(preview.port), ...(expired ? { expired: true } : {}) });
+        const live = !expired && await listening(preview.port);
+        if (live && preview.notStartedYet) {
+          // The first time the port answers. From now on a dead port means
+          // the preview stopped, and the card may say so.
+          const { notStartedYet: _started, ...started } = preview;
+          rows.set(session.id, started);
+          saveRows(storePath, [...rows.values()]);
+          return json({ preview: started, live });
+        }
+        const starting = !live && preview.notStartedYet === true;
+        return json({ preview, live, ...(expired ? { expired: true } : {}), ...(starting ? { starting: true } : {}) });
       }
       if (req.method !== "POST") throw new PreviewError(405, "Method not allowed");
       if (!caller) throw new PreviewError(403, "Only the session agent can publish a project preview");
@@ -130,7 +141,8 @@ export function createProjectPreviewService(deps: {
       if (expoGoRequested && (port < EXPO_GO_MIN_PORT || port > EXPO_GO_MAX_PORT)) {
         throw new PreviewError(400, `Expo Go needs a Metro port from ${EXPO_GO_MIN_PORT} to ${EXPO_GO_MAX_PORT}. Start Metro on one of those ports.`);
       }
-      if (!expoGoRequested && !(await listening(port))) {
+      const listeningNow = await listening(port);
+      if (!expoGoRequested && !listeningNow) {
         throw new PreviewError(409, `Nothing is listening on port ${port}. Start the web development server first.`);
       }
       const title = typeof data.title === "string" && data.title.trim()
@@ -163,6 +175,7 @@ export function createProjectPreviewService(deps: {
         createdAt: now(),
         ...(expoGo ? { expoGoUrl: expoGo.url } : {}),
         ...(expoGoExpiresAt ? { expoGoExpiresAt } : {}),
+        ...(listeningNow ? {} : { notStartedYet: true as const }),
       };
       rows.set(session.id, preview);
       saveRows(storePath, [...rows.values()]);

@@ -479,7 +479,7 @@ import {
   windowLiveMessages,
 } from "./lib/transcript-paging";
 import { nextScrollMode } from "./lib/transcript-stick";
-import { showsTypingIndicator } from "./lib/typing-dots";
+import { rowsWhileLive, showsTypingIndicator } from "./lib/typing-dots";
 import { shouldApplyAnchorCorrection } from "./lib/transcript-anchor";
 import {
   completeTranscriptGlideFrame,
@@ -19395,10 +19395,13 @@ const ChatStream = memo(function ChatStream({
   );
   // Queued turns are pinned below the live turn instead of sitting in timestamp
   // order — see splitQueuedRenderItems.
-  const { items, queued: queuedItems } = useMemo(
+  const { items: foldedItems, queued: queuedItems } = useMemo(
     () => splitQueuedRenderItems(buildChatRenderItems(visibleMessages)),
     [visibleMessages],
   );
+  // An empty live draft after a run of work is left out, so the work row stays
+  // live and says what the agent is doing (see rowsWhileLive).
+  const items = useMemo(() => rowsWhileLive(busy, foldedItems), [busy, foldedItems]);
   const speakers = useMemo(() => items.map(chatRenderItemSpeaker), [items]);
   // Only the active tail can stand in for the typing dots (see typing-dots):
   // old reasoning or an old tool run must not make a newly-busy session look

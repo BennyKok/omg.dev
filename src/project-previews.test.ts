@@ -141,3 +141,24 @@ test("an expired Expo Go link reads as not live and expired", async () => {
   expect(after.live).toBe(false);
   expect(after.expired).toBe(true);
 });
+
+test("an Expo preview made before Metro runs is starting, not stopped, until its port first answers", async () => {
+  listening = false;
+  await call("POST", "a", { port: 8081, title: "Expo", expoGo: true }, true);
+  const before = await call("GET", "a");
+  expect(before.data.live).toBe(false);
+  expect(before.data.starting).toBe(true);
+
+  listening = true;
+  const up = await call("GET", "a");
+  expect(up.data.live).toBe(true);
+  expect(up.data.starting).toBeUndefined();
+  expect(up.data.preview.notStartedYet).toBeUndefined();
+
+  // After it has run once, a dead port is a real stop, and that survives a restart.
+  listening = false;
+  const stopped = await call("GET", "a");
+  expect(stopped.data.live).toBe(false);
+  expect(stopped.data.starting).toBeUndefined();
+  expect(JSON.parse(readFileSync(join(dir, "previews.json"), "utf8"))[0].notStartedYet).toBeUndefined();
+});

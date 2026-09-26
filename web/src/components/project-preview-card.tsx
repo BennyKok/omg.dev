@@ -27,7 +27,10 @@ export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | nu
   const preview = state?.preview;
   // A new preview row means the agent restarted it; allow another restart ask.
   useEffect(() => { setRestartAsked(false); }, [preview?.createdAt]);
-  if (!preview) return null;
+  // A preview that has never answered is still starting, not stopped. The
+  // first-run Expo task creates its Expo Go link before Metro runs, and
+  // "Stopped" there read as broken for minutes.
+  if (!preview || state?.starting) return null;
   const expoGoUrl = preview.expoGoUrl;
   const stopped = state?.live === false;
   const expired = state?.expired === true;

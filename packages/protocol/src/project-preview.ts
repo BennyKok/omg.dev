@@ -11,6 +11,13 @@ export interface ProjectPreview {
   expoGoUrl?: string;
   /** When the Expo Go link stops working, in epoch milliseconds. */
   expoGoExpiresAt?: number;
+  /**
+   * True while the preview has never answered on its port. An Expo Go link is
+   * created before Metro is running, so a new preview is not "stopped", it has
+   * not started yet. Cleared the first time the port answers. Absent on rows
+   * from older Computers, which then behave as before.
+   */
+  notStartedYet?: true;
 }
 
 export interface ProjectPreviewSnapshot {
@@ -19,6 +26,8 @@ export interface ProjectPreviewSnapshot {
   live?: boolean;
   /** True when the Expo Go link has expired. `live` is then false as well. */
   expired?: boolean;
+  /** True when the preview has not answered on its port even once. Clients hide the card until then. */
+  starting?: boolean;
 }
 
 /** Message a preview card sends to ask the session agent to start the preview again. */

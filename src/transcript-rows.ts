@@ -260,6 +260,33 @@ export function buildChatRenderItems<T extends ChatRenderMessage>(messages: T[])
   });
 }
 
+/**
+ * What a running agent is doing, in plain words, from the name of its latest
+ * step. A new user's first task can run for many minutes, and "Working for
+ * 11m" alone read as stuck. Only the tool NAME is on the wire during a run
+ * (arguments load when the row is opened), so this maps names, across the
+ * agents: Claude (Bash, Write), Codex (shell, apply_patch), OpenCode (bash,
+ * write) and omg's own MCP tools. mobile/src/omg/work-label.ts keeps the same
+ * table.
+ */
+export function workStepLabel(step: { kind?: string; name?: string | null } | null): string {
+  if (!step) return "Working";
+  if (step.kind === "thinking") return "Thinking";
+  const name = (step.name ?? "")
+    .toLowerCase()
+    .replace(/^mcp__.+?__/, "")
+    .replace(/^(omg|lfg)_/, "");
+  if (name === "deploy") return "Deploying";
+  if (name === "expose_port") return "Starting the preview";
+  if (/^(display_|publish_artifact|screenshot|computer_screenshot)/.test(name)) return "Sharing a result";
+  if (/^(write|edit|multiedit|apply_patch|patch|notebookedit|create_file|str_replace)/.test(name)) return "Writing code";
+  if (/^(read|grep|glob|ls|list|find|search|view)/.test(name)) return "Reading files";
+  if (/^(bash|shell|local_shell|exec|command|run)/.test(name)) return "Running commands";
+  if (/^(webfetch|websearch|web_search|fetch)/.test(name)) return "Researching";
+  if (/^(todowrite|todoread|update_plan|plan|task)/.test(name)) return "Planning";
+  return "Working";
+}
+
 /** "4s", "1m 20s", "2m". Never zero for work that did happen. */
 export function formatWorkDuration(ms: number): string {
   const seconds = Math.max(1, Math.round(ms / 1000));
@@ -291,7 +318,12 @@ export function toolGroupWorkLabel(
   }
   if (options.live) {
     const now = options.now ?? Date.now();
-    return start === null ? "Working…" : `Working for ${formatWorkDuration(now - start)}`;
+    let latest: ChatRenderMessage | null = null;
+    for (const message of items) {
+      if (message.kind === "tool_use" || message.kind === "thinking") latest = message;
+    }
+    const step = workStepLabel(latest && { kind: latest.kind, name: latest.kind === "tool_use" ? toolName(latest.text) : null });
+    return start === null ? `${step}…` : `${step} · ${formatWorkDuration(now - start)}`;
   }
   const end = options.endTs ?? last;
   if (start === null || end === null || end <= start) return "Worked";
