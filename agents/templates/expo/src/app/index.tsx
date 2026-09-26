@@ -118,7 +118,7 @@ export default function HomeScreen() {
 
           {error ? (
             <View style={styles.errorCard}>
-              <Text style={styles.errorTitle}>Database is not connected</Text>
+              <Text style={styles.errorTitle}>Could not save</Text>
               <Text style={styles.errorText}>{error}</Text>
             </View>
           ) : null}
