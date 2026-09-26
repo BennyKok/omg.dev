@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## September 26, 2026 - Faster first mobile apps (v0.6.131)
+
+- New Expo apps store their data on the phone. The first screen works in Expo Go at once, with no backend to deploy and no sign-in errors.
+- A new Expo project comes with its packages installed, and the agent sends the Expo Go link before it writes the app.
+- A working agent's row now reads "Working for 9m 27s · Writing code". The time is for the whole run.
+- On iPhone, the "Build an app" card asks for an Expo app and an early Expo Go link.
+
 ## September 26, 2026 - The first task shows what it is doing (v0.6.130)
 
 - While an agent works, its row says what it is doing, such as "Writing code · 4m 10s" or "Deploying · 1m". Before, a new user could see only "Worked for 11m" and dots.
