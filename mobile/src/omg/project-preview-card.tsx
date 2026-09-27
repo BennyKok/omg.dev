@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, Linking, Platform, Pressable, View } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { PROJECT_PREVIEW_RESTART_MESSAGE, type ProjectPreview, type ProjectPreviewSnapshot } from "../../../packages/protocol/src/project-preview";
 import type { OmgTransport } from "@omg-dev/client";
 import { Icon } from "../components";
+import { STORAGE_KEYS } from "./config";
 import { openInAppPage } from "./in-app-browser";
 import { useOmg } from "./provider";
 import { useTheme } from "./theme";
@@ -18,7 +20,19 @@ export function ProjectPreviewPanel({ sessionId, transport, email }: {
 }) {
   const { colors } = useTheme();
   const [preview, setPreview] = useState<ProjectPreview | null>(null);
-  const [guide, setGuide] = useState(false);
+  // Closed by default: on a phone the main path is "Open in Expo Go", and the
+  // steps took a large part of the screen above the composer. The choice is
+  // kept for every card on this device.
+  const [guide, setGuideState] = useState(false);
+  useEffect(() => {
+    void AsyncStorage.getItem(STORAGE_KEYS.previewCardExpanded)
+      .then((value) => { if (value === "1" && mounted.current) setGuideState(true); })
+      .catch(() => {});
+  }, []);
+  const setGuide = (value: boolean) => {
+    setGuideState(value);
+    void AsyncStorage.setItem(STORAGE_KEYS.previewCardExpanded, value ? "1" : "0").catch(() => {});
+  };
   const [live, setLive] = useState<boolean | undefined>(undefined);
   const [expired, setExpired] = useState(false);
   const [restartAsked, setRestartAsked] = useState(false);
@@ -63,52 +77,60 @@ export function ProjectPreviewPanel({ sessionId, transport, email }: {
   const openExpoGo = async () => {
     // Opening an unregistered scheme rejects, so a failure means Expo Go is
     // not installed. canOpenURL would need a native scheme allowlist.
-    try { await Linking.openURL(expoGoUrl!); } catch { setGuide(true); }
+    try { await Linking.openURL(expoGoUrl!); } catch { setGuideState(true); }
   };
-  return <View testID="project-preview-card" style={{ backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1, borderRadius: 16, padding: 14, gap: 10 }}>
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-      <View style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: colors.muted, alignItems: "center", justifyContent: "center" }}>
-        {expoGoUrl
-          ? <Icon ios="iphone" android="smartphone" size={22} color={colors.primary} />
-          : <Icon ios="globe" android="public" size={22} color={colors.primary} />}
-      </View>
-      <View style={{ flex: 1, gap: 2 }}>
-        <Text numberOfLines={1} style={{ color: colors.foreground, fontSize: 16, fontWeight: "600" }}>{preview.title}</Text>
-        <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>{expired ? "Link expired" : stopped ? "Stopped" : expoGoUrl ? "Expo app" : "Live preview"} · Private to you · Temporary</Text>
-      </View>
+  const status = expired ? "Link expired" : stopped ? "Stopped" : expoGoUrl ? null : "Live preview";
+  return <View testID="project-preview-card" style={{ backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1, borderRadius: 16, paddingVertical: 6, paddingLeft: 8, paddingRight: 6, gap: 8 }}>
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44 }}>
+      <Pressable accessibilityRole="button" testID="project-preview-toggle" disabled={!expoGoUrl || stopped}
+        accessibilityState={expoGoUrl && !stopped ? { expanded: guide } : undefined}
+        onPress={() => setGuide(!guide)}
+        style={{ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44 }}>
+        <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: colors.muted, alignItems: "center", justifyContent: "center" }}>
+          {expoGoUrl
+            ? <Icon ios="iphone" android="smartphone" size={17} color={colors.primary} />
+            : <Icon ios="globe" android="public" size={17} color={colors.primary} />}
+        </View>
+        <Text numberOfLines={1} style={{ flexShrink: 1, color: colors.foreground, fontSize: 15, fontWeight: "600" }}>{preview.title}</Text>
+        {status
+          ? <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>{status}</Text>
+          : <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 999, paddingHorizontal: 7, paddingVertical: 1 }}>
+              <Text style={{ color: colors.mutedForeground, fontSize: 11, fontWeight: "600" }}>Expo Go</Text>
+            </View>}
+        {expoGoUrl && !stopped
+          ? <Icon ios={guide ? "chevron.up" : "chevron.down"} android={guide ? "expand_less" : "expand_more"} size={13} color={colors.mutedForeground} />
+          : null}
+      </Pressable>
+      {stopped ? null : <Pressable accessibilityRole="button" testID={expoGoUrl ? "project-preview-expo-go" : "project-preview-open"} onPress={() => void (expoGoUrl ? openExpoGo() : openInAppPage(preview.url))} style={{ minHeight: 36, paddingHorizontal: 12, borderRadius: 999, backgroundColor: colors.primary, justifyContent: "center" }}>
+        <Text style={{ color: colors.primaryForeground, fontWeight: "600", fontSize: 14 }}>{expoGoUrl ? "Open in Expo Go" : "Open preview"}</Text>
+      </Pressable>}
+      {!stopped && !expoGoUrl
+        ? <Pressable accessibilityRole="button" accessibilityLabel="Open preview in Safari" onPress={() => void Linking.openURL(preview.url)} style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center" }}>
+            <Icon ios="arrow.up.forward.app" android="open_in_new" size={18} color={colors.mutedForeground} />
+          </Pressable>
+        : null}
     </View>
-    {stopped ? <View testID="project-preview-stopped" style={{ gap: 10 }}>
+    {stopped ? <View testID="project-preview-stopped" style={{ gap: 10, paddingHorizontal: 4, paddingBottom: 6 }}>
       <Text style={{ color: colors.mutedForeground, fontSize: 14 }}>{expired
         ? "The Expo Go link expired. Restart the preview to get a new one."
         : "The development server is not running. This happens when the Computer sleeps."}</Text>
       <Pressable accessibilityRole="button" testID="project-preview-restart" disabled={restartAsked} onPress={() => void restart()} style={{ minHeight: 44, paddingHorizontal: 14, borderRadius: 12, backgroundColor: restartAsked ? colors.muted : colors.primary, justifyContent: "center" }}>
         <Text style={{ color: restartAsked ? colors.mutedForeground : colors.primaryForeground, fontWeight: "600", textAlign: "center" }}>{restartAsked ? "Asked the agent to restart it" : "Restart preview"}</Text>
       </Pressable>
-    </View> : <>
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-      <Pressable accessibilityRole="button" testID={expoGoUrl ? "project-preview-expo-go" : "project-preview-open"} onPress={() => void (expoGoUrl ? openExpoGo() : openInAppPage(preview.url))} style={{ flex: 1, minHeight: 44, paddingHorizontal: 14, borderRadius: 12, backgroundColor: colors.primary, justifyContent: "center" }}>
-        <Text style={{ color: colors.primaryForeground, fontWeight: "600", textAlign: "center" }}>{expoGoUrl ? "Open in Expo Go" : "Open preview"}</Text>
-      </Pressable>
-      {expoGoUrl
-        ? <Pressable accessibilityRole="button" accessibilityLabel="Open web preview" testID="project-preview-open" onPress={() => void openInAppPage(preview.url)} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
-            <Icon ios="globe" android="public" size={20} color={colors.mutedForeground} />
-          </Pressable>
-        : <Pressable accessibilityRole="button" accessibilityLabel="Open preview in Safari" onPress={() => void Linking.openURL(preview.url)} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
-            <Icon ios="arrow.up.forward.app" android="open_in_new" size={20} color={colors.mutedForeground} />
-          </Pressable>}
-    </View>
-    {expoGoUrl && <Pressable accessibilityRole="button" testID="project-preview-expo-guide-toggle" onPress={() => setGuide(value => !value)}>
-      <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>{guide ? "Hide steps" : "First time? See how it works"}</Text>
-    </Pressable>}
-    {expoGoUrl && guide && <View testID="project-preview-expo-guide" style={{ gap: 8, backgroundColor: colors.muted, borderRadius: 12, padding: 12 }}>
+    </View> : expoGoUrl && guide ? <View testID="project-preview-expo-guide" style={{ gap: 8, backgroundColor: colors.muted, borderRadius: 12, padding: 12, marginBottom: 2 }}>
       <GuideStep colors={colors} n={1} text="Get Expo Go. It is free." />
       <Pressable accessibilityRole="button" testID="project-preview-get-expo-go" onPress={() => void Linking.openURL(Platform.OS === "android" ? EXPO_GO_ANDROID : EXPO_GO_IOS)} style={{ alignSelf: "flex-start", marginLeft: 26, minHeight: 36, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1, borderColor: colors.border, justifyContent: "center" }}>
         <Text style={{ color: colors.foreground, fontWeight: "600" }}>{Platform.OS === "android" ? "Get it on Google Play" : "Get it on the App Store"}</Text>
       </Pressable>
       <GuideStep colors={colors} n={2} text="Come back and tap Open in Expo Go." />
       <GuideStep colors={colors} n={3} text="The first load can take up to a minute." />
-    </View>}
-    </>}
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginTop: 2 }}>
+        <Pressable accessibilityRole="button" testID="project-preview-open" onPress={() => void openInAppPage(preview.url)} style={{ minHeight: 36, justifyContent: "center" }}>
+          <Text style={{ color: colors.primary, fontWeight: "600" }}>Open web preview</Text>
+        </Pressable>
+        <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>Private to you · Temporary</Text>
+      </View>
+    </View> : null}
   </View>;
 
 }
