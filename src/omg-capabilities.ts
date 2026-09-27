@@ -239,7 +239,51 @@ const SUBAGENT_HEADERS = [
   "=== LFG SUBAGENT OPERATING CONTRACT ===",
   "=== OMG SUBAGENT OPERATING CONTRACT ===",
   "=== omg.dev SUBAGENT OPERATING CONTRACT ===",
+  // Same shape: terminated by USER_TASK. See withFirstRunEnvelope.
+  "=== omg.dev FIRST RUN ===",
 ] as const;
+
+export const FIRST_RUN_HEADER = "=== omg.dev FIRST RUN ===";
+
+/**
+ * Whether a model can read the screenshots it takes. The DeepSeek models on
+ * the omg router cannot: in production first runs they spent 8 to 12 minutes
+ * writing screenshot and CDP harnesses, then said "I can't view images".
+ * Unknown models are assumed to see.
+ */
+export function modelSeesImages(model: string | undefined | null): boolean {
+  return !/deepseek/i.test(model ?? "");
+}
+
+/**
+ * The first task of a new user's first session, wrapped in the first-run rules.
+ *
+ * WHY. Real ad signups (2026-09-26/27) left minutes after publishing, and one
+ * never saw a result: after they stopped the starter task and typed their own,
+ * the agent built and self-tested for 49 minutes with no preview, spent 12 more
+ * on a screenshot harness it could not read, and sent the link 77 minutes in.
+ * The Expo path already puts the preview first; these rules do it for every
+ * card, template and typed prompt. They are in the envelope, not the visible
+ * prompt, and they hold for the whole session, so a request typed after the
+ * user stops the agent follows them too.
+ */
+export function withFirstRunEnvelope(prompt: string | undefined, opts: { seesImages: boolean }): string | undefined {
+  const text = prompt?.trim();
+  if (!text) return prompt;
+  return [
+    FIRST_RUN_HEADER,
+    "This session is a new user's first task on omg.dev. They are watching, and they leave if nothing appears. These rules hold for every request in this session, including a new request typed after the user stops you.",
+    "- Within about 5 minutes, show a first visible version. Start or reuse the dev server (in /home/user/project the web server on 5173 is already running; for a phone app follow the omg-app-builder Expo fast path), call `omg_expose_port`, and tell the user the preview is ready. Do this before deep work.",
+    "- Before that first preview: no test suites, no self-test loops, and no reading files one by one to learn the template. One quick check that the page loads is enough.",
+    "- After the preview: build in a few larger edits, run one typecheck or build, deploy once with `omg_deploy`, commit, then `omg_ship`.",
+    ...(opts.seesImages
+      ? []
+      : ["- You cannot see images. Do not take screenshots or write browser or CDP scripts to check the UI. Check the page text instead, for example with `curl` on the preview URL."]),
+    "- Keep your messages to the user short and plain.",
+    USER_TASK,
+    text,
+  ].join("\n");
+}
 
 /** Earliest occurrence of any known contract marker, or -1. */
 function firstIndexOf(text: string, needles: readonly string[], from = 0): { at: number; needle: string } {

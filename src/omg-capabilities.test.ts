@@ -311,3 +311,30 @@ describe("user standing instructions", () => {
     expect(omgUserInstructionsBlock(RULES)).toContain(RULES);
   });
 });
+
+describe("first-run envelope", () => {
+  test("wraps the task in the first-run rules and still shows only the human's ask", async () => {
+    const { withFirstRunEnvelope, withOmgRuntimeContract, stripOmgRuntimeContract, sessionTitleFromPrompt, FIRST_RUN_HEADER } =
+      await import("./omg-capabilities.ts");
+    const ask = "Build me a Lua obfuscator website";
+    const wrapped = withFirstRunEnvelope(ask, { seesImages: false })!;
+    expect(wrapped.startsWith(FIRST_RUN_HEADER)).toBe(true);
+    expect(wrapped).toContain("Within about 5 minutes");
+    expect(wrapped).toContain("including a new request typed after the user stops you");
+    expect(wrapped).toContain("You cannot see images");
+    // The launch envelope wraps it once more; display surfaces peel both.
+    const launched = withOmgRuntimeContract(wrapped)!;
+    expect(stripOmgRuntimeContract(launched)).toBe(ask);
+    expect(sessionTitleFromPrompt(launched)).toBe(ask);
+  });
+
+  test("the image rule is only for models that cannot see", async () => {
+    const { withFirstRunEnvelope, modelSeesImages } = await import("./omg-capabilities.ts");
+    expect(withFirstRunEnvelope("x", { seesImages: true })).not.toContain("You cannot see images");
+    expect(modelSeesImages("omg/deepseek/deepseek-v4-flash-0731")).toBe(false);
+    expect(modelSeesImages("omg/deepseek/deepseek-v4-pro")).toBe(false);
+    expect(modelSeesImages("opus")).toBe(true);
+    expect(modelSeesImages(undefined)).toBe(true);
+    expect(withFirstRunEnvelope("", { seesImages: true })).toBe("");
+  });
+});

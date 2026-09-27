@@ -100,7 +100,7 @@ import { createRole, deleteRole, getRole, listRoles, roleEgress, roleForUser, ro
 import { DEFAULT_ALLOW_HOSTS, startEgressProxy, type EgressProxy } from "../sandbox/egress-proxy.ts";
 import { sessionToken, verifySessionToken, boxSecretMaterial } from "../policy/session-token.ts";
 import * as pwaBootLog from "../pwa-boot-log.ts";
-import { botRuntimeContract, shortSessionId } from "../omg-capabilities.ts";
+import { botRuntimeContract, modelSeesImages, shortSessionId, withFirstRunEnvelope } from "../omg-capabilities.ts";
 import {
   getCachedResumableSession,
   updateResumableUser,
@@ -9003,6 +9003,8 @@ a{color:#60a5fa}
           spawnedBy?: string;
           /** Start even though the live-agent cap is full — self-hosted only. */
           overLimit?: boolean;
+          /** A new user's first task: wrap it in the first-run rules (withFirstRunEnvelope). */
+          firstRun?: boolean;
           /** Role the session runs as at the MCP endpoints. Missing = owner. */
           role?: string;
           agent?: "claude" | "codex" | "aisdk" | "codex-aisdk" | "opencode" | "omg" | "jcode" | "grok" | "cursor" | "copilot" | "hermes" | "pi";
@@ -9206,6 +9208,9 @@ a{color:#60a5fa}
         const cwd = cwdResolved.cwd;
         const worktree = cwdResolved.worktree;
         let prompt = body?.prompt;
+        if (body?.firstRun === true && spawnedBy !== "subagent") {
+          prompt = withFirstRunEnvelope(prompt, { seesImages: modelSeesImages(model ?? opencodeDefault) });
+        }
         if (spawnedBy === "subagent") {
           prompt = withOmgSubagentContract(prompt, {
             parentSessionId: parent?.sessionId ?? parent?.nativeSessionId ?? parentId,
