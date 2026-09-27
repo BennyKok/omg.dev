@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## September 27, 2026 - Less text on the preview card (v0.6.133)
+
+- The open Expo preview card shows the QR code and one line: "Scan with your phone camera to open in Expo Go." "Expo Go" links to the App Store or Google Play for your phone.
+- The numbered steps and the first-load note are gone. "Private to you" moved behind a small info icon. The links are one row: "Web preview · New tab".
+- The iPhone card shows one line, "Need Expo Go? Get it on the App Store", and a "Web preview · Safari" row.
+
 ## September 27, 2026 - A smaller preview card (v0.6.132)
 
 - The Expo preview card is one line on a phone: the app name and "Open in Expo Go". Tap the name to see the QR code, the steps and "Open web preview". On a computer the card starts open, because you scan the QR code there. The card remembers if you opened or closed it.
