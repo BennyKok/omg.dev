@@ -136,7 +136,12 @@ test("on a phone the Expo card starts as one line whose main action opens Expo G
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
   ui.flush(() => toggle.click());
   expect(card?.getAttribute("data-expanded")).toBe("true");
-  expect(document.querySelector('[data-testid="expo-go-guide"] img')).not.toBeNull();
+  // A phone cannot scan its own screen: no QR code, only the store line.
+  expect(document.querySelector('[data-testid="expo-go-guide"] img')).toBeNull();
+  expect(document.querySelector('[data-testid="expo-go-guide"]')?.textContent).toStartWith("Need Expo Go? Get it on");
+  expect(ui.text()).not.toContain("Scan with your phone camera");
+  expect(document.querySelector('a[aria-label="Open preview in new tab"]')).not.toBeNull();
+  expect(document.querySelector('[aria-label="Private to you. The link is temporary."]')).not.toBeNull();
   // The web preview stays one tap away inside the details.
   const web = ui.queryAll("button").find((node) => node.textContent === "Web preview") as HTMLElement;
   ui.flush(() => web.click());
@@ -174,4 +179,28 @@ test("the open or closed choice is remembered for the next card", async () => {
   expect(document.querySelector('[data-testid="expo-go-guide"]')).toBeNull();
   // The computer's header action is the web preview.
   expect(ui.queryAll("button").some((node) => node.textContent === "Open web preview")).toBe(true);
+});
+
+test("a phone's store line names the store for this phone", async () => {
+  setPhone(true);
+  const agent = Object.getOwnPropertyDescriptor(window.navigator, "userAgent");
+  try {
+    for (const [ua, store, name] of [
+      ["Mozilla/5.0 (Linux; Android 14; Pixel 8)", "https://play.google.com/store/apps/details?id=host.exp.exponent", "Need Expo Go? Get it on Google Play"],
+      ["Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)", "https://apps.apple.com/app/expo-go/id982107779", "Need Expo Go? Get it on the App Store"],
+    ] as const) {
+      Object.defineProperty(window.navigator, "userAgent", { value: ua, configurable: true });
+      window.localStorage.setItem("lfg_preview_card_expanded", "1");
+      globalThis.fetch = (async () => Response.json({ preview: EXPO_PREVIEW })) as typeof fetch;
+      ui.render(<ProjectPreviewCard key={ua} sessionId="session-1" />);
+      await ui.flushAsync();
+      const guide = document.querySelector('[data-testid="expo-go-guide"]');
+      expect(guide?.textContent).toBe(name);
+      expect(guide?.querySelector("img")).toBeNull();
+      expect(guide?.querySelector("a")?.getAttribute("href")).toBe(store);
+    }
+  } finally {
+    if (agent) Object.defineProperty(window.navigator, "userAgent", agent);
+    else delete (window.navigator as { userAgent?: string }).userAgent;
+  }
 });

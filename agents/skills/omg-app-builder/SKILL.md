@@ -22,7 +22,7 @@ Ask one question per question call, and put at most one decision in it. A second
 - For a website, web app, or API, use the supported omg.dev runtime unless the user requests another platform. Read `https://docs.omg.dev/llms.txt` and only the relevant parts of `https://docs.omg.dev/llms-full.txt` before choosing packages or API contracts.
 - For an Expo app, start from the managed `expo` template and follow "Expo app: the fast path" below. Adapt its screens and its data store instead of rebuilding configuration. Keep secrets in hosted server routes. A production native build needs any server deployed at a secure origin; do not treat a sandbox tunnel as production hosting.
 - Use one live Metro server for Expo Web and Expo Go in a Cloud Computer. Expose its port through `omg_expose_port`; do not assume a global Expo CLI, Xcode, a simulator, or machine-specific tools exist.
-- When the app is compatible with Expo Go, give the user the returned `exps://` Expo Go link. Do not use Expo tunnel, LAN exposure, `exp.direct`, or ngrok. If Expo Go cannot load a required native module, use a development build when authorized or report that limit clearly.
+- When the app is compatible with Expo Go, `omg_expose_port` puts the `exps://` Expo Go link on a preview card in the omg.dev app. Tell the user the preview is ready and to open it from the card below. Do not paste the raw `exps://` URL in your reply; the card already shows it. Paste it only where the user cannot see the card, such as a reply sent with `omg_send_to_origin` to a messaging channel, or when the user asks for the link. Do not use Expo tunnel, LAN exposure, `exp.direct`, or ngrok. If Expo Go cannot load a required native module, use a development build when authorized or report that limit clearly.
 - TestFlight, App Store submission, paid services, domains, and third-party production accounts are separate delivery actions. Do them only when the user requests them and the required account is available. TestFlight needs the user's Expo account and paid Apple Developer account, but an EAS cloud build does not need Xcode or a Mac in the sandbox. Use supported login flows and never ask for passwords or tokens in chat.
 
 ## Expo app: the fast path
@@ -30,13 +30,13 @@ Ask one question per question call, and put at most one decision in it. A second
 A new user is waiting. The first screen must reach their phone within about 3 minutes, before any feature work. Follow these steps in order:
 
 1. `omg_create_project` with `template: "expo"`. If `node_modules` is missing, run `bun install` once.
-2. Preview before you write any code. Call `omg_expose_port` with port 8081 and `expoGo: true`. Then run `bash scripts/start-expo-preview.sh <expoGo.proxyUrl> 8081` from the project directory, with a 240000 ms shell timeout. When it prints `Sandbox proxy answers: HTTP 200`, send the user `expoGo.url` (it starts with `exps://`). Metro reloads the app on every save, so the phone follows your edits from here on.
+2. Preview before you write any code. Call `omg_expose_port` with port 8081 and `expoGo: true`. Then run `bash scripts/start-expo-preview.sh <expoGo.proxyUrl> 8081` from the project directory, with a 240000 ms shell timeout. When it prints `Sandbox proxy answers: HTTP 200`, tell the user the preview is ready: "Open it from the card below." Do not paste `expoGo.url`; the card shows it. Metro reloads the app on every save, so the phone follows your edits from here on.
 3. Write the screens, in a few larger edits rather than one small edit per turn.
 4. Run `bun run typecheck` once and fix what it reports.
 5. Deploy once with `omg_deploy` (see below). The data stays on the phone, so this is a static web build.
 6. Finish with `omg_ship`.
 
-Do not browse `node_modules`, fetch documentation, or read the template file by file before the first link: the summary below is enough. Do not run repeated browser test loops. Do not write screenshot scripts when you cannot see images.
+Do not browse `node_modules`, fetch documentation, or read the template file by file before the first preview: the summary below is enough. Do not run repeated browser test loops. Do not write screenshot scripts when you cannot see images.
 
 The template:
 
