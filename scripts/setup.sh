@@ -929,10 +929,12 @@ install_linux_service() {
 Description=omg.dev managed agent memory boundary
 
 [Slice]
-# Keep reclaim local to the swarm. memory.high throttles first; memory.max is
-# the last-resort cgroup OOM boundary. Idle anonymous pages may use swap.
-MemoryHigh=4G
+# MemoryMax is the kill line. Do not set MemoryHigh under it: memory.high
+# throttles every agent in the slice and never kills, so a working set above
+# the line freezes the swarm. MemorySwapMax=0 keeps this a RAM ceiling. Without
+# it a runaway can spill into swap and stay under MemoryMax while the host thrashes.
 MemoryMax=5G
+MemorySwapMax=0
 UNIT
   cat > "$UNIT_DIR/$SERVICE.service" <<UNIT
 [Unit]
