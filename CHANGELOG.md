@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## September 27, 2026 - A smaller preview card (v0.6.132)
+
+- The Expo preview card is one line on a phone: the app name and "Open in Expo Go". Tap the name to see the QR code, the steps and "Open web preview". On a computer the card starts open, because you scan the QR code there. The card remembers if you opened or closed it.
+- The iPhone app shows the same one-line card.
+- An app name with "&" shows as "&", not "&amp;".
+
 ## September 26, 2026 - Faster first mobile apps (v0.6.131)
 
 - New Expo apps store their data on the phone. The first screen works in Expo Go at once, with no backend to deploy and no sign-in errors.
