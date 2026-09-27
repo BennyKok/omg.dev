@@ -57,11 +57,18 @@ test("an Expo preview shows the Expo Go guide with a scannable link", async () =
   ui.render(<ProjectPreviewCard sessionId="session-1" user="person@example.com" />);
   await ui.flushAsync();
   expect(ui.text()).toContain("Expo Go");
-  expect(ui.text()).toContain("Install Expo Go");
-  expect(ui.text()).toContain("Private to you");
   const guide = document.querySelector('[data-testid="expo-go-guide"]');
+  expect(guide?.textContent).toBe("Scan with your phone camera to open in Expo Go.");
   expect(guide?.querySelector("img")?.getAttribute("src")).toStartWith("data:image/svg+xml");
-  expect(guide?.querySelector('a[href="exps://cap-token.preview.omgs.app"]')).not.toBeNull();
+  expect(guide?.querySelector("img")?.getAttribute("alt")).toBe("QR code that opens this app in Expo Go");
+  // A computer cannot know the phone, so the link goes to Expo's page for both stores.
+  expect(guide?.querySelector("a")?.getAttribute("href")).toBe("https://expo.dev/go");
+  // The long copy is gone; privacy moved behind an info icon.
+  expect(ui.text()).not.toContain("Install Expo Go");
+  expect(ui.text()).not.toContain("up to a minute");
+  expect(ui.text()).not.toContain("Private to you");
+  expect(document.querySelector('[aria-label="Private to you. The link is temporary."]')).not.toBeNull();
+  expect(document.querySelector('a[aria-label="Open preview in new tab"]')?.getAttribute("href")).toBe("https://sandbox-8081.preview.omgs.app");
   const button = ui.queryAll("button").find((node) => node.textContent === "Open web preview") as HTMLElement;
   ui.flush(() => button.click());
   expect(document.querySelector('[role="dialog"] iframe')?.getAttribute("src")).toBe("https://sandbox-8081.preview.omgs.app");
@@ -131,10 +138,30 @@ test("on a phone the Expo card starts as one line whose main action opens Expo G
   expect(card?.getAttribute("data-expanded")).toBe("true");
   expect(document.querySelector('[data-testid="expo-go-guide"] img')).not.toBeNull();
   // The web preview stays one tap away inside the details.
-  const web = ui.queryAll("button").find((node) => node.textContent === "Open web preview") as HTMLElement;
+  const web = ui.queryAll("button").find((node) => node.textContent === "Web preview") as HTMLElement;
   ui.flush(() => web.click());
   expect(document.querySelector('[role="dialog"] iframe')?.getAttribute("src")).toBe("https://sandbox-8081.preview.omgs.app");
   expect(window.localStorage.getItem("lfg_preview_card_expanded")).toBe("1");
+});
+
+test("the Expo Go link goes to the store for this phone", async () => {
+  const agent = Object.getOwnPropertyDescriptor(window.navigator, "userAgent");
+  try {
+    for (const [ua, store] of [
+      ["Mozilla/5.0 (Linux; Android 14; Pixel 8)", "https://play.google.com/store/apps/details?id=host.exp.exponent"],
+      ["Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)", "https://apps.apple.com/app/expo-go/id982107779"],
+    ] as const) {
+      Object.defineProperty(window.navigator, "userAgent", { value: ua, configurable: true });
+      window.localStorage.setItem("lfg_preview_card_expanded", "1");
+      globalThis.fetch = (async () => Response.json({ preview: EXPO_PREVIEW })) as typeof fetch;
+      ui.render(<ProjectPreviewCard key={ua} sessionId="session-1" />);
+      await ui.flushAsync();
+      expect(document.querySelector('[data-testid="expo-go-guide"] a')?.getAttribute("href")).toBe(store);
+    }
+  } finally {
+    if (agent) Object.defineProperty(window.navigator, "userAgent", agent);
+    else delete (window.navigator as { userAgent?: string }).userAgent;
+  }
 });
 
 test("the open or closed choice is remembered for the next card", async () => {
