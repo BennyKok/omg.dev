@@ -95,7 +95,12 @@ export function sessionHrefFromCodespan(text: string): string | null {
 // web UI climb the same ladder. It stays import-free: the client is typed
 // structurally.
 
-export type SessionIds = { sessionId?: string | null; nativeSessionId?: string | null };
+export type SessionIds = {
+  sessionId?: string | null;
+  nativeSessionId?: string | null;
+  /** Shown in place of a bare id when a reference is rendered. */
+  title?: string | null;
+};
 
 /** The subset of OmgClient a reference lookup needs, so tests can fake it. */
 export type SessionRefClient = {
@@ -105,20 +110,27 @@ export type SessionRefClient = {
 };
 
 /**
- * Full id for a short ref within `list`. Null when nothing or more than one
- * session matches: a guess would open the wrong transcript.
+ * The one session in `list` that `ref` names. Null when nothing or more than
+ * one session matches: a guess would open the wrong transcript.
  */
-export function resolveSessionRef(ref: string, list: SessionIds[] | null): string | null {
+export function findSessionRef(ref: string, list: SessionIds[] | null): SessionIds | null {
   const lower = ref.toLowerCase();
-  const matches = new Set<string>();
+  const matches = new Map<string, SessionIds>();
   for (const session of list ?? []) {
     for (const candidate of [session.sessionId, session.nativeSessionId]) {
       if (candidate && candidate.toLowerCase().startsWith(lower)) {
-        matches.add(session.sessionId ?? candidate);
+        matches.set(session.sessionId ?? candidate, session);
       }
     }
   }
-  return matches.size === 1 ? [...matches][0] : null;
+  if (matches.size !== 1) return null;
+  const [[id, session]] = [...matches];
+  return { ...session, sessionId: id };
+}
+
+/** Full id for a short ref within `list`, or null (see `findSessionRef`). */
+export function resolveSessionRef(ref: string, list: SessionIds[] | null): string | null {
+  return findSessionRef(ref, list)?.sessionId ?? null;
 }
 
 /**
@@ -126,14 +138,14 @@ export function resolveSessionRef(ref: string, list: SessionIds[] | null): strin
  * the sessions already in hand, then the live list, then the durable
  * catalog. Each rung is skipped once a rung below has answered.
  */
-export async function resolveSessionRefWith(
+export async function lookupSessionRefWith(
   client: SessionRefClient,
   ref: string,
-): Promise<string | null> {
-  const peeked = resolveSessionRef(ref, client.peekSessions());
+): Promise<SessionIds | null> {
+  const peeked = findSessionRef(ref, client.peekSessions());
   if (peeked) return peeked;
   const listed = await client.listSessions().catch(() => null);
-  const live = resolveSessionRef(ref, listed);
+  const live = findSessionRef(ref, listed);
   if (live) return live;
   const found = await client.transport
     .request<{ sessions?: SessionIds[] }>("/api/sessions/find", {
@@ -142,7 +154,14 @@ export async function resolveSessionRefWith(
       body: JSON.stringify({ sessionId: ref, limit: 5 }),
     })
     .catch(() => null);
-  return resolveSessionRef(ref, found?.sessions ?? null);
+  return findSessionRef(ref, found?.sessions ?? null);
+}
+
+export async function resolveSessionRefWith(
+  client: SessionRefClient,
+  ref: string,
+): Promise<string | null> {
+  return (await lookupSessionRefWith(client, ref))?.sessionId ?? null;
 }
 
 /**
@@ -158,18 +177,72 @@ export async function resolveSessionRefWith(
 export function createSessionRefOpener(deps: {
   navigate: (sessionId: string) => void;
   resolve?: (client: SessionRefClient, ref: string) => Promise<string | null>;
+  lookup?: (client: SessionRefClient, ref: string) => Promise<SessionIds | null>;
 }): {
   register(client: SessionRefClient | null): void;
   /** True when `href` was a session reference and has been taken over. */
   open(href: string): boolean;
+  /**
+   * The title to show for `ref`, or null while it is unknown. The first call
+   * for a ref starts one lookup; `subscribe` fires when it lands. A ref that
+   * names no session, or one without a title, stays null so the caller
+   * keeps showing the id.
+   */
+  label(ref: string): string | null;
+  subscribe(listener: () => void): () => void;
 } {
   const resolve = deps.resolve ?? resolveSessionRefWith;
+  const lookup = deps.lookup ?? lookupSessionRefWith;
   let current: SessionRefClient | null = null;
   let generation = 0;
+  // Titles belong to the registered client: a switch clears them.
+  let labels = new Map<string, string | null>();
+  const pending = new Set<string>();
+  const listeners = new Set<() => void>();
+  const notify = () => {
+    for (const listener of listeners) listener();
+  };
   return {
     register(client) {
       generation += 1;
       current = client;
+      const hadLabels = labels.size > 0;
+      labels = new Map();
+      pending.clear();
+      // A reader can trigger registration from inside a render. Tell
+      // subscribers later, and only when titles were actually dropped.
+      if (hadLabels) queueMicrotask(notify);
+    },
+    label(ref) {
+      const key = ref.toLowerCase();
+      if (labels.has(key)) return labels.get(key) ?? null;
+      const client = current;
+      if (!client) return null;
+      const known = findSessionRef(ref, client.peekSessions());
+      if (known) {
+        const title = known.title?.trim() || null;
+        labels.set(key, title);
+        return title;
+      }
+      if (pending.has(key)) return null;
+      pending.add(key);
+      const startedAt = generation;
+      Promise.resolve()
+        .then(() => lookup(client, ref))
+        .catch(() => null)
+        .then((session) => {
+          if (current !== client || generation !== startedAt) return;
+          pending.delete(key);
+          labels.set(key, session?.title?.trim() || null);
+          notify();
+        });
+      return null;
+    },
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
     },
     open(href) {
       const ref = sessionRefFromHref(href);

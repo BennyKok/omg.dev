@@ -18,7 +18,7 @@ beforeEach(() => {
   opened = [];
   registerSessionRefHandlers({
     navigate: (sessionId) => opened.push(sessionId),
-    peekSessions: () => [{ sessionId: FULL }],
+    peekSessions: () => [{ sessionId: FULL, title: "Fix the attribution bug" }],
   });
 });
 
@@ -30,11 +30,12 @@ afterEach(() => {
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe("session references in markdown", () => {
-  test("a bare short id in inline code opens that session", async () => {
+  test("a bare short id in inline code shows the title and opens that session", async () => {
     ui.render(<StreamdownResponse>{"Evidence is in session `228efabd`. Commit `02b282843`."}</StreamdownResponse>);
     await ui.flushAsync();
     const links = ui.queryAll("a[data-session-ref]");
-    expect(links.map((a) => a.textContent)).toEqual(["228efabd"]);
+    expect(links.map((a) => a.textContent)).toEqual(["#Fix the attribution bug"]);
+    expect(ui.text()).toContain("02b282843");
     (links[0] as HTMLElement).click();
     await settle();
     expect(opened).toEqual([FULL]);
@@ -49,5 +50,13 @@ describe("session references in markdown", () => {
     link!.click();
     await settle();
     expect(opened).toEqual([FULL]);
+  });
+
+  test("an id that names no known session stays the id", async () => {
+    ui.render(<StreamdownResponse>{"See `deadbeef`."}</StreamdownResponse>);
+    await ui.flushAsync();
+    await settle();
+    await ui.flushAsync();
+    expect(ui.queryAll("a[data-session-ref]").map((a) => a.textContent)).toEqual(["deadbeef"]);
   });
 });

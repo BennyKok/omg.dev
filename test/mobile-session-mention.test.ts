@@ -356,3 +356,36 @@ describe("sessionHrefFromCodespan", () => {
     }
   });
 });
+
+describe("createSessionRefOpener labels", () => {
+  const client = (peek: SessionRefClient["peekSessions"], found: unknown[] = []): SessionRefClient => ({
+    peekSessions: peek,
+    listSessions: async () => [],
+    transport: { request: async <T,>() => ({ sessions: found }) as T },
+  });
+
+  test("a known session reads as its title at once", () => {
+    const opener = createSessionRefOpener({ navigate: () => {} });
+    opener.register(client(() => [{ sessionId: FULL, title: "Fix the attribution bug" }]));
+    expect(opener.label("0f1e2d3c")).toBe("Fix the attribution bug");
+  });
+
+  test("an older session's title arrives through the lookup", async () => {
+    const opener = createSessionRefOpener({ navigate: () => {} });
+    opener.register(client(() => [], [{ sessionId: FULL, title: "Old chat" }]));
+    let fired = 0;
+    opener.subscribe(() => fired++);
+    expect(opener.label("0f1e2d3c")).toBeNull();
+    await tick();
+    expect(fired).toBe(1);
+    expect(opener.label("0f1e2d3c")).toBe("Old chat");
+  });
+
+  test("a switch of client drops titles from the previous machine", async () => {
+    const opener = createSessionRefOpener({ navigate: () => {} });
+    opener.register(client(() => [{ sessionId: FULL, title: "Box one" }]));
+    expect(opener.label("0f1e2d3c")).toBe("Box one");
+    opener.register(client(() => []));
+    expect(opener.label("0f1e2d3c")).toBeNull();
+  });
+});
