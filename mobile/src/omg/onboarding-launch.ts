@@ -117,6 +117,9 @@ export async function launchOnboardingTask(
         // agent and picks the Claude login with the most capacity left; a
         // first-run guess from this side would be worse than either.
         cwd: cwd ?? undefined,
+        // A new user's first task: the box wraps it in the first-run rules
+        // (preview first, one deploy). Older boxes ignore the field.
+        firstRun: true,
       }),
       // Bounded. A launch that never answers must become a "failed" outcome
       // with the prompt still on screen, not a splash with no way out.
