@@ -22,6 +22,23 @@ import {
 
 export { sessionRefFromHref };
 
+/**
+ * Agents quote a session as a bare short id in inline code (`228efabd`),
+ * because that is the form every omg.dev tool returns. The `omg:session_`
+ * href for such a span, or null when the text is not a session id. Only the
+ * exact 8-hex short form or a full UUID qualifies: anything looser would
+ * turn ordinary code into links. A span that looks right but names no
+ * session (an 8-char git sha) resolves to nothing, so the tap does nothing.
+ */
+export function sessionHrefFromCodespan(text: string): string | null {
+  const t = text.trim();
+  if (/^[0-9a-f]{8}$/i.test(t)) return `omg:session_${t}`;
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(t)) {
+    return `omg:session_${t}`;
+  }
+  return null;
+}
+
 export type MentionableSession = {
   sessionId: string;
   title: string;

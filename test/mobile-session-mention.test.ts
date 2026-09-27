@@ -6,6 +6,7 @@ import {
   resolveSessionRef,
   resolveSessionRefWith,
   sessionFolderName,
+  sessionHrefFromCodespan,
   sessionMentionAt,
   sessionMentionPath,
   sessionRefFromHref,
@@ -339,5 +340,19 @@ describe("tapping a rendered reference", () => {
     expect(await resolveSessionRefWith(client([], [], [FULL]), "0f1e2d3c")).toBe(FULL);
     expect(calls).toEqual(["peek", "list", "/api/sessions/find"]);
     expect(await resolveSessionRefWith(client([], [], []), "0f1e2d3c")).toBeNull();
+  });
+});
+
+describe("sessionHrefFromCodespan", () => {
+  test("a bare short id or full UUID in inline code becomes a session href", () => {
+    expect(sessionHrefFromCodespan("228efabd")).toBe("omg:session_228efabd");
+    expect(sessionHrefFromCodespan(FULL)).toBe(`omg:session_${FULL}`);
+    expect(sessionRefFromHref(sessionHrefFromCodespan("228efabd")!)).toBe("228efabd");
+  });
+
+  test("ordinary code stays code", () => {
+    for (const text of ["02b282843", "StartTrial", "1a2b3c4", "abc-1234", "#1764", ""]) {
+      expect(sessionHrefFromCodespan(text)).toBeNull();
+    }
   });
 });

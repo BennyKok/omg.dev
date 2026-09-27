@@ -44,6 +44,7 @@ import Reanimated, {
 } from "react-native-reanimated";
 
 import { IconButton } from "../components";
+import { sessionHrefFromCodespan } from "./session-mention";
 import { openSessionRef } from "./session-ref-link";
 import { Text } from "./text";
 import { useTheme } from "./theme";
@@ -509,15 +510,36 @@ function Inline({ tokens }: { tokens?: Token[] }) {
                 <Inline tokens={(token as Tokens.Del).tokens} />
               </Text>
             );
-          case "codespan":
+          case "codespan": {
+            const code = (token as Tokens.Codespan).text;
+            // A bare short session id (`228efabd`) is how agents cite a
+            // session. Make it open that session like a `#session` link.
+            const sessionHref = sessionHrefFromCodespan(code);
             return (
               <Text
                 key={i}
-                style={{ fontFamily: MONO, fontSize: 14, backgroundColor: colors.codeBg }}
+                accessibilityRole={sessionHref ? "link" : undefined}
+                onPress={
+                  sessionHref
+                    ? () => {
+                        void Haptics.selectionAsync();
+                        openSessionRef(sessionHref);
+                      }
+                    : undefined
+                }
+                style={{
+                  fontFamily: MONO,
+                  fontSize: 14,
+                  backgroundColor: colors.codeBg,
+                  ...(sessionHref
+                    ? { color: colors.primary, textDecorationLine: "underline" as const }
+                    : null),
+                }}
               >
-                {(token as Tokens.Codespan).text}
+                {code}
               </Text>
             );
+          }
           case "link": {
             const t = token as Tokens.Link;
             return (
