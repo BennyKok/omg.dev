@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## September 27, 2026 - First tasks show a preview first (v0.6.135)
+
+- A new user's first task shows a first version within about five minutes, whatever they asked for. Before, only the "Build an app" card did, and a typed request could run for over an hour before any preview.
+- The same rules apply when the user stops the first task and types a new one.
+- Agents on models that cannot see images check the page text instead of taking screenshots they cannot read.
+
 ## September 27, 2026 - No QR code on a phone (v0.6.134)
 
 - On a phone, the open Expo preview card shows "Need Expo Go? Get it on Google Play" (the App Store on iPhone and iPad) instead of a QR code. A phone cannot scan its own screen. A computer still shows the QR code.
