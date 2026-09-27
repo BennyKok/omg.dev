@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AppState, Linking, Platform, Pressable, View } from "react-native";
+import { AppState, Linking, Platform, Pressable, useWindowDimensions, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { PROJECT_PREVIEW_RESTART_MESSAGE, type ProjectPreview, type ProjectPreviewSnapshot } from "../../../packages/protocol/src/project-preview";
 import type { OmgTransport } from "@omg-dev/client";
@@ -19,6 +19,9 @@ export function ProjectPreviewPanel({ sessionId, transport, email }: {
   sessionId: string | null; transport: Pick<OmgTransport, "request"> | null; email?: string;
 }) {
   const { colors } = useTheme();
+  // On a narrow phone the main action already says "Expo Go"; the chip shows
+  // only where the title keeps room.
+  const roomy = useWindowDimensions().width >= 480;
   const [preview, setPreview] = useState<ProjectPreview | null>(null);
   // Closed by default: on a phone the main path is "Open in Expo Go", and the
   // steps took a large part of the screen above the composer. The choice is
@@ -94,7 +97,7 @@ export function ProjectPreviewPanel({ sessionId, transport, email }: {
         <Text numberOfLines={1} style={{ flexShrink: 1, color: colors.foreground, fontSize: 15, fontWeight: "600" }}>{preview.title}</Text>
         {status
           ? <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>{status}</Text>
-          : <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 999, paddingHorizontal: 7, paddingVertical: 1 }}>
+          : !roomy ? null : <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 999, paddingHorizontal: 7, paddingVertical: 1 }}>
               <Text style={{ color: colors.mutedForeground, fontSize: 11, fontWeight: "600" }}>Expo Go</Text>
             </View>}
         {expoGoUrl && !stopped

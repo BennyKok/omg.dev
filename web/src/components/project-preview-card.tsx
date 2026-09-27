@@ -70,7 +70,9 @@ export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | nu
             {expoGoUrl ? <Smartphone className="size-4" /> : <Globe2 className="size-4" />}
           </span>
           <span className="min-w-0 truncate font-medium">{preview.title}</span>
-          {expoGoUrl && !stopped ? <Badge variant="outline" className="shrink-0">Expo Go</Badge> : null}
+          {/* On a narrow phone the main action already says "Expo Go", and the
+              chip left the title about 60px. It shows where there is room. */}
+          {expoGoUrl && !stopped ? <Badge variant="outline" className={cn("shrink-0", phone && "max-[479px]:hidden")}>Expo Go</Badge> : null}
           {stopped || !expoGoUrl
             ? <span className="shrink-0 text-xs text-muted-foreground">{expired ? "Link expired" : stopped ? "Stopped" : "Live preview"}</span>
             : null}
