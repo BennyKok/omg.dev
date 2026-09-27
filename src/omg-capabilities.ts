@@ -273,12 +273,22 @@ export function withFirstRunEnvelope(prompt: string | undefined, opts: { seesIma
   return [
     FIRST_RUN_HEADER,
     "This session is a new user's first task on omg.dev. They are watching, and they leave if nothing appears. These rules hold for every request in this session, including a new request typed after the user stops you.",
-    "- Within about 5 minutes, show a first visible version. Start or reuse the dev server (in /home/user/project the web server on 5173 is already running; for a phone app follow the omg-app-builder Expo fast path), call `omg_expose_port`, and tell the user the preview is ready. Do this before deep work.",
+    "- Within about 5 minutes, show a first visible version. Start or reuse the dev server (in /home/user/project the web server on 5173 is already running), call `omg_expose_port`, and tell the user the preview is ready. Do this before deep work.",
+    // The Expo steps are spelled out here because the omg-app-builder skill
+    // only exists inside a project made by omg_create_project, so an agent
+    // that plans first never reads its fast path. Measured 2026-09-27 (Family
+    // Feast design build, deepseek-v4-flash): 31 turns and 5 min of code
+    // before the first omg_expose_port, then 2 min of cold Metro bundling,
+    // preview at 8 min. The A/B runs that exposed first had the card at 27 s.
+    `- For a phone app, do these steps first, before you write any app code, even when the request includes a design to match: 1. \`omg_create_project\` with \`template: "expo"\`. 2. \`omg_expose_port\` with port 8081 and \`expoGo: true\`. 3. From the project directory run \`bash scripts/start-expo-preview.sh <expoGo.proxyUrl> 8081\` with a 240000 ms shell timeout. 4. Tell the user the preview is ready and to open it from the card below. Metro reloads on every save, so the phone follows your edits. Then read the omg-app-builder skill in the project and build the screens.`,
     "- Before that first preview: no test suites, no self-test loops, and no reading files one by one to learn the template. One quick check that the page loads is enough.",
     "- After the preview: build in a few larger edits, run one typecheck or build, deploy once with `omg_deploy`, commit, then `omg_ship`.",
     ...(opts.seesImages
       ? []
-      : ["- You cannot see images. Do not take screenshots or write browser or CDP scripts to check the UI. Check the page text instead, for example with `curl` on the preview URL."]),
+      : [
+          "- You cannot see images. Do not take screenshots or write browser or CDP scripts to check the UI. Check the page text instead, for example with `curl` on the preview URL.",
+          "- If the request links a design image, you cannot read it either. Do not download it or write scripts to inspect it. Build from the words in the request.",
+        ]),
     "- Keep your messages to the user short and plain.",
     USER_TASK,
     text,
