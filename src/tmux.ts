@@ -196,6 +196,12 @@ export function containedAgentCommand(
     "--property=Type=exec",
     "--property=KillMode=control-group",
     "--property=OOMScoreAdjust=200",
+    // One agent must not fill the 5G slice. A checkout on /tmp is tmpfs, so it
+    // counts here. MemoryMax kills this unit. MemoryHigh is omitted on purpose:
+    // high throttles every process in the cgroup and never kills. MemorySwapMax=0
+    // keeps the cap from spilling into swap.
+    "--property=MemoryMax=2G",
+    "--property=MemorySwapMax=0",
     `--setenv=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/${uid}/lfg-agent-no-session-bus`,
     ...Object.entries(agentBrowserEnv(opts.name)).flatMap(([k, v]) => [`--setenv=${k}=${v}`]),
   ];
