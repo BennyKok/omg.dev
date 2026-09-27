@@ -322,15 +322,29 @@ describe("first-run envelope", () => {
     expect(wrapped).toContain("Within about 5 minutes");
     expect(wrapped).toContain("including a new request typed after the user stops you");
     expect(wrapped).toContain("You cannot see images");
+    expect(wrapped).toContain("If the request links a design image");
     // The launch envelope wraps it once more; display surfaces peel both.
     const launched = withOmgRuntimeContract(wrapped)!;
     expect(stripOmgRuntimeContract(launched)).toBe(ask);
     expect(sessionTitleFromPrompt(launched)).toBe(ask);
   });
 
+  test("a phone app exposes Metro before any code, with the concrete Expo steps", async () => {
+    const { withFirstRunEnvelope } = await import("./omg-capabilities.ts");
+    const wrapped = withFirstRunEnvelope("Build a mobile app for my family", { seesImages: true })!;
+    const create = wrapped.indexOf('`omg_create_project` with `template: "expo"`');
+    const expose = wrapped.indexOf("`omg_expose_port` with port 8081 and `expoGo: true`");
+    const script = wrapped.indexOf("bash scripts/start-expo-preview.sh <expoGo.proxyUrl> 8081");
+    expect(create).toBeGreaterThan(0);
+    expect(expose).toBeGreaterThan(create);
+    expect(script).toBeGreaterThan(expose);
+    expect(wrapped).toContain("before you write any app code, even when the request includes a design to match");
+  });
+
   test("the image rule is only for models that cannot see", async () => {
     const { withFirstRunEnvelope, modelSeesImages } = await import("./omg-capabilities.ts");
     expect(withFirstRunEnvelope("x", { seesImages: true })).not.toContain("You cannot see images");
+    expect(withFirstRunEnvelope("x", { seesImages: true })).not.toContain("design image");
     expect(modelSeesImages("omg/deepseek/deepseek-v4-flash-0731")).toBe(false);
     expect(modelSeesImages("omg/deepseek/deepseek-v4-pro")).toBe(false);
     expect(modelSeesImages("opus")).toBe(true);
