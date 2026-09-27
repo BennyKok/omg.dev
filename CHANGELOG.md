@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## September 27, 2026 - No QR code on a phone (v0.6.134)
+
+- On a phone, the open Expo preview card shows "Need Expo Go? Get it on Google Play" (the App Store on iPhone and iPad) instead of a QR code. A phone cannot scan its own screen. A computer still shows the QR code.
+- When the agent makes a preview card, it says the preview is ready and points to the card. It no longer pastes the long exps:// link that the card already shows.
+- The iPhone "Build an app" card asks for "a preview I can open on my phone".
+
 ## September 27, 2026 - Less text on the preview card (v0.6.133)
 
 - The open Expo preview card shows the QR code and one line: "Scan with your phone camera to open in Expo Go." "Expo Go" links to the App Store or Google Play for your phone.
