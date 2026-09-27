@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## September 27, 2026 - Phone app previews come first (v0.6.136)
+
+- On a new user's first task, a phone app request now starts the Expo preview before the agent writes any app code, also when the request includes a design to match. The preview card appears early and follows each edit.
+- Agents on models that cannot see images no longer try to download or inspect a linked design image. They build from the words in the request.
+
 ## September 27, 2026 - First tasks show a preview first (v0.6.135)
 
 - A new user's first task shows a first version within about five minutes, whatever they asked for. Before, only the "Build an app" card did, and a typed request could run for over an hour before any preview.
