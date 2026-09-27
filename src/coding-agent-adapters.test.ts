@@ -306,6 +306,9 @@ describe("coding agent adapter contract", () => {
     expect(argv).toContain("--slice=lfg-agents.slice");
     expect(argv).toContain("--property=KillMode=control-group");
     expect(argv).toContain("--property=OOMScoreAdjust=200");
+    expect(argv).toContain("--property=MemoryMax=2G");
+    expect(argv).toContain("--property=MemorySwapMax=0");
+    expect(argv.some((part) => part.startsWith("--property=MemoryHigh="))).toBe(false);
     expect(argv).toContain("--setenv=LFG_SESSION_ID=session-id");
     expect(argv).toContain("--setenv=AGENT_BROWSER_SESSION=lfg-test");
     expect(argv).toContain(`--setenv=AGENT_BROWSER_IDLE_TIMEOUT_MS=${AGENT_BROWSER_IDLE_TIMEOUT_MS}`);
