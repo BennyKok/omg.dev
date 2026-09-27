@@ -186,6 +186,12 @@ function demoSessions(): DemoSession[] {
       busy: i % 3 === 0, lastActivityAt: t - (i + 30) * MIN,
     });
   }
+  if (sessionRefFixture) sessions.push({
+    ...sessions[0], sessionId: SESSION_REF_TARGET, tmuxTarget: "omg-demo:session-ref",
+    title: "Fix the attribution bug", lastUserText: "Fix the attribution bug.",
+    busy: false, botId: undefined, lastActivityAt: t - 40 * MIN,
+    last: { role: "assistant", text: "Attribution fix is merged.", ts: t - 40 * MIN },
+  });
   return [...unassignedChats, ...sessions];
 }
 
@@ -201,6 +207,14 @@ const videoFixture = process.env.EXPO_PUBLIC_OMG_VIDEO_FIXTURE === "1";
  * is not part of that story.
  */
 const inlineCardFixture = process.env.EXPO_PUBLIC_OMG_INLINE_CARDS_FIXTURE === "1";
+/**
+ * A reply that cites another session as a bare short id in inline code, the
+ * way agents do, for the `session-ref` e2e plan. The cited session needs a
+ * real UUID id, because only a short id of that shape becomes a link. Off by
+ * default so the App Store capture does not change.
+ */
+const sessionRefFixture = process.env.EXPO_PUBLIC_OMG_SESSION_REF_FIXTURE === "1";
+const SESSION_REF_TARGET = "5a1d0c3e-7b2f-4c1a-9e3d-2f6b8a4c7d10";
 /** The one session the inline-card fixture attaches everything to. */
 const INLINE_CARD_SESSION = "demo-rate-limiter";
 /** Exactly the wrapper src/commands/serve.ts sends after a transfer. */
@@ -240,6 +254,12 @@ function demoMessages(sessionId: string): OmgMessage[] {
     }));
   }
 
+  if (sessionRefFixture && sessionId === SESSION_REF_TARGET) {
+    return [
+      { id: "r1", role: "user", kind: "text", text: "Fix the attribution bug.", ts: t - 50 * MIN },
+      { id: "r2", role: "assistant", kind: "text", text: "Attribution fix is merged. StartTrial now sends the click ids.", ts: t - 40 * MIN },
+    ];
+  }
   if (sessionId === "demo-rate-limiter") {
     return [
       { id: "m1", role: "user", kind: "text", text: "Switch the rate limiter from a fixed window to a sliding one. Keep the same per-key limits.", ts: t - 22 * MIN },
@@ -247,6 +267,9 @@ function demoMessages(sessionId: string): OmgMessage[] {
       { id: "m3", role: "assistant", kind: "text", text: "Replaced the fixed-window counter in `limiter.ts` with a sliding log keyed by client id. Added a test that fires two bursts across a window boundary and asserts the second is throttled.", ts: t - 12 * MIN },
       { id: "m4", role: "user", kind: "text", text: "Nice. Run the suite and push if it's green.", ts: t - 6 * MIN },
       { id: "m5", role: "assistant", kind: "text", text: "Running the limiter tests…", ts: t - 20_000, pending: true },
+      ...(sessionRefFixture
+        ? [{ id: "m-ref", role: "assistant", kind: "text", text: `The attribution follow-up is in session \`${SESSION_REF_TARGET.slice(0, 8)}\`. The merge commit is \`02b282843\`.`, ts: t - 15_000 } as OmgMessage]
+        : []),
       ...(inlineCardFixture
         ? [{ id: "m6", role: "user", kind: "text", text: TRANSFER_NOTICE, ts: t - 10_000 } as OmgMessage]
         : []),

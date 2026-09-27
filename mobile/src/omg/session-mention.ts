@@ -16,28 +16,25 @@
 import type { OmgClient } from "@omg-dev/client";
 
 import {
+  createSessionRefOpener,
   formatSessionMentionToken,
+  resolveSessionRef,
+  resolveSessionRefWith,
+  sessionHrefFromCodespan,
   sessionRefFromHref,
+  type SessionIds,
+  type SessionRefClient,
 } from "../../../packages/protocol/src/session-mention-token";
 
-export { sessionRefFromHref };
-
-/**
- * Agents quote a session as a bare short id in inline code (`228efabd`),
- * because that is the form every omg.dev tool returns. The `omg:session_`
- * href for such a span, or null when the text is not a session id. Only the
- * exact 8-hex short form or a full UUID qualifies: anything looser would
- * turn ordinary code into links. A span that looks right but names no
- * session (an 8-char git sha) resolves to nothing, so the tap does nothing.
- */
-export function sessionHrefFromCodespan(text: string): string | null {
-  const t = text.trim();
-  if (/^[0-9a-f]{8}$/i.test(t)) return `omg:session_${t}`;
-  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(t)) {
-    return `omg:session_${t}`;
-  }
-  return null;
-}
+export {
+  createSessionRefOpener,
+  resolveSessionRef,
+  resolveSessionRefWith,
+  sessionHrefFromCodespan,
+  sessionRefFromHref,
+  type SessionIds,
+  type SessionRefClient,
+};
 
 export type MentionableSession = {
   sessionId: string;
@@ -237,99 +234,4 @@ export function createSessionMentionPicker(deps: {
       if (state !== CLOSED) emit(CLOSED);
     },
   };
-}
-
-/**
- * The tap handler for a rendered reference, with the router injected.
- *
- * The lookup is asynchronous and the app can switch machine or sign out
- * while it runs. An answer is only acted on when the client it came from is
- * still the registered one: a session id from the previous box must never
- * be pushed onto the new one. Every failure is swallowed here, because a
- * markdown tap has nowhere to report and an unhandled rejection is worse
- * than a tap that does nothing.
- */
-export function createSessionRefOpener(deps: {
-  navigate: (sessionId: string) => void;
-  resolve?: (client: SessionRefClient, ref: string) => Promise<string | null>;
-}): {
-  register(client: SessionRefClient | null): void;
-  /** True when `href` was a session reference and has been taken over. */
-  open(href: string): boolean;
-} {
-  const resolve = deps.resolve ?? resolveSessionRefWith;
-  let current: SessionRefClient | null = null;
-  let generation = 0;
-  return {
-    register(client) {
-      generation += 1;
-      current = client;
-    },
-    open(href) {
-      const ref = sessionRefFromHref(href);
-      if (!ref) return false;
-      const client = current;
-      if (!client) return true;
-      const startedAt = generation;
-      Promise.resolve()
-        .then(() => resolve(client, ref))
-        .then((full) => {
-          if (full && current === client && generation === startedAt) deps.navigate(full);
-        })
-        .catch(() => {});
-      return true;
-    },
-  };
-}
-
-// ---- Resolving a tapped reference ----------------------------------------
-
-export type SessionIds = { sessionId?: string | null; nativeSessionId?: string | null };
-
-/** The subset of OmgClient a reference lookup needs, so tests can fake it. */
-export type SessionRefClient = {
-  peekSessions(): SessionIds[] | null;
-  listSessions(): Promise<SessionIds[]>;
-  transport: { request<T>(path: string, init?: RequestInit): Promise<T> };
-};
-
-/**
- * Full id for a short ref within `list`. Null when nothing or more than one
- * session matches: a guess would open the wrong transcript.
- */
-export function resolveSessionRef(ref: string, list: SessionIds[] | null): string | null {
-  const lower = ref.toLowerCase();
-  const matches = new Set<string>();
-  for (const session of list ?? []) {
-    for (const candidate of [session.sessionId, session.nativeSessionId]) {
-      if (candidate && candidate.toLowerCase().startsWith(lower)) {
-        matches.add(session.sessionId ?? candidate);
-      }
-    }
-  }
-  return matches.size === 1 ? [...matches][0] : null;
-}
-
-/**
- * The same ladder omg.dev's MCP layer climbs for an agent-facing short id:
- * the sessions already in hand, then the live list, then the durable
- * catalog. Each rung is skipped once a rung below has answered.
- */
-export async function resolveSessionRefWith(
-  client: SessionRefClient,
-  ref: string,
-): Promise<string | null> {
-  const peeked = resolveSessionRef(ref, client.peekSessions());
-  if (peeked) return peeked;
-  const listed = await client.listSessions().catch(() => null);
-  const live = resolveSessionRef(ref, listed);
-  if (live) return live;
-  const found = await client.transport
-    .request<{ sessions?: SessionIds[] }>("/api/sessions/find", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId: ref, limit: 5 }),
-    })
-    .catch(() => null);
-  return resolveSessionRef(ref, found?.sessions ?? null);
 }

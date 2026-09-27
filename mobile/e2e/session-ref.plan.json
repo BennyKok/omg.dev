@@ -1,0 +1,28 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": false
+  },
+  "steps": [
+    {
+      "name": "Open the seeded session",
+      "goal": "If an AI data consent screen appears, accept it for this isolated demo fixture. Then open the session named Refactor the rate limiter to a sliding window from the session list.",
+      "done": "The session transcript is open and the reply that names another session is visible.",
+      "expect": [
+        "The attribution follow-up is in session",
+        "5a1d0c3e"
+      ]
+    },
+    {
+      "name": "Tap the session id",
+      "goal": "Tap the session id 5a1d0c3e inside the reply that says The attribution follow-up is in session. Do not tap anything else.",
+      "done": "The Fix the attribution bug session is open, showing its own transcript.",
+      "expect": [
+        "StartTrial now sends the click ids"
+      ],
+      "forbid": [
+        "The attribution follow-up is in session"
+      ]
+    }
+  ]
+}
