@@ -116,6 +116,8 @@ export const STORAGE_KEYS = {
    * that was unlinked simply disappears.
    */
   folderRail: "omg:mobile:folder-rail",
+  /** "1" when the project preview card is open, "0" when closed. Unset is closed. */
+  previewCardExpanded: "omg:mobile:preview-card-expanded",
   /** "1" while the iPad rail is collapsed from its divider handle. */
   railCollapsed: "omg:mobile:rail-collapsed",
 } as const;
