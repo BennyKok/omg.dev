@@ -92,7 +92,7 @@ export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | nu
           <RotateCw className="size-3.5" />{restartAsked ? "Asked the agent to restart it" : "Restart preview"}
         </button>
       </div> : expoGoUrl && expanded ? <div className="border-t px-3 pb-3" data-testid="project-preview-details">
-        <ExpoGoGuide url={expoGoUrl} />
+        <ExpoGoGuide url={expoGoUrl} phone={phone} />
         <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
           {phone ? <><button className="font-medium text-primary" onClick={openWeb}>Web preview</button><span aria-hidden>·</span></> : null}
           <a className="inline-flex items-center gap-1" href={preview.url} target="_blank" rel="noreferrer" aria-label="Open preview in new tab">New tab <ExternalLink className="size-3" aria-hidden /></a>
@@ -149,22 +149,33 @@ const EXPO_GO_ANDROID = "https://play.google.com/store/apps/details?id=host.exp.
 const EXPO_GO_ANY = "https://expo.dev/go";
 
 /** The store for this phone. A computer gets Expo's page, which lists both. */
-function expoGoStoreUrl(): string {
+function expoGoStore(): { url: string; name: string } {
   try {
     const agent = navigator.userAgent;
-    if (/android/i.test(agent)) return EXPO_GO_ANDROID;
-    if (/iphone|ipad|ipod/i.test(agent) || (/macintosh/i.test(agent) && navigator.maxTouchPoints > 1)) return EXPO_GO_IOS;
+    if (/android/i.test(agent)) return { url: EXPO_GO_ANDROID, name: "Google Play" };
+    if (/iphone|ipad|ipod/i.test(agent) || (/macintosh/i.test(agent) && navigator.maxTouchPoints > 1)) return { url: EXPO_GO_IOS, name: "the App Store" };
   } catch { /* No navigator: use the neutral page. */ }
-  return EXPO_GO_ANY;
+  return { url: EXPO_GO_ANY, name: "expo.dev/go" };
 }
 
-function ExpoGoGuide({ url }: { url: string }) {
+/**
+ * A phone cannot scan its own screen, so a phone gets only the store line.
+ * "Open in Expo Go" in the header is its main path. A computer gets the QR.
+ */
+function ExpoGoGuide({ url, phone }: { url: string; phone: boolean }) {
+  const store = expoGoStore();
+  if (phone) {
+    return <p className="mt-3 text-xs text-muted-foreground" data-testid="expo-go-guide">
+      Need Expo Go? Get it on{" "}
+      <a className="font-medium text-primary" href={store.url} target="_blank" rel="noreferrer">{store.name}</a>
+    </p>;
+  }
   const qr = `data:image/svg+xml;utf8,${encodeURIComponent(renderSVG(url, { border: 1 }))}`;
   return <div className="mt-3 flex items-center gap-3" data-testid="expo-go-guide">
     <img className="size-24 shrink-0 rounded-md bg-white p-1" src={qr} alt="QR code that opens this app in Expo Go" />
     <p className="min-w-0 flex-1 text-xs text-muted-foreground">
       Scan with your phone camera to open in{" "}
-      <a className="font-medium text-primary" href={expoGoStoreUrl()} target="_blank" rel="noreferrer">Expo Go</a>.
+      <a className="font-medium text-primary" href={store.url} target="_blank" rel="noreferrer">Expo Go</a>.
     </p>
   </div>;
 }
