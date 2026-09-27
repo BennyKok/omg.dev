@@ -18,7 +18,7 @@ import { code } from "@streamdown/code";
 
 import { sessionHrefFromCodespan, sessionRefFromHref } from "@omg-dev/protocol";
 
-import { openSessionRef } from "@/lib/session-ref-link";
+import { openSessionRef, useSessionRefLabel } from "@/lib/session-ref-link";
 import { cn } from "@/lib/utils";
 
 type StreamdownPlugins = NonNullable<ComponentProps<typeof Streamdown>["plugins"]>;
@@ -155,10 +155,16 @@ function SessionAwareInlineCode({ children, className, node: _node, ...props }: 
       {children}
     </code>
   );
-  if (!sessionHref) return code;
+  if (!sessionHref || !text) return code;
+  return <SessionIdLink href={sessionHref} code={code} id={text.trim()} />;
+}
+
+/** `#Title` once the session is known; the id in code style until then. */
+function SessionIdLink({ href, code, id }: { href: string; code: ReactNode; id: string }) {
+  const title = useSessionRefLabel(sessionRefFromHref(href));
   return (
-    <SessionRefLink href={sessionHref} className="no-underline hover:underline">
-      {code}
+    <SessionRefLink href={href} className={title ? undefined : "no-underline hover:underline"}>
+      {title ? <span title={id}>#{title}</span> : code}
     </SessionRefLink>
   );
 }

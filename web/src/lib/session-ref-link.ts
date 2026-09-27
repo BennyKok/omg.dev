@@ -17,6 +17,8 @@ import {
   type SessionRefClient,
 } from "@omg-dev/protocol";
 
+import { useCallback, useSyncExternalStore } from "react";
+
 import { api, omgTransportGeneration } from "./omg-client";
 
 let navigateTo: ((sessionId: string) => void) | null = null;
@@ -45,14 +47,31 @@ export function registerSessionRefHandlers(handlers: {
   peek = handlers?.peekSessions ?? (() => null);
 }
 
-/** True when `href` was a session reference and has been taken over. */
-export function openSessionRef(href: string): boolean {
-  // A host swaps the transport in place. A new client object makes the
-  // opener drop any lookup still running against the previous Computer.
+// A host swaps the transport in place. A new client object makes the opener
+// drop any lookup and any title still tied to the previous Computer.
+function ensureClient(): void {
   const generation = omgTransportGeneration();
   if (generation !== registeredGeneration) {
     registeredGeneration = generation;
     opener.register(clientForCurrentTransport());
   }
+}
+
+/** True when `href` was a session reference and has been taken over. */
+export function openSessionRef(href: string): boolean {
+  ensureClient();
   return opener.open(href);
+}
+
+/**
+ * The title of the session `ref` names, or null until it is known. A message
+ * shows it in place of the bare id.
+ */
+export function useSessionRefLabel(ref: string | null): string | null {
+  const read = useCallback(() => {
+    if (!ref) return null;
+    ensureClient();
+    return opener.label(ref);
+  }, [ref]);
+  return useSyncExternalStore(opener.subscribe, read, read);
 }

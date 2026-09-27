@@ -44,8 +44,8 @@ import Reanimated, {
 } from "react-native-reanimated";
 
 import { IconButton } from "../components";
-import { sessionHrefFromCodespan } from "./session-mention";
-import { openSessionRef } from "./session-ref-link";
+import { sessionHrefFromCodespan, sessionRefFromHref } from "./session-mention";
+import { openSessionRef, useSessionRefLabel } from "./session-ref-link";
 import { Text } from "./text";
 import { useTheme } from "./theme";
 
@@ -483,6 +483,38 @@ function MdTable({
   );
 }
 
+/**
+ * A session cited by id. Shows `#Title` once the title is known, and the id
+ * in code style until then or when the id names no session.
+ */
+function SessionIdSpan({ code, href }: { code: string; href: string }) {
+  const { colors } = useTheme();
+  const title = useSessionRefLabel(sessionRefFromHref(href));
+  return (
+    <Text
+      accessibilityRole="link"
+      accessibilityLabel={title ? `Session ${title}` : `Session ${code}`}
+      onPress={() => {
+        void Haptics.selectionAsync();
+        openSessionRef(href);
+      }}
+      style={
+        title
+          ? { color: colors.primary, fontWeight: "600" }
+          : {
+              fontFamily: MONO,
+              fontSize: 14,
+              backgroundColor: colors.codeBg,
+              color: colors.primary,
+              textDecorationLine: "underline",
+            }
+      }
+    >
+      {title ? `#${title}` : code}
+    </Text>
+  );
+}
+
 /** Inline spans: bold, italic, strike, code, links, images. */
 function Inline({ tokens }: { tokens?: Token[] }) {
   const { colors } = useTheme();
@@ -513,28 +545,13 @@ function Inline({ tokens }: { tokens?: Token[] }) {
           case "codespan": {
             const code = (token as Tokens.Codespan).text;
             // A bare short session id (`228efabd`) is how agents cite a
-            // session. Make it open that session like a `#session` link.
+            // session. It reads as the session's title and opens it.
             const sessionHref = sessionHrefFromCodespan(code);
+            if (sessionHref) return <SessionIdSpan key={i} code={code} href={sessionHref} />;
             return (
               <Text
                 key={i}
-                accessibilityRole={sessionHref ? "link" : undefined}
-                onPress={
-                  sessionHref
-                    ? () => {
-                        void Haptics.selectionAsync();
-                        openSessionRef(sessionHref);
-                      }
-                    : undefined
-                }
-                style={{
-                  fontFamily: MONO,
-                  fontSize: 14,
-                  backgroundColor: colors.codeBg,
-                  ...(sessionHref
-                    ? { color: colors.primary, textDecorationLine: "underline" as const }
-                    : null),
-                }}
+                style={{ fontFamily: MONO, fontSize: 14, backgroundColor: colors.codeBg }}
               >
                 {code}
               </Text>
