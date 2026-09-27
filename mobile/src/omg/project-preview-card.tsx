@@ -120,18 +120,21 @@ export function ProjectPreviewPanel({ sessionId, transport, email }: {
       <Pressable accessibilityRole="button" testID="project-preview-restart" disabled={restartAsked} onPress={() => void restart()} style={{ minHeight: 44, paddingHorizontal: 14, borderRadius: 12, backgroundColor: restartAsked ? colors.muted : colors.primary, justifyContent: "center" }}>
         <Text style={{ color: restartAsked ? colors.mutedForeground : colors.primaryForeground, fontWeight: "600", textAlign: "center" }}>{restartAsked ? "Asked the agent to restart it" : "Restart preview"}</Text>
       </Pressable>
-    </View> : expoGoUrl && guide ? <View testID="project-preview-expo-guide" style={{ gap: 8, backgroundColor: colors.muted, borderRadius: 12, padding: 12, marginBottom: 2 }}>
-      <GuideStep colors={colors} n={1} text="Get Expo Go. It is free." />
-      <Pressable accessibilityRole="button" testID="project-preview-get-expo-go" onPress={() => void Linking.openURL(Platform.OS === "android" ? EXPO_GO_ANDROID : EXPO_GO_IOS)} style={{ alignSelf: "flex-start", marginLeft: 26, minHeight: 36, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1, borderColor: colors.border, justifyContent: "center" }}>
-        <Text style={{ color: colors.foreground, fontWeight: "600" }}>{Platform.OS === "android" ? "Get it on Google Play" : "Get it on the App Store"}</Text>
-      </Pressable>
-      <GuideStep colors={colors} n={2} text="Come back and tap Open in Expo Go." />
-      <GuideStep colors={colors} n={3} text="The first load can take up to a minute." />
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginTop: 2 }}>
-        <Pressable accessibilityRole="button" testID="project-preview-open" onPress={() => void openInAppPage(preview.url)} style={{ minHeight: 36, justifyContent: "center" }}>
-          <Text style={{ color: colors.primary, fontWeight: "600" }}>Open web preview</Text>
+    </View> : expoGoUrl && guide ? <View testID="project-preview-expo-guide" style={{ gap: 6, paddingHorizontal: 4, paddingBottom: 4 }}>
+      {/* This card is on the phone that runs Expo Go, so it has no QR code:
+          one line for a person who does not have Expo Go yet. */}
+      <Text style={{ color: colors.mutedForeground, fontSize: 14 }}>
+        Need Expo Go?{" "}
+        <Text testID="project-preview-get-expo-go" accessibilityRole="link" onPress={() => void Linking.openURL(Platform.OS === "android" ? EXPO_GO_ANDROID : EXPO_GO_IOS)} style={{ color: colors.primary, fontWeight: "600" }}>{Platform.OS === "android" ? "Get it on Google Play" : "Get it on the App Store"}</Text>
+      </Text>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+        <Pressable accessibilityRole="link" accessibilityLabel="Open web preview" testID="project-preview-open" onPress={() => void openInAppPage(preview.url)} style={{ minHeight: 32, justifyContent: "center" }}>
+          <Text style={{ color: colors.primary, fontSize: 13, fontWeight: "600" }}>Web preview</Text>
         </Pressable>
-        <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>Private to you · Temporary</Text>
+        <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>·</Text>
+        <Pressable accessibilityRole="link" accessibilityLabel={Platform.OS === "android" ? "Open preview in browser" : "Open preview in Safari"} testID="project-preview-open-browser" onPress={() => void Linking.openURL(preview.url)} style={{ minHeight: 32, justifyContent: "center" }}>
+          <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>{Platform.OS === "android" ? "Browser" : "Safari"}</Text>
+        </Pressable>
       </View>
     </View> : null}
   </View>;
@@ -140,12 +143,3 @@ export function ProjectPreviewPanel({ sessionId, transport, email }: {
 
 const EXPO_GO_IOS = "https://apps.apple.com/app/expo-go/id982107779";
 const EXPO_GO_ANDROID = "https://play.google.com/store/apps/details?id=host.exp.exponent";
-
-type ThemeColors = ReturnType<typeof useTheme>["colors"];
-
-function GuideStep({ n, text, colors }: { n: number; text: string; colors: ThemeColors }) {
-  return <View style={{ flexDirection: "row", gap: 8, alignItems: "flex-start" }}>
-    <Text style={{ width: 18, color: colors.primary, fontWeight: "700" }}>{n}.</Text>
-    <Text style={{ flex: 1, color: colors.foreground, fontSize: 14 }}>{text}</Text>
-  </View>;
-}

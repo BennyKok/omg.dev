@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, ExternalLink, Globe2, RotateCw, Smartphone, X } from "lucide-react";
+import { ChevronDown, ExternalLink, Globe2, Info, RotateCw, Smartphone, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -93,10 +93,10 @@ export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | nu
         </button>
       </div> : expoGoUrl && expanded ? <div className="border-t px-3 pb-3" data-testid="project-preview-details">
         <ExpoGoGuide url={expoGoUrl} />
-        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
-          {phone ? <button className="font-medium text-primary" onClick={openWeb}>Open web preview</button> : null}
-          <a className="inline-flex items-center gap-1 text-muted-foreground" href={preview.url} target="_blank" rel="noreferrer">Open in new tab <ExternalLink className="size-3" /></a>
-          <span className="text-muted-foreground">Private to you · Temporary</span>
+        <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+          {phone ? <><button className="font-medium text-primary" onClick={openWeb}>Web preview</button><span aria-hidden>·</span></> : null}
+          <a className="inline-flex items-center gap-1" href={preview.url} target="_blank" rel="noreferrer" aria-label="Open preview in new tab">New tab <ExternalLink className="size-3" aria-hidden /></a>
+          <span className="ml-auto inline-flex" title="Private to you. The link is temporary." aria-label="Private to you. The link is temporary." role="img"><Info className="size-3.5" aria-hidden /></span>
         </div>
       </div> : null}
     </div>
@@ -146,17 +146,25 @@ function usePhone(): boolean {
 const EXPO_GO_IOS = "https://apps.apple.com/app/expo-go/id982107779";
 const EXPO_GO_ANDROID = "https://play.google.com/store/apps/details?id=host.exp.exponent";
 
+const EXPO_GO_ANY = "https://expo.dev/go";
+
+/** The store for this phone. A computer gets Expo's page, which lists both. */
+function expoGoStoreUrl(): string {
+  try {
+    const agent = navigator.userAgent;
+    if (/android/i.test(agent)) return EXPO_GO_ANDROID;
+    if (/iphone|ipad|ipod/i.test(agent) || (/macintosh/i.test(agent) && navigator.maxTouchPoints > 1)) return EXPO_GO_IOS;
+  } catch { /* No navigator: use the neutral page. */ }
+  return EXPO_GO_ANY;
+}
+
 function ExpoGoGuide({ url }: { url: string }) {
   const qr = `data:image/svg+xml;utf8,${encodeURIComponent(renderSVG(url, { border: 1 }))}`;
-  return <div className="mt-3 flex gap-3" data-testid="expo-go-guide">
+  return <div className="mt-3 flex items-center gap-3" data-testid="expo-go-guide">
     <img className="size-24 shrink-0 rounded-md bg-white p-1" src={qr} alt="QR code that opens this app in Expo Go" />
-    <ol className="min-w-0 flex-1 list-decimal space-y-1 pl-4 text-xs text-muted-foreground">
-      <li>Install <span className="font-medium text-foreground">Expo Go</span> from the{" "}
-        <a className="text-primary" href={EXPO_GO_IOS} target="_blank" rel="noreferrer">App Store</a> or{" "}
-        <a className="text-primary" href={EXPO_GO_ANDROID} target="_blank" rel="noreferrer">Google Play</a>.</li>
-      <li>Scan this code with your phone camera, or{" "}
-        <a className="font-medium text-primary" href={url}>open in Expo Go</a> on this phone.</li>
-      <li>The first load can take up to a minute.</li>
-    </ol>
+    <p className="min-w-0 flex-1 text-xs text-muted-foreground">
+      Scan with your phone camera to open in{" "}
+      <a className="font-medium text-primary" href={expoGoStoreUrl()} target="_blank" rel="noreferrer">Expo Go</a>.
+    </p>
   </div>;
 }
