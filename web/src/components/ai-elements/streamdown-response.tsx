@@ -1,17 +1,31 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type AnchorHTMLAttributes, type ComponentProps } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type AnchorHTMLAttributes,
+  type ComponentProps,
+  type HTMLAttributes,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import { Check, Copy, ExternalLink } from "lucide-react";
-import { Streamdown } from "streamdown";
+import { defaultRehypePlugins, Streamdown } from "streamdown";
 import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
 
+import { sessionHrefFromCodespan, sessionRefFromHref } from "@omg-dev/protocol";
+
+import { openSessionRef } from "@/lib/session-ref-link";
 import { cn } from "@/lib/utils";
 
 type StreamdownPlugins = NonNullable<ComponentProps<typeof Streamdown>["plugins"]>;
 type AnchorProps = AnchorHTMLAttributes<HTMLAnchorElement> & {
   node?: unknown;
 };
+type InlineCodeProps = HTMLAttributes<HTMLElement> & { node?: unknown };
 
 let extraPlugins: Partial<StreamdownPlugins> | null = null;
 let extraPluginsPromise: Promise<void> | null = null;
@@ -82,6 +96,73 @@ async function copyText(value: string): Promise<void> {
   input.remove();
 }
 
+/**
+ * A link that opens a session in this app instead of a new tab. The `omg:`
+ * href would do nothing in a browser, so the click is taken over and the
+ * short id is resolved to the session page.
+ */
+function SessionRefLink({ href, className, children }: { href: string; className?: string; children: ReactNode }) {
+  return (
+    <a
+      className={cn("cursor-pointer font-medium text-primary underline underline-offset-4", className)}
+      href={href}
+      data-session-ref={sessionRefFromHref(href) ?? undefined}
+      onClick={(event: MouseEvent<HTMLAnchorElement>) => {
+        event.preventDefault();
+        openSessionRef(href);
+      }}
+    >
+      {children}
+    </a>
+  );
+}
+
+/**
+ * Streamdown's default rehype chain (raw, sanitize, harden) with one change:
+ * the sanitizer also keeps `omg:` hrefs. Without it a `#session` reference
+ * renders as "[blocked]". `CopyableMarkdownLink` renders only the
+ * `omg:session_` form as a link; any other `omg:` href stays plain text.
+ */
+type SanitizeTuple = [unknown, { protocols?: Record<string, string[]> } & Record<string, unknown>];
+const [sanitizePlugin, sanitizeSchema] = defaultRehypePlugins.sanitize as unknown as SanitizeTuple;
+const REHYPE_PLUGINS = [
+  defaultRehypePlugins.raw,
+  [
+    sanitizePlugin,
+    {
+      ...sanitizeSchema,
+      protocols: {
+        ...sanitizeSchema.protocols,
+        href: [...(sanitizeSchema.protocols?.href ?? []), "omg"],
+      },
+    },
+  ],
+  defaultRehypePlugins.harden,
+] as unknown as NonNullable<StreamdownResponseProps["rehypePlugins"]>;
+
+/** Streamdown's own inline code classes, kept when the span is not a session id. */
+const INLINE_CODE_CLASS = "rounded bg-muted px-1.5 py-0.5 font-mono text-sm";
+
+/**
+ * Agents cite a session as a bare short id in inline code (`228efabd`).
+ * Such a span opens that session; every other span renders as before.
+ */
+function SessionAwareInlineCode({ children, className, node: _node, ...props }: InlineCodeProps) {
+  const text = typeof children === "string" ? children : Array.isArray(children) && children.every((c) => typeof c === "string") ? children.join("") : null;
+  const sessionHref = text ? sessionHrefFromCodespan(text) : null;
+  const code = (
+    <code className={cn(INLINE_CODE_CLASS, className)} data-streamdown="inline-code" {...props}>
+      {children}
+    </code>
+  );
+  if (!sessionHref) return code;
+  return (
+    <SessionRefLink href={sessionHref} className="no-underline hover:underline">
+      {code}
+    </SessionRefLink>
+  );
+}
+
 function CopyableMarkdownLink({ children, className, href, node: _node, ...props }: AnchorProps) {
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<number | null>(null);
@@ -100,6 +181,15 @@ function CopyableMarkdownLink({ children, className, href, node: _node, ...props
     if (timerRef.current != null) window.clearTimeout(timerRef.current);
     timerRef.current = window.setTimeout(() => setCopied(false), 1200);
   };
+
+  if (canCopy && sessionRefFromHref(href)) {
+    return (
+      <SessionRefLink href={href} className={className}>
+        {children}
+      </SessionRefLink>
+    );
+  }
+  if (canCopy && /^omg:/i.test(href)) return <span className={className}>{children}</span>;
 
   if (!canCopy) {
     return (
@@ -144,7 +234,7 @@ type StreamdownComponents = NonNullable<StreamdownResponseProps["components"]>;
 export function StreamdownResponse({ className, mode = "static", children, components, ...props }: StreamdownResponseProps) {
   const plugins = useStreamdownPlugins(children);
   const markdownComponents = useMemo<StreamdownComponents>(
-    () => ({ a: CopyableMarkdownLink, ...components }) as StreamdownComponents,
+    () => ({ a: CopyableMarkdownLink, inlineCode: SessionAwareInlineCode, ...components }) as StreamdownComponents,
     [components],
   );
   return (
@@ -153,6 +243,7 @@ export function StreamdownResponse({ className, mode = "static", children, compo
       components={markdownComponents}
       mode={mode}
       plugins={plugins}
+      rehypePlugins={REHYPE_PLUGINS}
       // Streamdown 2.6 caps fenced code at 400px and tables at 300px by
       // default. The transcript height model treats those blocks as full
       // height, so a silent cap would leave empty space on unmounted rows.

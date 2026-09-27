@@ -69,6 +69,7 @@ import {
   omgTransportGeneration,
   omgUpload,
 } from "./lib/omg-client";
+import { registerSessionRefHandlers } from "./lib/session-ref-link";
 import {
   FRONTEND_VERSION,
   formatComputerVersion,
@@ -6119,6 +6120,17 @@ export function App() {
     },
     [navigate, keepHostSearch],
   );
+  // Session references in rendered messages open through this page route.
+  // The list is read through a ref so a click sees the latest sessions.
+  const sessionsForRefs = useRef<Session[]>(sessions);
+  sessionsForRefs.current = sessions;
+  useEffect(() => {
+    registerSessionRefHandlers({
+      navigate: openSessionPage,
+      peekSessions: () => sessionsForRefs.current,
+    });
+    return () => registerSessionRefHandlers(null);
+  }, [openSessionPage]);
   const closeSessionPage = useCallback(() => {
     void navigate({ to: "/", search: keepHostSearch });
   }, [navigate, keepHostSearch]);
