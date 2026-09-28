@@ -344,3 +344,36 @@ describe("caller identity over the shared MCP endpoint", () => {
     expect(calls).toEqual([]);
   });
 });
+
+describe("media generation tools", () => {
+  test("map friendly fields into provider input and post to the serve route", async () => {
+    const bodies: unknown[] = [];
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push(String(url));
+      bodies.push(init?.body ? JSON.parse(String(init.body)) : null);
+      return Response.json({ jobId: "j1", status: "succeeded", costUsd: 0.2 });
+    }) as typeof fetch;
+
+    const reply = await callTool("omg_generate_video", {
+      prompt: "a fox",
+      durationSeconds: 5,
+      resolution: "720p",
+      aspectRatio: "9:16",
+      input: { generate_audio: false, duration: 99 },
+    });
+
+    expect(reply.isError).toBe(false);
+    expect(calls).toEqual(["http://127.0.0.1:9876/api/media/generate"]);
+    expect(bodies[0]).toEqual({
+      kind: "video",
+      input: { generate_audio: false, duration: 5, prompt: "a fox", resolution: "720p", aspect_ratio: "9:16" },
+    });
+  });
+
+  test("lists all four media tools", async () => {
+    const names = await listToolNames();
+    for (const name of ["omg_generate_image", "omg_generate_video", "omg_media_job", "omg_media_models"]) {
+      expect(names).toContain(name);
+    }
+  });
+});
