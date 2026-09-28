@@ -8413,7 +8413,11 @@ a{color:#60a5fa}
         const install = installInfo();
         if (req.method === "GET") {
           if (url.searchParams.get("ready") === "1") {
-            return json(desktopRuntimeReadyPayload(SERVER_INSTANCE_ID));
+            // `version` is what this process EXECUTES, not what is on disk.
+            // `omg update` compares it with the disk version to decide whether
+            // the running service still needs a restart, and to prove one
+            // happened.
+            return json({ ...desktopRuntimeReadyPayload(SERVER_INSTANCE_ID), version: appVersion() });
           }
           // A manual "Check" click forces a fresh lookup that bypasses the
           // 5-minute release-tag cache; the passive on-load check stays cached.
