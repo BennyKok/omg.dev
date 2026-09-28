@@ -1,8 +1,9 @@
-# Pull Home down past the refresh to start a thread.
+# Pull the iPad rail down past the refresh to start a thread. Same gesture as
+# thread-pull.yaml, on the rail at the left edge instead of the phone list.
 #
 # The Jev plan runner only taps, so the gesture lives in this static flow.
 # Run on a build with demo data:
-#   EXPO_PUBLIC_OMG_DEMO=1 EXPO_PUBLIC_OMG_THREADS_FIXTURE=1 bun run test:e2e --build --flow thread-pull --record
+#   EXPO_PUBLIC_OMG_DEMO=1 EXPO_PUBLIC_OMG_THREADS_FIXTURE=1 bun run test:e2e --build --device "iPad Pro 11-inch (M5)" --flow thread-pull-ipad --record
 appId: dev.omg.computer
 onFlowStart:
   # A release build (--build) has no dev client, so launching is safe and
@@ -25,17 +26,19 @@ onFlowStart:
             id: "thread-back"
 ---
 - assertVisible: "What should we work on?"
+# No threads yet: no Threads heading, and no New button to look for.
+- assertNotVisible: "Threads"
 # A short pull only refreshes: Home stays.
 - swipe:
-    start: "50%, 35%"
-    end: "50%, 45%"
+    start: "12%, 35%"
+    end: "12%, 45%"
     duration: 600
 - assertVisible: "What should we work on?"
 - assertNotVisible: "What is on your mind?"
 # A long pull, then release, opens an empty thread.
 - swipe:
-    start: "50%, 30%"
-    end: "50%, 90%"
+    start: "12%, 30%"
+    end: "12%, 90%"
     duration: 1500
 - assertVisible: "What is on your mind?"
 - assertVisible: "New thread"

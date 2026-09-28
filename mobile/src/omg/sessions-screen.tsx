@@ -98,7 +98,8 @@ import { groupNodesByProject } from "./session-groups";
 import { SessionActivityPane } from "./session-activity";
 import { SessionStatusState } from "./session-status";
 import { sessionPreview } from "./session-preview";
-import { threadPullStage } from "./thread-tasks";
+import { THREAD_PULL_ARM, threadPullStage } from "./thread-tasks";
+import { ThreadPullIndicator } from "./thread-pull-indicator";
 import { threadPreview } from "./threads";
 import { useThreads } from "./use-threads";
 import { SubagentGroup } from "./subagent-group";
@@ -493,6 +494,8 @@ export function SessionsScreen({
    */
   const [threadPull, setThreadPull] = useState<0 | 1 | 2>(0);
   const threadPullRef = useRef<0 | 1 | 2>(0);
+  /** How far the list is pulled past its top, for the indicator's ring. */
+  const pullDistance = useSharedValue(0);
   const draggingRef = useRef(false);
   const setPullStage = useCallback((stage: 0 | 1 | 2) => {
     if (threadPullRef.current === stage) return;
@@ -1754,30 +1757,7 @@ export function SessionsScreen({
             In the iPad workspace the rail is permanent at width, and only the
             narrow layout ever covers it. */}
         <SessionActivityPane onScreen={workspace ? railOpen || (!wide && home) : paneOnScreen}>
-        {threadPull ? (
-          <View
-            pointerEvents="none"
-            testID="thread-pull-hint"
-            style={{
-              position: "absolute",
-              left: 0,
-              right: 0,
-              top: insets.top + 44 + space.sm + (folderRail ? 50 : 0) + 44,
-              alignItems: "center",
-              zIndex: 1,
-            }}
-          >
-            <Text
-              style={{
-                ...type.footnote,
-                fontWeight: threadPull === 2 ? "600" : "400",
-                color: threadPull === 2 ? colors.text : colors.textMuted,
-              }}
-            >
-              {threadPull === 2 ? "Release to start a thread" : "Pull more to start a thread"}
-            </Text>
-          </View>
-        ) : null}
+
         <WindowedSessionList
           style={{ flex: 1, position: "relative", zIndex: 0 }}
           /**
@@ -1814,14 +1794,17 @@ export function SessionsScreen({
           onScrollBeginDrag={() => {
             draggingRef.current = true;
           }}
-          onScroll={workspace ? undefined : (event) => {
+          // Phone and iPad alike: pulling past the top is how a thread starts.
+          onScroll={(event) => {
             if (!draggingRef.current) return;
-            const pull = -event.nativeEvent.contentOffset.y;
+            const pull = Math.max(0, -event.nativeEvent.contentOffset.y);
+            pullDistance.value = pull;
             setPullStage(threadPullStage(pull));
           }}
           onScrollEndDrag={() => {
             draggingRef.current = false;
             const armed = threadPullRef.current === 2;
+            pullDistance.value = withTiming(0, { duration: 180 });
             setPullStage(0);
             if (armed) openNewThread();
           }}
@@ -1849,6 +1832,11 @@ export function SessionsScreen({
             </View>
           )}
           ListHeaderComponent={<>
+          {/* Above the first row, in the gap a pull opens, on the phone and
+              the iPad rail alike. Zero height, so it moves nothing. */}
+          <View style={{ height: 0, zIndex: 1 }}>
+            <ThreadPullIndicator pull={pullDistance} armed={threadPull === 2} top={-THREAD_PULL_ARM + 12} />
+          </View>
           {/* NEW SESSION IS THE FIRST ROW of the list it adds to, as on the
               web (a 40px row with a dashed disc). It used to be an 18pt
               padded block above the list, outside the thing it acts on. */}
@@ -2016,26 +2004,27 @@ export function SessionsScreen({
             <SessionListSkeleton style={{ paddingTop: space.xl }} />
           ) : (
             <>
-              {/* ALWAYS SHOWN, even with no threads: its "New" is the way to
-                  start the first one. On iPad it is the only way; the pull
-                  gesture is phone-only. */}
-              <View testID="threads-section" style={{ paddingBottom: space.sm }}>
-                <SectionHeader label="Threads" count={threads.length} actionLabel="New" actionAccessibilityLabel="New thread" onAction={openNewThread} />
-                {threads.map((thread) => (
-                  <SessionCard
-                    key={`thread:${thread.id}`}
-                    sessionId={thread.id}
-                    title={thread.title}
-                    subtitle={threadPreview(thread)}
-                    timestamp={relativeTime(thread.updatedAt)}
-                    hideAvatar
-                    onPress={() => openThread(`/thread/${thread.id}` as Href)}
-                    onArchive={() => archiveThread(thread.id)}
-                    animateEntry={animateEntry}
-                  />
-                ))}
-                {homeRows.length ? <SectionHeader label="Tasks" count={roots.length} /> : null}
-              </View>
+              {/* Only when there are threads. A thread starts from a pull on the
+                  list (ThreadPullIndicator), so the heading needs no button. */}
+              {threads.length ? (
+                <View testID="threads-section" style={{ paddingBottom: space.sm }}>
+                  <SectionHeader label="Threads" count={threads.length} />
+                  {threads.map((thread) => (
+                    <SessionCard
+                      key={`thread:${thread.id}`}
+                      sessionId={thread.id}
+                      title={thread.title}
+                      subtitle={threadPreview(thread)}
+                      timestamp={relativeTime(thread.updatedAt)}
+                      hideAvatar
+                      onPress={() => openThread(`/thread/${thread.id}` as Href)}
+                      onArchive={() => archiveThread(thread.id)}
+                      animateEntry={animateEntry}
+                    />
+                  ))}
+                  {homeRows.length ? <SectionHeader label="Tasks" count={roots.length} /> : null}
+                </View>
+              ) : null}
               {visibleSessions.length === 0 && loading ? (
                 // First fetch on this machine, nothing on screen to disturb.
                 // Once `visibleSessions` is non-empty, RefreshControl (pull-to-refresh)

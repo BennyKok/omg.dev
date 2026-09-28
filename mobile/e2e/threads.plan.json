@@ -60,15 +60,6 @@
       "forbid": [
         "Create it in live mode?"
       ]
-    },
-    {
-      "name": "Start a new thread",
-      "goal": "Leave the thread with the back button at the top left, then on Home tap the New thread button next to the Threads heading. Do not tap the message field or the add button.",
-      "done": "An empty new thread is open with its heading and starter prompts.",
-      "expect": [
-        "New thread",
-        "What is on your mind?"
-      ]
     }
   ]
 }
