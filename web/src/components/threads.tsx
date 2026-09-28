@@ -440,9 +440,11 @@ export function ThreadChatView({
         ) : null}
         <div className="min-w-0 flex-1">
           <div className="truncate text-[15px] font-semibold">{isNew ? "New thread" : detail?.thread.title ?? "Thread"}</div>
-          <div className="truncate text-[12px] text-muted-foreground">
-            {isNew ? "Chat · @omg for help or a task" : people.length ? people.join(", ") : "Just you"}
-          </div>
+          {isNew ? null : (
+            <div className="truncate text-[12px] text-muted-foreground">
+              {people.length ? people.join(", ") : "Just you"}
+            </div>
+          )}
         </div>
         {isNew ? null : (
           <DropdownMenu>
@@ -475,9 +477,6 @@ export function ThreadChatView({
         {isNew || (detail && !top.length) ? (
           <div className="px-2 py-10">
             <div className="text-[22px] font-bold">What is on your mind?</div>
-            <p className="mt-2 text-[15px] text-muted-foreground">
-              Talk it through here. Write @omg when you want omg to answer or start a task.
-            </p>
           </div>
         ) : null}
         {top.map((message, index) => (
@@ -491,7 +490,7 @@ export function ThreadChatView({
       {error ? <p className="px-4 text-[12px] text-destructive">{error}</p> : null}
       <Composer
         testId="thread-input"
-        placeholder={isNew ? "Message, or @omg to ask omg" : `Message ${detail?.thread.title ?? "the thread"}`}
+        placeholder={isNew ? "Message" : `Message ${detail?.thread.title ?? "the thread"}`}
         onSend={(text) => post(text, null)}
         autoFocus={isNew}
       />
