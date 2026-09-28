@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Alert, AppState, FlatList, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
+import { Alert, AppState, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
@@ -8,14 +8,11 @@ import type { MenuOption } from "../../src/omg/menu";
 import { useOmg } from "../../src/omg/provider";
 import { TaskCard } from "../../src/omg/task-card";
 import { ChatHeaderBar, chatHeaderHeight } from "../../src/omg/chat-header";
-import { GroupAvatar, ThreadDetailsSheet } from "../../src/omg/thread-details";
-import { agentIcon } from "../../src/omg/agent-icons";
+import { GroupAvatar, ThreadAvatar, ThreadDetailsSheet, ThreadPeopleContext, useAuthorName } from "../../src/omg/thread-details";
 import { ThreadChatBar } from "../../src/omg/chat-bar";
 import { Text } from "../../src/omg/text";
 import { useTheme } from "../../src/omg/theme";
 import {
-  authorHue,
-  authorName,
   cardMessageIds,
   mentionsOmg,
   replySummary,
@@ -50,28 +47,11 @@ const ASK_POLL_MS = 5_000;
 const OMG_ORANGE = "#FF5530";
 const TIME = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
 
-function Avatar({ author, size = 36 }: { author: ThreadAuthor; size?: number }) {
-  const omg = author.kind === "omg";
-  // omg wears its own mark, the same one the omg agent shows everywhere.
-  if (omg) {
-    return <Image source={agentIcon("omg")} style={{ width: size, height: size, borderRadius: size / 4.5 }} accessible={false} />;
-  }
-  return (
-    <View
-      style={{
-        width: size,
-        height: size,
-        borderRadius: size / 4.5,
-        backgroundColor: omg ? OMG_ORANGE : `hsl(${authorHue(author)}, 45%, 45%)`,
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-    >
-      <Text style={{ color: "#fff", fontWeight: "700", fontSize: omg ? size / 3.2 : size / 2.4 }}>
-        {omg ? (size < 28 ? "o" : "omg") : authorName(author).slice(0, 1).toUpperCase()}
-      </Text>
-    </View>
-  );
+const Avatar = ThreadAvatar;
+
+function AuthorName({ author, color }: { author: ThreadAuthor; color: string }) {
+  const { type } = useTheme();
+  return <Text style={{ ...type.headline, fontWeight: "700", color }}>{useAuthorName(author)}</Text>;
 }
 
 function MessageRow({ message, first, children }: { message: ThreadMessage; first: boolean; children?: ReactNode }) {
@@ -82,9 +62,7 @@ function MessageRow({ message, first, children }: { message: ThreadMessage; firs
       <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
         {first ? (
           <View style={{ flexDirection: "row", alignItems: "baseline", gap: 8 }}>
-            <Text style={{ ...type.headline, fontWeight: "700", color: message.author.kind === "omg" ? OMG_ORANGE : colors.text }}>
-              {authorName(message.author)}
-            </Text>
+            <AuthorName author={message.author} color={message.author.kind === "omg" ? OMG_ORANGE : colors.text} />
             <Text style={{ ...type.caption, color: colors.textMuted }}>{TIME.format(message.ts)}</Text>
           </View>
         ) : null}
@@ -308,6 +286,7 @@ export default function ThreadScreen() {
   const replyAsks = asks.filter((q) => replies.some((reply) => reply.task && sameSession(reply.task.sessionId, q.sessionId)));
 
   return (
+    <ThreadPeopleContext.Provider value={detail?.participants}>
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <Stack.Screen options={{ headerShown: false }} />
       <KeyboardAvoidingView
@@ -420,5 +399,6 @@ export default function ThreadScreen() {
         ) : null}
       </Modal>
     </View>
+    </ThreadPeopleContext.Provider>
   );
 }

@@ -292,3 +292,20 @@ describe("omg reads the whole thread", () => {
     expect(OMG_THREAD_SYSTEM_PROMPT).toContain("Do not ask a clarifying question when the thread already says what is meant");
   });
 });
+
+describe("people are drawn as they are now", () => {
+  test("a participant carries the roster's current name and photo, in old threads too", async () => {
+    const { participantsForView } = await import("./threads.ts");
+    const thread = startThread({ identity: "benny@example.com" });
+    threadAuthor(thread.id, "alex@example.com");
+    const roster = [
+      { email: "benny@example.com", name: "Benny", avatar: "/api/avatars/benny.png?v=2" },
+      { email: "alex@example.com", name: "Alex", avatar: "https://gravatar.com/avatar/x" },
+    ];
+    const people = participantsForView(getConversation(thread.id)!, roster);
+    expect(people.map((row) => row.display)).toMatchObject([
+      { name: "Benny", avatar: "/api/avatars/benny.png?v=2" },
+      { name: "Alex", avatar: "https://gravatar.com/avatar/x" },
+    ]);
+  });
+});

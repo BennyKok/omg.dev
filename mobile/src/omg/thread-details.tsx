@@ -1,8 +1,9 @@
-import type { ReactNode } from "react";
+import { createContext, useContext, type ReactNode } from "react";
 import { Image, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Icon } from "../components";
-import { authorHue } from "../../../packages/protocol/src/threads";
+import { authorHue, authorView, type ThreadAuthor } from "../../../packages/protocol/src/threads";
+import { useAvatarUri } from "./users";
 import { agentIcon } from "./agent-icons";
 import { DropdownMenu, type MenuOption } from "./menu";
 import { Text } from "./text";
@@ -14,22 +15,57 @@ type Participant = ThreadDetail["participants"][number];
 const nameOf = (row: Participant) => row.display.name?.trim() || row.display.fallback;
 const hueOf = (row: Participant) => authorHue({ kind: "human", participantId: row.id, name: nameOf(row) });
 
-function Initial({ row, size }: { row: Participant; size: number }) {
+/**
+ * A person's face: their own photo (useAvatarUri fetches a box-served icon
+ * through the transport), else a coloured letter. `square` for message rows,
+ * round elsewhere, as the rest of the app draws people.
+ */
+export function PersonFace({
+  name,
+  hue,
+  avatar,
+  size,
+  square = false,
+}: {
+  name: string;
+  hue: number;
+  avatar?: string | null;
+  size: number;
+  square?: boolean;
+}) {
+  const uri = useAvatarUri(avatar ?? undefined);
+  const radius = square ? size / 4.5 : size / 2;
+  // The letter sits under the photo: a slow or failed load still shows who it is.
   return (
-    <View
-      style={{
-        width: size,
-        height: size,
-        borderRadius: size / 2,
-        backgroundColor: `hsl(${hueOf(row)}, 45%, 45%)`,
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-    >
-      <Text style={{ color: "#fff", fontWeight: "700", fontSize: size / 2.3 }}>{nameOf(row).slice(0, 1).toUpperCase()}</Text>
+    <View style={{ width: size, height: size, borderRadius: radius, overflow: "hidden", backgroundColor: `hsl(${hue}, 45%, 45%)`, alignItems: "center", justifyContent: "center" }}>
+      <Text style={{ color: "#fff", fontWeight: "700", fontSize: size / 2.4 }}>{name.slice(0, 1).toUpperCase()}</Text>
+      {uri ? <Image source={{ uri }} style={{ position: "absolute", width: size, height: size }} accessible={false} /> : null}
     </View>
   );
 }
+
+/** The thread's people, so every avatar and name is drawn as they are now. */
+export const ThreadPeopleContext = createContext<Participant[] | undefined>(undefined);
+
+/** A message author's face: omg's mark, or the person's photo or letter. */
+export function ThreadAvatar({ author, size = 36 }: { author: ThreadAuthor; size?: number }) {
+  const people = useContext(ThreadPeopleContext);
+  if (author.kind === "omg") {
+    return <Image source={agentIcon("omg")} style={{ width: size, height: size, borderRadius: size / 4.5 }} accessible={false} />;
+  }
+  const { name, avatar } = authorView(author, people);
+  return <PersonFace name={name} hue={authorHue(author)} avatar={avatar} size={size} square />;
+}
+
+/** A message author's current name. */
+export function useAuthorName(author: ThreadAuthor): string {
+  return authorView(author, useContext(ThreadPeopleContext)).name;
+}
+
+function Initial({ row, size }: { row: Participant; size: number }) {
+  return <PersonFace name={nameOf(row)} hue={hueOf(row)} avatar={row.display.avatar} size={size} />;
+}
+
 
 /**
  * A thread's face in the bar, where a session shows its agent: the first two

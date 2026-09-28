@@ -25,6 +25,7 @@ import {
   isThread,
   listThreads,
   mentionsOmg,
+  participantsForView,
   readThreadMessages,
   setThreadNotifier,
   startThread,
@@ -1290,7 +1291,7 @@ async function handleThreadRequest(req: Request, url: URL, path: string): Promis
       // Which author is the caller, so a client can put their own bubbles on the right.
       me: threadParticipantId(viewer.identity),
       thread: summarizeThread(conversation),
-      participants: conversation.participants,
+      participants: participantsForView(conversation, userRoster()),
       messages: readThreadMessages(id, limit),
       tasks: threadTasks(conversation, live),
     });

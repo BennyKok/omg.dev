@@ -96,7 +96,7 @@ function demoThreadDetail() {
     thread: demoThreadSummary(),
     participants: [
       { id: ME, kind: "human", role: "owner", display: { name: "Demo", fallback: "Demo" } },
-      { id: ALEX, kind: "human", role: "member", display: { name: "Alex", fallback: "Alex" } },
+      { id: ALEX, kind: "human", role: "member", display: { name: "Alex", fallback: "Alex", avatar: "https://avatars.githubusercontent.com/u/9919?s=128&v=4" } },
     ],
     messages: demoThreadMessages(t),
     tasks: [
