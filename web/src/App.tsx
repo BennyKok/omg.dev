@@ -95,7 +95,10 @@ import {
 } from "./lib/project-filter";
 import { ChatStarterRow } from "./components/chat-starter-row";
 import { groupNodesByProject, type ProjectGroup } from "./lib/session-groups";
-import { pathnameToSessionId, sessionToPath } from "./lib/app-search";
+import { pathnameToSessionId, pathnameToThreadId, sessionToPath, threadToPath } from "./lib/app-search";
+import { NEW_THREAD_ID, ThreadChat, ThreadRailSection } from "./components/threads";
+import { useThreads } from "./lib/threads";
+import type { ThreadSummary } from "../../packages/protocol/src/threads";
 import {
   BOT_ROSTER_ROW_CLASS,
   isPrimarySurfaceTab,
@@ -6134,6 +6137,15 @@ export function App() {
   const closeSessionPage = useCallback(() => {
     void navigate({ to: "/", search: keepHostSearch });
   }, [navigate, keepHostSearch]);
+  // `/threads/<id>` is one thread, open (`/threads/new` for an empty one).
+  const openThreadId = pathnameToThreadId(pathname);
+  const openThreadPage = useCallback(
+    (id: string) => {
+      if (!id) return;
+      void navigate({ to: threadToPath(id), search: keepHostSearch });
+    },
+    [navigate, keepHostSearch],
+  );
   const selectedBotConversationId = selectedBotId ? routeSearch.conversation ?? null : null;
   // A terminal is on screen — as the Terminal tab, or pulled up over any tab.
   // Both need the same soft-keyboard treatment: the shell pinned to the visible
@@ -9387,6 +9399,9 @@ export function App() {
             aria-hidden={!workspaceVisible}
           >
             <LiveView
+              threadViewer={botUnreadIdentity}
+              openThreadId={openThreadId}
+              onOpenThread={openThreadPage}
               openSessionId={openSessionId}
               onOpenSessionPage={openSessionPage}
               onCloseSessionPage={closeSessionPage}
@@ -11589,6 +11604,9 @@ function LiveView({
   // unconditionally below (the original `findings.length` crash site). The fetch
   // layer already guards these to [], but default here too so any future caller
   // passing `undefined` degrades to an empty render instead of crashing the view.
+  openThreadId = null,
+  onOpenThread,
+  threadViewer = "",
   openSessionId = null,
   onOpenSessionPage,
   onCloseSessionPage,
@@ -11651,6 +11669,11 @@ function LiveView({
   shippedReview?: Session | null;
   /** The session `/sessions/<id>` names, or null on the plain list. */
   openSessionId?: string | null;
+  /** The open thread (`/threads/<id>`), or null. */
+  openThreadId?: string | null;
+  /** Who writes in a thread from this browser; see lib/threads.ts. */
+  threadViewer?: string;
+  onOpenThread?: (id: string) => void;
   onOpenSessionPage?: (sid: string) => void;
   onCloseSessionPage?: () => void;
   liveSessionIds: string[];
@@ -11828,6 +11851,13 @@ function LiveView({
     [onOpenSessionPage],
   );
 
+  // Threads: people-first chat, above the sessions on both layouts.
+  const { threads } = useThreads();
+  const openThreadTask = useCallback(
+    (sid: string) => onOpenSessionPage?.(sid),
+    [onOpenSessionPage],
+  );
+
   // Same grouping the rail uses, from the same helper, so the two lists cannot
   // drift apart again.
   const projectGroups = useMemo(
@@ -11885,11 +11915,19 @@ function LiveView({
     !working.length &&
     !idle.length &&
     !findings.length &&
-    !shippedReview
+    !shippedReview &&
+    !threads.length &&
+    !openThreadId
   ) {
     return (
       <div className="flex flex-col gap-5">
         {coach}
+        <ThreadRailSection
+          threads={threads}
+          activeId={null}
+          onOpen={(id) => onOpenThread?.(id)}
+          onNew={() => onOpenThread?.(NEW_THREAD_ID)}
+        />
         <RuntimeEmptyState />
       </div>
     );
@@ -11993,6 +12031,12 @@ function LiveView({
   if (isWide) {
     return (
       <RailStage
+        threads={threads}
+        threadViewer={threadViewer}
+        openThreadId={openThreadId}
+        onOpenThread={onOpenThread}
+        onCloseThread={onCloseSessionPage}
+        onOpenThreadTask={openThreadTask}
         sessions={sessions}
         shippedReview={shippedReview}
         users={users}
@@ -12107,6 +12151,12 @@ function LiveView({
           depending on the window — and a card that carried a whole transcript
           could not be scanned, only read. The row is the unit now; the
           transcript lives on the session's own page. */}
+      <ThreadRailSection
+        threads={threads}
+        activeId={openThreadId}
+        onOpen={(id) => onOpenThread?.(id)}
+        onNew={() => onOpenThread?.(NEW_THREAD_ID)}
+      />
       <SessionGroups
         groups={projectGroups}
         pinnedNodes={pinnedNodes}
@@ -12189,6 +12239,24 @@ function LiveView({
         onClose={() => onCloseSessionPage?.()}
       />
     ) : null}
+    {/* An open thread is a page over the list, at the session sheet's layer
+        (z-90, above the bottom composer) and portalled to <body> for the same
+        reason: a host's stacking context must not clip it. */}
+    {openThreadId
+      ? createPortal(
+          <div className="fixed inset-0 z-[90] flex bg-background pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
+            <ThreadChat
+              threadId={openThreadId}
+              viewer={threadViewer}
+              repos={repos}
+              onCreated={(id) => onOpenThread?.(id)}
+              onOpenTask={openThreadTask}
+              onBack={() => onCloseSessionPage?.()}
+            />
+          </div>,
+          document.body,
+        )
+      : null}
     </>
   );
 }
@@ -12249,7 +12317,21 @@ function RailStage({
   stageComposer,
   stageOverride = null,
   hostSettingsInMenu = false,
+  threads = [],
+  threadViewer = "",
+  openThreadId = null,
+  onOpenThread,
+  onCloseThread,
+  onOpenThreadTask,
 }: {
+  threadViewer?: string;
+  /** Threads, listed above the sessions; see components/threads.tsx. */
+  threads?: ThreadSummary[];
+  /** The open thread fills the stage while it is open. */
+  openThreadId?: string | null;
+  onOpenThread?: (id: string) => void;
+  onCloseThread?: () => void;
+  onOpenThreadTask?: (sid: string) => void;
   sessions: Session[];
   shippedReview?: Session | null;
   users: User[];
@@ -12672,11 +12754,13 @@ function RailStage({
       // stage is showing the schedule list, and a preview set underneath it
       // would be an open session nobody can see.
       if (railSurface === "auto") onOpenSessions();
+      // A session picked while a thread fills the stage replaces the thread.
+      if (openThreadId) onCloseThread?.();
       // Board mode shows one session beside the board, pinned or not.
       if (railSurface !== "board" && validPinned.includes(sid)) return; // already a persistent column
       setPreview(sid);
     },
-    [validPinned, railSurface, onOpenSessions],
+    [validPinned, railSurface, onOpenSessions, openThreadId, onCloseThread],
   );
   // Arriving on the Board shows the board alone; whatever Live was previewing
   // is not what you came to look at.
@@ -13405,7 +13489,10 @@ function RailStage({
         ? boardStageColumns
         : stageColumns;
   // The board pane counts toward the grid shape.
-  const stagePaneCount = activeStageColumns.length + (railSurface === "board" ? 1 : 0);
+  // An open thread takes the whole stage.
+  const stagePaneCount = openThreadId && railSurface === "sessions"
+    ? 1
+    : activeStageColumns.length + (railSurface === "board" ? 1 : 0);
 
   // The bot list is the session list's sibling, not a page: same rail, same
   // rows, same click-to-open-a-column behaviour. A bot row IS a session row —
@@ -13582,6 +13669,14 @@ function RailStage({
         )}
         <div className="session-list-scroll min-h-0 flex-1 overflow-y-auto px-1.5 py-2">
           {railSurface === "chat" ? botRailList : <>
+          {!railCollapsed && railSurface === "sessions" ? (
+            <ThreadRailSection
+              threads={threads}
+              activeId={openThreadId}
+              onOpen={(id) => onOpenThread?.(id)}
+              onNew={() => onOpenThread?.(NEW_THREAD_ID)}
+            />
+          ) : null}
           {/* Leads the list, the way New bot leads the roster: it belongs to
               the thing it adds to, under the switch bar that says which list
               that is. It used to sit in the chrome above, sharing a row with
@@ -13761,7 +13856,18 @@ function RailStage({
               : "grid-cols-2 grid-rows-2",
         )}
       >
-        {railSurface === "auto" ? (
+        {openThreadId && railSurface === "sessions" ? (
+          <div className="h-full min-h-0 min-w-0 overflow-hidden rounded-xl border border-border">
+            <ThreadChat
+              threadId={openThreadId}
+              viewer={threadViewer}
+              repos={repos}
+              onCreated={(id) => onOpenThread?.(id)}
+              onOpenTask={(sid) => onOpenThreadTask?.(sid)}
+              onBack={onCloseThread}
+            />
+          </div>
+        ) : railSurface === "auto" ? (
           <div className="h-full min-h-0 overflow-y-auto px-2 pt-2">{stageOverride}</div>
         ) : railSurface === "board" ? (
           <>

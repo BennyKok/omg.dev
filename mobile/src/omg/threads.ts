@@ -7,48 +7,17 @@ import type { OmgClient } from "@omg-dev/client";
  * task's result back into the thread.
  */
 
-export type ThreadAuthor =
-  | { kind: "human"; participantId: string; name: string }
-  | { kind: "omg" };
+import type { ThreadDetail, ThreadMessage, ThreadSummary } from "../../../packages/protocol/src/threads";
 
-export type ThreadTaskEvent = "started" | "finished" | "blocked" | "failed";
-
-export type ThreadMessage = {
-  id: string;
-  threadId: string;
-  ts: number;
-  author: ThreadAuthor;
-  text: string;
-  task?: { sessionId: string; event: ThreadTaskEvent; title?: string | null; project?: string | null };
-  /** Client only: sent, not yet stored. */
-  pending?: boolean;
-};
-
-export type ThreadSummary = {
-  id: string;
-  title: string;
-  createdAt: number;
-  updatedAt: number;
-  project: { cwd: string; name: string } | null;
-  lastMessage: Pick<ThreadMessage, "author" | "text" | "ts"> | null;
-};
-
-export type ThreadTaskRow = {
-  sessionId: string;
-  title: string | null;
-  project: string | null;
-  busy: boolean;
-  status: string | null;
-  ended: boolean;
-};
-
-export type ThreadDetail = {
-  me: string;
-  thread: ThreadSummary;
-  participants: { id: string; kind: string; display: { name?: string | null; fallback: string } }[];
-  messages: ThreadMessage[];
-  tasks: ThreadTaskRow[];
-};
+export type {
+  ThreadAuthor,
+  ThreadDetail,
+  ThreadMessage,
+  ThreadSummary,
+  ThreadTaskEvent,
+  ThreadTaskRow,
+} from "../../../packages/protocol/src/threads";
+export { threadPreview } from "../../../packages/protocol/src/threads";
 
 const json = { "Content-Type": "application/json" };
 
@@ -88,14 +57,6 @@ export function updateThread(
       body: JSON.stringify(patch),
     })
     .then((res) => res.thread);
-}
-
-/** One line for a thread row on Home. */
-export function threadPreview(thread: ThreadSummary): string {
-  const last = thread.lastMessage;
-  if (!last) return "No messages yet";
-  const who = last.author.kind === "omg" ? "omg" : last.author.name;
-  return `${who}: ${last.text.replace(/\s+/g, " ").trim()}`;
 }
 
 /** Starter prompts on an empty thread. Each one only fills the composer. */

@@ -48,7 +48,21 @@ export function pathnameToTab(pathname: string): string {
   // same way `/bots/<id>` is: the list it came from is Live, and that is the
   // page you are still on, so Live stays selected underneath it.
   if (tab === "sessions") return DEFAULT_TAB;
+  // `/threads/<id>` is one thread, open, over Live, like a session.
+  if (tab === "threads") return DEFAULT_TAB;
   return tab;
+}
+
+/** The thread a `/threads/<id>` path names, or null for any other path. */
+export function pathnameToThreadId(pathname: string): string | null {
+  const parts = pathname.split("/").filter(Boolean);
+  if (parts[0] !== "threads" || !parts[1]) return null;
+  return decodeURIComponent(parts[1]) || null;
+}
+
+/** The URL path for one open thread. */
+export function threadToPath(id: string): string {
+  return `/threads/${encodeURIComponent(id)}`;
 }
 
 /**

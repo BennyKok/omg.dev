@@ -9,7 +9,7 @@ import { useOmg } from "../../src/omg/provider";
 import { TaskCard } from "../../src/omg/task-card";
 import { Text } from "../../src/omg/text";
 import { useTheme } from "../../src/omg/theme";
-import { cardMessageIds, latestTaskEvent, sameSession, taskCardState } from "../../src/omg/thread-tasks";
+import { cardMessageIds, sameSession, taskCardFor } from "../../src/omg/thread-tasks";
 import {
   getThread,
   sendThreadMessage,
@@ -172,25 +172,22 @@ export default function ThreadScreen() {
       (item.author.kind === "omg" || (previous.author.kind === "human" && previous.author.participantId === item.author.participantId));
 
     if (item.author.kind === "omg") {
-      const task = item.task && cards.has(item.id) ? item.task : null;
-      const row = task ? detail?.tasks.find((t) => sameSession(t.sessionId, task.sessionId)) : null;
+      const card = item.task && cards.has(item.id) && detail
+        ? taskCardFor(item, detail, messages, asks.map((q) => q.sessionId))
+        : null;
       return (
         <View style={{ gap: space.sm, paddingTop: sameAuthor ? 0 : space.sm }}>
           {sameAuthor ? null : (
             <Text style={{ ...type.caption, fontWeight: "600", color: OMG_ORANGE }}>omg</Text>
           )}
           <Text style={{ ...type.body, color: colors.text }}>{item.text}</Text>
-          {task ? (
+          {card ? (
             <TaskCard
-              sessionId={task.sessionId}
-              title={row?.title || task.title || "Task"}
-              project={row?.project || task.project || null}
-              state={taskCardState({
-                event: latestTaskEvent(messages, task.sessionId),
-                row,
-                openAsk: asks.some((q) => sameSession(task.sessionId, q.sessionId)),
-              })}
-              onOpen={() => router.push(`/session/${task.sessionId}`)}
+              sessionId={card.sessionId}
+              title={card.title}
+              project={card.project}
+              state={card.state}
+              onOpen={() => router.push(`/session/${card.sessionId}`)}
             />
           ) : null}
         </View>

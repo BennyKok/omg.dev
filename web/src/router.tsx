@@ -103,6 +103,15 @@ const sessionRoute = createRoute({
   component: () => null,
 });
 
+// One open thread (people-first chat, src/threads.ts). Component-less for the
+// same reason as the session route: App owns the render.
+const threadRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "threads/$threadId",
+  validateSearch: validateAppSearch,
+  component: () => null,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   tabRoute,
@@ -110,6 +119,7 @@ const routeTree = rootRoute.addChildren([
   botNewRoute,
   botEditRoute,
   sessionRoute,
+  threadRoute,
 ]);
 
 export function createOmgRouter(history?: RouterHistory) {

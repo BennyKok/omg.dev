@@ -67,6 +67,12 @@ describe("a thread is people-first chat", () => {
     expect(getConversation(thread.id)!.participants.map((row) => row.role)).toEqual(["owner", "member"]);
   });
 
+  test("a box with no identities calls its person You, not the placeholder", () => {
+    const thread = startThread({ identity: "__local__" });
+    expect(getConversation(thread.id)!.participants[0].display.fallback).toBe("You");
+    expect(threadAuthor(thread.id, "__local__")).toMatchObject({ kind: "human", name: "You" });
+  });
+
   test("an archived thread is not listed", () => {
     const thread = startThread({ identity: "benny@example.com" });
     threadUpdate(thread.id, { archived: true });
