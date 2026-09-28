@@ -23,7 +23,7 @@ These tools spend the user's omg credits. 1 credit is 1 USD. Treat every call as
 4. If the result has `pending: true`, call `omg_media_job` with the `jobId`. Do not generate again; that charges twice.
 5. If the error says the credits are used up, tell the user to add credits at omg.dev. Do not retry.
 6. Show images with `omg_display_image`. Show videos with `omg_display_video`.
-7. A video for the iPhone app must be under 6 MB, H.264, with faststart. Check the size first. If it is larger, re-encode and keep the original:
+7. A video for the iPhone app must be under 6 MB, H.264, with faststart. The tools already remux downloads to faststart. Check the size. If it is larger, re-encode and keep the original:
 
    ```sh
    ffmpeg -i in.mp4 -vf scale=480:-2 -c:v libx264 -profile:v main -crf 27 -maxrate 1800k -bufsize 3600k -c:a aac -b:a 96k -movflags +faststart out.mp4

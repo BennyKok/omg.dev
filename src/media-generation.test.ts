@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { handleMediaRequest, MEDIA_MESSAGES, type MediaOptions } from "./media-generation.ts";
+import { faststart, handleMediaRequest, MEDIA_MESSAGES, type MediaOptions } from "./media-generation.ts";
 
 // A fake host media router. Each test sets `router` to shape its responses.
 type Call = { method: string; path: string; body: any };
@@ -244,6 +244,28 @@ describe("media generation routes", () => {
     } finally {
       if (prev === undefined) delete process.env.OMG_MEDIA_MAX_CALL_USD;
       else process.env.OMG_MEDIA_MAX_CALL_USD = prev;
+    }
+  });
+});
+
+describe("faststart", () => {
+  const hasFfmpeg = Bun.spawnSync(["which", "ffmpeg"]).exitCode === 0;
+  test.skipIf(!hasFfmpeg)("moves the moov atom before mdat so AVPlayer can stream it", async () => {
+    const dir = mkdtempSync(join(homedir(), ".cache", "media-faststart-"));
+    try {
+      const clip = join(dir, "clip.mp4");
+      const made = Bun.spawnSync([
+        "ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=red:s=64x64:d=1",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", clip,
+      ]);
+      expect(made.exitCode).toBe(0);
+      const before = readFileSync(clip);
+      expect(before.indexOf("moov")).toBeGreaterThan(before.indexOf("mdat"));
+      await faststart(clip);
+      const after = readFileSync(clip);
+      expect(after.indexOf("moov")).toBeLessThan(after.indexOf("mdat"));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });

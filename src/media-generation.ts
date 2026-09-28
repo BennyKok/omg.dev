@@ -17,7 +17,7 @@
 //   POST /submit {model, input, maxCostMicros}   -> 202 {jobId, status, costMicros}
 //   GET  /jobs/:id                               -> {jobId, status, model, results:[{url, contentType}], error}
 // 1 credit = 1_000_000 micros = $1.
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, extname, join, resolve } from "node:path";
 
@@ -284,9 +284,29 @@ async function downloadResults(
     }
     await mkdir(dirname(target), { recursive: true });
     await writeFile(target, new Uint8Array(await res.arrayBuffer()));
+    if (/\.(mp4|m4v|mov)$/i.test(target)) await faststart(target);
     paths.push(target);
   }
   return paths;
+}
+
+/**
+ * Provider MP4s put the moov atom at the end. The iOS app streams videos in
+ * ranges with AVPlayer, which needs moov first. Remux in place (no re-encode).
+ * Best effort: without ffmpeg, or on failure, the original file stays.
+ */
+export async function faststart(path: string): Promise<void> {
+  const tmp = `${path}.faststart${extname(path)}`;
+  try {
+    const proc = Bun.spawn(["ffmpeg", "-v", "error", "-y", "-i", path, "-c", "copy", "-movflags", "+faststart", tmp], {
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    if ((await proc.exited) === 0) await rename(tmp, path);
+    else await rm(tmp, { force: true });
+  } catch {
+    await rm(tmp, { force: true }).catch(() => {});
+  }
 }
 
 // ---------------------------------------------------------------- jobs
