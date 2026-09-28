@@ -24,6 +24,7 @@ import {
   sessionRefFromHref,
   type SessionIds,
   type SessionRefClient,
+  type SessionRefLabel,
 } from "../../../packages/protocol/src/session-mention-token";
 
 export {
@@ -34,6 +35,7 @@ export {
   sessionRefFromHref,
   type SessionIds,
   type SessionRefClient,
+  type SessionRefLabel,
 };
 
 export type MentionableSession = {

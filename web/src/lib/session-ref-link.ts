@@ -14,6 +14,7 @@
 import {
   createSessionRefOpener,
   type SessionIds,
+  type SessionRefLabel,
   type SessionRefClient,
 } from "@omg-dev/protocol";
 
@@ -67,7 +68,7 @@ export function openSessionRef(href: string): boolean {
  * The title of the session `ref` names, or null until it is known. A message
  * shows it in place of the bare id.
  */
-export function useSessionRefLabel(ref: string | null): string | null {
+export function useSessionRefLabel(ref: string | null): SessionRefLabel | null {
   const read = useCallback(() => {
     if (!ref) return null;
     ensureClient();

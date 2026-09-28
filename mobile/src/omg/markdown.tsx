@@ -31,7 +31,7 @@ import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { marked, type Token, type Tokens } from "marked";
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Linking, Platform, ScrollView, StyleSheet, View } from "react-native";
+import { Image, Linking, Platform, ScrollView, StyleSheet, View } from "react-native";
 import Reanimated, {
   cancelAnimation,
   Easing,
@@ -44,6 +44,7 @@ import Reanimated, {
 } from "react-native-reanimated";
 
 import { IconButton } from "../components";
+import { agentIcon } from "./agent-icons";
 import { sessionHrefFromCodespan, sessionRefFromHref } from "./session-mention";
 import { openSessionRef, useSessionRefLabel } from "./session-ref-link";
 import { Text } from "./text";
@@ -484,33 +485,74 @@ function MdTable({
 }
 
 /**
- * A session cited by id. Shows `#Title` once the title is known, and the id
- * in code style until then or when the id names no session.
+ * A session reference drawn as a tag: the agent's icon and the session's
+ * title. `title` is the label the text already carries (a
+ * `[#Title](omg:session_...)` token); a bare id has none and waits for the
+ * lookup. Until a title is known the `fallback` renders as a plain link, so
+ * an id that names no session (a git sha) still reads as what it is.
+ *
+ * The tag is a nested Text with a background, so it cannot take a border
+ * radius. See the comment at the return for why it is not a View.
  */
-function SessionIdSpan({ code, href }: { code: string; href: string }) {
+function SessionRefChip({
+  href,
+  title: written,
+  fallback,
+  mono,
+}: {
+  href: string;
+  title?: string | null;
+  fallback: string;
+  mono?: boolean;
+}) {
   const { colors } = useTheme();
-  const title = useSessionRefLabel(sessionRefFromHref(href));
+  const known = useSessionRefLabel(sessionRefFromHref(href));
+  const title = written || known?.title || null;
+  const agent = known?.agent ?? null;
+  const open = () => {
+    void Haptics.selectionAsync();
+    openSessionRef(href);
+  };
+  if (!title) {
+    return (
+      <Text
+        accessibilityRole="link"
+        onPress={open}
+        style={
+          mono
+            ? { fontFamily: MONO, fontSize: 14, backgroundColor: colors.codeBg, color: colors.primary }
+            : { color: colors.primary }
+        }
+      >
+        {fallback}
+      </Text>
+    );
+  }
+  // Nested Text, not a View: iOS exposes a nested Text link to VoiceOver and
+  // to the test driver, and skips a View placed inside a paragraph.
   return (
     <Text
       accessibilityRole="link"
-      accessibilityLabel={title ? `Session ${title}` : `Session ${code}`}
-      onPress={() => {
-        void Haptics.selectionAsync();
-        openSessionRef(href);
-      }}
-      style={
-        title
-          ? { color: colors.primary, fontWeight: "600" }
-          : {
-              fontFamily: MONO,
-              fontSize: 14,
-              backgroundColor: colors.codeBg,
-              color: colors.primary,
-              textDecorationLine: "underline",
-            }
-      }
+      onPress={open}
+      suppressHighlighting={false}
+      style={{ backgroundColor: colors.codeBg, color: colors.text, fontWeight: "600" }}
     >
-      {title ? `#${title}` : code}
+      {/* No leading space: the line may wrap before the tag, and a space
+          here would leave a sliver of tag background at the end of the line. */}
+      {agent ? (
+        <Image source={agentIcon(agent)} accessible={false} style={{ width: 14, height: 14 }} resizeMode="contain" />
+      ) : (
+        <Text style={{ color: colors.textMuted }}>#</Text>
+      )}
+      {/* Non-breaking from here on keeps icon, title and badge on one line. */}
+      {"\u202f"}
+      {title.replace(/ /g, "\u00a0")}
+      {known?.project ? (
+        <Text style={{ color: colors.textMuted, fontWeight: "400", fontSize: 12 }}>
+          {`\u00a0\u00a0${known.project.replace(/ /g, "\u00a0")}`}
+        </Text>
+      ) : null}
+      {"\u2009"}
     </Text>
   );
 }
@@ -547,7 +589,9 @@ function Inline({ tokens }: { tokens?: Token[] }) {
             // A bare short session id (`228efabd`) is how agents cite a
             // session. It reads as the session's title and opens it.
             const sessionHref = sessionHrefFromCodespan(code);
-            if (sessionHref) return <SessionIdSpan key={i} code={code} href={sessionHref} />;
+            if (sessionHref) {
+              return <SessionRefChip key={i} href={sessionHref} fallback={code} mono />;
+            }
             return (
               <Text
                 key={i}
@@ -559,6 +603,16 @@ function Inline({ tokens }: { tokens?: Token[] }) {
           }
           case "link": {
             const t = token as Tokens.Link;
+            if (sessionRefFromHref(t.href)) {
+              return (
+                <SessionRefChip
+                  key={i}
+                  href={t.href}
+                  title={t.text.replace(/^#/, "").trim() || null}
+                  fallback={t.text}
+                />
+              );
+            }
             return (
               <Text
                 key={i}

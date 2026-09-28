@@ -16,7 +16,7 @@
 import { router } from "expo-router";
 import { useCallback, useSyncExternalStore } from "react";
 
-import { createSessionRefOpener } from "./session-mention";
+import { createSessionRefOpener, type SessionRefLabel } from "./session-mention";
 
 const opener = createSessionRefOpener({
   navigate: (sessionId) => router.push(`/session/${sessionId}`),
@@ -32,7 +32,7 @@ export const openSessionRef = opener.open;
  * The title of the session `ref` names, or null until it is known. The
  * transcript shows it in place of the bare id.
  */
-export function useSessionRefLabel(ref: string | null): string | null {
+export function useSessionRefLabel(ref: string | null): SessionRefLabel | null {
   const read = useCallback(() => (ref ? opener.label(ref) : null), [ref]);
   return useSyncExternalStore(opener.subscribe, read, read);
 }

@@ -6,11 +6,12 @@
   "steps": [
     {
       "name": "Open the seeded session",
-      "goal": "If an AI data consent screen appears, accept it for this isolated demo fixture. Then open the session named Refactor the rate limiter to a sliding window from the session list.",
-      "done": "The session transcript is open and the reply names the other session by its title, not its id.",
+      "goal": "If a system popup such as Apple Account Verification appears, tap Not Now. If an AI data consent screen appears, accept it for this isolated demo fixture. Then open the session named Refactor the rate limiter to a sliding window from the session list.",
+      "done": "The session transcript is open and the reply names the other session as a tag with its title, not its id.",
       "expect": [
         "The attribution follow-up is in session",
-        "#Fix the attribution bug",
+        "Fix the attribution bug",
+        "api-gateway",
         "02b282843"
       ],
       "forbid": [
@@ -19,7 +20,7 @@
     },
     {
       "name": "Tap the session id",
-      "goal": "Tap the session reference #Fix the attribution bug inside the reply that says The attribution follow-up is in session. Do not tap anything else.",
+      "goal": "Tap the session tag Fix the attribution bug inside the reply that says The attribution follow-up is in session. Do not tap anything else.",
       "done": "The Fix the attribution bug session is open, showing its own transcript.",
       "expect": [
         "StartTrial now sends the click ids"
