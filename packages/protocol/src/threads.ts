@@ -234,3 +234,18 @@ export function replySummary(messages: readonly ThreadMessage[], rootId: string)
   const task = [...replies].reverse().find((reply) => reply.task)?.task ?? null;
   return { count: replies.length, lastTs: replies[replies.length - 1].ts, authors, taskSessionId: task?.sessionId ?? null };
 }
+
+/**
+ * Pull Home's list down past the refresh to start a thread. Distances in
+ * points (iOS) or CSS pixels (web). A normal refresh fires well before the
+ * first; the second arms the thread, and releasing then opens it.
+ */
+export const THREAD_PULL_HINT = 90;
+export const THREAD_PULL_ARM = 150;
+
+/** 0: nothing. 1: show "keep pulling". 2: armed, release starts a thread. */
+export function threadPullStage(pull: number): 0 | 1 | 2 {
+  if (pull >= THREAD_PULL_ARM) return 2;
+  if (pull >= THREAD_PULL_HINT) return 1;
+  return 0;
+}
