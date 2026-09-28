@@ -304,3 +304,53 @@ test("a code relayed back from auth.omg.dev is handed to the box", async () => {
   await ui.flushAsync(() => new Promise((r) => setTimeout(r, 20)));
   expect(posted).toEqual([{ code: "c0de", state: "st4te" }]);
 });
+
+test("a paste-back sign-in posts the code and state from the pasted address", async () => {
+  const posted: unknown[] = [];
+  const base = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.endsWith("/oauth/start")) {
+      return Response.json({ authorizeUrl: "https://www.facebook.com/dialog/oauth", state: "st4te", pasteBack: true });
+    }
+    if (url.endsWith("/api/connectors/oauth/callback")) {
+      posted.push(JSON.parse(String(init?.body)));
+      return Response.json({ ok: true });
+    }
+    return base(input, init);
+  }) as typeof fetch;
+  configureOmgTransport(createSameOriginTransport());
+  const originalPrompt = window.prompt;
+  window.prompt = (() => "http://127.0.0.1:53682/callback?code=c0de&state=st4te#_=_") as typeof window.prompt;
+  try {
+    await customForm();
+    await ui.flushAsync(() => new Promise((r) => setTimeout(r, 20)));
+  } finally {
+    window.prompt = originalPrompt;
+  }
+  expect(popup.location.href).toBe("https://www.facebook.com/dialog/oauth");
+  expect(closed).toBe(true);
+  expect(posted).toEqual([{ code: "c0de", state: "st4te" }]);
+});
+
+test("a pasted address without a code posts nothing and says so", async () => {
+  const posted: unknown[] = [];
+  const base = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.endsWith("/oauth/start")) return Response.json({ authorizeUrl: "https://www.facebook.com/dialog/oauth", pasteBack: true });
+    if (url.endsWith("/api/connectors/oauth/callback")) posted.push(init?.body);
+    return base(input, init);
+  }) as typeof fetch;
+  configureOmgTransport(createSameOriginTransport());
+  const originalPrompt = window.prompt;
+  window.prompt = (() => "http://127.0.0.1:53682/callback?error=access_denied&state=st4te") as typeof window.prompt;
+  try {
+    await customForm();
+    await ui.flushAsync(() => new Promise((r) => setTimeout(r, 20)));
+  } finally {
+    window.prompt = originalPrompt;
+  }
+  expect(posted).toEqual([]);
+  expect(ui.text()).toContain("That address has no sign-in code");
+});
