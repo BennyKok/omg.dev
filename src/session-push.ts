@@ -15,6 +15,7 @@ import { subscribeFleet } from "./voice-bus.ts";
 import { isSessionWatched } from "./live-ws.ts";
 import { notifyAll } from "./push.ts";
 import { listSessionsCached } from "./session-cache.ts";
+import { threadForTaskSession } from "./conversations.ts";
 
 /**
  * How long to hold a completion back when the session looks like it's on
@@ -71,6 +72,9 @@ export function startSessionPushBridge(): void {
   // per-user targeting through notifyAll's own `user` filter.
   subscribeFleet(null, (ev) => {
     if (ev.type !== "completed") return;
+    // A task started from a thread reports into the thread, and that message
+    // is what notifies (threads.ts). A second, generic push would buzz twice.
+    if (threadForTaskSession(ev.sessionId)) return;
 
     const notify = () =>
       void (async () => {

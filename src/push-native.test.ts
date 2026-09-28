@@ -30,6 +30,11 @@ describe("toNativeAppUrl", () => {
     expect(toNativeAppUrl("/?session=abc-123")).toBe("/session/abc-123");
   });
 
+  test("maps a web thread link, and its open replies, to the app's thread route", () => {
+    expect(toNativeAppUrl("/threads/t-1")).toBe("/thread/t-1");
+    expect(toNativeAppUrl("/threads/t-1?replies=m-9")).toBe("/thread/t-1?replies=m-9");
+  });
+
   test("passes an app-relative path through unchanged", () => {
     expect(toNativeAppUrl("/notifications")).toBe("/notifications");
   });

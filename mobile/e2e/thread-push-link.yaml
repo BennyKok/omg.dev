@@ -1,0 +1,16 @@
+# A thread push opens the thread with the replies it is about.
+#
+# A push carries `/thread/<id>?replies=<message>` (push-native.ts
+# toNativeAppUrl) and the app pushes that route on tap. This flow opens the
+# same route as a deep link on the demo thread, whose message t5 has a task
+# waiting on a question.
+#   EXPO_PUBLIC_OMG_DEMO=1 EXPO_PUBLIC_OMG_THREADS_FIXTURE=1 bun run test:e2e --build --flow thread-push-link --record
+appId: dev.omg.computer
+onFlowStart:
+  - launchApp
+---
+- assertVisible: "What should we work on?"
+- openLink: "omg://thread/0d3a7c1e-0000-4000-8000-00000000abcd?replies=t5"
+- assertVisible: "Replies"
+- assertVisible: ".*Create it in live mode.*"
+- assertVisible: ".*Cap the free tier on the pricing page.*"

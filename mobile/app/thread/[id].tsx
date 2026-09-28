@@ -155,7 +155,8 @@ function Composer({
 }
 
 export default function ThreadScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  // `replies` comes from a push: open that message's replies on arrival.
+  const { id, replies: repliesParam } = useLocalSearchParams<{ id: string; replies?: string }>();
   const router = useRouter();
   const { client, repos } = useOmg();
   const { colors, type, space } = useTheme();
@@ -163,7 +164,7 @@ export default function ThreadScreen() {
   const [detail, setDetail] = useState<ThreadDetail | null>(null);
   const [pending, setPending] = useState<ThreadMessage[]>([]);
   const [asks, setAsks] = useState<AskQuestion[]>([]);
-  const [openRoot, setOpenRoot] = useState<string | null>(null);
+  const [openRoot, setOpenRoot] = useState<string | null>(repliesParam || null);
   const [rootHint, setRootHint] = useState<ThreadMessage | null>(null);
   const [error, setError] = useState<string | null>(null);
 

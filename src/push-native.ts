@@ -102,6 +102,12 @@ export function toNativeAppUrl(url?: string | null): string {
     const parsed = new URL(url, "https://omg.invalid");
     const session = parsed.searchParams.get("session");
     if (session) return `/session/${encodeURIComponent(session)}`;
+    // The web's `/threads/<id>` is the app's `/thread/<id>`; the open replies ride along.
+    const thread = parsed.pathname.match(/^\/threads\/([^/]+)$/);
+    if (thread) {
+      const replies = parsed.searchParams.get("replies");
+      return `/thread/${thread[1]}${replies ? `?replies=${encodeURIComponent(replies)}` : ""}`;
+    }
     return parsed.pathname || "/";
   } catch {
     return "/";

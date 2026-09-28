@@ -122,6 +122,8 @@ export interface AppSearch {
   session?: string;
   /** Conversation selected inside a persistent bot. */
   conversation?: string;
+  /** On `/threads/<id>`: the message whose replies to open (a push links here). */
+  replies?: string;
   /** Framed-host mode (omg Computer iframe). EXTERNAL CONTRACT with omg's
    *  use-computer-session-frame mint — must stay as `embed=1`. */
   embed?: boolean;
@@ -137,6 +139,7 @@ export function validateAppSearch(search: Record<string, unknown>): AppSearch {
   const out: AppSearch = {};
   if (typeof search.session === "string" && search.session) out.session = search.session;
   if (typeof search.conversation === "string" && search.conversation) out.conversation = search.conversation;
+  if (typeof search.replies === "string" && search.replies) out.replies = search.replies;
   if (
     search.embed === true ||
     search.embed === 1 ||

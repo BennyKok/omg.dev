@@ -9401,6 +9401,7 @@ export function App() {
           >
             <LiveView
               threadViewer={botUnreadIdentity}
+              threadReplies={openThreadId ? routeSearch.replies ?? null : null}
               openThreadId={openThreadId}
               onOpenThread={openThreadPage}
               openSessionId={openSessionId}
@@ -11608,6 +11609,7 @@ function LiveView({
   openThreadId = null,
   onOpenThread,
   threadViewer = "",
+  threadReplies = null,
   openSessionId = null,
   onOpenSessionPage,
   onCloseSessionPage,
@@ -11674,6 +11676,8 @@ function LiveView({
   openThreadId?: string | null;
   /** Who writes in a thread from this browser; see lib/threads.ts. */
   threadViewer?: string;
+  /** Replies to open in the thread, from `?replies=` (a push link). */
+  threadReplies?: string | null;
   onOpenThread?: (id: string) => void;
   onOpenSessionPage?: (sid: string) => void;
   onCloseSessionPage?: () => void;
@@ -12030,6 +12034,7 @@ function LiveView({
       <RailStage
         threads={threads}
         threadViewer={threadViewer}
+        threadReplies={threadReplies}
         openThreadId={openThreadId}
         onOpenThread={onOpenThread}
         onCloseThread={onCloseSessionPage}
@@ -12250,6 +12255,7 @@ function LiveView({
             <ThreadChat
               threadId={openThreadId}
               viewer={threadViewer}
+              initialReplies={threadReplies}
               repos={repos}
               onCreated={(id) => onOpenThread?.(id)}
               onOpenTask={openThreadTask}
@@ -12321,12 +12327,14 @@ function RailStage({
   hostSettingsInMenu = false,
   threads = [],
   threadViewer = "",
+  threadReplies = null,
   openThreadId = null,
   onOpenThread,
   onCloseThread,
   onOpenThreadTask,
 }: {
   threadViewer?: string;
+  threadReplies?: string | null;
   /** Threads, listed above the sessions; see components/threads.tsx. */
   threads?: ThreadSummary[];
   /** The open thread fills the stage while it is open. */
@@ -13863,6 +13871,7 @@ function RailStage({
             <ThreadChat
               threadId={openThreadId}
               viewer={threadViewer}
+              initialReplies={threadReplies}
               repos={repos}
               onCreated={(id) => onOpenThread?.(id)}
               onOpenTask={(sid) => onOpenThreadTask?.(sid)}

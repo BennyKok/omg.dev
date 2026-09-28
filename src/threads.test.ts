@@ -198,3 +198,61 @@ describe("task results come back as omg messages", () => {
     expect(threadTasks(conversation, [])[0].ended).toBe(true);
   });
 });
+
+describe("push: Slack's rule, never the author", () => {
+  const pushes: import("./threads.ts").ThreadPush[] = [];
+  beforeEach(async () => {
+    pushes.length = 0;
+    const { setThreadNotifier } = await import("./threads.ts");
+    setThreadNotifier((push) => pushes.push(push));
+  });
+  afterEach(async () => {
+    const { setThreadNotifier } = await import("./threads.ts");
+    setThreadNotifier(null);
+  });
+
+  test("a top-level message tells everyone else in the thread", () => {
+    const thread = startThread({ identity: "benny@example.com", name: "Benny" });
+    const benny = threadAuthor(thread.id, "benny@example.com", "Benny");
+    threadAuthor(thread.id, "alex@example.com", "Alex");
+    pushes.length = 0;
+    appendThreadMessage(thread.id, { author: benny, text: "Should we drop the free tier?" });
+    expect(pushes).toEqual([
+      {
+        user: "alex@example.com",
+        notification: {
+          title: "Should we drop the free tier?",
+          body: "Benny: Should we drop the free tier?",
+          url: `/threads/${thread.id}`,
+          tag: `thread-${thread.id}-main`,
+        },
+      },
+    ]);
+  });
+
+  test("omg's reply tells the people in that reply thread, and links to it", async () => {
+    const thread = startThread({ identity: "benny@example.com", name: "Benny" });
+    const benny = threadAuthor(thread.id, "benny@example.com", "Benny");
+    threadAuthor(thread.id, "alex@example.com", "Alex");
+    const root = appendThreadMessage(thread.id, { author: benny, text: "@omg what is 418?" });
+    pushes.length = 0;
+    await answerMention(thread.id, root.text, "benny@example.com", deps({ complete: async () => '{"action":"reply","text":"A teapot."}' }), root.id);
+    // Alex is in the thread but not in these replies.
+    expect(pushes.map((p) => p.user)).toEqual(["benny@example.com"]);
+    expect(pushes[0].notification).toMatchObject({ body: "omg: A teapot.", url: `/threads/${thread.id}?replies=${root.id}` });
+  });
+
+  test("a box with no identities pushes to its devices, not to nobody", () => {
+    const thread = startThread({ identity: "__local__" });
+    const root = appendThreadMessage(thread.id, { author: threadAuthor(thread.id, "__local__"), text: "@omg hi" });
+    pushes.length = 0;
+    appendThreadMessage(thread.id, { author: { kind: "omg" }, text: "Hello.", replyTo: root.id });
+    expect(pushes.map((p) => p.user)).toEqual([null]);
+  });
+
+  test("your own message does not notify you", () => {
+    const thread = startThread({ identity: "benny@example.com" });
+    appendThreadMessage(thread.id, { author: threadAuthor(thread.id, "benny@example.com"), text: "note to self" });
+    expect(pushes).toEqual([]);
+  });
+});
