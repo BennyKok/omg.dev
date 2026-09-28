@@ -919,6 +919,113 @@ export function buildOmgMcpServer(): McpServer {
     },
   );
 
+  // Media generation billed to the user's omg credits. The serve routes in
+  // src/media-generation.ts own the router calls, the spend caps, and the
+  // downloads; these tools only map friendly fields into provider input.
+  const mediaInput = (base: Record<string, unknown> | undefined, fields: Record<string, unknown>) => {
+    const input: Record<string, unknown> = { ...(base ?? {}) };
+    for (const [key, value] of Object.entries(fields)) if (value !== undefined) input[key] = value;
+    return input;
+  };
+  const MEDIA_COST_NOTE =
+    "Spends the user's omg credits (1 credit = $1). The router quotes the price first; the call is refused above the per-call cap ($1.00 default) or the daily cap ($5.00 default, UTC). The result has costUsd: tell the user the price in your reply.";
+
+  server.registerTool(
+    "omg_generate_image",
+    {
+      title: "Generate An Image With omg Credits",
+      description:
+        `Generate an image from a text prompt and save it to a local file. ${MEDIA_COST_NOTE} Default model recraft-ai/recraft-v4.1-flash/text-to-image costs about $0.008 per image (fast, readable text). Other models: wavespeed-ai/flux-schnell $0.003, openai/gpt-image-2.5-flare/text-to-image $0.024 default ($0.01-$1.00 by quality and resolution), bytedance/seedream-v4 $0.027, recraft-ai/recraft-20b-svg $0.044 (SVG), google/nano-banana-2/text-to-image $0.07. Prefer the cheapest model that fits. Show the result with omg_display_image.`,
+      inputSchema: {
+        prompt: z.string().min(1).describe("What to draw."),
+        model: z.string().optional().describe("Router model id. Defaults to recraft-ai/recraft-v4.1-flash/text-to-image."),
+        aspectRatio: z.string().optional().describe("Aspect ratio such as 1:1, 16:9, 9:16, 4:3, 3:4. Sent as aspect_ratio."),
+        input: z.record(z.string(), z.unknown()).optional().describe("Extra provider input fields, for example {quality:'high', resolution:'2k'}. Friendly fields override these."),
+        outputPath: z.string().optional().describe("Absolute output file path. Defaults to ~/omg-media/<date>/<jobId>-<n>.<ext>."),
+        wait: z.boolean().optional().describe("Wait for the image (up to 120 s). Default true. On timeout the result has pending: true; call omg_media_job."),
+      },
+    },
+    async ({ prompt, model, aspectRatio, input, outputPath, wait }) =>
+      result(
+        await api("/api/media/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            kind: "image",
+            model,
+            input: mediaInput(input, { prompt, aspect_ratio: aspectRatio }),
+            outputPath,
+            wait,
+          }),
+        }),
+      ),
+  );
+
+  server.registerTool(
+    "omg_generate_video",
+    {
+      title: "Generate A Video With omg Credits",
+      description:
+        `Generate a short video from a text prompt and save it to a local file. ${MEDIA_COST_NOTE} Default model bytedance/seedance-v1.5-pro/text-to-video-fast: 5 s 720p with audio costs $0.20 ($0.04/s; $0.02/s without generate_audio; 1080p $0.06/s). Other models: wavespeed-ai/wan-2.2/t2v-480p-ultra-fast $0.01/s (5 or 8 s), pruna-ai/p-video-2/text-to-video $0.025/s 720p (1-20 s), kwaivgi/kling-v3-turbo-std/text-to-video $0.112/s (best quality). Prefer the cheapest model that fits. Video takes 30 s to 5 min. Before omg_display_video, make sure the file is under 6 MB H.264 with faststart; re-encode with ffmpeg if larger.`,
+      inputSchema: {
+        prompt: z.string().min(1).describe("What happens in the video."),
+        model: z.string().optional().describe("Router model id. Defaults to bytedance/seedance-v1.5-pro/text-to-video-fast."),
+        durationSeconds: z.number().int().min(1).max(20).optional().describe("Length in seconds. Sent as duration. Price scales with it."),
+        resolution: z.string().optional().describe("Resolution such as 480p, 720p, 1080p. Sent as resolution."),
+        aspectRatio: z.string().optional().describe("Aspect ratio such as 16:9, 9:16, 1:1. Sent as aspect_ratio."),
+        input: z.record(z.string(), z.unknown()).optional().describe("Extra provider input fields, for example {generate_audio:false}. Friendly fields override these."),
+        outputPath: z.string().optional().describe("Absolute output file path. Defaults to ~/omg-media/<date>/<jobId>-<n>.<ext>."),
+        wait: z.boolean().optional().describe("Wait for the video (up to 300 s). Default true. On timeout the result has pending: true; call omg_media_job."),
+      },
+    },
+    async ({ prompt, model, durationSeconds, resolution, aspectRatio, input, outputPath, wait }) =>
+      result(
+        await api("/api/media/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            kind: "video",
+            model,
+            input: mediaInput(input, { prompt, duration: durationSeconds, resolution, aspect_ratio: aspectRatio }),
+            outputPath,
+            wait,
+          }),
+        }),
+      ),
+  );
+
+  server.registerTool(
+    "omg_media_job",
+    {
+      title: "Check A Media Generation Job",
+      description:
+        "Check or wait for an image or video job started by omg_generate_image or omg_generate_video, and download its result when it succeeds. Costs nothing; the job was paid for at submit. Use this after a generate call returned pending: true. Do not generate again.",
+      inputSchema: {
+        jobId: z.string().min(1).describe("jobId returned by the generate call."),
+        outputPath: z.string().optional().describe("Absolute output file path. Defaults to ~/omg-media/<date>/<jobId>-<n>.<ext>."),
+        wait: z.boolean().optional().describe("Wait up to 300 s for the job to finish. Default true. false checks once."),
+      },
+    },
+    async ({ jobId, outputPath, wait }) => {
+      const params = new URLSearchParams();
+      if (outputPath) params.set("outputPath", outputPath);
+      if (wait === false) params.set("wait", "0");
+      const qs = params.toString();
+      return result(await api(`/api/media/jobs/${encodeURIComponent(jobId)}${qs ? `?${qs}` : ""}`));
+    },
+  );
+
+  server.registerTool(
+    "omg_media_models",
+    {
+      title: "List Media Generation Models And Prices",
+      description:
+        "List the image and video models this omg.dev Computer can use, each with its default price in USD, plus the per-call cap, the daily cap, and today's spend. guidePath points to the media-generation skill: read it before choosing a model.",
+      inputSchema: {},
+    },
+    async () => result(await api("/api/media/models")),
+  );
+
   server.registerTool(
     "omg_publish_artifact",
     {

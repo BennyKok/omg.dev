@@ -5310,6 +5310,20 @@ a{color:#60a5fa}
         });
         if (handled) return handled;
       }
+      // Agent media generation billed to omg credits (src/media-generation.ts).
+      if (
+        path === "/api/media/models" ||
+        path === "/api/media/generate" ||
+        path.startsWith("/api/media/jobs/")
+      ) {
+        // A video job may wait up to 300 s, beyond the 240 s idle timeout.
+        server.timeout(req, 360);
+        const { handleMediaRequest } = await import("../media-generation.ts");
+        const handled = await handleMediaRequest(req, url, {
+          spendPath: join(PATHS.data, "media-spend.json"),
+        });
+        if (handled) return handled;
+      }
       if (path === "/api/server/wake-tick" && req.method === "POST") {
         return handleWakeTick((l) => console.log(l));
       }

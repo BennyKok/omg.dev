@@ -4,7 +4,7 @@ import { DEFAULT_MAX_BOT_SCHEDULES } from "./settings.ts";
 // Bump whenever an agent-facing omg.dev capability or its operating guidance
 // changes. Managed sessions persist the value they launched with, which lets
 // the UI identify long-lived sessions whose MCP/tool catalog predates a ship.
-export const OMG_CAPABILITY_VERSION = "2026-09-27.1";
+export const OMG_CAPABILITY_VERSION = "2026-09-28.1";
 
 export const OMG_CAPABILITIES = [
   {
@@ -45,6 +45,12 @@ export const OMG_CAPABILITIES = [
     tool: "omg_display_image / omg_display_video / omg_display_file",
     useWhen: "A local screenshot, recording, or file would be useful evidence in the omg.dev transcript.",
     guidance: "Use omg_display_file for a PDF, an audio clip, a CSV, a log, or any other document. Use these to show artifacts, not to talk: communicate with the human through normal assistant messages.",
+  },
+  {
+    tool: "omg_generate_image / omg_generate_video / omg_media_job / omg_media_models",
+    useWhen: "A task needs a new image or video made from a prompt on an omg.dev Computer.",
+    guidance:
+      "These spend the user's omg credits. Read the media-generation skill (guidePath from omg_media_models) first. Prefer the cheapest model that fits and tell the user the costUsd in your reply. Calls are capped per call and per UTC day. When a result has pending: true, call omg_media_job with the jobId and do not generate again. Show results with omg_display_image or omg_display_video; a video must be under 6 MB, H.264, faststart.",
   },
   {
     tool: "omg_input",
