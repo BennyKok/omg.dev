@@ -5,6 +5,9 @@
 #   EXPO_PUBLIC_OMG_DEMO=1 EXPO_PUBLIC_OMG_THREADS_FIXTURE=1 bun run test:e2e --build --flow thread-pull --record
 appId: dev.omg.computer
 onFlowStart:
+  # A release build (--build) has no dev client, so launching is safe and
+  # makes the flow independent of whatever the shared device last showed.
+  - launchApp
   # Back to Home from a thread or a new thread a previous run left open.
   - runFlow:
       when:
