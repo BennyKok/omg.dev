@@ -249,3 +249,30 @@ export function threadPullStage(pull: number): 0 | 1 | 2 {
   if (pull >= THREAD_PULL_HINT) return 1;
   return 0;
 }
+
+/** Who `@` offers in a thread. omg is the one member that is not a person. */
+export const THREAD_MENTIONS: readonly { name: string; hint: string }[] = [
+  { name: "omg", hint: "Answer, or start a task" },
+];
+
+/**
+ * An `@word` being typed at the end of the text (the caret is taken to be at
+ * the end, as the phone's other pickers do): where it starts and what is
+ * typed so far. Null when the text does not end in a mention.
+ */
+export function threadMentionAt(text: string): { start: number; query: string } | null {
+  const m = text.match(/(^|\s)@([A-Za-z0-9._-]{0,40})$/);
+  if (!m) return null;
+  return { start: text.length - m[2].length - 1, query: m[2] };
+}
+
+/** The mentions whose name starts with what is typed. */
+export function matchThreadMentions(query: string, mentions = THREAD_MENTIONS) {
+  const q = query.toLowerCase();
+  return mentions.filter((mention) => mention.name.toLowerCase().startsWith(q));
+}
+
+/** Replace the `@word` being typed with `@name `. */
+export function applyThreadMention(text: string, at: { start: number }, name: string): string {
+  return `${text.slice(0, at.start)}@${name} `;
+}

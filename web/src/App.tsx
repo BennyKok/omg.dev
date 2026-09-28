@@ -96,7 +96,7 @@ import {
 import { ChatStarterRow } from "./components/chat-starter-row";
 import { groupNodesByProject, type ProjectGroup } from "./lib/session-groups";
 import { pathnameToSessionId, pathnameToThreadId, sessionToPath, threadToPath } from "./lib/app-search";
-import { NEW_THREAD_ID, ThreadChat, ThreadRailSection } from "./components/threads";
+import { NEW_THREAD_ID, ThreadChat, ThreadRailSection, type ThreadComposerProps } from "./components/threads";
 import { PullToThread } from "./components/pull-to-thread";
 import { useThreads } from "./lib/threads";
 import type { ThreadSummary } from "../../packages/protocol/src/threads";
@@ -12256,6 +12256,7 @@ function LiveView({
               threadId={openThreadId}
               viewer={threadViewer}
               initialReplies={threadReplies}
+              renderComposer={renderThreadComposer}
               repos={repos}
               onCreated={(id) => onOpenThread?.(id)}
               onOpenTask={openThreadTask}
@@ -13872,6 +13873,7 @@ function RailStage({
               threadId={openThreadId}
               viewer={threadViewer}
               initialReplies={threadReplies}
+              renderComposer={renderThreadComposer}
               repos={repos}
               onCreated={(id) => onOpenThread?.(id)}
               onOpenTask={(sid) => onOpenThreadTask?.(sid)}
@@ -15646,6 +15648,14 @@ function SkillSlashSuggest({
  * so the picker opens instantly and cannot show a spinner or a stale network
  * error.
  */
+/**
+ * A name the `@` picker offers that is not a bot: it inserts plain `@name `
+ * text. A thread's `@omg` is one (packages/protocol/src/threads.ts reads it).
+ */
+type PlainMention = { plain: true; id: string; name: string; hint?: string };
+type MentionOption = PersistentBot | PlainMention;
+const isPlainMention = (option: MentionOption): option is PlainMention => "plain" in option;
+
 function BotMentionSuggest({
   active,
   matches,
@@ -15655,10 +15665,10 @@ function BotMentionSuggest({
 }: {
   active: BotMentionState | null;
   /** Owned by SkillTextarea, because the arrow keys arrive at the textarea. */
-  matches: PersistentBot[];
+  matches: MentionOption[];
   selected: number;
   onHover: (index: number) => void;
-  onPick: (bot: PersistentBot) => void;
+  onPick: (option: MentionOption) => void;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -15701,18 +15711,27 @@ function BotMentionSuggest({
               idx === selected ? "bg-accent text-accent-foreground" : "hover:bg-accent/70",
             )}
           >
-            <BotMascot
-              shape={bot.shape}
-              colorway={bot.colorway}
-              size={16}
-              state="idle"
-              seed={bot.id.length}
-            />
+            {isPlainMention(bot) ? (
+              <span className="flex size-4 items-center justify-center rounded bg-[#FF5530] text-[9px] font-bold text-white">
+                {bot.name.slice(0, 1)}
+              </span>
+            ) : (
+              <BotMascot
+                shape={bot.shape}
+                colorway={bot.colorway}
+                size={16}
+                state="idle"
+                seed={bot.id.length}
+              />
+            )}
             <span className="min-w-0 flex-1">
               <span className="block truncate font-medium">
                 <span className="font-mono text-primary">@</span>
                 {bot.name}
               </span>
+              {isPlainMention(bot) && bot.hint ? (
+                <span className="block truncate text-xs text-muted-foreground">{bot.hint}</span>
+              ) : null}
             </span>
           </button>
         ))}
@@ -15761,6 +15780,10 @@ type SkillTextareaProps = Omit<
   // Where the `#` session picker ranks from: siblings of this folder come
   // first, and the composer's own session is never offered to itself.
   mentionScope?: SessionMentionScope;
+  /** Plain `@` names offered before (or instead of) bots, e.g. a thread's omg. */
+  plainMentions?: readonly Omit<PlainMention, "plain">[];
+  /** Offer this box's bots after `@`. Off in a thread, where bots are not members. */
+  mentionBots?: boolean;
 };
 
 function SkillTextarea({
@@ -15773,6 +15796,8 @@ function SkillTextarea({
   scrollToEndNonce = 0,
   onMultilineChange,
   mentionScope,
+  plainMentions,
+  mentionBots = true,
   ...props
 }: SkillTextareaProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -15783,11 +15808,17 @@ function SkillTextarea({
   const [botMention, setBotMention] = useState<BotMentionState | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
   const botDirectory = useContext(BotDirectoryContext);
-  const mentionableBots = useMemo(() => Array.from(botDirectory.values()), [botDirectory]);
+  const mentionableBots = useMemo<MentionOption[]>(
+    () => [
+      ...(plainMentions ?? []).map((row) => ({ ...row, plain: true as const })),
+      ...(mentionBots ? Array.from(botDirectory.values()) : []),
+    ],
+    [botDirectory, plainMentions, mentionBots],
+  );
   // Owned here rather than in the popover: the arrow keys land on the
   // textarea, so the keyboard handler needs the list it is walking.
   const mentionMatches = useMemo(
-    () => (botMention ? (matchBots(mentionableBots, botMention.query) as PersistentBot[]) : []),
+    () => (botMention ? (matchBots(mentionableBots, botMention.query) as MentionOption[]) : []),
     [botMention, mentionableBots],
   );
   // A new query is a new list, so the highlight returns to the top. Keyed on
@@ -15941,10 +15972,18 @@ function SkillTextarea({
     });
   }
 
-  function pickBot(bot: PersistentBot) {
+  function pickBot(bot: MentionOption) {
     if (!botMention) return;
     const textarea = fieldRef.current;
-    const next = applyBotMention(value, botMention, bot);
+    const next = isPlainMention(bot)
+      ? (() => {
+          const replacement = `@${bot.name} `;
+          return {
+            value: value.slice(0, botMention.start) + replacement + value.slice(botMention.end),
+            cursor: botMention.start + replacement.length,
+          };
+        })()
+      : applyBotMention(value, botMention, bot);
     onValueChange(next.value);
     setBotMention(null);
     requestAnimationFrame(() => {
@@ -16108,6 +16147,86 @@ function SkillTextarea({
 // Shared growing field for the home and live-session chat composers. Keeping
 // the cap here prevents the two entry points from drifting back to different
 // viewport-relative heights, while SkillTextarea owns the resize/follow logic.
+/** What a thread's `@` offers. omg is the one member that is not a person. */
+const THREAD_MENTIONS = [{ id: "omg", name: "omg", hint: "Answer, or start a task" }] as const;
+
+/**
+ * THE SESSION CHAT BAR, IN A THREAD. The same pill, field, mic and send
+ * button a session uses, so a thread does not grow a second-class input.
+ * `@` offers omg (and, later, the people here) instead of the box's bots.
+ * No attach button: a thread message is text.
+ */
+function ThreadComposerBar({ testId, placeholder, onSend, autoFocus }: ThreadComposerProps) {
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const [multiline, setMultiline] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const send = async (override?: string) => {
+    const body = (override ?? text).trim();
+    if (!body || sending) return;
+    setSending(true);
+    setError(null);
+    setText("");
+    try {
+      await onSend(body);
+    } catch (e) {
+      setText(body);
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSending(false);
+    }
+  };
+  return (
+    <div className="px-4 py-3">
+      <div
+        className={cn(
+          "lfg-gfield relative z-[1] flex gap-1 rounded-3xl px-2 py-1.5 md:gap-0.5 md:px-1.5 md:py-1",
+          multiline ? "items-end" : "items-center",
+        )}
+      >
+        <ComposerTextarea
+          data-testid={testId}
+          autoFocus={autoFocus}
+          value={text}
+          onValueChange={setText}
+          onMultilineChange={setMultiline}
+          plainMentions={THREAD_MENTIONS}
+          mentionBots={false}
+          onKeyDown={(e) => {
+            if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
+            e.preventDefault();
+            void send();
+          }}
+          placeholder={placeholder}
+          disabled={sending}
+          rows={1}
+          className="min-h-10 resize-none border-0 bg-transparent px-2 py-2 text-base leading-5 shadow-none placeholder:text-muted-foreground focus-visible:border-0 focus-visible:ring-0 md:min-h-8 md:py-1.5 md:text-sm"
+        />
+        <MicButton
+          className="size-10 shrink-0 rounded-full bg-foreground/[0.06] text-foreground/70 hover:bg-foreground/[0.12] hover:text-foreground md:size-8"
+          baseText={text}
+          onText={setText}
+          onInterim={setText}
+          onAutoSubmit={(said, base) => void send(base.trim() ? `${base.trimEnd()} ${said}` : said)}
+          onCancel={(base) => setText(base)}
+        />
+        {text.trim() || sending ? (
+          <ComposerSendButton
+            className="size-10 shrink-0 md:size-8"
+            sending={sending}
+            defaultMode="steer"
+            onSend={() => void send()}
+            onQueue={() => void send()}
+          />
+        ) : null}
+      </div>
+      {error ? <p className="mt-1 px-2 text-[12px] text-destructive">{error}</p> : null}
+    </div>
+  );
+}
+
+const renderThreadComposer = (props: ThreadComposerProps) => <ThreadComposerBar {...props} />;
+
 function ComposerTextarea({ className, ...props }: SkillTextareaProps) {
   return (
     <SkillTextarea
