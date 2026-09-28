@@ -19,18 +19,20 @@ onFlowStart:
   - runFlow:
       when:
         visible:
-          id: "thread-back"
+          id: "chat-header-back"
       commands:
         - tapOn:
-            id: "thread-back"
+            id: "chat-header-back"
 ---
-- assertVisible: "What should we work on?"
+- assertVisible:
+    id: "home-composer-input"
 # A short pull only refreshes: Home stays.
 - swipe:
     start: "50%, 35%"
     end: "50%, 45%"
     duration: 600
-- assertVisible: "What should we work on?"
+- assertVisible:
+    id: "home-composer-input"
 - assertNotVisible: "What is on your mind?"
 # A long pull, then release, opens an empty thread.
 - swipe:

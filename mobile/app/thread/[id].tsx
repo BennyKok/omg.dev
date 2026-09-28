@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { AppState, FlatList, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
+import { Alert, AppState, FlatList, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
 import { Icon } from "../../src/components";
-import { DropdownMenu, type MenuOption } from "../../src/omg/menu";
+import type { MenuOption } from "../../src/omg/menu";
 import { useOmg } from "../../src/omg/provider";
 import { TaskCard } from "../../src/omg/task-card";
+import { ChatHeaderBar, chatHeaderHeight } from "../../src/omg/chat-header";
+import { GroupAvatar, ThreadDetailsSheet } from "../../src/omg/thread-details";
 import { agentIcon } from "../../src/omg/agent-icons";
 import { ThreadChatBar } from "../../src/omg/chat-bar";
 import { Text } from "../../src/omg/text";
@@ -104,6 +106,7 @@ export default function ThreadScreen() {
   const [pending, setPending] = useState<ThreadMessage[]>([]);
   const [asks, setAsks] = useState<AskQuestion[]>([]);
   const [openRoot, setOpenRoot] = useState<string | null>(repliesParam || null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [rootHint, setRootHint] = useState<ThreadMessage | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -226,6 +229,36 @@ export default function ThreadScreen() {
     },
   ];
 
+  const humans = (detail?.participants ?? []).filter((row) => row.kind === "human");
+  const rename = () => {
+    if (!client || !id) return;
+    Alert.prompt("Rename thread", undefined, (title) => {
+      if (title?.trim()) void updateThread(client, id, { title: title.trim() }).then(load);
+    }, "plain-text", detail?.thread.title ?? "");
+  };
+  const archive = () => {
+    if (!client || !id) return;
+    Alert.alert("Archive this thread?", "It leaves your list. Its tasks keep running.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Archive",
+        style: "destructive",
+        onPress: () => {
+          setDetailsOpen(false);
+          void updateThread(client, id, { archived: true }).then(() => router.back());
+        },
+      },
+    ]);
+  };
+  // The thread's verbs, in the same overflow menu a session has. The project
+  // lives here now, not as a chip in the bar.
+  const menuOptions: MenuOption[] = [
+    { label: "Thread details", icon: "info.circle", onPress: () => setDetailsOpen(true) },
+    { label: `Project: ${project?.name ?? "None"}`, icon: "folder", submenu: projectOptions },
+    { label: "Rename", icon: "pencil", onPress: rename },
+    { label: "Archive thread", icon: "archivebox", destructive: true, onPress: archive },
+  ];
+
   const card = (message: ThreadMessage) => {
     const c = cards.has(message.id) && detail ? taskCardFor(message, detail, messages, openAskIds) : null;
     return c ? (
@@ -277,35 +310,11 @@ export default function ThreadScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <Stack.Screen options={{ headerShown: false }} />
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <View style={{ paddingTop: insets.top + space.sm, paddingHorizontal: space.md, paddingBottom: space.sm, flexDirection: "row", alignItems: "center", gap: space.sm, borderBottomWidth: 0.5, borderBottomColor: colors.border }}>
-          <Pressable
-            testID="thread-back"
-            accessibilityRole="button"
-            accessibilityLabel="Back"
-            onPress={() => router.back()}
-            hitSlop={8}
-            style={{ width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" }}
-          >
-            <Icon ios="chevron.left" android="arrow_back" size={18} color={colors.text} />
-          </Pressable>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text numberOfLines={1} style={{ ...type.headline, color: colors.text }}>{detail?.thread.title ?? "Thread"}</Text>
-            <Text numberOfLines={1} style={{ ...type.caption, color: colors.textMuted }}>
-              {people.length ? people.join(", ") : "Just you"}
-            </Text>
-          </View>
-          <DropdownMenu title="Tasks run in" options={projectOptions}>
-            <View
-              testID="thread-project"
-              accessibilityRole="button"
-              accessibilityLabel={`Project: ${project?.name ?? "No project"}. Change`}
-              style={{ height: 32, paddingHorizontal: 12, borderRadius: 16, backgroundColor: colors.secondary, justifyContent: "center" }}
-            >
-              <Text numberOfLines={1} style={{ ...type.footnote, color: colors.text }}>{project?.name ?? "No project"}</Text>
-            </View>
-          </DropdownMenu>
-        </View>
+      <KeyboardAvoidingView
+        style={{ flex: 1, paddingTop: chatHeaderHeight(insets.top) }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+
 
         {detail && !top.length ? (
           <Text style={{ ...type.callout, color: colors.textMuted, padding: space.lg }}>
@@ -332,6 +341,38 @@ export default function ThreadScreen() {
           <ThreadChatBar testID="thread-input" placeholder={`Message ${detail?.thread.title ?? "the thread"}`} onSend={(body) => post(body, null)} />
         </View>
       </KeyboardAvoidingView>
+
+      <ChatHeaderBar onBack={() => router.back()} menuOptions={menuOptions} menuLabel="Thread actions">
+        <GroupAvatar authors={humans} />
+        <Pressable
+          testID="thread-title"
+          accessibilityRole="button"
+          accessibilityHint="Opens the thread details"
+          onPress={() => setDetailsOpen(true)}
+          style={{ flex: 1, minWidth: 0 }}
+        >
+          <Text numberOfLines={1} style={{ ...type.subhead, fontWeight: "600", color: colors.text }}>
+            {detail?.thread.title ?? "Thread"}
+          </Text>
+          <Text numberOfLines={1} style={{ ...type.caption, color: colors.textSecondary }}>
+            {people.length ? people.join(", ") : "Just you"}
+          </Text>
+        </Pressable>
+      </ChatHeaderBar>
+
+      <Modal visible={detailsOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setDetailsOpen(false)}>
+        <ThreadDetailsSheet
+          detail={detail}
+          projectOptions={projectOptions}
+          onClose={() => setDetailsOpen(false)}
+          onOpenTask={(sessionId) => {
+            setDetailsOpen(false);
+            router.push(`/session/${sessionId}`);
+          }}
+          onRename={rename}
+          onArchive={archive}
+        />
+      </Modal>
 
       <Modal visible={!!root} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setOpenRoot(null)}>
         {root ? (

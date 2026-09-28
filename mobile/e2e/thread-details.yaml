@@ -1,0 +1,28 @@
+# The thread bar is the chat page's bar: back, the group, and a ⋯ menu that
+# holds the project and the thread's details.
+#   EXPO_PUBLIC_OMG_DEMO=1 EXPO_PUBLIC_OMG_THREADS_FIXTURE=1 bun run test:e2e --build --flow thread-details --record
+appId: dev.omg.computer
+onFlowStart:
+  - launchApp
+---
+- openLink: "omg://thread/0d3a7c1e-0000-4000-8000-00000000abcd"
+- assertVisible:
+    id: "chat-header-back"
+- assertNotVisible: "No project"
+- tapOn:
+    id: "chat-header-menu"
+- assertVisible: "Thread details"
+- assertVisible: "Project: web"
+- tapOn: "Thread details"
+- assertVisible:
+    id: "thread-details"
+- assertVisible: "Members · 3"
+- assertVisible: ".*Demo \\(you\\).*"
+- assertVisible: ".*Answers, or starts a task.*"
+- assertVisible: ".*Where tasks from this thread run.*"
+- assertVisible: "Tasks · 2"
+- takeScreenshot: thread-details
+- tapOn:
+    id: "thread-details-close"
+- assertNotVisible:
+    id: "thread-details"
