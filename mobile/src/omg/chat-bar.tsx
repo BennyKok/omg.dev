@@ -1,6 +1,6 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Image, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
-import Reanimated, { FadeIn, FadeOut } from "react-native-reanimated";
+import Reanimated, { FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withDelay, withRepeat, withSequence, withTiming } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { Icon, InlineVoiceRecorder } from "../components";
 import {
@@ -174,6 +174,7 @@ export function ThreadChatBar({
   autoFocus,
   value,
   onChangeText,
+  onTyping,
 }: {
   placeholder: string;
   onSend: (text: string) => Promise<void>;
@@ -182,6 +183,8 @@ export function ThreadChatBar({
   /** Controlled text, for a screen that fills the field itself (starter chips). */
   value?: string;
   onChangeText?: (text: string) => void;
+  /** The field's text on every change, for the typing ping. */
+  onTyping?: (text: string) => void;
 }) {
   const { client } = useOmg();
   const { colors, space } = useTheme();
@@ -190,6 +193,11 @@ export function ThreadChatBar({
   const setText = onChangeText ?? setOwn;
   const [focused, setFocused] = useState(false);
   const [sending, setSending] = useState(false);
+  const typingRef = useRef(onTyping);
+  typingRef.current = onTyping;
+  useEffect(() => typingRef.current?.(text), [text]);
+  // Leaving the screen with a draft stops the dots for everyone else.
+  useEffect(() => () => typingRef.current?.(""), []);
 
   const send = async (override?: string) => {
     const body = (override ?? text).trim();
@@ -287,6 +295,36 @@ export function ThreadChatBar({
           style={inputStyle}
         />
       </ChatBarShell>
+    </View>
+  );
+}
+
+function Dot({ delay, color }: { delay: number; color: string }) {
+  const lit = useSharedValue(0.3);
+  useEffect(() => {
+    lit.value = withDelay(delay, withRepeat(withSequence(withTiming(1, { duration: 350 }), withTiming(0.3, { duration: 350 })), -1));
+  }, [delay, lit]);
+  const style = useAnimatedStyle(() => ({ opacity: lit.value }));
+  return <Reanimated.View style={[{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: color }, style]} />;
+}
+
+/** "Alex is typing" with three pulsing dots, over the chat bar. Nothing when nobody is. */
+export function TypingIndicator({ label, testID }: { label: string | null; testID?: string }) {
+  const { colors, type, space } = useTheme();
+  if (!label) return null;
+  return (
+    <View
+      testID={testID}
+      accessibilityLiveRegion="polite"
+      accessibilityLabel={label}
+      style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: space.lg, paddingTop: space.xs }}
+    >
+      <View style={{ flexDirection: "row", gap: 3 }}>
+        <Dot delay={0} color={colors.textMuted} />
+        <Dot delay={150} color={colors.textMuted} />
+        <Dot delay={300} color={colors.textMuted} />
+      </View>
+      <Text style={{ ...type.caption, color: colors.textMuted }}>{label}</Text>
     </View>
   );
 }

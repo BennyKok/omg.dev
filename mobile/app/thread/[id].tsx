@@ -9,7 +9,7 @@ import { useOmg } from "../../src/omg/provider";
 import { TaskCard } from "../../src/omg/task-card";
 import { ChatHeaderBar, chatHeaderHeight } from "../../src/omg/chat-header";
 import { GroupAvatar, ThreadAvatar, ThreadDetailsSheet, ThreadPeopleContext, useAuthorName } from "../../src/omg/thread-details";
-import { ThreadChatBar } from "../../src/omg/chat-bar";
+import { ThreadChatBar, TypingIndicator } from "../../src/omg/chat-bar";
 import { Text } from "../../src/omg/text";
 import { useTheme } from "../../src/omg/theme";
 import {
@@ -22,10 +22,14 @@ import {
   TASK_STATE_LABEL,
   taskCardFor,
   topLevelMessages,
+  typingIn,
+  typingLabel,
+  typingPinger,
 } from "../../src/omg/thread-tasks";
 import {
   getThread,
   sendThreadMessage,
+  sendThreadTyping,
   updateThread,
   type ThreadAuthor,
   type ThreadDetail,
@@ -182,6 +186,16 @@ export default function ThreadScreen() {
   const cards = useMemo(() => cardMessageIds(messages), [messages]);
   const openAskIds = asks.map((q) => q.sessionId);
   const project = detail?.thread.project ?? null;
+  // Typing: one pinger per field, so the main list and the replies each say where you write.
+  const mainTyping = useMemo(
+    () => typingPinger((on) => void (client && sendThreadTyping(client, id, on, null))),
+    [client, id],
+  );
+  const replyTyping = useMemo(
+    () => typingPinger((on) => void (client && openRoot && sendThreadTyping(client, id, on, openRoot))),
+    [client, id, openRoot],
+  );
+  const mainTypingLabel = typingLabel(typingIn(detail?.typing, null), detail?.participants);
   const people = (detail?.participants ?? [])
     .filter((row) => row.kind === "human")
     .map((row) => row.display.name?.trim() || row.display.fallback);
@@ -322,7 +336,8 @@ export default function ThreadScreen() {
         />
 
         <View style={{ paddingBottom: Math.max(insets.bottom, space.md) }}>
-          <ThreadChatBar testID="thread-input" placeholder={`Message ${detail?.thread.title ?? "the thread"}`} onSend={(body) => post(body, null)} />
+          <TypingIndicator testID="thread-typing" label={mainTypingLabel} />
+          <ThreadChatBar testID="thread-input" placeholder={`Message ${detail?.thread.title ?? "the thread"}`} onSend={(body) => post(body, null)} onTyping={mainTyping} />
         </View>
       </KeyboardAvoidingView>
 
@@ -397,7 +412,8 @@ export default function ThreadScreen() {
                 ) : null}
               </ScrollView>
               <View style={{ paddingBottom: Math.max(insets.bottom, space.md) }}>
-                <ThreadChatBar testID="thread-reply-input" placeholder="Reply…" onSend={(body) => post(body, sheetRoot.id)} />
+                <TypingIndicator testID="thread-reply-typing" label={root ? typingLabel(typingIn(detail?.typing, root.id), detail?.participants) : null} />
+                <ThreadChatBar testID="thread-reply-input" placeholder="Reply…" onSend={(body) => post(body, sheetRoot.id)} onTyping={replyTyping} />
               </View>
             </KeyboardAvoidingView>
           </View>

@@ -21,7 +21,8 @@
       "expect": [
         "Alex",
         "Demo",
-        "@omg also fix the typo in the signup email"
+        "@omg also fix the typo in the signup email",
+        "Alex and omg are typing"
       ],
       "forbid": [
         "Claude Code",
@@ -47,7 +48,8 @@
         "Started a task in web.",
         "Cap the free tier on the pricing page",
         "Create it in live mode?",
-        "Yes, live"
+        "Yes, live",
+        "omg is typing"
       ]
     },
     {

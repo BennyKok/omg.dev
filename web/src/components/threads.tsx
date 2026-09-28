@@ -12,13 +12,16 @@ import {
   taskCardFor,
   threadPreview,
   topLevelMessages,
+  typingIn,
+  typingLabel,
+  typingPinger,
   type TaskCardState,
   type ThreadAuthor,
   type ThreadDetail,
   type ThreadMessage,
   type ThreadSummary,
 } from "../../../packages/protocol/src/threads";
-import { createThread, sendThreadMessage, updateThread, useThread } from "@/lib/threads";
+import { createThread, sendThreadMessage, sendThreadTyping, updateThread, useThread } from "@/lib/threads";
 import { useAsk, SessionQuestionPanel } from "./ask-center";
 import {
   DropdownMenu,
@@ -184,11 +187,37 @@ export type ThreadComposerProps = {
   placeholder: string;
   onSend: (text: string) => Promise<void>;
   autoFocus?: boolean;
+  /** The field's text on every change, for the typing ping. */
+  onTyping?: (text: string) => void;
 };
 
+/** Call `onTyping` with the field's text as it changes, and with "" when the field goes away. */
+export function useTypingReport(text: string, onTyping?: (text: string) => void) {
+  const latest = useRef(onTyping);
+  latest.current = onTyping;
+  useEffect(() => latest.current?.(text), [text]);
+  useEffect(() => () => latest.current?.(""), []);
+}
+
+/** "Alex is typing" with three pulsing dots, over the chat bar. Nothing when nobody is. */
+export function TypingLine({ label, testId }: { label: string | null; testId: string }) {
+  if (!label) return null;
+  return (
+    <div data-testid={testId} role="status" aria-live="polite" className="flex items-center gap-1.5 px-5 pt-1 text-[12px] text-muted-foreground">
+      <span className="flex gap-0.5" aria-hidden>
+        {[0, 150, 300].map((delay) => (
+          <span key={delay} className="size-1 animate-pulse rounded-full bg-muted-foreground" style={{ animationDelay: `${delay}ms` }} />
+        ))}
+      </span>
+      <span>{label}</span>
+    </div>
+  );
+}
+
 /** A plain field, used only where no chat bar is supplied (tests). */
-function Composer({ placeholder, onSend, autoFocus, testId }: ThreadComposerProps) {
+function Composer({ placeholder, onSend, autoFocus, testId, onTyping }: ThreadComposerProps) {
   const [text, setText] = useState("");
+  useTypingReport(text, onTyping);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const send = async () => {
@@ -279,6 +308,7 @@ export function ThreadChat({
       repos={repos}
       openAskSessionIds={questions.map((q) => q.sessionId)}
       questionPanel={(sessionIds) => (sessionIds.length ? <SessionQuestionPanel sessionIds={sessionIds} /> : null)}
+      typing={isNew ? undefined : (on, replyTo) => sendThreadTyping(threadId, on, viewer, replyTo)}
       send={async (text, replyTo) => {
         if (isNew) {
           onCreated((await createThread(text, viewer)).id);
@@ -321,9 +351,12 @@ export function ThreadChatView({
   onArchive,
   onOpenTask,
   onBack,
+  typing,
 }: {
   threadId: string;
   initialReplies?: string | null;
+  /** Tell the others you are typing (or stopped), in the main list or a message's replies. */
+  typing?: (on: boolean, replyTo: string | null) => void;
   renderComposer?: (props: ThreadComposerProps) => ReactNode;
   detail: ThreadDetail | null;
   repos: ReadonlyArray<{ name: string; cwd: string }>;
@@ -368,6 +401,11 @@ export function ThreadChatView({
     ? messages.find((m) => m.id === openRoot) ?? (rootHint?.id === openRoot ? rootHint : null)
     : null;
   const replies = useMemo(() => (openRoot ? repliesTo(messages, openRoot) : []), [messages, openRoot]);
+  // One pinger per field, so each says where you write.
+  const typingRef = useRef(typing);
+  typingRef.current = typing;
+  const mainTyping = useMemo(() => typingPinger((on) => typingRef.current?.(on, null)), [threadId]);
+  const replyTyping = useMemo(() => typingPinger((on) => typingRef.current?.(on, openRoot)), [threadId, openRoot]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
@@ -560,8 +598,10 @@ export function ThreadChatView({
         <div ref={endRef} />
       </div>
       {error ? <p className="px-4 text-[12px] text-destructive">{error}</p> : null}
+      <TypingLine testId="thread-typing" label={typingLabel(typingIn(detail?.typing, null), detail?.participants)} />
       <ComposerSlot
         render={renderComposer}
+        onTyping={mainTyping}
         testId="thread-input"
         placeholder={isNew ? "Message" : `Message ${detail?.thread.title ?? "the thread"}`}
         onSend={(text) => post(text, null)}
@@ -608,7 +648,8 @@ export function ThreadChatView({
           ))}
         </div>
         {questionPanel ? questionPanel([...new Set(replyTasks)]) : null}
-        <ComposerSlot render={renderComposer} testId="thread-reply-input" placeholder="Reply…" onSend={(text) => post(text, root.id)} autoFocus />
+        <TypingLine testId="thread-reply-typing" label={typingLabel(typingIn(detail?.typing, root.id), detail?.participants)} />
+        <ComposerSlot render={renderComposer} onTyping={replyTyping} testId="thread-reply-input" placeholder="Reply…" onSend={(text) => post(text, root.id)} autoFocus />
       </aside>
     </div>
     </ThreadPeopleContext.Provider>

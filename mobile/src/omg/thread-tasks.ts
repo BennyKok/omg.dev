@@ -21,4 +21,7 @@ export {
   taskCardFor,
   taskCardState,
   type TaskCardState,
+  typingIn,
+  typingLabel,
+  typingPinger,
 } from "../../../packages/protocol/src/threads";

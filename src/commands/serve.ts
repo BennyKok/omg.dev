@@ -26,11 +26,14 @@ import {
   listThreads,
   mentionsOmg,
   participantsForView,
+  setTyping,
+  threadTyping,
   readThreadMessages,
   setThreadNotifier,
   startThread,
   summarizeThread,
   threadAuthor,
+  threadDisplayName,
   threadParticipantId,
   threadTasks,
   threadUpdate,
@@ -1279,7 +1282,8 @@ async function handleThreadRequest(req: Request, url: URL, path: string): Promis
   }
   const one = path.match(/^\/api\/threads\/([0-9a-f-]{36})$/i);
   const messages = path.match(/^\/api\/threads\/([0-9a-f-]{36})\/messages$/i);
-  const id = one?.[1] ?? messages?.[1];
+  const typing = path.match(/^\/api\/threads\/([0-9a-f-]{36})\/typing$/i);
+  const id = one?.[1] ?? messages?.[1] ?? typing?.[1];
   if (!id) return null;
   const conversation = getConversation(id);
   if (!isThread(conversation)) return err(404, "thread not found");
@@ -1294,6 +1298,7 @@ async function handleThreadRequest(req: Request, url: URL, path: string): Promis
       participants: participantsForView(conversation, userRoster()),
       messages: readThreadMessages(id, limit),
       tasks: threadTasks(conversation, live),
+      typing: threadTyping(id, threadParticipantId(viewer.identity)),
     });
   }
   if (one && req.method === "PATCH") {
@@ -1314,6 +1319,19 @@ async function handleThreadRequest(req: Request, url: URL, path: string): Promis
   }
   if (one && req.method === "DELETE") {
     threadUpdate(id, { archived: true });
+    return json({ ok: true });
+  }
+  if (typing && req.method === "POST") {
+    // A ping, not a message: it names nobody new in the thread and writes nothing to disk.
+    const body = (await req.json().catch(() => null)) as { typing?: unknown; user?: unknown; replyTo?: unknown } | null;
+    const viewer = threadViewer(req, typeof body?.user === "string" ? body.user : url.searchParams.get("user"));
+    const author = {
+      kind: "human" as const,
+      participantId: threadParticipantId(viewer.identity),
+      name: threadDisplayName(viewer.identity, viewer.name),
+    };
+    const replyTo = typeof body?.replyTo === "string" && body.replyTo ? body.replyTo : null;
+    setTyping(id, author, body?.typing !== false, replyTo);
     return json({ ok: true });
   }
   if (messages && req.method === "POST") {

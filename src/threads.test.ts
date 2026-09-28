@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PATHS } from "./config.ts";
+import { typingIn, typingLabel, typingPinger } from "../packages/protocol/src/threads.ts";
 import { getConversation, listConversations } from "./conversations.ts";
 import {
   answerMention,
@@ -12,9 +13,11 @@ import {
   mentionsOmg,
   parseOmgDecision,
   readThreadMessages,
+  setTyping,
   startThread,
   threadAuthor,
   threadTasks,
+  threadTyping,
   threadUpdate,
   type ThreadDeps,
 } from "./threads.ts";
@@ -307,5 +310,86 @@ describe("people are drawn as they are now", () => {
       { name: "Benny", avatar: "/api/avatars/benny.png?v=2" },
       { name: "Alex", avatar: "https://gravatar.com/avatar/x" },
     ]);
+  });
+});
+
+describe("typing", () => {
+  const alex = { kind: "human" as const, participantId: "p-alex", name: "Alex" };
+
+  test("a person shows as typing to others, not to themselves, and expires", () => {
+    const thread = startThread({ identity: "benny@example.com" });
+    setTyping(thread.id, alex, true, null, 1_000);
+    expect(threadTyping(thread.id, "p-benny", 2_000)).toEqual([{ author: alex, replyTo: null }]);
+    expect(threadTyping(thread.id, "p-alex", 2_000)).toEqual([]);
+    expect(threadTyping(thread.id, "p-benny", 1_000 + 6_001)).toEqual([]);
+  });
+
+  test("sending a message ends its author's typing", () => {
+    const thread = startThread({ identity: "benny@example.com" });
+    const author = threadAuthor(thread.id, "alex@example.com", "Alex");
+    setTyping(thread.id, author, true, "root-1");
+    expect(threadTyping(thread.id)).toHaveLength(1);
+    appendThreadMessage(thread.id, { author, text: "done", replyTo: "root-1" });
+    expect(threadTyping(thread.id)).toEqual([]);
+  });
+
+  test("omg types in the replies while it answers, and stops when it posts", async () => {
+    const thread = startThread({ identity: "benny@example.com" });
+    let seen: unknown = null;
+    const d = deps({
+      complete: async () => {
+        seen = threadTyping(thread.id);
+        return '{"action":"reply","text":"About $8."}';
+      },
+    });
+    await answerMention(thread.id, "@omg price?", "benny@example.com", d, "root-1");
+    expect(seen).toEqual([{ author: { kind: "omg" }, replyTo: "root-1" }]);
+    expect(threadTyping(thread.id)).toEqual([]);
+  });
+
+  test("omg stops typing when the model call fails too", async () => {
+    const thread = startThread({ identity: "benny@example.com" });
+    const d = deps({
+      complete: async () => {
+        throw new Error("down");
+      },
+      startTask: async () => {
+        throw new Error("no agent");
+      },
+    });
+    await answerMention(thread.id, "@omg fix it", "benny@example.com", d, "root-1");
+    expect(threadTyping(thread.id)).toEqual([]);
+  });
+});
+
+describe("typing, as clients draw it", () => {
+  const alex = { author: { kind: "human" as const, participantId: "a", name: "Alex" }, replyTo: null };
+  const sam = { author: { kind: "human" as const, participantId: "s", name: "Sam" }, replyTo: "root-1" };
+  const omg = { author: { kind: "omg" as const }, replyTo: "root-1" };
+
+  test("each view shows its own writers; the main list also shows omg", () => {
+    expect(typingIn([alex, sam, omg], null)).toEqual([alex, omg]);
+    expect(typingIn([alex, sam, omg], "root-1")).toEqual([sam, omg]);
+  });
+
+  test("the line names one or two, then says several", () => {
+    expect(typingLabel([])).toBeNull();
+    expect(typingLabel([omg])).toBe("omg is typing");
+    expect(typingLabel([alex, sam])).toBe("Alex and Sam are typing");
+    expect(typingLabel([alex, sam, omg])).toBe("Several people are typing");
+  });
+
+  test("the pinger sends on text, repeats slowly, and stops once", () => {
+    const sent: boolean[] = [];
+    let t = 0;
+    const ping = typingPinger((on) => sent.push(on), () => t);
+    ping("h");
+    t = 1_000;
+    ping("he");
+    t = 3_500;
+    ping("hel");
+    ping("");
+    ping("");
+    expect(sent).toEqual([true, true, false]);
   });
 });

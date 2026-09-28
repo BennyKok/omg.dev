@@ -46,6 +46,17 @@ export function sendThreadMessage(client: OmgClient, id: string, text: string, r
     .then((res) => res.message);
 }
 
+/** "I am typing" (or not). Fire and forget: a lost ping only delays a dot. */
+export function sendThreadTyping(client: OmgClient, id: string, typing: boolean, replyTo?: string | null) {
+  return client.transport
+    .request<{ ok: boolean }>(`/api/threads/${encodeURIComponent(id)}/typing`, {
+      method: "POST",
+      headers: json,
+      body: JSON.stringify({ typing, ...(replyTo ? { replyTo } : {}) }),
+    })
+    .catch(() => null);
+}
+
 export function updateThread(
   client: OmgClient,
   id: string,

@@ -68,6 +68,15 @@ export type ThreadDetail = {
   participants: ThreadParticipant[];
   messages: ThreadMessage[];
   tasks: ThreadTaskRow[];
+  /** Who is writing right now, the caller left out. Absent on a machine from before typing. */
+  typing?: ThreadTyping[];
+};
+
+/** Someone writing in a thread: a person at their keyboard, or omg preparing an answer. */
+export type ThreadTyping = {
+  author: ThreadAuthor;
+  /** The top-level message whose replies they are writing in; null for the main list. */
+  replyTo: string | null;
 };
 
 export type TaskCardState = "working" | "needs-you" | "done" | "failed" | "ended";
@@ -292,5 +301,57 @@ export function authorView(
   return {
     name: row?.display.name?.trim() || author.name,
     avatar: row?.display.avatar?.trim() || null,
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Typing                                                                      */
+/* -------------------------------------------------------------------------- */
+
+/** A person's typing ping lasts this long, so a closed tab stops showing as typing. */
+export const THREAD_TYPING_TTL_MS = 6_000;
+/** While the field has text, a client repeats its ping this often. */
+export const THREAD_TYPING_PING_MS = 3_000;
+
+/**
+ * Who shows as typing in one view. The replies of `rootId`, or the main list
+ * when it is null. omg always answers in replies, so the main list also shows
+ * omg when it is answering anywhere: otherwise an @omg asked from the main
+ * list would look ignored.
+ */
+export function typingIn(typing: readonly ThreadTyping[] | undefined, rootId: string | null): ThreadTyping[] {
+  return (typing ?? []).filter((row) => row.replyTo === rootId || (rootId === null && row.author.kind === "omg"));
+}
+
+/** "Alex is typing", "omg is typing", "Alex and Sam are typing", "Several people are typing". */
+export function typingLabel(typing: readonly ThreadTyping[], participants?: readonly ThreadParticipant[]): string | null {
+  const names = [...new Set(typing.map((row) => authorView(row.author, participants).name))];
+  if (!names.length) return null;
+  if (names.length === 1) return `${names[0]} is typing`;
+  if (names.length === 2) return `${names[0]} and ${names[1]} are typing`;
+  return "Several people are typing";
+}
+
+/**
+ * The client half of typing: feed it the field's text on every change. It
+ * sends `true` when text appears and again every THREAD_TYPING_PING_MS while
+ * it stays, and `false` once when the field empties. One owner for the
+ * throttle, shared by iOS and the web.
+ */
+export function typingPinger(send: (typing: boolean) => void, now: () => number = Date.now): (text: string) => void {
+  let last = 0;
+  let on = false;
+  return (text: string) => {
+    if (text.trim()) {
+      const at = now();
+      if (on && at - last < THREAD_TYPING_PING_MS) return;
+      on = true;
+      last = at;
+      send(true);
+    } else if (on) {
+      on = false;
+      last = 0;
+      send(false);
+    }
   };
 }

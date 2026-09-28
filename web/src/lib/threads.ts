@@ -51,6 +51,15 @@ export function sendThreadMessage(
   }).then((res) => res.message);
 }
 
+/** "I am typing" (or not). Fire and forget: a lost ping only delays a dot. */
+export function sendThreadTyping(id: string, typing: boolean, user?: string | null, replyTo?: string | null): void {
+  void api(`/api/threads/${encodeURIComponent(id)}/typing`, {
+    method: "POST",
+    headers: json,
+    body: JSON.stringify({ typing, ...(user ? { user } : {}), ...(replyTo ? { replyTo } : {}) }),
+  }).catch(() => {});
+}
+
 export function updateThread(
   id: string,
   patch: { projectCwd?: string | null; title?: string | null; archived?: boolean },
