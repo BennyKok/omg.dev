@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, useEffect, type KeyboardEvent, type ReactNode } from "react";
-import { ArrowUp, ChevronLeft, MessageSquare, Plus, X } from "lucide-react";
+import { Archive, ArrowUp, ChevronLeft, Folder, Info, MessageSquare, MoreHorizontal, Pencil, Plus, X } from "lucide-react";
 import {
   authorHue,
   authorName,
@@ -25,8 +25,13 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
+import { Dialog, DialogContent, DialogTitle } from "./ui/dialog";
 import { cn } from "@/lib/utils";
 import { agentIconSrc } from "@/lib/session-ui";
 
@@ -316,6 +321,14 @@ export function ThreadChat({
         await updateThread(threadId, { projectCwd: cwd });
         await refresh();
       }}
+      onRename={async (title) => {
+        await updateThread(threadId, { title });
+        await refresh();
+      }}
+      onArchive={async () => {
+        await updateThread(threadId, { archived: true });
+        onBack?.();
+      }}
       onOpenTask={onOpenTask}
       onBack={onBack}
     />
@@ -333,6 +346,8 @@ export function ThreadChatView({
   questionPanel,
   send,
   setProject: saveProject,
+  onRename,
+  onArchive,
   onOpenTask,
   onBack,
 }: {
@@ -348,6 +363,8 @@ export function ThreadChatView({
   /** Post a message, top-level or in a message's replies. */
   send: (text: string, replyTo: string | null) => Promise<ThreadMessage | null>;
   setProject: (cwd: string | null) => Promise<void>;
+  onRename?: (title: string) => Promise<void>;
+  onArchive?: () => Promise<void>;
   onOpenTask: (sessionId: string) => void;
   onBack?: () => void;
 }) {
@@ -417,6 +434,17 @@ export function ThreadChatView({
     if (isNew) return;
     void saveProject(cwd).catch((e) => setError(e instanceof Error ? e.message : String(e)));
   };
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const humans = (detail?.participants ?? []).filter((row) => row.kind === "human");
+  const rename = () => {
+    const next = window.prompt("Rename thread", detail?.thread.title ?? "");
+    if (next?.trim()) void onRename?.(next.trim()).catch((e) => setError(String(e)));
+  };
+  const archive = () => {
+    if (!window.confirm("Archive this thread? It leaves your list. Its tasks keep running.")) return;
+    setDetailsOpen(false);
+    void onArchive?.().catch((e) => setError(String(e)));
+  };
 
   const card = (message: ThreadMessage) => {
     const c = cards.has(message.id) && detail ? taskCardFor(message, detail, messages, openAskSessionIds) : null;
@@ -463,46 +491,88 @@ export function ThreadChatView({
 
   const main = (
     <div data-testid="thread-chat" className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col bg-background">
+      {/* The chat page's bar: back, the group, and one ⋯ menu for the rest.
+          The project lives in that menu and in the details, not in the bar. */}
       <header className="flex items-center gap-2 border-b border-border px-3 py-2">
         {onBack ? (
-          <button type="button" onClick={onBack} aria-label="Back" className="flex size-8 items-center justify-center rounded-lg hover:bg-accent">
+          <button type="button" onClick={onBack} aria-label="Back" className="flex size-9 items-center justify-center rounded-full hover:bg-accent">
             <ChevronLeft className="size-4" />
           </button>
         ) : null}
-        <div className="min-w-0 flex-1">
+        {isNew ? null : <GroupAvatar people={humans} />}
+        <button
+          type="button"
+          data-testid="thread-title"
+          disabled={isNew}
+          onClick={() => setDetailsOpen(true)}
+          className="min-w-0 flex-1 text-left"
+        >
           <div className="truncate text-[15px] font-semibold">{isNew ? "New thread" : detail?.thread.title ?? "Thread"}</div>
           {isNew ? null : (
             <div className="truncate text-[12px] text-muted-foreground">
               {people.length ? people.join(", ") : "Just you"}
             </div>
           )}
-        </div>
+        </button>
         {isNew ? null : (
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
                 <button
                   type="button"
-                  aria-label={`Project: ${project?.name ?? "No project"}. Change`}
-                  className="max-w-40 truncate rounded-full bg-muted px-3 py-1 text-[12px] hover:bg-accent"
+                  data-testid="thread-menu"
+                  aria-label="Thread actions"
+                  className="flex size-9 items-center justify-center rounded-full hover:bg-accent"
                 >
-                  {project?.name ?? "No project"}
+                  <MoreHorizontal className="size-4" />
                 </button>
               }
             />
-            <DropdownMenuContent align="end">
-              <DropdownMenuLabel>Tasks run in</DropdownMenuLabel>
-              {repos.map((repo) => (
-                <DropdownMenuItem key={repo.cwd} onClick={() => setProject(repo.cwd)}>
-                  {repo.name}
-                  {project?.cwd === repo.cwd ? " ✓" : ""}
-                </DropdownMenuItem>
-              ))}
-              <DropdownMenuItem onClick={() => setProject(null)}>No project{project ? "" : " ✓"}</DropdownMenuItem>
+            <DropdownMenuContent align="end" className="min-w-52">
+              <DropdownMenuItem onClick={() => setDetailsOpen(true)}>
+                <Info className="size-4" /> Thread details
+              </DropdownMenuItem>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <Folder className="size-4" /> Project: {project?.name ?? "None"}
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  <DropdownMenuLabel>Tasks run in</DropdownMenuLabel>
+                  {repos.map((repo) => (
+                    <DropdownMenuItem key={repo.cwd} onClick={() => setProject(repo.cwd)}>
+                      {repo.name}
+                      {project?.cwd === repo.cwd ? " ✓" : ""}
+                    </DropdownMenuItem>
+                  ))}
+                  <DropdownMenuItem onClick={() => setProject(null)}>No project{project ? "" : " ✓"}</DropdownMenuItem>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+              <DropdownMenuItem onClick={rename}>
+                <Pencil className="size-4" /> Rename
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" onClick={archive}>
+                <Archive className="size-4" /> Archive thread
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         )}
       </header>
+      {detail ? (
+        <ThreadDetailsDialog
+          open={detailsOpen}
+          onOpenChange={setDetailsOpen}
+          detail={detail}
+          repos={repos}
+          onProject={setProject}
+          onRename={rename}
+          onArchive={archive}
+          onOpenTask={(sid) => {
+            setDetailsOpen(false);
+            onOpenTask(sid);
+          }}
+        />
+      ) : null}
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
         {isNew || (detail && !top.length) ? (
@@ -569,5 +639,123 @@ export function ThreadChatView({
         <ComposerSlot render={renderComposer} testId="thread-reply-input" placeholder="Reply…" onSend={(text) => post(text, root.id)} autoFocus />
       </aside>
     </div>
+  );
+}
+
+type Participant = ThreadDetail["participants"][number];
+const personName = (row: Participant) => row.display.name?.trim() || row.display.fallback;
+const personAuthor = (row: Participant): ThreadAuthor => ({ kind: "human", participantId: row.id, name: personName(row) });
+
+/** A thread's face where a session shows its agent: the first two people, overlapped. */
+function GroupAvatar({ people, size = 32 }: { people: Participant[]; size?: number }) {
+  const shown = people.slice(0, 2);
+  if (shown.length < 2) return shown[0] ? <Avatar author={personAuthor(shown[0])} size={size} /> : null;
+  const small = Math.round(size * 0.64);
+  return (
+    <div className="relative shrink-0" style={{ width: size, height: size }} aria-hidden>
+      <div className="absolute left-0 top-0">
+        <Avatar author={personAuthor(shown[0])} size={small} />
+      </div>
+      <div className="absolute bottom-0 right-0 rounded-lg ring-2 ring-background">
+        <Avatar author={personAuthor(shown[1])} size={small} />
+      </div>
+    </div>
+  );
+}
+
+const CREATED = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+
+/** Thread details: who is in it, where its tasks run, what it started. */
+export function ThreadDetailsDialog({
+  open,
+  onOpenChange,
+  detail,
+  repos,
+  onProject,
+  onRename,
+  onArchive,
+  onOpenTask,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  detail: ThreadDetail;
+  repos: ReadonlyArray<{ name: string; cwd: string }>;
+  onProject: (cwd: string | null) => void;
+  onRename: () => void;
+  onArchive: () => void;
+  onOpenTask: (sessionId: string) => void;
+}) {
+  const people = detail.participants.filter((row) => row.kind === "human");
+  const project = detail.thread.project;
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent data-testid="thread-details" className="max-w-md">
+        <div className="flex flex-col items-center gap-2 pt-2">
+          <GroupAvatar people={people} size={56} />
+          <DialogTitle className="text-center text-xl font-bold">{detail.thread.title}</DialogTitle>
+          <button type="button" onClick={onRename} className="text-sm text-primary hover:underline">Rename</button>
+        </div>
+        <section className="mt-3">
+          <div className="mb-1 text-xs text-muted-foreground">Members · {people.length + 1}</div>
+          <div className="divide-y divide-border rounded-xl border border-border">
+            {people.map((row) => (
+              <div key={row.id} className="flex items-center gap-3 px-3 py-2">
+                <Avatar author={personAuthor(row)} size={28} />
+                <div className="min-w-0">
+                  <div className="truncate text-sm">{personName(row)}{row.id === detail.me ? " (you)" : ""}</div>
+                  <div className="text-xs text-muted-foreground">{row.role === "owner" ? "Owner" : "Member"}</div>
+                </div>
+              </div>
+            ))}
+            <div className="flex items-center gap-3 px-3 py-2">
+              <Avatar author={{ kind: "omg" }} size={28} />
+              <div className="min-w-0">
+                <div className="text-sm">omg</div>
+                <div className="truncate text-xs text-muted-foreground">Answers, or starts a task, when someone writes @omg</div>
+              </div>
+            </div>
+          </div>
+        </section>
+        <section className="mt-3">
+          <div className="mb-1 text-xs text-muted-foreground">Project · where tasks from this thread run</div>
+          <select
+            data-testid="thread-details-project"
+            value={project?.cwd ?? ""}
+            onChange={(event) => onProject(event.target.value || null)}
+            className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm"
+          >
+            <option value="">No project</option>
+            {/* The current project stays pickable even before the list has loaded it. */}
+            {(project && !repos.some((repo) => repo.cwd === project.cwd) ? [project, ...repos] : repos).map((repo) => (
+              <option key={repo.cwd} value={repo.cwd}>{repo.name}</option>
+            ))}
+          </select>
+        </section>
+        {detail.tasks.length ? (
+          <section className="mt-3">
+            <div className="mb-1 text-xs text-muted-foreground">Tasks · {detail.tasks.length}</div>
+            <div className="divide-y divide-border rounded-xl border border-border">
+              {detail.tasks.map((task) => (
+                <button
+                  key={task.sessionId}
+                  type="button"
+                  onClick={() => onOpenTask(task.sessionId)}
+                  className="flex w-full flex-col px-3 py-2 text-left hover:bg-accent/40"
+                >
+                  <span className="truncate text-sm">{task.title || "Task"}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {[task.project, task.busy ? "Working" : task.ended ? "Ended" : "Waiting"].filter(Boolean).join(" · ")}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </section>
+        ) : null}
+        <p className="mt-3 text-center text-xs text-muted-foreground">Started {CREATED.format(detail.thread.createdAt)}</p>
+        <button type="button" onClick={onArchive} className="mt-2 w-full rounded-xl border border-border py-2 text-sm text-destructive hover:bg-destructive/10">
+          Archive thread
+        </button>
+      </DialogContent>
+    </Dialog>
   );
 }

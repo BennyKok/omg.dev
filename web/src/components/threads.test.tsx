@@ -152,3 +152,17 @@ test("on a touch list the heading has no New button: a pull starts a thread", ()
   expect(ui.text()).toContain("Threads · 1");
   expect(ui.query('[aria-label="New thread"]')).toBeNull();
 });
+
+test("the header has no project chip; the title opens details with members, omg and the project", async () => {
+  ui.render(view());
+  const header = ui.query("header")!;
+  expect(header.textContent).not.toContain("web");
+  expect(header.textContent).not.toContain("No project");
+  expect(ui.query('[data-testid="thread-menu"]')).not.toBeNull();
+  await ui.flushAsync(() => ui.query<HTMLButtonElement>('[data-testid="thread-title"]')!.click());
+  const details = document.querySelector('[data-testid="thread-details"]');
+  expect(details?.textContent).toContain("Members · 3");
+  expect(details?.textContent).toContain("Benny (you)");
+  expect(details?.textContent).toContain("Answers, or starts a task");
+  expect(details?.querySelector<HTMLSelectElement>('[data-testid="thread-details-project"]')?.value).toBe("/repos/web");
+});
