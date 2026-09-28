@@ -1,8 +1,8 @@
-import { useMemo, useRef, useState, useEffect, type KeyboardEvent, type ReactNode } from "react";
+import { createContext, useContext, useMemo, useRef, useState, useEffect, type KeyboardEvent, type ReactNode } from "react";
 import { Archive, ArrowUp, ChevronLeft, Folder, Info, MessageSquare, MoreHorizontal, Pencil, Plus, X } from "lucide-react";
 import {
   authorHue,
-  authorName,
+  authorView,
   cardMessageIds,
   mentionsOmg,
   replySummary,
@@ -95,10 +95,14 @@ function ComposerSlot({ render, ...props }: ThreadComposerProps & { render?: (pr
 
 const TIME = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
 
+/** The thread's people, so every avatar and name is drawn as they are now. */
+const ThreadPeopleContext = createContext<ThreadDetail["participants"] | undefined>(undefined);
+
 function Avatar({ author, size = 36 }: { author: ThreadAuthor; size?: number }) {
-  const omg = author.kind === "omg";
+  const people = useContext(ThreadPeopleContext);
+  const [failed, setFailed] = useState<string | null>(null);
   // omg wears its own mark, the same one the omg agent shows everywhere.
-  if (omg) {
+  if (author.kind === "omg") {
     return (
       <img
         aria-hidden
@@ -109,21 +113,35 @@ function Avatar({ author, size = 36 }: { author: ThreadAuthor; size?: number }) 
       />
     );
   }
+  const { name, avatar } = authorView(author, people);
+  // A person's own photo, as elsewhere in the app; the letter only when there
+  // is none or it will not load (an offline box cannot reach Gravatar).
+  if (avatar && failed !== avatar) {
+    return (
+      <img
+        aria-hidden
+        alt=""
+        src={avatar}
+        onError={() => setFailed(avatar)}
+        className="shrink-0 rounded-lg object-cover"
+        style={{ width: size, height: size }}
+      />
+    );
+  }
   return (
     <div
       aria-hidden
-      className="flex shrink-0 items-center justify-center rounded-lg text-[13px] font-bold text-white"
-      style={{
-        width: size,
-        height: size,
-        fontSize: size < 30 ? 10 : 14,
-        background: omg ? "#FF5530" : `hsl(${authorHue(author)} 45% 45%)`,
-      }}
+      className="flex shrink-0 items-center justify-center rounded-lg font-bold text-white"
+      style={{ width: size, height: size, fontSize: size < 30 ? 10 : 14, background: `hsl(${authorHue(author)} 45% 45%)` }}
     >
-      {/* "omg" does not fit a reply-line avatar; its first letter does. */}
-      {omg ? (size < 28 ? "o" : "omg") : authorName(author).slice(0, 1).toUpperCase()}
+      {name.slice(0, 1).toUpperCase()}
     </div>
   );
+}
+
+function AuthorName({ author }: { author: ThreadAuthor }) {
+  const people = useContext(ThreadPeopleContext);
+  return <>{authorView(author, people).name}</>;
 }
 
 /** One message, Slack style: avatar and name only at the start of a group. */
@@ -146,7 +164,7 @@ function MessageRow({
         {first ? (
           <div className="flex items-baseline gap-2">
             <span className={cn("text-[15px] font-bold", message.author.kind === "omg" && "text-[#FF5530]")}>
-              {authorName(message.author)}
+              <AuthorName author={message.author} />
             </span>
             <span className="text-[12px] text-muted-foreground">{TIME.format(message.ts)}</span>
           </div>
@@ -552,9 +570,10 @@ export function ThreadChatView({
     </div>
   );
 
-  if (!root) return main;
+  if (!root) return <ThreadPeopleContext.Provider value={detail?.participants}>{main}</ThreadPeopleContext.Provider>;
   const replyTasks = replies.flatMap((reply) => (reply.task ? [reply.task.sessionId] : []));
   return (
+    <ThreadPeopleContext.Provider value={detail?.participants}>
     <div className="flex h-full min-h-0 w-full min-w-0 flex-1">
       <div className="hidden min-w-0 flex-1 md:flex">{main}</div>
       <aside
@@ -592,6 +611,7 @@ export function ThreadChatView({
         <ComposerSlot render={renderComposer} testId="thread-reply-input" placeholder="Reply…" onSend={(text) => post(text, root.id)} autoFocus />
       </aside>
     </div>
+    </ThreadPeopleContext.Provider>
   );
 }
 

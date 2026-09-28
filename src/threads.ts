@@ -223,6 +223,33 @@ export function listThreads(): ThreadSummary[] {
     .sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
+/**
+ * The participants as a client should draw them: each person's CURRENT
+ * roster name and photo. A participant is stored with the name they had when
+ * they joined and no photo, so this is looked up at read time, from the
+ * participant-to-address map, and a renamed or re-photographed person shows
+ * up as they are now, in old threads too.
+ */
+export function participantsForView(
+  conversation: Conversation,
+  roster: readonly { email: string; name?: string | null; avatar?: string | null }[],
+): Conversation["participants"] {
+  const people = readPeople(conversation.id);
+  return conversation.participants.map((row) => {
+    const identity = people[row.id];
+    const profile = identity ? roster.find((user) => user.email.toLowerCase() === identity.toLowerCase()) : undefined;
+    if (!profile) return row;
+    return {
+      ...row,
+      display: {
+        ...row.display,
+        name: profile.name?.trim() || row.display.name || null,
+        avatar: profile.avatar || row.display.avatar || null,
+      },
+    };
+  });
+}
+
 /** A person's participant id in a thread. A box with no identities has one local person. */
 export function threadParticipantId(identity: string): string {
   return conversationHumanParticipantId(identity) || "human:local";

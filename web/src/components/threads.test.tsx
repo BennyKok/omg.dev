@@ -145,3 +145,17 @@ test("the header has no project chip; the title opens details with members, omg 
   expect(details?.textContent).toContain("Answers, or starts a task");
   expect(details?.querySelector<HTMLSelectElement>('[data-testid="thread-details-project"]')?.value).toBe("/repos/web");
 });
+
+test("people show their own photo and current name; no photo falls back to a letter", () => {
+  const withPhotos = {
+    ...detail,
+    participants: [
+      { id: "human:me", kind: "human", display: { name: "Benny", fallback: "Benny", avatar: "/api/avatars/benny.png" } },
+      { id: "human:alex", kind: "human", display: { name: "Alex Chan", fallback: "Alex", avatar: null } },
+    ],
+  };
+  ui.render(view({ detail: withPhotos }));
+  const photos = ui.queryAll<HTMLImageElement>('[data-testid="thread-message"] img').map((img) => img.getAttribute("src"));
+  expect(photos).toContain("/api/avatars/benny.png");
+  expect(ui.text()).toContain("Alex Chan");
+});

@@ -57,7 +57,8 @@ export type ThreadParticipant = {
   id: string;
   kind: string;
   role?: string;
-  display: { name?: string | null; fallback: string };
+  /** `avatar` is absolute (Gravatar) or box-relative (`/api/avatars/<file>`). */
+  display: { name?: string | null; fallback: string; avatar?: string | null };
 };
 
 export type ThreadDetail = {
@@ -275,4 +276,21 @@ export function matchThreadMentions(query: string, mentions = THREAD_MENTIONS) {
 /** Replace the `@word` being typed with `@name `. */
 export function applyThreadMention(text: string, at: { start: number }, name: string): string {
   return `${text.slice(0, at.start)}@${name} `;
+}
+
+/**
+ * How to draw a message's author: the participant's current name and photo
+ * when the thread knows them (the server fills both from the roster), else
+ * the name the message was written under. omg has no photo; it wears its mark.
+ */
+export function authorView(
+  author: ThreadAuthor,
+  participants: readonly ThreadParticipant[] | undefined,
+): { name: string; avatar: string | null } {
+  if (author.kind === "omg") return { name: "omg", avatar: null };
+  const row = participants?.find((participant) => participant.id === author.participantId);
+  return {
+    name: row?.display.name?.trim() || author.name,
+    avatar: row?.display.avatar?.trim() || null,
+  };
 }
