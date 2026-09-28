@@ -310,9 +310,86 @@ export function threadPullStage(pull: number): 0 | 1 | 2 {
 }
 
 /** Who `@` offers in a thread. omg is the one member that is not a person. */
-export const THREAD_MENTIONS: readonly { name: string; hint: string }[] = [
-  { name: "omg", hint: "Answer, or start a task" },
+export type ThreadMentionOption = {
+  id: string;
+  /** What follows the `@`, as typed and as shown. */
+  name: string;
+  hint: string;
+  kind: "omg" | "agent" | "person";
+  /** The coding agent's key, for an agent. */
+  agent?: string;
+  /** The participant, for a person. */
+  participantId?: string;
+  /** A person's photo, when they have one. */
+  avatar?: string | null;
+};
+
+export const THREAD_MENTIONS: readonly ThreadMentionOption[] = [
+  { id: "omg", name: "omg", hint: "Answer, or start a task", kind: "omg" },
 ];
+
+/** A coding agent as the machine lists it (GET /api/bootstrap, /api/coding-agents). */
+export type MentionableAgent = { key: string; label: string; visible?: boolean };
+
+/** What you type after `@` for an agent: its label's first word. "Claude Code" and "claude" are both "claude". */
+export function agentHandle(label: string): string {
+  return (label.trim().split(/\s+/)[0] ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+/**
+ * The coding agents a thread can @: the ones the machine shows, one per
+ * handle (two Claude runtimes are one "@claude"), and never omg's own
+ * agent, whose handle would be taken by omg the teammate.
+ */
+export function mentionAgents(agents: readonly MentionableAgent[] | undefined): { key: string; handle: string }[] {
+  const seen = new Set<string>(["omg"]);
+  const out: { key: string; handle: string }[] = [];
+  for (const agent of agents ?? []) {
+    const handle = agentHandle(agent.label);
+    if (agent.visible === false || agent.key === "omg" || !handle || seen.has(handle)) continue;
+    seen.add(handle);
+    out.push({ key: agent.key, handle });
+  }
+  return out;
+}
+
+/** Everything `@` offers in a thread: omg, the coding agents, and the other people in it. */
+export function threadMentionOptions(
+  agents: readonly MentionableAgent[] | undefined,
+  participants: readonly ThreadParticipant[] | undefined,
+  me?: string | null,
+): ThreadMentionOption[] {
+  const people = (participants ?? []).flatMap((row) => {
+    const name = row.kind === "human" && row.id !== me ? row.display.name?.trim() : null;
+    return name
+      ? [{ id: row.id, name, hint: "In this thread", kind: "person" as const, participantId: row.id, avatar: row.display.avatar ?? null }]
+      : [];
+  });
+  return [
+    ...THREAD_MENTIONS,
+    ...mentionAgents(agents).map((agent) => ({
+      id: `agent:${agent.key}`,
+      name: agent.handle,
+      hint: `Start a task with ${agent.handle}`,
+      kind: "agent" as const,
+      agent: agent.key,
+    })),
+    ...people,
+  ];
+}
+
+/** The coding agent a message asks by name, if any: the first `@handle` in it. */
+export function mentionedAgent(
+  text: string,
+  agents: readonly { key: string; handle: string }[],
+): { key: string; handle: string } | null {
+  let best: { key: string; handle: string; at: number } | null = null;
+  for (const agent of agents) {
+    const match = new RegExp(`(^|[^\\w@])@${agent.handle}(?![\\w-])`, "i").exec(text);
+    if (match && (!best || match.index < best.at)) best = { ...agent, at: match.index };
+  }
+  return best ? { key: best.key, handle: best.handle } : null;
+}
 
 /**
  * An `@word` being typed at the end of the text (the caret is taken to be at
@@ -427,8 +504,14 @@ export function mentionFromHref(href: string | null | undefined): string | null 
  * Code is left as written, and so is an address (`x@omg.dev`): a mention
  * starts a word.
  */
-export function linkMentions(text: string, participants: readonly ThreadParticipant[] | undefined): string {
+export function linkMentions(
+  text: string,
+  participants: readonly ThreadParticipant[] | undefined,
+  /** The coding agents' handles (mentionAgents), tagged as `agent:<handle>`. */
+  agentHandles: readonly string[] = [],
+): string {
   const targets = new Map<string, string>([["omg", "omg"]]);
+  for (const handle of agentHandles) if (!targets.has(handle)) targets.set(handle, `agent:${handle}`);
   for (const row of participants ?? []) {
     const name = row.kind === "human" ? row.display.name?.trim() : null;
     if (name && !targets.has(name.toLowerCase())) targets.set(name.toLowerCase(), row.id);

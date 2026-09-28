@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { PATHS } from "./config.ts";
 import { createImageArtifact } from "./artifacts.ts";
 import { uploadsDir } from "./uploads.ts";
-import { linkMentions, mentionFromHref, plainText, threadPreview, typingIn, typingLabel, typingPinger } from "../packages/protocol/src/threads.ts";
+import { linkMentions, mentionAgents, mentionedAgent, mentionFromHref, threadMentionOptions, plainText, threadPreview, typingIn, typingLabel, typingPinger } from "../packages/protocol/src/threads.ts";
 import { attachRuntimeSession, getConversation, listConversations } from "./conversations.ts";
 import {
   answerMention,
@@ -566,5 +566,54 @@ describe("mentions are tags", () => {
     expect(linkMentions("@omgx is nobody", people)).toBe("@omgx is nobody");
     expect(mentionFromHref("omg:mention/human%3Aa")).toBe("human:a");
     expect(mentionFromHref("https://example.com")).toBeNull();
+  });
+});
+
+describe("@ a coding agent by name", () => {
+  const agents = [
+    { key: "aisdk", label: "claude" },
+    { key: "codex-aisdk", label: "codex" },
+    { key: "omg", label: "omg agent" },
+    { key: "grok", label: "grok", visible: false },
+  ];
+
+  test("@ offers omg, the machine's shown agents once each, and the other people", () => {
+    const people = [
+      { id: "me", kind: "human" as const, display: { name: "Benny", fallback: "B" } },
+      { id: "a", kind: "human" as const, display: { name: "Alex", fallback: "A" } },
+    ];
+    expect(threadMentionOptions(agents, people, "me").map((row) => `${row.kind}:${row.name}`)).toEqual([
+      "omg:omg",
+      "agent:claude",
+      "agent:codex",
+      "person:Alex",
+    ]);
+    const handles = mentionAgents(agents);
+    expect(mentionedAgent("@omg and @codex, fix it", handles)).toEqual({ key: "codex-aisdk", handle: "codex" });
+    expect(mentionedAgent("mail x@codex.dev", handles)).toBeNull();
+    expect(linkMentions("@claude do it", [], handles.map((row) => row.handle))).toBe("[@claude](omg:mention/agent%3Aclaude) do it");
+  });
+
+  test("the named agent runs the task, even when omg would have answered", async () => {
+    const thread = startThread({ identity: "benny@example.com" });
+    let system = "";
+    const ran: (string | null | undefined)[] = [];
+    const d = deps({
+      complete: async (s) => {
+        system = s;
+        return '{"action":"reply","text":"About $8."}';
+      },
+      startTask: async ({ agent }) => {
+        ran.push(agent);
+        return "a1b2c3d4-0000-4000-8000-0000000000cc";
+      },
+    });
+    const posted = await answerMention(thread.id, "@codex what does Linear charge?", "benny@example.com", d, "root-9", false, {
+      key: "codex-aisdk",
+      handle: "codex",
+    });
+    expect(system).toContain("They asked codex, a coding agent, by name");
+    expect(ran).toEqual(["codex-aisdk"]);
+    expect(posted).toMatchObject({ text: "Started a codex task.", task: { event: "started" }, replyTo: "root-9" });
   });
 });

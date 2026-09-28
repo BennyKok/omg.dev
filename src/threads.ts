@@ -407,6 +407,14 @@ export const OMG_TASK_FOLLOWUP_RULE = [
   '{"action":"tell_task","text":"<the message for the task, complete and self-contained>"}',
 ].join("\n");
 
+/** Added when someone asked a coding agent by name: omg briefs it, and does not answer instead. */
+export function omgAgentRule(handle: string): string {
+  return [
+    `They asked ${handle}, a coding agent, by name. The work is ${handle}'s: start a task for it with the task JSON, a complete brief from the thread.`,
+    "Do not answer the question yourself.",
+  ].join("\n");
+}
+
 /**
  * Added when nobody mentioned omg: a person replied in a reply thread omg is
  * part of, and omg decides whether it has anything to add.
@@ -520,7 +528,8 @@ export type ThreadDeps = {
   /** One-shot model call. Returns the raw text, or null when no model is reachable. */
   complete: (system: string, user: string) => Promise<string | null>;
   /** Start a coding session. Returns its id. */
-  startTask: (input: { prompt: string; title: string; cwd: string | null; user: string }) => Promise<string>;
+  /** `agent` is a coding agent's key when someone asked it by name; otherwise Settings' default runs. */
+  startTask: (input: { prompt: string; title: string; cwd: string | null; user: string; agent?: string | null }) => Promise<string>;
   /** Send a follow-up to a running task, as its next turn. */
   tellTask: (input: { sessionId: string; text: string; user: string }) => Promise<void>;
 };
@@ -540,15 +549,18 @@ export async function answerMention(
   rootId: string,
   /** Nobody named omg; it may stay quiet. */
   unmentioned = false,
+  /** A coding agent asked by name (`@codex`): the work is a task, and it runs with that agent. */
+  agent: { key: string; handle: string } | null = null,
 ): Promise<ThreadMessage | null> {
   // What omg reads: the whole thread, every reply thread included.
   const context = readThreadMessages(threadId, 5_000);
-  const cleaned = request.replace(/@omg\b/gi, "").trim() || request;
+  const named = agent ? new RegExp(`@(omg|${agent.handle})\\b`, "gi") : /@omg\b/gi;
+  const cleaned = request.replace(named, "").trim() || request;
   // Asked by name, omg shows as typing in the replies until it posts. Unasked,
   // it may say nothing, and dots that end in silence would read as a lost reply.
   if (!unmentioned) setTyping(threadId, { kind: "omg" }, true, rootId);
   try {
-    return await decideAndAnswer(threadId, cleaned, identity, deps, rootId, context, unmentioned);
+    return await decideAndAnswer(threadId, cleaned, identity, deps, rootId, context, unmentioned, agent);
   } finally {
     if (!unmentioned) setTyping(threadId, { kind: "omg" }, false);
   }
@@ -562,12 +574,14 @@ async function decideAndAnswer(
   rootId: string,
   context: ThreadMessage[],
   unmentioned: boolean,
+  agent: { key: string; handle: string } | null,
 ): Promise<ThreadMessage | null> {
   const runningTask = taskInReplies(context, rootId);
   const system = [
     OMG_THREAD_SYSTEM_PROMPT,
     ...(runningTask ? [OMG_TASK_FOLLOWUP_RULE] : []),
     ...(unmentioned ? [OMG_UNMENTIONED_RULE] : []),
+    ...(agent ? [omgAgentRule(agent.handle)] : []),
   ].join("\n\n");
   const raw = await deps
     .complete(
@@ -575,7 +589,12 @@ async function decideAndAnswer(
       `The whole thread, oldest first:\n${transcriptForModel(context)}\n\n${unmentioned ? "The new reply" : "The message that mentioned you"}: ${cleaned}`,
     )
     .catch(() => null);
-  const decision = parseOmgDecision(raw, cleaned, unmentioned);
+  const parsed = parseOmgDecision(raw, cleaned, unmentioned && !agent);
+  // Asked by name, an agent always gets the work: omg only writes its brief.
+  const decision: OmgDecision =
+    agent && (parsed.action === "reply" || parsed.action === "none")
+      ? { action: "task", title: cleaned.slice(0, 80), prompt: cleaned }
+      : parsed;
   if (decision.action === "none") return null;
   if (decision.action === "reply") {
     return appendThreadMessage(threadId, { author: { kind: "omg" }, text: decision.text, replyTo: rootId });
@@ -601,11 +620,12 @@ async function decideAndAnswer(
       title: decision.title,
       cwd: project?.cwd ?? null,
       user: identity,
+      agent: agent?.key ?? null,
     });
     attachRuntimeSession({ conversationId: threadId, sessionId, kind: "execution" });
     return appendThreadMessage(threadId, {
       author: { kind: "omg" },
-      text: project ? `Started a task in ${project.name}.` : "Started a task.",
+      text: `Started a ${agent ? `${agent.handle} ` : ""}task${project ? ` in ${project.name}` : ""}.`,
       task: { sessionId, event: "started", title: decision.title, project: project?.name ?? null },
       replyTo: rootId,
     });
