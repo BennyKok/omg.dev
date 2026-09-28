@@ -34,9 +34,9 @@ async function pull(distance: number) {
 test("a short pull does nothing; a long pull says release, and releasing starts a thread", async () => {
   let started = 0;
   ui.render(<PullToThread onStart={() => started++} scrollTop={() => 0}><div>list</div></PullToThread>);
-  expect(await pull(THREAD_PULL_HINT - 10)).not.toContain("thread");
+  expect(await pull(THREAD_PULL_HINT - 10)).not.toContain("Release");
   expect(started).toBe(0);
-  expect(await pull(THREAD_PULL_HINT + 5)).toContain("Pull more to start a thread");
+  expect(await pull(THREAD_PULL_HINT + 5)).toContain("Pull to start a thread");
   expect(started).toBe(0);
   expect(await pull(THREAD_PULL_ARM + 5)).toContain("Release to start a thread");
   expect(started).toBe(1);
@@ -47,4 +47,17 @@ test("a pull that starts while the list is scrolled is an ordinary scroll", asyn
   ui.render(<PullToThread onStart={() => started++} scrollTop={() => 240}><div>list</div></PullToThread>);
   expect(await pull(THREAD_PULL_ARM + 50)).not.toContain("Release");
   expect(started).toBe(0);
+});
+
+test("on a desktop, scrolling up past the top is the pull, and the wheel settling releases it", async () => {
+  let started = 0;
+  ui.render(<PullToThread onStart={() => started++} scrollTop={() => 0}><div>list</div></PullToThread>);
+  const area = ui.query('[data-testid="pull-to-thread"]')!;
+  await ui.flushAsync(() => {
+    for (let i = 0; i < 4; i++) area.dispatchEvent(new window.WheelEvent("wheel", { deltaY: -100, bubbles: true }));
+  });
+  expect(ui.text()).toContain("Release to start a thread");
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await ui.flushAsync();
+  expect(started).toBe(1);
 });

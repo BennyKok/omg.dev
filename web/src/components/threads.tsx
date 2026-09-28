@@ -49,53 +49,6 @@ import { agentIconSrc } from "@/lib/session-ui";
 /** The id `/threads/new` carries: an empty thread that exists once it has a first message. */
 export const NEW_THREAD_ID = "new";
 
-export function ThreadRailSection({
-  threads,
-  activeId,
-  onOpen,
-  onNew,
-}: {
-  threads: ThreadSummary[];
-  activeId: string | null;
-  onOpen: (id: string) => void;
-  /** Omit on a touch list, where a pull starts a thread (PullToThread). */
-  onNew?: () => void;
-}) {
-  return (
-    <section aria-label="Threads" data-testid="thread-rail" className="mb-2">
-      <div className="flex items-center px-2 pb-1 pt-1 text-[11px] font-semibold text-muted-foreground/70">
-        <span className="min-w-0 flex-1 truncate">Threads · {threads.length}</span>
-        {onNew ? (
-        <button
-          type="button"
-          onClick={onNew}
-          aria-label="New thread"
-          title="New thread"
-          className="flex size-5 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-        >
-          <Plus className="size-3.5" />
-        </button>
-        ) : null}
-      </div>
-      {threads.map((thread) => (
-        <button
-          key={thread.id}
-          type="button"
-          onClick={() => onOpen(thread.id)}
-          aria-current={activeId === thread.id ? "page" : undefined}
-          className={cn(
-            "flex w-full min-w-0 flex-col gap-0.5 rounded-lg px-2 py-1.5 text-left hover:bg-accent/60",
-            activeId === thread.id && "bg-accent",
-          )}
-        >
-          <span className="truncate text-[13px] font-medium text-foreground">{thread.title}</span>
-          <span className="truncate text-[12px] text-muted-foreground">{threadPreview(thread)}</span>
-        </button>
-      ))}
-    </section>
-  );
-}
-
 const STATE_TINT: Record<TaskCardState, string> = {
   working: "text-sky-500",
   "needs-you": "text-amber-500",

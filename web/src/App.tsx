@@ -96,10 +96,10 @@ import {
 import { ChatStarterRow } from "./components/chat-starter-row";
 import { groupNodesByProject, type ProjectGroup } from "./lib/session-groups";
 import { pathnameToSessionId, pathnameToThreadId, sessionToPath, threadToPath } from "./lib/app-search";
-import { NEW_THREAD_ID, ThreadChat, ThreadRailSection, type ThreadComposerProps } from "./components/threads";
+import { NEW_THREAD_ID, ThreadChat, type ThreadComposerProps } from "./components/threads";
 import { PullToThread } from "./components/pull-to-thread";
 import { useThreads } from "./lib/threads";
-import type { ThreadSummary } from "../../packages/protocol/src/threads";
+import { threadPreview, type ThreadSummary } from "../../packages/protocol/src/threads";
 import {
   BOT_ROSTER_ROW_CLASS,
   isPrimarySurfaceTab,
@@ -12155,14 +12155,8 @@ function LiveView({
           transcript lives on the session's own page. */}
       {/* Pull the list down past the top to start a thread, as on iOS. */}
       <PullToThread onStart={() => onOpenThread?.(NEW_THREAD_ID)}>
-        {/* Only with threads, and no button: on a touch list the pull starts one. */}
-        {threads.length ? (
-          <ThreadRailSection
-            threads={threads}
-            activeId={openThreadId}
-            onOpen={(id) => onOpenThread?.(id)}
-          />
-        ) : null}
+        {/* Only with threads, and no button: the pull starts one. */}
+        <ThreadRailGroup threads={threads} activeId={openThreadId} collapsed={false} onOpen={(id) => onOpenThread?.(id)} />
         <SessionGroups
           groups={projectGroups}
           pinnedNodes={pinnedNodes}
@@ -13679,15 +13673,7 @@ function RailStage({
           </div>
         )}
         <div className="session-list-scroll min-h-0 flex-1 overflow-y-auto px-1.5 py-2">
-          {railSurface === "chat" ? botRailList : <>
-          {!railCollapsed && railSurface === "sessions" ? (
-            <ThreadRailSection
-              threads={threads}
-              activeId={openThreadId}
-              onOpen={(id) => onOpenThread?.(id)}
-              onNew={() => onOpenThread?.(NEW_THREAD_ID)}
-            />
-          ) : null}
+          {railSurface === "chat" ? botRailList : <PullToThread fill={false} onStart={() => onOpenThread?.(NEW_THREAD_ID)}>
           {/* Leads the list, the way New bot leads the roster: it belongs to
               the thing it adds to, under the switch bar that says which list
               that is. It used to sit in the chrome above, sharing a row with
@@ -13746,12 +13732,26 @@ function RailStage({
             projectFilter={projectFilter}
             onProjectChange={onProjectChange}
             renderItem={renderRailItem}
+            // Threads, as on the iPad rail: a group like the others, only when
+            // there are some, rows drawn exactly like session rows with no
+            // agent mark. A thread starts from a pull at the top of the rail.
+            leading={
+              railSurface === "sessions" ? (
+                <ThreadRailGroup
+                  threads={threads}
+                  activeId={openThreadId}
+                  collapsed={railCollapsed}
+                  dense
+                  onOpen={(id) => onOpenThread?.(id)}
+                />
+              ) : null
+            }
             // The folder menu above names the scope, so a header under it
             // repeating "lfg · 9" said the same thing twice.
             headerless={showFolderMenu}
             dense
           />
-          </>}
+          </PullToThread>}
         </div>
         {/* Host-owned footer. A host embedding LFG as its whole desktop surface
             (omg) has nowhere to put its own top-level navigation: this layout
@@ -14380,6 +14380,49 @@ function RailGroup({
  * conversation) and which swipe actions, if any, make sense for what the row
  * represents.
  */
+/**
+ * Threads in the session list, as on the iPad rail: a group like Pinned or a
+ * folder, drawn only when there are threads, each row a session row without
+ * an agent mark. There is no New button; a pull at the top of the list starts
+ * a thread (PullToThread).
+ */
+function ThreadRailGroup({
+  threads,
+  activeId,
+  collapsed,
+  dense = false,
+  onOpen,
+}: {
+  threads: ThreadSummary[];
+  activeId: string | null;
+  collapsed: boolean;
+  dense?: boolean;
+  onOpen: (id: string) => void;
+}) {
+  if (!threads.length) return null;
+  return (
+    <RailGroup label="Threads" count={threads.length} collapsed={collapsed} foldKey="__threads">
+      {threads.map((thread) => (
+        <RailRow
+          key={thread.id}
+          railKey={`thread:${thread.id}`}
+          collapsed={collapsed}
+          dense={dense}
+          active={activeId === thread.id}
+          cursored={false}
+          ariaLabel={`Thread ${thread.title}`}
+          tooltip={thread.title}
+          mark={null}
+          title={thread.title}
+          preview={threadPreview(thread)}
+          trailingStatic={relTime(thread.updatedAt)}
+          onActivate={() => onOpen(thread.id)}
+        />
+      ))}
+    </RailGroup>
+  );
+}
+
 const RailRow = memo(function RailRow({
   railKey,
   collapsed,

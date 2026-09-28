@@ -36,7 +36,7 @@ const detail: ThreadDetail = {
   ],
 };
 
-const { ThreadChatView, ThreadRailSection, NEW_THREAD_ID } = await import("./threads");
+const { ThreadChatView, NEW_THREAD_ID } = await import("./threads");
 
 const sent: { text: string; replyTo: string | null }[] = [];
 function view(props: Partial<Parameters<typeof ThreadChatView>[0]> = {}) {
@@ -130,28 +130,7 @@ test("an empty new thread sends its first message", async () => {
   expect(sent).toEqual([{ text: "Should we drop the free tier?", replyTo: null }]);
 });
 
-test("the rail lists threads by who spoke last, and New opens an empty one", () => {
-  const actions: string[] = [];
-  ui.render(
-    <ThreadRailSection
-      threads={[{ ...detail.thread, lastMessage: { author: alex, text: "Keep it", ts: 2 } }]}
-      activeId={null}
-      onOpen={(id) => actions.push(`open:${id}`)}
-      onNew={() => actions.push("new")}
-    />,
-  );
-  expect(ui.text()).toContain("Threads · 1");
-  expect(ui.text()).toContain("Alex: Keep it");
-  ui.query<HTMLButtonElement>('[aria-label="New thread"]')?.click();
-  ui.queryAll<HTMLButtonElement>('[data-testid="thread-rail"] button')[1]?.click();
-  expect(actions).toEqual(["new", "open:t1"]);
-});
 
-test("on a touch list the heading has no New button: a pull starts a thread", () => {
-  ui.render(<ThreadRailSection threads={[detail.thread]} activeId={null} onOpen={() => {}} />);
-  expect(ui.text()).toContain("Threads · 1");
-  expect(ui.query('[aria-label="New thread"]')).toBeNull();
-});
 
 test("the header has no project chip; the title opens details with members, omg and the project", async () => {
   ui.render(view());
