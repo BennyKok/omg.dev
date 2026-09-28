@@ -11924,12 +11924,6 @@ function LiveView({
       <div className="flex flex-col gap-5">
         {coach}
         <PullToThread onStart={() => onOpenThread?.(NEW_THREAD_ID)}>
-          <ThreadRailSection
-            threads={threads}
-            activeId={null}
-            onOpen={(id) => onOpenThread?.(id)}
-            onNew={() => onOpenThread?.(NEW_THREAD_ID)}
-          />
           <RuntimeEmptyState />
         </PullToThread>
       </div>
@@ -12156,12 +12150,14 @@ function LiveView({
           transcript lives on the session's own page. */}
       {/* Pull the list down past the top to start a thread, as on iOS. */}
       <PullToThread onStart={() => onOpenThread?.(NEW_THREAD_ID)}>
-        <ThreadRailSection
-          threads={threads}
-          activeId={openThreadId}
-          onOpen={(id) => onOpenThread?.(id)}
-          onNew={() => onOpenThread?.(NEW_THREAD_ID)}
-        />
+        {/* Only with threads, and no button: on a touch list the pull starts one. */}
+        {threads.length ? (
+          <ThreadRailSection
+            threads={threads}
+            activeId={openThreadId}
+            onOpen={(id) => onOpenThread?.(id)}
+          />
+        ) : null}
         <SessionGroups
           groups={projectGroups}
           pinnedNodes={pinnedNodes}
