@@ -186,7 +186,12 @@ export default function ThreadScreen() {
     .filter((row) => row.kind === "human")
     .map((row) => row.display.name?.trim() || row.display.fallback);
   const root = openRoot ? messages.find((m) => m.id === openRoot) ?? (rootHint?.id === openRoot ? rootHint : null) : null;
-  const replies = useMemo(() => (openRoot ? repliesTo(messages, openRoot) : []), [messages, openRoot]);
+  // The sheet keeps drawing its thread while it slides away. Emptied on close,
+  // it would slide down as a blank white page.
+  const [shownRoot, setShownRoot] = useState<ThreadMessage | null>(root);
+  if (root && root !== shownRoot) setShownRoot(root);
+  const sheetRoot = root ?? shownRoot;
+  const replies = useMemo(() => (sheetRoot ? repliesTo(messages, sheetRoot.id) : []), [messages, sheetRoot]);
 
   const projectOptions: MenuOption[] = [
     ...repos.map((repo) => ({
@@ -354,7 +359,7 @@ export default function ThreadScreen() {
       </Modal>
 
       <Modal visible={!!root} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setOpenRoot(null)}>
-        {root ? (
+        {sheetRoot ? (
           <View testID="thread-replies" style={{ flex: 1, backgroundColor: colors.background }}>
             <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
               <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: space.lg, paddingVertical: space.md, borderBottomWidth: 0.5, borderBottomColor: colors.border }}>
@@ -364,8 +369,8 @@ export default function ThreadScreen() {
                 </Pressable>
               </View>
               <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: space.lg, paddingBottom: space.lg }}>
-                <MessageRow message={root} first>
-                  {card(root)}
+                <MessageRow message={sheetRoot} first>
+                  {card(sheetRoot)}
                 </MessageRow>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: space.md }}>
                   <Text style={{ ...type.caption, color: colors.textMuted }}>
@@ -392,7 +397,7 @@ export default function ThreadScreen() {
                 ) : null}
               </ScrollView>
               <View style={{ paddingBottom: Math.max(insets.bottom, space.md) }}>
-                <ThreadChatBar testID="thread-reply-input" placeholder="Reply…" onSend={(body) => post(body, root.id)} />
+                <ThreadChatBar testID="thread-reply-input" placeholder="Reply…" onSend={(body) => post(body, sheetRoot.id)} />
               </View>
             </KeyboardAvoidingView>
           </View>
