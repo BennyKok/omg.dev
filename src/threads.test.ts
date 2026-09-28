@@ -23,6 +23,7 @@ import {
   threadTasks,
   threadTyping,
   transcriptForModel,
+  turnAnswer,
   threadUpdate,
   type ThreadDeps,
 } from "./threads.ts";
@@ -615,5 +616,48 @@ describe("@ a coding agent by name", () => {
     expect(system).toContain("They asked codex, a coding agent, by name");
     expect(ran).toEqual(["codex-aisdk"]);
     expect(posted).toMatchObject({ text: "Started a codex task.", task: { event: "started" }, replyTo: "root-9" });
+  });
+});
+
+describe("what reaches the thread when a task finishes a turn", () => {
+  // The rows of 2026-09-28 14:10, when the completion arrived before the answer was written.
+  const turn = [
+    { role: "assistant", kind: "text", text: "Earlier turn's answer." },
+    { role: "user", kind: "text", text: "Explore philosophical names." },
+    { role: "assistant", kind: "thinking", text: "(thinking)" },
+    { role: "assistant", kind: "tool_use", text: "Bash: whois ..." },
+    { role: "assistant", kind: "thinking", text: "(thinking)" },
+  ];
+
+  test("the turn's written answer, never its thinking, a tool call or the last turn's answer", () => {
+    expect(turnAnswer(turn)).toBeNull();
+    expect(turnAnswer([...turn, { role: "assistant", kind: "text", text: "Every one-word .com is taken." }])).toBe(
+      "Every one-word .com is taken.",
+    );
+  });
+});
+
+describe("unasked, in a task's replies", () => {
+  test("omg is told the replies are the work's conversation", async () => {
+    const thread = startThread({ identity: "benny@example.com" });
+    const benny = threadAuthor(thread.id, "benny@example.com", "Benny");
+    const ask = appendThreadMessage(thread.id, { author: benny, text: "@omg name the course" });
+    appendThreadMessage(thread.id, {
+      author: { kind: "omg" },
+      text: "Started a task.",
+      replyTo: ask.id,
+      task: { sessionId: "a1b2c3d4-0000-4000-8000-0000000000dd", event: "started", title: "Names", project: null },
+    });
+    let system = "";
+    const d = deps({
+      complete: async (s) => {
+        system = s;
+        return '{"action":"tell_task","text":"Names that feel super."}';
+      },
+    });
+    await answerMention(thread.id, "Like super", "benny@example.com", d, ask.id, true);
+    expect(system).toContain("These replies are where a task is being worked on");
+    expect(system).toContain("When unsure, pass it on");
+    expect(d.told).toEqual([{ sessionId: "a1b2c3d4-0000-4000-8000-0000000000dd", text: "Names that feel super." }]);
   });
 });
