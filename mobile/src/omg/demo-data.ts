@@ -60,8 +60,8 @@ const ME = "human:me";
 const ALEX = "human:alex";
 
 function demoThreadMessages(t: number) {
-  const msg = (id: string, ts: number, author: object, text: string, task?: object) =>
-    ({ id, threadId: DEMO_THREAD, ts, author, text, ...(task ? { task } : {}) });
+  const msg = (id: string, ts: number, author: object, text: string, task?: object, replyTo?: string) =>
+    ({ id, threadId: DEMO_THREAD, ts, author, text, ...(task ? { task } : {}), ...(replyTo ? { replyTo } : {}) });
   const alex = { kind: "human", participantId: ALEX, name: "Alex" };
   const me = { kind: "human", participantId: ME, name: "Demo" };
   const omg = { kind: "omg" };
@@ -69,12 +69,12 @@ function demoThreadMessages(t: number) {
     msg("t1", t - 40 * MIN, alex, "Should we drop the free tier?"),
     msg("t2", t - 39 * MIN, me, "Keep it, but cap it at 3 tasks a day."),
     msg("t3", t - 38 * MIN, alex, "@omg what do Linear and Vercel charge for their paid tiers?"),
-    msg("t4", t - 38 * MIN, omg, "Linear starts at $8 per seat a month. Vercel Pro is $20 per member a month."),
+    msg("t4", t - 38 * MIN, omg, "Linear starts at $8 per seat a month. Vercel Pro is $20 per member a month.", undefined, "t3"),
     msg("t5", t - 21 * MIN, me, "@omg update the pricing page with the cap"),
-    msg("t6", t - 20 * MIN, omg, "Started a task in web.", { sessionId: DEMO_TASK_ASKING, event: "started", title: "Cap the free tier on the pricing page", project: "web" }),
+    msg("t6", t - 20 * MIN, omg, "Started a task in web.", { sessionId: DEMO_TASK_ASKING, event: "started", title: "Cap the free tier on the pricing page", project: "web" }, "t5"),
     msg("t7", t - 15 * MIN, alex, "@omg also fix the typo in the signup email"),
-    msg("t8", t - 14 * MIN, omg, "Started a task in web.", { sessionId: DEMO_TASK_DONE, event: "started", title: "Fix the signup email typo", project: "web" }),
-    msg("t9", t - 2 * MIN, omg, "Fixed \"recieve\" in the signup email. Tests pass.", { sessionId: DEMO_TASK_DONE, event: "finished", title: "Fix the signup email typo", project: "web" }),
+    msg("t8", t - 14 * MIN, omg, "Started a task in web.", { sessionId: DEMO_TASK_DONE, event: "started", title: "Fix the signup email typo", project: "web" }, "t7"),
+    msg("t9", t - 2 * MIN, omg, "Fixed \"recieve\" in the signup email. Tests pass.", { sessionId: DEMO_TASK_DONE, event: "finished", title: "Fix the signup email typo", project: "web" }, "t7"),
   ];
 }
 

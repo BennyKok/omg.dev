@@ -15,46 +15,50 @@
       ]
     },
     {
-      "name": "A thread is a chat between people",
+      "name": "A thread reads like Slack",
       "goal": "Tap the row named Pricing ideas under the Threads heading. Do not tap the message field.",
-      "done": "The thread is open at its newest messages: Alex's message about the signup email and omg's reply.",
+      "done": "The thread is open. Messages from Alex and Demo sit on the left under their names, and omg's answers are not in the main list.",
       "expect": [
         "Alex",
-        "@omg also fix the typo in the signup email",
-        "Fixed \"recieve\" in the signup email. Tests pass."
+        "Demo",
+        "@omg also fix the typo in the signup email"
       ],
       "forbid": [
         "Claude Code",
-        "Worked"
-      ]
-    },
-    {
-      "name": "Task cards show their state",
-      "goal": "Read the task cards near the end of the thread. Do not tap a card.",
-      "done": "One task card says it needs you and one says it is done.",
-      "expect": [
-        "Needs you",
-        "Cap the free tier on the pricing page",
-        "Done",
-        "Fix the signup email typo"
-      ]
-    },
-    {
-      "name": "The task's question is answered in the thread",
-      "goal": "Read the question at the end of the thread. Do not tap an answer.",
-      "done": "The task's question and its two one-tap answers are visible.",
-      "expect": [
-        "Create it in live mode?",
-        "Yes, live",
-        "Test mode only"
-      ]
-    },
-    {
-      "name": "omg answered a quick question earlier",
-      "goal": "Scroll up in the thread to read the earlier messages. Do not tap anything.",
-      "done": "omg's short answer about Linear and Vercel pricing is visible.",
-      "expect": [
+        "Worked",
         "Linear starts at $8 per seat a month."
+      ]
+    },
+    {
+      "name": "Replies show the task state",
+      "goal": "Read the reply links under the messages near the end of the thread. Do not tap anything.",
+      "done": "The messages that asked omg for work say how many replies they have, one with a task that needs you and one with a task that is done.",
+      "expect": [
+        "reply, task Needs you",
+        "2 replies, task Done"
+      ]
+    },
+    {
+      "name": "omg answers in the replies",
+      "goal": "Tap the reply link that says the task needs you.",
+      "done": "The replies sheet is open with omg's message, the task card and the task's question.",
+      "expect": [
+        "Replies",
+        "Started a task in web.",
+        "Cap the free tier on the pricing page",
+        "Create it in live mode?",
+        "Yes, live"
+      ]
+    },
+    {
+      "name": "Close the replies",
+      "goal": "Tap Close replies at the top right of the replies sheet.",
+      "done": "The replies sheet is closed and the thread is visible again.",
+      "expect": [
+        "Pricing ideas"
+      ],
+      "forbid": [
+        "Create it in live mode?"
       ]
     },
     {

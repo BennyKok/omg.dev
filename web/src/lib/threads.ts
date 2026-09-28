@@ -37,11 +37,17 @@ export function getThread(id: string, user?: string | null): Promise<ThreadDetai
   return api<ThreadDetail>(`/api/threads/${encodeURIComponent(id)}${asUser(user)}`);
 }
 
-export function sendThreadMessage(id: string, text: string, user?: string | null): Promise<ThreadMessage> {
+export function sendThreadMessage(
+  id: string,
+  text: string,
+  user?: string | null,
+  /** A top-level message id, to post in its replies. */
+  replyTo?: string | null,
+): Promise<ThreadMessage> {
   return api<{ message: ThreadMessage }>(`/api/threads/${encodeURIComponent(id)}/messages`, {
     method: "POST",
     headers: json,
-    body: JSON.stringify({ text, ...(user ? { user } : {}) }),
+    body: JSON.stringify({ text, ...(user ? { user } : {}), ...(replyTo ? { replyTo } : {}) }),
   }).then((res) => res.message);
 }
 

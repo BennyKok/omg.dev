@@ -35,12 +35,13 @@ export function getThread(client: OmgClient, id: string) {
   return client.transport.request<ThreadDetail>(`/api/threads/${encodeURIComponent(id)}`);
 }
 
-export function sendThreadMessage(client: OmgClient, id: string, text: string) {
+/** Post a message; with `replyTo`, into that top-level message's replies. */
+export function sendThreadMessage(client: OmgClient, id: string, text: string, replyTo?: string | null) {
   return client.transport
     .request<{ message: ThreadMessage }>(`/api/threads/${encodeURIComponent(id)}/messages`, {
       method: "POST",
       headers: json,
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, ...(replyTo ? { replyTo } : {}) }),
     })
     .then((res) => res.message);
 }

@@ -1302,20 +1302,38 @@ async function handleThreadRequest(req: Request, url: URL, path: string): Promis
     return json({ ok: true });
   }
   if (messages && req.method === "POST") {
-    const body = (await req.json().catch(() => null)) as { text?: unknown; user?: unknown } | null;
+    const body = (await req.json().catch(() => null)) as { text?: unknown; user?: unknown; replyTo?: unknown } | null;
     const text = typeof body?.text === "string" ? body.text.trim() : "";
     if (!text) return err(400, "text is required");
+    const replyTo = typeof body?.replyTo === "string" && body.replyTo ? body.replyTo : null;
+    // Replies are one level deep, as in Slack: only a top-level message has them.
+    if (replyTo && !readThreadMessages(id).some((row) => row.id === replyTo && !row.replyTo)) {
+      return err(400, "replyTo must be a top-level message in this thread");
+    }
     const viewer = threadViewer(req, typeof body?.user === "string" ? body.user : url.searchParams.get("user"));
-    return json({ message: postThreadMessage(id, text, viewer) });
+    return json({ message: postThreadMessage(id, text, viewer, replyTo) });
   }
   return err(405, "method not allowed");
 }
 
-/** Store a person's message, then let omg answer in the background if mentioned. */
-function postThreadMessage(threadId: string, text: string, viewer: { identity: string; name: string | null }) {
-  const message = appendThreadMessage(threadId, { author: threadAuthor(threadId, viewer.identity, viewer.name), text });
+/**
+ * Store a person's message, then let omg answer in the background if
+ * mentioned. omg answers in the replies: of this message, or of the message
+ * this one replies to.
+ */
+function postThreadMessage(
+  threadId: string,
+  text: string,
+  viewer: { identity: string; name: string | null },
+  replyTo: string | null = null,
+) {
+  const message = appendThreadMessage(threadId, {
+    author: threadAuthor(threadId, viewer.identity, viewer.name),
+    text,
+    replyTo,
+  });
   if (mentionsOmg(text)) {
-    void answerMention(threadId, text, viewer.identity, threadDeps).catch((error) => {
+    void answerMention(threadId, text, viewer.identity, threadDeps, replyTo ?? message.id).catch((error) => {
       console.error(`[threads] @omg failed in ${threadId}:`, error);
     });
   }

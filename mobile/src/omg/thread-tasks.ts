@@ -4,6 +4,13 @@
  */
 
 export {
+  mentionsOmg,
+  authorHue,
+  authorName,
+  replySummary,
+  repliesTo,
+  startsMessageGroup,
+  topLevelMessages,
   cardMessageIds,
   latestTaskEvent,
   sameSession,

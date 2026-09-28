@@ -59,3 +59,26 @@ test("a short pull refreshes; only a long pull arms a thread", () => {
   expect(threadPullStage(THREAD_PULL_ARM - 1)).toBe(1);
   expect(threadPullStage(THREAD_PULL_ARM)).toBe(2);
 });
+
+test("Slack grouping: same author within five minutes joins the message above", async () => {
+  const { startsMessageGroup } = await import("../src/omg/thread-tasks");
+  const alex = { kind: "human" as const, participantId: "a", name: "Alex" };
+  const sam = { kind: "human" as const, participantId: "s", name: "Sam" };
+  const m = (id: string, ts: number, author: ThreadMessage["author"]): ThreadMessage => ({ id, threadId: "t", ts, author, text: id });
+  expect(startsMessageGroup(undefined, m("1", 0, alex))).toBe(true);
+  expect(startsMessageGroup(m("1", 0, alex), m("2", 60_000, alex))).toBe(false);
+  expect(startsMessageGroup(m("1", 0, alex), m("2", 6 * 60_000, alex))).toBe(true);
+  expect(startsMessageGroup(m("1", 0, alex), m("2", 1, sam))).toBe(true);
+});
+
+test("omg's answers are replies: the main list hides them and counts them", async () => {
+  const { topLevelMessages, replySummary } = await import("../src/omg/thread-tasks");
+  const messages: ThreadMessage[] = [
+    { id: "root", threadId: "t", ts: 1, author: { kind: "human", participantId: "a", name: "Alex" }, text: "@omg fix it" },
+    omg("r1", "Started a task.", { sessionId: TASK, event: "started" }),
+    omg("r2", "Fixed it.", { sessionId: TASK, event: "finished" }),
+  ].map((row) => (row.id === "root" ? row : { ...row, replyTo: "root", ts: 2 }));
+  expect(topLevelMessages(messages).map((row) => row.id)).toEqual(["root"]);
+  expect(replySummary(messages, "root")).toMatchObject({ count: 2, taskSessionId: TASK, authors: [{ kind: "omg" }] });
+  expect(replySummary(messages, "r1")).toBeNull();
+});
