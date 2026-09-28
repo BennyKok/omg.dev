@@ -159,3 +159,30 @@ test("people show their own photo and current name; no photo falls back to a let
   expect(photos).toContain("/api/avatars/benny.png");
   expect(ui.text()).toContain("Alex Chan");
 });
+
+test("people and omg typing show over the bar where they write", async () => {
+  const typing = [
+    { author: alex, replyTo: null },
+    { author: omg, replyTo: "m4" },
+  ];
+  ui.render(view({ detail: { ...detail, typing } }));
+  // omg answers in replies, so the main list shows it too.
+  expect(ui.query('[data-testid="thread-typing"]')?.textContent).toBe("Alex and omg are typing");
+  const needsYou = links().find((link) => link.textContent?.includes("Needs you"))!;
+  await ui.flushAsync(() => needsYou.click());
+  expect(ui.query('[data-testid="thread-reply-typing"]')?.textContent).toBe("omg is typing");
+});
+
+test("typing in the bar tells the thread, and stops when the field empties", async () => {
+  const pings: [boolean, string | null][] = [];
+  ui.render(view({ typing: (on, replyTo) => pings.push([on, replyTo]) }));
+  const input = ui.query<HTMLTextAreaElement>('[data-testid="thread-input"]')!;
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")!.set!;
+  for (const value of ["h", "hi", ""]) {
+    await ui.flushAsync(() => {
+      setter.call(input, value);
+      input.dispatchEvent(new window.Event("input", { bubbles: true }));
+    });
+  }
+  expect(pings).toEqual([[true, null], [false, null]]);
+});

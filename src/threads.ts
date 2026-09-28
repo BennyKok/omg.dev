@@ -34,7 +34,9 @@ import {
 
 import {
   mentionsOmg,
+  THREAD_TYPING_TTL_MS,
   type ThreadAuthor,
+  type ThreadTyping,
   type ThreadMessage,
   type ThreadSummary,
   type ThreadTaskEvent,
@@ -95,8 +97,62 @@ export function appendThreadMessage(
   mkdirSync(threadsDir(), { recursive: true });
   appendFileSync(messagesPath(threadId), `${JSON.stringify(row)}\n`, { mode: 0o600 });
   patchThreadConversation(threadId, { updatedAt: row.ts });
+  // A sent message ends its author's typing, before the next poll shows both.
+  setTyping(threadId, row.author, false);
   notifyThreadMessage(row);
   return row;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Typing                                                                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Who is writing, per thread. In memory only: typing is seconds old or it is
+ * nothing, so a restart losing it is correct. A person's entry expires after
+ * THREAD_TYPING_TTL_MS unless their client pings again; omg's lasts until
+ * its answer is posted, with OMG_TYPING_MAX_MS as a backstop.
+ */
+const typingByThread = new Map<string, Map<string, ThreadTyping & { until: number }>>();
+const OMG_TYPING_MAX_MS = 180_000;
+
+function typingKey(author: ThreadAuthor): string {
+  return author.kind === "omg" ? "omg" : `human:${author.participantId}`;
+}
+
+export function setTyping(
+  threadId: string,
+  author: ThreadAuthor,
+  typing: boolean,
+  replyTo: string | null = null,
+  now = Date.now(),
+): void {
+  const rows = typingByThread.get(threadId) ?? new Map<string, ThreadTyping & { until: number }>();
+  if (typing) {
+    const ttl = author.kind === "omg" ? OMG_TYPING_MAX_MS : THREAD_TYPING_TTL_MS;
+    rows.set(typingKey(author), { author, replyTo, until: now + ttl });
+    typingByThread.set(threadId, rows);
+  } else {
+    rows.delete(typingKey(author));
+    if (!rows.size) typingByThread.delete(threadId);
+  }
+}
+
+/** Who is typing in a thread now, leaving out `exceptParticipant` (the caller). */
+export function threadTyping(threadId: string, exceptParticipant?: string | null, now = Date.now()): ThreadTyping[] {
+  const rows = typingByThread.get(threadId);
+  if (!rows) return [];
+  const out: ThreadTyping[] = [];
+  for (const [key, row] of rows) {
+    if (row.until <= now) {
+      rows.delete(key);
+      continue;
+    }
+    if (row.author.kind === "human" && row.author.participantId === exceptParticipant) continue;
+    out.push({ author: row.author, replyTo: row.replyTo });
+  }
+  if (!rows.size) typingByThread.delete(threadId);
+  return out;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -383,6 +439,23 @@ export async function answerMention(
   // What omg reads: the whole thread, every reply thread included.
   const context = readThreadMessages(threadId, 5_000);
   const cleaned = request.replace(/@omg\b/gi, "").trim() || request;
+  // omg shows as typing in the replies it will answer in, until it posts.
+  setTyping(threadId, { kind: "omg" }, true, rootId);
+  try {
+    return await decideAndAnswer(threadId, cleaned, identity, deps, rootId, context);
+  } finally {
+    setTyping(threadId, { kind: "omg" }, false);
+  }
+}
+
+async function decideAndAnswer(
+  threadId: string,
+  cleaned: string,
+  identity: string,
+  deps: ThreadDeps,
+  rootId: string,
+  context: ThreadMessage[],
+): Promise<ThreadMessage> {
   const raw = await deps
     .complete(
       OMG_THREAD_SYSTEM_PROMPT,

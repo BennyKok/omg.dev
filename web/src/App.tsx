@@ -96,7 +96,7 @@ import {
 import { ChatStarterRow } from "./components/chat-starter-row";
 import { groupNodesByProject, type ProjectGroup } from "./lib/session-groups";
 import { pathnameToSessionId, pathnameToThreadId, sessionToPath, threadToPath } from "./lib/app-search";
-import { NEW_THREAD_ID, ThreadChat, type ThreadComposerProps } from "./components/threads";
+import { NEW_THREAD_ID, ThreadChat, useTypingReport, type ThreadComposerProps } from "./components/threads";
 import { PullToThread } from "./components/pull-to-thread";
 import { useThreads } from "./lib/threads";
 import { threadPreview, type ThreadSummary } from "../../packages/protocol/src/threads";
@@ -16197,8 +16197,9 @@ const THREAD_MENTIONS = [{ id: "omg", name: "omg", hint: "Answer, or start a tas
  * `@` offers omg (and, later, the people here) instead of the box's bots.
  * No attach button: a thread message is text.
  */
-function ThreadComposerBar({ testId, placeholder, onSend, autoFocus }: ThreadComposerProps) {
+function ThreadComposerBar({ testId, placeholder, onSend, autoFocus, onTyping }: ThreadComposerProps) {
   const [text, setText] = useState("");
+  useTypingReport(text, onTyping);
   const [sending, setSending] = useState(false);
   const [multiline, setMultiline] = useState(false);
   const [error, setError] = useState<string | null>(null);
