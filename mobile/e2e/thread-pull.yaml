@@ -1,0 +1,38 @@
+# Pull Home down past the refresh to start a thread.
+#
+# The Jev plan runner only taps, so the gesture lives in this static flow.
+# Run on a build with demo data:
+#   EXPO_PUBLIC_OMG_DEMO=1 EXPO_PUBLIC_OMG_THREADS_FIXTURE=1 bun run test:e2e --build --flow thread-pull --record
+appId: dev.omg.computer
+onFlowStart:
+  # Back to Home from a thread or a new thread a previous run left open.
+  - runFlow:
+      when:
+        visible:
+          id: "thread-new-back"
+      commands:
+        - tapOn:
+            id: "thread-new-back"
+  - runFlow:
+      when:
+        visible:
+          id: "thread-back"
+      commands:
+        - tapOn:
+            id: "thread-back"
+---
+- assertVisible: "Threads"
+# A short pull only refreshes: Home stays.
+- swipe:
+    start: "50%, 35%"
+    end: "50%, 45%"
+    duration: 600
+- assertVisible: "Threads"
+- assertNotVisible: "What is on your mind?"
+# A long pull, then release, opens an empty thread.
+- swipe:
+    start: "50%, 30%"
+    end: "50%, 90%"
+    duration: 1500
+- assertVisible: "What is on your mind?"
+- assertVisible: "New thread"

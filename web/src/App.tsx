@@ -97,6 +97,7 @@ import { ChatStarterRow } from "./components/chat-starter-row";
 import { groupNodesByProject, type ProjectGroup } from "./lib/session-groups";
 import { pathnameToSessionId, pathnameToThreadId, sessionToPath, threadToPath } from "./lib/app-search";
 import { NEW_THREAD_ID, ThreadChat, ThreadRailSection } from "./components/threads";
+import { PullToThread } from "./components/pull-to-thread";
 import { useThreads } from "./lib/threads";
 import type { ThreadSummary } from "../../packages/protocol/src/threads";
 import {
@@ -11922,13 +11923,15 @@ function LiveView({
     return (
       <div className="flex flex-col gap-5">
         {coach}
-        <ThreadRailSection
-          threads={threads}
-          activeId={null}
-          onOpen={(id) => onOpenThread?.(id)}
-          onNew={() => onOpenThread?.(NEW_THREAD_ID)}
-        />
-        <RuntimeEmptyState />
+        <PullToThread onStart={() => onOpenThread?.(NEW_THREAD_ID)}>
+          <ThreadRailSection
+            threads={threads}
+            activeId={null}
+            onOpen={(id) => onOpenThread?.(id)}
+            onNew={() => onOpenThread?.(NEW_THREAD_ID)}
+          />
+          <RuntimeEmptyState />
+        </PullToThread>
       </div>
     );
   }
@@ -12151,21 +12154,24 @@ function LiveView({
           depending on the window — and a card that carried a whole transcript
           could not be scanned, only read. The row is the unit now; the
           transcript lives on the session's own page. */}
-      <ThreadRailSection
-        threads={threads}
-        activeId={openThreadId}
-        onOpen={(id) => onOpenThread?.(id)}
-        onNew={() => onOpenThread?.(NEW_THREAD_ID)}
-      />
-      <SessionGroups
-        groups={projectGroups}
-        pinnedNodes={pinnedNodes}
-        pinnedCount={pinned.length}
-        projectFilter={projectFilter}
-        onProjectChange={onProjectChange}
-        renderItem={renderMobileItem}
-        headerless
-      />
+      {/* Pull the list down past the top to start a thread, as on iOS. */}
+      <PullToThread onStart={() => onOpenThread?.(NEW_THREAD_ID)}>
+        <ThreadRailSection
+          threads={threads}
+          activeId={openThreadId}
+          onOpen={(id) => onOpenThread?.(id)}
+          onNew={() => onOpenThread?.(NEW_THREAD_ID)}
+        />
+        <SessionGroups
+          groups={projectGroups}
+          pinnedNodes={pinnedNodes}
+          pinnedCount={pinned.length}
+          projectFilter={projectFilter}
+          onProjectChange={onProjectChange}
+          renderItem={renderMobileItem}
+          headerless
+        />
+      </PullToThread>
     </div>
     {/* Open findings live behind a pill, not at the end of the list. A group
         of them there put more work under a list that is already about work,
