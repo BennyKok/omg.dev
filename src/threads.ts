@@ -86,6 +86,7 @@ export function appendThreadMessage(
     author: message.author,
     text: message.text,
     ...(message.task ? { task: message.task } : {}),
+    ...(message.replyTo ? { replyTo: message.replyTo } : {}),
   };
   mkdirSync(threadsDir(), { recursive: true });
   appendFileSync(messagesPath(threadId), `${JSON.stringify(row)}\n`, { mode: 0o600 });
@@ -225,21 +226,28 @@ export async function answerMention(
   request: string,
   identity: string,
   deps: ThreadDeps,
+  /** The top-level message whose replies omg answers in. */
+  rootId: string,
 ): Promise<ThreadMessage> {
-  const messages = readThreadMessages(threadId, CONTEXT_MESSAGES);
+  const all = readThreadMessages(threadId);
+  // What omg reads: the recent main conversation, then this reply thread.
+  const context = [
+    ...all.filter((row) => !row.replyTo).slice(-CONTEXT_MESSAGES),
+    ...all.filter((row) => row.replyTo === rootId).slice(-CONTEXT_MESSAGES),
+  ];
   const cleaned = request.replace(/@omg\b/gi, "").trim() || request;
   const raw = await deps
-    .complete(OMG_THREAD_SYSTEM_PROMPT, `Thread so far:\n${transcriptForModel(messages)}\n\nRequest: ${cleaned}`)
+    .complete(OMG_THREAD_SYSTEM_PROMPT, `Thread so far:\n${transcriptForModel(context)}\n\nRequest: ${cleaned}`)
     .catch(() => null);
   const decision = parseOmgDecision(raw, cleaned);
   if (decision.action === "reply") {
-    return appendThreadMessage(threadId, { author: { kind: "omg" }, text: decision.text });
+    return appendThreadMessage(threadId, { author: { kind: "omg" }, text: decision.text, replyTo: rootId });
   }
   const conversation = getConversation(threadId);
   const project = conversation?.threadProject ?? null;
   try {
     const sessionId = await deps.startTask({
-      prompt: taskPromptFromThread(decision.prompt, messages),
+      prompt: taskPromptFromThread(decision.prompt, context),
       title: decision.title,
       cwd: project?.cwd ?? null,
       user: identity,
@@ -249,11 +257,13 @@ export async function answerMention(
       author: { kind: "omg" },
       text: project ? `Started a task in ${project.name}.` : "Started a task.",
       task: { sessionId, event: "started", title: decision.title, project: project?.name ?? null },
+      replyTo: rootId,
     });
   } catch (error) {
     return appendThreadMessage(threadId, {
       author: { kind: "omg" },
       text: `I could not start the task: ${error instanceof Error ? error.message : String(error)}`,
+      replyTo: rootId,
     });
   }
 }
@@ -291,6 +301,8 @@ export function bridgeTaskCompletion(
   const blocked = session?.status === "blocked";
   const last = session?.last;
   const said = last?.role === "assistant" && last.text ? firstLines(last.text) : "";
+  // A task's updates go to the replies it was started in.
+  const started = readThreadMessages(thread.id).find((row) => row.task?.sessionId === sessionId);
   const text = blocked
     ? session?.statusDetail?.trim() || "The task is blocked and needs you."
     : said || "The task finished its turn.";
@@ -303,6 +315,7 @@ export function bridgeTaskCompletion(
       title: session?.title ?? null,
       project: session?.project || null,
     },
+    replyTo: started?.replyTo ?? null,
   });
 }
 

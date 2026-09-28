@@ -22,6 +22,12 @@ export type ThreadMessage = {
   text: string;
   /** Present on omg's task messages: which task, and what happened to it. */
   task?: { sessionId: string; event: ThreadTaskEvent; title?: string | null; project?: string | null };
+  /**
+   * The top-level message this is a reply to, as in Slack. omg always answers
+   * in the replies of the message that mentioned it, and a task's updates go
+   * to the same replies. Absent: a top-level message.
+   */
+  replyTo?: string | null;
   /** Client only: sent, not yet stored. */
   pending?: boolean;
 };
@@ -164,4 +170,67 @@ export function taskCardFor(
       openAsk: openAskSessionIds.some((id) => sameSession(task.sessionId, id)),
     }),
   };
+}
+
+/** Slack's rule: a message joins the one above when the same author wrote it within this long. */
+export const THREAD_GROUP_MS = 5 * 60_000;
+
+/**
+ * Whether a message starts a new group: its own avatar, name and time. The
+ * rest of a group is just text under the first message.
+ */
+export function startsMessageGroup(previous: ThreadMessage | undefined, message: ThreadMessage): boolean {
+  if (!previous) return true;
+  if (message.ts - previous.ts > THREAD_GROUP_MS) return true;
+  if (previous.author.kind !== message.author.kind) return true;
+  if (message.author.kind === "human" && previous.author.kind === "human") {
+    return previous.author.participantId !== message.author.participantId;
+  }
+  return false;
+}
+
+/** A stable avatar colour for a person, from their participant id. */
+export function authorHue(author: ThreadAuthor): number {
+  if (author.kind === "omg") return 11;
+  let hash = 0;
+  for (const char of author.participantId) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  return hash % 360;
+}
+
+export function authorName(author: ThreadAuthor): string {
+  return author.kind === "omg" ? "omg" : author.name;
+}
+
+/** Top-level messages: what the main list shows. */
+export function topLevelMessages(messages: readonly ThreadMessage[]): ThreadMessage[] {
+  return messages.filter((message) => !message.replyTo);
+}
+
+/** The replies to one top-level message, oldest first. */
+export function repliesTo(messages: readonly ThreadMessage[], rootId: string): ThreadMessage[] {
+  return messages.filter((message) => message.replyTo === rootId);
+}
+
+export type ReplySummary = {
+  count: number;
+  lastTs: number;
+  /** Who replied, first reply first, each once. */
+  authors: ThreadAuthor[];
+  /** The task started in these replies, if any, for a state chip on the root. */
+  taskSessionId: string | null;
+};
+
+/** The "N replies" line under a top-level message, or null when it has none. */
+export function replySummary(messages: readonly ThreadMessage[], rootId: string): ReplySummary | null {
+  const replies = repliesTo(messages, rootId);
+  if (!replies.length) return null;
+  const authors: ThreadAuthor[] = [];
+  for (const reply of replies) {
+    const same = authors.some((a) =>
+      a.kind === reply.author.kind &&
+      (a.kind === "omg" || (reply.author.kind === "human" && a.participantId === reply.author.participantId)));
+    if (!same) authors.push(reply.author);
+  }
+  const task = [...replies].reverse().find((reply) => reply.task)?.task ?? null;
+  return { count: replies.length, lastTs: replies[replies.length - 1].ts, authors, taskSessionId: task?.sessionId ?? null };
 }

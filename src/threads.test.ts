@@ -106,8 +106,8 @@ describe("@omg", () => {
   test("a quick question gets a reply from omg and starts nothing", async () => {
     const thread = startThread({ identity: "benny@example.com" });
     const d = deps({ complete: async () => '{"action":"reply","text":"Linear is $8 per seat."}' });
-    const reply = await answerMention(thread.id, "@omg what does Linear charge?", "benny@example.com", d);
-    expect(reply).toMatchObject({ author: { kind: "omg" }, text: "Linear is $8 per seat." });
+    const reply = await answerMention(thread.id, "@omg what does Linear charge?", "benny@example.com", d, "root-1");
+    expect(reply).toMatchObject({ author: { kind: "omg" }, text: "Linear is $8 per seat.", replyTo: "root-1" });
     expect(d.started).toEqual([]);
     expect(getConversation(thread.id)!.runtimeSessions).toEqual([]);
   });
@@ -128,7 +128,7 @@ describe("@omg", () => {
         return "a1b2c3d4-0000-4000-8000-000000000001";
       },
     });
-    const posted = await answerMention(thread.id, "@omg update the pricing page", "benny@example.com", d);
+    const posted = await answerMention(thread.id, "@omg update the pricing page", "benny@example.com", d, "root-2");
 
     expect(cwd).toBe("/repos/web");
     expect(d.started[0]).toContain("Update the pricing page.");
@@ -137,6 +137,7 @@ describe("@omg", () => {
       author: { kind: "omg" },
       text: "Started a task in web.",
       task: { sessionId: "a1b2c3d4-0000-4000-8000-000000000001", event: "started", project: "web" },
+      replyTo: "root-2",
     });
     expect(getConversation(thread.id)!.runtimeSessions).toMatchObject([
       { sessionId: "a1b2c3d4-0000-4000-8000-000000000001", kind: "execution" },
@@ -146,7 +147,7 @@ describe("@omg", () => {
   test("a task that cannot start says why, in the thread", async () => {
     const thread = startThread({ identity: "benny@example.com" });
     const d = deps({ startTask: async () => { throw new Error("24 of 16 agents live"); } });
-    const posted = await answerMention(thread.id, "@omg fix the build", "benny@example.com", d);
+    const posted = await answerMention(thread.id, "@omg fix the build", "benny@example.com", d, "root-3");
     expect(posted.text).toBe("I could not start the task: 24 of 16 agents live");
     expect(posted.task).toBeUndefined();
   });
@@ -157,7 +158,7 @@ describe("task results come back as omg messages", () => {
 
   async function threadWithTask() {
     const thread = startThread({ identity: "benny@example.com" });
-    await answerMention(thread.id, "@omg fix it", "benny@example.com", deps());
+    await answerMention(thread.id, "@omg fix it", "benny@example.com", deps(), "root-4");
     return thread;
   }
 
@@ -173,6 +174,8 @@ describe("task results come back as omg messages", () => {
       author: { kind: "omg" },
       text: "Fixed the build.\nTests pass.\nNothing else to do.",
       task: { sessionId: TASK, event: "finished", project: "web" },
+      // In the same replies the task was started in.
+      replyTo: "root-4",
     });
     expect(readThreadMessages(thread.id).at(-1)?.id).toBe(posted!.id);
   });
