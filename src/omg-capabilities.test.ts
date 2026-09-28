@@ -169,6 +169,7 @@ describe("omg.dev runtime capabilities", () => {
       "omg_deploy / omg_deploy_status / omg_apps / omg_whoami / omg_app_visibility / omg_app_identity",
       "omg_expose_port",
       "omg_display_image / omg_display_video / omg_display_file",
+      "omg_generate_image / omg_generate_video / omg_media_job / omg_media_models",
       "omg_input",
       "omg_find_sessions",
       "omg_close_session",
