@@ -28,6 +28,7 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { agentIconSrc } from "@/lib/session-ui";
 
 /**
  * THREADS ON THE WEB, laid out like Slack. A thread is a chat between people
@@ -138,6 +139,18 @@ const TIME = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-di
 
 function Avatar({ author, size = 36 }: { author: ThreadAuthor; size?: number }) {
   const omg = author.kind === "omg";
+  // omg wears its own mark, the same one the omg agent shows everywhere.
+  if (omg) {
+    return (
+      <img
+        aria-hidden
+        alt=""
+        src={agentIconSrc("omg")}
+        className="shrink-0 rounded-lg"
+        style={{ width: size, height: size }}
+      />
+    );
+  }
   return (
     <div
       aria-hidden

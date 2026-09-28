@@ -15712,9 +15712,7 @@ function BotMentionSuggest({
             )}
           >
             {isPlainMention(bot) ? (
-              <span className="flex size-4 items-center justify-center rounded bg-[#FF5530] text-[9px] font-bold text-white">
-                {bot.name.slice(0, 1)}
-              </span>
+              <img aria-hidden alt="" src={agentIconSrc("omg")} className="size-4 shrink-0 rounded" />
             ) : (
               <BotMascot
                 shape={bot.shape}

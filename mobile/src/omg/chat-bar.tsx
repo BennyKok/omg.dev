@@ -1,5 +1,5 @@
 import { useRef, useState, type ReactNode } from "react";
-import { Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { Image, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import Reanimated, { FadeIn, FadeOut } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { Icon, InlineVoiceRecorder } from "../components";
@@ -8,6 +8,7 @@ import {
   matchThreadMentions,
   threadMentionAt,
 } from "../../../packages/protocol/src/threads";
+import { agentIcon } from "./agent-icons";
 import { useDictation } from "./dictation";
 import { GlassSurface, LIQUID_GLASS } from "./glass";
 import { PressableScale } from "./motion";
@@ -145,9 +146,7 @@ export function AtMentionSuggest({ value, onChangeText }: { value: string; onCha
                 backgroundColor: index === 0 ? colors.card : "transparent",
               }}
             >
-              <View style={{ width: 24, height: 24, borderRadius: 6, backgroundColor: "#FF5530", alignItems: "center", justifyContent: "center" }}>
-                <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>{mention.name.slice(0, 1)}</Text>
-              </View>
+              <Image source={agentIcon("omg")} style={{ width: 24, height: 24, borderRadius: 6 }} accessible={false} />
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text numberOfLines={1} style={{ ...type.subhead, fontWeight: "600", color: colors.text }}>
                   <Text style={{ ...type.subhead, fontWeight: "600", color: colors.brand }}>@</Text>

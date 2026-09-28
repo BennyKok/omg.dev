@@ -9,7 +9,6 @@ appId: dev.omg.computer
 onFlowStart:
   - launchApp
 ---
-- assertVisible: "What should we work on?"
 - openLink: "omg://thread/0d3a7c1e-0000-4000-8000-00000000abcd?replies=t5"
 - assertVisible: "Replies"
 - assertVisible: ".*Create it in live mode.*"

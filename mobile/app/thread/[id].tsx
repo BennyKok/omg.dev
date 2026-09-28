@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { AppState, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
+import { AppState, FlatList, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
@@ -7,6 +7,7 @@ import { Icon } from "../../src/components";
 import { DropdownMenu, type MenuOption } from "../../src/omg/menu";
 import { useOmg } from "../../src/omg/provider";
 import { TaskCard } from "../../src/omg/task-card";
+import { agentIcon } from "../../src/omg/agent-icons";
 import { ThreadChatBar } from "../../src/omg/chat-bar";
 import { Text } from "../../src/omg/text";
 import { useTheme } from "../../src/omg/theme";
@@ -49,6 +50,10 @@ const TIME = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-di
 
 function Avatar({ author, size = 36 }: { author: ThreadAuthor; size?: number }) {
   const omg = author.kind === "omg";
+  // omg wears its own mark, the same one the omg agent shows everywhere.
+  if (omg) {
+    return <Image source={agentIcon("omg")} style={{ width: size, height: size, borderRadius: size / 4.5 }} accessible={false} />;
+  }
   return (
     <View
       style={{
