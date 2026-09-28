@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { PATHS } from "./config.ts";
 import { createImageArtifact } from "./artifacts.ts";
 import { uploadsDir } from "./uploads.ts";
-import { plainText, threadPreview, typingIn, typingLabel, typingPinger } from "../packages/protocol/src/threads.ts";
+import { linkMentions, mentionFromHref, plainText, threadPreview, typingIn, typingLabel, typingPinger } from "../packages/protocol/src/threads.ts";
 import { attachRuntimeSession, getConversation, listConversations } from "./conversations.ts";
 import {
   answerMention,
@@ -547,5 +547,24 @@ describe("formatting and media, as in the session chat", () => {
     expect(
       transcriptForModel([{ id: "m", threadId: "t", ts: 1, author: { kind: "human", participantId: "p", name: "Alex" }, text: "this one", media: [photo] }]),
     ).toBe("Alex: this one [image: logo.png]");
+  });
+});
+
+describe("mentions are tags", () => {
+  const people = [
+    { id: "human:a", kind: "human" as const, display: { name: "Alex Chan", fallback: "A" } },
+    { id: "human:b", kind: "human" as const, display: { name: "Alex", fallback: "A" } },
+  ];
+
+  test("@omg and @people become links to who they name; code and addresses stay as written", () => {
+    expect(linkMentions("@omg can you", people)).toBe("[@omg](omg:mention/omg) can you");
+    expect(linkMentions("hi @Alex Chan and @alex.", people)).toBe(
+      "hi [@Alex Chan](omg:mention/human%3Aa) and [@alex](omg:mention/human%3Ab).",
+    );
+    expect(linkMentions("mail x@omg.dev", people)).toBe("mail x@omg.dev");
+    expect(linkMentions("`@omg` stays code", people)).toBe("`@omg` stays code");
+    expect(linkMentions("@omgx is nobody", people)).toBe("@omgx is nobody");
+    expect(mentionFromHref("omg:mention/human%3Aa")).toBe("human:a");
+    expect(mentionFromHref("https://example.com")).toBeNull();
   });
 });

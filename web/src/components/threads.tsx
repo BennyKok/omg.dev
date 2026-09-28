@@ -1,6 +1,7 @@
-import { createContext, useContext, useMemo, useRef, useState, useEffect, type KeyboardEvent, type ReactNode } from "react";
+import { createContext, useContext, useMemo, useRef, useState, useEffect, type ComponentProps, type KeyboardEvent, type ReactNode } from "react";
 import { Archive, ArrowUp, ChevronLeft, Folder, Info, MessageSquare, MoreHorizontal, Paperclip, Pencil, Plus, X } from "lucide-react";
 import { MessageResponse } from "./ai-elements/message";
+import { CopyableMarkdownLink } from "./ai-elements/streamdown-response";
 import { AuthenticatedArtifactImage, AuthenticatedArtifactVideo } from "./authenticated-artifact";
 import {
   authorHue,
@@ -13,6 +14,8 @@ import {
   TASK_STATE_LABEL,
   taskCardFor,
   threadPreview,
+  linkMentions,
+  mentionFromHref,
   topLevelMessages,
   typingIn,
   typingLabel,
@@ -195,6 +198,30 @@ function ThreadMediaList({ media }: { media?: ThreadMedia[] }) {
   );
 }
 
+/** What a clicked @mention does: the thread shows its members. */
+const ThreadMentionContext = createContext<(() => void) | null>(null);
+
+/** A link in a message: an @mention is a highlighted tag; anything else is the chat's own link. */
+function ThreadLink(props: ComponentProps<typeof CopyableMarkdownLink>) {
+  const open = useContext(ThreadMentionContext);
+  const who = mentionFromHref(typeof props.href === "string" ? props.href : null);
+  if (!who) return <CopyableMarkdownLink {...props} />;
+  return (
+    <button
+      type="button"
+      data-testid="thread-mention"
+      data-mention={who}
+      onClick={open ?? undefined}
+      title="Show members"
+      className="rounded px-0.5 font-semibold text-primary bg-primary/10 hover:bg-primary/20"
+    >
+      {props.children}
+    </button>
+  );
+}
+
+const THREAD_MARKDOWN = { a: ThreadLink } as ComponentProps<typeof MessageResponse>["components"];
+
 function MessageRow({
   message,
   first,
@@ -204,6 +231,7 @@ function MessageRow({
   first: boolean;
   children?: ReactNode;
 }) {
+  const people = useContext(ThreadPeopleContext);
   return (
     <div
       data-testid="thread-message"
@@ -221,8 +249,11 @@ function MessageRow({
         ) : null}
         {/* Formatted as the session chat formats a message: the same renderer. */}
         {message.text ? (
-          <MessageResponse className={cn("break-words text-[15px] leading-[22px]", message.pending && "opacity-60")}>
-            {message.text}
+          <MessageResponse
+            className={cn("break-words text-[15px] leading-[22px]", message.pending && "opacity-60")}
+            components={THREAD_MARKDOWN}
+          >
+            {linkMentions(message.text, people)}
           </MessageResponse>
         ) : null}
         <ThreadMediaList media={message.media} />
@@ -677,9 +708,17 @@ export function ThreadChatView({
     </div>
   );
 
-  if (!root) return <ThreadPeopleContext.Provider value={detail?.participants}>{main}</ThreadPeopleContext.Provider>;
+  const openMembers = () => setDetailsOpen(true);
+  if (!root) {
+    return (
+      <ThreadMentionContext.Provider value={openMembers}>
+        <ThreadPeopleContext.Provider value={detail?.participants}>{main}</ThreadPeopleContext.Provider>
+      </ThreadMentionContext.Provider>
+    );
+  }
   const replyTasks = replies.flatMap((reply) => (reply.task ? [reply.task.sessionId] : []));
   return (
+    <ThreadMentionContext.Provider value={openMembers}>
     <ThreadPeopleContext.Provider value={detail?.participants}>
     <div className="flex h-full min-h-0 w-full min-w-0 flex-1">
       <div className="hidden min-w-0 flex-1 md:flex">{main}</div>
@@ -732,6 +771,7 @@ export function ThreadChatView({
       </aside>
     </div>
     </ThreadPeopleContext.Provider>
+    </ThreadMentionContext.Provider>
   );
 }
 

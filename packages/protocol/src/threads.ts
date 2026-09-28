@@ -404,3 +404,48 @@ export function typingPinger(send: (typing: boolean) => void, now: () => number 
     }
   };
 }
+
+/* -------------------------------------------------------------------------- */
+/* Mentions                                                                    */
+/* -------------------------------------------------------------------------- */
+
+const MENTION_HREF = "omg:mention/";
+
+/** Who a mention link names: "omg", or a participant id. Null for any other link. */
+export function mentionFromHref(href: string | null | undefined): string | null {
+  if (!href?.startsWith(MENTION_HREF)) return null;
+  try {
+    return decodeURIComponent(href.slice(MENTION_HREF.length)) || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A message with its `@omg` and `@Name` mentions made into links, so the
+ * markdown renderer on either client draws them as tags that can be tapped.
+ * Code is left as written, and so is an address (`x@omg.dev`): a mention
+ * starts a word.
+ */
+export function linkMentions(text: string, participants: readonly ThreadParticipant[] | undefined): string {
+  const targets = new Map<string, string>([["omg", "omg"]]);
+  for (const row of participants ?? []) {
+    const name = row.kind === "human" ? row.display.name?.trim() : null;
+    if (name && !targets.has(name.toLowerCase())) targets.set(name.toLowerCase(), row.id);
+  }
+  // Longest first, so "@Alex Chan" wins over "@Alex".
+  const names = [...targets.keys()].sort((a, b) => b.length - a.length);
+  const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`(^|[^\\w@\\[\\]/])@(${names.map(escape).join("|")})(?![\\w-])`, "gi");
+  return text
+    .split(/(```[\s\S]*?```|`[^`\n]*`)/)
+    .map((part, index) =>
+      index % 2 === 1
+        ? part
+        : part.replace(pattern, (_match, before: string, name: string) => {
+            const id = targets.get(name.toLowerCase())!;
+            return `${before}[@${name}](${MENTION_HREF}${encodeURIComponent(id)})`;
+          }),
+    )
+    .join("");
+}
