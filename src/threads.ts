@@ -340,7 +340,11 @@ export function startThread(input: { identity: string; name?: string | null; tit
 
 export type OmgDecision =
   | { action: "reply"; text: string }
-  | { action: "task"; title: string; prompt: string };
+  | { action: "task"; title: string; prompt: string }
+  /** Pass the message to the task already running in these replies. */
+  | { action: "tell_task"; text: string }
+  /** Nothing for omg to say: people talking to people. */
+  | { action: "none" };
 
 export const OMG_THREAD_SYSTEM_PROMPT = [
   "You are omg, a teammate in a group chat thread. Someone mentioned you with @omg.",
@@ -354,13 +358,62 @@ export const OMG_THREAD_SYSTEM_PROMPT = [
   "Reply with the JSON object only.",
 ].join("\n");
 
-/** Parse the model's JSON. Anything unreadable becomes a task, which is the safe default. */
-export function parseOmgDecision(raw: string | null | undefined, request: string): OmgDecision {
+/** Added when a task already runs in these replies: a follow-up goes to it, not to a new task. */
+export const OMG_TASK_FOLLOWUP_RULE = [
+  "A task already runs in these replies. When the message gives it more instructions, a correction, or an answer to its question, pass it on instead of starting a new task, with",
+  '{"action":"tell_task","text":"<the message for the task, complete and self-contained>"}',
+].join("\n");
+
+/**
+ * Added when nobody mentioned omg: a person replied in a reply thread omg is
+ * part of, and omg decides whether it has anything to add.
+ */
+export const OMG_UNMENTIONED_RULE = [
+  "Nobody mentioned you this time. A person replied in a reply thread you are part of, and you read every reply there.",
+  "Most replies are people talking to each other, or thanks, or ok. Then stay quiet with",
+  '{"action":"none"}',
+  "Answer only when the reply asks you something, asks for work, or clearly expects you to act.",
+].join("\n");
+
+/**
+ * Does this message wake omg? A mention always does. A reply without one
+ * does when omg is already part of that reply thread: it answered there, or
+ * the message that opened it asked omg.
+ */
+export function omgWake(message: ThreadMessage, messages: readonly ThreadMessage[]): "mention" | "reply" | null {
+  if (message.author.kind === "omg") return null;
+  if (mentionsOmg(message.text)) return "mention";
+  const rootId = message.replyTo;
+  if (!rootId) return null;
+  const root = messages.find((row) => row.id === rootId);
+  const omgThere = messages.some((row) => row.replyTo === rootId && row.author.kind === "omg");
+  return omgThere || (root ? mentionsOmg(root.text) : false) ? "reply" : null;
+}
+
+/** The newest task started in a reply thread, the one a follow-up belongs to. */
+export function taskInReplies(messages: readonly ThreadMessage[], rootId: string): string | null {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const row = messages[i];
+    if (row.replyTo === rootId && row.task?.event === "started") return row.task.sessionId;
+  }
+  return null;
+}
+
+/**
+ * Parse the model's JSON. Anything unreadable becomes a task when omg was
+ * asked by name, and silence when it was not: an unasked omg must never
+ * start work on a guess.
+ */
+export function parseOmgDecision(raw: string | null | undefined, request: string, unmentioned = false): OmgDecision {
   const text = (raw ?? "").replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
   const json = text.match(/\{[\s\S]*\}/)?.[0];
   if (json) {
     try {
       const value = JSON.parse(json) as { action?: unknown; text?: unknown; title?: unknown; prompt?: unknown };
+      if (value.action === "none") return { action: "none" };
+      if (value.action === "tell_task" && typeof value.text === "string" && value.text.trim()) {
+        return { action: "tell_task", text: value.text.trim() };
+      }
       if (value.action === "reply" && typeof value.text === "string" && value.text.trim()) {
         return { action: "reply", text: value.text.trim() };
       }
@@ -372,6 +425,7 @@ export function parseOmgDecision(raw: string | null | undefined, request: string
       // fall through
     }
   }
+  if (unmentioned) return { action: "none" };
   return { action: "task", title: request.slice(0, 80), prompt: request };
 }
 
@@ -422,11 +476,15 @@ export type ThreadDeps = {
   complete: (system: string, user: string) => Promise<string | null>;
   /** Start a coding session. Returns its id. */
   startTask: (input: { prompt: string; title: string; cwd: string | null; user: string }) => Promise<string>;
+  /** Send a follow-up to a running task, as its next turn. */
+  tellTask: (input: { sessionId: string; text: string; user: string }) => Promise<void>;
 };
 
 /**
- * Answer an @omg mention. Called after the person's message is stored, so a
- * slow model never delays their own message.
+ * Answer a message that wakes omg (see omgWake): an @omg mention, or a reply
+ * in a reply thread omg is part of. Called after the person's message is
+ * stored, so a slow model never delays their own message. Returns what omg
+ * posted, or null when it chose to stay quiet.
  */
 export async function answerMention(
   threadId: string,
@@ -435,16 +493,19 @@ export async function answerMention(
   deps: ThreadDeps,
   /** The top-level message whose replies omg answers in. */
   rootId: string,
-): Promise<ThreadMessage> {
+  /** Nobody named omg; it may stay quiet. */
+  unmentioned = false,
+): Promise<ThreadMessage | null> {
   // What omg reads: the whole thread, every reply thread included.
   const context = readThreadMessages(threadId, 5_000);
   const cleaned = request.replace(/@omg\b/gi, "").trim() || request;
-  // omg shows as typing in the replies it will answer in, until it posts.
-  setTyping(threadId, { kind: "omg" }, true, rootId);
+  // Asked by name, omg shows as typing in the replies until it posts. Unasked,
+  // it may say nothing, and dots that end in silence would read as a lost reply.
+  if (!unmentioned) setTyping(threadId, { kind: "omg" }, true, rootId);
   try {
-    return await decideAndAnswer(threadId, cleaned, identity, deps, rootId, context);
+    return await decideAndAnswer(threadId, cleaned, identity, deps, rootId, context, unmentioned);
   } finally {
-    setTyping(threadId, { kind: "omg" }, false);
+    if (!unmentioned) setTyping(threadId, { kind: "omg" }, false);
   }
 }
 
@@ -455,16 +516,37 @@ async function decideAndAnswer(
   deps: ThreadDeps,
   rootId: string,
   context: ThreadMessage[],
-): Promise<ThreadMessage> {
+  unmentioned: boolean,
+): Promise<ThreadMessage | null> {
+  const runningTask = taskInReplies(context, rootId);
+  const system = [
+    OMG_THREAD_SYSTEM_PROMPT,
+    ...(runningTask ? [OMG_TASK_FOLLOWUP_RULE] : []),
+    ...(unmentioned ? [OMG_UNMENTIONED_RULE] : []),
+  ].join("\n\n");
   const raw = await deps
     .complete(
-      OMG_THREAD_SYSTEM_PROMPT,
-      `The whole thread, oldest first:\n${transcriptForModel(context)}\n\nThe message that mentioned you: ${cleaned}`,
+      system,
+      `The whole thread, oldest first:\n${transcriptForModel(context)}\n\n${unmentioned ? "The new reply" : "The message that mentioned you"}: ${cleaned}`,
     )
     .catch(() => null);
-  const decision = parseOmgDecision(raw, cleaned);
+  const decision = parseOmgDecision(raw, cleaned, unmentioned);
+  if (decision.action === "none") return null;
   if (decision.action === "reply") {
     return appendThreadMessage(threadId, { author: { kind: "omg" }, text: decision.text, replyTo: rootId });
+  }
+  if (decision.action === "tell_task") {
+    if (!runningTask) return null;
+    try {
+      await deps.tellTask({ sessionId: runningTask, text: decision.text, user: identity });
+      return appendThreadMessage(threadId, { author: { kind: "omg" }, text: "Passed that to the task.", replyTo: rootId });
+    } catch (error) {
+      return appendThreadMessage(threadId, {
+        author: { kind: "omg" },
+        text: `I could not reach the task: ${error instanceof Error ? error.message : String(error)}`,
+        replyTo: rootId,
+      });
+    }
   }
   const conversation = getConversation(threadId);
   const project = conversation?.threadProject ?? null;
