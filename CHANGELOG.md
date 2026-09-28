@@ -2,6 +2,14 @@
 
 Recent product updates and deployment notes.
 
+## September 28, 2026 - Agents make images and videos (v0.6.137)
+
+- The Computer agent can make images and short videos with four new tools: `omg_generate_image`, `omg_generate_video`, `omg_media_job` and `omg_media_models`. Each job is paid from your omg credits at the provider price.
+- The default image model is Recraft V4.1 Flash. Posters and other images with much text use GPT Image 2.5 Flare. The default video is Seedance 1.5 Pro Fast, 5 seconds at 720p.
+- The agent checks the price before each job. One job can cost at most $1, and one day at most $5.
+- Downloaded videos are saved with the index first, so they play on iPhone.
+- A short session id in a message, such as `228efabd`, opens that session on web and iOS. When the title is known, the link shows the session title.
+
 ## September 27, 2026 - Phone app previews come first (v0.6.136)
 
 - On a new user's first task, a phone app request now starts the Expo preview before the agent writes any app code, also when the request includes a design to match. The preview card appears early and follows each edit.
