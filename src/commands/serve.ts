@@ -1232,12 +1232,25 @@ const threadDeps: ThreadDeps = {
   // Through the normal creation route, so a task gets every rule a session
   // started from the composer gets: admission, worktree, user tag, title.
   startTask: async ({ prompt, title, cwd, user }) => {
+    // Settings' "Default agent and model". The creation route picks the agent
+    // from it on its own, but the model is applied by the clients, so a task
+    // with no client has to pass the pair itself.
+    const { defaultAgent, defaultModel } = getGlobalSettingsSync();
+    const agentChoice = defaultAgent?.trim()
+      ? { agent: defaultAgent.trim(), ...(defaultModel?.trim() ? { model: defaultModel.trim() } : {}) }
+      : {};
     const response = await fetch(
       `http://127.0.0.1:${PORT}/api/sessions/${cwd ? "new" : "new-unassigned"}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, title, ...(cwd ? { cwd } : {}), ...(user.includes("@") ? { user } : {}) }),
+        body: JSON.stringify({
+          prompt,
+          title,
+          ...agentChoice,
+          ...(cwd ? { cwd } : {}),
+          ...(user.includes("@") ? { user } : {}),
+        }),
       },
     );
     const body = await response.json().catch(() => null) as { sessionId?: string; error?: string } | null;
