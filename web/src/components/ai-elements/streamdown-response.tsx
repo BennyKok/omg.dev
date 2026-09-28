@@ -202,7 +202,8 @@ function SessionAwareInlineCode({ children, className, node: _node, ...props }: 
   return <SessionRefChip href={sessionHref} fallback={code} />;
 }
 
-function CopyableMarkdownLink({ children, className, href, node: _node, ...props }: AnchorProps) {
+/** The default markdown link: exported so a surface that adds its own link kinds can fall back to it. */
+export function CopyableMarkdownLink({ children, className, href, node: _node, ...props }: AnchorProps) {
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<number | null>(null);
   const canCopy = typeof href === "string" && href.length > 0;

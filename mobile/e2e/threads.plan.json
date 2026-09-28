@@ -71,6 +71,16 @@
       "forbid": [
         "Create it in live mode?"
       ]
+    },
+    {
+      "name": "A mention is a tag that shows the members",
+      "goal": "In the thread, tap the highlighted @omg tag at the start of a message (for example in \"@omg also fix the typo in the signup email\"). Tap the tag itself, not the reply link under the message.",
+      "done": "The thread details sheet is open, listing the members and omg.",
+      "expect": [
+        "Details",
+        "Members",
+        "Answers, or starts a task, when someone writes @omg"
+      ]
     }
   ]
 }

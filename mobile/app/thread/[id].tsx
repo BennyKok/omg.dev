@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Alert, AppState, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, TextInput, View, type ScrollViewInstance } from "react-native";
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -11,7 +11,7 @@ import { TaskCard } from "../../src/omg/task-card";
 import { ChatHeaderBar, chatHeaderHeight } from "../../src/omg/chat-header";
 import { GroupAvatar, ThreadAvatar, ThreadDetailsSheet, ThreadPeopleContext, useAuthorName } from "../../src/omg/thread-details";
 import { ThreadChatBar, TypingIndicator } from "../../src/omg/chat-bar";
-import { Markdown } from "../../src/omg/markdown";
+import { Markdown, MarkdownMentionContext } from "../../src/omg/markdown";
 import { ThreadMediaList } from "../../src/omg/thread-media";
 import { Text } from "../../src/omg/text";
 import { useTheme } from "../../src/omg/theme";
@@ -25,6 +25,7 @@ import {
   TASK_STATE_LABEL,
   taskCardFor,
   topLevelMessages,
+  linkMentions,
   typingIn,
   typingLabel,
   typingPinger,
@@ -83,6 +84,7 @@ function AboveKeyboard({ rest, gap, children }: { rest: number; gap: number; chi
 
 function MessageRow({ message, first, children }: { message: ThreadMessage; first: boolean; children?: ReactNode }) {
   const { colors, type } = useTheme();
+  const people = useContext(ThreadPeopleContext);
   return (
     <View style={{ flexDirection: "row", gap: 10, paddingTop: first ? 12 : 2 }}>
       <View style={{ width: 36 }}>{first ? <Avatar author={message.author} /> : null}</View>
@@ -96,7 +98,7 @@ function MessageRow({ message, first, children }: { message: ThreadMessage; firs
         {/* Formatted as the session chat formats a message: the same renderer. */}
         {message.text ? (
           <View style={{ opacity: message.pending ? 0.6 : 1 }}>
-            <Markdown text={message.text} />
+            <Markdown text={linkMentions(message.text, people)} />
           </View>
         ) : null}
         <ThreadMediaList media={message.media} />
@@ -117,6 +119,8 @@ export default function ThreadScreen() {
   const [pending, setPending] = useState<ThreadMessage[]>([]);
   const [asks, setAsks] = useState<AskQuestion[]>([]);
   const [openRoot, setOpenRoot] = useState<string | null>(repliesParam || null);
+  // A tapped @mention shows who is in the thread, omg included.
+  const openMembers = useCallback(() => setDetailsOpen(true), []);
   // The replies sheet reads bottom-up, like the chat: newest reply in view.
   const repliesScroll = useRef<ScrollViewInstance>(null);
   const repliesPinned = useRef(true);
@@ -344,7 +348,25 @@ export default function ThreadScreen() {
 
   const replyAsks = asks.filter((q) => replies.some((reply) => reply.task && sameSession(reply.task.sessionId, q.sessionId)));
 
+  const detailsModal = (
+    <Modal visible={detailsOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setDetailsOpen(false)}>
+      <ThreadDetailsSheet
+        detail={detail}
+        projectOptions={projectOptions}
+        onClose={() => setDetailsOpen(false)}
+        onOpenTask={(sessionId) => {
+          setDetailsOpen(false);
+          setOpenRoot(null);
+          router.push(`/session/${sessionId}`);
+        }}
+        onRename={rename}
+        onArchive={archive}
+      />
+    </Modal>
+  );
+
   return (
+    <MarkdownMentionContext.Provider value={openMembers}>
     <ThreadPeopleContext.Provider value={detail?.participants}>
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <Stack.Screen options={{ headerShown: false }} />
@@ -399,19 +421,8 @@ export default function ThreadScreen() {
         </Pressable>
       </ChatHeaderBar>
 
-      <Modal visible={detailsOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setDetailsOpen(false)}>
-        <ThreadDetailsSheet
-          detail={detail}
-          projectOptions={projectOptions}
-          onClose={() => setDetailsOpen(false)}
-          onOpenTask={(sessionId) => {
-            setDetailsOpen(false);
-            router.push(`/session/${sessionId}`);
-          }}
-          onRename={rename}
-          onArchive={archive}
-        />
-      </Modal>
+      {/* Over the replies when they are open: iOS presents a sheet only from the one on top. */}
+      {root ? null : detailsModal}
 
       <Modal visible={!!root} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setOpenRoot(null)}>
         {sheetRoot ? (
@@ -474,10 +485,12 @@ export default function ThreadScreen() {
                 <ThreadChatBar testID="thread-reply-input" placeholder="Reply…" onSend={(body, files) => post(body, sheetRoot.id, files)} onTyping={replyTyping} />
               </AboveKeyboard>
             </View>
+            {detailsModal}
           </View>
         ) : null}
       </Modal>
     </View>
     </ThreadPeopleContext.Provider>
+    </MarkdownMentionContext.Provider>
   );
 }

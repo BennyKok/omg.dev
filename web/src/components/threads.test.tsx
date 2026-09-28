@@ -83,8 +83,14 @@ async function type(selector: string, value: string) {
 
 const links = () => ui.queryAll<HTMLButtonElement>('[data-testid="thread-replies-link"]');
 
-test("the main list is the people's: omg's answers are replies, not messages", () => {
+/** Messages render through the lazily loaded markdown renderer, as in the session chat. */
+async function waitForMarkdown() {
+  for (let i = 0; i < 100 && !ui.query('[data-testid="thread-message"] [data-streamdown]'); i += 1) await ui.flushAsync(() => Bun.sleep(20));
+}
+
+test("the main list is the people's: omg's answers are replies, not messages", async () => {
   ui.render(view());
+  await waitForMarkdown();
   const text = ui.text();
   expect(text).toContain("Should we drop the free tier?");
   expect(text).toContain("@omg what does Linear charge?");
@@ -222,4 +228,14 @@ test("messages are formatted, and carry pictures, videos and files", async () =>
   const file = row.querySelector<HTMLAnchorElement>('[data-testid="thread-media"] a[download]');
   expect(file?.getAttribute("href")).toBe("/api/artifacts/brief");
   expect(file?.textContent).toContain("brief.pdf");
+});
+
+test("a mention is a highlighted tag, and clicking it shows the members", async () => {
+  ui.render(view());
+  for (let i = 0; i < 100 && !ui.query('[data-testid="thread-mention"]'); i += 1) await ui.flushAsync(() => Bun.sleep(20));
+  const tags = ui.queryAll<HTMLButtonElement>('[data-testid="thread-mention"]');
+  expect(tags.map((tag) => tag.textContent)).toContain("@omg");
+  expect(tags.find((tag) => tag.textContent === "@omg")?.dataset.mention).toBe("omg");
+  await ui.flushAsync(() => tags[0].click());
+  expect(document.body.textContent).toContain("Members");
 });
