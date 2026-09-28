@@ -45,7 +45,11 @@ export { mentionsOmg };
 export type { ThreadAuthor, ThreadMessage, ThreadSummary, ThreadTaskEvent, ThreadTaskRow };
 
 const TITLE_MAX = 60;
-const CONTEXT_MESSAGES = 20;
+/**
+ * How much of a thread omg reads, in characters. The whole thread fits in all
+ * but the longest ones; past this, the oldest messages drop first.
+ */
+const CONTEXT_CHARS = 40_000;
 
 function threadsDir(): string {
   return join(PATHS.data, "threads");
@@ -257,11 +261,13 @@ export type OmgDecision =
 
 export const OMG_THREAD_SYSTEM_PROMPT = [
   "You are omg, a teammate in a group chat thread. Someone mentioned you with @omg.",
+  "You are given the whole thread. Read all of it: what people mean by \"this\" or \"it\" is almost always said earlier in the thread.",
   "Decide what they need.",
-  "If they ask for real work that needs a computer (changing code, building, deploying, running commands, reading or writing a project's files), answer with",
-  '{"action":"task","title":"<at most 8 words>","prompt":"<complete, self-contained instructions for a coding agent, including the relevant context from the thread>"}',
-  "Otherwise answer the question yourself, with",
+  "When they ask you to do, make, work on, build, design, write, research or fix something, start a TASK. A task is an agent with a computer: it can write code, design (names, logos, images, pages), write documents, research the web, and run commands. Answer with",
+  '{"action":"task","title":"<at most 8 words>","prompt":"<complete, self-contained instructions for the agent: what to make, and every relevant detail from the thread>"}',
+  "When they ask a question you can answer from what you know, or want an opinion or a quick idea, answer it yourself with",
   '{"action":"reply","text":"<a short, plain answer, at most 4 sentences>"}',
+  "Do not ask a clarifying question when the thread already says what is meant; act on the most reasonable reading, and say what you assumed in the task title. Ask only when the request truly has no subject.",
   "Reply with the JSON object only.",
 ].join("\n");
 
@@ -286,11 +292,33 @@ export function parseOmgDecision(raw: string | null | undefined, request: string
   return { action: "task", title: request.slice(0, 80), prompt: request };
 }
 
-function transcriptForModel(messages: readonly ThreadMessage[]): string {
-  return messages
-    .slice(-CONTEXT_MESSAGES)
-    .map((row) => `${row.author.kind === "omg" ? "omg" : row.author.name}: ${row.text}`)
-    .join("\n");
+/**
+ * The whole thread as omg reads it, oldest first: every top-level message,
+ * each followed by its replies (indented), so a reply is read in the place it
+ * was said. Past CONTEXT_CHARS the oldest lines drop, never the newest.
+ */
+export function transcriptForModel(messages: readonly ThreadMessage[]): string {
+  const who = (row: ThreadMessage) => (row.author.kind === "omg" ? "omg" : row.author.name);
+  const lines: string[] = [];
+  for (const top of messages.filter((row) => !row.replyTo)) {
+    lines.push(`${who(top)}: ${top.text}`);
+    for (const reply of messages.filter((row) => row.replyTo === top.id)) {
+      lines.push(`    ↳ ${who(reply)} (reply): ${reply.text}`);
+    }
+  }
+  // Replies whose top-level message is gone still count.
+  for (const orphan of messages.filter((row) => row.replyTo && !messages.some((top) => top.id === row.replyTo))) {
+    lines.push(`    ↳ ${who(orphan)} (reply): ${orphan.text}`);
+  }
+  let total = 0;
+  const kept: string[] = [];
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    total += lines[i].length + 1;
+    if (total > CONTEXT_CHARS) break;
+    kept.unshift(lines[i]);
+  }
+  if (kept.length < lines.length) kept.unshift("(earlier messages left out)");
+  return kept.join("\n");
 }
 
 /** The prompt a task session starts with: the request plus the thread it came from. */
@@ -298,7 +326,7 @@ export function taskPromptFromThread(prompt: string, messages: readonly ThreadMe
   return [
     prompt,
     "",
-    "This task was started from a team chat thread. Recent messages, oldest first:",
+    "This task was started from a team chat thread. The whole thread, oldest first:",
     transcriptForModel(messages),
     "",
     "When you are done, end with a short summary: what changed and anything the team must do. It is posted back to the thread.",
@@ -325,15 +353,14 @@ export async function answerMention(
   /** The top-level message whose replies omg answers in. */
   rootId: string,
 ): Promise<ThreadMessage> {
-  const all = readThreadMessages(threadId);
-  // What omg reads: the recent main conversation, then this reply thread.
-  const context = [
-    ...all.filter((row) => !row.replyTo).slice(-CONTEXT_MESSAGES),
-    ...all.filter((row) => row.replyTo === rootId).slice(-CONTEXT_MESSAGES),
-  ];
+  // What omg reads: the whole thread, every reply thread included.
+  const context = readThreadMessages(threadId, 5_000);
   const cleaned = request.replace(/@omg\b/gi, "").trim() || request;
   const raw = await deps
-    .complete(OMG_THREAD_SYSTEM_PROMPT, `Thread so far:\n${transcriptForModel(context)}\n\nRequest: ${cleaned}`)
+    .complete(
+      OMG_THREAD_SYSTEM_PROMPT,
+      `The whole thread, oldest first:\n${transcriptForModel(context)}\n\nThe message that mentioned you: ${cleaned}`,
+    )
     .catch(() => null);
   const decision = parseOmgDecision(raw, cleaned);
   if (decision.action === "reply") {

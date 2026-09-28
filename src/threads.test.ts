@@ -256,3 +256,39 @@ describe("push: Slack's rule, never the author", () => {
     expect(pushes).toEqual([]);
   });
 });
+
+describe("omg reads the whole thread", () => {
+  const human = (id: string, text: string, extra: Partial<import("./threads.ts").ThreadMessage> = {}) =>
+    ({ id, threadId: "t", ts: 1, author: { kind: "human", participantId: "p", name: "Benny" }, text, ...extra }) as import("./threads.ts").ThreadMessage;
+
+  test("every message, each reply under the message it answers, not just the last few", async () => {
+    const { transcriptForModel } = await import("./threads.ts");
+    const messages = [
+      human("m0", "Name and logo design for a course about vibe coding"),
+      ...Array.from({ length: 30 }, (_, i) => human(`f${i}`, `filler ${i}`)),
+      human("r0", "go with the second name", { replyTo: "m0" }),
+      human("m1", "@omg can you work on this"),
+    ];
+    const text = transcriptForModel(messages);
+    expect(text.startsWith("Benny: Name and logo design")).toBe(true);
+    expect(text).toContain("Benny: Name and logo design for a course about vibe coding\n    ↳ Benny (reply): go with the second name");
+    expect(text.endsWith("Benny: @omg can you work on this")).toBe(true);
+  });
+
+  test("a very long thread drops its oldest lines first", async () => {
+    const { transcriptForModel } = await import("./threads.ts");
+    const long = "x".repeat(5_000);
+    const messages = Array.from({ length: 20 }, (_, i) => human(`m${i}`, `${i} ${long}`));
+    const text = transcriptForModel(messages);
+    expect(text.startsWith("(earlier messages left out)")).toBe(true);
+    expect(text).toContain("Benny: 19 ");
+    expect(text).not.toContain("Benny: 0 ");
+  });
+
+  test("the rules say a request to do something is a task, design included", async () => {
+    const { OMG_THREAD_SYSTEM_PROMPT } = await import("./threads.ts");
+    expect(OMG_THREAD_SYSTEM_PROMPT).toContain("work on");
+    expect(OMG_THREAD_SYSTEM_PROMPT).toContain("design (names, logos, images, pages)");
+    expect(OMG_THREAD_SYSTEM_PROMPT).toContain("Do not ask a clarifying question when the thread already says what is meant");
+  });
+});
