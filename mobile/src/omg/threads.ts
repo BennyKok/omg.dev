@@ -61,4 +61,4 @@ export function updateThread(
 }
 
 /** Starter prompts on an empty thread. Each one only fills the composer. */
-export const THREAD_STARTERS = ["Brainstorm an idea", "Plan the week", "@omg what changed today?"] as const;
+export const THREAD_STARTERS = ["Brainstorm", "Plan the week", "@omg what changed?"] as const;

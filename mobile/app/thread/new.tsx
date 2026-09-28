@@ -68,7 +68,6 @@ export default function NewThreadScreen() {
           </Pressable>
           <View style={{ flex: 1 }}>
             <Text style={{ ...type.headline, color: colors.text }}>New thread</Text>
-            <Text style={{ ...type.caption, color: colors.textMuted }}>Chat · @omg for help or a task</Text>
           </View>
         </View>
 
@@ -79,9 +78,6 @@ export default function NewThreadScreen() {
         >
           <Text style={{ fontSize: 22, lineHeight: 28, fontWeight: "700", color: colors.text }}>
             What is on your mind?
-          </Text>
-          <Text style={{ ...type.callout, color: colors.textMuted }}>
-            Talk it through here. Write @omg when you want omg to answer or start a task.
           </Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm, paddingTop: space.sm }}>
             {THREAD_STARTERS.map((starter) => (
@@ -130,7 +126,7 @@ export default function NewThreadScreen() {
               multiline
               value={text}
               onChangeText={setText}
-              placeholder="Message, or @omg to ask omg"
+              placeholder="Message"
               placeholderTextColor={colors.textMuted}
               style={{ flex: 1, minHeight: 36, maxHeight: 140, paddingVertical: 8, fontSize: 17, color: colors.text }}
             />
