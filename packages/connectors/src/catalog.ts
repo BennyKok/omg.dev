@@ -4,6 +4,8 @@
 //
 // Cached in memory with a TTL, because it is ~5k entries and rarely changes.
 // A fetch failure returns the last good copy when there is one.
+import { META_ADS_ENDPOINT, metaAdsStopgapEnabled } from "./paste-back.ts";
+
 export const DEFAULT_CATALOG_URL = "https://integrations.sh/api.json";
 
 export interface CatalogEntry {
@@ -193,6 +195,26 @@ export const RECOMMENDED_CATALOG: CatalogEntry[] = [
     native: "google-sheets",
     recommended: true,
   },
+  // Remote, over dynamic registration with a paste-back sign-in. Offered only
+  // while the stopgap is on (./paste-back.ts).
+  ...(metaAdsStopgapEnabled()
+    ? [
+        {
+          id: "omg/meta-ads",
+          slug: "meta-ads",
+          name: "Meta Ads",
+          description: "Read and manage Meta ad accounts, campaigns, ads, audiences and insights.",
+          kind: "mcp",
+          categories: ["marketing", "ads"],
+          connectUrl: META_ADS_ENDPOINT,
+          icon: "https://www.facebook.com/images/icons/meta_icon.png",
+          domain: "facebook.com",
+          needsOAuth: true,
+          authKind: "oauth",
+          recommended: true,
+        } satisfies CatalogEntry,
+      ]
+    : []),
 ];
 
 /** The curated entries first, then the index, without a second copy of an endpoint. */

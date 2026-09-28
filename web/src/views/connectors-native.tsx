@@ -99,6 +99,17 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
+/** The code and state from a pasted callback address, or null when it has none. */
+export function pastedCallbackParams(pasted: string): { code: string; state: string } | null {
+  const text = pasted.trim();
+  if (!text) return null;
+  const query = text.includes("?") ? text.slice(text.indexOf("?") + 1) : text;
+  const params = new URLSearchParams(query.split("#")[0]);
+  const code = params.get("code");
+  const state = params.get("state");
+  return code && state ? { code, state } : null;
+}
+
 // Reserve the popup during the click, before saving the connector or making
 // any auth request. Both Add and Connect use the same flow.
 //
@@ -122,7 +133,7 @@ function useConnectorSignIn(onChanged: () => Promise<void>) {
         return;
       }
       if (!popup) throw new Error("Sign-in popup was blocked. Allow popups, then click Connect.");
-      const res = await api<{ authorizeUrl?: string; alreadyAuthorized?: boolean }>(
+      const res = await api<{ authorizeUrl?: string; alreadyAuthorized?: boolean; pasteBack?: boolean }>(
         `/api/connectors/${connectorId}/oauth/start`,
         { method: "POST", body: JSON.stringify({}) },
       );
@@ -132,6 +143,24 @@ function useConnectorSignIn(onChanged: () => Promise<void>) {
         return;
       }
       if (!res.authorizeUrl) throw new Error("The server did not return a sign-in URL.");
+      if (res.pasteBack) {
+        // The provider returns to a loopback address the browser cannot load
+        // (packages/connectors/src/paste-back.ts). The member pastes that URL.
+        popup.location.href = res.authorizeUrl;
+        const pasted = window.prompt(
+          "Sign in in the new window. It ends on a page that does not load. Copy that page's full address and paste it here.",
+        );
+        popup.close();
+        const params = pastedCallbackParams(pasted ?? "");
+        if (!params) {
+          await onChanged();
+          if (pasted) throw new Error("That address has no sign-in code. Click Connect and try again.");
+          return;
+        }
+        await api("/api/connectors/oauth/callback", { method: "POST", body: JSON.stringify(params) });
+        await onChanged();
+        return;
+      }
       const stop = () => {
         window.removeEventListener("message", onMsg);
         window.clearTimeout(timer);

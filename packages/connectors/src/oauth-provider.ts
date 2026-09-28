@@ -11,6 +11,7 @@ import { randomBytes } from "node:crypto";
 import type { Connector } from "./store.ts";
 import { OAUTH_APPS, platformTokenFetch } from "./oauth-apps.ts";
 import { NATIVE_CONNECTORS } from "./native.ts";
+import { pasteBackClient } from "./paste-back.ts";
 import {
   connectorByState,
   getOAuthApp,
@@ -49,16 +50,17 @@ export class ConnectorOAuthProvider implements OAuthClientProvider {
   }
 
   get redirectUrl(): string {
-    return this.redirectOverride ?? callbackUrl(this.redirectBase);
+    return this.redirectOverride ?? pasteBackClient(this.connector.endpoint)?.redirectUrl ?? callbackUrl(this.redirectBase);
   }
 
   get clientMetadata(): OAuthClientMetadata {
+    const pasteBack = pasteBackClient(this.connector.endpoint);
     return {
-      client_name: `omg (${this.connector.name})`,
+      client_name: pasteBack?.clientName ?? `omg (${this.connector.name})`,
       redirect_uris: [this.redirectUrl],
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
-      token_endpoint_auth_method: "client_secret_post",
+      token_endpoint_auth_method: pasteBack ? "none" : "client_secret_post",
     };
   }
 
@@ -127,7 +129,7 @@ export function platformAuthOptions(connector: Connector): { fetchFn: ReturnType
 }
 
 export type StartResult =
-  | { ok: true; authorizeUrl: string; state: string }
+  | { ok: true; authorizeUrl: string; state: string; pasteBack?: true }
   | { ok: true; alreadyAuthorized: true }
   | { ok: false; error: string; needsOAuthApp?: string };
 
@@ -163,7 +165,10 @@ export async function startConnectorOAuth(
     const result = await auth(provider, { serverUrl: connector.endpoint, ...(scopes?.length ? { scope: scopes.join(" ") } : {}), ...platformAuthOptions(connector) });
     if (result === "AUTHORIZED") return { ok: true, alreadyAuthorized: true };
     if (provider.authorizationUrl) {
-      return { ok: true, authorizeUrl: provider.authorizationUrl.toString(), state: provider.state() };
+      // A paste-back server returns to an address the browser cannot load;
+      // the page asks the member to paste that URL back (./paste-back.ts).
+      const pasteBack = !redirectUrl && pasteBackClient(connector.endpoint) ? { pasteBack: true as const } : {};
+      return { ok: true, authorizeUrl: provider.authorizationUrl.toString(), state: provider.state(), ...pasteBack };
     }
     return { ok: false, error: "the server did not return an authorization URL" };
   } catch (e) {
