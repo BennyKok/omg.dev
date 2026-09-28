@@ -661,3 +661,18 @@ describe("unasked, in a task's replies", () => {
     expect(d.told).toEqual([{ sessionId: "a1b2c3d4-0000-4000-8000-0000000000dd", text: "Names that feel super." }]);
   });
 });
+
+describe("omg and its tasks talk like teammates", () => {
+  test("a thread's task starts inside the thread envelope, and a follow-up gets omg's own few words back", async () => {
+    const thread = startThread({ identity: "benny@example.com", title: "Name and logo design" });
+    const d = deps({ complete: async () => '{"action":"task","title":"Names","prompt":"Brainstorm names."}' });
+    const started = await answerMention(thread.id, "@omg names please", "benny@example.com", d, "root-a");
+    expect(d.started[0]).toStartWith("=== omg.dev THREAD TASK ===");
+    expect(d.started[0]).toContain('a team chat thread called "Name and logo design"');
+
+    const relay = deps({ complete: async () => '{"action":"tell_task","text":"Keep it shorter.","ack":"On it, shorter from here."}' });
+    const posted = await answerMention(thread.id, "@omg shorter", "benny@example.com", relay, "root-a");
+    expect(started?.task?.event).toBe("started");
+    expect(posted?.text).toBe("On it, shorter from here.");
+  });
+});

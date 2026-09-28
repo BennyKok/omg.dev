@@ -247,6 +247,8 @@ const SUBAGENT_HEADERS = [
   "=== omg.dev SUBAGENT OPERATING CONTRACT ===",
   // Same shape: terminated by USER_TASK. See withFirstRunEnvelope.
   "=== omg.dev FIRST RUN ===",
+  // Same shape. See withThreadTaskEnvelope.
+  "=== omg.dev THREAD TASK ===",
 ] as const;
 
 export const FIRST_RUN_HEADER = "=== omg.dev FIRST RUN ===";
@@ -298,6 +300,36 @@ export function withFirstRunEnvelope(prompt: string | undefined, opts: { seesIma
     "- Keep your messages to the user short and plain.",
     USER_TASK,
     text,
+  ].join("\n");
+}
+
+export const THREAD_TASK_HEADER = "=== omg.dev THREAD TASK ===";
+
+/**
+ * The envelope for a task started from a thread: an agent working for a
+ * group chat, not a person watching a transcript.
+ *
+ * Without it a thread task wrote like a task session: bolded headings,
+ * numbered sections and a recap of every domain it checked, posted into a
+ * chat that several people read on their phones. The team kept asking it to
+ * "be more concise" (2026-09-28). The rules mirror the bot contract's reply
+ * style, plus the one fact only a thread task has: the thread sees the last
+ * message of each turn and nothing else (threads.ts, turnAnswer).
+ */
+export function withThreadTaskEnvelope(prompt: string, opts: { threadTitle?: string | null } = {}): string {
+  const title = opts.threadTitle?.trim();
+  return [
+    THREAD_TASK_HEADER,
+    `You are working for a team chat thread${title ? ` called "${title}"` : ""}. Several people read it, mostly on their phones. These rules hold for the whole session.`,
+    "- The last message of each turn is posted into the thread as your reply. Nothing else you write is seen there, so that message must stand on its own.",
+    "- Talk like a teammate in a chat, not a report: a couple of short lines by default, plain words. Length is earned by the question. Answer what was asked first, then stop.",
+    "- No headings, no bolded label on every line, no recap of the steps you took, no closing \"want me to do X or Y?\". Use a short list only when you are giving options.",
+    "- Say what you think, once, plainly. If you recommend one option, say which and why in a line.",
+    "- Later messages from the thread reach you as new turns, relayed by omg with who said them. Answer that person, by name when it helps.",
+    "- Show a picture or a video with `omg_display_image` or `omg_display_video`: it appears in the thread. For a decision only a person can make, ask with `omg_input`; it shows in the thread too.",
+    "- Use `omg_ship` only for finished work that changed something (code, a deploy, a file). An answer in the thread needs no ship.",
+    USER_TASK,
+    prompt.trim(),
   ].join("\n");
 }
 
