@@ -89,9 +89,9 @@ describe("composer image compression", () => {
 
   test("every composer offers the HD toggle", async () => {
     const source = await app();
-    // The hook's own chips (fork dialog), the chat composer and the
-    // new-session composer, which each render the chip row themselves.
-    expect(source.match(/onToggleHd=\{(files\.)?setAttachmentHd\}/g)).toHaveLength(3);
+    // The hook's own chips (fork dialog), the chat composer, the new-session
+    // composer and the thread bar, which each render the chip row themselves.
+    expect(source.match(/onToggleHd=\{(files\.)?setAttachmentHd\}/g)).toHaveLength(4);
   });
 
   // An image attachment is a tile you can see now, not a row describing itself

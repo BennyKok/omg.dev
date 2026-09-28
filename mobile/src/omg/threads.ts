@@ -25,9 +25,16 @@ export function listThreads(client: OmgClient) {
   return client.transport.request<{ threads?: ThreadSummary[] }>("/api/threads").then((res) => res.threads ?? []);
 }
 
-export function createThread(client: OmgClient, text: string) {
+/** A file already uploaded to the machine (POST /api/uploads), to go with a message. */
+export type ThreadAttachment = { path: string; name: string };
+
+export function createThread(client: OmgClient, text: string, attachments: ThreadAttachment[] = []) {
   return client.transport
-    .request<{ thread: ThreadSummary }>("/api/threads", { method: "POST", headers: json, body: JSON.stringify({ text }) })
+    .request<{ thread: ThreadSummary }>("/api/threads", {
+      method: "POST",
+      headers: json,
+      body: JSON.stringify({ text, ...(attachments.length ? { attachments } : {}) }),
+    })
     .then((res) => res.thread);
 }
 
@@ -36,12 +43,12 @@ export function getThread(client: OmgClient, id: string) {
 }
 
 /** Post a message; with `replyTo`, into that top-level message's replies. */
-export function sendThreadMessage(client: OmgClient, id: string, text: string, replyTo?: string | null) {
+export function sendThreadMessage(client: OmgClient, id: string, text: string, replyTo?: string | null, attachments: ThreadAttachment[] = []) {
   return client.transport
     .request<{ message: ThreadMessage }>(`/api/threads/${encodeURIComponent(id)}/messages`, {
       method: "POST",
       headers: json,
-      body: JSON.stringify({ text, ...(replyTo ? { replyTo } : {}) }),
+      body: JSON.stringify({ text, ...(replyTo ? { replyTo } : {}), ...(attachments.length ? { attachments } : {}) }),
     })
     .then((res) => res.message);
 }

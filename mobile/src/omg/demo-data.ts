@@ -17,6 +17,7 @@
  * account, so demo mode cannot leak a session, an email, or a repository name.
  */
 
+import { DEMO_THREAD_IMAGE_DATA_URI, DEMO_THREAD_IMAGE_PATH } from "./demo-thread-image";
 import type { OmgTransport } from "@omg-dev/client";
 import type { OmgMessage, OmgSession } from "@omg-dev/protocol";
 import { DEMO_VIDEO_PATH, demoVideoBytes } from "./demo-video";
@@ -72,6 +73,9 @@ function demoThreadMessages(t: number) {
     msg("t4", t - 38 * MIN, omg, "Linear starts at $8 per seat a month. Vercel Pro is $20 per member a month.", undefined, "t3"),
     msg("t5", t - 21 * MIN, me, "@omg update the pricing page with the cap"),
     msg("t6", t - 20 * MIN, omg, "Started a task in web.", { sessionId: DEMO_TASK_ASKING, event: "started", title: "Cap the free tier on the pricing page", project: "web" }, "t5"),
+    // Formatting and a picture, as a task's result carries them.
+    { ...msg("t6b", t - 19 * MIN, omg, "**Mockup** of the new tiers:\n\n- Free: 3 tasks a day\n- Pro: unlimited", undefined, "t5"),
+      media: [{ kind: "image", path: DEMO_THREAD_IMAGE_PATH, name: "mockup.png", width: 240, height: 160, caption: "Pricing mockup" }] },
     msg("t7", t - 15 * MIN, alex, "@omg also fix the typo in the signup email"),
     msg("t8", t - 14 * MIN, omg, "Started a task in web.", { sessionId: DEMO_TASK_DONE, event: "started", title: "Fix the signup email typo", project: "web" }, "t7"),
     msg("t9", t - 2 * MIN, omg, "Fixed \"recieve\" in the signup email. Tests pass.", { sessionId: DEMO_TASK_DONE, event: "finished", title: "Fix the signup email typo", project: "web" }, "t7"),
@@ -602,6 +606,10 @@ export function getDemoTransport(): OmgTransport {
   demoTransport = {
     async fetch(path: string) {
       await openingDelay(path);
+      if (threadFixture && path.split("?")[0] === DEMO_THREAD_IMAGE_PATH) {
+        const image = await globalThis.fetch(DEMO_THREAD_IMAGE_DATA_URI);
+        return { ok: true, status: 200, blob: () => image.blob() } as unknown as Response;
+      }
       if (videoFixture && path.split("?")[0] === DEMO_VIDEO_PATH && !path.includes("preview=1")) {
         return { ok: true, status: 200, async arrayBuffer() { return demoVideoBytes(); } } as unknown as Response;
       }

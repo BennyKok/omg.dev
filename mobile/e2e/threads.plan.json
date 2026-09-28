@@ -35,7 +35,7 @@
       "goal": "Read the reply links under the messages near the end of the thread. Do not tap anything.",
       "done": "The messages that asked omg for work say how many replies they have, one with a task that needs you and one with a task that is done.",
       "expect": [
-        "reply, task Needs you",
+        "replies, task Needs you",
         "2 replies, task Done"
       ]
     },
@@ -49,7 +49,13 @@
         "Cap the free tier on the pricing page",
         "Create it in live mode?",
         "Yes, live",
-        "omg is typing"
+        "omg is typing",
+        "Mockup of the new tiers:",
+        "Free: 3 tasks a day",
+        "Pricing mockup"
+      ],
+      "forbid": [
+        "**Mockup**"
       ]
     },
     {

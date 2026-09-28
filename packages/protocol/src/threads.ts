@@ -28,9 +28,58 @@ export type ThreadMessage = {
    * to the same replies. Absent: a top-level message.
    */
   replyTo?: string | null;
+  /** Pictures, videos and files, drawn under the text as the session chat draws them. */
+  media?: ThreadMedia[];
   /** Client only: sent, not yet stored. */
   pending?: boolean;
 };
+
+/**
+ * One picture, video or file in a message. `path` is served by the machine
+ * (a thread file, or a task's artifact) and needs the same grant as any
+ * other box-served media.
+ */
+export type ThreadMedia = {
+  kind: "image" | "video" | "file";
+  path: string;
+  name?: string | null;
+  width?: number | null;
+  height?: number | null;
+  caption?: string | null;
+};
+
+const IMAGE_EXT = /\.(png|jpe?g|gif|webp|heic|heif|avif|bmp)$/i;
+const VIDEO_EXT = /\.(mp4|m4v|mov|webm)$/i;
+
+/** What a file is, from its name or type, for how a message draws it. */
+export function mediaKindFor(name: string, mimeType?: string | null): ThreadMedia["kind"] {
+  const type = (mimeType ?? "").toLowerCase();
+  if (type.startsWith("image/") || IMAGE_EXT.test(name)) return "image";
+  if (type.startsWith("video/") || VIDEO_EXT.test(name)) return "video";
+  return "file";
+}
+
+/** Markdown down to the words, for one-line previews and notifications. */
+export function plainText(markdown: string): string {
+  return markdown
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/^\s{0,3}(#{1,6}|>|[-*+]|\d+[.)])\s+/gm, "")
+    .replace(/(\*\*|__|~~|`)/g, "")
+    .replace(/(^|\s)[*_]([^*_\s][^*_]*)[*_](?=\s|$|[.,!?;:])/g, "$1$2")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** "Photo", "2 photos", "Video", "File": a message's media in a word, for a message with no text. */
+export function mediaLabel(media: readonly ThreadMedia[] | undefined): string {
+  if (!media?.length) return "";
+  const kind = media.every((row) => row.kind === media[0].kind) ? media[0].kind : "file";
+  const word = kind === "image" ? "photo" : kind === "video" ? "video" : "file";
+  const label = media.length === 1 ? word : `${media.length} ${word}s`;
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
 
 export type ThreadProject = { cwd: string; name: string };
 
@@ -40,7 +89,7 @@ export type ThreadSummary = {
   createdAt: number;
   updatedAt: number;
   project: ThreadProject | null;
-  lastMessage: Pick<ThreadMessage, "author" | "text" | "ts"> | null;
+  lastMessage: Pick<ThreadMessage, "author" | "text" | "ts" | "media"> | null;
 };
 
 export type ThreadTaskRow = {
@@ -157,7 +206,7 @@ export function threadPreview(thread: Pick<ThreadSummary, "lastMessage">): strin
   const last = thread.lastMessage;
   if (!last) return "No messages yet";
   const who = last.author.kind === "omg" ? "omg" : last.author.name;
-  return `${who}: ${last.text.replace(/\s+/g, " ").trim()}`;
+  return `${who}: ${plainText(last.text) || mediaLabel(last.media)}`;
 }
 
 /** The task a message is about, as the card needs it. Pure, for both clients. */

@@ -2,7 +2,10 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Image, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import Reanimated, { FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withDelay, withRepeat, withSequence, withTiming } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
-import { Icon, InlineVoiceRecorder } from "../components";
+import { AttachmentStrip, Icon, InlineVoiceRecorder } from "../components";
+import { AttachMenuButton, AttachMenuLayer } from "./attach-menu";
+import { useAttachments } from "./attachments";
+import type { ThreadAttachment } from "./threads";
 import {
   applyThreadMention,
   matchThreadMentions,
@@ -163,9 +166,10 @@ export function AtMentionSuggest({ value, onChangeText }: { value: string; onCha
 }
 
 /**
- * A THREAD'S CHAT BAR: the session bar's shell, field, mic and send, with the
- * `@` picker above it. A finished dictation take sends, as in a session. No
- * attach menu: a thread message is text.
+ * A THREAD'S CHAT BAR: the session bar's shell, field, mic, "+" and send,
+ * with the `@` picker above it. A finished dictation take sends, as in a
+ * session. Pictures, videos and files upload as soon as they are picked, and
+ * go with the next send.
  */
 export function ThreadChatBar({
   placeholder,
@@ -177,7 +181,7 @@ export function ThreadChatBar({
   onTyping,
 }: {
   placeholder: string;
-  onSend: (text: string) => Promise<void>;
+  onSend: (text: string, attachments: ThreadAttachment[]) => Promise<void>;
   testID: string;
   autoFocus?: boolean;
   /** Controlled text, for a screen that fills the field itself (starter chips). */
@@ -193,6 +197,7 @@ export function ThreadChatBar({
   const setText = onChangeText ?? setOwn;
   const [focused, setFocused] = useState(false);
   const [sending, setSending] = useState(false);
+  const attachments = useAttachments(null);
   const typingRef = useRef(onTyping);
   typingRef.current = onTyping;
   useEffect(() => typingRef.current?.(text), [text]);
@@ -201,14 +206,18 @@ export function ThreadChatBar({
 
   const send = async (override?: string) => {
     const body = (override ?? text).trim();
-    if (!body || sending) return;
+    const files = attachments.items.flatMap((item) => (item.path ? [{ path: item.path, name: item.name }] : []));
+    if ((!body && !files.length) || sending || attachments.uploading) return;
     setSending(true);
     setText("");
+    const kept = attachments.items;
+    attachments.clear();
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     try {
-      await onSend(body);
+      await onSend(body, files);
     } catch {
       setText(body);
+      attachments.restore(kept);
     } finally {
       setSending(false);
     }
@@ -223,8 +232,14 @@ export function ThreadChatBar({
     else void send(next);
   });
   const tail = dictation.live && dictation.state === "recording" ? (dictation.partial ?? "").trim() : "";
-  const canSend = text.trim().length > 0 && !sending;
-  const expanded = focused || text.trim().length > 0 || dictation.state !== "idle";
+  const hasFiles = attachments.items.some((item) => item.path);
+  const canSend = (text.trim().length > 0 || hasFiles) && !sending && !attachments.uploading;
+  const expanded = focused || text.trim().length > 0 || attachments.items.length > 0 || dictation.state !== "idle";
+  const plus = (size: number) => (
+    <AttachMenuButton key="thread-attach" options={attachments.options} size={size}>
+      <Icon ios="plus" android="add" size={20} color={colors.textSecondary} />
+    </AttachMenuButton>
+  );
   const inputStyle = useChatBarInputStyle(text.length > 0 || !!tail);
 
   const mic = (size: number, color: string) => (
@@ -243,12 +258,17 @@ export function ThreadChatBar({
   return (
     <View style={{ paddingHorizontal: space.md, paddingTop: space.sm }}>
       <AtMentionSuggest value={text} onChangeText={setText} />
+      <AttachmentStrip items={attachments.items} onRemove={attachments.remove} />
+      {/* The layer draws the "+" over the glass, never inside it, as in a session. */}
+      <AttachMenuLayer>
       <ChatBarShell
         expanded={expanded}
+        collapsedStart={plus(32)}
         collapsedEnd={mic(32, colors.textMuted)}
         expandedActions={
           dictation.state === "idle" ? (
             <>
+              {plus(34)}
               <View style={{ flex: 1 }} />
               {mic(34, colors.textSecondary)}
               <Pressable
@@ -295,6 +315,7 @@ export function ThreadChatBar({
           style={inputStyle}
         />
       </ChatBarShell>
+      </AttachMenuLayer>
     </View>
   );
 }

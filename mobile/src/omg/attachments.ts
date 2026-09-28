@@ -128,6 +128,8 @@ export function useAttachments(sessionId: string | null) {
   }, []);
 
   const clear = useCallback(() => setItems([]), []);
+  /** Put rows back, for a send that failed after the strip was cleared. */
+  const restore = useCallback((rows: Attachment[]) => setItems(rows), []);
 
   /**
    * The message the agent actually receives. The block's shape lives in
@@ -159,6 +161,7 @@ export function useAttachments(sessionId: string | null) {
     options,
     remove,
     clear,
+    restore,
     compose,
     /** True while any attachment is still on its way to the computer. */
     uploading: items.some((item) => !item.path && !item.failed),

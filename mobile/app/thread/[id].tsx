@@ -10,6 +10,8 @@ import { TaskCard } from "../../src/omg/task-card";
 import { ChatHeaderBar, chatHeaderHeight } from "../../src/omg/chat-header";
 import { GroupAvatar, ThreadAvatar, ThreadDetailsSheet, ThreadPeopleContext, useAuthorName } from "../../src/omg/thread-details";
 import { ThreadChatBar, TypingIndicator } from "../../src/omg/chat-bar";
+import { Markdown } from "../../src/omg/markdown";
+import { ThreadMediaList } from "../../src/omg/thread-media";
 import { Text } from "../../src/omg/text";
 import { useTheme } from "../../src/omg/theme";
 import {
@@ -33,6 +35,7 @@ import {
   updateThread,
   type ThreadAuthor,
   type ThreadDetail,
+  type ThreadAttachment,
   type ThreadMessage,
 } from "../../src/omg/threads";
 import { QuestionCard, type AskQuestion } from "../session/[id]";
@@ -70,7 +73,13 @@ function MessageRow({ message, first, children }: { message: ThreadMessage; firs
             <Text style={{ ...type.caption, color: colors.textMuted }}>{TIME.format(message.ts)}</Text>
           </View>
         ) : null}
-        <Text style={{ ...type.body, lineHeight: 22, color: colors.text, opacity: message.pending ? 0.6 : 1 }}>{message.text}</Text>
+        {/* Formatted as the session chat formats a message: the same renderer. */}
+        {message.text ? (
+          <View style={{ opacity: message.pending ? 0.6 : 1 }}>
+            <Markdown text={message.text} />
+          </View>
+        ) : null}
+        <ThreadMediaList media={message.media} />
         {children}
       </View>
     </View>
@@ -152,26 +161,29 @@ export default function ThreadScreen() {
   );
 
   const post = useCallback(
-    async (body: string, replyTo: string | null) => {
+    async (body: string, replyTo: string | null, attachments: ThreadAttachment[] = []) => {
       if (!client || !id) return;
       const local: ThreadMessage = {
         id: `local-${Date.now()}`,
         threadId: id,
         ts: Date.now(),
         author: { kind: "human", participantId: detail?.me ?? "", name: "You" },
-        text: body,
+        // Media shows once stored: until then its path is on the phone, not the machine.
+        text: body || `Sending ${attachments.length === 1 ? "a file" : `${attachments.length} files`}…`,
         pending: true,
         replyTo,
       };
       setPending((rows) => [...rows, local]);
       try {
-        const message = await sendThreadMessage(client, id, body, replyTo);
+        const message = await sendThreadMessage(client, id, body, replyTo, attachments);
         // Asking omg at the top level opens the replies it will answer in.
         if (!replyTo && mentionsOmg(body)) {
           setRootHint(message);
           setOpenRoot(message.id);
         }
-        void load();
+        // The stored copy replaces the local one once it is loaded.
+        await load();
+        setPending((rows) => rows.filter((row) => row.id !== local.id));
       } catch (e) {
         setPending((rows) => rows.filter((row) => row.id !== local.id));
         setError(e instanceof Error ? e.message : String(e));
@@ -337,7 +349,7 @@ export default function ThreadScreen() {
 
         <View style={{ paddingBottom: Math.max(insets.bottom, space.md) }}>
           <TypingIndicator testID="thread-typing" label={mainTypingLabel} />
-          <ThreadChatBar testID="thread-input" placeholder={`Message ${detail?.thread.title ?? "the thread"}`} onSend={(body) => post(body, null)} onTyping={mainTyping} />
+          <ThreadChatBar testID="thread-input" placeholder={`Message ${detail?.thread.title ?? "the thread"}`} onSend={(body, files) => post(body, null, files)} onTyping={mainTyping} />
         </View>
       </KeyboardAvoidingView>
 
@@ -413,7 +425,7 @@ export default function ThreadScreen() {
               </ScrollView>
               <View style={{ paddingBottom: Math.max(insets.bottom, space.md) }}>
                 <TypingIndicator testID="thread-reply-typing" label={root ? typingLabel(typingIn(detail?.typing, root.id), detail?.participants) : null} />
-                <ThreadChatBar testID="thread-reply-input" placeholder="Reply…" onSend={(body) => post(body, sheetRoot.id)} onTyping={replyTyping} />
+                <ThreadChatBar testID="thread-reply-input" placeholder="Reply…" onSend={(body, files) => post(body, sheetRoot.id, files)} onTyping={replyTyping} />
               </View>
             </KeyboardAvoidingView>
           </View>

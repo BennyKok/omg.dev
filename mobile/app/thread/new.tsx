@@ -7,7 +7,7 @@ import { Icon } from "../../src/components";
 import { useOmg } from "../../src/omg/provider";
 import { Text } from "../../src/omg/text";
 import { useTheme } from "../../src/omg/theme";
-import { createThread, THREAD_STARTERS } from "../../src/omg/threads";
+import { createThread, THREAD_STARTERS, type ThreadAttachment } from "../../src/omg/threads";
 import { ThreadChatBar } from "../../src/omg/chat-bar";
 
 /**
@@ -26,11 +26,11 @@ export default function NewThreadScreen() {
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   // The chat bar clears itself on send and puts the text back if this throws.
-  const send = useCallback(async (prompt: string) => {
+  const send = useCallback(async (prompt: string, attachments: ThreadAttachment[]) => {
     if (!client) throw new Error("No machine selected");
     setError(null);
     try {
-      const thread = await createThread(client, prompt);
+      const thread = await createThread(client, prompt, attachments);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace(`/thread/${thread.id}` as Href);
     } catch (e) {
@@ -108,8 +108,8 @@ export default function NewThreadScreen() {
             placeholder="Message"
             value={text}
             onChangeText={setText}
-            onSend={async (body) => {
-              await send(body);
+            onSend={async (body, attachments) => {
+              await send(body, attachments);
             }}
           />
         </View>

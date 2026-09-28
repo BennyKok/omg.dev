@@ -16202,15 +16202,25 @@ function ThreadComposerBar({ testId, placeholder, onSend, autoFocus, onTyping }:
   useTypingReport(text, onTyping);
   const [sending, setSending] = useState(false);
   const [multiline, setMultiline] = useState(false);
+  // The session composer's file plumbing: eager uploads, paste, drop, annotate, HD.
+  const files = useComposerAttachments({
+    endpoint: (att) => `/api/uploads?filename=${encodeURIComponent(att.name)}`,
+    disabled: sending,
+  });
   const [error, setError] = useState<string | null>(null);
   const send = async (override?: string) => {
     const body = (override ?? text).trim();
-    if (!body || sending) return;
+    const attached = files.attachments;
+    if ((!body && !attached.length) || sending) return;
     setSending(true);
     setError(null);
     setText("");
     try {
-      await onSend(body);
+      // Uploads started when the files were attached; this waits only for bytes still in flight.
+      const uploaded = attached.length ? await Promise.all(attached.map(files.resolveUpload)) : [];
+      await onSend(body, uploaded.map((row) => ({ path: row.path, name: row.name })));
+      files.setAttachments([]);
+      files.forgetAllUploads();
     } catch (e) {
       setText(body);
       setError(e instanceof Error ? e.message : String(e));
@@ -16219,15 +16229,38 @@ function ThreadComposerBar({ testId, placeholder, onSend, autoFocus, onTyping }:
     }
   };
   return (
-    <div className="px-4 py-3">
+    <div className={cn("px-4 py-3", files.draggingFiles && "bg-primary/8")} {...files.dropZoneProps}>
+      {files.fileInput}
+      {files.annotator}
+      <ComposerAttachmentChips
+        className="mb-2"
+        items={files.attachments.map((att) => ({ att }))}
+        disabled={sending}
+        onAnnotate={files.setAnnotatingId}
+        onRemove={files.removeAttachment}
+        onToggleHd={files.setAttachmentHd}
+      />
       <div
         className={cn(
           "lfg-gfield relative z-[1] flex gap-1 rounded-3xl px-2 py-1.5 md:gap-0.5 md:px-1.5 md:py-1",
           multiline ? "items-end" : "items-center",
         )}
       >
+        <Button
+          size="icon"
+          type="button"
+          variant={files.draggingFiles ? "brand-soft" : "tint"}
+          className="size-10 shrink-0 rounded-full md:size-8"
+          onClick={files.openFilePicker}
+          aria-label="Attach files"
+          title="Attach files"
+          disabled={sending}
+        >
+          <Plus className="size-4" />
+        </Button>
         <ComposerTextarea
           data-testid={testId}
+          onPaste={files.onPasteFiles}
           autoFocus={autoFocus}
           value={text}
           onValueChange={setText}
@@ -16252,7 +16285,7 @@ function ThreadComposerBar({ testId, placeholder, onSend, autoFocus, onTyping }:
           onAutoSubmit={(said, base) => void send(base.trim() ? `${base.trimEnd()} ${said}` : said)}
           onCancel={(base) => setText(base)}
         />
-        {text.trim() || sending ? (
+        {text.trim() || files.attachments.length || sending ? (
           <ComposerSendButton
             className="size-10 shrink-0 md:size-8"
             sending={sending}
