@@ -1298,10 +1298,16 @@ export function SessionsScreen({
    * dialog: a deliberate swipe past a threshold IS the confirmation, and an
    * archived session can be resumed.
    */
-  const openNewThread = useCallback(() => {
+  // On iPad the rail stays and the thread fills the pane beside it, the way a
+  // session opens there; on a phone it is a pushed screen.
+  const openThread = (href: Href) => {
+    if (workspace) navigateWorkspace(href);
+    else router.push(href);
+  };
+  const openNewThread = () => {
     Keyboard.dismiss();
-    router.push("/thread/new" as Href);
-  }, [router]);
+    openThread("/thread/new" as Href);
+  };
 
   const archiveSession = useCallback(
     (sessionId: string | null) => {
@@ -2010,6 +2016,26 @@ export function SessionsScreen({
             <SessionListSkeleton style={{ paddingTop: space.xl }} />
           ) : (
             <>
+              {/* ALWAYS SHOWN, even with no threads: its "New" is the way to
+                  start the first one. On iPad it is the only way; the pull
+                  gesture is phone-only. */}
+              <View testID="threads-section" style={{ paddingBottom: space.sm }}>
+                <SectionHeader label="Threads" count={threads.length} actionLabel="New" actionAccessibilityLabel="New thread" onAction={openNewThread} />
+                {threads.map((thread) => (
+                  <SessionCard
+                    key={`thread:${thread.id}`}
+                    sessionId={thread.id}
+                    title={thread.title}
+                    subtitle={threadPreview(thread)}
+                    timestamp={relativeTime(thread.updatedAt)}
+                    hideAvatar
+                    onPress={() => openThread(`/thread/${thread.id}` as Href)}
+                    onArchive={() => archiveThread(thread.id)}
+                    animateEntry={animateEntry}
+                  />
+                ))}
+                {homeRows.length ? <SectionHeader label="Tasks" count={roots.length} /> : null}
+              </View>
               {visibleSessions.length === 0 && loading ? (
                 // First fetch on this machine, nothing on screen to disturb.
                 // Once `visibleSessions` is non-empty, RefreshControl (pull-to-refresh)
@@ -2022,25 +2048,7 @@ export function SessionsScreen({
                   detail="Start one below and it shows up here."
                 />
               ) : null}
-              {threads.length ? (
-                <View testID="threads-section" style={{ paddingBottom: space.sm }}>
-                  <SectionHeader label="Threads" count={threads.length} actionLabel="New" actionAccessibilityLabel="New thread" onAction={openNewThread} />
-                  {threads.map((thread) => (
-                    <SessionCard
-                      key={`thread:${thread.id}`}
-                      sessionId={thread.id}
-                      title={thread.title}
-                      subtitle={threadPreview(thread)}
-                      timestamp={relativeTime(thread.updatedAt)}
-                      hideAvatar
-                      onPress={() => router.push(`/thread/${thread.id}` as Href)}
-                      onArchive={() => archiveThread(thread.id)}
-                      animateEntry={animateEntry}
-                    />
-                  ))}
-                  {homeRows.length ? <SectionHeader label="Tasks" count={roots.length} /> : null}
-                </View>
-              ) : null}
+
 
 
             </>

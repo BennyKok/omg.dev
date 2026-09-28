@@ -1,0 +1,26 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": false
+  },
+  "steps": [
+    {
+      "name": "Threads heading shows with no threads",
+      "goal": "If Your data and AI providers is visible, tap Agree and continue. Otherwise only look at the left rail. Do not open anything.",
+      "done": "The left rail shows the Threads heading with its New button, even though there are no threads yet.",
+      "expect": [
+        "Threads",
+        "New thread"
+      ]
+    },
+    {
+      "name": "New opens a thread beside the rail",
+      "goal": "Tap the New thread button next to the Threads heading in the left rail. Do not tap New session or the message field.",
+      "done": "An empty new thread is open in the pane beside the rail.",
+      "expect": [
+        "What is on your mind?",
+        "Threads"
+      ]
+    }
+  ]
+}
