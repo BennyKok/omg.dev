@@ -3,6 +3,7 @@ import { Alert, AppState, FlatList, KeyboardAvoidingView, Modal, Platform, Press
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
+import Reanimated, { useAnimatedKeyboard, useAnimatedStyle } from "react-native-reanimated";
 import { Icon } from "../../src/components";
 import type { MenuOption } from "../../src/omg/menu";
 import { useOmg } from "../../src/omg/provider";
@@ -59,6 +60,25 @@ const Avatar = ThreadAvatar;
 function AuthorName({ author, color }: { author: ThreadAuthor; color: string }) {
   const { type } = useTheme();
   return <Text style={{ ...type.headline, fontWeight: "700", color }}>{useAuthorName(author)}</Text>;
+}
+
+/**
+ * THE REPLIES BAR RIDES THE KEYBOARD from its real frame, as the session
+ * composer does.
+ *
+ * KeyboardAvoidingView measures against its parent, and a page sheet starts
+ * well below the top of the screen, so it lifted the bar short by that much
+ * and the keyboard covered the bar's action row. The keyboard frame is in
+ * screen terms and the sheet ends at the screen's bottom, so padding by the
+ * keyboard's height puts the bar exactly on top of it, on the keyboard's own
+ * curve.
+ */
+function AboveKeyboard({ rest, gap, children }: { rest: number; gap: number; children: ReactNode }) {
+  const keyboard = useAnimatedKeyboard();
+  const lift = useAnimatedStyle(() => ({
+    paddingBottom: Math.max(rest, keyboard.height.value > 0 ? keyboard.height.value + gap : 0),
+  }));
+  return <Reanimated.View style={lift}>{children}</Reanimated.View>;
 }
 
 function MessageRow({ message, first, children }: { message: ThreadMessage; first: boolean; children?: ReactNode }) {
@@ -388,7 +408,7 @@ export default function ThreadScreen() {
       <Modal visible={!!root} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setOpenRoot(null)}>
         {sheetRoot ? (
           <View testID="thread-replies" style={{ flex: 1, backgroundColor: colors.background }}>
-            <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+            <View style={{ flex: 1 }}>
               <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: space.lg, paddingVertical: space.md, borderBottomWidth: 0.5, borderBottomColor: colors.border }}>
                 <Text style={{ ...type.headline, flex: 1, color: colors.text }}>Replies</Text>
                 <Pressable testID="thread-replies-close" accessibilityRole="button" accessibilityLabel="Close replies" onPress={() => setOpenRoot(null)} hitSlop={10}>
@@ -423,11 +443,11 @@ export default function ThreadScreen() {
                   </View>
                 ) : null}
               </ScrollView>
-              <View style={{ paddingBottom: Math.max(insets.bottom, space.md) }}>
+              <AboveKeyboard rest={Math.max(insets.bottom, space.md)} gap={space.sm}>
                 <TypingIndicator testID="thread-reply-typing" label={root ? typingLabel(typingIn(detail?.typing, root.id), detail?.participants) : null} />
                 <ThreadChatBar testID="thread-reply-input" placeholder="Reply…" onSend={(body, files) => post(body, sheetRoot.id, files)} onTyping={replyTyping} />
-              </View>
-            </KeyboardAvoidingView>
+              </AboveKeyboard>
+            </View>
           </View>
         ) : null}
       </Modal>

@@ -59,6 +59,14 @@
       ]
     },
     {
+      "name": "The reply bar sits above the keyboard",
+      "goal": "Tap the text field that says Reply\u2026 at the bottom of the replies sheet. It must be tapped even if it is already visible, so the keyboard opens. Do not type anything.",
+      "done": "The on-screen keyboard is open (letter keys are listed) and the Reply\u2026 field is still listed above it.",
+      "expect": [
+        "Reply\u2026"
+      ]
+    },
+    {
       "name": "Close the replies",
       "goal": "Tap Close replies at the top right of the replies sheet.",
       "done": "The replies sheet is closed and the thread is visible again.",
