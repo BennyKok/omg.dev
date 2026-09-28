@@ -1,5 +1,7 @@
 import { createContext, useContext, useMemo, useRef, useState, useEffect, type KeyboardEvent, type ReactNode } from "react";
-import { Archive, ArrowUp, ChevronLeft, Folder, Info, MessageSquare, MoreHorizontal, Pencil, Plus, X } from "lucide-react";
+import { Archive, ArrowUp, ChevronLeft, Folder, Info, MessageSquare, MoreHorizontal, Paperclip, Pencil, Plus, X } from "lucide-react";
+import { MessageResponse } from "./ai-elements/message";
+import { AuthenticatedArtifactImage, AuthenticatedArtifactVideo } from "./authenticated-artifact";
 import {
   authorHue,
   authorView,
@@ -18,10 +20,11 @@ import {
   type TaskCardState,
   type ThreadAuthor,
   type ThreadDetail,
+  type ThreadMedia,
   type ThreadMessage,
   type ThreadSummary,
 } from "../../../packages/protocol/src/threads";
-import { createThread, sendThreadMessage, sendThreadTyping, updateThread, useThread } from "@/lib/threads";
+import { createThread, sendThreadMessage, sendThreadTyping, updateThread, useThread, type ThreadAttachment } from "@/lib/threads";
 import { useAsk, SessionQuestionPanel } from "./ask-center";
 import {
   DropdownMenu,
@@ -148,6 +151,50 @@ function AuthorName({ author }: { author: ThreadAuthor }) {
 }
 
 /** One message, Slack style: avatar and name only at the start of a group. */
+/**
+ * A message's pictures, videos and files, drawn the way the session chat draws
+ * an agent's: the same authenticated image (click to zoom) and video player.
+ */
+function ThreadMediaList({ media }: { media?: ThreadMedia[] }) {
+  if (!media?.length) return null;
+  return (
+    <div data-testid="thread-media" className="mt-1 flex flex-col items-start gap-2">
+      {media.map((row) => (
+        <div key={row.path} className="flex max-w-[min(34rem,100%)] flex-col items-start gap-1">
+          {row.kind === "image" ? (
+            <AuthenticatedArtifactImage
+              path={row.path}
+              alt={row.caption || row.name || "Image"}
+              width={row.width ?? undefined}
+              height={row.height ?? undefined}
+              zoomable
+              className="block max-h-[24rem] w-auto max-w-full self-start overflow-hidden rounded-xl bg-muted object-contain"
+            />
+          ) : row.kind === "video" ? (
+            <AuthenticatedArtifactVideo
+              path={row.path}
+              label={row.name || row.caption || "Video"}
+              width={row.width ?? undefined}
+              height={row.height ?? undefined}
+              className="block max-h-[24rem] w-auto max-w-full self-start overflow-hidden rounded-xl bg-black object-contain"
+            />
+          ) : (
+            <a
+              href={row.path}
+              download={row.name || undefined}
+              className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-[13px] hover:bg-accent"
+            >
+              <Paperclip className="size-3.5 shrink-0 text-muted-foreground" />
+              <span className="truncate">{row.name || "File"}</span>
+            </a>
+          )}
+          {row.caption && row.kind !== "file" ? <p className="text-xs text-muted-foreground">{row.caption}</p> : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function MessageRow({
   message,
   first,
@@ -172,9 +219,13 @@ function MessageRow({
             <span className="text-[12px] text-muted-foreground">{TIME.format(message.ts)}</span>
           </div>
         ) : null}
-        <div className={cn("whitespace-pre-wrap break-words text-[15px] leading-[22px]", message.pending && "opacity-60")}>
-          {message.text}
-        </div>
+        {/* Formatted as the session chat formats a message: the same renderer. */}
+        {message.text ? (
+          <MessageResponse className={cn("break-words text-[15px] leading-[22px]", message.pending && "opacity-60")}>
+            {message.text}
+          </MessageResponse>
+        ) : null}
+        <ThreadMediaList media={message.media} />
         {children}
       </div>
     </div>
@@ -185,7 +236,8 @@ function MessageRow({
 export type ThreadComposerProps = {
   testId: string;
   placeholder: string;
-  onSend: (text: string) => Promise<void>;
+  /** The text, and the files already uploaded for it (POST /api/uploads). */
+  onSend: (text: string, attachments: ThreadAttachment[]) => Promise<void>;
   autoFocus?: boolean;
   /** The field's text on every change, for the typing ping. */
   onTyping?: (text: string) => void;
@@ -227,7 +279,7 @@ function Composer({ placeholder, onSend, autoFocus, testId, onTyping }: ThreadCo
     setError(null);
     setText("");
     try {
-      await onSend(body);
+      await onSend(body, []);
     } catch (e) {
       setText(body);
       setError(e instanceof Error ? e.message : String(e));
@@ -309,12 +361,12 @@ export function ThreadChat({
       openAskSessionIds={questions.map((q) => q.sessionId)}
       questionPanel={(sessionIds) => (sessionIds.length ? <SessionQuestionPanel sessionIds={sessionIds} /> : null)}
       typing={isNew ? undefined : (on, replyTo) => sendThreadTyping(threadId, on, viewer, replyTo)}
-      send={async (text, replyTo) => {
+      send={async (text, replyTo, attachments) => {
         if (isNew) {
-          onCreated((await createThread(text, viewer)).id);
+          onCreated((await createThread(text, viewer, attachments)).id);
           return null;
         }
-        const message = await sendThreadMessage(threadId, text, viewer, replyTo);
+        const message = await sendThreadMessage(threadId, text, viewer, replyTo, attachments);
         await refresh();
         return message;
       }}
@@ -365,7 +417,7 @@ export function ThreadChatView({
   /** The open questions from these tasks, drawn in their replies. */
   questionPanel?: (sessionIds: string[]) => ReactNode;
   /** Post a message, top-level or in a message's replies. */
-  send: (text: string, replyTo: string | null) => Promise<ThreadMessage | null>;
+  send: (text: string, replyTo: string | null, attachments: ThreadAttachment[]) => Promise<ThreadMessage | null>;
   setProject: (cwd: string | null) => Promise<void>;
   onRename?: (title: string) => Promise<void>;
   onArchive?: () => Promise<void>;
@@ -411,30 +463,34 @@ export function ThreadChatView({
     endRef.current?.scrollIntoView({ block: "end" });
   }, [top.length]);
 
-  const post = async (text: string, replyTo: string | null) => {
+  const post = async (text: string, replyTo: string | null, attachments: ThreadAttachment[] = []) => {
+    const localId = `local-${Date.now()}`;
     if (!isNew) {
       setPending((rows) => [
         ...rows,
         {
-          id: `local-${Date.now()}`,
+          id: localId,
           threadId,
           ts: Date.now(),
           author: { kind: "human", participantId: detail?.me ?? "", name: "You" },
-          text,
+          // Media shows once stored: until then it is only on this device.
+          text: text || `Sending ${attachments.length === 1 ? "a file" : `${attachments.length} files`}…`,
           pending: true,
           replyTo,
         },
       ]);
     }
     try {
-      const message = await send(text, replyTo);
+      const message = await send(text, replyTo, attachments);
+      // `send` has reloaded the thread, so the stored copy is there.
+      setPending((rows) => rows.filter((row) => row.id !== localId));
       // Asking omg at the top level opens the replies it will answer in.
       if (message && !replyTo && mentionsOmg(text)) {
         setRootHint(message);
         setOpenRoot(message.id);
       }
     } catch (e) {
-      setPending((rows) => rows.filter((row) => row.text !== text));
+      setPending((rows) => rows.filter((row) => row.id !== localId));
       throw e;
     }
   };
@@ -604,7 +660,7 @@ export function ThreadChatView({
         onTyping={mainTyping}
         testId="thread-input"
         placeholder={isNew ? "Message" : `Message ${detail?.thread.title ?? "the thread"}`}
-        onSend={(text) => post(text, null)}
+        onSend={(text, attachments) => post(text, null, attachments)}
         autoFocus={isNew}
       />
     </div>
@@ -649,7 +705,7 @@ export function ThreadChatView({
         </div>
         {questionPanel ? questionPanel([...new Set(replyTasks)]) : null}
         <TypingLine testId="thread-reply-typing" label={typingLabel(typingIn(detail?.typing, root.id), detail?.participants)} />
-        <ComposerSlot render={renderComposer} onTyping={replyTyping} testId="thread-reply-input" placeholder="Reply…" onSend={(text) => post(text, root.id)} autoFocus />
+        <ComposerSlot render={renderComposer} onTyping={replyTyping} testId="thread-reply-input" placeholder="Reply…" onSend={(text, attachments) => post(text, root.id, attachments)} autoFocus />
       </aside>
     </div>
     </ThreadPeopleContext.Provider>

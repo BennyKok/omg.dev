@@ -26,6 +26,7 @@ import {
   listThreads,
   mentionsOmg,
   omgWake,
+  keepThreadUpload,
   participantsForView,
   setTyping,
   threadTyping,
@@ -40,6 +41,7 @@ import {
   threadUpdate,
   type ThreadDeps,
 } from "../threads.ts";
+import type { ThreadMedia } from "../../packages/protocol/src/threads.ts";
 import { buildContinueSessionPrompt } from "../session-continue-prompt.ts";
 import { regenerateSessionTitle } from "../session-title-regenerate.ts";
 import { hasHostedOmgAiProxy, hasOmgProviderAccess } from "../omg-provider.ts";
@@ -1283,14 +1285,35 @@ function threadViewer(req: Request, requested: string | null | undefined): { ide
   return { identity, name: profile?.name || null };
 }
 
+
+/** A message's files, as a client names them: uploaded first through POST /api/uploads, each { path, name }. */
+function threadAttachmentsFrom(value: unknown): { path: string; name: string | null }[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .flatMap((row) => {
+      const item = row as { path?: unknown; name?: unknown } | null;
+      return typeof item?.path === "string" ? [{ path: item.path, name: typeof item.name === "string" ? item.name : null }] : [];
+    })
+    .slice(0, 10);
+}
+
 async function handleThreadRequest(req: Request, url: URL, path: string): Promise<Response | null> {
   if (path === "/api/threads" && req.method === "GET") return json({ threads: listThreads() });
   if (path === "/api/threads" && req.method === "POST") {
-    const body = (await req.json().catch(() => null)) as { text?: unknown; title?: unknown; user?: unknown } | null;
+    const body = (await req.json().catch(() => null)) as { text?: unknown; title?: unknown; user?: unknown; attachments?: unknown } | null;
     const viewer = threadViewer(req, typeof body?.user === "string" ? body.user : url.searchParams.get("user"));
     const thread = startThread({ ...viewer, title: typeof body?.title === "string" ? body.title : null });
     const text = typeof body?.text === "string" ? body.text.trim() : "";
-    if (text) postThreadMessage(thread.id, text, viewer);
+    const attachments = threadAttachmentsFrom(body?.attachments);
+    if (text || attachments.length) {
+      let media: ThreadMedia[];
+      try {
+        media = await Promise.all(attachments.map((row) => keepThreadUpload(thread.id, row.path, row.name)));
+      } catch (error) {
+        return err(400, error instanceof Error ? error.message : String(error));
+      }
+      postThreadMessage(thread.id, text, viewer, null, media);
+    }
     return json({ thread: summarizeThread(thread) });
   }
   const one = path.match(/^\/api\/threads\/([0-9a-f-]{36})$/i);
@@ -1348,16 +1371,23 @@ async function handleThreadRequest(req: Request, url: URL, path: string): Promis
     return json({ ok: true });
   }
   if (messages && req.method === "POST") {
-    const body = (await req.json().catch(() => null)) as { text?: unknown; user?: unknown; replyTo?: unknown } | null;
+    const body = (await req.json().catch(() => null)) as { text?: unknown; user?: unknown; replyTo?: unknown; attachments?: unknown } | null;
     const text = typeof body?.text === "string" ? body.text.trim() : "";
-    if (!text) return err(400, "text is required");
+    const attachments = threadAttachmentsFrom(body?.attachments);
+    if (!text && !attachments.length) return err(400, "text or an attachment is required");
+    let media: ThreadMedia[];
+    try {
+      media = await Promise.all(attachments.map((row) => keepThreadUpload(id, row.path, row.name)));
+    } catch (error) {
+      return err(400, error instanceof Error ? error.message : String(error));
+    }
     const replyTo = typeof body?.replyTo === "string" && body.replyTo ? body.replyTo : null;
     // Replies are one level deep, as in Slack: only a top-level message has them.
     if (replyTo && !readThreadMessages(id).some((row) => row.id === replyTo && !row.replyTo)) {
       return err(400, "replyTo must be a top-level message in this thread");
     }
     const viewer = threadViewer(req, typeof body?.user === "string" ? body.user : url.searchParams.get("user"));
-    return json({ message: postThreadMessage(id, text, viewer, replyTo) });
+    return json({ message: postThreadMessage(id, text, viewer, replyTo, media) });
   }
   return err(405, "method not allowed");
 }
@@ -1372,11 +1402,13 @@ function postThreadMessage(
   text: string,
   viewer: { identity: string; name: string | null },
   replyTo: string | null = null,
+  media: ThreadMedia[] = [],
 ) {
   const message = appendThreadMessage(threadId, {
     author: threadAuthor(threadId, viewer.identity, viewer.name),
     text,
     replyTo,
+    media,
   });
   // A mention always reaches omg; so does a reply in a reply thread omg is part of,
   // and omg decides whether it has anything to say.

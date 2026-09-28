@@ -17,8 +17,10 @@
  * clients show that question in the thread.
  */
 
-import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { appendFileSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+import { basename, join, sep } from "node:path";
+import { createFileArtifact, createImageArtifact, createVideoArtifact, imageArtifactMessagesSince } from "./artifacts.ts";
+import { uploadsDir } from "./uploads.ts";
 import { PATHS } from "./config.ts";
 import {
   attachRuntimeSession,
@@ -33,8 +35,12 @@ import {
 } from "./conversations.ts";
 
 import {
+  mediaKindFor,
+  mediaLabel,
   mentionsOmg,
+  plainText,
   THREAD_TYPING_TTL_MS,
+  type ThreadMedia,
   type ThreadAuthor,
   type ThreadTyping,
   type ThreadMessage,
@@ -93,6 +99,7 @@ export function appendThreadMessage(
     text: message.text,
     ...(message.task ? { task: message.task } : {}),
     ...(message.replyTo ? { replyTo: message.replyTo } : {}),
+    ...(message.media?.length ? { media: message.media } : {}),
   };
   mkdirSync(threadsDir(), { recursive: true });
   appendFileSync(messagesPath(threadId), `${JSON.stringify(row)}\n`, { mode: 0o600 });
@@ -101,6 +108,42 @@ export function appendThreadMessage(
   setTyping(threadId, row.author, false);
   notifyThreadMessage(row);
   return row;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Files                                                                       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Keep an uploaded file with the thread and describe it for a message.
+ *
+ * It becomes an artifact of the thread, because that is the one route the
+ * hosted proxy lets a phone's video player read with a signed grant, and it
+ * brings previews, poster frames and dimensions with it. Only a file in the
+ * upload folder is taken: a client names what it uploaded, and must not be
+ * able to name any other file on the machine.
+ */
+export async function keepThreadUpload(threadId: string, uploadedPath: string, name?: string | null): Promise<ThreadMedia> {
+  let real: string;
+  try {
+    real = realpathSync(uploadedPath);
+  } catch {
+    throw new Error("attachment not found");
+  }
+  const root = realpathSync(uploadsDir());
+  if (!real.startsWith(root + sep)) throw new Error("attachment is not an upload");
+  const shown = name?.trim() || basename(real);
+  const kind = mediaKindFor(shown);
+  const input = { sessionId: threadId, path: real };
+  const artifact =
+    kind === "image" ? await createImageArtifact(input) : kind === "video" ? await createVideoArtifact(input) : createFileArtifact(input);
+  return {
+    kind,
+    path: `/api/artifacts/${encodeURIComponent(artifact.id)}`,
+    name: shown,
+    width: artifact.width ?? null,
+    height: artifact.height ?? null,
+  };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -227,7 +270,7 @@ function notifyThreadMessage(message: ThreadMessage): void {
   if (!recipients.length) return;
   const people = readPeople(message.threadId);
   const who = message.author.kind === "omg" ? "omg" : message.author.name;
-  const body = `${who}: ${message.text.replace(/\s+/g, " ").trim()}`;
+  const body = `${who}: ${plainText(message.text) || mediaLabel(message.media)}`;
   const root = message.replyTo ?? null;
   const notification = {
     title: threadTitle(conversation, messages[0]),
@@ -250,7 +293,7 @@ function notifyThreadMessage(message: ThreadMessage): void {
 function threadTitle(conversation: Conversation, first: ThreadMessage | undefined): string {
   const stored = conversation.title?.trim();
   if (stored) return stored;
-  const text = first?.text.replace(/\s+/g, " ").trim() ?? "";
+  const text = first ? plainText(first.text) || mediaLabel(first.media) : "";
   if (!text) return "New thread";
   return text.length <= TITLE_MAX ? text : `${text.slice(0, TITLE_MAX - 1).trimEnd()}…`;
 }
@@ -268,7 +311,7 @@ export function summarizeThread(conversation: Conversation): ThreadSummary {
     createdAt: conversation.createdAt,
     updatedAt: conversation.updatedAt,
     project: conversation.threadProject ?? null,
-    lastMessage: last ? { author: last.author, text: last.text, ts: last.ts } : null,
+    lastMessage: last ? { author: last.author, text: last.text, ts: last.ts, ...(last.media?.length ? { media: last.media } : {}) } : null,
   };
 }
 
@@ -435,17 +478,19 @@ export function parseOmgDecision(raw: string | null | undefined, request: string
  * was said. Past CONTEXT_CHARS the oldest lines drop, never the newest.
  */
 export function transcriptForModel(messages: readonly ThreadMessage[]): string {
-  const who = (row: ThreadMessage) => (row.author.kind === "omg" ? "omg" : row.author.name);
+  const said = (row: ThreadMessage) =>
+    [row.text, ...(row.media ?? []).map((m) => `[${m.kind}${m.name ? `: ${m.name}` : ""}]`)].filter(Boolean).join(" ");
+  const who = (row: ThreadMessage) => `${row.author.kind === "omg" ? "omg" : row.author.name}`;
   const lines: string[] = [];
   for (const top of messages.filter((row) => !row.replyTo)) {
-    lines.push(`${who(top)}: ${top.text}`);
+    lines.push(`${who(top)}: ${said(top)}`);
     for (const reply of messages.filter((row) => row.replyTo === top.id)) {
-      lines.push(`    ↳ ${who(reply)} (reply): ${reply.text}`);
+      lines.push(`    ↳ ${who(reply)} (reply): ${said(reply)}`);
     }
   }
   // Replies whose top-level message is gone still count.
   for (const orphan of messages.filter((row) => row.replyTo && !messages.some((top) => top.id === row.replyTo))) {
-    lines.push(`    ↳ ${who(orphan)} (reply): ${orphan.text}`);
+    lines.push(`    ↳ ${who(orphan)} (reply): ${said(orphan)}`);
   }
   let total = 0;
   const kept: string[] = [];
@@ -577,14 +622,26 @@ async function decideAndAnswer(
 /* Task results                                                                */
 /* -------------------------------------------------------------------------- */
 
-function firstLines(text: string, max = 3): string {
-  return text
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .slice(0, max)
-    .join("\n")
-    .slice(0, 600);
+/** How much of a task's answer a thread keeps. Clients render it as markdown, so it is kept whole up to here. */
+const RESULT_CHARS = 8_000;
+
+function resultText(text: string): string {
+  const trimmed = text.trim();
+  return trimmed.length > RESULT_CHARS ? `${trimmed.slice(0, RESULT_CHARS).trimEnd()}…` : trimmed;
+}
+
+/** The pictures and videos a task showed since `after`, as a message's media. */
+function taskMediaSince(sessionId: string, after: number): ThreadMedia[] {
+  return imageArtifactMessagesSince(sessionId, after)
+    .filter((row) => row.kind === "image" || row.kind === "video" || row.kind === "file")
+    .map((row) => ({
+      kind: row.kind as ThreadMedia["kind"],
+      path: row.url,
+      name: row.title || row.name || null,
+      width: row.width ?? null,
+      height: row.height ?? null,
+      caption: row.caption ?? null,
+    }));
 }
 
 /**
@@ -605,9 +662,13 @@ export function bridgeTaskCompletion(
   if (!thread || thread.archivedAt) return null;
   const blocked = session?.status === "blocked";
   const last = session?.last;
-  const said = last?.role === "assistant" && last.text ? firstLines(last.text) : "";
+  const said = last?.role === "assistant" && last.text ? resultText(last.text) : "";
   // A task's updates go to the replies it was started in.
-  const started = readThreadMessages(thread.id).find((row) => row.task?.sessionId === sessionId);
+  const rows = readThreadMessages(thread.id, 5_000);
+  const started = rows.find((row) => row.task?.sessionId === sessionId);
+  // What it showed this turn: everything since its last message in the thread.
+  const previous = rows.findLast((row) => row.task?.sessionId === sessionId);
+  const media = taskMediaSince(sessionId, previous?.ts ?? 0);
   const text = blocked
     ? session?.statusDetail?.trim() || "The task is blocked and needs you."
     : said || "The task finished its turn.";
@@ -621,6 +682,7 @@ export function bridgeTaskCompletion(
       project: session?.project || null,
     },
     replyTo: started?.replyTo ?? null,
+    media,
   });
 }
 

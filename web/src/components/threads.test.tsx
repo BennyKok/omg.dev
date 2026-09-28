@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
 import { mount, type Mounted } from "../test-support/render";
 import type { ThreadDetail, ThreadMessage } from "../../../packages/protocol/src/threads";
 
@@ -59,6 +59,10 @@ function view(props: Partial<Parameters<typeof ThreadChatView>[0]> = {}) {
 }
 
 let ui: Mounted;
+// Messages render through Streamdown, which reads process.cwd(). In the full
+// suite an earlier test can leave the process in a deleted directory
+// (see streamdown-session-ref.test.tsx), so pin one that exists.
+beforeAll(() => process.chdir(import.meta.dir));
 beforeEach(() => {
   ui = mount();
   sent.length = 0;
@@ -185,4 +189,37 @@ test("typing in the bar tells the thread, and stops when the field empties", asy
     });
   }
   expect(pings).toEqual([[true, null], [false, null]]);
+});
+
+test("messages are formatted, and carry pictures, videos and files", async () => {
+  const withMedia: ThreadDetail = {
+    ...detail,
+    messages: [
+      {
+        id: "x1",
+        threadId: "t1",
+        ts: 60 * MIN,
+        author: omg,
+        text: "**Name options**\n\n1. **Vibe to Ship**\n2. **Just Vibe It**",
+        media: [
+          { kind: "image", path: "/api/artifacts/logo-a", name: "logo-a.png", width: 800, height: 600, caption: "Logo A" },
+          { kind: "video", path: "/api/artifacts/clip", name: "demo.mp4" },
+          { kind: "file", path: "/api/artifacts/brief", name: "brief.pdf" },
+        ],
+      },
+    ],
+  };
+  ui.render(view({ detail: withMedia }));
+  // The markdown renderer is loaded lazily, as in the session chat.
+  for (let i = 0; i < 100 && !ui.query('[data-testid="thread-message"] [data-streamdown="strong"]'); i += 1) await ui.flushAsync(() => Bun.sleep(20));
+  const row = ui.queryAll('[data-testid="thread-message"]').at(-1)!;
+  // Markdown, not asterisks.
+  expect(row.textContent).toContain("Name options");
+  expect(row.textContent).not.toContain("**");
+  expect(row.querySelector('[data-streamdown="strong"]')?.textContent).toBe("Name options");
+  expect(row.querySelectorAll("li")).toHaveLength(2);
+  expect(row.textContent).toContain("Logo A");
+  const file = row.querySelector<HTMLAnchorElement>('[data-testid="thread-media"] a[download]');
+  expect(file?.getAttribute("href")).toBe("/api/artifacts/brief");
+  expect(file?.textContent).toContain("brief.pdf");
 });

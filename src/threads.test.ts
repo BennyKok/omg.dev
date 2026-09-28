@@ -1,14 +1,17 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PATHS } from "./config.ts";
-import { typingIn, typingLabel, typingPinger } from "../packages/protocol/src/threads.ts";
-import { getConversation, listConversations } from "./conversations.ts";
+import { createImageArtifact } from "./artifacts.ts";
+import { uploadsDir } from "./uploads.ts";
+import { plainText, threadPreview, typingIn, typingLabel, typingPinger } from "../packages/protocol/src/threads.ts";
+import { attachRuntimeSession, getConversation, listConversations } from "./conversations.ts";
 import {
   answerMention,
   appendThreadMessage,
   bridgeTaskCompletion,
+  keepThreadUpload,
   listThreads,
   mentionsOmg,
   omgWake,
@@ -19,6 +22,7 @@ import {
   threadAuthor,
   threadTasks,
   threadTyping,
+  transcriptForModel,
   threadUpdate,
   type ThreadDeps,
 } from "./threads.ts";
@@ -171,7 +175,7 @@ describe("task results come back as omg messages", () => {
     return thread;
   }
 
-  test("a finished turn posts the task's own words", async () => {
+  test("a finished turn posts the task's own words, whole", async () => {
     const thread = await threadWithTask();
     const posted = bridgeTaskCompletion(TASK, {
       title: "Fix it",
@@ -181,7 +185,8 @@ describe("task results come back as omg messages", () => {
     });
     expect(posted).toMatchObject({
       author: { kind: "omg" },
-      text: "Fixed the build.\nTests pass.\nNothing else to do.",
+      // Whole, with its blank lines: clients render it as markdown.
+      text: "Fixed the build.\n\nTests pass.\nNothing else to do.\nExtra line.",
       task: { sessionId: TASK, event: "finished", project: "web" },
       // In the same replies the task was started in.
       replyTo: "root-4",
@@ -480,5 +485,67 @@ describe("omg reads every reply in a reply thread it is part of", () => {
     });
     const posted = await answerMention(thread.id, "@omg make it blue", "alex@example.com", d, ask.id);
     expect(posted!.text).toBe("I could not reach the task: session not found");
+  });
+});
+
+describe("formatting and media, as in the session chat", () => {
+  // A 1x1 PNG.
+  const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+
+  test("an upload is kept as the thread's artifact; any other file is refused", async () => {
+    const thread = startThread({ identity: "benny@example.com" });
+    mkdirSync(uploadsDir(), { recursive: true });
+    const uploaded = join(uploadsDir(), `thread-test-${crypto.randomUUID()}.png`);
+    writeFileSync(uploaded, PNG);
+    try {
+      const media = await keepThreadUpload(thread.id, uploaded, "logo.png");
+      expect(media).toMatchObject({ kind: "image", name: "logo.png", width: 1, height: 1 });
+      expect(media.path).toMatch(/^\/api\/artifacts\/[a-z0-9-]+$/);
+    } finally {
+      rmSync(uploaded, { force: true });
+    }
+    const outside = join(root, "secret.png");
+    writeFileSync(outside, PNG);
+    await expect(keepThreadUpload(thread.id, outside, "x.png")).rejects.toThrow("attachment is not an upload");
+  });
+
+  test("a task's result keeps its formatting and brings the pictures it showed", async () => {
+    const thread = startThread({ identity: "benny@example.com" });
+    const sessionId = "a1b2c3d4-0000-4000-8000-0000000000bb";
+    attachRuntimeSession({ conversationId: thread.id, sessionId, kind: "execution" });
+    appendThreadMessage(thread.id, {
+      author: { kind: "omg" },
+      text: "Started a task.",
+      task: { sessionId, event: "started", title: "Logo", project: null },
+      replyTo: "root-1",
+    });
+    await Bun.sleep(2);
+    const image = join(root, "logo.png");
+    writeFileSync(image, PNG);
+    const artifact = await createImageArtifact({ sessionId, path: image, caption: "Logo A" });
+    const answer = "**Name options**\n\n1. **Vibe to Ship**\n2. **Just Vibe It**\n3. **Ship It**\n4. **Prompt to Product**";
+    const posted = bridgeTaskCompletion(sessionId, { title: "Logo", last: { role: "assistant", text: answer } })!;
+    expect(posted.text).toBe(answer);
+    expect(posted.media).toEqual([
+      expect.objectContaining({ kind: "image", path: `/api/artifacts/${artifact.id}`, caption: "Logo A" }),
+    ]);
+    // The next turn brings only what is new.
+    const again = bridgeTaskCompletion(sessionId, { title: "Logo", last: { role: "assistant", text: "Done." } })!;
+    expect(again.media).toBeUndefined();
+  });
+
+  test("a thread named by its first message is named in words, not markup", () => {
+    const thread = startThread({ identity: "benny@example.com" });
+    appendThreadMessage(thread.id, { author: threadAuthor(thread.id, "benny@example.com", "Benny"), text: "**Logo** ideas:\n\n- round" });
+    expect(listThreads().find((row) => row.id === thread.id)?.title).toBe("Logo ideas: round");
+  });
+
+  test("previews and omg's reading drop the markup and name the media", () => {
+    expect(plainText("**Name options**\n1. **Vibe to Ship** (`top`)")).toBe("Name options Vibe to Ship (top)");
+    const photo = { kind: "image" as const, path: "/api/artifacts/a", name: "logo.png" };
+    expect(threadPreview({ lastMessage: { author: { kind: "omg" }, text: "", ts: 1, media: [photo] } })).toBe("omg: Photo");
+    expect(
+      transcriptForModel([{ id: "m", threadId: "t", ts: 1, author: { kind: "human", participantId: "p", name: "Alex" }, text: "this one", media: [photo] }]),
+    ).toBe("Alex: this one [image: logo.png]");
   });
 });
