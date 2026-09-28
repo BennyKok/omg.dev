@@ -100,7 +100,14 @@ export type SessionIds = {
   nativeSessionId?: string | null;
   /** Shown in place of a bare id when a reference is rendered. */
   title?: string | null;
+  /** Agent kind, for the icon on a rendered reference. */
+  agent?: string | null;
+  /** Project name, shown as a badge on a rendered reference. */
+  project?: string | null;
 };
+
+/** What a rendered reference shows. Stable per ref, so React can compare it. */
+export type SessionRefLabel = { title: string | null; agent: string | null; project: string | null };
 
 /** The subset of OmgClient a reference lookup needs, so tests can fake it. */
 export type SessionRefClient = {
@@ -183,12 +190,11 @@ export function createSessionRefOpener(deps: {
   /** True when `href` was a session reference and has been taken over. */
   open(href: string): boolean;
   /**
-   * The title to show for `ref`, or null while it is unknown. The first call
-   * for a ref starts one lookup; `subscribe` fires when it lands. A ref that
-   * names no session, or one without a title, stays null so the caller
-   * keeps showing the id.
+   * Title and agent for `ref`, or null while unknown. The first call for a
+   * ref starts one lookup; `subscribe` fires when it lands. A ref that names
+   * no session stays null so the caller keeps showing the id.
    */
-  label(ref: string): string | null;
+  label(ref: string): SessionRefLabel | null;
   subscribe(listener: () => void): () => void;
 } {
   const resolve = deps.resolve ?? resolveSessionRefWith;
@@ -196,7 +202,15 @@ export function createSessionRefOpener(deps: {
   let current: SessionRefClient | null = null;
   let generation = 0;
   // Titles belong to the registered client: a switch clears them.
-  let labels = new Map<string, string | null>();
+  let labels = new Map<string, SessionRefLabel | null>();
+  const toLabel = (session: SessionIds | null): SessionRefLabel | null =>
+    session
+      ? {
+          title: session.title?.trim() || null,
+          agent: session.agent?.trim() || null,
+          project: session.project?.trim() || null,
+        }
+      : null;
   const pending = new Set<string>();
   const listeners = new Set<() => void>();
   const notify = () => {
@@ -220,9 +234,9 @@ export function createSessionRefOpener(deps: {
       if (!client) return null;
       const known = findSessionRef(ref, client.peekSessions());
       if (known) {
-        const title = known.title?.trim() || null;
-        labels.set(key, title);
-        return title;
+        const found = toLabel(known);
+        labels.set(key, found);
+        return found;
       }
       if (pending.has(key)) return null;
       pending.add(key);
@@ -233,7 +247,7 @@ export function createSessionRefOpener(deps: {
         .then((session) => {
           if (current !== client || generation !== startedAt) return;
           pending.delete(key);
-          labels.set(key, session?.title?.trim() || null);
+          labels.set(key, toLabel(session));
           notify();
         });
       return null;

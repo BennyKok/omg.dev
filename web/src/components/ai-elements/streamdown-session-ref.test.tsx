@@ -18,7 +18,7 @@ beforeEach(() => {
   opened = [];
   registerSessionRefHandlers({
     navigate: (sessionId) => opened.push(sessionId),
-    peekSessions: () => [{ sessionId: FULL, title: "Fix the attribution bug" }],
+    peekSessions: () => [{ sessionId: FULL, title: "Fix the attribution bug", agent: "codex", project: "lfg" }],
   });
 });
 
@@ -34,7 +34,8 @@ describe("session references in markdown", () => {
     ui.render(<StreamdownResponse>{"Evidence is in session `228efabd`. Commit `02b282843`."}</StreamdownResponse>);
     await ui.flushAsync();
     const links = ui.queryAll("a[data-session-ref]");
-    expect(links.map((a) => a.textContent)).toEqual(["#Fix the attribution bug"]);
+    expect(links.map((a) => a.textContent)).toEqual(["Fix the attribution buglfg"]);
+    expect(links[0].querySelector("img")?.getAttribute("alt")).toBe("Codex");
     expect(ui.text()).toContain("02b282843");
     (links[0] as HTMLElement).click();
     await settle();
@@ -45,7 +46,8 @@ describe("session references in markdown", () => {
     ui.render(<StreamdownResponse>{"See [#Fix the attribution bug](omg:session_228efabd)."}</StreamdownResponse>);
     await ui.flushAsync();
     const link = ui.query("a[data-session-ref]") as HTMLAnchorElement | null;
-    expect(link?.textContent).toBe("#Fix the attribution bug");
+    expect(link?.textContent).toBe("Fix the attribution buglfg");
+    expect(link?.querySelector("img")?.getAttribute("alt")).toBe("Codex");
     expect(link?.getAttribute("target")).toBeNull();
     link!.click();
     await settle();

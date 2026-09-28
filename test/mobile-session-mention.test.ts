@@ -366,8 +366,10 @@ describe("createSessionRefOpener labels", () => {
 
   test("a known session reads as its title at once", () => {
     const opener = createSessionRefOpener({ navigate: () => {} });
-    opener.register(client(() => [{ sessionId: FULL, title: "Fix the attribution bug" }]));
-    expect(opener.label("0f1e2d3c")).toBe("Fix the attribution bug");
+    opener.register(client(() => [{ sessionId: FULL, title: "Fix the attribution bug", agent: "codex", project: "ui" }]));
+    expect(opener.label("0f1e2d3c")).toEqual({ title: "Fix the attribution bug", agent: "codex", project: "ui" });
+    // Same object every read, so a React store does not loop.
+    expect(opener.label("0f1e2d3c")).toBe(opener.label("0f1e2d3c"));
   });
 
   test("an older session's title arrives through the lookup", async () => {
@@ -378,13 +380,13 @@ describe("createSessionRefOpener labels", () => {
     expect(opener.label("0f1e2d3c")).toBeNull();
     await tick();
     expect(fired).toBe(1);
-    expect(opener.label("0f1e2d3c")).toBe("Old chat");
+    expect(opener.label("0f1e2d3c")).toEqual({ title: "Old chat", agent: null, project: null });
   });
 
   test("a switch of client drops titles from the previous machine", async () => {
     const opener = createSessionRefOpener({ navigate: () => {} });
     opener.register(client(() => [{ sessionId: FULL, title: "Box one" }]));
-    expect(opener.label("0f1e2d3c")).toBe("Box one");
+    expect(opener.label("0f1e2d3c")?.title).toBe("Box one");
     opener.register(client(() => []));
     expect(opener.label("0f1e2d3c")).toBeNull();
   });

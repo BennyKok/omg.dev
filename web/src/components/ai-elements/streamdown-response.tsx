@@ -19,6 +19,7 @@ import { code } from "@streamdown/code";
 import { sessionHrefFromCodespan, sessionRefFromHref } from "@omg-dev/protocol";
 
 import { openSessionRef, useSessionRefLabel } from "@/lib/session-ref-link";
+import { agentIconAlt, agentIconSrc } from "@/lib/session-ui";
 import { cn } from "@/lib/utils";
 
 type StreamdownPlugins = NonNullable<ComponentProps<typeof Streamdown>["plugins"]>;
@@ -101,18 +102,60 @@ async function copyText(value: string): Promise<void> {
  * href would do nothing in a browser, so the click is taken over and the
  * short id is resolved to the session page.
  */
-function SessionRefLink({ href, className, children }: { href: string; className?: string; children: ReactNode }) {
+function textOf(node: ReactNode): string | null {
+  if (typeof node === "string") return node;
+  if (Array.isArray(node) && node.every((part) => typeof part === "string")) return node.join("");
+  return null;
+}
+
+/**
+ * A session reference, drawn as a tag: the agent's icon and the session's
+ * title. The `omg:` href would do nothing in a browser, so the click is
+ * taken over and the short id is resolved to the session page. `title` is
+ * the label the text already carries (a `[#Title](omg:session_...)` token);
+ * a bare id has none and waits for the lookup. Until a title is known the
+ * `fallback` renders, as a plain link.
+ */
+function SessionRefChip({ href, title: written, fallback }: { href: string; title?: string | null; fallback: ReactNode }) {
+  const ref = sessionRefFromHref(href);
+  const known = useSessionRefLabel(ref);
+  const title = written || known?.title || null;
+  const agent = known?.agent ?? null;
+  const open = (event: MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault();
+    openSessionRef(href);
+  };
+  if (!title) {
+    return (
+      <a
+        className="cursor-pointer font-medium text-primary no-underline hover:underline"
+        href={href}
+        data-session-ref={ref ?? undefined}
+        onClick={open}
+      >
+        {fallback}
+      </a>
+    );
+  }
   return (
     <a
-      className={cn("cursor-pointer font-medium text-primary underline underline-offset-4", className)}
+      className="mx-0.5 inline-flex max-w-full cursor-pointer items-center gap-1 rounded-md border border-border bg-muted/60 px-1.5 py-px align-baseline text-[0.9em] font-medium leading-snug text-foreground no-underline transition-colors hover:bg-muted"
       href={href}
-      data-session-ref={sessionRefFromHref(href) ?? undefined}
-      onClick={(event: MouseEvent<HTMLAnchorElement>) => {
-        event.preventDefault();
-        openSessionRef(href);
-      }}
+      title={[title, known?.project, ref].filter(Boolean).join(" · ")}
+      data-session-ref={ref ?? undefined}
+      onClick={open}
     >
-      {children}
+      {agent ? (
+        <img src={agentIconSrc(agent)} alt={agentIconAlt(agent)} className="size-3.5 shrink-0" />
+      ) : (
+        <span aria-hidden="true" className="text-muted-foreground">#</span>
+      )}
+      <span className="truncate">{title}</span>
+      {known?.project ? (
+        <span className="shrink-0 rounded bg-background px-1 text-[0.8em] font-normal leading-tight text-muted-foreground ring-1 ring-border">
+          {known.project}
+        </span>
+      ) : null}
     </a>
   );
 }
@@ -148,7 +191,7 @@ const INLINE_CODE_CLASS = "rounded bg-muted px-1.5 py-0.5 font-mono text-sm";
  * Such a span opens that session; every other span renders as before.
  */
 function SessionAwareInlineCode({ children, className, node: _node, ...props }: InlineCodeProps) {
-  const text = typeof children === "string" ? children : Array.isArray(children) && children.every((c) => typeof c === "string") ? children.join("") : null;
+  const text = textOf(children);
   const sessionHref = text ? sessionHrefFromCodespan(text) : null;
   const code = (
     <code className={cn(INLINE_CODE_CLASS, className)} data-streamdown="inline-code" {...props}>
@@ -156,17 +199,7 @@ function SessionAwareInlineCode({ children, className, node: _node, ...props }: 
     </code>
   );
   if (!sessionHref || !text) return code;
-  return <SessionIdLink href={sessionHref} code={code} id={text.trim()} />;
-}
-
-/** `#Title` once the session is known; the id in code style until then. */
-function SessionIdLink({ href, code, id }: { href: string; code: ReactNode; id: string }) {
-  const title = useSessionRefLabel(sessionRefFromHref(href));
-  return (
-    <SessionRefLink href={href} className={title ? undefined : "no-underline hover:underline"}>
-      {title ? <span title={id}>#{title}</span> : code}
-    </SessionRefLink>
-  );
+  return <SessionRefChip href={sessionHref} fallback={code} />;
 }
 
 function CopyableMarkdownLink({ children, className, href, node: _node, ...props }: AnchorProps) {
@@ -190,9 +223,7 @@ function CopyableMarkdownLink({ children, className, href, node: _node, ...props
 
   if (canCopy && sessionRefFromHref(href)) {
     return (
-      <SessionRefLink href={href} className={className}>
-        {children}
-      </SessionRefLink>
+      <SessionRefChip href={href} title={textOf(children)?.replace(/^#/, "").trim() || null} fallback={children} />
     );
   }
   if (canCopy && /^omg:/i.test(href)) return <span className={className}>{children}</span>;
