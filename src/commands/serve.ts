@@ -26,6 +26,7 @@ import {
   listThreads,
   mentionsOmg,
   readThreadMessages,
+  setThreadNotifier,
   startThread,
   summarizeThread,
   threadAuthor,
@@ -11772,6 +11773,11 @@ a{color:#60a5fa}
   // Bridge those same completions to Web Push, so an installed PWA hears
   // about a landed turn with the app closed. Must follow startFleetWatcher().
   startSessionPushBridge();
+  // Thread messages reach the people in them through the same push fan-out as
+  // everything else (web and iOS).
+  setThreadNotifier(({ user, notification }) => {
+    void notifyAll({ user: user ?? undefined, notification }).catch(() => {});
+  });
   // A task started from a thread posts each finished turn back to it.
   subscribeFleet(null, (ev) => {
     if (ev.type !== "completed" || !threadForTaskSession(ev.sessionId)) return;

@@ -258,9 +258,12 @@ export function ThreadChat({
   onOpenTask,
   onBack,
   viewer,
+  initialReplies,
 }: {
   /** The profile picked in this browser, for a box that cannot tell who is writing. */
   viewer?: string | null;
+  /** Open this message's replies on arrival (a push links here). */
+  initialReplies?: string | null;
   /** A thread id, or NEW_THREAD_ID for an empty one. */
   threadId: string;
   repos: ReadonlyArray<{ name: string; cwd: string }>;
@@ -275,6 +278,7 @@ export function ThreadChat({
   return (
     <ThreadChatView
       threadId={threadId}
+      initialReplies={initialReplies}
       detail={isNew ? null : detail}
       repos={repos}
       openAskSessionIds={questions.map((q) => q.sessionId)}
@@ -301,6 +305,7 @@ export function ThreadChat({
 /** The thread as drawn. Data in, actions out; ThreadChat above does the loading. */
 export function ThreadChatView({
   threadId,
+  initialReplies = null,
   detail,
   repos,
   openAskSessionIds,
@@ -311,6 +316,7 @@ export function ThreadChatView({
   onBack,
 }: {
   threadId: string;
+  initialReplies?: string | null;
   detail: ThreadDetail | null;
   repos: ReadonlyArray<{ name: string; cwd: string }>;
   /** Tasks with a question waiting on a person. */
@@ -325,7 +331,7 @@ export function ThreadChatView({
 }) {
   const isNew = threadId === NEW_THREAD_ID;
   const [pending, setPending] = useState<ThreadMessage[]>([]);
-  const [openRoot, setOpenRoot] = useState<string | null>(null);
+  const [openRoot, setOpenRoot] = useState<string | null>(initialReplies);
   // The message just posted, until the next load lists it: its replies can
   // open at once.
   const [rootHint, setRootHint] = useState<ThreadMessage | null>(null);
@@ -334,9 +340,9 @@ export function ThreadChatView({
 
   useEffect(() => {
     setPending([]);
-    setOpenRoot(null);
+    setOpenRoot(initialReplies);
     setError(null);
-  }, [threadId]);
+  }, [threadId, initialReplies]);
 
   const messages = useMemo(() => {
     const stored = detail?.messages ?? [];

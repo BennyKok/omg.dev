@@ -17,7 +17,7 @@
  * clients show that question in the thread.
  */
 
-import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { PATHS } from "./config.ts";
 import {
@@ -91,7 +91,100 @@ export function appendThreadMessage(
   mkdirSync(threadsDir(), { recursive: true });
   appendFileSync(messagesPath(threadId), `${JSON.stringify(row)}\n`, { mode: 0o600 });
   patchThreadConversation(threadId, { updatedAt: row.ts });
+  notifyThreadMessage(row);
   return row;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Push notifications                                                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Who each participant is, for push only. A participant id is a digest of the
+ * person's address, and push is targeted by address, so the thread keeps the
+ * one mapping it needs, next to its messages, on this box.
+ */
+function peoplePath(threadId: string): string {
+  return messagesPath(threadId).replace(/\.jsonl$/, ".people.json");
+}
+
+function readPeople(threadId: string): Record<string, string> {
+  try {
+    return JSON.parse(readFileSync(peoplePath(threadId), "utf8")) as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
+function rememberPerson(threadId: string, participantId: string, identity: string): void {
+  const people = readPeople(threadId);
+  if (people[participantId] === identity) return;
+  people[participantId] = identity;
+  mkdirSync(threadsDir(), { recursive: true });
+  const path = peoplePath(threadId);
+  const temp = `${path}.${process.pid}.tmp`;
+  writeFileSync(temp, JSON.stringify(people), { mode: 0o600 });
+  renameSync(temp, path);
+}
+
+export type ThreadPush = {
+  /** The address to target; null means every device on this box (a box with no identities). */
+  user: string | null;
+  notification: { title: string; body: string; url: string; tag: string };
+};
+
+let notifier: ((push: ThreadPush) => void) | null = null;
+
+/** Set once at boot (serve.ts) to deliver thread pushes through notifyAll. */
+export function setThreadNotifier(next: ((push: ThreadPush) => void) | null): void {
+  notifier = next;
+}
+
+/**
+ * Slack's rule. A top-level message tells everyone in the thread. A reply
+ * tells only the people in that reply thread: whoever wrote the message it
+ * answers, and whoever has replied to it. Never the author.
+ */
+export function threadRecipients(message: ThreadMessage, messages: readonly ThreadMessage[], everyone: readonly string[]): string[] {
+  const author = message.author.kind === "human" ? message.author.participantId : null;
+  let pool: string[];
+  if (!message.replyTo) {
+    pool = [...everyone];
+  } else {
+    const inReplies = messages.filter((row) => row.id === message.replyTo || row.replyTo === message.replyTo);
+    pool = inReplies.flatMap((row) => (row.author.kind === "human" ? [row.author.participantId] : []));
+  }
+  return [...new Set(pool)].filter((id) => id !== author);
+}
+
+function notifyThreadMessage(message: ThreadMessage): void {
+  if (!notifier) return;
+  const conversation = getConversation(message.threadId);
+  if (!conversation || conversation.archivedAt) return;
+  const messages = readThreadMessages(message.threadId, 500);
+  const everyone = conversation.participants.filter((row) => row.kind === "human" && !row.leftAt).map((row) => row.id);
+  const recipients = threadRecipients(message, messages, everyone);
+  if (!recipients.length) return;
+  const people = readPeople(message.threadId);
+  const who = message.author.kind === "omg" ? "omg" : message.author.name;
+  const body = `${who}: ${message.text.replace(/\s+/g, " ").trim()}`;
+  const root = message.replyTo ?? null;
+  const notification = {
+    title: threadTitle(conversation, messages[0]),
+    body: body.length <= 140 ? body : `${body.slice(0, 139)}…`,
+    // The web route; iOS maps it to its own (push-native.ts toNativeAppUrl).
+    url: `/threads/${message.threadId}${root ? `?replies=${encodeURIComponent(root)}` : ""}`,
+    // One notice per reply thread, replaced as it grows, like a session's.
+    tag: `thread-${message.threadId}-${root ?? "main"}`,
+  };
+  const targets = new Set<string | null>();
+  for (const id of recipients) {
+    const identity = people[id];
+    // An address targets that person's devices. The one local person of a box
+    // with no identities has no address, so every device is theirs.
+    targets.add(identity?.includes("@") ? identity : null);
+  }
+  for (const user of targets) notifier({ user, notification });
 }
 
 function threadTitle(conversation: Conversation, first: ThreadMessage | undefined): string {
@@ -144,11 +237,14 @@ export function threadAuthor(threadId: string, identity: string, name?: string |
   const participantId = threadParticipantId(identity);
   const display = threadDisplayName(identity, name);
   ensureConversationHuman({ conversationId: threadId, identity, name: display });
+  rememberPerson(threadId, participantId, identity);
   return { kind: "human", participantId, name: display };
 }
 
 export function startThread(input: { identity: string; name?: string | null; title?: string | null }): Conversation {
-  return createThreadConversation({ ...input, name: threadDisplayName(input.identity, input.name) });
+  const thread = createThreadConversation({ ...input, name: threadDisplayName(input.identity, input.name) });
+  rememberPerson(thread.id, threadParticipantId(input.identity), input.identity);
+  return thread;
 }
 
 /* -------------------------------------------------------------------------- */
