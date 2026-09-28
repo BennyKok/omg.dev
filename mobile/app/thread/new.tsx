@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from "react-native";
 import { Stack, useRouter, type Href } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
@@ -8,6 +8,7 @@ import { useOmg } from "../../src/omg/provider";
 import { Text } from "../../src/omg/text";
 import { useTheme } from "../../src/omg/theme";
 import { createThread, THREAD_STARTERS } from "../../src/omg/threads";
+import { ThreadChatBar } from "../../src/omg/chat-bar";
 
 /**
  * AN EMPTY THREAD, opened by pulling Home down past the thread threshold.
@@ -20,28 +21,23 @@ import { createThread, THREAD_STARTERS } from "../../src/omg/threads";
 export default function NewThreadScreen() {
   const router = useRouter();
   const { client } = useOmg();
-  const { colors, type, space, radius, isDark } = useTheme();
+  const { colors, type, space } = useTheme();
   const insets = useSafeAreaInsets();
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const canSend = !!client && text.trim().length > 0;
-
-  const [sending, setSending] = useState(false);
-  const send = useCallback(async () => {
-    const prompt = text.trim();
-    if (!client || !prompt || sending) return;
+  // The chat bar clears itself on send and puts the text back if this throws.
+  const send = useCallback(async (prompt: string) => {
+    if (!client) throw new Error("No machine selected");
     setError(null);
-    setSending(true);
     try {
       const thread = await createThread(client, prompt);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace(`/thread/${thread.id}` as Href);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSending(false);
+      throw e;
     }
-  }, [client, text, sending, router]);
+  }, [client, router]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -105,49 +101,17 @@ export default function NewThreadScreen() {
           {error ? <Text style={{ ...type.footnote, color: colors.danger }}>{error}</Text> : null}
         </ScrollView>
 
-        <View style={{ paddingHorizontal: space.md, paddingBottom: Math.max(insets.bottom, space.md), paddingTop: space.sm }}>
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "flex-end",
-              gap: space.sm,
-              borderRadius: radius.xl + 6,
-              borderWidth: isDark ? 1 : 0,
-              borderColor: colors.borderStrong,
-              backgroundColor: colors.card,
-              paddingLeft: 18,
-              paddingRight: 6,
-              paddingVertical: 6,
+        <View style={{ paddingBottom: Math.max(insets.bottom, space.md) }}>
+          <ThreadChatBar
+            testID="thread-new-input"
+            autoFocus
+            placeholder="Message"
+            value={text}
+            onChangeText={setText}
+            onSend={async (body) => {
+              await send(body);
             }}
-          >
-            <TextInput
-              testID="thread-new-input"
-              autoFocus
-              multiline
-              value={text}
-              onChangeText={setText}
-              placeholder="Message"
-              placeholderTextColor={colors.textMuted}
-              style={{ flex: 1, minHeight: 36, maxHeight: 140, paddingVertical: 8, fontSize: 17, color: colors.text }}
-            />
-            <Pressable
-              testID="thread-new-send"
-              accessibilityRole="button"
-              accessibilityLabel="Send"
-              disabled={!canSend}
-              onPress={() => void send()}
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: 18,
-                alignItems: "center",
-                justifyContent: "center",
-                backgroundColor: canSend ? colors.text : colors.secondary,
-              }}
-            >
-              <Icon ios="arrow.up" android="arrow_upward" size={16} weight="semibold" color={canSend ? colors.background : colors.textMuted} />
-            </Pressable>
-          </View>
+          />
         </View>
       </KeyboardAvoidingView>
     </View>

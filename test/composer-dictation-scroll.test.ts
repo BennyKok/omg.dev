@@ -5,10 +5,11 @@ describe("shared composer growth and dictation follow-scroll", () => {
   test("home, session chat and bot chat use the same capped textarea primitive", async () => {
     const app = await readFile("web/src/App.tsx", "utf8");
     expect(app).toContain("function ComposerTextarea");
-    // Home, focused session chat, and the bot chat composer. The point of the
-    // count is that a new composer reuses this primitive rather than
-    // hand-rolling its own growth cap — bump it when one is genuinely added.
-    expect(app.match(/<ComposerTextarea/g)?.length).toBe(3);
+    // Home, focused session chat, the bot chat composer, and a thread's chat
+    // bar. The point of the count is that a new composer reuses this primitive
+    // rather than hand-rolling its own growth cap — bump it when one is
+    // genuinely added.
+    expect(app.match(/<ComposerTextarea/g)?.length).toBe(4);
     expect(app).toContain(
       '"max-h-40 min-w-0 flex-1 resize-none overflow-y-auto [field-sizing:fixed] md:max-h-36"',
     );

@@ -1,0 +1,18 @@
+# Typing @ in a thread offers omg, above the same chat bar a session uses.
+#   EXPO_PUBLIC_OMG_DEMO=1 EXPO_PUBLIC_OMG_THREADS_FIXTURE=1 bun run test:e2e --build --flow thread-at-mention --record
+appId: dev.omg.computer
+onFlowStart:
+  - launchApp
+---
+- openLink: "omg://thread/0d3a7c1e-0000-4000-8000-00000000abcd"
+- tapOn:
+    id: "thread-input"
+- inputText: "@"
+- assertVisible: ".*Answer, or start a task.*"
+- tapOn:
+    id: "at-mention-omg"
+- assertNotVisible: ".*Answer, or start a task.*"
+# The field now reads "@omg " and the bar is expanded with its send button.
+- assertVisible:
+    id: "thread-input-send"
+- takeScreenshot: thread-at-mention

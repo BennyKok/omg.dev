@@ -134,7 +134,8 @@ import { WorkingIndicator } from "../../src/omg/working-indicator";
 import { filterBotChatEntries, stripBotLaunchEnvelope } from "../../src/omg/bot-transcript";
 import type { Bot } from "../../src/omg/bots";
 import { useDictation } from "../../src/omg/dictation";
-import { GlassSurface, LIQUID_GLASS } from "../../src/omg/glass";
+import { GlassSurface } from "../../src/omg/glass";
+import { ChatBarShell } from "../../src/omg/chat-bar";
 import { DropdownMenu, type MenuOption } from "../../src/omg/menu";
 import { AttachMenuButton, AttachMenuLayer } from "../../src/omg/attach-menu";
 import { agentLabel as agentDisplayName } from "../../src/omg/agent-icons";
@@ -2419,55 +2420,115 @@ function SessionScreenContent({
             menu opened from inside Liquid Glass morphs the glass. It takes
             the glass's old `flex: 1`; the glass stretches across it. */}
         <AttachMenuLayer style={{ flex: 1 }}>
-        <GlassSurface
-          variant="regular"
-          fallbackColor={colors.card}
-          style={{
-            flexDirection: composerExpanded ? "column" : "row",
-            // CENTRED, not bottom-aligned. One line of text in a 52pt box sat
-            // on the floor of it with all the slack above — the placeholder
-            // read as if it had slipped. The field grows with the text, so
-            // centring stays right at every height.
-            alignItems: composerExpanded ? "stretch" : "center",
-            gap: composerExpanded ? 14 : space.xs,
-            // Rounder than the panels around it, because it is a control and
-            // not a surface — but not a full pill, which bulges once the field
-            // grows to 120pt for a long prompt.
-            borderRadius: composerExpanded ? 32 : 24,
-            borderCurve: "continuous",
-            // The same 44 as the attach button next to it. At 52 the two
-            // controls on one row were visibly different heights, which reads
-            // as a mistake rather than a hierarchy.
-            minHeight: 44,
-            // The attach button lives inside the field now, so the text no
-            // longer starts at the field's own inset — the button provides it.
-            paddingHorizontal: composerExpanded ? 14 : space.sm,
-            // A touch taller while typing, so the caret line does not sit
-            // tight against the glass edge under the keyboard.
-            paddingTop: composerExpanded ? 14 : 8,
-            paddingBottom: composerExpanded ? 12 : 8,
-            overflow: "hidden",
-            // Only when the OS cannot draw glass: the fallback is a flat fill,
-            // and a flat fill with no edge disappears into the page.
-            ...(LIQUID_GLASS
-              ? {}
-              : { borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }),
-          }}
-        >
-          {!composerExpanded ? (
+        <ChatBarShell
+          expanded={composerExpanded}
+          collapsedStart={
             <AttachMenuButton options={attachments.options} size={32}>
               <Icon ios="plus" android="add" size={20} color={colors.textSecondary} />
             </AttachMenuButton>
-          ) : null}
+          }
+          collapsedEnd={
+            <Pressable
+              key="composer-mic"
+              onPress={dictation.toggle}
+              accessibilityRole="button"
+              accessibilityLabel="Dictate a message"
+              hitSlop={8}
+              style={({ pressed }) => ({
+                width: 32,
+                height: 32,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: pressed ? 0.6 : 1,
+              })}
+            >
+              <Icon ios="mic" android="mic" size={18} color={colors.textMuted} />
+            </Pressable>
+          }
+          expandedActions={
+            <>
+              <AttachMenuButton options={attachments.options} size={34}>
+                <Icon ios="plus" android="add" size={20} color={colors.textSecondary} />
+              </AttachMenuButton>
+              <View style={{ flex: 1 }} />
+              {dictation.state === "idle" ? (
+                <>
+                  <Pressable
+                    key="composer-mic"
+                    onPress={dictation.toggle}
+                    accessibilityRole="button"
+                    accessibilityLabel="Dictate a message"
+                    hitSlop={8}
+                    style={({ pressed }) => ({
+                      width: 34,
+                      height: 34,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      opacity: pressed ? 0.6 : 1,
+                    })}
+                  >
+                    <Icon ios="mic" android="mic" size={18} color={colors.textSecondary} />
+                  </Pressable>
+                  <Pressable
+                    key="composer-send"
+                    onPressIn={() => {
+                      const hold: QueueHold = { armed: false, timer: null };
+                      hold.timer = setTimeout(() => {
+                        hold.armed = true;
+                        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                      }, 320);
+                      queueHoldRef.current = hold;
+                    }}
+                    onPressOut={() => {
+                      const hold = queueHoldRef.current;
+                      if (hold?.timer) {
+                        clearTimeout(hold.timer);
+                        hold.timer = null;
+                      }
+                    }}
+                    onPress={() => send(queueHoldRef.current?.armed ? alternateSendMode : sendMode)}
+                    disabled={!canSend}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      !busy ? "Send the message" : sendMode === "queue" ? "Queue the message" : "Send the message now"
+                    }
+                    accessibilityHint={
+                      sendMode === "queue"
+                        ? "Press and hold to send it into the current turn"
+                        : "Press and hold to queue it behind the current turn"
+                    }
+                    accessibilityState={{ disabled: !canSend, busy: sending }}
+                    style={({ pressed }) => ({
+                      width: 40,
+                      height: 40,
+                      borderRadius: 20,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      backgroundColor: canSend ? colors.foreground : colors.secondary,
+                      opacity: pressed ? 0.75 : 1,
+                    })}
+                  >
+                    <Icon
+                      ios="arrow.up"
+                      android="arrow_upward"
+                      size={17}
+                      weight="semibold"
+                      color={canSend ? colors.bg : colors.textMuted}
+                    />
+                  </Pressable>
+                </>
+              ) : (
+                <InlineVoiceRecorder
+                  state={dictation.state}
+                  level={dictation.level}
+                  onCancel={dictation.cancel}
+                  onConfirm={dictation.toggle}
+                />
+              )}
 
-          <View
-            style={{
-              flex: composerExpanded ? undefined : 1,
-              width: composerExpanded ? "100%" : undefined,
-              flexDirection: "row",
-              alignItems: "center",
-            }}
-          >
+            </>
+          }
+        >
             <TextInput
             /**
              * THE LIVE TRANSCRIPT GOES IN THE FIELD. Dictation is typing with
@@ -2554,107 +2615,7 @@ function SessionScreenContent({
               <Text style={{ ...type.callout, color: colors.textMuted }}>Queued</Text>
             </Reanimated.View>
             ) : null}
-          </View>
-          {composerExpanded ? (
-            <View style={{ minHeight: 40, flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <AttachMenuButton options={attachments.options} size={34}>
-                <Icon ios="plus" android="add" size={20} color={colors.textSecondary} />
-              </AttachMenuButton>
-              <View style={{ flex: 1 }} />
-              {dictation.state === "idle" ? (
-                <>
-                  <Pressable
-                    key="composer-mic"
-                    onPress={dictation.toggle}
-                    accessibilityRole="button"
-                    accessibilityLabel="Dictate a message"
-                    hitSlop={8}
-                    style={({ pressed }) => ({
-                      width: 34,
-                      height: 34,
-                      alignItems: "center",
-                      justifyContent: "center",
-                      opacity: pressed ? 0.6 : 1,
-                    })}
-                  >
-                    <Icon ios="mic" android="mic" size={18} color={colors.textSecondary} />
-                  </Pressable>
-                  <Pressable
-                    key="composer-send"
-                    onPressIn={() => {
-                      const hold: QueueHold = { armed: false, timer: null };
-                      hold.timer = setTimeout(() => {
-                        hold.armed = true;
-                        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                      }, 320);
-                      queueHoldRef.current = hold;
-                    }}
-                    onPressOut={() => {
-                      const hold = queueHoldRef.current;
-                      if (hold?.timer) {
-                        clearTimeout(hold.timer);
-                        hold.timer = null;
-                      }
-                    }}
-                    onPress={() => send(queueHoldRef.current?.armed ? alternateSendMode : sendMode)}
-                    disabled={!canSend}
-                    accessibilityRole="button"
-                    accessibilityLabel={
-                      !busy ? "Send the message" : sendMode === "queue" ? "Queue the message" : "Send the message now"
-                    }
-                    accessibilityHint={
-                      sendMode === "queue"
-                        ? "Press and hold to send it into the current turn"
-                        : "Press and hold to queue it behind the current turn"
-                    }
-                    accessibilityState={{ disabled: !canSend, busy: sending }}
-                    style={({ pressed }) => ({
-                      width: 40,
-                      height: 40,
-                      borderRadius: 20,
-                      alignItems: "center",
-                      justifyContent: "center",
-                      backgroundColor: canSend ? colors.foreground : colors.secondary,
-                      opacity: pressed ? 0.75 : 1,
-                    })}
-                  >
-                    <Icon
-                      ios="arrow.up"
-                      android="arrow_upward"
-                      size={17}
-                      weight="semibold"
-                      color={canSend ? colors.bg : colors.textMuted}
-                    />
-                  </Pressable>
-                </>
-              ) : (
-                <InlineVoiceRecorder
-                  state={dictation.state}
-                  level={dictation.level}
-                  onCancel={dictation.cancel}
-                  onConfirm={dictation.toggle}
-                />
-              )}
-            </View>
-          ) : (
-            <Pressable
-              key="composer-mic"
-              onPress={dictation.toggle}
-              accessibilityRole="button"
-              accessibilityLabel="Dictate a message"
-              hitSlop={8}
-              style={({ pressed }) => ({
-                width: 32,
-                height: 32,
-                alignItems: "center",
-                justifyContent: "center",
-                opacity: pressed ? 0.6 : 1,
-              })}
-            >
-              <Icon ios="mic" android="mic" size={18} color={colors.textMuted} />
-            </Pressable>
-          )}
-        </GlassSurface>
+        </ChatBarShell>
         </AttachMenuLayer>
         </View>
 

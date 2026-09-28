@@ -130,6 +130,10 @@ export function ThreadTaskCard({
   );
 }
 
+function ComposerSlot({ render, ...props }: ThreadComposerProps & { render?: (props: ThreadComposerProps) => ReactNode }) {
+  return <>{render ? render(props) : <Composer {...props} />}</>;
+}
+
 const TIME = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
 
 function Avatar({ author, size = 36 }: { author: ThreadAuthor; size?: number }) {
@@ -185,17 +189,16 @@ function MessageRow({
   );
 }
 
-function Composer({
-  placeholder,
-  onSend,
-  autoFocus,
-  testId,
-}: {
+/** What a thread's chat bar needs. App.tsx renders the session bar with it. */
+export type ThreadComposerProps = {
+  testId: string;
   placeholder: string;
   onSend: (text: string) => Promise<void>;
   autoFocus?: boolean;
-  testId: string;
-}) {
+};
+
+/** A plain field, used only where no chat bar is supplied (tests). */
+function Composer({ placeholder, onSend, autoFocus, testId }: ThreadComposerProps) {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -259,7 +262,10 @@ export function ThreadChat({
   onBack,
   viewer,
   initialReplies,
+  renderComposer,
 }: {
+  /** The app's chat bar; see ThreadComposerProps. */
+  renderComposer?: (props: ThreadComposerProps) => ReactNode;
   /** The profile picked in this browser, for a box that cannot tell who is writing. */
   viewer?: string | null;
   /** Open this message's replies on arrival (a push links here). */
@@ -279,6 +285,7 @@ export function ThreadChat({
     <ThreadChatView
       threadId={threadId}
       initialReplies={initialReplies}
+      renderComposer={renderComposer}
       detail={isNew ? null : detail}
       repos={repos}
       openAskSessionIds={questions.map((q) => q.sessionId)}
@@ -306,6 +313,7 @@ export function ThreadChat({
 export function ThreadChatView({
   threadId,
   initialReplies = null,
+  renderComposer,
   detail,
   repos,
   openAskSessionIds,
@@ -317,6 +325,7 @@ export function ThreadChatView({
 }: {
   threadId: string;
   initialReplies?: string | null;
+  renderComposer?: (props: ThreadComposerProps) => ReactNode;
   detail: ThreadDetail | null;
   repos: ReadonlyArray<{ name: string; cwd: string }>;
   /** Tasks with a question waiting on a person. */
@@ -497,7 +506,8 @@ export function ThreadChatView({
         <div ref={endRef} />
       </div>
       {error ? <p className="px-4 text-[12px] text-destructive">{error}</p> : null}
-      <Composer
+      <ComposerSlot
+        render={renderComposer}
         testId="thread-input"
         placeholder={isNew ? "Message" : `Message ${detail?.thread.title ?? "the thread"}`}
         onSend={(text) => post(text, null)}
@@ -543,7 +553,7 @@ export function ThreadChatView({
           ))}
         </div>
         {questionPanel ? questionPanel([...new Set(replyTasks)]) : null}
-        <Composer testId="thread-reply-input" placeholder="Reply…" onSend={(text) => post(text, root.id)} autoFocus />
+        <ComposerSlot render={renderComposer} testId="thread-reply-input" placeholder="Reply…" onSend={(text) => post(text, root.id)} autoFocus />
       </aside>
     </div>
   );

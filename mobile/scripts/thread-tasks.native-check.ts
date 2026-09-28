@@ -82,3 +82,18 @@ test("omg's answers are replies: the main list hides them and counts them", asyn
   expect(replySummary(messages, "root")).toMatchObject({ count: 2, taskSessionId: TASK, authors: [{ kind: "omg" }] });
   expect(replySummary(messages, "r1")).toBeNull();
 });
+
+test("@ in a thread offers omg, and picking it writes @omg", async () => {
+  const { threadMentionAt, matchThreadMentions, applyThreadMention, mentionsOmg } = await import(
+    "../../packages/protocol/src/threads"
+  );
+  expect(threadMentionAt("hey @")).toEqual({ start: 4, query: "" });
+  expect(threadMentionAt("hey @o")).toEqual({ start: 4, query: "o" });
+  expect(threadMentionAt("mail x@o")).toBeNull();
+  expect(threadMentionAt("done")).toBeNull();
+  expect(matchThreadMentions("o").map((m) => m.name)).toEqual(["omg"]);
+  expect(matchThreadMentions("x")).toEqual([]);
+  const next = applyThreadMention("hey @o", { start: 4 }, "omg");
+  expect(next).toBe("hey @omg ");
+  expect(mentionsOmg(next)).toBe(true);
+});

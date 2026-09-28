@@ -7,6 +7,7 @@ import { Icon } from "../../src/components";
 import { DropdownMenu, type MenuOption } from "../../src/omg/menu";
 import { useOmg } from "../../src/omg/provider";
 import { TaskCard } from "../../src/omg/task-card";
+import { ThreadChatBar } from "../../src/omg/chat-bar";
 import { Text } from "../../src/omg/text";
 import { useTheme } from "../../src/omg/theme";
 import {
@@ -82,73 +83,6 @@ function MessageRow({ message, first, children }: { message: ThreadMessage; firs
         ) : null}
         <Text style={{ ...type.body, lineHeight: 22, color: colors.text, opacity: message.pending ? 0.6 : 1 }}>{message.text}</Text>
         {children}
-      </View>
-    </View>
-  );
-}
-
-function Composer({
-  placeholder,
-  onSend,
-  testID,
-  autoFocus,
-}: {
-  placeholder: string;
-  onSend: (text: string) => Promise<void>;
-  testID: string;
-  autoFocus?: boolean;
-}) {
-  const { colors, space, radius, isDark } = useTheme();
-  const insets = useSafeAreaInsets();
-  const [text, setText] = useState("");
-  const canSend = text.trim().length > 0;
-  const send = async () => {
-    const body = text.trim();
-    if (!body) return;
-    setText("");
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    try {
-      await onSend(body);
-    } catch {
-      setText(body);
-    }
-  };
-  return (
-    <View style={{ paddingHorizontal: space.md, paddingBottom: Math.max(insets.bottom, space.md), paddingTop: space.sm }}>
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "flex-end",
-          gap: space.sm,
-          borderRadius: radius.lg,
-          borderWidth: isDark ? 1 : 0,
-          borderColor: colors.borderStrong,
-          backgroundColor: colors.card,
-          paddingLeft: 14,
-          paddingRight: 6,
-          paddingVertical: 6,
-        }}
-      >
-        <TextInput
-          testID={testID}
-          multiline
-          autoFocus={autoFocus}
-          value={text}
-          onChangeText={setText}
-          placeholder={placeholder}
-          placeholderTextColor={colors.textMuted}
-          style={{ flex: 1, minHeight: 36, maxHeight: 140, paddingVertical: 8, fontSize: 17, color: colors.text }}
-        />
-        <Pressable
-          testID={`${testID}-send`}
-          accessibilityRole="button"
-          accessibilityLabel="Send"
-          disabled={!canSend}
-          onPress={() => void send()}
-          style={{ width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: canSend ? colors.text : colors.secondary }}
-        >
-          <Icon ios="arrow.up" android="arrow_upward" size={16} weight="semibold" color={canSend ? colors.background : colors.textMuted} />
-        </Pressable>
       </View>
     </View>
   );
@@ -389,7 +323,9 @@ export default function ThreadScreen() {
           ListHeaderComponent={error ? <Text style={{ ...type.footnote, color: colors.danger, paddingTop: space.sm }}>{error}</Text> : undefined}
         />
 
-        <Composer testID="thread-input" placeholder={`Message ${detail?.thread.title ?? "the thread"}`} onSend={(body) => post(body, null)} />
+        <View style={{ paddingBottom: Math.max(insets.bottom, space.md) }}>
+          <ThreadChatBar testID="thread-input" placeholder={`Message ${detail?.thread.title ?? "the thread"}`} onSend={(body) => post(body, null)} />
+        </View>
       </KeyboardAvoidingView>
 
       <Modal visible={!!root} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setOpenRoot(null)}>
@@ -430,7 +366,9 @@ export default function ThreadScreen() {
                   </View>
                 ) : null}
               </ScrollView>
-              <Composer testID="thread-reply-input" placeholder="Reply…" onSend={(body) => post(body, root.id)} />
+              <View style={{ paddingBottom: Math.max(insets.bottom, space.md) }}>
+                <ThreadChatBar testID="thread-reply-input" placeholder="Reply…" onSend={(body) => post(body, root.id)} />
+              </View>
             </KeyboardAvoidingView>
           </View>
         ) : null}
