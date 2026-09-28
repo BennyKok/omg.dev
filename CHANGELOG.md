@@ -2,6 +2,15 @@
 
 Recent product updates and deployment notes.
 
+## September 28, 2026 - `omg update` restarts the service (v0.6.138)
+
+- `omg update` now restarts the running service after it installs a release, also on an omg.dev Computer. Before, it printed "Restarting the service…" and the old version kept running.
+- `omg update` waits for the new service and reports the version it runs. It fails with an error when the old version is still running.
+- `omg update` also restarts a service that runs an older version than the one installed on disk.
+- Threads: people chat together, and omg joins when someone writes @omg. Pull down on the session list to start a thread on iOS and on a touch screen on the web.
+- A session link in a message shows as a tag with the agent icon, the session title and the project.
+- On the iOS village widget, a tap on a villager opens that villager's session.
+
 ## September 28, 2026 - Agents make images and videos (v0.6.137)
 
 - The Computer agent can make images and short videos with four new tools: `omg_generate_image`, `omg_generate_video`, `omg_media_job` and `omg_media_models`. Each job is paid from your omg credits at the provider price.
