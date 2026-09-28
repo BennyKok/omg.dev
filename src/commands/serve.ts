@@ -41,7 +41,7 @@ import {
   threadUpdate,
   type ThreadDeps,
 } from "../threads.ts";
-import type { ThreadMedia } from "../../packages/protocol/src/threads.ts";
+import { mentionAgents, mentionedAgent, type ThreadMedia } from "../../packages/protocol/src/threads.ts";
 import { buildContinueSessionPrompt } from "../session-continue-prompt.ts";
 import { regenerateSessionTitle } from "../session-title-regenerate.ts";
 import { hasHostedOmgAiProxy, hasOmgProviderAccess } from "../omg-provider.ts";
@@ -1239,14 +1239,17 @@ const threadDeps: ThreadDeps = {
   },
   // Through the normal creation route, so a task gets every rule a session
   // started from the composer gets: admission, worktree, user tag, title.
-  startTask: async ({ prompt, title, cwd, user }) => {
+  startTask: async ({ prompt, title, cwd, user, agent }) => {
     // Settings' "Default agent and model". The creation route picks the agent
     // from it on its own, but the model is applied by the clients, so a task
     // with no client has to pass the pair itself.
     const { defaultAgent, defaultModel } = getGlobalSettingsSync();
-    const agentChoice = defaultAgent?.trim()
-      ? { agent: defaultAgent.trim(), ...(defaultModel?.trim() ? { model: defaultModel.trim() } : {}) }
-      : {};
+    // Asked by name (`@codex`), that agent runs, with its own default model.
+    const agentChoice = agent
+      ? { agent }
+      : defaultAgent?.trim()
+        ? { agent: defaultAgent.trim(), ...(defaultModel?.trim() ? { model: defaultModel.trim() } : {}) }
+        : {};
     const response = await fetch(
       `http://127.0.0.1:${PORT}/api/sessions/${cwd ? "new" : "new-unassigned"}`,
       {
@@ -1411,13 +1414,16 @@ function postThreadMessage(
     media,
   });
   // A mention always reaches omg; so does a reply in a reply thread omg is part of,
-  // and omg decides whether it has anything to say.
-  const wake = omgWake(message, readThreadMessages(threadId, 5_000));
-  if (wake) {
-    void answerMention(threadId, text, viewer.identity, threadDeps, replyTo ?? message.id, wake === "reply").catch((error) => {
-      console.error(`[threads] @omg failed in ${threadId}:`, error);
-    });
-  }
+  // and omg decides whether it has anything to say. `@codex` asks a coding agent
+  // by name: omg briefs it and it runs the task.
+  void (async () => {
+    const agent = mentionedAgent(text, mentionAgents(await listCodingAgentsCached().catch(() => [])));
+    const wake = agent ? "mention" : omgWake(message, readThreadMessages(threadId, 5_000));
+    if (!wake) return;
+    await answerMention(threadId, text, viewer.identity, threadDeps, replyTo ?? message.id, wake === "reply", agent);
+  })().catch((error) => {
+    console.error(`[threads] @omg failed in ${threadId}:`, error);
+  });
   return message;
 }
 

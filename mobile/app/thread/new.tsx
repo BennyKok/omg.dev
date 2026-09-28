@@ -9,6 +9,7 @@ import { Text } from "../../src/omg/text";
 import { useTheme } from "../../src/omg/theme";
 import { createThread, THREAD_STARTERS, type ThreadAttachment } from "../../src/omg/threads";
 import { ThreadChatBar } from "../../src/omg/chat-bar";
+import { threadMentionOptions } from "../../src/omg/thread-tasks";
 
 /**
  * AN EMPTY THREAD, opened by pulling Home down past the thread threshold.
@@ -20,7 +21,7 @@ import { ThreadChatBar } from "../../src/omg/chat-bar";
  */
 export default function NewThreadScreen() {
   const router = useRouter();
-  const { client } = useOmg();
+  const { client, agents } = useOmg();
   const { colors, type, space } = useTheme();
   const insets = useSafeAreaInsets();
   const [text, setText] = useState("");
@@ -108,6 +109,7 @@ export default function NewThreadScreen() {
             placeholder="Message"
             value={text}
             onChangeText={setText}
+            mentions={threadMentionOptions(agents, [], null)}
             onSend={async (body, attachments) => {
               await send(body, attachments);
             }}

@@ -99,7 +99,7 @@ import { pathnameToSessionId, pathnameToThreadId, sessionToPath, threadToPath } 
 import { NEW_THREAD_ID, ThreadChat, useTypingReport, type ThreadComposerProps } from "./components/threads";
 import { PullToThread } from "./components/pull-to-thread";
 import { useThreads } from "./lib/threads";
-import { threadPreview, type ThreadSummary } from "../../packages/protocol/src/threads";
+import { THREAD_MENTIONS, threadPreview, type ThreadMentionOption, type ThreadSummary } from "../../packages/protocol/src/threads";
 import {
   BOT_ROSTER_ROW_CLASS,
   isPrimarySurfaceTab,
@@ -15695,7 +15695,7 @@ function SkillSlashSuggest({
  * A name the `@` picker offers that is not a bot: it inserts plain `@name `
  * text. A thread's `@omg` is one (packages/protocol/src/threads.ts reads it).
  */
-type PlainMention = { plain: true; id: string; name: string; hint?: string };
+type PlainMention = { plain: true; id: string; name: string; hint?: string; icon?: string | null };
 type MentionOption = PersistentBot | PlainMention;
 const isPlainMention = (option: MentionOption): option is PlainMention => "plain" in option;
 
@@ -15755,7 +15755,7 @@ function BotMentionSuggest({
             )}
           >
             {isPlainMention(bot) ? (
-              <img aria-hidden alt="" src={agentIconSrc("omg")} className="size-4 shrink-0 rounded" />
+              <img aria-hidden alt="" src={bot.icon || agentIconSrc("omg")} className="size-4 shrink-0 rounded" />
             ) : (
               <BotMascot
                 shape={bot.shape}
@@ -16188,8 +16188,15 @@ function SkillTextarea({
 // Shared growing field for the home and live-session chat composers. Keeping
 // the cap here prevents the two entry points from drifting back to different
 // viewport-relative heights, while SkillTextarea owns the resize/follow logic.
-/** What a thread's `@` offers. omg is the one member that is not a person. */
-const THREAD_MENTIONS = [{ id: "omg", name: "omg", hint: "Answer, or start a task" }] as const;
+/** A thread's `@` options as the picker draws them: omg's mark, the agent's icon, or the person's photo. */
+function threadPickerMentions(mentions: readonly ThreadMentionOption[] | undefined) {
+  return (mentions ?? THREAD_MENTIONS).map((row) => ({
+    id: row.id,
+    name: row.name,
+    hint: row.hint,
+    icon: row.kind === "agent" ? agentIconSrc(row.agent ?? "") : row.kind === "person" ? row.avatar || null : agentIconSrc("omg"),
+  }));
+}
 
 /**
  * THE SESSION CHAT BAR, IN A THREAD. The same pill, field, mic and send
@@ -16197,9 +16204,10 @@ const THREAD_MENTIONS = [{ id: "omg", name: "omg", hint: "Answer, or start a tas
  * `@` offers omg (and, later, the people here) instead of the box's bots.
  * No attach button: a thread message is text.
  */
-function ThreadComposerBar({ testId, placeholder, onSend, autoFocus, onTyping }: ThreadComposerProps) {
+function ThreadComposerBar({ testId, placeholder, onSend, autoFocus, onTyping, mentions }: ThreadComposerProps) {
   const [text, setText] = useState("");
   useTypingReport(text, onTyping);
+  const pickerMentions = useMemo(() => threadPickerMentions(mentions), [mentions]);
   const [sending, setSending] = useState(false);
   const [multiline, setMultiline] = useState(false);
   // The session composer's file plumbing: eager uploads, paste, drop, annotate, HD.
@@ -16265,7 +16273,7 @@ function ThreadComposerBar({ testId, placeholder, onSend, autoFocus, onTyping }:
           value={text}
           onValueChange={setText}
           onMultilineChange={setMultiline}
-          plainMentions={THREAD_MENTIONS}
+          plainMentions={pickerMentions}
           mentionBots={false}
           onKeyDown={(e) => {
             if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { Image, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import Reanimated, { FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withDelay, withRepeat, withSequence, withTiming } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
@@ -8,9 +8,13 @@ import { useAttachments } from "./attachments";
 import type { ThreadAttachment } from "./threads";
 import {
   applyThreadMention,
+  authorHue,
   matchThreadMentions,
+  THREAD_MENTIONS,
   threadMentionAt,
+  type ThreadMentionOption,
 } from "../../../packages/protocol/src/threads";
+import { PersonFace, ThreadPeopleContext } from "./thread-details";
 import { agentIcon } from "./agent-icons";
 import { useDictation } from "./dictation";
 import { GlassSurface, LIQUID_GLASS } from "./glass";
@@ -104,15 +108,40 @@ export function useChatBarInputStyle(filled: boolean) {
   } as const;
 }
 
+/** A picker row's face: omg's mark, the agent's own icon, or the person. */
+function MentionFace({ mention }: { mention: ThreadMentionOption }) {
+  const people = useContext(ThreadPeopleContext);
+  if (mention.kind === "person") {
+    const row = people?.find((p) => p.id === mention.participantId);
+    return (
+      <PersonFace
+        name={mention.name}
+        hue={authorHue({ kind: "human", participantId: mention.participantId ?? mention.id, name: mention.name })}
+        avatar={row?.display.avatar}
+        size={24}
+      />
+    );
+  }
+  return <Image source={agentIcon(mention.kind === "agent" ? mention.agent : "omg")} style={{ width: 24, height: 24, borderRadius: 6 }} accessible={false} />;
+}
+
 /**
- * `@` in a thread: the members omg can be asked as, above the field, in the
- * same glass list as the session screen's `#` picker. Tapping one replaces
+ * `@` in a thread: omg, the coding agents and the people, above the field, in
+ * the same glass list as the session screen's `#` picker. Tapping one replaces
  * the `@word` with `@name `.
  */
-export function AtMentionSuggest({ value, onChangeText }: { value: string; onChangeText: (next: string) => void }) {
+export function AtMentionSuggest({
+  value,
+  onChangeText,
+  mentions = THREAD_MENTIONS,
+}: {
+  value: string;
+  onChangeText: (next: string) => void;
+  mentions?: readonly ThreadMentionOption[];
+}) {
   const { colors, type, space, radius } = useTheme();
   const at = threadMentionAt(value);
-  const matches = at ? matchThreadMentions(at.query) : [];
+  const matches = at ? matchThreadMentions(at.query, mentions) : [];
   if (!at || !matches.length) return null;
   return (
     <Reanimated.View entering={FadeIn.duration(120)} exiting={FadeOut.duration(100)}>
@@ -130,7 +159,7 @@ export function AtMentionSuggest({ value, onChangeText }: { value: string; onCha
         <ScrollView keyboardShouldPersistTaps="always" style={{ maxHeight: 220 }} contentContainerStyle={{ padding: 4 }}>
           {matches.map((mention, index) => (
             <PressableScale
-              key={mention.name}
+              key={mention.id}
               testID={`at-mention-${mention.name}`}
               onPress={() => {
                 void Haptics.selectionAsync();
@@ -149,7 +178,7 @@ export function AtMentionSuggest({ value, onChangeText }: { value: string; onCha
                 backgroundColor: index === 0 ? colors.card : "transparent",
               }}
             >
-              <Image source={agentIcon("omg")} style={{ width: 24, height: 24, borderRadius: 6 }} accessible={false} />
+              <MentionFace mention={mention} />
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text numberOfLines={1} style={{ ...type.subhead, fontWeight: "600", color: colors.text }}>
                   <Text style={{ ...type.subhead, fontWeight: "600", color: colors.brand }}>@</Text>
@@ -179,6 +208,7 @@ export function ThreadChatBar({
   value,
   onChangeText,
   onTyping,
+  mentions,
 }: {
   placeholder: string;
   onSend: (text: string, attachments: ThreadAttachment[]) => Promise<void>;
@@ -189,6 +219,8 @@ export function ThreadChatBar({
   onChangeText?: (text: string) => void;
   /** The field's text on every change, for the typing ping. */
   onTyping?: (text: string) => void;
+  /** What `@` offers (threadMentionOptions). Defaults to omg alone. */
+  mentions?: readonly ThreadMentionOption[];
 }) {
   const { client } = useOmg();
   const { colors, space } = useTheme();
@@ -257,7 +289,7 @@ export function ThreadChatBar({
 
   return (
     <View style={{ paddingHorizontal: space.md, paddingTop: space.sm }}>
-      <AtMentionSuggest value={text} onChangeText={setText} />
+      <AtMentionSuggest value={text} onChangeText={setText} mentions={mentions} />
       <AttachmentStrip items={attachments.items} onRemove={attachments.remove} />
       {/* The layer draws the "+" over the glass, never inside it, as in a session. */}
       <AttachMenuLayer>

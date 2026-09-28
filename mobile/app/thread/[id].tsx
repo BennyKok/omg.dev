@@ -26,6 +26,8 @@ import {
   taskCardFor,
   topLevelMessages,
   linkMentions,
+  mentionAgents,
+  threadMentionOptions,
   typingIn,
   typingLabel,
   typingPinger,
@@ -85,6 +87,8 @@ function AboveKeyboard({ rest, gap, children }: { rest: number; gap: number; chi
 function MessageRow({ message, first, children }: { message: ThreadMessage; first: boolean; children?: ReactNode }) {
   const { colors, type } = useTheme();
   const people = useContext(ThreadPeopleContext);
+  const { agents } = useOmg();
+  const handles = useMemo(() => mentionAgents(agents).map((row) => row.handle), [agents]);
   return (
     <View style={{ flexDirection: "row", gap: 10, paddingTop: first ? 12 : 2 }}>
       <View style={{ width: 36 }}>{first ? <Avatar author={message.author} /> : null}</View>
@@ -98,7 +102,7 @@ function MessageRow({ message, first, children }: { message: ThreadMessage; firs
         {/* Formatted as the session chat formats a message: the same renderer. */}
         {message.text ? (
           <View style={{ opacity: message.pending ? 0.6 : 1 }}>
-            <Markdown text={linkMentions(message.text, people)} />
+            <Markdown text={linkMentions(message.text, people, handles)} />
           </View>
         ) : null}
         <ThreadMediaList media={message.media} />
@@ -238,6 +242,12 @@ export default function ThreadScreen() {
   const replyTyping = useMemo(
     () => typingPinger((on) => void (client && openRoot && sendThreadTyping(client, id, on, openRoot))),
     [client, id, openRoot],
+  );
+  // What `@` offers here: omg, this machine's coding agents, and the other people.
+  const { agents: codingAgents } = useOmg();
+  const mentionOptions = useMemo(
+    () => threadMentionOptions(codingAgents, detail?.participants, detail?.me),
+    [codingAgents, detail?.participants, detail?.me],
   );
   const mainTypingLabel = typingLabel(typingIn(detail?.typing, null), detail?.participants);
   const people = (detail?.participants ?? [])
@@ -399,7 +409,7 @@ export default function ThreadScreen() {
 
         <View style={{ paddingBottom: Math.max(insets.bottom, space.md) }}>
           <TypingIndicator testID="thread-typing" label={mainTypingLabel} />
-          <ThreadChatBar testID="thread-input" placeholder={`Message ${detail?.thread.title ?? "the thread"}`} onSend={(body, files) => post(body, null, files)} onTyping={mainTyping} />
+          <ThreadChatBar testID="thread-input" placeholder={`Message ${detail?.thread.title ?? "the thread"}`} onSend={(body, files) => post(body, null, files)} onTyping={mainTyping} mentions={mentionOptions} />
         </View>
       </KeyboardAvoidingView>
 
@@ -482,7 +492,7 @@ export default function ThreadScreen() {
               </ScrollView>
               <AboveKeyboard rest={Math.max(insets.bottom, space.md)} gap={space.sm}>
                 <TypingIndicator testID="thread-reply-typing" label={root ? typingLabel(typingIn(detail?.typing, root.id), detail?.participants) : null} />
-                <ThreadChatBar testID="thread-reply-input" placeholder="Reply…" onSend={(body, files) => post(body, sheetRoot.id, files)} onTyping={replyTyping} />
+                <ThreadChatBar testID="thread-reply-input" placeholder="Reply…" onSend={(body, files) => post(body, sheetRoot.id, files)} onTyping={replyTyping} mentions={mentionOptions} />
               </AboveKeyboard>
             </View>
             {detailsModal}

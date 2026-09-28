@@ -15,7 +15,10 @@ import {
   taskCardFor,
   threadPreview,
   linkMentions,
+  mentionAgents,
   mentionFromHref,
+  threadMentionOptions,
+  type ThreadMentionOption,
   topLevelMessages,
   typingIn,
   typingLabel,
@@ -42,7 +45,7 @@ import {
 } from "./ui/dropdown-menu";
 import { Dialog, DialogContent, DialogTitle } from "./ui/dialog";
 import { cn } from "@/lib/utils";
-import { agentIconSrc } from "@/lib/session-ui";
+import { agentIconSrc, CodingAgentsContext } from "@/lib/session-ui";
 
 /**
  * THREADS ON THE WEB, laid out like Slack. A thread is a chat between people
@@ -232,6 +235,8 @@ function MessageRow({
   children?: ReactNode;
 }) {
   const people = useContext(ThreadPeopleContext);
+  const codingAgents = useContext(CodingAgentsContext);
+  const handles = useMemo(() => mentionAgents(codingAgents).map((row) => row.handle), [codingAgents]);
   return (
     <div
       data-testid="thread-message"
@@ -253,7 +258,7 @@ function MessageRow({
             className={cn("break-words text-[15px] leading-[22px]", message.pending && "opacity-60")}
             components={THREAD_MARKDOWN}
           >
-            {linkMentions(message.text, people)}
+            {linkMentions(message.text, people, handles)}
           </MessageResponse>
         ) : null}
         <ThreadMediaList media={message.media} />
@@ -272,6 +277,8 @@ export type ThreadComposerProps = {
   autoFocus?: boolean;
   /** The field's text on every change, for the typing ping. */
   onTyping?: (text: string) => void;
+  /** What `@` offers: omg, this machine's coding agents, the other people. */
+  mentions?: readonly ThreadMentionOption[];
 };
 
 /** Call `onTyping` with the field's text as it changes, and with "" when the field goes away. */
@@ -484,6 +491,11 @@ export function ThreadChatView({
     ? messages.find((m) => m.id === openRoot) ?? (rootHint?.id === openRoot ? rootHint : null)
     : null;
   const replies = useMemo(() => (openRoot ? repliesTo(messages, openRoot) : []), [messages, openRoot]);
+  const codingAgents = useContext(CodingAgentsContext);
+  const mentionOptions = useMemo(
+    () => threadMentionOptions(codingAgents, detail?.participants, detail?.me),
+    [codingAgents, detail?.participants, detail?.me],
+  );
   // One pinger per field, so each says where you write.
   const typingRef = useRef(typing);
   typingRef.current = typing;
@@ -700,6 +712,7 @@ export function ThreadChatView({
       <ComposerSlot
         render={renderComposer}
         onTyping={mainTyping}
+        mentions={mentionOptions}
         testId="thread-input"
         placeholder={isNew ? "Message" : `Message ${detail?.thread.title ?? "the thread"}`}
         onSend={(text, attachments) => post(text, null, attachments)}
@@ -767,7 +780,7 @@ export function ThreadChatView({
         </div>
         {questionPanel ? questionPanel([...new Set(replyTasks)]) : null}
         <TypingLine testId="thread-reply-typing" label={typingLabel(typingIn(detail?.typing, root.id), detail?.participants)} />
-        <ComposerSlot render={renderComposer} onTyping={replyTyping} testId="thread-reply-input" placeholder="Reply…" onSend={(text, attachments) => post(text, root.id, attachments)} autoFocus />
+        <ComposerSlot render={renderComposer} onTyping={replyTyping} mentions={mentionOptions} testId="thread-reply-input" placeholder="Reply…" onSend={(text, attachments) => post(text, root.id, attachments)} autoFocus />
       </aside>
     </div>
     </ThreadPeopleContext.Provider>
