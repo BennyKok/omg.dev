@@ -47,6 +47,65 @@ const unassignedChats: DemoSession[] = [];
  * working and two idle. The other folders hold one session each, enough to
  * populate the folder rail and to feed the Bots and Notifications screens.
  */
+/**
+ * A thread between two people, with omg's quick answer and two tasks: one
+ * waiting on a question, one finished. For the `threads` e2e plan only, like
+ * the other fixtures, so the App Store screenshots do not move.
+ */
+const threadFixture = process.env.EXPO_PUBLIC_OMG_THREADS_FIXTURE === "1";
+const DEMO_THREAD = "0d3a7c1e-0000-4000-8000-00000000abcd";
+const DEMO_TASK_ASKING = "d3a0c0de-0000-4000-8000-000000000001";
+const DEMO_TASK_DONE = "f4a1b2c3-0000-4000-8000-000000000002";
+const ME = "human:me";
+const ALEX = "human:alex";
+
+function demoThreadMessages(t: number) {
+  const msg = (id: string, ts: number, author: object, text: string, task?: object) =>
+    ({ id, threadId: DEMO_THREAD, ts, author, text, ...(task ? { task } : {}) });
+  const alex = { kind: "human", participantId: ALEX, name: "Alex" };
+  const me = { kind: "human", participantId: ME, name: "Demo" };
+  const omg = { kind: "omg" };
+  return [
+    msg("t1", t - 40 * MIN, alex, "Should we drop the free tier?"),
+    msg("t2", t - 39 * MIN, me, "Keep it, but cap it at 3 tasks a day."),
+    msg("t3", t - 38 * MIN, alex, "@omg what do Linear and Vercel charge for their paid tiers?"),
+    msg("t4", t - 38 * MIN, omg, "Linear starts at $8 per seat a month. Vercel Pro is $20 per member a month."),
+    msg("t5", t - 21 * MIN, me, "@omg update the pricing page with the cap"),
+    msg("t6", t - 20 * MIN, omg, "Started a task in web.", { sessionId: DEMO_TASK_ASKING, event: "started", title: "Cap the free tier on the pricing page", project: "web" }),
+    msg("t7", t - 15 * MIN, alex, "@omg also fix the typo in the signup email"),
+    msg("t8", t - 14 * MIN, omg, "Started a task in web.", { sessionId: DEMO_TASK_DONE, event: "started", title: "Fix the signup email typo", project: "web" }),
+    msg("t9", t - 2 * MIN, omg, "Fixed \"recieve\" in the signup email. Tests pass.", { sessionId: DEMO_TASK_DONE, event: "finished", title: "Fix the signup email typo", project: "web" }),
+  ];
+}
+
+function demoThreadSummary() {
+  const t = now();
+  const messages = demoThreadMessages(t);
+  const last = messages.at(-1)!;
+  return {
+    id: DEMO_THREAD, title: "Pricing ideas", createdAt: t - 40 * MIN, updatedAt: last.ts,
+    project: { cwd: "/home/user/web", name: "web" },
+    lastMessage: { author: last.author, text: last.text, ts: last.ts },
+  };
+}
+
+function demoThreadDetail() {
+  const t = now();
+  return {
+    me: ME,
+    thread: demoThreadSummary(),
+    participants: [
+      { id: ME, kind: "human", role: "owner", display: { name: "Demo", fallback: "Demo" } },
+      { id: ALEX, kind: "human", role: "member", display: { name: "Alex", fallback: "Alex" } },
+    ],
+    messages: demoThreadMessages(t),
+    tasks: [
+      { sessionId: DEMO_TASK_ASKING, title: "Cap the free tier on the pricing page", project: "web", busy: false, status: "ok", ended: false },
+      { sessionId: DEMO_TASK_DONE, title: "Fix the signup email typo", project: "web", busy: false, status: "ok", ended: true },
+    ],
+  };
+}
+
 function demoSessions(): DemoSession[] {
   const t = now();
   const sessions: DemoSession[] = [
@@ -286,6 +345,12 @@ function demoAsk() {
   const t = now();
   return {
     questions: [
+      ...(threadFixture
+        ? [{
+            id: "q-thread", question: "The new free tier needs a Stripe price. Create it in live mode?",
+            options: ["Yes, live", "Test mode only"], sessionId: DEMO_TASK_ASKING, agent: "claude", createdAt: t - 2 * MIN,
+          }]
+        : []),
       ...(inlineCardFixture
         ? [{
             id: "q0", question: "The invoice page needs a product-owner call: cancel box-1 now, or wait for the billing cycle?",
@@ -466,6 +531,8 @@ function answer(path: string): unknown | null {
     };
   }
   if (clean === "/api/sessions") return { sessions: demoSessions() };
+  if (clean === "/api/threads") return { threads: threadFixture ? [demoThreadSummary()] : [] };
+  if (threadFixture && clean === `/api/threads/${DEMO_THREAD}`) return demoThreadDetail();
   if (clean === "/api/ask") return demoAsk();
   if (clean.startsWith("/api/browser-login")) {
     if (!inlineCardFixture) return { requests: [], iosAvailable: false, desktopAvailable: false };

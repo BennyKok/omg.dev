@@ -1,0 +1,70 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": false
+  },
+  "steps": [
+    {
+      "name": "Threads sit above tasks on Home",
+      "goal": "Look at the Home screen list. Do not open anything.",
+      "done": "A Threads section with the Pricing ideas thread is at the top of the list, and a Tasks section follows it.",
+      "expect": [
+        "Threads",
+        "Pricing ideas",
+        "Tasks"
+      ]
+    },
+    {
+      "name": "A thread is a chat between people",
+      "goal": "Tap the row named Pricing ideas under the Threads heading. Do not tap the message field.",
+      "done": "The thread is open at its newest messages: Alex's message about the signup email and omg's reply.",
+      "expect": [
+        "Alex",
+        "@omg also fix the typo in the signup email",
+        "Fixed \"recieve\" in the signup email. Tests pass."
+      ],
+      "forbid": [
+        "Claude Code",
+        "Worked"
+      ]
+    },
+    {
+      "name": "Task cards show their state",
+      "goal": "Read the task cards near the end of the thread. Do not tap a card.",
+      "done": "One task card says it needs you and one says it is done.",
+      "expect": [
+        "Needs you",
+        "Cap the free tier on the pricing page",
+        "Done",
+        "Fix the signup email typo"
+      ]
+    },
+    {
+      "name": "The task's question is answered in the thread",
+      "goal": "Read the question at the end of the thread. Do not tap an answer.",
+      "done": "The task's question and its two one-tap answers are visible.",
+      "expect": [
+        "Create it in live mode?",
+        "Yes, live",
+        "Test mode only"
+      ]
+    },
+    {
+      "name": "omg answered a quick question earlier",
+      "goal": "Scroll up in the thread to read the earlier messages. Do not tap anything.",
+      "done": "omg's short answer about Linear and Vercel pricing is visible.",
+      "expect": [
+        "Linear starts at $8 per seat a month."
+      ]
+    },
+    {
+      "name": "Start a new thread",
+      "goal": "Leave the thread with the back button at the top left, then on Home tap the New thread button next to the Threads heading. Do not tap the message field or the add button.",
+      "done": "An empty new thread is open with its heading and starter prompts.",
+      "expect": [
+        "New thread",
+        "What is on your mind?"
+      ]
+    }
+  ]
+}

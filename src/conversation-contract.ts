@@ -25,6 +25,16 @@ export type ConversationRuntimeAttachment = {
 
 export type Conversation = {
   id: string;
+  /**
+   * `thread`: a people-first chat with no agent behind it (src/threads.ts).
+   * Its messages live in the thread store; its tasks are `execution`
+   * runtime sessions. Missing means a bot or session conversation.
+   */
+  kind?: "thread";
+  /** The project a thread's tasks run in. Null runs them as chats without a project. */
+  threadProject?: { cwd: string; name: string } | null;
+  /** When a thread was archived. Archived threads are not listed. */
+  archivedAt?: number | null;
   title?: string | null;
   participants: ConversationParticipant[];
   runtimeSessions: ConversationRuntimeAttachment[];

@@ -102,7 +102,7 @@ import { HeldQueue, type HeldRow } from "../../src/omg/held-queue";
 type SendMode = "steer" | "queue";
 
 /** An open row from GET /api/ask — the shape the web's ask center reads. */
-type AskQuestion = {
+export type AskQuestion = {
   id: string;
   question: string;
   options?: string[];
@@ -2700,7 +2700,7 @@ function SessionScreenContent({
  * Used for a native prompt from the transcript socket and for an ask-user
  * question from /api/ask alike.
  */
-function QuestionCard({
+export function QuestionCard({
   question,
   options,
   onAnswer,

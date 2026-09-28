@@ -98,6 +98,9 @@ import { groupNodesByProject } from "./session-groups";
 import { SessionActivityPane } from "./session-activity";
 import { SessionStatusState } from "./session-status";
 import { sessionPreview } from "./session-preview";
+import { threadPullStage } from "./thread-tasks";
+import { threadPreview } from "./threads";
+import { useThreads } from "./use-threads";
 import { SubagentGroup } from "./subagent-group";
 import {
   groupHomeAutoFindings,
@@ -482,6 +485,21 @@ export function SessionsScreen({
    * nobody asked, the answer is silence.
    */
   const [pulling, setPulling] = useState(false);
+  /**
+   * PULL DOWN PAST THE REFRESH TO START A THREAD. A short pull refreshes, as
+   * it always has. A long pull arms a new thread with a haptic tick, and
+   * releasing it opens an empty thread. Only transitions set state, so a
+   * scroll frame does not re-render the list.
+   */
+  const [threadPull, setThreadPull] = useState<0 | 1 | 2>(0);
+  const threadPullRef = useRef<0 | 1 | 2>(0);
+  const draggingRef = useRef(false);
+  const setPullStage = useCallback((stage: 0 | 1 | 2) => {
+    if (threadPullRef.current === stage) return;
+    if (stage === 2) void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    threadPullRef.current = stage;
+    setThreadPull(stage);
+  }, []);
   /**
    * Which open finding is expanded to show its full reasoning. ONE at a
    * time: a finding carries several reasoning bullets and a suggestion, so
@@ -914,6 +932,13 @@ export function SessionsScreen({
   );
 
   /**
+   * THREADS ARE GLOBAL. They sit above the tasks and ignore the folder
+   * filter: a thread is a conversation between people, not work in one
+   * project, and no agent runs behind it (src/threads.ts in the lfg repo).
+   */
+  const { threads, refresh: refreshThreads, archive: archiveThread } = useThreads();
+
+  /**
    * GROUPED BY FOLDER, NOT BY WORKING/IDLE.
    *
    * The phone was the last surface still splitting the fleet by status while
@@ -1273,6 +1298,11 @@ export function SessionsScreen({
    * dialog: a deliberate swipe past a threshold IS the confirmation, and an
    * archived session can be resumed.
    */
+  const openNewThread = useCallback(() => {
+    Keyboard.dismiss();
+    router.push("/thread/new" as Href);
+  }, [router]);
+
   const archiveSession = useCallback(
     (sessionId: string | null) => {
       if (!client || !sessionId) return;
@@ -1718,6 +1748,30 @@ export function SessionsScreen({
             In the iPad workspace the rail is permanent at width, and only the
             narrow layout ever covers it. */}
         <SessionActivityPane onScreen={workspace ? railOpen || (!wide && home) : paneOnScreen}>
+        {threadPull ? (
+          <View
+            pointerEvents="none"
+            testID="thread-pull-hint"
+            style={{
+              position: "absolute",
+              left: 0,
+              right: 0,
+              top: insets.top + 44 + space.sm + (folderRail ? 50 : 0) + 44,
+              alignItems: "center",
+              zIndex: 1,
+            }}
+          >
+            <Text
+              style={{
+                ...type.footnote,
+                fontWeight: threadPull === 2 ? "600" : "400",
+                color: threadPull === 2 ? colors.text : colors.textMuted,
+              }}
+            >
+              {threadPull === 2 ? "Release to start a thread" : "Pull more to start a thread"}
+            </Text>
+          </View>
+        ) : null}
         <WindowedSessionList
           style={{ flex: 1, position: "relative", zIndex: 0 }}
           /**
@@ -1750,13 +1804,28 @@ export function SessionsScreen({
           // automatic inset added the bar's height on top of that: a blank
           // band between the folder pills and the first row on iPad.
           contentInsetAdjustmentBehavior="never"
+          scrollEventThrottle={16}
+          onScrollBeginDrag={() => {
+            draggingRef.current = true;
+          }}
+          onScroll={workspace ? undefined : (event) => {
+            if (!draggingRef.current) return;
+            const pull = -event.nativeEvent.contentOffset.y;
+            setPullStage(threadPullStage(pull));
+          }}
+          onScrollEndDrag={() => {
+            draggingRef.current = false;
+            const armed = threadPullRef.current === 2;
+            setPullStage(0);
+            if (armed) openNewThread();
+          }}
           refreshControl={
             <RefreshControl
               refreshing={pulling}
               onRefresh={() => {
                 setPulling(true);
                 refreshAuto();
-                void Promise.all([probe(), load(true)]).finally(() =>
+                void Promise.all([probe(), load(true), refreshThreads()]).finally(() =>
                   setPulling(false),
                 );
               }}
@@ -1952,6 +2021,25 @@ export function SessionsScreen({
                   title="No sessions yet"
                   detail="Start one below and it shows up here."
                 />
+              ) : null}
+              {threads.length ? (
+                <View testID="threads-section" style={{ paddingBottom: space.sm }}>
+                  <SectionHeader label="Threads" count={threads.length} actionLabel="New" actionAccessibilityLabel="New thread" onAction={openNewThread} />
+                  {threads.map((thread) => (
+                    <SessionCard
+                      key={`thread:${thread.id}`}
+                      sessionId={thread.id}
+                      title={thread.title}
+                      subtitle={threadPreview(thread)}
+                      timestamp={relativeTime(thread.updatedAt)}
+                      hideAvatar
+                      onPress={() => router.push(`/thread/${thread.id}` as Href)}
+                      onArchive={() => archiveThread(thread.id)}
+                      animateEntry={animateEntry}
+                    />
+                  ))}
+                  {homeRows.length ? <SectionHeader label="Tasks" count={roots.length} /> : null}
+                </View>
               ) : null}
 
 

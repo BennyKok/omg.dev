@@ -715,6 +715,7 @@ export function SectionHeader({
   onPress,
   onClear,
   actionLabel,
+  actionAccessibilityLabel,
   onAction,
 }: {
   label: string;
@@ -734,6 +735,8 @@ export function SectionHeader({
   /** Shown INSTEAD of onPress when this group is the current scope — the way back out. */
   onClear?: () => void;
   actionLabel?: string;
+  /** What VoiceOver says for the action, when the visible word is too short alone. */
+  actionAccessibilityLabel?: string;
   onAction?: () => void;
 }) {
   const { colors, type, space } = useTheme();
@@ -742,6 +745,9 @@ export function SectionHeader({
     <Pressable
       onPress={onClear ?? onPress}
       disabled={!pressable}
+      // A heading that is not a control must not merge its children into one
+      // element, or its action button ("New") cannot be reached by VoiceOver.
+      accessible={pressable}
       accessibilityRole={pressable ? "button" : undefined}
       accessibilityLabel={
         onClear ? `${label}. Showing only this folder. Show all` : pressable ? `${label}. Show only this folder` : undefined
@@ -806,7 +812,13 @@ export function SectionHeader({
       ) : null}
       <View style={{ flex: 1 }} />
       {actionLabel && onAction ? (
-        <Pressable onPress={onAction} hitSlop={8} style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}>
+        <Pressable
+          onPress={onAction}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={actionAccessibilityLabel ?? actionLabel}
+          style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}
+        >
           <Text style={{ ...type.subhead, color: colors.primary }}>{actionLabel}</Text>
         </Pressable>
       ) : null}
@@ -877,9 +889,12 @@ export function SessionCard({
   animateEntry = true,
   compact = false,
   selected = false,
+  hideAvatar = false,
 }: {
   sessionId?: string | null;
   title: string;
+  /** A thread row is text only: the missing agent mark is what says "chat, not task". */
+  hideAvatar?: boolean;
   /** Smaller filled card for a parent session's expanded subagent list. */
   compact?: boolean;
   selected?: boolean;
@@ -1019,7 +1034,7 @@ export function SessionCard({
         >
           <SessionActivityField identity={sessionId ?? title} activity={activity} textBounds={textBounds} cornerRadius={radius.md}
             horizontalOutset={compact ? 0 : SESSION_ROW.inset} />
-          <AgentAvatar agent={agent} size={compact ? 28 : SESSION_ROW.avatar} plain />
+          {hideAvatar ? null : <AgentAvatar agent={agent} size={compact ? 28 : SESSION_ROW.avatar} plain />}
           <View onLayout={({ nativeEvent: { layout } }) => setTextBounds((old) =>
             old && old.x === layout.x && old.y === layout.y && old.width === layout.width && old.height === layout.height ? old : layout)}
             style={{ flex: 1, gap: SESSION_ROW.textGap, minWidth: 0 }}>

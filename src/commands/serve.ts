@@ -17,7 +17,23 @@ import { PATHS, appVersion, installInfo, localServeBaseUrl } from "../config.ts"
 import { desktopRuntimeReadyPayload } from "../desktop-parent.ts";
 import { handleServerAccessRequest } from "../server-access.ts";
 import { CloudAccountError, createCloudAccount } from "../cloud-account.ts";
-import { generateSessionTitle } from "../session-auto-title.ts";
+import { generateSessionTitle, omgChatCompletionsEndpoint } from "../session-auto-title.ts";
+import {
+  answerMention,
+  appendThreadMessage,
+  bridgeTaskCompletion,
+  isThread,
+  listThreads,
+  mentionsOmg,
+  readThreadMessages,
+  startThread,
+  summarizeThread,
+  threadAuthor,
+  threadParticipantId,
+  threadTasks,
+  threadUpdate,
+  type ThreadDeps,
+} from "../threads.ts";
 import { buildContinueSessionPrompt } from "../session-continue-prompt.ts";
 import { regenerateSessionTitle } from "../session-title-regenerate.ts";
 import { hasHostedOmgAiProxy, hasOmgProviderAccess } from "../omg-provider.ts";
@@ -240,6 +256,7 @@ import {
   ensureBotConversation,
   ensureConversationHuman,
   getConversation,
+  threadForTaskSession,
   leaveConversationParticipant,
   replaceConversationPrimaryRuntime,
   upsertConversationParticipant,
@@ -807,7 +824,7 @@ import {
   updateHeldMessage,
   takeUndeliveredQueue,
 } from "../sendq.ts";
-import { startFleetWatcher } from "../voice-bus.ts";
+import { startFleetWatcher, subscribeFleet } from "../voice-bus.ts";
 import { startSessionPushBridge } from "../session-push.ts";
 
 const PORT = Number(process.env.LFG_PORT ?? process.env.PORT ?? 8766);
@@ -1182,6 +1199,128 @@ function renderReportHtml(raw: string): string {
 }
 
 // ---------- legacy: pre-agents flat reports ----------
+
+/** Model used for a thread's quick @omg answers. */
+const THREAD_REPLY_MODEL = "anthropic/claude-sonnet-4.6";
+
+const threadDeps: ThreadDeps = {
+  complete: async (system, user) => {
+    const endpoint = omgChatCompletionsEndpoint();
+    if (!endpoint) return null;
+    const response = await fetch(endpoint.url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(endpoint.token ? { Authorization: `Bearer ${endpoint.token}` } : {}),
+      },
+      body: JSON.stringify({
+        model: THREAD_REPLY_MODEL,
+        max_tokens: 900,
+        temperature: 0.3,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!response.ok) return null;
+    const body = await response.json().catch(() => null) as { choices?: Array<{ message?: { content?: unknown } }> } | null;
+    const content = body?.choices?.[0]?.message?.content;
+    return typeof content === "string" ? content : null;
+  },
+  // Through the normal creation route, so a task gets every rule a session
+  // started from the composer gets: admission, worktree, user tag, title.
+  startTask: async ({ prompt, title, cwd, user }) => {
+    const response = await fetch(
+      `http://127.0.0.1:${PORT}/api/sessions/${cwd ? "new" : "new-unassigned"}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt, title, ...(cwd ? { cwd } : {}), ...(user.includes("@") ? { user } : {}) }),
+      },
+    );
+    const body = await response.json().catch(() => null) as { sessionId?: string; error?: string } | null;
+    if (!response.ok || !body?.sessionId) throw new Error(body?.error || `session start failed (${response.status})`);
+    return body.sessionId;
+  },
+};
+
+function threadViewer(req: Request, requested: string | null | undefined): { identity: string; name: string | null } {
+  const identity = botViewerFromRequest(req, requested).identity;
+  const profile = userRoster().find((row) => row.email.toLowerCase() === identity.toLowerCase());
+  return { identity, name: profile?.name || null };
+}
+
+async function handleThreadRequest(req: Request, url: URL, path: string): Promise<Response | null> {
+  if (path === "/api/threads" && req.method === "GET") return json({ threads: listThreads() });
+  if (path === "/api/threads" && req.method === "POST") {
+    const body = (await req.json().catch(() => null)) as { text?: unknown; title?: unknown; user?: unknown } | null;
+    const viewer = threadViewer(req, typeof body?.user === "string" ? body.user : url.searchParams.get("user"));
+    const thread = startThread({ ...viewer, title: typeof body?.title === "string" ? body.title : null });
+    const text = typeof body?.text === "string" ? body.text.trim() : "";
+    if (text) postThreadMessage(thread.id, text, viewer);
+    return json({ thread: summarizeThread(thread) });
+  }
+  const one = path.match(/^\/api\/threads\/([0-9a-f-]{36})$/i);
+  const messages = path.match(/^\/api\/threads\/([0-9a-f-]{36})\/messages$/i);
+  const id = one?.[1] ?? messages?.[1];
+  if (!id) return null;
+  const conversation = getConversation(id);
+  if (!isThread(conversation)) return err(404, "thread not found");
+  if (one && req.method === "GET") {
+    const limit = Math.min(500, Math.max(1, Number(url.searchParams.get("limit")) || 200));
+    const live = await listSessionsCached().catch(() => []);
+    const viewer = threadViewer(req, url.searchParams.get("user"));
+    return json({
+      // Which author is the caller, so a client can put their own bubbles on the right.
+      me: threadParticipantId(viewer.identity),
+      thread: summarizeThread(conversation),
+      participants: conversation.participants,
+      messages: readThreadMessages(id, limit),
+      tasks: threadTasks(conversation, live),
+    });
+  }
+  if (one && req.method === "PATCH") {
+    const body = (await req.json().catch(() => null)) as { title?: unknown; projectCwd?: unknown; archived?: unknown } | null;
+    let project: { cwd: string; name: string } | null | undefined;
+    if (body?.projectCwd === null) project = null;
+    else if (typeof body?.projectCwd === "string") {
+      const repo = (await listRepos()).find((row) => row.cwd === body.projectCwd);
+      if (!repo) return err(400, "unknown project");
+      project = { cwd: repo.cwd, name: repo.project || repo.name };
+    }
+    const updated = threadUpdate(id, {
+      ...(typeof body?.title === "string" || body?.title === null ? { title: body.title as string | null } : {}),
+      ...(project !== undefined ? { project } : {}),
+      ...(typeof body?.archived === "boolean" ? { archived: body.archived } : {}),
+    });
+    return updated ? json({ thread: summarizeThread(updated) }) : err(404, "thread not found");
+  }
+  if (one && req.method === "DELETE") {
+    threadUpdate(id, { archived: true });
+    return json({ ok: true });
+  }
+  if (messages && req.method === "POST") {
+    const body = (await req.json().catch(() => null)) as { text?: unknown; user?: unknown } | null;
+    const text = typeof body?.text === "string" ? body.text.trim() : "";
+    if (!text) return err(400, "text is required");
+    const viewer = threadViewer(req, typeof body?.user === "string" ? body.user : url.searchParams.get("user"));
+    return json({ message: postThreadMessage(id, text, viewer) });
+  }
+  return err(405, "method not allowed");
+}
+
+/** Store a person's message, then let omg answer in the background if mentioned. */
+function postThreadMessage(threadId: string, text: string, viewer: { identity: string; name: string | null }) {
+  const message = appendThreadMessage(threadId, { author: threadAuthor(threadId, viewer.identity, viewer.name), text });
+  if (mentionsOmg(text)) {
+    void answerMention(threadId, text, viewer.identity, threadDeps).catch((error) => {
+      console.error(`[threads] @omg failed in ${threadId}:`, error);
+    });
+  }
+  return message;
+}
 
 async function listRepos() {
   return listConfiguredRepos({ reposRoot: REPOS_ROOT, selfRepo: SELF_REPO });
@@ -6282,6 +6421,12 @@ a{color:#60a5fa}
           if (error instanceof BotSelfManagementError) return err(error.status, error.message);
           throw error;
         }
+      }
+
+      // ---- threads: people-first chat, see src/threads.ts ----
+      if (path === "/api/threads" || path.startsWith("/api/threads/")) {
+        const handled = await handleThreadRequest(req, url, path);
+        if (handled) return handled;
       }
 
       // ---- persistent bots ----
@@ -11592,6 +11737,13 @@ a{color:#60a5fa}
   // Bridge those same completions to Web Push, so an installed PWA hears
   // about a landed turn with the app closed. Must follow startFleetWatcher().
   startSessionPushBridge();
+  // A task started from a thread posts each finished turn back to it.
+  subscribeFleet(null, (ev) => {
+    if (ev.type !== "completed" || !threadForTaskSession(ev.sessionId)) return;
+    void listSessionsCached()
+      .then((rows) => bridgeTaskCompletion(ev.sessionId, rows.find((row) => row.sessionId === ev.sessionId) ?? null))
+      .catch((error) => console.error("[threads] task result not posted:", error));
+  });
   // Keep SQLite as the chat read model for every active session. Transcript
   // JSONL files are treated as an import source; live draft deltas stay
   // ephemeral until the provider writes the completed turn.

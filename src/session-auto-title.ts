@@ -71,13 +71,22 @@ function prepareTitleInput(raw: string): string {
   return redactSecrets(unwrapped).replace(/\s+/g, " ").trim().slice(0, PROMPT_MAX);
 }
 
-type AutoTitleOptions = {
+export type AutoTitleOptions = {
   env?: Record<string, string | undefined>;
   fetch?: FetchLike;
   credentialPath?: string;
   cloudBaseUrl?: string;
   signal?: AbortSignal;
 };
+
+/**
+ * The hosted OpenAI-compatible chat endpoint this box may call for small,
+ * one-shot model work: session titles, and a thread's quick @omg answers
+ * (src/threads.ts). Null when the box has no omg account.
+ */
+export function omgChatCompletionsEndpoint(options: AutoTitleOptions = {}): { url: string; token?: string } | null {
+  return titleEndpoint(options);
+}
 
 function titleEndpoint(options: AutoTitleOptions): { url: string; token?: string } | null {
   const env = options.env ?? process.env;
