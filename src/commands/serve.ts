@@ -26,6 +26,7 @@ import {
   listThreads,
   mentionsOmg,
   omgWake,
+  turnAnswer,
   keepThreadUpload,
   participantsForView,
   setTyping,
@@ -1288,6 +1289,25 @@ function threadViewer(req: Request, requested: string | null | undefined): { ide
   return { identity, name: profile?.name || null };
 }
 
+
+/**
+ * The answer of a task's turn that just finished, read from its transcript.
+ * The completion can arrive a moment before the transcript has the final
+ * answer, so it looks again for a few seconds before giving up.
+ */
+async function taskTurnAnswer(sessionId: string): Promise<string | null> {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const path = await resolveTranscript(sessionId).catch(() => null);
+    if (path) {
+      await ensureChatTranscriptCaughtUp(path, sessionId, "thread-task-result");
+      const page = await indexedMessagePage(path, sessionId, { limit: 80 }).catch(() => null);
+      const answer = page ? turnAnswer(page.messages) : null;
+      if (answer) return answer;
+    }
+    await Bun.sleep(750);
+  }
+  return null;
+}
 
 /** A message's files, as a client names them: uploaded first through POST /api/uploads, each { path, name }. */
 function threadAttachmentsFrom(value: unknown): { path: string; name: string | null }[] {
@@ -11854,9 +11874,15 @@ a{color:#60a5fa}
   // A task started from a thread posts each finished turn back to it.
   subscribeFleet(null, (ev) => {
     if (ev.type !== "completed" || !threadForTaskSession(ev.sessionId)) return;
-    void listSessionsCached()
-      .then((rows) => bridgeTaskCompletion(ev.sessionId, rows.find((row) => row.sessionId === ev.sessionId) ?? null))
-      .catch((error) => console.error("[threads] task result not posted:", error));
+    void (async () => {
+      const rows = await listSessionsCached();
+      const row = rows.find((session) => session.sessionId === ev.sessionId) ?? null;
+      // The answer comes from the task's own transcript, not the cached list's
+      // `last`: that can still be the thinking before the answer, or the
+      // message the task was sent, and the thread got "(thinking)" or nothing.
+      const answer = await taskTurnAnswer(ev.sessionId);
+      bridgeTaskCompletion(ev.sessionId, row ? { ...row, last: answer ? { role: "assistant", text: answer } : null } : null);
+    })().catch((error) => console.error("[threads] task result not posted:", error));
   });
   // Keep SQLite as the chat read model for every active session. Transcript
   // JSONL files are treated as an import source; live draft deltas stay

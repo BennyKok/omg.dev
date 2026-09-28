@@ -421,9 +421,23 @@ export function omgAgentRule(handle: string): string {
  */
 export const OMG_UNMENTIONED_RULE = [
   "Nobody mentioned you this time. A person replied in a reply thread you are part of, and you read every reply there.",
-  "Most replies are people talking to each other, or thanks, or ok. Then stay quiet with",
+  "Stay quiet with",
   '{"action":"none"}',
-  "Answer only when the reply asks you something, asks for work, or clearly expects you to act.",
+  "only when the reply is clearly not for you: people talking to each other about something else, or a bare thanks or ok.",
+  "Answer when the reply asks you something, asks for work, or expects you to act. A short question like \"where?\" or \"any update?\" is for you: answer it from the thread.",
+].join("\n");
+
+/**
+ * Added with the rule above when a task runs in these replies. There, the
+ * replies are the work's conversation: a person steering it rarely names
+ * omg, and on 2026-09-28 "Like super" and "Where" were met with silence
+ * until someone wrote @omg.
+ */
+export const OMG_UNMENTIONED_TASK_RULE = [
+  "These replies are where a task is being worked on, so a reply here is almost always about that work.",
+  "A preference, a direction, a correction, a fragment of an idea (\"like super\", \"shorter\", \"not that one\") is for the task: pass it on with tell_task. Several short replies in a row are one thought: pass them on together, in one complete message.",
+  "A half-finished sentence that the next reply will complete can wait: stay quiet on it only if it says nothing yet.",
+  "When unsure, pass it on: a task that hears one extra remark loses nothing, and a person who is ignored has to say it again.",
 ].join("\n");
 
 /**
@@ -581,6 +595,7 @@ async function decideAndAnswer(
     OMG_THREAD_SYSTEM_PROMPT,
     ...(runningTask ? [OMG_TASK_FOLLOWUP_RULE] : []),
     ...(unmentioned ? [OMG_UNMENTIONED_RULE] : []),
+    ...(unmentioned && runningTask ? [OMG_UNMENTIONED_TASK_RULE] : []),
     ...(agent ? [omgAgentRule(agent.handle)] : []),
   ].join("\n\n");
   const raw = await deps
@@ -595,6 +610,10 @@ async function decideAndAnswer(
     agent && (parsed.action === "reply" || parsed.action === "none")
       ? { action: "task", title: cleaned.slice(0, 80), prompt: cleaned }
       : parsed;
+  if (unmentioned) {
+    // A silence is a decision, not an error: say which, so a missed reply can be traced.
+    console.log(`[threads] omg read an unmentioned reply in ${threadId}: ${raw === null ? "model unreachable, stayed quiet" : decision.action}`);
+  }
   if (decision.action === "none") return null;
   if (decision.action === "reply") {
     return appendThreadMessage(threadId, { author: { kind: "omg" }, text: decision.text, replyTo: rootId });
@@ -641,6 +660,24 @@ async function decideAndAnswer(
 /* -------------------------------------------------------------------------- */
 /* Task results                                                                */
 /* -------------------------------------------------------------------------- */
+
+/**
+ * What a task said in the turn that just finished: its last written answer
+ * after the last message it was sent. Thinking and tool calls are not an
+ * answer, and neither is anything from an earlier turn. Null when the
+ * transcript has not caught up with the turn yet.
+ */
+export function turnAnswer(messages: readonly { role: string; kind?: string | null; text?: string | null }[]): string | null {
+  let lastUser = -1;
+  messages.forEach((row, index) => {
+    if (row.role === "user") lastUser = index;
+  });
+  for (let i = messages.length - 1; i > lastUser; i -= 1) {
+    const row = messages[i];
+    if (row.role === "assistant" && (row.kind ?? "text") === "text" && row.text?.trim()) return row.text;
+  }
+  return null;
+}
 
 /** How much of a task's answer a thread keeps. Clients render it as markdown, so it is kept whole up to here. */
 const RESULT_CHARS = 8_000;
