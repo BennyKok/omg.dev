@@ -32,48 +32,20 @@ import {
   type Conversation,
 } from "./conversations.ts";
 
-export type ThreadAuthor =
-  | { kind: "human"; participantId: string; name: string }
-  | { kind: "omg" };
+import {
+  mentionsOmg,
+  type ThreadAuthor,
+  type ThreadMessage,
+  type ThreadSummary,
+  type ThreadTaskEvent,
+  type ThreadTaskRow,
+} from "../packages/protocol/src/threads.ts";
 
-export type ThreadTaskEvent = "started" | "finished" | "blocked" | "failed";
+export { mentionsOmg };
+export type { ThreadAuthor, ThreadMessage, ThreadSummary, ThreadTaskEvent, ThreadTaskRow };
 
-export type ThreadMessage = {
-  id: string;
-  threadId: string;
-  ts: number;
-  author: ThreadAuthor;
-  text: string;
-  /** Present on omg's task messages: which task, and what happened to it. */
-  task?: { sessionId: string; event: ThreadTaskEvent; title?: string | null; project?: string | null };
-};
-
-export type ThreadSummary = {
-  id: string;
-  title: string;
-  createdAt: number;
-  updatedAt: number;
-  project: { cwd: string; name: string } | null;
-  lastMessage: Pick<ThreadMessage, "author" | "text" | "ts"> | null;
-};
-
-export type ThreadTaskRow = {
-  sessionId: string;
-  title: string | null;
-  project: string | null;
-  busy: boolean;
-  status: string | null;
-  /** Not in the live session list any more. */
-  ended: boolean;
-};
-
-const MENTION = /(^|[^\w@])@omg\b/i;
 const TITLE_MAX = 60;
 const CONTEXT_MESSAGES = 20;
-
-export function mentionsOmg(text: string): boolean {
-  return MENTION.test(text);
-}
 
 function threadsDir(): string {
   return join(PATHS.data, "threads");
@@ -158,16 +130,24 @@ export function threadParticipantId(identity: string): string {
   return conversationHumanParticipantId(identity) || "human:local";
 }
 
+/**
+ * What a person is called in a thread. A box with no identities names its one
+ * local person "You", never the placeholder identity it keys them by.
+ */
+export function threadDisplayName(identity: string, name?: string | null): string {
+  return name?.trim() || (identity.includes("@") ? identity.split("@")[0] : "") || "You";
+}
+
 /** The person writing, as a thread participant. Joins them on first write. */
 export function threadAuthor(threadId: string, identity: string, name?: string | null): ThreadAuthor {
   const participantId = threadParticipantId(identity);
-  ensureConversationHuman({ conversationId: threadId, identity, name });
-  const display = name?.trim() || (identity.includes("@") ? identity.split("@")[0] : "") || "You";
+  const display = threadDisplayName(identity, name);
+  ensureConversationHuman({ conversationId: threadId, identity, name: display });
   return { kind: "human", participantId, name: display };
 }
 
 export function startThread(input: { identity: string; name?: string | null; title?: string | null }): Conversation {
-  return createThreadConversation(input);
+  return createThreadConversation({ ...input, name: threadDisplayName(input.identity, input.name) });
 }
 
 /* -------------------------------------------------------------------------- */
