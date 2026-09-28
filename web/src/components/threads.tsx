@@ -52,12 +52,14 @@ export function ThreadRailSection({
   threads: ThreadSummary[];
   activeId: string | null;
   onOpen: (id: string) => void;
-  onNew: () => void;
+  /** Omit on a touch list, where a pull starts a thread (PullToThread). */
+  onNew?: () => void;
 }) {
   return (
     <section aria-label="Threads" data-testid="thread-rail" className="mb-2">
       <div className="flex items-center px-2 pb-1 pt-1 text-[11px] font-semibold text-muted-foreground/70">
         <span className="min-w-0 flex-1 truncate">Threads · {threads.length}</span>
+        {onNew ? (
         <button
           type="button"
           onClick={onNew}
@@ -67,6 +69,7 @@ export function ThreadRailSection({
         >
           <Plus className="size-3.5" />
         </button>
+        ) : null}
       </div>
       {threads.map((thread) => (
         <button

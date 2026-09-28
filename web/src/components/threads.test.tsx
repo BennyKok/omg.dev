@@ -146,3 +146,9 @@ test("the rail lists threads by who spoke last, and New opens an empty one", () 
   ui.queryAll<HTMLButtonElement>('[data-testid="thread-rail"] button')[1]?.click();
   expect(actions).toEqual(["new", "open:t1"]);
 });
+
+test("on a touch list the heading has no New button: a pull starts a thread", () => {
+  ui.render(<ThreadRailSection threads={[detail.thread]} activeId={null} onOpen={() => {}} />);
+  expect(ui.text()).toContain("Threads · 1");
+  expect(ui.query('[aria-label="New thread"]')).toBeNull();
+});
