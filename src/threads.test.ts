@@ -11,6 +11,7 @@ import {
   bridgeTaskCompletion,
   listThreads,
   mentionsOmg,
+  omgWake,
   parseOmgDecision,
   readThreadMessages,
   setTyping,
@@ -35,11 +36,16 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-function deps(overrides: Partial<ThreadDeps> = {}): ThreadDeps & { started: string[] } {
+function deps(overrides: Partial<ThreadDeps> = {}): ThreadDeps & { started: string[]; told: { sessionId: string; text: string }[] } {
   const started: string[] = [];
+  const told: { sessionId: string; text: string }[] = [];
   return {
     started,
+    told,
     complete: async () => null,
+    tellTask: async ({ sessionId, text }) => {
+      told.push({ sessionId, text });
+    },
     startTask: async ({ prompt }) => {
       started.push(prompt);
       return "a1b2c3d4-0000-4000-8000-000000000001";
@@ -151,8 +157,8 @@ describe("@omg", () => {
     const thread = startThread({ identity: "benny@example.com" });
     const d = deps({ startTask: async () => { throw new Error("24 of 16 agents live"); } });
     const posted = await answerMention(thread.id, "@omg fix the build", "benny@example.com", d, "root-3");
-    expect(posted.text).toBe("I could not start the task: 24 of 16 agents live");
-    expect(posted.task).toBeUndefined();
+    expect(posted!.text).toBe("I could not start the task: 24 of 16 agents live");
+    expect(posted!.task).toBeUndefined();
   });
 });
 
@@ -391,5 +397,88 @@ describe("typing, as clients draw it", () => {
     ping("");
     ping("");
     expect(sent).toEqual([true, true, false]);
+  });
+});
+
+describe("omg reads every reply in a reply thread it is part of", () => {
+  const TASK = "a1b2c3d4-0000-4000-8000-0000000000aa";
+  function setup() {
+    const thread = startThread({ identity: "benny@example.com" });
+    const benny = threadAuthor(thread.id, "benny@example.com", "Benny");
+    const alex = threadAuthor(thread.id, "alex@example.com", "Alex");
+    const ask = appendThreadMessage(thread.id, { author: benny, text: "@omg make the pricing page" });
+    appendThreadMessage(thread.id, {
+      author: { kind: "omg" },
+      text: "Started a task.",
+      replyTo: ask.id,
+      task: { sessionId: TASK, event: "started", title: "Pricing page", project: null },
+    });
+    const plain = appendThreadMessage(thread.id, { author: alex, text: "Lunch?" });
+    return { thread, benny, alex, ask, plain };
+  }
+
+  test("a reply wakes omg only where omg is part of the replies", () => {
+    const { thread, alex, ask, plain } = setup();
+    const inOmgReplies = appendThreadMessage(thread.id, { author: alex, text: "make it blue", replyTo: ask.id });
+    const inPeopleReplies = appendThreadMessage(thread.id, { author: alex, text: "sure", replyTo: plain.id });
+    const topLevel = appendThreadMessage(thread.id, { author: alex, text: "hello" });
+    const all = readThreadMessages(thread.id);
+    expect(omgWake(inOmgReplies, all)).toBe("reply");
+    expect(omgWake(inPeopleReplies, all)).toBeNull();
+    expect(omgWake(topLevel, all)).toBeNull();
+    expect(omgWake({ ...topLevel, text: "@omg hi" }, all)).toBe("mention");
+  });
+
+  test("a follow-up goes to the running task, and omg says so", async () => {
+    const { thread, ask } = setup();
+    let system = "";
+    const d = deps({
+      complete: async (s) => {
+        system = s;
+        return '{"action":"tell_task","text":"Make the pricing page blue."}';
+      },
+    });
+    const posted = await answerMention(thread.id, "make it blue", "alex@example.com", d, ask.id, true);
+    expect(system).toContain("A task already runs in these replies");
+    expect(system).toContain("Nobody mentioned you this time");
+    expect(d.told).toEqual([{ sessionId: TASK, text: "Make the pricing page blue." }]);
+    expect(d.started).toEqual([]);
+    expect(posted).toMatchObject({ author: { kind: "omg" }, text: "Passed that to the task.", replyTo: ask.id });
+  });
+
+  test("unasked, omg can stay quiet, and an unreadable answer is silence, not a task", async () => {
+    const { thread, ask } = setup();
+    const before = readThreadMessages(thread.id).length;
+    const quiet = deps({ complete: async () => '{"action":"none"}' });
+    expect(await answerMention(thread.id, "thanks!", "alex@example.com", quiet, ask.id, true)).toBeNull();
+    const garbled = deps({ complete: async () => "hmm" });
+    expect(await answerMention(thread.id, "nice", "alex@example.com", garbled, ask.id, true)).toBeNull();
+    expect(garbled.started).toEqual([]);
+    expect(readThreadMessages(thread.id)).toHaveLength(before);
+  });
+
+  test("unasked, omg shows no typing while it decides", async () => {
+    const { thread, ask } = setup();
+    let seen: unknown = null;
+    const d = deps({
+      complete: async () => {
+        seen = threadTyping(thread.id);
+        return '{"action":"none"}';
+      },
+    });
+    await answerMention(thread.id, "ok", "alex@example.com", d, ask.id, true);
+    expect(seen).toEqual([]);
+  });
+
+  test("a task that cannot be reached says so", async () => {
+    const { thread, ask } = setup();
+    const d = deps({
+      complete: async () => '{"action":"tell_task","text":"Blue."}',
+      tellTask: async () => {
+        throw new Error("session not found");
+      },
+    });
+    const posted = await answerMention(thread.id, "@omg make it blue", "alex@example.com", d, ask.id);
+    expect(posted!.text).toBe("I could not reach the task: session not found");
   });
 });

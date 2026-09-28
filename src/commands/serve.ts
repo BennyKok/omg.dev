@@ -25,6 +25,7 @@ import {
   isThread,
   listThreads,
   mentionsOmg,
+  omgWake,
   participantsForView,
   setTyping,
   threadTyping,
@@ -1262,6 +1263,18 @@ const threadDeps: ThreadDeps = {
     if (!response.ok || !body?.sessionId) throw new Error(body?.error || `session start failed (${response.status})`);
     return body.sessionId;
   },
+  // Through the normal send route, as if the person typed it in the task.
+  tellTask: async ({ sessionId, text, user }) => {
+    const response = await fetch(`http://127.0.0.1:${PORT}/api/sessions/${sessionId}/send`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, ...(user.includes("@") ? { user } : {}) }),
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => null) as { error?: string } | null;
+      throw new Error(body?.error || `send failed (${response.status})`);
+    }
+  },
 };
 
 function threadViewer(req: Request, requested: string | null | undefined): { identity: string; name: string | null } {
@@ -1365,8 +1378,11 @@ function postThreadMessage(
     text,
     replyTo,
   });
-  if (mentionsOmg(text)) {
-    void answerMention(threadId, text, viewer.identity, threadDeps, replyTo ?? message.id).catch((error) => {
+  // A mention always reaches omg; so does a reply in a reply thread omg is part of,
+  // and omg decides whether it has anything to say.
+  const wake = omgWake(message, readThreadMessages(threadId, 5_000));
+  if (wake) {
+    void answerMention(threadId, text, viewer.identity, threadDeps, replyTo ?? message.id, wake === "reply").catch((error) => {
       console.error(`[threads] @omg failed in ${threadId}:`, error);
     });
   }
