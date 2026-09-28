@@ -21,6 +21,7 @@ import { appendFileSync, mkdirSync, readFileSync, realpathSync, renameSync, writ
 import { basename, join, sep } from "node:path";
 import { createFileArtifact, createImageArtifact, createVideoArtifact, imageArtifactMessagesSince } from "./artifacts.ts";
 import { uploadsDir } from "./uploads.ts";
+import { withThreadTaskEnvelope } from "./omg-capabilities.ts";
 import { PATHS } from "./config.ts";
 import {
   attachRuntimeSession,
@@ -385,7 +386,7 @@ export type OmgDecision =
   | { action: "reply"; text: string }
   | { action: "task"; title: string; prompt: string }
   /** Pass the message to the task already running in these replies. */
-  | { action: "tell_task"; text: string }
+  | { action: "tell_task"; text: string; ack?: string }
   /** Nothing for omg to say: people talking to people. */
   | { action: "none" };
 
@@ -396,7 +397,8 @@ export const OMG_THREAD_SYSTEM_PROMPT = [
   "When they ask you to do, make, work on, build, design, write, research or fix something, start a TASK. A task is an agent with a computer: it can write code, design (names, logos, images, pages), write documents, research the web, and run commands. Answer with",
   '{"action":"task","title":"<at most 8 words>","prompt":"<complete, self-contained instructions for the agent: what to make, and every relevant detail from the thread>"}',
   "When they ask a question you can answer from what you know, or want an opinion or a quick idea, answer it yourself with",
-  '{"action":"reply","text":"<a short, plain answer, at most 4 sentences>"}',
+  '{"action":"reply","text":"<your chat reply>"}',
+  "Write a reply the way a teammate writes in a chat: one or two short sentences, plain words, no headings or bold labels, no restating the question, no closing offer. Say what you think, once.",
   "Do not ask a clarifying question when the thread already says what is meant; act on the most reasonable reading, and say what you assumed in the task title. Ask only when the request truly has no subject.",
   "Reply with the JSON object only.",
 ].join("\n");
@@ -404,7 +406,7 @@ export const OMG_THREAD_SYSTEM_PROMPT = [
 /** Added when a task already runs in these replies: a follow-up goes to it, not to a new task. */
 export const OMG_TASK_FOLLOWUP_RULE = [
   "A task already runs in these replies. When the message gives it more instructions, a correction, or an answer to its question, pass it on instead of starting a new task, with",
-  '{"action":"tell_task","text":"<the message for the task, complete and self-contained>"}',
+  '{"action":"tell_task","text":"<the message for the task, complete and self-contained>","ack":"<a few words back to the person, e.g. \"On it, shorter from here.\">"}',
 ].join("\n");
 
 /** Added when someone asked a coding agent by name: omg briefs it, and does not answer instead. */
@@ -474,10 +476,11 @@ export function parseOmgDecision(raw: string | null | undefined, request: string
   const json = text.match(/\{[\s\S]*\}/)?.[0];
   if (json) {
     try {
-      const value = JSON.parse(json) as { action?: unknown; text?: unknown; title?: unknown; prompt?: unknown };
+      const value = JSON.parse(json) as { action?: unknown; text?: unknown; title?: unknown; prompt?: unknown; ack?: unknown };
       if (value.action === "none") return { action: "none" };
       if (value.action === "tell_task" && typeof value.text === "string" && value.text.trim()) {
-        return { action: "tell_task", text: value.text.trim() };
+        const ack = typeof value.ack === "string" ? value.ack.trim().slice(0, 140) : "";
+        return { action: "tell_task", text: value.text.trim(), ...(ack ? { ack } : {}) };
       }
       if (value.action === "reply" && typeof value.text === "string" && value.text.trim()) {
         return { action: "reply", text: value.text.trim() };
@@ -533,8 +536,7 @@ export function taskPromptFromThread(prompt: string, messages: readonly ThreadMe
     "This task was started from a team chat thread. The whole thread, oldest first:",
     transcriptForModel(messages),
     "",
-    "When you are done, end with a short summary: what changed and anything the team must do. It is posted back to the thread.",
-    "If you need a decision from the person, ask with `omg_input`.",
+    "Reply into the thread as the rules above say: short, plain, and your last message stands alone.",
   ].join("\n");
 }
 
@@ -622,7 +624,8 @@ async function decideAndAnswer(
     if (!runningTask) return null;
     try {
       await deps.tellTask({ sessionId: runningTask, text: decision.text, user: identity });
-      return appendThreadMessage(threadId, { author: { kind: "omg" }, text: "Passed that to the task.", replyTo: rootId });
+      // A few words back, in omg's own voice, so the person knows they were heard.
+      return appendThreadMessage(threadId, { author: { kind: "omg" }, text: decision.ack || "Passed that to the task.", replyTo: rootId });
     } catch (error) {
       return appendThreadMessage(threadId, {
         author: { kind: "omg" },
@@ -635,7 +638,9 @@ async function decideAndAnswer(
   const project = conversation?.threadProject ?? null;
   try {
     const sessionId = await deps.startTask({
-      prompt: taskPromptFromThread(decision.prompt, context),
+      prompt: withThreadTaskEnvelope(taskPromptFromThread(decision.prompt, context), {
+        threadTitle: conversation ? summarizeThread(conversation).title : null,
+      }),
       title: decision.title,
       cwd: project?.cwd ?? null,
       user: identity,

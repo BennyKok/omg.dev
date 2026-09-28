@@ -353,3 +353,19 @@ describe("first-run envelope", () => {
     expect(withFirstRunEnvelope("", { seesImages: true })).toBe("");
   });
 });
+
+describe("thread task envelope", () => {
+  test("a thread's task is told to talk like a teammate, and titles still show only the ask", async () => {
+    const { withThreadTaskEnvelope, withOmgRuntimeContract, stripOmgRuntimeContract, sessionTitleFromPrompt, THREAD_TASK_HEADER } =
+      await import("./omg-capabilities.ts");
+    const ask = "Brainstorm course names that start with Super";
+    const wrapped = withThreadTaskEnvelope(ask, { threadTitle: "Name and logo design" });
+    expect(wrapped.startsWith(THREAD_TASK_HEADER)).toBe(true);
+    expect(wrapped).toContain('a team chat thread called "Name and logo design"');
+    expect(wrapped).toContain("The last message of each turn is posted into the thread");
+    expect(wrapped).toContain("Talk like a teammate in a chat, not a report");
+    const launched = withOmgRuntimeContract(wrapped)!;
+    expect(stripOmgRuntimeContract(launched)).toBe(ask);
+    expect(sessionTitleFromPrompt(launched)).toBe(ask);
+  });
+});
