@@ -47,8 +47,8 @@ type Node = { type: string; props: Record<string, any> };
  */
 const jsx = (type: string, props: Record<string, any>, key?: string) => ({ type, props, key });
 const globals: Record<string, unknown> = { _jsx: jsx, _jsxs: jsx };
-for (const type of ["ZStack", "VStack", "Image", "Text", "Circle", "Capsule", "Ellipse", "RoundedRectangle"]) globals[type] = type;
-for (const type of ["frame", "offset", "font", "foregroundColor", "containerBackground", "widgetURL", "bold", "clipShape", "resizable", "lineLimit", "widgetAccentedRenderingMode"]) {
+for (const type of ["ZStack", "VStack", "Image", "Text", "Circle", "Capsule", "Ellipse", "RoundedRectangle", "Rectangle", "Link"]) globals[type] = type;
+for (const type of ["frame", "offset", "font", "foregroundColor", "containerBackground", "widgetURL", "bold", "clipShape", "resizable", "lineLimit", "widgetAccentedRenderingMode", "opacity"]) {
   globals[type] = (value: unknown) => ({ type, value });
 }
 const render = runInNewContext(`(${layout})`, globals);
@@ -757,4 +757,34 @@ test("the sleep marker stays within reach of the head it belongs to", () => {
     expect(Math.abs(z.at.x - body.x)).toBeLessThanOrEqual(20);
     expect(Math.abs(z.at.y - body.y)).toBeLessThanOrEqual(24);
   }
+});
+
+/**
+ * One widgetURL covers the whole widget, so every tap used to open the same
+ * session. Each villager needs its own Link on the sizes iOS honours it.
+ */
+test("each villager links to its own session on medium and large", () => {
+  const cast = [
+    { id: "s-one", iconUri: "i", iconSize: 34, plate: false, markTone: "light", legColor: "#000", state: "working", title: "First" },
+    { id: "s-two", iconUri: "i", iconSize: 34, plate: false, markTone: "light", legColor: "#000", state: "blocked", title: "Second" },
+  ];
+  for (const family of ["systemMedium", "systemLarge"]) {
+    const tree = nodes(render({ ...props, characters: cast, attentionSessionId: "s-two" }, { widgetFamily: family }));
+    const links = tree.filter(node => node.type === "Link").map(node => node.props.destination);
+    expect(new Set(links)).toEqual(new Set(["omg:///session/s-one", "omg:///session/s-two"]));
+    // The body link exists for both, whether or not a bubble found room.
+    expect(links.filter(url => url === "omg:///session/s-one").length).toBeGreaterThanOrEqual(1);
+  }
+});
+
+test("a small widget keeps its single attention link", () => {
+  const cast = [{ id: "s-one", iconUri: "i", iconSize: 34, plate: false, markTone: "light", legColor: "#000", state: "working" }];
+  const tree = nodes(render({ ...props, characters: cast, attentionSessionId: "s-one" }, { widgetFamily: "systemSmall" }));
+  expect(tree.filter(node => node.type === "Link")).toHaveLength(0);
+});
+
+test("a villager with no session id gets no link", () => {
+  const cast = [{ iconUri: "i", iconSize: 34, plate: false, markTone: "light", legColor: "#000", state: "working" }];
+  const tree = nodes(render({ ...props, characters: cast }, { widgetFamily: "systemMedium" }));
+  expect(tree.filter(node => node.type === "Link")).toHaveLength(0);
 });

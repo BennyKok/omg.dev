@@ -1,5 +1,5 @@
-import { Capsule, Circle, Ellipse, Image, RoundedRectangle, Text, VStack, ZStack } from "@expo/ui/swift-ui";
-import { bold, clipShape, resizable, lineLimit, containerBackground, font, foregroundColor, frame, offset, widgetURL, widgetAccentedRenderingMode } from "@expo/ui/swift-ui/modifiers";
+import { Capsule, Circle, Ellipse, Image, Link, Rectangle, RoundedRectangle, Text, VStack, ZStack } from "@expo/ui/swift-ui";
+import { bold, clipShape, resizable, lineLimit, containerBackground, font, foregroundColor, frame, offset, opacity, widgetURL, widgetAccentedRenderingMode } from "@expo/ui/swift-ui/modifiers";
 import { createWidget, type WidgetEnvironment } from "expo-widgets";
 
 /** What one character needs to draw itself. */
@@ -444,6 +444,8 @@ function AgentVillage(props: VillageProps, environment: WidgetEnvironment) {
     Math.abs(a.x - b.x) < (a.w + b.w) / 2 && Math.abs(a.y - b.y) < (a.h + b.h) / 2;
 
   const placed: { x: number; y: number; w: number; h: number }[] = [];
+  /** Where each speaker's bubble landed, so its tap area can cover it. */
+  const bubbleBoxes: ({ x: number; y: number; w: number; h: number } | null)[] = characters.map(() => null);
   const bubbles = characters.map((who, index) => {
     const said = family === "small" ? "" : (who.title ?? "").trim();
     if (!said) return null;
@@ -475,6 +477,7 @@ function AgentVillage(props: VillageProps, environment: WidgetEnvironment) {
       if (placed.some((other) => overlaps(box, other))) continue;
       spot = { x: box.x, y: box.y };
       placed.push(box);
+      bubbleBoxes[index] = box;
       break;
     }
     // Nowhere to stand without covering somebody. Stay quiet.
@@ -549,6 +552,37 @@ function AgentVillage(props: VillageProps, environment: WidgetEnvironment) {
     );
   }).filter(Boolean);
 
+  /**
+   * EACH VILLAGER OPENS ITS OWN SESSION.
+   *
+   * `widgetURL` is one link for the whole widget, so every tap opened the
+   * same session: the one that needed attention. Benny: "it keep going to one
+   * session". A `Link` per villager, over the agent and over its bubble,
+   * sends the tap to the session that villager is. A tap anywhere else still
+   * falls through to `widgetURL`.
+   *
+   * iOS honours `Link` on medium and large widgets only. A small widget has
+   * one tap target by design, so it keeps the attention link.
+   *
+   * The areas are drawn last so nothing covers them, and nearly transparent
+   * rather than clear: SwiftUI does not hit-test a fully transparent view.
+   */
+  const hotspot = (key: string, sessionId: string, box: { x: number; y: number; w: number; h: number }) => (
+    <Link key={key} destination={`omg:///session/${sessionId}`} modifiers={[place(box.x, box.y)]}>
+      <Rectangle modifiers={[frame({ width: box.w, height: box.h }), foregroundColor(sky), opacity(0.02)]} />
+    </Link>
+  );
+  const taps = family === "small" ? [] : characters.flatMap((who, index) => {
+    if (!who.id) return [];
+    const pose = poses[index];
+    // The mark, its plate and the legs below it.
+    const body = { x: pose.x, y: pose.markY + pose.legHeight / 2 + 4, w: PLATE + 12, h: PLATE + pose.legHeight + 16 };
+    const spoken = bubbleBoxes[index];
+    return spoken
+      ? [hotspot(`tap-${index}`, who.id, body), hotspot(`tap-bubble-${index}`, who.id, spoken)]
+      : [hotspot(`tap-${index}`, who.id, body)];
+  });
+
   return (
     <ZStack modifiers={[frame({ width, height }), containerBackground(sky, "widget"), widgetURL(url)]}>
       {village}
@@ -556,6 +590,7 @@ function AgentVillage(props: VillageProps, environment: WidgetEnvironment) {
       {bubbles}
       {caption}
       {characters.length === 0 ? emptyVillage : null}
+      {taps}
     </ZStack>
   );
 }
