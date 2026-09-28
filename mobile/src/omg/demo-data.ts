@@ -76,6 +76,11 @@ function demoThreadMessages(t: number) {
     // Formatting and a picture, as a task's result carries them.
     { ...msg("t6b", t - 19 * MIN, omg, "**Mockup** of the new tiers:\n\n- Free: 3 tasks a day\n- Pro: unlimited", undefined, "t5"),
       media: [{ kind: "image", path: DEMO_THREAD_IMAGE_PATH, name: "mockup.png", width: 240, height: 160, caption: "Pricing mockup" }] },
+    // Enough replies to scroll, so the sheet has to open on the newest.
+    msg("t6c", t - 18 * MIN, alex, "Looks good. Can the Pro badge be orange?", undefined, "t5"),
+    msg("t6d", t - 17 * MIN, me, "Yes, same orange as the logo.", undefined, "t5"),
+    msg("t6e", t - 16 * MIN, alex, "And keep the yearly toggle on the right.", undefined, "t5"),
+    msg("t6f", t - 16 * MIN, me, "Agreed. Ship it after the Stripe question.", undefined, "t5"),
     msg("t7", t - 15 * MIN, alex, "@omg also fix the typo in the signup email"),
     msg("t8", t - 14 * MIN, omg, "Started a task in web.", { sessionId: DEMO_TASK_DONE, event: "started", title: "Fix the signup email typo", project: "web" }, "t7"),
     msg("t9", t - 2 * MIN, omg, "Fixed \"recieve\" in the signup email. Tests pass.", { sessionId: DEMO_TASK_DONE, event: "finished", title: "Fix the signup email typo", project: "web" }, "t7"),

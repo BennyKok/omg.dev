@@ -42,17 +42,12 @@
     {
       "name": "omg answers in the replies",
       "goal": "Tap the reply link that says the task needs you.",
-      "done": "The replies sheet is open with omg's message, the task card and the task's question.",
+      "done": "The replies sheet is open, scrolled to the end: the newest reply, Ship it after the Stripe question, and the task's question are on screen.",
       "expect": [
         "Replies",
-        "Started a task in web.",
-        "Cap the free tier on the pricing page",
+        "Agreed. Ship it after the Stripe question.",
         "Create it in live mode?",
-        "Yes, live",
-        "omg is typing",
-        "Mockup of the new tiers:",
-        "Free: 3 tasks a day",
-        "Pricing mockup"
+        "Yes, live"
       ],
       "forbid": [
         "**Mockup**"

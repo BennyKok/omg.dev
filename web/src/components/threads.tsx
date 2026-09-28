@@ -463,6 +463,17 @@ export function ThreadChatView({
     endRef.current?.scrollIntoView({ block: "end" });
   }, [top.length]);
 
+  // The replies open on the newest reply, and follow new ones unless you scrolled up to read.
+  const repliesRef = useRef<HTMLDivElement>(null);
+  const repliesPinned = useRef(true);
+  useEffect(() => {
+    repliesPinned.current = true;
+  }, [openRoot]);
+  useEffect(() => {
+    const el = repliesRef.current;
+    if (el && repliesPinned.current) el.scrollTop = el.scrollHeight;
+  }, [openRoot, replies.length, !!root]);
+
   const post = async (text: string, replyTo: string | null, attachments: ThreadAttachment[] = []) => {
     const localId = `local-${Date.now()}`;
     if (!isNew) {
@@ -689,7 +700,19 @@ export function ThreadChatView({
             <X className="size-4" />
           </button>
         </header>
-        <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+        <div
+          ref={repliesRef}
+          data-testid="thread-replies-scroll"
+          onScroll={(event) => {
+            const el = event.currentTarget;
+            repliesPinned.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 40;
+          }}
+          // A picture that loads after opening grows the list: stay on the newest reply.
+          onLoadCapture={(event) => {
+            if (repliesPinned.current) event.currentTarget.scrollTop = event.currentTarget.scrollHeight;
+          }}
+          className="min-h-0 flex-1 overflow-y-auto px-2 py-2"
+        >
           <MessageRow message={root} first>
             {card(root)}
           </MessageRow>

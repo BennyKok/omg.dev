@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Alert, AppState, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Alert, AppState, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, TextInput, View, type ScrollViewInstance } from "react-native";
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
@@ -117,6 +117,14 @@ export default function ThreadScreen() {
   const [pending, setPending] = useState<ThreadMessage[]>([]);
   const [asks, setAsks] = useState<AskQuestion[]>([]);
   const [openRoot, setOpenRoot] = useState<string | null>(repliesParam || null);
+  // The replies sheet reads bottom-up, like the chat: newest reply in view.
+  const repliesScroll = useRef<ScrollViewInstance>(null);
+  const repliesPinned = useRef(true);
+  const repliesShown = useRef(false);
+  useEffect(() => {
+    repliesPinned.current = true;
+    repliesShown.current = false;
+  }, [openRoot]);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [rootHint, setRootHint] = useState<ThreadMessage | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -415,7 +423,25 @@ export default function ThreadScreen() {
                   <Icon ios="xmark" android="close" size={16} color={colors.text} />
                 </Pressable>
               </View>
-              <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: space.lg, paddingBottom: space.lg }}>
+              <ScrollView
+                ref={repliesScroll}
+                style={{ flex: 1 }}
+                contentContainerStyle={{ paddingHorizontal: space.lg, paddingBottom: space.lg }}
+                // Opens on the newest reply, and stays there as replies arrive or the
+                // keyboard takes room, unless you scrolled up to read.
+                onContentSizeChange={() => {
+                  if (repliesPinned.current) repliesScroll.current?.scrollToEnd({ animated: repliesShown.current });
+                  repliesShown.current = true;
+                }}
+                onLayout={() => {
+                  if (repliesPinned.current) repliesScroll.current?.scrollToEnd({ animated: false });
+                }}
+                onScroll={(event) => {
+                  const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+                  repliesPinned.current = contentOffset.y + layoutMeasurement.height >= contentSize.height - 40;
+                }}
+                scrollEventThrottle={64}
+              >
                 <MessageRow message={sheetRoot} first>
                   {card(sheetRoot)}
                 </MessageRow>
