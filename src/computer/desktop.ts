@@ -33,7 +33,7 @@
 
 import { spawn } from "node:child_process";
 import { accessSync, constants, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 export interface DesktopConfig {
   /** X display number. 99 keeps us clear of any real session on :0. */
