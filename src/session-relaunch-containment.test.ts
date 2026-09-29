@@ -5,7 +5,9 @@ import { join } from "node:path";
 import { PATHS } from "./config.ts";
 import { currentBootId, writeEntry } from "./aisdk-registry.ts";
 import { addManaged, listManaged, resetManagedRegistryForTests, type ManagedSession } from "./managed.ts";
+import { launchCodingAgentSession } from "./coding-agent-provider.ts";
 import {
+  coldResumeContainment,
   managedContainment,
   reconcileCommandFileSessions,
   relaunchDeadCommandFileHarness,
@@ -85,7 +87,7 @@ describe("relaunch containment", () => {
     expect(cmd[0]).toMatch(/systemd-run$/);
     expect(cmd).toContain(`--unit=lfg-agent-${NAME}`);
     expect(cmd).toContain("--slice=lfg-agents.slice");
-    expect(cmd).toContain("--property=MemoryMax=2G");
+    expect(cmd).toContain("--property=MemoryMax=4G");
     expect(cmd).toContain("--property=KillMode=control-group");
   }
 
@@ -173,6 +175,89 @@ describe("relaunch containment", () => {
     deadEntry();
     expect(relaunch().state).toBe("relaunched");
     expect(launched().env.HTTP_PROXY).toBe(`http://${KEY}:tok@127.0.0.1:9999`);
+  });
+
+  describe("resume cold start (no registry entry left)", () => {
+    const NEW = "lfg-c01d5a";
+
+    // Mirrors the /api/sessions/resume cold-start branch: resolve from the
+    // owner row, record it on the new row, and spawn with it.
+    function coldStart(ids: string[] = [KEY]) {
+      const cold = coldResumeContainment(ids, "aisdk", KEY);
+      if ("error" in cold) return cold;
+      const spawned = launchCodingAgentSession({
+        agent: "aisdk",
+        name: NEW,
+        cwd: root,
+        model: "claude-opus-5-5",
+        sessionId: KEY,
+        resume: KEY,
+        ...cold.launch,
+      });
+      expect(spawned.ok).toBe(true);
+      return cold;
+    }
+
+    function expectColdSlice(cmd: string[]) {
+      if (!linux) return;
+      expect(cmd[0]).toMatch(/systemd-run$/);
+      expect(cmd).toContain(`--unit=lfg-agent-${NEW}`);
+      expect(cmd).toContain("--slice=lfg-agents.slice");
+      expect(cmd).toContain("--property=MemoryMax=4G");
+    }
+
+    test("a recorded subagent starts in the slice, and the record carries over", () => {
+      row({ spawnedBy: "subagent", containment: { agentSlice: true, sandbox: "none", egressProxy: false } });
+      const cold = coldStart();
+      expect("error" in cold).toBe(false);
+      if (!("error" in cold)) expect(cold.containment).toEqual({ agentSlice: true, sandbox: "none", egressProxy: false });
+      expectColdSlice(launched().cmd);
+    });
+
+    test("a legacy subagent row without a record defaults to the slice", () => {
+      row({ spawnedBy: "subagent" });
+      coldStart();
+      expectColdSlice(launched().cmd);
+    });
+
+    test("a legacy bot row defaults to the slice", () => {
+      row({ spawnedBy: "bot" });
+      coldStart();
+      expectColdSlice(launched().cmd);
+    });
+
+    test("the row is found by its native id too", () => {
+      row({ sessionId: "lfg-key-other", nativeSessionId: KEY, spawnedBy: "subagent" });
+      coldStart(["lfg-key-unknown", KEY]);
+      expectColdSlice(launched().cmd);
+    });
+
+    test("the newest owner row wins", () => {
+      row({ tmuxName: "lfg-old001", createdAt: 1, containment: { agentSlice: false, sandbox: "none", egressProxy: false } });
+      row({ tmuxName: "lfg-new001", createdAt: 5, containment: { agentSlice: true, sandbox: "none", egressProxy: false } });
+      coldStart();
+      expectColdSlice(launched().cmd);
+    });
+
+    test("a top-level session starts without a slice", () => {
+      row({ containment: { agentSlice: false, sandbox: "none", egressProxy: false } });
+      coldStart();
+      expectNoSlice(launched().cmd);
+    });
+
+    test("no owner row at all starts without a slice", () => {
+      coldStart();
+      expectNoSlice(launched().cmd);
+    });
+
+    test("a restricted session fails closed without the egress proxy, and uses it when up", () => {
+      row({ role: "guest", containment: { agentSlice: false, sandbox: "none", egressProxy: true } });
+      expect(coldResumeContainment([KEY], "aisdk", KEY)).toEqual({ error: "egress proxy unavailable for a restricted session" });
+      setRecoveryEgressProxy((id) => `http://${id}:tok@127.0.0.1:9999`);
+      const cold = coldStart();
+      if (!("error" in cold)) expect(cold.role).toBe("guest");
+      expect(launched().env.HTTP_PROXY).toBe(`http://${KEY}:tok@127.0.0.1:9999`);
+    });
   });
 
   describe("out-of-memory status", () => {

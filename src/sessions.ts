@@ -714,7 +714,7 @@ export function managedLaunchRow(
     // A registry entry that outlived its process means the harness was
     // killed from outside: it removes its own entry on every exit it
     // controls, including a provider error it explained. The usual cause is
-    // the kernel OOM killer on the 2G lfg-agent-<name> unit. Calling that a
+    // the kernel OOM killer on the 4G lfg-agent-<name> unit. Calling that a
     // provider error sent people looking at the API. The next message or
     // Continue relaunches it (relaunchDeadCommandFileHarness).
     // When the harness ran in its own unit and the journal says the kernel

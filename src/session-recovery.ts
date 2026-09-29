@@ -113,6 +113,64 @@ export function setRecoveryEgressProxy(resolve: ((sessionId: string) => string |
   egressProxyUrlFor = resolve;
 }
 
+// Sandbox and egress reach only the harnesses whose first launch forwards them
+// (ACTIVE_CODING_AGENT_PROVIDERS: aisdk, codex-aisdk, opencode/omg, pi). The
+// others ran without them, and a relaunch matches the first launch.
+const AGENTS_WITHOUT_POLICY = ["grok", "cursor", "fx", "muse", "copilot", "jcode", "deepseek", "devin"];
+
+export type ContainmentLaunchPolicy = { sandbox: ManagedContainment["sandbox"]; egressProxyUrl?: string };
+
+function containmentLaunchPolicy(
+  containment: ManagedContainment,
+  agent: string | null | undefined,
+  omgSessionId: string,
+): { policy: ContainmentLaunchPolicy } | { error: string } {
+  if (AGENTS_WITHOUT_POLICY.includes(agent ?? "")) return { policy: { sandbox: "none" } };
+  const policy: ContainmentLaunchPolicy = { sandbox: containment.sandbox };
+  if (containment.egressProxy) {
+    // Fail closed: a restricted session must not come back with open egress.
+    const url = egressProxyUrlFor?.(omgSessionId) ?? null;
+    if (!url) return { error: "egress proxy unavailable for a restricted session" };
+    policy.egressProxyUrl = url;
+  }
+  return { policy };
+}
+
+export type ColdResumeContainment = {
+  /** Recorded on the new owner row, so the next relaunch keeps it too. */
+  containment: ManagedContainment;
+  role?: string;
+  launch: { containInAgentSlice: boolean } & ContainmentLaunchPolicy;
+};
+
+// /api/sessions/resume cold start: no registry entry is left, so there is
+// nothing for relaunchDeadCommandFileHarness to relaunch and a new owner row is
+// written. It must still start with the containment the session first had.
+// The newest owner row for any of the ids is the record (managedContainment:
+// its stored containment, else the subagent/bot default for legacy rows). No
+// row means the session was never known to this box as contained.
+export function coldResumeContainment(
+  ids: Array<string | null | undefined>,
+  agent: string,
+  omgSessionId: string,
+  rows: ManagedSession[] = listManaged(),
+): ColdResumeContainment | { error: string } {
+  const wanted = new Set(ids.filter((id): id is string => !!id));
+  const prior = rows
+    .filter((row) => (row.sessionId && wanted.has(row.sessionId)) || (row.nativeSessionId && wanted.has(row.nativeSessionId)))
+    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0];
+  const containment: ManagedContainment = prior
+    ? managedContainment(prior)
+    : { agentSlice: false, sandbox: "none", egressProxy: false };
+  const resolved = containmentLaunchPolicy(containment, agent, omgSessionId);
+  if ("error" in resolved) return resolved;
+  return {
+    containment,
+    ...(prior?.role ? { role: prior.role } : {}),
+    launch: { containInAgentSlice: containment.agentSlice, ...resolved.policy },
+  };
+}
+
 export function launchRecovered(
   entry: AisdkEntry,
   managed: ManagedSession,
@@ -130,20 +188,9 @@ export function launchRecovered(
     recoveredAt,
     containInAgentSlice: containment.agentSlice,
   };
-  // Sandbox and egress reach only the harnesses whose first launch forwards
-  // them (ACTIVE_CODING_AGENT_PROVIDERS: aisdk, codex-aisdk, opencode/omg, pi).
-  // The others ran without them, and a relaunch matches the first launch.
-  let policy: { sandbox: ManagedContainment["sandbox"]; egressProxyUrl?: string } = { sandbox: "none" };
-  const forwardsPolicy = !["grok", "cursor", "fx", "muse", "copilot", "jcode", "deepseek", "devin"].includes(entry.agent ?? "");
-  if (forwardsPolicy) {
-    policy = { sandbox: containment.sandbox };
-    if (containment.egressProxy) {
-      // Fail closed: a restricted session must not come back with open egress.
-      const url = egressProxyUrlFor?.(omgSessionId) ?? null;
-      if (!url) return { ok: false, error: "egress proxy unavailable for a restricted session" };
-      policy.egressProxyUrl = url;
-    }
-  }
+  const resolved = containmentLaunchPolicy(containment, entry.agent, omgSessionId);
+  if ("error" in resolved) return { ok: false, error: resolved.error };
+  const policy = resolved.policy;
   if (entry.agent === "codex") {
     if (!entry.threadId) return { ok: false, error: "codex recovery handle missing" };
     return spawnManagedCodexAisdkSession({
@@ -319,7 +366,7 @@ export async function reconcileCommandFileSessions(
 }
 
 // A harness can also die while the host stays up: the kernel OOM-kills its
-// lfg-agent-<name> unit (MemoryMax=2G, KillMode=control-group), or it crashes.
+// lfg-agent-<name> unit (MemoryMax=4G, KillMode=control-group), or it crashes.
 // Boot reconciliation never sees that, so the session sat with a message in a
 // command file no process read until someone relaunched it by hand. A message
 // or resume aimed at such a session calls this first.

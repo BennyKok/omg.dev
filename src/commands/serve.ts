@@ -417,7 +417,7 @@ import {
   removeManaged,
   type ManagedSession,
 } from "../managed.ts";
-import { commandFileHarnessIsDead, reconcileCommandFileSessions, relaunchDeadCommandFileHarness, setRecoveryEgressProxy } from "../session-recovery.ts";
+import { coldResumeContainment, commandFileHarnessIsDead, reconcileCommandFileSessions, relaunchDeadCommandFileHarness, setRecoveryEgressProxy } from "../session-recovery.ts";
 import { resolveResumeModel } from "../resume-model.ts";
 import { PtyBridge, termSessionName } from "../pty.ts";
 import { RfbBridge } from "../computer/rfb-bridge.ts";
@@ -8975,11 +8975,18 @@ a{color:#60a5fa}
           // incompatible client model is ignored instead of crossing provider
           // families (the gpt-5.6-sol -> Claude error from the resume picker).
           const resumeModel = resolveResumeModel(cachedResume.backend, cachedResume.model, model);
+          // No registry entry is left to relaunch, but the owner row (if any)
+          // still records the first launch's containment. Start in it, and
+          // record it on the new row for the next relaunch.
+          const coldContainment = coldResumeContainment([sessionId, resumeHandle], cachedResume.backend, sessionId);
+          if ("error" in coldContainment) return err(503, coldContainment.error);
           addManaged({
             tmuxName,
             cwd,
             createdAt: Date.now(),
             agent: cachedResume.backend,
+            containment: coldContainment.containment,
+            ...(coldContainment.role ? { role: coldContainment.role } : {}),
             runtime: "command-file",
             sessionId,
             nativeSessionId: resumeHandle,
@@ -9025,6 +9032,7 @@ a{color:#60a5fa}
             resume: resumeHandle,
             omgUser: assignedUser,
             claudeAccountId: pinnedClaudeAccountId,
+            ...coldContainment.launch,
           });
           if (!spawned.ok) {
             removeManaged(tmuxName);
