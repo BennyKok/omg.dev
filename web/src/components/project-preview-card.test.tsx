@@ -204,3 +204,69 @@ test("a phone's store line names the store for this phone", async () => {
     else delete (window.navigator as { userAgent?: string }).userAgent;
   }
 });
+
+/** Serve with an Expo account check: the preview row plus /api/expo-account. */
+function expoServer(account: Record<string, unknown>, posts: string[] = []) {
+  let current = account;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.includes("/api/expo-account/")) {
+      posts.push(`${init?.method ?? "GET"} ${new URL(url, "http://x").pathname}`);
+      if (url.includes("/connect")) current = { signedIn: false, connect: { state: "waiting", startedAt: 1 } };
+      if (url.includes("/cancel")) current = { signedIn: false, connect: { state: "cancelled", startedAt: 1 } };
+      return Response.json(current);
+    }
+    if (url.includes("/api/expo-account")) return Response.json(current);
+    // The Computer view behind "Connect Expo": a Computer without the desktop stack, so it does not start one.
+    if (url.includes("/api/computer")) return Response.json({ running: false, deps: { ok: false, missing: [] } });
+    return Response.json({ preview: EXPO_PREVIEW, live: true });
+  }) as typeof fetch;
+  return { set(next: Record<string, unknown>) { current = next; } };
+}
+
+test("a phone offers Connect Expo instead of Open in Expo Go while the Computer has no Expo account", async () => {
+  setPhone(true);
+  const posts: string[] = [];
+  expoServer({ signedIn: false }, posts);
+  ui.render(<ProjectPreviewCard sessionId="session-1" user="person@example.com" />);
+  await ui.flushAsync();
+  expect(document.querySelector('[data-testid="project-preview-expo-go"]')).toBeNull();
+  expect(ui.text()).toContain("iPhone needs Expo signed in on the Computer.");
+  const connect = document.querySelector('[data-testid="project-preview-connect-expo"]') as HTMLElement;
+  expect(connect.textContent).toBe("Connect Expo");
+  ui.flush(() => connect.click());
+  await ui.flushAsync();
+  expect(posts).toEqual(["POST /api/expo-account/connect"]);
+  expect(ui.text()).toContain("Sign in to Expo in the Computer window…");
+  expect(document.querySelector('[aria-label="Sign in to Expo on the Computer"]')).not.toBeNull();
+  const cancel = ui.queryAll("button").find((node) => node.textContent === "Cancel") as HTMLElement;
+  ui.flush(() => cancel.click());
+  await ui.flushAsync();
+  expect(posts).toEqual(["POST /api/expo-account/connect", "POST /api/expo-account/cancel"]);
+  expect(ui.text()).toContain("Expo sign-in was cancelled.");
+});
+
+test("a signed-in Computer shows Open in Expo Go and the account to use", async () => {
+  setPhone(true);
+  expoServer({ signedIn: true, username: "expo-e2e-test" });
+  ui.render(<ProjectPreviewCard sessionId="session-1" user="person@example.com" />);
+  await ui.flushAsync();
+  expect(document.querySelector('[data-testid="project-preview-expo-go"]')?.getAttribute("href")).toBe("exps://cap-token.preview.omgs.app");
+  expect(document.querySelector('[data-testid="project-preview-connect-expo"]')).toBeNull();
+  expect(document.querySelector('[data-testid="project-preview-expo-account"]')?.textContent).toBe("Sign in to Expo Go as expo-e2e-test.");
+});
+
+test("a computer gets Connect Expo in the card, and the Computer view closes once signed in", async () => {
+  const server = expoServer({ signedIn: false });
+  ui.render(<ProjectPreviewCard sessionId="session-1" user="person@example.com" />);
+  await ui.flushAsync();
+  const connect = document.querySelector('[data-testid="project-preview-connect-expo"]') as HTMLElement;
+  ui.flush(() => connect.click());
+  await ui.flushAsync();
+  expect(document.querySelector('[aria-label="Sign in to Expo on the Computer"]')).not.toBeNull();
+  server.set({ signedIn: true, username: "expo-e2e-test", connect: { state: "done", startedAt: 1, message: "Signed in to Expo as expo-e2e-test." } });
+  await new Promise((r) => setTimeout(r, 3_100));
+  await ui.flushAsync();
+  expect(document.querySelector('[aria-label="Sign in to Expo on the Computer"]')).toBeNull();
+  expect(ui.text()).toContain("Sign in to Expo Go as expo-e2e-test.");
+}, 10_000);

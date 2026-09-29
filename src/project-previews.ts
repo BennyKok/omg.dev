@@ -63,6 +63,11 @@ function readRows(path: string): ProjectPreview[] {
   }
 }
 
+/** The saved preview of one session, read from the store the service writes. */
+export function storedProjectPreview(sessionId: string, storePath = `${PATHS.data}/project-previews.json`): ProjectPreview | null {
+  return readRows(storePath).find((row) => row.sessionId === sessionId) ?? null;
+}
+
 function saveRows(path: string, rows: ProjectPreview[]): void {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const tmp = `${path}.${process.pid}.tmp`;

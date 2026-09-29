@@ -86,5 +86,5 @@ echo "Expo Go link: exps://${PROXY_URL#https://}"
 if [ -n "$expo_user" ]; then
   echo "Expo CLI account: ${expo_user}. On an iPhone, Expo Go must be signed in as ${expo_user}."
 else
-  echo "WARNING: Expo CLI is not signed in. Expo Go on a physical iPhone refuses this project with \"You need to be signed in to Expo Go and Expo CLI\". Android, the iOS Simulator, and the web preview still work."
+  echo "WARNING: Expo CLI is not signed in. Expo Go on a physical iPhone refuses this project with \"You need to be signed in to Expo Go and Expo CLI\". Tap \"Connect Expo\" on the preview card to sign in on the Computer. Android, the iOS Simulator, and the web preview still work."
 fi
