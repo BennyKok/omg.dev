@@ -342,6 +342,11 @@ describe("first-run envelope", () => {
     expect(script).toBeGreaterThan(expose);
     expect(wrapped).toContain("before you write any app code, even when the request includes a design to match");
     expect(wrapped).toContain("`WARNING: Expo CLI is not signed in`");
+    // Level 1 first: the web preview works on any device with no account.
+    const web = wrapped.indexOf("Present the web preview first");
+    const phone = wrapped.indexOf('tap \"Your phone\" on the card');
+    expect(web).toBeGreaterThan(script);
+    expect(phone).toBeGreaterThan(web);
   });
 
   test("the image rule is only for models that cannot see", async () => {
