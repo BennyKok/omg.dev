@@ -13,12 +13,33 @@
       ]
     },
     {
-      "name": "Image in thread",
-      "goal": "Tap the row named Pricing ideas under the Threads heading. Do not tap the message field. If the picture captioned Pricing mockup is not on screen, scroll up until it is.",
-      "done": "The thread is open and shows the Pricing mockup picture.",
+      "name": "Thread",
+      "goal": "Tap the row named Pricing ideas under the Threads heading. Do not tap the message field.",
+      "done": "The thread is open and its messages are listed.",
+      "expect": [
+        "@omg update the pricing page with the cap"
+      ]
+    },
+    {
+      "name": "Replies",
+      "goal": "Tap the reply link that says the task needs you. Do not tap the thread title.",
+      "done": "The Replies page is open.",
+      "expect": [
+        "Replies",
+        "Agreed. Ship it after the Stripe question."
+      ]
+    },
+    {
+      "name": "Image in replies",
+      "goal": "Do not tap anything. Only wait.",
+      "done": "The Pricing mockup picture is on screen.",
       "expect": [
         "Pricing mockup. Open"
-      ]
+      ],
+      "swipe": {
+        "start": "50%,35%",
+        "end": "50%,75%"
+      }
     },
     {
       "name": "Context menu",

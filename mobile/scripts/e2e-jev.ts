@@ -81,6 +81,11 @@ export type Step = {
    * centre lands above the sheet and closes it.
    */
   tapAt?: string;
+  /**
+   * Swipe once before the first look, as Maestro's "x%,y%" points. The runner
+   * only taps, so this is how a step reaches content above or below the fold.
+   */
+  swipe?: { start: string; end: string };
 };
 
 export type Plan = {
@@ -259,6 +264,10 @@ export async function runPlan(opts: {
       if (!verdict && step.tapAt) {
         const r = await mcp.run(`${header}- tapOn:\n    point: ${JSON.stringify(step.tapAt)}\n`);
         if (!r.ok) verdict = { name: step.name, status: "fail", at: Date.now(), looks, detail: `tap at ${step.tapAt} failed: ${r.text.slice(0, 300)}` };
+      }
+      if (!verdict && step.swipe) {
+        const r = await mcp.run(`${header}- swipe:\n    start: ${JSON.stringify(step.swipe.start)}\n    end: ${JSON.stringify(step.swipe.end)}\n`);
+        if (!r.ok) verdict = { name: step.name, status: "fail", at: Date.now(), looks, detail: `swipe failed: ${r.text.slice(0, 300)}` };
       }
 
       while (!verdict) {
