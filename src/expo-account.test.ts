@@ -49,6 +49,7 @@ function service(over: Partial<ExpoAccountDeps> = {}) {
     preview: () => PREVIEW,
     startDesktop: async () => { calls.push(["desktop"]); },
     openBrowser: async (url) => { calls.push(["open", url]); },
+    closeBrowser: async () => { calls.push(["close"]); },
     webSignedIn: async () => web.signedIn,
     spawnLogin: (expo) => { calls.push([expo, "login", "--browser"]); login = fakeLogin(); return login; },
     run: async (argv) => {
@@ -252,6 +253,27 @@ describe("Create free account (mode signup)", () => {
     expect(res.body.connect?.message).toContain("timed out");
   });
 
+  test("the sign-in window closes when the run ends", async () => {
+    const s = service();
+    await s.call("/api/expo-account/connect", "POST", "a@x.dev", signup);
+    expect(s.calls.some((c) => c[0] === "close")).toBe(false);
+    s.web.signedIn = true;
+    await settle();
+    // The same window moves on to the CLI login page; it stays open.
+    expect(s.calls.some((c) => c[0] === "close")).toBe(false);
+    signIn("expo-e2e-test");
+    s.login().finish(0);
+    await settle();
+    expect(s.calls.some((c) => c[0] === "close")).toBe(true);
+  });
+
+  test("cancel closes the sign-in window", async () => {
+    const s = service();
+    await s.call("/api/expo-account/connect", "POST", "a@x.dev", signup);
+    await s.call("/api/expo-account/cancel", "POST");
+    expect(s.calls.filter((c) => c[0] === "close")).toHaveLength(1);
+  });
+
   test("a bad mode is refused, and no body means login", async () => {
     const s = service();
     expect((await s.call("/api/expo-account/connect", "POST", "a@x.dev", JSON.stringify({ mode: "bot" }))).status).toBe(400);
@@ -297,7 +319,11 @@ describe("xdg-open shim", () => {
       const ok = Bun.spawn([join(XDG_OPEN_SHIM_DIR, "xdg-open"), url], { env: { PATH: process.env.PATH, OMG_COMPUTER_API: `http://127.0.0.1:${server.port}` }, stderr: "pipe" });
       expect(await ok.exited).toBe(0);
       expect(seen.map((s) => s.path)).toEqual(["/api/computer/start", "/api/computer/browser/navigate"]);
-      expect(JSON.parse(seen[1]!.body)).toEqual({ url });
+      expect(JSON.parse(seen[1]!.body)).toEqual({ url, kiosk: false });
+      // The Expo login sets OMG_COMPUTER_KIOSK, so its page opens in the sheet's window.
+      const kiosk = Bun.spawn([join(XDG_OPEN_SHIM_DIR, "xdg-open"), url], { env: { PATH: process.env.PATH, OMG_COMPUTER_API: `http://127.0.0.1:${server.port}`, OMG_COMPUTER_KIOSK: "1" }, stderr: "pipe" });
+      expect(await kiosk.exited).toBe(0);
+      expect(JSON.parse(seen[3]!.body)).toEqual({ url, kiosk: true });
     } finally { server.stop(true); }
     const down = Bun.spawnSync([join(XDG_OPEN_SHIM_DIR, "xdg-open"), "https://expo.dev/login"], { env: { PATH: process.env.PATH, OMG_COMPUTER_API: "http://127.0.0.1:1" } });
     expect(down.exitCode).toBe(0);

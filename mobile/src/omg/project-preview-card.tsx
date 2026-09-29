@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppState, Image, Linking, Platform, Pressable, UIManager, useWindowDimensions, View } from "react-native";
 import { router } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -10,7 +10,9 @@ import { EXPO_SIGNUP_LABEL, expoConnectActive, expoConnectMessage, type ExpoAcco
 import type { OmgTransport } from "@omg-dev/client";
 import { Icon, type GlyphProps } from "../components";
 import { STORAGE_KEYS } from "./config";
+import { ExpoSigninSheet, type ComputerSocket } from "./expo-signin-sheet";
 import { openInAppPage } from "./in-app-browser";
+import { getComputerSocketAccess } from "./transport";
 import { useOmg } from "./provider";
 import { useTheme } from "./theme";
 import { Text } from "./text";
@@ -25,12 +27,15 @@ const PHONE_W = 390;
 const PHONE_H = 844;
 
 export function ProjectPreviewCard({ sessionId }: { sessionId: string | null }) {
-  const { client, user } = useOmg();
-  return <ProjectPreviewPanel sessionId={sessionId} transport={client?.transport ?? null} email={user?.email} />;
+  const { client, user, bindingId } = useOmg();
+  const computerSocket = useMemo<ComputerSocket | undefined>(() => bindingId ? () => getComputerSocketAccess(bindingId) : undefined, [bindingId]);
+  return <ProjectPreviewPanel sessionId={sessionId} transport={client?.transport ?? null} email={user?.email} computerSocket={computerSocket} />;
 }
 
-export function ProjectPreviewPanel({ sessionId, transport, email, onOpenComputer = openComputer, initialLevel = "web" }: {
+export function ProjectPreviewPanel({ sessionId, transport, email, onOpenComputer = openComputer, initialLevel = "web", computerSocket }: {
   sessionId: string | null; transport: Pick<OmgTransport, "request"> | null; email?: string;
+  /** The Computer screen stream the Expo sign-in sheet crops. */
+  computerSocket?: ComputerSocket;
   /** The level a new preview opens on. Web for every real card; the simulator E2E harness starts on "device". */
   initialLevel?: PreviewLevel;
   /** Shows the Computer screen, where the Expo login page is open. */
@@ -55,6 +60,15 @@ export function ProjectPreviewPanel({ sessionId, transport, email, onOpenCompute
   const [account, setAccount] = useState<ExpoAccountSnapshot | null>(null);
   const [connectError, setConnectError] = useState<string | null>(null);
   const [connectBusy, setConnectBusy] = useState(false);
+  // The Expo sign-in sheet. `run` is the connect run it belongs to, once the
+  // Computer answers; the sheet closes itself when that run ends.
+  const [sheet, setSheet] = useState<{ mode: ExpoConnectMode; run?: number } | null>(null);
+  const signedIn = account?.signedIn === true;
+  const runStatus = account?.connect;
+  useEffect(() => {
+    if (!sheet) return;
+    if (signedIn || (sheet.run !== undefined && runStatus?.startedAt === sheet.run && !expoConnectActive(runStatus))) setSheet(null);
+  }, [sheet, signedIn, runStatus]);
   const setGuide = (value: boolean) => {
     setGuideState(value);
     void AsyncStorage.setItem(STORAGE_KEYS.previewCardExpanded, value ? "1" : "0").catch(() => {});
@@ -117,6 +131,8 @@ export function ProjectPreviewPanel({ sessionId, transport, email, onOpenCompute
   };
   const postAccount = async (action: "connect" | "cancel", mode?: ExpoConnectMode) => {
     if (!transport || !sessionId) return;
+    // The sheet opens on the tap; the Computer takes a moment to open the page.
+    if (action === "connect" && mode) setSheet({ mode });
     setConnectBusy(true);
     setConnectError(null);
     try {
@@ -127,8 +143,9 @@ export function ProjectPreviewPanel({ sessionId, transport, email, onOpenCompute
       });
       if (!mounted.current) return;
       if (snapshot && typeof snapshot.signedIn === "boolean") setAccount(snapshot);
-      if (action === "connect") onOpenComputer();
+      if (action === "connect" && mode) setSheet((open) => open ? { mode, run: snapshot?.connect?.startedAt } : open);
     } catch (error) {
+      if (action === "connect") setSheet(null);
       if (mounted.current) setConnectError(error instanceof Error && error.message ? error.message : "Could not start Expo sign-in. Try again.");
     } finally {
       if (mounted.current) setConnectBusy(false);
@@ -164,7 +181,12 @@ export function ProjectPreviewPanel({ sessionId, transport, email, onOpenCompute
       : onPhoneLevel
         ? { id: "project-preview-expo-go", label: "Open in Expo Go", disabled: false, onPress: () => void openExpoGo() }
         : { id: "project-preview-open", label: expoGoUrl ? "Web preview" : "Open preview", disabled: false, onPress: () => void openInAppPage(preview.url) };
-  return <View testID="project-preview-card" style={{ backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1, borderRadius: 16, paddingVertical: 6, paddingLeft: 8, paddingRight: 6, gap: 8 }}>
+  return <>
+  {sheet && transport && !signedIn ? <ExpoSigninSheet mode={sheet.mode} transport={transport} socket={computerSocket}
+    onClose={() => { setSheet(null); void postAccount("cancel"); }}
+    // A page sheet stays above every screen, so it steps aside for the Computer.
+    onOpenComputer={() => { setSheet(null); onOpenComputer(); }} /> : null}
+  <View testID="project-preview-card" style={{ backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1, borderRadius: 16, paddingVertical: 6, paddingLeft: 8, paddingRight: 6, gap: 8 }}>
     <View style={{ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44 }}>
       <Pressable accessibilityRole="button" testID="project-preview-toggle" disabled={!expoGoUrl || stopped}
         accessibilityState={expoGoUrl && !stopped ? { expanded: guide } : undefined}
@@ -204,7 +226,8 @@ export function ProjectPreviewPanel({ sessionId, transport, email, onOpenCompute
         ? <SimulatorLevel stream={simulator} webUrl={inlinePreviewUrl(preview)} onStart={() => void simulatorAction("start")} />
         : <DeviceLevel account={expoAccount} connecting={connecting} busy={connectBusy} error={connectError}
             onOpen={() => void openExpoGo()} onConnect={(mode) => void postAccount("connect", mode)}
-            onOpenComputer={onOpenComputer} onCancel={() => void postAccount("cancel")} />}
+            onOpenComputer={() => setSheet({ mode: account?.connect?.state === "signup" ? "signup" : "login", run: account?.connect?.startedAt })}
+            onCancel={() => void postAccount("cancel")} />}
       {/* The level switcher sits under the preview, as icons. */}
       <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
         <View accessibilityRole="tablist" testID="project-preview-levels" style={{ flexDirection: "row", backgroundColor: colors.muted, borderRadius: 10, padding: 2 }}>
@@ -227,7 +250,8 @@ export function ProjectPreviewPanel({ sessionId, transport, email, onOpenCompute
         {current === "device" ? <>{" "}<Text testID="project-preview-get-expo-go" accessibilityRole="link" onPress={() => void Linking.openURL(Platform.OS === "android" ? EXPO_GO_ANDROID : EXPO_GO_IOS)} style={{ color: colors.primary, fontWeight: "600" }}>Get Expo Go</Text></> : null}
       </Text> : null}
     </View> : null}
-  </View>;
+  </View>
+  </>;
 }
 
 /**
@@ -327,7 +351,7 @@ function DeviceLevel({ account, connecting, busy, error, onOpen, onConnect, onOp
   }
   return <View testID="project-preview-device" style={{ alignItems: "center", gap: 8, paddingVertical: 10 }}>
     {connecting
-      ? pill("project-preview-open-computer", "Open Computer", onOpenComputer)
+      ? pill("project-preview-open-sheet", "Show Expo page", onOpenComputer)
       : signedOut
         ? <>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>

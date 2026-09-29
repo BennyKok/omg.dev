@@ -65,24 +65,28 @@
     {
       "name": "Create free account",
       "goal": "On the 'My connect app' card, tap 'Create free account' once. Do not tap 'Open in Expo Go' on any card.",
-      "done": "The 'My connect app' card asks to create the Expo account in the Computer window and offers 'Open Computer' and 'Cancel'.",
+      "done": "A sheet titled 'Sign up for Expo' is open. Under the title it names the site expo.dev with a lock, and at the bottom it offers 'Open the full Computer view'. This test has no Computer, so the sheet body says it is opening expo.dev; that is expected.",
       "expect": [
-        "Create your Expo account in the Computer window\u2026",
-        "Open Computer",
-        "Cancel"
+        "Sign up for Expo",
+        "expo.dev",
+        "Open the full Computer view"
+      ],
+      "forbid": [
+        "Open Computer"
       ]
     },
     {
-      "name": "Cancel Expo sign-in",
-      "goal": "On the 'My connect app' card, tap 'Cancel' once.",
-      "done": "The card says the Expo sign-in was cancelled and offers 'Create free account' and 'I have one' again.",
+      "name": "Close the Expo sheet",
+      "goal": "In the 'Sign up for Expo' sheet, tap the close button (the X, labelled 'Cancel and close') at the top right once.",
+      "done": "The sheet is closed. The 'My connect app' card says the Expo sign-in was cancelled and offers 'Create free account' and 'I have one' again.",
       "expect": [
         "Expo sign-in was cancelled.",
         "Create free account",
         "I have one"
       ],
       "forbid": [
-        "Create your Expo account in the Computer window\u2026"
+        "Sign up for Expo",
+        "Open the full Computer view"
       ]
     }
   ]

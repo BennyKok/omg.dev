@@ -86,6 +86,9 @@ function withAccount(value: ProjectPreviewSnapshot, initial: ExpoAccountSnapshot
         account = { signedIn: false, connect: { state: mode === "signup" ? "signup" : "waiting", startedAt: Date.now() } };
       } else if (path.startsWith("/api/expo-account/cancel")) {
         account = { signedIn: false, connect: { state: "cancelled", startedAt: account.connect?.startedAt ?? Date.now() } };
+      } else if (path.startsWith("/api/computer/kiosk")) {
+        // No Computer here: the sign-in sheet waits for Expo's page.
+        return { open: false } as T;
       } else if (!path.startsWith("/api/expo-account")) {
         return value as T;
       }

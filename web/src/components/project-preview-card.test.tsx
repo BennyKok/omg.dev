@@ -24,6 +24,14 @@ function pickLevel(level: "web" | "simulator" | "device") {
   const tab = document.querySelector(`[data-testid="project-preview-level-${level}"]`) as HTMLElement;
   ui.flush(() => tab.click());
 }
+/** Wait for a lazily loaded part (the sign-in sheet chunk) to render. */
+async function waitFor(selector: string) {
+  for (let i = 0; i < 100 && !document.querySelector(selector); i++) {
+    await new Promise((r) => setTimeout(r, 10));
+    await ui.flushAsync();
+  }
+  return document.querySelector(selector);
+}
 const originalFetch = globalThis.fetch;
 beforeEach(() => {
   configureOmgTransport(createSameOriginTransport({ fetch: ((...args: Parameters<typeof fetch>) => globalThis.fetch(...args)) as typeof fetch }));
@@ -257,7 +265,9 @@ function expoServer(account: Record<string, unknown>, posts: string[] = []) {
       return Response.json(current);
     }
     if (url.includes("/api/expo-account")) return Response.json(current);
-    // The Computer view behind "Connect Expo": a Computer without the desktop stack, so it does not start one.
+    // The sign-in sheet asks where the kiosk page is. Not open yet: the sheet waits.
+    if (url.includes("/api/computer/kiosk")) return Response.json({ open: false });
+    // The full Computer view: a Computer without the desktop stack, so it does not start one.
     if (url.includes("/api/computer")) return Response.json({ running: false, deps: { ok: false, missing: [] } });
     return Response.json({ preview: EXPO_PREVIEW, live: true });
   }) as typeof fetch;
@@ -280,11 +290,18 @@ test("a phone signed out of Expo offers Create free account and I have one, not 
   await ui.flushAsync();
   expect(posts).toEqual(["POST /api/expo-account/connect signup"]);
   expect(document.querySelector('[data-testid="project-preview-expo-connecting"]')?.textContent).toContain("Create your Expo account in the Computer window…");
-  expect(document.querySelector('[aria-label="Sign in to Expo on the Computer"]')).not.toBeNull();
-  const cancel = document.querySelector('[data-testid="project-preview-cancel-expo"]') as HTMLElement;
-  ui.flush(() => cancel.click());
+  // The sheet, not the whole Computer: Expo's page, its title, and the site.
+  const sheet = await waitFor('[data-testid="expo-signin-sheet"]');
+  expect(sheet?.getAttribute("aria-label")).toBe("Sign up for Expo");
+  expect(document.querySelector('[data-testid="expo-signin-sheet-title"]')?.textContent).toBe("Sign up for Expo");
+  expect(document.querySelector('[data-testid="expo-signin-sheet-host"]')?.textContent).toBe("expo.dev");
+  expect(document.querySelector('[data-testid="expo-signin-sheet-loading"]')?.textContent).toBe("Opening expo.dev…");
+  expect(document.querySelector('[aria-label="Sign in to Expo on the Computer"]')).toBeNull();
+  // The X cancels the connect and closes the sheet.
+  ui.flush(() => (document.querySelector('[data-testid="expo-signin-sheet-close"]') as HTMLElement).click());
   await ui.flushAsync();
   expect(posts).toEqual(["POST /api/expo-account/connect signup", "POST /api/expo-account/cancel"]);
+  expect(document.querySelector('[data-testid="expo-signin-sheet"]')).toBeNull();
   expect(ui.text()).toContain("Expo sign-in was cancelled.");
 });
 
@@ -299,6 +316,31 @@ test("I have one goes straight to the Expo login", async () => {
   await ui.flushAsync();
   expect(posts).toEqual(["POST /api/expo-account/connect login"]);
   expect(document.querySelector('[data-testid="project-preview-expo-connecting"]')?.textContent).toContain("Sign in to Expo in the Computer window…");
+  expect((await waitFor('[data-testid="expo-signin-sheet-title"]'))?.textContent).toBe("Sign in to Expo");
+  // The card's Cancel ends the run, and the sheet with it.
+  ui.flush(() => (document.querySelector('[data-testid="project-preview-cancel-expo"]') as HTMLElement).click());
+  await ui.flushAsync();
+  expect(posts).toEqual(["POST /api/expo-account/connect login", "POST /api/expo-account/cancel"]);
+  expect(document.querySelector('[data-testid="expo-signin-sheet"]')).toBeNull();
+  // Closed by mistake: the card brings the sheet back while a run is active.
+  expect(document.querySelector('[data-testid="project-preview-open-sheet"]')).toBeNull();
+});
+
+test("the sheet keeps the full Computer view as a fallback, and comes back after it", async () => {
+  setPhone(true);
+  expoServer({ signedIn: false });
+  ui.render(<ProjectPreviewCard sessionId="session-1" user="person@example.com" />);
+  await ui.flushAsync();
+  pickLevel("device");
+  ui.flush(() => (document.querySelector('[data-testid="project-preview-connect-expo"]') as HTMLElement).click());
+  await waitFor('[data-testid="expo-signin-sheet-full-computer"]');
+  ui.flush(() => (document.querySelector('[data-testid="expo-signin-sheet-full-computer"]') as HTMLElement).click());
+  await waitFor('[aria-label="Close the computer"]');
+  await ui.flushAsync();
+  expect(document.querySelector('[aria-label="Sign in to Expo on the Computer"]')).not.toBeNull();
+  ui.flush(() => (document.querySelector('[aria-label="Close the computer"]') as HTMLElement).click());
+  expect(document.querySelector('[aria-label="Sign in to Expo on the Computer"]')).toBeNull();
+  expect(document.querySelector('[data-testid="expo-signin-sheet"]')).not.toBeNull();
 });
 
 test("a signed-in Computer shows three short steps and ticks only the Computer account", async () => {
@@ -315,25 +357,29 @@ test("a signed-in Computer shows three short steps and ticks only the Computer a
   expect(document.querySelector('[data-testid="project-preview-connect-expo"]')).toBeNull();
 });
 
-test("a computer gets I have one in the card, and the Computer view closes once signed in", async () => {
+test("a computer gets I have one in the card, and the sheet closes itself once signed in", async () => {
   const server = expoServer({ signedIn: false });
   ui.render(<ProjectPreviewCard sessionId="session-1" user="person@example.com" />);
   await ui.flushAsync();
   pickLevel("device");
   const connect = document.querySelector('[data-testid="project-preview-connect-expo"]') as HTMLElement;
   ui.flush(() => connect.click());
+  expect(await waitFor('[data-testid="expo-signin-sheet"]')).not.toBeNull();
+  // Expo's "Continue" page is the person's step; the sheet stays for it.
+  server.set({ signedIn: false, connect: { state: "waiting", startedAt: 1 } });
+  await new Promise((r) => setTimeout(r, 3_100));
   await ui.flushAsync();
-  expect(document.querySelector('[aria-label="Sign in to Expo on the Computer"]')).not.toBeNull();
+  expect(document.querySelector('[data-testid="expo-signin-sheet"]')).not.toBeNull();
   server.set({ signedIn: true, username: "expo-e2e-test", connect: { state: "done", startedAt: 1, message: "Signed in to Expo as expo-e2e-test." } });
   await new Promise((r) => setTimeout(r, 3_100));
   await ui.flushAsync();
-  expect(document.querySelector('[aria-label="Sign in to Expo on the Computer"]')).toBeNull();
+  expect(document.querySelector('[data-testid="expo-signin-sheet"]')).toBeNull();
   expect(document.querySelector('[data-testid="project-preview-expo-account"]')?.textContent).toBe("Sign in as expo-e2e-test");
   // A computer scans the QR code and links both stores.
   expect(document.querySelector('[data-testid="expo-go-guide"]')).not.toBeNull();
   expect(ui.text()).toContain("Scan to open in Expo Go");
   expect(ui.text()).toContain("Play Store");
-}, 10_000);
+}, 12_000);
 
 test("an Android phone opens Expo Go directly, with no Expo sign-in step", async () => {
   setPhone(true);

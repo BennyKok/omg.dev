@@ -12,6 +12,8 @@ import {
 import { expoConnectActive, expoConnectMessage, EXPO_SIGNUP_LABEL, type ExpoAccountSnapshot, type ExpoConnectMode } from "../../../packages/protocol/src/expo-account";
 import { omgFetch } from "../lib/omg-client";
 const Computer = lazy(() => import("../views/computer-page").then(m => ({ default: m.ComputerPage })));
+// noVNC stays out of the card's chunk until a sign-in sheet opens.
+const ExpoSigninSheet = lazy(() => import("./expo-signin-sheet"));
 
 export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | null; user?: string | null }) {
   const [state, setState] = useState<ProjectPreviewSnapshot | null>(null);
@@ -43,9 +45,18 @@ export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | nu
   const preview = state?.preview;
   const expo = useExpoAccount(preview?.expoGoUrl ? sessionId : null, suffix);
   const [showComputer, setShowComputer] = useState(false);
-  // The Computer view closes itself once the sign-in there has worked.
+  // The sign-in sheet: Expo's own page, from the Computer kiosk window.
+  // `run` is the connect run it belongs to, once the Computer answers.
+  const [sheet, setSheet] = useState<{ mode: ExpoConnectMode; run?: number } | null>(null);
+  // The Computer view and the sheet close themselves once the sign-in there
+  // has worked, and the card shows the checklist.
   const signedIn = expo.account?.signedIn === true;
-  useEffect(() => { if (signedIn) setShowComputer(false); }, [signedIn]);
+  useEffect(() => { if (signedIn) { setShowComputer(false); setSheet(null); } }, [signedIn]);
+  const connectStatus = expo.account?.connect;
+  useEffect(() => {
+    // The run ended: done, failed or cancelled. The card says which.
+    if (sheet?.run !== undefined && connectStatus?.startedAt === sheet.run && !expoConnectActive(connectStatus)) setSheet(null);
+  }, [sheet, connectStatus]);
   // A new preview row means the agent restarted it; allow another restart ask
   // and start again from the web level.
   useEffect(() => { setRestartAsked(false); setLevelState("web"); }, [preview?.createdAt]);
@@ -91,7 +102,15 @@ export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | nu
   const android = isAndroid();
   const needsConnect = !!expoGoUrl && !stopped && !android && expo.account !== null && !expo.account.signedIn;
   const connecting = expoConnectActive(expo.account?.connect);
-  const connect = async (mode: ExpoConnectMode = "login") => { if (await expo.connect(mode)) setShowComputer(true); };
+  const connect = async (mode: ExpoConnectMode = "login") => {
+    // The sheet opens on the tap; the Computer takes a moment to open the page.
+    setSheet({ mode });
+    const run = await expo.connect(mode);
+    if (!run) { setSheet(null); return; }
+    setSheet((open) => open ? { mode, run: run.connect?.startedAt } : open);
+  };
+  const closeSheet = () => { setSheet(null); void expo.cancel(); };
+  const reopenSheet = () => setSheet({ mode: connectStatus?.state === "signup" ? "signup" : "login", run: connectStatus?.startedAt });
   const deviceAction = current === "device" && expoGoUrl && phone && !stopped;
   return <>
     <div className="mb-2 rounded-xl border bg-card text-sm" role="status" data-testid="project-preview-card" data-expanded={expanded && !stopped ? "true" : "false"} data-level={current}>
@@ -140,7 +159,7 @@ export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | nu
           : current === "simulator" && state?.simulator
           ? <SimulatorLevel stream={state.simulator} webUrl={inlinePreviewUrl(preview)} title={preview.title} onStart={() => void simulatorAction("start")} />
           : <DeviceLevel url={expoGoUrl} phone={phone} android={android} account={expo.account} error={expo.error} connecting={connecting}
-              onConnect={(mode) => void connect(mode)} onOpenComputer={() => setShowComputer(true)} onCancel={() => void expo.cancel()} />}
+              onConnect={(mode) => void connect(mode)} onOpenComputer={reopenSheet} onCancel={() => void expo.cancel()} />}
         {/* The level switcher sits under the preview, with the two small links. */}
         <div className="mt-2 flex items-center gap-2">
           <LevelSwitcher levels={levels} value={current} onChange={setLevel} />
@@ -149,7 +168,10 @@ export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | nu
         </div>
       </div> : null}
     </div>
-    {showComputer && createPortal(<div className="fixed inset-0 z-[100] bg-background" role="dialog" aria-label="Sign in to Expo on the Computer">
+    {sheet && !signedIn ? <Suspense fallback={null}>
+      <ExpoSigninSheet mode={sheet.mode} onClose={closeSheet} onOpenComputer={() => setShowComputer(true)} />
+    </Suspense> : null}
+    {showComputer && createPortal(<div className="fixed inset-0 z-[120] bg-background" role="dialog" aria-label="Sign in to Expo on the Computer">
       <Suspense fallback={<p>Opening Computer…</p>}><Computer active onClose={() => setShowComputer(false)} /></Suspense>
     </div>, document.body)}
     {open && createPortal(
@@ -231,7 +253,7 @@ function DeviceLevel({ url, phone, android, account, error, connecting, onConnec
   const status = account?.connect;
   const action = connecting && status
     ? <div className="flex flex-col items-center gap-1" data-testid="project-preview-expo-connecting">
-        <Button size="sm" onClick={onOpenComputer}>Open Computer</Button>
+        <Button size="sm" onClick={onOpenComputer} data-testid="project-preview-open-sheet">Show Expo page</Button>
         <span className="text-xs text-muted-foreground">{expoConnectMessage(status)}{" "}
           {status.state === "waiting" || status.state === "signup" ? <button className="font-medium text-foreground underline-offset-2 hover:underline" onClick={onCancel} data-testid="project-preview-cancel-expo">Cancel</button> : null}
         </span>
@@ -423,17 +445,17 @@ function useExpoAccount(sessionId: string | null, suffix: string) {
     const timer = setInterval(() => { if (!document.hidden) void refresh(); }, 3_000);
     return () => { live = false; clearInterval(timer); };
   }, [sessionId, suffix]);
-  const post = async (action: "connect" | "cancel", mode?: ExpoConnectMode): Promise<boolean> => {
+  const post = async (action: "connect" | "cancel", mode?: ExpoConnectMode): Promise<ExpoAccountSnapshot | null> => {
     setError(null);
     try {
       const response = await omgFetch(`/api/expo-account/${action}${suffix}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(mode ? { mode } : {}) });
       const body = await response.json().catch(() => ({})) as ExpoAccountSnapshot & { error?: string };
-      if (!response.ok) { setError(body.error ?? "Could not reach the Computer. Try again."); return false; }
+      if (!response.ok) { setError(body.error ?? "Could not reach the Computer. Try again."); return null; }
       setAccount(body);
-      return true;
+      return body;
     } catch {
       setError("Could not reach the Computer. Try again.");
-      return false;
+      return null;
     }
   };
   return { account, error, connect: (mode: ExpoConnectMode) => post("connect", mode), cancel: () => post("cancel") };

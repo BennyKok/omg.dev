@@ -46,6 +46,7 @@ import {
   type ThreadDeps,
 } from "../threads.ts";
 import { mentionAgents, mentionedAgent, threadPreview, type ThreadMedia } from "../../packages/protocol/src/threads.ts";
+import { COMPUTER_KIOSK_PATH } from "../../packages/protocol/src/computer-kiosk.ts";
 import { buildContinueSessionPrompt } from "../session-continue-prompt.ts";
 import { regenerateSessionTitle } from "../session-title-regenerate.ts";
 import { hasHostedOmgAiProxy, hasOmgProviderAccess } from "../omg-provider.ts";
@@ -424,6 +425,7 @@ import { coldResumeContainment, type ColdResumeContainment, commandFileHarnessIs
 import { resolveResumeModel } from "../resume-model.ts";
 import { PtyBridge, termSessionName } from "../pty.ts";
 import { RfbBridge } from "../computer/rfb-bridge.ts";
+import { computerKiosk } from "../computer/kiosk.ts";
 import {
   desktopStatus,
   ensureDesktopAdopted,
@@ -4364,7 +4366,10 @@ export async function cmdServe() {
     viewer: req => botViewerFromRequest(req, new URL(req.url).searchParams.get("user")).identity,
     preview: (sessionId) => storedProjectPreview(sessionId),
     startDesktop: () => startDesktop(),
-    openBrowser: (url) => browserNavigate(url),
+    // The sign-up and sign-in pages open in the kiosk window, which the card
+    // shows in a sheet. The agent's own tab is not touched.
+    openBrowser: (url) => computerKiosk().open(url),
+    closeBrowser: () => computerKiosk().close(),
     webSignedIn: () => expoWebSignedIn(),
     tellAgent: async (sessionId, text) => {
       await fetch(`http://127.0.0.1:${PORT}/api/sessions/${encodeURIComponent(sessionId)}/send`, {
@@ -5110,6 +5115,17 @@ export async function cmdServe() {
       // Agent control of the browser on that desktop, via Bun.WebView attached
       // over DevTools. These are what the MCP tools call; they act on the one
       // visible tab, so whatever the agent does shows up on the streamed screen.
+      // Where the kiosk page is on the desktop, so a sheet can show only
+      // that part of the screen stream.
+      if (path === COMPUTER_KIOSK_PATH && req.method === "GET") {
+        if (!desktopStatus().running) return json({ open: false });
+        try {
+          return json(await computerKiosk().frame());
+        } catch (e) {
+          return err(500, e instanceof Error ? e.message : "kiosk check failed");
+        }
+      }
+
       if (path.startsWith("/api/computer/browser/") && req.method === "POST") {
         if (!desktopStatus().running) return err(409, "the computer is not running");
         const action = path.slice("/api/computer/browser/".length);
@@ -5121,10 +5137,14 @@ export async function cmdServe() {
             y?: number;
             text?: string;
             key?: string;
+            kiosk?: boolean;
           };
           switch (action) {
             case "navigate": {
               if (!body.url) return err(400, "url is required");
+              // The xdg-open shim sets kiosk for a login the person does in
+              // a sheet (OMG_COMPUTER_KIOSK). See src/computer/kiosk.ts.
+              if (body.kiosk === true) return json(await computerKiosk().open(body.url));
               return json(await browserNavigate(body.url));
             }
             case "click": {
