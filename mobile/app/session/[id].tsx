@@ -2281,7 +2281,7 @@ function SessionScreenContent({
           composerLift,
         ]}
       >
-        <ProjectPreviewCard sessionId={id ?? null} />
+        <ProjectPreviewCard sessionId={id ?? null} agentBusy={busy} />
         <AttachmentStrip items={attachments.items} onRemove={attachments.remove} />
         {/* "/" lists the box's skills above the field, as on the web. */}
         <SkillSuggest value={draft} onChangeText={setDraft} />

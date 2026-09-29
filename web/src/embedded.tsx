@@ -37,6 +37,7 @@ export type {
   HostedTranscription,
   PlanLimitDetail,
 } from "./lib/embedded-host-options";
+export type { PlanLimitLiveAgent } from "./lib/plan-limit-live";
 export type { HostPushConfig } from "./lib/push";
 
 /**

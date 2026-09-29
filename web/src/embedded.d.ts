@@ -205,11 +205,29 @@ export interface HostMachines {
   onSelect: (id: string) => void;
 }
 
+/** One live chat the hosted plan counted. */
+export interface PlanLimitLiveAgent {
+  sessionId: string;
+  /** What the chat list calls it. */
+  title: string;
+  /** Project key, or "" for a chat with no project. */
+  project: string;
+}
+
 export interface PlanLimitDetail {
   /** The machine's own sentence, already written for a human to read. */
   message: string;
   /** What the person was trying to do when the plan stopped them. */
   action: "start-session";
+  /**
+   * The live chats the plan counted, so the host can list them. Home shows one
+   * project at a time and can hide most of them. Absent on an older surface.
+   */
+  live?: PlanLimitLiveAgent[];
+  /** Opens one of `live` in this surface. */
+  openSession?: (sessionId: string) => void;
+  /** Closes one of `live`, which frees its slot. Rejects when the close failed. */
+  closeSession?: (sessionId: string) => Promise<void>;
 }
 
 export interface HostedTranscription {

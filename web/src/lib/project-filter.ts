@@ -1,31 +1,51 @@
 export const PROJECT_FILTER_STORAGE_KEY = "lfg_v2_project_filter";
+/**
+ * How long a folder pick outlives its last change. The pick lives in
+ * sessionStorage, so it already ends with the tab; this also ends it in a tab
+ * a phone restores days later.
+ */
+export const PROJECT_FILTER_TTL_MS = 60 * 60 * 1000;
 
 type ProjectFilterStorage = Pick<Storage, "getItem" | "setItem">;
 
+// sessionStorage, not localStorage. The folder picked here decides where the
+// next chat from Home runs, so a pick must not survive into another visit.
+// The 2026-09-29 walkthrough opened Home on an old test repo from days
+// before, and the first request would have gone into it.
 function browserStorage(): ProjectFilterStorage | null {
   try {
-    return typeof window === "undefined" ? null : window.localStorage;
+    return typeof window === "undefined" ? null : window.sessionStorage;
   } catch {
     return null;
   }
 }
 
+/** The folder picked in this visit, or the no-project scope. */
 export function readCachedProjectFilter(
   storage: ProjectFilterStorage | null = browserStorage(),
+  now: number = Date.now(),
 ): string {
   try {
-    return storage?.getItem(PROJECT_FILTER_STORAGE_KEY) || "__all";
+    const raw = storage?.getItem(PROJECT_FILTER_STORAGE_KEY);
+    if (!raw) return NO_PROJECT_FILTER;
+    const saved = JSON.parse(raw) as { value?: unknown; at?: unknown };
+    if (typeof saved.value !== "string" || !saved.value || typeof saved.at !== "number") {
+      return NO_PROJECT_FILTER;
+    }
+    if (now - saved.at >= PROJECT_FILTER_TTL_MS) return NO_PROJECT_FILTER;
+    return saved.value;
   } catch {
-    return "__all";
+    return NO_PROJECT_FILTER;
   }
 }
 
 export function cacheProjectFilter(
   projectFilter: string,
   storage: ProjectFilterStorage | null = browserStorage(),
+  now: number = Date.now(),
 ): void {
   try {
-    storage?.setItem(PROJECT_FILTER_STORAGE_KEY, projectFilter);
+    storage?.setItem(PROJECT_FILTER_STORAGE_KEY, JSON.stringify({ value: projectFilter, at: now }));
   } catch {
     // Storage can be unavailable in hardened/private browser contexts. The
     // current page still keeps the selection in React state.
@@ -99,31 +119,21 @@ export function projectFilterAfterPress(pressed: string, current: string): strin
 }
 
 /**
- * The folder to open on, when nothing usable is remembered.
+ * The scope to open on, when nothing usable is remembered.
  *
- * The rail has no "All" pill any more, so starting unscoped left the list
- * showing every folder with no pill lit and nothing saying why. iOS has
- * never had an unscoped state at all: it resolves a concrete folder from
- * the machine's default, then the first one it can see.
- *
- * `preferred` is the caller's best guess before the first pill exists — the
- * project of the folder this browser last started a session in.
+ * The rail has no "All" pill, so an unscoped list showed every folder with no
+ * pill lit. It resolves to the no-project scope instead: that scope is also
+ * where a new chat from Home goes, and a new chat goes into a folder only when
+ * the person picked that folder in this visit.
  */
 export function resolveInitialProjectFilter(input: {
-  /** What storage remembered. May be "__all", or a folder that is gone. */
+  /** What this visit remembered. May be "__all", or a folder that is gone. */
   saved: string;
   /** Every selectable value, as the rail lists them. */
   options: readonly string[];
-  preferred?: string | null;
 }): string {
-  const { saved, options, preferred } = input;
+  const { saved, options } = input;
   if (!options.length) return saved;
-  const has = (value: string | null | undefined): value is string =>
-    !!value && value !== "__all" && options.includes(value);
-  if (has(saved)) return saved;
-  if (has(preferred)) return preferred;
-  // A real folder before the no-project scope: that scope is for starting
-  // something new, not a place to be parked on by default.
-  const folder = options.find((option) => option !== NO_PROJECT_FILTER);
-  return folder ?? options[0]!;
+  if (saved !== "__all" && options.includes(saved)) return saved;
+  return options.includes(NO_PROJECT_FILTER) ? NO_PROJECT_FILTER : options[0]!;
 }

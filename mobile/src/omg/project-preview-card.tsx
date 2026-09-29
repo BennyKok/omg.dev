@@ -26,14 +26,33 @@ const WebView: typeof import("react-native-webview").WebView | null =
 const PHONE_W = 390;
 const PHONE_H = 844;
 
-export function ProjectPreviewCard({ sessionId }: { sessionId: string | null }) {
+export function ProjectPreviewCard({ sessionId, agentBusy = false }: { sessionId: string | null; agentBusy?: boolean }) {
   const { client, user, bindingId } = useOmg();
   const computerSocket = useMemo<ComputerSocket | undefined>(() => bindingId ? () => getComputerSocketAccess(bindingId) : undefined, [bindingId]);
-  return <ProjectPreviewPanel sessionId={sessionId} transport={client?.transport ?? null} email={user?.email} computerSocket={computerSocket} />;
+  return <ProjectPreviewPanel sessionId={sessionId} transport={client?.transport ?? null} email={user?.email} computerSocket={computerSocket} agentBusy={agentBusy} />;
 }
 
-export function ProjectPreviewPanel({ sessionId, transport, email, onOpenComputer = openComputer, initialLevel = "web", computerSocket }: {
+/**
+ * Counts the agent's finished turns: it goes up each time `busy` falls from
+ * true to false. Used as a key, so the framed preview reloads after each turn.
+ * Metro's hot reload does not always reach the framed page (a new tab in an
+ * Expo Router layout needs a full reload), and the card kept showing 3 tabs
+ * after the agent had built 4 (walkthrough 2026-09-29).
+ */
+export function useAgentTurnRevision(busy: boolean): number {
+  const [revision, setRevision] = useState(0);
+  const wasBusy = useRef(busy);
+  useEffect(() => {
+    if (wasBusy.current && !busy) setRevision((value) => value + 1);
+    wasBusy.current = busy;
+  }, [busy]);
+  return revision;
+}
+
+export function ProjectPreviewPanel({ sessionId, transport, email, onOpenComputer = openComputer, initialLevel = "web", computerSocket, agentBusy = false }: {
   sessionId: string | null; transport: Pick<OmgTransport, "request"> | null; email?: string;
+  /** True while the agent runs a turn. The preview reloads when a turn ends. */
+  agentBusy?: boolean;
   /** The Computer screen stream the Expo sign-in sheet crops. */
   computerSocket?: ComputerSocket;
   /** The level a new preview opens on. Web for every real card; the simulator E2E harness starts on "device". */
@@ -42,6 +61,7 @@ export function ProjectPreviewPanel({ sessionId, transport, email, onOpenCompute
   onOpenComputer?: () => void;
 }) {
   const { colors } = useTheme();
+  const frameRevision = useAgentTurnRevision(agentBusy);
   const [preview, setPreview] = useState<ProjectPreview | null>(null);
   // Open by default: the inline web preview is the first thing a new Expo
   // app shows. A person who closed it once keeps it closed on this device.
@@ -221,7 +241,7 @@ export function ProjectPreviewPanel({ sessionId, transport, email, onOpenCompute
       </Pressable>
     </View> : expoGoUrl && guide ? <View testID="project-preview-details" style={{ gap: 8, paddingHorizontal: 4, paddingBottom: 2 }}>
       {current === "web"
-        ? <PhoneFrame uri={inlinePreviewUrl(preview)} testID="project-preview-web" onFallback={() => void openInAppPage(preview.url)} />
+        ? <PhoneFrame key={frameRevision} uri={inlinePreviewUrl(preview)} testID="project-preview-web" onFallback={() => void openInAppPage(preview.url)} />
         : current === "simulator" && simulator
         ? <SimulatorLevel stream={simulator} webUrl={inlinePreviewUrl(preview)} onStart={() => void simulatorAction("start")} />
         : <DeviceLevel account={expoAccount} connecting={connecting} busy={connectBusy} error={connectError}

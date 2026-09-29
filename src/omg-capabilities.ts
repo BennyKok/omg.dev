@@ -303,6 +303,11 @@ export function withFirstRunEnvelope(prompt: string | undefined, opts: { seesIma
           "- You cannot see images. Do not take screenshots or write browser or CDP scripts to check the UI. Check the page text instead, for example with `curl` on the preview URL.",
           "- If the request links a design image, you cannot read it either. Do not download it or write scripts to inspect it. Build from the words in the request.",
         ]),
+    // Walkthrough 2026-09-29: the offer sat only in step 4 above, and after
+    // 8 minutes of building the final message said "try it on your phone via
+    // Expo Go", which fails on an iPhone with no Expo account. The final
+    // message is what the user reads, so it gets its own rule.
+    `- Final message for a phone app: if \`start-expo-preview.sh\` printed \`WARNING: Expo CLI is not signed in\`, end your final message with this offer, in these words: "To open it on your iPhone, Create a free Expo account: tap \"Your phone\" on the preview card, then \"Create free account\" (or \"I have one\")." Do not tell the user to try it in Expo Go or scan a QR code without that offer, because Expo Go on an iPhone cannot open the app until they have an account.`,
     "- Keep your messages to the user short and plain.",
     USER_TASK,
     text,

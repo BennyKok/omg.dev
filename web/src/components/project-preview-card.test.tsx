@@ -398,3 +398,22 @@ test("an Android phone opens Expo Go directly, with no Expo sign-in step", async
     else delete (window.navigator as { userAgent?: string }).userAgent;
   }
 });
+
+test("the inline preview reloads when the agent finishes a turn", async () => {
+  globalThis.fetch = (async () => Response.json({ preview: EXPO_PREVIEW, live: true })) as typeof fetch;
+  ui.render(<ProjectPreviewCard sessionId="session-1" agentBusy />);
+  await ui.flushAsync();
+  const before = document.querySelector('[data-testid="project-preview-web"] iframe');
+  expect(before).not.toBeNull();
+  // Still working: the same frame stays, so Metro's own reloads are not cut off.
+  ui.render(<ProjectPreviewCard sessionId="session-1" agentBusy />);
+  await ui.flushAsync();
+  expect(document.querySelector('[data-testid="project-preview-web"] iframe')).toBe(before);
+  // The turn ended: a new frame loads the finished app.
+  ui.render(<ProjectPreviewCard sessionId="session-1" agentBusy={false} />);
+  await ui.flushAsync();
+  const after = document.querySelector('[data-testid="project-preview-web"] iframe');
+  expect(after).not.toBeNull();
+  expect(after).not.toBe(before);
+  expect(after?.getAttribute("src")).toBe("https://cap-token.preview.omgs.app");
+});

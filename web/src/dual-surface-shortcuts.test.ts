@@ -66,7 +66,9 @@ function session(sessionId: string, title: string) {
     status: "idle",
     busy: false,
     lastActivityAt: NOW,
-    project: "/tmp/p",
+    // No project: a new visit opens on the no-project scope, so these rows
+    // are the ones the rail shows.
+    project: "",
     agent: "claude",
     runtime: "command-file",
   };

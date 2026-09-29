@@ -5,6 +5,7 @@
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AppState } from "react-native";
 
 import { supportsFastMode } from "../../../packages/protocol/src/fast-mode-support";
 import { omgModelLabel, parseOmgModel } from "../../../packages/protocol/src/omg-model-display";
@@ -424,9 +425,18 @@ export type FolderRow = {
 
 type RailArrangement = { order: string[]; hidden: string[] };
 
+/** A folder pick older than this, counted from leaving the app, is not kept. */
+const PROJECT_PICK_TTL_MS = 60 * 60 * 1000;
+
 export function useProjectPicker() {
   const { repos, bindings, bindingId, client, probe } = useOmg();
-  const [chosen, setChosen] = useState<string | null>(null);
+  /**
+   * "" is the no-project tab, and it is where Home opens. A new chat goes
+   * into a folder only when the person picked that folder in this visit.
+   * Opening on the machine's default folder sent a first request from the
+   * 2026-09-29 walkthrough into an old test repo nobody had chosen.
+   */
+  const [chosen, setChosen] = useState<string | null>("");
   /**
    * THE RAIL'S ARRANGEMENT, per machine. Order and hidden set of folder
    * cwds, loaded once and written on every change. The machine's own list
@@ -458,8 +468,24 @@ export function useProjectPicker() {
   );
 
   useEffect(() => {
-    setChosen(null);
+    setChosen("");
   }, [bindingId]);
+
+  // Home stays mounted while the app sits in the background, so a pick from
+  // yesterday would still be live today. After a long absence, a return to
+  // the app is a new visit and starts on "no project" again.
+  useEffect(() => {
+    let leftAt: number | null = null;
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state !== "active") {
+        leftAt ??= Date.now();
+        return;
+      }
+      if (leftAt !== null && Date.now() - leftAt >= PROJECT_PICK_TTL_MS) setChosen("");
+      leftAt = null;
+    });
+    return () => sub.remove();
+  }, []);
 
   const binding = useMemo(
     () => bindings.find((b) => b.id === bindingId) ?? null,

@@ -57,6 +57,7 @@ import {
 } from "./lib/hosted-coach";
 import { HostedCoachCard } from "./components/hosted-coach-card";
 import { emitSessionCreatedToHost } from "./lib/embed-host-signal";
+import { liveAgentsControl, planLimitLiveAgents, registerLiveAgents } from "./lib/plan-limit-live";
 import { isAuthorizationUrl } from "./lib/auth-popup";
 import { OmgBrandMark, omgBrandToneClass } from "./components/omg-brand-mark";
 import {
@@ -1757,9 +1758,15 @@ function usePlanLimitHandler(): (error: unknown, action: PlanLimitDetail["action
   return useCallback(
     (error, action) => {
       if (!onPlanLimit || !isPlanLimitError(error)) return false;
+      // The chats that hold the slots, with a way to open or close each. Home
+      // shows one project at a time, so most of them can be out of sight.
+      const live = liveAgentsControl();
       onPlanLimit({
         message: error instanceof Error ? error.message : String(error),
         action,
+        ...(live
+          ? { live: live.list(), openSession: live.open, closeSession: live.close }
+          : {}),
       });
       return true;
     },
@@ -3085,13 +3092,6 @@ function projectName(cwd: string): string {
 
 function repoProject(repo: Repo): string {
   return repo.project || projectName(repo.cwd);
-}
-
-/** The project key of a remembered cwd, if that folder is still listed. */
-function repoProjectForCwd(repos: Repo[], cwd: string | null): string | null {
-  if (!cwd) return null;
-  const repo = repos.find((candidate) => candidate.cwd === cwd);
-  return repo ? repoProject(repo) : null;
 }
 
 function autoAgentProject(agent: AutoAgent, repos: Repo[]): string {
@@ -6130,6 +6130,17 @@ export function App() {
   const openThreadPageRef = useRef<(id: string) => void>(() => {});
   sessionsForRefs.current = sessions;
   useEffect(() => {
+    registerLiveAgents({
+      list: () => planLimitLiveAgents(sessionsForRefs.current),
+      open: openSessionPage,
+      close: async (sid) => {
+        await closeSessionRequest(sid, "plan_limit_sheet");
+        await refreshSessionsRef.current();
+      },
+    });
+    return () => registerLiveAgents(null);
+  }, [openSessionPage]);
+  useEffect(() => {
     registerSessionRefHandlers({
       navigate: openSessionPage,
       peekSessions: () => sessionsForRefs.current,
@@ -7119,9 +7130,8 @@ export function App() {
   }, [userFilter]);
 
   useEffect(() => {
-    // Project scope belongs to the LFG workspace even when the app is hosted
-    // inside omg, so remember it on every surface. Otherwise an embedded
-    // reload silently jumps back to "All projects" and exposes every folder.
+    // Remembered for this visit only (sessionStorage), on every surface, so
+    // an embedded reload keeps the folder. A new visit opens on no project.
     cacheProjectFilter(projectFilter);
   }, [projectFilter]);
 
@@ -7201,20 +7211,18 @@ export function App() {
     [projectOptions],
   );
 
-  // Open on a folder. The rail has no "All" pill any more, so an unscoped
-  // filter — a first visit, or a saved folder that has since gone away —
-  // showed every folder with no pill lit and nothing saying why. Resolve it
-  // to a real folder instead, the way iOS always has. The browser's last
-  // session folder leads, because it is the best guess this surface holds.
+  // Never unscoped: the rail has no "All" pill. An unscoped filter, or a
+  // folder that has gone away, resolves to the no-project scope, which is
+  // also where a new chat from Home goes unless a folder was picked in this
+  // visit. See resolveInitialProjectFilter.
   useEffect(() => {
     if (loading || !projectOptions.length) return;
     const resolved = resolveInitialProjectFilter({
       saved: projectFilter,
       options: projectOptions,
-      preferred: repoProjectForCwd(repos, localStorage.getItem("lfg_v2_repo")),
     });
     if (resolved !== projectFilter) setProjectFilter(resolved);
-  }, [loading, projectFilter, projectOptions, repos]);
+  }, [loading, projectFilter, projectOptions]);
 
   const liveSessions = useMemo(() => {
     if (projectFilter === "__all") return userScopedSessions;
@@ -9845,6 +9853,11 @@ export function App() {
                   ...(launchId ? { retireLaunchId: launchId } : {}),
                   seed: result?.session ?? null,
                 });
+                // Open the new chat. Staying on the list after send left the
+                // person looking for the chat they had just started
+                // (walkthrough 2026-09-29).
+                const sid = result?.sessionId ?? result?.session?.sessionId;
+                if (sid) openSessionPage(sid);
               }}
             />
           ) : null}
@@ -17099,7 +17112,7 @@ function SessionChatBody({
               rather than in ChatStream's TypingIndicator slot so the two can
               never be mistaken for each other. */}
           <HumanTypingIndicator participants={typingParticipants} />
-          <ProjectPreviewCard sessionId={sid} user={session.assignedUser} />
+          <ProjectPreviewCard sessionId={sid} user={session.assignedUser} agentBusy={chatBusy} />
           <BrowserLoginCard sessionId={sid} user={session.assignedUser} />
           {files.fileInput}
           <ComposerAttachmentChips

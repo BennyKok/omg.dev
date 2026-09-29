@@ -15,8 +15,13 @@ const Computer = lazy(() => import("../views/computer-page").then(m => ({ defaul
 // noVNC stays out of the card's chunk until a sign-in sheet opens.
 const ExpoSigninSheet = lazy(() => import("./expo-signin-sheet"));
 
-export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | null; user?: string | null }) {
+export function ProjectPreviewCard({ sessionId, user, agentBusy = false }: { sessionId: string | null; user?: string | null; agentBusy?: boolean }) {
   const [state, setState] = useState<ProjectPreviewSnapshot | null>(null);
+  // Metro's hot reload does not always reach the framed page (a new tab in
+  // an Expo Router layout needs a full reload), and the card kept showing 3
+  // tabs after the agent had built 4. Reload the frame when the agent
+  // finishes a turn, which is when its edits are complete.
+  const frameRevision = useAgentTurnRevision(agentBusy);
   const [open, setOpen] = useState(false);
   const [restartAsked, setRestartAsked] = useState(false);
   const phone = usePhone();
@@ -155,7 +160,7 @@ export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | nu
         </button>
       </div> : expoGoUrl && expanded ? <div className="border-t px-3 pb-2" data-testid="project-preview-details">
         {current === "web"
-          ? <PhoneFrame src={inlinePreviewUrl(preview)} title={`${preview.title} web preview`} testId="project-preview-web" />
+          ? <PhoneFrame key={frameRevision} src={inlinePreviewUrl(preview)} title={`${preview.title} web preview`} testId="project-preview-web" />
           : current === "simulator" && state?.simulator
           ? <SimulatorLevel stream={state.simulator} webUrl={inlinePreviewUrl(preview)} title={preview.title} onStart={() => void simulatorAction("start")} />
           : <DeviceLevel url={expoGoUrl} phone={phone} android={android} account={expo.account} error={expo.error} connecting={connecting}
@@ -182,11 +187,25 @@ export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | nu
           <a className="text-muted-foreground" href={preview.url} target="_blank" rel="noreferrer" aria-label="Open preview in new tab"><ExternalLink className="size-4" /></a>
           <button className="text-muted-foreground" onClick={() => setOpen(false)} aria-label="Close preview"><X className="size-5" /></button>
         </div>
-        <iframe className="min-h-0 flex-1 border-0" src={inlinePreviewUrl(preview)} title={preview.title} sandbox={FRAME_SANDBOX} />
+        <iframe key={frameRevision} className="min-h-0 flex-1 border-0" src={inlinePreviewUrl(preview)} title={preview.title} sandbox={FRAME_SANDBOX} />
       </div>,
       document.body,
     )}
   </>;
+}
+
+/**
+ * Counts the agent's finished turns: it goes up each time `busy` falls from
+ * true to false. Used as a key, so a framed preview reloads after each turn.
+ */
+export function useAgentTurnRevision(busy: boolean): number {
+  const [revision, setRevision] = useState(0);
+  const wasBusy = useRef(busy);
+  useEffect(() => {
+    if (wasBusy.current && !busy) setRevision((value) => value + 1);
+    wasBusy.current = busy;
+  }, [busy]);
+  return revision;
 }
 
 const FRAME_SANDBOX = "allow-downloads allow-forms allow-modals allow-popups allow-same-origin allow-scripts";

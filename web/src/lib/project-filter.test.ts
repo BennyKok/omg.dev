@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
+  cacheProjectFilter,
   NO_PROJECT_FILTER,
+  PROJECT_FILTER_TTL_MS,
+  readCachedProjectFilter,
   projectFilterAfterPress,
   resolveInitialProjectFilter,
   NO_PROJECT_FILTER_LABEL,
@@ -62,41 +65,21 @@ describe("projectFilterAfterPress", () => {
 describe("resolveInitialProjectFilter", () => {
   const options = [NO_PROJECT_FILTER, "duet", "lfg", "vibes"];
 
-  test("keeps a remembered folder that still exists", () => {
+  test("keeps a folder picked in this visit that still exists", () => {
     expect(resolveInitialProjectFilter({ saved: "lfg", options })).toBe("lfg");
     expect(resolveInitialProjectFilter({ saved: NO_PROJECT_FILTER, options })).toBe(
       NO_PROJECT_FILTER,
     );
   });
 
-  test("never parks on all, because the rail has no pill for it", () => {
-    expect(resolveInitialProjectFilter({ saved: "__all", options })).toBe("duet");
+  test("an unscoped list opens on no project, never on a folder nobody picked", () => {
+    // A new chat from Home goes where this points. Opening on a folder sent a
+    // first request into an old test repo (walkthrough 2026-09-29).
+    expect(resolveInitialProjectFilter({ saved: "__all", options })).toBe(NO_PROJECT_FILTER);
   });
 
-  test("a folder that has gone away falls to the preferred one", () => {
-    expect(
-      resolveInitialProjectFilter({ saved: "deleted", options, preferred: "vibes" }),
-    ).toBe("vibes");
-  });
-
-  test("a preferred folder that is not listed is ignored", () => {
-    expect(
-      resolveInitialProjectFilter({ saved: "__all", options, preferred: "gone" }),
-    ).toBe("duet");
-  });
-
-  test("prefers a real folder over the no-project scope", () => {
-    // That scope is for starting something new, not somewhere to be parked
-    // on by default.
-    expect(resolveInitialProjectFilter({ saved: "__all", options })).not.toBe(
-      NO_PROJECT_FILTER,
-    );
-  });
-
-  test("a box with only the no-project scope settles there", () => {
-    expect(
-      resolveInitialProjectFilter({ saved: "__all", options: [NO_PROJECT_FILTER] }),
-    ).toBe(NO_PROJECT_FILTER);
+  test("a folder that has gone away falls to no project", () => {
+    expect(resolveInitialProjectFilter({ saved: "deleted", options })).toBe(NO_PROJECT_FILTER);
   });
 
   test("with nothing to choose from, it changes nothing", () => {
@@ -105,5 +88,39 @@ describe("resolveInitialProjectFilter", () => {
     // lands, and the guess would stick.
     expect(resolveInitialProjectFilter({ saved: "lfg", options: [] })).toBe("lfg");
     expect(resolveInitialProjectFilter({ saved: "__all", options: [] })).toBe("__all");
+  });
+});
+
+describe("the remembered folder pick", () => {
+  function memoryStorage() {
+    const data = new Map<string, string>();
+    return {
+      getItem: (key: string) => data.get(key) ?? null,
+      setItem: (key: string, value: string) => void data.set(key, value),
+      data,
+    };
+  }
+
+  test("a visit with nothing picked opens on no project", () => {
+    expect(readCachedProjectFilter(memoryStorage())).toBe(NO_PROJECT_FILTER);
+    expect(readCachedProjectFilter(null)).toBe(NO_PROJECT_FILTER);
+  });
+
+  test("a pick made in this visit is read back", () => {
+    const storage = memoryStorage();
+    cacheProjectFilter("expo-go-probe", storage, 1_000);
+    expect(readCachedProjectFilter(storage, 1_000 + 60_000)).toBe("expo-go-probe");
+  });
+
+  test("a pick older than the limit is dropped", () => {
+    const storage = memoryStorage();
+    cacheProjectFilter("expo-go-probe", storage, 1_000);
+    expect(readCachedProjectFilter(storage, 1_000 + PROJECT_FILTER_TTL_MS)).toBe(NO_PROJECT_FILTER);
+  });
+
+  test("an old bare value from localStorage days is not trusted", () => {
+    const storage = memoryStorage();
+    storage.setItem("lfg_v2_project_filter", "expo-go-probe");
+    expect(readCachedProjectFilter(storage)).toBe(NO_PROJECT_FILTER);
   });
 });
