@@ -341,6 +341,7 @@ describe("first-run envelope", () => {
     expect(expose).toBeGreaterThan(create);
     expect(script).toBeGreaterThan(expose);
     expect(wrapped).toContain("before you write any app code, even when the request includes a design to match");
+    expect(wrapped).toContain("`WARNING: Expo CLI is not signed in`");
   });
 
   test("the image rule is only for models that cannot see", async () => {
