@@ -1,0 +1,289 @@
+import { existsSync, readFileSync, readlinkSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { delimiter, join } from "node:path";
+import type { ProjectPreview } from "../packages/protocol/src/project-preview.ts";
+import type { ExpoAccountSnapshot, ExpoConnectStatus } from "../packages/protocol/src/expo-account.ts";
+import { expoConnectActive } from "../packages/protocol/src/expo-account.ts";
+import { PATHS } from "./config.ts";
+
+/**
+ * "Connect Expo": sign in this Computer's Expo CLI so Expo Go on an iPhone
+ * accepts its previews.
+ *
+ * Expo Go on a physical iPhone refuses a dev server whose manifest does not
+ * name the signed-in Expo CLI account (`extra.expoGo.username`). The card asks
+ * this service first. When the CLI is not signed in, "Connect Expo" runs
+ * `expo login --browser` here with the xdg-open shim, so expo.dev opens in the
+ * Computer's desktop browser. The user signs in there, the localhost callback
+ * completes on the Computer, and this service checks the account, restarts
+ * Metro when its manifest still has no account, and reports "done".
+ *
+ * One login runs at a time: the Expo account belongs to the Computer, not to
+ * a session.
+ */
+
+export const XDG_OPEN_SHIM_DIR = join(PATHS.root, "agents", "bin");
+const LOGIN_TIMEOUT_MS = 10 * 60_000;
+const MAX_BODY = 4 * 1024;
+
+type Session = { id: string; owner: string | null; cwd: string | null };
+export type LoginProcess = { exited: Promise<number>; kill(): void; output(): string };
+
+class AccountError extends Error {
+  constructor(public code: number, message: string) { super(message); }
+}
+
+/**
+ * The account in `~/.expo/state.json`, the file `expo login` writes. Reading it
+ * is instant and needs no network, so the card can poll it. `expo whoami` is
+ * the stronger check and runs once after a login.
+ * @internal exported for tests.
+ */
+export function readExpoStateAccount(home: string): string | null {
+  try {
+    const state = JSON.parse(readFileSync(join(home, ".expo", "state.json"), "utf8")) as {
+      auth?: { username?: unknown; sessionSecret?: unknown } | null;
+    };
+    const auth = state.auth;
+    if (!auth || typeof auth.sessionSecret !== "string" || !auth.sessionSecret) return null;
+    return typeof auth.username === "string" && auth.username ? auth.username : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The account `expo whoami` prints, or null for "Not logged in". @internal exported for tests. */
+export function parseWhoami(stdout: string): string | null {
+  const line = stdout.split("\n").map((l) => l.trim()).find(Boolean) ?? "";
+  if (!line || /not logged in/i.test(line)) return null;
+  // Newer CLIs can append details such as "(robot)". The name is the first word.
+  const name = line.split(/\s+/)[0]!;
+  return /^[A-Za-z0-9_.-]+$/.test(name) ? name : null;
+}
+
+/** The account the Expo Go manifest names, from the JSON Metro serves to iOS. @internal exported for tests. */
+export function manifestUsername(body: string): string | null {
+  try {
+    const value = JSON.parse(body) as { extra?: { expoGo?: { username?: unknown } } };
+    const name = value.extra?.expoGo?.username;
+    return typeof name === "string" && name ? name : null;
+  } catch {
+    return null;
+  }
+}
+
+/** True when some directory on PATH, other than the shim's own, has xdg-open. */
+export function systemHasXdgOpen(path = process.env.PATH ?? ""): boolean {
+  return path.split(delimiter).some((dir) => dir && dir !== XDG_OPEN_SHIM_DIR && existsSync(join(dir, "xdg-open")));
+}
+
+/**
+ * Put the shim on PATH for this process and every child it starts, but only
+ * when the system has no xdg-open. A laptop keeps its own.
+ */
+export function installXdgOpenShim(env: NodeJS.ProcessEnv = process.env, port?: number): boolean {
+  if (port) env.OMG_COMPUTER_API ??= `http://127.0.0.1:${port}`;
+  const path = env.PATH ?? "";
+  if (path.split(delimiter).includes(XDG_OPEN_SHIM_DIR)) return true;
+  if (systemHasXdgOpen(path) || !existsSync(join(XDG_OPEN_SHIM_DIR, "xdg-open"))) return false;
+  env.PATH = path ? `${XDG_OPEN_SHIM_DIR}${delimiter}${path}` : XDG_OPEN_SHIM_DIR;
+  return true;
+}
+
+/** The working directory of the Metro process on `port`, from /proc. */
+export function metroCwd(port: number): string | null {
+  const found = Bun.spawnSync(["pgrep", "-f", `expo start .*--port ${port}`], { stdout: "pipe", stderr: "ignore" });
+  for (const pid of new TextDecoder().decode(found.stdout).split("\n").map((s) => s.trim()).filter(Boolean)) {
+    try { return readlinkSync(`/proc/${pid}/cwd`); } catch { /* It exited. */ }
+  }
+  return null;
+}
+
+export type ExpoAccountDeps = {
+  session(id: string): Promise<Session | null>;
+  viewer(req: Request): string;
+  preview(sessionId: string): ProjectPreview | null;
+  startDesktop(): Promise<unknown>;
+  /** Start `expo login --browser`. */
+  spawnLogin(expo: string, cwd: string): LoginProcess;
+  /** Run a command to completion. */
+  run(argv: string[], cwd: string, timeoutMs: number): Promise<{ code: number; stdout: string; stderr: string }>;
+  /** The Expo Go manifest body Metro serves for iOS, or null when Metro does not answer. */
+  manifest(port: number): Promise<string | null>;
+  metroCwd(port: number): string | null;
+  /** Ask the session agent for a step this service cannot do itself. */
+  tellAgent(sessionId: string, text: string): Promise<void>;
+  home?: string;
+  now?: () => number;
+  loginTimeoutMs?: number;
+};
+
+export function createExpoAccountService(deps: ExpoAccountDeps) {
+  const home = deps.home ?? process.env.HOME ?? homedir();
+  const now = deps.now ?? Date.now;
+  let status: ExpoConnectStatus | undefined;
+  let login: LoginProcess | null = null;
+  let cancelled = false;
+  let cached: { mtimeMs: number; username: string | null } | null = null;
+  const owns = (owner: string | null, viewer: string) => !owner || owner.toLowerCase() === viewer.toLowerCase();
+
+  function account(): string | null {
+    const path = join(home, ".expo", "state.json");
+    let mtimeMs = -1;
+    try { mtimeMs = statSync(path).mtimeMs; } catch { /* No file: signed out. */ }
+    if (cached?.mtimeMs === mtimeMs) return cached.username;
+    const username = mtimeMs < 0 ? null : readExpoStateAccount(home);
+    cached = { mtimeMs, username };
+    return username;
+  }
+
+  function snapshot(): ExpoAccountSnapshot {
+    const username = account();
+    return { signedIn: username !== null, ...(username ? { username } : {}), ...(status ? { connect: status } : {}) };
+  }
+
+  /** The Expo project to run the CLI in: Metro's own directory first, then the session's. */
+  function projectDir(session: Session, preview: ProjectPreview | null): string {
+    const metro = preview ? deps.metroCwd(preview.port) : null;
+    for (const dir of [metro, session.cwd]) {
+      if (dir && existsSync(join(dir, "node_modules", ".bin", "expo"))) return dir;
+    }
+    throw new AccountError(409, "Expo CLI is not installed in this project. Start the Expo preview first.");
+  }
+
+  async function finish(session: Session, preview: ProjectPreview | null, dir: string, code: number): Promise<void> {
+    if (cancelled) { status = { state: "cancelled", startedAt: status!.startedAt }; return; }
+    if (code !== 0) {
+      const tail = login?.output().trim().split("\n").filter(Boolean).pop();
+      status = { state: "failed", startedAt: status!.startedAt, message: `Expo sign-in did not finish${tail ? `: ${tail.slice(0, 160)}` : "."} Try again.` };
+      return;
+    }
+    status = { state: "verifying", startedAt: status!.startedAt };
+    const who = await deps.run([join(dir, "node_modules", ".bin", "expo"), "whoami"], dir, 60_000).catch(() => null);
+    const username = who ? parseWhoami(who.stdout) : null;
+    cached = null;
+    if (!username) {
+      status = { state: "failed", startedAt: status.startedAt, message: "Expo CLI still reports no account. Try again." };
+      return;
+    }
+    const done = { state: "done" as const, startedAt: status.startedAt, message: `Signed in to Expo as ${username}.` };
+    if (!preview?.expoGoUrl) { status = done; return; }
+    const before = await deps.manifest(preview.port);
+    if (before === null || manifestUsername(before) === username) { status = done; return; }
+    // Metro read the signed-out state when it started. Restart it with the
+    // same proxy URL so the manifest names the account.
+    status = { state: "restarting", startedAt: status.startedAt };
+    const script = join(dir, "scripts", "start-expo-preview.sh");
+    const proxyUrl = `https://${preview.expoGoUrl.slice("exps://".length)}`;
+    if (existsSync(script)) {
+      const restarted = await deps.run(["bash", script, proxyUrl, String(preview.port)], dir, 300_000).catch(() => null);
+      const after = restarted?.code === 0 ? await deps.manifest(preview.port) : null;
+      if (after !== null && manifestUsername(after) === username) { status = done; return; }
+    }
+    await deps.tellAgent(session.id, `Expo CLI on this Computer is now signed in as ${username}, but Metro on port ${preview.port} still serves a manifest without that account. Restart Metro for the Expo Go preview (bash scripts/start-expo-preview.sh ${proxyUrl} ${preview.port}) so Expo Go on an iPhone accepts it.`).catch(() => {});
+    status = { ...done, message: `Signed in to Expo as ${username}. The agent restarts the preview.` };
+  }
+
+  async function connect(session: Session): Promise<void> {
+    if (expoConnectActive(status)) return;
+    const preview = deps.preview(session.id);
+    const dir = projectDir(session, preview);
+    await deps.startDesktop();
+    cancelled = false;
+    status = { state: "waiting", startedAt: now() };
+    const started = status.startedAt;
+    const proc = deps.spawnLogin(join(dir, "node_modules", ".bin", "expo"), dir);
+    login = proc;
+    const timer = setTimeout(() => {
+      if (login === proc && status?.state === "waiting") {
+        cancelled = true;
+        proc.kill();
+        status = { state: "failed", startedAt: started, message: "Expo sign-in timed out. Try again." };
+      }
+    }, deps.loginTimeoutMs ?? LOGIN_TIMEOUT_MS);
+    void proc.exited.then(async (code) => {
+      clearTimeout(timer);
+      if (login !== proc || status?.startedAt !== started || status.state === "failed") return;
+      try { await finish(session, preview, dir, code); } catch (error) {
+        status = { state: "failed", startedAt: started, message: error instanceof Error ? error.message : "Expo sign-in failed." };
+      } finally { if (login === proc) login = null; }
+    });
+  }
+
+  function cancel(): void {
+    if (status?.state !== "waiting") return;
+    cancelled = true;
+    login?.kill();
+    status = { state: "cancelled", startedAt: status.startedAt };
+  }
+
+  return async function handle(req: Request): Promise<Response> {
+    const json = (value: unknown, code = 200) => Response.json(value, { status: code, headers: { "Cache-Control": "no-store" } });
+    try {
+      const url = new URL(req.url);
+      if (req.method === "POST") {
+        const text = await req.text();
+        if (text.length > MAX_BODY) throw new AccountError(413, "Request is too large");
+      }
+      const id = url.searchParams.get("sessionId");
+      if (!id) throw new AccountError(400, "sessionId is required");
+      const session = await deps.session(id);
+      if (!session) throw new AccountError(404, "Session not found");
+      if (!owns(session.owner, deps.viewer(req))) throw new AccountError(403, "This session belongs to another user");
+      const action = url.pathname.replace(/^\/api\/expo-account\/?/, "");
+      if (req.method === "GET" && action === "") return json(snapshot());
+      if (req.method !== "POST") throw new AccountError(405, "Method not allowed");
+      if (action === "connect") {
+        if (account() === null) await connect(session);
+        return json(snapshot());
+      }
+      if (action === "cancel") { cancel(); return json(snapshot()); }
+      throw new AccountError(404, "Not found");
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : "Expo account request failed" }, error instanceof AccountError ? error.code : 500);
+    }
+  };
+}
+
+/** The live dependencies. `serve.ts` supplies the session, viewer and desktop parts. */
+export function liveExpoAccountDeps(): Pick<ExpoAccountDeps, "spawnLogin" | "run" | "manifest" | "metroCwd"> {
+  const env = () => {
+    const next = { ...process.env };
+    installXdgOpenShim(next);
+    // Expo's opener honours BROWSER first. Leave the choice to xdg-open.
+    delete next.BROWSER;
+    return next;
+  };
+  return {
+    spawnLogin(expo, cwd) {
+      const proc = Bun.spawn([expo, "login", "--browser"], { cwd, env: env(), stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+      let out = "";
+      const drain = async (stream: ReadableStream<Uint8Array>) => {
+        const decoder = new TextDecoder();
+        for await (const chunk of stream) out = (out + decoder.decode(chunk)).slice(-4000);
+      };
+      void drain(proc.stdout);
+      void drain(proc.stderr);
+      return { exited: proc.exited, kill: () => proc.kill(), output: () => out };
+    },
+    async run(argv, cwd, timeoutMs) {
+      const proc = Bun.spawn(argv, { cwd, env: env(), stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+      const timer = setTimeout(() => proc.kill(), timeoutMs);
+      const [stdout, stderr, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+      clearTimeout(timer);
+      return { code, stdout, stderr };
+    },
+    async manifest(port) {
+      try {
+        const response = await fetch(`http://127.0.0.1:${port}/`, {
+          headers: { "expo-platform": "ios", Accept: "application/expo+json,application/json" },
+          signal: AbortSignal.timeout(30_000),
+        });
+        return response.ok ? await response.text() : null;
+      } catch {
+        return null;
+      }
+    },
+    metroCwd,
+  };
+}
