@@ -64,7 +64,8 @@ test("an Expo preview opens on the web level, inline at phone size", async () =>
   expect(tabs.map((tab) => tab.textContent)).toEqual(["Web", "Your phone"]);
   expect(tabs[0]!.getAttribute("aria-selected")).toBe("true");
   const frame = document.querySelector('[data-testid="project-preview-web"] iframe') as HTMLIFrameElement;
-  expect(frame.getAttribute("src")).toBe("https://sandbox-8081.preview.omgs.app");
+  // The signed Expo host: the owner URL needs a cookie an embedded frame does not get.
+  expect(frame.getAttribute("src")).toBe("https://cap-token.preview.omgs.app");
   // The page lays out at iPhone size and is scaled into the card.
   expect(frame.style.width).toBe("390px");
   expect(frame.style.height).toBe("844px");
@@ -74,7 +75,7 @@ test("an Expo preview opens on the web level, inline at phone size", async () =>
   expect(document.querySelector('[aria-label="Private to you. The link is temporary."]')).not.toBeNull();
   const full = document.querySelector('[data-testid="project-preview-fullscreen"]') as HTMLElement;
   ui.flush(() => full.click());
-  expect(document.querySelector('[role="dialog"] iframe')?.getAttribute("src")).toBe("https://sandbox-8081.preview.omgs.app");
+  expect(document.querySelector('[role="dialog"] iframe')?.getAttribute("src")).toBe("https://cap-token.preview.omgs.app");
 });
 
 test("Your phone shows the Expo Go guide with a scannable link", async () => {
@@ -110,7 +111,7 @@ test("the Simulator level appears only when the Computer sends its state", async
   expect(ui.queryAll('[role="tab"]').map((tab) => tab.textContent)).toEqual(["Web", "Simulator", "Your phone"]);
   pickLevel("simulator");
   // Not ready yet: the web preview stays in the frame under the status line.
-  expect(document.querySelector('[data-testid="project-preview-simulator-waiting"] iframe')?.getAttribute("src")).toBe("https://sandbox-8081.preview.omgs.app");
+  expect(document.querySelector('[data-testid="project-preview-simulator-waiting"] iframe')?.getAttribute("src")).toBe("https://cap-token.preview.omgs.app");
   expect(ui.text()).toContain("See your app on an iPhone simulator.");
   ui.flush(() => (document.querySelector('[data-testid="project-preview-simulator-start"]') as HTMLElement).click());
   await ui.flushAsync();
