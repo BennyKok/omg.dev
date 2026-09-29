@@ -4,7 +4,7 @@ import { DEFAULT_MAX_BOT_SCHEDULES } from "./settings.ts";
 // Bump whenever an agent-facing omg.dev capability or its operating guidance
 // changes. Managed sessions persist the value they launched with, which lets
 // the UI identify long-lived sessions whose MCP/tool catalog predates a ship.
-export const OMG_CAPABILITY_VERSION = "2026-09-28.1";
+export const OMG_CAPABILITY_VERSION = "2026-09-29.1";
 
 export const OMG_CAPABILITIES = [
   {
@@ -39,7 +39,7 @@ export const OMG_CAPABILITIES = [
     tool: "omg_expose_port",
     useWhen: "A live HTTP development server in an omg.dev Cloud Computer should appear as a preview card.",
     guidance:
-      "For web previews, start one server on 0.0.0.0 and expose its exact port. For Expo Go, choose a free Metro port and call with expoGo:true before Metro starts. In an Expo template project, start Metro with `bash scripts/start-expo-preview.sh <expoGo.proxyUrl> <port>`; elsewhere start Metro with EXPO_PACKAGER_PROXY_URL set to expoGo.proxyUrl. The omg.dev app shows expoGo.url on the preview card, with an Open in Expo Go button and a QR code. So tell the user the preview is ready and to open it from the card below, and do not paste the exps:// URL. Paste expoGo.url only where the user cannot see the card, for example a reply sent with omg_send_to_origin to a messaging channel, or when the user asks for the link. Do not use Expo tunnel, exp.direct, ngrok, or LAN exposure.",
+      "For web previews, start one server on 0.0.0.0 and expose its exact port. For Expo Go, choose a free Metro port and call with expoGo:true before Metro starts. In an Expo template project, start Metro with `bash scripts/start-expo-preview.sh <expoGo.proxyUrl> <port>`; elsewhere start Metro with EXPO_PACKAGER_PROXY_URL set to expoGo.proxyUrl. The omg.dev preview card shows the Expo Web version inline first, and its Your phone tab has the Open in Expo Go button and a QR code for expoGo.url. So tell the user the app is ready in the card below, then mention the Your phone tab, and do not paste the exps:// URL. Paste expoGo.url only where the user cannot see the card, for example a reply sent with omg_send_to_origin to a messaging channel, or when the user asks for the link. Do not use Expo tunnel, exp.direct, ngrok, or LAN exposure.",
   },
   {
     tool: "omg_display_image / omg_display_video / omg_display_file",
@@ -294,7 +294,7 @@ export function withFirstRunEnvelope(prompt: string | undefined, opts: { seesIma
     // Feast design build, deepseek-v4-flash): 31 turns and 5 min of code
     // before the first omg_expose_port, then 2 min of cold Metro bundling,
     // preview at 8 min. The A/B runs that exposed first had the card at 27 s.
-    `- For a phone app, do these steps first, before you write any app code, even when the request includes a design to match: 1. \`omg_create_project\` with \`template: "expo"\`. 2. \`omg_expose_port\` with port 8081 and \`expoGo: true\`. 3. From the project directory run \`bash scripts/start-expo-preview.sh <expoGo.proxyUrl> 8081\` with a 240000 ms shell timeout. 4. Tell the user the preview is ready and to open it from the card below. If the script prints \`WARNING: Expo CLI is not signed in\`, also tell the user that an iPhone needs Expo CLI and Expo Go signed in to the same Expo account, and to tap \"Connect Expo\" on the preview card. Metro reloads on every save, so the phone follows your edits. Then read the omg-app-builder skill in the project and build the screens.`,
+    `- For a phone app, do these steps first, before you write any app code, even when the request includes a design to match: 1. \`omg_create_project\` with \`template: "expo"\`. 2. \`omg_expose_port\` with port 8081 and \`expoGo: true\`. 3. From the project directory run \`bash scripts/start-expo-preview.sh <expoGo.proxyUrl> 8081\` with a 240000 ms shell timeout. 4. Present the web preview first: tell the user the app is ready and the card below shows it running, on any device, with no account. Then mention the phone in one sentence: to try it on their own phone, tap \"Your phone\" on the card. If the script prints \`WARNING: Expo CLI is not signed in\`, add that an iPhone also needs \"Connect Expo\" there; Android does not. Metro reloads on every save, so the preview follows your edits. Then read the omg-app-builder skill in the project and build the screens.`,
     "- Before that first preview: no test suites, no self-test loops, and no reading files one by one to learn the template. One quick check that the page loads is enough.",
     "- After the preview: build in a few larger edits, run one typecheck or build, deploy once with `omg_deploy`, commit, then `omg_ship`.",
     ...(opts.seesImages

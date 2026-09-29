@@ -106,15 +106,17 @@ const expiredTransport: Pick<OmgTransport, "request"> = {
   },
 };
 
+// The runner cannot scroll, so every card must fit on one screen: the short
+// cards come first and the Expo cards, which open expanded, last. The web level has its own harness: project-preview-web-e2e-entry.tsx.
 function App() {
   return <SafeAreaView style={{ flex: 1, backgroundColor: "#141414" }}>
-    <ScrollView contentContainerStyle={{ padding: 24, gap: 24 }}>
+    <ScrollView contentContainerStyle={{ padding: 12, gap: 10 }}>
       <Text style={{ fontSize: 24, color: "#fff" }}>Project preview test</Text>
-      <ProjectPreviewPanel sessionId="11111111-1111-4111-8111-111111111111" email="test@example.com" transport={transport} />
       <ProjectPreviewPanel sessionId="33333333-3333-4333-8333-333333333333" email="test@example.com" transport={stoppedTransport} />
       <ProjectPreviewPanel sessionId="44444444-4444-4444-8444-444444444444" email="test@example.com" transport={expiredTransport} />
-      <ProjectPreviewPanel sessionId="22222222-2222-4222-8222-222222222222" email="test@example.com" transport={expoTransport} />
-      <ProjectPreviewPanel sessionId="55555555-5555-4555-8555-555555555555" email="test@example.com" transport={connectTransport} onOpenComputer={() => {}} />
+      <ProjectPreviewPanel sessionId="11111111-1111-4111-8111-111111111111" email="test@example.com" transport={transport} />
+      <ProjectPreviewPanel sessionId="55555555-5555-4555-8555-555555555555" email="test@example.com" transport={connectTransport} onOpenComputer={() => {}} initialLevel="device" />
+      <ProjectPreviewPanel sessionId="22222222-2222-4222-8222-222222222222" email="test@example.com" transport={expoTransport} initialLevel="device" />
     </ScrollView>
   </SafeAreaView>;
 }

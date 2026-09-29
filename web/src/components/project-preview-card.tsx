@@ -1,11 +1,14 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, ExternalLink, Globe2, Info, RotateCw, Smartphone, X } from "lucide-react";
+import { ChevronDown, ExternalLink, Globe2, Info, Maximize2, MonitorSmartphone, RotateCw, Smartphone, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { renderSVG } from "uqr";
-import { PROJECT_PREVIEW_RESTART_MESSAGE, type ProjectPreviewSnapshot } from "../../../packages/protocol/src/project-preview";
+import {
+  inlinePreviewUrl, PREVIEW_LEVEL_LABEL, PROJECT_PREVIEW_RESTART_MESSAGE, PROJECT_PREVIEW_SIMULATOR_PATH, previewLevels, simulatorStatusText,
+  type PreviewLevel, type ProjectPreviewSnapshot, type SimulatorStream,
+} from "../../../packages/protocol/src/project-preview";
 import { expoConnectActive, expoConnectMessage, type ExpoAccountSnapshot } from "../../../packages/protocol/src/expo-account";
 import { omgFetch } from "../lib/omg-client";
 const Computer = lazy(() => import("../views/computer-page").then(m => ({ default: m.ComputerPage })));
@@ -15,8 +18,12 @@ export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | nu
   const [open, setOpen] = useState(false);
   const [restartAsked, setRestartAsked] = useState(false);
   const phone = usePhone();
-  const [expanded, setExpandedState] = useState(() => readPreviewCardExpanded(!phone));
+  // Open by default on every device: the inline web preview is the first
+  // thing a new Expo app shows. A stored choice still wins.
+  const [expanded, setExpandedState] = useState(() => readPreviewCardExpanded(true));
   const setExpanded = (value: boolean) => { setExpandedState(value); writePreviewCardExpanded(value); };
+  // Web is level 1 and the default for every new preview.
+  const [level, setLevelState] = useState<PreviewLevel>("web");
   const suffix = `?sessionId=${encodeURIComponent(sessionId ?? "")}&user=${encodeURIComponent(user ?? "")}`;
   useEffect(() => {
     if (!sessionId) return;
@@ -29,6 +36,7 @@ export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | nu
       } catch { /* Older Computers do not have live preview cards. */ }
     };
     void refresh();
+    // Only while visible: the simulator provider frees an unwatched simulator.
     const timer = setInterval(() => { if (!document.hidden) void refresh(); }, 3_000);
     return () => { live = false; clearInterval(timer); };
   }, [sessionId, suffix]);
@@ -38,8 +46,16 @@ export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | nu
   // The Computer view closes itself once the sign-in there has worked.
   const signedIn = expo.account?.signedIn === true;
   useEffect(() => { if (signedIn) setShowComputer(false); }, [signedIn]);
-  // A new preview row means the agent restarted it; allow another restart ask.
-  useEffect(() => { setRestartAsked(false); }, [preview?.createdAt]);
+  // A new preview row means the agent restarted it; allow another restart ask
+  // and start again from the web level.
+  useEffect(() => { setRestartAsked(false); setLevelState("web"); }, [preview?.createdAt]);
+  const simulatorAction = async (action: "start" | "stop") => {
+    try {
+      await omgFetch(`${PROJECT_PREVIEW_SIMULATOR_PATH}${suffix}`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }),
+      });
+    } catch { /* The next poll shows the real state. */ }
+  };
   // A preview that has never answered is still starting, not stopped. The
   // first-run Expo task creates its Expo Go link before Metro runs, and
   // "Stopped" there read as broken for minutes.
@@ -47,6 +63,15 @@ export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | nu
   const expoGoUrl = preview.expoGoUrl;
   const stopped = state?.live === false;
   const expired = state?.expired === true;
+  const levels = expoGoUrl ? previewLevels(state ?? {}) : ["web" as const];
+  const current: PreviewLevel = levels.includes(level) ? level : "web";
+  const setLevel = (next: PreviewLevel) => {
+    // Leaving the simulator frees it now instead of after the idle timeout.
+    const sim = state?.simulator?.state;
+    if (current === "simulator" && next !== "simulator" && (sim === "starting" || sim === "ready" || sim === "queued")) void simulatorAction("stop");
+    setLevelState(next);
+    if (!expanded) setExpanded(true);
+  };
   const restart = async () => {
     if (!sessionId || restartAsked) return;
     setRestartAsked(true);
@@ -60,12 +85,16 @@ export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | nu
     } catch { setRestartAsked(false); }
   };
   const openWeb = () => setOpen(true);
-  // Older Computers have no account check, so they keep "Open in Expo Go".
-  const needsConnect = !!expoGoUrl && !stopped && expo.account !== null && !expo.account.signedIn;
+  // Android's Expo Go opens a project with no Expo account. Only an iPhone
+  // needs the Computer signed in first. Older Computers have no account
+  // check, so they keep "Open in Expo Go".
+  const android = isAndroid();
+  const needsConnect = !!expoGoUrl && !stopped && !android && expo.account !== null && !expo.account.signedIn;
   const connecting = expoConnectActive(expo.account?.connect);
   const connect = async () => { if (await expo.connect()) setShowComputer(true); };
+  const deviceAction = current === "device" && expoGoUrl && phone && !stopped;
   return <>
-    <div className="mb-2 rounded-xl border bg-card text-sm" role="status" data-testid="project-preview-card" data-expanded={expanded && !stopped ? "true" : "false"}>
+    <div className="mb-2 rounded-xl border bg-card text-sm" role="status" data-testid="project-preview-card" data-expanded={expanded && !stopped ? "true" : "false"} data-level={current}>
       <div className="flex min-h-11 items-center gap-2 py-1 pl-2 pr-1.5">
         {/* The whole left side toggles the details, so the chevron is not a
             second tiny target on a phone. A web-only preview has no details. */}
@@ -81,9 +110,6 @@ export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | nu
             {expoGoUrl ? <Smartphone className="size-4" /> : <Globe2 className="size-4" />}
           </span>
           <span className="min-w-0 truncate font-medium">{preview.title}</span>
-          {/* On a narrow phone the main action already says "Expo Go", and the
-              chip left the title about 60px. It shows where there is room. */}
-          {expoGoUrl && !stopped ? <Badge variant="outline" className={cn("shrink-0", phone && "max-[479px]:hidden")}>Expo Go</Badge> : null}
           {stopped || !expoGoUrl
             ? <span className="shrink-0 text-xs text-muted-foreground">{expired ? "Link expired" : stopped ? "Stopped" : "Live preview"}</span>
             : null}
@@ -91,18 +117,16 @@ export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | nu
             ? <ChevronDown className={cn("ml-auto size-4 shrink-0 text-muted-foreground transition-transform duration-200", expanded && "rotate-180")} aria-hidden />
             : null}
         </button>
-        {stopped ? null : expoGoUrl && phone && needsConnect
+        {/* Expanded, the level itself holds its action. The one-line card
+            keeps the action of the level it shows. */}
+        {stopped ? null : expoGoUrl && expanded
+          ? current === "web" ? <Button size="icon-sm" variant="ghost" onClick={openWeb} aria-label="Full screen web preview" title="Full screen" data-testid="project-preview-fullscreen"><Maximize2 className="size-4" /></Button> : null
+          : deviceAction && needsConnect
           ? <Button size="sm" disabled={connecting} onClick={() => void connect()} data-testid="project-preview-connect-expo">Connect Expo</Button>
-          // TODO(expo-go-58): add expo_go_prompt_device_auth=1 to this link when
-          // Expo Go 58 ships, so the phone signs in to the same account.
-          : expoGoUrl && phone
+          : deviceAction
           ? <Button size="sm" render={<a href={expoGoUrl} />} nativeButton={false} data-testid="project-preview-expo-go">Open in Expo Go</Button>
           : <Button size="sm" onClick={openWeb}>{expoGoUrl ? "Open web preview" : "Open preview"}</Button>}
       </div>
-      {expoGoUrl && !stopped && expo.account
-        ? <ExpoAccountRow account={expo.account} phone={phone} error={expo.error}
-            onConnect={() => void connect()} onOpenComputer={() => setShowComputer(true)} onCancel={() => void expo.cancel()} />
-        : null}
       {stopped ? <div className="space-y-2 border-t px-3 py-2.5" data-testid="project-preview-stopped">
         <p className="text-xs text-muted-foreground">{expired
           ? "The Expo Go link expired. Restart the preview to get a new one."
@@ -110,12 +134,18 @@ export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | nu
         <button className="inline-flex items-center gap-1.5 font-medium text-primary disabled:text-muted-foreground" disabled={restartAsked} onClick={() => void restart()}>
           <RotateCw className="size-3.5" />{restartAsked ? "Asked the agent to restart it" : "Restart preview"}
         </button>
-      </div> : expoGoUrl && expanded ? <div className="border-t px-3 pb-3" data-testid="project-preview-details">
-        <ExpoGoGuide url={expoGoUrl} phone={phone} />
-        <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-          {phone ? <><button className="font-medium text-primary" onClick={openWeb}>Web preview</button><span aria-hidden>·</span></> : null}
-          <a className="inline-flex items-center gap-1" href={preview.url} target="_blank" rel="noreferrer" aria-label="Open preview in new tab">New tab <ExternalLink className="size-3" aria-hidden /></a>
-          <span className="ml-auto inline-flex" title="Private to you. The link is temporary." aria-label="Private to you. The link is temporary." role="img"><Info className="size-3.5" aria-hidden /></span>
+      </div> : expoGoUrl && expanded ? <div className="border-t px-3 pb-2" data-testid="project-preview-details">
+        {current === "web"
+          ? <PhoneFrame src={inlinePreviewUrl(preview)} title={`${preview.title} web preview`} testId="project-preview-web" />
+          : current === "simulator" && state?.simulator
+          ? <SimulatorLevel stream={state.simulator} webUrl={inlinePreviewUrl(preview)} title={preview.title} onStart={() => void simulatorAction("start")} />
+          : <DeviceLevel url={expoGoUrl} phone={phone} android={android} account={expo.account} error={expo.error} connecting={connecting}
+              onConnect={() => void connect()} onOpenComputer={() => setShowComputer(true)} onCancel={() => void expo.cancel()} />}
+        {/* The level switcher sits under the preview, with the two small links. */}
+        <div className="mt-2 flex items-center gap-2">
+          <LevelSwitcher levels={levels} value={current} onChange={setLevel} />
+          <a className="ml-auto inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted" href={preview.url} target="_blank" rel="noreferrer" aria-label="Open preview in new tab" title="New tab"><ExternalLink className="size-4" aria-hidden /></a>
+          <InfoTip text={current === "device" ? DEVICE_INFO : "Private to you. The link is temporary."} store={current === "device" ? expoGoStore() : null} />
         </div>
       </div> : null}
     </div>
@@ -130,11 +160,157 @@ export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | nu
           <a className="text-muted-foreground" href={preview.url} target="_blank" rel="noreferrer" aria-label="Open preview in new tab"><ExternalLink className="size-4" /></a>
           <button className="text-muted-foreground" onClick={() => setOpen(false)} aria-label="Close preview"><X className="size-5" /></button>
         </div>
-        <iframe className="min-h-0 flex-1 border-0" src={preview.url} title={preview.title} sandbox="allow-downloads allow-forms allow-modals allow-popups allow-same-origin allow-scripts" />
+        <iframe className="min-h-0 flex-1 border-0" src={inlinePreviewUrl(preview)} title={preview.title} sandbox={FRAME_SANDBOX} />
       </div>,
       document.body,
     )}
   </>;
+}
+
+const FRAME_SANDBOX = "allow-downloads allow-forms allow-modals allow-popups allow-same-origin allow-scripts";
+/** The phone the inline frame imitates: an iPhone 15 in CSS pixels. */
+const PHONE_W = 390;
+const PHONE_H = 844;
+
+/**
+ * Web | Simulator | Your phone. A future "Install" level (a signed build on
+ * the user's own device) is one more entry after "device".
+ */
+function LevelSwitcher({ levels, value, onChange }: { levels: PreviewLevel[]; value: PreviewLevel; onChange(level: PreviewLevel): void }) {
+  return <div className="flex rounded-lg bg-muted p-0.5" role="tablist" aria-label="Preview level" data-testid="project-preview-levels">
+    {levels.map((level) => {
+      const Icon = LEVEL_ICON[level];
+      return <button
+        key={level}
+        type="button"
+        role="tab"
+        aria-selected={value === level}
+        aria-label={PREVIEW_LEVEL_LABEL[level]}
+        title={PREVIEW_LEVEL_LABEL[level]}
+        data-testid={`project-preview-level-${level}`}
+        className={cn("flex h-7 w-10 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50",
+          value === level && "bg-background text-foreground shadow-sm")}
+        onClick={() => onChange(level)}
+      ><Icon className="size-4" aria-hidden /></button>;
+    })}
+  </div>;
+}
+
+/** Web | Simulator | Your phone. A future "Install" level adds one icon here. */
+const LEVEL_ICON: Record<PreviewLevel, typeof Globe2> = { web: Globe2, simulator: MonitorSmartphone, device: Smartphone };
+
+const DEVICE_INFO = "An iPhone opens the app only when Expo Go and the Computer use the same Expo account. Android needs no account.";
+
+/** Long explanations live behind a small icon: a tooltip on hover, a line on tap. */
+function InfoTip({ text, store }: { text: string; store: { url: string; name: string } | null }) {
+  const [shown, setShown] = useState(false);
+  return <span className="relative inline-flex">
+    <button type="button" className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"
+      aria-label={text} aria-expanded={shown} title={text} onClick={() => setShown(!shown)} data-testid="project-preview-info">
+      <Info className="size-4" aria-hidden />
+    </button>
+    {shown ? <span className="absolute bottom-9 right-0 z-10 w-60 rounded-lg border bg-popover p-2.5 text-xs text-popover-foreground shadow-md" role="note">
+      {text}
+      {store ? <> Get Expo Go on <a className="font-medium text-primary" href={store.url} target="_blank" rel="noreferrer">{store.name}</a>.</> : null}
+    </span> : null}
+  </span>;
+}
+
+/**
+ * Level 3, Expo Go on the person's own phone. A computer gets the QR code, a
+ * phone gets one button. One short line at most; the rules are in the info tip.
+ */
+function DeviceLevel({ url, phone, android, account, error, connecting, onConnect, onOpenComputer, onCancel }: {
+  url: string; phone: boolean; android: boolean; account: ExpoAccountSnapshot | null; error: string | null; connecting: boolean;
+  onConnect(): void; onOpenComputer(): void; onCancel(): void;
+}) {
+  // Android's Expo Go and older Computers (no account check) need no sign-in.
+  const signedOut = !android && account !== null && !account.signedIn;
+  const status = account?.connect;
+  const action = connecting && status
+    ? <div className="flex flex-col items-center gap-1" data-testid="project-preview-expo-connecting">
+        <Button size="sm" onClick={onOpenComputer}>Open Computer</Button>
+        <span className="text-xs text-muted-foreground">{expoConnectMessage(status)}{" "}
+          {status.state === "waiting" ? <button className="font-medium text-foreground underline-offset-2 hover:underline" onClick={onCancel}>Cancel</button> : null}
+        </span>
+      </div>
+    : signedOut
+    ? <div className="flex flex-col items-center gap-1" data-testid="project-preview-expo-signed-out">
+        <Button size="sm" onClick={onConnect} data-testid="project-preview-connect-expo">Connect Expo</Button>
+        <span className="text-xs text-muted-foreground">{status?.state === "failed" || status?.state === "cancelled" ? expoConnectMessage(status) : "Sign in to preview on your iPhone"}</span>
+      </div>
+    : <div className="flex flex-col items-center gap-1">
+        {phone
+          // TODO(expo-go-58): add expo_go_prompt_device_auth=1 to this link when
+          // Expo Go 58 ships, so the phone signs in to the same account.
+          ? <Button size="sm" render={<a href={url} />} nativeButton={false} data-testid="project-preview-expo-go"><Smartphone className="size-4" aria-hidden />Open in Expo Go</Button>
+          : <span className="text-xs font-medium">Scan with Expo Go</span>}
+        {account?.signedIn && !android
+          ? <span className="text-xs text-muted-foreground" data-testid="project-preview-expo-account">as <span className="font-medium text-foreground">{account.username}</span></span>
+          : null}
+      </div>;
+  const qr = phone ? null : `data:image/svg+xml;utf8,${encodeURIComponent(renderSVG(url, { border: 1 }))}`;
+  return <div className="mt-2.5 flex items-center justify-center gap-4 py-2" data-testid="project-preview-device">
+    {qr ? <img className="size-24 shrink-0 rounded-md bg-white p-1" src={qr} alt="QR code that opens this app in Expo Go" data-testid="expo-go-guide" /> : null}
+    <div className="flex flex-col items-center gap-1">
+      {action}
+      {error ? <p className="text-xs text-destructive" role="alert">{error}</p> : null}
+    </div>
+  </div>;
+}
+
+/**
+ * A page at phone size: the frame is 390x844 CSS pixels, so the app lays out
+ * as on an iPhone, then scaled to fit the height the composer dock allows.
+ */
+function PhoneFrame({ src, title, testId, allow, children }: { src: string; title: string; testId: string; allow?: string; children?: React.ReactNode }) {
+  const box = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(0.55);
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const fit = () => { if (el.clientHeight > 0) setScale(el.clientHeight / PHONE_H); };
+    fit();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(fit);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  return <div ref={box} data-testid={testId}
+    className="relative mx-auto mt-2.5 overflow-hidden rounded-[22px] border-[3px] border-foreground/85 bg-background"
+    style={{ height: "min(560px, 52dvh)", aspectRatio: `${PHONE_W} / ${PHONE_H}` }}>
+    <iframe src={src} title={title} sandbox={FRAME_SANDBOX} allow={allow}
+      className="absolute left-0 top-0 origin-top-left border-0"
+      style={{ width: PHONE_W, height: PHONE_H, transform: `scale(${scale})` }} />
+    {children}
+  </div>;
+}
+
+/**
+ * Level 2. Until the stream is ready the web preview stays in the frame under
+ * a status line, so the wait never shows a blank phone.
+ */
+function SimulatorLevel({ stream, webUrl, title, onStart }: { stream: SimulatorStream; webUrl: string; title: string; onStart(): void }) {
+  const status = simulatorStatusText(stream);
+  if (!status && stream.streamUrl) {
+    // Keyed by streamId: a rotated token in streamUrl must not reload the frame.
+    return <PhoneFrame key={stream.streamId ?? stream.streamUrl} src={stream.streamUrl} title={`${title} on the iPhone simulator`}
+      testId="project-preview-simulator" allow="autoplay; clipboard-read; clipboard-write" />;
+  }
+  const canStart = stream.state === "idle" || stream.state === "error";
+  return <PhoneFrame src={webUrl} title={`${title} web preview`} testId="project-preview-simulator-waiting">
+    <div className="absolute inset-x-0 bottom-0 space-y-2 bg-background/95 p-3 text-xs" data-testid="project-preview-simulator-status">
+      <p className="text-muted-foreground">{status}</p>
+      {stream.state === "starting" && typeof stream.progress === "number"
+        ? <div className="h-1 overflow-hidden rounded bg-muted"><div className="h-full bg-primary" style={{ width: `${Math.round(Math.min(1, Math.max(0, stream.progress)) * 100)}%` }} /></div>
+        : null}
+      {canStart ? <Button size="sm" className="w-full" onClick={onStart} data-testid="project-preview-simulator-start">{stream.state === "error" ? "Try again" : "Start simulator"}</Button> : null}
+    </div>
+  </PhoneFrame>;
+}
+
+function isAndroid(): boolean {
+  try { return /android/i.test(navigator.userAgent); } catch { return false; }
 }
 
 /**
@@ -181,28 +357,6 @@ function expoGoStore(): { url: string; name: string } {
 }
 
 /**
- * A phone cannot scan its own screen, so a phone gets only the store line.
- * "Open in Expo Go" in the header is its main path. A computer gets the QR.
- */
-function ExpoGoGuide({ url, phone }: { url: string; phone: boolean }) {
-  const store = expoGoStore();
-  if (phone) {
-    return <p className="mt-3 text-xs text-muted-foreground" data-testid="expo-go-guide">
-      Need Expo Go? Get it on{" "}
-      <a className="font-medium text-primary" href={store.url} target="_blank" rel="noreferrer">{store.name}</a>
-    </p>;
-  }
-  const qr = `data:image/svg+xml;utf8,${encodeURIComponent(renderSVG(url, { border: 1 }))}`;
-  return <div className="mt-3 flex items-center gap-3" data-testid="expo-go-guide">
-    <img className="size-24 shrink-0 rounded-md bg-white p-1" src={qr} alt="QR code that opens this app in Expo Go" />
-    <p className="min-w-0 flex-1 text-xs text-muted-foreground">
-      Scan with your phone camera to open in{" "}
-      <a className="font-medium text-primary" href={store.url} target="_blank" rel="noreferrer">Expo Go</a>.
-    </p>
-  </div>;
-}
-
-/**
  * The Computer's Expo CLI account. Expo Go on an iPhone opens a project only
  * when this account is signed in and Expo Go uses the same one. `account` is
  * null on a Computer without the check, and the card then behaves as before.
@@ -238,32 +392,4 @@ function useExpoAccount(sessionId: string | null, suffix: string) {
     }
   };
   return { account, error, connect: () => post("connect"), cancel: () => post("cancel") };
-}
-
-function ExpoAccountRow({ account, phone, error, onConnect, onOpenComputer, onCancel }: {
-  account: ExpoAccountSnapshot; phone: boolean; error: string | null;
-  onConnect(): void; onOpenComputer(): void; onCancel(): void;
-}) {
-  const status = account.connect;
-  if (account.signedIn) {
-    return <p className="border-t px-3 py-2 text-xs text-muted-foreground" data-testid="project-preview-expo-account">
-      Sign in to Expo Go as <span className="font-medium text-foreground">{account.username}</span>.
-    </p>;
-  }
-  if (status && expoConnectActive(status)) {
-    return <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t px-3 py-2 text-xs" data-testid="project-preview-expo-connecting">
-      <span className="text-muted-foreground">{expoConnectMessage(status)}</span>
-      <button className="font-medium text-primary" onClick={onOpenComputer}>Open Computer</button>
-      {status.state === "waiting" ? <button className="text-muted-foreground" onClick={onCancel}>Cancel</button> : null}
-    </div>;
-  }
-  return <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t px-3 py-2 text-xs" data-testid="project-preview-expo-signed-out">
-    <span className="min-w-0 flex-1 text-muted-foreground">
-      {status?.state === "failed" || status?.state === "cancelled" ? `${expoConnectMessage(status)} ` : ""}
-      iPhone needs Expo signed in on the Computer.
-    </span>
-    {/* On a phone the header button is "Connect Expo". */}
-    {phone ? null : <Button size="sm" variant="outline" onClick={onConnect} data-testid="project-preview-connect-expo">Connect Expo</Button>}
-    {error ? <p className="w-full text-destructive" role="alert">{error}</p> : null}
-  </div>;
 }
