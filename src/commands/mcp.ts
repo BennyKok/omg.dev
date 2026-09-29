@@ -935,12 +935,17 @@ export function buildOmgMcpServer(): McpServer {
     {
       title: "Display Image In omg.dev",
       description:
-        "Display a local image file, such as a screenshot captured while testing, in the omg.dev session transcript.",
+        "Display a local image file, such as a screenshot captured while testing, in the omg.dev session transcript. This call is the only way an image reaches the user: a markdown image link or a file path in your reply does not render. Call it once per image before your reply refers to the image. Do not run it in parallel with a long command; the image appears only when the call finishes. Leave sessionId unset so the image shows in your own session.",
       inputSchema: {
         path: z.string().min(1).describe("Absolute path to a png, jpg, jpeg, webp, or gif image on this machine."),
         caption: z.string().optional().describe("Short caption shown under the image."),
         alt: z.string().optional().describe("Short alt text for the image."),
-        sessionId: z.string().optional().describe("Target omg.dev session id. Defaults to OMG_SESSION_ID."),
+        sessionId: z
+          .string()
+          .optional()
+          .describe(
+            "Target omg.dev session id. Defaults to OMG_SESSION_ID. Set it only when the user asked for the image in another session; the image then does not show in your own session.",
+          ),
       },
     },
     async ({ path, caption, alt, sessionId }) => {
