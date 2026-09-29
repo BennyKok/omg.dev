@@ -46,10 +46,31 @@ export function sanitizeSessionLabel(title: string): string {
   return title.replace(/[[\]()\r\n]/g, " ").replace(/\s+/g, " ").trim();
 }
 
-export function formatSessionMentionToken(sessionId: string, title: string): string {
+export function formatSessionMentionToken(sessionId: string, title: string, kind: "session" | "thread" = "session"): string {
+  if (kind === "thread") return formatThreadMentionToken(sessionId, title);
   const ref = shortSessionRef(sessionId);
   const label = sanitizeSessionLabel(title) || ref;
   return `[#${label}](omg:session_${ref})`;
+}
+
+// ---- Threads ---------------------------------------------------------------
+//
+// A thread is referenced the same way, `[#Thread title](omg:thread_<id>)`, so
+// the `#` picker can offer both. The id is the full one: a thread link is
+// opened by a client, which has no prefix lookup for threads, and an agent
+// passes it to the thread tools as written (they accept a prefix too).
+
+const THREAD_ID = "[0-9a-fA-F-]{8,36}";
+
+export function formatThreadMentionToken(threadId: string, title: string): string {
+  const label = sanitizeSessionLabel(title) || threadId.slice(0, SHORT_LEN);
+  return `[#${label}](omg:thread_${threadId})`;
+}
+
+/** The thread id inside an `omg:thread_` link, or null for any other href. */
+export function threadRefFromHref(href: string): string | null {
+  const match = href.match(new RegExp(`^omg:thread_(${THREAD_ID})$`));
+  return match ? match[1] : null;
 }
 
 /** The short ref inside an `omg:session_` link, or null for any other href. */

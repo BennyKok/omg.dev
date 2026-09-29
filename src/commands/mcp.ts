@@ -732,6 +732,101 @@ export function buildOmgMcpServer(): McpServer {
     },
   );
 
+  // ---- Threads: people-first team chat (src/threads.ts) ----
+  type ThreadRow = { id: string; title: string; updatedAt: number; project?: { name: string } | null; lastMessage?: { author: { kind: string; name?: string }; text: string } | null };
+  const resolveThread = async (ref: string): Promise<string> => {
+    const id = ref.trim().replace(/^omg:thread_/, "").toLowerCase();
+    const threads = (await api<{ threads?: ThreadRow[] }>("/api/threads")).threads ?? [];
+    const matches = threads.filter((row) => row.id.toLowerCase().startsWith(id));
+    if (!id || matches.length === 0) throw new Error(`no thread matches "${ref}"; list them with omg_list_threads`);
+    if (matches.length > 1) throw new Error(`"${ref}" matches ${matches.length} threads; use more of the id`);
+    return matches[0].id;
+  };
+  const short = (id: string | null | undefined) => (id ? id.slice(0, 8) : null);
+
+  server.registerTool(
+    "omg_list_threads",
+    {
+      title: "List omg.dev Threads",
+      description:
+        "List the team chat threads on this machine, newest first: id, title, project and the last message. A person references one as [#Title](omg:thread_<id>).",
+      inputSchema: {},
+    },
+    async () => {
+      const threads = (await api<{ threads?: ThreadRow[] }>("/api/threads")).threads ?? [];
+      return result({
+        threads: threads.map((row) => ({
+          id: row.id,
+          title: row.title,
+          project: row.project?.name ?? null,
+          updatedAt: new Date(row.updatedAt).toISOString(),
+          last: row.lastMessage
+            ? `${row.lastMessage.author.kind === "omg" ? "omg" : row.lastMessage.author.name}: ${row.lastMessage.text.slice(0, 200)}`
+            : null,
+        })),
+      });
+    },
+  );
+
+  server.registerTool(
+    "omg_read_thread",
+    {
+      title: "Read an omg.dev Thread",
+      description:
+        "Read a team chat thread: its people and its messages, oldest first. A reply carries replyTo, the id of the message it answers.",
+      inputSchema: {
+        threadId: z.string().min(1).describe("Thread id, an unambiguous prefix, or an omg:thread_<id> link."),
+        limit: z.number().int().min(1).max(500).optional().describe("How many recent messages. Default 100."),
+      },
+    },
+    async ({ threadId, limit }) => {
+      const id = await resolveThread(threadId);
+      const data = await api<{
+        thread: ThreadRow;
+        participants?: { id: string; kind: string; display: { name?: string | null; fallback: string } }[];
+        messages?: { id: string; ts: number; author: { kind: string; name?: string }; text: string; replyTo?: string | null; media?: { kind: string; name?: string | null }[]; task?: { sessionId: string; event: string } }[];
+      }>(`/api/threads/${id}?limit=${limit ?? 100}`);
+      return result({
+        id,
+        title: data.thread.title,
+        people: (data.participants ?? []).filter((row) => row.kind === "human").map((row) => row.display.name || row.display.fallback),
+        messages: (data.messages ?? []).map((row) => ({
+          id: short(row.id),
+          at: new Date(row.ts).toISOString(),
+          from: row.author.kind === "omg" ? "omg" : row.author.name,
+          text: row.text,
+          ...(row.replyTo ? { replyTo: short(row.replyTo) } : {}),
+          ...(row.media?.length ? { media: row.media.map((m) => `${m.kind}${m.name ? `: ${m.name}` : ""}`) } : {}),
+          ...(row.task ? { task: `${row.task.event} ${short(row.task.sessionId)}` } : {}),
+        })),
+      });
+    },
+  );
+
+  server.registerTool(
+    "omg_send_thread_message",
+    {
+      title: "Send a Message to an omg.dev Thread",
+      description:
+        "Post a message to a team chat thread as omg: in the thread, or in the replies of one message (replyTo). Everyone in the thread is notified. Attach local pictures, videos or files with mediaPaths. Write like a teammate in a chat: short and plain.",
+      inputSchema: {
+        threadId: z.string().min(1).describe("Thread id, an unambiguous prefix, or an omg:thread_<id> link."),
+        text: z.string().optional().describe("The message, markdown allowed."),
+        replyTo: z.string().optional().describe("Id (or its 8-char prefix from omg_read_thread) of a top-level message, to post in its replies."),
+        mediaPaths: z.array(z.string()).max(10).optional().describe("Absolute paths of pictures, videos or files to attach."),
+      },
+    },
+    async ({ threadId, text, replyTo, mediaPaths }) => {
+      const id = await resolveThread(threadId);
+      const data = await api<{ message: { id: string; replyTo?: string | null } }>(`/api/threads/${id}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: text ?? "", ...(replyTo ? { replyTo } : {}), ...(mediaPaths?.length ? { mediaPaths } : {}) }),
+      });
+      return result({ ok: true, threadId: id, messageId: short(data.message.id), replyTo: short(data.message.replyTo) });
+    },
+  );
+
   server.registerTool(
     "omg_close_session",
     {

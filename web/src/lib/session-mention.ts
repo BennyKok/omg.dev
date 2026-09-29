@@ -14,6 +14,8 @@
 import { formatSessionMentionToken } from "@omg-dev/protocol";
 
 export type MentionableSession = {
+  /** "thread" for a team chat thread offered by the same picker; sessionId is then the thread id. */
+  kind?: "session" | "thread";
   sessionId: string;
   title: string;
   cwd: string | null;
@@ -73,15 +75,15 @@ export function sessionMentionUrl(query: string, scope: SessionMentionScope | un
   return `/api/sessions/mentionable${qs ? `?${qs}` : ""}`;
 }
 
-export function formatSessionMention(session: Pick<MentionableSession, "sessionId" | "title">): string {
-  return `${formatSessionMentionToken(session.sessionId, session.title)} `;
+export function formatSessionMention(session: Pick<MentionableSession, "sessionId" | "title" | "kind">): string {
+  return `${formatSessionMentionToken(session.sessionId, session.title, session.kind)} `;
 }
 
 /** Replace the active trigger with the reference. Returns new value and caret. */
 export function applySessionMention(
   value: string,
   active: SessionMentionState,
-  session: Pick<MentionableSession, "sessionId" | "title">,
+  session: Pick<MentionableSession, "sessionId" | "title" | "kind">,
 ): { value: string; cursor: number } {
   const replacement = formatSessionMention(session);
   return {

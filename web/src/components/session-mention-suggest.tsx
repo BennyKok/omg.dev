@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { MessageSquare } from "lucide-react";
 import { cn } from "../lib/utils";
 import {
   sessionFolderName,
@@ -65,20 +66,26 @@ export function SessionMentionSuggest({
                 idx === selected ? "bg-accent text-accent-foreground" : "hover:bg-accent/70",
               )}
             >
-              <span
-                aria-hidden
-                className={cn(
-                  "size-1.5 shrink-0 rounded-full",
-                  session.live ? "bg-emerald-500" : "bg-muted-foreground/40",
-                )}
-              />
+              {session.kind === "thread" ? (
+                <MessageSquare aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+              ) : (
+                <span
+                  aria-hidden
+                  className={cn(
+                    "size-1.5 shrink-0 rounded-full",
+                    session.live ? "bg-emerald-500" : "bg-muted-foreground/40",
+                  )}
+                />
+              )}
               <span className="min-w-0 flex-1">
                 <span className="block truncate font-medium">
                   <span className="font-mono text-primary">#</span>
                   {session.title || session.sessionId.slice(0, 8)}
                 </span>
               </span>
-              {folder ? (
+              {session.kind === "thread" ? (
+                <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">Thread</span>
+              ) : folder ? (
                 <span
                   className={cn(
                     "shrink-0 truncate rounded px-1.5 py-0.5 font-mono text-[11px]",

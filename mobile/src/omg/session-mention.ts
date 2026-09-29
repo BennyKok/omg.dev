@@ -22,6 +22,7 @@ import {
   resolveSessionRefWith,
   sessionHrefFromCodespan,
   sessionRefFromHref,
+  threadRefFromHref,
   type SessionIds,
   type SessionRefClient,
   type SessionRefLabel,
@@ -33,12 +34,15 @@ export {
   resolveSessionRefWith,
   sessionHrefFromCodespan,
   sessionRefFromHref,
+  threadRefFromHref,
   type SessionIds,
   type SessionRefClient,
   type SessionRefLabel,
 };
 
 export type MentionableSession = {
+  /** "thread" for a team chat thread offered by the same picker; sessionId is then the thread id. */
+  kind?: "session" | "thread";
   sessionId: string;
   title: string;
   cwd: string | null;
@@ -101,9 +105,9 @@ export function fetchMentionableSessions(
 export function applySessionMention(
   value: string,
   active: SessionMentionState,
-  session: Pick<MentionableSession, "sessionId" | "title">,
+  session: Pick<MentionableSession, "sessionId" | "title" | "kind">,
 ): string {
-  const token = formatSessionMentionToken(session.sessionId, session.title);
+  const token = formatSessionMentionToken(session.sessionId, session.title, session.kind);
   return `${value.slice(0, active.start)}${token} ${value.slice(active.end)}`;
 }
 

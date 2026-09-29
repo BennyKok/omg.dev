@@ -16,9 +16,10 @@ import { defaultRehypePlugins, Streamdown } from "streamdown";
 import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
 
-import { sessionHrefFromCodespan, sessionRefFromHref } from "@omg-dev/protocol";
+import { sessionHrefFromCodespan, sessionRefFromHref, threadRefFromHref } from "@omg-dev/protocol";
+import { MessageSquare } from "lucide-react";
 
-import { openSessionRef, useSessionRefLabel } from "@/lib/session-ref-link";
+import { openSessionRef, openThreadRef, useSessionRefLabel } from "@/lib/session-ref-link";
 import { agentIconAlt, agentIconSrc } from "@/lib/session-ui";
 import { cn } from "@/lib/utils";
 
@@ -202,6 +203,26 @@ function SessionAwareInlineCode({ children, className, node: _node, ...props }: 
   return <SessionRefChip href={sessionHref} fallback={code} />;
 }
 
+/** A `[#Title](omg:thread_<id>)` reference: a chip like a session's, that opens the thread. */
+function ThreadRefChip({ href, children }: { href: string; children: ReactNode }) {
+  const label = textOf(children)?.replace(/^#/, "").trim() || "Thread";
+  return (
+    <button
+      type="button"
+      data-thread-ref={threadRefFromHref(href) ?? undefined}
+      onClick={(event) => {
+        event.preventDefault();
+        openThreadRef(href);
+      }}
+      className="mx-0.5 inline-flex max-w-full cursor-pointer items-center gap-1 rounded-md border border-border bg-muted/60 px-1.5 py-px align-baseline text-[0.9em] font-medium leading-snug text-foreground no-underline transition-colors hover:bg-muted"
+    >
+      <MessageSquare aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
+      <span aria-hidden="true" className="text-muted-foreground">#</span>
+      <span className="truncate">{label}</span>
+    </button>
+  );
+}
+
 /** The default markdown link: exported so a surface that adds its own link kinds can fall back to it. */
 export function CopyableMarkdownLink({ children, className, href, node: _node, ...props }: AnchorProps) {
   const [copied, setCopied] = useState(false);
@@ -227,6 +248,7 @@ export function CopyableMarkdownLink({ children, className, href, node: _node, .
       <SessionRefChip href={href} title={textOf(children)?.replace(/^#/, "").trim() || null} fallback={children} />
     );
   }
+  if (canCopy && threadRefFromHref(href)) return <ThreadRefChip href={href}>{children}</ThreadRefChip>;
   if (canCopy && /^omg:/i.test(href)) return <span className={className}>{children}</span>;
 
   if (!canCopy) {

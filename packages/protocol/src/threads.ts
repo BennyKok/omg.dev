@@ -30,6 +30,8 @@ export type ThreadMessage = {
   replyTo?: string | null;
   /** Pictures, videos and files, drawn under the text as the session chat draws them. */
   media?: ThreadMedia[];
+  /** An agent session that posted this as omg (omg_send_thread_message). */
+  via?: { sessionId: string; title?: string | null };
   /** Client only: sent, not yet stored. */
   pending?: boolean;
 };

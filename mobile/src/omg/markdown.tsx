@@ -46,7 +46,8 @@ import Reanimated, {
 import { IconButton, withAlpha } from "../components";
 import { mentionFromHref } from "../../../packages/protocol/src/threads";
 import { agentIcon } from "./agent-icons";
-import { sessionHrefFromCodespan, sessionRefFromHref } from "./session-mention";
+import { sessionHrefFromCodespan, sessionRefFromHref, threadRefFromHref } from "./session-mention";
+import { router } from "expo-router";
 import { openSessionRef, useSessionRefLabel } from "./session-ref-link";
 import { Text } from "./text";
 import { useTheme } from "./theme";
@@ -630,6 +631,24 @@ function Inline({ tokens }: { tokens?: Token[] }) {
                   style={{ color: colors.primary, backgroundColor: withAlpha(colors.primary, 0.14), fontWeight: "600" }}
                 >
                   {t.text}
+                </Text>
+              );
+            }
+            const threadId = threadRefFromHref(t.href);
+            if (threadId) {
+              // A `#Thread` reference: the same tag as a session's, and it opens the thread.
+              return (
+                <Text
+                  key={i}
+                  accessibilityRole="link"
+                  onPress={() => {
+                    void Haptics.selectionAsync();
+                    router.push(`/thread/${threadId}`);
+                  }}
+                  suppressHighlighting={false}
+                  style={{ backgroundColor: colors.codeBg, color: colors.text, fontWeight: "600" }}
+                >
+                  {t.text.startsWith("#") ? t.text : `#${t.text}`}
                 </Text>
               );
             }

@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PATHS } from "./config.ts";
+import { formatSessionMentionToken, threadRefFromHref } from "../packages/protocol/src/session-mention-token.ts";
 import { createImageArtifact } from "./artifacts.ts";
 import { uploadsDir } from "./uploads.ts";
 import { linkMentions, mentionAgents, mentionedAgent, mentionFromHref, threadMentionOptions, plainText, threadPreview, typingIn, typingLabel, typingPinger } from "../packages/protocol/src/threads.ts";
@@ -11,7 +12,9 @@ import {
   answerMention,
   appendThreadMessage,
   bridgeTaskCompletion,
+  keepSessionFile,
   keepThreadUpload,
+  resolveThreadRef,
   listThreads,
   mentionsOmg,
   omgWake,
@@ -674,5 +677,27 @@ describe("omg and its tasks talk like teammates", () => {
     const posted = await answerMention(thread.id, "@omg shorter", "benny@example.com", relay, "root-a");
     expect(started?.task?.event).toBe("started");
     expect(posted?.text).toBe("On it, shorter from here.");
+  });
+});
+
+describe("a thread can be referenced, and an agent can post to it", () => {
+  test("the # reference names the thread by its full id, and the tools take any unambiguous prefix", () => {
+    const a = startThread({ identity: "benny@example.com", title: "Superschool" });
+    const token = formatSessionMentionToken(a.id, "Superschool", "thread");
+    expect(token).toBe(`[#Superschool](omg:thread_${a.id})`);
+    expect(threadRefFromHref(`omg:thread_${a.id}`)).toBe(a.id);
+    expect(threadRefFromHref(`omg:session_${a.id.slice(0, 8)}`)).toBeNull();
+    expect(resolveThreadRef(a.id.slice(0, 8))).toBe(a.id);
+    expect(resolveThreadRef(`omg:thread_${a.id}`)).toBe(a.id);
+    expect(resolveThreadRef("ffffffff")).toBeNull();
+  });
+
+  test("a file an agent shows is kept as its session's artifact", async () => {
+    const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+    const image = join(root, "logo.png");
+    writeFileSync(image, PNG);
+    const media = await keepSessionFile("a1b2c3d4-0000-4000-8000-0000000000ee", image);
+    expect(media).toMatchObject({ kind: "image", name: "logo.png", width: 1, height: 1 });
+    expect(media.path).toMatch(/^\/api\/artifacts\//);
   });
 });

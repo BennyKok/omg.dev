@@ -171,6 +171,7 @@ describe("omg.dev runtime capabilities", () => {
       "omg_display_image / omg_display_video / omg_display_file",
       "omg_generate_image / omg_generate_video / omg_media_job / omg_media_models",
       "omg_input",
+      "omg_list_threads / omg_read_thread / omg_send_thread_message",
       "omg_find_sessions",
       "omg_close_session",
       "omg_create_subagent / omg_delegate_*",

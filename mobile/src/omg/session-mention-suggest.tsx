@@ -14,6 +14,7 @@ import Reanimated, { FadeIn, FadeOut } from "react-native-reanimated";
 
 import { GlassSurface } from "./glass";
 import { agentIcon, agentLabel } from "./agent-icons";
+import { SymbolView } from "expo-symbols";
 import { PressableScale } from "./motion";
 import { useOmg } from "./provider";
 import {
@@ -90,7 +91,9 @@ export function SessionMentionSuggest({
                 onPress={() => onChangeText(applySessionMention(value, active, session))}
                 dim={0.6}
                 accessibilityRole="button"
-                accessibilityLabel={`Reference session ${label}, ${agentLabel(session.agent)}`}
+                accessibilityLabel={
+                  session.kind === "thread" ? `Reference thread ${label}` : `Reference session ${label}, ${agentLabel(session.agent)}`
+                }
                 style={{
                   flexDirection: "row",
                   alignItems: "center",
@@ -101,12 +104,19 @@ export function SessionMentionSuggest({
                   backgroundColor: index === 0 ? colors.card : "transparent",
                 }}
               >
-                <Image
-                  source={agentIcon(session.agent)}
-                  style={{ width: 24, height: 24, borderRadius: 12 }}
-                  resizeMode="contain"
-                  accessible={false}
-                />
+                {session.kind === "thread" ? (
+                  <View style={{ width: 24, height: 24, alignItems: "center", justifyContent: "center" }}>
+                    {/* SymbolView, not Icon: components.tsx imports this file. */}
+                    <SymbolView name={{ ios: "bubble.left.and.bubble.right", android: "forum", web: "forum" }} size={16} tintColor={colors.textSecondary} style={{ width: 16, height: 16 }} />
+                  </View>
+                ) : (
+                  <Image
+                    source={agentIcon(session.agent)}
+                    style={{ width: 24, height: 24, borderRadius: 12 }}
+                    resizeMode="contain"
+                    accessible={false}
+                  />
+                )}
                 <View style={{ flex: 1, flexDirection: "row", alignItems: "baseline", minWidth: 0 }}>
                   <Text style={{ ...type.subhead, fontWeight: "600", color: colors.brand }}>#</Text>
                   <Text

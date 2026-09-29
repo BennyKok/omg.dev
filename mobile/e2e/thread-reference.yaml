@@ -1,0 +1,16 @@
+# "#" in the home composer offers threads, and picking one writes a
+# [#Title](omg:thread_<id>) reference an agent can pass to the thread tools.
+#   EXPO_PUBLIC_OMG_DEMO=1 EXPO_PUBLIC_OMG_THREADS_FIXTURE=1 bun run test:e2e --build --flow thread-reference --record
+appId: dev.omg.computer
+onFlowStart:
+  - launchApp
+---
+- tapOn:
+    id: "home-composer-input"
+- inputText: "#Pri"
+- assertVisible: "Reference thread Pricing ideas"
+- takeScreenshot: thread-reference-picker
+- tapOn: "Reference thread Pricing ideas"
+- assertNotVisible: "Reference thread Pricing ideas"
+- assertVisible: ".*omg:thread_0d3a7c1e-0000-4000-8000-00000000abcd.*"
+- takeScreenshot: thread-reference-inserted

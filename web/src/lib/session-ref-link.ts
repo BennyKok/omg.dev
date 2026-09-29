@@ -13,6 +13,7 @@
  */
 import {
   createSessionRefOpener,
+  threadRefFromHref,
   type SessionIds,
   type SessionRefLabel,
   type SessionRefClient,
@@ -23,6 +24,7 @@ import { useCallback, useSyncExternalStore } from "react";
 import { api, omgTransportGeneration } from "./omg-client";
 
 let navigateTo: ((sessionId: string) => void) | null = null;
+let navigateToThread: ((threadId: string) => void) | null = null;
 let peek: () => SessionIds[] | null = () => null;
 let registeredGeneration = -1;
 
@@ -43,8 +45,11 @@ function clientForCurrentTransport(): SessionRefClient {
 export function registerSessionRefHandlers(handlers: {
   navigate: (sessionId: string) => void;
   peekSessions: () => SessionIds[] | null;
+  /** Opens a `[#Title](omg:thread_<id>)` reference. */
+  navigateThread?: (threadId: string) => void;
 } | null): void {
   navigateTo = handlers?.navigate ?? null;
+  navigateToThread = handlers?.navigateThread ?? null;
   peek = handlers?.peekSessions ?? (() => null);
 }
 
@@ -56,6 +61,14 @@ function ensureClient(): void {
     registeredGeneration = generation;
     opener.register(clientForCurrentTransport());
   }
+}
+
+/** True when `href` was a thread reference and has been opened. */
+export function openThreadRef(href: string): boolean {
+  const id = threadRefFromHref(href);
+  if (!id || !navigateToThread) return false;
+  navigateToThread(id);
+  return true;
 }
 
 /** True when `href` was a session reference and has been taken over. */

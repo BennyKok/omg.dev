@@ -546,6 +546,11 @@ function answer(path: string): unknown | null {
   }
   if (clean === "/api/sessions") return { sessions: demoSessions() };
   if (clean === "/api/threads") return { threads: threadFixture ? [demoThreadSummary()] : [] };
+  // `#` offers threads first, as the machine does.
+  if (threadFixture && clean === "/api/sessions/mentionable") {
+    const thread = demoThreadSummary();
+    return { sessions: [{ kind: "thread", sessionId: thread.id, title: thread.title, cwd: null, project: "web", lastUserText: null, lastActivityAt: thread.updatedAt, agent: "thread", live: false, sameFolder: false }] };
+  }
   if (threadFixture && clean === `/api/threads/${DEMO_THREAD}`) return demoThreadDetail();
   if (clean === "/api/ask") return demoAsk();
   if (clean.startsWith("/api/browser-login")) {
