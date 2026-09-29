@@ -37,12 +37,12 @@ describe("sessionMentionUrl", () => {
   it("carries query, folder and the composer's own session", () => {
     expect(
       sessionMentionUrl("login", { cwd: "/home/dev/repos/lfg", sessionId: "abc" }),
-    ).toBe("/api/sessions/mentionable?q=login&cwd=%2Fhome%2Fdev%2Frepos%2Flfg&exclude=abc");
+    ).toBe("/api/sessions/mentionable?q=login&cwd=%2Fhome%2Fdev%2Frepos%2Flfg&exclude=abc&threads=1");
   });
 
-  it("omits empty parts", () => {
-    expect(sessionMentionUrl("", undefined)).toBe("/api/sessions/mentionable");
-    expect(sessionMentionUrl("", { cwd: null, sessionId: null })).toBe("/api/sessions/mentionable");
+  it("omits empty parts, and always asks for threads (this client writes thread links)", () => {
+    expect(sessionMentionUrl("", undefined)).toBe("/api/sessions/mentionable?threads=1");
+    expect(sessionMentionUrl("", { cwd: null, sessionId: null })).toBe("/api/sessions/mentionable?threads=1");
   });
 });
 

@@ -88,6 +88,8 @@ export function sessionMentionPath(query: string, scope: SessionMentionScope | u
   if (scope?.cwd) parts.push(`cwd=${encodeURIComponent(scope.cwd)}`);
   if (scope?.sessionId) parts.push(`exclude=${encodeURIComponent(scope.sessionId)}`);
   parts.push("limit=20");
+  // This app writes thread references, so it asks for threads too.
+  parts.push("threads=1");
   return `/api/sessions/mentionable?${parts.join("&")}`;
 }
 

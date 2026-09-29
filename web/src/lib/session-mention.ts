@@ -71,6 +71,8 @@ export function sessionMentionUrl(query: string, scope: SessionMentionScope | un
   if (query) params.set("q", query);
   if (scope?.cwd) params.set("cwd", scope.cwd);
   if (scope?.sessionId) params.set("exclude", scope.sessionId);
+  // This client writes thread references, so it asks for threads too.
+  params.set("threads", "1");
   const qs = params.toString();
   return `/api/sessions/mentionable${qs ? `?${qs}` : ""}`;
 }
