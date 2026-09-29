@@ -1,5 +1,7 @@
 import { createContext, useContext, useMemo, useRef, useState, useEffect, type ComponentProps, type KeyboardEvent, type ReactNode } from "react";
-import { Archive, ArrowUp, ChevronLeft, Folder, Info, MessageSquare, MoreHorizontal, Paperclip, Pencil, Plus, X } from "lucide-react";
+import { Archive, ArrowUp, ChevronLeft, Folder, Info, MessageSquare, MoreVertical, Paperclip, Pencil, Plus, X } from "lucide-react";
+import type { ConversationParticipant } from "../../../src/conversation-contract";
+import { ConversationParticipantRow } from "./conversation-presence";
 import { MessageResponse } from "./ai-elements/message";
 import { CopyableMarkdownLink } from "./ai-elements/streamdown-response";
 import { AuthenticatedArtifactImage, AuthenticatedArtifactVideo } from "./authenticated-artifact";
@@ -612,29 +614,37 @@ export function ThreadChatView({
 
   const main = (
     <div data-testid="thread-chat" className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col bg-background">
-      {/* The chat page's bar: back, the group, and one ⋯ menu for the rest.
+      {/* The session chat's bar, as a session column draws it: a 28px mark, the
+          title on one line, the people as faces on the right, and one menu.
           The project lives in that menu and in the details, not in the bar. */}
-      <header className="flex items-center gap-2 border-b border-border px-3 py-2">
+      <header className="flex min-h-11 min-w-0 items-center gap-2 border-b border-border px-3 py-1.5">
         {onBack ? (
-          <button type="button" onClick={onBack} aria-label="Back" className="flex size-9 items-center justify-center rounded-full hover:bg-accent">
+          <button
+            type="button"
+            onClick={onBack}
+            aria-label="Back"
+            className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
+          >
             <ChevronLeft className="size-4" />
           </button>
         ) : null}
-        {isNew ? null : <GroupAvatar people={humans} />}
+        {isNew ? null : <GroupAvatar people={humans} size={28} />}
         <button
           type="button"
           data-testid="thread-title"
           disabled={isNew}
           onClick={() => setDetailsOpen(true)}
-          className="min-w-0 flex-1 text-left"
+          title={people.length ? people.join(", ") : undefined}
+          className="flex min-w-0 flex-1 items-center rounded-md text-left outline-none hover:bg-muted/50"
         >
-          <div className="truncate text-[15px] font-semibold">{isNew ? "New thread" : detail?.thread.title ?? "Thread"}</div>
-          {isNew ? null : (
-            <div className="truncate text-[12px] text-muted-foreground">
-              {people.length ? people.join(", ") : "Just you"}
-            </div>
-          )}
+          <span className="truncate text-[15px] font-semibold leading-tight">{isNew ? "New thread" : detail?.thread.title ?? "Thread"}</span>
         </button>
+        {isNew ? null : (
+          <ConversationParticipantRow
+            participants={(detail?.participants ?? []) as ConversationParticipant[]}
+            typingIds={(detail?.typing ?? []).flatMap((row) => (row.author.kind === "human" ? [row.author.participantId] : []))}
+          />
+        )}
         {isNew ? null : (
           <DropdownMenu>
             <DropdownMenuTrigger
@@ -643,9 +653,9 @@ export function ThreadChatView({
                   type="button"
                   data-testid="thread-menu"
                   aria-label="Thread actions"
-                  className="flex size-9 items-center justify-center rounded-full hover:bg-accent"
+                  className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
                 >
-                  <MoreHorizontal className="size-4" />
+                  <MoreVertical className="size-4" />
                 </button>
               }
             />
