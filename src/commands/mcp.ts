@@ -1037,12 +1037,9 @@ export function buildOmgMcpServer(): McpServer {
     return input;
   };
   const MEDIA_COST_NOTE =
-    "Spends the user's omg credits (1 credit = $1). The router quotes the price first; the call is refused above the per-call cap ($1.00 default) or the daily cap ($5.00 default, UTC). The result has costUsd and model: tell the user the model and the price in your reply. With no model the router picks the cheapest curated model for the task (\"auto\"). Any fal (fal-ai/...) or WaveSpeed model id also works and is priced live; find ids with omg_media_models {all:true, q}.";
+    "Spends the user's omg credits (1 credit = $1). The router quotes the price first; the call is refused above the per-call cap ($1.00 default) or the daily cap ($5.00 default, UTC). The result has model and costUsd: tell the user both in your reply.";
   const MEDIA_MODEL_FIELD = z.string().optional().describe(
-    "Omit, or \"auto\", for the cheapest curated model for the task. Or a curated id, or any fal (fal-ai/...) or WaveSpeed model id from omg_media_models {all:true}.",
-  );
-  const MEDIA_PROVIDER_FIELD = z.enum(["fal", "wavespeed"]).optional().describe(
-    "Only for a non-curated id the router cannot place. fal-ai/... ids are fal; other ids default to WaveSpeed.",
+    "Leave out to let the router pick the cheapest suitable model. To choose, pass an id from omg_media_models.",
   );
 
   server.registerTool(
@@ -1050,18 +1047,17 @@ export function buildOmgMcpServer(): McpServer {
     {
       title: "Generate An Image With omg Credits",
       description:
-        `Generate an image from a text prompt and save it to a local file. ${MEDIA_COST_NOTE} Curated picks when quality matters: recraft-ai/recraft-v4.1-flash/text-to-image $0.008 (fast, readable text), wavespeed-ai/flux-schnell $0.003, openai/gpt-image-2.5-flare/text-to-image $0.024 default ($0.01-$1.00 by quality and resolution), bytedance/seedream-v4 $0.027, recraft-ai/recraft-20b-svg $0.044 (SVG), google/nano-banana-2/text-to-image $0.07. Prefer the cheapest model that fits. Show the result with omg_display_image.`,
+        `Generate an image from a text prompt and save it to a local file. ${MEDIA_COST_NOTE} Show the result with omg_display_image.`,
       inputSchema: {
         prompt: z.string().min(1).describe("What to draw."),
         model: MEDIA_MODEL_FIELD,
-        provider: MEDIA_PROVIDER_FIELD,
         aspectRatio: z.string().optional().describe("Aspect ratio such as 1:1, 16:9, 9:16, 4:3, 3:4. Sent as aspect_ratio."),
         input: z.record(z.string(), z.unknown()).optional().describe("Extra provider input fields, for example {quality:'high', resolution:'2k'}. Friendly fields override these."),
         outputPath: z.string().optional().describe("Absolute output file path. Defaults to ~/omg-media/<date>/<jobId>-<n>.<ext>."),
         wait: z.boolean().optional().describe("Wait for the image (up to 120 s). Default true. On timeout the result has pending: true; call omg_media_job."),
       },
     },
-    async ({ prompt, model, provider, aspectRatio, input, outputPath, wait }) =>
+    async ({ prompt, model, aspectRatio, input, outputPath, wait }) =>
       result(
         await api("/api/media/generate", {
           method: "POST",
@@ -1069,7 +1065,6 @@ export function buildOmgMcpServer(): McpServer {
           body: JSON.stringify({
             kind: "image",
             model,
-            provider,
             input: mediaInput(input, { prompt, aspect_ratio: aspectRatio }),
             outputPath,
             wait,
@@ -1083,11 +1078,10 @@ export function buildOmgMcpServer(): McpServer {
     {
       title: "Generate A Video With omg Credits",
       description:
-        `Generate a short video from a text prompt and save it to a local file. ${MEDIA_COST_NOTE} Curated picks: bytedance/seedance-v1.5-pro/text-to-video-fast: 5 s 720p with audio costs $0.20 ($0.04/s; $0.02/s without generate_audio; 1080p $0.06/s). Other models: wavespeed-ai/wan-2.2/t2v-480p-ultra-fast $0.01/s (5 or 8 s), pruna-ai/p-video-2/text-to-video $0.025/s 720p (1-20 s), kwaivgi/kling-v3-turbo-std/text-to-video $0.112/s (best quality). Prefer the cheapest model that fits. Video takes 30 s to 5 min. Before omg_display_video, make sure the file is under 6 MB H.264 with faststart; re-encode with ffmpeg if larger.`,
+        `Generate a short video from a text prompt and save it to a local file. ${MEDIA_COST_NOTE} Video takes 30 s to 5 min. Before omg_display_video, make sure the file is under 6 MB H.264 with faststart; re-encode with ffmpeg if larger.`,
       inputSchema: {
         prompt: z.string().min(1).describe("What happens in the video."),
         model: MEDIA_MODEL_FIELD,
-        provider: MEDIA_PROVIDER_FIELD,
         durationSeconds: z.number().int().min(1).max(20).optional().describe("Length in seconds. Sent as duration. Price scales with it."),
         resolution: z.string().optional().describe("Resolution such as 480p, 720p, 1080p. Sent as resolution."),
         aspectRatio: z.string().optional().describe("Aspect ratio such as 16:9, 9:16, 1:1. Sent as aspect_ratio."),
@@ -1096,7 +1090,7 @@ export function buildOmgMcpServer(): McpServer {
         wait: z.boolean().optional().describe("Wait for the video (up to 300 s). Default true. On timeout the result has pending: true; call omg_media_job."),
       },
     },
-    async ({ prompt, model, provider, durationSeconds, resolution, aspectRatio, input, outputPath, wait }) =>
+    async ({ prompt, model, durationSeconds, resolution, aspectRatio, input, outputPath, wait }) =>
       result(
         await api("/api/media/generate", {
           method: "POST",
@@ -1104,7 +1098,6 @@ export function buildOmgMcpServer(): McpServer {
           body: JSON.stringify({
             kind: "video",
             model,
-            provider,
             input: mediaInput(input, { prompt, duration: durationSeconds, resolution, aspect_ratio: aspectRatio }),
             outputPath,
             wait,
@@ -1139,23 +1132,19 @@ export function buildOmgMcpServer(): McpServer {
     {
       title: "List Media Generation Models And Prices",
       description:
-        "List media models with their default price in USD, plus the per-call cap, the daily cap, and today's spend. By default only the curated models (tested; \"auto\" picks among them). all:true adds every fal and WaveSpeed model, cheapest list price first; filter with q, kind, or task. A provider row with defaultCostUsd 0 has no list price: the generate call quotes the real price before it charges. guidePath points to the media-generation skill: read it before choosing a model.",
+        "List the top image and video models with their default price in USD, plus the per-call cap, the daily cap, and today's spend. all:true returns the full list, cheapest first; narrow it with q or kind. You rarely need this: generate without a model and the router picks the cheapest suitable one.",
       inputSchema: {
-        all: z.boolean().optional().describe("Include every fal and WaveSpeed model, not only the curated ones."),
+        all: z.boolean().optional().describe("Return the full model list, not only the top models."),
         q: z.string().optional().describe("Search text matched against model id and name, for example \"flux\" or \"kling\"."),
         kind: z.enum(["image", "video", "audio"]).optional().describe("Only this output kind."),
-        task: z.string().optional().describe("Only this task: text-to-image, image-edit, text-to-video, image-to-video."),
-        provider: z.enum(["fal", "wavespeed"]).optional().describe("Only this provider."),
-        limit: z.number().int().min(1).max(500).optional().describe("Most provider rows to return. Default 50."),
+        limit: z.number().int().min(1).max(500).optional().describe("Most rows from the full list. Default 50."),
       },
     },
-    async ({ all, q, kind, task, provider, limit }) => {
+    async ({ all, q, kind, limit }) => {
       const params = new URLSearchParams();
       if (all) params.set("all", "1");
       if (q) params.set("q", q);
       if (kind) params.set("kind", kind);
-      if (task) params.set("task", task);
-      if (provider) params.set("provider", provider);
       if (limit) params.set("limit", String(limit));
       const qs = params.toString();
       return result(await api(`/api/media/models${qs ? `?${qs}` : ""}`));
