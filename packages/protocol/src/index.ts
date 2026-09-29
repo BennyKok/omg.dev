@@ -1,6 +1,8 @@
 export type { BrowserLoginRequest, BrowserLoginSnapshot, BrowserLoginCookie } from "./browser-login";
 export type { ProjectPreview, ProjectPreviewSnapshot } from "./project-preview";
 export { PROJECT_PREVIEW_RESTART_MESSAGE } from "./project-preview.js";
+export type { ExpoAccountSnapshot, ExpoConnectState, ExpoConnectStatus } from "./expo-account";
+export { expoConnectActive, expoConnectMessage } from "./expo-account.js";
 
 export type OmgSessionStatus =
   | "ok"
