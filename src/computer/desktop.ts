@@ -32,8 +32,8 @@
 // when someone asks for it.
 
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { accessSync, constants, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 export interface DesktopConfig {
   /** X display number. 99 keeps us clear of any real session on :0. */
@@ -70,8 +70,62 @@ export const DEFAULT_DESKTOP: DesktopConfig = {
   height: 800,
   rfbPort: envPort("OMG_COMPUTER_RFB_PORT", 5900),
   cdpPort: envPort("OMG_COMPUTER_CDP_PORT", 9222),
+  // The preferred location. startDesktop() uses computerDir(), which falls
+  // back when this one is not writable.
   profileDir: `${process.env.HOME ?? "/tmp"}/.omg/computer/chrome-profile`,
 };
+
+/**
+ * Where the Computer keeps its desktop record and Chrome profile.
+ *
+ * ~/.omg/computer when this user can write it. Some hosts create ~/.omg as
+ * root (omg.dev Computers baked up to agent-lfg v279 did), and then serve,
+ * which runs as the user, cannot create anything under it. Without a record
+ * a restarted serve cannot adopt the running desktop and orphans it. So fall
+ * back to the XDG state directory and say so once in the log, instead of
+ * failing quietly.
+ *
+ * Exported with injectable probes for tests.
+ */
+export function resolveComputerDir(
+  env: NodeJS.ProcessEnv = process.env,
+  writable: (dir: string) => boolean = ensureWritableDir,
+  warn: (line: string) => void = (line) => console.warn(line),
+): string {
+  const home = env.HOME ?? "/tmp";
+  const preferred = join(home, ".omg", "computer");
+  if (writable(preferred)) return preferred;
+  const fallback = join(env.XDG_STATE_HOME || join(home, ".local", "state"), "omg", "computer");
+  if (writable(fallback)) {
+    warn(
+      `[computer] ${preferred} is not writable (check the owner of ${join(home, ".omg")}); ` +
+        `using ${fallback} for the desktop record and browser profile`,
+    );
+    return fallback;
+  }
+  warn(
+    `[computer] neither ${preferred} nor ${fallback} is writable; ` +
+      "a restarted server will not find the running desktop",
+  );
+  return preferred;
+}
+
+function ensureWritableDir(dir: string): boolean {
+  try {
+    mkdirSync(dir, { recursive: true });
+    accessSync(dir, constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+let resolvedComputerDir: string | null = null;
+/** resolveComputerDir(), once per process. */
+export function computerDir(): string {
+  resolvedComputerDir ??= resolveComputerDir();
+  return resolvedComputerDir;
+}
 
 type Proc = ReturnType<typeof spawn>;
 
@@ -104,7 +158,7 @@ let state: DesktopState | null = null;
 // So the pids go on disk. On the next start we ADOPT a desktop that is still
 // healthy rather than killing it, which is what makes a server restart
 // invisible to whoever is watching the screen and to an agent mid-task.
-const STATE_FILE = `${process.env.HOME ?? "/tmp"}/.omg/computer/desktop.json`;
+const stateFile = () => join(computerDir(), "desktop.json");
 
 interface PersistedDesktop {
   config: DesktopConfig;
@@ -114,7 +168,6 @@ interface PersistedDesktop {
 
 function writeStateFile(next: DesktopState): void {
   try {
-    mkdirSync(dirname(STATE_FILE), { recursive: true });
     const record: PersistedDesktop = {
       config: next.config,
       pids: {
@@ -125,23 +178,26 @@ function writeStateFile(next: DesktopState): void {
       },
       startedAt: next.startedAt ?? Date.now(),
     };
-    writeFileSync(STATE_FILE, JSON.stringify(record));
-  } catch {
+    writeFileSync(stateFile(), JSON.stringify(record));
+  } catch (error) {
     // Losing the record only costs us adoption on the next boot; never fail a
-    // working start because the file could not be written.
+    // working start because the file could not be written. Say so, because a
+    // missing record is what orphans the desktop on the next restart.
+    console.warn(`[computer] cannot record the desktop at ${stateFile()}: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
 function clearStateFile(): void {
   try {
-    rmSync(STATE_FILE, { force: true });
+    rmSync(stateFile(), { force: true });
   } catch {}
 }
 
 function readStateFile(): PersistedDesktop | null {
   try {
-    if (!existsSync(STATE_FILE)) return null;
-    return JSON.parse(readFileSync(STATE_FILE, "utf8")) as PersistedDesktop;
+    const file = stateFile();
+    if (!existsSync(file)) return null;
+    return JSON.parse(readFileSync(file, "utf8")) as PersistedDesktop;
   } catch {
     return null;
   }
@@ -424,7 +480,7 @@ export async function startDesktop(partial: Partial<DesktopConfig> = {}): Promis
   const deps = ensureDeps();
   if (!deps.ok) throw new Error(deps.hint);
 
-  const config: DesktopConfig = { ...DEFAULT_DESKTOP, ...partial };
+  const config: DesktopConfig = { ...DEFAULT_DESKTOP, profileDir: join(computerDir(), "chrome-profile"), ...partial };
 
   // Anything already holding these ports is not ours: adoption ran above, and
   // it either reattached or reaped. Refuse now rather than starting a stack
