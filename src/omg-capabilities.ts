@@ -4,7 +4,7 @@ import { DEFAULT_MAX_BOT_SCHEDULES } from "./settings.ts";
 // Bump whenever an agent-facing omg.dev capability or its operating guidance
 // changes. Managed sessions persist the value they launched with, which lets
 // the UI identify long-lived sessions whose MCP/tool catalog predates a ship.
-export const OMG_CAPABILITY_VERSION = "2026-09-29.1";
+export const OMG_CAPABILITY_VERSION = "2026-09-29.2";
 
 export const OMG_CAPABILITIES = [
   {
@@ -294,7 +294,7 @@ export function withFirstRunEnvelope(prompt: string | undefined, opts: { seesIma
     // Feast design build, deepseek-v4-flash): 31 turns and 5 min of code
     // before the first omg_expose_port, then 2 min of cold Metro bundling,
     // preview at 8 min. The A/B runs that exposed first had the card at 27 s.
-    `- For a phone app, do these steps first, before you write any app code, even when the request includes a design to match: 1. \`omg_create_project\` with \`template: "expo"\`. 2. \`omg_expose_port\` with port 8081 and \`expoGo: true\`. 3. From the project directory run \`bash scripts/start-expo-preview.sh <expoGo.proxyUrl> 8081\` with a 240000 ms shell timeout. 4. Present the web preview first: tell the user the app is ready and the card below shows it running, on any device, with no account. Then mention the phone in one sentence: to try it on their own phone, tap \"Your phone\" on the card. If the script prints \`WARNING: Expo CLI is not signed in\`, add that an iPhone also needs \"Connect Expo\" there; Android does not. Metro reloads on every save, so the preview follows your edits. Then read the omg-app-builder skill in the project and build the screens.`,
+    `- For a phone app, do these steps first, before you write any app code, even when the request includes a design to match: 1. \`omg_create_project\` with \`template: "expo"\`. 2. \`omg_expose_port\` with port 8081 and \`expoGo: true\`. 3. From the project directory run \`bash scripts/start-expo-preview.sh <expoGo.proxyUrl> 8081\` with a 240000 ms shell timeout. 4. Present the web preview first: tell the user the app is ready and the card below shows it running, on any device, with no account. Then mention the phone in one sentence: to try it on their own phone, tap \"Your phone\" on the card. If the script prints \`WARNING: Expo CLI is not signed in\`, offer \"Create a free Expo account\" for an iPhone: on that tab they tap \"Create free account\", or \"I have one\" if they already have one; Android does not need it. The user creates the account themself; never sign up for them. Metro reloads on every save, so the preview follows your edits. Then read the omg-app-builder skill in the project and build the screens.`,
     "- Before that first preview: no test suites, no self-test loops, and no reading files one by one to learn the template. One quick check that the page loads is enough.",
     "- After the preview: build in a few larger edits, run one typecheck or build, deploy once with `omg_deploy`, commit, then `omg_ship`.",
     ...(opts.seesImages

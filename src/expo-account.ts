@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readlinkSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 import type { ProjectPreview } from "../packages/protocol/src/project-preview.ts";
-import type { ExpoAccountSnapshot, ExpoConnectStatus } from "../packages/protocol/src/expo-account.ts";
+import type { ExpoAccountSnapshot, ExpoConnectMode, ExpoConnectStatus } from "../packages/protocol/src/expo-account.ts";
 import { expoConnectActive } from "../packages/protocol/src/expo-account.ts";
 import { PATHS } from "./config.ts";
 
@@ -18,12 +18,26 @@ import { PATHS } from "./config.ts";
  * completes on the Computer, and this service checks the account, restarts
  * Metro when its manifest still has no account, and reports "done".
  *
+ * "Create free account" (`mode: "signup"`) first opens expo.dev/signup in the
+ * same Computer browser. The user creates their own account there; omg never
+ * signs up on their behalf, because Expo's terms forbid automated sign-ups.
+ * Once the browser is signed in to expo.dev, the same `expo login --browser`
+ * runs, and its page can approve with that browser session.
+ *
+ * Both pages open in the Computer kiosk (src/computer/kiosk.ts): a phone-width
+ * app window that the card shows in a sheet, cut out of the Computer stream.
+ * The person types into Expo's real page there. omg never sees the password
+ * and never fills in or submits the form.
+ *
  * One login runs at a time: the Expo account belongs to the Computer, not to
  * a session.
  */
 
 export const XDG_OPEN_SHIM_DIR = join(PATHS.root, "agents", "bin");
 const LOGIN_TIMEOUT_MS = 10 * 60_000;
+const SIGNUP_TIMEOUT_MS = 30 * 60_000;
+const SIGNUP_POLL_MS = 2_000;
+export const EXPO_SIGNUP_URL = "https://expo.dev/signup";
 const MAX_BODY = 4 * 1024;
 
 type Session = { id: string; owner: string | null; cwd: string | null };
@@ -104,6 +118,12 @@ export type ExpoAccountDeps = {
   viewer(req: Request): string;
   preview(sessionId: string): ProjectPreview | null;
   startDesktop(): Promise<unknown>;
+  /** Open a page in the Computer's kiosk window, which the card shows in a sheet. */
+  openBrowser(url: string): Promise<unknown>;
+  /** Close that window. Called once a connect run ends. */
+  closeBrowser?(): Promise<unknown>;
+  /** True when the Computer browser holds an expo.dev sign-in. */
+  webSignedIn(): Promise<boolean>;
   /** Start `expo login --browser`. */
   spawnLogin(expo: string, cwd: string): LoginProcess;
   /** Run a command to completion. */
@@ -116,6 +136,8 @@ export type ExpoAccountDeps = {
   home?: string;
   now?: () => number;
   loginTimeoutMs?: number;
+  signupTimeoutMs?: number;
+  signupPollMs?: number;
 };
 
 export function createExpoAccountService(deps: ExpoAccountDeps) {
@@ -126,6 +148,15 @@ export function createExpoAccountService(deps: ExpoAccountDeps) {
   let cancelled = false;
   let cached: { mtimeMs: number; username: string | null } | null = null;
   const owns = (owner: string | null, viewer: string) => !owner || owner.toLowerCase() === viewer.toLowerCase();
+
+  /**
+   * End the run. The sign-in sheet shows the kiosk window, and that window
+   * has no job once the run is done, failed or cancelled.
+   */
+  function end(next: ExpoConnectStatus): void {
+    status = next;
+    void deps.closeBrowser?.().catch(() => {});
+  }
 
   function account(): string | null {
     const path = join(home, ".expo", "state.json");
@@ -152,78 +183,124 @@ export function createExpoAccountService(deps: ExpoAccountDeps) {
   }
 
   async function finish(session: Session, preview: ProjectPreview | null, dir: string, code: number): Promise<void> {
-    if (cancelled) { status = { state: "cancelled", startedAt: status!.startedAt }; return; }
+    if (cancelled) { end({ state: "cancelled", startedAt: status!.startedAt }); return; }
     if (code !== 0) {
       const tail = login?.output().trim().split("\n").filter(Boolean).pop();
-      status = { state: "failed", startedAt: status!.startedAt, message: `Expo sign-in did not finish${tail ? `: ${tail.slice(0, 160)}` : "."} Try again.` };
+      end({ state: "failed", startedAt: status!.startedAt, message: `Expo sign-in did not finish${tail ? `: ${tail.slice(0, 160)}` : "."} Try again.` });
       return;
     }
-    status = { state: "verifying", startedAt: status!.startedAt };
+    // The CLI has its account. The sign-in page has no job any more.
+    const started = status!.startedAt;
+    end({ state: "verifying", startedAt: started });
     const who = await deps.run([join(dir, "node_modules", ".bin", "expo"), "whoami"], dir, 60_000).catch(() => null);
     const username = who ? parseWhoami(who.stdout) : null;
     cached = null;
     if (!username) {
-      status = { state: "failed", startedAt: status.startedAt, message: "Expo CLI still reports no account. Try again." };
+      end({ state: "failed", startedAt: started, message: "Expo CLI still reports no account. Try again." });
       return;
     }
-    const done = { state: "done" as const, startedAt: status.startedAt, message: `Signed in to Expo as ${username}.` };
-    if (!preview?.expoGoUrl) { status = done; return; }
+    const done = { state: "done" as const, startedAt: started, message: `Signed in to Expo as ${username}.` };
+    if (!preview?.expoGoUrl) { end(done); return; }
     const before = await deps.manifest(preview.port);
-    if (before === null || manifestUsername(before) === username) { status = done; return; }
+    if (before === null || manifestUsername(before) === username) { end(done); return; }
     // Metro read the signed-out state when it started. Restart it with the
     // same proxy URL so the manifest names the account.
-    status = { state: "restarting", startedAt: status.startedAt };
+    status = { state: "restarting", startedAt: started };
     const script = join(dir, "scripts", "start-expo-preview.sh");
     const proxyUrl = `https://${preview.expoGoUrl.slice("exps://".length)}`;
     if (existsSync(script)) {
       const restarted = await deps.run(["bash", script, proxyUrl, String(preview.port)], dir, 300_000).catch(() => null);
       const after = restarted?.code === 0 ? await deps.manifest(preview.port) : null;
-      if (after !== null && manifestUsername(after) === username) { status = done; return; }
+      if (after !== null && manifestUsername(after) === username) { end(done); return; }
     }
     await deps.tellAgent(session.id, `Expo CLI on this Computer is now signed in as ${username}, but Metro on port ${preview.port} still serves a manifest without that account. Restart Metro for the Expo Go preview (bash scripts/start-expo-preview.sh ${proxyUrl} ${preview.port}) so Expo Go on an iPhone accepts it.`).catch(() => {});
-    status = { ...done, message: `Signed in to Expo as ${username}. The agent restarts the preview.` };
+    end({ ...done, message: `Signed in to Expo as ${username}. The agent restarts the preview.` });
   }
 
-  async function connect(session: Session): Promise<void> {
-    if (expoConnectActive(status)) return;
-    const preview = deps.preview(session.id);
-    const dir = projectDir(session, preview);
-    await deps.startDesktop();
-    cancelled = false;
-    status = { state: "waiting", startedAt: now() };
-    const started = status.startedAt;
+  function startLogin(session: Session, preview: ProjectPreview | null, dir: string, started: number): void {
+    status = { state: "waiting", startedAt: started };
     const proc = deps.spawnLogin(join(dir, "node_modules", ".bin", "expo"), dir);
     login = proc;
     const timer = setTimeout(() => {
       if (login === proc && status?.state === "waiting") {
         cancelled = true;
         proc.kill();
-        status = { state: "failed", startedAt: started, message: "Expo sign-in timed out. Try again." };
+        end({ state: "failed", startedAt: started, message: "Expo sign-in timed out. Try again." });
       }
     }, deps.loginTimeoutMs ?? LOGIN_TIMEOUT_MS);
     void proc.exited.then(async (code) => {
       clearTimeout(timer);
       if (login !== proc || status?.startedAt !== started || status.state === "failed") return;
       try { await finish(session, preview, dir, code); } catch (error) {
-        status = { state: "failed", startedAt: started, message: error instanceof Error ? error.message : "Expo sign-in failed." };
+        end({ state: "failed", startedAt: started, message: error instanceof Error ? error.message : "Expo sign-in failed." });
       } finally { if (login === proc) login = null; }
     });
   }
 
+  /**
+   * Wait while the user creates their account on expo.dev/signup, then
+   * continue into the CLI login. Only a person fills in that form.
+   */
+  async function awaitSignup(session: Session, preview: ProjectPreview | null, dir: string, started: number): Promise<void> {
+    const deadline = now() + (deps.signupTimeoutMs ?? SIGNUP_TIMEOUT_MS);
+    const pollMs = deps.signupPollMs ?? SIGNUP_POLL_MS;
+    const current = () => status?.state === "signup" && status.startedAt === started;
+    while (current()) {
+      if (account() !== null) {
+        end({ state: "done", startedAt: started, message: `Signed in to Expo as ${account()}.` });
+        return;
+      }
+      if (await deps.webSignedIn().catch(() => false)) {
+        if (current()) startLogin(session, preview, dir, started);
+        return;
+      }
+      if (now() >= deadline) {
+        if (current()) end({ state: "failed", startedAt: started, message: "Expo sign-up timed out. Try again." });
+        return;
+      }
+      await new Promise((r) => setTimeout(r, pollMs));
+    }
+  }
+
+  async function connect(session: Session, mode: ExpoConnectMode): Promise<void> {
+    if (expoConnectActive(status)) return;
+    const preview = deps.preview(session.id);
+    const dir = projectDir(session, preview);
+    await deps.startDesktop();
+    cancelled = false;
+    const started = now();
+    if (mode === "login") { startLogin(session, preview, dir, started); return; }
+    status = { state: "signup", startedAt: started };
+    try {
+      await deps.openBrowser(EXPO_SIGNUP_URL);
+    } catch (error) {
+      end({ state: "failed", startedAt: started, message: error instanceof Error ? `Could not open expo.dev: ${error.message}` : "Could not open expo.dev." });
+      return;
+    }
+    void awaitSignup(session, preview, dir, started).catch((error) => {
+      end({ state: "failed", startedAt: started, message: error instanceof Error ? error.message : "Expo sign-up failed." });
+    });
+  }
+
   function cancel(): void {
-    if (status?.state !== "waiting") return;
+    if (status?.state !== "waiting" && status?.state !== "signup") return;
     cancelled = true;
     login?.kill();
-    status = { state: "cancelled", startedAt: status.startedAt };
+    end({ state: "cancelled", startedAt: status.startedAt });
   }
 
   return async function handle(req: Request): Promise<Response> {
     const json = (value: unknown, code = 200) => Response.json(value, { status: code, headers: { "Cache-Control": "no-store" } });
     try {
       const url = new URL(req.url);
+      let mode: ExpoConnectMode = "login";
       if (req.method === "POST") {
         const text = await req.text();
         if (text.length > MAX_BODY) throw new AccountError(413, "Request is too large");
+        let body: { mode?: unknown } = {};
+        try { body = text ? JSON.parse(text) as { mode?: unknown } : {}; } catch { throw new AccountError(400, "Request body must be JSON"); }
+        if (body.mode !== undefined && body.mode !== "signup" && body.mode !== "login") throw new AccountError(400, "mode must be signup or login");
+        if (body.mode === "signup") mode = "signup";
       }
       const id = url.searchParams.get("sessionId");
       if (!id) throw new AccountError(400, "sessionId is required");
@@ -234,7 +311,7 @@ export function createExpoAccountService(deps: ExpoAccountDeps) {
       if (req.method === "GET" && action === "") return json(snapshot());
       if (req.method !== "POST") throw new AccountError(405, "Method not allowed");
       if (action === "connect") {
-        if (account() === null) await connect(session);
+        if (account() === null) await connect(session, mode);
         return json(snapshot());
       }
       if (action === "cancel") { cancel(); return json(snapshot()); }
@@ -256,7 +333,9 @@ export function liveExpoAccountDeps(): Pick<ExpoAccountDeps, "spawnLogin" | "run
   };
   return {
     spawnLogin(expo, cwd) {
-      const proc = Bun.spawn([expo, "login", "--browser"], { cwd, env: env(), stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+      // OMG_COMPUTER_KIOSK: the xdg-open shim opens the login page in the
+      // kiosk window, which the card shows in its sign-in sheet.
+      const proc = Bun.spawn([expo, "login", "--browser"], { cwd, env: { ...env(), OMG_COMPUTER_KIOSK: "1" }, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
       let out = "";
       const drain = async (stream: ReadableStream<Uint8Array>) => {
         const decoder = new TextDecoder();

@@ -481,6 +481,7 @@ export async function startDesktop(partial: Partial<DesktopConfig> = {}): Promis
 
   const chrome = chromePath();
   if (!chrome) throw new Error("no Chrome binary found");
+  disablePasswordSaving(config.profileDir);
   const chromeArgs = [
     `--remote-debugging-port=${config.cdpPort}`,
     `--user-data-dir=${config.profileDir}`,
@@ -575,6 +576,36 @@ export async function cdpWebSocketUrl(): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * Turn off Chrome's "Save password?" offer in the Computer's browser.
+ *
+ * People type passwords into this browser from an omg sheet (the Expo
+ * sign-in, see kiosk.ts). omg never keeps those passwords, so the browser
+ * must not keep them either, and Chrome's bubble must not cover the page the
+ * person is signing in on. Chrome reads the profile's Preferences file at
+ * start, so this runs before Chrome does.
+ * @internal exported for tests.
+ */
+export function disablePasswordSaving(profileDir: string): void {
+  const file = `${profileDir}/Default/Preferences`;
+  try {
+    let prefs: Record<string, any> = {};
+    try { prefs = JSON.parse(readFileSync(file, "utf8")); } catch { /* A new profile. */ }
+    if (prefs.credentials_enable_service === false && prefs.profile?.password_manager_enabled === false) return;
+    prefs.credentials_enable_service = false;
+    prefs.profile = { ...(prefs.profile ?? {}), password_manager_enabled: false };
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, JSON.stringify(prefs));
+  } catch {
+    // A profile Chrome cannot use would fail the start anyway, with a clearer error.
+  }
+}
+
+/** The running desktop's configuration, or null when it is down. */
+export function desktopConfig(): DesktopConfig | null {
+  return state ? { ...state.config } : null;
 }
 
 export function rfbPort(): number | null {

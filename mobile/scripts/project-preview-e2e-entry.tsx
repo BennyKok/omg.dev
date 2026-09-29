@@ -74,17 +74,21 @@ function fixed(value: ProjectPreviewSnapshot): Pick<OmgTransport, "request"> {
 }
 
 /**
- * A Computer with the Expo account route. POST connect starts a "waiting"
- * run and POST cancel ends it, as the server does.
+ * A Computer with the Expo account route. POST connect starts a "signup" or
+ * "waiting" run and POST cancel ends it, as the server does.
  */
 function withAccount(value: ProjectPreviewSnapshot, initial: ExpoAccountSnapshot): Pick<OmgTransport, "request"> {
   let account = initial;
   return {
-    async request<T>(path: string): Promise<T> {
+    async request<T>(path: string, init?: { body?: unknown }): Promise<T> {
       if (path.startsWith("/api/expo-account/connect")) {
-        account = { signedIn: false, connect: { state: "waiting", startedAt: Date.now() } };
+        const mode = typeof init?.body === "string" ? (JSON.parse(init.body) as { mode?: string }).mode : undefined;
+        account = { signedIn: false, connect: { state: mode === "signup" ? "signup" : "waiting", startedAt: Date.now() } };
       } else if (path.startsWith("/api/expo-account/cancel")) {
         account = { signedIn: false, connect: { state: "cancelled", startedAt: account.connect?.startedAt ?? Date.now() } };
+      } else if (path.startsWith("/api/computer/kiosk")) {
+        // No Computer here: the sign-in sheet waits for Expo's page.
+        return { open: false } as T;
       } else if (!path.startsWith("/api/expo-account")) {
         return value as T;
       }
