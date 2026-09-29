@@ -807,6 +807,7 @@ export function bridgeTaskCompletion(
     project?: string | null;
     status?: string | null;
     statusDetail?: string | null;
+    agent?: string | null;
     last?: { role?: string; kind?: string; text?: string } | null;
   } | null,
 ): ThreadMessage | null {
@@ -832,6 +833,7 @@ export function bridgeTaskCompletion(
       event: blocked ? "blocked" : "finished",
       title: session?.title ?? null,
       project: session?.project || null,
+      ...(session?.agent ? { agent: session.agent } : {}),
     },
     replyTo: started?.replyTo ?? null,
     media,
@@ -841,7 +843,7 @@ export function bridgeTaskCompletion(
 /** The live state of each task a thread started. */
 export function threadTasks(
   conversation: Conversation,
-  live: ReadonlyArray<{ sessionId?: string | null; title?: string | null; project?: string | null; busy?: boolean | null; status?: string | null }>,
+  live: ReadonlyArray<{ sessionId?: string | null; title?: string | null; project?: string | null; busy?: boolean | null; status?: string | null; agent?: string | null }>,
 ): ThreadTaskRow[] {
   return conversation.runtimeSessions
     .filter((entry) => entry.kind === "execution")
@@ -854,6 +856,7 @@ export function threadTasks(
         busy: !!row?.busy,
         status: row?.status ?? null,
         ended: !row,
+        agent: row?.agent ?? null,
       };
     });
 }

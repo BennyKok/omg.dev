@@ -21,7 +21,7 @@ export type ThreadMessage = {
   author: ThreadAuthor;
   text: string;
   /** Present on omg's task messages: which task, and what happened to it. */
-  task?: { sessionId: string; event: ThreadTaskEvent; title?: string | null; project?: string | null };
+  task?: { sessionId: string; event: ThreadTaskEvent; title?: string | null; project?: string | null; agent?: string | null };
   /**
    * The top-level message this is a reply to, as in Slack. omg always answers
    * in the replies of the message that mentioned it, and a task's updates go
@@ -102,6 +102,8 @@ export type ThreadTaskRow = {
   status: string | null;
   /** Not in the live session list any more. */
   ended: boolean;
+  /** The coding agent running it, while it is live. */
+  agent?: string | null;
 };
 
 export type ThreadParticipant = {
@@ -225,14 +227,17 @@ export function taskCardFor(
   detail: Pick<ThreadDetail, "tasks">,
   messages: readonly ThreadMessage[],
   openAskSessionIds: readonly (string | null | undefined)[],
-): { sessionId: string; title: string; project: string | null; state: TaskCardState } | null {
+): { sessionId: string; title: string; project: string | null; agent: string | null; state: TaskCardState } | null {
   const task = message.task;
   if (!task) return null;
   const row = detail.tasks.find((t) => sameSession(t.sessionId, task.sessionId));
+  // A finished task is gone from the live list; its result remembers the agent.
+  const remembered = [...messages].reverse().find((m) => m.task?.agent && sameSession(m.task.sessionId, task.sessionId));
   return {
     sessionId: task.sessionId,
     title: row?.title || task.title || "Task",
     project: row?.project || task.project || null,
+    agent: row?.agent || remembered?.task?.agent || null,
     state: taskCardState({
       event: latestTaskEvent(messages, task.sessionId),
       row,

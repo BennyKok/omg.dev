@@ -71,16 +71,23 @@ const STATE_TINT: Record<TaskCardState, string> = {
   ended: "text-muted-foreground",
 };
 
+/**
+ * A task in a thread, drawn as an attachment: one compact row like a session
+ * in the list (the agent's mark, the title, "Done · web" under it), not a
+ * card of its own. The big card outweighed the replies around it (2026-09-29).
+ */
 export function ThreadTaskCard({
   sessionId,
   title,
   project,
+  agent,
   state,
   onOpen,
 }: {
   sessionId: string;
   title: string;
   project: string | null;
+  agent?: string | null;
   state: TaskCardState;
   onOpen?: () => void;
 }) {
@@ -89,16 +96,18 @@ export function ThreadTaskCard({
       type="button"
       onClick={onOpen}
       data-testid={`thread-task-${sessionId.slice(0, 8)}`}
-      className="flex w-full max-w-md flex-col gap-1.5 rounded-2xl border border-border bg-card px-4 py-3 text-left hover:bg-accent/40"
+      title={`Open the task (${sessionId.slice(0, 8)})`}
+      className="flex w-full max-w-sm items-center gap-2.5 rounded-xl border border-border bg-card px-3 py-2 text-left hover:bg-accent/40"
     >
-      <span className="flex items-center gap-2 text-[12px] font-semibold">
-        <span className={cn("size-2 rounded-full bg-current", STATE_TINT[state])} />
-        <span className={STATE_TINT[state]}>{TASK_STATE_LABEL[state]}</span>
-        <span className="flex-1" />
-        <span className="font-mono text-[11px] font-normal text-muted-foreground">{sessionId.slice(0, 8)}</span>
+      <img aria-hidden alt="" src={agentIconSrc(agent ?? "")} className="size-6 shrink-0 rounded-md" />
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="truncate text-[14px] font-semibold leading-tight text-foreground">{title}</span>
+        <span className="flex min-w-0 items-center gap-1.5 text-[12px] leading-tight text-muted-foreground">
+          <span className={cn("size-1.5 shrink-0 rounded-full bg-current", STATE_TINT[state])} />
+          <span className={cn("shrink-0 font-medium", STATE_TINT[state])}>{TASK_STATE_LABEL[state]}</span>
+          {project ? <span className="truncate">· {project}</span> : null}
+        </span>
       </span>
-      <span className="text-[15px] font-semibold text-foreground">{title}</span>
-      {project ? <span className="text-[13px] text-muted-foreground">{project}</span> : null}
     </button>
   );
 }

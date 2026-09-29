@@ -214,8 +214,8 @@ describe("task results come back as omg messages", () => {
   test("task rows say which tasks are live and which ended", async () => {
     const thread = await threadWithTask();
     const conversation = getConversation(thread.id)!;
-    expect(threadTasks(conversation, [{ sessionId: TASK, busy: true, title: "Fix it", project: "web", status: "ok" }]))
-      .toEqual([{ sessionId: TASK, title: "Fix it", project: "web", busy: true, status: "ok", ended: false }]);
+    expect(threadTasks(conversation, [{ sessionId: TASK, busy: true, title: "Fix it", project: "web", status: "ok", agent: "codex" }]))
+      .toEqual([{ sessionId: TASK, title: "Fix it", project: "web", busy: true, status: "ok", ended: false, agent: "codex" }]);
     expect(threadTasks(conversation, [])[0].ended).toBe(true);
   });
 });
