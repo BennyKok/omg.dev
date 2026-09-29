@@ -48,6 +48,7 @@ export function ProjectPreviewPanel({ sessionId, transport, email, onOpenCompute
   }, []);
   // Web is level 1 and the default for every new preview.
   const [level, setLevelState] = useState<PreviewLevel>(initialLevel);
+  const [info, setInfo] = useState(false);
   const [simulator, setSimulator] = useState<SimulatorStream | undefined>(undefined);
   // The Computer's Expo CLI account. null: an older Computer without the
   // route, or Android, so the card keeps "Open in Expo Go" as before.
@@ -156,14 +157,13 @@ export function ProjectPreviewPanel({ sessionId, transport, email, onOpenCompute
   };
   const status = expired ? "Link expired" : stopped ? "Stopped" : expoGoUrl ? null : "Live preview";
   const onPhoneLevel = !!expoGoUrl && current === "device";
-  const primary = stopped ? null
+  // Expanded, the level itself holds its action; the one-line card keeps it.
+  const primary = stopped || (expoGoUrl && guide) ? null
     : onPhoneLevel && needsConnect
       ? connecting ? null : { id: "project-preview-connect-expo", label: "Connect Expo", disabled: connectBusy, onPress: () => void postAccount("connect") }
       : onPhoneLevel
         ? { id: "project-preview-expo-go", label: "Open in Expo Go", disabled: false, onPress: () => void openExpoGo() }
-        : expoGoUrl && guide
-          ? null
-          : { id: "project-preview-open", label: expoGoUrl ? "Web preview" : "Open preview", disabled: false, onPress: () => void openInAppPage(preview.url) };
+        : { id: "project-preview-open", label: expoGoUrl ? "Web preview" : "Open preview", disabled: false, onPress: () => void openInAppPage(preview.url) };
   return <View testID="project-preview-card" style={{ backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1, borderRadius: 16, paddingVertical: 6, paddingLeft: 8, paddingRight: 6, gap: 8 }}>
     <View style={{ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44 }}>
       <Pressable accessibilityRole="button" testID="project-preview-toggle" disabled={!expoGoUrl || stopped}
@@ -184,10 +184,9 @@ export function ProjectPreviewPanel({ sessionId, transport, email, onOpenCompute
       {primary ? <Pressable accessibilityRole="button" testID={primary.id} disabled={primary.disabled} onPress={primary.onPress} style={{ minHeight: 36, paddingHorizontal: 12, borderRadius: 999, backgroundColor: primary.disabled ? colors.muted : colors.primary, justifyContent: "center" }}>
         <Text style={{ color: primary.disabled ? colors.mutedForeground : colors.primaryForeground, fontWeight: "600", fontSize: 14 }}>{primary.label}</Text>
       </Pressable> : null}
-      {!stopped && (!expoGoUrl || (guide && current === "web"))
-        ? <Pressable accessibilityRole="button" accessibilityLabel={expoGoUrl ? "Full screen web preview" : "Open preview in Safari"} testID="project-preview-fullscreen"
-            onPress={() => void (expoGoUrl ? openInAppPage(preview.url) : Linking.openURL(preview.url))} style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center" }}>
-            <Icon ios={expoGoUrl ? "arrow.up.left.and.arrow.down.right" : "arrow.up.forward.app"} android={expoGoUrl ? "fullscreen" : "open_in_new"} size={18} color={colors.mutedForeground} />
+      {!stopped && !expoGoUrl
+        ? <Pressable accessibilityRole="button" accessibilityLabel="Open preview in Safari" onPress={() => void Linking.openURL(preview.url)} style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center" }}>
+            <Icon ios="arrow.up.forward.app" android="open_in_new" size={18} color={colors.mutedForeground} />
           </Pressable>
         : null}
     </View>
@@ -198,28 +197,35 @@ export function ProjectPreviewPanel({ sessionId, transport, email, onOpenCompute
       <Pressable accessibilityRole="button" testID="project-preview-restart" disabled={restartAsked} onPress={() => void restart()} style={{ minHeight: 44, paddingHorizontal: 14, borderRadius: 12, backgroundColor: restartAsked ? colors.muted : colors.primary, justifyContent: "center" }}>
         <Text style={{ color: restartAsked ? colors.mutedForeground : colors.primaryForeground, fontWeight: "600", textAlign: "center" }}>{restartAsked ? "Asked the agent to restart it" : "Restart preview"}</Text>
       </Pressable>
-    </View> : expoGoUrl && guide ? <View testID="project-preview-details" style={{ gap: 8, paddingHorizontal: 4, paddingBottom: 4 }}>
-      <View accessibilityRole="tablist" testID="project-preview-levels" style={{ flexDirection: "row", backgroundColor: colors.muted, borderRadius: 10, padding: 2 }}>
-        {levels.map((item) => <Pressable key={item} accessibilityRole="tab" accessibilityState={{ selected: current === item }} testID={`project-preview-level-${item}`}
-          onPress={() => setLevel(item)}
-          style={{ flex: 1, minHeight: 34, borderRadius: 8, alignItems: "center", justifyContent: "center", backgroundColor: current === item ? colors.card : "transparent" }}>
-          <Text style={{ fontSize: 13, fontWeight: "600", color: current === item ? colors.foreground : colors.mutedForeground }}>{PREVIEW_LEVEL_LABEL[item]}</Text>
-        </Pressable>)}
-      </View>
+    </View> : expoGoUrl && guide ? <View testID="project-preview-details" style={{ gap: 8, paddingHorizontal: 4, paddingBottom: 2 }}>
       {current === "web"
         ? <PhoneFrame uri={inlinePreviewUrl(preview)} testID="project-preview-web" onFallback={() => void openInAppPage(preview.url)} />
         : current === "simulator" && simulator
         ? <SimulatorLevel stream={simulator} webUrl={inlinePreviewUrl(preview)} onStart={() => void simulatorAction("start")} />
-        : <View testID="project-preview-device" style={{ gap: 6 }}>
-            {expoAccount ? <ExpoAccountRow account={expoAccount} connecting={connecting} error={connectError} busy={connectBusy}
-              onOpenComputer={onOpenComputer} onCancel={() => void postAccount("cancel")} /> : null}
-            {/* This card is on the phone that runs Expo Go, so it has no QR code:
-                one line for a person who does not have Expo Go yet. */}
-            <Text style={{ color: colors.mutedForeground, fontSize: 14 }}>
-              Need Expo Go?{" "}
-              <Text testID="project-preview-get-expo-go" accessibilityRole="link" onPress={() => void Linking.openURL(Platform.OS === "android" ? EXPO_GO_ANDROID : EXPO_GO_IOS)} style={{ color: colors.primary, fontWeight: "600" }}>{Platform.OS === "android" ? "Get it on Google Play" : "Get it on the App Store"}</Text>
-            </Text>
-          </View>}
+        : <DeviceLevel account={expoAccount} connecting={connecting} busy={connectBusy} error={connectError}
+            onOpen={() => void openExpoGo()} onConnect={() => void postAccount("connect")}
+            onOpenComputer={onOpenComputer} onCancel={() => void postAccount("cancel")} />}
+      {/* The level switcher sits under the preview, as icons. */}
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+        <View accessibilityRole="tablist" testID="project-preview-levels" style={{ flexDirection: "row", backgroundColor: colors.muted, borderRadius: 10, padding: 2 }}>
+          {levels.map((item) => <Pressable key={item} accessibilityRole="tab" accessibilityLabel={PREVIEW_LEVEL_LABEL[item]} accessibilityState={{ selected: current === item }} testID={`project-preview-level-${item}`}
+            onPress={() => setLevel(item)}
+            style={{ width: 44, height: 32, borderRadius: 8, alignItems: "center", justifyContent: "center", backgroundColor: current === item ? colors.card : "transparent" }}>
+            <LevelIcon level={item} color={current === item ? colors.foreground : colors.mutedForeground} />
+          </Pressable>)}
+        </View>
+        <View style={{ flex: 1 }} />
+        {current === "web" ? <Pressable accessibilityRole="button" accessibilityLabel="Full screen web preview" testID="project-preview-fullscreen" onPress={() => void openInAppPage(preview.url)} style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center" }}>
+          <Icon ios="arrow.up.left.and.arrow.down.right" android="fullscreen" size={17} color={colors.mutedForeground} />
+        </Pressable> : null}
+        <Pressable accessibilityRole="button" accessibilityLabel={current === "device" ? DEVICE_INFO : PRIVATE_INFO} testID="project-preview-info" onPress={() => setInfo(!info)} style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center" }}>
+          <Icon ios="info.circle" android="info" size={17} color={colors.mutedForeground} />
+        </Pressable>
+      </View>
+      {info ? <Text testID="project-preview-info-text" style={{ color: colors.mutedForeground, fontSize: 13 }}>
+        {current === "device" ? DEVICE_INFO : PRIVATE_INFO}
+        {current === "device" ? <>{" "}<Text testID="project-preview-get-expo-go" accessibilityRole="link" onPress={() => void Linking.openURL(Platform.OS === "android" ? EXPO_GO_ANDROID : EXPO_GO_IOS)} style={{ color: colors.primary, fontWeight: "600" }}>Get Expo Go</Text></> : null}
+      </Text> : null}
     </View> : null}
   </View>;
 }
@@ -270,33 +276,48 @@ function SimulatorLevel({ stream, webUrl, onStart }: { stream: SimulatorStream; 
 
 function openComputer() { router.push("/computer"); }
 
-function ExpoAccountRow({ account, connecting, error, busy, onOpenComputer, onCancel }: {
-  account: ExpoAccountSnapshot; connecting: boolean; error: string | null; busy: boolean;
-  onOpenComputer: () => void; onCancel: () => void;
+function LevelIcon({ level, color }: { level: PreviewLevel; color: string }) {
+  if (level === "web") return <Icon ios="globe" android="public" size={16} color={color} />;
+  if (level === "simulator") return <Icon ios="ipad.and.iphone" android="devices" size={16} color={color} />;
+  return <Icon ios="iphone" android="smartphone" size={16} color={color} />;
+}
+const DEVICE_INFO = "An iPhone opens the app only when Expo Go and the Computer use the same Expo account. Android needs no account.";
+const PRIVATE_INFO = "Private to you. The link is temporary.";
+
+/**
+ * Level 3 on the phone that runs Expo Go: one button and at most one short
+ * line. The account rule is behind the info icon.
+ */
+function DeviceLevel({ account, connecting, busy, error, onOpen, onConnect, onOpenComputer, onCancel }: {
+  account: ExpoAccountSnapshot | null; connecting: boolean; busy: boolean; error: string | null;
+  onOpen(): void; onConnect(): void; onOpenComputer(): void; onCancel(): void;
 }) {
   const { colors } = useTheme();
-  if (account.signedIn) {
-    return <Text testID="project-preview-expo-account" style={{ color: colors.mutedForeground, fontSize: 13, paddingHorizontal: 4, paddingBottom: 4 }}>
-      {account.username ? `Sign in to Expo Go as ${account.username}.` : "Sign in to Expo Go with the Computer's Expo account."}
-    </Text>;
-  }
-  const last = account.connect && !connecting && account.connect.state !== "done" ? expoConnectMessage(account.connect) : null;
-  return <View testID="project-preview-expo-connect" style={{ gap: 4, paddingHorizontal: 4, paddingBottom: 4 }}>
-    {connecting && account.connect ? <>
-      <Text testID="project-preview-expo-connect-status" style={{ color: colors.foreground, fontSize: 14 }}>{expoConnectMessage(account.connect)}</Text>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-        <Pressable accessibilityRole="link" testID="project-preview-open-computer" onPress={onOpenComputer} style={{ minHeight: 32, justifyContent: "center" }}>
-          <Text style={{ color: colors.primary, fontSize: 13, fontWeight: "600" }}>Open Computer</Text>
-        </Pressable>
-        <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>·</Text>
-        <Pressable accessibilityRole="link" testID="project-preview-cancel-expo" disabled={busy} onPress={onCancel} style={{ minHeight: 32, justifyContent: "center" }}>
-          <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>Cancel</Text>
-        </Pressable>
-      </View>
-    </> : <>
-      {last ? <Text testID="project-preview-expo-connect-status" style={{ color: colors.foreground, fontSize: 13 }}>{last}</Text> : null}
-      <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>iPhone needs Expo signed in on the Computer.</Text>
-    </>}
+  const signedOut = !!account && !account.signedIn;
+  const last = account?.connect && !connecting && account.connect.state !== "done" ? expoConnectMessage(account.connect) : null;
+  const button = connecting
+    ? { id: "project-preview-open-computer", label: "Open Computer", onPress: onOpenComputer }
+    : signedOut
+      ? { id: "project-preview-connect-expo", label: "Connect Expo", onPress: onConnect }
+      : { id: "project-preview-expo-go", label: "Open in Expo Go", onPress: onOpen };
+  return <View testID="project-preview-device" style={{ alignItems: "center", gap: 6, paddingVertical: 10 }}>
+    <Pressable accessibilityRole="button" testID={button.id} disabled={busy} onPress={button.onPress}
+      style={{ flexDirection: "row", alignItems: "center", gap: 6, minHeight: 40, paddingHorizontal: 16, borderRadius: 999, backgroundColor: busy ? colors.muted : colors.primary }}>
+      <Icon ios="iphone" android="smartphone" size={15} color={busy ? colors.mutedForeground : colors.primaryForeground} />
+      <Text style={{ color: busy ? colors.mutedForeground : colors.primaryForeground, fontWeight: "600", fontSize: 15 }}>{button.label}</Text>
+    </Pressable>
+    {connecting && account?.connect
+      ? <View testID="project-preview-expo-connect" style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <Text testID="project-preview-expo-connect-status" style={{ color: colors.mutedForeground, fontSize: 13 }}>{expoConnectMessage(account.connect)}</Text>
+          <Pressable accessibilityRole="link" testID="project-preview-cancel-expo" disabled={busy} onPress={onCancel} style={{ minHeight: 32, justifyContent: "center" }}>
+            <Text style={{ color: colors.foreground, fontSize: 13, fontWeight: "600" }}>Cancel</Text>
+          </Pressable>
+        </View>
+      : signedOut
+        ? <Text testID="project-preview-expo-connect-status" style={{ color: colors.mutedForeground, fontSize: 13 }}>{last ?? "Sign in to preview on your iPhone"}</Text>
+        : account?.signedIn
+          ? <Text testID="project-preview-expo-account" style={{ color: colors.mutedForeground, fontSize: 13 }}>{account.username ? `as ${account.username}` : "with the Computer's Expo account"}</Text>
+          : null}
     {error ? <Text testID="project-preview-expo-connect-error" style={{ color: colors.destructive, fontSize: 13 }}>{error}</Text> : null}
   </View>;
 }

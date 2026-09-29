@@ -63,6 +63,18 @@ const connectSnapshot: ProjectPreviewSnapshot = {
   },
 };
 
+/** A new Expo app: the card opens on the Web level, inline. */
+const webLevelSnapshot: ProjectPreviewSnapshot = {
+  live: true,
+  preview: {
+    ...snapshot.preview!,
+    sessionId: "66666666-6666-4666-8666-666666666666",
+    title: "My web level app",
+    port: 8085,
+    expoGoUrl: "exps://example.com",
+  },
+};
+
 /** No account route: a Computer from before Connect Expo. */
 function fixed(value: ProjectPreviewSnapshot): Pick<OmgTransport, "request"> {
   return {
@@ -97,6 +109,7 @@ const transport = fixed(snapshot);
 const expoTransport = withAccount(expoSnapshot, { signedIn: true, username: "expo-e2e-test" });
 const connectTransport = withAccount(connectSnapshot, { signedIn: false });
 const stoppedTransport = fixed(stoppedSnapshot);
+const webLevelTransport = withAccount(webLevelSnapshot, { signedIn: true, username: "expo-e2e-test" });
 // Its restart request fails, so the card returns to "Restart preview". An
 // "Asked the agent to restart it" on screen can then only be the sleeping card.
 const expiredTransport: Pick<OmgTransport, "request"> = {
@@ -115,6 +128,7 @@ function App() {
       <ProjectPreviewPanel sessionId="44444444-4444-4444-8444-444444444444" email="test@example.com" transport={expiredTransport} />
       <ProjectPreviewPanel sessionId="22222222-2222-4222-8222-222222222222" email="test@example.com" transport={expoTransport} initialLevel="device" />
       <ProjectPreviewPanel sessionId="55555555-5555-4555-8555-555555555555" email="test@example.com" transport={connectTransport} onOpenComputer={() => {}} initialLevel="device" />
+      <ProjectPreviewPanel sessionId="66666666-6666-4666-8666-666666666666" email="test@example.com" transport={webLevelTransport} />
     </ScrollView>
   </SafeAreaView>;
 }

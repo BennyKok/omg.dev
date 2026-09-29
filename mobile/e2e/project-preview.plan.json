@@ -28,21 +28,21 @@
     {
       "name": "Expo Go card, Expo signed in",
       "goal": "Find the card for 'My todo app'. Only inspect it and do not tap anything.",
-      "done": "The todo app card offers to open it in Expo Go and names the Expo account to sign in with.",
+      "done": "The todo app card offers to open it in Expo Go and names the Expo account in a short 'as' caption.",
       "expect": [
         "My todo app",
         "Open in Expo Go",
-        "Sign in to Expo Go as expo-e2e-test."
+        "as expo-e2e-test"
       ]
     },
     {
       "name": "Expo not signed in",
       "goal": "Find the card for 'My connect app'. Only inspect it and do not tap anything.",
-      "done": "The 'My connect app' card offers 'Connect Expo' and says the iPhone needs Expo signed in on the Computer.",
+      "done": "The 'My connect app' card offers 'Connect Expo' with one short line to sign in to preview on the iPhone.",
       "expect": [
         "My connect app",
         "Connect Expo",
-        "iPhone needs Expo signed in on the Computer."
+        "Sign in to preview on your iPhone"
       ],
       "forbid": [
         "Sign in to Expo in the Computer window"
@@ -79,6 +79,26 @@
       ],
       "forbid": [
         "Sign in to Expo in the Computer window\u2026"
+      ]
+    },
+    {
+      "name": "Web level first",
+      "goal": "Scroll down to the card for 'My web level app', the last card. Only inspect it and do not tap anything.",
+      "done": "The 'My web level app' card shows the web preview inline, with icon tabs for Web and Your phone under it and a full screen button.",
+      "expect": [
+        "My web level app",
+        "Web",
+        "Your phone",
+        "Full screen web preview"
+      ]
+    },
+    {
+      "name": "Switch to Your phone",
+      "goal": "On the 'My web level app' card, tap the 'Your phone' tab once.",
+      "done": "The 'My web level app' card now shows an 'Open in Expo Go' button and the account caption.",
+      "expect": [
+        "Open in Expo Go",
+        "as expo-e2e-test"
       ]
     }
   ]

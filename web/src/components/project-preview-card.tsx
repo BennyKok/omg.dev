@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, ExternalLink, Globe2, Info, Maximize2, RotateCw, Smartphone, X } from "lucide-react";
+import { ChevronDown, ExternalLink, Globe2, Info, Maximize2, MonitorSmartphone, RotateCw, Smartphone, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -117,14 +117,14 @@ export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | nu
             ? <ChevronDown className={cn("ml-auto size-4 shrink-0 text-muted-foreground transition-transform duration-200", expanded && "rotate-180")} aria-hidden />
             : null}
         </button>
-        {stopped ? null : deviceAction && needsConnect
+        {/* Expanded, the level itself holds its action. The one-line card
+            keeps the action of the level it shows. */}
+        {stopped ? null : expoGoUrl && expanded
+          ? current === "web" ? <Button size="icon-sm" variant="ghost" onClick={openWeb} aria-label="Full screen web preview" title="Full screen" data-testid="project-preview-fullscreen"><Maximize2 className="size-4" /></Button> : null
+          : deviceAction && needsConnect
           ? <Button size="sm" disabled={connecting} onClick={() => void connect()} data-testid="project-preview-connect-expo">Connect Expo</Button>
-          // TODO(expo-go-58): add expo_go_prompt_device_auth=1 to this link when
-          // Expo Go 58 ships, so the phone signs in to the same account.
           : deviceAction
           ? <Button size="sm" render={<a href={expoGoUrl} />} nativeButton={false} data-testid="project-preview-expo-go">Open in Expo Go</Button>
-          : expoGoUrl && expanded
-          ? <Button size="icon-sm" variant="ghost" onClick={openWeb} aria-label="Full screen web preview" title="Full screen" data-testid="project-preview-fullscreen"><Maximize2 className="size-4" /></Button>
           : <Button size="sm" onClick={openWeb}>{expoGoUrl ? "Open web preview" : "Open preview"}</Button>}
       </div>
       {stopped ? <div className="space-y-2 border-t px-3 py-2.5" data-testid="project-preview-stopped">
@@ -134,22 +134,18 @@ export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | nu
         <button className="inline-flex items-center gap-1.5 font-medium text-primary disabled:text-muted-foreground" disabled={restartAsked} onClick={() => void restart()}>
           <RotateCw className="size-3.5" />{restartAsked ? "Asked the agent to restart it" : "Restart preview"}
         </button>
-      </div> : expoGoUrl && expanded ? <div className="border-t px-3 pb-3" data-testid="project-preview-details">
-        <LevelSwitcher levels={levels} value={current} onChange={setLevel} />
+      </div> : expoGoUrl && expanded ? <div className="border-t px-3 pb-2" data-testid="project-preview-details">
         {current === "web"
           ? <PhoneFrame src={inlinePreviewUrl(preview)} title={`${preview.title} web preview`} testId="project-preview-web" />
           : current === "simulator" && state?.simulator
           ? <SimulatorLevel stream={state.simulator} webUrl={inlinePreviewUrl(preview)} title={preview.title} onStart={() => void simulatorAction("start")} />
-          : <div data-testid="project-preview-device">
-              {expo.account
-                ? <ExpoAccountRow account={expo.account} phone={phone} android={android} error={expo.error}
-                    onConnect={() => void connect()} onOpenComputer={() => setShowComputer(true)} onCancel={() => void expo.cancel()} />
-                : null}
-              <ExpoGoGuide url={expoGoUrl} phone={phone} />
-            </div>}
-        <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-          <a className="inline-flex items-center gap-1" href={preview.url} target="_blank" rel="noreferrer" aria-label="Open preview in new tab">New tab <ExternalLink className="size-3" aria-hidden /></a>
-          <span className="ml-auto inline-flex" title="Private to you. The link is temporary." aria-label="Private to you. The link is temporary." role="img"><Info className="size-3.5" aria-hidden /></span>
+          : <DeviceLevel url={expoGoUrl} phone={phone} android={android} account={expo.account} error={expo.error} connecting={connecting}
+              onConnect={() => void connect()} onOpenComputer={() => setShowComputer(true)} onCancel={() => void expo.cancel()} />}
+        {/* The level switcher sits under the preview, with the two small links. */}
+        <div className="mt-2 flex items-center gap-2">
+          <LevelSwitcher levels={levels} value={current} onChange={setLevel} />
+          <a className="ml-auto inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted" href={preview.url} target="_blank" rel="noreferrer" aria-label="Open preview in new tab" title="New tab"><ExternalLink className="size-4" aria-hidden /></a>
+          <InfoTip text={current === "device" ? DEVICE_INFO : "Private to you. The link is temporary."} store={current === "device" ? expoGoStore() : null} />
         </div>
       </div> : null}
     </div>
@@ -181,17 +177,85 @@ const PHONE_H = 844;
  * the user's own device) is one more entry after "device".
  */
 function LevelSwitcher({ levels, value, onChange }: { levels: PreviewLevel[]; value: PreviewLevel; onChange(level: PreviewLevel): void }) {
-  return <div className="mt-2.5 flex rounded-lg bg-muted p-0.5" role="tablist" aria-label="Preview level" data-testid="project-preview-levels">
-    {levels.map((level) => <button
-      key={level}
-      type="button"
-      role="tab"
-      aria-selected={value === level}
-      data-testid={`project-preview-level-${level}`}
-      className={cn("min-h-8 flex-1 rounded-md px-2 text-xs font-medium text-muted-foreground outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50",
-        value === level && "bg-background text-foreground shadow-sm")}
-      onClick={() => onChange(level)}
-    >{PREVIEW_LEVEL_LABEL[level]}</button>)}
+  return <div className="flex rounded-lg bg-muted p-0.5" role="tablist" aria-label="Preview level" data-testid="project-preview-levels">
+    {levels.map((level) => {
+      const Icon = LEVEL_ICON[level];
+      return <button
+        key={level}
+        type="button"
+        role="tab"
+        aria-selected={value === level}
+        aria-label={PREVIEW_LEVEL_LABEL[level]}
+        title={PREVIEW_LEVEL_LABEL[level]}
+        data-testid={`project-preview-level-${level}`}
+        className={cn("flex h-7 w-10 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50",
+          value === level && "bg-background text-foreground shadow-sm")}
+        onClick={() => onChange(level)}
+      ><Icon className="size-4" aria-hidden /></button>;
+    })}
+  </div>;
+}
+
+/** Web | Simulator | Your phone. A future "Install" level adds one icon here. */
+const LEVEL_ICON: Record<PreviewLevel, typeof Globe2> = { web: Globe2, simulator: MonitorSmartphone, device: Smartphone };
+
+const DEVICE_INFO = "An iPhone opens the app only when Expo Go and the Computer use the same Expo account. Android needs no account.";
+
+/** Long explanations live behind a small icon: a tooltip on hover, a line on tap. */
+function InfoTip({ text, store }: { text: string; store: { url: string; name: string } | null }) {
+  const [shown, setShown] = useState(false);
+  return <span className="relative inline-flex">
+    <button type="button" className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"
+      aria-label={text} aria-expanded={shown} title={text} onClick={() => setShown(!shown)} data-testid="project-preview-info">
+      <Info className="size-4" aria-hidden />
+    </button>
+    {shown ? <span className="absolute bottom-9 right-0 z-10 w-60 rounded-lg border bg-popover p-2.5 text-xs text-popover-foreground shadow-md" role="note">
+      {text}
+      {store ? <> Get Expo Go on <a className="font-medium text-primary" href={store.url} target="_blank" rel="noreferrer">{store.name}</a>.</> : null}
+    </span> : null}
+  </span>;
+}
+
+/**
+ * Level 3, Expo Go on the person's own phone. A computer gets the QR code, a
+ * phone gets one button. One short line at most; the rules are in the info tip.
+ */
+function DeviceLevel({ url, phone, android, account, error, connecting, onConnect, onOpenComputer, onCancel }: {
+  url: string; phone: boolean; android: boolean; account: ExpoAccountSnapshot | null; error: string | null; connecting: boolean;
+  onConnect(): void; onOpenComputer(): void; onCancel(): void;
+}) {
+  // Android's Expo Go and older Computers (no account check) need no sign-in.
+  const signedOut = !android && account !== null && !account.signedIn;
+  const status = account?.connect;
+  const action = connecting && status
+    ? <div className="flex flex-col items-center gap-1" data-testid="project-preview-expo-connecting">
+        <Button size="sm" onClick={onOpenComputer}>Open Computer</Button>
+        <span className="text-xs text-muted-foreground">{expoConnectMessage(status)}{" "}
+          {status.state === "waiting" ? <button className="font-medium text-foreground underline-offset-2 hover:underline" onClick={onCancel}>Cancel</button> : null}
+        </span>
+      </div>
+    : signedOut
+    ? <div className="flex flex-col items-center gap-1" data-testid="project-preview-expo-signed-out">
+        <Button size="sm" onClick={onConnect} data-testid="project-preview-connect-expo">Connect Expo</Button>
+        <span className="text-xs text-muted-foreground">{status?.state === "failed" || status?.state === "cancelled" ? expoConnectMessage(status) : "Sign in to preview on your iPhone"}</span>
+      </div>
+    : <div className="flex flex-col items-center gap-1">
+        {phone
+          // TODO(expo-go-58): add expo_go_prompt_device_auth=1 to this link when
+          // Expo Go 58 ships, so the phone signs in to the same account.
+          ? <Button size="sm" render={<a href={url} />} nativeButton={false} data-testid="project-preview-expo-go"><Smartphone className="size-4" aria-hidden />Open in Expo Go</Button>
+          : <span className="text-xs font-medium">Scan with Expo Go</span>}
+        {account?.signedIn && !android
+          ? <span className="text-xs text-muted-foreground" data-testid="project-preview-expo-account">as <span className="font-medium text-foreground">{account.username}</span></span>
+          : null}
+      </div>;
+  const qr = phone ? null : `data:image/svg+xml;utf8,${encodeURIComponent(renderSVG(url, { border: 1 }))}`;
+  return <div className="mt-2.5 flex items-center justify-center gap-4 py-2" data-testid="project-preview-device">
+    {qr ? <img className="size-24 shrink-0 rounded-md bg-white p-1" src={qr} alt="QR code that opens this app in Expo Go" data-testid="expo-go-guide" /> : null}
+    <div className="flex flex-col items-center gap-1">
+      {action}
+      {error ? <p className="text-xs text-destructive" role="alert">{error}</p> : null}
+    </div>
   </div>;
 }
 
@@ -293,28 +357,6 @@ function expoGoStore(): { url: string; name: string } {
 }
 
 /**
- * A phone cannot scan its own screen, so a phone gets only the store line.
- * "Open in Expo Go" in the header is its main path. A computer gets the QR.
- */
-function ExpoGoGuide({ url, phone }: { url: string; phone: boolean }) {
-  const store = expoGoStore();
-  if (phone) {
-    return <p className="mt-3 text-xs text-muted-foreground" data-testid="expo-go-guide">
-      Need Expo Go? Get it on{" "}
-      <a className="font-medium text-primary" href={store.url} target="_blank" rel="noreferrer">{store.name}</a>
-    </p>;
-  }
-  const qr = `data:image/svg+xml;utf8,${encodeURIComponent(renderSVG(url, { border: 1 }))}`;
-  return <div className="mt-3 flex items-center gap-3" data-testid="expo-go-guide">
-    <img className="size-24 shrink-0 rounded-md bg-white p-1" src={qr} alt="QR code that opens this app in Expo Go" />
-    <p className="min-w-0 flex-1 text-xs text-muted-foreground">
-      Scan with your phone camera to open in{" "}
-      <a className="font-medium text-primary" href={store.url} target="_blank" rel="noreferrer">Expo Go</a>.
-    </p>
-  </div>;
-}
-
-/**
  * The Computer's Expo CLI account. Expo Go on an iPhone opens a project only
  * when this account is signed in and Expo Go uses the same one. `account` is
  * null on a Computer without the check, and the card then behaves as before.
@@ -350,35 +392,4 @@ function useExpoAccount(sessionId: string | null, suffix: string) {
     }
   };
   return { account, error, connect: () => post("connect"), cancel: () => post("cancel") };
-}
-
-function ExpoAccountRow({ account, phone, android, error, onConnect, onOpenComputer, onCancel }: {
-  account: ExpoAccountSnapshot; phone: boolean; android: boolean; error: string | null;
-  onConnect(): void; onOpenComputer(): void; onCancel(): void;
-}) {
-  const status = account.connect;
-  if (account.signedIn) {
-    return <p className="border-t px-3 py-2 text-xs text-muted-foreground" data-testid="project-preview-expo-account">
-      Sign in to Expo Go as <span className="font-medium text-foreground">{account.username}</span>.
-    </p>;
-  }
-  if (status && expoConnectActive(status)) {
-    return <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t px-3 py-2 text-xs" data-testid="project-preview-expo-connecting">
-      <span className="text-muted-foreground">{expoConnectMessage(status)}</span>
-      <button className="font-medium text-primary" onClick={onOpenComputer}>Open Computer</button>
-      {status.state === "waiting" ? <button className="text-muted-foreground" onClick={onCancel}>Cancel</button> : null}
-    </div>;
-  }
-  // Expo Go on Android opens the project with no account, so an Android
-  // phone skips the sign-in step.
-  if (android) return null;
-  return <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t px-3 py-2 text-xs" data-testid="project-preview-expo-signed-out">
-    <span className="min-w-0 flex-1 text-muted-foreground">
-      {status?.state === "failed" || status?.state === "cancelled" ? `${expoConnectMessage(status)} ` : ""}
-      iPhone needs Expo signed in on the Computer.
-    </span>
-    {/* On a phone the header button is "Connect Expo". */}
-    {phone ? null : <Button size="sm" variant="outline" onClick={onConnect} data-testid="project-preview-connect-expo">Connect Expo</Button>}
-    {error ? <p className="w-full text-destructive" role="alert">{error}</p> : null}
-  </div>;
 }
