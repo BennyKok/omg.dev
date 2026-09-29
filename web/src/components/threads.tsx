@@ -497,8 +497,8 @@ export function ThreadChatView({
   const replies = useMemo(() => (openRoot ? repliesTo(messages, openRoot) : []), [messages, openRoot]);
   const codingAgents = useContext(CodingAgentsContext);
   const mentionOptions = useMemo(
-    () => threadMentionOptions(codingAgents, detail?.participants, detail?.me),
-    [codingAgents, detail?.participants, detail?.me],
+    () => threadMentionOptions(codingAgents, detail?.participants, detail?.me, detail?.people),
+    [codingAgents, detail?.participants, detail?.me, detail?.people],
   );
   // One pinger per field, so each says where you write.
   const typingRef = useRef(typing);

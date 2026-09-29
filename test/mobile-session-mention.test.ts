@@ -40,9 +40,10 @@ describe("mobile # trigger", () => {
 
   test("builds the same endpoint path the web uses", () => {
     expect(sessionMentionPath("login", { cwd: "/r/lfg", sessionId: "abc" })).toBe(
-      "/api/sessions/mentionable?q=login&cwd=%2Fr%2Flfg&exclude=abc&limit=20",
+      "/api/sessions/mentionable?q=login&cwd=%2Fr%2Flfg&exclude=abc&limit=20&threads=1",
     );
-    expect(sessionMentionPath("", { cwd: null })).toBe("/api/sessions/mentionable?limit=20");
+    // `threads=1`: this app writes thread references, so it is offered threads.
+    expect(sessionMentionPath("", { cwd: null })).toBe("/api/sessions/mentionable?limit=20&threads=1");
   });
 
   test("inserts the shared token, which the server parses back", () => {

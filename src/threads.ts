@@ -38,10 +38,12 @@ import {
 import {
   mediaKindFor,
   mediaLabel,
+  mentionedPeople,
   mentionsOmg,
   plainText,
   THREAD_TYPING_TTL_MS,
   type ThreadMedia,
+  type ThreadPerson,
   type ThreadAuthor,
   type ThreadTyping,
   type ThreadMessage,
@@ -277,7 +279,13 @@ export function setThreadNotifier(next: ((push: ThreadPush) => void) | null): vo
  * tells only the people in that reply thread: whoever wrote the message it
  * answers, and whoever has replied to it. Never the author.
  */
-export function threadRecipients(message: ThreadMessage, messages: readonly ThreadMessage[], everyone: readonly string[]): string[] {
+export function threadRecipients(
+  message: ThreadMessage,
+  messages: readonly ThreadMessage[],
+  everyone: readonly string[],
+  /** Named with @: always told, wherever the message is. */
+  mentioned: readonly string[] = [],
+): string[] {
   const author = message.author.kind === "human" ? message.author.participantId : null;
   let pool: string[];
   if (!message.replyTo) {
@@ -286,7 +294,7 @@ export function threadRecipients(message: ThreadMessage, messages: readonly Thre
     const inReplies = messages.filter((row) => row.id === message.replyTo || row.replyTo === message.replyTo);
     pool = inReplies.flatMap((row) => (row.author.kind === "human" ? [row.author.participantId] : []));
   }
-  return [...new Set(pool)].filter((id) => id !== author);
+  return [...new Set([...pool, ...mentioned])].filter((id) => id !== author);
 }
 
 function notifyThreadMessage(message: ThreadMessage): void {
@@ -294,8 +302,13 @@ function notifyThreadMessage(message: ThreadMessage): void {
   const conversation = getConversation(message.threadId);
   if (!conversation || conversation.archivedAt) return;
   const messages = readThreadMessages(message.threadId, 500);
-  const everyone = conversation.participants.filter((row) => row.kind === "human" && !row.leftAt).map((row) => row.id);
-  const recipients = threadRecipients(message, messages, everyone);
+  const humans = conversation.participants.filter((row) => row.kind === "human" && !row.leftAt);
+  const everyone = humans.map((row) => row.id);
+  const mentioned = mentionedPeople(
+    message.text,
+    humans.flatMap((row) => (row.display.name ? [{ participantId: row.id, name: row.display.name }] : [])),
+  );
+  const recipients = threadRecipients(message, messages, everyone, mentioned);
   if (!recipients.length) return;
   const people = readPeople(message.threadId);
   const who = message.author.kind === "omg" ? "omg" : message.author.name;
@@ -379,6 +392,55 @@ export function participantsForView(
 }
 
 /** A person's participant id in a thread. A box with no identities has one local person. */
+/**
+ * Everyone `@` can name in a thread: the machine's people (the roster) and
+ * the thread's members, each with the participant id they have or would have.
+ */
+export function threadPeople(
+  conversation: Conversation,
+  roster: readonly { email: string; name?: string | null; avatar?: string | null }[],
+): ThreadPerson[] {
+  const members = new Set(conversation.participants.filter((row) => row.kind === "human" && !row.leftAt).map((row) => row.id));
+  const out = new Map<string, ThreadPerson>();
+  for (const user of roster) {
+    const participantId = threadParticipantId(user.email);
+    out.set(participantId, {
+      participantId,
+      name: threadDisplayName(user.email, user.name),
+      avatar: user.avatar || null,
+      member: members.has(participantId),
+    });
+  }
+  for (const row of participantsForView(conversation, roster)) {
+    if (row.kind !== "human" || row.leftAt || out.has(row.id)) continue;
+    out.set(row.id, { participantId: row.id, name: row.display.name?.trim() || row.display.fallback, avatar: row.display.avatar ?? null, member: true });
+  }
+  return [...out.values()];
+}
+
+/**
+ * Add the people a message names with `@Name` to the thread, before it is
+ * stored, so they are members when it notifies. Only people on this machine
+ * (the roster) can be added, never the author.
+ */
+export function addMentionedPeople(
+  threadId: string,
+  text: string,
+  roster: readonly { email: string; name?: string | null }[],
+  author: string,
+): string[] {
+  const people = roster.map((user) => ({ participantId: threadParticipantId(user.email), name: threadDisplayName(user.email, user.name), email: user.email }));
+  const named = new Set(mentionedPeople(text, people));
+  const added: string[] = [];
+  for (const person of people) {
+    if (!named.has(person.participantId) || person.email.toLowerCase() === author.toLowerCase()) continue;
+    ensureConversationHuman({ conversationId: threadId, identity: person.email, name: person.name });
+    rememberPerson(threadId, person.participantId, person.email);
+    added.push(person.participantId);
+  }
+  return added;
+}
+
 export function threadParticipantId(identity: string): string {
   return conversationHumanParticipantId(identity) || "human:local";
 }

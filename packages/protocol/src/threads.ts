@@ -121,7 +121,15 @@ export type ThreadDetail = {
   tasks: ThreadTaskRow[];
   /** Who is writing right now, the caller left out. Absent on a machine from before typing. */
   typing?: ThreadTyping[];
+  /**
+   * Everyone `@` can name: the people on this machine and the thread's
+   * members. Naming someone who is not a member adds them. Absent on a
+   * machine from before; then only members are offered.
+   */
+  people?: ThreadPerson[];
 };
+
+export type ThreadPerson = { participantId: string; name: string; avatar?: string | null; member: boolean };
 
 /** Someone writing in a thread: a person at their keyboard, or omg preparing an answer. */
 export type ThreadTyping = {
@@ -360,13 +368,27 @@ export function threadMentionOptions(
   agents: readonly MentionableAgent[] | undefined,
   participants: readonly ThreadParticipant[] | undefined,
   me?: string | null,
+  /** ThreadDetail.people: everyone on the machine. Without it, the members. */
+  everyone?: readonly ThreadPerson[],
 ): ThreadMentionOption[] {
-  const people = (participants ?? []).flatMap((row) => {
-    const name = row.kind === "human" && row.id !== me ? row.display.name?.trim() : null;
-    return name
-      ? [{ id: row.id, name, hint: "In this thread", kind: "person" as const, participantId: row.id, avatar: row.display.avatar ?? null }]
-      : [];
-  });
+  const rows: readonly ThreadPerson[] =
+    everyone ??
+    (participants ?? []).flatMap((row) => {
+      const name = row.kind === "human" ? row.display.name?.trim() : null;
+      return name ? [{ participantId: row.id, name, avatar: row.display.avatar ?? null, member: true }] : [];
+    });
+  const people = rows
+    .filter((row) => row.participantId !== me && row.name.trim())
+    // Members first: they are who a reply is usually for.
+    .sort((a, b) => Number(b.member) - Number(a.member))
+    .map((row) => ({
+      id: row.participantId,
+      name: row.name.trim(),
+      hint: row.member ? "In this thread" : "Adds them to the thread",
+      kind: "person" as const,
+      participantId: row.participantId,
+      avatar: row.avatar ?? null,
+    }));
   return [
     ...THREAD_MENTIONS,
     ...mentionAgents(agents).map((agent) => ({
@@ -533,4 +555,19 @@ export function linkMentions(
           }),
     )
     .join("");
+}
+
+/**
+ * The people a message names with `@Name`, by participant id: the rule
+ * linkMentions draws with, so what is highlighted is who is notified.
+ */
+export function mentionedPeople(text: string, people: readonly { participantId: string; name: string }[]): string[] {
+  const participants = people.map((row) => ({ id: row.participantId, kind: "human" as const, display: { name: row.name, fallback: row.name } }));
+  const linked = linkMentions(text, participants);
+  const ids = new Set<string>();
+  for (const match of linked.matchAll(/\]\(omg:mention\/([^)]+)\)/g)) {
+    const id = mentionFromHref(`omg:mention/${match[1]}`);
+    if (id && id !== "omg" && !id.startsWith("agent:")) ids.add(id);
+  }
+  return [...ids];
 }

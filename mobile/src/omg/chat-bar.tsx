@@ -117,7 +117,7 @@ function MentionFace({ mention }: { mention: ThreadMentionOption }) {
       <PersonFace
         name={mention.name}
         hue={authorHue({ kind: "human", participantId: mention.participantId ?? mention.id, name: mention.name })}
-        avatar={row?.display.avatar}
+        avatar={mention.avatar ?? row?.display.avatar}
         size={24}
       />
     );

@@ -246,8 +246,8 @@ export default function ThreadScreen() {
   // What `@` offers here: omg, this machine's coding agents, and the other people.
   const { agents: codingAgents } = useOmg();
   const mentionOptions = useMemo(
-    () => threadMentionOptions(codingAgents, detail?.participants, detail?.me),
-    [codingAgents, detail?.participants, detail?.me],
+    () => threadMentionOptions(codingAgents, detail?.participants, detail?.me, detail?.people),
+    [codingAgents, detail?.participants, detail?.me, detail?.people],
   );
   const mainTypingLabel = typingLabel(typingIn(detail?.typing, null), detail?.participants);
   const people = (detail?.participants ?? [])

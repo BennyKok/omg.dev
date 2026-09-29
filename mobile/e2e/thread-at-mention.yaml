@@ -14,6 +14,8 @@ onFlowStart:
 - assertVisible: ".*Start a task with codex.*"
 - assertVisible:
     id: "at-mention-Alex"
+# Someone on the machine who is not in the thread yet: naming them adds them.
+- assertVisible: ".*Mention Sam. Adds them to the thread.*"
 - takeScreenshot: thread-at-mention-list
 - tapOn:
     id: "at-mention-omg"

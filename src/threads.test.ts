@@ -12,7 +12,10 @@ import {
   answerMention,
   appendThreadMessage,
   bridgeTaskCompletion,
+  addMentionedPeople,
   keepSessionFile,
+  setThreadNotifier,
+  threadPeople,
   keepThreadUpload,
   resolveThreadRef,
   listThreads,
@@ -699,5 +702,42 @@ describe("a thread can be referenced, and an agent can post to it", () => {
     const media = await keepSessionFile("a1b2c3d4-0000-4000-8000-0000000000ee", image);
     expect(media).toMatchObject({ kind: "image", name: "logo.png", width: 1, height: 1 });
     expect(media.path).toMatch(/^\/api\/artifacts\//);
+  });
+});
+
+describe("@ a person", () => {
+  const roster = [
+    { email: "benny@example.com", name: "Benny", avatar: "" },
+    { email: "angel@example.com", name: "Angel", avatar: "/api/avatars/angel.png" },
+    { email: "chris@example.com", name: "Chris", avatar: "" },
+  ];
+
+  test("@ offers everyone on the machine, members marked", () => {
+    const thread = startThread({ identity: "benny@example.com" });
+    appendThreadMessage(thread.id, { author: threadAuthor(thread.id, "angel@example.com", "Angel"), text: "hi" });
+    const people = threadPeople(getConversation(thread.id)!, roster);
+    expect(people.map((row) => `${row.name}:${row.member}`).sort()).toEqual(["Angel:true", "Benny:true", "Chris:false"]);
+    expect(people.find((row) => row.name === "Angel")?.avatar).toBe("/api/avatars/angel.png");
+  });
+
+  test("naming someone adds them to the thread and tells them, even in replies they were not in", () => {
+    const pushes: (string | null)[] = [];
+    setThreadNotifier(({ user }) => pushes.push(user));
+    try {
+      const thread = startThread({ identity: "benny@example.com" });
+      const benny = threadAuthor(thread.id, "benny@example.com", "Benny");
+      const root = appendThreadMessage(thread.id, { author: benny, text: "the logo" });
+      pushes.length = 0;
+      // A reply thread only Benny is in: Chris would hear nothing without the mention.
+      const added = addMentionedPeople(thread.id, "@Chris what do you think?", roster, "benny@example.com");
+      appendThreadMessage(thread.id, { author: benny, text: "@Chris what do you think?", replyTo: root.id });
+      expect(added).toHaveLength(1);
+      expect(getConversation(thread.id)!.participants.some((row) => row.display.name === "Chris")).toBe(true);
+      expect(pushes).toEqual(["chris@example.com"]);
+      // Naming yourself adds nobody.
+      expect(addMentionedPeople(thread.id, "@Benny note to self", roster, "benny@example.com")).toEqual([]);
+    } finally {
+      setThreadNotifier(null);
+    }
   });
 });

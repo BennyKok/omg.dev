@@ -112,6 +112,12 @@ function demoThreadDetail() {
       { sessionId: DEMO_TASK_ASKING, title: "Cap the free tier on the pricing page", project: "web", busy: false, status: "ok", ended: false },
       { sessionId: DEMO_TASK_DONE, title: "Fix the signup email typo", project: "web", busy: false, status: "ok", ended: true },
     ],
+    // Who @ can name: the members, and someone on the machine not in it yet.
+    people: [
+      { participantId: ME, name: "Demo", member: true },
+      { participantId: ALEX, name: "Alex", avatar: "https://avatars.githubusercontent.com/u/9919?s=128&v=4", member: true },
+      { participantId: "human:sam", name: "Sam", member: false },
+    ],
     // Alex is writing in the main list; omg is answering in t5's replies.
     typing: [
       { author: { kind: "human", participantId: ALEX, name: "Alex" }, replyTo: null },
