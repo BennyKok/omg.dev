@@ -74,7 +74,8 @@ import { compressedAssetResponse, maybeCompressResponse } from "../http-compress
 import { serveOmgMcpRequest, serveComputerMcpRequest } from "../mcp-http.ts";
 import { resolveCaller } from "../policy/caller.ts";
 import { createBrowserLoginService } from "../computer/login.ts";
-import { createProjectPreviewService } from "../project-previews.ts";
+import { createProjectPreviewService, storedProjectPreview } from "../project-previews.ts";
+import { createExpoAccountService, installXdgOpenShim, liveExpoAccountDeps } from "../expo-account.ts";
 import { importBrowserLogin } from "../computer/browser.ts";
 import {
   configureConnectors,
@@ -4294,6 +4295,26 @@ export async function cmdServe() {
       return { url: body.url, expoGoUrl: body.expoGoUrl };
     },
   });
+  // A Computer has no xdg-open. Tools that open a browser (`expo login
+  // --browser`, `gh auth login --web`) get the shim, which opens the page in
+  // the Computer's desktop browser. Every child of this process inherits it.
+  installXdgOpenShim(process.env, PORT);
+  const expoAccount = createExpoAccountService({
+    ...liveExpoAccountDeps(),
+    session: async (id) => {
+      const row = (await listSessions()).find(s => s.sessionId === id || s.nativeSessionId === id);
+      return row?.sessionId ? { id: row.sessionId, owner: row.assignedUser ?? null, cwd: row.cwd ?? null } : null;
+    },
+    viewer: req => botViewerFromRequest(req, new URL(req.url).searchParams.get("user")).identity,
+    preview: (sessionId) => storedProjectPreview(sessionId),
+    startDesktop: () => startDesktop(),
+    tellAgent: async (sessionId, text) => {
+      await fetch(`http://127.0.0.1:${PORT}/api/sessions/${encodeURIComponent(sessionId)}/send`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, mode: "queue" }),
+      });
+    },
+  });
   const cloudMachineProxy = createCloudMachineProxy({ account: cloudAccount });
   const server = Bun.serve<AppSocketData>({
     port: PORT,
@@ -4685,6 +4706,9 @@ export async function cmdServe() {
       }
       if (path === "/api/project-preview") {
         return await projectPreview(req);
+      }
+      if (path === "/api/expo-account" || path.startsWith("/api/expo-account/")) {
+        return await expoAccount(req);
       }
 
       // ---- the computer: a shared desktop, streamed and controllable ----

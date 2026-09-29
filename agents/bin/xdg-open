@@ -1,0 +1,35 @@
+#!/bin/sh
+# xdg-open for an omg Computer.
+#
+# A Computer has no desktop session of its own, so tools that open a browser
+# (`expo login --browser`, `gh auth login --web`, and others) failed there:
+# xdg-open was missing, and a missing opener crashed some of them. This one
+# opens the URL in the Computer's shared desktop browser, the one the user
+# sees in the Computer view, and starts the desktop when it is not running.
+# The page then runs ON the Computer, so a localhost OAuth callback completes.
+#
+# lfg serve puts this directory on PATH only when the system has no xdg-open.
+# It never fails its caller: when it cannot open the page it prints the link
+# and exits 0.
+url="${1:-}"
+if [ -z "$url" ]; then
+  echo "usage: xdg-open <url>" >&2
+  exit 0
+fi
+api="${OMG_COMPUTER_API:-http://127.0.0.1:${LFG_PORT:-8766}}"
+fallback() {
+  echo "xdg-open: could not open the Computer browser. Open this link yourself: $url" >&2
+  exit 0
+}
+command -v curl >/dev/null 2>&1 || fallback
+# A file path or a bare word is not something the Computer browser can load.
+case "$url" in
+  http://*|https://*) ;;
+  *) fallback ;;
+esac
+curl -fsS -m 120 -X POST "$api/api/computer/start" -H 'content-type: application/json' -d '{}' >/dev/null 2>&1 || fallback
+body=$(printf '%s' "$url" | sed 's/\\/\\\\/g; s/"/\\"/g')
+curl -fsS -m 60 -X POST "$api/api/computer/browser/navigate" -H 'content-type: application/json' \
+  -d "{\"url\":\"$body\"}" >/dev/null 2>&1 || fallback
+echo "Opened in the Computer browser: $url" >&2
+exit 0
