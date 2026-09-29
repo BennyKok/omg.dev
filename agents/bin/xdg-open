@@ -29,7 +29,11 @@ case "$url" in
 esac
 curl -fsS -m 120 -X POST "$api/api/computer/start" -H 'content-type: application/json' -d '{}' >/dev/null 2>&1 || fallback
 body=$(printf '%s' "$url" | sed 's/\\/\\\\/g; s/"/\\"/g')
+# OMG_COMPUTER_KIOSK=1: a login the person does in an omg sheet. The page
+# opens in the Computer kiosk window instead of the agent's tab.
+kiosk=false
+[ "${OMG_COMPUTER_KIOSK:-}" = "1" ] && kiosk=true
 curl -fsS -m 60 -X POST "$api/api/computer/browser/navigate" -H 'content-type: application/json' \
-  -d "{\"url\":\"$body\"}" >/dev/null 2>&1 || fallback
+  -d "{\"url\":\"$body\",\"kiosk\":$kiosk}" >/dev/null 2>&1 || fallback
 echo "Opened in the Computer browser: $url" >&2
 exit 0

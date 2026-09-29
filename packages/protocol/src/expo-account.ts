@@ -12,6 +12,8 @@
  * while `signedIn` is true, so the phone signs in to the same account.
  */
 export type ExpoConnectState =
+  /** "Create free account": expo.dev/signup is open in the Computer browser. The CLI login follows. */
+  | "signup"
   /** `expo login --browser` runs, and the login page is open in the Computer browser. */
   | "waiting"
   /** The login finished. The Computer checks the account and the manifest. */
@@ -21,6 +23,16 @@ export type ExpoConnectState =
   | "done"
   | "failed"
   | "cancelled";
+
+/**
+ * How "Connect Expo" starts. "signup" opens expo.dev/signup in the Computer
+ * browser first, where the person creates their own account; "login" goes
+ * straight to `expo login --browser`. omg never signs up for anyone.
+ */
+export type ExpoConnectMode = "signup" | "login";
+
+/** The button text, and the words the agent uses to offer it. */
+export const EXPO_SIGNUP_LABEL = "Create free account";
 
 export interface ExpoConnectStatus {
   state: ExpoConnectState;
@@ -39,12 +51,13 @@ export interface ExpoAccountSnapshot {
 
 /** True while a "Connect Expo" run is in progress. */
 export function expoConnectActive(status: ExpoConnectStatus | undefined): boolean {
-  return status?.state === "waiting" || status?.state === "verifying" || status?.state === "restarting";
+  return status?.state === "signup" || status?.state === "waiting" || status?.state === "verifying" || status?.state === "restarting";
 }
 
 /** The card text while a "Connect Expo" run is in progress. */
 export function expoConnectMessage(status: ExpoConnectStatus): string {
   switch (status.state) {
+    case "signup": return "Create your Expo account in the Computer window…";
     case "waiting": return "Sign in to Expo in the Computer window…";
     case "verifying": return "Checking the Expo account…";
     case "restarting": return "Restarting the preview with your Expo account…";

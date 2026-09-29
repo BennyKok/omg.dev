@@ -342,6 +342,10 @@ describe("first-run envelope", () => {
     expect(script).toBeGreaterThan(expose);
     expect(wrapped).toContain("before you write any app code, even when the request includes a design to match");
     expect(wrapped).toContain("`WARNING: Expo CLI is not signed in`");
+    // The agent offers the account in the card's words and never signs up itself.
+    expect(wrapped).toContain('offer \"Create a free Expo account\"');
+    expect(wrapped).toContain('tap \"Create free account\", or \"I have one\"');
+    expect(wrapped).toContain("never sign up for them");
     // Level 1 first: the web preview works on any device with no account.
     const web = wrapped.indexOf("Present the web preview first");
     const phone = wrapped.indexOf('tap \"Your phone\" on the card');

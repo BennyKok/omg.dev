@@ -209,6 +209,28 @@ export async function browserNavigate(url: string): Promise<{ url: string; title
   return { url: v.url, title: v.title };
 }
 
+/**
+ * True when the Computer browser is signed in to expo.dev: the site keeps a
+ * `sessionSecret` cookie, or the page is an account dashboard. Used to move
+ * "Create free account" on to the CLI login once the person has signed up.
+ * @internal the rule is exported for tests.
+ */
+export function expoWebSignedInFrom(cookies: { name?: string; value?: string }[], url: string): boolean {
+  if (cookies.some((c) => /sessionsecret/i.test(c.name ?? "") && !!c.value)) return true;
+  try {
+    const u = new URL(url);
+    return u.hostname === "expo.dev" && u.pathname.startsWith("/accounts/");
+  } catch {
+    return false;
+  }
+}
+
+export async function expoWebSignedIn(): Promise<boolean> {
+  const v = await agentView();
+  const found = await v.cdp("Network.getCookies", { urls: ["https://expo.dev/"] }) as { cookies?: { name?: string; value?: string }[] };
+  return expoWebSignedInFrom(found.cookies ?? [], v.url);
+}
+
 export async function browserClick(target: number | string, y?: number): Promise<void> {
   const v = await agentView();
   await focusAgentTab();
