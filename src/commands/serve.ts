@@ -57,6 +57,7 @@ import {
   setSessionPinned,
 } from "../session-pins.ts";
 import { createConnectManager, readRelayBoxId } from "../connect-manager.ts";
+import { tailnetGateResponse, tailnetPortFromEnv } from "../tailnet-gate.ts";
 import { findProjectFavicon, projectFaviconMime } from "../project-favicon.ts";
 import { claudeOauthToken as sharedClaudeOauthToken } from "../claude-creds.ts";
 import {
@@ -944,6 +945,9 @@ function publicSessionUrl(sessionId: string): string | null {
 // (via `tailscale serve`), never the public internet. Override LFG_HOST only
 // if you understand the exposure.
 const HOST = process.env.LFG_HOST ?? "127.0.0.1";
+// Opt-in second listener for `tailscale serve`. See src/tailnet-gate.ts.
+const TAILNET_PORT = tailnetPortFromEnv(process.env.LFG_TAILNET_PORT, PORT);
+const OMG_WEB_ORIGIN = (process.env.OMG_WEB_URL ?? "https://omg.dev").trim();
 const MAX_LFG_SUBAGENT_DEPTH = 4;
 const agentAdmission = new AgentAdmissionController();
 
@@ -12167,6 +12171,26 @@ a{color:#60a5fa}
   void refreshResumableCache({ force: true }).catch(() => {});
 
   console.log(`lfg web → http://${server.hostname}:${server.port}`);
+
+  // Tailnet entry point. `tailscale serve` points here instead of at PORT, so
+  // every request on it is from the tailnet and must pass the gate (see
+  // src/tailnet-gate.ts). The relay and local tools keep using PORT.
+  if (TAILNET_PORT) {
+    const tailnet = Bun.serve({
+      port: TAILNET_PORT,
+      hostname: "127.0.0.1",
+      maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
+      fetch(req) {
+        const gated = tailnetGateResponse(req, { boxId: readRelayBoxId(), webOrigin: OMG_WEB_ORIGIN });
+        if (gated) {
+          if (gated.status === 401) console.warn(`[tailnet-gate] 401 ${req.method} ${new URL(req.url).pathname}`);
+          return gated;
+        }
+        return server.fetch(req);
+      },
+    });
+    console.log(`lfg tailnet gate → http://${tailnet.hostname}:${tailnet.port} (sign-in required)`);
+  }
   console.log(`  agents dir: ${AGENTS_DIR}`);
 
   // Release installs apply a newer GitHub release on their own. Hosted
