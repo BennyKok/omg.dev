@@ -6,6 +6,7 @@ import { MessageResponse } from "./ai-elements/message";
 import { CopyableMarkdownLink } from "./ai-elements/streamdown-response";
 import { AuthenticatedArtifactImage, AuthenticatedArtifactVideo } from "./authenticated-artifact";
 import {
+  authorAgent,
   authorHue,
   authorView,
   cardMessageIds,
@@ -121,16 +122,23 @@ const TIME = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-di
 /** The thread's people, so every avatar and name is drawn as they are now. */
 const ThreadPeopleContext = createContext<ThreadDetail["participants"] | undefined>(undefined);
 
-function Avatar({ author, size = 36 }: { author: ThreadAuthor; size?: number }) {
+/** The thread's tasks, so an omg message carrying a task's words wears that task's agent. */
+const ThreadTasksContext = createContext<ThreadDetail["tasks"] | undefined>(undefined);
+
+function Avatar({ author, size = 36, message }: { author: ThreadAuthor; size?: number; message?: ThreadMessage }) {
   const people = useContext(ThreadPeopleContext);
+  const tasks = useContext(ThreadTasksContext);
   const [failed, setFailed] = useState<string | null>(null);
-  // omg wears its own mark, the same one the omg agent shows everywhere.
+  // omg speaks with the mark of the agent whose words it carries (a Claude
+  // task's answer shows Claude's), the same icon a session shows; omg's own
+  // words show omg's.
   if (author.kind === "omg") {
+    const agent = message ? authorAgent(message, tasks) : null;
     return (
       <img
         aria-hidden
         alt=""
-        src={agentIconSrc("omg")}
+        src={agentIconSrc(agent ?? "omg")}
         className="shrink-0 rounded-lg"
         style={{ width: size, height: size }}
       />
@@ -253,7 +261,7 @@ function MessageRow({
       data-testid="thread-message"
       className={cn("group flex gap-2.5 rounded-md px-2 py-0.5 hover:bg-muted/40", first && "mt-2 pt-1.5")}
     >
-      <div className="w-9 shrink-0">{first ? <Avatar author={message.author} /> : null}</div>
+      <div className="w-9 shrink-0">{first ? <Avatar author={message.author} message={message} /> : null}</div>
       <div className="min-w-0 flex-1">
         {first ? (
           <div className="flex items-baseline gap-2">
@@ -746,7 +754,7 @@ export function ThreadChatView({
   if (!root) {
     return (
       <ThreadMentionContext.Provider value={openMembers}>
-        <ThreadPeopleContext.Provider value={detail?.participants}>{main}</ThreadPeopleContext.Provider>
+        <ThreadPeopleContext.Provider value={detail?.participants}><ThreadTasksContext.Provider value={detail?.tasks}>{main}</ThreadTasksContext.Provider></ThreadPeopleContext.Provider>
       </ThreadMentionContext.Provider>
     );
   }
@@ -754,6 +762,7 @@ export function ThreadChatView({
   return (
     <ThreadMentionContext.Provider value={openMembers}>
     <ThreadPeopleContext.Provider value={detail?.participants}>
+    <ThreadTasksContext.Provider value={detail?.tasks}>
     <div className="flex h-full min-h-0 w-full min-w-0 flex-1">
       <div className="hidden min-w-0 flex-1 md:flex">{main}</div>
       <aside
@@ -804,6 +813,7 @@ export function ThreadChatView({
         <ComposerSlot render={renderComposer} onTyping={replyTyping} mentions={mentionOptions} testId="thread-reply-input" placeholder="Reply…" onSend={(text, attachments) => post(text, root.id, attachments)} autoFocus />
       </aside>
     </div>
+    </ThreadTasksContext.Provider>
     </ThreadPeopleContext.Provider>
     </ThreadMentionContext.Provider>
   );

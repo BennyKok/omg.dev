@@ -10,7 +10,7 @@ import { useOmg } from "../../src/omg/provider";
 import { TaskCard } from "../../src/omg/task-card";
 import { ChatHeaderBar, chatHeaderHeight } from "../../src/omg/chat-header";
 import { COMPOSER_FADE_HEIGHT, EdgeFade } from "../../src/omg/edge-fade";
-import { GroupAvatar, ThreadAvatar, ThreadDetailsSheet, ThreadPeopleContext, useAuthorName } from "../../src/omg/thread-details";
+import { GroupAvatar, ThreadAvatar, ThreadDetailsSheet, ThreadPeopleContext, ThreadTasksContext, useAuthorName } from "../../src/omg/thread-details";
 import { ThreadChatBar, TypingIndicator } from "../../src/omg/chat-bar";
 import { Markdown, MarkdownMentionContext } from "../../src/omg/markdown";
 import { ThreadMediaList } from "../../src/omg/thread-media";
@@ -139,7 +139,7 @@ function MessageRow({ message, first, children }: { message: ThreadMessage; firs
   const handles = useMemo(() => mentionAgents(agents).map((row) => row.handle), [agents]);
   return (
     <View style={{ flexDirection: "row", gap: 10, paddingTop: first ? 12 : 2 }}>
-      <View style={{ width: 36 }}>{first ? <Avatar author={message.author} /> : null}</View>
+      <View style={{ width: 36 }}>{first ? <Avatar author={message.author} message={message} /> : null}</View>
       <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
         {first ? (
           <View style={{ flexDirection: "row", alignItems: "baseline", gap: 8 }}>
@@ -428,6 +428,7 @@ export default function ThreadScreen() {
   return (
     <MarkdownMentionContext.Provider value={openMembers}>
     <ThreadPeopleContext.Provider value={detail?.participants}>
+    <ThreadTasksContext.Provider value={detail?.tasks}>
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <Stack.Screen options={{ headerShown: false }} />
       <KeyboardAvoidingView
@@ -555,6 +556,7 @@ export default function ThreadScreen() {
         ) : null}
       </Modal>
     </View>
+    </ThreadTasksContext.Provider>
     </ThreadPeopleContext.Provider>
     </MarkdownMentionContext.Provider>
   );

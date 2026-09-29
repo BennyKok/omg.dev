@@ -1,8 +1,8 @@
 import { createContext, useContext, type ReactNode } from "react";
 import { Image, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Icon } from "../components";
-import { authorHue, authorView, type ThreadAuthor } from "../../../packages/protocol/src/threads";
+import { AgentAvatar, Icon } from "../components";
+import { authorAgent, authorHue, authorView, type ThreadAuthor, type ThreadMessage } from "../../../packages/protocol/src/threads";
 import { useAvatarUri } from "./users";
 import { agentIcon } from "./agent-icons";
 import { DropdownMenu, type MenuOption } from "./menu";
@@ -47,11 +47,21 @@ export function PersonFace({
 /** The thread's people, so every avatar and name is drawn as they are now. */
 export const ThreadPeopleContext = createContext<Participant[] | undefined>(undefined);
 
-/** A message author's face: omg's mark, or the person's photo or letter. */
-export function ThreadAvatar({ author, size = 36 }: { author: ThreadAuthor; size?: number }) {
+/** The thread's tasks, so an omg message carrying a task's words wears that task's agent. */
+export const ThreadTasksContext = createContext<ThreadDetail["tasks"] | undefined>(undefined);
+
+/**
+ * A message author's face. omg speaks with the mark of the agent whose words
+ * it carries (a Claude task's answer shows Claude's), drawn by the same
+ * AgentAvatar sessions use; omg's own words show omg's. A person shows their
+ * photo or letter.
+ */
+export function ThreadAvatar({ author, size = 36, message }: { author: ThreadAuthor; size?: number; message?: ThreadMessage }) {
   const people = useContext(ThreadPeopleContext);
+  const tasks = useContext(ThreadTasksContext);
   if (author.kind === "omg") {
-    return <Image source={agentIcon("omg")} style={{ width: size, height: size, borderRadius: size / 4.5 }} accessible={false} />;
+    const agent = message ? authorAgent(message, tasks) : null;
+    return <AgentAvatar agent={agent ?? "omg"} size={size} plain />;
   }
   const { name, avatar } = authorView(author, people);
   return <PersonFace name={name} hue={authorHue(author)} avatar={avatar} size={size} square />;

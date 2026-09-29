@@ -83,7 +83,7 @@ function demoThreadMessages(t: number) {
     msg("t6f", t - 16 * MIN, me, "Agreed. Ship it after the Stripe question.", undefined, "t5"),
     msg("t7", t - 15 * MIN, alex, "@omg also fix the typo in the signup email"),
     msg("t8", t - 14 * MIN, omg, "Started a task in web.", { sessionId: DEMO_TASK_DONE, event: "started", title: "Fix the signup email typo", project: "web" }, "t7"),
-    msg("t9", t - 2 * MIN, omg, "Fixed \"recieve\" in the signup email. Tests pass.", { sessionId: DEMO_TASK_DONE, event: "finished", title: "Fix the signup email typo", project: "web" }, "t7"),
+    msg("t9", t - 2 * MIN, omg, "Fixed \"recieve\" in the signup email. Tests pass.", { sessionId: DEMO_TASK_DONE, event: "finished", title: "Fix the signup email typo", project: "web", agent: "codex" }, "t7"),
   ];
 }
 
