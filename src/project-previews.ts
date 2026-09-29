@@ -109,7 +109,7 @@ export function createProjectPreviewService(deps: {
 
   /** The level-2 slot of a snapshot. A failing provider must not hide the card. */
   const simulatorField = async (preview: ProjectPreview, live: boolean): Promise<{ simulator?: SimulatorStream }> => {
-    if (!deps.simulator || !preview.expoGoUrl || !live) return {};
+    if (!deps.simulator || deps.simulator.available?.() === false || !preview.expoGoUrl || !live) return {};
     try {
       return { simulator: await deps.simulator.status(preview) };
     } catch {
@@ -149,7 +149,9 @@ export function createProjectPreviewService(deps: {
 
       if (url.pathname.endsWith("/simulator")) {
         const preview = rows.get(session.id) ?? null;
-        if (!deps.simulator || !preview?.expoGoUrl) throw new PreviewError(404, "The simulator preview is not available");
+        if (!deps.simulator || deps.simulator.available?.() === false || !preview?.expoGoUrl) {
+          throw new PreviewError(404, "The simulator preview is not available");
+        }
         if (req.method !== "POST") throw new PreviewError(405, "Method not allowed");
         // The owner's card starts and stops a simulator; the agent does not.
         if (caller) throw new PreviewError(403, "Only the preview card can start a simulator");
