@@ -57,6 +57,42 @@
       "expect": [
         "Save Image"
       ]
+    },
+    {
+      "name": "Close share sheet",
+      "goal": "Close the share sheet with its Close button. Do not tap any app or Save Image.",
+      "done": "The share sheet is gone and the Replies page with the Pricing mockup picture is visible.",
+      "expect": [
+        "Pricing mockup. Open"
+      ],
+      "forbid": [
+        "Save Image"
+      ]
+    },
+    {
+      "name": "Open viewer",
+      "goal": "Tap the element labelled exactly \"Pricing mockup. Open\" (the picture itself). Do not tap the plain \"Pricing mockup\" caption text under it, and never tap Reply or the keyboard.",
+      "done": "The full-screen image viewer is open with a Close image button.",
+      "expect": [
+        "Close image"
+      ]
+    },
+    {
+      "name": "Viewer menu",
+      "goal": "Press and hold the picture in the middle of the full-screen viewer (labelled Pricing mockup). Do not tap Close image.",
+      "done": "The native iOS context menu is open over the picture and offers Save or Share.",
+      "expect": [
+        "Save or Share"
+      ],
+      "longPress": true
+    },
+    {
+      "name": "Viewer share sheet",
+      "goal": "Tap Save or Share in the context menu.",
+      "done": "The iOS share sheet is open and offers Save Image.",
+      "expect": [
+        "Save Image"
+      ]
     }
   ]
 }

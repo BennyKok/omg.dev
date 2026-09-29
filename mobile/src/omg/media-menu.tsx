@@ -21,7 +21,7 @@ export function MediaMenu({ save, noun, testID, children }: {
   testID: string;
   children: ReactNode;
 }) {
-  const { colors, type, space, isDark } = useTheme();
+  const { colors, type, space } = useTheme();
   const [state, setState] = useState<"idle" | "busy" | "failed">("idle");
   if (Platform.OS !== "ios") return <View style={{ alignSelf: "flex-start" }}>{children}</View>;
   const run = () => {
@@ -31,29 +31,10 @@ export function MediaMenu({ save, noun, testID, children }: {
       .then(() => setState("idle"))
       .catch(() => setState("failed"));
   };
-  const actions: MenuAction[] = [{ id: "save", title: "Save or Share", image: "square.and.arrow.up" }];
   const status = state === "busy" ? `Preparing ${noun}` : "Could not download. Try again";
   return (
     <View style={{ alignSelf: "flex-start", gap: space.xs }}>
-      <MenuView
-        actions={actions}
-        shouldOpenOnLongPress
-        colorScheme={isDark ? "dark" : "light"}
-        onPressAction={({ nativeEvent }) => {
-          if (nativeEvent.event === "save") run();
-        }}
-        testID={`${testID}-menu`}
-      >
-        <View
-          accessibilityHint="Press and hold for options"
-          accessibilityActions={[{ name: "save", label: "Save or Share" }]}
-          onAccessibilityAction={(event) => {
-            if (event.nativeEvent.actionName === "save") run();
-          }}
-        >
-          {children}
-        </View>
-      </MenuView>
+      <SaveMenu onSave={run} testID={`${testID}-menu`}>{children}</SaveMenu>
       {state === "idle" ? null : (
         <Pressable
           onPress={run}
@@ -73,5 +54,41 @@ export function MediaMenu({ save, noun, testID, children }: {
         </Pressable>
       )}
     </View>
+  );
+}
+
+const ACTIONS: MenuAction[] = [{ id: "save", title: "Save or Share", image: "square.and.arrow.up" }];
+
+/**
+ * Just the press-and-hold menu, with no progress row. The full-screen viewer
+ * uses this directly and shows its own status over the black backdrop. iOS
+ * only; callers decide what Android gets.
+ */
+export function SaveMenu({ onSave, testID = "save-menu", children }: {
+  onSave: () => void;
+  testID?: string;
+  children: ReactNode;
+}) {
+  const { isDark } = useTheme();
+  return (
+    <MenuView
+      actions={ACTIONS}
+      shouldOpenOnLongPress
+      colorScheme={isDark ? "dark" : "light"}
+      onPressAction={({ nativeEvent }) => {
+        if (nativeEvent.event === "save") onSave();
+      }}
+      testID={testID}
+    >
+      <View
+        accessibilityHint="Press and hold for options"
+        accessibilityActions={[{ name: "save", label: "Save or Share" }]}
+        onAccessibilityAction={(event) => {
+          if (event.nativeEvent.actionName === "save") onSave();
+        }}
+      >
+        {children}
+      </View>
+    </MenuView>
   );
 }

@@ -49,7 +49,7 @@ import { Text } from "./text";
 import { ImageGalleryContext, ImageGalleryRow, type ImageRect } from "./image-gallery-context";
 import { galleryImageId, gallerySwipe } from "./image-gallery-data";
 import { saveImage } from "./image-save";
-import { MediaMenu } from "./media-menu";
+import { MediaMenu, SaveMenu } from "./media-menu";
 
 type Load =
   | { status: "loading" }
@@ -349,8 +349,6 @@ const CLOSE_MS = 220;
 const MAX_ZOOM = 4;
 const DOUBLE_TAP_ZOOM = 2.5;
 const DOUBLE_TAP_MS = 280;
-/** Hold this long without moving and the viewer offers Save or Share. */
-const LONG_PRESS_MS = 500;
 
 export function ImageViewer({
   uri,
@@ -385,12 +383,6 @@ export function ImageViewer({
   const insets = useSafeAreaInsets();
   const [ratio, setRatio] = useState<number | null>(null);
   const [saving, setSaving] = useState<"idle" | "busy" | "failed">("idle");
-  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const held = useRef(false);
-  const cancelHold = () => {
-    if (holdTimer.current) clearTimeout(holdTimer.current);
-    holdTimer.current = null;
-  };
   const mountedRef = useRef(true);
   // Read through a ref: a caller passes a fresh closure each render, and a new
   // one must not rebuild the PanResponder in the middle of a gesture.
@@ -404,7 +396,7 @@ export function ImageViewer({
       .then(() => { if (mountedRef.current) setSaving("idle"); })
       .catch(() => { if (mountedRef.current) setSaving("failed"); });
   }, []);
-  useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; cancelHold(); }; }, []);
+  useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
   useEffect(() => { setSaving("idle"); }, [imageId]);
 
   useEffect(() => {
@@ -519,18 +511,10 @@ export function ImageViewer({
         onPanResponderGrant: () => {
           pinch.current = null;
           panBase.current = { x: panX.value, y: panY.value };
-          held.current = false;
-          cancelHold();
-          holdTimer.current = setTimeout(() => {
-            holdTimer.current = null;
-            held.current = true;
-            save();
-          }, LONG_PRESS_MS);
         },
         onPanResponderMove: (e, g) => {
           if (closing.current || paging.current) return;
           const touches = e.nativeEvent.touches;
-          if (touches.length > 1 || Math.hypot(g.dx, g.dy) >= 6) cancelHold();
           if (touches.length > 1) {
             const [a, b] = touches;
             const distance = Math.hypot(a.pageX - b.pageX, a.pageY - b.pageY);
@@ -554,15 +538,11 @@ export function ImageViewer({
           dragY.value = Math.abs(g.dx) > Math.abs(g.dy) ? 0 : g.dy;
         },
         onPanResponderTerminate: () => {
-          cancelHold();
           pinch.current = null;
           dragX.value = withTiming(0, { duration: 160 });
           dragY.value = withTiming(0, { duration: 160 });
         },
         onPanResponderRelease: (_e, g) => {
-          cancelHold();
-          // A hold already did its job. It is not also a tap that closes.
-          if (held.current) { held.current = false; return; }
           if (closing.current || paging.current) return;
           const wasPinching = pinch.current !== null;
           pinch.current = null;
@@ -609,7 +589,7 @@ export function ImageViewer({
           dragY.value = withTiming(0, { duration: 200 });
         },
       }),
-    [close, dragX, dragY, panX, panY, zoom, turnPage, save],
+    [close, dragX, dragY, panX, panY, zoom, turnPage],
   );
 
   const imageStyle = useAnimatedStyle(() => {
@@ -634,6 +614,16 @@ export function ImageViewer({
       ],
     };
   });
+
+  const picture = uri ? <Image
+    source={{ uri }}
+    accessibilityLabel={accessibilityLabel}
+    accessible
+    // `contain`, so a tall screenshot is readable end to end rather than
+    // cropped to the middle of itself.
+    resizeMode="contain"
+    style={{ width: target.width, height: target.height }}
+  /> : null;
 
   const backdropStyle = useAnimatedStyle(() => {
     const pull = Math.min(1, Math.abs(dragY.value) / 320);
@@ -663,13 +653,7 @@ export function ImageViewer({
             backdropStyle,
           ]}
         />
-        {uri ? <Reanimated.Image
-          source={{ uri }}
-          accessibilityLabel={accessibilityLabel}
-          accessible
-          // `contain`, so a tall screenshot is readable end to end rather than
-          // cropped to the middle of itself.
-          resizeMode="contain"
+        {uri ? <Reanimated.View
           style={[
             {
               position: "absolute",
@@ -677,10 +661,16 @@ export function ImageViewer({
               top: target.y,
               width: target.width,
               height: target.height,
+              overflow: "hidden",
             },
             imageStyle,
           ]}
-        /> : <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+        >
+          {/* The same native menu the transcript tile and a video offer. The
+              animated frame above carries the open, drag and zoom transforms,
+              so the menu's preview is the picture itself. */}
+          {onSave && Platform.OS === "ios" ? <SaveMenu onSave={save}>{picture}</SaveMenu> : picture}
+        </Reanimated.View> : <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
           <Text style={{ color: "white" }}>{error ? "Image unavailable" : "Loading image…"}</Text>
         </View>}
       </View>
