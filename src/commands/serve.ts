@@ -417,7 +417,7 @@ import {
   removeManaged,
   type ManagedSession,
 } from "../managed.ts";
-import { commandFileHarnessIsDead, reconcileCommandFileSessions, relaunchDeadCommandFileHarness } from "../session-recovery.ts";
+import { commandFileHarnessIsDead, reconcileCommandFileSessions, relaunchDeadCommandFileHarness, setRecoveryEgressProxy } from "../session-recovery.ts";
 import { resolveResumeModel } from "../resume-model.ts";
 import { PtyBridge, termSessionName } from "../pty.ts";
 import { RfbBridge } from "../computer/rfb-bridge.ts";
@@ -3275,6 +3275,7 @@ async function launchBotSession(
       appliedConfigRevision: opts.appliedConfigRevision ?? botConfigRevision(bot),
       botId: bot.id,
       persistent: true,
+      containment: { agentSlice: true, sandbox: "none", egressProxy: false },
     });
     // Attach provisionally before the harness can write its launch turn. This
     // gives transcript indexing a verified bot author without selecting this
@@ -9656,6 +9657,13 @@ a{color:#60a5fa}
         const fallbackTitle = body?.prompt?.slice(0, 72);
         const resolvedRole = requestedRole || roleForUser(assignedUser).id;
         sessionRole = resolvedRole !== OWNER_ROLE_ID ? resolvedRole : undefined;
+        // One decision, recorded on the row and passed to the spawn below, so
+        // a relaunch after an OOM kill or a reboot gets the same containment.
+        const containment = {
+          agentSlice: isSubagent,
+          sandbox: roleSandbox(sessionRole),
+          egressProxy: roleEgress(sessionRole).mode === "allowlist",
+        };
         const claim = addManaged({
           tmuxName,
           cwd,
@@ -9685,6 +9693,7 @@ a{color:#60a5fa}
           // Every session launched from here is handed its token at spawn
           // (omgMcpServers), so the endpoint may demand it.
           mcpTokenRequired: true,
+          containment,
         }, idempotencyKey);
         if (!claim.created) return replaySessionCreation(claim.session);
         if (claudeAccountId) bindClaudeSessionAccount(launchId, claudeAccountId);
@@ -9703,15 +9712,15 @@ a{color:#60a5fa}
           fastMode,
           sessionId: launchId,
           omgUser: assignedUser,
-          containInAgentSlice: isSubagent,
+          containInAgentSlice: containment.agentSlice,
           claudeAccountId,
           // Restricted roles run their harness in a filesystem sandbox
           // (src/sandbox/bwrap.ts). Owner and unknown roles get none.
-          sandbox: roleSandbox(sessionRole),
+          sandbox: containment.sandbox,
           // An allowlist role also gets an egress proxy URL carrying its own
           // token, so its outbound traffic is held to the role's hosts.
           egressProxyUrl:
-            roleEgress(sessionRole).mode === "allowlist" && egressProxy
+            containment.egressProxy && egressProxy
               ? egressProxy.proxyUrlFor(launchId, sessionToken(launchId))
               : undefined,
         });
@@ -11916,6 +11925,28 @@ a{color:#60a5fa}
 
   connectManager.start();
 
+  // The egress proxy: a restricted-role session's harness is pointed here, so
+  // it reaches only the model APIs plus its role's allowed hosts. Resolves the
+  // caller from the same per-session token the MCP endpoints use.
+  const egressProxyReady = startEgressProxy({
+    log: (l) => console.log(l),
+    resolve: (sessionId, token) => {
+      if (!verifySessionToken(sessionId, token)) return null;
+      const row = listManaged().find((s) => s.sessionId === sessionId || s.nativeSessionId === sessionId);
+      const egress = roleEgress(row?.role);
+      if (egress.mode !== "allowlist") return null;
+      return { sessionId, allow: [...DEFAULT_ALLOW_HOSTS, ...egress.allowHosts] };
+    },
+  })
+    .then((proxy) => {
+      egressProxy = proxy;
+    })
+    .catch((e) => console.error(`[egress] start failed: ${e instanceof Error ? e.message : String(e)}`));
+  // Relaunches (boot recovery below, and a send to a dead harness) rebuild a
+  // restricted session's proxy URL here. Recovery waits for the proxy so a
+  // restricted session is not relaunched before it can be pointed at it.
+  setRecoveryEgressProxy((sessionId) => egressProxy?.proxyUrlFor(sessionId, sessionToken(sessionId)) ?? null);
+  await egressProxyReady;
   const recovered = await reconcileCommandFileSessions((l) => console.log(l));
   if (recovered.adopted || recovered.recovered || recovered.failed || recovered.skippedLegacy) {
     console.log(`[session-recovery] adopted=${recovered.adopted} recovered=${recovered.recovered} recoveredTmux=${recovered.recoveredTmux} failed=${recovered.failed} skippedLegacy=${recovered.skippedLegacy}`);
@@ -12027,23 +12058,6 @@ a{color:#60a5fa}
   });
   startChatIngestMonitor(listSessionsCached);
 
-  // The egress proxy: a restricted-role session's harness is pointed here, so
-  // it reaches only the model APIs plus its role's allowed hosts. Resolves the
-  // caller from the same per-session token the MCP endpoints use.
-  void startEgressProxy({
-    log: (l) => console.log(l),
-    resolve: (sessionId, token) => {
-      if (!verifySessionToken(sessionId, token)) return null;
-      const row = listManaged().find((s) => s.sessionId === sessionId || s.nativeSessionId === sessionId);
-      const egress = roleEgress(row?.role);
-      if (egress.mode !== "allowlist") return null;
-      return { sessionId, allow: [...DEFAULT_ALLOW_HOSTS, ...egress.allowHosts] };
-    },
-  })
-    .then((proxy) => {
-      egressProxy = proxy;
-    })
-    .catch((e) => console.error(`[egress] start failed: ${e instanceof Error ? e.message : String(e)}`));
   // Warm the resumable-session cache in the background so the first time someone
   // opens the resume picker it's already served from SQLite (no cold scan wait).
   void refreshResumableCache({ force: true }).catch(() => {});

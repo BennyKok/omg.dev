@@ -7,7 +7,15 @@ import {
   patchEntry,
   type AisdkEntry,
 } from "./aisdk-registry.ts";
-import { addManaged, listManaged, patchManaged, removeManaged, type ManagedSession } from "./managed.ts";
+import {
+  addManaged,
+  listManaged,
+  managedContainment,
+  patchManaged,
+  removeManaged,
+  type ManagedContainment,
+  type ManagedSession,
+} from "./managed.ts";
 import { computerAgentAdmissionContext, isScheduleSpawned } from "./agent-admission.ts";
 import {
   spawnManagedAisdkSession,
@@ -26,6 +34,8 @@ import {
 } from "./tmux.ts";
 import { userAssignments } from "./users.ts";
 import { CODING_AGENT_ADAPTERS } from "./coding-agent-adapters.ts";
+
+export { managedContainment };
 
 export type RecoveryResult = {
   bootId: string | null;
@@ -96,24 +106,49 @@ function matchingManaged(entry: AisdkEntry, managed: ManagedSession[]): ManagedS
     ) ?? null;
 }
 
+// The egress proxy lives in serve and its port can change on every restart, so
+// the URL is rebuilt at launch time instead of being read from the row.
+let egressProxyUrlFor: ((sessionId: string) => string | null) | null = null;
+export function setRecoveryEgressProxy(resolve: ((sessionId: string) => string | null) | null): void {
+  egressProxyUrlFor = resolve;
+}
+
 export function launchRecovered(
   entry: AisdkEntry,
   managed: ManagedSession,
   recoveredAt: number,
   assignedUser: string | null,
 ): ManagedHarnessSpawnResult {
+  const containment = managedContainment(managed);
+  const omgSessionId = managed.sessionId || entry.sessionId;
   const common = {
     name: managed.tmuxName,
     cwd: managed.cwd || entry.cwd,
     model: managed.model || entry.model,
-    omgSessionId: managed.sessionId || entry.sessionId,
+    omgSessionId,
     omgUser: assignedUser,
     recoveredAt,
+    containInAgentSlice: containment.agentSlice,
   };
+  // Sandbox and egress reach only the harnesses whose first launch forwards
+  // them (ACTIVE_CODING_AGENT_PROVIDERS: aisdk, codex-aisdk, opencode/omg, pi).
+  // The others ran without them, and a relaunch matches the first launch.
+  let policy: { sandbox: ManagedContainment["sandbox"]; egressProxyUrl?: string } = { sandbox: "none" };
+  const forwardsPolicy = !["grok", "cursor", "fx", "muse", "copilot", "jcode", "deepseek", "devin"].includes(entry.agent ?? "");
+  if (forwardsPolicy) {
+    policy = { sandbox: containment.sandbox };
+    if (containment.egressProxy) {
+      // Fail closed: a restricted session must not come back with open egress.
+      const url = egressProxyUrlFor?.(omgSessionId) ?? null;
+      if (!url) return { ok: false, error: "egress proxy unavailable for a restricted session" };
+      policy.egressProxyUrl = url;
+    }
+  }
   if (entry.agent === "codex") {
     if (!entry.threadId) return { ok: false, error: "codex recovery handle missing" };
     return spawnManagedCodexAisdkSession({
       ...common,
+      ...policy,
       key: entry.sessionId,
       resume: entry.threadId,
       thinkingLevel: entry.thinkingLevel ?? undefined,
@@ -124,6 +159,7 @@ export function launchRecovered(
     if (!entry.threadId) return { ok: false, error: "opencode recovery handle missing" };
     return spawnManagedOpencodeAisdkSession({
       ...common,
+      ...policy,
       key: entry.sessionId,
       resume: entry.threadId,
       thinkingLevel: entry.thinkingLevel ?? undefined,
@@ -133,6 +169,7 @@ export function launchRecovered(
     if (!entry.threadId) return { ok: false, error: "pi recovery handle missing" };
     return spawnManagedPiSession({
       ...common,
+      ...policy,
       key: entry.sessionId,
       resume: entry.threadId,
       thinkingLevel: entry.thinkingLevel ?? undefined,
@@ -184,6 +221,7 @@ export function launchRecovered(
   }
   return spawnManagedAisdkSession({
     ...common,
+    ...policy,
     sessionId: entry.sessionId,
     thinkingLevel: entry.thinkingLevel ?? undefined,
     fastMode: managed.fastMode ?? entry.fastMode ?? false,

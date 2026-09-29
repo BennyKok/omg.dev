@@ -894,7 +894,7 @@ export type Session = {
   // Build health (from the backend). "blocked" means the session can't make
   // progress until a human acts; statusReason/statusDetail explain why.
   status?: "ok" | "blocked";
-  statusReason?: "model_unavailable" | "out_of_credits" | "provider_auth" | "provider_error" | "restart_recovered" | "interrupted" | null;
+  statusReason?: "model_unavailable" | "out_of_credits" | "provider_auth" | "provider_error" | "restart_recovered" | "interrupted" | "out_of_memory" | null;
   statusDetail?: string | null;
   // Live "working" flag from the list call (backend computes it from the tmux
   // pane / aisdk registry). Lets a collapsed card show working/idle without
@@ -15468,6 +15468,8 @@ function PausedBanner({
       ? "Session recovered after restart"
       : reason === "interrupted"
       ? "Agent stopped"
+      : reason === "out_of_memory"
+      ? "Agent ran out of memory"
       : reason === "out_of_credits"
       ? "Build paused — out of credits"
       : reason === "provider_auth"
@@ -15482,6 +15484,8 @@ function PausedBanner({
       ? session.statusDetail || "The previous turn was interrupted. Review the last output, then send a message to continue safely."
       : reason === "interrupted"
       ? session.statusDetail || "The agent process stopped before it finished. Continue to restart it."
+      : reason === "out_of_memory"
+      ? `The system stopped the agent because it used more memory than its limit allows${session.statusDetail ? ` (${session.statusDetail})` : ""}. Continue to restart it with the same limit.`
       : reason === "out_of_credits"
       ? "This app's build agent ran out of AI credits. Top up the wallet to resume the build."
       : reason === "provider_auth"
@@ -15502,7 +15506,7 @@ function PausedBanner({
           <div className="mt-0.5 text-foreground/70">{detail}</div>
           {err ? <div className="mt-1 text-destructive">{err}</div> : null}
         </div>
-        {reason === "restart_recovered" || reason === "interrupted" ? (
+        {reason === "restart_recovered" || reason === "interrupted" || reason === "out_of_memory" ? (
           <button
             type="button"
             onClick={() => void continueSession()}

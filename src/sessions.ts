@@ -4,7 +4,8 @@ import { readFile, readdir, readlink } from "node:fs/promises";
 import { statSync, readFileSync, writeFileSync, renameSync } from "node:fs";
 import { join, basename } from "node:path";
 import { panePidForSession, tmuxHasSession, tmuxTargetForPid, capturePane, isBusy, isJcodeBusy } from "./tmux";
-import { isManagedName, listManaged, patchManaged, type ManagedSession } from "./managed";
+import { isManagedName, listManaged, managedContainment, patchManaged, type ManagedSession } from "./managed";
+import { agentUnitName, agentUnitOomKilled } from "./agent-unit-oom.ts";
 import {
   listEntries as listAisdkEntries,
   isPidAlive,
@@ -450,7 +451,7 @@ export type Session = {
   // session reads as an explained pause, not a silent stall. See computeStatus.
   status: "ok" | "blocked";
   // Machine-readable reason when status === "blocked"; null when ok.
-  statusReason: "model_unavailable" | "out_of_credits" | "provider_auth" | "provider_error" | "restart_recovered" | "interrupted" | null;
+  statusReason: "model_unavailable" | "out_of_credits" | "provider_auth" | "provider_error" | "restart_recovered" | "interrupted" | "out_of_memory" | null;
   // Human-readable one-liner for the banner (e.g. the dead model id), or null.
   statusDetail: string | null;
   // Whether the session is actively working RIGHT NOW: for a tmux session, its
@@ -613,6 +614,15 @@ export function managedLaunchRow(
     return null;
   const pid = commandFile ? (directEntry?.harnessPid ?? 0) : (tmux.panePid(m.tmuxName) ?? 0);
   if (pid && isClosing(pid)) return null;
+  const oomUnit =
+    explained && candidateEntry && managedContainment(m).agentSlice &&
+    agentUnitOomKilled(
+      agentUnitName(m.tmuxName),
+      candidateEntry.createdAt,
+      `${candidateEntry.harnessPid}:${candidateEntry.createdAt}`,
+    )
+      ? agentUnitName(m.tmuxName)
+      : null;
   const tmuxTarget = commandFile
     ? null
     : pid
@@ -707,7 +717,15 @@ export function managedLaunchRow(
     // the kernel OOM killer on the 2G lfg-agent-<name> unit. Calling that a
     // provider error sent people looking at the API. The next message or
     // Continue relaunches it (relaunchDeadCommandFileHarness).
-    ...(explained && candidateEntry
+    // When the harness ran in its own unit and the journal says the kernel
+    // OOM-killed it, say so and name the unit, so nobody has to dig for it.
+    ...(explained && candidateEntry && oomUnit
+      ? {
+          status: "blocked" as const,
+          statusReason: "out_of_memory" as const,
+          statusDetail: oomUnit,
+        }
+      : explained && candidateEntry
       ? {
           status: "blocked" as const,
           statusReason: "interrupted" as const,
