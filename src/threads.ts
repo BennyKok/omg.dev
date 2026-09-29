@@ -101,6 +101,7 @@ export function appendThreadMessage(
     ...(message.task ? { task: message.task } : {}),
     ...(message.replyTo ? { replyTo: message.replyTo } : {}),
     ...(message.media?.length ? { media: message.media } : {}),
+    ...(message.via ? { via: message.via } : {}),
   };
   mkdirSync(threadsDir(), { recursive: true });
   appendFileSync(messagesPath(threadId), `${JSON.stringify(row)}\n`, { mode: 0o600 });
@@ -145,6 +146,33 @@ export async function keepThreadUpload(threadId: string, uploadedPath: string, n
     width: artifact.width ?? null,
     height: artifact.height ?? null,
   };
+}
+
+/**
+ * A file an agent session shows in a thread (omg_send_thread_message): any
+ * file it can read, kept as that session's artifact, the way omg_display_image
+ * keeps one, so the phone plays it through the same signed route.
+ */
+export async function keepSessionFile(sessionId: string, path: string): Promise<ThreadMedia> {
+  const kind = mediaKindFor(path);
+  const input = { sessionId, path };
+  const artifact =
+    kind === "image" ? await createImageArtifact(input) : kind === "video" ? await createVideoArtifact(input) : createFileArtifact(input);
+  return {
+    kind,
+    path: `/api/artifacts/${encodeURIComponent(artifact.id)}`,
+    name: basename(path),
+    width: artifact.width ?? null,
+    height: artifact.height ?? null,
+  };
+}
+
+/** A thread by its id, an unambiguous prefix of it, or an `omg:thread_<id>` link. Null when none or several match. */
+export function resolveThreadRef(ref: string): string | null {
+  const id = ref.trim().replace(/^omg:thread_/, "").toLowerCase();
+  if (!id) return null;
+  const matches = listThreads().filter((row) => row.id.toLowerCase().startsWith(id));
+  return matches.length === 1 ? matches[0].id : null;
 }
 
 /* -------------------------------------------------------------------------- */

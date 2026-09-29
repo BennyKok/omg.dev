@@ -27,6 +27,7 @@ import {
   mentionsOmg,
   omgWake,
   turnAnswer,
+  keepSessionFile,
   keepThreadUpload,
   participantsForView,
   setTyping,
@@ -42,7 +43,7 @@ import {
   threadUpdate,
   type ThreadDeps,
 } from "../threads.ts";
-import { mentionAgents, mentionedAgent, type ThreadMedia } from "../../packages/protocol/src/threads.ts";
+import { mentionAgents, mentionedAgent, threadPreview, type ThreadMedia } from "../../packages/protocol/src/threads.ts";
 import { buildContinueSessionPrompt } from "../session-continue-prompt.ts";
 import { regenerateSessionTitle } from "../session-title-regenerate.ts";
 import { hasHostedOmgAiProxy, hasOmgProviderAccess } from "../omg-provider.ts";
@@ -342,7 +343,7 @@ import {
   type SessionMsg,
 } from "../sessions.ts";
 import { markSessionRead, sessionUnreadMap } from "../session-reads.ts";
-import { rankSessionMentions } from "../session-mentions.ts";
+import { rankSessionMentions, sessionMentionTerms } from "../session-mentions.ts";
 import { countTranscriptRows, foldWorkRows, LiveWorkRows, type ChatRenderMessage } from "../transcript-rows.ts";
 import {
   invalidateListSessionsCache,
@@ -1309,6 +1310,26 @@ async function taskTurnAnswer(sessionId: string): Promise<string | null> {
   return null;
 }
 
+/** Threads for the `#` picker, in its row shape, marked `kind: "thread"`. */
+function mentionableThreads(query: string | undefined) {
+  const terms = sessionMentionTerms(query);
+  return listThreads()
+    .filter((thread) => terms.every((term) => thread.title.toLowerCase().includes(term)))
+    .slice(0, 5)
+    .map((thread) => ({
+      kind: "thread" as const,
+      sessionId: thread.id,
+      title: thread.title,
+      cwd: thread.project?.cwd ?? null,
+      project: thread.project?.name ?? "",
+      lastUserText: thread.lastMessage ? threadPreview(thread) : null,
+      lastActivityAt: thread.updatedAt,
+      agent: "thread",
+      live: false,
+      sameFolder: false,
+    }));
+}
+
 /** A message's files, as a client names them: uploaded first through POST /api/uploads, each { path, name }. */
 function threadAttachmentsFrom(value: unknown): { path: string; name: string | null }[] {
   if (!Array.isArray(value)) return [];
@@ -1392,6 +1413,36 @@ async function handleThreadRequest(req: Request, url: URL, path: string): Promis
     const replyTo = typeof body?.replyTo === "string" && body.replyTo ? body.replyTo : null;
     setTyping(id, author, body?.typing !== false, replyTo);
     return json({ ok: true });
+  }
+  // An agent session posting as omg (omg_send_thread_message). It names the
+  // files it shows by path, as omg_display_image does; a person attaches uploads.
+  const callerSession = messages && req.method === "POST" ? req.headers.get("x-omg-caller-session-id")?.trim() || null : null;
+  if (messages && req.method === "POST" && callerSession) {
+    const body = (await req.json().catch(() => null)) as { text?: unknown; replyTo?: unknown; mediaPaths?: unknown } | null;
+    const text = typeof body?.text === "string" ? body.text.trim() : "";
+    const paths = Array.isArray(body?.mediaPaths) ? body.mediaPaths.filter((p): p is string => typeof p === "string").slice(0, 10) : [];
+    if (!text && !paths.length) return err(400, "text or mediaPaths is required");
+    const replyTo = typeof body?.replyTo === "string" && body.replyTo ? body.replyTo : null;
+    const rows = readThreadMessages(id, 5_000);
+    const root = replyTo ? rows.find((row) => !row.replyTo && row.id.startsWith(replyTo)) : null;
+    if (replyTo && !root) return err(400, "replyTo must be a top-level message in this thread");
+    let media: ThreadMedia[];
+    try {
+      media = await Promise.all(paths.map((path) => keepSessionFile(callerSession, path)));
+    } catch (error) {
+      return err(400, error instanceof Error ? error.message : String(error));
+    }
+    const session = (await listSessionsCached().catch(() => [])).find(
+      (row) => row.sessionId === callerSession || row.nativeSessionId === callerSession,
+    );
+    const message = appendThreadMessage(id, {
+      author: { kind: "omg" },
+      text,
+      replyTo: root?.id ?? null,
+      media,
+      via: { sessionId: session?.sessionId ?? callerSession, title: session?.title ?? null },
+    });
+    return json({ message });
   }
   if (messages && req.method === "POST") {
     const body = (await req.json().catch(() => null)) as { text?: unknown; user?: unknown; replyTo?: unknown; attachments?: unknown } | null;
@@ -8725,7 +8776,9 @@ a{color:#60a5fa}
           excludeId,
           limit,
         });
-        return json({ sessions });
+        // Threads are referenced with the same `#`, first, so a prompt can name
+        // one for the agent to read or post to (omg_send_thread_message).
+        return json({ sessions: [...mentionableThreads(query), ...sessions] });
       }
 
       if (path === "/api/sessions/find" && req.method === "POST") {

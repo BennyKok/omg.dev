@@ -6127,11 +6127,13 @@ export function App() {
   // Session references in rendered messages open through this page route.
   // The list is read through a ref so a click sees the latest sessions.
   const sessionsForRefs = useRef<Session[]>(sessions);
+  const openThreadPageRef = useRef<(id: string) => void>(() => {});
   sessionsForRefs.current = sessions;
   useEffect(() => {
     registerSessionRefHandlers({
       navigate: openSessionPage,
       peekSessions: () => sessionsForRefs.current,
+      navigateThread: (id) => openThreadPageRef.current(id),
     });
     return () => registerSessionRefHandlers(null);
   }, [openSessionPage]);
@@ -6147,6 +6149,8 @@ export function App() {
     },
     [navigate, keepHostSearch],
   );
+  // Thread references in rendered messages (`#Title` links) open through this.
+  openThreadPageRef.current = openThreadPage;
   const selectedBotConversationId = selectedBotId ? routeSearch.conversation ?? null : null;
   // A terminal is on screen — as the Terminal tab, or pulled up over any tab.
   // Both need the same soft-keyboard treatment: the shell pinned to the visible

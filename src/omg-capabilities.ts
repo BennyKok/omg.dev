@@ -59,6 +59,12 @@ export const OMG_CAPABILITIES = [
       "Prefer deciding autonomously — do NOT ask merely to check in. This is fire-and-forget: raise it once, do not poll or block; the answer arrives later as a user message.",
   },
   {
+    tool: "omg_list_threads / omg_read_thread / omg_send_thread_message",
+    useWhen: "A person referenced a team chat thread (a `[#Title](omg:thread_<id>)` link), or asked you to read one or post a message, picture or video to one.",
+    guidance:
+      "Pass the thread id as written in the link, or a prefix from omg_list_threads. omg_send_thread_message posts as omg, in the thread or in one message's replies (replyTo), and everyone in it is notified. Write it like a teammate in a chat: short and plain. Read the thread first when you need its context.",
+  },
+  {
     tool: "omg_find_sessions",
     useWhen: "An ended or historical omg.dev session must be located after its tmux pane or process disappeared.",
     guidance: "Filter by id/prefix, user, project/cwd, title/transcript text, or last-activity range; use omg_list_sessions for the current live fleet.",
