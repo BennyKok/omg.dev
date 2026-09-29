@@ -419,7 +419,8 @@ import {
   removeManaged,
   type ManagedSession,
 } from "../managed.ts";
-import { coldResumeContainment, commandFileHarnessIsDead, reconcileCommandFileSessions, relaunchDeadCommandFileHarness, setRecoveryEgressProxy } from "../session-recovery.ts";
+import { recordSessionExitReason } from "../session-containment-record.ts";
+import { coldResumeContainment, type ColdResumeContainment, commandFileHarnessIsDead, reconcileCommandFileSessions, relaunchDeadCommandFileHarness, setRecoveryEgressProxy } from "../session-recovery.ts";
 import { resolveResumeModel } from "../resume-model.ts";
 import { PtyBridge, termSessionName } from "../pty.ts";
 import { RfbBridge } from "../computer/rfb-bridge.ts";
@@ -1679,6 +1680,14 @@ async function resolveResumeCwd(
   return repo?.cwd || SELF_REPO;
 }
 
+function logResumeContainment(sessionId: string, cold: ColdResumeContainment): void {
+  const c = cold.containment;
+  console.log(
+    `[resume] ${sessionId.slice(0, 8)} containment from ${cold.source}: ` +
+      `slice=${c.agentSlice} sandbox=${c.sandbox} egress=${c.egressProxy}${cold.role ? ` role=${cold.role}` : ""}`,
+  );
+}
+
 function persistManagedResume(session: Session): void {
   if (!session.sessionId) return;
   const backend = session.agent === "aisdk"
@@ -2459,6 +2468,15 @@ async function closeLiveSession(
     if (sess.tmuxName) {
       removeManaged(sess.tmuxName);
       assignUser(sess.tmuxName, null);
+    }
+    // The OOM verdict came from the unit journal while the row still existed
+    // (managedLaunchRow). Keep it, so the resume picker can say why it stopped.
+    if (sess.statusReason === "out_of_memory") {
+      try {
+        recordSessionExitReason([sess.sessionId, sess.nativeSessionId], "out_of_memory");
+      } catch (error) {
+        console.error(`[close] exit reason for ${id.slice(0, 8)} not recorded: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
     clearResolved(id);
     invalidateListSessionsCache();
@@ -9006,6 +9024,7 @@ a{color:#60a5fa}
           // record it on the new row for the next relaunch.
           const coldContainment = coldResumeContainment([sessionId, resumeHandle], cachedResume.backend, sessionId);
           if ("error" in coldContainment) return err(503, coldContainment.error);
+          logResumeContainment(sessionId, coldContainment);
           addManaged({
             tmuxName,
             cwd,
@@ -9116,9 +9135,13 @@ a{color:#60a5fa}
             if (!tag.ok) return err(400, `unknown user "${tag.unknown}"`);
             const assignedUser = tag.user;
             const resumeModel = model || prior.model || "auto";
+            const coldContainment = coldResumeContainment([sessionId, jcodeNativeId], "jcode", sessionId, [prior]);
+            if ("error" in coldContainment) return err(503, coldContainment.error);
+            logResumeContainment(sessionId, coldContainment);
             await indexTranscript(transcript, sessionId);
             addManaged({
               ...prior,
+              containment: coldContainment.containment,
               tmuxName,
               cwd,
               createdAt: Date.now(),
@@ -9141,6 +9164,7 @@ a{color:#60a5fa}
               resume: jcodeNativeId,
               omgSessionId: sessionId,
               omgUser: assignedUser,
+              containInAgentSlice: coldContainment.launch.containInAgentSlice,
             });
             if (!spawned.ok) {
               removeManaged(tmuxName);
@@ -9178,12 +9202,17 @@ a{color:#60a5fa}
           const resumeModel = model || cachedResume.model || (
             agent === "grok" ? GROK_DEFAULT_MODEL() : "auto"
           );
+          const coldContainment = coldResumeContainment([sessionId, cachedResume.resumeHandle], agent, sessionId);
+          if ("error" in coldContainment) return err(503, coldContainment.error);
+          logResumeContainment(sessionId, coldContainment);
           await indexTranscript(transcript, sessionId);
           addManaged({
             tmuxName,
             cwd,
             createdAt: Date.now(),
             agent,
+            containment: coldContainment.containment,
+            ...(coldContainment.role ? { role: coldContainment.role } : {}),
             sessionId,
             nativeSessionId: sessionId,
             launchState: "launching",
@@ -9206,6 +9235,7 @@ a{color:#60a5fa}
                 resume: sessionId,
                 omgSessionId: sessionId,
                 omgUser: assignedUser,
+                containInAgentSlice: coldContainment.launch.containInAgentSlice,
               })
             : spawnManagedCursorSession({
                 name: tmuxName,
@@ -9215,6 +9245,7 @@ a{color:#60a5fa}
                 nativeSessionId: sessionId,
                 omgSessionId: sessionId,
                 omgUser: assignedUser,
+                containInAgentSlice: coldContainment.launch.containInAgentSlice,
               }));
           if (!spawned.ok) {
             removeManaged(tmuxName);
@@ -9243,6 +9274,9 @@ a{color:#60a5fa}
           );
           const tmuxName = `lfg-${randomBytes(3).toString("hex")}`;
           const key = crypto.randomUUID(); // control-plane key (names registry/cmd files)
+          const coldContainment = coldResumeContainment([sessionId], "codex-aisdk", key);
+          if ("error" in coldContainment) return err(503, coldContainment.error);
+          logResumeContainment(sessionId, coldContainment);
           // The resumable catalog discovers rollout files without eagerly
           // indexing their messages. Import and seed history before spawning:
           // otherwise the harness's one-shot copy races the lazy indexer and a
@@ -9256,6 +9290,7 @@ a{color:#60a5fa}
             key,
             resume: sessionId,
             omgUser: body?.user,
+            ...coldContainment.launch,
           });
           if (!r.ok) return err(502, r.error || "failed to resume session");
           addManaged({
@@ -9263,6 +9298,8 @@ a{color:#60a5fa}
             cwd,
             createdAt: Date.now(),
             agent: "codex-aisdk",
+            containment: coldContainment.containment,
+            ...(coldContainment.role ? { role: coldContainment.role } : {}),
             sessionId: key,
             nativeSessionId: sessionId,
             launchState: "running",
@@ -9295,6 +9332,12 @@ a{color:#60a5fa}
         const cwd = await resolveResumeCwd(await cwdForTranscript(transcript), cachedResume?.project);
         const tmuxName = `lfg-${randomBytes(3).toString("hex")}`;
         const resumePrompt = body?.prompt?.trim() || undefined;
+        // The transcript branch is where a closed session lands: its owner row
+        // and registry entry are gone and the scan left no backend on the
+        // cache row. The durable record still has its containment.
+        const coldContainment = coldResumeContainment([sessionId], "aisdk", sessionId);
+        if ("error" in coldContainment) return err(503, coldContainment.error);
+        logResumeContainment(sessionId, coldContainment);
         // Claude transcripts are discovered lazily just like Codex rollouts.
         // Import and seed the direct read model before launching the resumed
         // harness so every file-backed backend has the same non-empty contract.
@@ -9304,6 +9347,8 @@ a{color:#60a5fa}
           cwd,
           createdAt: Date.now(),
           agent: "aisdk",
+          containment: coldContainment.containment,
+          ...(coldContainment.role ? { role: coldContainment.role } : {}),
           sessionId,
           nativeSessionId: sessionId,
           launchState: "launching",
@@ -9322,6 +9367,7 @@ a{color:#60a5fa}
           prompt: resumePrompt,
           omgUser: body?.user,
           claudeAccountId: pinnedClaudeAccountId,
+          ...coldContainment.launch,
         });
         if (!r.ok) {
           removeManaged(tmuxName);
