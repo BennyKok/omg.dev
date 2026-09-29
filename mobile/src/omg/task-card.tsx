@@ -1,63 +1,48 @@
-import { Pressable, View } from "react-native";
-import { Text } from "./text";
-import { useTheme } from "./theme";
+import { View } from "react-native";
+import { SessionCard } from "../components";
 import { TASK_STATE_LABEL, type TaskCardState } from "./thread-tasks";
 
-/** A task omg started from a thread, drawn where it was started. Tap opens the task. */
+/**
+ * A TASK IN A THREAD, drawn as an attachment: the session list's own row in
+ * its compact form (the one a parent's subagents use), not a card of its
+ * own. The agent's mark, the title, and "Needs you · web" under it; working
+ * and waiting show the way they do on Home.
+ *
+ * It used to be a 90pt card with a coloured state line, a short id and the
+ * title in headline type, and in a reply thread it outweighed the replies
+ * around it (2026-09-29).
+ */
 export function TaskCard({
   sessionId,
   title,
   project,
+  agent,
   state,
   onOpen,
 }: {
   sessionId: string;
   title: string;
   project: string | null;
+  agent?: string | null;
   state: TaskCardState;
   onOpen?: () => void;
 }) {
-  const { colors, type, space, radius } = useTheme();
-  const tint =
-    state === "working"
-      ? colors.primary
-      : state === "needs-you"
-        ? colors.warning
-        : state === "failed"
-          ? colors.danger
-          : state === "done"
-            ? colors.success
-            : colors.textMuted;
-  const shortId = sessionId.slice(0, 8);
+  const label = TASK_STATE_LABEL[state];
   return (
-    <Pressable
-      testID={`task-card-${shortId}`}
-      accessibilityRole="button"
-      accessibilityLabel={`Task ${TASK_STATE_LABEL[state]}: ${title}${project ? `, ${project}` : ""}`}
-      onPress={onOpen}
-      style={({ pressed }) => ({
-        alignSelf: "stretch",
-        borderRadius: radius.xl,
-        borderWidth: 1,
-        borderColor: colors.borderStrong,
-        backgroundColor: pressed ? colors.cardPressed : colors.card,
-        paddingHorizontal: 16,
-        paddingVertical: 14,
-        gap: space.sm,
-      })}
-    >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: tint }} />
-        <Text style={{ ...type.footnote, fontWeight: "600", color: tint }}>{TASK_STATE_LABEL[state]}</Text>
-        <View style={{ flex: 1 }} />
-        <Text style={{ ...type.caption, color: colors.textMuted, fontVariant: ["tabular-nums"] }}>{shortId}</Text>
-      </View>
-      <View style={{ gap: 2 }}>
-        <Text numberOfLines={2} style={{ ...type.headline, color: colors.text }}>{title}</Text>
-        {project ? (
-          <Text numberOfLines={1} style={{ ...type.subhead, color: colors.textSecondary }}>{project}</Text>
-        ) : null}
-      </View>
-    </Pressable>
+    <View testID={`task-card-${sessionId.slice(0, 8)}`} style={{ alignSelf: "stretch" }}>
+      <SessionCard
+        compact
+        sessionId={sessionId}
+        title={title}
+        subtitle={project ? `${label} · ${project}` : label}
+        agent={agent}
+        busy={state === "working"}
+        blocked={state === "needs-you"}
+        ended={state === "ended"}
+        animateEntry={false}
+        accessibilityHint={`Task ${label}. Opens the session.`}
+        onPress={() => onOpen?.()}
+      />
+    </View>
   );
 }

@@ -1,5 +1,5 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Alert, AppState, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, TextInput, View, type ScrollViewInstance } from "react-native";
+import { Alert, AppState, FlatList, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, TextInput, View, type ScrollViewInstance } from "react-native";
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
@@ -9,6 +9,7 @@ import type { MenuOption } from "../../src/omg/menu";
 import { useOmg } from "../../src/omg/provider";
 import { TaskCard } from "../../src/omg/task-card";
 import { ChatHeaderBar, chatHeaderHeight } from "../../src/omg/chat-header";
+import { COMPOSER_FADE_HEIGHT, EdgeFade } from "../../src/omg/edge-fade";
 import { GroupAvatar, ThreadAvatar, ThreadDetailsSheet, ThreadPeopleContext, useAuthorName } from "../../src/omg/thread-details";
 import { ThreadChatBar, TypingIndicator } from "../../src/omg/chat-bar";
 import { Markdown, MarkdownMentionContext } from "../../src/omg/markdown";
@@ -66,22 +67,69 @@ function AuthorName({ author, color }: { author: ThreadAuthor; color: string }) 
 }
 
 /**
- * THE REPLIES BAR RIDES THE KEYBOARD from its real frame, as the session
- * composer does.
+ * THE REPLIES BAR FLOATS OVER THE REPLIES, as the session chat's does: the
+ * replies run the sheet's full height and scroll under the glass, dissolving
+ * into the page through a fade, instead of stopping at a hard edge above a
+ * bar in the flow (2026-09-29).
  *
- * KeyboardAvoidingView measures against its parent, and a page sheet starts
- * well below the top of the screen, so it lifted the bar short by that much
- * and the keyboard covered the bar's action row. The keyboard frame is in
- * screen terms and the sheet ends at the screen's bottom, so padding by the
- * keyboard's height puts the bar exactly on top of it, on the keyboard's own
- * curve.
+ * It rides the keyboard's real frame, not KeyboardAvoidingView: that measures
+ * against its parent, and a page sheet starts below the top of the screen,
+ * so it lifted the bar short and the keyboard covered the bar's action row.
+ * The keyboard frame is in screen terms and the sheet ends at the screen's
+ * bottom, so a lift by the keyboard's height is exact. The list pads its end
+ * by the bar and the keyboard (`useFloatingBarInset`) so the last reply can
+ * scroll clear of both.
  */
-function AboveKeyboard({ rest, gap, children }: { rest: number; gap: number; children: ReactNode }) {
+function FloatingChatBar({
+  rest,
+  gap,
+  onHeight,
+  children,
+}: {
+  rest: number;
+  gap: number;
+  onHeight: (height: number) => void;
+  children: ReactNode;
+}) {
+  const { colors } = useTheme();
   const keyboard = useAnimatedKeyboard();
   const lift = useAnimatedStyle(() => ({
-    paddingBottom: Math.max(rest, keyboard.height.value > 0 ? keyboard.height.value + gap : 0),
+    transform: [{ translateY: -Math.max(0, keyboard.height.value + gap - rest) }],
   }));
-  return <Reanimated.View style={lift}>{children}</Reanimated.View>;
+  const [height, setHeight] = useState(0);
+  return (
+    <>
+      <Reanimated.View
+        pointerEvents="none"
+        style={[{ position: "absolute", left: 0, right: 0, bottom: 0, height: height + COMPOSER_FADE_HEIGHT }, lift]}
+      >
+        <EdgeFade edge="bottom" color={colors.background} style={{ flex: 1 }} />
+      </Reanimated.View>
+      <Reanimated.View
+        onLayout={(event) => {
+          setHeight(event.nativeEvent.layout.height);
+          onHeight(event.nativeEvent.layout.height);
+        }}
+        style={[{ position: "absolute", left: 0, right: 0, bottom: 0, paddingBottom: rest }, lift]}
+      >
+        {children}
+      </Reanimated.View>
+    </>
+  );
+}
+
+/** How far the list must pad its end to clear a floating bar and the keyboard. */
+function useKeyboardHeight(): number {
+  const [height, setHeight] = useState(0);
+  useEffect(() => {
+    const show = Keyboard.addListener("keyboardWillShow", (event) => setHeight(event.endCoordinates?.height ?? 0));
+    const hide = Keyboard.addListener("keyboardWillHide", () => setHeight(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+  return height;
 }
 
 function MessageRow({ message, first, children }: { message: ThreadMessage; first: boolean; children?: ReactNode }) {
@@ -129,6 +177,8 @@ export default function ThreadScreen() {
   const repliesScroll = useRef<ScrollViewInstance>(null);
   const repliesPinned = useRef(true);
   const repliesShown = useRef(false);
+  const [replyBarHeight, setReplyBarHeight] = useState(0);
+  const keyboardHeight = useKeyboardHeight();
   useEffect(() => {
     repliesPinned.current = true;
     repliesShown.current = false;
@@ -447,7 +497,12 @@ export default function ThreadScreen() {
               <ScrollView
                 ref={repliesScroll}
                 style={{ flex: 1 }}
-                contentContainerStyle={{ paddingHorizontal: space.lg, paddingBottom: space.lg }}
+                // The bar floats over the end of the list: pad by it and the keyboard.
+                contentContainerStyle={{
+                  paddingHorizontal: space.lg,
+                  paddingBottom:
+                    replyBarHeight + Math.max(0, keyboardHeight + space.sm - Math.max(insets.bottom, space.md)) + space.lg,
+                }}
                 // Opens on the newest reply, and stays there as replies arrive or the
                 // keyboard takes room, unless you scrolled up to read.
                 onContentSizeChange={() => {
@@ -490,10 +545,10 @@ export default function ThreadScreen() {
                   </View>
                 ) : null}
               </ScrollView>
-              <AboveKeyboard rest={Math.max(insets.bottom, space.md)} gap={space.sm}>
+              <FloatingChatBar rest={Math.max(insets.bottom, space.md)} gap={space.sm} onHeight={setReplyBarHeight}>
                 <TypingIndicator testID="thread-reply-typing" label={root ? typingLabel(typingIn(detail?.typing, root.id), detail?.participants) : null} />
                 <ThreadChatBar testID="thread-reply-input" placeholder="Reply…" onSend={(body, files) => post(body, sheetRoot.id, files)} onTyping={replyTyping} mentions={mentionOptions} />
-              </AboveKeyboard>
+              </FloatingChatBar>
             </View>
             {detailsModal}
           </View>
