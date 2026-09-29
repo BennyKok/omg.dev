@@ -25,7 +25,7 @@ export function evlog(event: string, fields: Record<string, unknown> = {}) {
       headers: { "Content-Type": "application/json" },
       body: payload,
       keepalive: true,
-    }).catch(() => {});
+    }, { background: true }).catch(() => {});
   } catch {
     // Diagnostics must never affect the app path being measured.
   }

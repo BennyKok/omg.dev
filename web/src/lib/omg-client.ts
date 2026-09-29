@@ -4,6 +4,14 @@ import {
   type OmgTransport,
   type OmgUploadProgress,
 } from "@omg-dev/client";
+import {
+  ComputerPausedError,
+  computerPausedResponse,
+  createComputerPausedGate,
+  errorStatus,
+  resetGateWhenUserReturns,
+  type ComputerPausedGate,
+} from "./computer-paused-gate";
 
 /**
  * Did this failure come from the box refusing on PLAN grounds?
@@ -93,6 +101,16 @@ export type OmgErrorSink = {
 };
 
 let omgErrorSinkConfig: OmgErrorSink | null = null;
+let pausedGate: ComputerPausedGate = createComputerPausedGate();
+let stopGateListener = resetGateWhenUserReturns(pausedGate);
+
+/** Test seam: a fresh gate with an injected clock. */
+export function resetComputerPausedGateForTest(now?: () => number): ComputerPausedGate {
+  stopGateListener();
+  pausedGate = createComputerPausedGate(now);
+  stopGateListener = resetGateWhenUserReturns(pausedGate);
+  return pausedGate;
+}
 let omgTransportGenerationCounter = 0;
 
 /**
@@ -106,6 +124,8 @@ export function configureOmgTransport(
   // Bump only on a genuine swap. A host re-renders this surface freely and
   // calls us with the same transport object each time; treating that as a
   // change would blank the version rows on every render.
+  // A different Computer: the old one's sleep says nothing about this one.
+  if (transport !== omgTransport) pausedGate.reset();
   if (transport !== omgTransport) omgTransportGenerationCounter += 1;
   omgTransport = transport;
   omgAssetBaseUrl = options.assetBaseUrl?.replace(/\/+$/, "") ?? "";
@@ -130,12 +150,39 @@ export function omgErrorSink(): OmgErrorSink | null {
   return omgErrorSinkConfig;
 }
 
-export function api<T>(path: string, init?: RequestInit): Promise<T> {
-  return omgTransport.request<T>(path, init);
+// Every request to the Computer passes through the four functions below, so
+// the paused gate (computer-paused-gate.ts) sees all of them in one place.
+
+async function observed(response: Promise<Response>): Promise<Response> {
+  const settled = await response;
+  pausedGate.observe(settled.status);
+  return settled;
 }
 
-export function omgFetch(path: string, init?: RequestInit): Promise<Response> {
-  return omgTransport.fetch(path, init);
+export async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  if (pausedGate.blocks(init)) throw new ComputerPausedError();
+  try {
+    const value = await omgTransport.request<T>(path, init);
+    pausedGate.observe(200);
+    return value;
+  } catch (error) {
+    const status = errorStatus(error);
+    if (status !== undefined) pausedGate.observe(status);
+    throw error;
+  }
+}
+
+/**
+ * `background` marks a write nobody is waiting on (browser diagnostics). The
+ * paused gate holds it like a poll instead of letting it through like a click.
+ */
+export function omgFetch(
+  path: string,
+  init?: RequestInit,
+  options: { background?: boolean } = {},
+): Promise<Response> {
+  if (pausedGate.blocks(init, options.background)) return Promise.resolve(computerPausedResponse());
+  return observed(omgTransport.fetch(path, init));
 }
 
 export function omgUpload(
@@ -143,15 +190,18 @@ export function omgUpload(
   init: RequestInit,
   onProgress: (progress: OmgUploadProgress) => void,
 ): Promise<Response> {
-  return omgTransport.upload?.(path, init, onProgress) ??
-    omgTransport.fetch(path, init);
+  return observed(
+    omgTransport.upload?.(path, init, onProgress) ?? omgTransport.fetch(path, init),
+  );
 }
 
 export function openOmgLiveSocket(query?: string): Promise<OmgSocket> {
+  if (pausedGate.blocks()) return Promise.reject(new ComputerPausedError());
   return omgTransport.openLiveSocket(query);
 }
 
 export function openOmgSocket(path: string): Promise<OmgSocket> {
+  if (pausedGate.blocks()) return Promise.reject(new ComputerPausedError());
   return omgTransport.openSocket(path);
 }
 
