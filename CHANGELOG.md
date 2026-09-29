@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## September 29, 2026 - Simulator preview (private test) and Expo account prompt (v0.6.141)
+
+- The Expo preview card can show a **Simulator** level: a live iPhone simulator that runs your app, streamed into the card, with taps, swipes and typing. It is a private test for now, so only the owner of the simulator Mac sees it. The control plane decides per account; other cards do not change.
+- On an iPhone, the preview card asks you to create a free Expo account when Expo Go needs one to open the project.
+- A closed session resumes in the containment it was recorded with. v0.6.140 did not include this fix.
+
 ## September 29, 2026 - Connect Expo and a web preview first (v0.6.140)
 
 - The Expo preview card now opens on **Web**: the app runs inline on the card, on the web and in the iOS and Android apps. **Your phone** shows one "Open in Expo Go" button on a phone, or a QR code on a computer.
