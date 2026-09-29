@@ -2,6 +2,8 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { Keyboard, useWindowDimensions } from 'react-native';
 import { ImageGalleryContext, type GalleryThumbnail, type ImageRect } from './image-gallery-context';
 import type { GalleryImage } from './image-gallery-data';
+import { saveImage } from './image-save';
+import { useOmg } from './provider';
 import { ImageViewer, useAuthenticatedImage } from './remote-image';
 
 type Selection = { images: GalleryImage[]; index: number; origin: ImageRect; radius: number; uri: string | null };
@@ -13,6 +15,7 @@ export function ImageGalleryProvider({ images, onReveal, children }: {
   children: React.ReactNode;
 }) {
   const screen = useWindowDimensions();
+  const { client } = useOmg();
   const thumbnails = useRef(new Map<string, GalleryThumbnail>());
   const [selection, setSelection] = useState<Selection | null>(null);
   const current = selection?.images[selection.index];
@@ -42,6 +45,7 @@ export function ImageGalleryProvider({ images, onReveal, children }: {
     {selection && current ? <ImageViewer
       uri={selection.uri ?? (load.status === 'ready' ? load.uri : null)}
       imageId={current.id}
+      onSave={client ? () => saveImage(p => client.transport.fetch(p), current.path) : undefined}
       origin={selection.origin}
       sourceRadius={selection.radius}
       accessibilityLabel={current.label}

@@ -1,0 +1,41 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": true
+  },
+  "steps": [
+    {
+      "name": "Home",
+      "goal": "If Your data and AI providers is visible, tap Agree and continue to enter the local demo. Otherwise only wait for the session list. Do not tap the composer.",
+      "done": "Home shows a Threads section with the Pricing ideas thread.",
+      "expect": [
+        "Pricing ideas"
+      ]
+    },
+    {
+      "name": "Image in thread",
+      "goal": "Tap the row named Pricing ideas under the Threads heading. Do not tap the message field. If the picture captioned Pricing mockup is not on screen, scroll up until it is.",
+      "done": "The thread is open and shows the Pricing mockup picture.",
+      "expect": [
+        "Pricing mockup. Open"
+      ]
+    },
+    {
+      "name": "Context menu",
+      "goal": "Press and hold the picture (the element labelled Pricing mockup. Open). Do not tap anything else.",
+      "done": "The native iOS context menu is open over the picture and offers Save or Share.",
+      "expect": [
+        "Save or Share"
+      ],
+      "longPress": true
+    },
+    {
+      "name": "Share sheet",
+      "goal": "Tap Save or Share in the context menu.",
+      "done": "The iOS share sheet is open and offers Save Image.",
+      "expect": [
+        "Save Image"
+      ]
+    }
+  ]
+}

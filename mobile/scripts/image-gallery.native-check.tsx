@@ -9,7 +9,7 @@ const Image=Object.assign(({accessibilityLabel}:any)=><span>{accessibilityLabel}
 let pans:any;
 const finished:Function[]=[];
 mock.module(resolve(import.meta.dir,'../node_modules/react-native/index.js'),()=>({
- View,Image,StatusBar:()=>null,Keyboard:{dismiss(){}},
+ View,Image,StatusBar:()=>null,Keyboard:{dismiss(){}},Platform:{OS:'ios'},
  Modal:({children}:any)=><section role="dialog">{children}</section>,
  Pressable:({children,onPress,accessibilityLabel,disabled}:any)=><button aria-label={accessibilityLabel} disabled={disabled} onClick={onPress}>{children}</button>,
  PanResponder:{create:(handlers:any)=>{pans=handlers;return {panHandlers:{}};}},
@@ -23,6 +23,8 @@ mock.module(import.meta.resolve('react-native-reanimated'),()=>({
 }));
 mock.module(resolve(import.meta.dir,'../src/omg/text.tsx'),()=>({Text:({children}:any)=><span>{children}</span>}));
 mock.module(resolve(import.meta.dir,'../src/omg/provider.tsx'),()=>({useOmg:()=>({client:null})}));
+mock.module(resolve(import.meta.dir,'../src/omg/media-menu.tsx'),()=>({MediaMenu:({children}:any)=><>{children}</>}));
+mock.module(resolve(import.meta.dir,'../src/omg/image-save.ts'),()=>({saveImage:async()=>{}}));
 mock.module(import.meta.resolve('react-native-safe-area-context'),()=>({useSafeAreaInsets:()=>({top:59,bottom:34})}));
 const {ImageViewer}=await import('../src/omg/remote-image');
 const {ImageGalleryProvider}=await import('../src/omg/image-gallery');
@@ -73,4 +75,19 @@ test('gallery survives thumbnail unmount and restores the selected row before cl
  ui.render(app(false));expect(ui.query('[role="dialog"]')).not.toBeNull();expect(ui.text()).toContain('2 / 2');
  await ui.flushAsync(async()=>{ui.query('button[aria-label="Close image"]')!.click();await new Promise(r=>setTimeout(r,0));});
  expect(reveals).toEqual(['row-b']);complete();expect(ui.query('[role="dialog"]')).toBeNull();
+});
+
+test('press and hold saves without closing; moving first does not save',async()=>{
+ let saves=0;let closed=0;
+ ui.render(<ImageViewer uri="image" origin={origin} sourceRadius={16} accessibilityLabel="First" onSave={async()=>{saves++;}} onClosed={()=>closed++}/>);
+ await ui.flushAsync(async()=>{pans.onPanResponderGrant();await new Promise(r=>setTimeout(r,550));});
+ expect(saves).toBe(1);
+ await ui.flushAsync(async()=>{pans.onPanResponderRelease({}, {dx:0,dy:0,vx:0,vy:0});await new Promise(r=>setTimeout(r,320));});
+ expect(closed).toBe(0);
+ await ui.flushAsync(async()=>{
+  pans.onPanResponderGrant();
+  pans.onPanResponderMove({nativeEvent:{touches:[{pageX:0,pageY:0}]}},{dx:40,dy:0});
+  await new Promise(r=>setTimeout(r,550));
+ });
+ expect(saves).toBe(1);
 });

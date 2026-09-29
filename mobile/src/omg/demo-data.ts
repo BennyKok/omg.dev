@@ -623,8 +623,14 @@ export function getDemoTransport(): OmgTransport {
     async fetch(path: string) {
       await openingDelay(path);
       if (threadFixture && path.split("?")[0] === DEMO_THREAD_IMAGE_PATH) {
-        const image = await globalThis.fetch(DEMO_THREAD_IMAGE_DATA_URI);
-        return { ok: true, status: 200, blob: () => image.blob() } as unknown as Response;
+        const image = () => globalThis.fetch(DEMO_THREAD_IMAGE_DATA_URI);
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers({ "content-type": "image/png" }),
+          blob: async () => (await image()).blob(),
+          arrayBuffer: async () => (await image()).arrayBuffer(),
+        } as unknown as Response;
       }
       if (videoFixture && path.split("?")[0] === DEMO_VIDEO_PATH && !path.includes("preview=1")) {
         return { ok: true, status: 200, async arrayBuffer() { return demoVideoBytes(); } } as unknown as Response;
