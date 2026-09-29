@@ -58,6 +58,13 @@ ios_path=$(printf '%s' "$manifest" | node -e '
   let s = ""; process.stdin.on("data", d => s += d).on("end", () => {
     const u = new URL(JSON.parse(s).launchAsset.url); console.log(u.pathname + u.search);
   })') || fail "the manifest has no launch bundle"
+# Expo Go on a physical iPhone opens a dev server only when the manifest names
+# the signed-in Expo CLI account (extra.expoGo.username) and Expo Go is signed
+# in to that same account. The transport does not matter: a tunnel fails too.
+expo_user=$(printf '%s' "$manifest" | node -e '
+  let s = ""; process.stdin.on("data", d => s += d).on("end", () => {
+    try { console.log(JSON.parse(s).extra?.expoGo?.username ?? ""); } catch { console.log(""); }
+  })' || true)
 start=$SECONDS
 curl -fsS -m 200 -o /dev/null "$LOCAL$ios_path" || fail "the iOS bundle did not build"
 echo "iOS bundle ready in $((SECONDS - start))s"
@@ -76,3 +83,8 @@ code=$(curl -sS -m 60 -o /dev/null -w '%{http_code}' -H "expo-platform: ios" \
 echo "Metro running on port ${PORT} (pid ${METRO_PID}, log ${LOG})"
 echo "Sandbox proxy answers: HTTP 200"
 echo "Expo Go link: exps://${PROXY_URL#https://}"
+if [ -n "$expo_user" ]; then
+  echo "Expo CLI account: ${expo_user}. On an iPhone, Expo Go must be signed in as ${expo_user}."
+else
+  echo "WARNING: Expo CLI is not signed in. Expo Go on a physical iPhone refuses this project with \"You need to be signed in to Expo Go and Expo CLI\". Android, the iOS Simulator, and the web preview still work."
+fi
