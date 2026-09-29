@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## September 29, 2026 - A paused Computer stops being polled (v0.6.142)
+
+- When your omg.dev Computer is paused, the app stops asking it for updates in the background. It waits longer between tries, up to one minute. It starts again at once when you return to the window or the tab.
+- Your own actions, such as sending a message, still go through and wake the Computer.
+- The Computer desktop keeps working when `~/.omg` is not writable. It keeps its files in `~/.local/state/omg/computer` and says so in the log. Before, a restarted server lost the running desktop.
+
 ## September 29, 2026 - Simulator preview (private test) and Expo account prompt (v0.6.141)
 
 - The Expo preview card can show a **Simulator** level: a live iPhone simulator that runs your app, streamed into the card, with taps, swipes and typing. It is a private test for now, so only the owner of the simulator Mac sees it. The control plane decides per account; other cards do not change.
