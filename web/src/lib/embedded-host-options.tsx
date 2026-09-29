@@ -1,5 +1,6 @@
 import { createContext, useContext, type ReactNode } from "react";
 import type { AgentKind } from "./coding-agent-options";
+import type { PlanLimitLiveAgent } from "./plan-limit-live";
 
 export interface EmbeddedHostOptions {
   /** The agent used when this browser has no valid saved selection. */
@@ -141,6 +142,15 @@ export interface PlanLimitDetail {
   message: string;
   /** What the person was trying to do when the plan stopped them. */
   action: "start-session";
+  /**
+   * The live chats the plan counted, so the host can list them. Home shows one
+   * project at a time and can hide most of them. Absent on an older surface.
+   */
+  live?: PlanLimitLiveAgent[];
+  /** Opens one of `live` in this surface. */
+  openSession?: (sessionId: string) => void;
+  /** Closes one of `live`, which frees its slot. Rejects when the close failed. */
+  closeSession?: (sessionId: string) => Promise<void>;
 }
 
 export interface HostedTranscription {

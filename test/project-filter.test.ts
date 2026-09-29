@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   cacheProjectFilter,
+  NO_PROJECT_FILTER,
   PROJECT_FILTER_STORAGE_KEY,
   readCachedProjectFilter,
 } from "../web/src/lib/project-filter";
@@ -18,11 +19,9 @@ function memoryStorage(initial?: Record<string, string>) {
 }
 
 describe("project filter cache", () => {
-  test("restores the last selected project instead of showing every folder", () => {
-    const storage = memoryStorage({
-      [PROJECT_FILTER_STORAGE_KEY]: "lfg",
-    });
-
+  test("restores a project picked in this visit", () => {
+    const storage = memoryStorage();
+    cacheProjectFilter("lfg", storage);
     expect(readCachedProjectFilter(storage)).toBe("lfg");
   });
 
@@ -34,7 +33,12 @@ describe("project filter cache", () => {
     expect(readCachedProjectFilter(storage)).toBe("omg");
   });
 
-  test("falls back to all projects when no selection has been made", () => {
-    expect(readCachedProjectFilter(memoryStorage())).toBe("__all");
+  test("falls back to no project when no selection has been made", () => {
+    expect(readCachedProjectFilter(memoryStorage())).toBe(NO_PROJECT_FILTER);
+  });
+
+  test("ignores a bare value left by the old localStorage format", () => {
+    const storage = memoryStorage({ [PROJECT_FILTER_STORAGE_KEY]: "lfg" });
+    expect(readCachedProjectFilter(storage)).toBe(NO_PROJECT_FILTER);
   });
 });

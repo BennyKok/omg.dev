@@ -353,6 +353,27 @@ describe("first-run envelope", () => {
     expect(phone).toBeGreaterThan(web);
   });
 
+  test("the final message of a phone app carries the Expo account offer", async () => {
+    const { withFirstRunEnvelope } = await import("./omg-capabilities.ts");
+    const wrapped = withFirstRunEnvelope("Build a mobile app for my family", { seesImages: true })!;
+    const rule = wrapped.split("\n").find((line) => line.startsWith("- Final message for a phone app"));
+    expect(rule).toBeDefined();
+    expect(rule).toContain("`WARNING: Expo CLI is not signed in`");
+    expect(rule).toContain("end your final message with this offer");
+    expect(rule).toContain("Create a free Expo account");
+    expect(rule).toContain(`then "Create free account" (or "I have one")`);
+    expect(rule).toContain("Do not tell the user to try it in Expo Go");
+    // The rule precedes the user's request, so it applies to the whole session.
+    expect(wrapped.indexOf(rule!)).toBeLessThan(wrapped.indexOf("Build a mobile app for my family"));
+  });
+
+  test("the omg-app-builder skill tells the agent to end with the Expo account offer", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const skill = await readFile(new URL("../agents/skills/omg-app-builder/SKILL.md", import.meta.url), "utf8");
+    expect(skill).toContain("Your final message must also carry that offer while Expo CLI is not signed in");
+    expect(skill).toContain('Never end with "try it on your phone via Expo Go"');
+  });
+
   test("the image rule is only for models that cannot see", async () => {
     const { withFirstRunEnvelope, modelSeesImages } = await import("./omg-capabilities.ts");
     expect(withFirstRunEnvelope("x", { seesImages: true })).not.toContain("You cannot see images");
