@@ -114,6 +114,11 @@ export interface SimulatorStreamProvider {
   stop(preview: ProjectPreview): Promise<void>;
   /** Start from `status` without a tap. Default off. */
   autoStart?: boolean;
+  /**
+   * False hides the Simulator level for now, for example when this user may
+   * not use it. Checked on every card poll, so keep it cheap. Absent = true.
+   */
+  available?(): boolean;
 }
 
 /** Card action for level 2: POST with `{ sessionId, action: "start" | "stop" }`. Answers with a SimulatorStream. */
