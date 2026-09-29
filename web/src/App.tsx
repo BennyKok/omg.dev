@@ -13868,7 +13868,8 @@ function RailStage({
         )}
       >
         {openThreadId && railSurface === "sessions" ? (
-          <div className="h-full min-h-0 min-w-0 overflow-hidden rounded-xl border border-border">
+          // Flat, as a session column is on the stage: no card border or radius.
+          <div className="h-full min-h-0 min-w-0 overflow-hidden">
             <ThreadChat
               threadId={openThreadId}
               viewer={threadViewer}
