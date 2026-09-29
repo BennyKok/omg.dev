@@ -5,7 +5,6 @@
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AppState } from "react-native";
 
 import { supportsFastMode } from "../../../packages/protocol/src/fast-mode-support";
 import { omgModelLabel, parseOmgModel } from "../../../packages/protocol/src/omg-model-display";
@@ -425,9 +424,6 @@ export type FolderRow = {
 
 type RailArrangement = { order: string[]; hidden: string[] };
 
-/** A folder pick older than this, counted from leaving the app, is not kept. */
-const PROJECT_PICK_TTL_MS = 60 * 60 * 1000;
-
 export function useProjectPicker() {
   const { repos, bindings, bindingId, client, probe } = useOmg();
   /**
@@ -470,22 +466,8 @@ export function useProjectPicker() {
   useEffect(() => {
     setChosen("");
   }, [bindingId]);
+  const selectUnassigned = useCallback(() => setChosen(""), []);
 
-  // Home stays mounted while the app sits in the background, so a pick from
-  // yesterday would still be live today. After a long absence, a return to
-  // the app is a new visit and starts on "no project" again.
-  useEffect(() => {
-    let leftAt: number | null = null;
-    const sub = AppState.addEventListener("change", (state) => {
-      if (state !== "active") {
-        leftAt ??= Date.now();
-        return;
-      }
-      if (leftAt !== null && Date.now() - leftAt >= PROJECT_PICK_TTL_MS) setChosen("");
-      leftAt = null;
-    });
-    return () => sub.remove();
-  }, []);
 
   const binding = useMemo(
     () => bindings.find((b) => b.id === bindingId) ?? null,
@@ -653,7 +635,7 @@ export function useProjectPicker() {
 
   return {
     unassigned,
-    selectUnassigned: () => setChosen(""),
+    selectUnassigned,
     cwd,
     label,
     options,

@@ -21,6 +21,10 @@ test('unassigned selection cannot silently fall back to the default project', as
   function Fixture() { picker = useProjectPicker(); return null; }
   try {
     await ui.flushAsync(async () => { ui.render(<Fixture />); });
+    // Home opens on no project, not the machine's default folder.
+    expect(picker.cwd).toBeNull();
+    expect(picker.unassigned).toBe(true);
+    ui.flush(() => picker.options[0].onPress?.());
     expect(picker.cwd).toBe('/repos/site');
     ui.flush(() => picker.selectUnassigned());
     expect(picker.cwd).toBeNull();

@@ -40,6 +40,7 @@ import {
 } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
+  AppState,
   Keyboard,
   LayoutAnimation,
   Platform,
@@ -380,6 +381,9 @@ function HomeHeaderControls({
  * pickers own which options exist and which one is current. See
  * session-options.ts for why neither selection is persisted.
  */
+/** A folder pick older than this, counted from leaving the app, is not kept. */
+const PROJECT_PICK_TTL_MS = 60 * 60 * 1000;
+
 export function SessionsScreen({
   children,
   workspace = false,
@@ -441,6 +445,22 @@ export function SessionsScreen({
   } = useAutoAgents();
   const agentPicker = useAgentPicker();
   const projectPicker = useProjectPicker();
+  // Home stays mounted while the app sits in the background, so a folder
+  // picked yesterday would still decide where today's first chat runs. After
+  // an hour away, a return to the app is a new visit: back to no project.
+  const selectUnassigned = projectPicker.selectUnassigned;
+  useEffect(() => {
+    let leftAt: number | null = null;
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state !== "active") {
+        leftAt ??= Date.now();
+        return;
+      }
+      if (leftAt !== null && Date.now() - leftAt >= PROJECT_PICK_TTL_MS) selectUnassigned();
+      leftAt = null;
+    });
+    return () => sub.remove();
+  }, [selectUnassigned]);
   const rosterUsers = useUserRoster();
   const [userFilter, setUserFilter] = useUserFilter(rosterUsers);
 
