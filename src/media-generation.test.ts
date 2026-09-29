@@ -51,7 +51,8 @@ beforeEach(() => {
   calls = [];
   jobPolls = 0;
   router = {
-    quote: (b) => Response.json({ model: b.model, kind: "image", costMicros: 8_000 }),
+    // Like the router: "auto" resolves to a concrete model at quote time.
+    quote: (b) => Response.json({ model: b.model === "auto" ? "wavespeed-ai/flux-schnell" : b.model, kind: "image", provider: "wavespeed", costMicros: 8_000 }),
     submit: () => Response.json({ jobId: "job-1", status: "queued", costMicros: 8_000 }, { status: 202 }),
     job: (id, n) =>
       Response.json(
@@ -101,11 +102,38 @@ describe("media generation routes", () => {
     expect(new Uint8Array(readFileSync(data.paths[0]))).toEqual(PNG);
 
     const quote = calls.find((c) => c.path === "/quote")!;
-    expect(quote.body).toEqual({ model: "recraft-ai/recraft-v4.1-flash/text-to-image", input: { prompt: "a red fox", aspect_ratio: "1:1" } });
+    // No model means "auto": the router picks the cheapest for the task.
+    expect(quote.body).toEqual({ model: "auto", kind: "image", input: { prompt: "a red fox", aspect_ratio: "1:1" } });
     const submit = calls.find((c) => c.path === "/submit")!;
+    // Submit runs the model that was priced, never "auto" again.
+    expect(submit.body.model).toBe("wavespeed-ai/flux-schnell");
+    expect(submit.body.provider).toBe("wavespeed");
     // Tightest of the per-call cap ($1) and what is left today ($5).
     expect(submit.body.maxCostMicros).toBe(1_000_000);
     expect(JSON.parse(readFileSync(opts.spendPath, "utf8"))).toEqual({ day: "2026-09-28", spentMicros: 8_000 });
+  });
+
+  test("an open fal model id passes through with its provider", async () => {
+    const { status } = await call("POST", "/api/media/generate", { model: "fal-ai/flux/dev", provider: "fal", input: { prompt: "p" } });
+    expect(status).toBe(200);
+    expect(calls.find((c) => c.path === "/quote")!.body).toMatchObject({ model: "fal-ai/flux/dev", provider: "fal" });
+    expect(calls.find((c) => c.path === "/submit")!.body).toMatchObject({ model: "fal-ai/flux/dev" });
+  });
+
+  test("model search params pass through to the router", async () => {
+    let seenQuery = "";
+    router.models = () => Response.json({
+      models: [{ id: "fal-ai/flux/dev", kind: "image", task: "text-to-image", provider: "fal", name: "FLUX dev", curated: false, defaultCostMicros: 0 }],
+    });
+    const orig = opts.fetch;
+    const { status, data } = await call("GET", "/api/media/models?all=1&q=flux&kind=image&limit=20", undefined, {
+      ...opts,
+      fetch: (input, init) => { seenQuery = new URL(input).search; return (orig ?? fetch)(input, init); },
+    });
+    expect(status).toBe(200);
+    expect(seenQuery).toBe("?all=1&q=flux&kind=image&limit=20");
+    expect(data.models[0]).toMatchObject({ id: "fal-ai/flux/dev", provider: "fal", curated: false, task: "text-to-image" });
+    expect(data.defaults).toEqual({ image: "auto", video: "auto" });
   });
 
   test("writes to the caller outputPath", async () => {
