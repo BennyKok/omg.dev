@@ -51,6 +51,10 @@ export type AisdkEntry = {
   bootId?: string | null;
   recoveryClaimBootId?: string | null;
   recoveredAt?: number | null;
+  // Set by relaunchDeadCommandFileHarness while a replacement harness boots.
+  // The new harness rewrites the entry without them.
+  relaunchClaimedAt?: number | null;
+  relaunchClaimPid?: number | null;
   // New harnesses can wake their command-file reader immediately. Older rows
   // omit this and continue to rely on the bounded polling fallback.
   commandWakeSignal?: "SIGUSR1";
