@@ -1,0 +1,46 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": true
+  },
+  "steps": [
+    {
+      "name": "Data notice",
+      "goal": "If Your data and AI providers is visible, tap the Agree and continue button at the bottom. Otherwise only wait for the session list.",
+      "done": "The data notice is gone and the session list shows.",
+      "expect": [
+        "api-gateway folder"
+      ]
+    },
+    {
+      "name": "Updates pill on the phone",
+      "goal": "If the api-gateway folder is not selected, tap the api-gateway folder pill at the top of the list. Otherwise only wait. Do not tap any element labelled add.",
+      "done": "The list shows the api-gateway sessions and the updates pill floats above the composer.",
+      "expect": [
+        "updates from auto agents. Open"
+      ]
+    },
+    {
+      "name": "Updates drawer opens as one list",
+      "goal": "Tap the updates pill (labelled ... updates from auto agents. Open).",
+      "done": "A bottom sheet titled Updates is open with a count of open updates and one grouped list of auto agent rows.",
+      "expect": [
+        "Updates",
+        "open",
+        "Triage new bug reports",
+        "Drawer height"
+      ]
+    },
+    {
+      "name": "A row opens the report",
+      "goal": "Tap the Triage new bug reports row in the Updates sheet.",
+      "done": "The Updates sheet is closed and the Triage new bug reports agent report is open.",
+      "expect": [
+        "Triage new bug reports"
+      ],
+      "forbid": [
+        "Drawer height"
+      ]
+    }
+  ]
+}

@@ -22,17 +22,16 @@
  * list and tapping it still opens the agent's report. The rows do not
  * animate in: the sheet's own slide is the entrance.
  */
-import { Pressable, ScrollView as PlainScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
+import { Pressable, ScrollView as PlainScrollView, StyleSheet, View } from "react-native";
 import Reanimated, { FadeIn, FadeInUp } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 
-import { Icon, withAlpha } from "../components";
+import { Icon, SESSION_ROW, withAlpha } from "../components";
 import { AutoReportRow } from "./auto-agent-card";
 import type { AutoFindingGroup } from "./auto-agents";
 import { GlassSurface } from "./glass";
 import { PressableScale } from "./motion";
 import { Sheet } from "./sheet";
-import { SheetScrollView as ScrollView } from "./sheet-scroll";
 import { Text } from "./text";
 import { useTheme } from "./theme";
 
@@ -118,7 +117,6 @@ export function FindingsDrawer({
   onOpenAgent: (agentId: string) => void;
 }) {
   const { colors, type, space } = useTheme();
-  const { height } = useWindowDimensions();
   const count = findingsCount(groups);
   return (
     <Sheet visible={visible} onClose={onClose}>
@@ -136,28 +134,18 @@ export function FindingsDrawer({
           {count} open
         </Text>
       </View>
-      <ScrollView
-        style={{ maxHeight: Math.round(height * 0.55) }}
-        contentContainerStyle={{ paddingHorizontal: space.xs, paddingBottom: space.md, gap: space.xs }}
-        showsVerticalScrollIndicator={false}
-      >
+      {/* No scroller of its own. The Sheet already scrolls its body, and a
+          second ScrollView inside it gave two nested scroll areas: the list
+          stopped at 55% of the screen while the expanded tray kept growing. */}
+      <View style={{ paddingHorizontal: space.sm, paddingBottom: space.md }}>
         {count ? (
-          groups.map((group) => (
-            <View
-              key={group.agentId}
-              style={{ borderRadius: 10, backgroundColor: withAlpha(colors.text, 0.04) }}
-            >
-              <AutoReportRow
-                group={group}
-                animateEntry={false}
-                onOpen={() => {
-                  void Haptics.selectionAsync();
-                  onClose();
-                  onOpenAgent(group.agentId);
-                }}
-              />
-            </View>
-          ))
+          <FindingsList
+            groups={groups}
+            onOpen={(agentId) => {
+              onClose();
+              onOpenAgent(agentId);
+            }}
+          />
         ) : (
           <Text
             style={{
@@ -170,8 +158,57 @@ export function FindingsDrawer({
             No updates.
           </Text>
         )}
-      </ScrollView>
+      </View>
     </Sheet>
+  );
+}
+
+/**
+ * One grouped surface with hairline separators, shared by the drawer and the
+ * iPad rail. Each row used to sit in its own tinted card, and the row's own
+ * inset drew a second box inside it.
+ */
+function FindingsList({
+  groups,
+  onOpen,
+}: {
+  groups: ReadonlyArray<AutoFindingGroup>;
+  onOpen: (agentId: string) => void;
+}) {
+  const { colors } = useTheme();
+  return (
+    <View
+      style={{
+        borderRadius: 20,
+        borderCurve: "continuous",
+        overflow: "hidden",
+        backgroundColor: withAlpha(colors.text, 0.04),
+        paddingVertical: SESSION_ROW.inset,
+      }}
+    >
+      {groups.map((group, index) => (
+        <View key={group.agentId}>
+          {index > 0 ? (
+            <View
+              style={{
+                height: StyleSheet.hairlineWidth,
+                marginLeft: SESSION_ROW.inset + SESSION_ROW.padding,
+                marginRight: SESSION_ROW.inset,
+                backgroundColor: colors.borderSoft,
+              }}
+            />
+          ) : null}
+          <AutoReportRow
+            group={group}
+            animateEntry={false}
+            onOpen={() => {
+              void Haptics.selectionAsync();
+              onOpen(group.agentId);
+            }}
+          />
+        </View>
+      ))}
+    </View>
   );
 }
 
@@ -230,21 +267,10 @@ export function FindingsRailPanel({
       </Pressable>
       <PlainScrollView
         style={{ flexGrow: 0 }}
-        contentContainerStyle={{ paddingHorizontal: space.xs, paddingBottom: space.sm, gap: space.xs }}
+        contentContainerStyle={{ paddingHorizontal: space.xs, paddingBottom: space.sm }}
         showsVerticalScrollIndicator={false}
       >
-        {groups.map((group) => (
-          <View key={group.agentId} style={{ borderRadius: 10, backgroundColor: withAlpha(colors.text, 0.04) }}>
-            <AutoReportRow
-              group={group}
-              animateEntry={false}
-              onOpen={() => {
-                void Haptics.selectionAsync();
-                onOpenAgent(group.agentId);
-              }}
-            />
-          </View>
-        ))}
+        <FindingsList groups={groups} onOpen={onOpenAgent} />
       </PlainScrollView>
     </Reanimated.View>
   );
