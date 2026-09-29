@@ -154,3 +154,15 @@ export const PREVIEW_LEVEL_LABEL: Record<PreviewLevel, string> = {
   simulator: "Simulator",
   device: "Your phone",
 };
+
+/**
+ * The URL an inline frame loads for the web level. The owner URL (`url`)
+ * needs the preview sign-in cookie, and an embedded frame does not get it:
+ * it is a third-party cookie inside app.omg.dev and inside the app's WebView,
+ * so the frame showed "Sign in to continue". The Expo Go host is a signed,
+ * short-lived capability URL for the same Metro port, and Metro answers it
+ * with the Expo Web page. A plain web preview has no such host and keeps `url`.
+ */
+export function inlinePreviewUrl(preview: Pick<ProjectPreview, "url" | "expoGoUrl">): string {
+  return preview.expoGoUrl?.startsWith("exps://") ? `https://${preview.expoGoUrl.slice("exps://".length)}` : preview.url;
+}

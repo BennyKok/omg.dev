@@ -3,7 +3,7 @@ import { AppState, Linking, Platform, Pressable, UIManager, useWindowDimensions,
 import { router } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
-  PREVIEW_LEVEL_LABEL, PROJECT_PREVIEW_RESTART_MESSAGE, PROJECT_PREVIEW_SIMULATOR_PATH, previewLevels, simulatorStatusText,
+  inlinePreviewUrl, PREVIEW_LEVEL_LABEL, PROJECT_PREVIEW_RESTART_MESSAGE, PROJECT_PREVIEW_SIMULATOR_PATH, previewLevels, simulatorStatusText,
   type PreviewLevel, type ProjectPreview, type ProjectPreviewSnapshot, type SimulatorStream,
 } from "../../../packages/protocol/src/project-preview";
 import { expoConnectActive, expoConnectMessage, type ExpoAccountSnapshot } from "../../../packages/protocol/src/expo-account";
@@ -207,9 +207,9 @@ export function ProjectPreviewPanel({ sessionId, transport, email, onOpenCompute
         </Pressable>)}
       </View>
       {current === "web"
-        ? <PhoneFrame uri={preview.url} testID="project-preview-web" onFallback={() => void openInAppPage(preview.url)} />
+        ? <PhoneFrame uri={inlinePreviewUrl(preview)} testID="project-preview-web" onFallback={() => void openInAppPage(preview.url)} />
         : current === "simulator" && simulator
-        ? <SimulatorLevel stream={simulator} webUrl={preview.url} onStart={() => void simulatorAction("start")} />
+        ? <SimulatorLevel stream={simulator} webUrl={inlinePreviewUrl(preview)} onStart={() => void simulatorAction("start")} />
         : <View testID="project-preview-device" style={{ gap: 6 }}>
             {expoAccount ? <ExpoAccountRow account={expoAccount} connecting={connecting} error={connectError} busy={connectBusy}
               onOpenComputer={onOpenComputer} onCancel={() => void postAccount("cancel")} /> : null}

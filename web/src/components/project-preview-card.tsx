@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { renderSVG } from "uqr";
 import {
-  PREVIEW_LEVEL_LABEL, PROJECT_PREVIEW_RESTART_MESSAGE, PROJECT_PREVIEW_SIMULATOR_PATH, previewLevels, simulatorStatusText,
+  inlinePreviewUrl, PREVIEW_LEVEL_LABEL, PROJECT_PREVIEW_RESTART_MESSAGE, PROJECT_PREVIEW_SIMULATOR_PATH, previewLevels, simulatorStatusText,
   type PreviewLevel, type ProjectPreviewSnapshot, type SimulatorStream,
 } from "../../../packages/protocol/src/project-preview";
 import { expoConnectActive, expoConnectMessage, type ExpoAccountSnapshot } from "../../../packages/protocol/src/expo-account";
@@ -137,9 +137,9 @@ export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | nu
       </div> : expoGoUrl && expanded ? <div className="border-t px-3 pb-3" data-testid="project-preview-details">
         <LevelSwitcher levels={levels} value={current} onChange={setLevel} />
         {current === "web"
-          ? <PhoneFrame src={preview.url} title={`${preview.title} web preview`} testId="project-preview-web" />
+          ? <PhoneFrame src={inlinePreviewUrl(preview)} title={`${preview.title} web preview`} testId="project-preview-web" />
           : current === "simulator" && state?.simulator
-          ? <SimulatorLevel stream={state.simulator} webUrl={preview.url} title={preview.title} onStart={() => void simulatorAction("start")} />
+          ? <SimulatorLevel stream={state.simulator} webUrl={inlinePreviewUrl(preview)} title={preview.title} onStart={() => void simulatorAction("start")} />
           : <div data-testid="project-preview-device">
               {expo.account
                 ? <ExpoAccountRow account={expo.account} phone={phone} android={android} error={expo.error}
@@ -164,7 +164,7 @@ export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | nu
           <a className="text-muted-foreground" href={preview.url} target="_blank" rel="noreferrer" aria-label="Open preview in new tab"><ExternalLink className="size-4" /></a>
           <button className="text-muted-foreground" onClick={() => setOpen(false)} aria-label="Close preview"><X className="size-5" /></button>
         </div>
-        <iframe className="min-h-0 flex-1 border-0" src={preview.url} title={preview.title} sandbox={FRAME_SANDBOX} />
+        <iframe className="min-h-0 flex-1 border-0" src={inlinePreviewUrl(preview)} title={preview.title} sandbox={FRAME_SANDBOX} />
       </div>,
       document.body,
     )}
