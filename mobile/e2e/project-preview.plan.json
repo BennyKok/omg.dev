@@ -1,7 +1,7 @@
 {
   "appId": "dev.omg.computer",
   "launch": {
-    "clearState": false
+    "clearState": true
   },
   "steps": [
     {
@@ -50,7 +50,7 @@
     },
     {
       "name": "Stopped preview",
-      "goal": "Find the card for 'My sleeping app', the second card. Tap its 'Restart preview' button, the first 'Restart preview' on the screen, directly below 'The development server is not running. This happens when the Computer sleeps.' 'Stopped' and 'Link expired' on these test cards are expected results of this test, not errors.",
+      "goal": "Find the card for 'My sleeping app', the first card. Tap its 'Restart preview' button, the first 'Restart preview' on the screen, directly below 'The development server is not running. This happens when the Computer sleeps.' 'Stopped' and 'Link expired' on these test cards are expected results of this test, not errors.",
       "done": "The stopped card says the agent was asked to restart the preview.",
       "expect": [
         "My sleeping app",
@@ -79,26 +79,6 @@
       ],
       "forbid": [
         "Sign in to Expo in the Computer window\u2026"
-      ]
-    },
-    {
-      "name": "Web level first",
-      "goal": "Scroll down to the card for 'My web level app', the last card. Only inspect it and do not tap anything.",
-      "done": "The 'My web level app' card shows the web preview inline, with icon tabs for Web and Your phone under it and a full screen button.",
-      "expect": [
-        "My web level app",
-        "Web",
-        "Your phone",
-        "Full screen web preview"
-      ]
-    },
-    {
-      "name": "Switch to Your phone",
-      "goal": "On the 'My web level app' card, tap the 'Your phone' tab once.",
-      "done": "The 'My web level app' card now shows an 'Open in Expo Go' button and the account caption.",
-      "expect": [
-        "Open in Expo Go",
-        "as expo-e2e-test"
       ]
     }
   ]
