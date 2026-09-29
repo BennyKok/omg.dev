@@ -1,4 +1,5 @@
-# A thread push opens the thread with the replies it is about.
+# A thread push opens the thread, with the replies it is about pushed on top
+# as their own page, scrolled to the newest reply.
 #
 # A push carries `/thread/<id>?replies=<message>` (push-native.ts
 # toNativeAppUrl) and the app pushes that route on tap. This flow opens the
@@ -10,6 +11,11 @@ onFlowStart:
   - launchApp
 ---
 - openLink: "omg://thread/0d3a7c1e-0000-4000-8000-00000000abcd?replies=t5"
-- assertVisible: "Replies"
+- assertVisible: ".*Replies.*"
 - assertVisible: ".*Create it in live mode.*"
-- assertVisible: ".*Cap the free tier on the pricing page.*"
+- assertVisible: ".*Agreed. Ship it after the Stripe question.*"
+# The replies are a page pushed on the thread: back is the thread.
+- tapOn:
+    id: "chat-header-back"
+- assertVisible: ".*Should we drop the free tier.*"
+- assertNotVisible: ".*Create it in live mode.*"

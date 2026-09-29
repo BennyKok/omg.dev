@@ -19,6 +19,8 @@ import { PATHS } from "./config.ts";
 import { OMG_CAPABILITY_VERSION } from "./omg-capabilities.ts";
 import { tmuxHasSession } from "./tmux.ts";
 import type { CodexServiceTier } from "./service-tier.ts";
+import type { SandboxMode } from "./sandbox/bwrap.ts";
+import { roleEgress, roleSandbox } from "./policy/roles.ts";
 
 function registryPath(): string {
   return `${PATHS.data}/managed-sessions.json`;
@@ -90,7 +92,40 @@ export type ManagedSession = {
    * without one, so an upgrade does not silently make them anonymous.
    */
   mcpTokenRequired?: boolean;
+  /**
+   * Containment the first harness spawn used. Every relaunch (a send or resume
+   * to a dead harness, boot recovery) reuses it, so a subagent that was OOM
+   * killed in its lfg-agent-<name> unit comes back in that unit, not outside
+   * it. Missing on rows created before this field: see managedContainment.
+   */
+  containment?: ManagedContainment;
 };
+
+export type ManagedContainment = {
+  /** systemd-run unit lfg-agent-<tmuxName> in lfg-agents.slice (MemoryMax, KillMode). */
+  agentSlice: boolean;
+  sandbox: SandboxMode;
+  /**
+   * The role's egress allowlist proxy. The URL itself is not stored: it holds
+   * a session token and a proxy port that can change across serve restarts.
+   */
+  egressProxy: boolean;
+};
+
+/**
+ * The containment a row's first spawn used. New rows record it at creation.
+ * Older rows fall back to what the create paths have always done: subagents
+ * and bots run in the agent slice, and the role decides sandbox and egress.
+ * The caller never chooses this; it comes from the row.
+ */
+export function managedContainment(row: ManagedSession): ManagedContainment {
+  if (row.containment) return row.containment;
+  return {
+    agentSlice: row.spawnedBy === "subagent" || row.spawnedBy === "bot",
+    sandbox: roleSandbox(row.role),
+    egressProxy: roleEgress(row.role).mode === "allowlist",
+  };
+}
 
 type ManagedRegistry = {
   version: 2;

@@ -6,6 +6,7 @@ import { MessageResponse } from "./ai-elements/message";
 import { CopyableMarkdownLink } from "./ai-elements/streamdown-response";
 import { AuthenticatedArtifactImage, AuthenticatedArtifactVideo } from "./authenticated-artifact";
 import {
+  authorAgent,
   authorHue,
   authorView,
   cardMessageIds,
@@ -71,16 +72,23 @@ const STATE_TINT: Record<TaskCardState, string> = {
   ended: "text-muted-foreground",
 };
 
+/**
+ * A task in a thread, drawn as an attachment: one compact row like a session
+ * in the list (the agent's mark, the title, "Done · web" under it), not a
+ * card of its own. The big card outweighed the replies around it (2026-09-29).
+ */
 export function ThreadTaskCard({
   sessionId,
   title,
   project,
+  agent,
   state,
   onOpen,
 }: {
   sessionId: string;
   title: string;
   project: string | null;
+  agent?: string | null;
   state: TaskCardState;
   onOpen?: () => void;
 }) {
@@ -89,16 +97,18 @@ export function ThreadTaskCard({
       type="button"
       onClick={onOpen}
       data-testid={`thread-task-${sessionId.slice(0, 8)}`}
-      className="flex w-full max-w-md flex-col gap-1.5 rounded-2xl border border-border bg-card px-4 py-3 text-left hover:bg-accent/40"
+      title={`Open the task (${sessionId.slice(0, 8)})`}
+      className="flex w-full max-w-sm items-center gap-2.5 rounded-xl border border-border bg-card px-3 py-2 text-left hover:bg-accent/40"
     >
-      <span className="flex items-center gap-2 text-[12px] font-semibold">
-        <span className={cn("size-2 rounded-full bg-current", STATE_TINT[state])} />
-        <span className={STATE_TINT[state]}>{TASK_STATE_LABEL[state]}</span>
-        <span className="flex-1" />
-        <span className="font-mono text-[11px] font-normal text-muted-foreground">{sessionId.slice(0, 8)}</span>
+      <img aria-hidden alt="" src={agentIconSrc(agent ?? "")} className="size-6 shrink-0 rounded-md" />
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="truncate text-[14px] font-semibold leading-tight text-foreground">{title}</span>
+        <span className="flex min-w-0 items-center gap-1.5 text-[12px] leading-tight text-muted-foreground">
+          <span className={cn("size-1.5 shrink-0 rounded-full bg-current", STATE_TINT[state])} />
+          <span className={cn("shrink-0 font-medium", STATE_TINT[state])}>{TASK_STATE_LABEL[state]}</span>
+          {project ? <span className="truncate">· {project}</span> : null}
+        </span>
       </span>
-      <span className="text-[15px] font-semibold text-foreground">{title}</span>
-      {project ? <span className="text-[13px] text-muted-foreground">{project}</span> : null}
     </button>
   );
 }
@@ -112,16 +122,23 @@ const TIME = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-di
 /** The thread's people, so every avatar and name is drawn as they are now. */
 const ThreadPeopleContext = createContext<ThreadDetail["participants"] | undefined>(undefined);
 
-function Avatar({ author, size = 36 }: { author: ThreadAuthor; size?: number }) {
+/** The thread's tasks, so an omg message carrying a task's words wears that task's agent. */
+const ThreadTasksContext = createContext<ThreadDetail["tasks"] | undefined>(undefined);
+
+function Avatar({ author, size = 36, message }: { author: ThreadAuthor; size?: number; message?: ThreadMessage }) {
   const people = useContext(ThreadPeopleContext);
+  const tasks = useContext(ThreadTasksContext);
   const [failed, setFailed] = useState<string | null>(null);
-  // omg wears its own mark, the same one the omg agent shows everywhere.
+  // omg speaks with the mark of the agent whose words it carries (a Claude
+  // task's answer shows Claude's), the same icon a session shows; omg's own
+  // words show omg's.
   if (author.kind === "omg") {
+    const agent = message ? authorAgent(message, tasks) : null;
     return (
       <img
         aria-hidden
         alt=""
-        src={agentIconSrc("omg")}
+        src={agentIconSrc(agent ?? "omg")}
         className="shrink-0 rounded-lg"
         style={{ width: size, height: size }}
       />
@@ -244,7 +261,7 @@ function MessageRow({
       data-testid="thread-message"
       className={cn("group flex gap-2.5 rounded-md px-2 py-0.5 hover:bg-muted/40", first && "mt-2 pt-1.5")}
     >
-      <div className="w-9 shrink-0">{first ? <Avatar author={message.author} /> : null}</div>
+      <div className="w-9 shrink-0">{first ? <Avatar author={message.author} message={message} /> : null}</div>
       <div className="min-w-0 flex-1">
         {first ? (
           <div className="flex items-baseline gap-2">
@@ -737,7 +754,7 @@ export function ThreadChatView({
   if (!root) {
     return (
       <ThreadMentionContext.Provider value={openMembers}>
-        <ThreadPeopleContext.Provider value={detail?.participants}>{main}</ThreadPeopleContext.Provider>
+        <ThreadPeopleContext.Provider value={detail?.participants}><ThreadTasksContext.Provider value={detail?.tasks}>{main}</ThreadTasksContext.Provider></ThreadPeopleContext.Provider>
       </ThreadMentionContext.Provider>
     );
   }
@@ -745,6 +762,7 @@ export function ThreadChatView({
   return (
     <ThreadMentionContext.Provider value={openMembers}>
     <ThreadPeopleContext.Provider value={detail?.participants}>
+    <ThreadTasksContext.Provider value={detail?.tasks}>
     <div className="flex h-full min-h-0 w-full min-w-0 flex-1">
       <div className="hidden min-w-0 flex-1 md:flex">{main}</div>
       <aside
@@ -795,6 +813,7 @@ export function ThreadChatView({
         <ComposerSlot render={renderComposer} onTyping={replyTyping} mentions={mentionOptions} testId="thread-reply-input" placeholder="Reply…" onSend={(text, attachments) => post(text, root.id, attachments)} autoFocus />
       </aside>
     </div>
+    </ThreadTasksContext.Provider>
     </ThreadPeopleContext.Provider>
     </ThreadMentionContext.Provider>
   );

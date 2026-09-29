@@ -419,7 +419,7 @@ import {
   removeManaged,
   type ManagedSession,
 } from "../managed.ts";
-import { reconcileCommandFileSessions } from "../session-recovery.ts";
+import { coldResumeContainment, commandFileHarnessIsDead, reconcileCommandFileSessions, relaunchDeadCommandFileHarness, setRecoveryEgressProxy } from "../session-recovery.ts";
 import { resolveResumeModel } from "../resume-model.ts";
 import { PtyBridge, termSessionName } from "../pty.ts";
 import { RfbBridge } from "../computer/rfb-bridge.ts";
@@ -1445,7 +1445,7 @@ async function handleThreadRequest(req: Request, url: URL, path: string): Promis
       text,
       replyTo: root?.id ?? null,
       media,
-      via: { sessionId: session?.sessionId ?? callerSession, title: session?.title ?? null },
+      via: { sessionId: session?.sessionId ?? callerSession, title: session?.title ?? null, agent: session?.agent ?? null },
     });
     return json({ message });
   }
@@ -2922,6 +2922,40 @@ function interruptLiveSession(session: Session): { ok: boolean; error?: string; 
   return { ok: true };
 }
 
+// A command-file session whose harness died (OOM kill, crash) is still listed,
+// and sendPromptToLiveSession would only append to a command file nobody
+// tails. Relaunch it with the boot-recovery launcher first, under the same
+// activation gate a cold start clears. Returns null when there is nothing to
+// revive (not command-file, harness alive, or no registry entry to relaunch
+// from), a Response when the gate or the launch refuses, and otherwise the
+// relaunch state. "claimed" means another request already started one; the
+// booting harness reads the command file from its cursor, so a message
+// appended now is still delivered.
+async function reviveDeadCommandFileHarness(
+  session: Session,
+  opts: { overLimit?: boolean } = {},
+): Promise<Response | { state: "relaunched" | "claimed" } | null> {
+  if (!usesCommandFileRuntime(session.agent, session.runtime)) return null;
+  const ids = [session.sessionId, session.nativeSessionId].filter((id): id is string => !!id);
+  const entry = ids.map((id) => findAisdkEntryByAnyId(id)).find((found) => !!found) ?? null;
+  if (!entry || !commandFileHarnessIsDead(entry)) return null;
+  const gate = await activationGate({
+    overLimit: opts.overLimit,
+    kind: session.persistent ? "bot" : session.spawnedBy === "schedule" ? "schedule" : undefined,
+  });
+  if (gate instanceof Response) return gate;
+  try {
+    const result = relaunchDeadCommandFileHarness(entry.sessionId);
+    if (result.state === "failed") return err(502, `couldn't restart the stopped agent: ${result.error}`);
+    if (result.state === "unknown" || result.state === "alive") return null;
+    invalidateListSessionsCache();
+    traceLog("session_harness_relaunch", { sessionId: entry.sessionId, state: result.state });
+    return { state: result.state };
+  } finally {
+    gate.release();
+  }
+}
+
 function sendPromptToLiveSession(
   session: Session,
   text: string,
@@ -3243,6 +3277,7 @@ async function launchBotSession(
       appliedConfigRevision: opts.appliedConfigRevision ?? botConfigRevision(bot),
       botId: bot.id,
       persistent: true,
+      containment: { agentSlice: true, sandbox: "none", egressProxy: false },
     });
     // Attach provisionally before the harness can write its launch turn. This
     // gives transcript indexing a verified bot author without selecting this
@@ -8912,6 +8947,37 @@ a{color:#60a5fa}
             agent: live.agent,
           });
         }
+        // A command-file session whose harness died still has its owner row
+        // and registry entry. Relaunch that same row (boot-recovery launcher)
+        // instead of cold-starting a second one, then deliver the prompt.
+        const listedDead = (await listSessions()).find(
+          (s) =>
+            (s.sessionId === sessionId || s.nativeSessionId === sessionId) &&
+            usesCommandFileRuntime(s.agent, s.runtime),
+        );
+        if (listedDead) {
+          const revived = await reviveDeadCommandFileHarness(listedDead, { overLimit: body?.overLimit === true });
+          if (revived instanceof Response) return revived;
+          if (revived) {
+            if (body?.user && listedDead.tmuxName) assignUser(listedDead.tmuxName, body.user);
+            const prompt = body?.prompt?.trim() ?? "";
+            const sent = prompt
+              ? sendPromptToLiveSession(listedDead, prompt, { mode: "queue" })
+              : { ok: true as const, msg: undefined };
+            if (!sent.ok) return err(409, sent.error || "couldn't send resume prompt");
+            return json({
+              ok: true,
+              tmuxName: listedDead.tmuxName,
+              cwd: listedDead.cwd,
+              sessionId: listedDead.sessionId ?? sessionId,
+              resumedFrom: listedDead.nativeSessionId ?? sessionId,
+              relaunched: revived.state,
+              sentPrompt: !!prompt,
+              msg: sent.msg,
+              agent: listedDead.agent,
+            });
+          }
+        }
         // Past this point a resume COLD-STARTS a fresh agent process, so it must
         // clear the same pause / cap gate as a create. (The already-live branch
         // above returned early and is never gated — it spawns nothing.)
@@ -8935,11 +9001,18 @@ a{color:#60a5fa}
           // incompatible client model is ignored instead of crossing provider
           // families (the gpt-5.6-sol -> Claude error from the resume picker).
           const resumeModel = resolveResumeModel(cachedResume.backend, cachedResume.model, model);
+          // No registry entry is left to relaunch, but the owner row (if any)
+          // still records the first launch's containment. Start in it, and
+          // record it on the new row for the next relaunch.
+          const coldContainment = coldResumeContainment([sessionId, resumeHandle], cachedResume.backend, sessionId);
+          if ("error" in coldContainment) return err(503, coldContainment.error);
           addManaged({
             tmuxName,
             cwd,
             createdAt: Date.now(),
             agent: cachedResume.backend,
+            containment: coldContainment.containment,
+            ...(coldContainment.role ? { role: coldContainment.role } : {}),
             runtime: "command-file",
             sessionId,
             nativeSessionId: resumeHandle,
@@ -8985,6 +9058,7 @@ a{color:#60a5fa}
             resume: resumeHandle,
             omgUser: assignedUser,
             claudeAccountId: pinnedClaudeAccountId,
+            ...coldContainment.launch,
           });
           if (!spawned.ok) {
             removeManaged(tmuxName);
@@ -9617,6 +9691,13 @@ a{color:#60a5fa}
         const fallbackTitle = body?.prompt?.slice(0, 72);
         const resolvedRole = requestedRole || roleForUser(assignedUser).id;
         sessionRole = resolvedRole !== OWNER_ROLE_ID ? resolvedRole : undefined;
+        // One decision, recorded on the row and passed to the spawn below, so
+        // a relaunch after an OOM kill or a reboot gets the same containment.
+        const containment = {
+          agentSlice: isSubagent,
+          sandbox: roleSandbox(sessionRole),
+          egressProxy: roleEgress(sessionRole).mode === "allowlist",
+        };
         const claim = addManaged({
           tmuxName,
           cwd,
@@ -9646,6 +9727,7 @@ a{color:#60a5fa}
           // Every session launched from here is handed its token at spawn
           // (omgMcpServers), so the endpoint may demand it.
           mcpTokenRequired: true,
+          containment,
         }, idempotencyKey);
         if (!claim.created) return replaySessionCreation(claim.session);
         if (claudeAccountId) bindClaudeSessionAccount(launchId, claudeAccountId);
@@ -9664,15 +9746,15 @@ a{color:#60a5fa}
           fastMode,
           sessionId: launchId,
           omgUser: assignedUser,
-          containInAgentSlice: isSubagent,
+          containInAgentSlice: containment.agentSlice,
           claudeAccountId,
           // Restricted roles run their harness in a filesystem sandbox
           // (src/sandbox/bwrap.ts). Owner and unknown roles get none.
-          sandbox: roleSandbox(sessionRole),
+          sandbox: containment.sandbox,
           // An allowlist role also gets an egress proxy URL carrying its own
           // token, so its outbound traffic is held to the role's hosts.
           egressProxyUrl:
-            roleEgress(sessionRole).mode === "allowlist" && egressProxy
+            containment.egressProxy && egressProxy
               ? egressProxy.proxyUrlFor(launchId, sessionToken(launchId))
               : undefined,
         });
@@ -10569,6 +10651,10 @@ a{color:#60a5fa}
             }
           }
           if (!sess) return err(404, "session not found");
+          if (!deliveredOnLaunch) {
+            const revived = await reviveDeadCommandFileHarness(sess);
+            if (revived instanceof Response) return revived;
+          }
           // Who wrote this turn, resolved ONCE and reused by everything below
           // that needs to name the sender.
           //
@@ -11873,6 +11959,28 @@ a{color:#60a5fa}
 
   connectManager.start();
 
+  // The egress proxy: a restricted-role session's harness is pointed here, so
+  // it reaches only the model APIs plus its role's allowed hosts. Resolves the
+  // caller from the same per-session token the MCP endpoints use.
+  const egressProxyReady = startEgressProxy({
+    log: (l) => console.log(l),
+    resolve: (sessionId, token) => {
+      if (!verifySessionToken(sessionId, token)) return null;
+      const row = listManaged().find((s) => s.sessionId === sessionId || s.nativeSessionId === sessionId);
+      const egress = roleEgress(row?.role);
+      if (egress.mode !== "allowlist") return null;
+      return { sessionId, allow: [...DEFAULT_ALLOW_HOSTS, ...egress.allowHosts] };
+    },
+  })
+    .then((proxy) => {
+      egressProxy = proxy;
+    })
+    .catch((e) => console.error(`[egress] start failed: ${e instanceof Error ? e.message : String(e)}`));
+  // Relaunches (boot recovery below, and a send to a dead harness) rebuild a
+  // restricted session's proxy URL here. Recovery waits for the proxy so a
+  // restricted session is not relaunched before it can be pointed at it.
+  setRecoveryEgressProxy((sessionId) => egressProxy?.proxyUrlFor(sessionId, sessionToken(sessionId)) ?? null);
+  await egressProxyReady;
   const recovered = await reconcileCommandFileSessions((l) => console.log(l));
   if (recovered.adopted || recovered.recovered || recovered.failed || recovered.skippedLegacy) {
     console.log(`[session-recovery] adopted=${recovered.adopted} recovered=${recovered.recovered} recoveredTmux=${recovered.recoveredTmux} failed=${recovered.failed} skippedLegacy=${recovered.skippedLegacy}`);
@@ -11984,23 +12092,6 @@ a{color:#60a5fa}
   });
   startChatIngestMonitor(listSessionsCached);
 
-  // The egress proxy: a restricted-role session's harness is pointed here, so
-  // it reaches only the model APIs plus its role's allowed hosts. Resolves the
-  // caller from the same per-session token the MCP endpoints use.
-  void startEgressProxy({
-    log: (l) => console.log(l),
-    resolve: (sessionId, token) => {
-      if (!verifySessionToken(sessionId, token)) return null;
-      const row = listManaged().find((s) => s.sessionId === sessionId || s.nativeSessionId === sessionId);
-      const egress = roleEgress(row?.role);
-      if (egress.mode !== "allowlist") return null;
-      return { sessionId, allow: [...DEFAULT_ALLOW_HOSTS, ...egress.allowHosts] };
-    },
-  })
-    .then((proxy) => {
-      egressProxy = proxy;
-    })
-    .catch((e) => console.error(`[egress] start failed: ${e instanceof Error ? e.message : String(e)}`));
   // Warm the resumable-session cache in the background so the first time someone
   // opens the resume picker it's already served from SQLite (no cold scan wait).
   void refreshResumableCache({ force: true }).catch(() => {});
