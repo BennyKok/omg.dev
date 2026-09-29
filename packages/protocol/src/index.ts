@@ -13,6 +13,8 @@ export type OmgSessionStatusReason =
   | "out_of_credits"
   | "provider_auth"
   | "provider_error"
+  | "interrupted"
+  | "out_of_memory"
   | null;
 
 export interface OmgSession {

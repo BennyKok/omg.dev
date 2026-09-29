@@ -42,7 +42,7 @@
     {
       "name": "omg answers in the replies",
       "goal": "Tap the reply link that says the task needs you.",
-      "done": "The replies sheet is open, scrolled to the end: the newest reply, Ship it after the Stripe question, and the task's question are on screen.",
+      "done": "The Replies page is open (its title is Replies, the thread name under it), scrolled to the end: the newest reply and the task's question are on screen.",
       "expect": [
         "Replies",
         "Agreed. Ship it after the Stripe question.",
@@ -62,9 +62,9 @@
       ]
     },
     {
-      "name": "Close the replies",
-      "goal": "Tap Close replies at the top right of the replies sheet.",
-      "done": "The replies sheet is closed and the thread is visible again.",
+      "name": "Back from the replies",
+      "goal": "Tap Back at the top left of the Replies page.",
+      "done": "The replies page is gone and the thread's main list is visible again.",
       "expect": [
         "Pricing ideas"
       ],

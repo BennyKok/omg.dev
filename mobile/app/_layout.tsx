@@ -557,7 +557,8 @@ function RootNavigator() {
             <Stack.Screen name="session/[id]" options={{ title: "Session" }} />
             <Stack.Screen name="session/new" options={{ headerShown: false }} />
             <Stack.Screen name="thread/new" options={{ headerShown: false }} />
-            <Stack.Screen name="thread/[id]" options={{ headerShown: false }} />
+            <Stack.Screen name="thread/[id]/index" options={{ headerShown: false }} />
+            <Stack.Screen name="thread/[id]/replies/[root]" options={{ headerShown: false }} />
             {/* THE SETTINGS FAMILY IS A GROUPED LIST, so it takes iOS's
                 grouped background rather than the app's own `bg`.
                 `contentStyle` and `headerStyle` have to move together: the
@@ -962,7 +963,8 @@ function RootNavigator() {
           />
             <Stack.Screen name="session/new" options={{ headerShown: false }} />
             <Stack.Screen name="thread/new" options={{ headerShown: false }} />
-            <Stack.Screen name="thread/[id]" options={{ headerShown: false }} />
+            <Stack.Screen name="thread/[id]/index" options={{ headerShown: false }} />
+            <Stack.Screen name="thread/[id]/replies/[root]" options={{ headerShown: false }} />
           {/* Switching machines is the frequent action and belongs in the menu
               on the machine chip; pairing and per-machine detail still need a
               screen. See computer-picker.ts for why both exist. */}
