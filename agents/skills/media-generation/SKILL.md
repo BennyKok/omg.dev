@@ -29,34 +29,12 @@ These tools spend the user's omg credits. 1 credit is 1 USD. Treat every call as
    ffmpeg -i in.mp4 -vf scale=480:-2 -c:v libx264 -profile:v main -crf 27 -maxrate 1800k -bufsize 3600k -c:a aac -b:a 96k -movflags +faststart out.mp4
    ```
 
-`omg_media_models` lists the curated models, their default prices, the caps, and today's spend.
+## Choosing a model
 
-## Any fal or WaveSpeed model
-
-- `omg_media_models {all: true, q: "kling"}` searches every fal and WaveSpeed model, cheapest list price first.
-- Pass the id as `model`. fal ids start with `fal-ai/`. Other ids default to WaveSpeed; set `provider` only if the router cannot place it.
-- The provider prices the exact request before anything runs. A model priced per second needs `durationSeconds`. A model the provider cannot price is refused with `unpriced_model`; pick another.
-- These models are not tested by omg. Read the provider's own input fields and pass them in `input`.
-
-## Image models
-
-| Model | Price | Use for |
-| --- | --- | --- |
-| `recraft-ai/recraft-v4.1-flash/text-to-image` | $0.008 | Fast, readable text, 1K. Aspect 1:1, 16:9, 9:16, 4:3, 3:4. |
-| `wavespeed-ai/flux-schnell` | $0.003 | Cheapest drafts. |
-| `openai/gpt-image-2.5-flare/text-to-image` | $0.024 default, $0.01 to $1.00 | Best text rendering. `quality` low, medium, high, xhigh, max. `resolution` 1k, 2k, 4k. Price rises with both. |
-| `bytedance/seedream-v4` | $0.027 | Photoreal scenes. |
-| `recraft-ai/recraft-20b-svg` | $0.044 | SVG icons and logos. |
-| `google/nano-banana-2/text-to-image` | $0.07 | High quality. `/edit` variants edit an input image. |
-
-## Video models
-
-| Model | Price | Notes |
-| --- | --- | --- |
-| `wavespeed-ai/wan-2.2/t2v-480p-ultra-fast` | $0.01/s | 480p. Duration 5 or 8 only. |
-| `pruna-ai/p-video-2/text-to-video` | $0.025/s 720p, $0.05/s 1080p | `draft: true` is 0.6x. Duration 1 to 20. |
-| `bytedance/seedance-v1.5-pro/text-to-video-fast` | $0.04/s 720p with audio | $0.02/s with `generate_audio: false`. 1080p $0.06/s, or $0.03/s silent. Duration 4 to 12. 5 s 720p with audio is $0.20. |
-| `kwaivgi/kling-v3-turbo-std/text-to-video` | $0.112/s | Best quality. Duration 3 to 15. Aspect 16:9, 9:16, 1:1. |
+- Usually pass no `model`. The router picks the cheapest suitable model for the task and names it in the result.
+- Pass `model` only when the request needs a specific look, for example readable text, SVG, or best-quality video.
+- `omg_media_models` lists the top models with prices. `omg_media_models {all: true, q: "kling"}` searches the full list.
+- A model outside the top list is priced before it runs. If it cannot be priced, the call is refused; pick another.
 
 Video takes 30 seconds to 5 minutes. Images take 3 to 20 seconds.
 
