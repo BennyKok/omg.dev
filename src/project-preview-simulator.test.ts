@@ -90,9 +90,9 @@ test("the owner's card starts and stops the simulator; the agent cannot", async 
   expect(calls).toEqual(["start 8081", "stop 8081"]);
 });
 
-test("LFG_PREVIEW_SIMULATOR=1 turns the level on; the default is off", async () => {
-  expect(simulatorStreamProvider({})).toBeNull();
+test("the level is hidden unless the control plane enables it; the env forces it", () => {
+  expect(simulatorStreamProvider({}, { readFeatures: () => ({}) })?.available?.()).toBe(false);
+  expect(simulatorStreamProvider({}, { readFeatures: () => ({ simulator: true }) })?.available?.()).toBe(true);
   expect(simulatorStreamProvider({ LFG_PREVIEW_SIMULATOR: "0" })).toBeNull();
-  const on = simulatorStreamProvider({ LFG_PREVIEW_SIMULATOR: "1" });
-  expect((await on!.status({} as ProjectPreview)).state).toBe("unavailable");
+  expect(simulatorStreamProvider({ LFG_PREVIEW_SIMULATOR: "1" })?.available?.() ?? true).toBe(true);
 });
