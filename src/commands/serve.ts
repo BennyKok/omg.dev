@@ -8777,8 +8777,11 @@ a{color:#60a5fa}
           limit,
         });
         // Threads are referenced with the same `#`, first, so a prompt can name
-        // one for the agent to read or post to (omg_send_thread_message).
-        return json({ sessions: [...mentionableThreads(query), ...sessions] });
+        // one for the agent to read or post to (omg_send_thread_message). Only
+        // for a client that asks: an older app writes every row as a session
+        // link, and a thread written as `omg:session_<id>` names nothing.
+        const withThreads = url.searchParams.get("threads") === "1";
+        return json({ sessions: [...(withThreads ? mentionableThreads(query) : []), ...sessions] });
       }
 
       if (path === "/api/sessions/find" && req.method === "POST") {

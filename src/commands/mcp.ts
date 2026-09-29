@@ -204,6 +204,15 @@ async function resolveSid(input: string): Promise<string> {
       `session id "${id}" is ambiguous (matches ${matches.size} sessions); pass more characters`,
     );
   }
+  // A thread id handed over as a session (an `omg:session_` link written by an
+  // older app): say what it is, so the agent reaches for the thread tools.
+  const threads = await api<{ threads?: { id: string; title: string }[] }>("/api/threads").catch(() => ({ threads: [] as { id: string; title: string }[] }));
+  const thread = (threads.threads ?? []).find((row) => row.id.toLowerCase().startsWith(lower));
+  if (thread) {
+    throw new Error(
+      `"${id}" is not a session: it is the thread "${thread.title}" (${thread.id}). Use omg_read_thread or omg_send_thread_message with that id.`,
+    );
+  }
   throw new Error(`no session matches id "${id}"`);
 }
 
