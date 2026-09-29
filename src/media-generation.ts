@@ -17,9 +17,11 @@
 // each result to a local file.
 //
 // Router contract (vibes host media router):
-//   POST /quote  {model, input}                  -> {model, kind, costMicros}
-//   GET  /models                                 -> {models:[{id, kind, defaultCostMicros}]}
-//   POST /submit {model, input, maxCostMicros}   -> 202 {jobId, status, costMicros}
+//   POST /quote  {model, input, kind}            -> {model, kind, provider, costMicros}
+//   GET  /models?all=1&q=&kind=&task=&provider=&limit=
+//                                                -> {models:[{id, kind, task, provider, curated, defaultCostMicros}]}
+//   POST /submit {model, provider, input, maxCostMicros} -> 202 {jobId, status, costMicros}
+// model is a curated id, any fal or WaveSpeed id (priced live), or "auto".
 //   GET  /jobs/:id                               -> {jobId, status, model, results:[{url, contentType}], error}
 // 1 credit = 1_000_000 micros = $1.
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
@@ -29,8 +31,13 @@ import { dirname, extname, join, resolve } from "node:path";
 export const MICROS_PER_USD = 1_000_000;
 /** Agent skill with the curated model list and prices. */
 export const MEDIA_SKILL_PATH = join(import.meta.dir, "..", "agents", "skills", "media-generation", "SKILL.md");
-export const DEFAULT_IMAGE_MODEL = "recraft-ai/recraft-v4.1-flash/text-to-image";
-export const DEFAULT_VIDEO_MODEL = "bytedance/seedance-v1.5-pro/text-to-video-fast";
+/**
+ * "auto" asks the router for the cheapest curated model for the task, priced
+ * with the request's own params. The quote names the model it chose.
+ */
+export const AUTO_MODEL = "auto";
+export const DEFAULT_IMAGE_MODEL = AUTO_MODEL;
+export const DEFAULT_VIDEO_MODEL = AUTO_MODEL;
 export const DEFAULT_MAX_CALL_USD = 1;
 export const DEFAULT_MAX_DAY_USD = 5;
 const IMAGE_WAIT_MS = 120_000;
@@ -85,6 +92,8 @@ export class MediaError extends Error {
 export type GenerateRequest = {
   kind?: MediaKind;
   model?: string;
+  /** "fal" or "wavespeed" for a non-curated id the router cannot infer. */
+  provider?: string;
   input?: Record<string, unknown>;
   outputPath?: string;
   wait?: boolean;
@@ -220,9 +229,19 @@ function mapSubmitError(res: Response, body: { json: Record<string, unknown> | n
   return new MediaError(msg, res.status >= 400 && res.status < 600 ? res.status : 502, status || "router_error");
 }
 
-export async function listModels(opts: MediaOptions) {
+export type ModelQuery = { all?: boolean; q?: string; kind?: string; task?: string; provider?: string; limit?: number };
+
+export async function listModels(opts: MediaOptions, query: ModelQuery = {}) {
   const s = settings(opts);
-  const { res, body } = await routerCall(s, "/models");
+  const params = new URLSearchParams();
+  if (query.all) params.set("all", "1");
+  for (const key of ["q", "kind", "task", "provider"] as const) {
+    const v = query[key]?.trim();
+    if (v) params.set(key, v);
+  }
+  if (query.limit && query.limit > 0) params.set("limit", String(Math.floor(query.limit)));
+  const qs = params.toString();
+  const { res, body } = await routerCall(s, `/models${qs ? `?${qs}` : ""}`);
   if (!res.ok) throw new MediaError(routerMessage(body, res), res.status, "router_error");
   const models = Array.isArray(body.json?.models) ? (body.json!.models as Array<Record<string, unknown>>) : [];
   const spend = await readSpend(opts.spendPath, utcDay(s.now()));
@@ -230,9 +249,14 @@ export async function listModels(opts: MediaOptions) {
     models: models.map((m) => ({
       id: String(m.id ?? ""),
       kind: m.kind,
+      ...(typeof m.task === "string" ? { task: m.task } : {}),
+      ...(typeof m.provider === "string" ? { provider: m.provider } : {}),
+      ...(typeof m.name === "string" && m.name ? { name: m.name } : {}),
+      ...(typeof m.curated === "boolean" ? { curated: m.curated } : {}),
       defaultCostMicros: Number(m.defaultCostMicros ?? 0),
       defaultCostUsd: usd(Number(m.defaultCostMicros ?? 0)),
     })),
+    ...(Array.isArray(body.json?.warnings) ? { warnings: body.json!.warnings } : {}),
     defaults: { image: DEFAULT_IMAGE_MODEL, video: DEFAULT_VIDEO_MODEL },
     guidePath: MEDIA_SKILL_PATH,
     maxCallUsd: usd(s.maxCallMicros),
@@ -397,22 +421,27 @@ export async function generateMedia(req: GenerateRequest, opts: MediaOptions) {
     const quote = await routerCall(s, "/quote", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model, input }),
+      body: JSON.stringify({ model, input, kind, ...(req.provider ? { provider: req.provider } : {}) }),
     });
     if (quote.res.status === 404) throw new MediaError(MEDIA_MESSAGES.quoteUnavailable, 501, "quote_unavailable");
     if (!quote.res.ok) {
       const msg = routerMessage(quote.body, quote.res);
-      throw new MediaError(`Could not price ${model}: ${msg}`, quote.res.status, quote.res.status === 400 ? "unknown_model" : "router_error");
+      const status = typeof quote.body.json?.status === "string" ? quote.body.json.status : "";
+      throw new MediaError(`Could not price ${model}: ${msg}`, quote.res.status, status || (quote.res.status === 400 ? "unknown_model" : "router_error"));
     }
     const costMicros = Number(quote.body.json?.costMicros);
     if (!Number.isFinite(costMicros) || costMicros < 0) {
       throw new MediaError(`The media router returned no price for ${model}.`, 502, "router_error");
     }
     const quotedKind = quote.body.json?.kind;
+    // "auto" resolves at quote time. Submit the model that was priced, so the
+    // cap check and the charge describe the same job.
+    const chosen = typeof quote.body.json?.model === "string" && quote.body.json.model ? quote.body.json.model : model;
+    const provider = typeof quote.body.json?.provider === "string" && quote.body.json.provider ? quote.body.json.provider : req.provider;
 
     if (costMicros > s.maxCallMicros) {
       throw new MediaError(
-        `This ${model} job costs $${usd(costMicros).toFixed(3)}, above the per-call cap of $${usd(s.maxCallMicros).toFixed(2)}. Choose a cheaper model or smaller settings, or raise OMG_MEDIA_MAX_CALL_USD.`,
+        `This ${chosen} job costs $${usd(costMicros).toFixed(3)}, above the per-call cap of $${usd(s.maxCallMicros).toFixed(2)}. Choose a cheaper model or smaller settings, or raise OMG_MEDIA_MAX_CALL_USD.`,
         400,
         "per_call_cap",
         { costMicros, costUsd: usd(costMicros), maxCallUsd: usd(s.maxCallMicros) },
@@ -423,7 +452,7 @@ export async function generateMedia(req: GenerateRequest, opts: MediaOptions) {
     const leftMicros = Math.max(0, s.maxDayMicros - spend.spentMicros);
     if (costMicros > leftMicros) {
       throw new MediaError(
-        `This ${model} job costs $${usd(costMicros).toFixed(3)}, but only $${usd(leftMicros).toFixed(3)} of the $${usd(s.maxDayMicros).toFixed(2)} daily media cap is left today (UTC). Try again tomorrow, choose a cheaper model, or raise OMG_MEDIA_MAX_DAY_USD.`,
+        `This ${chosen} job costs $${usd(costMicros).toFixed(3)}, but only $${usd(leftMicros).toFixed(3)} of the $${usd(s.maxDayMicros).toFixed(2)} daily media cap is left today (UTC). Try again tomorrow, choose a cheaper model, or raise OMG_MEDIA_MAX_DAY_USD.`,
         400,
         "daily_cap",
         { costMicros, costUsd: usd(costMicros), spentTodayUsd: usd(spend.spentMicros), dailyCapUsd: usd(s.maxDayMicros), leftTodayUsd: usd(leftMicros) },
@@ -436,7 +465,7 @@ export async function generateMedia(req: GenerateRequest, opts: MediaOptions) {
     const sub = await routerCall(s, "/submit", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model, input, maxCostMicros }),
+      body: JSON.stringify({ model: chosen, input, maxCostMicros, ...(provider ? { provider } : {}) }),
     });
     if (!sub.res.ok) throw mapSubmitError(sub.res, sub.body);
     const jobId = typeof sub.body.json?.jobId === "string" ? sub.body.json.jobId : "";
@@ -448,6 +477,7 @@ export async function generateMedia(req: GenerateRequest, opts: MediaOptions) {
       jobId,
       status: String(sub.body.json?.status ?? "queued"),
       costMicros: chargedMicros,
+      model: chosen,
       kind: (quotedKind === "video" || quotedKind === "image" ? quotedKind : kind) as MediaKind,
     };
   });
@@ -456,8 +486,8 @@ export async function generateMedia(req: GenerateRequest, opts: MediaOptions) {
   const job: RouterJob =
     timeoutMs > 0
       ? await waitForJob(s, submitted.jobId, timeoutMs)
-      : { jobId: submitted.jobId, status: submitted.status, model };
-  return finishJob(s, opts, { ...job, model: job.model ?? model }, { costMicros: submitted.costMicros, outputPath: req.outputPath });
+      : { jobId: submitted.jobId, status: submitted.status, model: submitted.model };
+  return finishJob(s, opts, { ...job, model: job.model ?? submitted.model }, { costMicros: submitted.costMicros, outputPath: req.outputPath });
 }
 
 export async function mediaJob(
@@ -501,7 +531,20 @@ export async function handleMediaRequest(req: Request, url: URL, opts: MediaOpti
   const path = url.pathname;
   if (!isMediaPath(path)) return null;
   try {
-    if (path === "/api/media/models" && req.method === "GET") return json(await listModels(opts));
+    if (path === "/api/media/models" && req.method === "GET") {
+      const q = url.searchParams;
+      const limit = Number(q.get("limit"));
+      return json(
+        await listModels(opts, {
+          all: q.get("all") === "1" || q.get("all") === "true",
+          q: q.get("q") ?? undefined,
+          kind: q.get("kind") ?? undefined,
+          task: q.get("task") ?? undefined,
+          provider: q.get("provider") ?? undefined,
+          limit: Number.isFinite(limit) && limit > 0 ? limit : undefined,
+        }),
+      );
+    }
     if (path === "/api/media/generate" && req.method === "POST") {
       const body = plainObject(await req.json().catch(() => null));
       if (!body) return json({ error: "JSON body required", status: "invalid_request" }, 400);
@@ -510,6 +553,7 @@ export async function handleMediaRequest(req: Request, url: URL, opts: MediaOpti
           {
             kind: body.kind === "video" ? "video" : "image",
             model: typeof body.model === "string" ? body.model : undefined,
+            provider: body.provider === "fal" || body.provider === "wavespeed" ? body.provider : undefined,
             input: plainObject(body.input),
             outputPath: typeof body.outputPath === "string" && body.outputPath.trim() ? body.outputPath.trim() : undefined,
             wait: typeof body.wait === "boolean" ? body.wait : undefined,
