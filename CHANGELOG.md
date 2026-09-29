@@ -2,6 +2,15 @@
 
 Recent product updates and deployment notes.
 
+## September 29, 2026 - Connect Expo and a web preview first (v0.6.139)
+
+- The Expo preview card now opens on **Web**: the app runs inline on the card, on the web and in the iOS and Android apps. **Your phone** shows one "Open in Expo Go" button on a phone, or a QR code on a computer.
+- **Connect Expo** signs the Computer's Expo CLI in to your Expo account. The Expo login opens in the Computer browser. After that, "Open in Expo Go" works on iPhone when Expo Go is signed in to the same account.
+- The card says when an iPhone will refuse the project because Expo Go and the Computer use different Expo accounts.
+- Agents present the web preview first, then "Your phone".
+- Threads: @ anyone on the machine to add and notify them, and reference a thread with #. On iOS, replies open on their own page.
+- A stopped agent session that uses a command file starts again when you send it a message.
+
 ## September 28, 2026 - `omg update` restarts the service (v0.6.138)
 
 - `omg update` now restarts the running service after it installs a release, also on an omg.dev Computer. Before, it printed "Restarting the service…" and the old version kept running.
