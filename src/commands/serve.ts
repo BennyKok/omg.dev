@@ -27,7 +27,9 @@ import {
   mentionsOmg,
   omgWake,
   turnAnswer,
+  addMentionedPeople,
   keepSessionFile,
+  threadPeople,
   keepThreadUpload,
   participantsForView,
   setTyping,
@@ -1376,6 +1378,7 @@ async function handleThreadRequest(req: Request, url: URL, path: string): Promis
       me: threadParticipantId(viewer.identity),
       thread: summarizeThread(conversation),
       participants: participantsForView(conversation, userRoster()),
+      people: threadPeople(conversation, userRoster()),
       messages: readThreadMessages(id, limit),
       tasks: threadTasks(conversation, live),
       typing: threadTyping(id, threadParticipantId(viewer.identity)),
@@ -1478,6 +1481,8 @@ function postThreadMessage(
   replyTo: string | null = null,
   media: ThreadMedia[] = [],
 ) {
+  // Named with @: in the thread before the message is stored, so they are told.
+  addMentionedPeople(threadId, text, userRoster(), viewer.identity);
   const message = appendThreadMessage(threadId, {
     author: threadAuthor(threadId, viewer.identity, viewer.name),
     text,
