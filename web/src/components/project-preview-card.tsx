@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, ExternalLink, Globe2, Info, RotateCw, Smartphone, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -6,7 +6,9 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { renderSVG } from "uqr";
 import { PROJECT_PREVIEW_RESTART_MESSAGE, type ProjectPreviewSnapshot } from "../../../packages/protocol/src/project-preview";
+import { expoConnectActive, expoConnectMessage, type ExpoAccountSnapshot } from "../../../packages/protocol/src/expo-account";
 import { omgFetch } from "../lib/omg-client";
+const Computer = lazy(() => import("../views/computer-page").then(m => ({ default: m.ComputerPage })));
 
 export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | null; user?: string | null }) {
   const [state, setState] = useState<ProjectPreviewSnapshot | null>(null);
@@ -31,6 +33,11 @@ export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | nu
     return () => { live = false; clearInterval(timer); };
   }, [sessionId, suffix]);
   const preview = state?.preview;
+  const expo = useExpoAccount(preview?.expoGoUrl ? sessionId : null, suffix);
+  const [showComputer, setShowComputer] = useState(false);
+  // The Computer view closes itself once the sign-in there has worked.
+  const signedIn = expo.account?.signedIn === true;
+  useEffect(() => { if (signedIn) setShowComputer(false); }, [signedIn]);
   // A new preview row means the agent restarted it; allow another restart ask.
   useEffect(() => { setRestartAsked(false); }, [preview?.createdAt]);
   // A preview that has never answered is still starting, not stopped. The
@@ -53,6 +60,10 @@ export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | nu
     } catch { setRestartAsked(false); }
   };
   const openWeb = () => setOpen(true);
+  // Older Computers have no account check, so they keep "Open in Expo Go".
+  const needsConnect = !!expoGoUrl && !stopped && expo.account !== null && !expo.account.signedIn;
+  const connecting = expoConnectActive(expo.account?.connect);
+  const connect = async () => { if (await expo.connect()) setShowComputer(true); };
   return <>
     <div className="mb-2 rounded-xl border bg-card text-sm" role="status" data-testid="project-preview-card" data-expanded={expanded && !stopped ? "true" : "false"}>
       <div className="flex min-h-11 items-center gap-2 py-1 pl-2 pr-1.5">
@@ -80,10 +91,18 @@ export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | nu
             ? <ChevronDown className={cn("ml-auto size-4 shrink-0 text-muted-foreground transition-transform duration-200", expanded && "rotate-180")} aria-hidden />
             : null}
         </button>
-        {stopped ? null : expoGoUrl && phone
+        {stopped ? null : expoGoUrl && phone && needsConnect
+          ? <Button size="sm" disabled={connecting} onClick={() => void connect()} data-testid="project-preview-connect-expo">Connect Expo</Button>
+          // TODO(expo-go-58): add expo_go_prompt_device_auth=1 to this link when
+          // Expo Go 58 ships, so the phone signs in to the same account.
+          : expoGoUrl && phone
           ? <Button size="sm" render={<a href={expoGoUrl} />} nativeButton={false} data-testid="project-preview-expo-go">Open in Expo Go</Button>
           : <Button size="sm" onClick={openWeb}>{expoGoUrl ? "Open web preview" : "Open preview"}</Button>}
       </div>
+      {expoGoUrl && !stopped && expo.account
+        ? <ExpoAccountRow account={expo.account} phone={phone} error={expo.error}
+            onConnect={() => void connect()} onOpenComputer={() => setShowComputer(true)} onCancel={() => void expo.cancel()} />
+        : null}
       {stopped ? <div className="space-y-2 border-t px-3 py-2.5" data-testid="project-preview-stopped">
         <p className="text-xs text-muted-foreground">{expired
           ? "The Expo Go link expired. Restart the preview to get a new one."
@@ -100,6 +119,9 @@ export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | nu
         </div>
       </div> : null}
     </div>
+    {showComputer && createPortal(<div className="fixed inset-0 z-[100] bg-background" role="dialog" aria-label="Sign in to Expo on the Computer">
+      <Suspense fallback={<p>Opening Computer…</p>}><Computer active onClose={() => setShowComputer(false)} /></Suspense>
+    </div>, document.body)}
     {open && createPortal(
       <div className="fixed inset-0 z-[110] flex flex-col bg-background" role="dialog" aria-label={preview.title}>
         <div className="flex h-12 shrink-0 items-center gap-3 border-b px-3">
@@ -177,5 +199,71 @@ function ExpoGoGuide({ url, phone }: { url: string; phone: boolean }) {
       Scan with your phone camera to open in{" "}
       <a className="font-medium text-primary" href={store.url} target="_blank" rel="noreferrer">Expo Go</a>.
     </p>
+  </div>;
+}
+
+/**
+ * The Computer's Expo CLI account. Expo Go on an iPhone opens a project only
+ * when this account is signed in and Expo Go uses the same one. `account` is
+ * null on a Computer without the check, and the card then behaves as before.
+ */
+function useExpoAccount(sessionId: string | null, suffix: string) {
+  const [account, setAccount] = useState<ExpoAccountSnapshot | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!sessionId) { setAccount(null); return; }
+    let live = true;
+    const refresh = async () => {
+      try {
+        const response = await omgFetch(`/api/expo-account${suffix}`);
+        const body = response.ok ? await response.json() as ExpoAccountSnapshot : null;
+        if (live) setAccount(typeof body?.signedIn === "boolean" ? body : null);
+      } catch { /* Keep the last answer through a network blip. */ }
+    };
+    void refresh();
+    const timer = setInterval(() => { if (!document.hidden) void refresh(); }, 3_000);
+    return () => { live = false; clearInterval(timer); };
+  }, [sessionId, suffix]);
+  const post = async (action: "connect" | "cancel"): Promise<boolean> => {
+    setError(null);
+    try {
+      const response = await omgFetch(`/api/expo-account/${action}${suffix}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      const body = await response.json().catch(() => ({})) as ExpoAccountSnapshot & { error?: string };
+      if (!response.ok) { setError(body.error ?? "Could not reach the Computer. Try again."); return false; }
+      setAccount(body);
+      return true;
+    } catch {
+      setError("Could not reach the Computer. Try again.");
+      return false;
+    }
+  };
+  return { account, error, connect: () => post("connect"), cancel: () => post("cancel") };
+}
+
+function ExpoAccountRow({ account, phone, error, onConnect, onOpenComputer, onCancel }: {
+  account: ExpoAccountSnapshot; phone: boolean; error: string | null;
+  onConnect(): void; onOpenComputer(): void; onCancel(): void;
+}) {
+  const status = account.connect;
+  if (account.signedIn) {
+    return <p className="border-t px-3 py-2 text-xs text-muted-foreground" data-testid="project-preview-expo-account">
+      Sign in to Expo Go as <span className="font-medium text-foreground">{account.username}</span>.
+    </p>;
+  }
+  if (status && expoConnectActive(status)) {
+    return <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t px-3 py-2 text-xs" data-testid="project-preview-expo-connecting">
+      <span className="text-muted-foreground">{expoConnectMessage(status)}</span>
+      <button className="font-medium text-primary" onClick={onOpenComputer}>Open Computer</button>
+      {status.state === "waiting" ? <button className="text-muted-foreground" onClick={onCancel}>Cancel</button> : null}
+    </div>;
+  }
+  return <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t px-3 py-2 text-xs" data-testid="project-preview-expo-signed-out">
+    <span className="min-w-0 flex-1 text-muted-foreground">
+      {status?.state === "failed" || status?.state === "cancelled" ? `${expoConnectMessage(status)} ` : ""}
+      iPhone needs Expo signed in on the Computer.
+    </span>
+    {/* On a phone the header button is "Connect Expo". */}
+    {phone ? null : <Button size="sm" variant="outline" onClick={onConnect} data-testid="project-preview-connect-expo">Connect Expo</Button>}
+    {error ? <p className="w-full text-destructive" role="alert">{error}</p> : null}
   </div>;
 }
