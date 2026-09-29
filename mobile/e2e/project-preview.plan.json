@@ -7,56 +7,78 @@
     {
       "name": "Live preview card",
       "goal": "Wait for the web project preview card. Only inspect it and do not tap anything.",
-      "done": "The card names the Expo app, explains that the preview is live and private, and offers an open action.",
+      "done": "The card names the Expo app, says the preview is live, and offers an open action.",
       "expect": [
         "My Expo app",
-        "Live preview \u00b7 Private to you \u00b7 Temporary",
+        "Live preview",
         "Open preview"
       ]
     },
     {
       "name": "Expired Expo Go link",
-      "goal": "Find the second card, for 'My old app'. Only inspect it and do not tap anything. A 'Link expired' message on this card is the expected result of this test, not an error.",
+      "goal": "Find the card for 'My old app'. Only inspect it and do not tap anything. A 'Link expired' message on this card is the expected result of this test, not an error.",
       "done": "The 'My old app' card says the Expo Go link expired and shows a 'Restart preview' button.",
       "expect": [
         "My old app",
-        "Link expired \u00b7 Private to you \u00b7 Temporary",
+        "Link expired",
         "The Expo Go link expired. Restart the preview to get a new one.",
         "Restart preview"
       ]
     },
     {
-      "name": "Expo Go card",
-      "goal": "Find the second card, for the Expo app. Only inspect it and do not tap anything.",
-      "done": "The card names the todo app, says it is an Expo app, and offers to open it in Expo Go.",
+      "name": "Expo Go card, Expo signed in",
+      "goal": "Find the card for 'My todo app'. Only inspect it and do not tap anything.",
+      "done": "The todo app card offers to open it in Expo Go and names the Expo account to sign in with.",
       "expect": [
         "My todo app",
-        "Expo app \u00b7 Private to you \u00b7 Temporary",
         "Open in Expo Go",
-        "First time? See how it works"
+        "Sign in to Expo Go as expo-e2e-test."
       ]
     },
     {
-      "name": "Expo Go guide",
-      "goal": "Tap 'First time? See how it works' on the Expo app card. Do not tap 'Open in Expo Go'.",
-      "done": "Numbered steps explain how to get Expo Go and open the app.",
+      "name": "Expo not signed in",
+      "goal": "Find the card for 'My connect app'. Only inspect it and do not tap anything.",
+      "done": "The 'My connect app' card offers 'Connect Expo' and says the iPhone needs Expo signed in on the Computer.",
       "expect": [
-        "Get Expo Go. It is free.",
-        "Get it on the App Store",
-        "Come back and tap Open in Expo Go.",
-        "The first load can take up to a minute.",
-        "Hide steps"
+        "My connect app",
+        "Connect Expo",
+        "iPhone needs Expo signed in on the Computer."
+      ],
+      "forbid": [
+        "Sign in to Expo in the Computer window"
       ]
     },
     {
       "name": "Stopped preview",
-      "goal": "Scroll down to the third card, for 'My sleeping app'. Tap 'Restart preview' once.",
+      "goal": "Find the card for 'My sleeping app', the second card. Tap its 'Restart preview' button, the first 'Restart preview' on the screen, directly below 'The development server is not running. This happens when the Computer sleeps.' 'Stopped' and 'Link expired' on these test cards are expected results of this test, not errors.",
       "done": "The stopped card says the agent was asked to restart the preview.",
       "expect": [
         "My sleeping app",
-        "Stopped \u00b7 Private to you \u00b7 Temporary",
+        "Stopped",
         "The development server is not running. This happens when the Computer sleeps.",
         "Asked the agent to restart it"
+      ]
+    },
+    {
+      "name": "Connecting Expo",
+      "goal": "On the 'My connect app' card, tap 'Connect Expo' once. Do not tap 'Open in Expo Go' on any card.",
+      "done": "The 'My connect app' card asks to sign in to Expo in the Computer window and offers 'Open Computer' and 'Cancel'.",
+      "expect": [
+        "Sign in to Expo in the Computer window\u2026",
+        "Open Computer",
+        "Cancel"
+      ]
+    },
+    {
+      "name": "Cancel Expo sign-in",
+      "goal": "On the 'My connect app' card, tap 'Cancel' once.",
+      "done": "The card says the Expo sign-in was cancelled and offers 'Connect Expo' again.",
+      "expect": [
+        "Expo sign-in was cancelled.",
+        "Connect Expo"
+      ],
+      "forbid": [
+        "Sign in to Expo in the Computer window\u2026"
       ]
     }
   ]

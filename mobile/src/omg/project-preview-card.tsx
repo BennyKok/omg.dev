@@ -29,8 +29,12 @@ export function ProjectPreviewCard({ sessionId }: { sessionId: string | null }) 
   return <ProjectPreviewPanel sessionId={sessionId} transport={client?.transport ?? null} email={user?.email} />;
 }
 
-export function ProjectPreviewPanel({ sessionId, transport, email }: {
+export function ProjectPreviewPanel({ sessionId, transport, email, onOpenComputer = openComputer, initialLevel = "web" }: {
   sessionId: string | null; transport: Pick<OmgTransport, "request"> | null; email?: string;
+  /** The level a new preview opens on. Web for every real card; the simulator E2E harness starts on "device". */
+  initialLevel?: PreviewLevel;
+  /** Shows the Computer screen, where the Expo login page is open. */
+  onOpenComputer?: () => void;
 }) {
   const { colors } = useTheme();
   const [preview, setPreview] = useState<ProjectPreview | null>(null);
@@ -43,9 +47,13 @@ export function ProjectPreviewPanel({ sessionId, transport, email }: {
       .catch(() => {});
   }, []);
   // Web is level 1 and the default for every new preview.
-  const [level, setLevelState] = useState<PreviewLevel>("web");
+  const [level, setLevelState] = useState<PreviewLevel>(initialLevel);
   const [simulator, setSimulator] = useState<SimulatorStream | undefined>(undefined);
+  // The Computer's Expo CLI account. null: an older Computer without the
+  // route, or Android, so the card keeps "Open in Expo Go" as before.
   const [account, setAccount] = useState<ExpoAccountSnapshot | null>(null);
+  const [connectError, setConnectError] = useState<string | null>(null);
+  const [connectBusy, setConnectBusy] = useState(false);
   const setGuide = (value: boolean) => {
     setGuideState(value);
     void AsyncStorage.setItem(STORAGE_KEYS.previewCardExpanded, value ? "1" : "0").catch(() => {});
@@ -84,7 +92,7 @@ export function ProjectPreviewPanel({ sessionId, transport, email }: {
   }, [refresh]);
   // A new preview row means the agent restarted it; allow another restart ask
   // and start again from the web level.
-  useEffect(() => { setRestartAsked(false); setLevelState("web"); }, [preview?.createdAt]);
+  useEffect(() => { setRestartAsked(false); setLevelState(initialLevel); }, [preview?.createdAt, initialLevel]);
   if (!preview) return null;
   const expoGoUrl = preview.expoGoUrl;
   const stopped = live === false;
@@ -106,19 +114,30 @@ export function ProjectPreviewPanel({ sessionId, transport, email }: {
     setLevelState(next);
     if (!guide) setGuide(true);
   };
-  const needsConnect = Platform.OS === "ios" && account !== null && !account.signedIn;
-  const connecting = expoConnectActive(account?.connect);
-  const connect = async () => {
-    if (!transport) return;
+  const postAccount = async (action: "connect" | "cancel") => {
+    if (!transport || !sessionId) return;
+    setConnectBusy(true);
+    setConnectError(null);
     try {
-      const next = await transport.request<ExpoAccountSnapshot>(`/api/expo-account/connect${suffix}`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+      const snapshot = await transport.request<ExpoAccountSnapshot>(`/api/expo-account/${action}${suffix}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
       });
-      if (mounted.current) setAccount(next);
-      // The expo.dev sign-in page opens in the Computer's browser.
-      router.push("/computer");
-    } catch { /* The account row keeps offering Connect Expo. */ }
+      if (!mounted.current) return;
+      if (snapshot && typeof snapshot.signedIn === "boolean") setAccount(snapshot);
+      if (action === "connect") onOpenComputer();
+    } catch (error) {
+      if (mounted.current) setConnectError(error instanceof Error && error.message ? error.message : "Could not start Expo sign-in. Try again.");
+    } finally {
+      if (mounted.current) setConnectBusy(false);
+    }
   };
+  // Only an iPhone checks the account (see refresh). No account answer keeps
+  // today's "Open in Expo Go".
+  const expoAccount = expoGoUrl && !stopped ? account : null;
+  const connecting = expoConnectActive(expoAccount?.connect);
+  const needsConnect = !!expoAccount && !expoAccount.signedIn;
   const restart = async () => {
     if (!transport || !sessionId || restartAsked) return;
     setRestartAsked(true);
@@ -139,7 +158,7 @@ export function ProjectPreviewPanel({ sessionId, transport, email }: {
   const onPhoneLevel = !!expoGoUrl && current === "device";
   const primary = stopped ? null
     : onPhoneLevel && needsConnect
-      ? { id: "project-preview-connect-expo", label: "Connect Expo", disabled: connecting, onPress: () => void connect() }
+      ? connecting ? null : { id: "project-preview-connect-expo", label: "Connect Expo", disabled: connectBusy, onPress: () => void postAccount("connect") }
       : onPhoneLevel
         ? { id: "project-preview-expo-go", label: "Open in Expo Go", disabled: false, onPress: () => void openExpoGo() }
         : expoGoUrl && guide
@@ -192,13 +211,8 @@ export function ProjectPreviewPanel({ sessionId, transport, email }: {
         : current === "simulator" && simulator
         ? <SimulatorLevel stream={simulator} webUrl={preview.url} onStart={() => void simulatorAction("start")} />
         : <View testID="project-preview-device" style={{ gap: 6 }}>
-            {Platform.OS === "ios" && account ? <Text testID="project-preview-expo-account" style={{ color: colors.mutedForeground, fontSize: 14 }}>
-              {account.signedIn
-                ? `Sign in to Expo Go as ${account.username}.`
-                : account.connect && (connecting || account.connect.state === "failed" || account.connect.state === "cancelled")
-                  ? expoConnectMessage(account.connect)
-                  : "iPhone needs Expo signed in on the Computer. Tap Connect Expo."}
-            </Text> : null}
+            {expoAccount ? <ExpoAccountRow account={expoAccount} connecting={connecting} error={connectError} busy={connectBusy}
+              onOpenComputer={onOpenComputer} onCancel={() => void postAccount("cancel")} /> : null}
             {/* This card is on the phone that runs Expo Go, so it has no QR code:
                 one line for a person who does not have Expo Go yet. */}
             <Text style={{ color: colors.mutedForeground, fontSize: 14 }}>
@@ -252,6 +266,39 @@ function SimulatorLevel({ stream, webUrl, onStart }: { stream: SimulatorStream; 
       </Pressable> : null}
     </View>
   </PhoneFrame>;
+}
+
+function openComputer() { router.push("/computer"); }
+
+function ExpoAccountRow({ account, connecting, error, busy, onOpenComputer, onCancel }: {
+  account: ExpoAccountSnapshot; connecting: boolean; error: string | null; busy: boolean;
+  onOpenComputer: () => void; onCancel: () => void;
+}) {
+  const { colors } = useTheme();
+  if (account.signedIn) {
+    return <Text testID="project-preview-expo-account" style={{ color: colors.mutedForeground, fontSize: 13, paddingHorizontal: 4, paddingBottom: 4 }}>
+      {account.username ? `Sign in to Expo Go as ${account.username}.` : "Sign in to Expo Go with the Computer's Expo account."}
+    </Text>;
+  }
+  const last = account.connect && !connecting && account.connect.state !== "done" ? expoConnectMessage(account.connect) : null;
+  return <View testID="project-preview-expo-connect" style={{ gap: 4, paddingHorizontal: 4, paddingBottom: 4 }}>
+    {connecting && account.connect ? <>
+      <Text testID="project-preview-expo-connect-status" style={{ color: colors.foreground, fontSize: 14 }}>{expoConnectMessage(account.connect)}</Text>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+        <Pressable accessibilityRole="link" testID="project-preview-open-computer" onPress={onOpenComputer} style={{ minHeight: 32, justifyContent: "center" }}>
+          <Text style={{ color: colors.primary, fontSize: 13, fontWeight: "600" }}>Open Computer</Text>
+        </Pressable>
+        <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>·</Text>
+        <Pressable accessibilityRole="link" testID="project-preview-cancel-expo" disabled={busy} onPress={onCancel} style={{ minHeight: 32, justifyContent: "center" }}>
+          <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>Cancel</Text>
+        </Pressable>
+      </View>
+    </> : <>
+      {last ? <Text testID="project-preview-expo-connect-status" style={{ color: colors.foreground, fontSize: 13 }}>{last}</Text> : null}
+      <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>iPhone needs Expo signed in on the Computer.</Text>
+    </>}
+    {error ? <Text testID="project-preview-expo-connect-error" style={{ color: colors.destructive, fontSize: 13 }}>{error}</Text> : null}
+  </View>;
 }
 
 const EXPO_GO_IOS = "https://apps.apple.com/app/expo-go/id982107779";
