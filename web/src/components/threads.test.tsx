@@ -239,3 +239,23 @@ test("a mention is a highlighted tag, and clicking it shows the members", async 
   await ui.flushAsync(() => tags[0].click());
   expect(document.body.textContent).toContain("Members");
 });
+
+test("a task's answer shows its agent's mark; omg's own words show omg's", async () => {
+  const withAgent: ThreadDetail = {
+    ...detail,
+    messages: [
+      { id: "m9", threadId: "t1", ts: 60 * MIN, author: me, text: "@omg try again" },
+      { id: "n1", threadId: "t1", ts: 60 * MIN, author: omg, text: "Started a task.", replyTo: "m9",
+        task: { sessionId: TASK_ASKING, event: "started", title: "Cap the free tier", project: "web" } },
+      { id: "n2", threadId: "t1", ts: 61 * MIN, author: omg, text: "Capped it.", replyTo: "m9",
+        task: { sessionId: TASK_ASKING, event: "finished", title: "Cap the free tier", project: "web", agent: "codex" } },
+    ],
+  };
+  ui.render(view({ detail: withAgent, initialReplies: "m9" }));
+  await waitForMarkdown();
+  const marks = ui
+    .queryAll<HTMLImageElement>('[data-testid="thread-replies"] [data-testid="thread-message"] img')
+    .map((img) => img.getAttribute("src") ?? "");
+  expect(marks.some((src) => src.includes("omg"))).toBe(true);
+  expect(marks.some((src) => src.includes("codex"))).toBe(true);
+});

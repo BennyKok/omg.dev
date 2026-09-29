@@ -66,6 +66,10 @@ function blockedNote(session: Session): string {
       return "Provider error";
     case "restart_recovered":
       return "Recovered after restart";
+    case "interrupted":
+      return "Agent process stopped";
+    case "out_of_memory":
+      return "Out of memory";
     default:
       return "Blocked";
   }
