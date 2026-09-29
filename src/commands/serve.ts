@@ -1443,7 +1443,7 @@ async function handleThreadRequest(req: Request, url: URL, path: string): Promis
       text,
       replyTo: root?.id ?? null,
       media,
-      via: { sessionId: session?.sessionId ?? callerSession, title: session?.title ?? null },
+      via: { sessionId: session?.sessionId ?? callerSession, title: session?.title ?? null, agent: session?.agent ?? null },
     });
     return json({ message });
   }

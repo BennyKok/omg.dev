@@ -6,7 +6,7 @@ import { PATHS } from "./config.ts";
 import { formatSessionMentionToken, threadRefFromHref } from "../packages/protocol/src/session-mention-token.ts";
 import { createImageArtifact } from "./artifacts.ts";
 import { uploadsDir } from "./uploads.ts";
-import { linkMentions, mentionAgents, mentionedAgent, mentionFromHref, threadMentionOptions, plainText, threadPreview, typingIn, typingLabel, typingPinger } from "../packages/protocol/src/threads.ts";
+import { authorAgent, startsMessageGroup, linkMentions, mentionAgents, mentionedAgent, mentionFromHref, threadMentionOptions, plainText, threadPreview, typingIn, typingLabel, typingPinger } from "../packages/protocol/src/threads.ts";
 import { attachRuntimeSession, getConversation, listConversations } from "./conversations.ts";
 import {
   answerMention,
@@ -739,5 +739,28 @@ describe("@ a person", () => {
     } finally {
       setThreadNotifier(null);
     }
+  });
+});
+
+describe("omg wears the mark of the agent whose words it carries", () => {
+  const omg = { kind: "omg" as const };
+  const base = { threadId: "t", ts: 1, author: omg, replyTo: "r" };
+  const started = { ...base, id: "s", text: "Started a codex task.", task: { sessionId: "sess-1", event: "started" as const } };
+  const result = { ...base, id: "f", ts: 2, text: "Done.", task: { sessionId: "sess-1", event: "finished" as const, agent: "codex" } };
+  const older = { ...base, id: "o", ts: 3, text: "Done again.", task: { sessionId: "sess-2", event: "finished" as const } };
+  const posted = { ...base, id: "p", ts: 4, text: "Logo draft.", via: { sessionId: "sess-3", agent: "claude" } };
+
+  test("a result is its task's agent, a post its session's; omg's own words are omg's", () => {
+    expect(authorAgent(started)).toBeNull();
+    expect(authorAgent(result)).toBe("codex");
+    // A result from before the agent was remembered: the live task's.
+    expect(authorAgent(older, [{ sessionId: "sess-2", title: null, project: null, busy: false, status: null, ended: false, agent: "aisdk" }])).toBe("aisdk");
+    expect(authorAgent(posted)).toBe("claude");
+    expect(authorAgent({ ...base, id: "h", text: "hi", author: { kind: "human", participantId: "p", name: "A" } })).toBeNull();
+  });
+
+  test("omg's note and the agent's answer are two groups, each with its own mark", () => {
+    expect(startsMessageGroup(started, result)).toBe(true);
+    expect(startsMessageGroup(result, { ...result, id: "f2", ts: 5 })).toBe(false);
   });
 });

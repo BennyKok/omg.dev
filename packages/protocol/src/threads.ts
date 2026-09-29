@@ -31,7 +31,7 @@ export type ThreadMessage = {
   /** Pictures, videos and files, drawn under the text as the session chat draws them. */
   media?: ThreadMedia[];
   /** An agent session that posted this as omg (omg_send_thread_message). */
-  via?: { sessionId: string; title?: string | null };
+  via?: { sessionId: string; title?: string | null; agent?: string | null };
   /** Client only: sent, not yet stored. */
   pending?: boolean;
 };
@@ -260,7 +260,8 @@ export function startsMessageGroup(previous: ThreadMessage | undefined, message:
   if (message.author.kind === "human" && previous.author.kind === "human") {
     return previous.author.participantId !== message.author.participantId;
   }
-  return false;
+  // omg's note and then Claude's answer are two voices: each shows its own mark.
+  return authorAgent(previous) !== authorAgent(message);
 }
 
 /** A stable avatar colour for a person, from their participant id. */
@@ -269,6 +270,22 @@ export function authorHue(author: ThreadAuthor): number {
   let hash = 0;
   for (const char of author.participantId) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
   return hash % 360;
+}
+
+/**
+ * Which agent's mark an omg message wears: the agent whose words it carries.
+ * A task's result is that task's agent (remembered on the message, or the
+ * live task's for a result from before that); a message an agent session
+ * posted is that session's. omg's own replies, and the notes it writes when
+ * it starts or relays a task, are omg's: null.
+ */
+export function authorAgent(message: ThreadMessage, tasks?: readonly ThreadTaskRow[]): string | null {
+  if (message.author.kind !== "omg") return null;
+  const task = message.task;
+  if (task && task.event !== "started") {
+    return task.agent || tasks?.find((row) => sameSession(row.sessionId, task.sessionId))?.agent || null;
+  }
+  return message.via?.agent || null;
 }
 
 export function authorName(author: ThreadAuthor): string {
