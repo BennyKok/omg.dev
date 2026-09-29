@@ -2,6 +2,15 @@
 
 Recent product updates and deployment notes.
 
+## September 29, 2026 - New chats start with no project, and the preview keeps up (v0.6.144)
+
+- A new chat from Home starts with no project. A folder you pick stays picked for this visit only, so an old folder no longer decides where a new request runs. The iPhone app does the same.
+- On a phone, sending from Home opens the new chat at once.
+- The inline app preview reloads when the agent finishes a turn, so it shows the agent's latest changes.
+- When all agents are in use on an omg.dev Computer, the limit sheet can list the live chats, with Open and Close for each. The sheet shows the list after the next omg.dev web update.
+- For a new phone app, the agent's final message offers "Create a free Expo account" when the Computer is not signed in to Expo.
+- In the iPhone app, you can long-press an image to save or share it, and the image viewer has the same menu.
+
 ## September 29, 2026 - Tailnet access needs sign-in (v0.6.143)
 
 - A new setting, `LFG_TAILNET_PORT`, opens a second local port for `tailscale serve`. Point `tailscale serve` at it to require sign-in for tailnet devices.
