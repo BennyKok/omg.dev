@@ -3,6 +3,7 @@ import { registerRootComponent } from "expo";
 import { SafeAreaView, ScrollView } from "react-native";
 import type { OmgTransport } from "@omg-dev/client";
 import type { ProjectPreviewSnapshot } from "../../packages/protocol/src/project-preview";
+import type { ExpoAccountSnapshot } from "../../packages/protocol/src/expo-account";
 import { ProjectPreviewPanel } from "../src/omg/project-preview-card";
 import { Text } from "../src/omg/text";
 
@@ -52,23 +53,68 @@ const expiredSnapshot: ProjectPreviewSnapshot = {
   },
 };
 
+const connectSnapshot: ProjectPreviewSnapshot = {
+  preview: {
+    ...snapshot.preview!,
+    sessionId: "55555555-5555-4555-8555-555555555555",
+    title: "My connect app",
+    port: 8084,
+    expoGoUrl: "exps://example.com",
+  },
+};
+
+/** No account route: a Computer from before Connect Expo. */
 function fixed(value: ProjectPreviewSnapshot): Pick<OmgTransport, "request"> {
-  return { async request<T>(): Promise<T> { return value as T; } };
+  return {
+    async request<T>(path: string): Promise<T> {
+      if (path.startsWith("/api/expo-account")) throw new Error("404");
+      return value as T;
+    },
+  };
+}
+
+/**
+ * A Computer with the Expo account route. POST connect starts a "waiting"
+ * run and POST cancel ends it, as the server does.
+ */
+function withAccount(value: ProjectPreviewSnapshot, initial: ExpoAccountSnapshot): Pick<OmgTransport, "request"> {
+  let account = initial;
+  return {
+    async request<T>(path: string): Promise<T> {
+      if (path.startsWith("/api/expo-account/connect")) {
+        account = { signedIn: false, connect: { state: "waiting", startedAt: Date.now() } };
+      } else if (path.startsWith("/api/expo-account/cancel")) {
+        account = { signedIn: false, connect: { state: "cancelled", startedAt: account.connect?.startedAt ?? Date.now() } };
+      } else if (!path.startsWith("/api/expo-account")) {
+        return value as T;
+      }
+      return account as T;
+    },
+  };
 }
 
 const transport = fixed(snapshot);
-const expoTransport = fixed(expoSnapshot);
+const expoTransport = withAccount(expoSnapshot, { signedIn: true, username: "expo-e2e-test" });
+const connectTransport = withAccount(connectSnapshot, { signedIn: false });
 const stoppedTransport = fixed(stoppedSnapshot);
-const expiredTransport = fixed(expiredSnapshot);
+// Its restart request fails, so the card returns to "Restart preview". An
+// "Asked the agent to restart it" on screen can then only be the sleeping card.
+const expiredTransport: Pick<OmgTransport, "request"> = {
+  async request<T>(path: string): Promise<T> {
+    if (path.includes("/send")) throw new Error("not in this test");
+    return fixed(expiredSnapshot).request<T>(path);
+  },
+};
 
 function App() {
   return <SafeAreaView style={{ flex: 1, backgroundColor: "#141414" }}>
     <ScrollView contentContainerStyle={{ padding: 24, gap: 24 }}>
       <Text style={{ fontSize: 24, color: "#fff" }}>Project preview test</Text>
       <ProjectPreviewPanel sessionId="11111111-1111-4111-8111-111111111111" email="test@example.com" transport={transport} />
+      <ProjectPreviewPanel sessionId="33333333-3333-4333-8333-333333333333" email="test@example.com" transport={stoppedTransport} />
       <ProjectPreviewPanel sessionId="44444444-4444-4444-8444-444444444444" email="test@example.com" transport={expiredTransport} />
       <ProjectPreviewPanel sessionId="22222222-2222-4222-8222-222222222222" email="test@example.com" transport={expoTransport} />
-      <ProjectPreviewPanel sessionId="33333333-3333-4333-8333-333333333333" email="test@example.com" transport={stoppedTransport} />
+      <ProjectPreviewPanel sessionId="55555555-5555-4555-8555-555555555555" email="test@example.com" transport={connectTransport} onOpenComputer={() => {}} />
     </ScrollView>
   </SafeAreaView>;
 }
