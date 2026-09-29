@@ -7,6 +7,11 @@
 // call and every spend guardrail lives in `omg serve`, never in an MCP child
 // that may not inherit the env.
 //
+// A self-hosted box has no sandbox router. When it is signed in with
+// `omg login`, the same router is reached through the control-plane CLI gate
+// (/api/cli/media/*), which bills the signed-in account. OMG_MEDIA_URL wins
+// when both exist.
+//
 // Flow for one generate: quote -> enforce per-call and per-day caps -> submit
 // with maxCostMicros -> record spend -> optionally poll the job -> download
 // each result to a local file.
@@ -34,7 +39,7 @@ const DEFAULT_POLL_MS = 2_500;
 
 export const MEDIA_MESSAGES = {
   notOnComputer:
-    "Media generation needs an omg.dev Computer. OMG_MEDIA_URL is not set on this machine, so there is no media router to bill the omg credits.",
+    "Media generation needs an omg.dev Computer or an omg.dev sign-in. OMG_MEDIA_URL is not set on this machine and it is not signed in, so there is no media router to bill the omg credits. Sign in with `omg login` or in Settings.",
   quoteUnavailable: "Media pricing preview is not available on this Computer yet. Generation is refused until the Computer can quote a price.",
   outOfCredits: "The omg credits on this account are used up. Add credits at omg.dev to keep generating.",
   grantDenied: "This Computer is not allowed to generate media (runtime grant denied: media.invoke).",
@@ -46,6 +51,14 @@ type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 export type MediaOptions = {
   /** Router base URL. Defaults to env OMG_MEDIA_URL. */
   mediaUrl?: string | null;
+  /**
+   * The box's omg.dev account. Used only when there is no router URL: calls
+   * go to /api/cli/media/* on the control plane with the account Bearer.
+   */
+  cloud?: {
+    signedIn: () => boolean;
+    fetch: (path: string, init?: RequestInit) => Promise<Response>;
+  };
   fetch?: FetchLike;
   /** JSON file that records spend for the current UTC day. */
   spendPath: string;
@@ -98,8 +111,10 @@ function envUsd(name: string, fallback: number): number {
 
 function settings(opts: MediaOptions) {
   const base = (opts.mediaUrl === undefined ? process.env.OMG_MEDIA_URL : opts.mediaUrl)?.trim();
+  const cloud = !base && opts.cloud?.signedIn() ? opts.cloud : null;
   return {
-    base: base ? base.replace(/\/+$/, "") : null,
+    base: base ? base.replace(/\/+$/, "") : cloud ? CLOUD_MEDIA_PATH : null,
+    cloud,
     fetch: opts.fetch ?? ((input: string, init?: RequestInit) => fetch(input, init)),
     maxCallMicros: Math.round((opts.maxCallUsd ?? envUsd("OMG_MEDIA_MAX_CALL_USD", DEFAULT_MAX_CALL_USD)) * MICROS_PER_USD),
     maxDayMicros: Math.round((opts.maxDayUsd ?? envUsd("OMG_MEDIA_MAX_DAY_USD", DEFAULT_MAX_DAY_USD)) * MICROS_PER_USD),
@@ -109,6 +124,9 @@ function settings(opts: MediaOptions) {
     sleep: opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms))),
   };
 }
+
+/** Control-plane CLI route that fronts the media router for a signed-in box. */
+export const CLOUD_MEDIA_PATH = "/api/cli/media";
 
 function requireBase(base: string | null): string {
   if (!base) throw new MediaError(MEDIA_MESSAGES.notOnComputer, 400, "not_on_computer");
@@ -173,7 +191,8 @@ async function routerCall(
   const base = requireBase(s.base);
   let res: Response;
   try {
-    res = await s.fetch(`${base}${path}`, init);
+    // Only router calls carry the account Bearer. Result downloads use s.fetch.
+    res = s.cloud ? await s.cloud.fetch(`${base}${path}`, init) : await s.fetch(`${base}${path}`, init);
   } catch (e) {
     throw new MediaError(`Could not reach the omg media router at ${base}: ${(e as Error)?.message || e}`, 502, "router_unreachable");
   }
