@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## September 29, 2026 - Tailnet access needs sign-in (v0.6.143)
+
+- A new setting, `LFG_TAILNET_PORT`, opens a second local port for `tailscale serve`. Point `tailscale serve` at it to require sign-in for tailnet devices.
+- On that port, opening the computer or a session link sends you to the same page in the omg app, where you sign in. Requests to the API get 401.
+- The main port does not change. The relay and the tools on the computer keep working.
+- A signed-in computer can generate media through omg.dev. Media generation can pick the cheapest model and accepts any fal or WaveSpeed model id.
+
 ## September 29, 2026 - A paused Computer stops being polled (v0.6.142)
 
 - When your omg.dev Computer is paused, the app stops asking it for updates in the background. It waits longer between tries, up to one minute. It starts again at once when you return to the window or the tab.
