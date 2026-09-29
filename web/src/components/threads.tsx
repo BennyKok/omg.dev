@@ -255,7 +255,9 @@ function MessageRow({
         {/* Formatted as the session chat formats a message: the same renderer. */}
         {message.text ? (
           <MessageResponse
-            className={cn("break-words text-[15px] leading-[22px]", message.pending && "opacity-60")}
+            // The renderer is `size-full` for the session chat's bubbles. In a message row that
+            // is the row's whole height, and the replies line under it spilled out of the row.
+            className={cn("!h-auto break-words text-[15px] leading-[22px]", message.pending && "opacity-60")}
             components={THREAD_MARKDOWN}
           >
             {linkMentions(message.text, people, handles)}
