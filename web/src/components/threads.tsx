@@ -3,7 +3,7 @@ import { Archive, ArrowUp, ChevronLeft, Folder, Info, MessageSquare, MoreVertica
 import type { ConversationParticipant } from "../../../src/conversation-contract";
 import { ConversationParticipantRow } from "./conversation-presence";
 import { MessageResponse } from "./ai-elements/message";
-import { CopyableMarkdownLink } from "./ai-elements/streamdown-response";
+import { CopyableMarkdownLink } from "./ai-elements/markdown-links";
 import { AuthenticatedArtifactImage, AuthenticatedArtifactVideo } from "./authenticated-artifact";
 import {
   authorAgent,
