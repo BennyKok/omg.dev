@@ -503,6 +503,14 @@ export default function ResumeSessionSheet({
                                 {folder}
                               </span>
                             ) : null}
+                            {session.exitReason === "out_of_memory" ? (
+                              <span
+                                className="shrink-0 rounded-full bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive"
+                                title="The system stopped this agent because it used more memory than its limit allows."
+                              >
+                                Out of memory
+                              </span>
+                            ) : null}
                           </span>
                         </span>
                         <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/60" />
