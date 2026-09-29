@@ -75,6 +75,7 @@ import { serveOmgMcpRequest, serveComputerMcpRequest } from "../mcp-http.ts";
 import { resolveCaller } from "../policy/caller.ts";
 import { createBrowserLoginService } from "../computer/login.ts";
 import { createProjectPreviewService, storedProjectPreview } from "../project-previews.ts";
+import { simulatorStreamProvider } from "../simulator-stream.ts";
 import { createExpoAccountService, installXdgOpenShim, liveExpoAccountDeps } from "../expo-account.ts";
 import { importBrowserLogin } from "../computer/browser.ts";
 import {
@@ -4294,6 +4295,7 @@ export async function cmdServe() {
       }
       return { url: body.url, expoGoUrl: body.expoGoUrl };
     },
+    simulator: simulatorStreamProvider(),
   });
   // A Computer has no xdg-open. Tools that open a browser (`expo login
   // --browser`, `gh auth login --web`) get the shim, which opens the page in
@@ -4704,7 +4706,7 @@ export async function cmdServe() {
       if (path === "/api/browser-login" || path.startsWith("/api/browser-login/")) {
         return await browserLogin(req);
       }
-      if (path === "/api/project-preview") {
+      if (path === "/api/project-preview" || path === "/api/project-preview/simulator") {
         return await projectPreview(req);
       }
       if (path === "/api/expo-account" || path.startsWith("/api/expo-account/")) {

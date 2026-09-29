@@ -1,7 +1,7 @@
 import { createConnection } from "node:net";
 import { dirname } from "node:path";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import type { ProjectPreview } from "../packages/protocol/src/project-preview.ts";
+import type { ProjectPreview, SimulatorStream, SimulatorStreamProvider } from "../packages/protocol/src/project-preview.ts";
 import { PATHS } from "./config.ts";
 
 const DEFAULT_PREVIEW_PORT = 5173;
@@ -95,6 +95,11 @@ export function createProjectPreviewService(deps: {
   listening?: (port: number) => Promise<boolean>;
   storePath?: string;
   now?: () => number;
+  /**
+   * Level 2 (streamed iOS Simulator). Null or absent keeps the level off, and
+   * the snapshot then has no `simulator` field. See SimulatorStreamProvider.
+   */
+  simulator?: SimulatorStreamProvider | null;
 }) {
   const storePath = deps.storePath ?? `${PATHS.data}/project-previews.json`;
   const rows = new Map(readRows(storePath).map((row) => [row.sessionId, row]));
@@ -102,6 +107,15 @@ export function createProjectPreviewService(deps: {
   const listening = deps.listening ?? portIsListening;
   const owns = (owner: string | null, viewer: string) => !owner || owner.toLowerCase() === viewer.toLowerCase();
 
+  /** The level-2 slot of a snapshot. A failing provider must not hide the card. */
+  const simulatorField = async (preview: ProjectPreview, live: boolean): Promise<{ simulator?: SimulatorStream }> => {
+    if (!deps.simulator || !preview.expoGoUrl || !live) return {};
+    try {
+      return { simulator: await deps.simulator.status(preview) };
+    } catch {
+      return { simulator: { state: "error", message: "The simulator did not answer. Try again." } };
+    }
+  };
   return async function handle(req: Request): Promise<Response> {
     const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "no-store" } });
     try {
@@ -133,6 +147,20 @@ export function createProjectPreviewService(deps: {
         throw new PreviewError(403, "This preview belongs to another user");
       }
 
+      if (url.pathname.endsWith("/simulator")) {
+        const preview = rows.get(session.id) ?? null;
+        if (!deps.simulator || !preview?.expoGoUrl) throw new PreviewError(404, "The simulator preview is not available");
+        if (req.method !== "POST") throw new PreviewError(405, "Method not allowed");
+        // The owner's card starts and stops a simulator; the agent does not.
+        if (caller) throw new PreviewError(403, "Only the preview card can start a simulator");
+        if (data.action === "start") return json(await deps.simulator.start(preview));
+        if (data.action === "stop") {
+          await deps.simulator.stop(preview);
+          return json({ state: "idle" } satisfies SimulatorStream);
+        }
+        throw new PreviewError(400, 'action must be "start" or "stop"');
+      }
+
       if (req.method === "GET") {
         const preview = rows.get(session.id) ?? null;
         if (!preview) return json({ preview });
@@ -144,10 +172,10 @@ export function createProjectPreviewService(deps: {
           const { notStartedYet: _started, ...started } = preview;
           rows.set(session.id, started);
           saveRows(storePath, [...rows.values()]);
-          return json({ preview: started, live });
+          return json({ preview: started, live, ...await simulatorField(started, live) });
         }
         const starting = !live && preview.notStartedYet === true;
-        return json({ preview, live, ...(expired ? { expired: true } : {}), ...(starting ? { starting: true } : {}) });
+        return json({ preview, live, ...(expired ? { expired: true } : {}), ...(starting ? { starting: true } : {}), ...await simulatorField(preview, live) });
       }
       if (req.method !== "POST") throw new PreviewError(405, "Method not allowed");
       if (!caller) throw new PreviewError(403, "Only the session agent can publish a project preview");

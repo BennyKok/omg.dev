@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AppState, Linking, Platform, Pressable, useWindowDimensions, View } from "react-native";
+import { AppState, Linking, Platform, Pressable, UIManager, useWindowDimensions, View } from "react-native";
+import { router } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { PROJECT_PREVIEW_RESTART_MESSAGE, type ProjectPreview, type ProjectPreviewSnapshot } from "../../../packages/protocol/src/project-preview";
+import {
+  PREVIEW_LEVEL_LABEL, PROJECT_PREVIEW_RESTART_MESSAGE, PROJECT_PREVIEW_SIMULATOR_PATH, previewLevels, simulatorStatusText,
+  type PreviewLevel, type ProjectPreview, type ProjectPreviewSnapshot, type SimulatorStream,
+} from "../../../packages/protocol/src/project-preview";
+import { expoConnectActive, expoConnectMessage, type ExpoAccountSnapshot } from "../../../packages/protocol/src/expo-account";
 import type { OmgTransport } from "@omg-dev/client";
 import { Icon } from "../components";
 import { STORAGE_KEYS } from "./config";
@@ -9,6 +14,15 @@ import { openInAppPage } from "./in-app-browser";
 import { useOmg } from "./provider";
 import { useTheme } from "./theme";
 import { Text } from "./text";
+
+// Probe before importing: an OTA must not crash a binary without this view.
+const WebView: typeof import("react-native-webview").WebView | null =
+  Platform.OS !== "web" && UIManager.hasViewManagerConfig("RNCWebView")
+    ? require("react-native-webview").WebView : null;
+
+/** The phone the inline frame imitates: an iPhone 15 in points. */
+const PHONE_W = 390;
+const PHONE_H = 844;
 
 export function ProjectPreviewCard({ sessionId }: { sessionId: string | null }) {
   const { client, user } = useOmg();
@@ -19,19 +33,19 @@ export function ProjectPreviewPanel({ sessionId, transport, email }: {
   sessionId: string | null; transport: Pick<OmgTransport, "request"> | null; email?: string;
 }) {
   const { colors } = useTheme();
-  // On a narrow phone the main action already says "Expo Go"; the chip shows
-  // only where the title keeps room.
-  const roomy = useWindowDimensions().width >= 480;
   const [preview, setPreview] = useState<ProjectPreview | null>(null);
-  // Closed by default: on a phone the main path is "Open in Expo Go", and the
-  // steps took a large part of the screen above the composer. The choice is
-  // kept for every card on this device.
-  const [guide, setGuideState] = useState(false);
+  // Open by default: the inline web preview is the first thing a new Expo
+  // app shows. A person who closed it once keeps it closed on this device.
+  const [guide, setGuideState] = useState(true);
   useEffect(() => {
     void AsyncStorage.getItem(STORAGE_KEYS.previewCardExpanded)
-      .then((value) => { if (value === "1" && mounted.current) setGuideState(true); })
+      .then((value) => { if (value === "0" && mounted.current) setGuideState(false); })
       .catch(() => {});
   }, []);
+  // Web is level 1 and the default for every new preview.
+  const [level, setLevelState] = useState<PreviewLevel>("web");
+  const [simulator, setSimulator] = useState<SimulatorStream | undefined>(undefined);
+  const [account, setAccount] = useState<ExpoAccountSnapshot | null>(null);
   const setGuide = (value: boolean) => {
     setGuideState(value);
     void AsyncStorage.setItem(STORAGE_KEYS.previewCardExpanded, value ? "1" : "0").catch(() => {});
@@ -51,6 +65,13 @@ export function ProjectPreviewPanel({ sessionId, transport, email }: {
       setPreview(data.starting ? null : data.preview ?? null);
       setLive(data.live);
       setExpired(data.expired === true);
+      setSimulator(data.simulator);
+      // Only an iPhone needs the Computer's Expo account; Android's Expo Go
+      // opens the project without one. Older Computers have no check.
+      if (Platform.OS === "ios" && data.preview?.expoGoUrl) {
+        const next = await transport.request<ExpoAccountSnapshot>(`/api/expo-account${suffix}`).catch(() => null);
+        if (mounted.current) setAccount(typeof next?.signedIn === "boolean" ? next : null);
+      }
     } catch { /* Compatible with Computers from before preview cards. */ }
   }, [transport, sessionId, suffix]);
   useEffect(() => {
@@ -61,11 +82,43 @@ export function ProjectPreviewPanel({ sessionId, transport, email }: {
     const app = AppState.addEventListener("change", () => void refresh());
     return () => { mounted.current = false; clearInterval(poll); app.remove(); };
   }, [refresh]);
-  // A new preview row means the agent restarted it; allow another restart ask.
-  useEffect(() => { setRestartAsked(false); }, [preview?.createdAt]);
+  // A new preview row means the agent restarted it; allow another restart ask
+  // and start again from the web level.
+  useEffect(() => { setRestartAsked(false); setLevelState("web"); }, [preview?.createdAt]);
   if (!preview) return null;
   const expoGoUrl = preview.expoGoUrl;
   const stopped = live === false;
+  const levels: PreviewLevel[] = expoGoUrl ? previewLevels({ simulator }) : ["web"];
+  const current: PreviewLevel = levels.includes(level) ? level : "web";
+  const simulatorAction = async (action: "start" | "stop") => {
+    if (!transport) return;
+    try {
+      await transport.request(`${PROJECT_PREVIEW_SIMULATOR_PATH}${suffix}`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }),
+      });
+    } catch { /* The next poll shows the real state. */ }
+    void refresh();
+  };
+  const setLevel = (next: PreviewLevel) => {
+    // Leaving the simulator frees it now instead of after the idle timeout.
+    const sim = simulator?.state;
+    if (current === "simulator" && next !== "simulator" && (sim === "starting" || sim === "ready" || sim === "queued")) void simulatorAction("stop");
+    setLevelState(next);
+    if (!guide) setGuide(true);
+  };
+  const needsConnect = Platform.OS === "ios" && account !== null && !account.signedIn;
+  const connecting = expoConnectActive(account?.connect);
+  const connect = async () => {
+    if (!transport) return;
+    try {
+      const next = await transport.request<ExpoAccountSnapshot>(`/api/expo-account/connect${suffix}`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+      });
+      if (mounted.current) setAccount(next);
+      // The expo.dev sign-in page opens in the Computer's browser.
+      router.push("/computer");
+    } catch { /* The account row keeps offering Connect Expo. */ }
+  };
   const restart = async () => {
     if (!transport || !sessionId || restartAsked) return;
     setRestartAsked(true);
@@ -83,6 +136,15 @@ export function ProjectPreviewPanel({ sessionId, transport, email }: {
     try { await Linking.openURL(expoGoUrl!); } catch { setGuideState(true); }
   };
   const status = expired ? "Link expired" : stopped ? "Stopped" : expoGoUrl ? null : "Live preview";
+  const onPhoneLevel = !!expoGoUrl && current === "device";
+  const primary = stopped ? null
+    : onPhoneLevel && needsConnect
+      ? { id: "project-preview-connect-expo", label: "Connect Expo", disabled: connecting, onPress: () => void connect() }
+      : onPhoneLevel
+        ? { id: "project-preview-expo-go", label: "Open in Expo Go", disabled: false, onPress: () => void openExpoGo() }
+        : expoGoUrl && guide
+          ? null
+          : { id: "project-preview-open", label: expoGoUrl ? "Web preview" : "Open preview", disabled: false, onPress: () => void openInAppPage(preview.url) };
   return <View testID="project-preview-card" style={{ backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1, borderRadius: 16, paddingVertical: 6, paddingLeft: 8, paddingRight: 6, gap: 8 }}>
     <View style={{ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44 }}>
       <Pressable accessibilityRole="button" testID="project-preview-toggle" disabled={!expoGoUrl || stopped}
@@ -95,21 +157,18 @@ export function ProjectPreviewPanel({ sessionId, transport, email }: {
             : <Icon ios="globe" android="public" size={17} color={colors.primary} />}
         </View>
         <Text numberOfLines={1} style={{ flexShrink: 1, color: colors.foreground, fontSize: 15, fontWeight: "600" }}>{preview.title}</Text>
-        {status
-          ? <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>{status}</Text>
-          : !roomy ? null : <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 999, paddingHorizontal: 7, paddingVertical: 1 }}>
-              <Text style={{ color: colors.mutedForeground, fontSize: 11, fontWeight: "600" }}>Expo Go</Text>
-            </View>}
+        {status ? <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>{status}</Text> : null}
         {expoGoUrl && !stopped
           ? <Icon ios={guide ? "chevron.up" : "chevron.down"} android={guide ? "expand_less" : "expand_more"} size={13} color={colors.mutedForeground} />
           : null}
       </Pressable>
-      {stopped ? null : <Pressable accessibilityRole="button" testID={expoGoUrl ? "project-preview-expo-go" : "project-preview-open"} onPress={() => void (expoGoUrl ? openExpoGo() : openInAppPage(preview.url))} style={{ minHeight: 36, paddingHorizontal: 12, borderRadius: 999, backgroundColor: colors.primary, justifyContent: "center" }}>
-        <Text style={{ color: colors.primaryForeground, fontWeight: "600", fontSize: 14 }}>{expoGoUrl ? "Open in Expo Go" : "Open preview"}</Text>
-      </Pressable>}
-      {!stopped && !expoGoUrl
-        ? <Pressable accessibilityRole="button" accessibilityLabel="Open preview in Safari" onPress={() => void Linking.openURL(preview.url)} style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center" }}>
-            <Icon ios="arrow.up.forward.app" android="open_in_new" size={18} color={colors.mutedForeground} />
+      {primary ? <Pressable accessibilityRole="button" testID={primary.id} disabled={primary.disabled} onPress={primary.onPress} style={{ minHeight: 36, paddingHorizontal: 12, borderRadius: 999, backgroundColor: primary.disabled ? colors.muted : colors.primary, justifyContent: "center" }}>
+        <Text style={{ color: primary.disabled ? colors.mutedForeground : colors.primaryForeground, fontWeight: "600", fontSize: 14 }}>{primary.label}</Text>
+      </Pressable> : null}
+      {!stopped && (!expoGoUrl || (guide && current === "web"))
+        ? <Pressable accessibilityRole="button" accessibilityLabel={expoGoUrl ? "Full screen web preview" : "Open preview in Safari"} testID="project-preview-fullscreen"
+            onPress={() => void (expoGoUrl ? openInAppPage(preview.url) : Linking.openURL(preview.url))} style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center" }}>
+            <Icon ios={expoGoUrl ? "arrow.up.left.and.arrow.down.right" : "arrow.up.forward.app"} android={expoGoUrl ? "fullscreen" : "open_in_new"} size={18} color={colors.mutedForeground} />
           </Pressable>
         : null}
     </View>
@@ -120,25 +179,79 @@ export function ProjectPreviewPanel({ sessionId, transport, email }: {
       <Pressable accessibilityRole="button" testID="project-preview-restart" disabled={restartAsked} onPress={() => void restart()} style={{ minHeight: 44, paddingHorizontal: 14, borderRadius: 12, backgroundColor: restartAsked ? colors.muted : colors.primary, justifyContent: "center" }}>
         <Text style={{ color: restartAsked ? colors.mutedForeground : colors.primaryForeground, fontWeight: "600", textAlign: "center" }}>{restartAsked ? "Asked the agent to restart it" : "Restart preview"}</Text>
       </Pressable>
-    </View> : expoGoUrl && guide ? <View testID="project-preview-expo-guide" style={{ gap: 6, paddingHorizontal: 4, paddingBottom: 4 }}>
-      {/* This card is on the phone that runs Expo Go, so it has no QR code:
-          one line for a person who does not have Expo Go yet. */}
-      <Text style={{ color: colors.mutedForeground, fontSize: 14 }}>
-        Need Expo Go?{" "}
-        <Text testID="project-preview-get-expo-go" accessibilityRole="link" onPress={() => void Linking.openURL(Platform.OS === "android" ? EXPO_GO_ANDROID : EXPO_GO_IOS)} style={{ color: colors.primary, fontWeight: "600" }}>{Platform.OS === "android" ? "Get it on Google Play" : "Get it on the App Store"}</Text>
-      </Text>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-        <Pressable accessibilityRole="link" accessibilityLabel="Open web preview" testID="project-preview-open" onPress={() => void openInAppPage(preview.url)} style={{ minHeight: 32, justifyContent: "center" }}>
-          <Text style={{ color: colors.primary, fontSize: 13, fontWeight: "600" }}>Web preview</Text>
-        </Pressable>
-        <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>·</Text>
-        <Pressable accessibilityRole="link" accessibilityLabel={Platform.OS === "android" ? "Open preview in browser" : "Open preview in Safari"} testID="project-preview-open-browser" onPress={() => void Linking.openURL(preview.url)} style={{ minHeight: 32, justifyContent: "center" }}>
-          <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>{Platform.OS === "android" ? "Browser" : "Safari"}</Text>
-        </Pressable>
+    </View> : expoGoUrl && guide ? <View testID="project-preview-details" style={{ gap: 8, paddingHorizontal: 4, paddingBottom: 4 }}>
+      <View accessibilityRole="tablist" testID="project-preview-levels" style={{ flexDirection: "row", backgroundColor: colors.muted, borderRadius: 10, padding: 2 }}>
+        {levels.map((item) => <Pressable key={item} accessibilityRole="tab" accessibilityState={{ selected: current === item }} testID={`project-preview-level-${item}`}
+          onPress={() => setLevel(item)}
+          style={{ flex: 1, minHeight: 34, borderRadius: 8, alignItems: "center", justifyContent: "center", backgroundColor: current === item ? colors.card : "transparent" }}>
+          <Text style={{ fontSize: 13, fontWeight: "600", color: current === item ? colors.foreground : colors.mutedForeground }}>{PREVIEW_LEVEL_LABEL[item]}</Text>
+        </Pressable>)}
       </View>
+      {current === "web"
+        ? <PhoneFrame uri={preview.url} testID="project-preview-web" onFallback={() => void openInAppPage(preview.url)} />
+        : current === "simulator" && simulator
+        ? <SimulatorLevel stream={simulator} webUrl={preview.url} onStart={() => void simulatorAction("start")} />
+        : <View testID="project-preview-device" style={{ gap: 6 }}>
+            {Platform.OS === "ios" && account ? <Text testID="project-preview-expo-account" style={{ color: colors.mutedForeground, fontSize: 14 }}>
+              {account.signedIn
+                ? `Sign in to Expo Go as ${account.username}.`
+                : account.connect && (connecting || account.connect.state === "failed" || account.connect.state === "cancelled")
+                  ? expoConnectMessage(account.connect)
+                  : "iPhone needs Expo signed in on the Computer. Tap Connect Expo."}
+            </Text> : null}
+            {/* This card is on the phone that runs Expo Go, so it has no QR code:
+                one line for a person who does not have Expo Go yet. */}
+            <Text style={{ color: colors.mutedForeground, fontSize: 14 }}>
+              Need Expo Go?{" "}
+              <Text testID="project-preview-get-expo-go" accessibilityRole="link" onPress={() => void Linking.openURL(Platform.OS === "android" ? EXPO_GO_ANDROID : EXPO_GO_IOS)} style={{ color: colors.primary, fontWeight: "600" }}>{Platform.OS === "android" ? "Get it on Google Play" : "Get it on the App Store"}</Text>
+            </Text>
+          </View>}
     </View> : null}
   </View>;
+}
 
+/**
+ * A page at phone size: the WebView is 390x844 points, so the app lays out as
+ * on an iPhone, then scaled to fit about half of the screen above the composer.
+ * A binary without the WebView falls back to the in-app browser.
+ */
+function PhoneFrame({ uri, testID, onFallback, stream, children }: {
+  uri: string; testID: string; onFallback?: () => void; stream?: boolean; children?: React.ReactNode;
+}) {
+  const { colors } = useTheme();
+  const { height } = useWindowDimensions();
+  const frameH = Math.min(520, Math.round(height * 0.46));
+  const scale = frameH / PHONE_H;
+  if (!WebView) {
+    return <Pressable accessibilityRole="button" testID={`${testID}-fallback`} onPress={onFallback} style={{ minHeight: 44, borderRadius: 12, backgroundColor: colors.muted, alignItems: "center", justifyContent: "center" }}>
+      <Text style={{ color: colors.primary, fontWeight: "600" }}>Open web preview</Text>
+    </Pressable>;
+  }
+  return <View testID={testID} style={{ alignSelf: "center", width: Math.round(PHONE_W * scale), height: frameH, borderRadius: 20, borderWidth: 3, borderColor: colors.foreground, overflow: "hidden", backgroundColor: colors.bg }}>
+    <WebView source={{ uri }} style={{ width: PHONE_W, height: PHONE_H, transformOrigin: "top left", transform: [{ scale }] }}
+      scrollEnabled={!stream} bounces={false} allowsInlineMediaPlayback mediaPlaybackRequiresUserAction={false}
+      keyboardDisplayRequiresUserAction={false} setSupportMultipleWindows={false} sharedCookiesEnabled />
+    {children}
+  </View>;
+}
+
+/** Level 2. Until the stream is ready the web preview stays in the frame under a status line. */
+function SimulatorLevel({ stream, webUrl, onStart }: { stream: SimulatorStream; webUrl: string; onStart(): void }) {
+  const { colors } = useTheme();
+  const status = simulatorStatusText(stream);
+  if (!status && stream.streamUrl) {
+    // Keyed by streamId: a rotated token in streamUrl must not reload the view.
+    return <PhoneFrame key={stream.streamId ?? stream.streamUrl} uri={stream.streamUrl} testID="project-preview-simulator" stream />;
+  }
+  const canStart = stream.state === "idle" || stream.state === "error";
+  return <PhoneFrame uri={webUrl} testID="project-preview-simulator-waiting">
+    <View testID="project-preview-simulator-status" style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: 10, gap: 8, backgroundColor: colors.card }}>
+      <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>{status}</Text>
+      {canStart ? <Pressable accessibilityRole="button" testID="project-preview-simulator-start" onPress={onStart} style={{ minHeight: 36, borderRadius: 999, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" }}>
+        <Text style={{ color: colors.primaryForeground, fontWeight: "600" }}>{stream.state === "error" ? "Try again" : "Start simulator"}</Text>
+      </Pressable> : null}
+    </View>
+  </PhoneFrame>;
 }
 
 const EXPO_GO_IOS = "https://apps.apple.com/app/expo-go/id982107779";
