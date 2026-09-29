@@ -5743,6 +5743,7 @@ a{color:#60a5fa}
         const { handleMediaRequest } = await import("../media-generation.ts");
         const handled = await handleMediaRequest(req, url, {
           spendPath: join(PATHS.data, "media-spend.json"),
+          cloud: { signedIn: () => cloudAccount.status().signedIn, fetch: cloudAccount.cloudFetch },
         });
         if (handled) return handled;
       }
