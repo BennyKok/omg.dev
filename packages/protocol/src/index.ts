@@ -1,8 +1,8 @@
 export type { BrowserLoginRequest, BrowserLoginSnapshot, BrowserLoginCookie } from "./browser-login";
 export type { PreviewLevel, ProjectPreview, ProjectPreviewSnapshot, SimulatorStream, SimulatorStreamProvider } from "./project-preview";
 export { inlinePreviewUrl, PREVIEW_LEVEL_LABEL, PROJECT_PREVIEW_RESTART_MESSAGE, PROJECT_PREVIEW_SIMULATOR_PATH, previewLevels, simulatorStatusText } from "./project-preview.js";
-export type { ExpoAccountSnapshot, ExpoConnectState, ExpoConnectStatus } from "./expo-account";
-export { expoConnectActive, expoConnectMessage } from "./expo-account.js";
+export type { ExpoAccountSnapshot, ExpoConnectMode, ExpoConnectState, ExpoConnectStatus } from "./expo-account";
+export { EXPO_SIGNUP_LABEL, expoConnectActive, expoConnectMessage } from "./expo-account.js";
 
 export type OmgSessionStatus =
   | "ok"

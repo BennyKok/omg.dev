@@ -440,6 +440,7 @@ import {
   browserReadText,
   browserScreenshot,
   browserType,
+  expoWebSignedIn,
 } from "../computer/browser.ts";
 import { capturePaneScroll, capturePaneEscaped, paneWidth } from "../tmux.ts";
 import { detectUrls } from "../links.ts";
@@ -4363,6 +4364,8 @@ export async function cmdServe() {
     viewer: req => botViewerFromRequest(req, new URL(req.url).searchParams.get("user")).identity,
     preview: (sessionId) => storedProjectPreview(sessionId),
     startDesktop: () => startDesktop(),
+    openBrowser: (url) => browserNavigate(url),
+    webSignedIn: () => expoWebSignedIn(),
     tellAgent: async (sessionId, text) => {
       await fetch(`http://127.0.0.1:${PORT}/api/sessions/${encodeURIComponent(sessionId)}/send`, {
         method: "POST", headers: { "Content-Type": "application/json" },

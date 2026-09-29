@@ -250,8 +250,9 @@ function expoServer(account: Record<string, unknown>, posts: string[] = []) {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input instanceof Request ? input.url : input);
     if (url.includes("/api/expo-account/")) {
-      posts.push(`${init?.method ?? "GET"} ${new URL(url, "http://x").pathname}`);
-      if (url.includes("/connect")) current = { signedIn: false, connect: { state: "waiting", startedAt: 1 } };
+      const mode = init?.body ? (JSON.parse(String(init.body)) as { mode?: string }).mode : undefined;
+      posts.push(`${init?.method ?? "GET"} ${new URL(url, "http://x").pathname}${mode ? ` ${mode}` : ""}`);
+      if (url.includes("/connect")) current = { signedIn: false, connect: { state: mode === "signup" ? "signup" : "waiting", startedAt: 1 } };
       if (url.includes("/cancel")) current = { signedIn: false, connect: { state: "cancelled", startedAt: 1 } };
       return Response.json(current);
     }
@@ -263,7 +264,7 @@ function expoServer(account: Record<string, unknown>, posts: string[] = []) {
   return { set(next: Record<string, unknown>) { current = next; } };
 }
 
-test("a phone offers Connect Expo instead of Open in Expo Go while the Computer has no Expo account", async () => {
+test("a phone signed out of Expo offers Create free account and I have one, not Open in Expo Go", async () => {
   setPhone(true);
   const posts: string[] = [];
   expoServer({ signedIn: false }, posts);
@@ -271,32 +272,50 @@ test("a phone offers Connect Expo instead of Open in Expo Go while the Computer 
   await ui.flushAsync();
   pickLevel("device");
   expect(document.querySelector('[data-testid="project-preview-expo-go"]')).toBeNull();
-  expect(document.querySelector('[data-testid="project-preview-expo-signed-out"]')?.textContent).toBe("Connect ExpoSign in to preview on your iPhone");
-  const connect = document.querySelector('[data-testid="project-preview-connect-expo"]') as HTMLElement;
-  ui.flush(() => connect.click());
+  const signedOut = document.querySelector('[data-testid="project-preview-expo-signed-out"]');
+  expect(signedOut?.textContent).toBe("Preview on your iPhoneCreate free accountI have one");
+  expect(signedOut?.querySelector('[data-testid="expo-logo"]')).not.toBeNull();
+  const signup = document.querySelector('[data-testid="project-preview-expo-signup"]') as HTMLElement;
+  ui.flush(() => signup.click());
   await ui.flushAsync();
-  expect(posts).toEqual(["POST /api/expo-account/connect"]);
-  expect(document.querySelector('[data-testid="project-preview-expo-connecting"]')?.textContent).toContain("Sign in to Expo in the Computer window…");
+  expect(posts).toEqual(["POST /api/expo-account/connect signup"]);
+  expect(document.querySelector('[data-testid="project-preview-expo-connecting"]')?.textContent).toContain("Create your Expo account in the Computer window…");
   expect(document.querySelector('[aria-label="Sign in to Expo on the Computer"]')).not.toBeNull();
-  const cancel = ui.queryAll("button").find((node) => node.textContent === "Cancel") as HTMLElement;
+  const cancel = document.querySelector('[data-testid="project-preview-cancel-expo"]') as HTMLElement;
   ui.flush(() => cancel.click());
   await ui.flushAsync();
-  expect(posts).toEqual(["POST /api/expo-account/connect", "POST /api/expo-account/cancel"]);
+  expect(posts).toEqual(["POST /api/expo-account/connect signup", "POST /api/expo-account/cancel"]);
   expect(ui.text()).toContain("Expo sign-in was cancelled.");
 });
 
-test("a signed-in Computer shows Open in Expo Go and a small account caption", async () => {
+test("I have one goes straight to the Expo login", async () => {
+  setPhone(true);
+  const posts: string[] = [];
+  expoServer({ signedIn: false }, posts);
+  ui.render(<ProjectPreviewCard sessionId="session-1" user="person@example.com" />);
+  await ui.flushAsync();
+  pickLevel("device");
+  ui.flush(() => (document.querySelector('[data-testid="project-preview-connect-expo"]') as HTMLElement).click());
+  await ui.flushAsync();
+  expect(posts).toEqual(["POST /api/expo-account/connect login"]);
+  expect(document.querySelector('[data-testid="project-preview-expo-connecting"]')?.textContent).toContain("Sign in to Expo in the Computer window…");
+});
+
+test("a signed-in Computer shows three short steps and ticks only the Computer account", async () => {
   setPhone(true);
   expoServer({ signedIn: true, username: "expo-e2e-test" });
   ui.render(<ProjectPreviewCard sessionId="session-1" user="person@example.com" />);
   await ui.flushAsync();
   pickLevel("device");
+  const steps = document.querySelectorAll('[data-testid="project-preview-expo-steps"] li');
+  expect([...steps].map((li) => li.textContent)).toEqual(["Get Expo GoApp Store", "Sign in as expo-e2e-test", "Open in Expo Go"]);
+  expect(document.querySelectorAll('[data-testid="project-preview-expo-computer-ok"]')).toHaveLength(1);
+  expect(document.querySelector('[data-testid="project-preview-get-expo-go"]')?.getAttribute("href")).toBe("https://apps.apple.com/app/expo-go/id982107779");
   expect(document.querySelector('[data-testid="project-preview-expo-go"]')?.getAttribute("href")).toBe("exps://cap-token.preview.omgs.app");
   expect(document.querySelector('[data-testid="project-preview-connect-expo"]')).toBeNull();
-  expect(document.querySelector('[data-testid="project-preview-expo-account"]')?.textContent).toBe("as expo-e2e-test");
 });
 
-test("a computer gets Connect Expo in the card, and the Computer view closes once signed in", async () => {
+test("a computer gets I have one in the card, and the Computer view closes once signed in", async () => {
   const server = expoServer({ signedIn: false });
   ui.render(<ProjectPreviewCard sessionId="session-1" user="person@example.com" />);
   await ui.flushAsync();
@@ -309,7 +328,11 @@ test("a computer gets Connect Expo in the card, and the Computer view closes onc
   await new Promise((r) => setTimeout(r, 3_100));
   await ui.flushAsync();
   expect(document.querySelector('[aria-label="Sign in to Expo on the Computer"]')).toBeNull();
-  expect(document.querySelector('[data-testid="project-preview-expo-account"]')?.textContent).toBe("as expo-e2e-test");
+  expect(document.querySelector('[data-testid="project-preview-expo-account"]')?.textContent).toBe("Sign in as expo-e2e-test");
+  // A computer scans the QR code and links both stores.
+  expect(document.querySelector('[data-testid="expo-go-guide"]')).not.toBeNull();
+  expect(ui.text()).toContain("Scan to open in Expo Go");
+  expect(ui.text()).toContain("Play Store");
 }, 10_000);
 
 test("an Android phone opens Expo Go directly, with no Expo sign-in step", async () => {

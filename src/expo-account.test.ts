@@ -13,6 +13,7 @@ import {
   type ExpoAccountDeps,
   type LoginProcess,
 } from "./expo-account.ts";
+import { expoWebSignedInFrom } from "./computer/browser.ts";
 
 const tmpRoot = join(process.env.HOME ?? ".", ".cache", "lfg", "tmp");
 let dir: string;
@@ -41,11 +42,14 @@ function service(over: Partial<ExpoAccountDeps> = {}) {
   const told: string[] = [];
   let login = fakeLogin();
   let manifestUser: string | null = null;
+  const web = { signedIn: false };
   const deps: ExpoAccountDeps = {
     session: async (id) => id === "s1" ? { id: "s1", owner: "a@x.dev", cwd: project } : null,
     viewer: (req) => new URL(req.url).searchParams.get("user") ?? "",
     preview: () => PREVIEW,
     startDesktop: async () => { calls.push(["desktop"]); },
+    openBrowser: async (url) => { calls.push(["open", url]); },
+    webSignedIn: async () => web.signedIn,
     spawnLogin: (expo) => { calls.push([expo, "login", "--browser"]); login = fakeLogin(); return login; },
     run: async (argv) => {
       calls.push(argv);
@@ -57,14 +61,15 @@ function service(over: Partial<ExpoAccountDeps> = {}) {
     metroCwd: () => project,
     tellAgent: async (_id, text) => { told.push(text); },
     home,
+    signupPollMs: 2,
     ...over,
   };
   const handle = createExpoAccountService(deps);
-  const call = async (path: string, method = "GET", user = "a@x.dev") => {
-    const res = await handle(new Request(`http://x${path}${path.includes("?") ? "&" : "?"}sessionId=s1&user=${user}`, { method, ...(method === "POST" ? { body: "{}" } : {}) }));
+  const call = async (path: string, method = "GET", user = "a@x.dev", body = "{}") => {
+    const res = await handle(new Request(`http://x${path}${path.includes("?") ? "&" : "?"}sessionId=s1&user=${user}`, { method, ...(method === "POST" ? { body } : {}) }));
     return { status: res.status, body: await res.json() as ExpoAccountSnapshot & { error?: string } };
   };
-  return { call, calls, told, login: () => login, setManifestUser: (u: string | null) => { manifestUser = u; } };
+  return { call, calls, told, web, login: () => login, setManifestUser: (u: string | null) => { manifestUser = u; } };
 }
 
 const settle = () => new Promise((r) => setTimeout(r, 10));
@@ -193,6 +198,74 @@ describe("Connect Expo", () => {
     const s = service();
     const res = await s.call("/api/expo-account/connect", "POST");
     expect(res.status).toBe(409);
+  });
+});
+
+describe("Create free account (mode signup)", () => {
+  const signup = JSON.stringify({ mode: "signup" });
+
+  test("opens expo.dev/signup, waits for the browser sign-in, then runs the CLI login", async () => {
+    const s = service();
+    const started = await s.call("/api/expo-account/connect", "POST", "a@x.dev", signup);
+    expect(started.body.connect?.state).toBe("signup");
+    expect(s.calls[1]).toEqual(["open", "https://expo.dev/signup"]);
+    await settle();
+    expect(s.calls.some((c) => c[1] === "login")).toBe(false);
+
+    s.web.signedIn = true;
+    await settle();
+    expect((await s.call("/api/expo-account")).body.connect?.state).toBe("waiting");
+    expect(s.calls.filter((c) => c[1] === "login")).toHaveLength(1);
+
+    signIn("expo-e2e-test");
+    s.login().finish(0);
+    await settle();
+    const after = await s.call("/api/expo-account");
+    expect(after.body.connect?.state).toBe("done");
+    expect(after.body.username).toBe("expo-e2e-test");
+  });
+
+  test("never fills in the sign-up form itself", async () => {
+    const s = service();
+    await s.call("/api/expo-account/connect", "POST", "a@x.dev", signup);
+    await settle();
+    // Only navigation: no typing, clicking or other browser commands.
+    expect(s.calls.filter((c) => c[0] === "open")).toEqual([["open", "https://expo.dev/signup"]]);
+  });
+
+  test("cancel during sign-up stops the wait", async () => {
+    const s = service();
+    await s.call("/api/expo-account/connect", "POST", "a@x.dev", signup);
+    expect((await s.call("/api/expo-account/cancel", "POST")).body.connect?.state).toBe("cancelled");
+    s.web.signedIn = true;
+    await settle();
+    expect(s.calls.some((c) => c[1] === "login")).toBe(false);
+    expect((await s.call("/api/expo-account")).body.connect?.state).toBe("cancelled");
+  });
+
+  test("sign-up times out", async () => {
+    const s = service({ signupTimeoutMs: 5 });
+    await s.call("/api/expo-account/connect", "POST", "a@x.dev", signup);
+    await new Promise((r) => setTimeout(r, 30));
+    const res = await s.call("/api/expo-account");
+    expect(res.body.connect?.state).toBe("failed");
+    expect(res.body.connect?.message).toContain("timed out");
+  });
+
+  test("a bad mode is refused, and no body means login", async () => {
+    const s = service();
+    expect((await s.call("/api/expo-account/connect", "POST", "a@x.dev", JSON.stringify({ mode: "bot" }))).status).toBe(400);
+    expect((await s.call("/api/expo-account/connect", "POST", "a@x.dev", "")).body.connect?.state).toBe("waiting");
+  });
+});
+
+describe("expo.dev browser sign-in rule", () => {
+  test("a sessionSecret cookie or an account page means signed in", () => {
+    expect(expoWebSignedInFrom([{ name: "io.expo.auth.sessionSecret", value: "{}" }], "https://expo.dev/signup")).toBe(true);
+    expect(expoWebSignedInFrom([], "https://expo.dev/accounts/bob")).toBe(true);
+    expect(expoWebSignedInFrom([{ name: "_ga", value: "1" }], "https://expo.dev/signup")).toBe(false);
+    expect(expoWebSignedInFrom([{ name: "io.expo.auth.sessionSecret", value: "" }], "https://expo.dev/login")).toBe(false);
+    expect(expoWebSignedInFrom([], "about:blank")).toBe(false);
   });
 });
 

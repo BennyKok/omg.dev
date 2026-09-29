@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, ExternalLink, Globe2, Info, Maximize2, MonitorSmartphone, RotateCw, Smartphone, X } from "lucide-react";
+import { CircleCheck, ChevronDown, Download, ExternalLink, Globe2, Info, Maximize2, MonitorSmartphone, RotateCw, Smartphone, UserRound, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -9,7 +9,7 @@ import {
   inlinePreviewUrl, PREVIEW_LEVEL_LABEL, PROJECT_PREVIEW_RESTART_MESSAGE, PROJECT_PREVIEW_SIMULATOR_PATH, previewLevels, simulatorStatusText,
   type PreviewLevel, type ProjectPreviewSnapshot, type SimulatorStream,
 } from "../../../packages/protocol/src/project-preview";
-import { expoConnectActive, expoConnectMessage, type ExpoAccountSnapshot } from "../../../packages/protocol/src/expo-account";
+import { expoConnectActive, expoConnectMessage, EXPO_SIGNUP_LABEL, type ExpoAccountSnapshot, type ExpoConnectMode } from "../../../packages/protocol/src/expo-account";
 import { omgFetch } from "../lib/omg-client";
 const Computer = lazy(() => import("../views/computer-page").then(m => ({ default: m.ComputerPage })));
 
@@ -91,7 +91,7 @@ export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | nu
   const android = isAndroid();
   const needsConnect = !!expoGoUrl && !stopped && !android && expo.account !== null && !expo.account.signedIn;
   const connecting = expoConnectActive(expo.account?.connect);
-  const connect = async () => { if (await expo.connect()) setShowComputer(true); };
+  const connect = async (mode: ExpoConnectMode = "login") => { if (await expo.connect(mode)) setShowComputer(true); };
   const deviceAction = current === "device" && expoGoUrl && phone && !stopped;
   return <>
     <div className="mb-2 rounded-xl border bg-card text-sm" role="status" data-testid="project-preview-card" data-expanded={expanded && !stopped ? "true" : "false"} data-level={current}>
@@ -140,7 +140,7 @@ export function ProjectPreviewCard({ sessionId, user }: { sessionId: string | nu
           : current === "simulator" && state?.simulator
           ? <SimulatorLevel stream={state.simulator} webUrl={inlinePreviewUrl(preview)} title={preview.title} onStart={() => void simulatorAction("start")} />
           : <DeviceLevel url={expoGoUrl} phone={phone} android={android} account={expo.account} error={expo.error} connecting={connecting}
-              onConnect={() => void connect()} onOpenComputer={() => setShowComputer(true)} onCancel={() => void expo.cancel()} />}
+              onConnect={(mode) => void connect(mode)} onOpenComputer={() => setShowComputer(true)} onCancel={() => void expo.cancel()} />}
         {/* The level switcher sits under the preview, with the two small links. */}
         <div className="mt-2 flex items-center gap-2">
           <LevelSwitcher levels={levels} value={current} onChange={setLevel} />
@@ -218,11 +218,13 @@ function InfoTip({ text, store }: { text: string; store: { url: string; name: st
 
 /**
  * Level 3, Expo Go on the person's own phone. A computer gets the QR code, a
- * phone gets one button. One short line at most; the rules are in the info tip.
+ * phone gets one button. An iPhone needs the Computer's Expo account first:
+ * signed out, the card offers "Create free account" and "I have one". Signed
+ * in, three short steps. The rules are in the info tip.
  */
 function DeviceLevel({ url, phone, android, account, error, connecting, onConnect, onOpenComputer, onCancel }: {
   url: string; phone: boolean; android: boolean; account: ExpoAccountSnapshot | null; error: string | null; connecting: boolean;
-  onConnect(): void; onOpenComputer(): void; onCancel(): void;
+  onConnect(mode: ExpoConnectMode): void; onOpenComputer(): void; onCancel(): void;
 }) {
   // Android's Expo Go and older Computers (no account check) need no sign-in.
   const signedOut = !android && account !== null && !account.signedIn;
@@ -231,23 +233,26 @@ function DeviceLevel({ url, phone, android, account, error, connecting, onConnec
     ? <div className="flex flex-col items-center gap-1" data-testid="project-preview-expo-connecting">
         <Button size="sm" onClick={onOpenComputer}>Open Computer</Button>
         <span className="text-xs text-muted-foreground">{expoConnectMessage(status)}{" "}
-          {status.state === "waiting" ? <button className="font-medium text-foreground underline-offset-2 hover:underline" onClick={onCancel}>Cancel</button> : null}
+          {status.state === "waiting" || status.state === "signup" ? <button className="font-medium text-foreground underline-offset-2 hover:underline" onClick={onCancel} data-testid="project-preview-cancel-expo">Cancel</button> : null}
         </span>
       </div>
     : signedOut
-    ? <div className="flex flex-col items-center gap-1" data-testid="project-preview-expo-signed-out">
-        <Button size="sm" onClick={onConnect} data-testid="project-preview-connect-expo">Connect Expo</Button>
-        <span className="text-xs text-muted-foreground">{status?.state === "failed" || status?.state === "cancelled" ? expoConnectMessage(status) : "Sign in to preview on your iPhone"}</span>
+    ? <div className="flex flex-col items-center gap-2" data-testid="project-preview-expo-signed-out">
+        <span className="flex items-center gap-2 text-xs font-medium">
+          <ExpoLogo className="size-4" />
+          {status?.state === "failed" || status?.state === "cancelled" ? <span className="font-normal text-muted-foreground">{expoConnectMessage(status)}</span> : "Preview on your iPhone"}
+        </span>
+        <div className="flex gap-2">
+          <Button size="sm" onClick={() => onConnect("signup")} data-testid="project-preview-expo-signup">{EXPO_SIGNUP_LABEL}</Button>
+          <Button size="sm" variant="outline" onClick={() => onConnect("login")} data-testid="project-preview-connect-expo">I have one</Button>
+        </div>
       </div>
+    : account?.signedIn && !android
+    ? <ExpoSteps url={url} phone={phone} username={account.username} />
     : <div className="flex flex-col items-center gap-1">
         {phone
-          // TODO(expo-go-58): add expo_go_prompt_device_auth=1 to this link when
-          // Expo Go 58 ships, so the phone signs in to the same account.
           ? <Button size="sm" render={<a href={url} />} nativeButton={false} data-testid="project-preview-expo-go"><Smartphone className="size-4" aria-hidden />Open in Expo Go</Button>
           : <span className="text-xs font-medium">Scan with Expo Go</span>}
-        {account?.signedIn && !android
-          ? <span className="text-xs text-muted-foreground" data-testid="project-preview-expo-account">as <span className="font-medium text-foreground">{account.username}</span></span>
-          : null}
       </div>;
   const qr = phone ? null : `data:image/svg+xml;utf8,${encodeURIComponent(renderSVG(url, { border: 1 }))}`;
   return <div className="mt-2.5 flex items-center justify-center gap-4 py-2" data-testid="project-preview-device">
@@ -257,6 +262,46 @@ function DeviceLevel({ url, phone, android, account, error, connecting, onConnec
       {error ? <p className="text-xs text-destructive" role="alert">{error}</p> : null}
     </div>
   </div>;
+}
+
+/**
+ * The Computer is signed in: get Expo Go, sign in there with the same
+ * account, open the app. Only the Computer's account can be detected, so
+ * step 2 ticks that and the other steps stay plain.
+ */
+function ExpoSteps({ url, phone, username }: { url: string; phone: boolean; username?: string }) {
+  const row = "flex h-7 items-center gap-2 text-xs";
+  return <ol className="flex flex-col gap-0.5" data-testid="project-preview-expo-steps">
+    <li className={row}>
+      <Download className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+      <span>Get Expo Go</span>
+      {phone
+        // Android never reaches these steps: this is the iPhone path.
+        ? <a className="font-medium text-primary" href={EXPO_GO_IOS} target="_blank" rel="noreferrer" data-testid="project-preview-get-expo-go">App Store</a>
+        : <><a className="font-medium text-primary" href={EXPO_GO_IOS} target="_blank" rel="noreferrer" data-testid="project-preview-get-expo-go">App Store</a>
+            <a className="font-medium text-primary" href={EXPO_GO_ANDROID} target="_blank" rel="noreferrer">Play Store</a></>}
+    </li>
+    <li className={row} data-testid="project-preview-expo-account">
+      <UserRound className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+      <span>Sign in as <span className="font-medium">{username ?? "your Expo account"}</span></span>
+      <CircleCheck className="size-4 shrink-0 text-emerald-600" aria-label="The Computer is signed in" data-testid="project-preview-expo-computer-ok" />
+    </li>
+    <li className={row}>
+      <Smartphone className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+      {phone
+        // TODO(expo-go-58): add expo_go_prompt_device_auth=1 to this link when
+        // Expo Go 58 ships, so the phone signs in to the same account.
+        ? <Button size="sm" className="h-7" render={<a href={url} />} nativeButton={false} data-testid="project-preview-expo-go">Open in Expo Go</Button>
+        : <span>Scan to open in Expo Go</span>}
+    </li>
+  </ol>;
+}
+
+/** Expo's mark, from Expo's own log-box header. */
+function ExpoLogo({ className }: { className?: string }) {
+  return <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden data-testid="expo-logo">
+    <path d="M0 20.084c.043.53.23 1.063.718 1.778.58.849 1.576 1.315 2.303.567.49-.505 5.794-9.776 8.35-13.29a.761.761 0 011.248 0c2.556 3.514 7.86 12.785 8.35 13.29.727.748 1.723.282 2.303-.567.57-.835.728-1.42.728-2.046 0-.426-8.26-15.798-9.092-17.078-.8-1.23-1.044-1.498-2.397-1.542h-1.032c-1.353.044-1.597.311-2.398 1.542C8.267 3.991.33 18.758 0 19.77Z" />
+  </svg>;
 }
 
 /**
@@ -378,10 +423,10 @@ function useExpoAccount(sessionId: string | null, suffix: string) {
     const timer = setInterval(() => { if (!document.hidden) void refresh(); }, 3_000);
     return () => { live = false; clearInterval(timer); };
   }, [sessionId, suffix]);
-  const post = async (action: "connect" | "cancel"): Promise<boolean> => {
+  const post = async (action: "connect" | "cancel", mode?: ExpoConnectMode): Promise<boolean> => {
     setError(null);
     try {
-      const response = await omgFetch(`/api/expo-account/${action}${suffix}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      const response = await omgFetch(`/api/expo-account/${action}${suffix}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(mode ? { mode } : {}) });
       const body = await response.json().catch(() => ({})) as ExpoAccountSnapshot & { error?: string };
       if (!response.ok) { setError(body.error ?? "Could not reach the Computer. Try again."); return false; }
       setAccount(body);
@@ -391,5 +436,5 @@ function useExpoAccount(sessionId: string | null, suffix: string) {
       return false;
     }
   };
-  return { account, error, connect: () => post("connect"), cancel: () => post("cancel") };
+  return { account, error, connect: (mode: ExpoConnectMode) => post("connect", mode), cancel: () => post("cancel") };
 }
