@@ -450,7 +450,7 @@ export type Session = {
   // session reads as an explained pause, not a silent stall. See computeStatus.
   status: "ok" | "blocked";
   // Machine-readable reason when status === "blocked"; null when ok.
-  statusReason: "model_unavailable" | "out_of_credits" | "provider_auth" | "provider_error" | "restart_recovered" | null;
+  statusReason: "model_unavailable" | "out_of_credits" | "provider_auth" | "provider_error" | "restart_recovered" | "interrupted" | null;
   // Human-readable one-liner for the banner (e.g. the dead model id), or null.
   statusDetail: string | null;
   // Whether the session is actively working RIGHT NOW: for a tmux session, its
@@ -701,7 +701,20 @@ export function managedLaunchRow(
     // with a recorded reason is blocked, and says so. computeStatus cannot
     // reach this conclusion on its own — it keys off `apiError`, which lives on
     // the live SDK envelope and is not carried by the transcript index.
-    ...(explained
+    // A registry entry that outlived its process means the harness was
+    // killed from outside: it removes its own entry on every exit it
+    // controls, including a provider error it explained. The usual cause is
+    // the kernel OOM killer on the 2G lfg-agent-<name> unit. Calling that a
+    // provider error sent people looking at the API. The next message or
+    // Continue relaunches it (relaunchDeadCommandFileHarness).
+    ...(explained && candidateEntry
+      ? {
+          status: "blocked" as const,
+          statusReason: "interrupted" as const,
+          statusDetail:
+            "The agent process stopped before it finished (killed or out of memory). Continue to restart it.",
+        }
+      : explained
       ? {
           status: "blocked" as const,
           statusReason: "provider_error" as const,
@@ -3125,7 +3138,10 @@ export async function listSessions(): Promise<Session[]> {
         e.fastMode ??
         managedRec?.fastMode ??
         (e.serviceTier === "fast" || managedRec?.serviceTier === "fast"),
-      ...(e.recoveredAt
+      // A message already went in (sendPromptToLiveSession clears the row's
+      // interruptedAt). A harness relaunched for that message writes its own
+      // recoveredAt after the send cleared the entry, so the row decides.
+      ...(e.recoveredAt && (!managedRec || managedRec.interruptedAt !== undefined)
         ? {
             status: "blocked" as const,
             statusReason: "restart_recovered" as const,

@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import {
   currentBootId,
+  findEntryByAnyId,
   isPidAlive,
   listEntries,
   patchEntry,
@@ -95,7 +96,7 @@ function matchingManaged(entry: AisdkEntry, managed: ManagedSession[]): ManagedS
     ) ?? null;
 }
 
-function launchRecovered(
+export function launchRecovered(
   entry: AisdkEntry,
   managed: ManagedSession,
   recoveredAt: number,
@@ -277,4 +278,94 @@ export async function reconcileCommandFileSessions(
     result.recovered++;
   }
   return result;
+}
+
+// A harness can also die while the host stays up: the kernel OOM-kills its
+// lfg-agent-<name> unit (MemoryMax=2G, KillMode=control-group), or it crashes.
+// Boot reconciliation never sees that, so the session sat with a message in a
+// command file no process read until someone relaunched it by hand. A message
+// or resume aimed at such a session calls this first.
+//
+// The claim is the registry entry itself. Everything from the liveness check to
+// the spawn is synchronous, so two requests on the serve event loop cannot
+// interleave inside it. The claim then covers the gap until the new harness
+// writes its own entry (which drops these fields) or dies.
+export const HARNESS_RELAUNCH_CLAIM_MS = 60_000;
+
+export type DeadHarnessRelaunch =
+  | { state: "unknown" }
+  | { state: "alive" }
+  | { state: "claimed" }
+  | { state: "relaunched"; pid?: number }
+  | { state: "failed"; error: string };
+
+export function commandFileHarnessIsDead(
+  entry: AisdkEntry,
+  bootId: string | null = currentBootId(),
+  alive: (pid: number) => boolean = isPidAlive,
+): boolean {
+  if (!alive(entry.harnessPid)) return true;
+  // A pid from another boot may be reused by an unrelated process.
+  return !!bootId && !!entry.bootId && entry.bootId !== bootId;
+}
+
+export function relaunchDeadCommandFileHarness(
+  sessionId: string,
+  deps: {
+    log?: (line: string) => void;
+    now?: () => number;
+    alive?: (pid: number) => boolean;
+    launch?: typeof launchRecovered;
+  } = {},
+): DeadHarnessRelaunch {
+  const log = deps.log ?? console.log;
+  const now = deps.now ?? Date.now;
+  const alive = deps.alive ?? isPidAlive;
+  const launch = deps.launch ?? launchRecovered;
+  const entry = findEntryByAnyId(sessionId);
+  if (!entry) return { state: "unknown" };
+  const owner = matchingManaged(entry, listManaged());
+  if (!owner) return { state: "unknown" };
+  const adapter = owner.agent && owner.agent !== "hermes" ? CODING_AGENT_ADAPTERS[owner.agent] : null;
+  if (adapter?.recovery === "process-bound") return { state: "unknown" };
+  const bootId = currentBootId();
+  if (!commandFileHarnessIsDead(entry, bootId, alive)) return { state: "alive" };
+  const at = now();
+  // A relaunch (this one or a /resume cold start) is already booting.
+  const claimedAt = entry.relaunchClaimedAt ?? 0;
+  if (
+    at - claimedAt < HARNESS_RELAUNCH_CLAIM_MS &&
+    (!entry.relaunchClaimPid || alive(entry.relaunchClaimPid))
+  ) return { state: "claimed" };
+  // A /api/sessions/resume cold start replaced the owner row after this entry
+  // was written, and its harness has not registered yet.
+  if (owner.createdAt > entry.createdAt && at - owner.createdAt < HARNESS_RELAUNCH_CLAIM_MS)
+    return { state: "claimed" };
+
+  patchEntry(entry.sessionId, {
+    relaunchClaimedAt: at,
+    relaunchClaimPid: null,
+    recoveryClaimBootId: bootId,
+    recoveredAt: at,
+    busy: false,
+  });
+  const launched = launch(entry, owner, at, userAssignments()[owner.tmuxName] ?? null);
+  if (!launched.ok) {
+    patchEntry(entry.sessionId, { relaunchClaimedAt: null });
+    patchManaged(owner.tmuxName, {
+      launchState: "failed",
+      launchError: launched.error || "relaunch failed",
+      interruptedAt: at,
+    });
+    log(`[session-recovery] relaunch failed ${entry.sessionId.slice(0, 8)}: ${launched.error || "launch failed"}`);
+    return { state: "failed", error: launched.error || "relaunch failed" };
+  }
+  if (launched.pid) patchEntry(entry.sessionId, { relaunchClaimPid: launched.pid });
+  patchManaged(owner.tmuxName, {
+    launchState: "running",
+    launchError: undefined,
+    interruptedAt: at,
+  });
+  log(`[session-recovery] relaunched dead harness ${entry.sessionId.slice(0, 8)} (pid ${entry.harnessPid} was gone)`);
+  return { state: "relaunched", pid: launched.pid };
 }

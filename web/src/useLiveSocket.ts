@@ -24,7 +24,7 @@ type Session = {
   last?: { role?: string; kind?: string; text?: string; ts?: number };
   busy?: boolean;
   status?: "ok" | "blocked";
-  statusReason?: "model_unavailable" | "out_of_credits" | "provider_auth" | "provider_error" | "restart_recovered" | null;
+  statusReason?: "model_unavailable" | "out_of_credits" | "provider_auth" | "provider_error" | "restart_recovered" | "interrupted" | null;
   statusDetail?: string | null;
   model?: string | null;
 };

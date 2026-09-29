@@ -41,7 +41,7 @@ import { makeDraftPublisher } from "./draft.ts";
 import { readFileSync, statSync } from "node:fs";
 import { initialCmdOffset, readNewCmdLines, writeCursor } from "./cmd-tail.ts";
 import { claudeAccountEnv } from "../../claude-creds.ts";
-import { resolveClaudePath } from "./claude-path.ts";
+import { describeClaudeBinary, resolveClaudePath } from "./claude-path.ts";
 import { omgMcpServers } from "../../config.ts";
 import {
   claudeAccountConfigDir,
@@ -399,6 +399,7 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
   } catch {}
 
   const claudePath = resolveClaudePath();
+  console.error(`aisdk-session ${sessionId}: claude binary ${describeClaudeBinary(claudePath)}`);
   const account = resolveClaudeAccount(claudeAccountId);
   const accountConfigDir = account ? claudeAccountConfigDir(account.id) : null;
   const accountEnv = claudeAccountEnv(

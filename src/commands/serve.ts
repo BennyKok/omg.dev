@@ -417,7 +417,7 @@ import {
   removeManaged,
   type ManagedSession,
 } from "../managed.ts";
-import { reconcileCommandFileSessions } from "../session-recovery.ts";
+import { commandFileHarnessIsDead, reconcileCommandFileSessions, relaunchDeadCommandFileHarness } from "../session-recovery.ts";
 import { resolveResumeModel } from "../resume-model.ts";
 import { PtyBridge, termSessionName } from "../pty.ts";
 import { RfbBridge } from "../computer/rfb-bridge.ts";
@@ -2918,6 +2918,40 @@ function interruptLiveSession(session: Session): { ok: boolean; error?: string; 
     return { ok: false, error: "session is not in a tmux pane — cannot interrupt", status: 409 };
   if (!tmuxInterrupt(session.tmuxTarget)) return { ok: false, error: "interrupt failed", status: 502 };
   return { ok: true };
+}
+
+// A command-file session whose harness died (OOM kill, crash) is still listed,
+// and sendPromptToLiveSession would only append to a command file nobody
+// tails. Relaunch it with the boot-recovery launcher first, under the same
+// activation gate a cold start clears. Returns null when there is nothing to
+// revive (not command-file, harness alive, or no registry entry to relaunch
+// from), a Response when the gate or the launch refuses, and otherwise the
+// relaunch state. "claimed" means another request already started one; the
+// booting harness reads the command file from its cursor, so a message
+// appended now is still delivered.
+async function reviveDeadCommandFileHarness(
+  session: Session,
+  opts: { overLimit?: boolean } = {},
+): Promise<Response | { state: "relaunched" | "claimed" } | null> {
+  if (!usesCommandFileRuntime(session.agent, session.runtime)) return null;
+  const ids = [session.sessionId, session.nativeSessionId].filter((id): id is string => !!id);
+  const entry = ids.map((id) => findAisdkEntryByAnyId(id)).find((found) => !!found) ?? null;
+  if (!entry || !commandFileHarnessIsDead(entry)) return null;
+  const gate = await activationGate({
+    overLimit: opts.overLimit,
+    kind: session.persistent ? "bot" : session.spawnedBy === "schedule" ? "schedule" : undefined,
+  });
+  if (gate instanceof Response) return gate;
+  try {
+    const result = relaunchDeadCommandFileHarness(entry.sessionId);
+    if (result.state === "failed") return err(502, `couldn't restart the stopped agent: ${result.error}`);
+    if (result.state === "unknown" || result.state === "alive") return null;
+    invalidateListSessionsCache();
+    traceLog("session_harness_relaunch", { sessionId: entry.sessionId, state: result.state });
+    return { state: result.state };
+  } finally {
+    gate.release();
+  }
 }
 
 function sendPromptToLiveSession(
@@ -8886,6 +8920,37 @@ a{color:#60a5fa}
             agent: live.agent,
           });
         }
+        // A command-file session whose harness died still has its owner row
+        // and registry entry. Relaunch that same row (boot-recovery launcher)
+        // instead of cold-starting a second one, then deliver the prompt.
+        const listedDead = (await listSessions()).find(
+          (s) =>
+            (s.sessionId === sessionId || s.nativeSessionId === sessionId) &&
+            usesCommandFileRuntime(s.agent, s.runtime),
+        );
+        if (listedDead) {
+          const revived = await reviveDeadCommandFileHarness(listedDead, { overLimit: body?.overLimit === true });
+          if (revived instanceof Response) return revived;
+          if (revived) {
+            if (body?.user && listedDead.tmuxName) assignUser(listedDead.tmuxName, body.user);
+            const prompt = body?.prompt?.trim() ?? "";
+            const sent = prompt
+              ? sendPromptToLiveSession(listedDead, prompt, { mode: "queue" })
+              : { ok: true as const, msg: undefined };
+            if (!sent.ok) return err(409, sent.error || "couldn't send resume prompt");
+            return json({
+              ok: true,
+              tmuxName: listedDead.tmuxName,
+              cwd: listedDead.cwd,
+              sessionId: listedDead.sessionId ?? sessionId,
+              resumedFrom: listedDead.nativeSessionId ?? sessionId,
+              relaunched: revived.state,
+              sentPrompt: !!prompt,
+              msg: sent.msg,
+              agent: listedDead.agent,
+            });
+          }
+        }
         // Past this point a resume COLD-STARTS a fresh agent process, so it must
         // clear the same pause / cap gate as a create. (The already-live branch
         // above returned early and is never gated — it spawns nothing.)
@@ -10543,6 +10608,10 @@ a{color:#60a5fa}
             }
           }
           if (!sess) return err(404, "session not found");
+          if (!deliveredOnLaunch) {
+            const revived = await reviveDeadCommandFileHarness(sess);
+            if (revived instanceof Response) return revived;
+          }
           // Who wrote this turn, resolved ONCE and reused by everything below
           // that needs to name the sender.
           //
