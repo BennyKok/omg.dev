@@ -6,6 +6,7 @@ import { join, basename } from "node:path";
 import { panePidForSession, tmuxHasSession, tmuxTargetForPid, capturePane, isBusy, isJcodeBusy } from "./tmux";
 import { isManagedName, listManaged, managedContainment, patchManaged, type ManagedSession } from "./managed";
 import { agentUnitName, agentUnitOomKilled } from "./agent-unit-oom.ts";
+import { sessionExitReasons } from "./session-containment-record.ts";
 import {
   listEntries as listAisdkEntries,
   isPidAlive,
@@ -3533,6 +3534,10 @@ export type ResumableSession = {
   // existed, and for anything the box never saw close (a reboot, a crash).
   // The picker sorts and labels on `archivedAt ?? lastActivityAt`.
   archivedAt?: number | null;
+  // Set when the close path saw the kernel OOM killer end the harness in its
+  // lfg-agent-<name> unit. Absent for everything else, including sessions
+  // closed before the record existed.
+  exitReason?: "out_of_memory";
 };
 
 // The cwd a codex rollout was recorded in. Codex stores it on the first
@@ -3924,7 +3929,19 @@ export async function queryResumable(opts: ResumableQuery = {}): Promise<Resumab
     // Warm: serve from SQLite immediately, refresh in the background (throttled).
     void refreshResumableCache();
   }
-  return queryResumableCache(opts);
+  const result = queryResumableCache(opts);
+  // Why a closed session stopped, when the close path recorded it
+  // (session-containment-record.ts). A missing store must not break the picker.
+  try {
+    const reasons = sessionExitReasons(result.sessions.map((row) => row.sessionId));
+    if (reasons.size) {
+      result.sessions = result.sessions.map((row) => {
+        const exitReason = reasons.get(row.sessionId);
+        return exitReason ? { ...row, exitReason } : row;
+      });
+    }
+  } catch {}
+  return result;
 }
 
 // Back-compat thin wrapper: newest-first array only (used by the transcript

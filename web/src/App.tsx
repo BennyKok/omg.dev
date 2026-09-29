@@ -22306,6 +22306,8 @@ export type ResumableSession = {
   // labels it too; null for rows that predate the field, which fall back to
   // lastActivityAt exactly as the server's ORDER BY does.
   archivedAt?: number | null;
+  // Set when the session stopped because the kernel OOM killer ended it.
+  exitReason?: "out_of_memory";
 };
 
 // Facet counts + total returned alongside the resumable roster so the picker can

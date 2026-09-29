@@ -33,6 +33,8 @@ import {
   type ManagedHarnessSpawnResult,
 } from "./tmux.ts";
 import { userAssignments } from "./users.ts";
+import { getSessionContainment } from "./session-containment-record.ts";
+import { listConversations } from "./conversations.ts";
 import { CODING_AGENT_ADAPTERS } from "./coding-agent-adapters.ts";
 
 export { managedContainment };
@@ -140,15 +142,37 @@ export type ColdResumeContainment = {
   /** Recorded on the new owner row, so the next relaunch keeps it too. */
   containment: ManagedContainment;
   role?: string;
+  /** Where the containment came from, for the resume log line. */
+  source: "owner_row" | "record" | "delegated" | "none";
   launch: { containInAgentSlice: boolean } & ContainmentLaunchPolicy;
 };
 
-// /api/sessions/resume cold start: no registry entry is left, so there is
-// nothing for relaunchDeadCommandFileHarness to relaunch and a new owner row is
-// written. It must still start with the containment the session first had.
-// The newest owner row for any of the ids is the record (managedContainment:
-// its stored containment, else the subagent/bot default for legacy rows). No
-// row means the session was never known to this box as contained.
+// A session that was delegated (subagent, fork) or runs for a bot is attached
+// as an `execution` runtime to a conversation other than its own. Threads are
+// excluded: their tasks are sessions a human started. This is the only
+// durable trace a closed legacy subagent leaves, so it decides the default
+// when no record was kept. A fork also matches and gets the slice, which errs
+// on the contained side.
+function attachedAsDelegated(ids: Set<string>): boolean {
+  for (const conversation of listConversations()) {
+    if (conversation.kind === "thread") continue;
+    for (const entry of conversation.runtimeSessions) {
+      if (entry.kind === "execution" && entry.sessionId !== conversation.id && ids.has(entry.sessionId)) return true;
+    }
+  }
+  return false;
+}
+
+// Every /api/sessions/resume cold start calls this: no registry entry is left,
+// so there is nothing for relaunchDeadCommandFileHarness to relaunch and a new
+// owner row is written. It must still start with the containment the session
+// first had. In order:
+//   1. the newest owner row for any of the ids (managedContainment: its stored
+//      containment, else the subagent/bot default for legacy rows);
+//   2. the durable record kept after close (session-containment-record.ts);
+//   3. legacy, no record: a delegated or bot session defaults to the slice;
+//   4. otherwise the session was never known to this box as contained.
+// A restricted role fails closed when the egress proxy is down.
 export function coldResumeContainment(
   ids: Array<string | null | undefined>,
   agent: string,
@@ -159,14 +183,31 @@ export function coldResumeContainment(
   const prior = rows
     .filter((row) => (row.sessionId && wanted.has(row.sessionId)) || (row.nativeSessionId && wanted.has(row.nativeSessionId)))
     .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0];
-  const containment: ManagedContainment = prior
-    ? managedContainment(prior)
-    : { agentSlice: false, sandbox: "none", egressProxy: false };
+  let containment: ManagedContainment;
+  let role: string | undefined;
+  let source: ColdResumeContainment["source"];
+  const record = prior ? null : getSessionContainment([...wanted]);
+  if (prior) {
+    containment = managedContainment(prior);
+    role = prior.role;
+    source = "owner_row";
+  } else if (record) {
+    containment = { agentSlice: record.agentSlice, sandbox: record.sandbox, egressProxy: record.egressProxy };
+    role = record.role ?? undefined;
+    source = "record";
+  } else if (attachedAsDelegated(wanted)) {
+    containment = managedContainment({ tmuxName: "", cwd: "", createdAt: 0, spawnedBy: "subagent" });
+    source = "delegated";
+  } else {
+    containment = { agentSlice: false, sandbox: "none", egressProxy: false };
+    source = "none";
+  }
   const resolved = containmentLaunchPolicy(containment, agent, omgSessionId);
   if ("error" in resolved) return resolved;
   return {
     containment,
-    ...(prior?.role ? { role: prior.role } : {}),
+    ...(role ? { role } : {}),
+    source,
     launch: { containInAgentSlice: containment.agentSlice, ...resolved.policy },
   };
 }

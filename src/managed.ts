@@ -18,6 +18,7 @@ import { dirname } from "node:path";
 import { PATHS } from "./config.ts";
 import { OMG_CAPABILITY_VERSION } from "./omg-capabilities.ts";
 import { tmuxHasSession } from "./tmux.ts";
+import { recordSessionContainment } from "./session-containment-record.ts";
 import type { CodexServiceTier } from "./service-tier.ts";
 import type { SandboxMode } from "./sandbox/bwrap.ts";
 import { roleEgress, roleSandbox } from "./policy/roles.ts";
@@ -118,6 +119,26 @@ export type ManagedContainment = {
  * and bots run in the agent slice, and the role decides sandbox and egress.
  * The caller never chooses this; it comes from the row.
  */
+// Keep the launch containment after the row is removed on close
+// (src/session-containment-record.ts). A failed write is logged, never thrown:
+// the owner row itself is already committed.
+const RECORDED_FIELDS = ["sessionId", "nativeSessionId", "containment", "role", "spawnedBy", "tmuxName"] as const;
+
+function keepContainmentRecord(row: ManagedSession, opts?: { onlyIfMissing?: boolean }): void {
+  if (!row.sessionId && !row.nativeSessionId) return;
+  try {
+    const containment = managedContainment(row);
+    recordSessionContainment([row.sessionId, row.nativeSessionId], {
+      ...containment,
+      role: row.role ?? null,
+      spawnedBy: row.spawnedBy ?? null,
+      tmuxName: row.tmuxName,
+    }, opts);
+  } catch (error) {
+    console.error(`[managed] containment record for ${row.tmuxName} failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 export function managedContainment(row: ManagedSession): ManagedContainment {
   if (row.containment) return row.containment;
   return {
@@ -384,6 +405,7 @@ export function addManaged(rec: ManagedSession, idempotencyKey?: string): AddMan
     all.sessions[rec.tmuxName] = stored;
     if (claimKey) all.creationClaims[claimKey] = stored;
     writeAll(all);
+    keepContainmentRecord(stored);
     return { created: true, session: { ...stored } };
   });
 }
@@ -400,6 +422,7 @@ export function patchManaged(tmuxName: string, patch: Partial<ManagedSession>): 
     if (!cur) return;
     all.sessions[tmuxName] = { ...cur, ...patch };
     writeAll(all);
+    if (RECORDED_FIELDS.some((field) => field in patch)) keepContainmentRecord(all.sessions[tmuxName]!);
   });
 }
 
@@ -441,8 +464,12 @@ export function removeManaged(tmuxName: string, opts?: { forgetCreation?: boolea
           if (claim.tmuxName === tmuxName) delete all.creationClaims[key];
         }
       }
+      const removed = all.sessions[tmuxName]!;
       delete all.sessions[tmuxName];
       writeAll(all);
+      // Rows created before the record store have none yet. Keep one now,
+      // before the owner row is gone.
+      keepContainmentRecord(removed, { onlyIfMissing: true });
     }
   });
 }
