@@ -135,9 +135,17 @@ const SIMULATOR_PHASE_TEXT: Record<NonNullable<SimulatorStream["phase"]>, string
   loading_bundle: "Loading your app…",
 };
 
+/** A rough wait for the card: seconds under 90 s, then whole minutes. */
+export function formatWait(ms: number): string {
+  const s = Math.max(1, Math.round(ms / 1000));
+  if (s < 90) return `${s} s`;
+  const m = Math.round(s / 60);
+  return m === 1 ? "1 min" : `${m} min`;
+}
+
 /** One line for the card while level 2 is not ready. Null when the stream shows. */
 export function simulatorStatusText(stream: SimulatorStream): string | null {
-  const eta = stream.etaMs && stream.etaMs > 0 ? ` About ${Math.max(1, Math.round(stream.etaMs / 1000))} s.` : "";
+  const eta = stream.etaMs && stream.etaMs > 0 ? ` About ${formatWait(stream.etaMs)}.` : "";
   switch (stream.state) {
     case "ready": return stream.streamUrl ? null : "Opening the simulator…";
     case "idle": return "See your app on an iPhone simulator.";
