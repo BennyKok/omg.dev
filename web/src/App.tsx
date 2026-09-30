@@ -57,7 +57,7 @@ import {
 } from "./lib/hosted-coach";
 import { HostedCoachCard } from "./components/hosted-coach-card";
 import { emitSessionCreatedToHost } from "./lib/embed-host-signal";
-import { liveAgentsControl, planLimitLiveAgents, registerLiveAgents } from "./lib/plan-limit-live";
+import { filtersToShowSession, liveAgentsControl, planLimitLiveAgents, registerLiveAgents } from "./lib/plan-limit-live";
 import { isAuthorizationUrl } from "./lib/auth-popup";
 import { OmgBrandMark, omgBrandToneClass } from "./components/omg-brand-mark";
 import {
@@ -6133,19 +6133,22 @@ export function App() {
   // Session references in rendered messages open through this page route.
   // The list is read through a ref so a click sees the latest sessions.
   const sessionsForRefs = useRef<Session[]>(sessions);
+  const openLiveAgentRef = useRef<(sid: string) => void>(() => {});
   const openThreadPageRef = useRef<(id: string) => void>(() => {});
   sessionsForRefs.current = sessions;
   useEffect(() => {
     registerLiveAgents({
       list: () => planLimitLiveAgents(sessionsForRefs.current),
-      open: openSessionPage,
+      // Through a ref: the filters that decide whether the chat can show are
+      // declared further down, and the hand-off must see their latest values.
+      open: (sid) => openLiveAgentRef.current(sid),
       close: async (sid) => {
         await closeSessionRequest(sid, "plan_limit_sheet");
         await refreshSessionsRef.current();
       },
     });
     return () => registerLiveAgents(null);
-  }, [openSessionPage]);
+  }, []);
   useEffect(() => {
     registerSessionRefHandlers({
       navigate: openSessionPage,
@@ -7342,6 +7345,29 @@ export function App() {
     setTab("live");
     setLiveFocus({ sid: target.sessionId ?? sid, n: Date.now() });
   }, [allLiveSessions, loading, userFilter, projectFilter, identityGateOpen, setTab]);
+
+  // The plan-limit sheet's Open. The chats it lists are mostly the ones Home
+  // hides behind a project filter, and the session page renders only a chat
+  // the filters list, so scope to the chat first (as a deep link does), then
+  // focus it: the narrow layout opens its page, the wide one its column.
+  const openLiveAgent = useCallback(
+    (sid: string) => {
+      const target = allLiveSessions.find(
+        (session) => session.sessionId === sid || session.nativeSessionId === sid,
+      );
+      if (target) {
+        const next = filtersToShowSession(target, { userFilter, projectFilter });
+        if (next.userFilter) setUserFilter(next.userFilter);
+        if (next.projectFilter) setProjectFilter(next.projectFilter);
+      }
+      setTab("live");
+      setLiveFocus({ sid: target?.sessionId ?? sid, n: Date.now() });
+    },
+    [allLiveSessions, userFilter, projectFilter, setTab],
+  );
+  useEffect(() => {
+    openLiveAgentRef.current = openLiveAgent;
+  }, [openLiveAgent]);
 
   // ...and if it never shows up, open it as a FINISHED session instead of
   // reporting the link dead. A shipped post outlives its session — the human
