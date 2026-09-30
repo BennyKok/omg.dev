@@ -2,6 +2,16 @@
 
 Recent product updates and deployment notes.
 
+## September 30, 2026 - Simulator auto-start, iOS crash fixes and Threads on Home (v0.6.150)
+
+- Expo preview card: the Simulator level can start by itself when you open the card. It is off by default, and your account settings turn it on. While all simulators are busy, the card shows your place in line and a rough wait, such as "About 3 min".
+- When the Simulator level is available, the agent tells you in one sentence to tap Simulator on the card.
+- iPhone app: four TestFlight crash causes are fixed in the app code, including a crash while text draws after a reload. On build 84 and older, messages in the transcript no longer use the menu wrapper that caused three more crashes; a new build is needed for the full fix.
+- iPhone app: Home shows up to five threads as one-line titles, with See more in the Threads header. Titles use regular weight, so bold can mean unread.
+- iPhone app: the session list opens on your own sessions and shares the owner filter with the Computer, also on a shared Computer.
+- Connectors: signing in to Meta Ads with the pasted address no longer leaves a blank popup.
+- The agent list shows the installed version of each coding agent.
+
 ## September 30, 2026 - GPT-6 Luna is the default omg agent model (v0.6.149)
 
 - New omg agent sessions use GPT-6 Luna when no model is picked. This includes the first build after signup and scheduled tasks.
