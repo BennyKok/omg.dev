@@ -29,7 +29,7 @@ import {
 import { useState } from "react";
 
 /**
- * Collapsed agent rows are icon, name, toggle, and at most one word. The
+ * Collapsed agent rows show the icon, name, version, toggle, and status. The
  * expanded row is the action that is still missing, plus Update when the
  * CLI is already installed: provider Connect rows, Install when the binary
  * is gone, Update to replace a stale CLI, or Login when this agent has no
@@ -71,6 +71,7 @@ function CheckList({ checks }: { checks: { label: string; ok: boolean; detail?: 
 function ExpandableRow({
   icon,
   title,
+  version,
   note,
   ok,
   showDot = true,
@@ -81,6 +82,7 @@ function ExpandableRow({
 }: {
   icon: React.ReactNode;
   title: string;
+  version?: string;
   note: string | null;
   ok: boolean;
   showDot?: boolean;
@@ -104,6 +106,11 @@ function ExpandableRow({
           <span className="min-w-0 flex-1">
             <span className="flex items-center gap-2">
               <span className="truncate text-sm font-medium">{title}</span>
+              {version ? (
+                <span className="shrink-0 font-mono text-xs text-muted-foreground" aria-label={`Version ${version}`}>
+                  v{version}
+                </span>
+              ) : null}
               {/* Agent rows never use the dot. Setup groups still do. */}
               {showDot && !ok ? (
                 <span className="size-1.5 shrink-0 rounded-full bg-destructive" aria-hidden />
@@ -351,6 +358,7 @@ export default function CodingAgentsPage({
                 <img src={agentIconSrc(agent.key)} alt={agentIconAlt(agent.key)} className="size-5" />
               }
               title={agent.label}
+              version={status.version}
               note={agentStatusNote(
                 status.checks,
                 status.profile,

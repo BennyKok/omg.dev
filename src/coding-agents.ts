@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { PATHS, localServeBaseUrl } from "./config.ts";
 import { modelDiscoveryKeysForAgent, refreshModelCatalog } from "./model-discovery.ts";
 import { omgCapabilityAccess } from "./omg-capabilities.ts";
+import { codingAgentVersion } from "./coding-agent-version.ts";
 import { githubCliPath } from "./tool-connections.ts";
 import { agentAccountProfile, type AgentAccountProfile } from "./agent-profiles.ts";
 import {
@@ -72,6 +73,8 @@ export type CodingAgentCheck = {
 };
 
 export type CodingAgentStatus = {
+  /** Installed runtime version. Absent when the CLI cannot report it. */
+  version?: string;
   configured: boolean;
   /** True only when the user connected this provider's account. Platform API
    *  keys can make an agent runnable, but they are not a user login. */
@@ -1491,9 +1494,11 @@ async function statusFor(kind: CodingAgentKind): Promise<CodingAgentStatus> {
   let accountConnected = false;
   let profile: AgentAccountProfile | null = null;
   let jcodeProviders: AgentProviderInfo[] | undefined;
+  let version: Promise<string | undefined> = Promise.resolve(undefined);
 
   const addBinary = (label: string, path: string | null) => {
     checks.push({ label, ok: !!path, detail: path ?? "not found" });
+    version = codingAgentVersion(path);
   };
   const addAuth = (label: string, ok: boolean, detail: string) => {
     checks.push({ label, ok, detail });
@@ -1610,6 +1615,7 @@ async function statusFor(kind: CodingAgentKind): Promise<CodingAgentStatus> {
 
   return {
     configured: checks.every((c) => c.ok),
+    version: await version,
     accountConnected,
     omgCapabilityAccess: omgCapabilityAccess(kind),
     checks,
