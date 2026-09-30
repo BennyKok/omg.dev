@@ -108,10 +108,16 @@ export function createProjectPreviewService(deps: {
   const owns = (owner: string | null, viewer: string) => !owner || owner.toLowerCase() === viewer.toLowerCase();
 
   /** The level-2 slot of a snapshot. A failing provider must not hide the card. */
-  const simulatorField = async (preview: ProjectPreview, live: boolean): Promise<{ simulator?: SimulatorStream }> => {
+  const simulatorField = async (preview: ProjectPreview, live: boolean, fromCard: boolean): Promise<{ simulator?: SimulatorStream }> => {
     if (!deps.simulator || deps.simulator.available?.() === false || !preview.expoGoUrl || !live) return {};
     try {
-      return { simulator: await deps.simulator.status(preview) };
+      const stream = await deps.simulator.status(preview);
+      // autoStart: the owner's card starts the simulator by itself on its poll,
+      // so the phone shows without a tap. Never from an agent's request.
+      if (fromCard && deps.simulator.autoStart === true && stream.state === "idle") {
+        return { simulator: await deps.simulator.start(preview) };
+      }
+      return { simulator: stream };
     } catch {
       return { simulator: { state: "error", message: "The simulator did not answer. Try again." } };
     }
@@ -174,10 +180,10 @@ export function createProjectPreviewService(deps: {
           const { notStartedYet: _started, ...started } = preview;
           rows.set(session.id, started);
           saveRows(storePath, [...rows.values()]);
-          return json({ preview: started, live, ...await simulatorField(started, live) });
+          return json({ preview: started, live, ...await simulatorField(started, live, !caller) });
         }
         const starting = !live && preview.notStartedYet === true;
-        return json({ preview, live, ...(expired ? { expired: true } : {}), ...(starting ? { starting: true } : {}), ...await simulatorField(preview, live) });
+        return json({ preview, live, ...(expired ? { expired: true } : {}), ...(starting ? { starting: true } : {}), ...await simulatorField(preview, live, !caller) });
       }
       if (req.method !== "POST") throw new PreviewError(405, "Method not allowed");
       if (!caller) throw new PreviewError(403, "Only the session agent can publish a project preview");
@@ -227,7 +233,9 @@ export function createProjectPreviewService(deps: {
       };
       rows.set(session.id, preview);
       saveRows(storePath, [...rows.values()]);
-      if (expoGo) return json({ preview, expoGo });
+      // Tells the agent whether the card will offer the iPhone simulator level.
+      const simulatorAvailable = expoGo !== undefined && !!deps.simulator && deps.simulator.available?.() !== false;
+      if (expoGo) return json({ preview, expoGo, simulatorAvailable });
       return json({ preview });
     } catch (error) {
       const externalStatus = typeof (error as { status?: unknown } | null)?.status === "number"
