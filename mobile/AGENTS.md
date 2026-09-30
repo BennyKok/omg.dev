@@ -418,6 +418,24 @@ and cross-check the SDK changelog at https://expo.dev/changelog/ for an
 "awaiting approval" note. Alternatively, move off Expo Go to a development
 build (`eas build --profile development`), which removes the coupling entirely.
 
+## A patch to a precompiled pod does nothing
+
+SDK 58 links some Expo packages as prebuilt xcframeworks by default. The
+Podfile sets `EXPO_USE_PRECOMPILED_MODULES=1`. Today the prebuilt set is
+`expo-modules-core`, `@expo/ui`, `expo-font`, `expo-video` and
+`expo-file-system`. React Native itself is the prebuilt `React.xcframework`.
+A `bun patch` to the native source of a prebuilt package compiles nowhere. The
+build is green and the app runs the upstream code.
+
+- Put the package in `expo.autolinking.ios.buildFromSource` in `package.json`.
+  A pod that depends on it then builds from source too, so one entry covers
+  the whole set above. `expo-modules-core` is there for the
+  `ExpoViewShadowNode` backport.
+- A React Native patch needs `ios.buildReactNativeFromSource`. That is a much
+  larger build change. Prefer a JS-side workaround.
+- Check the crash log's binary images. A package that shows as its own
+  `.framework` under `omg.app/Frameworks` came from a prebuilt.
+
 ## Responsibility
 
 `mobile/` owns the native Expo client for omg.dev. It is named `omg` in

@@ -1,0 +1,115 @@
+diff --git a/ios/AudioStreamManager.swift b/ios/AudioStreamManager.swift
+index b4ab6ca..bf918c2 100644
+--- a/ios/AudioStreamManager.swift
++++ b/ios/AudioStreamManager.swift
+@@ -946,22 +946,35 @@ class AudioStreamManager: NSObject, AudioDeviceManagerDelegate {
+             bufferSize = 1024 // Default
+         }
+         
+-        // Validate hardware format before installing tap (#223)
++        // omg patch: the tap sits on the node's OUTPUT bus, so its format must
++        // be the output format. The input (hardware) format can differ from it
++        // after a route change, and AVFAudio then raises an ObjC exception
++        // that aborts the app (TestFlight 1.0.14 (84), 2026-09-29).
++        let tapFormat = nodeOutputFormat
++
++        // Validate the format before installing tap (#223)
+         if !AudioTapInstallPolicy.shouldInstallTap(
+-            channelCount: inputHardwareFormat.channelCount,
+-            sampleRate: inputHardwareFormat.sampleRate
++            channelCount: tapFormat.channelCount,
++            sampleRate: tapFormat.sampleRate
+         ) {
+-            let message = "Invalid hardware format: channels=\(inputHardwareFormat.channelCount), sampleRate=\(inputHardwareFormat.sampleRate). Skipping tap install to avoid format mismatch crash."
++            let message = "Invalid hardware format: channels=\(tapFormat.channelCount), sampleRate=\(tapFormat.sampleRate). Skipping tap install to avoid format mismatch crash."
+             Logger.debug("AudioStreamManager", message)
+             delegate?.audioStreamManager(self, didFailWithError: message)
+             if prepareEngine {
+                 audioEngine.prepare()
+             }
+-            return (inputHardwareFormat, false)
++            return (tapFormat, false)
+         }
+ 
+-        // Install the tap with hardware format
+-        inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: inputHardwareFormat, block: tapBlock)
++        // Install the tap. Any AVFAudio exception becomes a recording error.
++        do {
++            try OMGSafeTapInstaller.installTap(on: inputNode, bus: 0, bufferSize: bufferSize, format: tapFormat, block: tapBlock)
++        } catch {
++            let message = "Could not start the microphone: \(error.localizedDescription)"
++            Logger.debug("AudioStreamManager", message)
++            delegate?.audioStreamManager(self, didFailWithError: message)
++            return (tapFormat, false)
++        }
+         Logger.debug("AudioStreamManager", "Tap installed with hardware-compatible format")
+         
+         // Prepare the engine if requested
+@@ -970,7 +983,7 @@ class AudioStreamManager: NSObject, AudioDeviceManagerDelegate {
+             Logger.debug("AudioStreamManager", "Engine prepared after tap installation")
+         }
+         
+-        return (inputHardwareFormat, true)
++        return (tapFormat, true)
+     }
+     
+     /// Prepares the audio recording with the specified settings without starting it.
+diff --git a/ios/OMGSafeTapInstaller.h b/ios/OMGSafeTapInstaller.h
+new file mode 100644
+index 0000000..5d4b7b3
+--- /dev/null
++++ b/ios/OMGSafeTapInstaller.h
+@@ -0,0 +1,21 @@
++#import <AVFoundation/AVFoundation.h>
++
++NS_ASSUME_NONNULL_BEGIN
++
++/// AVAudioNode.installTap raises an Objective-C exception (not a Swift error)
++/// when the tap format does not match the node, for example after an audio
++/// route change. Swift cannot catch that, so the app aborts. This wrapper
++/// turns the exception into an NSError.
++@interface OMGSafeTapInstaller : NSObject
++
+++ (BOOL)installTapOnNode:(AVAudioNode *)node
++                     bus:(AVAudioNodeBus)bus
++              bufferSize:(AVAudioFrameCount)bufferSize
++                  format:(nullable AVAudioFormat *)format
++                   block:(AVAudioNodeTapBlock)block
++                   error:(NSError **)error
++    NS_SWIFT_NAME(installTap(on:bus:bufferSize:format:block:));
++
++@end
++
++NS_ASSUME_NONNULL_END
+diff --git a/ios/OMGSafeTapInstaller.m b/ios/OMGSafeTapInstaller.m
+new file mode 100644
+index 0000000..50e7eb1
+--- /dev/null
++++ b/ios/OMGSafeTapInstaller.m
+@@ -0,0 +1,26 @@
++#import "OMGSafeTapInstaller.h"
++
++@implementation OMGSafeTapInstaller
++
+++ (BOOL)installTapOnNode:(AVAudioNode *)node
++                     bus:(AVAudioNodeBus)bus
++              bufferSize:(AVAudioFrameCount)bufferSize
++                  format:(nullable AVAudioFormat *)format
++                   block:(AVAudioNodeTapBlock)block
++                   error:(NSError **)error
++{
++  @try {
++    [node installTapOnBus:bus bufferSize:bufferSize format:format block:block];
++    return YES;
++  } @catch (NSException *exception) {
++    if (error) {
++      NSString *reason = exception.reason ?: exception.name;
++      *error = [NSError errorWithDomain:@"OMGSafeTapInstaller"
++                                   code:1
++                               userInfo:@{NSLocalizedDescriptionKey : reason ?: @"installTap failed"}];
++    }
++    return NO;
++  }
++}
++
++@end

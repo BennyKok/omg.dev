@@ -81,12 +81,28 @@ function depsFingerprint(): string {
   const pkg = require("../package.json") as {
     dependencies?: Record<string, string>;
     devDependencies?: Record<string, string>;
+    patchedDependencies?: Record<string, string>;
+    expo?: unknown;
   };
   const all = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) };
-  return Object.keys(all)
-    .sort()
-    .map((name) => `${name}@${all[name]}`)
-    .join(" ");
+  // A patch can add a native source file, and `expo.autolinking` decides which
+  // pods are precompiled. Both need `pod install` to reach the build, so both
+  // count as a dependency change. The patch file's CONTENT is hashed, because
+  // editing a patch keeps its name.
+  const patches = Object.entries(pkg.patchedDependencies ?? {})
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([name, file]) => {
+      const hash = new Bun.CryptoHasher("sha256");
+      hash.update(readIfPresent(new URL(`../${file}`, import.meta.url).pathname));
+      return `patch:${name}#${hash.digest("hex").slice(0, 12)}`;
+    });
+  return [
+    ...Object.keys(all)
+      .sort()
+      .map((name) => `${name}@${all[name]}`),
+    ...patches,
+    `expo:${JSON.stringify(pkg.expo ?? null)}`,
+  ].join(" ");
 }
 
 /**
