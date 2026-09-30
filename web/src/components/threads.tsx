@@ -38,6 +38,7 @@ import { useAsk, SessionQuestionPanel } from "./ask-center";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -685,14 +686,18 @@ export function ThreadChatView({
                   <Folder className="size-4" /> Project: {project?.name ?? "None"}
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent>
-                  <DropdownMenuLabel>Tasks run in</DropdownMenuLabel>
-                  {repos.map((repo) => (
-                    <DropdownMenuItem key={repo.cwd} onClick={() => setProject(repo.cwd)}>
-                      {repo.name}
-                      {project?.cwd === repo.cwd ? " ✓" : ""}
-                    </DropdownMenuItem>
-                  ))}
-                  <DropdownMenuItem onClick={() => setProject(null)}>No project{project ? "" : " ✓"}</DropdownMenuItem>
+                  {/* Menu.GroupLabel throws without a Menu.Group around it (Base UI
+                      #31), and the throw takes down the whole route. */}
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel>Tasks run in</DropdownMenuLabel>
+                    {repos.map((repo) => (
+                      <DropdownMenuItem key={repo.cwd} onClick={() => setProject(repo.cwd)}>
+                        {repo.name}
+                        {project?.cwd === repo.cwd ? " ✓" : ""}
+                      </DropdownMenuItem>
+                    ))}
+                    <DropdownMenuItem onClick={() => setProject(null)}>No project{project ? "" : " ✓"}</DropdownMenuItem>
+                  </DropdownMenuGroup>
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
               <DropdownMenuItem onClick={rename}>
