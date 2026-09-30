@@ -1,9 +1,8 @@
 import MenuView, { type MenuAction } from "@expo/ui/community/menu";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { ActionSheetIOS, Alert, Modal, Platform, Pressable, View } from "react-native";
+import { Modal, Pressable, useWindowDimensions, View, type ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
-import * as Haptics from "expo-haptics";
 import { Text, TextInput } from "./text";
 import { useTheme } from "./theme";
 import { useBodyText } from "./markdown";
@@ -11,59 +10,51 @@ import { useBodyText } from "./markdown";
 type Selection = ReturnType<typeof useSelectText>;
 
 /**
- * A reply opens Copy and Select text on press-and-hold, like the sent bubble.
- * No visible button: a control under every reply read as clutter. The reply's
- * markdown is not `selectable` (see TranscriptBody), because the native
- * selection gesture is also a long press and would win. Selection across
- * paragraphs lives in the Select text screen instead.
+ * A reply opens the same native hold menu as the sent bubble: Copy and Select
+ * text. No visible button: a control under every reply read as clutter. The
+ * reply's markdown is not `selectable` (see TranscriptBody), because the
+ * native selection gesture is also a long press and would win.
  *
- * Not the SwiftUI context menu the sent bubble uses: that hosts its child in
- * SwiftUI (`RNHostView`), which measures a long, virtualized, streaming reply
- * badly. A Pressable plus the system action sheet leaves the layout alone.
+ * THE CONTENT NEEDS A NUMBER. MenuView hosts its child in SwiftUI
+ * (`RNHostView matchContents`), which measures the RN child as a leaf with no
+ * width limit, so a percentage or a stretch never reaches the text. The row
+ * is measured outside the menu and its width is handed in as a number, the
+ * same fix the sent bubble uses. `widthFraction` below 1 makes it a maximum
+ * (the bot bubble sizes to its text); 1 fills the row.
  */
-export function ReplyTextActions({ text, children }: { text: string; children: ReactNode }) {
-  const { colors, type } = useTheme();
+export function ReplyTextActions({ text, children, style, widthFraction = 1 }: {
+  text: string; children: ReactNode; style?: ViewStyle; widthFraction?: number;
+}) {
+  const { width: windowWidth } = useWindowDimensions();
+  const [rowWidth, setRowWidth] = useState<number | null>(null);
+  const width = Math.floor((rowWidth ?? windowWidth - 48) * widthFraction);
+  const fill = widthFraction >= 1;
+  return (
+    <View style={{ alignSelf: "stretch" }} onLayout={event => setRowWidth(event.nativeEvent.layout.width)}>
+      <MessageTextActions text={text} align={fill ? "stretch" : "flex-start"}>
+        <View accessibilityHint="Press and hold for Copy and Select text" style={[style, fill ? { width } : { maxWidth: width }]}>
+          {children}
+        </View>
+      </MessageTextActions>
+    </View>
+  );
+}
+
+/** Native hold menu with Copy and Select text. The sent bubble passes its own Copy. */
+export function MessageTextActions({ text, children, onCopy, align = "stretch" }: {
+  text: string; children: ReactNode; onCopy?: () => void; align?: "stretch" | "flex-start";
+}) {
+  const { isDark, colors, type } = useTheme();
   const selection = useSelectText();
   const [note, setNote] = useState("");
   const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (noteTimer.current) clearTimeout(noteTimer.current); }, []);
-  const copyReply = async () => {
+  const copyAll = async () => {
     const ok = await selection.copy(text);
     setNote(ok ? "Copied" : "Could not copy. Try again.");
     if (noteTimer.current) clearTimeout(noteTimer.current);
     noteTimer.current = setTimeout(() => setNote(""), 1500);
   };
-  const open = () => {
-    if (!text.trim()) return;
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-    const choose = (index: number) => {
-      if (index === 0) void copyReply();
-      if (index === 1) selection.open(text);
-    };
-    if (Platform.OS === "ios") {
-      ActionSheetIOS.showActionSheetWithOptions({ options: ["Copy", "Select text", "Cancel"], cancelButtonIndex: 2 }, choose);
-    } else {
-      Alert.alert("Reply", undefined, [
-        { text: "Copy", onPress: () => choose(0) },
-        { text: "Select text", onPress: () => choose(1) },
-        { text: "Cancel", style: "cancel" },
-      ]);
-    }
-  };
-  return <>
-    <Pressable accessibilityHint="Press and hold for Copy and Select text" accessibilityActions={[{ name: "longpress", label: "Copy or select text" }]}
-      onAccessibilityAction={open} onLongPress={open} delayLongPress={400} style={{ alignSelf: "stretch" }}>
-      {children}
-    </Pressable>
-    {note ? <Text accessibilityLiveRegion="polite" style={{ ...type.caption, color: colors.textMuted }}>{note}</Text> : null}
-    <SelectTextModal selection={selection} />
-  </>;
-}
-
-/** The sent bubble keeps its native hold menu, now with Select text. */
-export function MessageTextActions({ text, children, onCopy }: { text: string; children: ReactNode; onCopy?: () => void }) {
-  const { isDark } = useTheme();
-  const selection = useSelectText();
   if (!text.trim()) return <>{children}</>;
   return <>
     <MenuView
@@ -73,17 +64,18 @@ export function MessageTextActions({ text, children, onCopy }: { text: string; c
       ] satisfies MenuAction[]}
       shouldOpenOnLongPress
       colorScheme={isDark ? "dark" : "light"}
-      style={{ alignSelf: "stretch" }}
+      style={{ alignSelf: align }}
       onPressAction={({ nativeEvent }) => {
         if (nativeEvent.event === "copy") {
           if (onCopy) onCopy();
-          else void selection.copy(text);
+          else void copyAll();
         }
         if (nativeEvent.event === "select") selection.open(text);
       }}
     >
       {children}
     </MenuView>
+    {note ? <Text accessibilityLiveRegion="polite" style={{ ...type.caption, color: colors.textMuted }}>{note}</Text> : null}
     <SelectTextModal selection={selection} />
   </>;
 }

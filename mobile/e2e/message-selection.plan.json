@@ -11,7 +11,8 @@
       "expect": [
         "Message selection test",
         "Help me copy part of this message.",
-        "Select words across paragraphs."
+        "Select words across paragraphs.",
+        "Table cell"
       ],
       "forbid": [
         "Reply options",
@@ -22,19 +23,19 @@
       "name": "Reply hold menu",
       "goal": "Touch and hold the reply text that says Select words across paragraphs.",
       "longPress": true,
-      "done": "The action sheet offers copying and text selection.",
+      "done": "The native hold menu offers copying and text selection, like the sent message menu.",
       "expect": [
         "Copy",
-        "Select text",
-        "Cancel"
+        "Select text"
       ],
       "forbid": [
-        "Copy all"
+        "Copy all",
+        "Cancel"
       ]
     },
     {
       "name": "Open reply selection",
-      "goal": "Tap Select text in the open action sheet to open the assistant reply.",
+      "goal": "Tap Select text in the open hold menu to open the assistant reply.",
       "done": "The selection screen shows the full reply and copy controls.",
       "expect": [
         "Message text",
