@@ -864,7 +864,7 @@ export const SESSION_ROW = {
   textGap: 4,
   paddingRight: 14,
   /** A title-only row (home's thread list): one line, no preview. */
-  singleLineHeight: 52,
+  singleLineHeight: 40,
 } as const;
 
 /** The mark's centre, measured from the left edge of the row's column. */
