@@ -3,7 +3,12 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, wri
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { ensureOmgProvider, hasHostedOmgAiProxy, hasOmgProviderAccess, isHostedOmgSandbox, OMG_SIGN_IN_REQUIRED } from "./omg-provider.ts";
-import { OMG_MODELS, omgThinkingLevels } from "./omg-models.ts";
+import { OMG_INPUT_MODALITIES_BY_MODEL, OMG_MODELS, omgInputModalities, omgThinkingLevels } from "./omg-models.ts";
+
+const modalities = (model: string) => {
+  const input = omgInputModalities(model);
+  return input ? { attachment: input.includes("image"), modalities: { input: [...input], output: ["text"] } } : {};
+};
 
 let home: string;
 let apiUrl: string | undefined;
@@ -74,7 +79,7 @@ test("hosted proxy environment leaves a complete guest config alone", () => {
   const guest = join(home, ".config/opencode/opencode.jsonc");
   const models = Object.fromEntries(OMG_MODELS.map((model) => {
     const levels = omgThinkingLevels(model);
-    return [model.slice(4), levels ? { variants: Object.fromEntries(levels.map((l) => [l, { reasoningEffort: l }])) } : {}];
+    return [model.slice(4), { ...(levels ? { variants: Object.fromEntries(levels.map((l) => [l, { reasoningEffort: l }])) } : {}), ...modalities(model) }];
   }));
   const source = `{ // guest managed\n "provider": { "omg": { "options": { "baseURL": "http://169.254.0.1:9090/v1", "apiKey": "x" }, "models": ${JSON.stringify(models)} } } }`;
   put(guest, source);
@@ -93,6 +98,33 @@ test("hosted guest config that names omg without thinking variants gets them, op
   expect(config.provider.omg.options).toEqual({ baseURL: "http://169.254.0.1:9090/v1", apiKey: "x", timeout: 9 });
   expect(config.provider.omg.models["deepseek/deepseek-v4-pro"].variants.high).toEqual({ reasoningEffort: "high" });
   expect(config.provider.omg.models["qwen/qwen3-coder-next"].variants).toBeUndefined();
+});
+
+test("every hosted model declares its input modalities", () => {
+  expect(Object.keys(OMG_INPUT_MODALITIES_BY_MODEL).sort()).toEqual([...OMG_MODELS].sort());
+});
+
+test("hosted guest config without modalities gets image input only on image models, so OpenCode sends images", () => {
+  // Measured 2026-09-30: with no `modalities`, OpenCode stripped an attached
+  // design and glm-5.3-flash answered that it saw no image.
+  const opts = { ...options(), env: { OMG_AI_URL: "http://169.254.0.1:9090" } };
+  const guest = join(home, ".config/opencode/opencode.jsonc");
+  const models = Object.fromEntries(OMG_MODELS.map((model) => {
+    const levels = omgThinkingLevels(model);
+    return [model.slice(4), levels ? { variants: Object.fromEntries(levels.map((l) => [l, { reasoningEffort: l }])) } : {}];
+  }));
+  put(guest, JSON.stringify({ provider: { omg: { options: { baseURL: "https://openrouter.example/v1", apiKey: "x" }, models } } }));
+  ensureOmgProvider(opts);
+  const config = JSON.parse(readFileSync(guest, "utf8"));
+  const omg = config.provider.omg.models;
+  expect(omg["z-ai/glm-5.3-flash"].modalities).toEqual({ input: ["text", "image"], output: ["text"] });
+  expect(omg["openai/gpt-5.6-luna"].modalities).toEqual({ input: ["text", "image"], output: ["text"] });
+  expect(omg["deepseek/deepseek-v4-flash-0731"].modalities).toEqual({ input: ["text"], output: ["text"] });
+  expect(omg["z-ai/glm-5.2"].modalities).toEqual({ input: ["text"], output: ["text"] });
+  expect(omg["z-ai/glm-5.3-flash"].attachment).toBe(true);
+  expect(omg["deepseek/deepseek-v4-flash-0731"].attachment).toBe(false);
+  // A guest that routes its own way keeps its route.
+  expect(config.provider.omg.options).toEqual({ baseURL: "https://openrouter.example/v1", apiKey: "x" });
 });
 
 test("guest's existing omg provider is a no-op and stays byte-for-byte intact", () => {
@@ -126,6 +158,7 @@ for (const kind of ["api-key", "oauth", "jwt"]) {
         return [id, {
           name: id,
           ...(levels ? { variants: Object.fromEntries(levels.map((level) => [level, { reasoningEffort: level }])) } : {}),
+          ...modalities(model),
         }];
       })),
     } } });

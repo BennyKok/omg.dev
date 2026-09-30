@@ -17,6 +17,8 @@ PROXY_URL="${PROXY_URL%/}"
 case "$PORT" in 80[89][0-9]) ;; *) echo "FAILED: use a Metro port from 8081 to 8099, not ${PORT}" >&2; exit 1 ;; esac
 [ "$PORT" -ge 8081 ] && [ "$PORT" -le 8099 ] || { echo "FAILED: use a Metro port from 8081 to 8099, not ${PORT}" >&2; exit 1; }
 cd "$(dirname "$0")/.."
+# Warn, do not fail: a restart must still bring the preview back.
+[ -f scripts/check-routes.mjs ] && { node scripts/check-routes.mjs >&2 || echo "WARNING: the preview can show the wrong home screen until the ROUTES problems above are fixed" >&2; }
 LOG="${TMPDIR:-/tmp}/expo-preview-${PORT}.log"
 LOCAL="http://127.0.0.1:${PORT}"
 EXPO=./node_modules/.bin/expo

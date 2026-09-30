@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { cloudApiBaseUrl, loadCloudCredentials } from "./cloud-account.ts";
-import { OMG_MODELS, omgThinkingLevels } from "./omg-models.ts";
+import { OMG_MODELS, omgInputModalities, omgThinkingLevels } from "./omg-models.ts";
 
 const GUEST_PROXY = "http://169.254.0.1:9090";
 export const OMG_SIGN_IN_REQUIRED = "Sign in with `omg login` to use the omg agent.";
@@ -63,12 +63,32 @@ const GUEST_API_KEY = "omg-guest";
  * "ProviderModelNotFoundError: Model not found: omg/...". A guest config that
  * already names the provider is still left byte-for-byte alone.
  */
-/** True when a hosted model that takes a level has no variants in this provider. */
-function missingOmgVariants(provider: { models?: Record<string, { variants?: unknown }> }): boolean {
+/**
+ * OpenCode input settings for one hosted model, from the model catalog.
+ * `attachment` follows OpenCode's own rule for catalog models (true when any
+ * input is not text); a config model otherwise defaults it to false.
+ */
+function omgInputConfig(model: string): { attachment: boolean; modalities: { input: string[]; output: string[] } } | undefined {
+  const input = omgInputModalities(model);
+  return input
+    ? { attachment: input.some((kind) => kind !== "text"), modalities: { input: [...input], output: ["text"] } }
+    : undefined;
+}
+
+/**
+ * True when a hosted model that takes a level has no variants in this
+ * provider, or its declared input modalities differ from the catalog. With no
+ * `modalities`, OpenCode drops every image sent to an image-capable model.
+ */
+function missingOmgVariants(provider: { models?: Record<string, { variants?: unknown; attachment?: unknown; modalities?: { input?: unknown } }> }): boolean {
   return OMG_MODELS.some((model) => {
+    const entry = provider.models?.[model.slice("omg/".length)];
+    const input = omgInputModalities(model);
+    if (input && JSON.stringify(entry?.modalities?.input) !== JSON.stringify(input)) return true;
+    if (input && entry?.attachment !== input.some((kind) => kind !== "text")) return true;
     const levels = omgThinkingLevels(model);
     if (!levels) return false;
-    const variants = provider.models?.[model.slice("omg/".length)]?.variants;
+    const variants = entry?.variants;
     return !variants || typeof variants !== "object" || levels.some((level) => !(level in (variants as object)));
   });
 }
@@ -94,8 +114,9 @@ export function ensureOmgProvider(options: OmgProviderOptions = {}): void {
     JSON.stringify(currentOmgMcp.command) === JSON.stringify(mcpCommand)
   );
   // A guest config that already names the provider is left alone, unless a
-  // model that takes a thinking level has no variants yet: the level travels
-  // as a variant, so without them a chosen level would silently do nothing.
+  // model that takes a thinking level has no variants yet (the level travels
+  // as a variant, so without them a chosen level would silently do nothing),
+  // or a model's input modalities differ from the catalog.
   const providerReady = hosted && current.provider?.omg && !missingOmgVariants(current.provider.omg);
   if (providerReady && mcpReady) return;
   const credentials = hosted ? null : loadCloudCredentials(join(home, ".omg", "credentials.json"));
@@ -115,7 +136,7 @@ export function ensureOmgProvider(options: OmgProviderOptions = {}): void {
       npm: "@ai-sdk/openai-compatible",
       name: "omg",
       // A guest config that already routes stays routed its own way; only
-      // the thinking variants are added to it.
+      // the thinking variants and modalities are added to it.
       options: hosted && current.provider?.omg ? { ...previous.options } : { ...previous.options, baseURL, apiKey },
       models: {
         ...previous.models,
@@ -127,7 +148,7 @@ export function ensureOmgProvider(options: OmgProviderOptions = {}): void {
           const variants = levels
             ? Object.fromEntries(levels.map((level) => [level, { reasoningEffort: level }]))
             : undefined;
-          return [id, { ...previous.models?.[id], name: id, ...(variants ? { variants } : {}) }];
+          return [id, { ...previous.models?.[id], name: id, ...(variants ? { variants } : {}), ...omgInputConfig(model) }];
         })),
       },
     },
