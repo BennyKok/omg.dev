@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mount, type Mounted } from "../test-support/render";
 import { configureOmgTransport } from "../lib/omg-client";
 import { createSameOriginTransport } from "@omg-dev/client";
-const { ProjectPreviewCard } = await import("./project-preview-card");
+const { ProjectPreviewCard, usePreviewFreshness } = await import("./project-preview-card");
 
 // The card reads the device once, at mount: a phone starts closed.
 const originalMatchMedia = window.matchMedia;
@@ -416,4 +416,52 @@ test("the inline preview reloads when the agent finishes a turn", async () => {
   expect(after).not.toBeNull();
   expect(after).not.toBe(before);
   expect(after?.getAttribute("src")).toBe("https://cap-token.preview.omgs.app");
+});
+
+function freshnessDot() { return document.querySelector('[data-testid="project-preview-freshness"]'); }
+
+test("a dot on the card icon marks the preview as still building, with no text", async () => {
+  globalThis.fetch = (async () => Response.json({ preview: EXPO_PREVIEW, live: true })) as typeof fetch;
+  ui.render(<ProjectPreviewCard sessionId="session-1" agentBusy />);
+  await ui.flushAsync();
+  const dot = freshnessDot();
+  expect(dot?.getAttribute("data-state")).toBe("building");
+  expect(dot?.getAttribute("title")).toBe("Still building, updates live");
+  expect(dot?.textContent).toBe("");
+  // The dot sits on the header icon, so a collapsed card shows it too.
+  expect(dot?.closest('[data-testid="project-preview-toggle"]')).not.toBeNull();
+  // The turn ends: a green check says the preview is up to date.
+  ui.render(<ProjectPreviewCard sessionId="session-1" agentBusy={false} />);
+  await ui.flushAsync();
+  expect(freshnessDot()?.getAttribute("data-state")).toBe("updated");
+  expect(freshnessDot()?.getAttribute("aria-label")).toBe("Up to date");
+});
+
+test("an idle agent shows no freshness dot, and a stopped preview hides it", async () => {
+  globalThis.fetch = (async () => Response.json({ preview: EXPO_PREVIEW, live: true })) as typeof fetch;
+  ui.render(<ProjectPreviewCard sessionId="session-1" />);
+  await ui.flushAsync();
+  expect(freshnessDot()).toBeNull();
+  globalThis.fetch = (async () => Response.json({ preview: EXPO_PREVIEW, live: false })) as typeof fetch;
+  ui.render(<ProjectPreviewCard sessionId="session-2" agentBusy />);
+  await ui.flushAsync();
+  expect(freshnessDot()).toBeNull();
+});
+
+test("the up-to-date mark settles away after the turn ends", async () => {
+  function Probe({ busy }: { busy: boolean }) { return <span data-testid="probe">{String(usePreviewFreshness(busy, 20))}</span>; }
+  const probe = () => document.querySelector('[data-testid="probe"]')?.textContent;
+  ui.render(<Probe busy={false} />);
+  expect(probe()).toBe("null");
+  ui.render(<Probe busy />);
+  expect(probe()).toBe("building");
+  ui.render(<Probe busy={false} />);
+  expect(probe()).toBe("updated");
+  await ui.flushAsync(() => new Promise((r) => setTimeout(r, 40)));
+  expect(probe()).toBe("null");
+  // A new turn before the mark settles goes straight back to building.
+  ui.render(<Probe busy />);
+  ui.render(<Probe busy={false} />);
+  ui.render(<Probe busy />);
+  expect(probe()).toBe("building");
 });

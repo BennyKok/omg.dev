@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { CircleCheck, ChevronDown, Download, ExternalLink, Globe2, Info, Maximize2, MonitorSmartphone, RotateCw, Smartphone, UserRound, X } from "lucide-react";
+import { Check, CircleCheck, ChevronDown, Download, ExternalLink, Globe2, Info, Maximize2, MonitorSmartphone, RotateCw, Smartphone, UserRound, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -22,6 +22,7 @@ export function ProjectPreviewCard({ sessionId, user, agentBusy = false }: { ses
   // tabs after the agent had built 4. Reload the frame when the agent
   // finishes a turn, which is when its edits are complete.
   const frameRevision = useAgentTurnRevision(agentBusy);
+  const freshness = usePreviewFreshness(agentBusy);
   const [open, setOpen] = useState(false);
   const [restartAsked, setRestartAsked] = useState(false);
   const phone = usePhone();
@@ -130,8 +131,9 @@ export function ProjectPreviewCard({ sessionId, user, agentBusy = false }: { ses
           onClick={() => setExpanded(!expanded)}
           data-testid="project-preview-toggle"
         >
-          <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <span className="relative flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
             {expoGoUrl ? <Smartphone className="size-4" /> : <Globe2 className="size-4" />}
+            {stopped ? null : <FreshnessDot state={freshness} />}
           </span>
           <span className="min-w-0 truncate font-medium">{preview.title}</span>
           {stopped || !expoGoUrl
@@ -206,6 +208,50 @@ export function useAgentTurnRevision(busy: boolean): number {
     wasBusy.current = busy;
   }, [busy]);
   return revision;
+}
+
+/** How long the green "up to date" mark stays after a turn ends. */
+export const PREVIEW_SETTLE_MS = 2_500;
+
+export type PreviewFreshness = "building" | "updated" | null;
+
+/**
+ * Whether the preview can still change. "building" while the agent runs a
+ * turn: the preview is often up long before the app is done. "updated" for a
+ * moment after the turn ends and the frame reloads, then null.
+ */
+export function usePreviewFreshness(busy: boolean, settleMs = PREVIEW_SETTLE_MS): PreviewFreshness {
+  const [updated, setUpdated] = useState(false);
+  const wasBusy = useRef(busy);
+  useEffect(() => {
+    if (busy) { wasBusy.current = true; setUpdated(false); return; }
+    if (!wasBusy.current) return;
+    wasBusy.current = false;
+    setUpdated(true);
+    const timer = setTimeout(() => setUpdated(false), settleMs);
+    return () => clearTimeout(timer);
+  }, [busy, settleMs]);
+  return busy ? "building" : updated ? "updated" : null;
+}
+
+export const PREVIEW_BUILDING_LABEL = "Still building, updates live";
+export const PREVIEW_UPDATED_LABEL = "Up to date";
+
+/**
+ * A small dot on the card's icon, with no text. Amber and slowly breathing
+ * while the agent works; a green check when the turn ends, which fades out.
+ * Reduced motion keeps both marks static. The words are in the tooltip.
+ */
+function FreshnessDot({ state }: { state: PreviewFreshness }) {
+  if (!state) return null;
+  const label = state === "building" ? PREVIEW_BUILDING_LABEL : PREVIEW_UPDATED_LABEL;
+  return <span role="img" aria-label={label} title={label} data-testid="project-preview-freshness" data-state={state}
+    className={cn("absolute -right-1 -top-1 flex items-center justify-center rounded-full ring-2 ring-card",
+      state === "building"
+        ? "size-2.5 bg-warning motion-safe:animate-[lfg-preview-breathe_2.4s_ease-in-out_infinite]"
+        : "size-3.5 bg-success text-white motion-safe:animate-[lfg-preview-settle_2.5s_ease-out_forwards]")}>
+    {state === "updated" ? <Check className="size-2.5" strokeWidth={3.5} aria-hidden /> : null}
+  </span>;
 }
 
 const FRAME_SANDBOX = "allow-downloads allow-forms allow-modals allow-popups allow-same-origin allow-scripts";
