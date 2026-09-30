@@ -96,3 +96,46 @@ test("the level is hidden unless the control plane enables it; the env forces it
   expect(simulatorStreamProvider({ LFG_PREVIEW_SIMULATOR: "0" })).toBeNull();
   expect(simulatorStreamProvider({ LFG_PREVIEW_SIMULATOR: "1" })?.available?.() ?? true).toBe(true);
 });
+
+const idleProvider = (autoStart: boolean): SimulatorStreamProvider => ({
+  status: async () => { calls.push("status"); return { state: "idle" }; },
+  start: async () => { calls.push("start"); return { state: "starting", phase: "opening" }; },
+  stop: async () => { calls.push("stop"); },
+  autoStart,
+});
+
+test("autoStart: the owner's card poll starts an idle simulator; an agent's request never does", async () => {
+  const handle = service(idleProvider(true));
+  await call(handle, "POST", "/api/project-preview", { port: 8081, expoGo: true }, true);
+  calls.length = 0;
+  expect((await call(handle, "GET", "/api/project-preview", undefined, true)).data.simulator).toEqual({ state: "idle" });
+  expect(calls).toEqual(["status"]);
+  calls.length = 0;
+  expect((await call(handle, "GET", "/api/project-preview")).data.simulator).toEqual({ state: "starting", phase: "opening" });
+  expect(calls).toEqual(["status", "start"]);
+});
+
+test("without autoStart the card poll only reads the state", async () => {
+  const handle = service(idleProvider(false));
+  await call(handle, "POST", "/api/project-preview", { port: 8081, expoGo: true }, true);
+  calls.length = 0;
+  expect((await call(handle, "GET", "/api/project-preview")).data.simulator).toEqual({ state: "idle" });
+  expect(calls).toEqual(["status"]);
+});
+
+test("the agent learns whether the card offers the simulator level", async () => {
+  const on = await call(service(provider), "POST", "/api/project-preview", { port: 8081, expoGo: true }, true);
+  expect(on.data.simulatorAvailable).toBe(true);
+  const hidden = await call(service({ ...provider, available: () => false }), "POST", "/api/project-preview", { port: 8081, expoGo: true }, true);
+  expect(hidden.data.simulatorAvailable).toBe(false);
+  const off = await call(service(null), "POST", "/api/project-preview", { port: 8081, expoGo: true }, true);
+  expect(off.data.simulatorAvailable).toBe(false);
+});
+
+test("autoStart comes from the control plane's features file, default off", () => {
+  expect(simulatorStreamProvider({}, { readFeatures: () => ({ simulator: true }) })?.autoStart).toBe(false);
+  expect(simulatorStreamProvider({}, { readFeatures: () => ({ simulator: true, autoStart: true }) })?.autoStart).toBe(true);
+  expect(simulatorStreamProvider({}, { readFeatures: () => ({ autoStart: true }) })?.autoStart).toBe(false);
+  expect(simulatorStreamProvider({ LFG_PREVIEW_SIMULATOR: "1" })?.autoStart).toBe(false);
+  expect(simulatorStreamProvider({ LFG_PREVIEW_SIMULATOR: "1", LFG_PREVIEW_SIMULATOR_AUTOSTART: "1" })?.autoStart).toBe(true);
+});

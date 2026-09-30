@@ -24,28 +24,37 @@ export function simulatorStreamProvider(
 ): SimulatorStreamProvider | null {
   // Explicit override for development and tests.
   if (env.LFG_PREVIEW_SIMULATOR === "0") return null;
-  if (env.LFG_PREVIEW_SIMULATOR === "1") return brokerProvider(deps);
+  if (env.LFG_PREVIEW_SIMULATOR === "1") {
+    return { ...brokerProvider(deps), autoStart: env.LFG_PREVIEW_SIMULATOR_AUTOSTART === "1" };
+  }
   // Otherwise the control plane decides per Computer owner: it writes
   // /etc/omg/preview-features.json on every wake (vibes cloud-computer.ts).
   const read = deps.readFeatures ?? readPreviewFeatures;
   const now = deps.now ?? Date.now;
-  let cached: { at: number; on: boolean } | null = null;
+  let cached: { at: number; on: boolean; auto: boolean } | null = null;
+  const features = () => {
+    if (!cached || now() - cached.at > FEATURES_CACHE_MS) {
+      const f = read();
+      cached = { at: now(), on: f.simulator === true, auto: f.simulator === true && f.autoStart === true };
+    }
+    return cached;
+  };
   const provider = brokerProvider(deps);
   return {
     ...provider,
-    available() {
-      if (!cached || now() - cached.at > FEATURES_CACHE_MS) cached = { at: now(), on: read().simulator === true };
-      return cached.on;
-    },
+    available: () => features().on,
+    // Default off. The control plane may set autoStart in the features file;
+    // LFG_PREVIEW_SIMULATOR_AUTOSTART=1 forces it on for development.
+    get autoStart() { return env.LFG_PREVIEW_SIMULATOR_AUTOSTART === "1" || features().auto; },
   };
 }
 
 export const PREVIEW_FEATURES_FILE = "/etc/omg/preview-features.json";
 const FEATURES_CACHE_MS = 5_000;
 
-function readPreviewFeatures(): { simulator?: unknown } {
+function readPreviewFeatures(): { simulator?: unknown; autoStart?: unknown } {
   try {
-    return JSON.parse(readFileSync(PREVIEW_FEATURES_FILE, "utf8")) as { simulator?: unknown };
+    return JSON.parse(readFileSync(PREVIEW_FEATURES_FILE, "utf8")) as { simulator?: unknown; autoStart?: unknown };
   } catch {
     return {};
   }
@@ -53,7 +62,7 @@ function readPreviewFeatures(): { simulator?: unknown } {
 
 export interface BrokerDeps {
   fetch?: typeof fetch;
-  readFeatures?: () => { simulator?: unknown };
+  readFeatures?: () => { simulator?: unknown; autoStart?: unknown };
   baseUrl?: () => string;
   token?: () => string | null;
   now?: () => number;
