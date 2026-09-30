@@ -305,6 +305,19 @@ test("a code relayed back from auth.omg.dev is handed to the box", async () => {
   expect(posted).toEqual([{ code: "c0de", state: "st4te" }]);
 });
 
+async function pasteAddress(address: string) {
+  const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+  ui.flush(() => {
+    const input = ui.query('input[aria-label="Sign-in address"]') as HTMLInputElement;
+    setValue.call(input, address);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await ui.flushAsync(() => {
+    (ui.query("form[data-paste-back]") as HTMLFormElement).requestSubmit();
+  });
+  await ui.flushAsync(() => new Promise((r) => setTimeout(r, 20)));
+}
+
 test("a paste-back sign-in posts the code and state from the pasted address", async () => {
   const posted: unknown[] = [];
   const base = globalThis.fetch;
@@ -321,16 +334,24 @@ test("a paste-back sign-in posts the code and state from the pasted address", as
   }) as typeof fetch;
   configureOmgTransport(createSameOriginTransport());
   const originalPrompt = window.prompt;
-  window.prompt = (() => "http://127.0.0.1:53682/callback?code=c0de&state=st4te#_=_") as typeof window.prompt;
+  let prompted = false;
+  window.prompt = (() => { prompted = true; return null; }) as typeof window.prompt;
   try {
     await customForm();
     await ui.flushAsync(() => new Promise((r) => setTimeout(r, 20)));
+    // The popup navigates and stays open while the page waits: no blocking
+    // dialog, which would stall the popup and leave it blank.
+    expect(prompted).toBe(false);
+    expect(popup.location.href).toBe("https://www.facebook.com/dialog/oauth");
+    expect(closed).toBe(false);
+    expect(ui.query("form[data-paste-back]")).not.toBeNull();
+    await pasteAddress("http://127.0.0.1:53682/callback?code=c0de&state=st4te#_=_");
   } finally {
     window.prompt = originalPrompt;
   }
-  expect(popup.location.href).toBe("https://www.facebook.com/dialog/oauth");
   expect(closed).toBe(true);
   expect(posted).toEqual([{ code: "c0de", state: "st4te" }]);
+  expect(ui.query("form[data-paste-back]")).toBeNull();
 });
 
 test("a pasted address without a code posts nothing and says so", async () => {
@@ -343,14 +364,10 @@ test("a pasted address without a code posts nothing and says so", async () => {
     return base(input, init);
   }) as typeof fetch;
   configureOmgTransport(createSameOriginTransport());
-  const originalPrompt = window.prompt;
-  window.prompt = (() => "http://127.0.0.1:53682/callback?error=access_denied&state=st4te") as typeof window.prompt;
-  try {
-    await customForm();
-    await ui.flushAsync(() => new Promise((r) => setTimeout(r, 20)));
-  } finally {
-    window.prompt = originalPrompt;
-  }
+  await customForm();
+  await ui.flushAsync(() => new Promise((r) => setTimeout(r, 20)));
+  await pasteAddress("http://127.0.0.1:53682/callback?error=access_denied&state=st4te");
   expect(posted).toEqual([]);
+  expect(ui.query("form[data-paste-back]")).not.toBeNull();
   expect(ui.text()).toContain("That address has no sign-in code");
 });
