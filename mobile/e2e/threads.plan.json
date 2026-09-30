@@ -7,7 +7,7 @@
     {
       "name": "Threads sit above tasks on Home, title only",
       "goal": "Reach the Home screen list. If the system Home screen is visible, tap the omg app icon. If the Your data and AI providers screen appears, tap Agree and continue. Then look at the list. Do not open a thread or a session.",
-      "done": "A Threads section with the Pricing ideas thread is at the top of the list, five thread titles with no preview line, a See more link, and a Tasks section after it.",
+      "done": "A Threads section with the Pricing ideas thread is at the top of the list, five thread titles with no preview line, See more in the Threads header, and a Tasks section after it.",
       "expect": [
         "Threads",
         "Pricing ideas",
@@ -22,7 +22,7 @@
     },
     {
       "name": "See more opens every thread",
-      "goal": "Tap See more under the thread titles in the Threads section. Do not tap a thread row.",
+      "goal": "Tap See more at the right of the Threads header. Do not tap a thread row.",
       "done": "The Threads page is open and lists all six threads, each with its preview line.",
       "expect": [
         "Threads",

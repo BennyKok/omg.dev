@@ -817,9 +817,11 @@ export function SectionHeader({
           hitSlop={8}
           accessibilityRole="button"
           accessibilityLabel={actionAccessibilityLabel ?? actionLabel}
-          style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}
+          style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 2, opacity: pressed ? 0.5 : 1 })}
         >
           <Text style={{ ...type.subhead, color: colors.primary }}>{actionLabel}</Text>
+          {/* The action opens a page, so it carries the push chevron. */}
+          <Icon ios="chevron.right" android="chevron_right" size={12} color={colors.primary} />
         </Pressable>
       ) : null}
     </Pressable>
@@ -1054,8 +1056,9 @@ export function SessionCard({
                   flexShrink: 1,
                   // Unread is not communicated by the dot alone: the title
                   // carries full strength weight while it is unread, and
-                  // settles back once it has been read.
-                  fontWeight: unread ? "700" : "600",
+                  // settles back once it has been read. A title-only row is
+                  // regular weight, so bold there means unread and nothing else.
+                  fontWeight: unread ? "700" : singleLine ? "400" : "600",
                   color: colors.text,
                 }}
               />

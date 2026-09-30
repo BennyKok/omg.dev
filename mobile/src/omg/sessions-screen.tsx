@@ -2030,10 +2030,20 @@ export function SessionsScreen({
                   list (ThreadPullIndicator), so the heading needs no button. */}
               {threads.length ? (
                 <View testID="threads-section" style={{ paddingBottom: space.sm }}>
-                  <SectionHeader label="Threads" count={threads.length} />
+                  <SectionHeader
+                    label="Threads"
+                    count={threads.length}
+                    {...(threads.length > HOME_THREAD_LIMIT
+                      ? {
+                          actionLabel: "See more",
+                          actionAccessibilityLabel: `See all ${threads.length} threads`,
+                          onAction: () => router.push("/threads" as Href),
+                        }
+                      : {})}
+                  />
                   {/* Title only, and at most HOME_THREAD_LIMIT rows: the list
                       is a shortcut to recent chats, not their inbox. The rest
-                      are one tap away on /threads. */}
+                      are one tap away on /threads, from the header's See more. */}
                   {threads.slice(0, HOME_THREAD_LIMIT).map((thread) => (
                     <SessionCard
                       key={`thread:${thread.id}`}
@@ -2047,23 +2057,6 @@ export function SessionsScreen({
                       animateEntry={animateEntry}
                     />
                   ))}
-                  {threads.length > HOME_THREAD_LIMIT ? (
-                    <Pressable
-                      testID="threads-see-more"
-                      accessibilityRole="button"
-                      accessibilityLabel={`See all ${threads.length} threads`}
-                      onPress={() => router.push("/threads" as Href)}
-                      hitSlop={6}
-                      style={({ pressed }) => ({
-                        marginHorizontal: SESSION_ROW.inset,
-                        paddingHorizontal: SESSION_ROW.padding,
-                        paddingVertical: space.sm,
-                        opacity: pressed ? 0.5 : 1,
-                      })}
-                    >
-                      <Text style={{ ...type.subhead, color: colors.primary, fontWeight: "600" }}>See more</Text>
-                    </Pressable>
-                  ) : null}
                   {homeRows.length ? <SectionHeader label="Tasks" count={roots.length} /> : null}
                 </View>
               ) : null}
