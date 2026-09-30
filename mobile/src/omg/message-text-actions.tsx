@@ -1,4 +1,5 @@
-import MenuView, { type MenuAction } from "@expo/ui/community/menu";
+import { type MenuAction } from "@expo/ui/community/menu";
+import { HoldMenu } from "./hold-menu";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Modal, Pressable, useWindowDimensions, View, type ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -57,24 +58,23 @@ export function MessageTextActions({ text, children, onCopy, align = "stretch" }
   };
   if (!text.trim()) return <>{children}</>;
   return <>
-    <MenuView
+    <HoldMenu
       actions={[
         { id: "copy", title: "Copy", image: "doc.on.doc" },
         { id: "select", title: "Select text", image: "text.cursor" },
       ] satisfies MenuAction[]}
-      shouldOpenOnLongPress
-      colorScheme={isDark ? "dark" : "light"}
+      isDark={isDark}
       style={{ alignSelf: align }}
-      onPressAction={({ nativeEvent }) => {
-        if (nativeEvent.event === "copy") {
+      onAction={(id) => {
+        if (id === "copy") {
           if (onCopy) onCopy();
           else void copyAll();
         }
-        if (nativeEvent.event === "select") selection.open(text);
+        if (id === "select") selection.open(text);
       }}
     >
       {children}
-    </MenuView>
+    </HoldMenu>
     {note ? <Text accessibilityLiveRegion="polite" style={{ ...type.caption, color: colors.textMuted }}>{note}</Text> : null}
     <SelectTextModal selection={selection} />
   </>;

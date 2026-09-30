@@ -6,7 +6,7 @@ import { resolve } from 'node:path';
 mock.module(resolve(import.meta.dir, '../node_modules/react/index.js'), () => React);
 const View = ({ children }: any) => <div>{children}</div>;
 const Pressable = ({ children, accessibilityLabel, disabled, onPress }: any) => <button aria-label={accessibilityLabel} disabled={disabled} onClick={onPress}>{children}</button>;
-mock.module(resolve(import.meta.dir, '../node_modules/react-native/index.js'), () => ({ View, Pressable, useWindowDimensions: () => ({ width: 390, height: 844 }), Modal: ({ visible, children }: any) => visible ? <section>{children}</section> : null }));
+mock.module(resolve(import.meta.dir, '../node_modules/react-native/index.js'), () => ({ View, Pressable, ActionSheetIOS: { showActionSheetWithOptions: () => {} }, useWindowDimensions: () => ({ width: 390, height: 844 }), Modal: ({ visible, children }: any) => visible ? <section>{children}</section> : null }));
 mock.module(import.meta.resolve('react-native-safe-area-context'), () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
 const writes: string[] = [];
 let failCopy = false;
@@ -19,6 +19,7 @@ mock.module(resolve(import.meta.dir, '../src/omg/text.tsx'), () => ({
 mock.module(resolve(import.meta.dir, '../src/omg/markdown.tsx'), () => ({ useBodyText: () => ({}) }));
 const { light, type, space } = await import('../src/omg/palette');
 mock.module(resolve(import.meta.dir, '../src/omg/theme.ts'), () => ({ useTheme: () => ({ colors: light, type, space }) }));
+mock.module(import.meta.resolve('expo-constants'), () => ({ default: { platform: { ios: { buildNumber: null } } } }));
 mock.module(import.meta.resolve('@expo/ui/community/menu'), () => ({ default: ({ children, actions, onPressAction }: any) => {
   const [open, setOpen] = React.useState(false);
   return <div><button aria-label="Message options" onClick={() => setOpen(true)}>{children}</button>{open ? actions.map((action: any) => <button key={action.id} aria-label={action.title} onClick={() => { setOpen(false); onPressAction({ nativeEvent: { event: action.id } }); }}>{action.title}</button>) : null}</div>;

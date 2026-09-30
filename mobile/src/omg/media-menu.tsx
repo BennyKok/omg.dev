@@ -1,4 +1,5 @@
-import MenuView, { type MenuAction } from "@expo/ui/community/menu";
+import { type MenuAction } from "@expo/ui/community/menu";
+import { HoldMenu } from "./hold-menu";
 import { type ReactNode, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, View } from "react-native";
 
@@ -71,12 +72,11 @@ export function SaveMenu({ onSave, testID = "save-menu", children }: {
 }) {
   const { isDark } = useTheme();
   return (
-    <MenuView
+    <HoldMenu
       actions={ACTIONS}
-      shouldOpenOnLongPress
-      colorScheme={isDark ? "dark" : "light"}
-      onPressAction={({ nativeEvent }) => {
-        if (nativeEvent.event === "save") onSave();
+      isDark={isDark}
+      onAction={(id) => {
+        if (id === "save") onSave();
       }}
       testID={testID}
     >
@@ -89,6 +89,6 @@ export function SaveMenu({ onSave, testID = "save-menu", children }: {
       >
         {children}
       </View>
-    </MenuView>
+    </HoldMenu>
   );
 }
