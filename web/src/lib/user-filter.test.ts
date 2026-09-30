@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  hostedStartUserFilter,
   initialUserFilter,
   sessionMatchesUserFilter,
   userFilterUpdatesStandaloneIdentity,
@@ -108,5 +109,30 @@ describe("composerDefaultOwner", () => {
     expect(composerDefaultOwner(null, "angel@example.com")).toBe("angel@example.com");
     expect(composerDefaultOwner(null, "__all")).toBe("");
     expect(composerDefaultOwner(null, "__unassigned")).toBe("");
+  });
+});
+
+describe("hostedStartUserFilter", () => {
+  const users = [{ email: "itechbenny@gmail.com" }, { email: "lyyluiyanyan@gmail.com" }];
+
+  test("defaults a shared machine to the viewer's own sessions", () => {
+    expect(hostedStartUserFilter({ saved: null, viewerEmail: "ITechBenny@gmail.com", users }))
+      .toBe("itechbenny@gmail.com");
+  });
+
+  test("a saved choice wins over the default", () => {
+    expect(hostedStartUserFilter({ saved: "__all", viewerEmail: "itechbenny@gmail.com", users }))
+      .toBe("__all");
+    expect(hostedStartUserFilter({ saved: "lyyluiyanyan@gmail.com", viewerEmail: "itechbenny@gmail.com", users }))
+      .toBe("lyyluiyanyan@gmail.com");
+  });
+
+  test("a saved person who left the roster falls back to the viewer", () => {
+    expect(hostedStartUserFilter({ saved: "gone@example.com", viewerEmail: "itechbenny@gmail.com", users }))
+      .toBe("itechbenny@gmail.com");
+  });
+
+  test("an unshared machine (no roster) keeps the current filter", () => {
+    expect(hostedStartUserFilter({ saved: null, viewerEmail: "itechbenny@gmail.com", users: [] })).toBeNull();
   });
 });

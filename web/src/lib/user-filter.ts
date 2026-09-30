@@ -68,3 +68,33 @@ export function composerDefaultOwner(identity: string | null, filter: string): s
   if (identity) return identity;
   return filter === "__all" || filter === "__unassigned" ? "" : filter;
 }
+
+/**
+ * Where a managed (hosted) surface opens its owner filter once the box has
+ * answered, or null to keep the current one.
+ *
+ * 1. The filter this viewer saved on this machine, when it still means
+ *    something on the current roster.
+ * 2. Otherwise the viewer's own sessions, when the viewer is on the roster.
+ *    An unshared machine has no roster, so it stays open ("__all").
+ */
+export function hostedStartUserFilter({
+  saved,
+  viewerEmail,
+  users,
+}: {
+  saved: string | null | undefined;
+  viewerEmail: string | null | undefined;
+  users: readonly { email: string }[];
+}): string | null {
+  const find = (email: string) => {
+    const want = email.trim().toLowerCase();
+    return users.find((user) => user.email.trim().toLowerCase() === want)?.email ?? null;
+  };
+  if (saved === "__all" || saved === "__unassigned") return saved;
+  if (saved) {
+    const match = find(saved);
+    if (match) return match;
+  }
+  return viewerEmail ? find(viewerEmail) : null;
+}

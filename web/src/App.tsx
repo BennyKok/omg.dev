@@ -165,6 +165,7 @@ import {
   isSubagentUpdateText,
 } from "./lib/bot-transcript";
 import {
+  hostedStartUserFilter,
   initialUserFilter,
   reconcileUserFilter,
   sessionMatchesUserFilter,
@@ -357,6 +358,7 @@ import {
   clearLegacyPinnedSessions,
   readLegacyPinnedSessions,
   togglePinnedSession,
+  withPinnedFamilies,
 } from "./lib/session-pins";
 import { pendingLiveFocusRequest } from "./lib/live-focus";
 import {
@@ -1361,7 +1363,14 @@ type BootstrapPayload = {
   sessions?: Session[] | null;
   sessionPins?: string[] | null;
   /** Which conversation participant, if any, "I" am — see fetchBootstrap. */
-  viewer?: { managed: boolean; participantId: string | null } | null;
+  viewer?: {
+    managed: boolean;
+    participantId: string | null;
+    /** Verified viewer email. Managed boxes only. */
+    email?: string | null;
+    /** This viewer's saved owner filter on this box. Managed boxes only. */
+    userFilter?: string | null;
+  } | null;
   users?: User[] | null;
   repos?: Repo[] | null;
   auto?: { agents?: AutoAgent[] | null; tz?: string; findings?: AutoFinding[] | null };
@@ -6364,6 +6373,9 @@ export function App() {
   // which owns the list. The button only needs the current name for its label.
   const navMachineName = activeMachine().name;
   const didDefaultFilter = useRef(false);
+  const hostedFilterAppliedRef = useRef<number | null>(null);
+  const hostedSurfaceRef = useRef(hostedSurface);
+  hostedSurfaceRef.current = hostedSurface;
   const viewPrefs = useMemo(() => applyRoleViews(settings, roleViewer), [settings, roleViewer]);
   const hiddenPages = roleViewer.hiddenPages;
   const roleViewerState = useMemo<RoleViewerState>(
@@ -6660,6 +6672,24 @@ export function App() {
     }
     setViewerParticipantId(payload.viewer?.participantId ?? null);
     setUsers(payload.users ?? []);
+    // A managed box remembers the owner filter per viewer, because the host's
+    // localStorage copy is shared by every machine and can be reset. Apply it
+    // once per machine, so a later refresh does not undo a change made since.
+    const generation = omgTransportGeneration();
+    if (
+      hostedSurfaceRef.current &&
+      payload.viewer?.managed &&
+      hostedFilterAppliedRef.current !== generation
+    ) {
+      hostedFilterAppliedRef.current = generation;
+      const start = hostedStartUserFilter({
+        saved: payload.viewer.userFilter,
+        viewerEmail: payload.viewer.email,
+        users: payload.users ?? [],
+      });
+      // A session deep link opens on "__all" so the target is not hidden.
+      if (start && !sessionDeepLinkRef.current) setUserFilter(start);
+    }
     setRepos(payload.repos ?? []);
     setAutoAgents(payload.auto?.agents ?? []);
     setBots(botPayload.bots ?? []);
@@ -7153,6 +7183,15 @@ export function App() {
     if (userFilterUpdatesStandaloneIdentity(value, hostedSurface)) {
       localStorage.setItem("lfg_user", value);
     }
+    // A managed box keeps the choice per viewer (see loadCore). A local box
+    // answers 400, which is fine: localStorage already holds it there.
+    if (hostedSurface) {
+      void api("/api/session-user-filter", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filter: value }),
+      }).catch(() => {});
+    }
   }, [hostedSurface]);
 
   const allLiveSessions = useMemo(
@@ -7239,6 +7278,12 @@ export function App() {
       sessionMatchesProjectFilter(session, projectFilter),
     );
   }, [userScopedSessions, projectFilter]);
+  // The Chat roster adds pinned families from every project to the scoped
+  // list. The Board, the busy counts and the folder counts stay scoped.
+  const rosterSessions = useMemo(
+    () => withPinnedFamilies(liveSessions, userScopedSessions, topPinned),
+    [liveSessions, userScopedSessions, topPinned],
+  );
 
   // Resolve a pending `/?session=<id>` deep link. This lives at the app level
   // (it used to be buried in the wide rail, so mobile ignored deep links
@@ -7581,10 +7626,10 @@ export function App() {
   // Stream detailed transcripts only for sessions the UI has explicitly opened.
   // Wide-screen stage columns mark their session as expanded when previewed or
   // pinned; rail-only rows keep using lightweight list/status data.
-  const expandedIds = useExpandedIds(liveSessions, false);
+  const expandedIds = useExpandedIds(rosterSessions, false);
   const visibleTranscripts = useVisibleTranscriptSids(tab === "live");
-  const sseLiveStream = useLiveSessionStream(liveSessions, useWsLive ? [] : expandedIds);
-  const wsLiveStream = useLiveSocket(liveSessions, expandedIds, {
+  const sseLiveStream = useLiveSessionStream(rosterSessions, useWsLive ? [] : expandedIds);
+  const wsLiveStream = useLiveSocket(rosterSessions, expandedIds, {
     enabled: useWsLive,
     onStatusRows: applyLiveStatusRows,
     // The same identity every other per-person call already declares. A
@@ -9451,7 +9496,7 @@ export function App() {
               openSessionId={openSessionId}
               onOpenSessionPage={openSessionPage}
               onCloseSessionPage={closeSessionPage}
-              sessions={liveSessions}
+              sessions={rosterSessions}
               shippedReview={shippedReview}
               liveSessionIds={liveStatusIds}
               topPinned={topPinned}
