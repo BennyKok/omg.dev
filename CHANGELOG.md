@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## September 30, 2026 - Codex runtime 0.159.2 (v0.6.145)
+
+- Codex sessions use Codex CLI 0.159.2. The previous bundled runtime was 0.153.4.
+- The model list adds GPT-6.1 Sol, GPT-6 Sol, and GPT-6 Luna. Fast mode works for these models.
+- The default Codex model stays GPT-5.6 Sol.
+
 ## September 29, 2026 - New chats start with no project, and the preview keeps up (v0.6.144)
 
 - A new chat from Home starts with no project. A folder you pick stays picked for this visit only, so an old folder no longer decides where a new request runs. The iPhone app does the same.

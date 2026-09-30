@@ -1380,7 +1380,10 @@ type SlashSkillState = {
 // sortClaudeModelsByRelease in src/agent-catalog.ts).
 const CLAUDE_MODELS = ["claude-opus-5-5", "opus", "claude-fable-5-1", "fable", "sonnet", "haiku"];
 const CODEX_MODELS = [
+  "gpt-6.1-sol",
   "gpt-6-astra",
+  "gpt-6-sol",
+  "gpt-6-luna",
   "gpt-5.6-sol",
   "gpt-5.6-terra",
   "gpt-5.6-luna",
@@ -1393,7 +1396,10 @@ const CODEX_MODELS = [
 // aliases). Kept in sync with the AISDK_MODELS allowlist in serve.ts.
 const AISDK_MODELS = CLAUDE_MODELS;
 const CODEX_AISDK_MODELS = [
+  "gpt-6.1-sol",
   "gpt-6-astra",
+  "gpt-6-sol",
+  "gpt-6-luna",
   "gpt-5.6-sol",
   "gpt-5.6-terra",
   "gpt-5.6-luna",
