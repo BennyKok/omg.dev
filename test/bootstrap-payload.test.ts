@@ -29,7 +29,7 @@ describe("the bootstrap payload", () => {
       .map(m => m[1]);
     expect(taskKeys.length).toBeGreaterThan(5);
 
-    const response = block.slice(block.indexOf("return json("));
+    const response = block.slice(block.lastIndexOf("return json("));
     for (const key of taskKeys) {
       // autoAgents and findings are nested under `auto`, so accept either the
       // bare key or a `boot.<key>` reference inside the response object.
@@ -49,7 +49,7 @@ describe("the bootstrap payload", () => {
     const block = bootstrapBlock();
     expect(block).toContain("botViewerFromRequest(req, url.searchParams.get(\"user\"))");
     expect(block).toContain("viewerConversationParticipantId(viewer.identity)");
-    const response = block.slice(block.indexOf("return json("));
+    const response = block.slice(block.lastIndexOf("return json("));
     const viewer = response.slice(response.indexOf("viewer: {"), response.indexOf("users:"));
     expect(viewer).toContain("managed: viewer.managed,");
     expect(viewer).toContain("participantId: viewerParticipantId,");

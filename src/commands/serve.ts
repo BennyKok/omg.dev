@@ -6025,6 +6025,21 @@ a{color:#60a5fa}
             { version: appVersion(), bootId: SERVER_INSTANCE_ID },
           );
         }
+        if (url.searchParams.get("view") === "owner-filter") {
+          // The session list's owner filter, for the native app: the roster
+          // plus who is asking and what they saved. Under /api/bootstrap on
+          // purpose, because that is the one path the host proxy merges the
+          // shared roster into. A tenth of the full payload to read on focus.
+          const viewer = botViewerFromRequest(req, undefined);
+          return json({
+            users: userRoster(),
+            viewer: {
+              managed: viewer.managed,
+              email: viewer.managed ? viewer.identity : null,
+              userFilter: viewer.managed ? savedUserFilter(viewer.identity) : null,
+            },
+          });
+        }
         const sessionsTask = listSessionsCached().then((sessions) => {
           warmChatTranscripts(sessions);
           return sessions;
