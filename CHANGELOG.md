@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## September 30, 2026 - Hosted models see attached images (v0.6.148)
+
+- The omg agent on a Computer now receives attached images and screenshots with image-capable models, such as GLM 5.3 Flash, Qwen 3.7 Plus, MiniMax M3, Grok 4.7, Claude, and GPT-5.6. Before, every model answered as if no image was attached.
+- Text-only models, such as DeepSeek V4 Flash 0731, stay text-only, and the agent is told it cannot see images.
+- New Expo projects keep one home screen. `bun run typecheck` fails when a second file answers `/` or when screens are in a root `app/` folder that Expo Router ignores. Before, an app could keep showing the template to-do screen.
+
 ## September 30, 2026 - Open on the limit sheet shows the chat (v0.6.147)
 
 - When all agents are in use, Open on the limit sheet now shows the chat even when it is in another project. Home switches to that chat's project first.
