@@ -95,8 +95,8 @@ private final class LoginController: UIViewController, WKNavigationDelegate, WKU
     configuration.title = "Use login"
     configuration.baseBackgroundColor = .label
     configuration.baseForegroundColor = .systemBackground
-    configuration.cornerStyle = .large
-    configuration.contentInsets = NSDirectionalEdgeInsets(top: 14, leading: 20, bottom: 14, trailing: 20)
+    configuration.cornerStyle = .capsule
+    configuration.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 18, bottom: 10, trailing: 18)
     let approveButton = UIButton(configuration: configuration)
     approveButton.accessibilityIdentifier = "browser-login-use-login"
     approveButton.addTarget(self, action: #selector(approve), for: .touchUpInside)
@@ -106,9 +106,10 @@ private final class LoginController: UIViewController, WKNavigationDelegate, WKU
     NSLayoutConstraint.activate([
       approveButton.topAnchor.constraint(equalTo: footer.topAnchor, constant: 12),
       approveButton.bottomAnchor.constraint(equalTo: footer.bottomAnchor, constant: -12),
-      approveButton.leadingAnchor.constraint(equalTo: footer.leadingAnchor, constant: 20),
-      approveButton.trailingAnchor.constraint(equalTo: footer.trailingAnchor, constant: -20),
-      approveButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 50)
+      approveButton.centerXAnchor.constraint(equalTo: footer.centerXAnchor),
+      approveButton.leadingAnchor.constraint(greaterThanOrEqualTo: footer.leadingAnchor, constant: 20),
+      approveButton.trailingAnchor.constraint(lessThanOrEqualTo: footer.trailingAnchor, constant: -20),
+      approveButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 44)
     ])
     let stack = UIStackView(arrangedSubviews: [address, progress, web, footer])
     stack.axis = .vertical
