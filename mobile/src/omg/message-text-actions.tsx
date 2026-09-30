@@ -1,4 +1,6 @@
-import { useState } from "react";
+import MenuView, { type MenuAction } from "@expo/ui/community/menu";
+import { Icon } from "../components";
+import { type ReactNode, useState } from "react";
 import { Modal, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
@@ -7,8 +9,8 @@ import { useTheme } from "./theme";
 import { useBodyText } from "./markdown";
 
 /** One native text view lets selection span paragraphs, lists, and code. */
-export function MessageTextActions({ text, label = "Select text" }: { text: string; label?: string }) {
-  const { colors, type, space } = useTheme();
+export function MessageTextActions({ text, label = "Message options", children, onCopy }: { text: string; label?: string; children?: ReactNode; onCopy?: () => void }) {
+  const { colors, type, space, isDark } = useTheme();
   const body = useBodyText();
   const insets = useSafeAreaInsets();
   // Freeze the message while selecting, including when a reply is streaming.
@@ -34,11 +36,32 @@ export function MessageTextActions({ text, label = "Select text" }: { text: stri
 
   if (!text.trim()) return null;
   return <>
-    {button("Select text", () => {
-      setSelection({ start: 0, end: 0 });
-      setStatus("");
-      setSnapshot(text);
-    }, false, label)}
+    <MenuView
+      actions={[
+        { id: "copy", title: "Copy", image: "doc.on.doc" },
+        { id: "select", title: "Select text", image: "text.cursor" },
+      ] satisfies MenuAction[]}
+      shouldOpenOnLongPress={!!children}
+      colorScheme={isDark ? "dark" : "light"}
+      style={{ alignSelf: children ? "stretch" : "flex-start" }}
+      onPressAction={({ nativeEvent }) => {
+        if (nativeEvent.event === "copy") {
+          if (onCopy) onCopy();
+          else void copy(text);
+        }
+        if (nativeEvent.event === "select") {
+          setSelection({ start: 0, end: 0 });
+          setStatus("");
+          setSnapshot(text);
+        }
+      }}
+    >
+      {children ?? <View accessibilityRole="button" accessibilityLabel={label}
+        style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
+        <Icon ios="ellipsis" android="more_horiz" size={18} color={colors.textSecondary} />
+      </View>}
+    </MenuView>
+    {snapshot === null && !children && status ? <Text accessibilityLiveRegion="polite" style={{ ...type.caption, color: colors.textSecondary }}>{status}</Text> : null}
     <Modal visible={snapshot !== null} animationType="slide" presentationStyle="fullScreen" onRequestClose={close}>
       <View style={{ flex: 1, backgroundColor: colors.bg, paddingTop: insets.top, paddingBottom: Math.max(insets.bottom, space.md) }}>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: space.md }}>

@@ -19,6 +19,11 @@ mock.module(resolve(import.meta.dir, '../src/omg/text.tsx'), () => ({
 mock.module(resolve(import.meta.dir, '../src/omg/markdown.tsx'), () => ({ useBodyText: () => ({}) }));
 const { light, type, space } = await import('../src/omg/palette');
 mock.module(resolve(import.meta.dir, '../src/omg/theme.ts'), () => ({ useTheme: () => ({ colors: light, type, space }) }));
+mock.module(resolve(import.meta.dir, '../src/components.tsx'), () => ({ Icon: () => <span /> }));
+mock.module(import.meta.resolve('@expo/ui/community/menu'), () => ({ default: ({ children, actions, onPressAction }: any) => {
+  const [open, setOpen] = React.useState(false);
+  return <div><button aria-label="Message options" onClick={() => setOpen(true)}>{children}</button>{open ? actions.map((action: any) => <button key={action.id} aria-label={action.title} onClick={() => { setOpen(false); onPressAction({ nativeEvent: { event: action.id } }); }}>{action.title}</button>) : null}</div>;
+} }));
 const { MessageTextActions } = await import('../src/omg/message-text-actions');
 
 test('copies a range across paragraphs and freezes a streaming reply until reopened', async () => {
@@ -27,6 +32,8 @@ test('copies a range across paragraphs and freezes a streaming reply until reope
   const click = (name: string) => ui.flush(() => (ui.query(`button[aria-label="${name}"]`) as HTMLButtonElement).click());
   try {
     ui.render(<MessageTextActions text={text} />);
+    expect(ui.query('[aria-label="Select text"]')).toBeNull();
+    click('Message options');
     click('Select text');
     expect((ui.query('textarea') as HTMLTextAreaElement).readOnly).toBe(true);
     expect((ui.query('[aria-label="Copy selection"]') as HTMLButtonElement).disabled).toBe(true);
@@ -42,6 +49,8 @@ test('copies a range across paragraphs and freezes a streaming reply until reope
     expect(writes.at(-1)).toBe(text);
     click('Done');
     expect(ui.query('textarea')).toBeNull();
+    expect(ui.query('[aria-label="Select text"]')).toBeNull();
+    click('Message options');
     click('Select text');
     expect((ui.query('textarea') as HTMLTextAreaElement).value).toContain('Streaming update');
     expect((ui.query('[aria-label="Copy selection"]') as HTMLButtonElement).disabled).toBe(true);
@@ -51,4 +60,21 @@ test('copies a range across paragraphs and freezes a streaming reply until reope
     expect(ui.text()).toContain('Could not copy. Try again.');
     expect(ui.text()).not.toContain('Copied');
   } finally { failCopy = false; ui.cleanup(); }
+});
+
+test('sent message menu preserves Copy and opens selection without an extra button', () => {
+  const ui = mount();
+  let copies = 0;
+  const click = (name: string) => ui.flush(() => (ui.query(`button[aria-label="${name}"]`) as HTMLButtonElement).click());
+  try {
+    ui.render(<MessageTextActions text="Sent message" onCopy={() => { copies++; }}><span>Sent bubble</span></MessageTextActions>);
+    expect(ui.query('[aria-label="Select text"]')).toBeNull();
+    click('Message options');
+    click('Copy');
+    expect(copies).toBe(1);
+    expect(ui.query('textarea')).toBeNull();
+    click('Message options');
+    click('Select text');
+    expect((ui.query('textarea') as HTMLTextAreaElement).value).toBe('Sent message');
+  } finally { ui.cleanup(); }
 });

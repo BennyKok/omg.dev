@@ -15,8 +15,20 @@
       ]
     },
     {
+      "name": "Reply menu",
+      "goal": "Tap Reply options to open the message menu.",
+      "done": "The native menu offers copying and text selection.",
+      "expect": [
+        "Copy",
+        "Select text"
+      ],
+      "forbid": [
+        "Copy all"
+      ]
+    },
+    {
       "name": "Open reply selection",
-      "goal": "Tap Select reply text to open the assistant reply.",
+      "goal": "Tap Select text in the open message menu to open the assistant reply.",
       "done": "The selection screen shows the full reply and copy controls.",
       "expect": [
         "Message text",
@@ -58,8 +70,21 @@
       ]
     },
     {
+      "name": "Sent message menu",
+      "goal": "Touch and hold the sent bubble that says Help me copy part of this message.",
+      "longPress": true,
+      "done": "The sent message menu offers copying and text selection.",
+      "expect": [
+        "Copy",
+        "Select text"
+      ],
+      "forbid": [
+        "Copy all"
+      ]
+    },
+    {
       "name": "Select sent message",
-      "goal": "Tap Select sent text to open the sent message.",
+      "goal": "Tap Select text in the open sent message menu.",
       "done": "The selection screen shows the sent prompt.",
       "expect": [
         "Help me copy part of this message.",
