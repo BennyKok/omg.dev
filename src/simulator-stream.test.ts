@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ProjectPreview } from "../packages/protocol/src/project-preview.ts";
 import { brokerProvider, parseStream, simulatorStreamProvider } from "./simulator-stream.ts";
+import { formatWait, simulatorStatusText } from "../packages/protocol/src/project-preview.ts";
 
 const preview: ProjectPreview = {
   sessionId: "s-1",
@@ -98,5 +99,19 @@ describe("parseStream", () => {
   test("unknown states and fields are dropped", () => {
     expect(parseStream({ state: "exploded" }).state).toBe("error");
     expect(parseStream({ state: "queued", queuePosition: 2, extra: "x", phase: "nope" })).toEqual({ state: "queued", queuePosition: 2 });
+  });
+});
+
+describe("queue text on the card", () => {
+  test("waits read as seconds, then whole minutes", () => {
+    expect(formatWait(20_000)).toBe("20 s");
+    expect(formatWait(89_000)).toBe("89 s");
+    expect(formatWait(90_000)).toBe("2 min");
+    expect(formatWait(170_000)).toBe("3 min");
+  });
+
+  test("a queued card names its place and the rough wait", () => {
+    expect(simulatorStatusText({ state: "queued", queuePosition: 2, etaMs: 170_000 }))
+      .toBe("All simulators are busy. You are number 2 in line. About 3 min.");
   });
 });
