@@ -2,12 +2,13 @@
 
 Recent product updates and deployment notes.
 
-## September 30, 2026 - GPT-6 Luna is the default omg agent model
+## September 30, 2026 - GPT-6 Luna is the default omg agent model (v0.6.149)
 
 - New omg agent sessions use GPT-6 Luna when no model is picked. This includes the first build after signup and scheduled tasks.
 - GPT-6 Luna reads attached images and screenshots.
 - On a first-run app build, it finished in about 5 minutes for about $0.02, and its screens matched the design more closely than DeepSeek V4 Flash.
 - DeepSeek V4 Flash stays in the model list. A model that you picked stays picked.
+- In the iPhone app, hold a reply to open Copy and Select text, the same menu as a sent message.
 
 ## September 30, 2026 - Hosted models see attached images (v0.6.148)
 
