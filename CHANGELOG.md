@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## September 30, 2026 - GPT-6 Luna is the default omg agent model
+
+- New omg agent sessions use GPT-6 Luna when no model is picked. This includes the first build after signup and scheduled tasks.
+- GPT-6 Luna reads attached images and screenshots.
+- On a first-run app build, it finished in about 5 minutes for about $0.02, and its screens matched the design more closely than DeepSeek V4 Flash.
+- DeepSeek V4 Flash stays in the model list. A model that you picked stays picked.
+
 ## September 30, 2026 - Hosted models see attached images (v0.6.148)
 
 - The omg agent on a Computer now receives attached images and screenshots with image-capable models, such as GLM 5.3 Flash, Qwen 3.7 Plus, MiniMax M3, Grok 4.7, Claude, and GPT-5.6. Before, every model answered as if no image was attached.
