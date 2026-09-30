@@ -50,6 +50,8 @@ describe("the bootstrap payload", () => {
     expect(block).toContain("botViewerFromRequest(req, url.searchParams.get(\"user\"))");
     expect(block).toContain("viewerConversationParticipantId(viewer.identity)");
     const response = block.slice(block.indexOf("return json("));
-    expect(response).toContain("viewer: { managed: viewer.managed, participantId: viewerParticipantId }");
+    const viewer = response.slice(response.indexOf("viewer: {"), response.indexOf("users:"));
+    expect(viewer).toContain("managed: viewer.managed,");
+    expect(viewer).toContain("participantId: viewerParticipantId,");
   });
 });
