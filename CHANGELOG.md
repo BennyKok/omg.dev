@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## September 30, 2026 - The preview shows when the app is still being built (v0.6.146)
+
+- While the agent works, a small amber dot pulses on the app preview card. The preview can still change.
+- When the agent finishes, the dot turns into a green check for a moment, then goes away.
+- Hover the dot on the web, or use VoiceOver in the app, to read "Still building, updates live". With reduced motion, the dot does not move.
+
 ## September 30, 2026 - Codex runtime 0.159.2 (v0.6.145)
 
 - Codex sessions use Codex CLI 0.159.2. The previous bundled runtime was 0.153.4.
