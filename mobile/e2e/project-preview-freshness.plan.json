@@ -1,0 +1,29 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": true
+  },
+  "steps": [
+    {
+      "name": "Preview is up while the agent works",
+      "goal": "Wait for the 'My building app' card. Only inspect it and do not tap anything.",
+      "done": "The card shows the inline web preview, and its icon carries a small dot labelled as still building.",
+      "expect": ["My building app", "Agent is working", "Still building, updates live"],
+      "forbid": ["Up to date"]
+    },
+    {
+      "name": "The turn ends",
+      "goal": "Tap the 'Agent is working. End the turn' button once.",
+      "done": "The button now says the agent is idle, and the card's dot is labelled up to date.",
+      "expect": ["Agent is idle", "Up to date"],
+      "forbid": ["Still building, updates live"]
+    },
+    {
+      "name": "The dot settles away",
+      "goal": "Do not tap anything. Wait until the card no longer shows the up to date mark.",
+      "done": "The card shows the preview with no freshness dot at all.",
+      "expect": ["My building app", "Agent is idle"],
+      "forbid": ["Up to date", "Still building, updates live"]
+    }
+  ]
+}

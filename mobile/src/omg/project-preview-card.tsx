@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppState, Image, Linking, Platform, Pressable, UIManager, useWindowDimensions, View } from "react-native";
 import { router } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import Reanimated, { cancelAnimation, Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withRepeat, withSequence, withTiming } from "react-native-reanimated";
 import {
   inlinePreviewUrl, PREVIEW_LEVEL_LABEL, PROJECT_PREVIEW_RESTART_MESSAGE, PROJECT_PREVIEW_SIMULATOR_PATH, previewLevels, simulatorStatusText,
   type PreviewLevel, type ProjectPreview, type ProjectPreviewSnapshot, type SimulatorStream,
@@ -49,6 +50,72 @@ export function useAgentTurnRevision(busy: boolean): number {
   return revision;
 }
 
+/** How long the green "up to date" mark stays after a turn ends. */
+export const PREVIEW_SETTLE_MS = 2_500;
+
+export type PreviewFreshness = "building" | "updated" | null;
+
+/**
+ * Whether the preview can still change. "building" while the agent runs a
+ * turn: the preview is often up long before the app is done. "updated" for a
+ * moment after the turn ends and the frame reloads, then null.
+ */
+export function usePreviewFreshness(busy: boolean, settleMs = PREVIEW_SETTLE_MS): PreviewFreshness {
+  const [updated, setUpdated] = useState(false);
+  const wasBusy = useRef(busy);
+  useEffect(() => {
+    if (busy) { wasBusy.current = true; setUpdated(false); return; }
+    if (!wasBusy.current) return;
+    wasBusy.current = false;
+    setUpdated(true);
+    const timer = setTimeout(() => setUpdated(false), settleMs);
+    return () => clearTimeout(timer);
+  }, [busy, settleMs]);
+  return busy ? "building" : updated ? "updated" : null;
+}
+
+export const PREVIEW_BUILDING_LABEL = "Still building, updates live";
+export const PREVIEW_UPDATED_LABEL = "Up to date";
+
+/**
+ * A small dot on the card's icon, with no text. Amber and slowly breathing
+ * while the agent works; a green check when the turn ends, which fades out.
+ * Reduced motion keeps both marks static. The words are the accessibility label.
+ */
+function FreshnessDot({ state }: { state: PreviewFreshness }) {
+  const { colors } = useTheme();
+  const reducedMotion = useReducedMotion();
+  const opacity = useSharedValue(1);
+  const scale = useSharedValue(1);
+  useEffect(() => {
+    cancelAnimation(opacity);
+    cancelAnimation(scale);
+    opacity.value = 1;
+    scale.value = 1;
+    if (reducedMotion || !state) return;
+    if (state === "building") {
+      const half = { duration: 1_200, easing: Easing.inOut(Easing.ease) };
+      opacity.value = withRepeat(withSequence(withTiming(0.45, half), withTiming(1, half)), -1, false);
+      scale.value = withRepeat(withSequence(withTiming(0.8, half), withTiming(1, half)), -1, false);
+    } else {
+      scale.value = withSequence(withTiming(0.6, { duration: 0 }), withTiming(1, { duration: 300, easing: Easing.out(Easing.back(2)) }));
+      opacity.value = withSequence(withTiming(1, { duration: PREVIEW_SETTLE_MS * 0.7 }), withTiming(0, { duration: PREVIEW_SETTLE_MS * 0.3 }));
+    }
+    return () => { cancelAnimation(opacity); cancelAnimation(scale); };
+  }, [state, reducedMotion, opacity, scale]);
+  const animated = useAnimatedStyle(() => ({ opacity: opacity.value, transform: [{ scale: scale.value }] }));
+  if (!state) return null;
+  const building = state === "building";
+  const size = building ? 10 : 14;
+  return <Reanimated.View testID="project-preview-freshness" accessible accessibilityRole="image"
+    accessibilityLabel={building ? PREVIEW_BUILDING_LABEL : PREVIEW_UPDATED_LABEL}
+    style={[{ position: "absolute", top: -(size / 2) + 1, right: -(size / 2) + 1, width: size, height: size, borderRadius: size / 2,
+      backgroundColor: building ? colors.warning : colors.success, borderWidth: 2, borderColor: colors.card,
+      alignItems: "center", justifyContent: "center" }, animated]}>
+    {building ? null : <Icon ios="checkmark" android="check" size={7} color="#fff" />}
+  </Reanimated.View>;
+}
+
 export function ProjectPreviewPanel({ sessionId, transport, email, onOpenComputer = openComputer, initialLevel = "web", computerSocket, agentBusy = false }: {
   sessionId: string | null; transport: Pick<OmgTransport, "request"> | null; email?: string;
   /** True while the agent runs a turn. The preview reloads when a turn ends. */
@@ -62,6 +129,7 @@ export function ProjectPreviewPanel({ sessionId, transport, email, onOpenCompute
 }) {
   const { colors } = useTheme();
   const frameRevision = useAgentTurnRevision(agentBusy);
+  const freshness = usePreviewFreshness(agentBusy);
   const [preview, setPreview] = useState<ProjectPreview | null>(null);
   // Open by default: the inline web preview is the first thing a new Expo
   // app shows. A person who closed it once keeps it closed on this device.
@@ -216,6 +284,7 @@ export function ProjectPreviewPanel({ sessionId, transport, email, onOpenCompute
           {expoGoUrl
             ? <Icon ios="iphone" android="smartphone" size={17} color={colors.primary} />
             : <Icon ios="globe" android="public" size={17} color={colors.primary} />}
+          {stopped ? null : <FreshnessDot state={freshness} />}
         </View>
         <Text numberOfLines={1} style={{ flexShrink: 1, color: colors.foreground, fontSize: 15, fontWeight: "600" }}>{preview.title}</Text>
         {status ? <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>{status}</Text> : null}

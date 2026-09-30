@@ -1127,6 +1127,35 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
     }
   }
 
+  /* The preview card's "still building" dot, and its fade after the turn. */
+  @keyframes lfg-preview-breathe {
+    0%,
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.45;
+      transform: scale(0.8);
+    }
+  }
+
+  @keyframes lfg-preview-settle {
+    0% {
+      opacity: 0;
+      transform: scale(0.6);
+    }
+    12%,
+    70% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    100% {
+      opacity: 0;
+      transform: scale(1);
+    }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .user-queued-label > svg {
       animation: none;
