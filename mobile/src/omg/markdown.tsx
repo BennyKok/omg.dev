@@ -31,7 +31,7 @@ import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { marked, type Token, type Tokens } from "marked";
 import { createContext, Fragment, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Image, Linking, Platform, ScrollView, StyleSheet, View } from "react-native";
+import { Image, Linking, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import Reanimated, {
   cancelAnimation,
   Easing,
@@ -44,6 +44,7 @@ import Reanimated, {
 } from "react-native-reanimated";
 
 import { IconButton, withAlpha } from "../components";
+import { LucideIcon } from "./lucide";
 import { mentionFromHref } from "../../../packages/protocol/src/threads";
 import { agentIcon } from "./agent-icons";
 import { sessionHrefFromCodespan, sessionRefFromHref, threadRefFromHref } from "./session-mention";
@@ -161,22 +162,30 @@ function lex(src: string): Token[] {
 }
 
 /**
- * False inside a transcript reply. There, press-and-hold opens Copy and Select
- * text for the whole reply, and native per-paragraph selection would take the
- * same gesture first.
+ * True when the markdown sits inside a reply's native hold menu (MenuView,
+ * which hosts its child in SwiftUI through `RNHostView`). Two things change:
+ *
+ * - Text is not `selectable`. Native selection is also a long press and would
+ *   take the gesture before the menu could.
+ * - Tables and code blocks use no ScrollView (table columns share the width,
+ *   long code lines wrap). The code block also uses no SF Symbol
+ *   view (its copy icon is a Lucide font glyph in a plain Pressable). Each of
+ *   the two, under `RNHostView`, crashed the app on launch with EXC_BAD_ACCESS
+ *   in ExpoViewShadowNode::layout (a freed hosted child). Verified on iOS 26.5
+ *   one suspect per build.
  */
-const SelectableContext = createContext(true);
+const HoldMenuContext = createContext(false);
 
-export function Markdown({ text, streaming, selectable = true }: { text: string; streaming?: boolean; selectable?: boolean }) {
+export function Markdown({ text, streaming, inHoldMenu = false }: { text: string; streaming?: boolean; inHoldMenu?: boolean }) {
   const { space } = useTheme();
   const tokens = useMemo(() => lex(text), [text]);
 
   return (
-    <SelectableContext.Provider value={selectable}>
+    <HoldMenuContext.Provider value={inHoldMenu}>
       <View style={{ gap: space.md }}>
         <Blocks tokens={tokens} caret streaming={!!streaming} />
       </View>
-    </SelectableContext.Provider>
+    </HoldMenuContext.Provider>
   );
 }
 
@@ -224,7 +233,7 @@ function Block({
 }) {
   const { colors, type, space, radius } = useTheme();
   const body = useBodyText();
-  const selectable = useContext(SelectableContext);
+  const selectable = !useContext(HoldMenuContext);
 
   switch (token.type) {
     case "space":
@@ -394,7 +403,7 @@ function ListItemBody({
   streaming: boolean;
 }) {
   const body = useBodyText();
-  const selectable = useContext(SelectableContext);
+  const selectable = !useContext(HoldMenuContext);
   const children = item.tokens ?? [];
 
   const onlyText =
@@ -429,25 +438,25 @@ function MdTable({
   streaming: boolean;
 }) {
   const { colors, type, space, radius } = useTheme();
+  // Inside a reply's hold menu a ScrollView crashes (see HoldMenuContext), so
+  // the columns share the width there instead of scrolling.
+  const scrolls = !useContext(HoldMenuContext);
   const widths = table.header.map(() => 148);
+  const column = (i: number) => (scrolls ? { width: widths[i] ?? 148 } : { flex: 1 });
+  const frame = {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+  };
 
-  return (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      style={{
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: colors.border,
-        borderRadius: radius.md,
-      }}
-    >
+  const grid = (
       <View>
         <View style={{ flexDirection: "row", backgroundColor: colors.secondary }}>
           {table.header.map((cell, i) => (
             <View
               key={i}
               style={{
-                width: widths[i],
+                ...column(i),
                 paddingHorizontal: space.sm,
                 paddingVertical: space.sm,
                 borderRightWidth: i === table.header.length - 1 ? 0 : StyleSheet.hairlineWidth,
@@ -473,7 +482,7 @@ function MdTable({
               <View
                 key={c}
                 style={{
-                  width: widths[c] ?? 148,
+                  ...column(c),
                   paddingHorizontal: space.sm,
                   paddingVertical: space.sm,
                   borderRightWidth: c === row.length - 1 ? 0 : StyleSheet.hairlineWidth,
@@ -493,8 +502,10 @@ function MdTable({
           </View>
         ))}
       </View>
-    </ScrollView>
   );
+  return scrolls
+    ? <ScrollView horizontal showsHorizontalScrollIndicator={false} style={frame}>{grid}</ScrollView>
+    : <View style={[frame, { overflow: "hidden" }]}>{grid}</View>;
 }
 
 /**
@@ -734,7 +745,7 @@ export function CodeBlock({
   caret?: ReactNode;
 }) {
   const { colors, type, space, radius } = useTheme();
-  const selectable = useContext(SelectableContext);
+  const selectable = !useContext(HoldMenuContext);
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const trailingBreaks = caret ? text.match(/\n+$/)?.[0] ?? "" : "";
@@ -767,29 +778,50 @@ export function CodeBlock({
         }}
       >
         <Text style={{ ...type.caption, color: colors.textMuted, flex: 1 }}>{lang ?? "code"}</Text>
-        <IconButton
-          ios={copied ? "checkmark" : "doc.on.doc"}
-          android={copied ? "check" : "content_copy"}
-          accessibilityLabel="Copy code"
-          onPress={copy}
-          size={13}
-          color={colors.textMuted}
-        />
+        {selectable ? (
+          <IconButton
+            ios={copied ? "checkmark" : "doc.on.doc"}
+            android={copied ? "check" : "content_copy"}
+            accessibilityLabel="Copy code"
+            onPress={copy}
+            size={13}
+            color={colors.textMuted}
+          />
+        ) : (
+          // Plain Pressable and a font glyph inside the hold menu: an SF Symbol
+          // view there crashes (see HoldMenuContext).
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Copy code"
+            onPress={copy}
+            hitSlop={8}
+            style={({ pressed }) => ({ width: 36, height: 36, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.55 : 1 })}
+          >
+            <LucideIcon name={copied ? "check" : "copy"} size={13} color={colors.textMuted} />
+          </Pressable>
+        )}
       </View>
       {/* Code does not wrap: an agent's output is full of paths and commands
-          that become unreadable when broken mid-token. */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-        <View style={{ paddingHorizontal: space.md, paddingBottom: space.sm }}>
-          <Text
-            selectable={selectable}
-            style={{ fontFamily: MONO, fontSize: 13, lineHeight: 19, color: colors.text }}
-          >
-            {visibleText}
-            {caret}
-            {trailingBreaks}
-          </Text>
-        </View>
-      </ScrollView>
+          that become unreadable when broken mid-token. The exception is a
+          reply's hold menu, where a ScrollView crashes (see HoldMenuContext);
+          Select text shows the raw source there. */}
+      {(() => {
+        const code = (
+          <View style={{ paddingHorizontal: space.md, paddingBottom: space.sm }}>
+            <Text
+              selectable={selectable}
+              style={{ fontFamily: MONO, fontSize: 13, lineHeight: 19, color: colors.text }}
+            >
+              {visibleText}
+              {caret}
+              {trailingBreaks}
+            </Text>
+          </View>
+        );
+        return selectable
+          ? <ScrollView horizontal showsHorizontalScrollIndicator={false}>{code}</ScrollView>
+          : code;
+      })()}
     </View>
   );
 }

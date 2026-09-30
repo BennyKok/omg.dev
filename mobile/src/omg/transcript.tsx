@@ -74,7 +74,7 @@ import { workLabel } from "./work-label";
 import { WorkingIndicator } from "./working-indicator";
 import { stampTime } from "./format";
 import { CodeBlock, useBodyText } from "./markdown";
-import { TranscriptBody } from "./transcript-body";
+import { TranscriptBody, VirtualBoundary } from "./transcript-body";
 import { MessageTextActions, ReplyTextActions } from "./message-text-actions";
 import {
   parseMessageAttachments,
@@ -736,10 +736,11 @@ export function TranscriptEntry({
   // header for that same "shipped code over spec.md" note.
   if (bot) {
     return (
-      <View
+      <VirtualBoundary enabled={virtualize}>
+      <ReplyTextActions
+        text={message.text ?? ""}
+        widthFraction={0.84}
         style={{
-          alignSelf: "flex-start",
-          maxWidth: "84%",
           borderRadius: radius.xl,
           borderWidth: StyleSheet.hairlineWidth,
           borderColor: colors.border,
@@ -748,10 +749,9 @@ export function TranscriptEntry({
           paddingVertical: 10,
         }}
       >
-        <ReplyTextActions text={message.text ?? ""}>
-          <TranscriptBody text={message.text ?? ""} streaming={message.streaming} virtualize={virtualize} selectable={false} />
-        </ReplyTextActions>
-      </View>
+        <TranscriptBody text={message.text ?? ""} streaming={message.streaming} virtualize={false} inHoldMenu />
+      </ReplyTextActions>
+      </VirtualBoundary>
     );
   }
 
@@ -759,9 +759,12 @@ export function TranscriptEntry({
   // tint — exactly like the web transcript.
   return (
     <View style={{ alignSelf: "stretch", paddingHorizontal: space.xs }}>
-      <ReplyTextActions text={message.text ?? ""}>
-        <TranscriptBody text={message.text ?? ""} streaming={message.streaming} virtualize={virtualize} selectable={false} />
-      </ReplyTextActions>
+      {/* The virtual boundary sits OUTSIDE the hold menu; see VirtualBoundary. */}
+      <VirtualBoundary enabled={virtualize}>
+        <ReplyTextActions text={message.text ?? ""}>
+          <TranscriptBody text={message.text ?? ""} streaming={message.streaming} virtualize={false} inHoldMenu />
+        </ReplyTextActions>
+      </VirtualBoundary>
     </View>
   );
 }

@@ -52,6 +52,9 @@ export const LUCIDE = {
   "calendar-clock": 0xe304,
   keyboard: 0xe284,
   "chevrons-up-down": 0xe211,
+  // The code block copy button inside a reply's hold menu (see markdown.tsx).
+  copy: 0xe09e,
+  check: 0xe06c,
 } as const;
 
 export type LucideName = keyof typeof LUCIDE;

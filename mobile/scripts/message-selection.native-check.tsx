@@ -5,13 +5,8 @@ import * as React from '../../web/node_modules/react';
 import { resolve } from 'node:path';
 mock.module(resolve(import.meta.dir, '../node_modules/react/index.js'), () => React);
 const View = ({ children }: any) => <div>{children}</div>;
-const Pressable = ({ children, accessibilityLabel, disabled, onPress, onLongPress }: any) => onLongPress
-  ? <div data-hold="reply" onContextMenu={onLongPress}>{children}</div>
-  : <button aria-label={accessibilityLabel} disabled={disabled} onClick={onPress}>{children}</button>;
-let sheet: { options: string[]; choose: (index: number) => void } | null = null;
-const ActionSheetIOS = { showActionSheetWithOptions: ({ options }: any, choose: (index: number) => void) => { sheet = { options, choose }; } };
-mock.module(resolve(import.meta.dir, '../node_modules/react-native/index.js'), () => ({ View, Pressable, ActionSheetIOS, Alert: {}, Platform: { OS: 'ios' }, Modal: ({ visible, children }: any) => visible ? <section>{children}</section> : null }));
-mock.module(import.meta.resolve('expo-haptics'), () => ({ impactAsync: async () => {}, ImpactFeedbackStyle: { Medium: 'medium' } }));
+const Pressable = ({ children, accessibilityLabel, disabled, onPress }: any) => <button aria-label={accessibilityLabel} disabled={disabled} onClick={onPress}>{children}</button>;
+mock.module(resolve(import.meta.dir, '../node_modules/react-native/index.js'), () => ({ View, Pressable, useWindowDimensions: () => ({ width: 390, height: 844 }), Modal: ({ visible, children }: any) => visible ? <section>{children}</section> : null }));
 mock.module(import.meta.resolve('react-native-safe-area-context'), () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
 const writes: string[] = [];
 let failCopy = false;
@@ -30,23 +25,24 @@ mock.module(import.meta.resolve('@expo/ui/community/menu'), () => ({ default: ({
 } }));
 const { MessageTextActions, ReplyTextActions } = await import('../src/omg/message-text-actions');
 
-test('reply has no button; holding it offers Copy and Select text, and selection freezes a streaming reply', async () => {
+test('reply has no button; its hold menu offers Copy and Select text, and selection freezes a streaming reply', async () => {
   const ui = mount();
   const text = 'First paragraph.\n\n第二段 with code: `hello`';
   const click = (name: string) => ui.flush(() => (ui.query(`button[aria-label="${name}"]`) as HTMLButtonElement).click());
-  const hold = () => ui.flush(() => { ui.query('[data-hold="reply"]')!.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true }) as any); });
   const reply = (value: string) => <ReplyTextActions text={value}><span>Reply body</span></ReplyTextActions>;
   try {
     ui.render(reply(text));
-    expect(ui.queryAll('button')).toHaveLength(0);
+    // The only control is the hold-menu trigger wrapping the reply itself.
+    expect(ui.queryAll('button')).toHaveLength(1);
     expect(ui.text()).toBe('Reply body');
-    hold();
-    expect(sheet!.options).toEqual(['Copy', 'Select text', 'Cancel']);
-    await ui.flushAsync(async () => { sheet!.choose(0); });
+    click('Message options');
+    expect(ui.queryAll('button').map(b => b.getAttribute('aria-label'))).toEqual(['Message options', 'Copy', 'Select text']);
+    click('Copy');
+    await ui.flushAsync(async () => {});
     expect(writes.at(-1)).toBe(text);
     expect(ui.text()).toContain('Copied');
-    hold();
-    ui.flush(() => sheet!.choose(1));
+    click('Message options');
+    click('Select text');
     expect((ui.query('textarea') as HTMLTextAreaElement).readOnly).toBe(true);
     expect((ui.query('[aria-label="Copy selection"]') as HTMLButtonElement).disabled).toBe(true);
     ui.flush(() => select({ nativeEvent: { selection: { start: 6, end: 21 } } }));
@@ -60,14 +56,14 @@ test('reply has no button; holding it offers Copy and Select text, and selection
     expect(writes.at(-1)).toBe(text);
     click('Done');
     expect(ui.query('textarea')).toBeNull();
-    hold();
-    ui.flush(() => sheet!.choose(1));
+    click('Message options');
+    click('Select text');
     expect((ui.query('textarea') as HTMLTextAreaElement).value).toContain('Streaming update');
     failCopy = true;
     click('Copy all');
     await ui.flushAsync(async () => {});
     expect(ui.text()).toContain('Could not copy. Try again.');
-  } finally { failCopy = false; sheet = null; ui.cleanup(); }
+  } finally { failCopy = false; ui.cleanup(); }
 });
 
 test('sent message menu preserves Copy and opens selection without an extra button', () => {
