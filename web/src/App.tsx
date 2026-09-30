@@ -1,4 +1,4 @@
-import { OMG_MODELS } from "../../src/omg-models";
+import { OMG_DEFAULT_MODEL, OMG_MODELS } from "../../src/omg-models";
 import { omgModelLabel, omgModelSearchText, parseOmgModel } from "../../packages/protocol/src/omg-model-display";
 import { ModelProviderIcon } from "./lib/model-provider-icons";
 import { useRuntimeLifecycle } from "./lib/runtime-lifecycle";
@@ -1521,7 +1521,7 @@ const AGENT_DEFAULT_MODEL: Record<AgentKind, string> = {
   deepseek: "deepseek-v4-flash",
   devin: "adaptive",
   opencode: "opencode/nemotron-3.5-lightning-free",
-  omg: OMG_MODELS[0]!,
+  omg: OMG_DEFAULT_MODEL,
   jcode: "auto",
   pi: "sonnet",
   copilot: "claude-sonnet-4.5",

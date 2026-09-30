@@ -2,22 +2,38 @@
 // Keep this explicit: picker order is a UX choice, not a pricing contract.
 export const OMG_CHEAPEST_MODEL = "omg/deepseek/deepseek-v4-flash-0731";
 
-// Shared by the runtime and dashboard. Order is the hosted router picker order.
+/**
+ * The model a new omg session runs when nothing names one: first run,
+ * scheduled tasks, and any client that sends no model. One constant; set it
+ * back to OMG_CHEAPEST_MODEL to revert.
+ *
+ * gpt-6-luna (Benny, 2026-09-30): on a real first-run build it finished in
+ * 5.3 min for $0.024, 2 of 2 without help, 0 tool errors, and scored 5.65 on
+ * design match against 2.65 for deepseek-v4-flash-0731. It reads images.
+ */
+export const OMG_DEFAULT_MODEL = "omg/openai/gpt-6-luna";
+
+// Shared by the runtime and dashboard. Order is the hosted router picker
+// order, and the first entry is the default.
 export const OMG_MODELS: string[] = [
-  OMG_CHEAPEST_MODEL,
-  "omg/deepseek/deepseek-v4-pro",
-  "omg/z-ai/glm-5.3-flash",
-  "omg/z-ai/glm-5.2",
-  "omg/qwen/qwen3.7-plus",
-  "omg/qwen/qwen3-coder-next",
-  "omg/minimax/minimax-m3",
-  "omg/x-ai/grok-4.7",
-  "omg/anthropic/claude-fable-5.1",
-  "omg/anthropic/claude-opus-4.8",
-  "omg/anthropic/claude-sonnet-4.6",
-  "omg/openai/gpt-5.6-sol",
-  "omg/openai/gpt-5.6-terra",
-  "omg/openai/gpt-5.6-luna",
+  OMG_DEFAULT_MODEL,
+  ...[
+    OMG_CHEAPEST_MODEL,
+    "omg/deepseek/deepseek-v4-pro",
+    "omg/z-ai/glm-5.3-flash",
+    "omg/z-ai/glm-5.2",
+    "omg/qwen/qwen3.7-plus",
+    "omg/qwen/qwen3-coder-next",
+    "omg/minimax/minimax-m3",
+    "omg/x-ai/grok-4.7",
+    "omg/anthropic/claude-fable-5.1",
+    "omg/anthropic/claude-opus-4.8",
+    "omg/anthropic/claude-sonnet-4.6",
+    "omg/openai/gpt-5.6-sol",
+    "omg/openai/gpt-5.6-terra",
+    "omg/openai/gpt-5.6-luna",
+    "omg/openai/gpt-6-luna",
+  ].filter((model) => model !== OMG_DEFAULT_MODEL),
 ];
 
 /**
@@ -54,6 +70,8 @@ export const OMG_INPUT_MODALITIES_BY_MODEL: Record<string, readonly ("text" | "i
   "omg/openai/gpt-5.6-sol": TEXT_IMAGE,
   "omg/openai/gpt-5.6-terra": TEXT_IMAGE,
   "omg/openai/gpt-5.6-luna": TEXT_IMAGE,
+  // Read 2026-09-30: input_modalities ["file","image","text"].
+  "omg/openai/gpt-6-luna": TEXT_IMAGE,
 };
 
 /** Input modalities for one hosted model, or null when it is not in the catalog. */
@@ -89,6 +107,8 @@ export const OMG_THINKING_LEVELS_BY_MODEL: Record<string, readonly string[]> = O
     "omg/openai/gpt-5.6-sol",
     "omg/openai/gpt-5.6-terra",
     "omg/openai/gpt-5.6-luna",
+    // reasoning_effort listed 2026-09-30.
+    "omg/openai/gpt-6-luna",
   ].map((model) => [model, OMG_EFFORT_LEVELS]),
 );
 

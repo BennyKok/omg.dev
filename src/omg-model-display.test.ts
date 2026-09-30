@@ -11,6 +11,7 @@ describe("omg model display", () => {
   test("every hosted id gets a provider and a short name", () => {
     const labels = OMG_MODELS.map((id) => [id, parseOmgModel(id)!.provider, omgModelLabel(id)]);
     expect(labels).toEqual([
+      ["omg/openai/gpt-6-luna", "openai", "GPT-6 Luna"],
       ["omg/deepseek/deepseek-v4-flash-0731", "deepseek", "DeepSeek V4 Flash"],
       ["omg/deepseek/deepseek-v4-pro", "deepseek", "DeepSeek V4 Pro"],
       ["omg/z-ai/glm-5.3-flash", "z-ai", "GLM 5.3 Flash"],
