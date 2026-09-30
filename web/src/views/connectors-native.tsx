@@ -121,8 +121,31 @@ export function pastedCallbackParams(pasted: string): { code: string; state: str
 function useConnectorSignIn(onChanged: () => Promise<void>) {
   const cleanup = useRef<(() => void) | null>(null);
   useEffect(() => () => cleanup.current?.(), []);
+  // A paste-back sign-in waits for the member to paste the address the
+  // provider ended on. The wait is page state, not a blocking dialog: a
+  // window.prompt in this page stalls the popup it just navigated, which then
+  // stays blank (the Meta Ads Connect bug).
+  const [awaitingPaste, setAwaitingPaste] = useState(false);
+  const pastePopup = useRef<Window | null>(null);
 
-  return async (id: string | Promise<string | null>, reserved?: Window | null) => {
+  const finishPaste = useCallback(async () => {
+    pastePopup.current?.close();
+    pastePopup.current = null;
+    setAwaitingPaste(false);
+    await onChanged();
+  }, [onChanged]);
+
+  const submitPaste = useCallback(
+    async (pasted: string) => {
+      const params = pastedCallbackParams(pasted);
+      if (!params) throw new Error("That address has no sign-in code. Click Connect and try again.");
+      await api("/api/connectors/oauth/callback", { method: "POST", body: JSON.stringify(params) });
+      await finishPaste();
+    },
+    [finishPaste],
+  );
+
+  const signIn = async (id: string | Promise<string | null>, reserved?: Window | null) => {
     cleanup.current?.();
     const popup = reserved === undefined ? window.open("", "omg-oauth", "width=520,height=680") : reserved;
     try {
@@ -147,18 +170,8 @@ function useConnectorSignIn(onChanged: () => Promise<void>) {
         // The provider returns to a loopback address the browser cannot load
         // (packages/connectors/src/paste-back.ts). The member pastes that URL.
         popup.location.href = res.authorizeUrl;
-        const pasted = window.prompt(
-          "Sign in in the new window. It ends on a page that does not load. Copy that page's full address and paste it here.",
-        );
-        popup.close();
-        const params = pastedCallbackParams(pasted ?? "");
-        if (!params) {
-          await onChanged();
-          if (pasted) throw new Error("That address has no sign-in code. Click Connect and try again.");
-          return;
-        }
-        await api("/api/connectors/oauth/callback", { method: "POST", body: JSON.stringify(params) });
-        await onChanged();
+        pastePopup.current = popup;
+        setAwaitingPaste(true);
         return;
       }
       const stop = () => {
@@ -203,6 +216,7 @@ function useConnectorSignIn(onChanged: () => Promise<void>) {
       throw e;
     }
   };
+  return { signIn, awaitingPaste, submitPaste, cancelPaste: finishPaste };
 }
 
 type ConnectorDraft = {
@@ -331,7 +345,7 @@ export function ConnectorsNativePanel() {
     void load();
   }, [load]);
 
-  const signIn = useConnectorSignIn(load);
+  const { signIn, awaitingPaste, submitPaste, cancelPaste } = useConnectorSignIn(load);
   const addConnector: AddConnector = async (draft) => {
     let saved = false;
     let authError: string | null = null;
@@ -423,6 +437,7 @@ export function ConnectorsNativePanel() {
           signIn={signIn}
         />
       )}
+      {awaitingPaste ? <PasteBackForm onSubmit={submitPaste} onCancel={() => void cancelPaste()} /> : null}
       {error ? <p className="px-1 text-xs text-destructive">{error}</p> : null}
 
       {team.length > 0 ? (
@@ -848,6 +863,60 @@ function AddByUrlForm({ user, scope, addConnector, onClose }: { user: string; sc
         /> : null}
         <Button type="submit" size="sm" disabled={busy || !name.trim() || !endpoint.trim()}>
           Add
+        </Button>
+      </div>
+      {error ? <p className="px-1 text-xs text-destructive">{error}</p> : null}
+    </form>
+  );
+}
+
+/** The paste step of a paste-back sign-in (packages/connectors/src/paste-back.ts). */
+function PasteBackForm({ onSubmit, onCancel }: { onSubmit: (pasted: string) => Promise<void>; onCancel: () => void }) {
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await onSubmit(value);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "could not finish the sign-in");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form
+      data-paste-back
+      className="space-y-2 rounded-2xl border border-border bg-card/40 px-4 py-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void submit();
+      }}
+    >
+      <div className="flex items-center gap-2 text-sm font-medium">
+        Finish the sign-in
+        <button type="button" onClick={onCancel} className="ml-auto text-xs font-normal text-muted-foreground hover:text-foreground">
+          Cancel
+        </button>
+      </div>
+      <p className="text-xs leading-relaxed text-muted-foreground">
+        Sign in in the new window. It ends on a page that does not load. Copy that page&apos;s full address and paste it here.
+      </p>
+      <div className="flex items-center gap-2">
+        <Input
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="http://127.0.0.1:53682/callback?code=…"
+          aria-label="Sign-in address"
+          className="h-8 font-mono text-xs"
+          autoFocus
+        />
+        <Button type="submit" size="sm" disabled={busy || !value.trim()}>
+          Connect
         </Button>
       </div>
       {error ? <p className="px-1 text-xs text-destructive">{error}</p> : null}
