@@ -127,6 +127,27 @@ describe("CodingAgentsPage", () => {
   });
   afterEach(() => ui.cleanup());
 
+  test("shows the installed version beside the name while collapsed", () => {
+    renderPage(ui, [agent({ status: { version: "0.159.2", profile: { label: "person@example.com", source: "local-cli" } } as never })]);
+    const version = ui.query('[aria-label="Version 0.159.2"]');
+    expect(version?.textContent).toBe("v0.159.2");
+    expect(version?.closest("button")?.getAttribute("aria-expanded")).toBe("false");
+    expect(ui.text()).toContain("person@example.com");
+  });
+
+  test("omits the version when the runtime does not report one", () => {
+    renderPage(ui, [agent()]);
+    expect(ui.query('[aria-label^="Version "]')).toBeNull();
+    expect(ui.text()).not.toContain("undefined");
+  });
+
+  test("updates the visible version when refreshed status arrives", () => {
+    renderPage(ui, [agent({ status: { version: "0.159.1" } as never })]);
+    renderPage(ui, [agent({ status: { version: "0.159.2" } as never })]);
+    expect(ui.text()).toContain("v0.159.2");
+    expect(ui.text()).not.toContain("v0.159.1");
+  });
+
   test("a collapsed ready row names the detected account", () => {
     renderPage(ui, [
       agent({ status: { profile: { label: "person@example.com", source: "local-cli" } } as never }),

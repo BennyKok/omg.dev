@@ -711,6 +711,7 @@ export type CodingAgentInfo = {
   label: string;
   visible: boolean;
   status: {
+    version?: string;
     configured: boolean;
     accountConnected: boolean;
     omgCapabilityAccess: "mcp" | "contract-only";

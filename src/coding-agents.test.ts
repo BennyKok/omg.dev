@@ -598,6 +598,15 @@ describe("coding agent auth detection", () => {
     expect(codexAgent?.status.accountConnected).toBe(false);
   });
 
+  test("the coding agent list reports the version of the selected CLI", async () => {
+    const home = useTmpHome();
+    const codex = join(home, "codex");
+    writeFileSync(codex, '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "codex-cli 0.159.2"; else exit 1; fi\n', { mode: 0o755 });
+    setEnv("LFG_CODEX_PATH", codex);
+    const agent = (await listCodingAgents()).find((agent) => agent.key === "codex-aisdk");
+    expect(agent?.status.version).toBe("0.159.2");
+  });
+
   const cursorStatus = async (home: string) => {
     const bin = join(home, "cursor-agent");
     writeFileSync(bin, "#!/bin/sh\nexit 0\n");
