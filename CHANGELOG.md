@@ -4,7 +4,7 @@ Recent product updates and deployment notes.
 
 ## September 30, 2026 - Simulator auto-start, iOS crash fixes and Threads on Home (v0.6.150)
 
-- Expo preview card: the Simulator level can start by itself when you open the card. It is off by default, and your account settings turn it on. While all simulators are busy, the card shows your place in line and a rough wait, such as "About 3 min".
+- Expo preview card: the Simulator level can start by itself when you open the card. This option is off for now. While all simulators are busy, the card shows your place in line and a rough wait, such as "About 3 min".
 - When the Simulator level is available, the agent tells you in one sentence to tap Simulator on the card.
 - iPhone app: four TestFlight crash causes are fixed in the app code, including a crash while text draws after a reload. On build 84 and older, messages in the transcript no longer use the menu wrapper that caused three more crashes; a new build is needed for the full fix.
 - iPhone app: Home shows up to five threads as one-line titles, with See more in the Threads header. Titles use regular weight, so bold can mean unread.
