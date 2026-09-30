@@ -463,8 +463,9 @@ export function SessionsScreen({
     });
     return () => sub.remove();
   }, [selectUnassigned]);
-  const rosterUsers = useUserRoster();
-  const [userFilter, setUserFilter] = useUserFilter(rosterUsers);
+  const roster = useUserRoster();
+  const rosterUsers = roster.users;
+  const [userFilter, setUserFilter] = useUserFilter(roster);
 
   const rosterKey = `roster:${bindingId}`;
   const cachedSessions = () => {

@@ -18,10 +18,13 @@
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { STORAGE_KEYS } from "./config";
 import { useOmg } from "./provider";
+import { hostedStartUserFilter } from "./user-filter-start";
+
+export { hostedStartUserFilter };
 
 /** Mirrors the `users` rows of GET /api/users (src/users.ts userRoster). */
 export type RosterUser = {
@@ -57,47 +60,86 @@ export function sessionMatchesUserFilter(
   return session.assignedUser === userFilter || !session.assignedUser;
 }
 
-export function useUserRoster(): RosterUser[] {
+/**
+ * Who is asking, as the box sees it. Only a managed Computer knows: the host
+ * proxy stamps a verified email on every request. A local box through the
+ * relay has no viewer, so the filter stays device-only there.
+ */
+export type OwnerFilterViewer = {
+  managed: boolean;
+  email?: string | null;
+  /** The filter this viewer saved on this box. */
+  userFilter?: string | null;
+};
+
+export type UserRoster = {
+  users: RosterUser[];
+  viewer: OwnerFilterViewer | null;
+  /** The machine this answer came from, so a switch cannot apply a stale one. */
+  bindingId?: string | null;
+};
+
+const EMPTY_ROSTER: UserRoster = { users: [], viewer: null };
+
+export function useUserRoster(): UserRoster {
   const { client, bindingId } = useOmg();
-  const [users, setUsers] = useState<RosterUser[]>([]);
+  const [roster, setRoster] = useState<UserRoster>(EMPTY_ROSTER);
 
   // A machine switch invalidates the roster: it belongs to the box.
   useEffect(() => {
-    setUsers([]);
+    setRoster(EMPTY_ROSTER);
   }, [bindingId]);
 
   // On every focus, like the web's window-focus refetch: the avatar URL
   // carries a rotating cache-buster and a replaced photo should show up.
+  //
+  // Read through /api/bootstrap, not /api/users: the host proxy merges the
+  // shared roster into bootstrap only, so /api/users on a shared Computer
+  // lists nobody. An older box ignores the view and answers the full
+  // bootstrap, which carries the same `users`.
   useFocusEffect(
     useCallback(() => {
       if (!client) return;
       let live = true;
       client.transport
-        .request<{ users?: RosterUser[] }>("/api/users")
+        .request<{ users?: RosterUser[]; viewer?: OwnerFilterViewer | null }>(
+          "/api/bootstrap?view=owner-filter",
+        )
         .then((payload) => {
-          if (live) setUsers(Array.isArray(payload.users) ? payload.users : []);
+          if (!live) return;
+          setRoster({
+            users: Array.isArray(payload.users) ? payload.users : [],
+            viewer: payload.viewer ?? null,
+            bindingId,
+          });
         })
         .catch(() => {
-          // An older machine has no roster endpoint. No filter, not an error.
-          if (live) setUsers([]);
+          // No roster is no filter, not an error.
+          if (live) setRoster(EMPTY_ROSTER);
         });
       return () => {
         live = false;
       };
-    }, [client]),
+    }, [client, bindingId]),
   );
 
-  return users;
+  return roster;
 }
 
 /**
  * The persisted filter, reconciled against the roster: a stored email that
  * has left the roster falls back to everyone rather than filtering the list
  * down to nothing with no visible reason.
+ *
+ * On a managed Computer the box also keeps the choice per viewer. That copy
+ * wins once per machine, and with no saved choice the list opens on the
+ * viewer's own sessions, the same as the web.
  */
-export function useUserFilter(users: RosterUser[]): [string, (next: string) => void] {
+export function useUserFilter({ users, viewer, bindingId: rosterBinding }: UserRoster): [string, (next: string) => void] {
+  const { client, bindingId } = useOmg();
   const [value, setValue] = useState(ALL_USERS);
   const [loaded, setLoaded] = useState(false);
+  const appliedBinding = useRef<string | null | undefined>(undefined);
 
   useEffect(() => {
     let live = true;
@@ -115,6 +157,20 @@ export function useUserFilter(users: RosterUser[]): [string, (next: string) => v
   }, []);
 
   useEffect(() => {
+    if (!loaded || !viewer?.managed || rosterBinding !== bindingId) return;
+    if (appliedBinding.current === bindingId) return;
+    appliedBinding.current = bindingId;
+    const start = hostedStartUserFilter({
+      saved: viewer.userFilter,
+      viewerEmail: viewer.email,
+      users,
+    });
+    if (!start) return;
+    setValue(start);
+    void AsyncStorage.setItem(STORAGE_KEYS.userFilter, start);
+  }, [loaded, viewer, users, bindingId, rosterBinding]);
+
+  useEffect(() => {
     if (!loaded || !users.length) return;
     if (value === ALL_USERS || value === UNASSIGNED_USERS) return;
     if (users.some((user) => user.email === value)) return;
@@ -122,10 +178,20 @@ export function useUserFilter(users: RosterUser[]): [string, (next: string) => v
     void AsyncStorage.setItem(STORAGE_KEYS.userFilter, ALL_USERS);
   }, [loaded, users, value]);
 
+  const managed = !!viewer?.managed;
   const change = useCallback((next: string) => {
     setValue(next);
     void AsyncStorage.setItem(STORAGE_KEYS.userFilter, next);
-  }, []);
+    if (managed && client) {
+      void client.transport
+        .request("/api/session-user-filter", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filter: next }),
+        })
+        .catch(() => {});
+    }
+  }, [client, managed]);
 
   return [value, change];
 }
