@@ -101,7 +101,6 @@ import { SessionStatusState } from "./session-status";
 import { sessionPreview } from "./session-preview";
 import { THREAD_PULL_ARM, threadPullStage } from "./thread-tasks";
 import { ThreadPullIndicator } from "./thread-pull-indicator";
-import { threadPreview } from "./threads";
 import { useThreads } from "./use-threads";
 import { SubagentGroup } from "./subagent-group";
 import {
@@ -272,6 +271,9 @@ const SessionFamily = memo(function SessionFamily({
  * this rounds up rather than down so a stale estimate over-clears the list
  * instead of letting a row sit under the glass.
  */
+/** Threads shown on home before "See more" leads to /threads. */
+const HOME_THREAD_LIMIT = 5;
+
 const MIN_COMPOSER_HEIGHT = 76;
 
 
@@ -2029,19 +2031,39 @@ export function SessionsScreen({
               {threads.length ? (
                 <View testID="threads-section" style={{ paddingBottom: space.sm }}>
                   <SectionHeader label="Threads" count={threads.length} />
-                  {threads.map((thread) => (
+                  {/* Title only, and at most HOME_THREAD_LIMIT rows: the list
+                      is a shortcut to recent chats, not their inbox. The rest
+                      are one tap away on /threads. */}
+                  {threads.slice(0, HOME_THREAD_LIMIT).map((thread) => (
                     <SessionCard
                       key={`thread:${thread.id}`}
                       sessionId={thread.id}
                       title={thread.title}
-                      subtitle={threadPreview(thread)}
                       timestamp={relativeTime(thread.updatedAt)}
                       hideAvatar
+                      singleLine
                       onPress={() => openThread(`/thread/${thread.id}` as Href)}
                       onArchive={() => archiveThread(thread.id)}
                       animateEntry={animateEntry}
                     />
                   ))}
+                  {threads.length > HOME_THREAD_LIMIT ? (
+                    <Pressable
+                      testID="threads-see-more"
+                      accessibilityRole="button"
+                      accessibilityLabel={`See all ${threads.length} threads`}
+                      onPress={() => router.push("/threads" as Href)}
+                      hitSlop={6}
+                      style={({ pressed }) => ({
+                        marginHorizontal: SESSION_ROW.inset,
+                        paddingHorizontal: SESSION_ROW.padding,
+                        paddingVertical: space.sm,
+                        opacity: pressed ? 0.5 : 1,
+                      })}
+                    >
+                      <Text style={{ ...type.subhead, color: colors.primary, fontWeight: "600" }}>See more</Text>
+                    </Pressable>
+                  ) : null}
                   {homeRows.length ? <SectionHeader label="Tasks" count={roots.length} /> : null}
                 </View>
               ) : null}

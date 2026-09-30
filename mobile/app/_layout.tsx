@@ -554,6 +554,7 @@ function RootNavigator() {
           <Stack.Protected guard={false}>
             <Stack.Screen name="index" options={{ title: "Sessions" }} />
             <Stack.Screen name="archive" options={{ title: "Archive", headerLargeTitle: true }} />
+            <Stack.Screen name="threads" options={{ title: "Threads", headerLargeTitle: true }} />
             <Stack.Screen name="session/[id]" options={{ title: "Session" }} />
             <Stack.Screen name="session/new" options={{ headerShown: false }} />
             <Stack.Screen name="thread/new" options={{ headerShown: false }} />
@@ -952,6 +953,7 @@ function RootNavigator() {
               layout effect runs. */}
           <Stack.Screen name="index" options={{ title: "" }} />
           <Stack.Screen name="archive" options={{ title: "Archive", headerLargeTitle: true }} />
+          <Stack.Screen name="threads" options={{ title: "Threads", headerLargeTitle: true }} />
           <Stack.Screen
             name="session/[id]"
             options={({ route }) => ({

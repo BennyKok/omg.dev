@@ -98,6 +98,24 @@ function demoThreadSummary() {
   };
 }
 
+/**
+ * Older threads behind Pricing ideas, so Home has more than its five and shows
+ * "See more". List rows only: none of them is opened by the plan.
+ */
+const DEMO_OLDER_THREADS = ["Launch checklist", "Hiring plan", "Q4 roadmap", "Support rota", "Office move"];
+
+function demoOlderThreadSummaries() {
+  const t = now();
+  return DEMO_OLDER_THREADS.map((title, index) => {
+    const ts = t - (index + 1) * 60 * MIN;
+    return {
+      id: `0d3a7c1e-0000-4000-8000-0000000000${String(index + 10)}`,
+      title, createdAt: ts, updatedAt: ts,
+      lastMessage: { author: { kind: "human", participantId: ALEX, name: "Alex" }, text: `Notes on ${title.toLowerCase()}`, ts },
+    };
+  });
+}
+
 function demoThreadDetail() {
   const t = now();
   return {
@@ -551,7 +569,7 @@ function answer(path: string): unknown | null {
     };
   }
   if (clean === "/api/sessions") return { sessions: demoSessions() };
-  if (clean === "/api/threads") return { threads: threadFixture ? [demoThreadSummary()] : [] };
+  if (clean === "/api/threads") return { threads: threadFixture ? [demoThreadSummary(), ...demoOlderThreadSummaries()] : [] };
   // `#` offers threads first, as the machine does.
   if (threadFixture && clean === "/api/sessions/mentionable") {
     const thread = demoThreadSummary();

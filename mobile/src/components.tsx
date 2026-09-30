@@ -863,6 +863,8 @@ export const SESSION_ROW = {
   gap: 12,
   textGap: 4,
   paddingRight: 14,
+  /** A title-only row (home's thread list): one line, no preview. */
+  singleLineHeight: 52,
 } as const;
 
 /** The mark's centre, measured from the left edge of the row's column. */
@@ -890,11 +892,18 @@ export function SessionCard({
   compact = false,
   selected = false,
   hideAvatar = false,
+  singleLine = false,
 }: {
   sessionId?: string | null;
   title: string;
   /** A thread row is text only: the missing agent mark is what says "chat, not task". */
   hideAvatar?: boolean;
+  /**
+   * Title only, no preview line. Home's thread list uses it so a handful of
+   * threads costs little height above the tasks. The row is still a fixed
+   * height; it is just the one-line height.
+   */
+  singleLine?: boolean;
   /** Smaller filled card for a parent session's expanded subagent list. */
   compact?: boolean;
   selected?: boolean;
@@ -1029,7 +1038,7 @@ export function SessionCard({
             // big enough not to need the same help.
             paddingRight: SESSION_ROW.paddingRight,
             // Reserve both text lines so activity updates do not resize rows.
-            height: compact ? 64 : SESSION_ROW.height,
+            height: compact ? 64 : singleLine ? SESSION_ROW.singleLineHeight : SESSION_ROW.height,
           })}
         >
           <SessionActivityField identity={sessionId ?? title} activity={activity} textBounds={textBounds} cornerRadius={radius.md}
@@ -1053,12 +1062,14 @@ export function SessionCard({
             </View>
             {/* Rendered unconditionally — see the prop's note. An empty
                 preview keeps its line rather than collapsing the row. */}
-            <Text
-              numberOfLines={1}
-              style={{ ...(compact ? type.caption : type.subhead), color: colors.textMuted }}
-            >
-              {subtitle ?? ""}
-            </Text>
+            {singleLine ? null : (
+              <Text
+                numberOfLines={1}
+                style={{ ...(compact ? type.caption : type.subhead), color: colors.textMuted }}
+              >
+                {subtitle ?? ""}
+              </Text>
+            )}
           </View>
           {/* WHEN IT LAST MOVED, then what state it is in.
               The list had no time on it at all, so a session that moved thirty
