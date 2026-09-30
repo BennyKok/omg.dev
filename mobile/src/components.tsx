@@ -1033,7 +1033,9 @@ export function SessionCard({
              * and 16 gives it the same breathing room the title has from the
              * text beside it.
              */
-            paddingLeft: SESSION_ROW.padding,
+            // A title-only row has no mark, so its title lines up with the
+            // section header's label (SectionHeader's space.md) instead.
+            paddingLeft: singleLine ? space.md - SESSION_ROW.inset : SESSION_ROW.padding,
             // More room on the right than the left: the status dot is a 10pt
             // circle with no visual mass of its own, so an equal inset leaves
             // it looking stuck to the group's edge. The avatar on the left is
