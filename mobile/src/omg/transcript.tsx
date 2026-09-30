@@ -76,6 +76,7 @@ import { WorkingIndicator } from "./working-indicator";
 import { stampTime } from "./format";
 import { CodeBlock, useBodyText } from "./markdown";
 import { TranscriptBody } from "./transcript-body";
+import { MessageTextActions } from "./message-text-actions";
 import {
   parseMessageAttachments,
   type MessageAttachment,
@@ -749,6 +750,7 @@ export function TranscriptEntry({
         }}
       >
         <TranscriptBody text={message.text ?? ""} streaming={message.streaming} virtualize={virtualize} />
+        <MessageTextActions text={message.text} label="Select reply text" />
       </View>
     );
   }
@@ -758,6 +760,7 @@ export function TranscriptEntry({
   return (
     <View style={{ alignSelf: "stretch", paddingHorizontal: space.xs }}>
       <TranscriptBody text={message.text ?? ""} streaming={message.streaming} virtualize={virtualize} />
+      <MessageTextActions text={message.text} label="Select reply text" />
     </View>
   );
 }
@@ -1894,6 +1897,7 @@ export function UserMessage({ message, firstOfRun, lastOfRun }: { message: Entry
           marginRight: space.sm,
         }}
       >
+        {text ? <MessageTextActions text={rawText} label="Select sent text" /> : null}
         {copied ? (
           <Text style={{ ...type.caption, color: colors.textMuted }}>Copied</Text>
         ) : null}

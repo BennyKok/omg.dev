@@ -1,0 +1,54 @@
+/** @jsxImportSource ../../web/node_modules/react */
+import { mount } from '../../web/src/test-support/render';
+import { expect, mock, test } from 'bun:test';
+import * as React from '../../web/node_modules/react';
+import { resolve } from 'node:path';
+mock.module(resolve(import.meta.dir, '../node_modules/react/index.js'), () => React);
+const View = ({ children }: any) => <div>{children}</div>;
+const Pressable = ({ children, accessibilityLabel, disabled, onPress }: any) => <button aria-label={accessibilityLabel} disabled={disabled} onClick={onPress}>{children}</button>;
+mock.module(resolve(import.meta.dir, '../node_modules/react-native/index.js'), () => ({ View, Pressable, Modal: ({ visible, children }: any) => visible ? <section>{children}</section> : null }));
+mock.module(import.meta.resolve('react-native-safe-area-context'), () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
+const writes: string[] = [];
+let failCopy = false;
+mock.module(import.meta.resolve('expo-clipboard'), () => ({ setStringAsync: async (value: string) => { if (failCopy) throw new Error('unavailable'); writes.push(value); } }));
+let select: (event: any) => void;
+mock.module(resolve(import.meta.dir, '../src/omg/text.tsx'), () => ({
+  Text: ({ children }: any) => <span>{children}</span>,
+  TextInput: ({ value, onSelectionChange, editable }: any) => { select = onSelectionChange; return <textarea readOnly={!editable} value={value} />; },
+}));
+mock.module(resolve(import.meta.dir, '../src/omg/markdown.tsx'), () => ({ useBodyText: () => ({}) }));
+const { light, type, space } = await import('../src/omg/palette');
+mock.module(resolve(import.meta.dir, '../src/omg/theme.ts'), () => ({ useTheme: () => ({ colors: light, type, space }) }));
+const { MessageTextActions } = await import('../src/omg/message-text-actions');
+
+test('copies a range across paragraphs and freezes a streaming reply until reopened', async () => {
+  const ui = mount();
+  const text = 'First paragraph.\n\n第二段 with code: `hello`';
+  const click = (name: string) => ui.flush(() => (ui.query(`button[aria-label="${name}"]`) as HTMLButtonElement).click());
+  try {
+    ui.render(<MessageTextActions text={text} />);
+    click('Select text');
+    expect((ui.query('textarea') as HTMLTextAreaElement).readOnly).toBe(true);
+    expect((ui.query('[aria-label="Copy selection"]') as HTMLButtonElement).disabled).toBe(true);
+    ui.flush(() => select({ nativeEvent: { selection: { start: 6, end: 21 } } }));
+    ui.render(<MessageTextActions text={text + '\nStreaming update'} />);
+    expect((ui.query('textarea') as HTMLTextAreaElement).value).toBe(text);
+    click('Copy selection');
+    await ui.flushAsync(async () => {});
+    expect(writes.at(-1)).toBe(text.slice(6, 21));
+    expect(ui.text()).toContain('Copied');
+    click('Copy all');
+    await ui.flushAsync(async () => {});
+    expect(writes.at(-1)).toBe(text);
+    click('Done');
+    expect(ui.query('textarea')).toBeNull();
+    click('Select text');
+    expect((ui.query('textarea') as HTMLTextAreaElement).value).toContain('Streaming update');
+    expect((ui.query('[aria-label="Copy selection"]') as HTMLButtonElement).disabled).toBe(true);
+    failCopy = true;
+    click('Copy all');
+    await ui.flushAsync(async () => {});
+    expect(ui.text()).toContain('Could not copy. Try again.');
+    expect(ui.text()).not.toContain('Copied');
+  } finally { failCopy = false; ui.cleanup(); }
+});

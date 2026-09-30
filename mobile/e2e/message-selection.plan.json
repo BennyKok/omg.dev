@@ -1,0 +1,81 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": true
+  },
+  "steps": [
+    {
+      "name": "Transcript",
+      "goal": "Open omg if the system Home screen is visible.",
+      "done": "Both production message renderers are visible.",
+      "expect": [
+        "Message selection test",
+        "Help me copy part of this message.",
+        "Select words across paragraphs."
+      ]
+    },
+    {
+      "name": "Open reply selection",
+      "goal": "Tap Select reply text to open the assistant reply.",
+      "done": "The selection screen shows the full reply and copy controls.",
+      "expect": [
+        "Message text",
+        "Copy selection",
+        "Copy all",
+        "Done",
+        "Select words across paragraphs.",
+        "First item",
+        "const greeting"
+      ]
+    },
+    {
+      "name": "Select a word",
+      "goal": "Touch and hold the Message text field to select a word.",
+      "longPress": true,
+      "done": "The native text selection menu is visible.",
+      "expect": [
+        "Look Up",
+        "Translate"
+      ]
+    },
+    {
+      "name": "Copy selected text",
+      "goal": "Tap Copy selection in the bottom toolbar.",
+      "done": "The selected text is copied.",
+      "expect": [
+        "Copied"
+      ]
+    },
+    {
+      "name": "Return to chat",
+      "goal": "Tap Done to close selection.",
+      "done": "The original conversation is visible again.",
+      "expect": [
+        "Message selection test"
+      ],
+      "forbid": [
+        "Copy all"
+      ]
+    },
+    {
+      "name": "Select sent message",
+      "goal": "Tap Select sent text to open the sent message.",
+      "done": "The selection screen shows the sent prompt.",
+      "expect": [
+        "Help me copy part of this message.",
+        "\u7b2c\u4e8c\u6bb5\u4e5f\u53ef\u4ee5\u9009\u62e9\u3002",
+        "Message text",
+        "Copy selection",
+        "Copy all"
+      ]
+    },
+    {
+      "name": "Copy whole message",
+      "goal": "Tap Copy all in the bottom toolbar.",
+      "done": "The full message is copied.",
+      "expect": [
+        "Copied"
+      ]
+    }
+  ]
+}
