@@ -432,7 +432,7 @@ test("omg accepts its own kind and delegates to the OpenCode launch with the def
       agent: "omg", name: "test", cwd: "/tmp", sessionId: "test-session",
     })).toEqual({ ok: true });
     expect(request?.agent).toBe("omg");
-    expect(request?.model).toBe("omg/deepseek/deepseek-v4-flash-0731");
+    expect(request?.model).toBe("omg/openai/gpt-6-luna");
   } finally { opencode.launch = original; }
 });
 

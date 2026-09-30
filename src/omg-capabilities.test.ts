@@ -387,6 +387,7 @@ describe("first-run envelope", () => {
     expect(withFirstRunEnvelope("x", { seesImages: true })).not.toContain("You cannot see images");
     expect(withFirstRunEnvelope("x", { seesImages: true })).not.toContain("design image");
     expect(modelSeesImages("omg/deepseek/deepseek-v4-flash-0731")).toBe(false);
+    expect(modelSeesImages("omg/openai/gpt-6-luna")).toBe(true);
     expect(modelSeesImages("omg/deepseek/deepseek-v4-pro")).toBe(false);
     // Hosted models follow the catalog that declares image input to OpenCode.
     expect(modelSeesImages("omg/z-ai/glm-5.3-flash")).toBe(true);
