@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## September 30, 2026 - Open on the limit sheet shows the chat (v0.6.147)
+
+- When all agents are in use, Open on the limit sheet now shows the chat even when it is in another project. Home switches to that chat's project first.
+
 ## September 30, 2026 - The preview shows when the app is still being built (v0.6.146)
 
 - While the agent works, a small amber dot pulses on the app preview card. The preview can still change.
