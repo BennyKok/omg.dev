@@ -50,8 +50,8 @@ private final class LoginController: UIViewController, WKNavigationDelegate, WKU
   private let progress = UIProgressView(progressViewStyle: .default)
   private var progressObservation: NSKeyValueObservation?
   private var backObservation: NSKeyValueObservation?
-  private lazy var backButton = UIBarButtonItem(image: UIImage(systemName: "chevron.left"),
-    style: .plain, target: self, action: #selector(back))
+  private let browserMenuButton = UIBarButtonItem(image: UIImage(systemName: "ellipsis"),
+    style: .plain, target: nil, action: nil)
 
   init(url: URL, computer: String, finish: @escaping ([String: Any]) -> Void) {
     self.target = url
@@ -69,15 +69,14 @@ private final class LoginController: UIViewController, WKNavigationDelegate, WKU
       style: .plain, target: self, action: #selector(cancel))
     closeButton.accessibilityLabel = "Cancel"
     closeButton.accessibilityIdentifier = "browser-login-close"
-    backButton.accessibilityLabel = "Back"
-    backButton.accessibilityIdentifier = "browser-login-back"
-    backButton.isEnabled = false
-    let reloadButton = UIBarButtonItem(image: UIImage(systemName: "arrow.clockwise"),
-      style: .plain, target: self, action: #selector(reload))
-    reloadButton.accessibilityLabel = "Reload"
-    reloadButton.accessibilityIdentifier = "browser-login-reload"
+    browserMenuButton.accessibilityLabel = "Browser options"
+    browserMenuButton.accessibilityIdentifier = "browser-login-options"
+    let approveButton = UIBarButtonItem(image: UIImage(systemName: "checkmark"),
+      style: .done, target: self, action: #selector(approve))
+    approveButton.accessibilityLabel = "Use login"
+    approveButton.accessibilityIdentifier = "browser-login-use-login"
     navigationItem.leftBarButtonItem = closeButton
-    navigationItem.rightBarButtonItems = [reloadButton, backButton]
+    navigationItem.rightBarButtonItems = [approveButton, browserMenuButton]
     address.font = .preferredFont(forTextStyle: .footnote)
     address.textColor = .secondaryLabel
     address.textAlignment = .center
@@ -91,27 +90,7 @@ private final class LoginController: UIViewController, WKNavigationDelegate, WKU
     web.navigationDelegate = self
     web.uiDelegate = self
     web.allowsBackForwardNavigationGestures = true
-    var configuration = UIButton.Configuration.filled()
-    configuration.title = "Use login"
-    configuration.baseBackgroundColor = .label
-    configuration.baseForegroundColor = .systemBackground
-    configuration.cornerStyle = .capsule
-    configuration.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 18, bottom: 10, trailing: 18)
-    let approveButton = UIButton(configuration: configuration)
-    approveButton.accessibilityIdentifier = "browser-login-use-login"
-    approveButton.addTarget(self, action: #selector(approve), for: .touchUpInside)
-    let footer = UIView()
-    approveButton.translatesAutoresizingMaskIntoConstraints = false
-    footer.addSubview(approveButton)
-    NSLayoutConstraint.activate([
-      approveButton.topAnchor.constraint(equalTo: footer.topAnchor, constant: 12),
-      approveButton.bottomAnchor.constraint(equalTo: footer.bottomAnchor, constant: -12),
-      approveButton.centerXAnchor.constraint(equalTo: footer.centerXAnchor),
-      approveButton.leadingAnchor.constraint(greaterThanOrEqualTo: footer.leadingAnchor, constant: 20),
-      approveButton.trailingAnchor.constraint(lessThanOrEqualTo: footer.trailingAnchor, constant: -20),
-      approveButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 44)
-    ])
-    let stack = UIStackView(arrangedSubviews: [address, progress, web, footer])
+    let stack = UIStackView(arrangedSubviews: [address, progress, web])
     stack.axis = .vertical
     stack.spacing = 6
     stack.translatesAutoresizingMaskIntoConstraints = false
@@ -124,13 +103,21 @@ private final class LoginController: UIViewController, WKNavigationDelegate, WKU
       address.heightAnchor.constraint(greaterThanOrEqualToConstant: 32)
     ])
     backObservation = web.observe(\.canGoBack, options: [.initial, .new]) { [weak self] web, _ in
-      self?.backButton.isEnabled = web.canGoBack
+      self?.updateBrowserMenu()
     }
     progressObservation = web.observe(\.estimatedProgress, options: [.new]) { [weak self] web, _ in
       self?.progress.progress = Float(web.estimatedProgress)
       self?.progress.isHidden = web.estimatedProgress >= 1
     }
     web.load(URLRequest(url: target))
+  }
+
+  private func updateBrowserMenu() {
+    browserMenuButton.menu = UIMenu(children: [
+      UIAction(title: "Back", image: UIImage(systemName: "chevron.left"),
+        attributes: web.canGoBack ? [] : .disabled) { [weak self] _ in self?.back() },
+      UIAction(title: "Reload", image: UIImage(systemName: "arrow.clockwise")) { [weak self] _ in self?.reload() }
+    ])
   }
 
   @objc func cancel() { complete(["cancelled": true]) }
