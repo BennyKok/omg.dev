@@ -160,14 +160,23 @@ function lex(src: string): Token[] {
   }
 }
 
-export function Markdown({ text, streaming }: { text: string; streaming?: boolean }) {
+/**
+ * False inside a transcript reply. There, press-and-hold opens Copy and Select
+ * text for the whole reply, and native per-paragraph selection would take the
+ * same gesture first.
+ */
+const SelectableContext = createContext(true);
+
+export function Markdown({ text, streaming, selectable = true }: { text: string; streaming?: boolean; selectable?: boolean }) {
   const { space } = useTheme();
   const tokens = useMemo(() => lex(text), [text]);
 
   return (
-    <View style={{ gap: space.md }}>
-      <Blocks tokens={tokens} caret streaming={!!streaming} />
-    </View>
+    <SelectableContext.Provider value={selectable}>
+      <View style={{ gap: space.md }}>
+        <Blocks tokens={tokens} caret streaming={!!streaming} />
+      </View>
+    </SelectableContext.Provider>
   );
 }
 
@@ -215,6 +224,7 @@ function Block({
 }) {
   const { colors, type, space, radius } = useTheme();
   const body = useBodyText();
+  const selectable = useContext(SelectableContext);
 
   switch (token.type) {
     case "space":
@@ -224,7 +234,7 @@ function Block({
       const t = token as Tokens.Heading;
       return (
         <Text
-          selectable
+          selectable={selectable}
           style={{
             ...type.headline,
             // h1/h2 earn real presence; deeper levels settle to body size and
@@ -243,7 +253,7 @@ function Block({
     case "paragraph": {
       const t = token as Tokens.Paragraph;
       return (
-        <Text selectable style={body}>
+        <Text selectable={selectable} style={body}>
           <Inline tokens={t.tokens} />
           {caret ? <StreamingCaret active={streaming} /> : null}
         </Text>
@@ -253,7 +263,7 @@ function Block({
     case "text": {
       const t = token as Tokens.Text;
       return (
-        <Text selectable style={body}>
+        <Text selectable={selectable} style={body}>
           {t.tokens ? <Inline tokens={t.tokens} /> : t.text}
           {caret ? <StreamingCaret active={streaming} /> : null}
         </Text>
@@ -308,7 +318,7 @@ function Block({
       const stripped = (token as Tokens.HTML).text.replace(/<[^>]*>/g, "").trim();
       if (!stripped) return null;
       return (
-        <Text selectable style={body}>
+        <Text selectable={selectable} style={body}>
           {stripped}
           {caret ? <StreamingCaret active={streaming} /> : null}
         </Text>
@@ -319,7 +329,7 @@ function Block({
       const raw = (token as { text?: string; raw?: string }).text ?? "";
       if (!raw.trim()) return null;
       return (
-        <Text selectable style={body}>
+        <Text selectable={selectable} style={body}>
           {raw}
           {caret ? <StreamingCaret active={streaming} /> : null}
         </Text>
@@ -384,6 +394,7 @@ function ListItemBody({
   streaming: boolean;
 }) {
   const body = useBodyText();
+  const selectable = useContext(SelectableContext);
   const children = item.tokens ?? [];
 
   const onlyText =
@@ -393,7 +404,7 @@ function ListItemBody({
 
   if (onlyText) {
     return (
-      <Text selectable style={body}>
+      <Text selectable={selectable} style={body}>
         {onlyText.tokens ? <Inline tokens={onlyText.tokens} /> : onlyText.text}
         {caret ? <StreamingCaret active={streaming} /> : null}
       </Text>
@@ -723,6 +734,7 @@ export function CodeBlock({
   caret?: ReactNode;
 }) {
   const { colors, type, space, radius } = useTheme();
+  const selectable = useContext(SelectableContext);
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const trailingBreaks = caret ? text.match(/\n+$/)?.[0] ?? "" : "";
@@ -769,7 +781,7 @@ export function CodeBlock({
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
         <View style={{ paddingHorizontal: space.md, paddingBottom: space.sm }}>
           <Text
-            selectable
+            selectable={selectable}
             style={{ fontFamily: MONO, fontSize: 13, lineHeight: 19, color: colors.text }}
           >
             {visibleText}

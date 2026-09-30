@@ -14,18 +14,18 @@ const VirtualView = RN.Platform.OS !== "web" &&
 
 export const virtualTranscriptBodiesSupported = !!VirtualView;
 
-type Props = { text: string; streaming?: boolean; virtualize?: boolean };
+type Props = { text: string; streaming?: boolean; virtualize?: boolean; selectable?: boolean };
 
 // Keep the row, its entrance animation, disclosures, and modals outside this
 // boundary. VirtualView unmounts children; it must not own durable UI state.
-const VirtualMarkdown = memo(function VirtualMarkdown({ text, streaming }: Props) {
-  const content = <Markdown text={text} streaming={streaming} />;
+const VirtualMarkdown = memo(function VirtualMarkdown({ text, streaming, selectable }: Props) {
+  const content = <Markdown text={text} streaming={streaming} selectable={selectable} />;
   return VirtualView ? <VirtualView>{content}</VirtualView> : content;
 });
 
-export function TranscriptBody({ text, streaming, virtualize = true }: Props) {
+export function TranscriptBody({ text, streaming, virtualize = true, selectable }: Props) {
   // The unmodified path is also used by the native A/B benchmark.
   return virtualize
-    ? <VirtualMarkdown text={text} streaming={streaming} />
-    : <Markdown text={text} streaming={streaming} />;
+    ? <VirtualMarkdown text={text} streaming={streaming} selectable={selectable} />
+    : <Markdown text={text} streaming={streaming} selectable={selectable} />;
 }

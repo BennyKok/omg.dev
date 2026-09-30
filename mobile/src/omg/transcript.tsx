@@ -75,7 +75,7 @@ import { WorkingIndicator } from "./working-indicator";
 import { stampTime } from "./format";
 import { CodeBlock, useBodyText } from "./markdown";
 import { TranscriptBody } from "./transcript-body";
-import { MessageTextActions } from "./message-text-actions";
+import { MessageTextActions, ReplyTextActions } from "./message-text-actions";
 import {
   parseMessageAttachments,
   type MessageAttachment,
@@ -748,8 +748,9 @@ export function TranscriptEntry({
           paddingVertical: 10,
         }}
       >
-        <TranscriptBody text={message.text ?? ""} streaming={message.streaming} virtualize={virtualize} />
-        <MessageTextActions text={message.text} label="Reply options" />
+        <ReplyTextActions text={message.text ?? ""}>
+          <TranscriptBody text={message.text ?? ""} streaming={message.streaming} virtualize={virtualize} selectable={false} />
+        </ReplyTextActions>
       </View>
     );
   }
@@ -758,8 +759,9 @@ export function TranscriptEntry({
   // tint — exactly like the web transcript.
   return (
     <View style={{ alignSelf: "stretch", paddingHorizontal: space.xs }}>
-      <TranscriptBody text={message.text ?? ""} streaming={message.streaming} virtualize={virtualize} />
-      <MessageTextActions text={message.text} label="Reply options" />
+      <ReplyTextActions text={message.text ?? ""}>
+        <TranscriptBody text={message.text ?? ""} streaming={message.streaming} virtualize={virtualize} selectable={false} />
+      </ReplyTextActions>
     </View>
   );
 }
