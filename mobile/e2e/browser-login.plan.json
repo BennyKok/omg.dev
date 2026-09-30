@@ -6,7 +6,7 @@
   "steps": [
     {
       "name": "Login request",
-      "goal": "Wait for the website login card to appear. Only observe the card. Do not tap any button in this step.",
+      "goal": "If the system Home screen is visible, open omg. Wait for the website login card. Once the card is visible, only observe it. Do not tap its buttons in this step.",
       "done": "The website login request card is one row: the site, a Log in button, and a cross to dismiss it.",
       "expect": [
         "127.0.0.1.nip.io icon",
@@ -16,12 +16,15 @@
     },
     {
       "name": "Native browser",
-      "goal": "Open the native browser by tapping Log in only if the card is still visible. Once the native browser navigation bar with Use login is visible, wait for the test page. Do not tap Use login or Transfer login in this step.",
-      "done": "The native browser is open: its title is Website login and the page has a Sign in to test site link. This step does not sign in or transfer anything.",
+      "goal": "Open the native browser by tapping Log in only if the card is still visible. Once Use login is visible below the page, wait for the test page. Do not tap Use login or Transfer login in this step.",
+      "done": "The native browser is open with compact header controls and a full-width Use login button below the page. This step does not sign in or transfer anything.",
       "expect": [
         "Website login",
         "Use login",
-        "Sign in to test site"
+        "Sign in to test site",
+        "Cancel",
+        "Back",
+        "Reload"
       ]
     },
     {
@@ -34,7 +37,7 @@
     },
     {
       "name": "Transfer consent",
-      "goal": "Tap Use login in the navigation bar",
+      "goal": "Tap the full-width Use login button below the web page",
       "done": "A native alert asks permission to transfer the login",
       "expect": [
         "Use this login on your computer?",

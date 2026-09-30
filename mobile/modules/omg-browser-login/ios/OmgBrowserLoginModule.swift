@@ -49,6 +49,9 @@ private final class LoginController: UIViewController, WKNavigationDelegate, WKU
   private let address = UILabel()
   private let progress = UIProgressView(progressViewStyle: .default)
   private var progressObservation: NSKeyValueObservation?
+  private var backObservation: NSKeyValueObservation?
+  private lazy var backButton = UIBarButtonItem(image: UIImage(systemName: "chevron.left"),
+    style: .plain, target: self, action: #selector(back))
 
   init(url: URL, computer: String, finish: @escaping ([String: Any]) -> Void) {
     self.target = url
@@ -62,8 +65,19 @@ private final class LoginController: UIViewController, WKNavigationDelegate, WKU
     super.viewDidLoad()
     view.backgroundColor = .systemBackground
     title = "Website login"
-    navigationItem.leftBarButtonItem = UIBarButtonItem(title: "Cancel", style: .plain, target: self, action: #selector(cancel))
-    navigationItem.rightBarButtonItem = UIBarButtonItem(title: "Use login", style: .done, target: self, action: #selector(approve))
+    let closeButton = UIBarButtonItem(image: UIImage(systemName: "xmark"),
+      style: .plain, target: self, action: #selector(cancel))
+    closeButton.accessibilityLabel = "Cancel"
+    closeButton.accessibilityIdentifier = "browser-login-close"
+    backButton.accessibilityLabel = "Back"
+    backButton.accessibilityIdentifier = "browser-login-back"
+    backButton.isEnabled = false
+    let reloadButton = UIBarButtonItem(image: UIImage(systemName: "arrow.clockwise"),
+      style: .plain, target: self, action: #selector(reload))
+    reloadButton.accessibilityLabel = "Reload"
+    reloadButton.accessibilityIdentifier = "browser-login-reload"
+    navigationItem.leftBarButtonItem = closeButton
+    navigationItem.rightBarButtonItems = [reloadButton, backButton]
     address.font = .preferredFont(forTextStyle: .footnote)
     address.textColor = .secondaryLabel
     address.textAlignment = .center
@@ -77,7 +91,26 @@ private final class LoginController: UIViewController, WKNavigationDelegate, WKU
     web.navigationDelegate = self
     web.uiDelegate = self
     web.allowsBackForwardNavigationGestures = true
-    let stack = UIStackView(arrangedSubviews: [address, progress, web])
+    var configuration = UIButton.Configuration.filled()
+    configuration.title = "Use login"
+    configuration.baseBackgroundColor = .label
+    configuration.baseForegroundColor = .systemBackground
+    configuration.cornerStyle = .large
+    configuration.contentInsets = NSDirectionalEdgeInsets(top: 14, leading: 20, bottom: 14, trailing: 20)
+    let approveButton = UIButton(configuration: configuration)
+    approveButton.accessibilityIdentifier = "browser-login-use-login"
+    approveButton.addTarget(self, action: #selector(approve), for: .touchUpInside)
+    let footer = UIView()
+    approveButton.translatesAutoresizingMaskIntoConstraints = false
+    footer.addSubview(approveButton)
+    NSLayoutConstraint.activate([
+      approveButton.topAnchor.constraint(equalTo: footer.topAnchor, constant: 12),
+      approveButton.bottomAnchor.constraint(equalTo: footer.bottomAnchor, constant: -12),
+      approveButton.leadingAnchor.constraint(equalTo: footer.leadingAnchor, constant: 20),
+      approveButton.trailingAnchor.constraint(equalTo: footer.trailingAnchor, constant: -20),
+      approveButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 50)
+    ])
+    let stack = UIStackView(arrangedSubviews: [address, progress, web, footer])
     stack.axis = .vertical
     stack.spacing = 6
     stack.translatesAutoresizingMaskIntoConstraints = false
@@ -89,12 +122,9 @@ private final class LoginController: UIViewController, WKNavigationDelegate, WKU
       stack.trailingAnchor.constraint(equalTo: view.trailingAnchor),
       address.heightAnchor.constraint(greaterThanOrEqualToConstant: 32)
     ])
-    toolbarItems = [
-      UIBarButtonItem(title: "Back", style: .plain, target: self, action: #selector(back)),
-      UIBarButtonItem(systemItem: .flexibleSpace),
-      UIBarButtonItem(title: "Reload", style: .plain, target: self, action: #selector(reload))
-    ]
-    navigationController?.setToolbarHidden(false, animated: false)
+    backObservation = web.observe(\.canGoBack, options: [.initial, .new]) { [weak self] web, _ in
+      self?.backButton.isEnabled = web.canGoBack
+    }
     progressObservation = web.observe(\.estimatedProgress, options: [.new]) { [weak self] web, _ in
       self?.progress.progress = Float(web.estimatedProgress)
       self?.progress.isHidden = web.estimatedProgress >= 1
