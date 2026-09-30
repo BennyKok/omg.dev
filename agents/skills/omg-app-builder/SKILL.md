@@ -31,8 +31,8 @@ A new user is waiting. The first screen must reach their phone within about 3 mi
 
 1. `omg_create_project` with `template: "expo"`. If `node_modules` is missing, run `bun install` once.
 2. Preview before you write any code. Call `omg_expose_port` with port 8081 and `expoGo: true`. Then run `bash scripts/start-expo-preview.sh <expoGo.proxyUrl> 8081` from the project directory, with a 240000 ms shell timeout. When it prints `Sandbox proxy answers: HTTP 200`, present the web preview first: "Your app is ready. The card below shows it running, and it works on any device." Then mention the phone in one sentence: "To try it on your own phone, tap Your phone on the card." Do not paste `expoGo.url`; the card shows it. Metro reloads the app on every save, so the preview follows your edits from here on.
-3. Write the screens, in a few larger edits rather than one small edit per turn.
-4. Run `bun run typecheck` once and fix what it reports.
+3. Write the screens, in a few larger edits rather than one small edit per turn. Replace the template home screen in `src/app/index.tsx`; do not add a second index route.
+4. Run `bun run typecheck` once and fix what it reports. It also checks the routes and fails on a second home screen or a root `app/` folder.
 5. Deploy once with `omg_deploy` (see below). The data stays on the phone, so this is a static web build.
 6. Finish with `omg_ship`.
 
@@ -40,7 +40,7 @@ Do not browse `node_modules`, fetch documentation, or read the template file by 
 
 The template:
 
-- `src/app/index.tsx`: the home screen. A header, an input with an add button, a list with toggle and delete, an error card, and a reload button. Styles are in one `StyleSheet` at the bottom; the brand colour is `CORAL`.
+- `src/app/index.tsx`: the home screen, and the only file for `/`. Replace its content with your home screen. Keep every screen in `src/app/`: Expo Router ignores a root `app/` folder while `src/app` exists. For tabs, move the home screen to `src/app/(tabs)/index.tsx` and delete `src/app/index.tsx`, because both answer `/` and the old one wins. The template file has a header, an input with an add button, a list with toggle and delete, an error card, and a reload button. Styles are in one `StyleSheet` at the bottom; the brand colour is `CORAL`.
 - `src/app/_layout.tsx`: an Expo Router stack with no header. A new screen is a new file in `src/app/` (`stats.tsx` is `/stats`). Navigate with `router.push("/stats")` or `<Link href="/stats">` from `expo-router`.
 - `src/lib/tasks.ts`: the data, stored on the phone with AsyncStorage (localStorage on the web). `tasksApi.list()`, `create(title)`, `update(id, patch)`, `remove(id)`. Keep this file. For each new kind of item, copy its shape with its own storage key.
 - Icons: `lucide-react-native`, for example `<Plus color={CORAL} size={22} />`. Glass surfaces: `GlassView` from `expo-glass-effect`.

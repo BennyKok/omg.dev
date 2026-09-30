@@ -374,12 +374,25 @@ describe("first-run envelope", () => {
     expect(skill).toContain('Never end with "try it on your phone via Expo Go"');
   });
 
+  test("a phone app first run is told to replace the template home screen", async () => {
+    // A DeepSeek build put its screens in app/(tabs)/index.tsx and "/" kept
+    // showing the template to-do app from src/app/index.tsx.
+    const { withFirstRunEnvelope } = await import("./omg-capabilities.ts");
+    const wrapped = withFirstRunEnvelope("Build a habit tracker app", { seesImages: false })!;
+    expect(wrapped).toContain("Replace the template home screen in `src/app/index.tsx`; do not add a second index route");
+  });
+
   test("the image rule is only for models that cannot see", async () => {
     const { withFirstRunEnvelope, modelSeesImages } = await import("./omg-capabilities.ts");
     expect(withFirstRunEnvelope("x", { seesImages: true })).not.toContain("You cannot see images");
     expect(withFirstRunEnvelope("x", { seesImages: true })).not.toContain("design image");
     expect(modelSeesImages("omg/deepseek/deepseek-v4-flash-0731")).toBe(false);
     expect(modelSeesImages("omg/deepseek/deepseek-v4-pro")).toBe(false);
+    // Hosted models follow the catalog that declares image input to OpenCode.
+    expect(modelSeesImages("omg/z-ai/glm-5.3-flash")).toBe(true);
+    expect(modelSeesImages("omg/openai/gpt-5.6-luna")).toBe(true);
+    expect(modelSeesImages("omg/z-ai/glm-5.2")).toBe(false);
+    expect(modelSeesImages("omg/qwen/qwen3-coder-next")).toBe(false);
     expect(modelSeesImages("opus")).toBe(true);
     expect(modelSeesImages(undefined)).toBe(true);
     expect(withFirstRunEnvelope("", { seesImages: true })).toBe("");
