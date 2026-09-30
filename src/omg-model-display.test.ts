@@ -78,7 +78,10 @@ describe("claude model display", () => {
   });
 
   test("Codex ids get the hosted GPT naming", () => {
-    expect(["gpt-6-astra", "gpt-5.6-sol", "gpt-5.5", "gpt-5.4-mini", "gpt-5.3-codex-spark"].map((id) => omgModelLabel(id))).toEqual([
+    expect(["gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna", "gpt-6-astra", "gpt-5.6-sol", "gpt-5.5", "gpt-5.4-mini", "gpt-5.3-codex-spark"].map((id) => omgModelLabel(id))).toEqual([
+      "GPT-6.1 Sol",
+      "GPT-6 Sol",
+      "GPT-6 Luna",
       "GPT-6 Astra",
       "GPT-5.6 Sol",
       "GPT-5.5",

@@ -15,9 +15,12 @@ import {
   OPENCODE_MODELS,
 } from "./agent-catalog.ts";
 
-test("offers Astra to Codex sessions", () => {
-  expect(CODEX_MODELS).toContain("gpt-6-astra");
-  expect(CODEX_AISDK_MODELS).toContain("gpt-6-astra");
+test("offers the current Codex models", () => {
+  for (const id of ["gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna"]) {
+    expect(CODEX_MODELS).toContain(id);
+    expect(CODEX_AISDK_MODELS).toContain(id);
+  }
+  expect(CODEX_MODELS[0]).toBe("gpt-6.1-sol");
 });
 
 // The `opus` alias already resolves to Opus 5.5, so this is about naming a
