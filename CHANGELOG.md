@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 1, 2026 - OpenCode model list follows the live catalog (v0.6.154)
+
+- The OpenCode model picker uses the live catalog again. A broken OpenCode install no longer keeps old model names on screen.
+
 ## October 1, 2026 - Full page inside native app previews (v0.6.153)
 
 - The iPhone app shows the full web page inside the phone preview. Buttons at the bottom of the page remain visible and can be tapped.
