@@ -473,9 +473,7 @@ function PhoneFrame({ src, identity, title, testId, allow, children }: { src: st
 function SimulatorLevel({ stream, webUrl, identity, title, onStart }: { stream: SimulatorStream; webUrl: string; identity?: PreviewAppIdentity | null; title: string; onStart(): void }) {
   const status = simulatorStatusText(stream);
   if (!status && stream.streamUrl) {
-    // Keyed by streamId: a rotated token in streamUrl must not reload the frame.
-    return <PhoneFrame key={stream.streamId ?? stream.streamUrl} src={stream.streamUrl} title={`${title} on the iPhone simulator`}
-      testId="project-preview-simulator" allow="autoplay; clipboard-read; clipboard-write" />;
+    return <ReadySimulatorFrame key={stream.streamId ?? stream.streamUrl} url={stream.streamUrl} title={title} />;
   }
   const canStart = stream.state === "idle" || stream.state === "error";
   return <PhoneFrame src={webUrl} identity={identity} title={`${title} web preview`} testId="project-preview-simulator-waiting">
@@ -487,6 +485,15 @@ function SimulatorLevel({ stream, webUrl, identity, title, onStart }: { stream: 
       {canStart ? <Button size="sm" className="w-full" onClick={onStart} data-testid="project-preview-simulator-start">{stream.state === "error" ? "Try again" : "Start simulator"}</Button> : null}
     </div>
   </PhoneFrame>;
+}
+
+/** The stream page renews its own token. A status poll must not navigate it. */
+function ReadySimulatorFrame({ url, title }: { url: string; title: string }) {
+  // Keep the entry URL for this mounted stream. A new streamId remounts this
+  // component; leaving and returning also starts with the latest entry token.
+  const [entryUrl] = useState(url);
+  return <PhoneFrame src={entryUrl} title={`${title} on the iPhone simulator`}
+    testId="project-preview-simulator" allow="autoplay; clipboard-read; clipboard-write" />;
 }
 
 function isAndroid(): boolean {

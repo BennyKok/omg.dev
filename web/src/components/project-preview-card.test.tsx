@@ -145,6 +145,44 @@ test("the Simulator level appears only when the Computer sends its state", async
   expect(posts.at(-1)).toBe(JSON.stringify({ action: "stop" }));
 }, 12_000);
 
+test("status token renewal keeps the stream page loaded; a new stream loads a new page", async () => {
+  let simulator = { state: "ready", streamId: "s1", streamUrl: "https://sim.example/stream/s1?token=first" };
+  globalThis.fetch = (async () => Response.json({ preview: EXPO_PREVIEW, live: true, simulator })) as typeof fetch;
+  ui.render(<ProjectPreviewCard sessionId="session-1" />);
+  await ui.flushAsync();
+  pickLevel("simulator");
+  const frame = document.querySelector('[data-testid="project-preview-simulator"] iframe');
+  expect(frame?.getAttribute("src")).toBe(simulator.streamUrl);
+
+  simulator = { ...simulator, streamUrl: "https://sim.example/stream/s1?token=renewed" };
+  await ui.flushAsync(() => new Promise((resolve) => setTimeout(resolve, 3_100)));
+  expect(document.querySelector('[data-testid="project-preview-simulator"] iframe')).toBe(frame);
+  expect(frame?.getAttribute("src")).toBe("https://sim.example/stream/s1?token=first");
+
+  simulator = { state: "ready", streamId: "s2", streamUrl: "https://sim.example/stream/s2?token=next" };
+  await ui.flushAsync(() => new Promise((resolve) => setTimeout(resolve, 3_100)));
+  const next = document.querySelector('[data-testid="project-preview-simulator"] iframe');
+  expect(next).not.toBe(frame);
+  expect(next?.getAttribute("src")).toBe(simulator.streamUrl);
+}, 12_000);
+
+test.each([
+  [{ state: "queued", queuePosition: 2, etaMs: 170_000 }, "All simulators are busy. You are number 2 in line. About 3 min.", null],
+  [{ state: "unavailable" }, "The simulator is not available now.", null],
+  [{ state: "error", message: "The simulator could not open this app." }, "The simulator could not open this app.", "Try again"],
+])("simulator wait state %j keeps the web preview usable", async (simulator, status, action) => {
+  globalThis.fetch = (async () => Response.json({ preview: EXPO_PREVIEW, live: true, simulator })) as typeof fetch;
+  ui.render(<ProjectPreviewCard sessionId="session-1" />);
+  await ui.flushAsync();
+  pickLevel("simulator");
+  expect(ui.text()).toContain(status);
+  expect(document.querySelector('[data-testid="project-preview-simulator-waiting"] iframe')?.getAttribute("src"))
+    .toBe("https://cap-token.preview.omgs.app");
+  expect(document.querySelector('[data-testid="project-preview-simulator-start"]')?.textContent ?? null).toBe(action);
+  pickLevel("web");
+  expect(document.querySelector('[data-testid="project-preview-web"] iframe')).not.toBeNull();
+});
+
 test("a web-only preview has no Expo Go guide", async () => {
   globalThis.fetch = (async () => Response.json({ preview: {
     sessionId: "session-1", title: "Site", url: "https://sandbox-5173.preview.omgs.app",
