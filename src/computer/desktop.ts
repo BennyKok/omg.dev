@@ -32,8 +32,8 @@
 // when someone asks for it.
 
 import { spawn } from "node:child_process";
-import { accessSync, constants, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { accessSync, constants, existsSync, mkdirSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 
 export interface DesktopConfig {
   /** X display number. 99 keeps us clear of any real session on :0. */
@@ -127,6 +127,14 @@ export function computerDir(): string {
 }
 
 type Proc = ReturnType<typeof spawn>;
+const PROCESS_ROLES = ["xvfb", "wm", "vnc", "chrome"] as const;
+type ProcessRole = typeof PROCESS_ROLES[number];
+type DesktopPids = Partial<Record<ProcessRole, number>>;
+interface ProcessIdentity {
+  bootId: string;
+  startTime: string;
+}
+type DesktopIdentities = Partial<Record<ProcessRole, ProcessIdentity>>;
 
 interface DesktopState {
   config: DesktopConfig;
@@ -139,7 +147,8 @@ interface DesktopState {
    * Pids of a desktop we adopted after a restart. Set only when this process
    * did not spawn the stack itself, so it has no child handles to kill.
    */
-  adoptedPids?: { xvfb?: number; wm?: number; vnc?: number; chrome?: number };
+  adoptedPids?: DesktopPids;
+  identities: DesktopIdentities;
 }
 
 // Module-level singleton: one box, one desktop. A second owner of this state
@@ -170,7 +179,9 @@ const stateFile = () => join(computerDir(), "desktop.json");
 
 interface PersistedDesktop {
   config: DesktopConfig;
-  pids: { xvfb?: number; wm?: number; vnc?: number; chrome?: number };
+  pids: DesktopPids;
+  /** Absent only in records written before process identity tracking. */
+  identities?: DesktopIdentities;
   startedAt: number;
 }
 
@@ -178,12 +189,13 @@ function writeStateFile(next: DesktopState): void {
   try {
     const record: PersistedDesktop = {
       config: next.config,
-      pids: {
+      pids: next.adoptedPids ?? {
         xvfb: next.xvfb?.pid,
         wm: next.wm?.pid,
         vnc: next.vnc?.pid,
         chrome: next.chrome?.pid,
       },
+      identities: next.identities,
       startedAt: next.startedAt ?? Date.now(),
     };
     writeFileSync(stateFile(), JSON.stringify(record));
@@ -205,28 +217,82 @@ function readStateFile(): PersistedDesktop | null {
   try {
     const file = stateFile();
     if (!existsSync(file)) return null;
-    return JSON.parse(readFileSync(file, "utf8")) as PersistedDesktop;
+    const record = JSON.parse(readFileSync(file, "utf8")) as PersistedDesktop;
+    if (!record?.config || !record.pids || typeof record.pids !== "object") return null;
+    return record;
   } catch {
     return null;
   }
 }
 
-function alive(pid: number | undefined): boolean {
-  if (!pid) return false;
+/** Linux start ticks plus boot ID distinguish a process from a reused PID. */
+function processIdentity(pid: number | undefined): ProcessIdentity | undefined {
+  if (!Number.isSafeInteger(pid) || !pid || pid <= 0) return;
   try {
-    // Signal 0 tests for existence without touching the process.
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    // comm can contain spaces and parentheses. Field 22 follows the last ')'.
+    const fields = stat.slice(stat.lastIndexOf(")") + 2).trim().split(/\s+/);
+    const startTime = fields[19];
+    const bootId = readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim();
+    if (fields[0] === "Z" || !startTime || !/^\d+$/.test(startTime) || !bootId) return;
+    return { bootId, startTime };
+  } catch { return; }
 }
 
-function killPid(pid: number | undefined, signal: NodeJS.Signals = "SIGTERM"): void {
-  if (!pid) return;
+function sameProcess(pid: number | undefined, expected: ProcessIdentity | undefined): boolean {
+  if (!expected) return false;
+  const actual = processIdentity(pid);
+  return !!actual && actual.bootId === expected.bootId && actual.startTime === expected.startTime;
+}
+
+/** Legacy PIDs have no start ticks. Require this role's executable and config. */
+function legacyProcessMatches(pid: number, role: ProcessRole, config: DesktopConfig): boolean {
   try {
-    process.kill(pid, signal);
-  } catch {}
+    const executable = basename(readlinkSync(`/proc/${pid}/exe`));
+    const args = readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0").filter(Boolean);
+    const display = `:${config.display}`;
+    const option = (name: string, value: string) => args[args.indexOf(name) + 1] === value && args.includes(name);
+    if (role === "xvfb") return executable === "Xvfb" && args.includes(display);
+    const env = readFileSync(`/proc/${pid}/environ`, "utf8").split("\0");
+    if (!env.includes(`DISPLAY=${display}`)) return false;
+    if (role === "wm") {
+      return ["openbox", "xfce4-session", "startxfce4"].includes(executable) ||
+        (executable === "dbus-launch" && args.includes("--exit-with-session") && args.some(a => basename(a) === "startxfce4"));
+    }
+    if (role === "vnc") {
+      return executable === "x11vnc" && option("-display", display) &&
+        option("-rfbport", String(config.rfbPort)) && args.includes("-localhost");
+    }
+    return ["chrome", "google-chrome", "google-chrome-stable", "chromium", "chromium-browser"].includes(executable) &&
+      args.includes(`--user-data-dir=${config.profileDir}`) && !args.some(a => a.startsWith("--type=")) &&
+      (args.includes(`--remote-debugging-port=${config.cdpPort}`) || args.includes("--remote-debugging-port=0"));
+  } catch { return false; }
+}
+
+/** Normalize legacy records once. Never replace a mismatched saved identity. */
+function verifiedIdentities(record: PersistedDesktop): DesktopIdentities {
+  const identities: DesktopIdentities = {};
+  for (const role of PROCESS_ROLES) {
+    const pid = record.pids?.[role];
+    const actual = processIdentity(pid);
+    if (!actual) continue;
+    if (record.identities === undefined
+      ? legacyProcessMatches(pid!, role, record.config)
+      : sameProcess(pid, record.identities?.[role])) identities[role] = actual;
+  }
+  return identities;
+}
+
+function killPid(pid: number | undefined, identity: ProcessIdentity | undefined, signal: NodeJS.Signals = "SIGTERM"): void {
+  // Recheck before EACH signal, including escalation after the grace period.
+  if (!sameProcess(pid, identity)) return;
+  try { process.kill(pid!, signal); } catch {}
+}
+
+async function reapProcesses(pids: DesktopPids, identities: DesktopIdentities): Promise<void> {
+  for (const role of [...PROCESS_ROLES].reverse()) killPid(pids[role], identities[role]);
+  await Bun.sleep(600);
+  for (const role of [...PROCESS_ROLES].reverse()) killPid(pids[role], identities[role], "SIGKILL");
 }
 
 /**
@@ -240,17 +306,18 @@ async function adoptOrReap(): Promise<boolean> {
   const record = readStateFile();
   if (!record) return false;
 
-  const { xvfb, vnc, chrome } = record.pids;
+  const identities = verifiedIdentities(record);
   // An interrupted start can leave a record with cdpPort=0. It is not ready
   // for adoption until Chrome's assigned endpoint has been persisted.
   const healthy =
-    alive(xvfb) && alive(vnc) && alive(chrome) && record.config.cdpPort > 0 &&
-    (await waitForPort(record.config.rfbPort, 1500)) && (await waitForPort(record.config.cdpPort, 1500));
+    !!identities.xvfb && !!identities.vnc && !!identities.chrome &&
+    PROCESS_ROLES.every(role => record.pids?.[role] === undefined || !!identities[role]) && record.config.cdpPort > 0 &&
+    (await waitForPort(record.config.rfbPort, 1500)) && (await waitForPort(record.config.cdpPort, 1500)) &&
+    // The probes await I/O. Recheck every role immediately before adoption.
+    PROCESS_ROLES.every(role => record.pids[role] === undefined || sameProcess(record.pids[role], identities[role]));
 
   if (!healthy) {
-    for (const pid of Object.values(record.pids)) killPid(pid);
-    await Bun.sleep(500);
-    for (const pid of Object.values(record.pids)) killPid(pid, "SIGKILL");
+    await reapProcesses(record.pids ?? {}, identities);
     clearStateFile();
     // kill() returns before the kernel finishes tearing the process down, and
     // a listening socket keeps accepting until it does. startDesktop() checks
@@ -268,7 +335,10 @@ async function adoptOrReap(): Promise<boolean> {
     config: record.config,
     startedAt: record.startedAt,
     adoptedPids: record.pids,
+    identities,
   };
+  // Upgrade a verified legacy record so later restarts also detect PID reuse.
+  if (record.identities === undefined) writeStateFile(state);
   return true;
 }
 
@@ -505,7 +575,7 @@ async function startDesktopOwned(partial: Partial<DesktopConfig>): Promise<Deskt
     console.warn(`[computer] configured port ${busy} is in use`);
     throw new Error("The Computer cannot open its browser. Try again or contact support.");
   }
-  const next: DesktopState = { config };
+  const next: DesktopState = { config, identities: {} };
   state = next;
   try {
     return await launchDesktop(next);
@@ -525,6 +595,7 @@ async function launchDesktop(next: DesktopState): Promise<DesktopStatus> {
     [display, "-screen", "0", `${config.width}x${config.height}x24`, "-nolisten", "tcp"],
     { stdio: "ignore", detached: false },
   );
+  next.identities.xvfb = processIdentity(next.xvfb.pid);
   await Bun.sleep(1200);
 
   // The desktop session: wallpaper, panel, file manager, a terminal, and a
@@ -533,6 +604,7 @@ async function launchDesktop(next: DesktopState): Promise<DesktopStatus> {
   const session = desktopSessionCommand();
   if (!session) throw new Error("no desktop session found (install xfce4 or openbox)");
   next.wm = spawn(session.cmd, session.args, { stdio: "ignore", env, detached: false });
+  next.identities.wm = processIdentity(next.wm.pid);
   // xfce4 has a panel, a settings daemon and a desktop to bring up, so it needs
   // longer than a bare window manager before anything else should appear.
   await Bun.sleep(3500);
@@ -555,6 +627,8 @@ async function launchDesktop(next: DesktopState): Promise<DesktopStatus> {
     { stdio: "ignore", env, detached: false },
   );
 
+  next.identities.vnc = processIdentity(next.vnc.pid);
+
   const chrome = chromePath();
   if (!chrome) throw new Error("no Chrome binary found");
   disablePasswordSaving(config.profileDir);
@@ -563,6 +637,7 @@ async function launchDesktop(next: DesktopState): Promise<DesktopStatus> {
   if (config.cdpPort === 0) rmSync(join(config.profileDir, "DevToolsActivePort"), { force: true });
   const chromeArgs = [
     `--remote-debugging-port=${config.cdpPort}`,
+    "--remote-debugging-address=127.0.0.1",
     `--user-data-dir=${config.profileDir}`,
     "--no-first-run",
     "--no-default-browser-check",
@@ -576,6 +651,8 @@ async function launchDesktop(next: DesktopState): Promise<DesktopStatus> {
   // Guus's setup runs each browser behind a webshare proxy; this is that knob.
   if (config.proxy) chromeArgs.push(`--proxy-server=${config.proxy}`);
   next.chrome = spawn(chrome, chromeArgs, { stdio: "ignore", env, detached: false });
+
+  next.identities.chrome = processIdentity(next.chrome.pid);
 
   // Publish the state BEFORE waiting on ports. If a wait fails or throws, the
   // processes we just spawned must still be reachable by stopDesktop -- an
@@ -627,36 +704,13 @@ async function stopDesktopOwned(): Promise<void> {
   state = null;
   clearStateFile();
   if (!s) {
-    // Nothing in memory, but a previous process may have left a desktop
-    // running. Reap it so "stop" means stopped regardless of who started it.
-    if (record) {
-      for (const pid of Object.values(record.pids)) killPid(pid);
-      await Bun.sleep(500);
-      for (const pid of Object.values(record.pids)) killPid(pid, "SIGKILL");
-    }
+    // Only verified processes from a previous owner may be stopped.
+    if (record) await reapProcesses(record.pids ?? {}, verifiedIdentities(record));
     return;
   }
 
-  // An adopted desktop has pids but no child handles.
-  if (s.adoptedPids) {
-    const pids = Object.values(s.adoptedPids);
-    for (const pid of pids) killPid(pid);
-    await Bun.sleep(600);
-    for (const pid of pids) killPid(pid, "SIGKILL");
-    return;
-  }
-
-  for (const p of [s.chrome, s.vnc, s.wm, s.xvfb]) {
-    try {
-      p?.kill("SIGTERM");
-    } catch {}
-  }
-  await Bun.sleep(600);
-  for (const p of [s.chrome, s.vnc, s.wm, s.xvfb]) {
-    try {
-      if (p && p.exitCode == null) p.kill("SIGKILL");
-    } catch {}
-  }
+  const pids = s.adoptedPids ?? Object.fromEntries(PROCESS_ROLES.map(role => [role, s[role]?.pid]));
+  await reapProcesses(pids, s.identities);
 }
 
 /** The DevTools websocket URL Bun.WebView attaches to, or null when down. */
