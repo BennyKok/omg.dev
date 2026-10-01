@@ -433,8 +433,7 @@ function SimulatorLevel({ stream, webUrl, identity, ownerEmail, onStart }: { str
   const { colors } = useTheme();
   const status = simulatorStatusText(stream);
   if (!status && stream.streamUrl) {
-    // Keyed by streamId: a rotated token in streamUrl must not reload the view.
-    return <PhoneFrame key={stream.streamId ?? stream.streamUrl} uri={stream.streamUrl} testID="project-preview-simulator" stream />;
+    return <ReadySimulatorFrame key={stream.streamId ?? stream.streamUrl} uri={stream.streamUrl} />;
   }
   const canStart = stream.state === "idle" || stream.state === "error";
   return <PhoneFrame uri={webUrl} identity={identity} ownerEmail={ownerEmail} testID="project-preview-simulator-waiting">
@@ -445,6 +444,12 @@ function SimulatorLevel({ stream, webUrl, identity, ownerEmail, onStart }: { str
       </Pressable> : null}
     </View>
   </PhoneFrame>;
+}
+
+/** The stream page renews its own token. Status polls must preserve its document. */
+function ReadySimulatorFrame({ uri }: { uri: string }) {
+  const [entryUri] = useState(uri);
+  return <PhoneFrame uri={entryUri} testID="project-preview-simulator" stream />;
 }
 
 function openComputer() { router.push("/computer"); }

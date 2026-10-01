@@ -1,0 +1,32 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": { "clearState": true },
+  "steps": [
+    {
+      "name": "Start simulator preview",
+      "goal": "Tap Start simulator in the preview card once. Wait for Stream A ready.",
+      "done": "The actual native preview card contains the loaded simulator page.",
+      "expect": ["Simulator preview test", "Stream A ready", "Tap preview"]
+    },
+    {
+      "name": "Keep input during token renewal",
+      "goal": "Tap Tap preview inside the simulator page once. Then inspect only until Token renewal passed appears. Do not tap again.",
+      "done": "At least four status tokens were issued, the page loaded once, and its tap state survived.",
+      "expect": ["Token renewal passed", "Preview taps: 1", "Stream A ready"]
+    },
+    {
+      "name": "Replace the stream",
+      "goal": "Tap Replace simulator stream once. Wait for the new simulator page.",
+      "done": "A new stream ID loads one new document with fresh input state.",
+      "expect": ["New stream passed", "Stream B ready", "Preview taps: 0"],
+      "forbid": ["Stream A ready"]
+    },
+    {
+      "name": "Return to web preview",
+      "goal": "Tap the Web level tab under the simulator page once.",
+      "done": "Leaving the simulator returns the actual card to its usable web preview.",
+      "expect": ["Web fallback ready", "Simulator released"],
+      "forbid": ["Stream B ready"]
+    }
+  ]
+}
