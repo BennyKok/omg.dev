@@ -12,7 +12,7 @@ import {
 import { expoConnectActive, expoConnectMessage, EXPO_SIGNUP_LABEL, type ExpoAccountSnapshot, type ExpoConnectMode } from "../../../packages/protocol/src/expo-account";
 import { omgFetch } from "../lib/omg-client";
 import { useEmbeddedHostOptions } from "../lib/embedded-host-options";
-import { authenticatedPreviewUrl, previewAppIdentity, previewAuthRequest, PREVIEW_AUTH_RESPONSE, type PreviewAppIdentity } from "../../../packages/protocol/src/preview-auth";
+import { authenticatedPreviewUrl, previewAppIdentity, previewAuthRequest, renewPreviewAuth, type PreviewAppIdentity } from "../../../packages/protocol/src/preview-auth";
 const Computer = lazy(() => import("../views/computer-page").then(m => ({ default: m.ComputerPage })));
 // noVNC stays out of the card's chunk until a sign-in sheet opens.
 const ExpoSigninSheet = lazy(() => import("./expo-signin-sheet"));
@@ -408,11 +408,15 @@ function usePreviewAuthSrc(src: string, identity: PreviewAppIdentity | null | un
     let live = true;
     setAuthenticatedSrc(null);
     setAuthFailed(false);
-    const context = { appId, projectId };
-    const origin = new URL(src).origin;
-    void hostedPreviewAuth.getToken(context).then(token => {
+    const context = { appId, projectId, previewUrl: src };
+    let origin = new URL(src).origin;
+    void hostedPreviewAuth.getToken(context).then(credential => {
       if (!live) return;
-      if (token) setAuthenticatedSrc(authenticatedPreviewUrl(src, appId, token, window.location.origin));
+      if (credential) {
+        const url = authenticatedPreviewUrl(credential.previewUrl, appId, credential.token, window.location.origin);
+        origin = new URL(url).origin;
+        setAuthenticatedSrc(url);
+      }
       else setAuthFailed(true);
     }).catch(() => { if (live) setAuthFailed(true); });
     const receive = (event: MessageEvent) => {
@@ -420,8 +424,8 @@ function usePreviewAuthSrc(src: string, identity: PreviewAppIdentity | null | un
       const request = previewAuthRequest(event.data, appId);
       if (!request) return;
       const source = event.source as Window;
-      void hostedPreviewAuth.getToken(context).catch(() => null).then(token => {
-        if (live) source.postMessage({ type: PREVIEW_AUTH_RESPONSE, ...request, token }, origin);
+      void renewPreviewAuth(request, () => hostedPreviewAuth.getToken(context), () => live && frame.current?.contentWindow === source).then(response => {
+        if (response) source.postMessage(response, origin);
       });
     };
     window.addEventListener("message", receive);

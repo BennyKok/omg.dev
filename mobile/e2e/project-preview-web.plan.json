@@ -8,15 +8,53 @@
       "name": "Web level first",
       "goal": "Wait for the 'My web level app' card. Only inspect it and do not tap anything.",
       "done": "The card shows the web preview inline, with icon tabs for Web and Your phone under it and a full screen button.",
-      "expect": ["My web level app", "Web", "Your phone", "Full screen web preview"],
-      "forbid": ["Open in Expo Go"]
+      "expect": [
+        "My web level app",
+        "Web",
+        "Your phone",
+        "Full screen web preview"
+      ],
+      "forbid": [
+        "Open in Expo Go"
+      ]
+    },
+    {
+      "name": "Full screen stays in the app",
+      "goal": "Tap Full screen web preview once.",
+      "done": "The preview opens in the app with a Close web preview button.",
+      "expect": [
+        "Close web preview"
+      ]
+    },
+    {
+      "name": "Close full screen",
+      "goal": "Tap Close web preview once.",
+      "done": "The original card with Web and Your phone tabs is visible again.",
+      "expect": [
+        "My web level app",
+        "Web",
+        "Your phone",
+        "Full screen web preview"
+      ]
     },
     {
       "name": "Switch to Your phone",
       "goal": "Tap the 'Your phone' tab under the preview once.",
       "done": "The card shows three short steps: get Expo Go, sign in as the Expo account, and open in Expo Go.",
-      "expect": ["Get Expo Go", "Sign in as expo-e2e-test", "Open in Expo Go"],
-      "forbid": ["Full screen web preview"]
+      "expect": [
+        "Get Expo Go",
+        "Sign in as expo-e2e-test",
+        "Open in Expo Go"
+      ]
+    },
+    {
+      "name": "Anonymous preview fails closed",
+      "goal": "Scroll down to the Owner auth preview card. Inspect its web preview. Do not sign in.",
+      "done": "The anonymous owner preview shows the recoverable sign-in failure.",
+      "expect": [
+        "Owner auth preview",
+        "Preview sign-in failed. Reload the preview to try again."
+      ]
     }
   ]
 }

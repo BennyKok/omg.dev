@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AppState, Image, Linking, Platform, Pressable, UIManager, useWindowDimensions, View } from "react-native";
+import { AppState, Image, Linking, Modal, Platform, Pressable, SafeAreaView, UIManager, useWindowDimensions, View } from "react-native";
 import { router } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Reanimated, { cancelAnimation, Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withRepeat, withSequence, withTiming } from "react-native-reanimated";
@@ -19,7 +19,7 @@ import { useTheme } from "./theme";
 import { Text } from "./text";
 import { getAuthToken } from "./auth";
 import { AUTH_ORIGIN, AUTH_REQUEST_ORIGIN, CONTROLPLANE_ORIGIN } from "./config";
-import { authenticatedPreviewUrl, mintPreviewAppToken, previewAppIdentity, previewAuthRequest, PREVIEW_AUTH_RESPONSE, type PreviewAppIdentity } from "../../../packages/protocol/src/preview-auth";
+import { authenticatedPreviewUrl, mintPreviewAppToken, previewAppIdentity, previewAuthRequest, renewPreviewAuth, type PreviewAppIdentity } from "../../../packages/protocol/src/preview-auth";
 
 // Probe before importing: an OTA must not crash a binary without this view.
 const WebView: typeof import("react-native-webview").WebView | null =
@@ -145,6 +145,7 @@ export function ProjectPreviewPanel({ sessionId, transport, email, onOpenCompute
   // Web is level 1 and the default for every new preview.
   const [level, setLevelState] = useState<PreviewLevel>(initialLevel);
   const [info, setInfo] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
   const [simulator, setSimulator] = useState<SimulatorStream | undefined>(undefined);
   // The Computer's Expo CLI account. null: an older Computer without the
   // route, or Android, so the card keeps "Open in Expo Go" as before.
@@ -265,14 +266,27 @@ export function ProjectPreviewPanel({ sessionId, transport, email, onOpenCompute
   };
   const status = expired ? "Link expired" : stopped ? "Stopped" : expoGoUrl ? null : "Live preview";
   const onPhoneLevel = !!expoGoUrl && current === "device";
+  const openWebPreview = () => {
+    if (expoGoUrl && WebView) setFullscreen(true);
+    else void openInAppPage(preview.url);
+  };
   // Expanded, the level itself holds its action; the one-line card keeps it.
   const primary = stopped || (expoGoUrl && guide) ? null
     : onPhoneLevel && needsConnect
       ? connecting ? null : { id: "project-preview-connect-expo", label: "Connect Expo", disabled: connectBusy, onPress: () => void postAccount("connect", "login") }
       : onPhoneLevel
         ? { id: "project-preview-expo-go", label: "Open in Expo Go", disabled: false, onPress: () => void openExpoGo() }
-        : { id: "project-preview-open", label: expoGoUrl ? "Web preview" : "Open preview", disabled: false, onPress: () => void openInAppPage(preview.url) };
+        : { id: "project-preview-open", label: expoGoUrl ? "Web preview" : "Open preview", disabled: false, onPress: openWebPreview };
   return <>
+  <Modal visible={fullscreen && !stopped} animationType="slide" onRequestClose={() => setFullscreen(false)}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
+      <Pressable accessibilityRole="button" accessibilityLabel="Close web preview" testID="project-preview-fullscreen-close"
+        onPress={() => setFullscreen(false)} style={{ minHeight: 44, paddingHorizontal: 20, justifyContent: "center" }}>
+        <Text style={{ color: colors.primary, fontWeight: "600" }}>Done</Text>
+      </Pressable>
+      {fullscreen && !stopped ? <PhoneFrame key={`${preview.sessionId}-${frameRevision}`} uri={inlinePreviewUrl(preview)} identity={previewAppIdentity(preview)} ownerEmail={email} testID="project-preview-fullscreen-web" fullscreen /> : null}
+    </SafeAreaView>
+  </Modal>
   {sheet && transport && !signedIn ? <ExpoSigninSheet mode={sheet.mode} transport={transport} socket={computerSocket}
     onClose={() => { setSheet(null); void postAccount("cancel"); }}
     // A page sheet stays above every screen, so it steps aside for the Computer.
@@ -313,9 +327,9 @@ export function ProjectPreviewPanel({ sessionId, transport, email, onOpenCompute
       </Pressable>
     </View> : expoGoUrl && guide ? <View testID="project-preview-details" style={{ gap: 8, paddingHorizontal: 4, paddingBottom: 2 }}>
       {current === "web"
-        ? <PhoneFrame key={frameRevision} uri={inlinePreviewUrl(preview)} identity={previewAppIdentity(preview)} testID="project-preview-web" onFallback={() => void openInAppPage(preview.url)} />
+        ? <PhoneFrame key={frameRevision} uri={inlinePreviewUrl(preview)} identity={previewAppIdentity(preview)} ownerEmail={email} testID="project-preview-web" onFallback={() => void openInAppPage(preview.url)} />
         : current === "simulator" && simulator
-        ? <SimulatorLevel stream={simulator} webUrl={inlinePreviewUrl(preview)} identity={previewAppIdentity(preview)} onStart={() => void simulatorAction("start")} />
+        ? <SimulatorLevel stream={simulator} webUrl={inlinePreviewUrl(preview)} identity={previewAppIdentity(preview)} ownerEmail={email} onStart={() => void simulatorAction("start")} />
         : <DeviceLevel account={expoAccount} connecting={connecting} busy={connectBusy} error={connectError}
             onOpen={() => void openExpoGo()} onConnect={(mode) => void postAccount("connect", mode)}
             onOpenComputer={() => setSheet({ mode: account?.connect?.state === "signup" ? "signup" : "login", run: account?.connect?.startedAt })}
@@ -330,7 +344,7 @@ export function ProjectPreviewPanel({ sessionId, transport, email, onOpenCompute
           </Pressable>)}
         </View>
         <View style={{ flex: 1 }} />
-        {current === "web" ? <Pressable accessibilityRole="button" accessibilityLabel="Full screen web preview" testID="project-preview-fullscreen" onPress={() => void openInAppPage(preview.url)} style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center" }}>
+        {current === "web" ? <Pressable accessibilityRole="button" accessibilityLabel="Full screen web preview" testID="project-preview-fullscreen" onPress={openWebPreview} style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center" }}>
           <Icon ios="arrow.up.left.and.arrow.down.right" android="fullscreen" size={17} color={colors.mutedForeground} />
         </Pressable> : null}
         <Pressable accessibilityRole="button" accessibilityLabel={current === "device" ? DEVICE_INFO : PRIVATE_INFO} testID="project-preview-info" onPress={() => setInfo(!info)} style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center" }}>
@@ -351,34 +365,38 @@ export function ProjectPreviewPanel({ sessionId, transport, email, onOpenCompute
  * on an iPhone, then scaled to fit about half of the screen above the composer.
  * A binary without the WebView falls back to the in-app browser.
  */
-function PhoneFrame({ uri, identity, testID, onFallback, stream, children }: {
-  uri: string; identity?: PreviewAppIdentity | null; testID: string; onFallback?: () => void; stream?: boolean; children?: React.ReactNode;
+function PhoneFrame({ uri, identity, ownerEmail, testID, onFallback, stream, children, fullscreen = false }: {
+  uri: string; identity?: PreviewAppIdentity | null; ownerEmail?: string; testID: string; onFallback?: () => void; stream?: boolean; children?: React.ReactNode; fullscreen?: boolean;
 }) {
   const { colors } = useTheme();
-  const { height } = useWindowDimensions();
-  const frameH = Math.min(520, Math.round(height * 0.46));
-  const scale = frameH / PHONE_H;
+  const { height, width } = useWindowDimensions();
+  const frameH = fullscreen ? Math.max(200, height - 120) : Math.min(520, Math.round(height * 0.46));
+  const scale = fullscreen ? Math.min(frameH / PHONE_H, width / PHONE_W) : frameH / PHONE_H;
   const frame = useRef<import("react-native-webview").WebView<object>>(null);
   const loadedOrigin = useRef<string | null>(null);
   const [authenticatedUri, setAuthenticatedUri] = useState<string | null>(null);
   const [authFailed, setAuthFailed] = useState(false);
   const appId = identity?.appId;
   const projectId = identity?.projectId;
-  const mint = useCallback(() => appId && projectId ? mintPreviewAppToken({ appId, projectId }, {
+  const authority = useMemo(() => ({ uri, appId, projectId, ownerEmail, live: true }), [uri, appId, projectId, ownerEmail]);
+  const currentAuthority = useRef(authority);
+  currentAuthority.current = authority;
+  useEffect(() => { authority.live = true; return () => { authority.live = false; }; }, [authority]);
+  const mint = useCallback(() => appId && projectId ? mintPreviewAppToken({ appId, projectId, previewUrl: uri }, {
     getAccessToken: getAuthToken, authOrigin: AUTH_ORIGIN, controlPlaneOrigin: CONTROLPLANE_ORIGIN, requestOrigin: AUTH_REQUEST_ORIGIN,
-  }) : Promise.resolve(null), [appId, projectId]);
+  }) : Promise.resolve(null), [appId, projectId, uri]);
   useEffect(() => {
     if (!appId || !projectId) { setAuthenticatedUri(uri); return; }
     let live = true;
     setAuthenticatedUri(null);
     setAuthFailed(false);
-    void mint().then(token => {
+    void mint().then(credential => {
       if (!live) return;
-      if (token) setAuthenticatedUri(authenticatedPreviewUrl(uri, appId, token));
+      if (credential) setAuthenticatedUri(authenticatedPreviewUrl(credential.previewUrl, appId, credential.token));
       else setAuthFailed(true);
     }).catch(() => { if (live) setAuthFailed(true); });
     return () => { live = false; };
-  }, [uri, appId, projectId, mint]);
+  }, [uri, appId, projectId, ownerEmail, mint]);
   if (!WebView) {
     return <Pressable accessibilityRole="button" testID={`${testID}-fallback`} onPress={onFallback} style={{ minHeight: 44, borderRadius: 12, backgroundColor: colors.muted, alignItems: "center", justifyContent: "center" }}>
       <Text style={{ color: colors.primary, fontWeight: "600" }}>Open web preview</Text>
@@ -394,16 +412,15 @@ function PhoneFrame({ uri, identity, testID, onFallback, stream, children }: {
         if (!appId || !projectId) return;
         let data: unknown;
         try {
-          if (new URL(event.nativeEvent.url).origin !== new URL(uri).origin) return;
+          if (!authenticatedUri || new URL(event.nativeEvent.url).origin !== new URL(authenticatedUri).origin) return;
           data = JSON.parse(event.nativeEvent.data);
         } catch { return; }
         const request = previewAuthRequest(data, appId);
         if (!request) return;
         const target = frame.current;
-        const expectedOrigin = new URL(uri).origin;
-        const token = await mint().catch(() => null);
-        if (frame.current !== target || loadedOrigin.current !== expectedOrigin) return;
-        target?.injectJavaScript(`window.__omgReceivePreviewAuth?.(${JSON.stringify({ type: PREVIEW_AUTH_RESPONSE, ...request, token })}); true;`);
+        const expectedOrigin = new URL(authenticatedUri!).origin;
+        const response = await renewPreviewAuth(request, mint, () => authority.live && currentAuthority.current === authority && frame.current === target && loadedOrigin.current === expectedOrigin);
+        if (response) target?.injectJavaScript(`window.__omgReceivePreviewAuth?.(${JSON.stringify(response)}); true;`);
       }}
       scrollEnabled={!stream} bounces={false} allowsInlineMediaPlayback mediaPlaybackRequiresUserAction={false}
       sharedCookiesEnabled={!identity} keyboardDisplayRequiresUserAction={false} setSupportMultipleWindows={false} /> : <Text style={{ padding: 16, color: colors.mutedForeground }}>{authFailed ? "Preview sign-in failed. Reload the preview to try again." : "Preparing preview…"}</Text>}
@@ -412,7 +429,7 @@ function PhoneFrame({ uri, identity, testID, onFallback, stream, children }: {
 }
 
 /** Level 2. Until the stream is ready the web preview stays in the frame under a status line. */
-function SimulatorLevel({ stream, webUrl, identity, onStart }: { stream: SimulatorStream; webUrl: string; identity?: PreviewAppIdentity | null; onStart(): void }) {
+function SimulatorLevel({ stream, webUrl, identity, ownerEmail, onStart }: { stream: SimulatorStream; webUrl: string; identity?: PreviewAppIdentity | null; ownerEmail?: string; onStart(): void }) {
   const { colors } = useTheme();
   const status = simulatorStatusText(stream);
   if (!status && stream.streamUrl) {
@@ -420,7 +437,7 @@ function SimulatorLevel({ stream, webUrl, identity, onStart }: { stream: Simulat
     return <PhoneFrame key={stream.streamId ?? stream.streamUrl} uri={stream.streamUrl} testID="project-preview-simulator" stream />;
   }
   const canStart = stream.state === "idle" || stream.state === "error";
-  return <PhoneFrame uri={webUrl} identity={identity} testID="project-preview-simulator-waiting">
+  return <PhoneFrame uri={webUrl} identity={identity} ownerEmail={ownerEmail} testID="project-preview-simulator-waiting">
     <View testID="project-preview-simulator-status" style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: 10, gap: 8, backgroundColor: colors.card }}>
       <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>{status}</Text>
       {canStart ? <Pressable accessibilityRole="button" testID="project-preview-simulator-start" onPress={onStart} style={{ minHeight: 36, borderRadius: 999, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" }}>

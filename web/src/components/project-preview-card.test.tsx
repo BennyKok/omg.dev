@@ -471,7 +471,7 @@ test("the hosted owner preview waits for permission, bootstraps inline and fulls
   const preview = { ...EXPO_PREVIEW, appId: "my-app", projectId: "project", expoGoUrl: "exps://test-8081-1799999999-abcdef.preview.omgs.app" };
   globalThis.fetch = (async () => Response.json({ preview, live: true })) as typeof fetch;
   const calls: unknown[] = [];
-  const hostedPreviewAuth = { getToken: async (identity: unknown) => { calls.push(identity); return "scoped-token"; } };
+  const hostedPreviewAuth = { getToken: async (identity: unknown) => { calls.push(identity); return { token: "scoped-token", previewUrl: "https://test-8081-1799999999-abcdef.preview.omgs.app" }; } };
   ui.render(<EmbeddedHostOptionsProvider value={{ hostedPreviewAuth }}><ProjectPreviewCard sessionId="session-1" user="person@example.com" /></EmbeddedHostOptionsProvider>);
   await ui.flushAsync(); await ui.flushAsync();
   let frame = document.querySelector('[data-testid="project-preview-web"] iframe') as HTMLIFrameElement;
@@ -479,7 +479,7 @@ test("the hosted owner preview waits for permission, bootstraps inline and fulls
   const origin = "https://test-8081-1799999999-abcdef.preview.omgs.app";
   expect(frame.src.split("#")[0]).toBe(origin + "/");
   expect(frame.src).toContain("__omg_preview_auth=");
-  expect(calls).toEqual([{ appId: "my-app", projectId: "project" }]);
+  expect(calls).toEqual([{ appId: "my-app", projectId: "project", previewUrl: origin }]);
   const renewal = { type: "omg:preview-auth:request", appId: "my-app", requestId: "nonce" };
   window.dispatchEvent(messageEvent({ source: window, origin, data: renewal }));
   window.dispatchEvent(messageEvent({ source: frame.contentWindow, origin: "https://attacker.example", data: renewal }));
@@ -500,6 +500,28 @@ test("a failed hosted permission check shows a recoverable failure and never loa
   await ui.flushAsync(); await ui.flushAsync();
   expect(ui.text()).toContain("Preview sign-in failed.");
   expect(document.querySelector('[data-testid="project-preview-web"] iframe')).toBeNull();
+});
+
+test("closing the preview discards renewal and revocation returns no token", async () => {
+  const { EmbeddedHostOptionsProvider } = await import("../lib/embedded-host-options");
+  const preview = { ...EXPO_PREVIEW, appId: "my-app", projectId: "project", expoGoUrl: "exps://test-8081-1799999999-abcdef.preview.omgs.app" };
+  globalThis.fetch = (async () => Response.json({ preview, live: true })) as typeof fetch;
+  let renew: ((token: { token: string; previewUrl: string } | null) => void) | undefined;
+  let calls = 0;
+  const hostedPreviewAuth = { getToken: async () => ++calls === 1 ? { token: "initial-token", previewUrl: "https://test-8081-1799999999-abcdef.preview.omgs.app" } : new Promise<{ token: string; previewUrl: string } | null>(resolve => { renew = resolve; }) };
+  ui.render(<EmbeddedHostOptionsProvider value={{ hostedPreviewAuth }}><ProjectPreviewCard sessionId="session-1" /></EmbeddedHostOptionsProvider>);
+  await ui.flushAsync(); await ui.flushAsync();
+  const frame = document.querySelector('[data-testid="project-preview-web"] iframe') as HTMLIFrameElement;
+  const replies: unknown[] = [];
+  frame.contentWindow!.postMessage = ((...args: unknown[]) => { replies.push(args); }) as typeof window.postMessage;
+  const send = () => window.dispatchEvent(messageEvent({ source: frame.contentWindow, origin: new URL(frame.src).origin,
+    data: { type: "omg:preview-auth:request", appId: "my-app", requestId: "renewal" } }));
+  send(); await ui.flushAsync(); renew!(null); await ui.flushAsync();
+  expect(replies).toEqual([[{ type: "omg:preview-auth:response", appId: "my-app", requestId: "renewal", token: null }, new URL(frame.src).origin]]);
+  send(); await ui.flushAsync();
+  ui.render(<div>Another project</div>);
+  renew!({ token: "late-token", previewUrl: "https://test-8081-1799999999-abcdef.preview.omgs.app" }); await ui.flushAsync();
+  expect(replies).toHaveLength(1);
 });
 
 function messageEvent(values: { source: unknown; origin: string; data: unknown }) {
