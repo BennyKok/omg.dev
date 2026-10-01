@@ -100,7 +100,7 @@ import { pathnameToSessionId, pathnameToThreadId, sessionToPath, threadToPath } 
 import { NEW_THREAD_ID, ThreadChat, useTypingReport, type ThreadComposerProps } from "./components/threads";
 import { PullToThread } from "./components/pull-to-thread";
 import { useThreads } from "./lib/threads";
-import { THREAD_MENTIONS, threadPreview, type ThreadMentionOption, type ThreadSummary } from "../../packages/protocol/src/threads";
+import { THREAD_MENTIONS, type ThreadMentionOption, type ThreadSummary } from "../../packages/protocol/src/threads";
 import {
   BOT_ROSTER_ROW_CLASS,
   isPrimarySurfaceTab,
@@ -14478,11 +14478,11 @@ function RailGroup({
  */
 /**
  * Threads in the session list, as on the iPad rail: a group like Pinned or a
- * folder, drawn only when there are threads, each row a session row without
- * an agent mark. There is no New button; a pull at the top of the list starts
- * a thread (PullToThread).
+ * folder, drawn only when there are threads. Each shortcut is a compact,
+ * title-only row without an agent mark. There is no New button; a pull at the
+ * top of the list starts a thread (PullToThread).
  */
-function ThreadRailGroup({
+export function ThreadRailGroup({
   threads,
   activeId,
   collapsed,
@@ -14510,7 +14510,8 @@ function ThreadRailGroup({
           tooltip={thread.title}
           mark={null}
           title={thread.title}
-          preview={threadPreview(thread)}
+          preview={null}
+          singleLine
           trailingStatic={relTime(thread.updatedAt)}
           onActivate={() => onOpen(thread.id)}
         />
@@ -14532,6 +14533,7 @@ const RailRow = memo(function RailRow({
   title,
   titleBadge,
   preview,
+  singleLine = false,
   indicator,
   trailingStatic,
   trailingHover,
@@ -14558,6 +14560,8 @@ const RailRow = memo(function RailRow({
   title: ReactNode;
   titleBadge?: ReactNode;
   preview: ReactNode;
+  /** Title only, with the compact height used by thread shortcuts. */
+  singleLine?: boolean;
   /** Extra state shown only in the expanded row, between the text column and the trailing slot (e.g. an unread dot). */
   indicator?: ReactNode;
   /** Draws the title at full weight, so unread does not rest on the dot alone. */
@@ -14681,15 +14685,21 @@ const RailRow = memo(function RailRow({
         className={cn(
           "group relative flex cursor-pointer touch-pan-y select-none items-center rounded-xl border outline-none transition-[background-color,box-shadow,border-color] duration-150",
           dense ? "gap-2.5 py-1" : "gap-3 py-1.5",
-          // Fixed height. The preview arrives late and is replaced as a row
-          // streams, so a row sized to its own text kept resizing under the
-          // cursor and shoved every row below it — the whole list twitching
-          // while anything was working. The row reserves its one preview
-          // line whether or not there is text to put in it yet.
+          // Fixed height. A normal row reserves its preview line because the
+          // preview arrives late and changes while work streams. A title-only
+          // thread shortcut uses the smaller fixed height instead.
           // 5rem and 16/14 padding, from SESSION_ROW in mobile/src/components.tsx.
           // The web row was 60px with 8px of padding, so the same fleet read
           // as a denser product on the web than in the app.
-          collapsed ? "h-11 justify-center px-0" : dense ? "h-[3.75rem] pl-2.5 pr-2" : "h-20 pl-4 pr-3.5",
+          collapsed
+            ? "h-11 justify-center px-0"
+            : singleLine
+              ? dense
+                ? "h-10 pl-2.5 pr-2"
+                : "h-10 pl-4 pr-3.5"
+              : dense
+                ? "h-[3.75rem] pl-2.5 pr-2"
+                : "h-20 pl-4 pr-3.5",
           swiping
             ? "border-transparent bg-card"
             : active
@@ -14735,15 +14745,17 @@ const RailRow = memo(function RailRow({
                   A CSS transition cannot see a text swap — nothing about the
                   element's own style changes — so there is no property for it
                   to animate. */}
-              <span
-                key={typeof preview === "string" ? preview : undefined}
-                className={cn(
-                  "rail-preview truncate leading-tight text-muted-foreground",
-                  dense ? "h-[18px] text-[13px]" : "h-5 text-sm",
-                )}
-              >
-                {preview}
-              </span>
+              {singleLine ? null : (
+                <span
+                  key={typeof preview === "string" ? preview : undefined}
+                  className={cn(
+                    "rail-preview truncate leading-tight text-muted-foreground",
+                    dense ? "h-[18px] text-[13px]" : "h-5 text-sm",
+                  )}
+                >
+                  {preview}
+                </span>
+              )}
             </span>
             {/* When it last moved, then what state it is in — the iOS row's
                 order (mobile/src/components.tsx). The web had the mark first,
