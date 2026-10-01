@@ -11,6 +11,8 @@ import {
 } from "../../../packages/protocol/src/project-preview";
 import { expoConnectActive, expoConnectMessage, EXPO_SIGNUP_LABEL, type ExpoAccountSnapshot, type ExpoConnectMode } from "../../../packages/protocol/src/expo-account";
 import { omgFetch } from "../lib/omg-client";
+import { useEmbeddedHostOptions } from "../lib/embedded-host-options";
+import { authenticatedPreviewUrl, previewAppIdentity, previewAuthRequest, PREVIEW_AUTH_RESPONSE, type PreviewAppIdentity } from "../../../packages/protocol/src/preview-auth";
 const Computer = lazy(() => import("../views/computer-page").then(m => ({ default: m.ComputerPage })));
 // noVNC stays out of the card's chunk until a sign-in sheet opens.
 const ExpoSigninSheet = lazy(() => import("./expo-signin-sheet"));
@@ -162,9 +164,9 @@ export function ProjectPreviewCard({ sessionId, user, agentBusy = false }: { ses
         </button>
       </div> : expoGoUrl && expanded ? <div className="border-t px-3 pb-2" data-testid="project-preview-details">
         {current === "web"
-          ? <PhoneFrame key={frameRevision} src={inlinePreviewUrl(preview)} title={`${preview.title} web preview`} testId="project-preview-web" />
+          ? <PhoneFrame key={frameRevision} src={inlinePreviewUrl(preview)} identity={previewAppIdentity(preview)} title={`${preview.title} web preview`} testId="project-preview-web" />
           : current === "simulator" && state?.simulator
-          ? <SimulatorLevel stream={state.simulator} webUrl={inlinePreviewUrl(preview)} title={preview.title} onStart={() => void simulatorAction("start")} />
+          ? <SimulatorLevel stream={state.simulator} webUrl={inlinePreviewUrl(preview)} identity={previewAppIdentity(preview)} title={preview.title} onStart={() => void simulatorAction("start")} />
           : <DeviceLevel url={expoGoUrl} phone={phone} android={android} account={expo.account} error={expo.error} connecting={connecting}
               onConnect={(mode) => void connect(mode)} onOpenComputer={reopenSheet} onCancel={() => void expo.cancel()} />}
         {/* The level switcher sits under the preview, with the two small links. */}
@@ -189,7 +191,7 @@ export function ProjectPreviewCard({ sessionId, user, agentBusy = false }: { ses
           <a className="text-muted-foreground" href={preview.url} target="_blank" rel="noreferrer" aria-label="Open preview in new tab"><ExternalLink className="size-4" /></a>
           <button className="text-muted-foreground" onClick={() => setOpen(false)} aria-label="Close preview"><X className="size-5" /></button>
         </div>
-        <iframe key={frameRevision} className="min-h-0 flex-1 border-0" src={inlinePreviewUrl(preview)} title={preview.title} sandbox={FRAME_SANDBOX} />
+        <FullscreenFrame key={frameRevision} src={inlinePreviewUrl(preview)} identity={previewAppIdentity(preview)} title={preview.title} />
       </div>,
       document.body,
     )}
@@ -395,8 +397,50 @@ function ExpoLogo({ className }: { className?: string }) {
  * A page at phone size: the frame is 390x844 CSS pixels, so the app lays out
  * as on an iPhone, then scaled to fit the height the composer dock allows.
  */
-function PhoneFrame({ src, title, testId, allow, children }: { src: string; title: string; testId: string; allow?: string; children?: React.ReactNode }) {
+function usePreviewAuthSrc(src: string, identity: PreviewAppIdentity | null | undefined, frame: React.RefObject<HTMLIFrameElement | null>) {
+  const { hostedPreviewAuth } = useEmbeddedHostOptions();
+  const [authenticatedSrc, setAuthenticatedSrc] = useState<string | null>(null);
+  const [authFailed, setAuthFailed] = useState(false);
+  const appId = identity?.appId;
+  const projectId = identity?.projectId;
+  useEffect(() => {
+    if (!appId || !projectId || !hostedPreviewAuth) { setAuthenticatedSrc(src); return; }
+    let live = true;
+    setAuthenticatedSrc(null);
+    setAuthFailed(false);
+    const context = { appId, projectId };
+    const origin = new URL(src).origin;
+    void hostedPreviewAuth.getToken(context).then(token => {
+      if (!live) return;
+      if (token) setAuthenticatedSrc(authenticatedPreviewUrl(src, appId, token, window.location.origin));
+      else setAuthFailed(true);
+    }).catch(() => { if (live) setAuthFailed(true); });
+    const receive = (event: MessageEvent) => {
+      if (event.source !== frame.current?.contentWindow || event.origin !== origin) return;
+      const request = previewAuthRequest(event.data, appId);
+      if (!request) return;
+      const source = event.source as Window;
+      void hostedPreviewAuth.getToken(context).catch(() => null).then(token => {
+        if (live) source.postMessage({ type: PREVIEW_AUTH_RESPONSE, ...request, token }, origin);
+      });
+    };
+    window.addEventListener("message", receive);
+    return () => { live = false; window.removeEventListener("message", receive); };
+  }, [src, appId, projectId, hostedPreviewAuth]);
+  return { authenticatedSrc, authFailed };
+}
+
+function FullscreenFrame({ src, identity, title }: { src: string; identity: PreviewAppIdentity | null; title: string }) {
+  const frame = useRef<HTMLIFrameElement>(null);
+  const { authenticatedSrc, authFailed } = usePreviewAuthSrc(src, identity, frame);
+  return authenticatedSrc ? <iframe ref={frame} className="min-h-0 flex-1 border-0" src={authenticatedSrc} title={title} sandbox={FRAME_SANDBOX} />
+    : <p className="p-4 text-sm text-muted-foreground">{authFailed ? "Preview sign-in failed. Reload the preview to try again." : "Preparing preview…"}</p>;
+}
+
+function PhoneFrame({ src, identity, title, testId, allow, children }: { src: string; identity?: PreviewAppIdentity | null; title: string; testId: string; allow?: string; children?: React.ReactNode }) {
   const box = useRef<HTMLDivElement>(null);
+  const frame = useRef<HTMLIFrameElement>(null);
+  const { authenticatedSrc, authFailed } = usePreviewAuthSrc(src, identity, frame);
   const [scale, setScale] = useState(0.55);
   useLayoutEffect(() => {
     const el = box.current;
@@ -411,9 +455,9 @@ function PhoneFrame({ src, title, testId, allow, children }: { src: string; titl
   return <div ref={box} data-testid={testId}
     className="relative mx-auto mt-2.5 overflow-hidden rounded-[22px] border-[3px] border-foreground/85 bg-background"
     style={{ height: "min(560px, 52dvh)", aspectRatio: `${PHONE_W} / ${PHONE_H}` }}>
-    <iframe src={src} title={title} sandbox={FRAME_SANDBOX} allow={allow}
+    {authenticatedSrc ? <iframe ref={frame} src={authenticatedSrc} title={title} sandbox={FRAME_SANDBOX} allow={allow}
       className="absolute left-0 top-0 origin-top-left border-0"
-      style={{ width: PHONE_W, height: PHONE_H, transform: `scale(${scale})` }} />
+      style={{ width: PHONE_W, height: PHONE_H, transform: `scale(${scale})` }} /> : <p className="p-4 text-sm text-muted-foreground">{authFailed ? "Preview sign-in failed. Reload the preview to try again." : "Preparing preview…"}</p>}
     {children}
   </div>;
 }
@@ -422,7 +466,7 @@ function PhoneFrame({ src, title, testId, allow, children }: { src: string; titl
  * Level 2. Until the stream is ready the web preview stays in the frame under
  * a status line, so the wait never shows a blank phone.
  */
-function SimulatorLevel({ stream, webUrl, title, onStart }: { stream: SimulatorStream; webUrl: string; title: string; onStart(): void }) {
+function SimulatorLevel({ stream, webUrl, identity, title, onStart }: { stream: SimulatorStream; webUrl: string; identity?: PreviewAppIdentity | null; title: string; onStart(): void }) {
   const status = simulatorStatusText(stream);
   if (!status && stream.streamUrl) {
     // Keyed by streamId: a rotated token in streamUrl must not reload the frame.
@@ -430,7 +474,7 @@ function SimulatorLevel({ stream, webUrl, title, onStart }: { stream: SimulatorS
       testId="project-preview-simulator" allow="autoplay; clipboard-read; clipboard-write" />;
   }
   const canStart = stream.state === "idle" || stream.state === "error";
-  return <PhoneFrame src={webUrl} title={`${title} web preview`} testId="project-preview-simulator-waiting">
+  return <PhoneFrame src={webUrl} identity={identity} title={`${title} web preview`} testId="project-preview-simulator-waiting">
     <div className="absolute inset-x-0 bottom-0 space-y-2 bg-background/95 p-3 text-xs" data-testid="project-preview-simulator-status">
       <p className="text-muted-foreground">{status}</p>
       {stream.state === "starting" && typeof stream.progress === "number"

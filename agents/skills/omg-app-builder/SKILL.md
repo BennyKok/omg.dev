@@ -47,6 +47,8 @@ The template:
 
 Data: store it on the phone by default, with the `tasks.ts` pattern. Use hosted data only when the user asks for accounts or data shared between people. Then add sign-in with `@omg-dev/sdk` and `.scoped("user")` collections in `schema.ts`. Never call `/api/...` with a raw `fetch`: a hosted collection answers an anonymous phone with `401 Authentication required`.
 
+For hosted data, install the latest `@omg-dev/sdk` and deploy the backend before testing its shared data in Metro. Keep `.omg/project.json` in the project directory. The hosted web preview uses that registered app identity and signs its owner in through the SDK. Use `<VibesAuthProvider>` and SDK requests. Do not add a separate preview login, forward dashboard cookies, or replace the user's app permissions. A physical phone still needs the app's normal sign-in and the deployed backend origin.
+
 Metro rules: use only ports 8081 to 8099, because Expo Go links work only in that range. Start Metro only with the script; `npx` and `ss` are not installed on every Computer.
 
 ## Build

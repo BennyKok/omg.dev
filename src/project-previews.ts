@@ -1,6 +1,9 @@
 import { createConnection } from "node:net";
 import { dirname } from "node:path";
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { loadProjectLink } from "./cloud-apps.ts";
+import type { PreviewAppIdentity } from "../packages/protocol/src/preview-auth.ts";
 import type { ProjectPreview, SimulatorStream, SimulatorStreamProvider } from "../packages/protocol/src/project-preview.ts";
 import { PATHS } from "./config.ts";
 
@@ -8,7 +11,22 @@ const DEFAULT_PREVIEW_PORT = 5173;
 const EXPO_GO_MIN_PORT = 8081;
 const EXPO_GO_MAX_PORT = 8099;
 const MAX_BODY = 16 * 1024;
-type Session = { id: string; owner: string | null };
+type Session = { id: string; owner: string | null; cwd?: string | null };
+
+// A first-run session can start in its chat directory and create one project
+// beneath it. Resolve only that directory and its direct children. Ambiguous
+// projects never select a token audience by accident.
+export function previewProjectIdentity(cwd?: string | null): PreviewAppIdentity | null {
+  if (!cwd) return null;
+  const direct = loadProjectLink(cwd);
+  if (direct) return { appId: direct.slug, projectId: direct.projectId };
+  try {
+    const projects = readdirSync(cwd, { withFileTypes: true })
+      .filter(entry => entry.isDirectory() && !entry.name.startsWith(".") && entry.name !== "node_modules")
+      .map(entry => loadProjectLink(join(cwd, entry.name))).filter(link => link !== null);
+    return projects.length === 1 ? { appId: projects[0]!.slug, projectId: projects[0]!.projectId } : null;
+  } catch { return null; }
+}
 
 class PreviewError extends Error {
   constructor(public code: number, message: string) { super(message); }
@@ -170,7 +188,10 @@ export function createProjectPreviewService(deps: {
       }
 
       if (req.method === "GET") {
-        const preview = rows.get(session.id) ?? null;
+        const stored = rows.get(session.id) ?? null;
+        const identity = previewProjectIdentity(session.cwd);
+        const { appId: _oldApp, projectId: _oldProject, ...withoutIdentity } = stored ?? {};
+        const preview = stored ? { ...withoutIdentity, ...(identity ?? {}) } as ProjectPreview : null;
         if (!preview) return json({ preview });
         const expired = preview.expoGoExpiresAt !== undefined && now() >= preview.expoGoExpiresAt;
         const live = !expired && await listening(preview.port);

@@ -21,6 +21,7 @@ import {
   type EmbeddedAnalyticsEventHandler,
   type EmbeddedViewer,
   type HostedTranscription,
+  type HostedPreviewAuth,
   type HostMachines,
   type HostSettingsPage,
   type PlanLimitDetail,
@@ -35,6 +36,7 @@ export type {
   HostMachine,
   HostMachines,
   HostedTranscription,
+  HostedPreviewAuth,
   PlanLimitDetail,
 } from "./lib/embedded-host-options";
 export type { PlanLimitLiveAgent } from "./lib/plan-limit-live";
@@ -89,6 +91,7 @@ export interface OmgAppSurfaceProps {
    * on a provider key the connected box may or may not hold.
    */
   hostedTranscription?: HostedTranscription;
+  hostedPreviewAuth?: HostedPreviewAuth;
   /**
    * A service-worker scope the host dedicates to OMG push notifications.
    *
@@ -349,6 +352,7 @@ export function OmgAppSurface({
   onAnalyticsEvent,
   viewer,
   hostedTranscription,
+  hostedPreviewAuth,
   hostedPush,
   onOpenSettingsPage,
   onOpenHostSettings,
@@ -382,6 +386,7 @@ export function OmgAppSurface({
           onAnalyticsEvent,
           viewer,
           hostedTranscription,
+          hostedPreviewAuth,
           onOpenSettingsPage,
           // Forwarding this is what makes the Pages-menu Settings entry
           // reachable at all: App.tsx gates both the entry and the

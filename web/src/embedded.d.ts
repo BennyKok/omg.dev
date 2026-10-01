@@ -133,6 +133,7 @@ export interface OmgAppSurfaceProps {
    * on a provider key the connected machine may or may not hold.
    */
   hostedTranscription?: HostedTranscription;
+  hostedPreviewAuth?: HostedPreviewAuth;
   /**
    * A service-worker scope the host dedicates to OMG push notifications.
    * Without it the notification toggle stays unavailable in an embedded
@@ -235,6 +236,10 @@ export interface HostedTranscription {
   url: string;
   /** Fresh viewer JWT, or null when the session can no longer be proven. */
   getToken: () => Promise<string | null>;
+}
+
+export interface HostedPreviewAuth {
+  getToken(identity: { appId: string; projectId: string }): Promise<string | null>;
 }
 
 export declare function OmgAppSurface(
