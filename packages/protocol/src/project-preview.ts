@@ -7,6 +7,10 @@ export interface ProjectPreview {
   visibility: "owner";
   temporary: true;
   createdAt: number;
+  /** Hosted project identity. Read from .omg/project.json in the session's
+   * project. The platform verifies ownership before any token handoff. */
+  appId?: string;
+  projectId?: string;
   /** `exps://` link that opens the same live Metro server in Expo Go. */
   expoGoUrl?: string;
   /** When the Expo Go link stops working, in epoch milliseconds. */

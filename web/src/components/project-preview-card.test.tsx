@@ -465,3 +465,45 @@ test("the up-to-date mark settles away after the turn ends", async () => {
   ui.render(<Probe busy />);
   expect(probe()).toBe("building");
 });
+
+test("the hosted owner preview waits for permission, bootstraps inline and fullscreen, and rejects unrelated frames", async () => {
+  const { EmbeddedHostOptionsProvider } = await import("../lib/embedded-host-options");
+  const preview = { ...EXPO_PREVIEW, appId: "my-app", projectId: "project", expoGoUrl: "exps://test-8081-1799999999-abcdef.preview.omgs.app" };
+  globalThis.fetch = (async () => Response.json({ preview, live: true })) as typeof fetch;
+  const calls: unknown[] = [];
+  const hostedPreviewAuth = { getToken: async (identity: unknown) => { calls.push(identity); return "scoped-token"; } };
+  ui.render(<EmbeddedHostOptionsProvider value={{ hostedPreviewAuth }}><ProjectPreviewCard sessionId="session-1" user="person@example.com" /></EmbeddedHostOptionsProvider>);
+  await ui.flushAsync(); await ui.flushAsync();
+  let frame = document.querySelector('[data-testid="project-preview-web"] iframe') as HTMLIFrameElement;
+  expect(frame).not.toBeNull();
+  const origin = "https://test-8081-1799999999-abcdef.preview.omgs.app";
+  expect(frame.src.split("#")[0]).toBe(origin + "/");
+  expect(frame.src).toContain("__omg_preview_auth=");
+  expect(calls).toEqual([{ appId: "my-app", projectId: "project" }]);
+  const renewal = { type: "omg:preview-auth:request", appId: "my-app", requestId: "nonce" };
+  window.dispatchEvent(messageEvent({ source: window, origin, data: renewal }));
+  window.dispatchEvent(messageEvent({ source: frame.contentWindow, origin: "https://attacker.example", data: renewal }));
+  window.dispatchEvent(messageEvent({ source: frame.contentWindow, origin, data: { ...renewal, appId: "other-app" } }));
+  await ui.flushAsync(); expect(calls).toHaveLength(1);
+  window.dispatchEvent(messageEvent({ source: frame.contentWindow, origin, data: renewal }));
+  await ui.flushAsync(); expect(calls).toHaveLength(2);
+  ui.flush(() => (document.querySelector('[data-testid="project-preview-fullscreen"]') as HTMLElement).click());
+  await ui.flushAsync(); await ui.flushAsync();
+  frame = document.querySelector('[role="dialog"] iframe') as HTMLIFrameElement;
+  expect(frame.src).toContain("__omg_preview_auth=");
+});
+
+test("a failed hosted permission check shows a recoverable failure and never loads a frame", async () => {
+  const { EmbeddedHostOptionsProvider } = await import("../lib/embedded-host-options");
+  globalThis.fetch = (async () => Response.json({ preview: { ...EXPO_PREVIEW, appId: "my-app", projectId: "project" }, live: true })) as typeof fetch;
+  ui.render(<EmbeddedHostOptionsProvider value={{ hostedPreviewAuth: { getToken: async () => null } }}><ProjectPreviewCard sessionId="session-1" /></EmbeddedHostOptionsProvider>);
+  await ui.flushAsync(); await ui.flushAsync();
+  expect(ui.text()).toContain("Preview sign-in failed.");
+  expect(document.querySelector('[data-testid="project-preview-web"] iframe')).toBeNull();
+});
+
+function messageEvent(values: { source: unknown; origin: string; data: unknown }) {
+  const event = new Event("message");
+  Object.defineProperties(event, Object.fromEntries(Object.entries(values).map(([key, value]) => [key, { value }])));
+  return event;
+}
