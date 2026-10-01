@@ -27,8 +27,12 @@ describe("ModelOptionList", () => {
     expect(text).not.toContain("omg/deepseek/deepseek-v4-flash-0731");
     const rows = ui.queryAll("button");
     expect(rows.length).toBe(OMG_MODELS.length);
-    // One mark per row: every hosted id maps to a lab with artwork.
-    expect(ui.queryAll("button svg[role='img']").length).toBe(OMG_MODELS.length);
+    // Apex has no bundled provider artwork; its readable name still identifies it.
+    expect(ui.queryAll("button svg[role='img']").length).toBe(OMG_MODELS.length - 1);
+    const apex = rows.find((row) => row.textContent?.includes("Apex")) as HTMLButtonElement;
+    expect(apex.title).toBe("Callstack · omg/apex");
+    ui.flush(() => apex.click());
+    expect(chosen).toBe("omg/apex");
     const glm = rows.find((row) => row.textContent?.includes("GLM 5.2")) as HTMLButtonElement;
     expect(glm.title).toBe("Z.ai · omg/z-ai/glm-5.2");
     ui.flush(() => glm.click());

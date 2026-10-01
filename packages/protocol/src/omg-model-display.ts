@@ -20,6 +20,7 @@ export type OmgModelInfo = {
 };
 
 const PROVIDER_LABELS: Record<string, string> = {
+  callstack: "Callstack",
   deepseek: "DeepSeek",
   "z-ai": "Z.ai",
   qwen: "Qwen",
@@ -83,6 +84,8 @@ export function omgProviderLabel(provider: string): string {
 /** Null for anything that is not a hosted `omg/<provider>/<model>` id. */
 export function parseOmgModel(id: string | null | undefined): OmgModelInfo | null {
   if (!id) return null;
+  // Apex uses Callstack's unnamespaced gateway id on the wire.
+  if (id.trim() === "omg/apex") return { id: id.trim(), provider: "callstack", providerLabel: omgProviderLabel("callstack"), label: "Apex" };
   const match = /^omg\/([^/]+)\/(.+)$/.exec(id.trim());
   if (!match) return null;
   const provider = match[1]!.toLowerCase();

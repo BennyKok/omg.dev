@@ -18,6 +18,7 @@ export const OMG_DEFAULT_MODEL = "omg/openai/gpt-6-luna";
 export const OMG_MODELS: string[] = [
   OMG_DEFAULT_MODEL,
   ...[
+    "omg/apex",
     OMG_CHEAPEST_MODEL,
     "omg/deepseek/deepseek-v4-pro",
     "omg/z-ai/glm-5.3-flash",
@@ -56,6 +57,8 @@ const TEXT = ["text"] as const;
 const TEXT_IMAGE = ["text", "image"] as const;
 
 export const OMG_INPUT_MODALITIES_BY_MODEL: Record<string, readonly ("text" | "image")[]> = {
+  // Callstack Apex direct gateway, text-only until vision support is verified.
+  "omg/apex": TEXT,
   "omg/deepseek/deepseek-v4-flash-0731": TEXT,
   "omg/deepseek/deepseek-v4-pro": TEXT,
   "omg/z-ai/glm-5.3-flash": TEXT_IMAGE,
