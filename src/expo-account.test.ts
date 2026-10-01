@@ -123,6 +123,52 @@ describe("GET /api/expo-account", () => {
 });
 
 describe("Connect Expo", () => {
+  test("concurrent taps during desktop startup share one login", async () => {
+    let ready!: () => void;
+    const desktop = new Promise<void>((resolve) => { ready = resolve; });
+    const s = service({ startDesktop: () => desktop });
+    const first = s.call("/api/expo-account/connect", "POST");
+    await settle();
+    const second = await s.call("/api/expo-account/connect", "POST");
+    expect(second.body.connect?.state).toBe("waiting");
+    ready();
+    await first;
+    expect(s.calls.filter((c) => c[1] === "login")).toHaveLength(1);
+    await s.call("/api/expo-account/cancel", "POST");
+  });
+
+  test("cancel during startup prevents a late login, and retry waits for cleanup", async () => {
+    let ready!: () => void;
+    let closed!: () => void;
+    const desktop = new Promise<void>((resolve) => { ready = resolve; });
+    const cleanup = new Promise<void>((resolve) => { closed = resolve; });
+    const s = service({ startDesktop: () => desktop, closeBrowser: () => cleanup });
+    const first = s.call("/api/expo-account/connect", "POST");
+    await settle();
+    expect((await s.call("/api/expo-account/cancel", "POST")).body.connect?.state).toBe("cancelled");
+    ready();
+    await first;
+    expect(s.calls.filter((c) => c[1] === "login")).toHaveLength(0);
+    const retry = s.call("/api/expo-account/connect", "POST");
+    await settle();
+    expect(s.calls.filter((c) => c[1] === "login")).toHaveLength(0);
+    closed();
+    await retry;
+    expect(s.calls.filter((c) => c[1] === "login")).toHaveLength(1);
+    await s.call("/api/expo-account/cancel", "POST");
+  });
+
+  test("browser startup failure is simple and can be retried", async () => {
+    let fail = true;
+    const s = service({ startDesktop: async () => { if (fail) throw new Error("port 9222 is already in use"); } });
+    const failed = await s.call("/api/expo-account/connect", "POST");
+    expect(failed.body.connect?.state).toBe("failed");
+    expect(failed.body.connect?.message).toBe("The Computer could not open Expo sign-in. Try again.");
+    fail = false;
+    expect((await s.call("/api/expo-account/connect", "POST")).body.connect?.state).toBe("waiting");
+    await s.call("/api/expo-account/cancel", "POST");
+  });
+
   test("login, whoami, Metro restart, done", async () => {
     const s = service();
     const started = await s.call("/api/expo-account/connect", "POST");
@@ -205,6 +251,21 @@ describe("Connect Expo", () => {
 describe("Create free account (mode signup)", () => {
   const signup = JSON.stringify({ mode: "signup" });
 
+  test("cancel while the sign-up window opens closes it after opening", async () => {
+    let opened!: () => void;
+    const window = new Promise<void>((resolve) => { opened = resolve; });
+    const s = service({ openBrowser: () => window });
+    const first = s.call("/api/expo-account/connect", "POST", "a@x.dev", signup);
+    await settle();
+    await s.call("/api/expo-account/cancel", "POST");
+    expect(s.calls.filter((c) => c[0] === "close")).toHaveLength(0);
+    opened();
+    await first;
+    await settle();
+    expect(s.calls.filter((c) => c[0] === "close")).toHaveLength(1);
+    expect(s.calls.filter((c) => c[1] === "login")).toHaveLength(0);
+  });
+
   test("opens expo.dev/signup, waits for the browser sign-in, then runs the CLI login", async () => {
     const s = service();
     const started = await s.call("/api/expo-account/connect", "POST", "a@x.dev", signup);
@@ -271,6 +332,7 @@ describe("Create free account (mode signup)", () => {
     const s = service();
     await s.call("/api/expo-account/connect", "POST", "a@x.dev", signup);
     await s.call("/api/expo-account/cancel", "POST");
+    await settle();
     expect(s.calls.filter((c) => c[0] === "close")).toHaveLength(1);
   });
 
