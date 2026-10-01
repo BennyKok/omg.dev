@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 1, 2026 - Compact thread rows in the web sidebar (v0.6.155)
+
+- Web thread shortcuts now show only the title and time. The shorter rows match the recent iPhone Home update and leave more room for tasks.
+
 ## October 1, 2026 - OpenCode model list follows the live catalog (v0.6.154)
 
 - The OpenCode model picker uses the live catalog again. A broken OpenCode install no longer keeps old model names on screen.
