@@ -23,6 +23,16 @@ const snapshot: ProjectPreviewSnapshot = {
   },
 };
 const account: ExpoAccountSnapshot = { signedIn: true, username: "expo-e2e-test" };
+const ownerSnapshot: ProjectPreviewSnapshot = {
+  ...snapshot,
+  preview: {
+    ...snapshot.preview!,
+    title: "Owner auth preview",
+    appId: "owner-auth-preview",
+    projectId: "owner-auth-project",
+    expoGoUrl: "exps://1d38d53e4d93-8081-1799999999-abcdef.preview.omgs.app",
+  },
+};
 
 const transport: Pick<OmgTransport, "request"> = {
   async request<T>(path: string): Promise<T> {
@@ -35,6 +45,9 @@ function App() {
     <ScrollView contentContainerStyle={{ padding: 24, gap: 24 }}>
       <Text style={{ fontSize: 24, color: "#fff" }}>Web level test</Text>
       <ProjectPreviewPanel sessionId="66666666-6666-4666-8666-666666666666" email="test@example.com" transport={transport} />
+      <ProjectPreviewPanel sessionId="77777777-7777-4777-8777-777777777777" transport={{
+        async request<T>(path: string): Promise<T> { return (path.startsWith("/api/expo-account") ? account : ownerSnapshot) as T; },
+      }} />
     </ScrollView>
   </SafeAreaView>;
 }
