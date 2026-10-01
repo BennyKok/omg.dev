@@ -239,7 +239,7 @@ export interface HostedTranscription {
 }
 
 export interface HostedPreviewAuth {
-  getToken(identity: { appId: string; projectId: string }): Promise<string | null>;
+  getToken(identity: { appId: string; projectId: string; previewUrl: string }): Promise<{ token: string; previewUrl: string } | null>;
 }
 
 export declare function OmgAppSurface(
