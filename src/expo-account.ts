@@ -146,6 +146,8 @@ export function createExpoAccountService(deps: ExpoAccountDeps) {
   let status: ExpoConnectStatus | undefined;
   let login: LoginProcess | null = null;
   let cancelled = false;
+  let preparing: Promise<void> | null = null;
+  let closing: Promise<unknown> = Promise.resolve();
   let cached: { mtimeMs: number; username: string | null } | null = null;
   const owns = (owner: string | null, viewer: string) => !owner || owner.toLowerCase() === viewer.toLowerCase();
 
@@ -155,7 +157,10 @@ export function createExpoAccountService(deps: ExpoAccountDeps) {
    */
   function end(next: ExpoConnectStatus): void {
     status = next;
-    void deps.closeBrowser?.().catch(() => {});
+    // A cancelled startup can still be opening the sheet. Close after it
+    // settles, and finish that close before a retry can open another sheet.
+    const setup = preparing ?? Promise.resolve();
+    closing = closing.then(() => setup.catch(() => {})).then(() => deps.closeBrowser?.()).catch(() => {});
   }
 
   function account(): string | null {
@@ -224,6 +229,7 @@ export function createExpoAccountService(deps: ExpoAccountDeps) {
     const timer = setTimeout(() => {
       if (login === proc && status?.state === "waiting") {
         cancelled = true;
+        login = null;
         proc.kill();
         end({ state: "failed", startedAt: started, message: "Expo sign-in timed out. Try again." });
       }
@@ -263,29 +269,44 @@ export function createExpoAccountService(deps: ExpoAccountDeps) {
   }
 
   async function connect(session: Session, mode: ExpoConnectMode): Promise<void> {
-    if (expoConnectActive(status)) return;
+    if (expoConnectActive(status) || preparing) return;
     const preview = deps.preview(session.id);
     const dir = projectDir(session, preview);
-    await deps.startDesktop();
     cancelled = false;
     const started = now();
-    if (mode === "login") { startLogin(session, preview, dir, started); return; }
-    status = { state: "signup", startedAt: started };
-    try {
+    // Reserve the Computer's login before desktop startup yields. A second
+    // tap cannot start another CLI, and Cancel also works during startup.
+    status = { state: mode === "signup" ? "signup" : "waiting", startedAt: started };
+    const previousClose = closing;
+    const setup = async () => {
+      await previousClose;
+      if (cancelled) return;
+      await deps.startDesktop();
+      if (cancelled) return;
+      if (mode === "login") { startLogin(session, preview, dir, started); return; }
       await deps.openBrowser(EXPO_SIGNUP_URL);
+      if (cancelled) return;
+      void awaitSignup(session, preview, dir, started).catch((error) => {
+        end({ state: "failed", startedAt: started, message: error instanceof Error ? error.message : "Expo sign-up failed." });
+      });
+    };
+    preparing = setup();
+    try {
+      await preparing;
     } catch (error) {
-      end({ state: "failed", startedAt: started, message: error instanceof Error ? `Could not open expo.dev: ${error.message}` : "Could not open expo.dev." });
-      return;
+      console.warn(`[expo-account] browser startup failed: ${error instanceof Error ? error.message : String(error)}`);
+      if (!cancelled) end({ state: "failed", startedAt: started, message: "The Computer could not open Expo sign-in. Try again." });
+    } finally {
+      preparing = null;
     }
-    void awaitSignup(session, preview, dir, started).catch((error) => {
-      end({ state: "failed", startedAt: started, message: error instanceof Error ? error.message : "Expo sign-up failed." });
-    });
   }
 
   function cancel(): void {
     if (status?.state !== "waiting" && status?.state !== "signup") return;
     cancelled = true;
-    login?.kill();
+    const proc = login;
+    login = null;
+    proc?.kill();
     end({ state: "cancelled", startedAt: status.startedAt });
   }
 
