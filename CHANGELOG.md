@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 1, 2026 - Full page inside native app previews (v0.6.153)
+
+- The iPhone app shows the full web page inside the phone preview. Buttons at the bottom of the page remain visible and can be tapped.
+
 ## October 1, 2026 - Stable simulator previews (v0.6.152)
 
 - Simulator previews keep the same page when a status token changes. Taps, typing, and video can continue in the web and iPhone preview cards. A new simulator stream still opens a new page.
