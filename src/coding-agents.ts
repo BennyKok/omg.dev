@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { PATHS, localServeBaseUrl } from "./config.ts";
+import { whichRunnable } from "./runnable-bin.ts";
 import { modelDiscoveryKeysForAgent, refreshModelCatalog } from "./model-discovery.ts";
 import { omgCapabilityAccess } from "./omg-capabilities.ts";
 import { codingAgentVersion } from "./coding-agent-version.ts";
@@ -370,14 +371,7 @@ export async function markCodingAgentRequested(kind: CodingAgentKind): Promise<v
 }
 
 function which(name: string, extra: string[] = []): string | null {
-  try {
-    const onPath = Bun.which(name);
-    if (onPath) return onPath;
-  } catch {}
-  for (const p of extra) {
-    if (p && existsSync(p)) return p;
-  }
-  return null;
+  return whichRunnable(name, extra);
 }
 
 function bunPath(): string | null {
@@ -416,6 +410,7 @@ function opencodePath(): string | null {
   const home = userHome();
   return which("opencode", [
     process.env.LFG_OPENCODE_PATH ?? "",
+    join(PATHS.root, "node_modules", ".bin", "opencode"),
     `${home}/.local/bin/opencode`,
     `${home}/.bun/bin/opencode`,
     "/usr/local/bin/opencode",
