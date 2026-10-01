@@ -50,6 +50,7 @@ import { readFileSync, statSync } from "node:fs";
 import { initialCmdOffset, readNewCmdLines, writeCursor } from "./cmd-tail.ts";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { isRunnableCommand, whichRunnable } from "../../runnable-bin.ts";
 import { extractAttachments } from "../../attachment-images.ts";
 
 // Headless OpenCode can't show its TUI question picker. If the user never
@@ -68,12 +69,11 @@ function arg(argv: string[], name: string): string | undefined {
 // dep installs it there).
 function resolveOpencodePath(): string | undefined {
   try {
-    if (process.env.LFG_OPENCODE_PATH) return process.env.LFG_OPENCODE_PATH;
-    const onPath = Bun.which("opencode");
-    if (onPath) return onPath;
+    const override = process.env.LFG_OPENCODE_PATH?.trim();
+    if (override && isRunnableCommand(override)) return override;
     // import.meta.dir is …/src/agents/backends — climb to the repo root.
     const local = join(import.meta.dir, "../../../node_modules/.bin/opencode");
-    return local;
+    return whichRunnable("opencode", [local]) ?? undefined;
   } catch {
     return undefined;
   }

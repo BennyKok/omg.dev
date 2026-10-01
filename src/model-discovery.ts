@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { PATHS } from "./config.ts";
 import type { CodingAgentKind } from "./coding-agents.ts";
+import { isRunnableCommand, whichRunnable } from "./runnable-bin.ts";
 import { getGlobalSettingsSync } from "./settings.ts";
 
 type ProviderKey = CodingAgentKind;
@@ -87,14 +88,7 @@ function refreshCron(): string {
 }
 
 function which(name: string, extra: string[] = []): string | null {
-  try {
-    const found = Bun.which(name);
-    if (found) return found;
-  } catch {}
-  for (const candidate of extra) {
-    if (candidate && existsSync(candidate)) return candidate;
-  }
-  return null;
+  return whichRunnable(name, extra.filter((candidate) => candidate && existsSync(candidate)));
 }
 
 function userHome(): string {
@@ -153,7 +147,10 @@ function cursorPath(): string | null {
 }
 
 function opencodePath(): string | null {
-  if (process.env.LFG_OPENCODE_PATH) return process.env.LFG_OPENCODE_PATH;
+  // A set override that is the npm placeholder (no shebang, ENOEXEC) must not
+  // block the repo binary. An empty override counts as unset.
+  const override = process.env.LFG_OPENCODE_PATH?.trim();
+  if (override && isRunnableCommand(override)) return override;
   return which("opencode", [join(PATHS.root, "node_modules", ".bin", "opencode")]);
 }
 
