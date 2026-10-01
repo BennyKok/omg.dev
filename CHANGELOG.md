@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 1, 2026 - Stable simulator previews (v0.6.152)
+
+- Simulator previews keep the same page when a status token changes. Taps, typing, and video can continue in the web and iPhone preview cards. A new simulator stream still opens a new page.
+
 ## October 1, 2026 - Owned app previews and reliable Expo connection (v0.6.151)
 
 - Generated Expo apps can use the owner's app sign-in in the web preview. The preview passes a short-lived token for that app and renews it while open. Shared data uses the app's deployed backend. Existing apps need the updated SDK.
