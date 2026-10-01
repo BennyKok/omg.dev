@@ -42,7 +42,7 @@ export interface DesktopConfig {
   height: number;
   /** RFB port for x11vnc. Bound to loopback only. */
   rfbPort: number;
-  /** Chrome DevTools port. Bound to loopback only. */
+  /** Chrome DevTools port. Zero lets Chrome claim an isolated loopback port. */
   cdpPort: number;
   /** Chrome profile directory. Persistent, so logins survive a restart. */
   profileDir: string;
@@ -53,9 +53,8 @@ export interface DesktopConfig {
 /**
  * A port from the environment, or the default when unset or unparseable.
  *
- * The defaults are fine on a box that runs nothing else, but 9222 is the
- * conventional Chrome debugging port, so it is exactly the one a box is most
- * likely to have already spoken for.
+ * Chrome chooses its own port by default. An explicit nonzero CDP port is
+ * retained for installations that require a fixed endpoint.
  */
 export function envPort(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -69,7 +68,7 @@ export const DEFAULT_DESKTOP: DesktopConfig = {
   width: 1280,
   height: 800,
   rfbPort: envPort("OMG_COMPUTER_RFB_PORT", 5900),
-  cdpPort: envPort("OMG_COMPUTER_CDP_PORT", 9222),
+  cdpPort: envPort("OMG_COMPUTER_CDP_PORT", 0),
   // The preferred location. startDesktop() uses computerDir(), which falls
   // back when this one is not writable.
   profileDir: `${process.env.HOME ?? "/tmp"}/.omg/computer/chrome-profile`,
@@ -146,6 +145,15 @@ interface DesktopState {
 // Module-level singleton: one box, one desktop. A second owner of this state
 // would mean two stacks fighting over the same display number and ports.
 let state: DesktopState | null = null;
+
+// Adoption, start and stop all mutate the same desktop. In particular, state
+// is not ready until the start finishes. Queue callers through this one owner.
+let lifecycle: Promise<unknown> = Promise.resolve();
+function desktopOperation<T>(action: () => Promise<T>): Promise<T> {
+  const result = lifecycle.then(action);
+  lifecycle = result.catch(() => {});
+  return result;
+}
 
 // Where the running desktop is recorded, so a RESTARTED server can find it.
 //
@@ -232,11 +240,12 @@ async function adoptOrReap(): Promise<boolean> {
   const record = readStateFile();
   if (!record) return false;
 
-  const { xvfb, vnc } = record.pids;
-  // Xvfb and x11vnc are the two that matter: without them there is no screen
-  // and nothing to stream, whatever else survived.
+  const { xvfb, vnc, chrome } = record.pids;
+  // An interrupted start can leave a record with cdpPort=0. It is not ready
+  // for adoption until Chrome's assigned endpoint has been persisted.
   const healthy =
-    alive(xvfb) && alive(vnc) && (await waitForPort(record.config.rfbPort, 1500));
+    alive(xvfb) && alive(vnc) && alive(chrome) && record.config.cdpPort > 0 &&
+    (await waitForPort(record.config.rfbPort, 1500)) && (await waitForPort(record.config.cdpPort, 1500));
 
   if (!healthy) {
     for (const pid of Object.values(record.pids)) killPid(pid);
@@ -447,6 +456,7 @@ async function waitForPortsFree(ports: number[], timeoutMs: number): Promise<boo
  */
 export async function busyPort(config: DesktopConfig): Promise<number | null> {
   for (const port of [config.rfbPort, config.cdpPort]) {
+    if (port === 0) continue;
     if (await waitForPort(port, 0)) return port;
   }
   return null;
@@ -461,8 +471,9 @@ export async function busyPort(config: DesktopConfig): Promise<number | null> {
  * press Start on something already started.
  */
 export async function ensureDesktopAdopted(): Promise<void> {
-  if (state) return;
-  await adoptOrReap();
+  await desktopOperation(async () => {
+    if (!state) await adoptOrReap();
+  });
 }
 
 /**
@@ -471,6 +482,10 @@ export async function ensureDesktopAdopted(): Promise<void> {
  * cannot start two stacks.
  */
 export async function startDesktop(partial: Partial<DesktopConfig> = {}): Promise<DesktopStatus> {
+  return desktopOperation(() => startDesktopOwned(partial));
+}
+
+async function startDesktopOwned(partial: Partial<DesktopConfig>): Promise<DesktopStatus> {
   if (state) return desktopStatus();
 
   // A desktop this box left running survives a server restart. Reattach to it
@@ -487,18 +502,23 @@ export async function startDesktop(partial: Partial<DesktopConfig> = {}): Promis
   // that cannot work and cannot report that it does not work.
   const busy = await busyPort(config);
   if (busy !== null) {
-    // busyPort checks rfbPort first, so attribute a tie to rfb rather than
-    // naming the CDP knob for a port the RFB check matched.
-    const knob = busy === config.rfbPort ? "OMG_COMPUTER_RFB_PORT" : "OMG_COMPUTER_CDP_PORT";
-    throw new Error(
-      `port ${busy} is already in use by another process, so the Computer cannot claim it. ` +
-        `Stop whatever holds it, or set ${knob} to a free port and restart the server.`,
-    );
+    console.warn(`[computer] configured port ${busy} is in use`);
+    throw new Error("The Computer cannot open its browser. Try again or contact support.");
   }
+  const next: DesktopState = { config };
+  state = next;
+  try {
+    return await launchDesktop(next);
+  } catch (error) {
+    if (state === next) await stopDesktopOwned();
+    throw error;
+  }
+}
+
+async function launchDesktop(next: DesktopState): Promise<DesktopStatus> {
+  const config = next.config;
   const display = `:${config.display}`;
   const env = { ...process.env, DISPLAY: display };
-  const next: DesktopState = { config };
-
   // Xvfb first: everything below needs a display to attach to.
   next.xvfb = spawn(
     "Xvfb",
@@ -538,6 +558,9 @@ export async function startDesktop(partial: Partial<DesktopConfig> = {}): Promis
   const chrome = chromePath();
   if (!chrome) throw new Error("no Chrome binary found");
   disablePasswordSaving(config.profileDir);
+  // Chrome writes this file only with --remote-debugging-port=0. Remove an
+  // old endpoint before launching, so a failed start cannot attach elsewhere.
+  if (config.cdpPort === 0) rmSync(join(config.profileDir, "DevToolsActivePort"), { force: true });
   const chromeArgs = [
     `--remote-debugging-port=${config.cdpPort}`,
     `--user-data-dir=${config.profileDir}`,
@@ -561,36 +584,51 @@ export async function startDesktop(partial: Partial<DesktopConfig> = {}): Promis
   state = next;
   writeStateFile(next);
 
-  let rfbUp = false;
-  let cdpUp = false;
-  try {
-    [rfbUp, cdpUp] = await Promise.all([
-      waitForPort(config.rfbPort, 10_000),
-      waitForPort(config.cdpPort, 20_000),
-    ]);
-  } catch {
-    await stopDesktop();
-    throw new Error("the computer failed to start");
-  }
-
-  if (!rfbUp || !cdpUp) {
-    await stopDesktop();
-    throw new Error(
-      `computer failed to start (rfb=${rfbUp ? "up" : "down"} cdp=${cdpUp ? "up" : "down"})`,
-    );
-  }
+  const [rfbUp, cdpUp] = await Promise.all([
+    waitForPort(config.rfbPort, 10_000),
+    config.cdpPort === 0 ? waitForChromePort(next, 20_000) : waitForPort(config.cdpPort, 20_000),
+  ]);
+  if (!rfbUp || !cdpUp) throw new Error("The Computer could not start its browser. Try again.");
+  // The Chrome-assigned port is the runtime endpoint. Persist it for adoption
+  // and use it for every browser/kiosk consumer, without changing the profile.
+  writeStateFile(next);
   return desktopStatus();
+}
+
+async function waitForChromePort(next: DesktopState, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (next.chrome?.exitCode !== null) return false;
+    try {
+      const [portText, path] = readFileSync(join(next.config.profileDir, "DevToolsActivePort"), "utf8").trim().split("\n");
+      const port = Number(portText);
+      if (Number.isInteger(port) && port > 0 && port < 65536 && path?.startsWith("/devtools/browser/")) {
+        const response = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(1000) });
+        const body = await response.json() as { webSocketDebuggerUrl?: string };
+        if (response.ok && body.webSocketDebuggerUrl === `ws://127.0.0.1:${port}${path}`) {
+          next.config.cdpPort = port;
+          return true;
+        }
+      }
+    } catch { /* Chrome has not published its endpoint yet. */ }
+    await Bun.sleep(100);
+  }
+  return false;
 }
 
 /** Stop the whole stack, top down. Safe to call when nothing is running. */
 export async function stopDesktop(): Promise<void> {
+  await desktopOperation(stopDesktopOwned);
+}
+
+async function stopDesktopOwned(): Promise<void> {
   const s = state;
+  const record = s ? null : readStateFile();
   state = null;
   clearStateFile();
   if (!s) {
     // Nothing in memory, but a previous process may have left a desktop
     // running. Reap it so "stop" means stopped regardless of who started it.
-    const record = readStateFile();
     if (record) {
       for (const pid of Object.values(record.pids)) killPid(pid);
       await Bun.sleep(500);
