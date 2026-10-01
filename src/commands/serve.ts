@@ -4346,7 +4346,7 @@ export async function cmdServe() {
   const projectPreview = createProjectPreviewService({
     session: async (id) => {
       const row = (await listSessions()).find(s => s.sessionId === id || s.nativeSessionId === id);
-      return row?.sessionId ? { id: row.sessionId, owner: row.assignedUser ?? null } : null;
+      return row?.sessionId ? { id: row.sessionId, owner: row.assignedUser ?? null, cwd: row.cwd ?? null } : null;
     },
     viewer: req => botViewerFromRequest(req, new URL(req.url).searchParams.get("user")).identity,
     resolve: async (port, options) => {
