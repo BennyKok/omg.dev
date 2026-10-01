@@ -1,0 +1,49 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": true
+  },
+  "steps": [
+    {
+      "name": "Owner inline",
+      "goal": "Wait for the inline web preview. Do not sign in.",
+      "done": "The actual owner is signed in. The full inline phone viewport and its footer remain visible.",
+      "expect": [
+        "Deployed owner preview",
+        "Owner signed in",
+        "SDK identity: 98ecd475-1ba2-43d6-988d-98c27a8f0ce1",
+        "App: preview-auth-fixture-1jbls",
+        "Data connection: live",
+        "Full screen web preview",
+        "Backend identity: 98ecd475-1ba2-43d6-988d-98c27a8f0ce1"
+      ],
+      "forbid": [
+        "Send code",
+        "Preview sign-in failed. Reload the preview to try again."
+      ],
+      "timeoutMs": 120000
+    },
+    {
+      "name": "Owner data write",
+      "goal": "Tap Save owner note once inside the preview.",
+      "done": "The owner note appears from the live collection.",
+      "expect": [
+        "Owner preview note",
+        "Data connection: live"
+      ]
+    },
+    {
+      "name": "Preview logout",
+      "goal": "Tap Sign out of preview in the footer of the inline preview. Keep the card inline. Do not open fullscreen or move the footer.",
+      "done": "The inline footer is reachable. The SDK shows a signed-out state and removes owner data.",
+      "expect": [
+        "Signed out"
+      ],
+      "forbid": [
+        "Owner signed in",
+        "Owner preview note",
+        "Renewed owner preview note"
+      ]
+    }
+  ]
+}

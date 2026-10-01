@@ -403,7 +403,7 @@ function PhoneFrame({ uri, identity, ownerEmail, testID, onFallback, stream, chi
     </Pressable>;
   }
   return <View testID={testID} style={{ alignSelf: "center", width: Math.round(PHONE_W * scale), height: frameH, borderRadius: 20, borderWidth: 3, borderColor: colors.foreground, overflow: "hidden", backgroundColor: colors.bg }}>
-    {authenticatedUri ? <WebView ref={frame} source={{ uri: authenticatedUri }} style={{ width: PHONE_W, height: PHONE_H, transformOrigin: "top left", transform: [{ scale }] }}
+    {authenticatedUri ? <WebView ref={frame} source={{ uri: authenticatedUri }} style={{ flex: 0, width: PHONE_W, height: PHONE_H, transformOrigin: "top left", transform: [{ scale }] }}
       onLoadStart={event => {
         try { loadedOrigin.current = new URL(event.nativeEvent.url).origin; }
         catch { loadedOrigin.current = null; }

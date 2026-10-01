@@ -1,0 +1,114 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": true
+  },
+  "steps": [
+    {
+      "name": "Owner inline",
+      "goal": "Wait for the inline web preview. Do not sign in.",
+      "done": "The actual owner is signed in and the data connection is live.",
+      "expect": [
+        "Deployed owner preview",
+        "Owner signed in",
+        "SDK identity: 98ecd475-1ba2-43d6-988d-98c27a8f0ce1",
+        "App: preview-auth-fixture-1jbls",
+        "Data connection: live",
+        "Full screen web preview",
+        "Backend identity: 98ecd475-1ba2-43d6-988d-98c27a8f0ce1"
+      ],
+      "forbid": [
+        "Send code",
+        "Preview sign-in failed. Reload the preview to try again."
+      ],
+      "timeoutMs": 120000
+    },
+    {
+      "name": "Owner data write",
+      "goal": "Tap Save owner note once inside the preview.",
+      "done": "The owner note appears from the live collection.",
+      "expect": [
+        "Owner preview note",
+        "Data connection: live"
+      ]
+    },
+    {
+      "name": "Owner fullscreen",
+      "goal": "Tap Full screen web preview once.",
+      "done": "The same owner and app appear in the in-app fullscreen preview.",
+      "expect": [
+        "Close web preview",
+        "Owner signed in",
+        "SDK identity: 98ecd475-1ba2-43d6-988d-98c27a8f0ce1",
+        "App: preview-auth-fixture-1jbls",
+        "Owner preview note",
+        "Data connection: live",
+        "Backend identity: 98ecd475-1ba2-43d6-988d-98c27a8f0ce1"
+      ],
+      "forbid": [
+        "Send code"
+      ]
+    },
+    {
+      "name": "Reload owner frame",
+      "goal": "Tap Reload owner preview once inside the fullscreen preview.",
+      "done": "Reload completes and the owner and saved data remain.",
+      "expect": [
+        "Reload completed",
+        "Owner signed in",
+        "Owner preview note",
+        "Data connection: live"
+      ]
+    },
+    {
+      "name": "Natural token renewal",
+      "goal": "Wait without tapping for the five-minute production JWT to renew. Stay in the fullscreen preview.",
+      "done": "The SDK has received a later expiry through the native host and the live data still works.",
+      "expect": [
+        "Renewal verified",
+        "Owner signed in",
+        "Data connection: live",
+        "Owner preview note"
+      ],
+      "forbid": [
+        "Send code",
+        "Signed out"
+      ],
+      "timeoutMs": 360000
+    },
+    {
+      "name": "Renewed data write",
+      "goal": "Tap Save renewed owner note once inside the fullscreen preview.",
+      "done": "A new note is saved through the renewed app JWT and arrives from the live collection.",
+      "expect": [
+        "Renewed owner preview note",
+        "Renewal verified",
+        "Data connection: live"
+      ]
+    },
+    {
+      "name": "Return inline",
+      "goal": "Tap Close web preview once.",
+      "done": "The inline owner preview retains the same owner and saved data.",
+      "expect": [
+        "Full screen web preview",
+        "Owner signed in",
+        "Owner preview note",
+        "Data connection: live"
+      ]
+    },
+    {
+      "name": "Preview logout",
+      "goal": "Tap Sign out of preview in the footer of the inline preview. Keep the card inline. Do not open fullscreen or move the footer.",
+      "done": "The inline footer is reachable. The SDK shows a signed-out state and removes owner data.",
+      "expect": [
+        "Signed out"
+      ],
+      "forbid": [
+        "Owner signed in",
+        "Owner preview note",
+        "Renewed owner preview note"
+      ]
+    }
+  ]
+}
