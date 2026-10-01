@@ -337,10 +337,11 @@ test("grok catalog defaults to Grok 4.7 and keeps the fast variant", async () =>
   expect(grok?.thinkingLevelsByModel?.["grok-4.5"]).toEqual(["low", "medium", "high"]);
 });
 
-test("omg agent lists the 15 routed models in hosted picker order, default first", async () => {
+test("omg agent lists the 16 routed models in hosted picker order, default first", async () => {
   const { OMG_MODELS } = await import("./agent-catalog.ts");
   expect(OMG_MODELS).toEqual([
     "omg/openai/gpt-6-luna",
+    "omg/apex",
     "omg/deepseek/deepseek-v4-flash-0731",
     "omg/deepseek/deepseek-v4-pro",
     "omg/z-ai/glm-5.3-flash",
