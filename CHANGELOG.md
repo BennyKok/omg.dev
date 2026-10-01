@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 1, 2026 - Owned app previews and reliable Expo connection (v0.6.151)
+
+- Generated Expo apps can use the owner's app sign-in in the web preview. The preview passes a short-lived token for that app and renews it while open. Shared data uses the app's deployed backend. Existing apps need the updated SDK.
+- The iPhone app keeps the owned web preview inside the app when you open it full screen.
+- Connect Expo opens its own browser connection. Another Chrome on the Computer no longer blocks sign-in. Cancel and retry work, and cleanup verifies each saved process before it sends a stop signal.
+
 ## September 30, 2026 - Simulator auto-start, iOS crash fixes and Threads on Home (v0.6.150)
 
 - Expo preview card: the Simulator level can start by itself when you open the card. This option is off for now. While all simulators are busy, the card shows your place in line and a rough wait, such as "About 3 min".
