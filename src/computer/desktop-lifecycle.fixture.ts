@@ -8,6 +8,9 @@ const root = process.env.HOME!;
 appendFileSync(join(root, "calls"), `${role} ${process.pid}\n`);
 if (role === "google-chrome") {
   if (process.env.FAIL_CHROME) process.exit(1);
+  // Like a Firecracker guest with no /dev/shm: real Chrome aborts at start
+  // unless it is told to keep shared memory elsewhere.
+  if (!process.argv.includes("--disable-dev-shm-usage")) process.exit(134);
   const profile = process.argv.find(a => a.startsWith("--user-data-dir="))!.split("=")[1]!;
   const requested = Number(process.argv.find(a => a.startsWith("--remote-debugging-port="))!.split("=")[1]);
   let endpointPort = 0;
