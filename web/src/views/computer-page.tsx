@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { omgFetch, openOmgSocket } from "@/lib/omg-client";
+import { computerStartErrorMessage } from "@/lib/computer-start-error";
 import { RfbChannel } from "@/lib/rfb-channel";
 import { dispatchComputerMouse } from "@/lib/computer-pointer";
 
@@ -346,10 +347,10 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
     setError(null);
     try {
       const res = await omgFetch("/api/computer/start", { method: "POST" });
-      if (!res.ok) throw new Error((await res.text()) || "failed to start");
+      if (!res.ok) throw new Error(computerStartErrorMessage(await res.text()));
       setStatus((await res.json()) as ComputerStatus);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "failed to start the computer");
+      setError(e instanceof Error ? e.message : computerStartErrorMessage(""));
       setPhase("idle");
     }
   };

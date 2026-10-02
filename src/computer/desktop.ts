@@ -642,6 +642,10 @@ async function launchDesktop(next: DesktopState): Promise<DesktopStatus> {
     "--no-first-run",
     "--no-default-browser-check",
     "--disable-gpu",
+    // Firecracker guests booted from an older rootfs have no /dev/shm. Chrome
+    // aborts at start without it ("Unable to access /dev/shm"), which reads as
+    // "rfb=up cdp=down". Keep Chrome's shared memory in /tmp instead.
+    "--disable-dev-shm-usage",
     // Deliberately NOT full screen. A maximised Chrome hides the desktop and
     // makes the stream look like a browser again; leaving the edges visible is
     // what makes it read as a computer you could open something else on.
