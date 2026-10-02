@@ -20,6 +20,7 @@ test("desktop isolates foreign CDP, reuses/adopts its browser, serializes starts
   reserve.stop(true);
   const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH}`, OMG_COMPUTER_RFB_PORT: String(port) };
   delete env.OMG_COMPUTER_CDP_PORT;
+  delete env.XDG_CONFIG_HOME;
   const proc = Bun.spawn([process.execPath, fixture, "scenario"], { env, stdout: "pipe", stderr: "pipe" });
   try {
     const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
@@ -28,6 +29,10 @@ test("desktop isolates foreign CDP, reuses/adopts its browser, serializes starts
     const calls = readFileSync(join(home, "calls"), "utf8").trim().split("\n");
     // Three starts, including the failure, produce exactly three owned browsers.
     expect(calls.filter(line => line.startsWith("google-chrome "))).toHaveLength(3);
+    // The session must not start a screen locker that asks for a Linux password.
+    const saver = readFileSync(join(home, ".config", "xfce4", "xfconf", "xfce-perchannel-xml", "xfce4-screensaver.xml"), "utf8");
+    expect(saver).toContain('<property name="lock" type="empty">\n    <property name="enabled" type="bool" value="false"/>');
+    expect(saver).toContain('<property name="idle-activation" type="empty">\n      <property name="enabled" type="bool" value="false"/>');
     expect(existsSync(join(home, ".omg", "computer", "desktop.json"))).toBe(false);
     for (const line of calls.filter(line => !line.startsWith("scenario "))) {
       expect(() => process.kill(Number(line.split(" ")[1]), 0)).toThrow();
