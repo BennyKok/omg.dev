@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 2, 2026 - Callstack Apex for React tasks (v0.6.156)
+
+- The omg agent model picker now offers Apex from Callstack. It uses the direct Callstack gateway through the omg router. GPT-6 Luna remains the default.
+
 ## October 1, 2026 - Compact thread rows in the web sidebar (v0.6.155)
 
 - Web thread shortcuts now show only the title and time. The shorter rows match the recent iPhone Home update and leave more room for tasks.
