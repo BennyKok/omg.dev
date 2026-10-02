@@ -1,5 +1,6 @@
 import { lazy } from "react";
 import type { ComponentType, LazyExoticComponent } from "react";
+import { BUILD_ID } from "./report-error";
 
 // Production SPAs hit a classic failure right after a redeploy: a client still
 // running the PREVIOUS build renders a route that pulls in a code-split chunk
@@ -51,7 +52,13 @@ export function lazyWithReload<T extends ComponentType<any>>(
   name: string,
   load: () => Promise<{ default: T }>,
 ): LazyExoticComponent<T> {
-  const latchKey = `lfg:chunk-reload:${name}`;
+  // Key the latch by build as well as chunk name. A name-only latch survives
+  // across deploys: a recovery reload that lands on a view which does not
+  // render this chunk never clears it, so the NEXT deploy's stale chunk sees
+  // the old "1" and throws without reloading. Per-build keying keeps the
+  // no-loop guarantee (a genuine break reloads onto the same build) while
+  // letting every new deploy recover once. Mirrors report-error's latch.
+  const latchKey = `lfg:chunk-reload:${name}:${BUILD_ID ?? "dev"}`;
   return lazy(async () => {
     try {
       const mod = await load();
