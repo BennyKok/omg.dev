@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 2, 2026 - Computer browser starts on older machines (v0.6.157)
+
+- Chrome on the Computer now starts on machines that have no shared memory folder. Before, the screen opened, but the browser did not start.
+- When the Computer cannot start, it shows a short message. Before, it showed raw error code.
+
 ## October 2, 2026 - Callstack Apex for React tasks (v0.6.156)
 
 - The omg agent model picker now offers Apex from Callstack. It uses the direct Callstack gateway through the omg router. GPT-6 Luna remains the default.
