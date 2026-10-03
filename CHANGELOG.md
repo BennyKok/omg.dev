@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 3, 2026 - Simpler Settings and toasts that stay on top (v0.6.159)
+
+- Settings is shorter. Tool access and agent limits now sit under an Advanced row that starts closed.
+- The agent limit row shows one status line, and its note is one short sentence.
+- On app.omg.dev, messages such as "Reconnecting…" now show above menus, sheets and the cookie banner. Before, they could appear behind them.
+
 ## October 3, 2026 - Folder order syncs across web and iPhone (v0.6.158)
 
 - Folder order, hidden folders and the show-paths choice are now saved on the computer, not in each browser or phone. The web folder menu and the iPhone folder rail show the same list.
