@@ -37,7 +37,12 @@ export function ChatStarterRow({
       role="group"
       aria-label="Start something new"
       data-testid="chat-starter-row"
-      className={cn("grid grid-cols-2 gap-2", className)}
+      // One swipeable row, like the project pills above it. A 2x2 grid
+      // took four card heights off a small phone's list.
+      className={cn(
+        "flex snap-x snap-mandatory gap-2 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+        className,
+      )}
     >
       {CHAT_STARTERS.map((starter) => {
         const Icon = STARTER_ICONS[starter.id];
@@ -49,7 +54,7 @@ export function ChatStarterRow({
             data-testid={`chat-starter-${starter.id}`}
             aria-label={`Start ${starter.label.toLowerCase()}. ${starter.description}`}
             onClick={() => onStart(starter.prompt)}
-            className="flex min-h-[64px] items-center gap-2.5 rounded-2xl border border-border bg-card px-3 py-2 text-left transition-colors hover:bg-muted disabled:opacity-50"
+            className="flex min-h-[64px] w-[11.5rem] shrink-0 snap-start items-center gap-2.5 rounded-2xl border border-border bg-card px-3 py-2 text-left transition-colors hover:bg-muted disabled:opacity-50"
           >
             <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-secondary text-primary">
               <Icon className="size-4" />
