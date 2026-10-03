@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { toast } from "sonner";
+import { routedToast as toast } from "./lib/host-toast";
 import type { ConnectionState } from "./useLiveSocket";
 
 const WS_TOAST_ID = "ws-conn";

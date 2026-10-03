@@ -537,6 +537,7 @@ import {
 } from "./voice-setup";
 import { fetchBootstrap } from "./bootstrap";
 import { Toaster } from "@/components/ui/sonner";
+import { hasHostToast } from "@/lib/host-toast";
 import { Button } from "@/components/ui/button";
 import { ShimmerText } from "@/components/ui/shimmer-text";
 import { MorphText } from "@/components/ui/morph-text";
@@ -8979,7 +8980,8 @@ export function App() {
           onSessionChange={setCodingAgentAuth}
           onComplete={completeConnectionAuth}
         />
-        <Toaster position={isMobile ? "top-center" : "bottom-center"} />
+        {/* A host that owns the toast stack draws every toast; see host-toast.ts. */}
+        {hasHostToast() ? null : <Toaster position={isMobile ? "top-center" : "bottom-center"} />}
       </>
     );
   }
@@ -10113,7 +10115,8 @@ export function App() {
           }
         }}
       />
-      <Toaster position={isMobile ? "top-center" : "bottom-center"} />
+      {/* A host that owns the toast stack draws every toast; see host-toast.ts. */}
+      {hasHostToast() ? null : <Toaster position={isMobile ? "top-center" : "bottom-center"} />}
     </div>
     {loading && bare ? <AppStartupStatus /> : null}
     {terminalSid ? (
@@ -28282,19 +28285,14 @@ function AgentConcurrencySettingsSection({
               <Bot className="size-4" />
             </span>
             <div className="min-w-0">
-              <div className="text-sm font-medium tabular-nums">
-                {working} working
-                <span className="text-muted-foreground"> · {live} live</span>
-              </div>
+              <div className="text-sm font-medium">Agent limit</div>
               <div className={cn(
-                "text-xs",
+                "text-xs tabular-nums",
                 atCap ? "font-medium text-warning" : "text-muted-foreground",
               )}>
-                {cap === 0
-                  ? "No limit"
-                  : atCap
-                    ? `Limit reached · ${live}/${cap} live`
-                    : `${live}/${cap} live · limit`}
+                {atCap
+                  ? `Limit reached · ${live} running`
+                  : `${live} running · ${working} working`}
               </div>
             </div>
           </div>
@@ -28395,9 +28393,7 @@ function AgentConcurrencySettingsSection({
           limit above: it is a live-agent ceiling, not a full drain, and it is
           soft on purpose (see GlobalSettings.maxLiveAgents). */}
       <p className="px-4 text-xs text-muted-foreground">
-        The limit counts every live agent, idle ones included — an idle agent has stopped
-        using CPU but still holds its memory. New agents past the limit are rejected;
-        in-flight agents keep running. The systemd slice is the hard memory bound.
+        Idle agents count toward the limit. New agents over the limit do not start.
       </p>
     </section>
   );
@@ -29870,6 +29866,45 @@ function VersionUpdatesRow({
   );
 }
 
+function AdvancedSettingsGroup({
+  collapsible,
+  children,
+}: {
+  collapsible: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  if (!collapsible) return <>{children}</>;
+  return (
+    <div className="space-y-8">
+      <section className="space-y-2">
+        <div className="overflow-hidden rounded-2xl border border-border bg-card/40">
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            aria-expanded={open}
+            className="flex w-full items-center justify-between gap-4 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
+          >
+            <div className="flex items-center gap-3">
+              <span className="flex size-7 items-center justify-center rounded-[7px] bg-foreground/70 text-white">
+                <SlidersHorizontal className="size-4" />
+              </span>
+              <span className="text-sm font-medium">Advanced</span>
+            </div>
+            <ChevronDown
+              className={cn(
+                "size-4 text-muted-foreground/60 transition-transform duration-200 ease-ios",
+                open && "rotate-180",
+              )}
+            />
+          </button>
+        </div>
+      </section>
+      {open ? children : null}
+    </div>
+  );
+}
+
 function SettingsView({
   user,
   settings,
@@ -29930,6 +29965,10 @@ function SettingsView({
           Computer
         </h2>
         <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
+          {/* A host lists these three pages in its own settings, so on a
+              host-mounted surface this group is the version row alone. */}
+          {bare ? null : (
+          <>
           <button
             type="button"
             onClick={onOpenCodingAgents}
@@ -29969,6 +30008,8 @@ function SettingsView({
             </div>
             <ChevronRight className="size-4 text-muted-foreground/60" />
           </button>
+          </>
+          )}
           {/* One row for what used to be three (Frontend, Computer, Updates):
               which UI build is rendering, what the selected Computer is
               really executing, and whether either has an update. A skew
@@ -29983,20 +30024,25 @@ function SettingsView({
         </div>
       </section>
 
-      <section className="space-y-2">
-        <div className="overflow-hidden rounded-2xl border border-border bg-card/40">
-          <ConnectorsRow onOpen={onOpenConnectors} roleCount={null} />
-        </div>
-      </section>
-
       <CloudAccountSettingsSection />
 
       <RemoteAccessSettingsSection />
 
-      <AgentConcurrencySettingsSection
-        settings={settings}
-        onChange={onSettingsChange}
-      />
+      {/* Tool access and agent limits are for people tuning the box. A host
+          mounts this page as its own "Advanced" page, so it shows them open;
+          standalone keeps them one tap away so the page stays short. */}
+      <AdvancedSettingsGroup collapsible={!bare}>
+        <section className="space-y-2">
+          <div className="overflow-hidden rounded-2xl border border-border bg-card/40">
+            <ConnectorsRow onOpen={onOpenConnectors} roleCount={null} />
+          </div>
+        </section>
+
+        <AgentConcurrencySettingsSection
+          settings={settings}
+          onChange={onSettingsChange}
+        />
+      </AdvancedSettingsGroup>
 
       <CustomInstructionsRow
         value={settings.customInstructions}

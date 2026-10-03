@@ -16,6 +16,7 @@ import {
   type HostPushConfig,
 } from "./lib/push";
 import { BareSurfaceProvider } from "./lib/bare-surface";
+import { configureHostToast, type OmgHostToast } from "./lib/host-toast";
 import {
   EmbeddedHostOptionsProvider,
   type EmbeddedAnalyticsEventHandler,
@@ -41,6 +42,7 @@ export type {
 } from "./lib/embedded-host-options";
 export type { PlanLimitLiveAgent } from "./lib/plan-limit-live";
 export type { HostPushConfig } from "./lib/push";
+export type { OmgHostToast } from "./lib/host-toast";
 
 /**
  * The notification a host's push worker receives, already decrypted by the
@@ -153,6 +155,17 @@ export interface OmgAppSurfaceProps {
    */
   onPlanLimit?: (detail: PlanLimitDetail) => void;
   /**
+   * The host's toast function — pass Sonner's `toast` from the host's own
+   * bundle. Every toast this surface raises is then drawn by the host's
+   * Toaster, in the host's top layer, and the surface mounts no toast stack of
+   * its own.
+   *
+   * Omit it and the surface draws its own stack inside its container. That
+   * stack can never rise above whatever z-index the host gives the container,
+   * so the host's floating chrome, sheets and dialogs cover it.
+   */
+  hostToast?: OmgHostToast;
+  /**
    * Central sink for client errors, in addition to the report that goes through
    * the transport into the user's own lfg instance. A hosted surface should set
    * this: when the workspace behind the transport is paused or unreachable — the
@@ -210,6 +223,17 @@ export interface OmgSettingsSurfaceProps {
    * unhandled page still works.
    */
   onNavigate?: (page: OmgSettingsPage) => void;
+  /**
+   * The host's toast function — pass Sonner's `toast` from the host's own
+   * bundle. Every toast this surface raises is then drawn by the host's
+   * Toaster, in the host's top layer, and the surface mounts no toast stack of
+   * its own.
+   *
+   * Omit it and the surface draws its own stack inside its container. That
+   * stack can never rise above whatever z-index the host gives the container,
+   * so the host's floating chrome, sheets and dialogs cover it.
+   */
+  hostToast?: OmgHostToast;
   className?: string;
   errorSink?: OmgErrorSink;
   /**
@@ -269,6 +293,7 @@ export function OmgSettingsSurface({
   className,
   errorSink,
   hostedPush,
+  hostToast,
 }: OmgSettingsSurfaceProps) {
   const mounted = mountablePage(page);
   // The host owns the header, the back affordance and the account, so this
@@ -282,6 +307,7 @@ export function OmgSettingsSurface({
   // allowed to touch, not about which screen happens to be on.
   configureHostedSurface(true);
   configureHostPush(hostedPush ?? null);
+  configureHostToast(hostToast ?? null);
   const [router] = useState<AnyRouter>(() =>
     createOmgRouter(
       createMemoryHistory({ initialEntries: [`/${mounted}?embed=true`] }),
@@ -359,6 +385,7 @@ export function OmgAppSurface({
   onPlanLimit,
   errorSink,
   machines,
+  hostToast,
 }: OmgAppSurfaceProps) {
   // A full LFG app is the sole owner of its runtime transport. Install it
   // synchronously so child effects cannot race the host boundary; there is no
@@ -367,6 +394,7 @@ export function OmgAppSurface({
   // Same reasoning as the transport: declare it before any child can read it.
   configureHostedSurface(true);
   configureHostPush(hostedPush ?? null);
+  configureHostToast(hostToast ?? null);
   const [router] = useState<AnyRouter>(() =>
     createOmgRouter(
       createMemoryHistory({ initialEntries: [initialPath(sessionId)] }),

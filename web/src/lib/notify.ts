@@ -3,11 +3,16 @@
 // `toast.success(...)` / `toast.error(...)` call gains a sound + haptic with no
 // change at the call site. All other toast methods (message, promise, custom,
 // dismiss, the callable form) pass straight through untouched.
+//
+// Every call goes to the stack that owns toasts in this document: the host's
+// when an embedded surface was given `hostToast`, else LFG's own. See
+// host-toast.ts.
 
-import { toast as sonnerToast } from "sonner";
+import type { toast as sonnerToast } from "sonner";
 import { feedback } from "./feedback";
+import { routedToast } from "./host-toast";
 
-export const toast: typeof sonnerToast = new Proxy(sonnerToast, {
+export const toast: typeof sonnerToast = new Proxy(routedToast, {
   get(target, prop, receiver) {
     const value = Reflect.get(target, prop, receiver);
     if (prop === "success" && typeof value === "function") {
@@ -22,7 +27,6 @@ export const toast: typeof sonnerToast = new Proxy(sonnerToast, {
         return (value as typeof sonnerToast.error)(...args);
       };
     }
-    // Bind plain function methods so `this` stays the real toast object.
-    return typeof value === "function" ? value.bind(target) : value;
+    return value;
   },
 });

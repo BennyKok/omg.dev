@@ -22,7 +22,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { toast } from "sonner";
+import { routedToast as toast } from "@/lib/host-toast";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { MessageResponse } from "@/components/ai-elements/message";

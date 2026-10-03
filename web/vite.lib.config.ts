@@ -31,6 +31,7 @@ const HOST_SHARED_EXTERNALS = [
   "class-variance-authority",
   "vaul",
   "@base-ui/react",
+  "sonner",
 ] as const;
 
 function isHostSharedExternal(id: string): boolean {
@@ -196,11 +197,18 @@ export default defineConfig({
       //                                resolution in the host lockfile onto
       //                                one copy — without that dedup this
       //                                change saves nothing.
+      //   sonner                     — both 2.0.7 (check the locks). One
+      //                                module per document is what makes
+      //                                `hostToast` free: the surface and the
+      //                                host share Sonner's singleton store,
+      //                                and the host's Toaster draws every
+      //                                toast. Inlined, the host paid for a
+      //                                second copy on the Computer path.
       //
       // Deliberately NOT external:
       //   tailwind-merge             — lazy via streamdown, not a host
       //                                dep (host uses cnfast)
-      //   lucide-react / sonner / …  — same version, follow-up, not
+      //   lucide-react / …           — same version, follow-up, not
       //                                required to land this cut
       //   shadcn src/components/ui/* — source-copied, not a package
       external: isHostSharedExternal,
