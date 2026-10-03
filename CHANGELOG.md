@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 3, 2026 - Folder order syncs across web and iPhone (v0.6.158)
+
+- Folder order, hidden folders and the show-paths choice are now saved on the computer, not in each browser or phone. The web folder menu and the iPhone folder rail show the same list.
+- A folder order you already set on a device moves to the computer the first time that device connects.
+- The web app recovers after a deploy when a page part fails to load. Before, a second deploy in a row could show a load error instead of a reload.
+
 ## October 2, 2026 - Computer browser starts on older machines (v0.6.157)
 
 - Chrome on the Computer now starts on machines that have no shared memory folder. Before, the screen opened, but the browser did not start.
