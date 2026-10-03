@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 3, 2026 - Computer updates land on the newest version (v0.6.165)
+
+- When a Computer updates itself, it now installs the newest version. Before, it could install an older version and stay on it.
+
 ## October 3, 2026 - Session folders follow your folder order (v0.6.164)
 
 - The folder groups in the session list now use your saved folder order on the web and the iPhone app. Before, they were always in alphabetical order. Folders with no saved place follow in alphabetical order.
