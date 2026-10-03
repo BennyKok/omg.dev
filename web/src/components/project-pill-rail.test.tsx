@@ -91,3 +91,15 @@ test("the phone rail has no scroll arrows", () => {
   expect(ui.text()).toContain("lfg");
   expect(ui.query('[aria-label="Scroll projects left"]')).toBeNull();
 });
+
+test("pills follow the saved folder order, skip hidden folders, and keep the selected one", async () => {
+  const { projectPillsFor } = await import("./project-pill-rail");
+  const { NO_PROJECT_FILTER } = await import("../lib/project-filter");
+  const options = [NO_PROJECT_FILTER, "afterglow", "ambi", "lfg", "vibes"];
+  const prefs = { order: ["lfg", "vibes", "ambi"], hidden: ["afterglow", "vibes"] };
+  const values = (selected: string) =>
+    projectPillsFor(options, (p) => p, { prefs, selected }).map((pill) => pill.value);
+  expect(values("lfg")).toEqual([NO_PROJECT_FILTER, "lfg", "ambi"]);
+  expect(values("vibes")).toEqual([NO_PROJECT_FILTER, "lfg", "vibes", "ambi"]);
+  expect(projectPillsFor(options, (p) => p).map((pill) => pill.value)).toEqual(options);
+});
