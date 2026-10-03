@@ -1,5 +1,6 @@
 import { useTheme } from "next-themes"
 import { Toaster as Sonner, type ToasterProps } from "sonner"
+import { LFG_TOASTER_ID } from "@/lib/host-toast"
 import { CircleCheckIcon, InfoIcon, TriangleAlertIcon, OctagonXIcon } from "lucide-react"
 
 const Toaster = ({
@@ -12,6 +13,9 @@ const Toaster = ({
 
   return (
     <Sonner
+      // Scoped: Sonner is shared with an embedding host, and an unscoped
+      // Toaster would also draw the host's toasts. See LFG_TOASTER_ID.
+      id={LFG_TOASTER_ID}
       theme={theme as ToasterProps["theme"]}
       position={position}
       // Keep dismissal motion tied to the edge that owns the stack. Sonner
