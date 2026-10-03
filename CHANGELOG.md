@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 3, 2026 - Computer screen no longer locks with a password (v0.6.162)
+
+- The Computer desktop no longer locks the screen after a few idle minutes. Before, the screen asked for a Linux password that nobody has.
+
 ## October 3, 2026 - Phone web folder pills follow your folder order (v0.6.161)
 
 - On a phone browser, the folder pills at the top now use your saved folder order and leave out hidden folders. They match the iPhone app and the folder menu. Before, they were in alphabetical order and showed hidden folders.
