@@ -686,7 +686,11 @@ export async function applyReleaseUpdate(
   root: string,
   install: ReleaseInstall,
 ): Promise<{ status: ReleaseUpdateStatus; updated: boolean }> {
-  const status = await releaseUpdateStatus(root, install);
+  // Always a fresh lookup. The 5-minute tag cache serves the passive status
+  // check; installing from it can land a long-running process on an older
+  // release. On 2026-10-02 a Computer on 0.6.150 installed 0.6.153 while
+  // 0.6.157 was the newest release.
+  const status = await releaseUpdateStatus(root, install, true);
   if (status.state === "blocked") return { status, updated: false };
   if (!status.restartSupported) throw new Error(restartUnavailableError(status));
 

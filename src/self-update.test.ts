@@ -3,6 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  applyReleaseUpdate,
   autoUpdateEnabled,
   autoUpdateIdentifier,
   changelogDelta,
@@ -152,6 +153,37 @@ describe("release update status", () => {
     const status = await releaseUpdateStatus(root, { repoSlug: "example/lfg-nodrift" }, false, "3.0.0");
     expect(status.state).toBe("up-to-date");
     expect(status.stagedVersion).toBeUndefined();
+  });
+});
+
+describe("applying a release update", () => {
+  test("looks up the latest release fresh instead of using the status cache", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lfg-release-apply-"));
+    cleanup.push(root);
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "lfg", version: "1.2.3" }));
+    const install = { repoSlug: "example/lfg-release-apply-test" };
+    let latest = "v1.3.0";
+    const lookups: string[] = [];
+    const downloads: string[] = [];
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (url.endsWith("/releases/latest")) {
+        lookups.push(latest);
+        return Response.json({ tag_name: latest });
+      }
+      downloads.push(url);
+      return new Response("missing", { status: 404 });
+    }) as unknown as typeof fetch;
+
+    // The passive status check fills the 5-minute cache with v1.3.0.
+    await releaseUpdateStatus(root, install, false, "1.2.3");
+    latest = "v1.4.0";
+
+    // Restart support depends on the host, so the call may stop at that check
+    // or at the 404 download. Either way it must have asked GitHub again.
+    await applyReleaseUpdate(root, install).catch(() => undefined);
+    expect(lookups).toEqual(["v1.3.0", "v1.4.0"]);
+    for (const url of downloads) expect(url).toContain("/v1.4.0/");
   });
 });
 
