@@ -29,7 +29,6 @@ import {
   FolderPlus,
   GripVertical,
   Loader2,
-  Plus,
   Search,
   SlidersHorizontal,
 } from "lucide-react";
@@ -131,9 +130,9 @@ export function ProjectFolderMenu({
                 : "h-8 w-full gap-2 rounded-lg bg-secondary px-2.5 text-[13px] font-semibold hover:bg-muted",
             )}
           >
-            {value === NO_PROJECT_FILTER ? (
-              <Plus className={cn("shrink-0 text-muted-foreground", "size-3.5")} />
-            ) : (
+            {/* No project is a selection, not an action, and not a folder:
+                it gets no icon. Only real folders show the folder icon. */}
+            {value === NO_PROJECT_FILTER ? null : (
               <Folder className={cn("shrink-0 text-muted-foreground", "size-3.5")} />
             )}
             <span className="min-w-0 flex-1 truncate">{label}</span>
@@ -172,7 +171,7 @@ export function ProjectFolderMenu({
                   {hasNoProject && !needle ? (
                     <PickRow
                       selected={value === NO_PROJECT_FILTER}
-                      icon={<Plus className="size-3.5" />}
+                      icon={<span className="block size-3.5" />}
                       label={labelFor(NO_PROJECT_FILTER)}
                       count={counts?.get(NO_PROJECT_FILTER)}
                       onClick={() => choose(NO_PROJECT_FILTER)}

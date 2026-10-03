@@ -15,7 +15,7 @@ beforeEach(() => {
 afterEach(() => ui.cleanup());
 
 const projects = [NO_PROJECT_FILTER, "alpha", "beta", "gamma"];
-const labelFor = (value: string) => (value === NO_PROJECT_FILTER ? "New project" : value);
+const labelFor = (value: string) => (value === NO_PROJECT_FILTER ? "No project" : value);
 // The global document, not the harness module's window: another file in the
 // same run may have installed its own, and the popover portals into this one.
 const body = () => document.body;
@@ -43,7 +43,7 @@ test("picks a folder from the dropdown", async () => {
   expect(byLabel("Folder: alpha")).not.toBeNull();
   ui.flush(() => byLabel("Folder: alpha")!.click());
   await ui.flushAsync();
-  expect(menuRows()).toEqual(["New project", "alpha", "beta", "gamma"]);
+  expect(menuRows()).toEqual(["No project", "alpha", "beta", "gamma"]);
   ui.flush(() => (body().querySelector('button[title="beta"][aria-pressed]') as HTMLButtonElement).click());
   expect(picked).toEqual(["beta"]);
 });
@@ -75,7 +75,7 @@ test("manage hides a folder from the menu and removes one from the list", async 
   expect(removed).toEqual(["alpha"]);
   ui.flush(() => byLabel("Back to folders")!.click());
   // Hidden folders leave the menu. The current one stays so it keeps its tick.
-  expect(menuRows()).toEqual(["New project", "alpha", "gamma"]);
+  expect(menuRows()).toEqual(["No project", "alpha", "gamma"]);
 });
 
 test("the reorder handle moves a folder with the arrow keys", async () => {
@@ -115,5 +115,17 @@ test("the chip trigger names the folder and opens the same menu", async () => {
   expect(chip.className).toContain("max-w-[10rem]");
   ui.flush(() => chip.click());
   await ui.flushAsync();
-  expect(menuRows()).toEqual(["New project", "alpha", "beta", "gamma"]);
+  expect(menuRows()).toEqual(["No project", "alpha", "beta", "gamma"]);
+});
+
+test("No project reads as a selection: no icon on its row or the trigger, folders keep theirs", async () => {
+  ui.render(<ProjectFolderMenu value={NO_PROJECT_FILTER} projects={projects} labelFor={labelFor} onChange={() => {}} />);
+  const trigger = byLabel("Folder: No project")!;
+  expect(trigger.querySelectorAll("svg")).toHaveLength(1); // the chevron only
+  ui.flush(() => trigger.click());
+  await ui.flushAsync();
+  const rows = Array.from(body().querySelectorAll('[data-testid="project-folder-menu"] button[aria-pressed]'));
+  // The check mark is the one svg on the No project row; each folder row adds a folder icon.
+  expect(rows[0]!.querySelectorAll("svg")).toHaveLength(1);
+  expect(rows[1]!.querySelectorAll("svg")).toHaveLength(2);
 });

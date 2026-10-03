@@ -68,11 +68,12 @@ export const NO_PROJECT_FILTER = "__no_project";
  * What the no-project filter is called in the folder menu, the sheet and the
  * composer chip.
  *
- * "New project", not "No project". The scope exists to start something that
- * has no folder yet, and it sits at the head of a list of folders, where
- * "No project" read as a folder by that name.
+ * "No project", not "New project". "New project" with a plus read as an
+ * action next to the New session button, but this is a selection. The menu
+ * keeps it from reading as a folder by that name: it is the one row with no
+ * folder icon.
  */
-export const NO_PROJECT_FILTER_LABEL = "New project";
+export const NO_PROJECT_FILTER_LABEL = "No project";
 
 /**
  * Does this session belong in the list the current filter is showing?
