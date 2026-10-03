@@ -468,7 +468,7 @@ import { useUiFeedbackPrefs, setUiFeedbackPrefs } from "@/lib/ui-feedback-prefs"
 import { useNavigationPrefs, setNavigationPrefs } from "@/lib/navigation-prefs";
 import { subscribeSelectionChange } from "./lib/selection-change";
 import { useProjectListPrefs, setProjectListPrefs, projectListPrefsStore } from "@/lib/project-list-prefs";
-import { folderMenuPrefsStore } from "@/lib/folder-menu-prefs";
+import { folderMenuPrefsStore, useFolderMenuPrefs } from "@/lib/folder-menu-prefs";
 import { useSendMorph } from "@/lib/use-send-morph";
 import { reportError } from "./lib/report-error";
 import {
@@ -6341,6 +6341,8 @@ export function App() {
   // first bootstrap answers. An older box omits them, and then the folder
   // menu keeps its browser-local copy.
   const [boxOwnsFolderDisplay, setBoxOwnsFolderDisplay] = useState<boolean | null>(null);
+  // The phone pill rail follows the same arrangement as the folder menu.
+  const folderMenuPrefs = useFolderMenuPrefs();
   const [schedTz, setSchedTz] = useState<string>(DEFAULT_SCHED_TZ);
   const [findings, setFindings] = useState<AutoFinding[]>([]);
   const [autoTriageBusy, setAutoTriageBusy] = useState(false);
@@ -9465,7 +9467,10 @@ export function App() {
           session starts. */}
       {isMobile && tab === "live" && projectOptions.length > 0 ? (
         <ProjectPillRail
-          projects={projectPillsFor(projectOptions, shortProject)}
+          projects={projectPillsFor(projectOptions, shortProject, {
+            prefs: folderMenuPrefs,
+            selected: projectFilter,
+          })}
           value={projectFilter}
           onChange={(next) => setProjectFilter(projectFilterAfterPress(next, projectFilter))}
           touch

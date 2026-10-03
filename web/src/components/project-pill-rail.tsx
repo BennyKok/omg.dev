@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { arrangeFolders, type FolderMenuPrefs } from "../lib/folder-menu-prefs";
 import { NO_PROJECT_FILTER, projectFilterLabel } from "../lib/project-filter";
 
 export type ProjectPill = {
@@ -31,8 +32,9 @@ export type ProjectPill = {
 export function projectPillsFor(
   projectOptions: readonly string[],
   shortProject: (project: string) => string,
+  arrangement?: { prefs: FolderMenuPrefs; selected: string },
 ): ProjectPill[] {
-  return projectOptions.map((project) => ({
+  return arrangedOptions(projectOptions, arrangement).map((project) => ({
     value: project,
     // The rail is the one place this scope is an icon, so the label says what
     // it does rather than naming an absence. Everywhere the scope is named in
@@ -43,6 +45,27 @@ export function projectPillsFor(
         : projectFilterLabel(project, shortProject),
     icon: project === NO_PROJECT_FILTER ? "plus" : undefined,
   }));
+}
+
+/**
+ * The rail's folders in the box's saved order, without hidden ones.
+ *
+ * The same arrangement as the folder menu and the iOS folder rail
+ * (GlobalSettings.folderOrder / hiddenFolders). Scopes that are not folders
+ * (the no-project plus, "__all") keep their place at the head. The selected
+ * folder stays even when hidden, so the pressed pill always has a pill.
+ */
+function arrangedOptions(
+  projectOptions: readonly string[],
+  arrangement: { prefs: FolderMenuPrefs; selected: string } | undefined,
+): string[] {
+  if (!arrangement) return [...projectOptions];
+  const isFolder = (value: string) => value !== NO_PROJECT_FILTER && value !== "__all";
+  const head = projectOptions.filter((value) => !isFolder(value));
+  const folders = arrangeFolders(projectOptions.filter(isFolder), arrangement.prefs)
+    .filter((folder) => !folder.hidden || folder.value === arrangement.selected)
+    .map((folder) => folder.value);
+  return [...head, ...folders];
 }
 
 /** A scrollable view of the shell's project filter; owns no selection state. */
