@@ -24,7 +24,10 @@ test("a pending request is one row: the site and Log in, without the reason", as
   expect(ui.text()).not.toContain("My VM");
 });
 test("Log in opens the Computer", async () => {
-  globalThis.fetch = (async () => Response.json({ requests: [request], iosAvailable: false, desktopAvailable: true })) as typeof fetch;
+  // Only the login endpoint answers; the Computer page's own requests stay pending.
+  globalThis.fetch = ((url: any) => String(url).includes("/api/browser-login")
+    ? Promise.resolve(Response.json({ requests: [request], iosAvailable: false, desktopAvailable: true }))
+    : new Promise<Response>(() => {})) as typeof fetch;
   ui.render(<BrowserLoginCard sessionId="session-1" />);
   await ui.flushAsync();
   const button = ui.queryAll("button").find(b => b.textContent === "Log in") as HTMLElement;
