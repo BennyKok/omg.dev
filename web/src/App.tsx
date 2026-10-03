@@ -24642,7 +24642,7 @@ function NewSessionDialog({
                 "flex overflow-visible transition-[border-radius,padding] duration-200 ease-out motion-reduce:transition-none",
                 inlineExpanded
                   ? "flex-col items-stretch gap-3 rounded-[30px] px-3.5 pb-3 pt-3.5"
-                  : cn("flex-row gap-2 rounded-[26px] px-2 py-[7px]", promptMultiline ? "items-end" : "items-center"),
+                  : cn("flex-row gap-1.5 rounded-[26px] px-2 py-[7px]", promptMultiline ? "items-end" : "items-center"),
               )
             : "relative rounded-2xl px-2 py-1",
         )}
@@ -24702,13 +24702,21 @@ function NewSessionDialog({
           className={cn(
             "border-0 bg-transparent text-base leading-relaxed shadow-none focus-visible:border-0 focus-visible:ring-0",
             variant === "inline"
-              ? cn("min-h-9 px-1 py-1.5", !inlineExpanded && "flex-1")
+              ? cn(
+                  "min-h-9 px-1 py-1.5",
+                  // At rest the field is empty by definition (any content
+                  // expands it). Keep the placeholder on one line, so a
+                  // narrow phone or a larger system font does not wrap it
+                  // into a two-line field with the agent mark sunk below.
+                  !inlineExpanded && "flex-1 overflow-hidden whitespace-nowrap placeholder:truncate",
+                )
               : "min-h-40 max-h-[42dvh] px-1 py-1 pr-10",
           )}
         />
         {variant === "inline" ? (
           <div
-            className="flex shrink-0 items-center gap-2"
+            // Tighter at rest, so a narrow phone keeps width for the field.
+            className={cn("flex shrink-0 items-center", inlineExpanded ? "gap-2" : "gap-0.5")}
             // Keep the field focused while a control is tapped, so the
             // composer does not collapse under the finger.
             onMouseDown={(event) => {
