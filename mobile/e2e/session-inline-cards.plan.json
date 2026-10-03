@@ -6,7 +6,7 @@
   "steps": [
     {
       "name": "Open the seeded session",
-      "goal": "Open the session named Refactor the rate limiter to a sliding window from the session list.",
+      "goal": "If Your data and AI providers is visible, tap Agree and continue. Then open the api-gateway folder and open the session named Refactor the rate limiter to a sliding window.",
       "done": "The session transcript is open and the agent's own replies are readable.",
       "expect": [
         "Replaced the fixed-window counter"
