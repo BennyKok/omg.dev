@@ -62,14 +62,15 @@ describe("isPrimarySurfaceTab", () => {
     }
   });
 
-  // The dock this used to be compared against is gone. The three surfaces
-  // are now rows in the side navigation, so the agreement worth pinning is
-  // with that row model: a primary surface is a surface the drawer offers.
+  // Chat and Schedules are rows in the side navigation. Bots is still a
+  // primary surface, reached from the Chat/Bots switch, with no row of its own.
   test("agrees with the surfaces the side navigation offers", () => {
     const rows = sideNavRows({ tab: "live" }).map((row) => row.key);
-    for (const tab of ["live", "bots", "auto"]) {
+    for (const tab of ["live", "auto"]) {
       expect(isPrimarySurfaceTab(tab)).toBe(true);
       expect(rows).toContain(tab);
     }
+    expect(isPrimarySurfaceTab("bots")).toBe(true);
+    expect(rows).not.toContain("bots");
   });
 });

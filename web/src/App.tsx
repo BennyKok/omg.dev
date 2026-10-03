@@ -9599,7 +9599,6 @@ export function App() {
                 rows: sideNavRows({
                   tab,
                   hiddenPages,
-                  showBots: settings.showBots,
                   showSchedules: settings.showSchedules,
                   showSettings: !embedded,
                   extensions: extNavTabs,
@@ -9899,7 +9898,6 @@ export function App() {
           rows={sideNavRows({
             tab,
             hiddenPages,
-            showBots: settings.showBots,
             showSchedules: settings.showSchedules,
             // A host owns its own settings surface. Before the drawer, the
             // embedded header passed showSettings={false} unconditionally and

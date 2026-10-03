@@ -10,18 +10,25 @@ describe("sideNavRows", () => {
     // both gone, so a page missing here is a page with no route to it.
     expect(keys(sideNavRows({ tab: "live" }))).toEqual([
       "live",
-      "bots",
       "auto",
       "notifications",
       "artifacts",
       "computer",
-      "board",
       "settings",
     ]);
   });
 
+  test("Bots and Board have no row; their tabs keep Chat marked", () => {
+    // Bots is reached from the Chat/Bots switch, Board from the Pages menu.
+    for (const tab of ["bots", "board"]) {
+      const rows = sideNavRows({ tab });
+      expect(keys(rows)).not.toContain(tab);
+      expect(rows.find((row) => row.current)?.key).toBe("live");
+    }
+  });
+
   test("marks exactly one row, and marks the tab you are on", () => {
-    for (const tab of ["live", "bots", "auto", "notifications", "artifacts", "board"]) {
+    for (const tab of ["live", "auto", "notifications", "artifacts"]) {
       const rows = sideNavRows({ tab });
       const current = rows.filter((row) => row.current);
       expect(current.map((row) => row.key)).toEqual([tab]);
@@ -41,22 +48,18 @@ describe("sideNavRows", () => {
     expect(sideNavRows({ tab: "sessions" }).find((row) => row.current)?.key).toBe("live");
   });
 
-  test("the View switches drop their surfaces, as they dropped dock segments", () => {
-    expect(keys(sideNavRows({ tab: "live", showBots: false }))).not.toContain("bots");
-    expect(keys(sideNavRows({ tab: "live", showSchedules: false }))).not.toContain("auto");
-    expect(keys(sideNavRows({ tab: "live", showBots: false, showSchedules: false }))).toEqual([
+  test("the Schedules View switch drops its row, as it dropped a dock segment", () => {
+    expect(keys(sideNavRows({ tab: "live", showSchedules: false }))).toEqual([
       "live",
       "notifications",
       "artifacts",
       "computer",
-      "board",
       "settings",
     ]);
   });
 
   test("a role's hidden pages are absent, and Chat takes the mark", () => {
-    const rows = sideNavRows({ tab: "board", hiddenPages: ["board", "computer"] });
-    expect(keys(rows)).not.toContain("board");
+    const rows = sideNavRows({ tab: "computer", hiddenPages: ["computer"] });
     expect(keys(rows)).not.toContain("computer");
     // The tab they were on is gone, so the drawer must still show a place
     // rather than nothing.
