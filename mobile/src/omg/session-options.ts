@@ -4,6 +4,7 @@
  * choices are validated against its catalog before use.
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { supportsFastMode } from "../../../packages/protocol/src/fast-mode-support";
@@ -16,6 +17,7 @@ import { agentIcon, agentLabel as agentDisplayName } from "./agent-icons";
 import { type MenuOption } from "./menu";
 import { useOmg, type CodingAgent, type Repo } from "./provider";
 import { basename, projectKey, sessionMatchesProject } from "./project-filter";
+import { toRail, toStored, type RailArrangement, type StoredArrangement } from "./folder-arrangement";
 
 /**
  * The agent used when the roster has not arrived yet, matching what the server
@@ -422,8 +424,6 @@ export type FolderRow = {
   onPress: () => void;
 };
 
-type RailArrangement = { order: string[]; hidden: string[] };
-
 export function useProjectPicker() {
   const { repos, bindings, bindingId, client, probe } = useOmg();
   /**
@@ -434,33 +434,136 @@ export function useProjectPicker() {
    */
   const [chosen, setChosen] = useState<string | null>("");
   /**
-   * THE RAIL'S ARRANGEMENT, per machine. Order and hidden set of folder
-   * cwds, loaded once and written on every change. The machine's own list
-   * is the source of which folders EXIST; this only says how to show them.
+   * THE RAIL'S ARRANGEMENT. Order and hidden set of folders. The machine
+   * owns it (folderOrder / hiddenFolders in /api/settings), so the web's
+   * folder menu and this rail agree. The machine's own list is the source of
+   * which folders EXIST; this only says how to show them.
+   *
+   * `stored` is the machine's copy in project keys. null means not read yet,
+   * or an older machine with no such setting; then the per-machine device
+   * copy below (STORAGE_KEYS.folderRail) is used, as before.
    */
-  const [arrangements, setArrangements] = useState<Record<string, RailArrangement>>({});
+  const [stored, setStored] = useState<StoredArrangement | null>(null);
+  const [localArrangements, setLocalArrangements] = useState<Record<string, RailArrangement>>({});
+  const railKey = bindingId ?? "none";
   useEffect(() => {
     void AsyncStorage.getItem(STORAGE_KEYS.folderRail)
       .then((raw) => {
-        if (raw) setArrangements(JSON.parse(raw) as Record<string, RailArrangement>);
+        if (raw) setLocalArrangements(JSON.parse(raw) as Record<string, RailArrangement>);
       })
       .catch(() => {
         // Unreadable: the machine's order stands.
       });
   }, []);
-  const railKey = bindingId ?? "none";
-  const arrangement = arrangements[railKey] ?? { order: [], hidden: [] };
+  const writeLocal = useCallback((all: Record<string, RailArrangement>) => {
+    void AsyncStorage.setItem(STORAGE_KEYS.folderRail, JSON.stringify(all)).catch(() => {
+      // The rail still works for this launch.
+    });
+  }, []);
+  // Writes the machine has not answered yet. A read that lands meanwhile is
+  // older than the rail, so it is not adopted.
+  const pendingWrites = useRef(0);
+  const postStored = useCallback(
+    async (next: StoredArrangement) => {
+      if (!client) return;
+      pendingWrites.current += 1;
+      try {
+        await client.transport.request("/api/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ folderOrder: next.order, hiddenFolders: next.hidden }),
+        });
+      } finally {
+        pendingWrites.current -= 1;
+      }
+    },
+    [client],
+  );
+  const loadStored = useCallback(() => {
+    if (!client) {
+      setStored(null);
+      return () => {};
+    }
+    let live = true;
+    client.transport
+      .request<{ settings?: { folderOrder?: unknown; hiddenFolders?: unknown } }>("/api/settings")
+      .then((payload) => {
+        if (!live || pendingWrites.current > 0) return;
+        const order = payload.settings?.folderOrder;
+        const hidden = payload.settings?.hiddenFolders;
+        if (!Array.isArray(order) || !Array.isArray(hidden)) {
+          setStored(null);
+          return;
+        }
+        setStored({
+          order: order.filter((key): key is string => typeof key === "string"),
+          hidden: hidden.filter((key): key is string => typeof key === "string"),
+        });
+      })
+      .catch(() => {
+        // Unreachable: keep what the rail shows now.
+      });
+    return () => {
+      live = false;
+    };
+  }, [client]);
+  useEffect(() => {
+    setStored(null);
+  }, [bindingId]);
+  // On every focus, and on a machine switch (a new client), like the web's
+  // refetch: another client may have moved a folder.
+  useFocusEffect(loadStored);
+
+  // Move this device's old copy up to the machine once, if the machine has
+  // none of its own yet. The device copy is dropped after the machine accepts
+  // it, or straight away when the machine already has an arrangement.
+  const localForMachine = localArrangements[railKey];
+  const migrating = useRef(false);
+  useEffect(() => {
+    if (!stored || !localForMachine || !repos.length || migrating.current) return;
+    const { [railKey]: _moved, ...rest } = localArrangements;
+    if (stored.order.length || stored.hidden.length) {
+      setLocalArrangements(rest);
+      writeLocal(rest);
+      return;
+    }
+    const next = toStored(localForMachine, repos, stored);
+    migrating.current = true;
+    setStored(next);
+    void postStored(next)
+      .then(() => {
+        setLocalArrangements(rest);
+        writeLocal(rest);
+      })
+      .catch(() => {
+        // Try again on the next read.
+      })
+      .finally(() => {
+        migrating.current = false;
+      });
+  }, [stored, localForMachine, localArrangements, railKey, repos, postStored, writeLocal]);
+
+  const arrangement = useMemo<RailArrangement>(
+    () => (stored ? toRail(stored, repos) : localForMachine ?? { order: [], hidden: [] }),
+    [stored, repos, localForMachine],
+  );
   const saveArrangement = useCallback(
     (next: RailArrangement) => {
-      setArrangements((current) => {
-        const all = { ...current, [railKey]: next };
-        void AsyncStorage.setItem(STORAGE_KEYS.folderRail, JSON.stringify(all)).catch(() => {
-          // The rail still works for this launch.
+      if (stored) {
+        const merged = toStored(next, repos, stored);
+        setStored(merged);
+        void postStored(merged).catch(() => {
+          // The rail still shows the change for this launch.
         });
+        return;
+      }
+      setLocalArrangements((current) => {
+        const all = { ...current, [railKey]: next };
+        writeLocal(all);
         return all;
       });
     },
-    [railKey],
+    [stored, repos, postStored, railKey, writeLocal],
   );
 
   useEffect(() => {

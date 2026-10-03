@@ -602,6 +602,7 @@ import {
   MAX_LIVE_AGENTS_LIMIT,
   setGlobalSettings,
   validAutoSessionTitles,
+  sanitizeFolderKeys,
   validTimeZone,
   validTranscriptView,
   type GlobalSettings,
@@ -5995,6 +5996,21 @@ a{color:#60a5fa}
             if (!validAutoSessionTitles(b.autoSessionTitles))
               return err(400, 'autoSessionTitles must be "on", "manual" or "off"');
             patch.autoSessionTitles = b.autoSessionTitles;
+          }
+          if (b?.folderOrder !== undefined) {
+            const keys = sanitizeFolderKeys(b.folderOrder);
+            if (!keys) return err(400, "folderOrder must be an array of folder keys");
+            patch.folderOrder = keys;
+          }
+          if (b?.hiddenFolders !== undefined) {
+            const keys = sanitizeFolderKeys(b.hiddenFolders);
+            if (!keys) return err(400, "hiddenFolders must be an array of folder keys");
+            patch.hiddenFolders = keys;
+          }
+          if (b?.showProjectPaths !== undefined) {
+            if (typeof b.showProjectPaths !== "boolean")
+              return err(400, "showProjectPaths must be a boolean");
+            patch.showProjectPaths = b.showProjectPaths;
           }
           if (b?.customInstructions !== undefined) {
             if (

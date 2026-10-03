@@ -110,10 +110,10 @@ export const STORAGE_KEYS = {
   userFilter: "omg:mobile:user-filter",
   /**
    * How the Live folder rail is arranged, per machine: the order of folder
-   * cwds and the ones hidden from the rail. The machine lists repos in
-   * alphabetical order and has no API for either, so this lives on the
-   * device. Intersected with the machine's live list on read, so a folder
-   * that was unlinked simply disappears.
+   * cwds and the ones hidden from the rail. LEGACY: the machine now owns this
+   * (folderOrder / hiddenFolders in /api/settings). The device copy is used
+   * only for an older machine without those settings, and is moved up to the
+   * machine once. See useProjectPicker.
    */
   folderRail: "omg:mobile:folder-rail",
   /** "1" when the project preview card is open, "0" when closed. Unset is closed. */

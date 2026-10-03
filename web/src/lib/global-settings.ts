@@ -62,6 +62,12 @@ export type GlobalSettings = {
   // and from the session menu. "manual": only when the user picks Rename with
   // AI. "off": neither, and that menu row is hidden.
   autoSessionTitles: AutoSessionTitles;
+  // How the folder menu lists folders, shared by every client of this box.
+  // Project keys. Read through lib/folder-menu-prefs and
+  // lib/project-list-prefs, not from here; see App's folder display sync.
+  folderOrder: string[];
+  hiddenFolders: string[];
+  showProjectPaths: boolean;
 };
 
 export type ComposerSendMode = "steer" | "queue";
@@ -134,6 +140,9 @@ export const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
   skippedUpdateVersion: "",
   autoUpdateEnabled: true,
   customInstructions: "",
+  folderOrder: [],
+  hiddenFolders: [],
+  showProjectPaths: false,
   ...DEFAULT_VIEW_PREFS,
 };
 

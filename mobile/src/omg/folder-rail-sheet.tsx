@@ -2,7 +2,7 @@
  * THE FOLDER RAIL, ARRANGED. Long-press a pill on Live and this card lists
  * every folder the machine has: move one up or down, take it off the rail or
  * put it back, add an existing folder from the machine, or make a new one.
- * Order and hidden set live on the device (see STORAGE_KEYS.folderRail).
+ * Order and hidden set live on the machine (see useProjectPicker).
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, View, type GestureResponderEvent } from "react-native";

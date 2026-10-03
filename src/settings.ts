@@ -110,6 +110,16 @@ export type GlobalSettings = {
   // the caller keeps the prompt-derived title, so "on" costs such a box
   // nothing and needs no setup from the user who does have an account.
   autoSessionTitles: AutoSessionTitles;
+
+  // How the folder menu lists this box's folders, shared by every client.
+  // Values are project keys (repo.project, else the folder name), the same
+  // identity sessions carry. The repo list says which folders EXIST; these
+  // only say how to show them. A key with no folder behind it is ignored by
+  // the reader, so an unlinked folder simply drops out.
+  folderOrder: string[];
+  hiddenFolders: string[];
+  // Show each folder's full path under its name in the project picker.
+  showProjectPaths: boolean;
 };
 
 export type ComposerSendMode = "steer" | "queue";
@@ -125,6 +135,23 @@ export type TranscriptView = "full" | "user-lfg-output";
 // characters of context on its first turn, so the cap is a budget, not a
 // storage limit. Longer standing rules belong in a repository AGENTS.md.
 export const CUSTOM_INSTRUCTIONS_MAX_LENGTH = 4000;
+
+/** Caps on folderOrder / hiddenFolders: entries per list, characters per key. */
+export const FOLDER_LIST_MAX_ENTRIES = 500;
+export const FOLDER_KEY_MAX_LENGTH = 300;
+
+/**
+ * A folder key list as stored: strings only, non-empty, deduped, capped.
+ * Returns null for anything that is not an array, so the POST handler can
+ * reject it and the reader can fall back to [].
+ */
+export function sanitizeFolderKeys(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const keys = value.filter(
+    (key): key is string => typeof key === "string" && key.length > 0 && key.length <= FOLDER_KEY_MAX_LENGTH,
+  );
+  return [...new Set(keys)].slice(0, FOLDER_LIST_MAX_ENTRIES);
+}
 
 // A soft admission ceiling backed by the systemd slice's hard memory bound.
 export const MAX_LIVE_AGENTS_LIMIT = 64;
@@ -238,6 +265,10 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
   const autoSessionTitles: AutoSessionTitles = validAutoSessionTitles(input?.autoSessionTitles)
     ? input.autoSessionTitles
     : "on";
+  const folderOrder = sanitizeFolderKeys(input?.folderOrder) ?? [];
+  const hiddenFolders = sanitizeFolderKeys(input?.hiddenFolders) ?? [];
+  // Missing means off: the folder name is usually enough to pick from.
+  const showProjectPaths = input?.showProjectPaths === true;
   return {
     machineName: typeof input?.machineName === "string" ? input.machineName.trim().replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 80) : "",
     timeZone,
@@ -265,6 +296,9 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
     showComposerFastMode,
     composerSendMode,
     autoSessionTitles,
+    folderOrder,
+    hiddenFolders,
+    showProjectPaths,
   };
 }
 
@@ -386,6 +420,9 @@ export async function setGlobalSettings(patch: Partial<GlobalSettings>): Promise
     write.run("showComposerFastMode", JSON.stringify(next.showComposerFastMode), now);
     write.run("composerSendMode", JSON.stringify(next.composerSendMode), now);
     write.run("autoSessionTitles", JSON.stringify(next.autoSessionTitles), now);
+    write.run("folderOrder", JSON.stringify(next.folderOrder), now);
+    write.run("hiddenFolders", JSON.stringify(next.hiddenFolders), now);
+    write.run("showProjectPaths", JSON.stringify(next.showProjectPaths), now);
   })();
   return next;
 }
