@@ -4,7 +4,6 @@
  * choices are validated against its catalog before use.
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { supportsFastMode } from "../../../packages/protocol/src/fast-mode-support";
@@ -510,9 +509,12 @@ export function useProjectPicker() {
   useEffect(() => {
     setStored(null);
   }, [bindingId]);
-  // On every focus, and on a machine switch (a new client), like the web's
-  // refetch: another client may have moved a folder.
-  useFocusEffect(loadStored);
+  // Read again whenever the machine's folder list is re-probed: on a machine
+  // switch (a new client) and on every return to the foreground, where the
+  // provider probes again. Another client may have moved a folder meanwhile.
+  // Keyed on the probe, not on expo-router's focus, so this module stays free
+  // of navigation imports.
+  useEffect(() => loadStored(), [loadStored, repos]);
 
   // Move this device's old copy up to the machine once, if the machine has
   // none of its own yet. The device copy is dropped after the machine accepts
