@@ -124,26 +124,26 @@ test("the rail panel lists the same rows, and a row navigates then goes back", (
   for (const row of rows) {
     expect(ui.query(`[data-testid="side-nav-row-${row.key}"]`), `missing row ${row.key}`).not.toBeNull();
   }
-  ui.flush(() => (ui.query('[data-testid="side-nav-row-bots"]') as HTMLButtonElement).click());
-  expect(went).toEqual(["bots"]);
+  ui.flush(() => (ui.query('[data-testid="side-nav-row-auto"]') as HTMLButtonElement).click());
+  expect(went).toEqual(["auto"]);
   expect(backs).toBe(1);
   // The current row only goes back; there is nowhere new to go.
   ui.flush(() => (ui.query('[data-testid="side-nav-row-live"]') as HTMLButtonElement).click());
-  expect(went).toEqual(["bots"]);
+  expect(went).toEqual(["auto"]);
   expect(backs).toBe(2);
   ui.flush(() => (ui.query('[data-testid="side-nav-back"]') as HTMLButtonElement).click());
   expect(backs).toBe(3);
 });
 
 test("the rail panel marks unread places and hides itself when closed", () => {
-  const rows = sideNavRows({ tab: "bots" });
+  const rows = sideNavRows({ tab: "auto" });
   const render = (open: boolean) =>
     ui.render(
       <SideNavPanel open={open} onBack={() => {}} rows={rows} onNavigate={() => {}} unread={new Set(["live"])} />,
     );
   render(true);
   expect(ui.query('[data-testid="side-nav-row-live"] [role="status"]')).not.toBeNull();
-  expect(ui.query('[data-testid="side-nav-row-bots"] [role="status"]')).toBeNull();
+  expect(ui.query('[data-testid="side-nav-row-auto"] [role="status"]')).toBeNull();
   const panel = ui.query('[data-testid="side-nav-panel"]') as HTMLElement & { inert?: boolean };
   expect(panel.getAttribute("aria-hidden")).toBe("false");
   render(false);
