@@ -64,3 +64,15 @@ describe("groupNodesByProject", () => {
     expect(groupNodesByProject([], one, short)).toEqual([]);
   });
 });
+
+describe("saved folder order", () => {
+  test("groups the box has placed come first, in that order; the rest follow by label", () => {
+    const groups = groupNodesByProject(
+      [node("alpha", "a"), node("vibes", "b"), node("lfg", "c"), node("zeta", "d"), node(null, "e")],
+      one,
+      short,
+      ["lfg", "vibes", "gone"],
+    );
+    expect(groups.map((group) => group.project)).toEqual(["lfg", "vibes", "alpha", "", "zeta"]);
+  });
+});

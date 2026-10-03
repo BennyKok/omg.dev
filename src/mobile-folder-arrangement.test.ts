@@ -25,3 +25,17 @@ describe("iOS folder rail arrangement stored on the machine", () => {
     ).toEqual({ order: ["beta", "alpha", "gamma", "web-only"], hidden: ["gamma", "web-hidden"] });
   });
 });
+
+describe("iOS session list folder groups", () => {
+  test("follow the saved folder order, then the label", async () => {
+    const { groupNodesByProject } = await import("../mobile/src/omg/session-groups");
+    const node = (project: string) => ({ session: { project } });
+    const groups = groupNodesByProject(
+      [node("afterglow"), node("vibes"), node("lfg")],
+      () => 1,
+      undefined,
+      ["lfg", "vibes"],
+    );
+    expect(groups.map((group) => group.project)).toEqual(["lfg", "vibes", "afterglow"]);
+  });
+});
