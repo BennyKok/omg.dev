@@ -11,6 +11,21 @@ beforeEach(() => {
 });
 afterEach(() => ui.cleanup());
 
+test("a collapsed rail draws no thread rows", () => {
+  ui.render(
+    <ThreadRailGroup
+      threads={[{ id: "t", title: "Todos", createdAt: 1, updatedAt: 1, project: null }] as ThreadSummary[]}
+      activeId={null}
+      collapsed
+      dense
+      onOpen={() => {}}
+    />,
+  );
+  // A thread has no mark, so in the 56px rail it was an empty button that
+  // pushed the session icons down.
+  expect(ui.queryAll('[aria-label="Thread Todos"]')).toHaveLength(0);
+});
+
 test("sidebar threads are compact title-only rows", () => {
   const threads: ThreadSummary[] = [
     {

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mount, type Mounted } from "../test-support/render";
-const { AutoAgentPage } = await import("./auto-agent-page");
+const { AutoAgentPage, AutoAgentPageInStage } = await import("./auto-agent-page");
 let ui: Mounted;
 beforeEach(() => { ui = mount(); });
 afterEach(() => ui.cleanup());
@@ -35,4 +35,22 @@ test("focus and blur retain the page and draft without opening the keyboard on m
   ui.flush(() => input.blur());
   expect(document.querySelector('[role="dialog"]')).not.toBeNull();
   expect(input.value).toBe("Draft reply");
+});
+
+test("in the desktop stage the page is a pane beside the rail, not a full-screen dialog", () => {
+  let closed = 0;
+  ui.render(
+    <AutoAgentPageInStage.Provider value>
+      <AutoAgentPage title="Fleet Health finding" onClose={() => closed++} footer={<span>Reply</span>}>
+        <p>Body</p>
+      </AutoAgentPage>
+    </AutoAgentPageInStage.Provider>,
+  );
+  const pane = ui.query('[data-auto-agent-page="stage"]');
+  expect(pane).not.toBeNull();
+  expect(ui.host.contains(pane)).toBe(true);
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(ui.text()).toContain("Fleet Health finding");
+  ui.flush(() => (ui.query('button[aria-label="Close"]') as HTMLElement).click());
+  expect(closed).toBe(1);
 });

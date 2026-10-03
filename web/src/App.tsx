@@ -19,7 +19,7 @@ import { activeMachine } from "./lib/machines";
 import { useHeaderProfile } from "./lib/header-profile";
 import { RuntimeAvailabilityContext, useRuntimeAvailability, shouldReloadRuntime } from "./lib/runtime-availability";
 import { RuntimeRecovery, RuntimeEmptyState, RuntimeStatusBrand, RuntimeStatusDot } from "./components/runtime-recovery";
-import { AutoAgentPage } from "./components/auto-agent-page";
+import { AutoAgentPage, AutoAgentPageInStage } from "./components/auto-agent-page";
 import { Component, createContext, type ComponentProps, forwardRef, memo, Suspense, useCallback, useContext, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import type {
@@ -9128,6 +9128,52 @@ export function App() {
   // route home at all -- see test/pages-nav.test.ts.
   const chromelessSurface = liveDesktopWorkspace || tab === "computer";
 
+  // An auto-agent report or finding. On the desktop workspace it opens in
+  // the stage beside the rail, the same two panes Schedules uses. Elsewhere
+  // it is the full-screen page.
+  const autoSheet = (
+    <>
+      {openFinding ? (
+        <FindingSheet
+          key={openFinding.id}
+          finding={openFinding}
+          agentName={agentName(openFinding.agentId)}
+          sourceAgent={autoAgents.find((a) => a.id === openFinding.agentId)}
+          codingAgents={codingAgents}
+          onClose={() => setOpenFinding(null)}
+          onReply={replyToFinding}
+          onDismiss={dismissFinding}
+          onRefineAgent={refineAgentFromFinding}
+        />
+      ) : null}
+
+      {openReport ? (
+        <AgentReportSheet
+          key={openReport}
+          agent={autoAgents.find((a) => a.id === openReport)}
+          agentName={agentName(openReport)}
+          findings={findings.filter((f) => f.agentId === openReport)}
+          tz={schedTz}
+          codingAgents={codingAgents}
+          onClose={() => setOpenReport(null)}
+          onReply={replyToFinding}
+          onDismiss={dismissFinding}
+          onDismissAll={(targets) => void clearAllFindings(targets)}
+          dismissAllBusy={clearFindingsBusy}
+          onRefineAgent={refineAgentFromFinding}
+          onEditAgent={(agent) => {
+            setOpenReport(null);
+            setEditingAgent(agent);
+          }}
+        />
+      ) : null}
+    </>
+  );
+  const closeAutoSheet = () => {
+    setOpenFinding(null);
+    setOpenReport(null);
+  };
+
   return (
     <AgentAccessModeContext.Provider
       value={embedded ? "connected-or-hosted" : "configured"}
@@ -9568,6 +9614,8 @@ export function App() {
               stageOverride={
                 autoInWorkspace ? autoManageView : boardInWorkspace ? boardStageView : null
               }
+              stageSheet={openFinding || openReport ? autoSheet : null}
+              onCloseStageSheet={openFinding || openReport ? closeAutoSheet : undefined}
               bots={bots}
               selectedBotId={selectedBotId}
               onOpenBot={openBot}
@@ -9981,40 +10029,7 @@ export function App() {
         </>
       ) : null}
 
-      {openFinding ? (
-        <FindingSheet
-          key={openFinding.id}
-          finding={openFinding}
-          agentName={agentName(openFinding.agentId)}
-          sourceAgent={autoAgents.find((a) => a.id === openFinding.agentId)}
-          codingAgents={codingAgents}
-          onClose={() => setOpenFinding(null)}
-          onReply={replyToFinding}
-          onDismiss={dismissFinding}
-          onRefineAgent={refineAgentFromFinding}
-        />
-      ) : null}
-
-      {openReport ? (
-        <AgentReportSheet
-          key={openReport}
-          agent={autoAgents.find((a) => a.id === openReport)}
-          agentName={agentName(openReport)}
-          findings={findings.filter((f) => f.agentId === openReport)}
-          tz={schedTz}
-          codingAgents={codingAgents}
-          onClose={() => setOpenReport(null)}
-          onReply={replyToFinding}
-          onDismiss={dismissFinding}
-          onDismissAll={(targets) => void clearAllFindings(targets)}
-          dismissAllBusy={clearFindingsBusy}
-          onRefineAgent={refineAgentFromFinding}
-          onEditAgent={(agent) => {
-            setOpenReport(null);
-            setEditingAgent(agent);
-          }}
-        />
-      ) : null}
+      {liveDesktopWorkspace ? null : autoSheet}
 
       {editingAgent === "new" ? (
         <NewAutoAgentComposer
@@ -11801,6 +11816,8 @@ function LiveView({
   focus,
   stageComposer,
   stageOverride = null,
+  stageSheet = null,
+  onCloseStageSheet,
   hostSettingsInMenu = false,
 }: {
   sessions: Session[];
@@ -11879,6 +11896,9 @@ function LiveView({
   stageComposer: StageComposerRender;
   /** Desktop only. See RailStage. */
   stageOverride?: ReactNode;
+  /** Desktop only. See RailStage. */
+  stageSheet?: ReactNode;
+  onCloseStageSheet?: () => void;
   /** Desktop only. See RailStage. */
   hostSettingsInMenu?: boolean;
 }) {
@@ -12224,6 +12244,8 @@ function LiveView({
         focus={focus}
         stageComposer={stageComposer}
         stageOverride={stageOverride}
+        stageSheet={stageSheet}
+        onCloseStageSheet={onCloseStageSheet}
         hostSettingsInMenu={hostSettingsInMenu}
         topPinned={topPinned}
         onToggleTopPin={toggleTopPin}
@@ -12457,6 +12479,8 @@ function RailStage({
   onToggleTopPin,
   stageComposer,
   stageOverride = null,
+  stageSheet = null,
+  onCloseStageSheet,
   hostSettingsInMenu = false,
   threads = [],
   threadViewer = "",
@@ -12534,6 +12558,13 @@ function RailStage({
    * Schedules list lives in the pane, the session rail stays on the left.
    */
   stageOverride?: ReactNode;
+  /**
+   * An auto-agent report or finding, drawn in the stage beside the rail.
+   * It takes the whole stage on any surface, the way Schedules does, and
+   * picking a row in the rail closes it.
+   */
+  stageSheet?: ReactNode;
+  onCloseStageSheet?: () => void;
   /**
    * Hosted only: the Pages menu carries the host's Settings, so the
    * rail-footer slot tells the host its own gear is redundant here.
@@ -12897,13 +12928,15 @@ function RailStage({
       // stage is showing the schedule list, and a preview set underneath it
       // would be an open session nobody can see.
       if (railSurface === "auto") onOpenSessions();
+      // A report in the stage gives way to the session picked beside it.
+      onCloseStageSheet?.();
       // A session picked while a thread fills the stage replaces the thread.
       if (openThreadId) onCloseThread?.();
       // Board mode shows one session beside the board, pinned or not.
       if (railSurface !== "board" && validPinned.includes(sid)) return; // already a persistent column
       setPreview(sid);
     },
-    [validPinned, railSurface, onOpenSessions, openThreadId, onCloseThread],
+    [validPinned, railSurface, onOpenSessions, openThreadId, onCloseThread, onCloseStageSheet],
   );
   // Arriving on the Board shows the board alone; whatever Live was previewing
   // is not what you came to look at.
@@ -13528,7 +13561,7 @@ function RailStage({
         <section
           aria-label="Updates"
           data-testid="rail-findings-panel"
-          className="flex max-h-[50%] min-h-0 shrink-0 flex-col border-t border-border animate-in fade-in slide-in-from-bottom-8 duration-[380ms] ease-[cubic-bezier(0.25,0.8,0.25,1)] motion-reduce:animate-none"
+          className="group/updates flex max-h-[50%] min-h-0 shrink-0 flex-col border-t border-border animate-in fade-in slide-in-from-bottom-8 duration-[380ms] ease-[cubic-bezier(0.25,0.8,0.25,1)] motion-reduce:animate-none"
         >
           <div className="flex h-10 shrink-0 items-center gap-2 pl-3 pr-1.5">
             <button
@@ -13539,9 +13572,12 @@ function RailStage({
               className="flex min-w-0 items-baseline gap-2 text-left outline-none focus-visible:text-foreground"
             >
               <span className="text-[13px] font-semibold">Updates</span>
-              <span className="text-xs tabular-nums text-muted-foreground">{findings.length} open</span>
+              <span className="text-xs tabular-nums text-muted-foreground">{findings.length}</span>
             </button>
-            <span className="ml-auto flex items-center gap-1">
+            {/* Bulk actions wait for the pointer or focus. At rest the header
+                is a label and a fold, so the rows carry the eye. Each row
+                still has its own triage on hover. */}
+            <span className="ml-auto flex items-center gap-1 opacity-0 transition-opacity group-hover/updates:opacity-100 group-focus-within/updates:opacity-100">
               <ClearFindingsButton
                 count={findings.length}
                 busy={clearFindingsBusy}
@@ -13553,16 +13589,16 @@ function RailStage({
                 onClick={() => onTriageFindings()}
                 compact
               />
-              <button
-                type="button"
-                onClick={() => setRailFindingsOpen(false)}
-                aria-label="Hide updates"
-                title="Hide updates"
-                className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-              >
-                <ChevronDown className="size-4" />
-              </button>
             </span>
+            <button
+              type="button"
+              onClick={() => setRailFindingsOpen(false)}
+              aria-label="Hide updates"
+              title="Hide updates"
+              className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              <ChevronDown className="size-4" />
+            </button>
           </div>
           <div className="flex min-h-0 flex-col gap-1 overflow-y-auto px-1.5 pb-2">
             {groupFindingsByAgent(findings).map((report) => (
@@ -13636,7 +13672,7 @@ function RailStage({
         : stageColumns;
   // The board pane counts toward the grid shape.
   // An open thread takes the whole stage.
-  const stagePaneCount = openThreadId && railSurface === "sessions"
+  const stagePaneCount = stageSheet || (openThreadId && railSurface === "sessions")
     ? 1
     : activeStageColumns.length + (railSurface === "board" ? 1 : 0);
 
@@ -14008,7 +14044,11 @@ function RailStage({
               : "grid-cols-2 grid-rows-2",
         )}
       >
-        {openThreadId && railSurface === "sessions" ? (
+        {stageSheet ? (
+          <div className="h-full min-h-0 min-w-0 overflow-hidden">
+            <AutoAgentPageInStage.Provider value>{stageSheet}</AutoAgentPageInStage.Provider>
+          </div>
+        ) : openThreadId && railSurface === "sessions" ? (
           // Flat, as a session column is on the stage: no card border or radius.
           <div className="h-full min-h-0 min-w-0 overflow-hidden">
             <ThreadChat
@@ -14541,7 +14581,9 @@ export function ThreadRailGroup({
   dense?: boolean;
   onOpen: (id: string) => void;
 }) {
-  if (!threads.length) return null;
+  // A thread row has no mark, so the 56px rail would draw it as an empty,
+  // invisible button. Four threads left a blank band above the sessions.
+  if (!threads.length || collapsed) return null;
   return (
     <RailGroup label="Threads" count={threads.length} collapsed={collapsed} foldKey="__threads">
       {threads.map((thread) => (
