@@ -36,6 +36,7 @@ const EXPECTED_PEERS = {
   cnfast: "0.0.8",
   react: "^19.2.4",
   "react-dom": "^19.2.4",
+  sonner: "^2.0.7",
   vaul: "^1.1.2",
 } as const;
 
@@ -102,6 +103,7 @@ describe("vite.lib.config host-shared externals", () => {
       '"vaul"',
       '"react"',
       '"@base-ui/react"',
+      '"sonner"',
     ]) {
       expect(src).toContain(pkg);
     }
@@ -163,6 +165,8 @@ describe("built embed resolves host externals and mounts", () => {
     expect(code).toContain('from "cnfast"');
     expect(code).toContain('from "vaul"');
     expect(code).toContain('from "class-variance-authority"');
+    // One Sonner per document: the host's Toaster draws the surface's toasts.
+    expect(code).toContain('from "sonner"');
     expect(code).not.toContain("isViewTransitionTypesSupported");
     expect(code).not.toContain("isThemeGetter");
   });
