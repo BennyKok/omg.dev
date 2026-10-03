@@ -63,3 +63,13 @@ test("one finding needs no list", () => {
   expect(ui.query("nav")).toBeNull();
   expect(ui.query("h3")?.textContent).toBe("Only one");
 });
+
+test("the finding footer uses the home composer's agent and model pill, and has no Feedback", () => {
+  renderInStage([finding("a", "high", "Prod is on fire")]);
+  const footer = ui.query("footer")!;
+  expect(footer.querySelector('button[aria-label^="Agent "][aria-label$="Change agent or model"]')).not.toBeNull();
+  const labels = Array.from(footer.querySelectorAll("button")).map((b) => b.textContent?.trim());
+  expect(labels).toContain("Make the change");
+  expect(labels).toContain("Dismiss");
+  expect(labels).not.toContain("Feedback");
+});

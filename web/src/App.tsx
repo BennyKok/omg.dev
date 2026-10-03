@@ -464,7 +464,7 @@ import { isBrowserLoginCall } from "../../packages/protocol/src/browser-login";
 import { ProjectPreviewCard } from "@/components/project-preview-card";
 import { haptic } from "@/lib/haptics";
 import { feedback } from "@/lib/feedback";
-import { waitForRefine, type AutoAgentRefine } from "@/lib/auto-refine";
+import { type AutoAgentRefine } from "@/lib/auto-refine";
 import { useUiFeedbackPrefs, setUiFeedbackPrefs } from "@/lib/ui-feedback-prefs";
 import { useNavigationPrefs, setNavigationPrefs } from "@/lib/navigation-prefs";
 import { subscribeSelectionChange } from "./lib/selection-change";
@@ -7997,41 +7997,6 @@ export function App() {
     await start(false);
   }
 
-  // Feedback closes the loop on the agent, not the finding: the user says what
-  // this run should have done differently and we rewrite the originating auto
-  // agent's own instruction in place, so the correction is live before the next
-  // scheduled run. Fire-and-close under a toast — the rewrite is a real model
-  // call against the agent's repo and can take a while; nothing should block on
-  // it, and the sheet has already served its purpose. The server answers 202
-  // at once and we follow the rewrite through the agent's `refine` state:
-  // holding one fetch open for the whole call is what a phone's 60s timeout
-  // used to cut off, so the toast said "couldn't update" over an agent that
-  // had in fact changed.
-  function refineAgentFromFinding(f: AutoFinding, feedbackText: string) {
-    const name = agentName(f.agentId);
-    const id = encodeURIComponent(f.agentId);
-    setOpenFinding(null);
-    toast.promise(
-      api(`/api/auto/agents/${id}/refine`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ feedback: feedbackText, findingId: f.id }),
-      })
-        .then(() => refreshAuto())
-        .then(() =>
-          waitForRefine(() =>
-            api<{ agent: AutoAgent }>(`/api/auto/agents/${id}`).then((r) => r.agent.refine),
-          ),
-        )
-        .then(() => refreshAuto()),
-      {
-        loading: `Updating ${name}…`,
-        success: `${name} updated`,
-        error: (e) => (e instanceof Error ? e.message : "Couldn't update the agent"),
-      },
-    );
-  }
-
   async function saveAutoAgent(input: {
     id?: string;
     name: string;
@@ -9143,7 +9108,6 @@ export function App() {
           onClose={() => setOpenFinding(null)}
           onReply={replyToFinding}
           onDismiss={dismissFinding}
-          onRefineAgent={refineAgentFromFinding}
         />
       ) : null}
 
@@ -9160,7 +9124,6 @@ export function App() {
           onDismiss={dismissFinding}
           onDismissAll={(targets) => void clearAllFindings(targets)}
           dismissAllBusy={clearFindingsBusy}
-          onRefineAgent={refineAgentFromFinding}
           onEditAgent={(agent) => {
             setOpenReport(null);
             setEditingAgent(agent);
@@ -26347,6 +26310,7 @@ export function AgentModelPicker<K extends AgentKind>({
   onModelChange,
   showModels = true,
   showAgents = true,
+  side = "bottom",
 }: {
   options: readonly {
     key: K;
@@ -26370,6 +26334,8 @@ export function AgentModelPicker<K extends AgentKind>({
   showModels?: boolean;
   /** Off: no agent strip; the pill is a model picker with the agent's icon. */
   showAgents?: boolean;
+  /** "top" for a pill in a footer, where there is no prompt above it to cover. */
+  side?: "top" | "bottom";
 }) {
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -26418,7 +26384,7 @@ export function AgentModelPicker<K extends AgentKind>({
       <Popover.Trigger render={trigger} />
       <Popover.Portal>
         <Popover.Positioner
-          side="bottom"
+          side={side}
           align="start"
           sideOffset={6}
           // Never flip above the pill: the list then covers the prompt you
@@ -26600,7 +26566,6 @@ function FindingDetail({
   codingAgents,
   onReply,
   onDismiss,
-  onRefineAgent,
   showAgent = true,
   render,
 }: {
@@ -26622,7 +26587,6 @@ function FindingDetail({
     },
   ) => Promise<void>;
   onDismiss: (f: AutoFinding) => void;
-  onRefineAgent?: (f: AutoFinding, feedback: string) => void;
 }) {
   const defaultModel = useAgentDefaultModel(sourceAgent?.agent ?? "aisdk");
   const [text, setText] = useState("");
@@ -26630,15 +26594,11 @@ function FindingDetail({
   // Everything that isn't the finding itself starts folded away. The sheet's
   // job is to be read in one glance: which agent, what it found, what it
   // suggests. Launch settings and the long tail of reasoning are one tap deep.
-  const [showSettings, setShowSettings] = useState(false);
   const [showAllReasoning, setShowAllReasoning] = useState(false);
-  const [tuning, setTuning] = useState(false);
-  const [feedbackText, setFeedbackText] = useState("");
   // The composer is behind a button now. Opening the sheet with a focused field
   // meant the keyboard covered the finding you came to read, on a surface whose
   // most common answer is the one-tap "Make the change" — no typing at all.
   const [instructing, setInstructing] = useState(false);
-  const feedbackRef = useRef<HTMLTextAreaElement>(null);
   const footerRef = useRef<HTMLDivElement>(null);
   // Graduating a finding starts an ordinary session, so the picker below offers
   // the whole roster — not just the backends a cron'd auto agent can run. It
@@ -26654,11 +26614,32 @@ function FindingDetail({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const backendModels = useAgentModels(backend);
   const backendDefaultModel = useAgentDefaultModel(backend);
-  const supportsThinking = useAgentThinkingLevels(backend, model).length > 0;
+  const thinkingLevels = useAgentThinkingLevels(backend, model);
+  const supportsThinking = thinkingLevels.length > 0;
+  // The home composer's agent list, so the pill below offers what a new
+  // session would.
+  const accessMode = useContext(AgentAccessModeContext);
+  const catalog = useAgentModelCatalog();
+  const launchOptions = useMemo(
+    () => configuredLaunchOptions(codingAgents, accessMode, { scheduledOnly: false }),
+    [accessMode, codingAgents],
+  );
 
   useEffect(() => {
     if (!backendModels.includes(model)) setModel(backendDefaultModel);
   }, [backendDefaultModel, backendModels, model]);
+  // The source agent may run on a backend this box can no longer launch.
+  useEffect(() => {
+    if (!launchOptions.length || launchOptions.some((option) => option.key === backend)) return;
+    const next = launchOptions[0].key;
+    setBackend(next);
+    setModel(catalog.defaults[next] ?? AGENT_DEFAULT_MODEL[next]);
+  }, [backend, catalog.defaults, launchOptions]);
+  useEffect(() => {
+    if (thinkingLevels.length && !thinkingLevels.includes(thinkingLevel)) {
+      setThinkingLevel(thinkingLevels.includes("high") ? "high" : thinkingLevels[0]);
+    }
+  }, [thinkingLevel, thinkingLevels]);
 
   // The pin is seeded from the source agent, which may name an account that has
   // since been removed or signed out. Launching with a dead id is a hard 400
@@ -26709,21 +26690,19 @@ function FindingDetail({
       exitTimer.current = null;
       const root = footerRef.current?.closest("[data-auto-agent-page]");
       if (root && root.contains(deepActiveElement())) return;
-      if (text.trim() || feedbackText.trim()) return;
+      if (text.trim()) return;
       setInstructing(false);
-      setTuning(false);
     }, 260);
   }
 
   // Reveal the footer field before focusing it, so the browser can scroll
   // the mounted input into view.
-  function reveal(which: "instruct" | "tune") {
+  function reveal() {
     cancelExit();
-    if (which === "instruct") setInstructing(true);
-    else setTuning(true);
+    setInstructing(true);
     requestAnimationFrame(() => {
       window.setTimeout(() => {
-        (which === "instruct" ? inputRef : feedbackRef).current?.focus();
+        inputRef.current?.focus();
       }, 60);
     });
   }
@@ -26771,15 +26750,6 @@ function FindingDetail({
     }
   }
 
-  // Feedback is about the agent, not this row: hand it to the parent, which
-  // rewrites the agent's standing instruction and closes the sheet.
-  function submitFeedback() {
-    const t = feedbackText.trim();
-    if (!t || busy || !onRefineAgent) return;
-    logFindingAction(finding.id, "feedback", !!text.trim());
-    onRefineAgent(finding, t);
-  }
-
   const REASONING_PREVIEW = 3;
   const reasoning = finding.reasoning;
   const shownReasoning =
@@ -26787,40 +26757,38 @@ function FindingDetail({
       ? reasoning
       : reasoning.slice(0, REASONING_PREVIEW);
   const hiddenReasoning = reasoning.length - shownReasoning.length;
-  const settingsSummary = [model, supportsThinking ? `${thinkingLevel} thinking` : null]
-    .filter(Boolean)
-    .join(" · ");
-
-  // Launch settings, folded to one line of text. Lives just above whatever the
-  // footer's primary control is, in both modes, because it describes what that
-  // control is about to run.
-  const settingsRow = (
-    <div className="px-1 pb-2">
-      <button
-        type="button"
-        onClick={() => setShowSettings((v) => !v)}
-        aria-expanded={showSettings}
-        className="flex max-w-full items-center gap-1 text-[11.5px] text-muted-foreground/80 hover:text-muted-foreground"
-      >
-        <span className="truncate">{settingsSummary}</span>
-        <ChevronDown
-          className={cn("size-3 shrink-0 transition-transform", showSettings && "rotate-180")}
-        />
-      </button>
-      {showSettings ? (
-        <AgentModelRow
-          backend={backend}
-          setBackend={setBackend}
-          model={model}
-          setModel={setModel}
-          thinkingLevel={thinkingLevel}
-          setThinkingLevel={setThinkingLevel}
-          codingAgents={codingAgents}
-          claudeAccountId={livePin}
-          setClaudeAccountId={setClaudeAccountId}
-          scheduledOnly={false}
-        />
-      ) : null}
+  const selectedLaunchId = backend === "aisdk" && livePin ? `aisdk:${livePin}` : backend;
+  const selectedOption = launchOptions.find(
+    (option) => (option.selectorId ?? option.key) === selectedLaunchId,
+  ) ?? launchOptions.find((option) => option.key === backend);
+  // The home composer's pills: one for agent and model, one for thinking.
+  // They sit on the row they configure, always visible, instead of behind a
+  // folded "model · thinking" line that opened a second, different picker.
+  const launchPills = (
+    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+      <AgentModelPicker
+        options={launchOptions}
+        agent={backend}
+        agentLabel={selectedOption?.label ?? backend}
+        agentBadge={selectedOption?.badge}
+        selectedId={selectedLaunchId}
+        onSelectAgent={(key, option) => {
+          setBackend(key);
+          setClaudeAccountId(key === "aisdk" ? option?.accountId ?? "" : "");
+          setModel(catalog.defaults[key] ?? AGENT_DEFAULT_MODEL[key]);
+        }}
+        model={model}
+        models={backendModels}
+        onModelChange={setModel}
+        side="top"
+      />
+      <ThinkingLevelPill
+        agent={backend}
+        value={thinkingLevel}
+        levels={thinkingLevels}
+        onChange={setThinkingLevel}
+        immersive
+      />
     </div>
   );
 
@@ -26839,60 +26807,9 @@ function FindingDetail({
       }}
       onBlurCapture={scheduleExit}
     >
-      {tuning ? (
-        /* Feedback goes to the AGENT, not this finding: what the user types
-           here is folded into the agent's standing instruction, so the next
-           scheduled run behaves differently. */
-        <div className="rounded-2xl border border-border/70 bg-muted/30 p-3">
-          <div className="flex items-center gap-2 text-[13px] font-semibold">
-            <SlidersHorizontal className="size-4 text-primary" />
-            <span className="truncate">Tune {agentName}</span>
-          </div>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            Say what it should do differently. This rewrites the agent's instruction for every
-            future run — it doesn't touch this finding.
-          </p>
-          <Textarea
-            ref={feedbackRef}
-            value={feedbackText}
-            onChange={(e) => setFeedbackText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault();
-                submitFeedback();
-              }
-            }}
-            rows={3}
-            placeholder="e.g. stop flagging cosmetic nits — only surface things that break the build"
-            className="mt-2.5 min-h-[4.5rem] bg-background/60 text-base"
-          />
-          <div className="mt-2.5 flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground"
-              onClick={() => {
-                setFeedbackText("");
-                setTuning(false);
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="brand"
-              size="sm"
-              className="flex-1"
-              disabled={busy || !feedbackText.trim()}
-              onClick={submitFeedback}
-            >
-              <Check className="size-4" />
-              Update agent
-            </Button>
-          </div>
-        </div>
-      ) : instructing ? (
+      {instructing ? (
         <>
-          {settingsRow}
+          <div className="pb-2">{launchPills}</div>
           {/* Same field treatment as the new-session composer: gradient-edge
               gfield, mic dictation, ⌘↵ to send. In page mode this row is what
               sits on top of the keyboard. */}
@@ -26941,10 +26858,37 @@ function FindingDetail({
         </>
       ) : (
         <>
-          {settingsRow}
+          {/* Settings on the left, the quiet exits on the right, then the
+              one action the page is for. */}
+          <div className="flex items-center gap-2 pb-2">
+            <div className="min-w-0 flex-1">{launchPills}</div>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              disabled={busy}
+              onClick={() => void copyReference()}
+              title="Copy reference"
+              aria-label="Copy reference"
+              className="text-muted-foreground"
+            >
+              <Copy className="size-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={busy}
+              onClick={() => {
+                logFindingAction(finding.id, "dismiss", !!text.trim());
+                onDismiss(finding);
+              }}
+              className="text-[12.5px] font-medium text-muted-foreground"
+            >
+              <X className="size-3.5" />
+              Dismiss
+            </Button>
+          </div>
           {/* One row, two intents: run the agent's own suggestion as-is, or say
-              something first. The composer used to be open at all times for the
-              second case, which is the rarer one. */}
+              something first. */}
           <div className="flex items-center gap-2">
             <Button
               variant="brand"
@@ -26959,52 +26903,11 @@ function FindingDetail({
               variant="tint"
               size="icon"
               disabled={busy}
-              onClick={() => reveal("instruct")}
+              onClick={() => reveal()}
               title="Say something first"
               aria-label="Say something first"
             >
               <MessageSquare className="size-4" />
-            </Button>
-          </div>
-
-          {/* Everything secondary on one quiet row. Three stacked full-width
-              buttons read as three competing CTAs; these are exits, not the
-              point of the sheet. */}
-          <div className="mt-2 flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={busy}
-              onClick={() => void copyReference()}
-              className="flex-1 text-[12.5px] font-medium text-muted-foreground"
-            >
-              <Copy className="size-3.5" />
-              Copy
-            </Button>
-            {onRefineAgent ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={busy}
-                onClick={() => reveal("tune")}
-                className="flex-1 text-[12.5px] font-medium text-muted-foreground"
-              >
-                <SlidersHorizontal className="size-3.5" />
-                Feedback
-              </Button>
-            ) : null}
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={busy}
-              onClick={() => {
-                logFindingAction(finding.id, "dismiss", !!text.trim());
-                onDismiss(finding);
-              }}
-              className="flex-1 text-[12.5px] font-medium text-muted-foreground"
-            >
-              <X className="size-3.5" />
-              Dismiss
             </Button>
           </div>
         </>
@@ -27141,7 +27044,6 @@ export function AgentReportSheet({
   onDismiss,
   onDismissAll,
   dismissAllBusy,
-  onRefineAgent,
   onEditAgent,
 }: {
   agent?: AutoAgent;
@@ -27155,7 +27057,6 @@ export function AgentReportSheet({
   onDismiss: (f: AutoFinding) => void;
   onDismissAll: (targets: AutoFinding[]) => void;
   dismissAllBusy?: boolean;
-  onRefineAgent?: (f: AutoFinding, feedback: string) => void;
   onEditAgent: (agent: AutoAgent) => void;
 }) {
   const inStage = useContext(AutoAgentPageInStage);
@@ -27262,7 +27163,6 @@ export function AgentReportSheet({
         codingAgents={codingAgents}
         onReply={onReply}
         onDismiss={onDismiss}
-        onRefineAgent={onRefineAgent}
         showAgent={false}
         render={render}
       />
