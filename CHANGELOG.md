@@ -12,6 +12,10 @@ Recent product updates and deployment notes.
 - The agent limit row shows one status line, and its note is one short sentence.
 - On app.omg.dev, messages such as "Reconnecting…" now show above menus, sheets and the cookie banner. Before, they could appear behind them.
 
+## October 3, 2026 - Phone web folder pills follow your folder order (v0.6.159)
+
+- On a phone browser, the folder pills at the top now use your saved folder order and leave out hidden folders. They match the iPhone app and the folder menu. Before, they were in alphabetical order and showed hidden folders.
+
 ## October 3, 2026 - Folder order syncs across web and iPhone (v0.6.158)
 
 - Folder order, hidden folders and the show-paths choice are now saved on the computer, not in each browser or phone. The web folder menu and the iPhone folder rail show the same list.
