@@ -11999,6 +11999,8 @@ function LiveView({
     [onOpenSessionPage],
   );
 
+  // Folder groups follow the box's saved folder order.
+  const folderOrder = useFolderMenuPrefs().order;
   // Same grouping the rail uses, from the same helper, so the two lists cannot
   // drift apart again.
   const projectGroups = useMemo(
@@ -12007,9 +12009,10 @@ function LiveView({
         tree.roots.filter((item) => !nodeContainsPin(item) && !nodeIsBot(item)),
         (node) => tree.flatten([node]).length,
         shortProject,
+        folderOrder,
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tree, topPinned],
+    [tree, topPinned, folderOrder],
   );
 
   const pinnedNodes = tree.roots.filter(
@@ -13004,6 +13007,8 @@ function RailStage({
   // row already shows on its own mark. It also fought the folder grouping:
   // scoped to one project you got Working/Idle, scoped to all you got folders,
   // so the rail reorganised itself whenever the filter changed.
+  // Folder groups follow the box's saved folder order, as the pills do.
+  const folderOrder = useFolderMenuPrefs().order;
   const projectRailGroups = useMemo(
     () =>
       groupNodesByProject(
@@ -13012,9 +13017,10 @@ function RailStage({
         ),
         (node) => railTree.flatten([node]).length,
         shortProject,
+        folderOrder,
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [railTree, topPinned],
+    [railTree, topPinned, folderOrder],
   );
 
   // A folded group takes its rows out of the DOM, so they must leave the

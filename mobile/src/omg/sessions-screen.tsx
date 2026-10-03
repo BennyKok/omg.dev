@@ -977,8 +977,14 @@ export function SessionsScreen({
    * mark already says.
    */
   const projectGroups = useMemo(
-    () => groupNodesByProject(roots, (node) => flattenNodes([node]).length),
-    [roots],
+    () =>
+      groupNodesByProject(
+        roots,
+        (node) => flattenNodes([node]).length,
+        undefined,
+        projectPicker.folderOrder,
+      ),
+    [roots, projectPicker.folderOrder],
   );
 
   /**

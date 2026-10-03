@@ -549,6 +549,11 @@ export function useProjectPicker() {
     () => (stored ? toRail(stored, repos) : localForMachine ?? { order: [], hidden: [] }),
     [stored, repos, localForMachine],
   );
+  /** The saved folder order as project keys, for the session list's folder groups. */
+  const folderOrder = useMemo(
+    () => stored?.order ?? toStored(arrangement, repos, { order: [], hidden: [] }).order,
+    [stored, arrangement, repos],
+  );
   const saveArrangement = useCallback(
     (next: RailArrangement) => {
       if (stored) {
@@ -739,6 +744,7 @@ export function useProjectPicker() {
   );
 
   return {
+    folderOrder,
     unassigned,
     selectUnassigned,
     cwd,

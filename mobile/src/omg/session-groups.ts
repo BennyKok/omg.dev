@@ -54,6 +54,11 @@ export function groupNodesByProject<N extends ProjectGroupNode>(
   nodes: readonly N[],
   countOf: (node: N) => number,
   label: (project: string) => string = shortProject,
+  /**
+   * The box's saved folder order (GlobalSettings.folderOrder), project keys.
+   * Groups it names come first, in that order. The rest follow by label.
+   */
+  order: readonly string[] = [],
 ): ProjectGroup<N>[] {
   const groups = new Map<string, ProjectGroup<N>>();
   for (const node of nodes) {
@@ -73,8 +78,13 @@ export function groupNodesByProject<N extends ProjectGroupNode>(
       count: countOf(node),
     });
   }
-  // Sorted by label, not by insertion. `find`-style ordering would let two
-  // refreshes return the folders in different orders and read as the list
-  // shuffling itself.
-  return [...groups.values()].sort((a, b) => a.label.localeCompare(b.label));
+  // The saved folder order first, so the list matches the folder pills and
+  // the folder menu. Then by label, not by insertion. `find`-style ordering
+  // would let two refreshes return the folders in different orders and read
+  // as the list shuffling itself.
+  const rank = new Map(order.map((project, index) => [project, index] as const));
+  const place = (group: ProjectGroup<N>) => rank.get(group.project) ?? Number.MAX_SAFE_INTEGER;
+  return [...groups.values()].sort(
+    (a, b) => place(a) - place(b) || a.label.localeCompare(b.label),
+  );
 }
