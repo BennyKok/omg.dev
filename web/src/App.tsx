@@ -14737,7 +14737,9 @@ const RailRow = memo(function RailRow({
             : singleLine
               ? dense
                 ? "h-10 pl-2.5 pr-2"
-                : "h-10 pl-4 pr-3.5"
+                : // Thread shortcuts are title-only; 40px rows of a big
+                  // title read as a padded list on a small phone.
+                  "h-8 pl-4 pr-3.5"
               : dense
                 ? "h-[3.75rem] pl-2.5 pr-2"
                 : "h-20 pl-4 pr-3.5",
@@ -14768,7 +14770,11 @@ const RailRow = memo(function RailRow({
                 <span
                 className={cn(
                   "min-w-0 flex-1 truncate leading-tight",
-                  dense ? "text-[14.5px] tracking-[-0.1px]" : "text-[17px] tracking-[-0.2px]",
+                  dense
+                    ? "text-[14.5px] tracking-[-0.1px]"
+                    : singleLine
+                      ? "text-base tracking-[-0.2px]"
+                      : "text-[17px] tracking-[-0.2px]",
                   // Unread is not the dot's job alone: the title carries full
                   // weight until it is read, then settles back. Same rule as
                   // the iOS row.
