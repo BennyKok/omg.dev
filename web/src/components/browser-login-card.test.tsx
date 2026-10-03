@@ -14,21 +14,22 @@ beforeEach(() => {
   ui = mount();
 });
 afterEach(() => { ui.cleanup(); globalThis.fetch = originalFetch; configureOmgTransport(createSameOriginTransport()); });
-test("a connected iPhone gets actionable handoff text and a Computer fallback", async () => {
+test("a pending request is one row: the site and Log in, without the reason", async () => {
   globalThis.fetch = (async () => Response.json({ requests: [request], iosAvailable: true, desktopAvailable: true })) as typeof fetch;
   ui.render(<BrowserLoginCard sessionId="session-1" user="user@example.com" />);
   await ui.flushAsync();
   expect(ui.text()).toContain("example.com");
-  expect(ui.text()).toContain("Login for My VM");
-  expect(ui.text()).toContain("Open this chat in the iOS app");
-  expect(ui.text()).toContain("Open Computer");
+  expect(ui.text()).toContain("Log in");
+  expect(ui.text()).not.toContain("Read my dashboard");
+  expect(ui.text()).not.toContain("My VM");
 });
-test("without an active iPhone, the request still offers Computer login", async () => {
+test("Log in opens the Computer", async () => {
   globalThis.fetch = (async () => Response.json({ requests: [request], iosAvailable: false, desktopAvailable: true })) as typeof fetch;
   ui.render(<BrowserLoginCard sessionId="session-1" />);
   await ui.flushAsync();
-  expect(ui.text()).toContain("latest iOS app");
-  expect(ui.text()).toContain("Open Computer");
+  const button = ui.queryAll("button").find(b => b.textContent === "Log in") as HTMLElement;
+  await ui.flushAsync(() => button.click());
+  expect(document.querySelector('[aria-label="Computer login"]')).not.toBeNull();
 });
 test("cancel removes the request after the server accepts it", async () => {
   const calls: string[] = [];
@@ -38,17 +39,23 @@ test("cancel removes the request after the server accepts it", async () => {
   }) as typeof fetch;
   ui.render(<BrowserLoginCard sessionId="session-1" />);
   await ui.flushAsync();
-  const button = ui.queryAll("button").find(b => b.textContent === "Cancel request") as HTMLElement;
+  const button = ui.queryAll("button").find(b => b.getAttribute("aria-label") === "Cancel the login request") as HTMLElement;
   await ui.flushAsync(() => button.click());
   expect(calls.some(url => url.includes("/req-1/cancel"))).toBe(true);
   expect(ui.text()).toBe("");
 });
-test("a completed import reports the verification requirement", async () => {
-  globalThis.fetch = (async () => Response.json({ requests: [{ ...request, status: "imported", message: "Login transferred. The agent must verify the signed-in page before continuing." }] })) as typeof fetch;
+test("a completed import shows Signed in with no actions", async () => {
+  globalThis.fetch = (async () => Response.json({ requests: [{ ...request, status: "imported" }] })) as typeof fetch;
   ui.render(<BrowserLoginCard sessionId="session-1" />);
   await ui.flushAsync();
-  expect(ui.text()).toContain("must verify");
+  expect(ui.text()).toContain("Signed in");
   expect(ui.query("button")).toBeNull();
+});
+test("an import the agent already knows about leaves the card", async () => {
+  globalThis.fetch = (async () => Response.json({ requests: [{ ...request, status: "imported", agentNotified: true }] })) as typeof fetch;
+  ui.render(<BrowserLoginCard sessionId="session-1" />);
+  await ui.flushAsync();
+  expect(ui.text()).toBe("");
 });
 
 test("a newer pending request replaces an older failure even when the response is out of order", async () => {
@@ -60,8 +67,6 @@ test("a newer pending request replaces an older failure even when the response i
   })) as typeof fetch;
   ui.render(<BrowserLoginCard sessionId="session-1" />);
   await ui.flushAsync();
-  expect(ui.text()).toContain("Use the new request");
-  expect(ui.text()).toContain("Open this chat in the iOS app");
-  expect(ui.text()).not.toContain("Old failed request");
+  expect(ui.text()).toContain("Log in");
   expect(ui.text()).not.toContain("Could not transfer the login");
 });

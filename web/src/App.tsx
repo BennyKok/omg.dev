@@ -460,6 +460,7 @@ import {
 } from "lucide-react";
 import { toast } from "@/lib/notify";
 import { BrowserLoginCard } from "@/components/browser-login-card";
+import { isBrowserLoginCall } from "../../packages/protocol/src/browser-login";
 import { ProjectPreviewCard } from "@/components/project-preview-card";
 import { haptic } from "@/lib/haptics";
 import { feedback } from "@/lib/feedback";
@@ -17203,6 +17204,7 @@ function SessionChatBody({
         onRetryQueued={retryQueued}
         bot={bot}
         conversation={session.conversation}
+        loginUser={session.assignedUser}
       />
 
       <SessionQuestionPanel sessionIds={[session.sessionId, session.nativeSessionId]} />
@@ -17256,7 +17258,6 @@ function SessionChatBody({
               never be mistaken for each other. */}
           <HumanTypingIndicator participants={typingParticipants} />
           <ProjectPreviewCard sessionId={sid} user={session.assignedUser} agentBusy={chatBusy} />
-          <BrowserLoginCard sessionId={sid} user={session.assignedUser} />
           {files.fileInput}
           <ComposerAttachmentChips
             className="mb-2"
@@ -19788,6 +19789,7 @@ const ChatStream = memo(function ChatStream({
   onRetryQueued,
   bot,
   conversation,
+  loginUser,
 }: {
   sid: string | null;
   messages: Message[];
@@ -19800,6 +19802,8 @@ const ChatStream = memo(function ChatStream({
   // other-human split. A plain session never has more than one human
   // participant, so there is nothing here to resolve.
   conversation?: ProductConversation | null;
+  /** The session owner, for the inline website login card. */
+  loginUser?: string | null;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const transcriptView = useContext(TranscriptViewContext);
@@ -19903,6 +19907,11 @@ const ChatStream = memo(function ChatStream({
   // live and says what the agent is doing (see rowsWhileLive).
   const items = useMemo(() => rowsWhileLive(busy, foldedItems), [busy, foldedItems]);
   const speakers = useMemo(() => items.map(chatRenderItemSpeaker), [items]);
+  // The run holding the latest website login call carries the login card.
+  const loginRowIndex = useMemo(
+    () => items.findLastIndex((item) => item.type === "tools" && item.items.some((step) => step.kind === "tool_use" && isBrowserLoginCall(step.text))),
+    [items],
+  );
   // Only the active tail can stand in for the typing dots (see typing-dots):
   // old reasoning or an old tool run must not make a newly-busy session look
   // idle. The tail here is the live turn's, not the pinned queue's.
@@ -20887,12 +20896,16 @@ const ChatStream = memo(function ChatStream({
                   }}
                 >
                   {item.type === "tools" ? (
-                    <ToolGroup
-                      items={item.items}
-                      live={busy && index === items.length - 1}
-                      endTs={renderItemStartTs(items[index + 1])}
-                      sid={sid}
-                    />
+                    <>
+                      <ToolGroup
+                        items={item.items}
+                        live={busy && index === items.length - 1}
+                        endTs={renderItemStartTs(items[index + 1])}
+                        sid={sid}
+                      />
+                      {/* The login card sits under the run that asked for it. */}
+                      {index === loginRowIndex ? <div className="mt-2"><BrowserLoginCard sessionId={sid} user={loginUser} /></div> : null}
+                    </>
                   ) : (
                     <MessageBubble
                       message={item.message}
@@ -20910,6 +20923,9 @@ const ChatStream = memo(function ChatStream({
             })}
           </div>
           <TypingIndicator visible={showTypingIndicator} bot={bot} />
+          {/* No visible login call (an older page, or a view that hides tool
+              runs): the card closes the stream instead. */}
+          {loginRowIndex < 0 ? <BrowserLoginCard sessionId={sid} user={loginUser} /> : null}
           {/* Pinned below the working indicator: what the agent is doing now,
               then what it will read next. */}
           {queuedItems.map((item) =>

@@ -53,3 +53,15 @@ export interface BrowserLoginCookie {
   expires?: number;
   sameSite?: "Strict" | "Lax" | "None";
 }
+
+/**
+ * Whether a transcript tool call is the agent asking for a website login.
+ * Tool call text is "Name" or "Name: <input>". The name matches bare or
+ * MCP-qualified (`mcp__omg__omg_request_browser_login`), under the `omg_`
+ * prefix and the retired `lfg_` prefix. Both clients render the login card
+ * inline under the transcript row that holds the latest such call.
+ */
+export function isBrowserLoginCall(text: string | null | undefined): boolean {
+  const name = (text || "").split(":")[0]!.trim().split(/\s+/)[0] ?? "";
+  return /^(?:.*__)?(?:omg|lfg)_request_browser_login$/i.test(name);
+}
