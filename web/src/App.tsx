@@ -467,7 +467,8 @@ import { waitForRefine, type AutoAgentRefine } from "@/lib/auto-refine";
 import { useUiFeedbackPrefs, setUiFeedbackPrefs } from "@/lib/ui-feedback-prefs";
 import { useNavigationPrefs, setNavigationPrefs } from "@/lib/navigation-prefs";
 import { subscribeSelectionChange } from "./lib/selection-change";
-import { useProjectListPrefs, setProjectListPrefs } from "@/lib/project-list-prefs";
+import { useProjectListPrefs, setProjectListPrefs, projectListPrefsStore } from "@/lib/project-list-prefs";
+import { folderMenuPrefsStore } from "@/lib/folder-menu-prefs";
 import { useSendMorph } from "@/lib/use-send-morph";
 import { reportError } from "./lib/report-error";
 import {
@@ -6335,6 +6336,10 @@ export function App() {
   );
   const [managedComputer, setManagedComputer] = useState(false);
   const [settings, setSettings] = useState<GlobalSettings>(DEFAULT_GLOBAL_SETTINGS);
+  // Whether the box stores the folder display settings. null until the
+  // first bootstrap answers. An older box omits them, and then the folder
+  // menu keeps its browser-local copy.
+  const [boxOwnsFolderDisplay, setBoxOwnsFolderDisplay] = useState<boolean | null>(null);
   const [schedTz, setSchedTz] = useState<string>(DEFAULT_SCHED_TZ);
   const [findings, setFindings] = useState<AutoFinding[]>([]);
   const [autoTriageBusy, setAutoTriageBusy] = useState(false);
@@ -6650,6 +6655,7 @@ export function App() {
     setSettings(
       resolveGlobalSettings({ timeZone: payload.auto?.tz, ...payload.settings }),
     );
+    setBoxOwnsFolderDisplay(Array.isArray(payload.settings?.folderOrder));
     // Guard sessions to [] — it feeds `allLiveSessions`/`liveSessions` which
     // call `.filter()` unconditionally on render, so a malformed/empty payload
     // must degrade to an empty live view rather than crash.
@@ -8331,6 +8337,33 @@ export function App() {
     },
     [updateSettings],
   );
+  // The folder menu's order, hidden set and path toggle live on the box so
+  // every client shows the same thing. Each bootstrap or settings answer
+  // feeds the two stores; their writes go back through updateSettings.
+  useEffect(() => {
+    if (boxOwnsFolderDisplay === null) return;
+    if (!boxOwnsFolderDisplay) {
+      folderMenuPrefsStore.disconnect();
+      projectListPrefsStore.disconnect();
+      return;
+    }
+    folderMenuPrefsStore.connect(
+      { order: settings.folderOrder, hidden: settings.hiddenFolders },
+      !settings.folderOrder.length && !settings.hiddenFolders.length,
+      (value) => updateSettings({ folderOrder: value.order, hiddenFolders: value.hidden }),
+    );
+    projectListPrefsStore.connect(
+      { showPaths: settings.showProjectPaths },
+      !settings.showProjectPaths,
+      (value) => updateSettings({ showProjectPaths: value.showPaths }),
+    );
+  }, [
+    boxOwnsFolderDisplay,
+    settings.folderOrder,
+    settings.hiddenFolders,
+    settings.showProjectPaths,
+    updateSettings,
+  ]);
   // A hidden surface is not a destination. Land on Chat if the URL, a
   // shortcut, or a stale menu still names Bots or Schedules while it is off.
   useEffect(() => {
