@@ -603,6 +603,7 @@ async function launchDesktop(next: DesktopState): Promise<DesktopStatus> {
   // streaming a computer.
   const session = desktopSessionCommand();
   if (!session) throw new Error("no desktop session found (install xfce4 or openbox)");
+  disableScreenLock(process.env.XDG_CONFIG_HOME || join(process.env.HOME ?? "/tmp", ".config"));
   next.wm = spawn(session.cmd, session.args, { stdio: "ignore", env, detached: false });
   next.identities.wm = processIdentity(next.wm.pid);
   // xfce4 has a panel, a settings daemon and a desktop to bring up, so it needs
@@ -752,6 +753,49 @@ export function disablePasswordSaving(profileDir: string): void {
     writeFileSync(file, JSON.stringify(prefs));
   } catch {
     // A profile Chrome cannot use would fail the start anyway, with a clearer error.
+  }
+}
+
+/**
+ * xfce4-screensaver settings with the saver and the lock off. Written as the
+ * xfconf channel file because the screensaver also starts through D-Bus
+ * activation (org.xfce.ScreenSaver), so turning off its autostart entry is
+ * not enough. Every launch path reads this channel.
+ */
+export const SCREEN_LOCK_OFF_XML = `<?xml version="1.0" encoding="UTF-8"?>
+<channel name="xfce4-screensaver" version="1.0">
+  <property name="saver" type="empty">
+    <property name="enabled" type="bool" value="false"/>
+    <property name="idle-activation" type="empty">
+      <property name="enabled" type="bool" value="false"/>
+    </property>
+  </property>
+  <property name="lock" type="empty">
+    <property name="enabled" type="bool" value="false"/>
+    <property name="saver-activation" type="empty">
+      <property name="enabled" type="bool" value="false"/>
+    </property>
+  </property>
+</channel>
+`;
+
+/**
+ * Keep the desktop session from locking the screen.
+ *
+ * xfce4-screensaver locks the screen after a few idle minutes and asks for the
+ * Linux user's password. Nobody who watches the Computer has that password,
+ * and the screen is already behind omg sign-in, so the lock only shuts the
+ * person out. xfconfd reads the channel file at start, so this runs before
+ * the session does.
+ * @internal exported for tests.
+ */
+export function disableScreenLock(configHome: string): void {
+  const dir = join(configHome, "xfce4", "xfconf", "xfce-perchannel-xml");
+  try {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "xfce4-screensaver.xml"), SCREEN_LOCK_OFF_XML);
+  } catch {
+    // A read-only config directory leaves the session as it was. It still starts.
   }
 }
 
