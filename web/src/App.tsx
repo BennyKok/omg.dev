@@ -24626,7 +24626,8 @@ function NewSessionDialog({
           four suggestions are in the way. */}
       {unassigned && !prompt.trim() && attachments.length === 0 ? (
         <ChatStarterRow
-          className="mb-2"
+          // Inline: run the swipe row to the screen edge, not the composer's.
+          className={cn("mb-2", variant === "inline" && "-mx-4 scroll-px-4 px-4")}
           disabled={launching}
           onStart={(starterPrompt) => submit(undefined, starterPrompt)}
         />
