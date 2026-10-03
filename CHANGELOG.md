@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 3, 2026 - Phone home screen fits small phones (v0.6.163)
+
+- On a small phone or with a large text size, the "What should we work on?" box stays on one line. Before, the text wrapped and the agent icon moved to the bottom corner.
+- The Website, App, API and Image starter cards are now one row that you swipe sideways. Before, they used two rows.
+- Thread rows on the phone home screen are shorter, so more threads fit on the screen.
+
 ## October 3, 2026 - Computer screen no longer locks with a password (v0.6.162)
 
 - The Computer desktop no longer locks the screen after a few idle minutes. Before, the screen asked for a Linux password that nobody has.
