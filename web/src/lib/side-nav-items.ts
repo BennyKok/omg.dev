@@ -6,7 +6,7 @@
  * `mobile/src/omg/side-nav-items.ts`, which exists for the same reason.
  *
  * The two lists are deliberately NOT identical. iOS has an Archive page and
- * no Bots, Computer or Board; the web has those three and no Archive. What is
+ * no Computer; the web has Computer and no Archive. What is
  * shared is the shape: the machine first (drawn by the panel, not listed
  * here), then the surfaces you switch between, then the pages, then Settings
  * last.
@@ -56,14 +56,17 @@ const SETTINGS_TABS = new Set([
 const PAGES: { key: string; label: string; icon: SideNavIcon }[] = [
   // The three surfaces the bottom bar used to switch between, in the order it
   // showed them, so muscle memory survives the move into the drawer.
+  // Bots is not listed: it is reached from the Chat/Bots switch on the Live
+  // surface, and a second entry here made the drawer longer for a page most
+  // people never open.
   { key: "live", label: "Chat", icon: "chat" },
-  { key: "bots", label: "Bots", icon: "bots" },
   { key: "auto", label: "Schedules", icon: "schedules" },
   // Then the destinations that used to be behind the overflow menu.
   { key: "notifications", label: "Notifications", icon: "notifications" },
   { key: "artifacts", label: "Artifacts", icon: "artifacts" },
   { key: "computer", label: "Computer", icon: "computer" },
-  { key: "board", label: "Board", icon: "board" },
+  // Board is not listed either. It reads the same sessions as Chat laid out by
+  // state, and stays reachable from the Pages menu on wide layouts.
 ];
 
 /** The row key the given tab belongs to. */
@@ -79,8 +82,7 @@ export function sideNavRows(input: {
   tab: string;
   /** Pages the viewer's role removes entirely (src/policy/roles.ts). */
   hiddenPages?: readonly string[];
-  /** Settings > View switches, the same ones that used to hide dock segments. */
-  showBots?: boolean;
+  /** Settings > View switch, the same one that used to hide a dock segment. */
   showSchedules?: boolean;
   /** False under a host that owns its own settings surface. */
   showSettings?: boolean;
@@ -89,7 +91,6 @@ export function sideNavRows(input: {
   const {
     tab,
     hiddenPages = [],
-    showBots = true,
     showSchedules = true,
     showSettings = true,
     extensions = [],
@@ -103,7 +104,6 @@ export function sideNavRows(input: {
   };
 
   for (const page of PAGES) {
-    if (page.key === "bots" && !showBots) continue;
     if (page.key === "auto" && !showSchedules) continue;
     push(page.key, page.label, page.icon);
   }
