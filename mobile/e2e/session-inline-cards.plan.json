@@ -26,9 +26,10 @@
     },
     {
       "name": "Login request card is in the transcript",
-      "goal": "Read the website login row at the end of the transcript. Do not tap Log in and do not tap the cross.",
-      "done": "The login row shows the site, a Log in button, and a cross to dismiss it.",
+      "goal": "Find the website login row in the transcript. Do not tap Log in and do not tap the cross.",
+      "done": "The login row sits inline in the chat, directly under the agent's work row that requested it and above the agent message 'Sign in to Hetzner so I can read the invoice.' It shows the site, a Log in button, and a cross to dismiss it.",
       "expect": [
+        "Sign in to Hetzner so I can read the invoice.",
         "accounts.hetzner.com",
         "Log in",
         "Cancel the login request"

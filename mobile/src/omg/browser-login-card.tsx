@@ -21,15 +21,33 @@ function WebsiteIcon({ origin }: { origin: string }) {
   </View>;
 }
 
-export function BrowserLoginCard({ sessionId }: { sessionId: string | null }) {
+/**
+ * The screen owns the login state, not the row that draws it. The card is
+ * drawn inline in the transcript, and a list row can unmount when it scrolls
+ * out of the window. Presence and the native sheet must not follow it.
+ */
+export function useBrowserLogin(sessionId: string | null): BrowserLoginState {
   const { client, user } = useOmg();
-  return <BrowserLoginPanel key={`${sessionId}:${user?.email}`} sessionId={sessionId} transport={client?.transport ?? null} email={user?.email} />;
+  return useBrowserLoginState({ sessionId, transport: client?.transport ?? null, email: user?.email });
 }
 
-export function BrowserLoginPanel({ sessionId, transport, email }: {
+export type BrowserLoginState = {
+  request: BrowserLoginRequest | undefined;
+  error: string | null;
+  busy: boolean;
+  open(request: BrowserLoginRequest): Promise<void>;
+  dismiss(request: BrowserLoginRequest): void;
+};
+
+export function BrowserLoginPanel(props: {
   sessionId: string | null; transport: Pick<OmgTransport, "request"> | null; email?: string;
 }) {
-  const { colors } = useTheme();
+  return <BrowserLoginCard state={useBrowserLoginState(props)} />;
+}
+
+function useBrowserLoginState({ sessionId, transport, email }: {
+  sessionId: string | null; transport: Pick<OmgTransport, "request"> | null; email?: string;
+}): BrowserLoginState {
   const [requests, setRequests] = useState<BrowserLoginRequest[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -45,7 +63,7 @@ export function BrowserLoginPanel({ sessionId, transport, email }: {
   }, [transport, sessionId, suffix]);
   useEffect(() => {
     mounted.current = true;
-    setRequests([]);
+    setRequests([]); setError(null);
     const presence = async () => {
       if (!transport || !sessionId) return;
       await transport.request(`/api/browser-login/clients${suffix}`, {
@@ -96,6 +114,15 @@ export function BrowserLoginPanel({ sessionId, transport, email }: {
   // happened. Keeping the card too left a second copy pinned at the end of
   // the stream, under "Working", where it read as a tray on the composer.
   const request = latest?.status === "imported" && latest.agentNotified ? undefined : latest;
+  const dismiss = (target: BrowserLoginRequest) => {
+    void post(target.id, "cancel").then(refresh).catch(() => setError("Could not cancel. Try again."));
+  };
+  return { request, error, busy, open, dismiss };
+}
+
+export function BrowserLoginCard({ state }: { state: BrowserLoginState }) {
+  const { colors } = useTheme();
+  const { request, error, busy, open, dismiss } = state;
   if (!request && !error) return null;
   /**
    * ONE ROW: the site, then the verb, then the dismissal.
@@ -113,9 +140,6 @@ export function BrowserLoginPanel({ sessionId, transport, email }: {
    * the request is live, and the outcome once it is not, so the row never
    * changes height and never grows a second line.
    */
-  const dismiss = () => {
-    void post(request!.id, "cancel").then(refresh).catch(() => setError("Could not cancel. Try again."));
-  };
   const status = !request ? null
     : request.status === "imported" ? { text: request.agentNotified ? "Signed in" : "Signed in. Tell the agent.", color: colors.success }
     : request.status === "failed" ? { text: request.message || "Could not transfer the login.", color: colors.destructive }
@@ -138,7 +162,7 @@ export function BrowserLoginPanel({ sessionId, transport, email }: {
           carries in its corner. 44pt of target through hitSlop, because the
           glyph is small on purpose. */}
       {request.status !== "imported" && <Pressable accessibilityRole="button" accessibilityLabel="Cancel the login request"
-        testID="browser-login-cancel" hitSlop={10} disabled={busy || request.status === "importing"} onPress={dismiss}
+        testID="browser-login-cancel" hitSlop={10} disabled={busy || request.status === "importing"} onPress={() => dismiss(request)}
         style={({ pressed }) => ({ width: 30, height: 30, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.5 : 1 })}>
         <SymbolView name="xmark" size={14} weight="semibold" tintColor={colors.mutedForeground} style={{ width: 14, height: 14 }} />
       </Pressable>}

@@ -368,7 +368,15 @@ function demoMessages(sessionId: string): OmgMessage[] {
         ? [{ id: "m-ref", role: "assistant", kind: "text", text: `The attribution follow-up is in session \`${SESSION_REF_TARGET.slice(0, 8)}\`. The merge commit is \`02b282843\`.`, ts: t - 15_000 } as OmgMessage]
         : []),
       ...(inlineCardFixture
-        ? [{ id: "m6", role: "user", kind: "text", text: TRANSFER_NOTICE, ts: t - 10_000 } as OmgMessage]
+        ? [
+          // The run that asked for the login: the card draws under it.
+          {
+            id: "m-login-run", role: "assistant", kind: "work", text: "", ts: t - 14_000,
+            steps: [{ id: "m-login-call", role: "assistant", kind: "tool_use", text: "mcp__omg__omg_request_browser_login", ts: t - 14_000 }],
+          } as unknown as OmgMessage,
+          { id: "m-login-ask", role: "assistant", kind: "text", text: "Sign in to Hetzner so I can read the invoice.", ts: t - 12_000 } as OmgMessage,
+          { id: "m6", role: "user", kind: "text", text: TRANSFER_NOTICE, ts: t - 10_000 } as OmgMessage,
+        ]
         : []),
     ];
   }

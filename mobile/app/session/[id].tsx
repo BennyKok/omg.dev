@@ -142,7 +142,8 @@ import { AttachMenuButton, AttachMenuLayer } from "../../src/omg/attach-menu";
 import { agentLabel as agentDisplayName } from "../../src/omg/agent-icons";
 import { usePromptDraft, stashScope } from "../../src/omg/prompt-stash";
 import { useOmg } from "../../src/omg/provider";
-import { BrowserLoginCard } from "../../src/omg/browser-login-card";
+import { BrowserLoginCard, useBrowserLogin } from "../../src/omg/browser-login-card";
+import { isBrowserLoginCall } from "../../../packages/protocol/src/browser-login";
 import { ProjectPreviewCard } from "../../src/omg/project-preview-card";
 import { SessionActivityTitle, useSessionActivity } from "../../src/omg/session-activity";
 import { useTheme } from "../../src/omg/theme";
@@ -891,6 +892,17 @@ function SessionScreenContent({
   const { items: data, hasEarlier: hasLocalHistory } = useMemo(
     () => transcriptWindow.view(allItems, historyExpanded), [transcriptWindow, allItems, historyExpanded],
   );
+  // The login card sits under the run that holds the latest login call. The
+  // screen owns its state, so a row leaving the list window does not drop
+  // this device's presence or close the native sign-in sheet.
+  const browserLogin = useBrowserLogin(id ?? null);
+  const loginRowIndex = useMemo(() => {
+    for (let i = data.length - 1; i >= 0; i--) {
+      const item = data[i]!;
+      if (item.type === "tools" && item.entries.some((entry) => entry.kind === "tool_use" && isBrowserLoginCall(entry.text))) return i;
+    }
+    return -1;
+  }, [data]);
 
   const replySpace = useMemo(() => {
     if (!sendTurn) return 0;
@@ -1917,6 +1929,8 @@ function SessionScreenContent({
         }}
         removeClippedSubviews={false}
         data={data}
+        // Re-render rows only when what the login card draws changes.
+        extraData={`${browserLogin.request?.id}:${browserLogin.request?.status}:${browserLogin.busy}:${browserLogin.error}`}
         keyExtractor={(item) => item.key}
         onLayout={(e) => {
           viewportHeight.current = e.nativeEvent.layout.height;
@@ -2034,6 +2048,7 @@ function SessionScreenContent({
                   fresh={contentReady && liveKeysRef.current.has(item.key) && sendTurn?.key !== item.key}
                   bot={bot}
                 />
+                {index === loginRowIndex ? <View style={{ marginTop: space.sm }}><BrowserLoginCard state={browserLogin} /></View> : null}
                 </ChatIdentityContext.Provider>
               </OverlapRow>
               </ImageGalleryRow.Provider>
@@ -2054,7 +2069,8 @@ function SessionScreenContent({
                   transcript reserves this footer's measured height, so a card
                   appearing does not hide the message above it. */}
               <View style={{ gap: space.sm }}>
-                <BrowserLoginCard sessionId={id ?? null} />
+                {/* No visible login call (older history not loaded): the card closes the stream. */}
+                {loginRowIndex < 0 ? <BrowserLoginCard state={browserLogin} /> : null}
                 {asks.map((q) => (
                   <QuestionCard
                     key={q.id}
