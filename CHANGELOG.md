@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 3, 2026 - Session folders follow your folder order (v0.6.164)
+
+- The folder groups in the session list now use your saved folder order on the web and the iPhone app. Before, they were always in alphabetical order. Folders with no saved place follow in alphabetical order.
+
 ## October 3, 2026 - Phone home screen fits small phones (v0.6.163)
 
 - On a small phone or with a large text size, the "What should we work on?" box stays on one line. Before, the text wrapped and the agent icon moved to the bottom corner.
