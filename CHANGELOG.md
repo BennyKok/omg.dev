@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 3, 2026 - One toast per message on app.omg.dev (v0.6.160)
+
+- A message now shows once on app.omg.dev, even before the app.omg.dev update that shows all messages in one place.
+
 ## October 3, 2026 - Simpler Settings and toasts that stay on top (v0.6.159)
 
 - Settings is shorter. Tool access and agent limits now sit under an Advanced row that starts closed.
