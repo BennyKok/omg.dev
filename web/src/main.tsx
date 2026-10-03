@@ -4,7 +4,7 @@ import * as JsxRuntime from "react/jsx-runtime";
 import { createRoot } from "react-dom/client";
 import * as ReactDOM from "react-dom";
 import "./index.css";
-import { toast } from "sonner";
+import { routedToast as toast } from "./lib/host-toast";
 import { RouterProvider } from "@tanstack/react-router";
 import { RootErrorBoundary } from "./App";
 import { router } from "./router";

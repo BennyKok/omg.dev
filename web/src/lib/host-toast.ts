@@ -38,6 +38,41 @@ export function currentToast(): typeof sonnerToast {
 }
 
 /**
+ * The id of LFG's own Toaster.
+ *
+ * Sonner is a host-shared module, so a host's Toaster and ours read ONE toast
+ * store. Sonner's rule: a Toaster with an `id` shows only toasts tagged with
+ * that `toasterId`, and a Toaster without one shows only untagged toasts. So
+ * when LFG draws its own stack it tags every toast with this id and mounts its
+ * Toaster under it. Neither stack then shows the other's toasts, whichever
+ * host version is on the other side. With `hostToast` set, toasts go untagged
+ * to the host's Toaster and ours is not mounted.
+ */
+export const LFG_TOASTER_ID = "lfg";
+
+// Methods whose options are the second argument. `dismiss(id)` has none.
+const OPTION_METHODS = new Set([
+  "success",
+  "error",
+  "info",
+  "warning",
+  "message",
+  "loading",
+  "custom",
+  "promise",
+]);
+
+function withOwnToaster(args: unknown[]): unknown[] {
+  if (hostToast) return args;
+  const [first, options, ...rest] = args;
+  const tagged =
+    options && typeof options === "object"
+      ? { toasterId: LFG_TOASTER_ID, ...(options as object) }
+      : { toasterId: LFG_TOASTER_ID };
+  return [first, tagged, ...rest];
+}
+
+/**
  * A stand-in for Sonner's `toast` that resolves its target on every call, so a
  * module that imported it before the host was configured still routes to the
  * host. Callable form and every method (success, loading, promise, custom,
@@ -45,11 +80,18 @@ export function currentToast(): typeof sonnerToast {
  */
 export const routedToast: typeof sonnerToast = new Proxy(sonnerToast, {
   apply(_target, _this, args: Parameters<typeof sonnerToast>) {
-    return currentToast()(...args);
+    return (currentToast() as (...a: unknown[]) => ReturnType<typeof sonnerToast>)(
+      ...withOwnToaster(args),
+    );
   },
   get(_target, prop) {
     const target = currentToast();
     const value = Reflect.get(target, prop, target);
-    return typeof value === "function" ? value.bind(target) : value;
+    if (typeof value !== "function") return value;
+    const bound = value.bind(target) as (...a: unknown[]) => unknown;
+    if (typeof prop === "string" && OPTION_METHODS.has(prop)) {
+      return (...args: unknown[]) => bound(...withOwnToaster(args));
+    }
+    return bound;
   },
 });
