@@ -29,6 +29,6 @@ test("surfaces without inline feedback retain one shared connection toast", () =
   ui = mount();
   ui.render(<ConnectionStatusToasts connection={connection("reconnecting")} onRetry={() => {}} />);
   ui.render(<ConnectionStatusToasts connection={connection("live")} onRetry={() => {}} />);
-  expect(loading).toHaveBeenCalledWith("Reconnecting…", { id: "ws-conn" });
-  expect(success).toHaveBeenCalledWith("Reconnected", { id: "ws-conn", duration: 2000 });
+  expect(loading).toHaveBeenCalledWith("Reconnecting…", { toasterId: "lfg", id: "ws-conn" });
+  expect(success).toHaveBeenCalledWith("Reconnected", { toasterId: "lfg", id: "ws-conn", duration: 2000 });
 });
