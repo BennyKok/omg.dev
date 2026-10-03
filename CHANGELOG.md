@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 3, 2026 - Shorter side navigation (v0.6.166)
+
+- The side navigation no longer lists Bots and Board. Open Bots from the Chat/Bots switch. On a wide screen, open Board from the Pages menu.
+- The website login card now shows in the chat, directly under the step that asked for the login. It is one row with the site, a Log in button, and a close button.
+- In the folder picker, "New project" is now "No project" and has no icon. It is a choice in the list, so it no longer looks like a button.
+
 ## October 3, 2026 - Computer updates land on the newest version (v0.6.165)
 
 - When a Computer updates itself, it now installs the newest version. Before, it could install an older version and stay on it.
