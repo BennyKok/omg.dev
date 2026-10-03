@@ -26601,10 +26601,13 @@ function FindingDetail({
   onReply,
   onDismiss,
   onRefineAgent,
+  showAgent = true,
   render,
 }: {
   finding: AutoFinding;
   agentName: string;
+  /** False inside an agent's report, whose header already names the agent. */
+  showAgent?: boolean;
   sourceAgent?: AutoAgent;
   codingAgents?: CodingAgentInfo[];
   render: (parts: FindingDetailParts) => ReactNode;
@@ -27016,27 +27019,34 @@ function FindingDetail({
         {/* One quiet identity line. The old header set the agent name at the
             same weight as the title, so two lines competed to be read first —
             the finding is the headline, the agent is metadata. */}
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span className="truncate font-medium text-foreground/75">{agentName}</span>
-          <span aria-hidden>·</span>
-          <span className="shrink-0">{relTime(finding.createdAt)}</span>
+        {/* Severity says its name. A lone coloured dot in the far corner
+            read as decoration, not as "how bad is this". */}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
           <span
             role="status"
             aria-label={`${SEV_LABEL[finding.severity]} severity`}
-            className={cn("ml-auto inline-block size-2 shrink-0 rounded-full", SEV_DOT[finding.severity])}
-          />
+            className="flex shrink-0 items-center gap-1.5 rounded-full bg-muted px-2 py-0.5 font-medium text-foreground/80"
+          >
+            <span className={cn("inline-block size-1.5 rounded-full", SEV_DOT[finding.severity])} />
+            {SEV_LABEL[finding.severity]}
+          </span>
+          {showAgent ? <span className="truncate font-medium text-foreground/75">{agentName}</span> : null}
+          <span className="shrink-0">{relTime(finding.createdAt)} ago</span>
+          {(finding.occurrences ?? 1) > 1 ? (
+            <span className="shrink-0">· seen {finding.occurrences}×</span>
+          ) : null}
         </div>
 
-        <p className="mt-2 text-[17px] font-semibold leading-snug tracking-[-0.01em]">
+        <h3 className="mt-2.5 text-[18px] font-semibold leading-snug tracking-[-0.01em]">
           {finding.title}
-        </p>
+        </h3>
 
         {shownReasoning.length ? (
           <ul className="mt-2.5 flex flex-col gap-1.5">
             {shownReasoning.map((r) => (
               <li
                 key={r}
-                className="flex gap-2 text-[13.5px] leading-relaxed text-muted-foreground"
+                className="flex gap-2 text-[13.5px] leading-relaxed text-foreground/85"
               >
                 <span className="mt-[0.6em] size-1 shrink-0 rounded-full bg-muted-foreground/45" />
                 <span className="min-w-0">{r}</span>
@@ -27097,7 +27107,7 @@ function FindingSheet({ onClose, ...props }: FindingDetailProps & { onClose: () 
     <FindingDetail
       {...props}
       render={({ footer, body }) => (
-        <AutoAgentPage onClose={onClose} title={`${props.agentName} finding`} footer={footer}>
+        <AutoAgentPage onClose={onClose} title={props.agentName} footer={footer}>
           {body}
         </AutoAgentPage>
       )}
@@ -27105,18 +27115,22 @@ function FindingSheet({ onClose, ...props }: FindingDetailProps & { onClose: () 
   );
 }
 
-// Everything one agent currently has open, on one full-height sheet.
+// Everything one agent currently has open.
 //
-// The list is the report: each row is a finding, worst first, with when it
-// was last seen and how many runs have repeated it. Tapping a row swaps the
-// list for FindingDetail (the same body and actions as FindingSheet) with a
-// back link at the top, so reading and acting on four findings is one sheet,
-// not four trips from the feed. The footer offers the two things that apply
-// to the agent as a whole: tune its schedule, or clear the lot.
+// Desktop stage: two panes, like Schedules beside the rail. The findings sit
+// in a narrow list on the left, worst first, and the selected one reads on
+// the right with its actions under it. Nothing to go "back" to, so there is
+// no back link and the agent is named once, in the header.
+//
+// Phone and full-screen page: the list, then a pushed detail with a back
+// link, because there is no room for two columns.
+//
+// The header carries what applies to the agent as a whole: its schedule,
+// Edit schedule, and Dismiss all.
 //
 // `findings` is read live from the app's list, so a dismissal here shortens
 // the list in place. The sheet closes itself once nothing is left.
-function AgentReportSheet({
+export function AgentReportSheet({
   agent,
   agentName,
   findings: unsorted,
@@ -27144,24 +27158,102 @@ function AgentReportSheet({
   onRefineAgent?: (f: AutoFinding, feedback: string) => void;
   onEditAgent: (agent: AutoAgent) => void;
 }) {
+  const inStage = useContext(AutoAgentPageInStage);
   const findings = useMemo(() => sortFindings(unsorted), [unsorted]);
   // A single finding needs no list to pick from: open straight on it.
   const [selectedId, setSelectedId] = useState<string | null>(
     findings.length === 1 ? findings[0].id : null,
   );
-  const selected = findings.find((f) => f.id === selectedId) ?? null;
+  const picked = findings.find((f) => f.id === selectedId) ?? null;
+  // Two panes always show a finding: the picked one, else the worst.
+  const selected = inStage ? (picked ?? findings[0] ?? null) : picked;
 
   useEffect(() => {
     if (findings.length === 0) onClose();
   }, [findings.length, onClose]);
   // The selected finding left the list (dismissed, graduated): fall back to
-  // the list rather than to a blank sheet.
+  // the list (or, in two panes, the next worst) rather than a blank page.
   useEffect(() => {
-    if (selectedId && !selected) setSelectedId(null);
-  }, [selectedId, selected]);
+    if (selectedId && !picked) setSelectedId(null);
+  }, [selectedId, picked]);
 
-  if (selected) {
-    return (
+  const meta = (
+    <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
+      {agent ? <ScheduleSummary expr={agent.schedule} tz={tz} compact /> : null}
+      {agent?.lastRunAt ? <span className="shrink-0">· ran {relTime(agent.lastRunAt)} ago</span> : null}
+      {agent?.running ? (
+        <span className="flex shrink-0 items-center gap-1 text-primary">
+          · <Loader2 className="size-3 animate-spin" aria-hidden /> running
+        </span>
+      ) : agent?.refine?.state === "running" ? (
+        <span className="flex shrink-0 items-center gap-1">
+          · <Loader2 className="size-3 animate-spin" aria-hidden /> updating from feedback
+        </span>
+      ) : null}
+    </div>
+  );
+
+  const agentActions = (
+    <>
+      {agent ? (
+        <Button variant="ghost" size="sm" className="text-foreground/75" onClick={() => onEditAgent(agent)}>
+          <SlidersHorizontal className="size-3.5" />
+          Edit schedule
+        </Button>
+      ) : null}
+      <Button
+        variant="ghost"
+        size="sm"
+        className="text-foreground/75"
+        disabled={dismissAllBusy || findings.length === 0}
+        onClick={() => onDismissAll(findings)}
+      >
+        {dismissAllBusy ? <Loader2 className="size-3.5 animate-spin" /> : <X className="size-3.5" />}
+        Dismiss all
+      </Button>
+    </>
+  );
+
+  const list = (
+    <ul className="flex flex-col gap-0.5" aria-label={`${agentName} findings`}>
+      {findings.map((f) => {
+        const active = inStage && selected?.id === f.id;
+        return (
+          <li key={f.id}>
+            <button
+              type="button"
+              onClick={() => setSelectedId(f.id)}
+              aria-current={active ? "true" : undefined}
+              className={cn(
+                "flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary/60",
+                active ? "bg-muted" : "hover:bg-muted/60",
+              )}
+            >
+              <span
+                role="status"
+                aria-label={`${SEV_LABEL[f.severity]} severity`}
+                className={cn("mt-[0.45em] inline-block size-2 shrink-0 rounded-full", SEV_DOT[f.severity])}
+              />
+              <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span className="line-clamp-2 text-[13.5px] font-medium leading-snug">{f.title}</span>
+                {!inStage && f.suggest ? (
+                  <span className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">{f.suggest}</span>
+                ) : null}
+                <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <span>{relTime(findingSeenAt(f))} ago</span>
+                  {(f.occurrences ?? 1) > 1 ? <span>· seen {f.occurrences}×</span> : null}
+                </span>
+              </span>
+              {inStage ? null : <ChevronRight className="mt-0.5 size-4 shrink-0 text-muted-foreground/50" />}
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+
+  const detail = (render: (parts: FindingDetailParts) => ReactNode) =>
+    selected ? (
       <FindingDetail
         key={selected.id}
         finding={selected}
@@ -27171,122 +27263,101 @@ function AgentReportSheet({
         onReply={onReply}
         onDismiss={onDismiss}
         onRefineAgent={onRefineAgent}
-        render={({ footer, body }) => (
-          <AutoAgentPage onClose={onClose} title={`${agentName} finding`} footer={footer}>
-            {findings.length > 1 ? (
-              <div className="shrink-0 px-1 pb-1 pt-0.5">
-                <button
-                  type="button"
-                  onClick={() => setSelectedId(null)}
-                  className="flex items-center gap-1 rounded-md py-1 pr-2 text-[12.5px] font-medium text-muted-foreground hover:text-foreground"
-                >
-                  <ChevronLeft className="size-4" />
-                  All {findings.length} from {agentName}
-                </button>
-              </div>
-            ) : null}
-            {body}
-          </AutoAgentPage>
-        )}
+        showAgent={false}
+        render={render}
       />
+    ) : null;
+
+  if (inStage) {
+    const split = findings.length > 1;
+    return (
+      <section
+        data-auto-agent-page="stage"
+        aria-label={`${agentName} report`}
+        className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden text-sm text-foreground"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.stopPropagation();
+            onClose();
+          }
+        }}
+      >
+        <header className="flex shrink-0 items-start gap-3 border-b border-border px-4 pb-3 pt-2.5">
+          <div className="min-w-0 flex-1">
+            <h2 className="truncate text-[17px] font-semibold leading-snug tracking-[-0.01em]">{agentName}</h2>
+            <div className="mt-0.5">{meta}</div>
+          </div>
+          <div className="flex shrink-0 items-center gap-0.5">
+            {agentActions}
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              title="Close (Esc)"
+              className="ml-1 flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+        </header>
+        <div className="flex min-h-0 flex-1">
+          {split ? (
+            <nav className="flex w-72 shrink-0 flex-col border-r border-border">
+              <div className="px-4 pb-1 pt-3 text-[11px] font-semibold text-muted-foreground">
+                {findings.length} open
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-3">{list}</div>
+            </nav>
+          ) : null}
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            {detail(({ body, footer }) => (
+              <>
+                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+                  <div className="mx-auto w-full max-w-2xl px-4 py-4 sm:px-6">{body}</div>
+                </div>
+                <footer className="shrink-0 border-t border-border">
+                  <div className="mx-auto w-full max-w-2xl px-4 py-2 sm:px-6">{footer}</div>
+                </footer>
+              </>
+            ))}
+          </div>
+        </div>
+      </section>
     );
   }
 
-  const worst = findings[0];
-  const footer = (
-    <div className="flex items-center gap-2 px-2 pb-1 pt-2">
-      {agent ? (
-        <Button variant="tint" className="flex-1" onClick={() => onEditAgent(agent)}>
-          <SlidersHorizontal className="size-4" />
-          Edit schedule
-        </Button>
-      ) : null}
-      <Button
-        variant="ghost"
-        className="flex-1 text-muted-foreground"
-        disabled={dismissAllBusy || findings.length === 0}
-        onClick={() => onDismissAll(findings)}
-      >
-        {dismissAllBusy ? <Loader2 className="size-4 animate-spin" /> : <X className="size-4" />}
-        Dismiss all
-      </Button>
-    </div>
-  );
+  if (selected) {
+    return detail(({ footer, body }) => (
+      <AutoAgentPage onClose={onClose} title={agentName} footer={footer}>
+        {findings.length > 1 ? (
+          <div className="shrink-0 px-1 pb-1 pt-0.5">
+            <button
+              type="button"
+              onClick={() => setSelectedId(null)}
+              className="flex items-center gap-1 rounded-md py-1 pr-2 text-[12.5px] font-medium text-muted-foreground hover:text-foreground"
+            >
+              <ChevronLeft className="size-4" />
+              All {findings.length} findings
+            </button>
+          </div>
+        ) : null}
+        {body}
+      </AutoAgentPage>
+    ));
+  }
 
   return (
     <AutoAgentPage
       onClose={onClose}
-      title={`${agentName} report`}
-      footer={footer}
+      title={agentName}
+      footer={<div className="flex items-center justify-end gap-1 py-1">{agentActions}</div>}
     >
-      <div className="px-2 pb-2 pt-1">
-        <div className="flex items-start gap-2.5">
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <span className="truncate text-[17px] font-semibold leading-snug tracking-[-0.01em]">
-                {agentName}
-              </span>
-              {agent?.running ? (
-                <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" aria-label="Running" />
-              ) : agent?.refine?.state === "running" ? (
-                <Loader2
-                  className="size-3.5 shrink-0 animate-spin text-muted-foreground"
-                  aria-label="Updating from feedback"
-                />
-              ) : null}
-              {worst ? (
-                <span
-                  role="status"
-                  aria-label={`${SEV_LABEL[worst.severity]} severity`}
-                  className={cn("ml-auto inline-block size-2 shrink-0 rounded-full", SEV_DOT[worst.severity])}
-                />
-              ) : null}
-            </div>
-            {agent ? (
-              <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
-                <ScheduleSummary expr={agent.schedule} tz={tz} compact />
-                {agent.lastRunAt ? (
-                  <span className="shrink-0">· ran {relTime(agent.lastRunAt)} ago</span>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="mt-4 text-[11px] font-semibold text-muted-foreground">
+      <div className="px-1 pb-2">
+        {meta}
+        <div className="mt-4 px-1.5 text-[11px] font-semibold text-muted-foreground">
           {findings.length} open {findings.length === 1 ? "finding" : "findings"}
         </div>
-        <div className="mt-1.5 flex flex-col gap-1.5">
-          {findings.map((f) => (
-            <button
-              key={f.id}
-              type="button"
-              onClick={() => setSelectedId(f.id)}
-              className="lfg-gborder flex w-full flex-col gap-1 rounded-xl border border-transparent bg-card px-3 py-2.5 text-left transition-transform active:scale-[0.99]"
-            >
-              <span className="flex w-full items-center gap-2 text-[11px] text-muted-foreground">
-                <span className="shrink-0">{relTime(findingSeenAt(f))} ago</span>
-                {(f.occurrences ?? 1) > 1 ? (
-                  <span className="shrink-0 rounded-full bg-warning/15 px-1.5 py-px font-semibold text-warning">
-                    seen {f.occurrences}×
-                  </span>
-                ) : null}
-                <span
-                  role="status"
-                  aria-label={`${SEV_LABEL[f.severity]} severity`}
-                  className={cn("ml-auto inline-block size-2 shrink-0 rounded-full", SEV_DOT[f.severity])}
-                />
-                <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/60" />
-              </span>
-              <span className="text-[13.5px] font-medium leading-snug">{f.title}</span>
-              {f.suggest ? (
-                <span className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-                  {f.suggest}
-                </span>
-              ) : null}
-            </button>
-          ))}
-        </div>
+        <div className="mt-1">{list}</div>
       </div>
     </AutoAgentPage>
   );
