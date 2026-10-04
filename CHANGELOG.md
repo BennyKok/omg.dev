@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 4, 2026 - Computer page loads less code (v0.6.168)
+
+- The Roles and tool access page now loads when you open it. The Computer page on app.omg.dev loads about 34 KB less code at start.
+
 ## October 4, 2026 - Desktop pages open beside the session list (v0.6.167)
 
 - On a desktop screen, Notifications and Artifacts now open beside the session list, the same way Schedules does.
