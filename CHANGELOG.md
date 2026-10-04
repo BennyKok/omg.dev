@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 4, 2026 - Computer browser comes back after a crash (v0.6.170)
+
+- When the Computer's browser crashes, it now restarts on its own the next time you or an agent use it. The desktop and screen stay open.
+- Computer status now shows whether the browser is running.
+
 ## October 4, 2026 - Agents in use (v0.6.169)
 
 - A Computer now reports how many agents are in use and its plan limit. The plan card in Settings on app.omg.dev can show "3 of 5 agents in use".
