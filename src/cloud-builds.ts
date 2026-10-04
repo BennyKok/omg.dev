@@ -200,8 +200,13 @@ export async function startAndroidBuild(deps: BuildDeps, input: StartBuildInput)
   const commitSha = await commitForBuild(cwd);
   if (!/^[0-9a-f]{40}$/.test(commitSha)) throw new BuildError("Could not resolve the commit to build");
 
+  // Bundle a named ref, not bare HEAD: the builder fetches refs/* from the
+  // bundle, and a HEAD-only bundle checks out as "unable to read tree".
   const bundlePath = join(buildsDir(cwd), "source.bundle");
-  await git(cwd, ["bundle", "create", "-q", bundlePath, "HEAD"]);
+  const ref = "refs/omg-build/head";
+  await git(cwd, ["update-ref", ref, commitSha]);
+  try { await git(cwd, ["bundle", "create", "-q", bundlePath, ref]); }
+  finally { await git(cwd, ["update-ref", "-d", ref]).catch(() => {}); }
   const bundle = readFileSync(bundlePath);
   const sha256 = createHash("sha256").update(bundle).digest("hex");
   const upload = await cloudJson<{ uploadId: string; bundleSha256: string }>(deps, `/api/cli/builds/uploads?appId=${encodeURIComponent(app.id)}&sha256=${sha256}`, {

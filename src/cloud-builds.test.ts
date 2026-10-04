@@ -95,6 +95,17 @@ test("builds end to end: commit, register, upload, build, download, install link
   expect(create.origin).toEqual({ sessionId: "sess_1" });
   expect(create.target).toEqual({ platform: "android", format: "apk", profile: "release", abis: ["arm64-v8a"] });
   expect(create.version).toEqual({ name: "1.2.0" });
+
+  // The uploaded bundle checks out the exact commit the way the builder does:
+  // fetch refs/* into a fresh repository, then detach at the commit.
+  const fresh = mkdtempSync(join(ROOT, "cloud-builds-checkout-")); dirs.push(fresh);
+  const g = (...args: string[]) => execFileSync("git", args, { cwd: fresh, stdio: "pipe" });
+  g("init", "-q");
+  g("-c", "core.hooksPath=/dev/null", "fetch", "-q", join(cwd, ".omg", "builds", "source.bundle"), "+refs/*:refs/source/*");
+  g("-c", "core.hooksPath=/dev/null", "checkout", "-q", "--detach", head);
+  expect(execFileSync("git", ["rev-parse", "HEAD"], { cwd: fresh, encoding: "utf8" }).trim()).toBe(head);
+  // The temporary ref does not stay in the user's repository.
+  expect(git("for-each-ref", "refs/omg-build")).toBe("");
 });
 
 test("returns pending inside the agent budget, then status finishes from the saved build", async () => {
