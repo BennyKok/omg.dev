@@ -2,6 +2,16 @@
 
 Recent product updates and deployment notes.
 
+## October 4, 2026 - Desktop pages open beside the session list (v0.6.167)
+
+- On a desktop screen, Notifications and Artifacts now open beside the session list, the same way Schedules does.
+- An auto agent report on a desktop screen shows the list of findings beside the finding you picked. The phone keeps one page at a time.
+- The footer of a finding uses the same agent, model and thinking buttons as the home composer. The Feedback button is gone from the web finding page.
+- The desktop home composer has the same shape as the phone composer.
+- The composer no longer offers Fast for Claude. You can still type /fast in a session.
+- The folder menu in the session list has an All projects choice.
+- The storage page shows one row for each disk that omg uses. Warnings for low disk space now come for each disk.
+
 ## October 3, 2026 - Shorter side navigation (v0.6.166)
 
 - The side navigation no longer lists Bots and Board. Open Bots from the Chat/Bots switch. On a wide screen, open Board from the Pages menu.
