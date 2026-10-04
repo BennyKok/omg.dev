@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 4, 2026 - Composer controls and attachments fit together (v0.6.172)
+
+- The desktop home composer uses the shared folder menu and desktop model picker. Thinking is a compact control at the bottom of the model menu.
+- Attachment previews sit inside the composer, above the draft, on web and native mobile. Removing an attachment keeps the draft.
+- Web attachment rows have a thin, rounded scrollbar with no arrow buttons.
+
 ## October 4, 2026 - Settings opens beside the session list (v0.6.171)
 
 - On a desktop screen, Settings now opens beside the session list, the same way Schedules, Notifications, and Artifacts do.
