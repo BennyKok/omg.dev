@@ -12474,7 +12474,7 @@ function LiveView({
 // The ring is the panel's hairline edge. It is a box-shadow, so overflow-hidden
 // does not clip it and it costs no layout.
 const STAGE_PANEL =
-  "overflow-hidden rounded-2xl bg-[var(--stage-surface)] ring-1 ring-foreground/[0.07] [--lfg-pane-bg:var(--stage-surface)]";
+  "overflow-hidden rounded-2xl bg-[var(--stage-surface)] ring-1 ring-foreground/[0.07] [--lfg-pane-bg:var(--stage-surface)] [--lfg-field-fill:var(--stage-field)]";
 
 function RailStage({
   sessions = [],
@@ -14074,12 +14074,17 @@ function RailStage({
       {/* THE RAIL'S EDGE. Collapse and expand live here, on the divider they
           act on, instead of as one more icon in the rail's header. Hovering
           the edge lights it; the grip in its middle is the button. */}
-      <div className="group/rail-edge relative z-40 w-0 shrink-0">
-        <div className="absolute inset-y-0 -left-1.5 flex w-3 items-center justify-center">
-          <span
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-transparent transition-colors group-hover/rail-edge:bg-primary/40"
-          />
+      {/* The collapse edge sits ON the panel's left edge (ml-3 is the gap
+          the panel keeps from the rail), so the handle touches the card. The
+          hover line is the panel's own left border, drawn with the panel's
+          radius so it curves round the corners instead of running straight
+          down the gap. */}
+      <div className="group/rail-edge relative z-40 ml-3 w-0 shrink-0">
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-y-0 left-0 w-5 rounded-l-2xl border-l-2 border-transparent transition-colors group-hover/rail-edge:border-foreground/25"
+        />
+        <div className="absolute inset-y-0 -left-2 flex w-4 items-center justify-center">
           <button
             type="button"
             onClick={() => {
@@ -14105,10 +14110,10 @@ function RailStage({
         // Hosts dock their own pages over this pane, preserving the rail.
         data-lfg-host-stage={hosted ? "" : undefined}
         className={cn(
-          // ml-3: the rail's rows sit 18px in from the window (main's 12px
-          // gutter + the list's 6px). The same 12px here puts them 18px from
-          // the panel too, so the rail is centred between its two edges.
-          "ml-3 grid h-full min-h-0 min-w-0 flex-1 gap-3",
+          // The rail's rows sit 18px in from the window (main's 12px gutter +
+          // the list's 6px). The rail edge before this grid carries ml-3, so
+          // they sit 18px from the panel too: the rail is centred.
+          "grid h-full min-h-0 min-w-0 flex-1 gap-3",
           // 1 pane → full; 2 → side by side; 3-4 → 2×2 (panes 1&2 top, 3&4 bottom).
           stagePaneCount <= 1
             ? "grid-cols-1 grid-rows-1"
