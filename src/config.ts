@@ -40,10 +40,50 @@ export const PATHS = {
   installInfo: join(DATA_DIR, "install.json"),
 };
 
-/** Persistent root for omg.dev-managed session worktrees. */
+/** Where new omg.dev session worktrees are created. */
 export const WORKTREE_ROOT = resolve(
   process.env.LFG_WORKTREE_ROOT ?? `${homedir()}/lfg-worktrees`,
 );
+
+/**
+ * Roots that still count as session worktrees.
+ *
+ * `LFG_WORKTREE_ROOT` is the create location. `LFG_WORKTREE_LEGACY_ROOTS`
+ * (comma-separated) keeps older trees recognizable after that location moves,
+ * so an existing session is reused instead of cloned onto the new disk.
+ */
+export function worktreeRoots(): string[] {
+  const legacy = (process.env.LFG_WORKTREE_LEGACY_ROOTS ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => resolve(entry));
+  const seen = new Set<string>();
+  const roots: string[] = [];
+  for (const root of [WORKTREE_ROOT, ...legacy]) {
+    if (seen.has(root)) continue;
+    seen.add(root);
+    roots.push(root);
+  }
+  return roots;
+}
+
+export function isUnderWorktreeRoot(path: string): boolean {
+  const abs = resolve(path);
+  return worktreeRoots().some((root) => abs === root || abs.startsWith(`${root}/`));
+}
+
+/** First path segment under any worktree root, or null when `path` is not inside one. */
+export function sessionNameFromWorktreePath(path: string): string | null {
+  const abs = resolve(path);
+  for (const root of worktreeRoots()) {
+    const prefix = `${root}/`;
+    if (!abs.startsWith(prefix)) continue;
+    const name = abs.slice(prefix.length).split("/")[0];
+    return name || null;
+  }
+  return null;
+}
 
 // LFG_HOST is the server's BIND address, but the in-box clients — `lfg mcp`,
 // `lfg subagent`, `lfg connect` — read the same variable to DIAL that server.

@@ -1275,6 +1275,14 @@ type ServerStats = {
     totalBytes: number | null;
     freeBytes: number | null;
   };
+  /** One row per real volume. Absent on older servers, which only send `disk`. */
+  disks?: {
+    label: string;
+    mount: string;
+    totalBytes: number;
+    freeBytes: number;
+    badge?: string | null;
+  }[];
   cpu: { cores: number; load1: number; load5: number; load15: number };
   network?: { rxBps: number; txBps: number };
   // PSI — share of time tasks stalled on a resource. Leads "percent used".
@@ -5705,13 +5713,19 @@ function useResourceWarnings(): void {
         );
       }
 
-      if (s.disk.totalBytes && s.disk.freeBytes != null && s.disk.totalBytes > 0) {
-        const dPct = ((s.disk.totalBytes - s.disk.freeBytes) / s.disk.totalBytes) * 100;
+      const diskRows = s.disks?.length
+        ? s.disks
+        : s.disk.totalBytes && s.disk.freeBytes != null
+          ? [{ label: "Disk", mount: "", totalBytes: s.disk.totalBytes, freeBytes: s.disk.freeBytes }]
+          : [];
+      for (const row of diskRows) {
+        if (!row.totalBytes || row.freeBytes == null) continue;
+        const dPct = ((row.totalBytes - row.freeBytes) / row.totalBytes) * 100;
         fire(
-          "disk",
+          `disk:${row.mount || row.label}`,
           dPct >= 95 ? 2 : dPct >= 90 ? 1 : 0,
           "Disk almost full",
-          `${Math.round(dPct)}% of the data volume used.`,
+          `${row.mount || "Disk"} is ${Math.round(dPct)}% used. ${formatBytes(row.freeBytes)} available.`,
         );
       }
     };
@@ -28528,16 +28542,94 @@ function AgentConcurrencySettingsSection({
    one-pager calm: a headline capacity read here rather than four live gauges
    on the settings root. Disk totals come from the same /api/server/stats
    poll that backs the capacity section. */
+type DiskRow = {
+  label: string;
+  mount: string;
+  totalBytes: number;
+  freeBytes: number;
+  badge?: string | null;
+};
+
+function diskRowsOf(stats: ServerStats | null): DiskRow[] {
+  if (stats?.disks && stats.disks.length > 0) return stats.disks;
+  if (stats?.disk.totalBytes != null && stats.disk.freeBytes != null) {
+    return [{
+      label: "/",
+      mount: "/",
+      totalBytes: stats.disk.totalBytes,
+      freeBytes: stats.disk.freeBytes,
+      badge: null,
+    }];
+  }
+  return [];
+}
+
+function diskFreeLine(stats: ServerStats | null): string | null {
+  const rows = diskRowsOf(stats);
+  if (rows.length === 0) return null;
+  const free = rows.reduce((sum, row) => sum + row.freeBytes, 0);
+  return `${formatBytes(free)} available`;
+}
+
+function DiskMeter({ row }: { row: DiskRow }) {
+  const used = Math.max(0, row.totalBytes - row.freeBytes);
+  const pct = row.totalBytes > 0
+    ? Math.min(100, Math.round((used / row.totalBytes) * 100))
+    : 0;
+  return (
+    <div className="px-4 py-4">
+      <div className="flex items-baseline justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm font-semibold tabular-nums">{formatBytes(row.freeBytes)} available</div>
+          <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="tabular-nums">{formatBytes(used)} of {formatBytes(row.totalBytes)}</span>
+            {row.mount ? <span className="truncate">{row.mount}</span> : null}
+          </div>
+        </div>
+        {row.badge ? (
+          <span className="shrink-0 rounded-full bg-foreground/[0.06] px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+            {row.badge}
+          </span>
+        ) : null}
+      </div>
+      <div
+        className="mt-3 h-2 overflow-hidden rounded-md bg-foreground/[0.08]"
+        role="progressbar"
+        aria-label={`${row.label} disk usage`}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={pct}
+      >
+        <div
+          className={cn(
+            "h-full rounded-md transition-all duration-300 ease-ios",
+            pct >= 90 ? "bg-destructive" : pct >= 75 ? "bg-amber-500" : "bg-primary",
+          )}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function DiskMeters({ stats }: { stats: ServerStats | null }) {
+  const rows = diskRowsOf(stats);
+  if (rows.length === 0) {
+    return (
+      <div className="px-4 py-4 text-sm text-muted-foreground">
+        Capacity unavailable on this filesystem
+      </div>
+    );
+  }
+  return (
+    <div className="divide-y divide-border">
+      {rows.map((row) => <DiskMeter key={row.mount || row.label} row={row} />)}
+    </div>
+  );
+}
+
 function StoragePage() {
   const stats = useServerStats(true);
-  const diskTotal = stats?.disk?.totalBytes ?? null;
-  const diskFree = stats?.disk?.freeBytes ?? null;
-  const diskUsed =
-    diskTotal != null && diskFree != null ? Math.max(0, diskTotal - diskFree) : null;
-  const diskPct =
-    diskUsed != null && diskTotal != null && diskTotal > 0
-      ? Math.min(100, Math.round((diskUsed / diskTotal) * 100))
-      : null;
 
   return (
     <div className="mx-auto max-w-xl space-y-8 pb-10" data-lfg-page-column>
@@ -28551,44 +28643,10 @@ function StoragePage() {
           Storage
         </h2>
         <div className="overflow-hidden rounded-2xl border border-border bg-card/40">
-          <div className="px-4 pt-4">
-            <div className="text-2xl font-semibold tabular-nums tracking-tight">
-              {diskUsed != null ? formatBytes(diskUsed) : "—"}
-              {diskTotal != null ? (
-                <span className="text-sm font-medium text-muted-foreground">
-                  {" "}of {formatBytes(diskTotal)} used
-                </span>
-              ) : null}
-            </div>
-            <div className="mt-1 text-xs text-muted-foreground">
-              {diskFree != null
-                ? `${formatBytes(diskFree)} available`
-                : "Capacity unavailable on this filesystem"}
-            </div>
-          </div>
-          <div
-            className="mx-4 mb-4 mt-3 h-4 overflow-hidden rounded-md bg-foreground/[0.08]"
-            role="progressbar"
-            aria-label="Disk usage"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={diskPct ?? 0}
-          >
-            <div
-              className={cn(
-                "h-full rounded-md transition-all duration-300 ease-ios",
-                diskPct != null && diskPct >= 90
-                  ? "bg-destructive"
-                  : diskPct != null && diskPct >= 75
-                    ? "bg-amber-500"
-                    : "bg-primary",
-              )}
-              style={{ width: `${diskPct ?? 0}%` }}
-            />
-          </div>
+          <DiskMeters stats={stats} />
         </div>
         <p className="px-4 text-xs text-muted-foreground">
-          Whole-filesystem usage for the volume holding omg.dev&apos;s data directory.
+          Free space on each disk this computer writes to.
         </p>
       </section>
 
@@ -30059,6 +30117,8 @@ function SettingsView({
   // account is the real one, where ours is only a per-device session tag. Two
   // identity blocks on one page is worse than none.
   const bare = useBareSurface();
+  const diskStats = useServerStats(true);
+  const diskLine = diskFreeLine(diskStats);
 
   // The two halves of "what am I actually looking at", resolved from two
   // independent sources: FRONTEND_VERSION is stamped into this bundle at build
@@ -30125,11 +30185,16 @@ function SettingsView({
             onClick={onOpenStorage}
             className="flex w-full items-center justify-between gap-4 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
           >
-            <div className="flex items-center gap-3">
-              <span className="flex size-7 items-center justify-center rounded-[7px] bg-foreground text-background">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="flex size-7 shrink-0 items-center justify-center rounded-[7px] bg-foreground text-background">
                 <HardDrive className="size-4" />
               </span>
-              <span className="text-sm font-medium">Storage &amp; performance</span>
+              <span className="min-w-0">
+                <span className="block text-sm font-medium">Storage &amp; performance</span>
+                {diskLine ? (
+                  <span className="block truncate text-xs text-muted-foreground tabular-nums">{diskLine}</span>
+                ) : null}
+              </span>
             </div>
             <ChevronRight className="size-4 text-muted-foreground/60" />
           </button>
@@ -30140,6 +30205,7 @@ function SettingsView({
               really executing, and whether either has an update. A skew
               between the first two is still legible collapsed — see
               VersionUpdatesRow's own comment. */}
+          {bare ? <DiskMeters stats={diskStats} /> : null}
           <VersionUpdatesRow
             frontendVersion={FRONTEND_VERSION}
             computerVersion={computerVersion}
