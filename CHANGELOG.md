@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 4, 2026 - Host Settings can keep the desktop sidebar (v0.6.174)
+
+- Embedded hosts can place their Settings in the desktop content pane. Sidebar selections can return to the same workspace.
+
 ## October 4, 2026 - A calmer desktop layout (v0.6.173)
 
 - On a desktop screen, sessions, threads, and pages sit in a rounded panel beside the session list. Divider lines are gone.
