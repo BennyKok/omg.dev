@@ -11,6 +11,7 @@ import { sideNavRows, type SideNavRow } from "./lib/side-nav-items";
 import { settledParagraphs } from "./lib/paragraph-stream";
 import {
   AgentSetupSheet,
+  ThinkingBar,
   type SetupAgentTile,
   type SetupChoice,
   type SetupSheetPage,
@@ -24442,13 +24443,28 @@ function NewSessionDialog({
           onModelChange={setModel}
           showModels={view.showComposerModels}
           showAgents={view.showComposerAgents}
+          footer={
+            variant === "stage" && !tiboModeActive && agentSupportsThinking(agent) && thinkingLevels.length > 0 ? (
+              <div className="space-y-2">
+                <span className="text-xs font-medium text-muted-foreground">Thinking</span>
+                <ThinkingBar
+                  options={thinkingLevels.map((level) => ({
+                    id: level,
+                    label: thinkingLevelLabel(level),
+                    selected: level === thinkingLevel,
+                  }))}
+                  onPick={(level) => changeComposerThinkingLevel(level as ThinkingLevel)}
+                />
+              </div>
+            ) : null
+          }
         />
       }
 
       {/* Tibo mode pins Fast plus High, so its own pill is the single control
           for both. Showing the thinking and Fast pills next to it would offer
           two more controls that only restate what Tibo already decided. */}
-      {tiboModeActive ? null : (
+      {variant === "stage" || tiboModeActive ? null : (
         <ThinkingLevelPill
           agent={agent}
           value={thinkingLevel}
@@ -26437,6 +26453,7 @@ export function AgentModelPicker<K extends AgentKind>({
   showModels = true,
   showAgents = true,
   side = "bottom",
+  footer,
 }: {
   options: readonly {
     key: K;
@@ -26462,11 +26479,13 @@ export function AgentModelPicker<K extends AgentKind>({
   showAgents?: boolean;
   /** "top" for a pill in a footer, where there is no prompt above it to cover. */
   side?: "top" | "bottom";
+  /** Optional controls fixed below the scrollable model list. */
+  footer?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   // Nothing to choose: the pill would open an empty popover.
-  if (!showAgents && !showModels) return null;
+  if (!showAgents && !showModels && !footer) return null;
   // A hosted omg model makes the pill wear the lab's mark, with a small omg
   // mark in the corner so the agent is still readable at a glance.
   const hostedModel = showModels && agent === "omg" ? parseOmgModel(model) : null;
@@ -26557,6 +26576,11 @@ export function AgentModelPicker<K extends AgentKind>({
                 inputRef={inputRef}
                 fill
               />
+            ) : null}
+            {footer ? (
+              <div className="mt-2 shrink-0 border-t border-border px-1 pb-1 pt-3">
+                {footer}
+              </div>
             ) : null}
           </Popover.Popup>
         </Popover.Positioner>
