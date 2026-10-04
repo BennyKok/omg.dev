@@ -631,11 +631,13 @@ export function ThreadChatView({
   };
 
   const main = (
-    <div data-testid="thread-chat" className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col bg-background">
+    <div data-testid="thread-chat" className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col bg-[var(--lfg-pane-bg,var(--background))]">
       {/* The session chat's bar, as a session column draws it: a 28px mark, the
           title on one line, the people as faces on the right, and one menu.
           The project lives in that menu and in the details, not in the bar. */}
-      <header className="flex min-h-11 min-w-0 items-center gap-2 border-b border-border px-3 py-1.5">
+      {/* No rule under the bar: the messages fade out beneath it
+          (chat-stream-fade), as they do under a session's header. */}
+      <header className="flex min-h-11 min-w-0 items-center gap-2 px-3 py-1.5">
         {onBack ? (
           <button
             type="button"
@@ -727,7 +729,10 @@ export function ThreadChatView({
         />
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+      <div className="chat-stream-fade min-h-0 flex-1 overflow-y-auto px-3 py-3">
+        {/* The same 48rem reading column as a session transcript; the
+            composer below centres to it. */}
+        <div className="mx-auto w-full max-w-3xl">
         {isNew || (detail && !top.length) ? (
           <div className="px-2 py-10">
             <div className="text-[22px] font-bold">What is on your mind?</div>
@@ -740,6 +745,7 @@ export function ThreadChatView({
           </MessageRow>
         ))}
         <div ref={endRef} />
+        </div>
       </div>
       {error ? <p className="px-4 text-[12px] text-destructive">{error}</p> : null}
       <TypingLine testId="thread-typing" label={typingLabel(typingIn(detail?.typing, null), detail?.participants)} />
