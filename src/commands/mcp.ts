@@ -1392,11 +1392,17 @@ export function buildOmgMcpServer(): McpServer {
         folder = row?.cwd?.trim();
       }
       if (!folder) throw new Error("cwd is required");
+      // The build's origin links it to the session the web UI knows (the
+      // onboarding build card filters by it). Use the session that made this
+      // MCP call, not a value the model typed: an agent passed its own label
+      // ("session_lfg-…") and the build was invisible to the card.
+      const caller = callerSessionId();
+      const origin = caller ? await resolveSid(caller) : sid;
       return result(
         await api("/api/cloud/builds/android", {
           method: "POST",
-          headers: { "Content-Type": "application/json", "X-OMG-Session-ID": sid },
-          body: JSON.stringify({ cwd: folder, name, versionName, sessionId: sid }),
+          headers: { "Content-Type": "application/json", "X-OMG-Session-ID": origin },
+          body: JSON.stringify({ cwd: folder, name, versionName, sessionId: origin }),
         }),
       );
     },
