@@ -263,8 +263,11 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
      for why. --popover moves with it. */
   --card: #242428;
   --card-foreground: #ffffff;
-  /* One step off --background, not --card: the panel holds cards of its own. */
-  --stage-surface: #1c1c1e;
+  /* One step off --background, not --card: the panel holds cards of its own.
+     Neutral grey, like --background. #1c1c1e (iOS's secondary background)
+     carries a blue channel two steps up, and over a whole panel beside the
+     neutral #141414 page that read as a blue cast. */
+  --stage-surface: #1c1c1c;
   --popover: #242428;
   --popover-foreground: #ffffff;
   --primary: #0a84ff;
