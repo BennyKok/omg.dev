@@ -29,6 +29,8 @@
   --stage-surface: #ffffff;
   /* The desktop workspace page under the rail. Light keeps the grouped grey. */
   --shell-surface: #f2f2f7;
+  /* A field (the composer bar) inside a stage panel. */
+  --stage-field: #ffffff;
   --popover: #ffffff;
   --popover-foreground: #000000;
   --primary: #007aff; /* iOS accent blue */
@@ -274,6 +276,10 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
      so the rail recedes and the panel holds the same lift over it. Only the
      desktop workspace uses it; every other surface keeps --background. */
   --shell-surface: #0e0e0e;
+  /* A field inside a stage panel: a clear step over the #191919 panel, and
+     neutral. The global --lfg-field-fill (#1c1c1e) all but vanished on the
+     panel and carried the same blue cast the panel used to. */
+  --stage-field: #242424;
   --popover: #242428;
   --popover-foreground: #ffffff;
   --primary: #0a84ff;
