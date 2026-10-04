@@ -169,6 +169,7 @@ export function SideNavDrawer({
  * differently.
  */
 function SideNavRows({
+  onSelect,
   rows,
   onNavigate,
   onClose,
@@ -178,6 +179,8 @@ function SideNavRows({
   rows: SideNavRow[];
   onNavigate: (key: string) => void;
   onClose: () => void;
+  /** A selection can dismiss a host page even when this row is current. */
+  onSelect?: () => void;
   /** Row keys that carry an unread dot. */
   unread?: ReadonlySet<string>;
   /** Pointer-sized rows for the desktop rail. */
@@ -194,6 +197,7 @@ function SideNavRows({
             data-testid={`side-nav-row-${row.key}`}
             aria-current={row.current ? "page" : undefined}
             onClick={() => {
+              onSelect?.();
               // Tapping the row you are on just closes, as on iOS.
               if (!row.current) onNavigate(row.key);
               onClose();
@@ -241,6 +245,7 @@ export function SideNavGlyph() {
  * order and away from screen readers.
  */
 export function SideNavPanel({
+  onSelect,
   open,
   onBack,
   rows,
@@ -254,6 +259,7 @@ export function SideNavPanel({
   onBack: () => void;
   rows: SideNavRow[];
   onNavigate: (key: string) => void;
+  onSelect?: () => void;
   unread?: ReadonlySet<string>;
   /** The machine picker, drawn first, as in the phone drawer. */
   machineSwitcher?: ReactNode;
@@ -300,7 +306,7 @@ export function SideNavPanel({
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 py-2">
         {machineSwitcher ? <div className="pb-2">{machineSwitcher}</div> : null}
-        <SideNavRows rows={rows} onNavigate={onNavigate} onClose={onBack} unread={unread} dense />
+        <SideNavRows onSelect={onSelect} rows={rows} onNavigate={onNavigate} onClose={onBack} unread={unread} dense />
         {footer ? <div className="mt-2 border-t border-border pt-2">{footer}</div> : null}
       </div>
     </div>

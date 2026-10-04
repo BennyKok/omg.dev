@@ -165,3 +165,17 @@ test("the rail panel draws the machine picker above the rows", () => {
   const firstRow = ui.query('[data-testid="side-nav-row-live"]')!;
   expect(machine.compareDocumentPosition(firstRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
+
+
+test("a current rail row dismisses a host page without adding app history", () => {
+  let selected = 0;
+  const navigated: string[] = [];
+  ui.render(<SideNavPanel open onBack={() => {}} rows={sideNavRows({ tab: "live" })}
+    onSelect={() => selected++} onNavigate={(key) => navigated.push(key)} />);
+  ui.flush(() => (ui.query('[data-testid="side-nav-row-live"]') as HTMLButtonElement).click());
+  expect(selected).toBe(1);
+  expect(navigated).toEqual([]);
+  ui.flush(() => (ui.query('[data-testid="side-nav-row-auto"]') as HTMLButtonElement).click());
+  expect(selected).toBe(2);
+  expect(navigated).toEqual(["auto"]);
+});

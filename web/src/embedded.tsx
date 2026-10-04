@@ -141,6 +141,8 @@ export interface OmgAppSurfaceProps {
    * where they meant to go.
    */
   onOpenHostSettings?: () => void;
+  /** A user selects a page, session, thread, or new task in the desktop rail. */
+  onNavigate?: () => void;
   /**
    * The box refused an action because of the plan YOU sold, not because of
    * anything the person did — e.g. starting one more agent than their tier
@@ -382,6 +384,7 @@ export function OmgAppSurface({
   hostedPush,
   onOpenSettingsPage,
   onOpenHostSettings,
+  onNavigate,
   onPlanLimit,
   errorSink,
   machines,
@@ -423,6 +426,7 @@ export function OmgAppSurface({
           // could ever supply one. The feature read as shipped from inside the
           // surface while being dead from the outside.
           onOpenHostSettings,
+          onNavigate,
           onPlanLimit,
           machines,
         }}

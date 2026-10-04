@@ -12620,7 +12620,7 @@ function RailStage({
   hostSettingsInMenu?: boolean;
 }) {
   // A host that supplies its own machine list gets the switcher too.
-  const hostMachines = useEmbeddedHostOptions().machines;
+  const { machines: hostMachines, onNavigate: onHostNavigate } = useEmbeddedHostOptions();
   const appDialog = useAppDialog();
   const { conversations: botConversationsForRail, selectedConversationId: selectedBotConversationForRail, markRead: markBotRowRead, any: botsUnreadAny } = useContext(BotUnreadContext);
   const { any: sessionsUnreadAny } = useContext(SessionUnreadContext);
@@ -12933,6 +12933,7 @@ function RailStage({
   // shortcut, the fresh session after Start) retires the in-pane composer, so
   // it can never linger behind a transcript.
   const startNew = () => {
+    onHostNavigate?.();
     if (railSurface === "sessions" && validPinned.length === 0) {
       setPreview(null);
       return;
@@ -13186,6 +13187,7 @@ function RailStage({
   // so re-clicking an already-open column still points at which window it is.
   const activate = useCallback(
     (sid: string, shift: boolean) => {
+      onHostNavigate?.();
       if (shift && anchorRef.current) {
         selectTo(sid);
         pulseStage(sid);
@@ -13196,7 +13198,7 @@ function RailStage({
       openSession(sid);
       pulseStage(sid);
     },
-    [selectTo, openSession, pulseStage],
+    [selectTo, openSession, pulseStage, onHostNavigate],
   );
 
   // Quick-interrupt a session by id. Interrupting an idle session is a harmless
@@ -13741,7 +13743,7 @@ function RailStage({
         // The same row as the Chat list's New session.
         <button
           type="button"
-          onClick={onNewBot}
+          onClick={() => { onHostNavigate?.(); onNewBot?.(); }}
           className="mb-1 flex h-10 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
           <span className="flex size-7 shrink-0 items-center justify-center rounded-full border border-dashed border-border">
@@ -13765,6 +13767,7 @@ function RailStage({
         // either — the row would read `[subagent complete] …`.
         const preview = plainPreviewText(botRosterPreview(rawPreview, busy));
         const open = () => {
+          onHostNavigate?.();
           onOpenBot?.(bot.id, row.conversationId);
           if (sid) activate(sid, false);
         };
@@ -13890,7 +13893,7 @@ function RailStage({
               {onOpenAsk ? (
                 <>
                   {hosted ? null : <UpdateNavButton />}
-                  <AskNavButton active={false} onOpen={onOpenAsk} />
+                  <AskNavButton active={false} onOpen={() => { onHostNavigate?.(); onOpenAsk(); }} />
                 </>
               ) : null}
               {onUserChange ? (
@@ -13974,8 +13977,14 @@ function RailStage({
                   activeId={openThreadId}
                   collapsed={railCollapsed}
                   dense
-                  onOpen={(id) => onOpenThread?.(id)}
-                  onNew={onOpenThread ? () => onOpenThread(NEW_THREAD_ID) : undefined}
+                  onOpen={(id) => {
+                    onHostNavigate?.();
+                    onOpenThread?.(id);
+                  }}
+                  onNew={onOpenThread ? () => {
+                    onHostNavigate?.();
+                    onOpenThread(NEW_THREAD_ID);
+                  } : undefined}
                 />
               ) : null
             }
@@ -14010,6 +14019,7 @@ function RailStage({
             onBack={() => setRailNavOpen(false)}
             rows={sideNav.rows}
             onNavigate={sideNav.onNavigate}
+            onSelect={onHostNavigate}
             unread={railNavUnread}
             // The machine lives in the menu, first, as in the phone drawer.
             // It is set once and rarely changed, so it does not need a
@@ -14092,6 +14102,8 @@ function RailStage({
       </div>
 
       <div
+        // Hosts dock their own pages over this pane, preserving the rail.
+        data-lfg-host-stage={hosted ? "" : undefined}
         className={cn(
           // ml-3: the rail's rows sit 18px in from the window (main's 12px
           // gutter + the list's 6px). The same 12px here puts them 18px from
