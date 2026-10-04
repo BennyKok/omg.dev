@@ -24479,7 +24479,7 @@ function NewSessionDialog({
       ) : null}
 
 
-      {!projectScoped && (
+      {variant !== "stage" && !projectScoped && (
         <FieldPill flat={variant === "inline"} icon={<Folder className="size-3.5 text-muted-foreground" />}>
           <button
             type="button"
@@ -24603,7 +24603,7 @@ function NewSessionDialog({
         }))
       : [];
   const agentSheet =
-    sheetShape ? (
+    variant === "inline" ? (
       <AgentSetupSheet
         open={agentPopoverOpen}
         onOpenChange={setAgentPopoverOpen}
@@ -24872,7 +24872,7 @@ function NewSessionDialog({
         {sheetShape ? (
           <div
             // Tighter at rest, so a narrow phone keeps width for the field.
-            className={cn("flex shrink-0 items-center", inlineExpanded ? "gap-2" : "gap-0.5")}
+            className={cn("flex shrink-0 items-center", variant === "stage" && "flex-wrap", inlineExpanded ? "gap-2" : "gap-0.5")}
             // Keep the field focused while a control is tapped, so the
             // composer does not collapse under the finger.
             onMouseDown={(event) => {
@@ -24881,7 +24881,7 @@ function NewSessionDialog({
           >
             {/* Fixed slots, so the mic never remounts mid-dictation when the
                 first words expand the composer. */}
-            {inlineExpanded ? agentPopover : null}
+            {inlineExpanded ? (variant === "stage" ? modelControls : agentPopover) : null}
             {attachButton}
             {/* The project rail under the mobile header chooses the folder,
                 as on iOS, so the composer carries no folder button. */}
