@@ -191,6 +191,8 @@ export interface OmgAppSurfaceProps {
    * lands on a per-computer page behind a machine selector.
    */
   onOpenHostSettings?: () => void;
+  /** A user selects a page, session, thread, or new task in the desktop rail. */
+  onNavigate?: () => void;
   /**
    * The machine refused an action because of the plan YOU sold — e.g. starting
    * one more agent than the tier allows.

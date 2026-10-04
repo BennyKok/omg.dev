@@ -73,6 +73,8 @@ export interface EmbeddedHostOptions {
    * set when this callback exists.
    */
   onOpenHostSettings?: () => void;
+  /** A user selects a page, session, thread, or new task in the desktop rail. */
+  onNavigate?: () => void;
   /**
    * The box refused an action because of the plan the HOST sold, not because
    * of anything the person did.
