@@ -2,6 +2,16 @@
 
 Recent product updates and deployment notes.
 
+## October 4, 2026 - A calmer desktop layout (v0.6.173)
+
+- On a desktop screen, sessions, threads, and pages sit in a rounded panel beside the session list. Divider lines are gone.
+- Long messages are easier to read. The text and the composer stay in a centred column instead of the full window width.
+- Session and thread headers have no divider line. Messages fade out under the header.
+- When you type in a session, the text sits above the attach, mic, and send buttons, on desktop and mobile web.
+- Text fields no longer show a blue glow when focused.
+- To start a thread on desktop, hover over the Threads header in the session list and click +.
+- AI session titles and thread replies no longer fail when the omg.dev sign-in token has expired.
+
 ## October 4, 2026 - Composer controls and attachments fit together (v0.6.172)
 
 - The desktop home composer uses the shared folder menu and desktop model picker. Thinking is a compact control at the bottom of the model menu.
