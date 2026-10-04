@@ -2602,7 +2602,7 @@ function ComposerAttachmentChips({
 }) {
   if (!items.length) return null;
   return (
-    <div className={cn("flex gap-2 overflow-x-auto pb-0.5", className)}>
+    <div className={cn("lfg-attachment-scroll flex gap-2 overflow-x-auto pb-0.5", className)}>
       {items.map(({ att, locked }) =>
         // An image says what it is by being visible. The row that carried its
         // filename, its byte count and three buttons said all of that again in
