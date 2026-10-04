@@ -24448,6 +24448,7 @@ function NewSessionDialog({
               <div className="space-y-2">
                 <span className="text-xs font-medium text-muted-foreground">Thinking</span>
                 <ThinkingBar
+                  compact
                   options={thinkingLevels.map((level) => ({
                     id: level,
                     label: thinkingLevelLabel(level),
