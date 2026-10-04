@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 4, 2026 - Android builds from a Computer work end to end (v0.6.176)
+
+- An agent's Android build now uploads the exact commit in a form the builder can check out. Before this fix, the first build of a new project failed while preparing its source.
+- A build started by an agent now shows in the session that started it.
+
 ## October 4, 2026 - Agents can build installable Android apps (v0.6.175)
 
 - Agents can build a signed Android APK of an Expo app in omg Cloud with the new `omg_build_android` tool, and follow it with `omg_build_status`.
