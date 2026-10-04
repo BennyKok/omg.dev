@@ -1274,7 +1274,8 @@ export function HomeComposer({
    * unreachable.
    */
   const maxInputHeight = COMPOSER_MAX_LINES * COMPOSER_LINE;
-  const expanded = composerFocused || hasMessage || dictation.state !== "idle";
+  const expanded =
+    composerFocused || hasMessage || attachments.items.length > 0 || dictation.state !== "idle";
   /**
    * ONE VALUE DRIVES THE MORPH, so the parts cannot arrive out of step.
    *
@@ -1509,7 +1510,6 @@ export function HomeComposer({
         disabled={!!dictationTail}
       />
       {/* Liquid Glass on iOS 26+, a solid card everywhere else. */}
-      <AttachmentStrip items={attachments.items} onRemove={attachments.remove} />
       {/* The layer draws the "+" over the glass, never inside it: a native
           menu opened from inside Liquid Glass morphs the glass. attach-menu.tsx. */}
       <AttachMenuLayer>
@@ -1560,6 +1560,7 @@ export function HomeComposer({
          * Everything around it may still be rebuilt freely; none of it holds
          * focus. `null` holds a slot, so the indices stay aligned.
          */}
+        <AttachmentStrip items={attachments.items} onRemove={attachments.remove} />
         {expanded ? null : agentControl}
         {inputControl}
         {expanded ? (

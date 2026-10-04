@@ -1850,7 +1850,10 @@ function SessionScreenContent({
   /** The field has the keyboard: a little more room around the text while typing. */
   const [composerFocused, setComposerFocused] = useState(false);
   const composerExpanded =
-    composerFocused || draft.trim().length > 0 || dictation.state !== "idle";
+    composerFocused ||
+    draft.trim().length > 0 ||
+    attachments.items.length > 0 ||
+    dictation.state !== "idle";
 
   /**
    * THE LIFT ALONE IS NOT ENOUGH — the list has to follow it.
@@ -2298,7 +2301,6 @@ function SessionScreenContent({
         ]}
       >
         <ProjectPreviewCard sessionId={id ?? null} agentBusy={busy} />
-        <AttachmentStrip items={attachments.items} onRemove={attachments.remove} />
         {/* "/" lists the box's skills above the field, as on the web. */}
         <SkillSuggest value={draft} onChangeText={setDraft} />
         {/* "#" lists relevant sessions, this folder first, as on the web. */}
@@ -2337,6 +2339,7 @@ function SessionScreenContent({
         <AttachMenuLayer style={{ flex: 1 }}>
         <ChatBarShell
           expanded={composerExpanded}
+          attachments={<AttachmentStrip items={attachments.items} onRemove={attachments.remove} />}
           collapsedStart={
             <AttachMenuButton options={attachments.options} size={32}>
               <Icon ios="plus" android="add" size={20} color={colors.textSecondary} />

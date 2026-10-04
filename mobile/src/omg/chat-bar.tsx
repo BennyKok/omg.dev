@@ -37,6 +37,7 @@ export function ChatBarShell({
   collapsedStart,
   collapsedEnd,
   expandedActions,
+  attachments,
   children,
 }: {
   expanded: boolean;
@@ -46,6 +47,8 @@ export function ChatBarShell({
   collapsedEnd?: ReactNode;
   /** Expanded, the row under the field. */
   expandedActions?: ReactNode;
+  /** Previews inside the surface, above the field. */
+  attachments?: ReactNode;
   /** The field itself, usually a TextInput styled with chatBarInputStyle. */
   children: ReactNode;
 }) {
@@ -70,6 +73,7 @@ export function ChatBarShell({
         ...(LIQUID_GLASS ? {} : { borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }),
       }}
     >
+      {attachments}
       {!expanded ? collapsedStart : null}
       <View
         style={{
@@ -290,11 +294,11 @@ export function ThreadChatBar({
   return (
     <View style={{ paddingHorizontal: space.md, paddingTop: space.sm }}>
       <AtMentionSuggest value={text} onChangeText={setText} mentions={mentions} />
-      <AttachmentStrip items={attachments.items} onRemove={attachments.remove} />
       {/* The layer draws the "+" over the glass, never inside it, as in a session. */}
       <AttachMenuLayer>
       <ChatBarShell
         expanded={expanded}
+        attachments={<AttachmentStrip items={attachments.items} onRemove={attachments.remove} />}
         collapsedStart={plus(32)}
         collapsedEnd={mic(32, colors.textMuted)}
         expandedActions={

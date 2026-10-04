@@ -1,0 +1,69 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": false
+  },
+  "steps": [
+    {
+      "name": "Home previews inside the composer",
+      "goal": "Inspect the home composer at the bottom. Do not start a session. Dismiss an Apple Account alert with Not Now if present.",
+      "done": "The image, video, and file tiles are inside the rounded composer surface, above What should we work on? and above its controls.",
+      "expect": [
+        "Remove photo.png",
+        "Remove clip.mp4",
+        "Remove notes.txt",
+        "What should we work on?"
+      ]
+    },
+    {
+      "name": "Home draft keeps the previews",
+      "goal": "Tap the What should we work on? field and type Keep these files. Do not send.",
+      "done": "Keep these files appears below the preview tiles inside the same composer. The keyboard is visible and the composer is above it.",
+      "expect": [
+        "Keep these files",
+        "Remove photo.png",
+        "Remove clip.mp4",
+        "Remove notes.txt"
+      ],
+      "type": "Keep these files"
+    },
+    {
+      "name": "Remove a home attachment",
+      "goal": "Tap Remove photo.png once.",
+      "done": "The image tile is removed. The video and file remain above the draft, and Keep these files remains in the field.",
+      "expect": [
+        "Keep these files",
+        "Remove clip.mp4",
+        "Remove notes.txt"
+      ],
+      "forbid": [
+        "Remove photo.png"
+      ]
+    },
+    {
+      "name": "Chat previews inside the composer",
+      "goal": "Switch with the fixture button Show chat composer. The explicit tap targets this fixed fixture on iPhone 17 Pro. Do not send.",
+      "done": "The chat composer shows all three preview tiles inside its rounded surface, above the draft and Chat controls.",
+      "expect": [
+        "Chat controls",
+        "Remove photo.png",
+        "Remove clip.mp4",
+        "Remove notes.txt"
+      ],
+      "tapAt": "25%,18%"
+    },
+    {
+      "name": "Remove a chat attachment",
+      "goal": "Tap Remove clip.mp4 once.",
+      "done": "The video tile is removed. The image and file stay above the unchanged draft inside the chat composer.",
+      "expect": [
+        "Keep these files",
+        "Remove photo.png",
+        "Remove notes.txt"
+      ],
+      "forbid": [
+        "Remove clip.mp4"
+      ]
+    }
+  ]
+}
