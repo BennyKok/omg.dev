@@ -245,6 +245,22 @@ function sameProcess(pid: number | undefined, expected: ProcessIdentity | undefi
   return !!actual && actual.bootId === expected.bootId && actual.startTime === expected.startTime;
 }
 
+/** Whether this desktop's process for `role` is still the one it started. */
+function roleAlive(s: DesktopState, role: ProcessRole): boolean {
+  const pid = s.adoptedPids ? s.adoptedPids[role] : s[role]?.pid;
+  return sameProcess(pid, s.identities[role]);
+}
+
+// Counts Chrome launches in this process. A cached DevTools attachment from an
+// earlier launch points at a browser that no longer exists; consumers compare
+// this number to know when to drop it.
+let browserLaunches = 0;
+
+/** Changes every time this process launches the desktop's Chrome. */
+export function browserGeneration(): number {
+  return browserLaunches;
+}
+
 /** Legacy PIDs have no start ticks. Require this role's executable and config. */
 function legacyProcessMatches(pid: number, role: ProcessRole, config: DesktopConfig): boolean {
   try {
@@ -425,6 +441,8 @@ export interface DesktopStatus {
   width: number;
   height: number;
   startedAt: number | null;
+  /** False when the desktop is up but its Chrome has exited. Start relaunches it. */
+  browserRunning: boolean;
   deps: DepReport;
 }
 
@@ -439,6 +457,7 @@ export function desktopStatus(): DesktopStatus {
       width: DEFAULT_DESKTOP.width,
       height: DEFAULT_DESKTOP.height,
       startedAt: null,
+      browserRunning: false,
       deps,
     };
   }
@@ -450,6 +469,7 @@ export function desktopStatus(): DesktopStatus {
     width: state.config.width,
     height: state.config.height,
     startedAt: state.startedAt ?? null,
+    browserRunning: roleAlive(state, "chrome"),
     deps,
   };
 }
@@ -556,7 +576,16 @@ export async function startDesktop(partial: Partial<DesktopConfig> = {}): Promis
 }
 
 async function startDesktopOwned(partial: Partial<DesktopConfig>): Promise<DesktopStatus> {
-  if (state) return desktopStatus();
+  if (state) {
+    const screenUp = roleAlive(state, "xvfb") && roleAlive(state, "vnc");
+    if (screenUp && roleAlive(state, "chrome")) return desktopStatus();
+    if (screenUp) {
+      await relaunchBrowser(state);
+      return desktopStatus();
+    }
+    // The display or the stream is gone, so nothing on it can be reused.
+    await stopDesktopOwned();
+  }
 
   // A desktop this box left running survives a server restart. Reattach to it
   // rather than starting a second stack on the same display and ports.
@@ -630,6 +659,29 @@ async function launchDesktop(next: DesktopState): Promise<DesktopStatus> {
 
   next.identities.vnc = processIdentity(next.vnc.pid);
 
+  spawnBrowser(next);
+  // Publish the state BEFORE waiting on ports. If a wait fails or throws, the
+  // processes we just spawned must still be reachable by stopDesktop -- an
+  // early return here used to orphan Xvfb, openbox, x11vnc and Chrome.
+  next.startedAt = Date.now();
+  state = next;
+  writeStateFile(next);
+
+  const [rfbUp, cdpUp] = await Promise.all([
+    waitForPort(config.rfbPort, 10_000),
+    waitForBrowser(next),
+  ]);
+  if (!rfbUp || !cdpUp) throw new Error("The Computer could not start its browser. Try again.");
+  // The Chrome-assigned port is the runtime endpoint. Persist it for adoption
+  // and use it for every browser/kiosk consumer, without changing the profile.
+  writeStateFile(next);
+  return desktopStatus();
+}
+
+/** Spawn the desktop's Chrome on its display. Does not wait for it. */
+function spawnBrowser(next: DesktopState): void {
+  const config = next.config;
+  const env = { ...process.env, DISPLAY: `:${config.display}` };
   const chrome = chromePath();
   if (!chrome) throw new Error("no Chrome binary found");
   disablePasswordSaving(config.profileDir);
@@ -656,25 +708,42 @@ async function launchDesktop(next: DesktopState): Promise<DesktopStatus> {
   // Guus's setup runs each browser behind a webshare proxy; this is that knob.
   if (config.proxy) chromeArgs.push(`--proxy-server=${config.proxy}`);
   next.chrome = spawn(chrome, chromeArgs, { stdio: "ignore", env, detached: false });
-
   next.identities.chrome = processIdentity(next.chrome.pid);
+  browserLaunches++;
+}
 
-  // Publish the state BEFORE waiting on ports. If a wait fails or throws, the
-  // processes we just spawned must still be reachable by stopDesktop -- an
-  // early return here used to orphan Xvfb, openbox, x11vnc and Chrome.
-  next.startedAt = Date.now();
-  state = next;
-  writeStateFile(next);
+function waitForBrowser(next: DesktopState): Promise<boolean> {
+  return next.config.cdpPort === 0 ? waitForChromePort(next, 20_000) : waitForPort(next.config.cdpPort, 20_000);
+}
 
-  const [rfbUp, cdpUp] = await Promise.all([
-    waitForPort(config.rfbPort, 10_000),
-    config.cdpPort === 0 ? waitForChromePort(next, 20_000) : waitForPort(config.cdpPort, 20_000),
-  ]);
-  if (!rfbUp || !cdpUp) throw new Error("The Computer could not start its browser. Try again.");
-  // The Chrome-assigned port is the runtime endpoint. Persist it for adoption
-  // and use it for every browser/kiosk consumer, without changing the profile.
-  writeStateFile(next);
-  return desktopStatus();
+/**
+ * Bring back a Chrome that exited under a desktop that is still up.
+ *
+ * Chrome can die on its own while Xvfb, the session and x11vnc keep running.
+ * On 2026-10-04 its browser process took a SIGSEGV right after a raw CDP
+ * Emulation call. Start used to see the desktop and report it running, so
+ * every browser tool failed with "cannot reach the desktop browser's DevTools
+ * endpoint" until someone stopped the whole desktop by hand. Relaunch only
+ * Chrome: the screen, the stream and the person watching it stay put. The
+ * profile keeps its sign-ins.
+ */
+async function relaunchBrowser(s: DesktopState): Promise<void> {
+  // A Chrome-assigned port died with the old browser. Ask for a new one.
+  // Keep only a fixed port that the installation configured.
+  if (DEFAULT_DESKTOP.cdpPort === 0 || s.config.cdpPort !== DEFAULT_DESKTOP.cdpPort) s.config.cdpPort = 0;
+  else if (await waitForPort(s.config.cdpPort, 0)) {
+    console.warn(`[computer] configured port ${s.config.cdpPort} is in use`);
+    throw new Error("The Computer cannot open its browser. Try again or contact support.");
+  }
+  spawnBrowser(s);
+  // An adopted desktop is stopped through its recorded pids.
+  if (s.adoptedPids) s.adoptedPids.chrome = s.chrome?.pid;
+  writeStateFile(s);
+  if (!(await waitForBrowser(s))) {
+    killPid(s.chrome?.pid, s.identities.chrome, "SIGKILL");
+    throw new Error("The Computer could not start its browser. Try again.");
+  }
+  writeStateFile(s);
 }
 
 async function waitForChromePort(next: DesktopState, timeoutMs: number): Promise<boolean> {

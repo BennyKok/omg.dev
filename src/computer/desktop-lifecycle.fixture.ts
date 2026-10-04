@@ -42,6 +42,17 @@ if (role === "google-chrome") {
     const adopter = Bun.spawn([process.execPath, "-e", `import {startDesktop} from ${JSON.stringify(join(import.meta.dir, "desktop.ts"))}; const s=await startDesktop(); console.log(s.cdpPort); process.exit(0);`], { env: process.env, stdout: "pipe", stderr: "pipe" });
     const adopted = await new Response(adopter.stdout).text();
     if (await adopter.exited !== 0 || Number(adopted.trim()) !== a.cdpPort) throw new Error("existing browser adoption failed");
+    // A browser that dies under a running desktop is relaunched alone.
+    const recordPath = join(root, ".omg", "computer", "desktop.json");
+    const before = JSON.parse(readFileSync(recordPath, "utf8")).pids;
+    process.kill(before.chrome, "SIGKILL");
+    for (let i = 0; i < 100 && desktopStatus().browserRunning; i++) await Bun.sleep(20);
+    if (!desktopStatus().running || desktopStatus().browserRunning) throw new Error("dead browser reported as running");
+    const healed = await startDesktop();
+    const after = JSON.parse(readFileSync(recordPath, "utf8"));
+    if (!healed.browserRunning || healed.startedAt !== a.startedAt) throw new Error("start did not relaunch the browser in place");
+    if (after.pids.xvfb !== before.xvfb || after.pids.vnc !== before.vnc || after.pids.chrome === before.chrome) throw new Error("relaunch touched the screen or kept the dead browser");
+    if (after.config.cdpPort !== healed.cdpPort || !(await cdpWebSocketUrl())?.endsWith("/devtools/browser/owned")) throw new Error("relaunched browser endpoint not published");
     await stopDesktop();
     if (desktopStatus().running) throw new Error("stop left state running");
     // Stop arriving during startup runs after startup, and cleans its children.
@@ -56,7 +67,7 @@ if (role === "google-chrome") {
     delete process.env.FAIL_CHROME;
     if (!failed || desktopStatus().running) throw new Error("failed startup left a desktop");
     if ((await (await fetch(`http://127.0.0.1:${occupied.port}`)).text()) !== "unrelated browser") throw new Error("foreign browser was stopped");
-    console.log(JSON.stringify({ isolated: true, persisted: true, reused: true, adopted: true, concurrent: true, cleanup: true }));
+    console.log(JSON.stringify({ isolated: true, persisted: true, reused: true, adopted: true, relaunched: true, concurrent: true, cleanup: true }));
   } finally { await stopDesktop(); occupied.stop(true); }
   process.exit(0);
 }

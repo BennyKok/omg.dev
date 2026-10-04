@@ -28,7 +28,7 @@ const VERSION = "0.1.21";
 
 const COMPUTER_MCP_INSTRUCTIONS = `This server controls the Computer: one shared desktop on this machine, with a real browser running on it.
 
-The desktop is shared, not per-session. A person may be watching it in the omg.dev Computer tab while you work, and they see exactly what you do -- your browsing happens in a visible window on their screen. Call computer_status first; if it is not running, call computer_start.
+The desktop is shared, not per-session. A person may be watching it in the omg.dev Computer tab while you work, and they see exactly what you do -- your browsing happens in a visible window on their screen. Call computer_status first; if it is not running, or browserRunning is false, call computer_start. Start relaunches a browser that has exited without touching the rest of the desktop.
 
 Browser actions act on one visible tab. Prefer computer_click with a CSS selector over raw coordinates: the selector form waits for the element to be attached, visible, stable and unobscured, while coordinates are a guess about layout. Use computer_read to see page text and computer_screenshot when you need to look at the page.`;
 
