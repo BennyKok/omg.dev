@@ -9748,6 +9748,8 @@ export function App() {
                   users={users}
                   repos={repos}
                   scopedProject={projectFilter}
+                  projectCounts={projectSessionCounts}
+                  onProjectChange={changeProjectFilter}
                   onReposChanged={loadCore}
                   codingAgents={codingAgents}
                   defaultUser={composerDefaultOwner(identity, userFilter)}
@@ -23316,6 +23318,7 @@ function NewSessionDialog({
   defaultUser,
   scopedProject,
   projectOptions,
+  projectCounts,
   onProjectChange,
   onClose,
   onCreated,
@@ -23342,12 +23345,14 @@ function NewSessionDialog({
   defaultUser: string;
   // The active project filter from the live view. When it's a specific project
   // (not "__all"), creating a session is locked to that project's repo and the
-  // repo picker is hidden.
+  // repo picker is hidden outside the desktop home composer.
   scopedProject: string;
   // Inline only: render the live project selector as a centered tab overlapping
   // the composer edge. The drawer version keeps project selection in its normal
   // repo controls instead.
   projectOptions?: string[];
+  /** Desktop home: session counts in the shared folder menu. */
+  projectCounts?: ReadonlyMap<string, number>;
   onProjectChange?: (value: string) => void;
   onClose: () => void;
   onCreated: (result?: { launchId?: string; sessionId?: string; session?: Session | null }) => Promise<void>;
@@ -24384,6 +24389,39 @@ function NewSessionDialog({
     setModel(preferredModelFor(key));
   };
 
+  const stageFolderPicker = (
+    <ProjectFolderMenu
+      trigger="chip"
+      value={unassigned ? (allProjects ? "__all" : NO_PROJECT_FILTER) : composerProject}
+      projects={[NO_PROJECT_FILTER, ...new Set(repos.map(repoProject))]}
+      labelFor={(value) => projectFilterLabel(value, shortProject)}
+      counts={projectCounts}
+      onChange={(next) => {
+        if (next === "__all" || next === NO_PROJECT_FILTER) {
+          setFolderPicked(false);
+          onProjectChange?.(next);
+          return;
+        }
+        const target = repos.find((candidate) => repoProject(candidate) === next);
+        if (target) chooseComposerRepo(target);
+      }}
+      canRemove={(project) => repos.some((candidate) => repoProject(candidate) === project)}
+      onRemove={async (project) => {
+        const target = repos.find((candidate) => repoProject(candidate) === project);
+        if (target) {
+          await unlinkRepoFromList(target, onReposChanged);
+          if (target.cwd === selectedRepo) {
+            setRepo("");
+            setFolderPicked(false);
+            onProjectChange?.(NO_PROJECT_FILTER);
+          }
+        }
+      }}
+      onAddFolder={() => openFolderBrowser(false)}
+      onNewFolder={() => openFolderBrowser(true)}
+    />
+  );
+
   const modelControls = (
     <>
       {
@@ -24848,22 +24886,8 @@ function NewSessionDialog({
             {/* The project rail under the mobile header chooses the folder,
                 as on iOS, so the composer carries no folder button. */}
             {inlineExpanded ? resumeButton : null}
-            {/* Desktop has no project rail under a header, so an unscoped
-                stage keeps its folder chip here. */}
-            {variant === "stage" && !projectScoped ? (
-              <FieldPill flat icon={<Folder className="size-3.5 text-muted-foreground" />}>
-                <button
-                  type="button"
-                  onClick={openProjectSheet}
-                  aria-label="Choose project"
-                  className="max-w-40 truncate pr-1 text-xs font-medium outline-none"
-                >
-                  {unassigned
-                    ? selectedRepoName
-                    : repos.find((item) => item.cwd === selectedRepo)?.name || "Choose project"}
-                </button>
-              </FieldPill>
-            ) : null}
+            {/* Desktop home uses the same folder menu as the session rail. */}
+            {variant === "stage" ? stageFolderPicker : null}
             {inlineExpanded ? <span className="flex-1" /> : null}
             {micButton}
             {inlineExpanded ? startButton : null}
