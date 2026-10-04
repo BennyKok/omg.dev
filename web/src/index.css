@@ -455,6 +455,39 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
 }
 
 @layer components {
+  .lfg-attachment-scroll {
+    --attachment-scroll-thumb: color-mix(in srgb, var(--foreground) 20%, transparent);
+  }
+
+  .lfg-attachment-scroll:hover,
+  .lfg-attachment-scroll:focus-within {
+    --attachment-scroll-thumb: color-mix(in srgb, var(--foreground) 35%, transparent);
+  }
+
+  .lfg-attachment-scroll::-webkit-scrollbar {
+    height: 4px;
+  }
+
+  .lfg-attachment-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .lfg-attachment-scroll::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: var(--attachment-scroll-thumb);
+  }
+
+  .lfg-attachment-scroll::-webkit-scrollbar-button {
+    display: none;
+  }
+
+  @supports not selector(::-webkit-scrollbar) {
+    .lfg-attachment-scroll {
+      scrollbar-width: thin;
+      scrollbar-color: var(--attachment-scroll-thumb) transparent;
+    }
+  }
+
   /* The pulled-up session terminal. It sits in a band that is already exactly
      the visible viewport, so a percentage is measured against the space above
      the keyboard rather than the whole screen. Leaving a strip of the session
