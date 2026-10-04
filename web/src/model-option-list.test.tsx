@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mount, type Mounted } from "./test-support/render";
+import { useState } from "react";
 import { OMG_MODELS } from "../../src/omg-models";
 
 const { ModelOptionList } = await import("./App");
@@ -121,4 +122,51 @@ describe("AgentModelPicker pill", () => {
     expect(pill.querySelector("img[data-testid='omg-model-badge']")).toBeNull();
     expect(pill.querySelectorAll("img").length).toBe(1);
   });
+});
+
+
+test("the model dropdown retains thinking changes without closing", async () => {
+  const { AgentModelPicker } = await import("./App");
+  const { ThinkingBar } = await import("./components/agent-setup-sheet");
+  const ui = mount();
+  const changes: string[] = [];
+  function Picker() {
+    const [level, setLevel] = useState("medium");
+    return (
+      <AgentModelPicker
+        options={[{ key: "codex", label: "Codex" }]}
+        agent="codex"
+        agentLabel="Codex"
+        onSelectAgent={() => {}}
+        model="gpt-6.1-sol"
+        models={["gpt-6.1-sol", "gpt-6-luna"]}
+        onModelChange={() => {}}
+        footer={
+          <ThinkingBar
+            options={["low", "medium", "high"].map((id) => ({ id, label: id, selected: id === level }))}
+            onPick={(next) => { changes.push(next); setLevel(next); }}
+          />
+        }
+      />
+    );
+  }
+  try {
+    ui.render(<Picker />);
+    const trigger = () => ui.query("button[aria-label^='Agent Codex']") as HTMLButtonElement;
+    ui.flush(() => trigger().click());
+    await ui.flushAsync();
+    const slider = () => document.body.querySelector('[role="slider"][aria-label="Thinking level"]')!;
+    expect(slider().getAttribute("aria-valuetext")).toBe("medium");
+    ui.flush(() => slider().dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
+    expect(changes).toEqual(["high"]);
+    expect(trigger().getAttribute("aria-expanded")).toBe("true");
+    expect(slider().getAttribute("aria-valuetext")).toBe("high");
+    ui.flush(() => trigger().click());
+    await ui.flushAsync();
+    ui.flush(() => trigger().click());
+    await ui.flushAsync();
+    expect(slider().getAttribute("aria-valuetext")).toBe("high");
+  } finally {
+    ui.cleanup();
+  }
 });
