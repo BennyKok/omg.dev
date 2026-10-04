@@ -24994,7 +24994,7 @@ function NewSessionDialog({
           <div
             role="status"
             aria-live="polite"
-            className="absolute inset-0 z-30 flex items-center justify-center rounded-2xl bg-background/90 backdrop-blur-sm animate-in fade-in-0 duration-150"
+            className="absolute inset-0 z-30 flex items-center justify-center rounded-[inherit] bg-background/90 backdrop-blur-sm animate-in fade-in-0 duration-150"
           >
             <ShimmerText className="text-sm font-medium">Creating session…</ShimmerText>
           </div>
