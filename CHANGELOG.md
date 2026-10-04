@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## October 4, 2026 - Agents can build installable Android apps (v0.6.175)
+
+- Agents can build a signed Android APK of an Expo app in omg Cloud with the new `omg_build_android` tool, and follow it with `omg_build_status`.
+- When the build is done, the APK appears in the session, and the agent sends a link that installs the app on an Android phone.
+- Later builds of the same app install over the earlier version and keep its data.
+- APK files shared in a session download as Android apps, so an Android phone offers to install them.
+
 ## October 4, 2026 - Host Settings can keep the desktop sidebar (v0.6.174)
 
 - Embedded hosts can place their Settings in the desktop content pane. Sidebar selections can return to the same workspace.
