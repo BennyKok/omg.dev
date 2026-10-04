@@ -16490,68 +16490,66 @@ function ThreadComposerBar({ testId, placeholder, onSend, autoFocus, onTyping, m
     <div className={cn("px-4 py-3", files.draggingFiles && "bg-primary/8")} {...files.dropZoneProps}>
       {files.fileInput}
       {files.annotator}
-      <ComposerAttachmentChips
-        className="mb-2"
-        items={files.attachments.map((att) => ({ att }))}
-        disabled={sending}
-        onAnnotate={files.setAnnotatingId}
-        onRemove={files.removeAttachment}
-        onToggleHd={files.setAttachmentHd}
-      />
-      <div
-        className={cn(
-          "lfg-gfield relative z-[1] flex gap-1 rounded-3xl px-2 py-1.5 md:gap-0.5 md:px-1.5 md:py-1",
-          multiline ? "items-end" : "items-center",
-        )}
-      >
-        <Button
-          size="icon"
-          type="button"
-          variant={files.draggingFiles ? "brand-soft" : "tint"}
-          className="size-10 shrink-0 rounded-full md:size-8"
-          onClick={files.openFilePicker}
-          aria-label="Attach files"
-          title="Attach files"
+
+      <div className="lfg-gfield relative z-[1] rounded-3xl px-2 py-1.5 md:px-1.5 md:py-1">
+        <ComposerAttachmentChips
+          className="mb-2 px-1 pt-1"
+          items={files.attachments.map((att) => ({ att }))}
           disabled={sending}
-        >
-          <Plus className="size-4" />
-        </Button>
-        <ComposerTextarea
-          data-testid={testId}
-          onPaste={files.onPasteFiles}
-          autoFocus={autoFocus}
-          value={text}
-          onValueChange={setText}
-          onMultilineChange={setMultiline}
-          plainMentions={pickerMentions}
-          mentionBots={false}
-          onKeyDown={(e) => {
-            if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
-            e.preventDefault();
-            void send();
-          }}
-          placeholder={placeholder}
-          disabled={sending}
-          rows={1}
-          className="min-h-10 resize-none border-0 bg-transparent px-2 py-2 text-base leading-5 shadow-none placeholder:text-muted-foreground focus-visible:border-0 focus-visible:ring-0 md:min-h-8 md:py-1.5 md:text-sm"
+          onAnnotate={files.setAnnotatingId}
+          onRemove={files.removeAttachment}
+          onToggleHd={files.setAttachmentHd}
         />
-        <MicButton
-          className="size-10 shrink-0 rounded-full bg-foreground/[0.06] text-foreground/70 hover:bg-foreground/[0.12] hover:text-foreground md:size-8"
-          baseText={text}
-          onText={setText}
-          onInterim={setText}
-          onAutoSubmit={(said, base) => void send(base.trim() ? `${base.trimEnd()} ${said}` : said)}
-          onCancel={(base) => setText(base)}
-        />
-        {text.trim() || files.attachments.length || sending ? (
-          <ComposerSendButton
-            className="size-10 shrink-0 md:size-8"
-            sending={sending}
-            defaultMode="steer"
-            onSend={() => void send()}
-            onQueue={() => void send()}
+        <div className={cn("flex gap-1 md:gap-0.5", multiline ? "items-end" : "items-center")}>
+          <Button
+            size="icon"
+            type="button"
+            variant={files.draggingFiles ? "brand-soft" : "tint"}
+            className="size-10 shrink-0 rounded-full md:size-8"
+            onClick={files.openFilePicker}
+            aria-label="Attach files"
+            title="Attach files"
+            disabled={sending}
+          >
+            <Plus className="size-4" />
+          </Button>
+          <ComposerTextarea
+            data-testid={testId}
+            onPaste={files.onPasteFiles}
+            autoFocus={autoFocus}
+            value={text}
+            onValueChange={setText}
+            onMultilineChange={setMultiline}
+            plainMentions={pickerMentions}
+            mentionBots={false}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
+              e.preventDefault();
+              void send();
+            }}
+            placeholder={placeholder}
+            disabled={sending}
+            rows={1}
+            className="min-h-10 resize-none border-0 bg-transparent px-2 py-2 text-base leading-5 shadow-none placeholder:text-muted-foreground focus-visible:border-0 focus-visible:ring-0 md:min-h-8 md:py-1.5 md:text-sm"
           />
-        ) : null}
+          <MicButton
+            className="size-10 shrink-0 rounded-full bg-foreground/[0.06] text-foreground/70 hover:bg-foreground/[0.12] hover:text-foreground md:size-8"
+            baseText={text}
+            onText={setText}
+            onInterim={setText}
+            onAutoSubmit={(said, base) => void send(base.trim() ? `${base.trimEnd()} ${said}` : said)}
+            onCancel={(base) => setText(base)}
+          />
+          {text.trim() || files.attachments.length || sending ? (
+            <ComposerSendButton
+              className="size-10 shrink-0 md:size-8"
+              sending={sending}
+              defaultMode="steer"
+              onSend={() => void send()}
+              onQueue={() => void send()}
+            />
+          ) : null}
+        </div>
       </div>
       {error ? <p className="mt-1 px-2 text-[12px] text-destructive">{error}</p> : null}
     </div>
@@ -17339,14 +17337,7 @@ function SessionChatBody({
           <HumanTypingIndicator participants={typingParticipants} />
           <ProjectPreviewCard sessionId={sid} user={session.assignedUser} agentBusy={chatBusy} />
           {files.fileInput}
-          <ComposerAttachmentChips
-            className="mb-2"
-            items={attachments.map((att) => ({ att }))}
-            disabled={sending}
-            onAnnotate={files.setAnnotatingId}
-            onRemove={removeAttachment}
-            onToggleHd={files.setAttachmentHd}
-          />
+
           {/* Held sends rise out of the bar as a narrow island docked to its
               top edge: the next one to go is always visible, the rest fold
               behind a count until tapped. */}
@@ -17376,125 +17367,134 @@ function SessionChatBody({
               // outward instead of looking round.
               // z-[1]: the held-queue card above docks under this bar's
               // top edge, so the bar has to paint over it.
-              "lfg-gfield relative z-[1] flex gap-1 rounded-3xl px-2 py-1.5 transition-[background-color,border-color,box-shadow] duration-300 ease-ios md:gap-0.5 md:px-1.5 md:py-1",
-              messageMultiline ? "items-end" : "items-center",
+              "lfg-gfield relative z-[1] rounded-3xl px-2 py-1.5 transition-[background-color,border-color,box-shadow] duration-300 ease-ios md:px-1.5 md:py-1",
             )}
           >
-            {/* Visible circle stays well under the bar's own height — the taller
-                bar is breathing room around the text, not a mandate to blow the
-                buttons up to match it. size-10 (40px) is still a full touch
-                target on its own on mobile, so no padding trick is needed to
-                keep the tap area honest; md:size-8 is mouse-precision, not
-                touch, so it can go smaller. */}
-            <Button
-              size="icon"
-              type="button"
-              variant={draggingFiles ? "brand-soft" : "tint"}
-              className="size-10 shrink-0 rounded-full md:size-8"
-              onClick={files.openFilePicker}
-              aria-label="Attach files"
-              title="Attach files"
+            <ComposerAttachmentChips
+              className="mb-2 px-1 pt-1"
+              items={attachments.map((att) => ({ att }))}
               disabled={sending}
-            >
-              <Plus className="size-4" />
-            </Button>
-            <ComposerTextarea
-              textareaRef={messageInputRef}
-              data-composer-sid={sid}
-              mentionScope={{ cwd: session.cwd, sessionId: sid }}
-              value={messageText}
-              onValueChange={setMessageText}
-              onMultilineChange={setMessageMultiline}
-              scrollToEndNonce={dictationScrollNonce}
-              onPaste={files.onPasteFiles}
-              onKeyDown={(e) => {
-                // Esc is the inverse of the rail's Enter ("focus into the
-                // composer"): it drops focus so the global single-key
-                // shortcuts (Arrow/j/k) work again. SkillTextarea already
-                // ate Escape if a picker was open, so this only runs when
-                // the plain field has focus.
-                if (e.key === "Escape" && !e.nativeEvent.isComposing) {
+              onAnnotate={files.setAnnotatingId}
+              onRemove={removeAttachment}
+              onToggleHd={files.setAttachmentHd}
+            />
+            <div className={cn("flex gap-1 md:gap-0.5", messageMultiline ? "items-end" : "items-center")}>
+              {/* Visible circle stays well under the bar's own height — the taller
+                  bar is breathing room around the text, not a mandate to blow the
+                  buttons up to match it. size-10 (40px) is still a full touch
+                  target on its own on mobile, so no padding trick is needed to
+                  keep the tap area honest; md:size-8 is mouse-precision, not
+                  touch, so it can go smaller. */}
+              <Button
+                size="icon"
+                type="button"
+                variant={draggingFiles ? "brand-soft" : "tint"}
+                className="size-10 shrink-0 rounded-full md:size-8"
+                onClick={files.openFilePicker}
+                aria-label="Attach files"
+                title="Attach files"
+                disabled={sending}
+              >
+                <Plus className="size-4" />
+              </Button>
+              <ComposerTextarea
+                textareaRef={messageInputRef}
+                data-composer-sid={sid}
+                mentionScope={{ cwd: session.cwd, sessionId: sid }}
+                value={messageText}
+                onValueChange={setMessageText}
+                onMultilineChange={setMessageMultiline}
+                scrollToEndNonce={dictationScrollNonce}
+                onPaste={files.onPasteFiles}
+                onKeyDown={(e) => {
+                  // Esc is the inverse of the rail's Enter ("focus into the
+                  // composer"): it drops focus so the global single-key
+                  // shortcuts (Arrow/j/k) work again. SkillTextarea already
+                  // ate Escape if a picker was open, so this only runs when
+                  // the plain field has focus.
+                  if (e.key === "Escape" && !e.nativeEvent.isComposing) {
+                    e.preventDefault();
+                    e.currentTarget.blur();
+                    return;
+                  }
+                  if (e.key !== "Enter" || e.shiftKey) return;
                   e.preventDefault();
-                  e.currentTarget.blur();
-                  return;
+                  // Cmd/Ctrl+Enter is the keyboard twin of holding the send
+                  // button: the other send mode. Plain Enter takes the default.
+                  if (e.metaKey || e.ctrlKey) {
+                    void sendMessage(undefined, undefined, alternateSendMode);
+                    return;
+                  }
+                  e.currentTarget.form?.requestSubmit();
+                }}
+                placeholder={
+                  attachments.length
+                    ? "Add a note"
+                    : bot
+                      ? `Message ${bot.name}…`
+                      : reviewingShipped
+                      ? "Message to resume"
+                      : // One question, one input: the composer says it is the
+                        // reply box so the card above does not need its own.
+                        sessionQuestions.length
+                        ? "Reply to the question"
+                        : "Message"
                 }
-                if (e.key !== "Enter" || e.shiftKey) return;
-                e.preventDefault();
-                // Cmd/Ctrl+Enter is the keyboard twin of holding the send
-                // button: the other send mode. Plain Enter takes the default.
-                if (e.metaKey || e.ctrlKey) {
-                  void sendMessage(undefined, undefined, alternateSendMode);
-                  return;
-                }
-                e.currentTarget.form?.requestSubmit();
-              }}
-              placeholder={
-                attachments.length
-                  ? "Add a note"
-                  : bot
-                    ? `Message ${bot.name}…`
-                    : reviewingShipped
-                    ? "Message to resume"
-                    : // One question, one input: the composer says it is the
-                      // reply box so the card above does not need its own.
-                      sessionQuestions.length
-                      ? "Reply to the question"
-                      : "Message"
-              }
-              disabled={sending}
-              rows={1}
-              className={cn(
-                // Height and follow-scroll are owned by ComposerTextarea. Chrome
-                // (border/bg/shadow) now belongs to the wrapping bar above, not
-                // the field — this only sizes and grows. Rest at one line; the
-                // shared cap stops before the transcript. text-base (16px) on
-                // mobile, not just a fallback: iOS auto-zooms any focused field
-                // under 16px (see the (pointer: coarse) rule in index.css).
-                // Trimmed a step. The bar was raised deliberately, then the
-                // controls inside it were shrunk, and it was still reading
-                // taller than the room it actually gives the text. The 40px
-                // touch button is the floor on mobile, so min-h-11 keeps the
-                // row honest without crowding it.
-                // min-h-10 is the floor: it matches the 40px touch control
-                // beside it, so the bar cannot get shorter without the row
-                // becoming a button taller than the field it sits in.
-                "min-h-10 resize-none border-0 bg-transparent px-1 py-2 text-base leading-5 shadow-none placeholder:text-muted-foreground focus-visible:border-0 focus-visible:ring-0 md:min-h-8 md:py-1.5 md:text-sm",
-              )}
-            />
-            <MicButton
-              className="size-10 shrink-0 rounded-full bg-foreground/[0.06] text-foreground/70 hover:bg-foreground/[0.12] hover:text-foreground md:size-8"
-              baseText={messageText}
-              onRecordingChange={onDictatingChange}
-              onText={setDictatedMessageText}
-              onInterim={setDictatedMessageText}
-              onAutoSubmit={(text, base) => {
-                const combined = base.trim() ? `${base.trimEnd()} ${text}` : text;
-                void sendMessage(undefined, combined);
-              }}
-              onCancel={(base) => setMessageText(base)}
-            />
-            {/* No Stop button here. It sat between the mic and send for the
-                whole of every turn, one more circle in a bar that should be
-                about what you type. Stop lives in the session's menu (the
-                header's ⋯, the row's right-click, the phone's title sheet)
-                and on Esc or Ctrl/Cmd+. */}
-            {/* Mounted only once there's something to send (typed text, a
-                dictation interim/final already folded into messageText, or an
-                attachment) — an arrow with nothing behind it was dead chrome.
-                `sending` keeps it visible through the round trip even after the
-                text that triggered it is cleared, so it can't vanish mid-send.
-                A live-but-still-silent recording has nothing to show here yet;
-                the mic button's own recording state (red, level-reactive) is
-                what carries "gesture in progress" until words land. */}
-            {messageText.trim() || attachments.length || sending ? (
-              <ComposerSendButton
-                className="size-10 shrink-0 md:size-8"
-                sending={sending}
-                defaultMode={composerSendMode}
-                onSend={() => void sendMessage()}
-                onQueue={() => void sendMessage(undefined, undefined, alternateSendMode)}
+                disabled={sending}
+                rows={1}
+                className={cn(
+                  // Height and follow-scroll are owned by ComposerTextarea. Chrome
+                  // (border/bg/shadow) now belongs to the wrapping bar above, not
+                  // the field — this only sizes and grows. Rest at one line; the
+                  // shared cap stops before the transcript. text-base (16px) on
+                  // mobile, not just a fallback: iOS auto-zooms any focused field
+                  // under 16px (see the (pointer: coarse) rule in index.css).
+                  // Trimmed a step. The bar was raised deliberately, then the
+                  // controls inside it were shrunk, and it was still reading
+                  // taller than the room it actually gives the text. The 40px
+                  // touch button is the floor on mobile, so min-h-11 keeps the
+                  // row honest without crowding it.
+                  // min-h-10 is the floor: it matches the 40px touch control
+                  // beside it, so the bar cannot get shorter without the row
+                  // becoming a button taller than the field it sits in.
+                  "min-h-10 resize-none border-0 bg-transparent px-1 py-2 text-base leading-5 shadow-none placeholder:text-muted-foreground focus-visible:border-0 focus-visible:ring-0 md:min-h-8 md:py-1.5 md:text-sm",
+                )}
               />
-            ) : null}
+              <MicButton
+                className="size-10 shrink-0 rounded-full bg-foreground/[0.06] text-foreground/70 hover:bg-foreground/[0.12] hover:text-foreground md:size-8"
+                baseText={messageText}
+                onRecordingChange={onDictatingChange}
+                onText={setDictatedMessageText}
+                onInterim={setDictatedMessageText}
+                onAutoSubmit={(text, base) => {
+                  const combined = base.trim() ? `${base.trimEnd()} ${text}` : text;
+                  void sendMessage(undefined, combined);
+                }}
+                onCancel={(base) => setMessageText(base)}
+              />
+              {/* No Stop button here. It sat between the mic and send for the
+                  whole of every turn, one more circle in a bar that should be
+                  about what you type. Stop lives in the session's menu (the
+                  header's ⋯, the row's right-click, the phone's title sheet)
+                  and on Esc or Ctrl/Cmd+. */}
+              {/* Mounted only once there's something to send (typed text, a
+                  dictation interim/final already folded into messageText, or an
+                  attachment) — an arrow with nothing behind it was dead chrome.
+                  `sending` keeps it visible through the round trip even after the
+                  text that triggered it is cleared, so it can't vanish mid-send.
+                  A live-but-still-silent recording has nothing to show here yet;
+                  the mic button's own recording state (red, level-reactive) is
+                  what carries "gesture in progress" until words land. */}
+              {messageText.trim() || attachments.length || sending ? (
+                <ComposerSendButton
+                  className="size-10 shrink-0 md:size-8"
+                  sending={sending}
+                  defaultMode={composerSendMode}
+                  onSend={() => void sendMessage()}
+                  onQueue={() => void sendMessage(undefined, undefined, alternateSendMode)}
+                />
+              ) : null}
+            </div>
           </div>
           {reviewingShipped ? (
             <p className="mt-1.5 px-12 text-[11px] text-muted-foreground">
@@ -19078,6 +19078,7 @@ function ForkSessionDialog({
           {files.fileInput}
 
           <div className="lfg-gfield relative rounded-2xl px-2 py-1">
+            {files.attachments.length ? <div className="px-1 pb-2 pt-2">{files.chips}</div> : null}
             <SkillTextarea
               value={prompt}
               onValueChange={setPrompt}
@@ -19110,8 +19111,6 @@ function ForkSessionDialog({
               onCancel={(base) => setPrompt(base)}
             />
           </div>
-
-          {files.attachments.length ? <div className="mt-2">{files.chips}</div> : null}
 
           <div className="mt-3 flex flex-wrap items-center gap-1.5">
             <AgentIconStrip
@@ -24844,6 +24843,19 @@ function NewSessionDialog({
             : undefined
         }
       >
+        <ComposerAttachmentChips
+          className="mb-1 w-full shrink-0 px-1 pt-1"
+          items={[
+            // Chips already handed off to an in-flight session creation can no
+            // longer be edited or removed; live composer attachments always can,
+            // even while their upload is still running.
+            ...pendingUploads.map((att) => ({ att, locked: true })),
+            ...attachments.map((att) => ({ att, locked: false })),
+          ]}
+          onAnnotate={setAnnotatingId}
+          onRemove={removeAttachment}
+          onToggleHd={files.setAttachmentHd}
+        />
         {launching ? (
           <div
             role="status"
@@ -24916,20 +24928,6 @@ function NewSessionDialog({
       {sheetShape && error ? (
         <p className="mt-1.5 truncate px-3 text-xs text-destructive">{error}</p>
       ) : null}
-
-      <ComposerAttachmentChips
-        className="mt-2"
-        items={[
-          // Chips already handed off to an in-flight session creation can no
-          // longer be edited or removed; live composer attachments always can,
-          // even while their upload is still running.
-          ...pendingUploads.map((att) => ({ att, locked: true })),
-          ...attachments.map((att) => ({ att, locked: false })),
-        ]}
-        onAnnotate={setAnnotatingId}
-        onRemove={removeAttachment}
-        onToggleHd={files.setAttachmentHd}
-      />
 
       {/* The drawer variant keeps its always-open controls row; the inline
           composer carries these inside the agent popover instead. This row is
