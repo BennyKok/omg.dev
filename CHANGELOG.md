@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 4, 2026 - Agents in use (v0.6.169)
+
+- A Computer now reports how many agents are in use and its plan limit. The plan card in Settings on app.omg.dev can show "3 of 5 agents in use".
+
 ## October 4, 2026 - Computer page loads less code (v0.6.168)
 
 - The Roles and tool access page now loads when you open it. The Computer page on app.omg.dev loads about 34 KB less code at start.
