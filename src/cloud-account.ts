@@ -130,6 +130,12 @@ const GUEST_PROXY_HOST = "169.254.0.1";
 const OAUTH_SCOPES = "openid email omg:apps omg:computer offline_access";
 const REFRESH_WINDOW_MS = 5 * 60 * 1000;
 
+// One refresh per credential file across every CloudAccount in the process.
+// The refresh token rotates and is single use, so two instances (the server's
+// account and the title generator's) refreshing the same file at once would
+// spend it twice and sign the box out.
+const refreshesInFlight = new Map<string, Promise<CloudCredentials | null>>();
+
 const base64Url = (bytes: Buffer) =>
   bytes.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
@@ -286,7 +292,6 @@ export function createCloudAccount(options: CloudAccountOptions = {}): CloudAcco
   const now = options.now ?? Date.now;
   const pendingTtlMs = options.pendingTtlMs ?? 10 * 60 * 1000;
   const pending = new Map<string, PendingLogin>();
-  let refreshing: Promise<CloudCredentials | null> | null = null;
 
   const prunePending = () => {
     for (const [state, entry] of pending) {
@@ -363,9 +368,11 @@ export function createCloudAccount(options: CloudAccountOptions = {}): CloudAcco
     if (creds.kind === "oauth" && creds.refreshToken) {
       // One refresh at a time. A burst of callers on an expiring token must
       // not each spend the refresh token, which is single use on rotation.
-      refreshing ??= refresh(creds).finally(() => {
-        refreshing = null;
-      });
+      let refreshing = refreshesInFlight.get(credentialPath);
+      if (!refreshing) {
+        refreshing = refresh(creds).finally(() => refreshesInFlight.delete(credentialPath));
+        refreshesInFlight.set(credentialPath, refreshing);
+      }
       const refreshed = await refreshing;
       if (refreshed) return refreshed.token;
     }

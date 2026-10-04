@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { cloudApiBaseUrl, loadCloudCredentials, type FetchLike } from "./cloud-account.ts";
+import { cloudApiBaseUrl, createCloudAccount, type FetchLike } from "./cloud-account.ts";
 import { OMG_CHEAPEST_MODEL } from "./omg-models.ts";
 import { stripOmgRuntimeContract } from "./omg-capabilities.ts";
 import { redactSecrets } from "./redact-secrets.ts";
@@ -84,25 +84,30 @@ export type AutoTitleOptions = {
  * one-shot model work: session titles, and a thread's quick @omg answers
  * (src/threads.ts). Null when the box has no omg account.
  */
-export function omgChatCompletionsEndpoint(options: AutoTitleOptions = {}): { url: string; token?: string } | null {
+export function omgChatCompletionsEndpoint(
+  options: AutoTitleOptions = {},
+): Promise<{ url: string; token?: string } | null> {
   return titleEndpoint(options);
 }
 
-function titleEndpoint(options: AutoTitleOptions): { url: string; token?: string } | null {
+async function titleEndpoint(options: AutoTitleOptions): Promise<{ url: string; token?: string } | null> {
   const env = options.env ?? process.env;
   const guestBase = env.OMG_AI_URL?.trim().replace(/\/+$/, "");
   if (guestBase) {
     return { url: `${guestBase.replace(/\/openai\/v1$/, "")}/openai/v1/chat/completions` };
   }
-  const credentials = loadCloudCredentials(
-    options.credentialPath ?? join(homedir(), ".omg", "credentials.json"),
-  );
-  if (!credentials) return null;
+  // Through the account, not a raw read of credentials.json. An OAuth access
+  // token lives about an hour; reading the file directly sent an expired one
+  // and the route answered 401 until the user signed in again.
+  const token = await createCloudAccount({
+    credentialPath: options.credentialPath ?? join(homedir(), ".omg", "credentials.json"),
+    ...(options.fetch ? { fetch: options.fetch } : {}),
+  })
+    .getAccessToken()
+    .catch(() => null);
+  if (!token) return null;
   const base = (options.cloudBaseUrl ?? cloudApiBaseUrl()).replace(/\/+$/, "");
-  return {
-    url: `${base}/api/cli/llm/v1/chat/completions`,
-    token: credentials.token,
-  };
+  return { url: `${base}/api/cli/llm/v1/chat/completions`, token };
 }
 
 /** Turn an OpenAI-compatible response into a safe, single-line card title. */
@@ -132,7 +137,7 @@ export async function generateSessionTitle(
   if (!prompt) return null;
   const task = prepareTitleInput(prompt);
   if (!task) return null;
-  const endpoint = titleEndpoint(options);
+  const endpoint = await titleEndpoint(options);
   if (!endpoint) return null;
   try {
     const response = await (options.fetch ?? globalThis.fetch)(endpoint.url, {

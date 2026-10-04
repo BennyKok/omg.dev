@@ -1238,7 +1238,7 @@ const THREAD_REPLY_MODEL = "anthropic/claude-sonnet-4.6";
 
 const threadDeps: ThreadDeps = {
   complete: async (system, user) => {
-    const endpoint = omgChatCompletionsEndpoint();
+    const endpoint = await omgChatCompletionsEndpoint();
     if (!endpoint) return null;
     const response = await fetch(endpoint.url, {
       method: "POST",

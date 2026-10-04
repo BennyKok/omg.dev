@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cleanGeneratedSessionTitle, generateSessionTitle, SESSION_TITLE_MODEL } from "./session-auto-title.ts";
@@ -44,6 +44,44 @@ describe("automatic session titles", () => {
       const request = requests[0]!;
       expect(request.url).toBe("https://backend.example/api/cli/llm/v1/chat/completions");
       expect(request.headers.get("authorization")).toBe("Bearer secret");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // An OAuth access token lives about an hour. Reading credentials.json
+  // directly sent the expired one, the route answered 401, and Rename with AI
+  // failed until the user signed in again.
+  test("refreshes an expired OAuth token before calling the CLI route", async () => {
+    const root = mkdtempSync(join(tmpdir(), "omg-auto-title-"));
+    const credentialPath = join(root, "credentials.json");
+    await Bun.write(credentialPath, JSON.stringify({
+      token: "expired",
+      refreshToken: "refresh-1",
+      clientId: "client-1",
+      expiresAt: Date.now() - 60_000,
+      kind: "oauth",
+    }));
+    let refreshes = 0;
+    const llmAuth: Array<string | null> = [];
+    try {
+      const title = await generateSessionTitle("Diagnose the launch failure", {
+        env: {},
+        credentialPath,
+        cloudBaseUrl: "https://backend.example",
+        fetch: async (input, init) => {
+          if (String(input).endsWith("/oauth2/token")) {
+            refreshes += 1;
+            return Response.json({ access_token: "fresh", refresh_token: "refresh-2", expires_in: 3600 });
+          }
+          llmAuth.push(new Headers(init?.headers).get("authorization"));
+          return Response.json({ choices: [{ message: { content: "Diagnose Launch Failure" } }] });
+        },
+      });
+      expect(title).toBe("Diagnose Launch Failure");
+      expect(refreshes).toBe(1);
+      expect(llmAuth).toEqual(["Bearer fresh"]);
+      expect(JSON.parse(readFileSync(credentialPath, "utf8"))).toMatchObject({ token: "fresh", refreshToken: "refresh-2" });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
