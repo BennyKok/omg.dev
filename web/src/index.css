@@ -25,6 +25,8 @@
   --foreground: #000000;
   --card: #ffffff;
   --card-foreground: #000000;
+  /* The desktop stage panel: content raised off the page the rail sits on. */
+  --stage-surface: #ffffff;
   --popover: #ffffff;
   --popover-foreground: #000000;
   --primary: #007aff; /* iOS accent blue */
@@ -261,6 +263,8 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
      for why. --popover moves with it. */
   --card: #242428;
   --card-foreground: #ffffff;
+  /* One step off --background, not --card: the panel holds cards of its own. */
+  --stage-surface: #1c1c1e;
   --popover: #242428;
   --popover-foreground: #ffffff;
   --primary: #0a84ff;
@@ -913,6 +917,14 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
       black calc(100% - 0.75rem),
       transparent 100%
     );
+  }
+
+  /* The transcript fades out under the pane header instead of meeting it at
+     a rule. Same mask approach as .session-list-scroll: purely visual, the
+     whole scroll surface stays interactive. */
+  .chat-stream-fade {
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, black 1.5rem);
+    mask-image: linear-gradient(to bottom, transparent 0, black 1.5rem);
   }
 
   /* Host slots are opt-in: an unfilled one must cost nothing. The host portals
@@ -2434,8 +2446,9 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
      the element's own background instead: an opaque fill clipped to padding-box
      over a gradient clipped to border-box, above a 1px transparent border (the
      .tool-call-row / .user-bubble technique). Works on inputs, textareas, and
-     any wrapper. Set --lfg-field-fill to change the interior; on focus the edge
-     warms to the accent so the field reads as active without a layout shift.
+     any wrapper. Set --lfg-field-fill to change the interior; on focus the same
+     neutral edge brightens, with no accent colour and no glow ring, so the
+     field reads as active without a layout shift.
      `bg-clip-*`/`bg-*` utilities would fight the background shorthand, so drop
      those and lean on this class for the surface. */
   .lfg-gfield {
@@ -2460,12 +2473,11 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
       linear-gradient(var(--lfg-field-fill), var(--lfg-field-fill)) padding-box,
       linear-gradient(
         160deg,
-        color-mix(in oklab, var(--primary) 80%, white),
-        color-mix(in oklab, var(--primary) 45%, transparent) 45%,
-        color-mix(in oklab, var(--primary) 28%, transparent) 72%,
-        color-mix(in oklab, var(--primary) 62%, white)
+        color-mix(in oklab, var(--foreground) 40%, transparent),
+        color-mix(in oklab, var(--foreground) 16%, transparent) 44%,
+        color-mix(in oklab, var(--foreground) 10%, transparent) 72%,
+        color-mix(in oklab, var(--foreground) 26%, transparent)
       ) border-box;
-    box-shadow: 0 0 0 3px color-mix(in oklab, var(--primary) 22%, transparent);
   }
 
   /* Server status indicator: glass gradient border + green gradient fill,

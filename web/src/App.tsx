@@ -12462,6 +12462,17 @@ function LiveView({
 // promotes it to a persistent column. The stage never reorders on its own, so a
 // session flipping working↔idle no longer makes the layout jump — that motion
 // is confined to the small status dot in the rail. Up to 4 columns.
+/**
+ * One desktop stage pane: content raised off the page the rail sits on, the
+ * way a desktop chat app separates content from navigation. Each pane in a
+ * multi-column stage is its own panel, so the grid gap reads as space between
+ * them rather than as a rule. Clips its child to the radius.
+ */
+// The ring is the panel's hairline edge. It is a box-shadow, so overflow-hidden
+// does not clip it and it costs no layout.
+const STAGE_PANEL =
+  "overflow-hidden rounded-2xl bg-[var(--stage-surface)] ring-1 ring-foreground/[0.07] [--lfg-pane-bg:var(--stage-surface)]";
+
 function RailStage({
   sessions = [],
   shippedReview,
@@ -13793,7 +13804,10 @@ function RailStage({
   return (
     <div ref={workspaceRef} className="flex h-full min-h-0">
       <aside
-        className="flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-r border-border transition-[width] duration-200 ease-ios"
+        // No border-r: the rail sits on the page and the stage beside it is a
+        // raised, rounded panel (STAGE_PANEL), so the edge of that panel is
+        // the separation. A rule here drew a second line next to it.
+        className="flex h-full min-h-0 shrink-0 flex-col overflow-hidden transition-[width] duration-200 ease-ios"
         // 320, not 280. The rows carry the roster's 16px title now, and at 280
         // that truncated to about two words — "operation fix om…" — which is
         // not a title, it is a prefix. The type size is the shared thing; the
@@ -13888,7 +13902,7 @@ function RailStage({
           </div>
         )}
         <div className="session-list-scroll min-h-0 flex-1 overflow-y-auto px-1.5 py-2">
-          {railSurface === "chat" ? botRailList : <PullToThread fill={false} onStart={() => onOpenThread?.(NEW_THREAD_ID)}>
+          {railSurface === "chat" ? botRailList : <>
           {/* Leads the list, the way New bot leads the roster: it belongs to
               the thing it adds to, under the switch bar that says which list
               that is. It used to sit in the chrome above, sharing a row with
@@ -13949,7 +13963,7 @@ function RailStage({
             renderItem={renderRailItem}
             // Threads, as on the iPad rail: a group like the others, only when
             // there are some, rows drawn exactly like session rows with no
-            // agent mark. A thread starts from a pull at the top of the rail.
+            // agent mark. A thread starts from the + on its header (hover).
             leading={
               railSurface === "sessions" ? (
                 <ThreadRailGroup
@@ -13958,6 +13972,7 @@ function RailStage({
                   collapsed={railCollapsed}
                   dense
                   onOpen={(id) => onOpenThread?.(id)}
+                  onNew={onOpenThread ? () => onOpenThread(NEW_THREAD_ID) : undefined}
                 />
               ) : null
             }
@@ -13968,7 +13983,7 @@ function RailStage({
             headerless={showFolderMenu && projectFilter !== "__all"}
             dense
           />
-          </PullToThread>}
+          </>}
         </div>
         {/* Host-owned footer. A host embedding LFG as its whole desktop surface
             (omg) has nowhere to put its own top-level navigation: this layout
@@ -14085,12 +14100,12 @@ function RailStage({
         )}
       >
         {stageSheet ? (
-          <div className="h-full min-h-0 min-w-0 overflow-hidden">
+          <div className={cn("h-full min-h-0 min-w-0", STAGE_PANEL)}>
             <AutoAgentPageInStage.Provider value>{stageSheet}</AutoAgentPageInStage.Provider>
           </div>
         ) : openThreadId && railSurface === "sessions" ? (
-          // Flat, as a session column is on the stage: no card border or radius.
-          <div className="h-full min-h-0 min-w-0 overflow-hidden">
+          // A panel, as a session column is on the stage.
+          <div className={cn("h-full min-h-0 min-w-0", STAGE_PANEL)}>
             <ThreadChat
               threadId={openThreadId}
               viewer={threadViewer}
@@ -14103,16 +14118,18 @@ function RailStage({
             />
           </div>
         ) : railSurface === "auto" || railSurface === "page" ? (
-          <div className="h-full min-h-0 overflow-y-auto px-2 pt-2">{stageOverride}</div>
+          <div className={cn("h-full min-h-0", STAGE_PANEL)}>
+            <div className="h-full min-h-0 overflow-y-auto px-2 pt-2">{stageOverride}</div>
+          </div>
         ) : railSurface === "board" ? (
           <>
-            <div className="h-full min-h-0 min-w-0 overflow-hidden pt-2">
+            <div className={cn("h-full min-h-0 min-w-0 pt-2", STAGE_PANEL)}>
               <StageOpenSessionContext.Provider value={openSession}>
                 {stageOverride}
               </StageOpenSessionContext.Provider>
             </div>
             {activeStageColumns.map(({ sid, session }) => (
-              <div key={sid} data-stage-sid={sid} className="h-full min-h-0 min-w-0">
+              <div key={sid} data-stage-sid={sid} className={cn("h-full min-h-0 min-w-0", STAGE_PANEL)}>
                 {/* Closing goes back to the board alone. */}
                 {renderStageCard(session, () => closeColumn(sid))}
               </div>
@@ -14124,7 +14141,7 @@ function RailStage({
               <div
                 key={sid}
                 data-stage-sid={sid}
-                className="h-full min-h-0 min-w-0"
+                className={cn("h-full min-h-0 min-w-0", STAGE_PANEL)}
               >
                 {/* A lone pane has nothing to "close back to" — hide the X
                     until a second column exists. */}
@@ -14138,19 +14155,21 @@ function RailStage({
             );
           })
         ) : railSurface === "chat" ? (
-          <BotStagePlaceholder
-            bot={selectedBot}
-            onNewBot={onNewBot}
-            onStarted={async () => {
-              await Promise.all([onRefreshBots?.(), onRefresh()]);
-            }}
-          />
+          <div className={cn("h-full min-h-0 min-w-0", STAGE_PANEL)}>
+            <BotStagePlaceholder
+              bot={selectedBot}
+              onNewBot={onNewBot}
+              onStarted={async () => {
+                await Promise.all([onRefreshBots?.(), onRefresh()]);
+              }}
+            />
+          </div>
         ) : (
           // An empty stage IS the composer. There is no "No session open"
           // card any more: with nothing to show, the useful thing to show is
           // the place to start one. The hosted coach, when present, sits
           // above it.
-          <div className="flex h-full min-h-0 flex-1 flex-col">
+          <div className={cn("flex h-full min-h-0 flex-1 flex-col", STAGE_PANEL)}>
             {coach ? (
               <div className="mx-auto w-full max-w-xl shrink-0 px-4 pt-4 text-left">{coach}</div>
             ) : null}
@@ -14506,7 +14525,7 @@ function RailGroup({
   return (
     <div className="mb-2">
       {!collapsed ? (
-        <div className="flex items-center px-2 pb-1 pt-1 text-[11px] font-semibold text-muted-foreground/70">
+        <div className="group/rail-head flex items-center px-2 pb-1 pt-1 text-[11px] font-semibold text-muted-foreground/70">
           {onFilter ? (
             <button
               type="button"
@@ -14605,8 +14624,14 @@ function RailGroup({
 /**
  * Threads in the session list, as on the iPad rail: a group like Pinned or a
  * folder, drawn only when there are threads. Each shortcut is a compact,
- * title-only row without an agent mark. There is no New button; a pull at the
- * top of the list starts a thread (PullToThread).
+ * title-only row without an agent mark.
+ *
+ * Starting one: on the phone a pull at the top of the list (PullToThread). On
+ * the desktop rail, `onNew` puts a + on this header that shows while the
+ * pointer is over it. A scroll past the top of a list is not a gesture a
+ * mouse or trackpad user looks for, and it fired by accident on an ordinary
+ * scroll back to the top. With `onNew` the header stays even with no threads,
+ * since it is then the only way to start the first one.
  */
 export function ThreadRailGroup({
   threads,
@@ -14614,18 +14639,39 @@ export function ThreadRailGroup({
   collapsed,
   dense = false,
   onOpen,
+  onNew,
 }: {
   threads: ThreadSummary[];
   activeId: string | null;
   collapsed: boolean;
   dense?: boolean;
   onOpen: (id: string) => void;
+  /** Desktop: a hover + on the header starts a thread. */
+  onNew?: () => void;
 }) {
   // A thread row has no mark, so the 56px rail would draw it as an empty,
   // invisible button. Four threads left a blank band above the sessions.
-  if (!threads.length || collapsed) return null;
+  if (collapsed || (!threads.length && !onNew)) return null;
   return (
-    <RailGroup label="Threads" count={threads.length} collapsed={collapsed} foldKey="__threads">
+    <RailGroup
+      label="Threads"
+      count={threads.length}
+      collapsed={collapsed}
+      foldKey="__threads"
+      action={
+        onNew ? (
+          <button
+            type="button"
+            onClick={onNew}
+            title="New thread"
+            aria-label="New thread"
+            className="-my-1 flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 opacity-0 transition-[opacity,color,background-color] hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover/rail-head:opacity-100"
+          >
+            <Plus className="size-3.5" />
+          </button>
+        ) : undefined
+      }
+    >
       {threads.map((thread) => (
         <RailRow
           key={thread.id}
@@ -16487,7 +16533,9 @@ function ThreadComposerBar({ testId, placeholder, onSend, autoFocus, onTyping, m
     }
   };
   return (
-    <div className={cn("px-4 py-3", files.draggingFiles && "bg-primary/8")} {...files.dropZoneProps}>
+    // md: the side pad centres a 48rem field under the thread's reading
+    // column (max-w-3xl inside px-3), never below 0.75rem in a narrow pane.
+    <div className={cn("px-4 py-3 md:px-[max(0.75rem,calc((100%-48rem)/2))]", files.draggingFiles && "bg-primary/8")} {...files.dropZoneProps}>
       {files.fileInput}
       {files.annotator}
 
@@ -16696,6 +16744,15 @@ function SessionChatBody({
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
   const [dictationScrollNonce, setDictationScrollNonce] = useState(0);
   const [messageMultiline, setMessageMultiline] = useState(false);
+  // The bar morphs like the new-session composer (and iOS HomeComposer): one
+  // row at rest, then the field on its own line with the controls under it
+  // while focused or filled. Text then always sits above the controls instead
+  // of between them, which read as lopsided once it wrapped.
+  const [composerFocused, setComposerFocused] = useState(false);
+  const composerBlurTimerRef = useRef<number | null>(null);
+  useEffect(() => () => {
+    if (composerBlurTimerRef.current != null) window.clearTimeout(composerBlurTimerRef.current);
+  }, []);
   // Shared composer file plumbing (same hook the new-session and fork composers
   // use): eager uploads, drag & drop, paste, annotate.
   const files = useComposerAttachments({
@@ -17265,6 +17322,24 @@ function SessionChatBody({
     [sid, onError],
   );
 
+  const composerExpanded = composerFocused || !!messageText.trim() || attachments.length > 0;
+  // One element, placed in whichever slot the bar's shape gives it: before
+  // the field at rest, at the head of the control row when expanded.
+  const attachButton = (
+    <Button
+      size="icon"
+      type="button"
+      variant={draggingFiles ? "brand-soft" : "tint"}
+      className="size-10 shrink-0 rounded-full md:size-8"
+      onClick={files.openFilePicker}
+      aria-label="Attach files"
+      title="Attach files"
+      disabled={sending}
+    >
+      <Plus className="size-4" />
+    </Button>
+  );
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <StaleCapabilitiesBanner session={session} />
@@ -17325,8 +17400,11 @@ function SessionChatBody({
             // field sitting in the page. Wider screens keep the tighter inset:
             // the transcript column is already centred there, so the bar is
             // not near an edge to begin with.
-            "relative overflow-x-clip bg-background px-4 pb-[calc(0.5rem+var(--lfg-safe-bottom))] pt-1.5 transition-colors md:px-2",
-            "before:pointer-events-none before:absolute before:inset-x-0 before:-top-6 before:h-8 before:bg-gradient-to-t before:from-background before:to-transparent before:content-['']",
+            // md: the side pad centres a 48rem field, the transcript's reading
+            // column (max-w-3xl), and never drops under 0.5rem in a narrow
+            // pane. Padding percentages resolve against the form's width.
+            "relative overflow-x-clip bg-[var(--lfg-pane-bg,var(--background))] px-4 pb-[calc(0.5rem+var(--lfg-safe-bottom))] pt-1.5 transition-colors md:px-[max(0.5rem,calc((100%-48rem)/2))]",
+            "before:pointer-events-none before:absolute before:inset-x-0 before:-top-6 before:h-8 before:bg-gradient-to-t before:from-[var(--lfg-pane-bg,var(--background))] before:to-transparent before:content-['']",
             draggingFiles && "bg-primary/8",
             launching && "lfg-composer-launching",
           )}
@@ -17367,9 +17445,32 @@ function SessionChatBody({
               // outward instead of looking round.
               // z-[1]: the held-queue card above docks under this bar's
               // top edge, so the bar has to paint over it.
-              "lfg-gfield relative z-[1] rounded-3xl px-2 py-1.5 transition-[background-color,border-color,box-shadow] duration-300 ease-ios md:px-1.5 md:py-1",
+              "lfg-gfield relative z-[1] rounded-3xl transition-[background-color,border-color,box-shadow,padding] duration-200 ease-ios motion-reduce:transition-none",
+              composerExpanded ? "px-2.5 pb-2 pt-2 md:px-2 md:pb-1.5 md:pt-1.5" : "px-2 py-1.5 md:px-1.5 md:py-1",
             )}
+            onFocus={(event) => {
+              if (!(event.target instanceof HTMLTextAreaElement)) return;
+              if (composerBlurTimerRef.current != null) window.clearTimeout(composerBlurTimerRef.current);
+              composerBlurTimerRef.current = null;
+              setComposerFocused(true);
+            }}
+            onBlur={(event) => {
+              if (!(event.target instanceof HTMLTextAreaElement)) return;
+              // Collapse a moment later, so a press on a control that is
+              // about to move still lands on it.
+              if (composerBlurTimerRef.current != null) window.clearTimeout(composerBlurTimerRef.current);
+              composerBlurTimerRef.current = window.setTimeout(() => {
+                composerBlurTimerRef.current = null;
+                setComposerFocused(false);
+              }, 200);
+            }}
           >
+            {/* Visible circle stays well under the bar's own height — the taller
+                bar is breathing room around the text, not a mandate to blow the
+                buttons up to match it. size-10 (40px) is still a full touch
+                target on its own on mobile, so no padding trick is needed to
+                keep the tap area honest; md:size-8 is mouse-precision, not
+                touch, so it can go smaller. */}
             <ComposerAttachmentChips
               className="mb-2 px-1 pt-1"
               items={attachments.map((att) => ({ att }))}
@@ -17378,122 +17479,129 @@ function SessionChatBody({
               onRemove={removeAttachment}
               onToggleHd={files.setAttachmentHd}
             />
-            <div className={cn("flex gap-1 md:gap-0.5", messageMultiline ? "items-end" : "items-center")}>
-              {/* Visible circle stays well under the bar's own height — the taller
-                  bar is breathing room around the text, not a mandate to blow the
-                  buttons up to match it. size-10 (40px) is still a full touch
-                  target on its own on mobile, so no padding trick is needed to
-                  keep the tap area honest; md:size-8 is mouse-precision, not
-                  touch, so it can go smaller. */}
-              <Button
-                size="icon"
-                type="button"
-                variant={draggingFiles ? "brand-soft" : "tint"}
-                className="size-10 shrink-0 rounded-full md:size-8"
-                onClick={files.openFilePicker}
-                aria-label="Attach files"
-                title="Attach files"
-                disabled={sending}
-              >
-                <Plus className="size-4" />
-              </Button>
-              <ComposerTextarea
-                textareaRef={messageInputRef}
-                data-composer-sid={sid}
-                mentionScope={{ cwd: session.cwd, sessionId: sid }}
-                value={messageText}
-                onValueChange={setMessageText}
-                onMultilineChange={setMessageMultiline}
-                scrollToEndNonce={dictationScrollNonce}
-                onPaste={files.onPasteFiles}
-                onKeyDown={(e) => {
-                  // Esc is the inverse of the rail's Enter ("focus into the
-                  // composer"): it drops focus so the global single-key
-                  // shortcuts (Arrow/j/k) work again. SkillTextarea already
-                  // ate Escape if a picker was open, so this only runs when
-                  // the plain field has focus.
-                  if (e.key === "Escape" && !e.nativeEvent.isComposing) {
-                    e.preventDefault();
-                    e.currentTarget.blur();
-                    return;
-                  }
-                  if (e.key !== "Enter" || e.shiftKey) return;
+            {/* The morphing row: one line at rest, the field over its
+                controls while focused or filled. */}
+            <div
+              className={cn(
+                "flex",
+                composerExpanded
+                  ? "flex-col items-stretch gap-1"
+                  : cn("gap-1 md:gap-0.5", messageMultiline ? "items-end" : "items-center"),
+              )}
+            >
+            {/* The field keeps its child index in both shapes, so React
+                updates it in place and focus survives the morph. */}
+            {composerExpanded ? null : attachButton}
+            <ComposerTextarea
+              textareaRef={messageInputRef}
+              data-composer-sid={sid}
+              mentionScope={{ cwd: session.cwd, sessionId: sid }}
+              value={messageText}
+              onValueChange={setMessageText}
+              onMultilineChange={setMessageMultiline}
+              scrollToEndNonce={dictationScrollNonce}
+              onPaste={files.onPasteFiles}
+              onKeyDown={(e) => {
+                // Esc is the inverse of the rail's Enter ("focus into the
+                // composer"): it drops focus so the global single-key
+                // shortcuts (Arrow/j/k) work again. SkillTextarea already
+                // ate Escape if a picker was open, so this only runs when
+                // the plain field has focus.
+                if (e.key === "Escape" && !e.nativeEvent.isComposing) {
                   e.preventDefault();
-                  // Cmd/Ctrl+Enter is the keyboard twin of holding the send
-                  // button: the other send mode. Plain Enter takes the default.
-                  if (e.metaKey || e.ctrlKey) {
-                    void sendMessage(undefined, undefined, alternateSendMode);
-                    return;
-                  }
-                  e.currentTarget.form?.requestSubmit();
-                }}
-                placeholder={
-                  attachments.length
-                    ? "Add a note"
-                    : bot
-                      ? `Message ${bot.name}…`
-                      : reviewingShipped
-                      ? "Message to resume"
-                      : // One question, one input: the composer says it is the
-                        // reply box so the card above does not need its own.
-                        sessionQuestions.length
-                        ? "Reply to the question"
-                        : "Message"
+                  e.currentTarget.blur();
+                  return;
                 }
-                disabled={sending}
-                rows={1}
-                className={cn(
-                  // Height and follow-scroll are owned by ComposerTextarea. Chrome
-                  // (border/bg/shadow) now belongs to the wrapping bar above, not
-                  // the field — this only sizes and grows. Rest at one line; the
-                  // shared cap stops before the transcript. text-base (16px) on
-                  // mobile, not just a fallback: iOS auto-zooms any focused field
-                  // under 16px (see the (pointer: coarse) rule in index.css).
-                  // Trimmed a step. The bar was raised deliberately, then the
-                  // controls inside it were shrunk, and it was still reading
-                  // taller than the room it actually gives the text. The 40px
-                  // touch button is the floor on mobile, so min-h-11 keeps the
-                  // row honest without crowding it.
-                  // min-h-10 is the floor: it matches the 40px touch control
-                  // beside it, so the bar cannot get shorter without the row
-                  // becoming a button taller than the field it sits in.
-                  "min-h-10 resize-none border-0 bg-transparent px-1 py-2 text-base leading-5 shadow-none placeholder:text-muted-foreground focus-visible:border-0 focus-visible:ring-0 md:min-h-8 md:py-1.5 md:text-sm",
-                )}
+                if (e.key !== "Enter" || e.shiftKey) return;
+                e.preventDefault();
+                // Cmd/Ctrl+Enter is the keyboard twin of holding the send
+                // button: the other send mode. Plain Enter takes the default.
+                if (e.metaKey || e.ctrlKey) {
+                  void sendMessage(undefined, undefined, alternateSendMode);
+                  return;
+                }
+                e.currentTarget.form?.requestSubmit();
+              }}
+              placeholder={
+                attachments.length
+                  ? "Add a note"
+                  : bot
+                    ? `Message ${bot.name}…`
+                    : reviewingShipped
+                    ? "Message to resume"
+                    : // One question, one input: the composer says it is the
+                      // reply box so the card above does not need its own.
+                      sessionQuestions.length
+                      ? "Reply to the question"
+                      : "Message"
+              }
+              disabled={sending}
+              rows={1}
+              className={cn(
+                // Height and follow-scroll are owned by ComposerTextarea. Chrome
+                // (border/bg/shadow) now belongs to the wrapping bar above, not
+                // the field — this only sizes and grows. Rest at one line; the
+                // shared cap stops before the transcript. text-base (16px) on
+                // mobile, not just a fallback: iOS auto-zooms any focused field
+                // under 16px (see the (pointer: coarse) rule in index.css).
+                // Trimmed a step. The bar was raised deliberately, then the
+                // controls inside it were shrunk, and it was still reading
+                // taller than the room it actually gives the text. The 40px
+                // touch button is the floor on mobile, so min-h-11 keeps the
+                // row honest without crowding it.
+                // min-h-10 is the floor: it matches the 40px touch control
+                // beside it, so the bar cannot get shorter without the row
+                // becoming a button taller than the field it sits in.
+                "min-h-10 resize-none border-0 bg-transparent px-1 py-2 text-base leading-5 shadow-none placeholder:text-muted-foreground focus-visible:border-0 focus-visible:ring-0 md:min-h-8 md:py-1.5 md:text-sm",
+              )}
+            />
+            {/* The control row exists in both shapes, so the mic never
+                remounts when the first dictated words expand the bar. */}
+            <div
+              className={cn("flex shrink-0 items-center", composerExpanded ? "gap-1.5" : "gap-1 md:gap-0.5", messageMultiline && !composerExpanded && "self-end")}
+              // Keep the field focused while a control is pressed, so the bar
+              // does not collapse under the pointer.
+              onMouseDown={(event) => {
+                if (composerExpanded) event.preventDefault();
+              }}
+            >
+            {composerExpanded ? attachButton : null}
+            {composerExpanded ? <span className="flex-1" /> : null}
+            <MicButton
+              className="size-10 shrink-0 rounded-full bg-foreground/[0.06] text-foreground/70 hover:bg-foreground/[0.12] hover:text-foreground md:size-8"
+              baseText={messageText}
+              onRecordingChange={onDictatingChange}
+              onText={setDictatedMessageText}
+              onInterim={setDictatedMessageText}
+              onAutoSubmit={(text, base) => {
+                const combined = base.trim() ? `${base.trimEnd()} ${text}` : text;
+                void sendMessage(undefined, combined);
+              }}
+              onCancel={(base) => setMessageText(base)}
+            />
+            {/* No Stop button here. It sat between the mic and send for the
+                whole of every turn, one more circle in a bar that should be
+                about what you type. Stop lives in the session's menu (the
+                header's ⋯, the row's right-click, the phone's title sheet)
+                and on Esc or Ctrl/Cmd+. */}
+            {/* Mounted only once there's something to send (typed text, a
+                dictation interim/final already folded into messageText, or an
+                attachment) — an arrow with nothing behind it was dead chrome.
+                `sending` keeps it visible through the round trip even after the
+                text that triggered it is cleared, so it can't vanish mid-send.
+                A live-but-still-silent recording has nothing to show here yet;
+                the mic button's own recording state (red, level-reactive) is
+                what carries "gesture in progress" until words land. */}
+            {messageText.trim() || attachments.length || sending ? (
+              <ComposerSendButton
+                className="size-10 shrink-0 md:size-8"
+                sending={sending}
+                defaultMode={composerSendMode}
+                onSend={() => void sendMessage()}
+                onQueue={() => void sendMessage(undefined, undefined, alternateSendMode)}
               />
-              <MicButton
-                className="size-10 shrink-0 rounded-full bg-foreground/[0.06] text-foreground/70 hover:bg-foreground/[0.12] hover:text-foreground md:size-8"
-                baseText={messageText}
-                onRecordingChange={onDictatingChange}
-                onText={setDictatedMessageText}
-                onInterim={setDictatedMessageText}
-                onAutoSubmit={(text, base) => {
-                  const combined = base.trim() ? `${base.trimEnd()} ${text}` : text;
-                  void sendMessage(undefined, combined);
-                }}
-                onCancel={(base) => setMessageText(base)}
-              />
-              {/* No Stop button here. It sat between the mic and send for the
-                  whole of every turn, one more circle in a bar that should be
-                  about what you type. Stop lives in the session's menu (the
-                  header's ⋯, the row's right-click, the phone's title sheet)
-                  and on Esc or Ctrl/Cmd+. */}
-              {/* Mounted only once there's something to send (typed text, a
-                  dictation interim/final already folded into messageText, or an
-                  attachment) — an arrow with nothing behind it was dead chrome.
-                  `sending` keeps it visible through the round trip even after the
-                  text that triggered it is cleared, so it can't vanish mid-send.
-                  A live-but-still-silent recording has nothing to show here yet;
-                  the mic button's own recording state (red, level-reactive) is
-                  what carries "gesture in progress" until words land. */}
-              {messageText.trim() || attachments.length || sending ? (
-                <ComposerSendButton
-                  className="size-10 shrink-0 md:size-8"
-                  sending={sending}
-                  defaultMode={composerSendMode}
-                  onSend={() => void sendMessage()}
-                  onQueue={() => void sendMessage(undefined, undefined, alternateSendMode)}
-                />
-              ) : null}
+            ) : null}
+            </div>
             </div>
           </div>
           {reviewingShipped ? (
@@ -19543,12 +19651,12 @@ const onTouchStart = (e: ReactTouchEvent) => {
         className={cn(
           "live-pane relative z-[1] flex h-[22rem] touch-pan-y flex-col overflow-hidden border text-card-foreground transition-[height,transform,border-color,box-shadow] duration-300 ease-ios md:static md:transition-[border-color,box-shadow]",
           entering && "lfg-card-in",
-          // The stage pane is the desktop workspace surface, not a card sitting
-          // on it: no radius, no card fill, no shadow. It keeps the 1px border
-          // box so the dictating/needsYou edges below still have something to
-          // colour. `variant === "grid"` is narrow-only and keeps the card.
+          // The stage pane fills its STAGE_PANEL: no card fill and no shadow of
+          // its own, but the panel's radius, so the dictating/needsYou edges
+          // below follow the panel's corners instead of being clipped by them.
+          // `variant === "grid"` is narrow-only and keeps the card.
           variant === "stage"
-            ? "md:h-full"
+            ? "md:h-full md:rounded-2xl"
             : "rounded-xl bg-card md:h-[clamp(30rem,72vh,46rem)]",
           // Listening: soften the border to primary and throw a faint glow ring.
           // Waiting on an answer gets the same primary edge, one step quieter,
@@ -19566,7 +19674,10 @@ const onTouchStart = (e: ReactTouchEvent) => {
         <div
           ref={headRef}
           className={cn(
-            "flex min-w-0 items-center gap-2 border-b border-border px-3",
+            "flex min-w-0 items-center gap-2 px-3",
+            // The stage header has no rule under it: the transcript fades out
+            // beneath it (chat-stream-fade) instead.
+            variant !== "stage" && "border-b border-border",
             // The stage header holds one line of title, so 60px was mostly air.
             // The grid card keeps 60px: a participant row can sit under the
             // title there, and the mobile feed measures this element for the
@@ -20919,14 +21030,19 @@ const ChatStream = memo(function ChatStream({
         if (intent !== "none") void maybeLoadOlder(intent);
       }}
       className={cn(
-        "chat-stream lfg-transcript-session min-h-0 flex-1 overflow-y-auto bg-background px-3 pt-3",
+        // --lfg-pane-bg: the surface this transcript sits on. A stage panel
+        // sets it; everywhere else it falls back to the page.
+        "chat-stream lfg-transcript-session chat-stream-fade min-h-0 flex-1 overflow-y-auto bg-[var(--lfg-pane-bg,var(--background))] px-3 pt-3",
         // Only reserve room for the floating "files changed / Review" bar
         // while it's actually shown, so it never overlaps the last message.
         diffBarVisible ? "pb-16" : "pb-3",
       )}
     >
       {visibleMessages.length || busy ? (
-        <ConversationContent>
+        // A reading column, not the pane's width: on a wide screen a line that
+        // runs the whole pane is too long to read. The composer below is held
+        // to the same width (COMPOSER_COLUMN_PAD).
+        <ConversationContent className="mx-auto w-full max-w-3xl">
           {loadingOlder ? (
             <div className="flex justify-center py-1 text-xs text-muted-foreground">
               <Loader2 className="mr-1.5 size-3.5 animate-spin" />
