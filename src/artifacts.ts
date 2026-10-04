@@ -90,6 +90,8 @@ const VIDEO_TYPES: Record<string, string> = {
 // which relaxes the disposition cannot silently become an execution bug.
 const FILE_TYPES: Record<string, string> = {
   ".pdf": "application/pdf",
+  // Android offers to install an APK only when it is served with this type.
+  ".apk": "application/vnd.android.package-archive",
   ".mp3": "audio/mpeg",
   ".m4a": "audio/mp4",
   ".aac": "audio/aac",
