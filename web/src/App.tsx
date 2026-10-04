@@ -347,7 +347,7 @@ import {
   sortFindings,
   type AgentReport,
 } from "./lib/finding-groups";
-import { resolveComposerRepo } from "./lib/composer-repo";
+import { composerStartsUnassigned, resolveComposerRepo } from "./lib/composer-repo";
 import {
   browseFolderWithRecovery,
   folderRecoveryNotice,
@@ -9082,8 +9082,45 @@ export function App() {
       />
     </Suspense>
   );
+  // Notifications and Artifacts ride the workspace too, the way Schedules
+  // does: rail on the left, the page in the stage. Narrow layouts keep the
+  // standalone pages below (and their keep-alive mount).
+  const pageInWorkspace = (tab === "notifications" || tab === "artifacts") && isWide;
+  const liveSessionIdSet = new Set(
+    liveSessions.flatMap((s) =>
+      [s.sessionId, s.nativeSessionId].filter((x): x is string => !!x),
+    ),
+  );
+  const notificationsPage = (active: boolean) => (
+    <Suspense fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>}>
+      <ShippedPage
+        active={active}
+        notificationIdentity={identity}
+        liveSessionIds={liveSessionIdSet}
+        onOpenSession={(sid) => {
+          openHistoricalSession({
+            sessionId: sid,
+            reviewLabel: "Question",
+          });
+        }}
+        onReviewSession={openShippedSession}
+      />
+    </Suspense>
+  );
+  const artifactsPage = (active: boolean) => (
+    <Suspense fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>}>
+      <ShippedPage
+        artifactsOnly
+        active={active}
+        liveSessionIds={new Set()}
+        onOpenSession={() => {}}
+        onOpenArtifactSession={openArtifactSession}
+      />
+    </Suspense>
+  );
   const workspaceVisible =
-    (tab === "live" || botsInWorkspace || autoInWorkspace || boardInWorkspace) && !botEditor;
+    (tab === "live" || botsInWorkspace || autoInWorkspace || boardInWorkspace || pageInWorkspace) &&
+    !botEditor;
   const liveDesktopWorkspace = workspaceVisible && isWide;
   // Surfaces that render their own chrome, so the app header must not also
   // render over them. Each one owes the user a way back by its own means:
@@ -9252,11 +9289,20 @@ export function App() {
             // shared roster is session data and stays in this surface. Pages
             // also has no other entry point on mobile, so the island carries
             // the roster filter, host actions, then our overflow menu.
-            <NavIsland className="shrink-0">
-              {/* Still a card here: the host portals its own actions into the
-                  slot below, so this island is usually holding several
-                  controls rather than the avatar alone. */}
-              <div className="glass-island flex h-11 items-center gap-1.5 rounded-full px-2">
+            <NavIsland
+              className={cn(
+                "shrink-0",
+                // The frame follows the card: none while the slot is empty.
+                "[&:not(:has([data-lfg-host-slot]:not(:empty)))]:bg-none [&:not(:has([data-lfg-host-slot]:not(:empty)))]:p-0 [&:not(:has([data-lfg-host-slot]:not(:empty)))]:shadow-none",
+              )}
+            >
+              {/* A card only while the host has docked something into the
+                  slot below. Current hosts put nothing here on a phone (the
+                  machine switcher and upgrade chip moved into the drawer), so
+                  the avatar stands alone, as in the unhosted header. An older
+                  host that still docks gets the card back: see
+                  .lfg-dock-island in index.css. */}
+              <div className="glass-island lfg-dock-island flex h-11 items-center gap-1.5 rounded-full">
                 {tab === "auto" ? null : (
                   <UserFilterMenu
                     value={userFilter}
@@ -9287,7 +9333,9 @@ export function App() {
                      into an older build must keep its gear, or the surface
                      ends up with no way to settings at all. */
                   data-lfg-host-settings={hostSettingsInMenu ? "menu" : undefined}
-                  className="flex items-center gap-1.5"
+                  // Out of the flex run while unfilled, so its gap does not
+                  // push the avatar off the corner.
+                  className="flex items-center gap-1.5 empty:hidden"
                 />
 
               </div>
@@ -9572,10 +9620,26 @@ export function App() {
               onOpenSessions={() => setTab("live")}
               onOpenAuto={() => setTab("auto")}
               railSurface={
-                tab === "bots" ? "chat" : tab === "auto" ? "auto" : tab === "board" ? "board" : "sessions"
+                tab === "bots"
+                  ? "chat"
+                  : tab === "auto"
+                    ? "auto"
+                    : tab === "board"
+                      ? "board"
+                      : pageInWorkspace
+                        ? "page"
+                        : "sessions"
               }
               stageOverride={
-                autoInWorkspace ? autoManageView : boardInWorkspace ? boardStageView : null
+                autoInWorkspace
+                  ? autoManageView
+                  : boardInWorkspace
+                    ? boardStageView
+                    : pageInWorkspace
+                      ? tab === "notifications"
+                        ? notificationsPage(true)
+                        : artifactsPage(true)
+                      : null
               }
               stageSheet={openFinding || openReport ? autoSheet : null}
               onCloseStageSheet={openFinding || openReport ? closeAutoSheet : undefined}
@@ -9768,41 +9832,14 @@ export function App() {
           />
           </Suspense>
         ) : null}
-        {keepShipped || tab === "notifications" ? (
+        {!isWide && (keepShipped || tab === "notifications") ? (
           <div className={tab === "notifications" ? undefined : "hidden"} aria-hidden={tab !== "notifications"}>
-            <Suspense fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>}>
-            <ShippedPage
-              active={tab === "notifications"}
-              notificationIdentity={identity}
-              liveSessionIds={
-                new Set(
-                  liveSessions.flatMap((s) =>
-                    [s.sessionId, s.nativeSessionId].filter((x): x is string => !!x),
-                  ),
-                )
-              }
-              onOpenSession={(sid) => {
-                openHistoricalSession({
-                  sessionId: sid,
-                  reviewLabel: "Question",
-                });
-              }}
-              onReviewSession={openShippedSession}
-            />
-            </Suspense>
+            {notificationsPage(tab === "notifications")}
           </div>
         ) : null}
-        {keepArtifacts || tab === "artifacts" ? (
+        {!isWide && (keepArtifacts || tab === "artifacts") ? (
           <div className={tab === "artifacts" ? undefined : "hidden"} aria-hidden={tab !== "artifacts"}>
-            <Suspense fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>}>
-              <ShippedPage
-                artifactsOnly
-                active={tab === "artifacts"}
-                liveSessionIds={new Set()}
-                onOpenSession={() => {}}
-                onOpenArtifactSession={openArtifactSession}
-              />
-            </Suspense>
+            {artifactsPage(tab === "artifacts")}
           </div>
         ) : null}
         {tab === "changelog" ? (
@@ -11813,7 +11850,7 @@ function LiveView({
   onOpenSessions?: () => void;
   onOpenAuto: () => void;
   /** Which list the rail is showing. Bots ride the same rail as sessions. */
-  railSurface?: "sessions" | "chat" | "auto" | "board";
+  railSurface?: "sessions" | "chat" | "auto" | "board" | "page";
   bots?: PersistentBot[];
   selectedBotId?: string | null;
   onOpenBot?: (id: string, conversationId?: string | null) => void;
@@ -12477,7 +12514,7 @@ function RailStage({
   onOpenBots: () => void;
   onOpenSessions?: () => void;
   onOpenAuto: () => void;
-  railSurface?: "sessions" | "chat" | "auto" | "board";
+  railSurface?: "sessions" | "chat" | "auto" | "board" | "page";
   bots?: PersistentBot[];
   selectedBotId?: string | null;
   onOpenBot?: (id: string, conversationId?: string | null) => void;
@@ -12517,8 +12554,9 @@ function RailStage({
   /** The empty stage's content: the in-pane new-session composer. */
   stageComposer: StageComposerRender;
   /**
-   * Replaces the stage columns entirely while `railSurface === "auto"`: the
-   * Schedules list lives in the pane, the session rail stays on the left.
+   * Replaces the stage columns entirely while `railSurface` is "auto" or
+   * "page": Schedules, Notifications or Artifacts live in the pane, the
+   * session rail stays on the left.
    */
   stageOverride?: ReactNode;
   /**
@@ -12890,7 +12928,7 @@ function RailStage({
       // From Schedules, picking a session in the rail goes back to Chat: the
       // stage is showing the schedule list, and a preview set underneath it
       // would be an open session nobody can see.
-      if (railSurface === "auto") onOpenSessions();
+      if (railSurface === "auto" || railSurface === "page") onOpenSessions();
       // A report in the stage gives way to the session picked beside it.
       onCloseStageSheet?.();
       // A session picked while a thread fills the stage replaces the thread.
@@ -13635,7 +13673,11 @@ function RailStage({
         : stageColumns;
   // The board pane counts toward the grid shape.
   // An open thread takes the whole stage.
-  const stagePaneCount = stageSheet || (openThreadId && railSurface === "sessions")
+  // A page in the stage (Schedules, Notifications, Artifacts) is one pane.
+  const stagePaneCount = stageSheet ||
+    (openThreadId && railSurface === "sessions") ||
+    railSurface === "auto" ||
+    railSurface === "page"
     ? 1
     : activeStageColumns.length + (railSurface === "board" ? 1 : 0);
 
@@ -13887,8 +13929,10 @@ function RailStage({
               ) : null
             }
             // The folder menu above names the scope, so a header under it
-            // repeating "lfg · 9" said the same thing twice.
-            headerless={showFolderMenu}
+            // repeating "lfg · 9" said the same thing twice. Under All
+            // projects the menu names no folder, so the headers come back to
+            // say which folder each run belongs to (and scope to it).
+            headerless={showFolderMenu && projectFilter !== "__all"}
             dense
           />
           </PullToThread>}
@@ -14025,7 +14069,7 @@ function RailStage({
               onBack={onCloseThread}
             />
           </div>
-        ) : railSurface === "auto" ? (
+        ) : railSurface === "auto" || railSurface === "page" ? (
           <div className="h-full min-h-0 overflow-y-auto px-2 pt-2">{stageOverride}</div>
         ) : railSurface === "board" ? (
           <>
@@ -23345,6 +23389,10 @@ function NewSessionDialog({
   // user it is tagged with (src/policy/roles.ts members); a member cannot
   // pick another role, and the owner's sessions are owner sessions.
   const [repo, setRepo] = useState(() => localStorage.getItem("lfg_v2_repo") || "");
+  // Under "All projects" the composer starts with no folder; a folder picked
+  // here is what moves it into one. Cleared when the scope changes.
+  const [folderPicked, setFolderPicked] = useState(false);
+  useEffect(() => setFolderPicked(false), [scopedProject]);
   const [model, setModel] = useState(
     () =>
       (view.showComposerModels ? "" : preferredModelFor(agent)) ||
@@ -23444,9 +23492,14 @@ function NewSessionDialog({
   const cycleAgentRef = useRef<(dir: 1 | -1) => void>(() => {});
   const [agentIconDir, setAgentIconDir] = useState<1 | -1>(1);
   const [agentIconNonce, setAgentIconNonce] = useState(0);
+  // The desktop stage wears the mobile composer too: one card, the agent mark
+  // that opens the agent sheet, and the actions inside the field. The stage
+  // has room, so it is always in the expanded shape.
+  const sheetShape = variant === "inline" || variant === "stage";
   const inlineExpanded =
-    variant === "inline" &&
-    (composerFocused || !!prompt.trim() || attachments.length > 0 || pendingUploads.length > 0);
+    variant === "stage" ||
+    (variant === "inline" &&
+      (composerFocused || !!prompt.trim() || attachments.length > 0 || pendingUploads.length > 0));
 
   // Own the agent-icon gesture end-to-end with pointer events (one code path
   // for mouse-drag, touch and pen) plus wheel/trackpad. Base UI's trigger opens
@@ -23857,9 +23910,9 @@ function NewSessionDialog({
   // This is the whole hazard of the feature: the normal fallback chain would
   // quietly hand the chat the last folder you used, and the person would have
   // started a session in a real repository while the UI said "No project".
-  const unassigned = scopedProject === NO_PROJECT_FILTER;
+  const unassigned = composerStartsUnassigned({ scopedProject, pickedFolder: folderPicked });
   const scopedRepo =
-    scopedProject !== "__all" && !unassigned
+    scopedProject !== "__all" && scopedProject !== NO_PROJECT_FILTER
       ? repos.find((r) => repoProject(r) === scopedProject)
       : undefined;
   const projectScoped = !!scopedRepo;
@@ -23916,6 +23969,7 @@ function NewSessionDialog({
   }
 
   function chooseComposerRepo(next: Repo) {
+    setFolderPicked(true);
     setRepo(next.cwd);
     localStorage.setItem("lfg_v2_repo", next.cwd);
     if (onProjectChange) onProjectChange(repoProject(next));
@@ -24481,7 +24535,7 @@ function NewSessionDialog({
         }))
       : [];
   const agentSheet =
-    variant === "inline" ? (
+    sheetShape ? (
       <AgentSetupSheet
         open={agentPopoverOpen}
         onOpenChange={setAgentPopoverOpen}
@@ -24561,7 +24615,7 @@ function NewSessionDialog({
   const micButton = (
     <MicButton
       minimal
-      className={cn("size-9 shrink-0", variant !== "inline" && "absolute bottom-1 right-1")}
+      className={cn("size-9 shrink-0", !sheetShape && "absolute bottom-1 right-1")}
       silenceMs={2500}
       baseText={prompt}
       onText={(text, base) => {
@@ -24583,8 +24637,8 @@ function NewSessionDialog({
     <Button
       size="icon-sm"
       type="button"
-      variant={draggingFiles ? "brand-soft" : variant === "inline" ? "ghost" : "outline"}
-      className={cn("size-8 rounded-full", variant !== "inline" && "shadow-sm")}
+      variant={draggingFiles ? "brand-soft" : sheetShape ? "ghost" : "outline"}
+      className={cn("size-8 rounded-full", !sheetShape && "shadow-sm")}
       onClick={files.openFilePicker}
       aria-label="Attach files"
       title="Attach files"
@@ -24595,7 +24649,7 @@ function NewSessionDialog({
   // Mobile sends with the iOS button: a round arrow, filled when there is
   // something to send. Thinking is set in the agent sheet, so the desktop
   // Start button's hold-to-choose-thinking is not needed here.
-  const startButton = variant === "inline" ? (
+  const startButton = sheetShape ? (
     <button
       type="submit"
       disabled={!canSubmit}
@@ -24669,7 +24723,7 @@ function NewSessionDialog({
           // Inline follows iOS HomeComposer. At rest it is one row: agent,
           // field, attach, mic. Focus or content gives the field its own line
           // and moves agent, attach, mic and Start under it.
-          variant === "inline"
+          sheetShape
             ? cn(
                 "flex overflow-visible transition-[border-radius,padding] duration-200 ease-out motion-reduce:transition-none",
                 inlineExpanded
@@ -24733,7 +24787,9 @@ function NewSessionDialog({
           placeholder={attachments.length ? "Add a note for the files…" : "What should we work on?"}
           className={cn(
             "border-0 bg-transparent text-base leading-relaxed shadow-none focus-visible:border-0 focus-visible:ring-0",
-            variant === "inline"
+            variant === "stage"
+              ? "min-h-24 max-h-[42dvh] px-1 py-1"
+              : variant === "inline"
               ? cn(
                   "min-h-9 px-1 py-1.5",
                   // At rest the field is empty by definition (any content
@@ -24745,7 +24801,7 @@ function NewSessionDialog({
               : "min-h-40 max-h-[42dvh] px-1 py-1 pr-10",
           )}
         />
-        {variant === "inline" ? (
+        {sheetShape ? (
           <div
             // Tighter at rest, so a narrow phone keeps width for the field.
             className={cn("flex shrink-0 items-center", inlineExpanded ? "gap-2" : "gap-0.5")}
@@ -24762,6 +24818,22 @@ function NewSessionDialog({
             {/* The project rail under the mobile header chooses the folder,
                 as on iOS, so the composer carries no folder button. */}
             {inlineExpanded ? resumeButton : null}
+            {/* Desktop has no project rail under a header, so an unscoped
+                stage keeps its folder chip here. */}
+            {variant === "stage" && !projectScoped ? (
+              <FieldPill flat icon={<Folder className="size-3.5 text-muted-foreground" />}>
+                <button
+                  type="button"
+                  onClick={openProjectSheet}
+                  aria-label="Choose project"
+                  className="max-w-40 truncate pr-1 text-xs font-medium outline-none"
+                >
+                  {unassigned
+                    ? selectedRepoName
+                    : repos.find((item) => item.cwd === selectedRepo)?.name || "Choose project"}
+                </button>
+              </FieldPill>
+            ) : null}
             {inlineExpanded ? <span className="flex-1" /> : null}
             {micButton}
             {inlineExpanded ? startButton : null}
@@ -24770,7 +24842,7 @@ function NewSessionDialog({
           micButton
         )}
       </div>
-      {variant === "inline" && error ? (
+      {sheetShape && error ? (
         <p className="mt-1.5 truncate px-3 text-xs text-destructive">{error}</p>
       ) : null}
 
@@ -24796,7 +24868,7 @@ function NewSessionDialog({
       {/* The drawer and the stage keep an always-open controls row and an
           action row. The inline composer carries the controls in the agent
           sheet and its actions inside the field, as on iOS. */}
-      {variant !== "inline" ? (
+      {!sheetShape ? (
         <>
           <div className="mt-2 flex flex-wrap items-center gap-1.5">{controlsInner}</div>
           <div className={cn("flex items-center gap-2", compact ? "mt-2" : "mt-3")}>
@@ -24866,7 +24938,7 @@ function NewSessionDialog({
         // header no longer carries that menu, which would have made __all a
         // one-way door — the composer's own sheet offers it instead. Same row
         // the desktop rail's sheet already shows.
-        allSelected={allProjects}
+        allSelected={allProjects && !unassigned}
         onSelectAll={
           onProjectChange
             ? () => {

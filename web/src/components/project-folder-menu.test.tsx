@@ -15,7 +15,8 @@ beforeEach(() => {
 afterEach(() => ui.cleanup());
 
 const projects = [NO_PROJECT_FILTER, "alpha", "beta", "gamma"];
-const labelFor = (value: string) => (value === NO_PROJECT_FILTER ? "No project" : value);
+const labelFor = (value: string) =>
+  value === NO_PROJECT_FILTER ? "No project" : value === "__all" ? "All projects" : value;
 // The global document, not the harness module's window: another file in the
 // same run may have installed its own, and the popover portals into this one.
 const body = () => document.body;
@@ -43,9 +44,22 @@ test("picks a folder from the dropdown", async () => {
   expect(byLabel("Folder: alpha")).not.toBeNull();
   ui.flush(() => byLabel("Folder: alpha")!.click());
   await ui.flushAsync();
-  expect(menuRows()).toEqual(["No project", "alpha", "beta", "gamma"]);
+  expect(menuRows()).toEqual(["All projects", "No project", "alpha", "beta", "gamma"]);
   ui.flush(() => (body().querySelector('button[title="beta"][aria-pressed]') as HTMLButtonElement).click());
   expect(picked).toEqual(["beta"]);
+});
+
+test("offers All projects and names it on the trigger", async () => {
+  const picked: string[] = [];
+  ui.render(<ProjectFolderMenu value="alpha" projects={projects} labelFor={labelFor} onChange={(v) => picked.push(v)} />);
+  ui.flush(() => byLabel("Folder: alpha")!.click());
+  await ui.flushAsync();
+  ui.flush(() =>
+    (body().querySelector('button[title="All projects"][aria-pressed]') as HTMLButtonElement).click(),
+  );
+  expect(picked).toEqual(["__all"]);
+  ui.render(<ProjectFolderMenu value="__all" projects={projects} labelFor={labelFor} onChange={() => {}} />);
+  expect(byLabel("Folder: All projects")).not.toBeNull();
 });
 
 test("manage hides a folder from the menu and removes one from the list", async () => {
@@ -75,7 +89,7 @@ test("manage hides a folder from the menu and removes one from the list", async 
   expect(removed).toEqual(["alpha"]);
   ui.flush(() => byLabel("Back to folders")!.click());
   // Hidden folders leave the menu. The current one stays so it keeps its tick.
-  expect(menuRows()).toEqual(["No project", "alpha", "gamma"]);
+  expect(menuRows()).toEqual(["All projects", "No project", "alpha", "gamma"]);
 });
 
 test("the reorder handle moves a folder with the arrow keys", async () => {
@@ -115,7 +129,7 @@ test("the chip trigger names the folder and opens the same menu", async () => {
   expect(chip.className).toContain("max-w-[10rem]");
   ui.flush(() => chip.click());
   await ui.flushAsync();
-  expect(menuRows()).toEqual(["No project", "alpha", "beta", "gamma"]);
+  expect(menuRows()).toEqual(["All projects", "No project", "alpha", "beta", "gamma"]);
 });
 
 test("No project reads as a selection: no icon on its row or the trigger, folders keep theirs", async () => {
@@ -125,7 +139,8 @@ test("No project reads as a selection: no icon on its row or the trigger, folder
   ui.flush(() => trigger.click());
   await ui.flushAsync();
   const rows = Array.from(body().querySelectorAll('[data-testid="project-folder-menu"] button[aria-pressed]'));
-  // The check mark is the one svg on the No project row; each folder row adds a folder icon.
-  expect(rows[0]!.querySelectorAll("svg")).toHaveLength(1);
-  expect(rows[1]!.querySelectorAll("svg")).toHaveLength(2);
+  // Row 0 is All projects. The check mark is the one svg on the No project
+  // row; each folder row adds a folder icon.
+  expect(rows[1]!.querySelectorAll("svg")).toHaveLength(1);
+  expect(rows[2]!.querySelectorAll("svg")).toHaveLength(2);
 });

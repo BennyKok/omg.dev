@@ -72,10 +72,14 @@ describe("resolveInitialProjectFilter", () => {
     );
   });
 
-  test("an unscoped list opens on no project, never on a folder nobody picked", () => {
-    // A new chat from Home goes where this points. Opening on a folder sent a
-    // first request into an old test repo (walkthrough 2026-09-29).
-    expect(resolveInitialProjectFilter({ saved: "__all", options })).toBe(NO_PROJECT_FILTER);
+  test("keeps All projects once it was picked", () => {
+    // The composer, not this resolver, keeps a new chat out of a folder
+    // nobody picked (composerStartsUnassigned).
+    expect(resolveInitialProjectFilter({ saved: "__all", options })).toBe("__all");
+  });
+
+  test("a folder that is gone opens on no project, never on another folder", () => {
+    expect(resolveInitialProjectFilter({ saved: "gone", options })).toBe(NO_PROJECT_FILTER);
   });
 
   test("a folder that has gone away falls to no project", () => {

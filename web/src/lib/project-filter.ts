@@ -135,6 +135,9 @@ export function resolveInitialProjectFilter(input: {
 }): string {
   const { saved, options } = input;
   if (!options.length) return saved;
-  if (saved !== "__all" && options.includes(saved)) return saved;
+  // "__all" is only ever saved by a pick (the cache expires, and an empty one
+  // reads as no project), so it is kept. A new chat under it still starts with
+  // no folder: see composerStartsUnassigned.
+  if (saved === "__all" || options.includes(saved)) return saved;
   return options.includes(NO_PROJECT_FILTER) ? NO_PROJECT_FILTER : options[0]!;
 }

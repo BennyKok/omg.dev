@@ -28,6 +28,7 @@ import {
   FolderMinus,
   FolderPlus,
   GripVertical,
+  Layers,
   Loader2,
   Search,
   SlidersHorizontal,
@@ -111,7 +112,7 @@ export function ProjectFolderMenu({
     setOpen(false);
   };
 
-  const label = value === "__all" ? "All folders" : labelFor(value);
+  const label = labelFor(value);
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
@@ -168,6 +169,16 @@ export function ProjectFolderMenu({
                   </div>
                 ) : null}
                 <div className="min-h-0 flex-1 overflow-y-auto">
+                  {/* Every folder at once. A view, not a place: a new chat
+                      under it still starts with no folder. */}
+                  {!needle ? (
+                    <PickRow
+                      selected={value === "__all"}
+                      icon={<Layers className="size-3.5" />}
+                      label={labelFor("__all")}
+                      onClick={() => choose("__all")}
+                    />
+                  ) : null}
                   {hasNoProject && !needle ? (
                     <PickRow
                       selected={value === NO_PROJECT_FILTER}
