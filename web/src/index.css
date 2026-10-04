@@ -903,6 +903,17 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
     isolation: isolate;
   }
 
+  /* The hosted phone header's island. It paints only while the host has
+     docked controls into its header-actions slot; alone, the avatar needs no
+     card. Padding follows the card. */
+  .lfg-dock-island:has([data-lfg-host-slot]:not(:empty)) {
+    padding-inline: 0.5rem;
+  }
+
+  .lfg-dock-island:not(:has([data-lfg-host-slot]:not(:empty)))::before {
+    content: none;
+  }
+
   .glass-island::before {
     position: absolute;
     z-index: -1;

@@ -8,10 +8,11 @@ import {
 } from "./fast-mode";
 
 describe("normal Fast mode", () => {
-  test("supports eligible Codex models and Claude", () => {
+  test("supports eligible Codex models only", () => {
     expect(composerSupportsFastMode({ agent: "codex-aisdk", model: "gpt-5.6-luna" })).toBe(true);
     expect(composerSupportsFastMode({ agent: "codex-aisdk", model: "gpt-5.3-codex-spark" })).toBe(false);
-    expect(composerSupportsFastMode({ agent: "aisdk", model: "opus" })).toBe(true);
+    expect(composerSupportsFastMode({ agent: "aisdk", model: "opus" })).toBe(false);
+    expect(composerSupportsFastMode({ agent: "claude", model: "opus" })).toBe(false);
     expect(composerSupportsFastMode({ agent: "opencode", model: "glm" })).toBe(false);
   });
 

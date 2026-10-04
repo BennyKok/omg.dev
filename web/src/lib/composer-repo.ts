@@ -1,3 +1,5 @@
+import { NO_PROJECT_FILTER } from "./project-filter";
+
 // Which repo the new-session composer starts on.
 //
 // The rule is "last selection, else the first available project". The subtlety
@@ -23,4 +25,21 @@ export function resolveComposerRepo(input: {
   if (!repos.length) return lastCwd || "";
   if (lastCwd && repos.some((repo) => repo.cwd === lastCwd)) return lastCwd;
   return repos[0]?.cwd || "";
+}
+
+/**
+ * Whether a new chat from the composer starts with no folder.
+ *
+ * "No project" scope always does. So does "All projects" until the person
+ * picks a folder in this composer: the unscoped list names no folder, and the
+ * remembered-or-first fallback above once sent a first request into an old
+ * test repo nobody chose (walkthrough 2026-09-29).
+ */
+export function composerStartsUnassigned(input: {
+  scopedProject: string;
+  /** A folder was picked in this composer since it opened. */
+  pickedFolder: boolean;
+}): boolean {
+  if (input.scopedProject === NO_PROJECT_FILTER) return true;
+  return input.scopedProject === "__all" && !input.pickedFolder;
 }
