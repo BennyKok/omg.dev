@@ -571,6 +571,10 @@ const CodingAgentsPage = lazyWithReload("CodingAgentsPage", () =>
 // noVNC and the RFB plumbing only load when someone opens the Computer.
 const ComputerPage = lazyWithReload("ComputerPage", () => import("./views/computer-page"));
 const BoardPage = lazyWithReload("BoardPage", () => import("./views/board-page"));
+// Roles and connectors are a Settings destination; keep them off the eager path.
+const ConnectorsPage = lazyWithReload("ConnectorsPage", () =>
+  import("./views/connectors-page").then((m) => ({ default: m.ConnectorsPage })),
+);
 const ResumeSessionSheet = lazyWithReload("ResumeSessionSheet", () =>
   import("./views/resume-session-sheet"),
 );
@@ -657,7 +661,7 @@ import {
 import { RemoteAccessSettingsSection } from "./components/remote-access-settings";
 import { CloudAccountSettingsSection } from "./components/cloud-account-settings";
 import { MachineSwitcher } from "./components/machine-switcher";
-import { ConnectorsPage, ConnectorsRow } from "./views/connectors-page";
+import { ConnectorsRow } from "./views/connectors-row";
 import {
   UpdateNavButton,
   UpdateProvider,
@@ -9873,7 +9877,11 @@ export function App() {
             onChange={(customInstructions) => updateSettings({ customInstructions })}
           />
         ) : null}
-        {tab === "connectors" ? <ConnectorsPage /> : null}
+        {tab === "connectors" ? (
+          <Suspense fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>}>
+            <ConnectorsPage />
+          </Suspense>
+        ) : null}
         {tab === "computer" ? (
           <Suspense
             fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>}
