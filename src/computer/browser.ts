@@ -21,7 +21,7 @@
 //     screen sees the agent's tab vanish the moment it finishes. We hold one
 //     long-lived view and activate its target so the tab is the visible one.
 
-import { cdpWebSocketUrl, desktopStatus } from "./desktop.ts";
+import { browserGeneration, cdpWebSocketUrl, desktopStatus, startDesktop } from "./desktop.ts";
 import type { BrowserLoginCookie } from "../../packages/protocol/src/browser-login";
 
 /** Import only cookies already validated against the user's approved origin. */
@@ -80,6 +80,8 @@ interface WebViewLike {
 }
 
 let view: WebViewLike | null = null;
+// The Chrome launch the view is attached to. See browserGeneration().
+let viewGeneration = -1;
 let opening: Promise<WebViewLike> | null = null;
 let viewTargetId: string | null = null;
 
@@ -99,14 +101,26 @@ export function browserControlAvailable(): boolean {
  * littering the window with a new tab per call.
  */
 export async function agentView(): Promise<WebViewLike> {
-  if (view) return view;
+  // The desktop is up but its Chrome died. Start relaunches only Chrome, so
+  // the tool the agent just called works instead of failing on a dead socket.
+  const status = desktopStatus();
+  if (status.running && !status.browserRunning) await startDesktop();
+  if (view && viewGeneration === browserGeneration()) return view;
+  if (view) {
+    // Attached to a browser that no longer exists. Its tab went with it.
+    try { view.close(); } catch {}
+    view = null;
+    viewTargetId = null;
+  }
   // One opener at a time. openAgentView awaits a navigate, so two tools
   // arriving together would otherwise each build a view and leave a second
   // orphaned tab on the person's screen.
   if (!opening) {
+    const generation = browserGeneration();
     opening = openAgentView()
       .then(async (v) => {
         view = v;
+        viewGeneration = generation;
         await captureViewTarget(v);
         return v;
       })

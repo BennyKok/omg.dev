@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-test("desktop isolates foreign CDP, reuses/adopts its browser, serializes starts and cleans cancellation/failure", async () => {
+test("desktop isolates foreign CDP, reuses/adopts/relaunches its browser, serializes starts and cleans cancellation/failure", async () => {
   const base = join(process.env.HOME ?? ".", ".cache", "lfg", "tmp");
   mkdirSync(base, { recursive: true });
   const home = mkdtempSync(join(base, "desktop-lifecycle-"));
@@ -25,10 +25,10 @@ test("desktop isolates foreign CDP, reuses/adopts its browser, serializes starts
   try {
     const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
     expect({ code, err: code ? err : "" }).toEqual({ code: 0, err: "" });
-    expect(JSON.parse(out)).toEqual({ isolated: true, persisted: true, reused: true, adopted: true, concurrent: true, cleanup: true });
+    expect(JSON.parse(out)).toEqual({ isolated: true, persisted: true, reused: true, adopted: true, relaunched: true, concurrent: true, cleanup: true });
     const calls = readFileSync(join(home, "calls"), "utf8").trim().split("\n");
-    // Three starts, including the failure, produce exactly three owned browsers.
-    expect(calls.filter(line => line.startsWith("google-chrome "))).toHaveLength(3);
+    // Three starts, including the failure, plus one relaunch of a dead browser.
+    expect(calls.filter(line => line.startsWith("google-chrome "))).toHaveLength(4);
     // The session must not start a screen locker that asks for a Linux password.
     const saver = readFileSync(join(home, ".config", "xfce4", "xfconf", "xfce-perchannel-xml", "xfce4-screensaver.xml"), "utf8");
     expect(saver).toContain('<property name="lock" type="empty">\n    <property name="enabled" type="bool" value="false"/>');
