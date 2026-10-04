@@ -9250,6 +9250,9 @@ export function App() {
       data-startup-state={loading ? "connecting" : "ready"}
       className={cn(
         bare ? BARE_SHELL_CLASS : APP_SHELL_CLASS,
+        // The desktop workspace page sits a step darker than the panel it
+        // frames (--shell-surface). The rail is transparent over it.
+        !bare && liveDesktopWorkspace && "bg-[var(--shell-surface)]",
         // Embed: leave a blank band of our own background under the host
         // compact pill so list/inline composer sit above it. Full-bleed
         // portals (session sheet) use --lfg-safe-bottom on their own chrome.

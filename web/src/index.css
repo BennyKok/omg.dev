@@ -27,6 +27,8 @@
   --card-foreground: #000000;
   /* The desktop stage panel: content raised off the page the rail sits on. */
   --stage-surface: #ffffff;
+  /* The desktop workspace page under the rail. Light keeps the grouped grey. */
+  --shell-surface: #f2f2f7;
   --popover: #ffffff;
   --popover-foreground: #000000;
   --primary: #007aff; /* iOS accent blue */
@@ -267,7 +269,11 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
      Neutral grey, like --background. #1c1c1e (iOS's secondary background)
      carries a blue channel two steps up, and over a whole panel beside the
      neutral #141414 page that read as a blue cast. */
-  --stage-surface: #1c1c1c;
+  --stage-surface: #191919;
+  /* The desktop workspace page the rail sits on: a step under --background,
+     so the rail recedes and the panel holds the same lift over it. Only the
+     desktop workspace uses it; every other surface keeps --background. */
+  --shell-surface: #0e0e0e;
   --popover: #242428;
   --popover-foreground: #ffffff;
   --primary: #0a84ff;
