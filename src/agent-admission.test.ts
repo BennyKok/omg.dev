@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   residentAgentCount,
+  admissionPool,
   AgentAdmissionController,
   NO_AGENT_LIMIT,
   agentLaunchMemoryBudget,
@@ -273,5 +274,23 @@ describe("Computer agent admission", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("admission pool", () => {
+  const sessions = [
+    { id: "a" },
+    { id: "b", busy: true },
+    { id: "c", spawnedBy: "schedule" },
+    { id: "d", persistent: true },
+  ];
+
+  test("a Computer counts interactive sessions apart from schedules and bots", () => {
+    expect(admissionPool(sessions, true, "interactive").map((s) => s.id)).toEqual(["a", "b"]);
+    expect(admissionPool(sessions, true, "schedule").map((s) => s.id)).toEqual(["c"]);
+  });
+
+  test("a self-hosted box has one pool, still without persistent bots", () => {
+    expect(admissionPool(sessions, false, "interactive").map((s) => s.id)).toEqual(["a", "b", "c"]);
   });
 });

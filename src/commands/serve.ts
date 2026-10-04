@@ -9,6 +9,7 @@ import { marked } from "marked";
 import {
   AgentAdmissionController,
   NO_AGENT_LIMIT,
+  admissionPool,
   agentLaunchMemoryBudget,
   computerAgentAdmissionContext,
   isScheduleSpawned,
@@ -1018,12 +1019,7 @@ async function activationGate(
     async () => {
       const available = hostAvailableMemory();
       const sessions = await listSessions().catch(() => []);
-      const pool = (!computer
-        ? sessions
-        : kind === "schedule"
-          ? sessions.filter((session) => session.spawnedBy === "schedule")
-          : sessions.filter((session) => session.spawnedBy !== "schedule"))
-        .filter((session) => !session.persistent);
+      const pool = admissionPool(sessions, computer !== null, kind);
       return {
         sessions: pool,
         // Always measured, so every launch books its share of memory even on
@@ -6041,6 +6037,20 @@ a{color:#60a5fa}
           return json({ settings });
         }
         return err(405, "method not allowed");
+      }
+      // How many agents the next launch is counted against, and the cap. The
+      // hosted plan card reads this to show "3 of 5 agents in use"; it uses
+      // the same pool as activationGate, so it cannot disagree with a refusal.
+      if (path === "/api/agents/usage" && req.method === "GET") {
+        const computer = computerAgentAdmissionContext();
+        const limit = computer?.limit ?? getGlobalSettingsSync().maxLiveAgents;
+        const sessions = await listSessions().catch(() => []);
+        return json({
+          inUse: admissionPool(sessions, computer !== null, "interactive").length,
+          // 0 is "unlimited" as a local setting.
+          limit: limit > 0 ? limit : null,
+          plan: computer?.plan ?? null,
+        });
       }
       if (path === "/api/bootstrap" && req.method === "GET") {
         noteListSessionsClientActivity();
