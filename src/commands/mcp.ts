@@ -1371,6 +1371,64 @@ export function buildOmgMcpServer(): McpServer {
   );
 
   server.registerTool(
+    "omg_build_android",
+    {
+      title: "Build An Installable Android App",
+      description:
+        "Build a signed Android APK of an Expo project through omg Cloud and return a phone install link. Use it when the user wants the app on an Android phone (not Expo Go). The project needs Expo SDK 57, a static app.json and a committed bun.lock; the omg_create_project expo template already meets this. Uncommitted work is committed first. Waits at most 45 seconds; a native build takes about 3 to 5 minutes, so when the result has pending: true call omg_build_status with the returned buildId until it finishes. Do not start a second build. On success, show the APK with omg_display_file (apkPath) and send installUrl.",
+      inputSchema: {
+        cwd: z.string().optional().describe("Absolute Expo project folder. Defaults to the calling session cwd."),
+        name: z.string().optional().describe("App name for a new app. Later builds reuse .omg/project.json."),
+        versionName: z.string().optional().describe("Version shown to users, e.g. 1.0.1. Defaults to app.json expo.version."),
+        sessionId: z.string().optional().describe("Session used to default cwd. Defaults to OMG_SESSION_ID."),
+      },
+    },
+    async ({ cwd, name, versionName, sessionId }) => {
+      const sid = await activeSessionId(sessionId);
+      let folder = cwd?.trim();
+      if (!folder) {
+        const { sessions } = await api<{ sessions: SessionRow[] }>("/api/sessions");
+        const row = sessions.find((session) => session.sessionId === sid || session.nativeSessionId === sid);
+        folder = row?.cwd?.trim();
+      }
+      if (!folder) throw new Error("cwd is required");
+      return result(
+        await api("/api/cloud/builds/android", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-OMG-Session-ID": sid },
+          body: JSON.stringify({ cwd: folder, name, versionName, sessionId: sid }),
+        }),
+      );
+    },
+  );
+
+  server.registerTool(
+    "omg_build_status",
+    {
+      title: "Wait For An Android Build",
+      description:
+        "Wait up to 45 seconds for an Android build started by omg_build_android and return its steps, estimate and status. Call again while the result has pending: true. On success it downloads the APK into the project (apkPath) and returns a fresh installUrl; a failed build returns the error.",
+      inputSchema: {
+        buildId: z.string().optional().describe("buildId returned by omg_build_android. Defaults to the last build of cwd."),
+        cwd: z.string().optional().describe("Project folder, used to save the APK. Defaults to the calling session cwd."),
+        sessionId: z.string().optional().describe("Session used to default cwd. Defaults to OMG_SESSION_ID."),
+      },
+    },
+    async ({ buildId, cwd, sessionId }) => {
+      let folder = cwd?.trim();
+      if (!folder) {
+        const sid = await activeSessionId(sessionId);
+        const { sessions } = await api<{ sessions: SessionRow[] }>("/api/sessions");
+        folder = sessions.find((session) => session.sessionId === sid || session.nativeSessionId === sid)?.cwd?.trim();
+      }
+      const query = new URLSearchParams();
+      if (buildId) query.set("buildId", buildId);
+      if (folder) query.set("cwd", folder);
+      return result(await api(`/api/cloud/builds/status?${query}`));
+    },
+  );
+
+  server.registerTool(
     "omg_app_visibility",
     {
       title: "Get Or Set Hosted App Visibility",

@@ -5,7 +5,7 @@ import { omgInputModalities } from "./omg-models.ts";
 // Bump whenever an agent-facing omg.dev capability or its operating guidance
 // changes. Managed sessions persist the value they launched with, which lets
 // the UI identify long-lived sessions whose MCP/tool catalog predates a ship.
-export const OMG_CAPABILITY_VERSION = "2026-09-29.2";
+export const OMG_CAPABILITY_VERSION = "2026-10-04.1";
 
 export const OMG_CAPABILITIES = [
   {
@@ -41,6 +41,12 @@ export const OMG_CAPABILITIES = [
     useWhen: "A live HTTP development server in an omg.dev Cloud Computer should appear as a preview card.",
     guidance:
       "For web previews, start one server on 0.0.0.0 and expose its exact port. For Expo Go, choose a free Metro port and call with expoGo:true before Metro starts. In an Expo template project, start Metro with `bash scripts/start-expo-preview.sh <expoGo.proxyUrl> <port>`; elsewhere start Metro with EXPO_PACKAGER_PROXY_URL set to expoGo.proxyUrl. The omg.dev preview card shows the Expo Web version inline first, and its Your phone tab has the Open in Expo Go button and a QR code for expoGo.url. So tell the user the app is ready in the card below, then mention the Your phone tab, and do not paste the exps:// URL. Paste expoGo.url only where the user cannot see the card, for example a reply sent with omg_send_to_origin to a messaging channel, or when the user asks for the link. Do not use Expo tunnel, exp.direct, ngrok, or LAN exposure.",
+  },
+  {
+    tool: "omg_build_android / omg_build_status",
+    useWhen: "The user wants an Expo app installed on an Android phone as a real app, not only in Expo Go.",
+    guidance:
+      "omg_build_android builds a signed APK in omg Cloud from the committed project and needs Expo SDK 57, a static app.json and a committed bun.lock (the omg_create_project expo template meets this). It waits at most 45 seconds; a build takes about 3 to 5 minutes, so tell the user it is building and call omg_build_status with the buildId until it finishes. Do not start a second build. On success, show apkPath with omg_display_file and send installUrl, which opens an install page on an Android phone and expires; call omg_build_status again for a fresh link. Later builds of the same project update the installed app and keep its data. It does not make an iPhone app.",
   },
   {
     tool: "omg_display_image / omg_display_video / omg_display_file",
@@ -109,7 +115,7 @@ export const OMG_MCP_INSTRUCTIONS = [
   "In a task session, publish every verified result with omg_ship; work that is never shipped never reaches the human. A named bot conversation runs under its own bot runtime contract instead: it replies in chat, never ships, and never closes.",
   "Decide autonomously; use omg_input only for a genuinely irreversible, risky, or ambiguous decision. Use omg.dev-managed delegation only when delegation is explicitly requested.",
   "Recurring scheduled work belongs to the auto agent tools (omg_list_auto_agents, omg_compose_auto_agent, omg_save_auto_agent, omg_run_auto_agent, omg_list_findings).",
-  "Hosted apps use omg_deploy, omg_deploy_status, omg_apps, omg_whoami, omg_app_visibility, and omg_app_identity. For a live Cloud Computer preview, use omg_expose_port. For Expo Go, prepare the Metro port with expoGo:true and use the returned sandbox proxy URL. The runtime supplies the Cloud credential.",
+  "Hosted apps use omg_deploy, omg_deploy_status, omg_apps, omg_whoami, omg_app_visibility, and omg_app_identity. Installable Android apps use omg_build_android and omg_build_status. For a live Cloud Computer preview, use omg_expose_port. For Expo Go, prepare the Metro port with expoGo:true and use the returned sandbox proxy URL. The runtime supplies the Cloud credential.",
   `Session ids are returned in short form (${SHORT_SESSION_ID_LENGTH}-char prefix, like a git short sha). Pass them back exactly as given — any unambiguous prefix resolves to the full id.`,
 ].join(" ");
 
@@ -302,6 +308,7 @@ export function withFirstRunEnvelope(prompt: string | undefined, opts: { seesIma
     `- For a phone app, do these steps first, before you write any app code, even when the request includes a design to match: 1. \`omg_create_project\` with \`template: "expo"\`. 2. \`omg_expose_port\` with port 8081 and \`expoGo: true\`. 3. From the project directory run \`bash scripts/start-expo-preview.sh <expoGo.proxyUrl> 8081\` with a 240000 ms shell timeout. 4. Present the web preview first: tell the user the app is ready and the card below shows it running, on any device, with no account. Then mention the phone in one sentence: to try it on their own phone, tap \"Your phone\" on the card. If the script prints \`WARNING: Expo CLI is not signed in\`, offer \"Create a free Expo account\" for an iPhone: on that tab they tap \"Create free account\", or \"I have one\" if they already have one; Android does not need it. The user creates the account themself; never sign up for them. Metro reloads on every save, so the preview follows your edits. Then read the omg-app-builder skill in the project and build the screens. Replace the template home screen in \`src/app/index.tsx\`; do not add a second index route or a root \`app/\` folder, because the template screen then stays on \`/\`.`,
     "- Before that first preview: no test suites, no self-test loops, and no reading files one by one to learn the template. One quick check that the page loads is enough.",
     "- After the preview: build in a few larger edits, run one typecheck or build, deploy once with `omg_deploy`, commit, then `omg_ship`.",
+    "- When the user asks for an installable Android app, or the task says to build one, call `omg_build_android` once after the preview works. While it builds (about 3 to 5 minutes), say so and keep polling `omg_build_status`. Then show the APK with `omg_display_file` and give the user `installUrl`.",
     ...(opts.seesImages
       ? []
       : [
