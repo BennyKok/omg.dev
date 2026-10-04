@@ -41,7 +41,12 @@ test("triage button triages only this group and does not open the report", () =>
 test("no triage button without onTriage, and busy disables it", () => {
   ui.render(<AutoReportRow report={report} agentName="Fleet Health" onOpen={() => {}} />);
   expect(ui.queryAll("button").length).toBe(1);
-  expect(ui.text()).toContain("Disk full");
+  // The lead finding is the tooltip and part of the name, not a second line.
+  const row = ui.query("button")!;
+  expect(ui.text()).not.toContain("Disk full");
+  expect(row.getAttribute("title")).toBe("Disk full");
+  expect(row.getAttribute("aria-label")).toContain("Disk full");
+  expect(row.getAttribute("aria-label")).toContain("2 open findings");
   ui.render(
     <AutoReportRow report={report} agentName="Fleet Health" onOpen={() => {}} onTriage={() => {}} triageBusy />,
   );

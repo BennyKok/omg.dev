@@ -23,11 +23,13 @@ export function relTime(ts: number): string {
   return `${Math.floor(h / 24)}d`;
 }
 
-// One row per agent in the Auto section. The dot is the agent's worst open
-// severity, the pill is how many findings it is sitting on, the caption is
-// the one to read first. Tapping opens the agent's report, not a finding —
-// one row per finding put five "Fleet Health" rows in a list meant for
-// sessions, each distinguishable only by a truncated title.
+// One row per agent in the Updates list: one line, so a long list scans.
+// The leading dot is the agent's worst open severity, the grey number is how
+// many findings it is sitting on, and the time is the newest. The lead
+// finding's title is the tooltip and part of the accessible name, not a
+// second line: two lines per agent, a blue count pill and a trailing dot on
+// every row made 89 updates read as a wall of alerts. Tapping opens the
+// agent's report, not a finding.
 //
 // `onTriage` adds a per-group Triage & execute button. It shows on hover (and
 // on keyboard focus) where the time sits, so the header button is no longer
@@ -52,33 +54,24 @@ export function AutoReportRow<F extends GroupableFinding & { title: string }>({
       <button
         type="button"
         onClick={onOpen}
-        className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-2 text-left outline-none"
+        title={lead.title}
+        aria-label={`${agentName}, ${SEV_LABEL[report.severity].toLowerCase()} severity, ${count} open finding${count === 1 ? "" : "s"}. ${lead.title}`}
+        className="flex h-9 min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2 text-left outline-none"
       >
-        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className="flex min-w-0 items-center gap-1.5">
-            <span className="truncate text-sm font-medium leading-tight">{agentName}</span>
-            {count > 1 ? (
-              <span
-                className="shrink-0 rounded-full bg-primary/12 px-1.5 py-px text-[10px] font-semibold tabular-nums text-primary"
-                aria-label={`${count} open findings`}
-              >
-                {count}
-              </span>
-            ) : null}
-          </span>
-          <span className="truncate text-xs leading-tight text-muted-foreground">{lead.title}</span>
-        </span>
-        {/* Severity sits where a session row puts its unread dot: same size,
-            same slot, right of the text and left of the time. One place for
-            "this needs you" across the list, coloured by how badly. */}
         <span
           role="status"
           aria-label={`${SEV_LABEL[report.severity]} severity`}
-          className={cn("inline-block size-2 shrink-0 rounded-full", SEV_DOT[report.severity])}
+          className={cn("inline-block size-1.5 shrink-0 rounded-full", SEV_DOT[report.severity])}
         />
+        <span className="min-w-0 flex-1 truncate text-sm leading-tight">{agentName}</span>
+        {count > 1 ? (
+          <span className="shrink-0 text-xs tabular-nums text-muted-foreground" aria-hidden="true">
+            {count}
+          </span>
+        ) : null}
         <span
           className={cn(
-            "shrink-0 text-[11px] tabular-nums text-muted-foreground/70",
+            "w-7 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground/70",
             onTriage &&
               "group-hover/report:invisible group-focus-within/report:invisible",
           )}
