@@ -5747,6 +5747,14 @@ a{color:#60a5fa}
         });
         if (handled) return handled;
       }
+      // Android APK builds through omg Cloud (src/cloud-builds.ts).
+      if (path === "/api/cloud/builds/android" || path === "/api/cloud/builds/status") {
+        const { handleCloudBuildsRequest } = await import("../cloud-builds.ts");
+        const handled = await handleCloudBuildsRequest(req, url, {
+          getAccessToken: () => cloudAccount.getAccessToken(),
+        });
+        if (handled) return handled;
+      }
       // Agent media generation billed to omg credits (src/media-generation.ts).
       if (
         path === "/api/media/models" ||
