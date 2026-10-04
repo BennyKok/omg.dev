@@ -15680,30 +15680,24 @@ function AutoTriageButton({
 // unavailable (offer a one-click relaunch onto Opus — the backend respawns the
 // pane on the new model since an injected `/model` can't recover a frozen
 // session), or the build agent ran out of AI credits (explain + tell them to
-// top up). Without this, a frozen session just shows a dead spinner and the
+// top up). A pause that the next message clears (restart_recovered,
+// interrupted, out_of_memory) gets no banner: the send route relaunches the
+// dead harness and clears the flag, so the composer is the whole remedy.
+// Without this, a frozen session just shows a dead spinner and the
 // user has no idea what happened or what to do.
-function StaleCapabilitiesBanner({ session }: { session: Session }) {
-  if (!session.capabilitiesStale) return null;
-  return (
-    <div className="border-b border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
-      This session started with an older omg.dev capability contract. Close and resume it to load the latest shipped tools and guidance.
-    </div>
-  );
-}
+const SEND_RESUMES_REASONS = new Set<Session["statusReason"]>(["restart_recovered", "interrupted", "out_of_memory"]);
 
 function PausedBanner({
   session,
   onRefresh,
-  onContinue,
 }: {
   session: Session;
   onRefresh: () => Promise<void>;
-  onContinue: () => Promise<void>;
 }) {
   const authFlow = useContext(CodingAgentAuthContext);
   const [working, setWorking] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  if (session.status !== "blocked") return null;
+  if (session.status !== "blocked" || SEND_RESUMES_REASONS.has(session.statusReason)) return null;
   const sid = session.sessionId;
   const reason = session.statusReason;
   const reconnectKind =
@@ -15757,26 +15751,8 @@ function PausedBanner({
     }
   }
 
-  async function continueSession() {
-    setWorking(true);
-    setErr(null);
-    try {
-      await onContinue();
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
-    } finally {
-      setWorking(false);
-    }
-  }
-
   const title =
-    reason === "restart_recovered"
-      ? "Session recovered after restart"
-      : reason === "interrupted"
-      ? "Agent stopped"
-      : reason === "out_of_memory"
-      ? "Agent ran out of memory"
-      : reason === "out_of_credits"
+    reason === "out_of_credits"
       ? "Build paused — out of credits"
       : reason === "provider_auth"
         ? reconnectKind
@@ -15786,13 +15762,7 @@ function PausedBanner({
           ? "Build paused — provider error"
           : "Build paused";
   const detail =
-    reason === "restart_recovered"
-      ? session.statusDetail || "The previous turn was interrupted. Review the last output, then send a message to continue safely."
-      : reason === "interrupted"
-      ? session.statusDetail || "The agent process stopped before it finished. Continue to restart it."
-      : reason === "out_of_memory"
-      ? `The system stopped the agent because it used more memory than its limit allows${session.statusDetail ? ` (${session.statusDetail})` : ""}. Continue to restart it with the same limit.`
-      : reason === "out_of_credits"
+    reason === "out_of_credits"
       ? "This app's build agent ran out of AI credits. Top up the wallet to resume the build."
       : reason === "provider_auth"
         ? reconnectKind
@@ -15812,16 +15782,6 @@ function PausedBanner({
           <div className="mt-0.5 text-foreground/70">{detail}</div>
           {err ? <div className="mt-1 text-destructive">{err}</div> : null}
         </div>
-        {reason === "restart_recovered" || reason === "interrupted" || reason === "out_of_memory" ? (
-          <button
-            type="button"
-            onClick={() => void continueSession()}
-            disabled={working}
-            className="shrink-0 rounded-lg bg-warning px-3 py-1.5 font-medium text-white disabled:opacity-50"
-          >
-            <MorphText>{working ? "Continuing…" : "Continue"}</MorphText>
-          </button>
-        ) : null}
         {canSwitchClaude ? (
           <button
             type="button"
@@ -17365,12 +17325,7 @@ function SessionChatBody({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <StaleCapabilitiesBanner session={session} />
-      <PausedBanner
-        session={session}
-        onRefresh={onRefresh}
-        onContinue={() => sendMessage(undefined, "Continue.")}
-      />
+      <PausedBanner session={session} onRefresh={onRefresh} />
       <ChatStream
         sid={sid}
         messages={chatMessages}
