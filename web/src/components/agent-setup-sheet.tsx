@@ -391,7 +391,11 @@ const THINKING_GRADIENT = "linear-gradient(90deg, #2169BD 0%, #595CBE 34%, #914B
  * The whole bar owns the gesture: press, drag across, release to pick. The
  * fill always spans the full bar, so its width is the only thing that moves.
  */
-export function ThinkingBar({ options, onPick }: { options: SetupChoice[]; onPick: (id: string) => void }) {
+export function ThinkingBar({ options, onPick, compact = false }: {
+  options: SetupChoice[];
+  onPick: (id: string) => void;
+  compact?: boolean;
+}) {
   const track = useRef<HTMLDivElement>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const selectedIndex = Math.max(0, options.findIndex((option) => option.selected));
@@ -445,11 +449,17 @@ export function ThinkingBar({ options, onPick }: { options: SetupChoice[]; onPic
         if (option && !option.disabled && index !== selectedIndex) onPick(option.id);
       }}
       onPointerCancel={() => setDragIndex(null)}
-      className="relative flex h-[52px] select-none overflow-hidden rounded-[14px] bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className={cn(
+        "relative flex select-none overflow-hidden bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        compact ? "h-7 rounded-lg" : "h-[52px] rounded-[14px]",
+      )}
     >
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-y-0 left-0 overflow-hidden rounded-[14px] transition-[width] duration-150 ease-out motion-reduce:transition-none"
+        className={cn(
+          "pointer-events-none absolute inset-y-0 left-0 overflow-hidden transition-[width] duration-150 ease-out motion-reduce:transition-none",
+          compact ? "rounded-lg" : "rounded-[14px]",
+        )}
         style={{ width: `${((active + 1) / options.length) * 100}%` }}
       >
         <div className="h-full" style={{ width: `${(options.length / (active + 1)) * 100}%`, background: THINKING_GRADIENT }} />
@@ -464,7 +474,7 @@ export function ThinkingBar({ options, onPick }: { options: SetupChoice[]; onPic
           )}
         >
           {index === active ? (
-            <span className="truncate px-1 text-[13px] font-semibold text-white">{option.label}</span>
+            <span className={cn("truncate px-1 font-semibold text-white", compact ? "text-[11px]" : "text-[13px]")}>{option.label}</span>
           ) : (
             <span className={cn("size-1 rounded-full", index < active ? "bg-white" : "bg-muted-foreground")} />
           )}
