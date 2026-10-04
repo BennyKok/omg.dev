@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 4, 2026 - Settings opens beside the session list (v0.6.171)
+
+- On a desktop screen, Settings now opens beside the session list, the same way Schedules, Notifications, and Artifacts do.
+
 ## October 4, 2026 - Computer browser comes back after a crash (v0.6.170)
 
 - When the Computer's browser crashes, it now restarts on its own the next time you or an agent use it. The desktop and screen stay open.
