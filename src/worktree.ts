@@ -14,7 +14,7 @@ import {
 import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import { WORKTREE_ROOT } from "./config.ts";
+import { WORKTREE_ROOT, worktreeRoots } from "./config.ts";
 import { MAIN_REF } from "./agents/collectors/git-fresh.ts";
 import { listManaged } from "./managed.ts";
 import { deleteMergedSessionBranch } from "./project-maintenance.ts";
@@ -25,7 +25,7 @@ import { tmuxHasSession } from "./tmux.ts";
 // (systemd-tmpfiles), which silently destroys every live session's worktree —
 // including uncommitted work. config.ts owns this path for creation, project
 // identity, sweeping, and maintenance.
-export { WORKTREE_ROOT };
+export { WORKTREE_ROOT, worktreeRoots };
 
 export type SessionWorktree = {
   repoRoot: string;
@@ -49,30 +49,41 @@ export type SessionWorktree = {
  * WIP commit it takes before removal — and so it cannot dirty a branch a
  * session is about to push.
  */
-const OWNED_DIR = `${WORKTREE_ROOT}/.lfg-owned`;
-
-function ownedMarkerPath(name: string): string {
-  return `${OWNED_DIR}/${name}`;
+function ownedDir(root: string): string {
+  return `${root}/.lfg-owned`;
 }
 
-function markWorktreeOwned(name: string): void {
+function ownedMarkerPath(name: string, root: string): string {
+  return `${ownedDir(root)}/${name}`;
+}
+
+function markWorktreeOwned(name: string, root: string): void {
   try {
-    mkdirSync(OWNED_DIR, { recursive: true });
-    writeFileSync(ownedMarkerPath(name), `${Date.now()}\n`);
+    mkdirSync(ownedDir(root), { recursive: true });
+    writeFileSync(ownedMarkerPath(name, root), `${Date.now()}\n`);
   } catch {
     // Best effort. A marker we failed to write means the sweeper leaves the
     // worktree alone forever, which leaks a directory — the safe direction.
   }
 }
 
-function isWorktreeOwned(name: string): boolean {
-  return existsSync(ownedMarkerPath(name));
+function isWorktreeOwned(name: string, root: string): boolean {
+  return existsSync(ownedMarkerPath(name, root));
 }
 
-function clearWorktreeOwned(name: string): void {
+function clearWorktreeOwned(name: string, root: string): void {
   try {
-    rmSync(ownedMarkerPath(name), { force: true });
+    rmSync(ownedMarkerPath(name, root), { force: true });
   } catch {}
+}
+
+/** An existing session directory on the create root or any legacy root. */
+export function findSessionWorktree(sessionName: string): { root: string; path: string } | null {
+  for (const root of worktreeRoots()) {
+    const path = `${root}/${sessionName}`;
+    if (existsSync(path)) return { root, path };
+  }
+  return null;
 }
 
 /**
@@ -218,17 +229,20 @@ export async function prepareSessionWorktree(
 ): Promise<{ ok: true; worktree: SessionWorktree } | { ok: false; error: string }> {
   const absRoot = resolve(repoRoot);
   const branch = `session_${sessionName}`;
-  const wtPath = `${WORKTREE_ROOT}/${sessionName}`;
 
   mkdirSync(WORKTREE_ROOT, { recursive: true });
 
-  if (existsSync(wtPath)) {
+  const existing = findSessionWorktree(sessionName);
+  if (existing) {
     // Backfill: a worktree provisioned before ownership markers existed is
     // still ours, and re-marking it on reuse lets it be reclaimed normally
-    // instead of leaking forever.
-    markWorktreeOwned(sessionName);
-    return { ok: true, worktree: { repoRoot: absRoot, branch, path: wtPath } };
+    // instead of leaking forever. Reuse the directory it already lives in so
+    // moving WORKTREE_ROOT does not clone a second copy.
+    markWorktreeOwned(sessionName, existing.root);
+    return { ok: true, worktree: { repoRoot: absRoot, branch, path: existing.path } };
   }
+
+  const wtPath = `${WORKTREE_ROOT}/${sessionName}`;
 
   refreshMainInBackground(absRoot);
 
@@ -249,7 +263,7 @@ export async function prepareSessionWorktree(
     }
   }
 
-  markWorktreeOwned(sessionName);
+  markWorktreeOwned(sessionName, WORKTREE_ROOT);
   return { ok: true, worktree: { repoRoot: absRoot, branch, path: wtPath } };
 }
 
@@ -373,25 +387,30 @@ async function captureWorktreeSnapshot(
 export async function removeSessionWorktree(
   repoRoot: string | null,
   sessionName: string,
+  worktreeRoot?: string,
 ): Promise<WorktreeRemoval> {
-  const wtPath = `${WORKTREE_ROOT}/${sessionName}`;
+  const located = worktreeRoot
+    ? { root: worktreeRoot, path: `${worktreeRoot}/${sessionName}` }
+    : findSessionWorktree(sessionName);
+  const ownerRoot = located?.root ?? worktreeRoot ?? WORKTREE_ROOT;
+  const wtPath = located?.path ?? `${ownerRoot}/${sessionName}`;
   if (!existsSync(wtPath)) {
-    clearWorktreeOwned(sessionName);
+    clearWorktreeOwned(sessionName, ownerRoot);
     return { ok: true, capture: null };
   }
-  const root = repoRoot ? resolve(repoRoot) : await repoRootFromWorktree(wtPath);
-  if (!root) {
+  const repo = repoRoot ? resolve(repoRoot) : await repoRootFromWorktree(wtPath);
+  if (!repo) {
     return { ok: false, stage: "remove", error: "could not resolve the worktree's repo root" };
   }
 
-  const captured = await captureWorktreeSnapshot(root, wtPath, sessionName);
+  const captured = await captureWorktreeSnapshot(repo, wtPath, sessionName);
   if (!captured.ok) return { ok: false, stage: "capture", error: captured.error };
 
-  const removed = (await git(root, ["worktree", "remove", "--force", wtPath])).ok;
+  const removed = (await git(repo, ["worktree", "remove", "--force", wtPath])).ok;
   if (!removed) return { ok: false, stage: "remove", error: "git worktree remove failed" };
 
-  clearWorktreeOwned(sessionName);
-  await deleteMergedSessionBranch(root, `session_${sessionName}`).catch(() => false);
+  clearWorktreeOwned(sessionName, ownerRoot);
+  await deleteMergedSessionBranch(repo, `session_${sessionName}`).catch(() => false);
   return { ok: true, capture: captured.capture };
 }
 
@@ -436,7 +455,7 @@ export type WorktreeSweepResult = {
  */
 function worktreesInUse(): Set<string> {
   const inUse = new Set<string>();
-  const prefix = `${WORKTREE_ROOT}/`;
+  const prefixes = worktreeRoots().map((root) => `${root}/`);
   let pids: string[];
   try {
     pids = readdirSync("/proc");
@@ -451,7 +470,8 @@ function worktreesInUse(): Set<string> {
     } catch {
       continue; // exited between readdir and readlink, or not ours to inspect
     }
-    if (!cwd.startsWith(prefix)) continue;
+    const prefix = prefixes.find((candidate) => cwd.startsWith(candidate));
+    if (!prefix) continue;
     const name = cwd.slice(prefix.length).split("/")[0];
     if (name) inUse.add(name);
   }
@@ -497,13 +517,15 @@ export async function sweepStaleWorktrees(opts?: {
     captures: {},
   };
 
-  if (!existsSync(WORKTREE_ROOT)) return result;
+  const roots = worktreeRoots().filter((root) => existsSync(root));
+  if (roots.length === 0) return result;
 
-  for (const name of readdirSync(WORKTREE_ROOT)) {
+  for (const root of roots) {
+  for (const name of readdirSync(root)) {
     // Dotfiles are bookkeeping (the ownership markers live here), never
     // worktrees.
     if (name.startsWith(".")) continue;
-    const wtPath = `${WORKTREE_ROOT}/${name}`;
+    const wtPath = `${root}/${name}`;
     let dirStat: ReturnType<typeof statSync>;
     try {
       dirStat = statSync(wtPath);
@@ -517,7 +539,7 @@ export async function sweepStaleWorktrees(opts?: {
     // this directory belongs to a human. (Directories that look like worktrees
     // but are not registered with any repo are a separate, non-code-owned
     // category — see scripts/worktree-reclaim-report.ts.)
-    if (!isWorktreeOwned(name)) {
+    if (!isWorktreeOwned(name, root)) {
       result.unmanaged.push(name);
       continue;
     }
@@ -566,7 +588,7 @@ export async function sweepStaleWorktrees(opts?: {
     // Past the retention window. Capture first, unconditionally — dirty or
     // clean gets the same treatment now, per the 2026-08-23 policy: nothing is
     // lost when the window expires, so age alone is enough to reclaim.
-    const removal = await removeSessionWorktree(null, name);
+    const removal = await removeSessionWorktree(null, name, root);
     if (removal.ok) {
       result.removed.push(name);
       if (removal.capture) {
@@ -581,6 +603,7 @@ export async function sweepStaleWorktrees(opts?: {
     } else {
       result.failed.push(name);
     }
+  }
   }
 
   return result;

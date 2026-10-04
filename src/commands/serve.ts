@@ -1,7 +1,7 @@
 import { createNoProjectWorkspace, NO_PROJECT } from "../no-project-chat.ts";
 import { readinessBootstrap } from "../bootstrap-readiness.ts";
 import { mkdir, open, readdir, realpath, stat } from "node:fs/promises";
-import { appendFileSync, existsSync, statfsSync, statSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, statSync, mkdirSync, readFileSync } from "node:fs";
 import { tmpdir, homedir, loadavg, cpus, totalmem, freemem } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -14,6 +14,7 @@ import {
   isScheduleSpawned,
 } from "../agent-admission.ts";
 import { PATHS, appVersion, installInfo, localServeBaseUrl } from "../config.ts";
+import { hostDisks } from "../host-disks.ts";
 import { desktopRuntimeReadyPayload } from "../desktop-parent.ts";
 import { handleServerAccessRequest } from "../server-access.ts";
 import { CloudAccountError, createCloudAccount } from "../cloud-account.ts";
@@ -1115,18 +1116,25 @@ function sliceMemoryBytes(): { current: number | null; max: number | null } {
 // Capacity of the filesystem that holds LFG's durable data. Keep this
 // best-effort: Settings should still load in runtimes where statfs is not
 // available or the data directory has not been mounted yet.
-function hostDiskBytes(): { total: number | null; free: number | null } {
+function hostDiskReport(): {
+  disk: { total: number | null; free: number | null };
+  disks: { label: string; mount: string; totalBytes: number; freeBytes: number; badge: string | null }[];
+} {
+  let disks: { label: string; mount: string; totalBytes: number; freeBytes: number; badge: string | null }[] = [];
   try {
-    const disk = statfsSync(PATHS.data);
-    const total = Number(disk.blocks) * Number(disk.bsize);
-    const free = Number(disk.bfree) * Number(disk.bsize);
-    if (!Number.isFinite(total) || total <= 0 || !Number.isFinite(free)) {
-      return { total: null, free: null };
-    }
-    return { total, free: Math.max(0, Math.min(total, free)) };
+    disks = hostDisks(readFileSync("/proc/mounts", "utf8"));
   } catch {
-    return { total: null, free: null };
+    disks = [];
   }
+  // `disk` stays the system volume so older clients keep one bar. Prefer `/`,
+  // then whatever volume is tightest.
+  const system = disks.find((row) => row.mount === "/") ?? disks[0];
+  return {
+    disk: system
+      ? { total: system.totalBytes, free: system.freeBytes }
+      : { total: null, free: null },
+    disks,
+  };
 }
 
 // Live server snapshot for the settings performance panel + the "working now"
@@ -1140,7 +1148,7 @@ async function serverStats() {
   const settings = getGlobalSettingsSync();
   const computer = computerAgentAdmissionContext();
   const slice = sliceMemoryBytes();
-  const disk = hostDiskBytes();
+  const diskReport = hostDiskReport();
   const [load1, load5, load15] = loadavg();
   // Pressure is the leading indicator the panel warns on: it rises while
   // "percent used" still looks healthy. History powers the sparklines.
@@ -1161,9 +1169,10 @@ async function serverStats() {
       hostFreeBytes: freemem(),
     },
     disk: {
-      totalBytes: disk.total,
-      freeBytes: disk.free,
+      totalBytes: diskReport.disk.total,
+      freeBytes: diskReport.disk.free,
     },
+    disks: diskReport.disks,
     cpu: { cores: cpus().length, load1, load5, load15 },
     network: { rxBps: latest?.rxBps ?? 0, txBps: latest?.txBps ?? 0 },
     pressure,

@@ -27,11 +27,11 @@
 // NOTHING here writes, signals, or kills. It is a read-only view; reclaiming is
 // the operator's call (and archiveIdleDurableAgentsForMemory's job).
 
-import { existsSync } from "node:fs";
 import { readFile, readdir, readlink } from "node:fs/promises";
 import { cpus, freemem, loadavg, totalmem } from "node:os";
 
-import { WORKTREE_ROOT } from "./worktree.ts";
+import { findSessionWorktree } from "./worktree.ts";
+import { sessionNameFromWorktreePath } from "./config.ts";
 
 /** Which part of a session's footprint a process represents. */
 export type UsageComponent = "harness" | "backend" | "mcp" | "devserver" | "browser" | "other";
@@ -321,11 +321,8 @@ async function scanProcs(): Promise<ProcInfo[]> {
 /** Managed name from a worktree path, e.g. /home/dev/lfg-worktrees/lfg-3ea7ba. */
 function managedNameFromPath(path: string | null | undefined): string | null {
   if (!path) return null;
-  const prefix = `${WORKTREE_ROOT}/`;
-  if (!path.startsWith(prefix)) return null;
-  const rest = path.slice(prefix.length);
-  const name = rest.split("/")[0] ?? "";
-  return MANAGED_NAME_RE.test(name) ? name : null;
+  const name = sessionNameFromWorktreePath(path);
+  return name && MANAGED_NAME_RE.test(name) ? name : null;
 }
 
 function flagValue(argv: string[], flag: string): string | null {
@@ -798,8 +795,8 @@ export async function buildSessionUsageReport(
     // Only claim a worktree that actually exists. A group can be keyed by an
     // agent-browser session name that never had one (a transient e2e run), and
     // measuring a non-existent path would spend a `du` to learn nothing.
-    const candidate = group.managedName ? `${WORKTREE_ROOT}/${group.managedName}` : null;
-    const worktreePath = candidate && existsSync(candidate) ? candidate : null;
+    const located = group.managedName ? findSessionWorktree(group.managedName) : null;
+    const worktreePath = located?.path ?? null;
     const disk = worktreeDiskBytes(worktreePath);
     if (disk.pending) diskPending = true;
 

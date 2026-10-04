@@ -5,7 +5,7 @@
 // never touches the index or working tree (sibling agents are live in it).
 
 import { basename, dirname, resolve } from "node:path";
-import { WORKTREE_ROOT } from "./worktree.ts";
+import { isUnderWorktreeRoot } from "./config.ts";
 
 export type DiffLineKind = "add" | "del" | "context" | "meta";
 
@@ -71,8 +71,7 @@ function git(cwd: string, args: string[]): { ok: boolean; out: string; err: stri
 
 export function isSessionWorktree(cwd: string | null | undefined): boolean {
   if (!cwd) return false;
-  const abs = resolve(cwd);
-  return abs === resolve(WORKTREE_ROOT) || abs.startsWith(resolve(WORKTREE_ROOT) + "/");
+  return isUnderWorktreeRoot(cwd);
 }
 
 function emptyDiff(over: Partial<SessionDiff> = {}): SessionDiff {
