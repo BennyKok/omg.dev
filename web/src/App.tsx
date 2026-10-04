@@ -9100,10 +9100,12 @@ export function App() {
       />
     </Suspense>
   );
-  // Notifications and Artifacts ride the workspace too, the way Schedules
+  // Notifications, Artifacts, and Settings ride the workspace too, the way Schedules
   // does: rail on the left, the page in the stage. Narrow layouts keep the
   // standalone pages below (and their keep-alive mount).
-  const pageInWorkspace = (tab === "notifications" || tab === "artifacts") && isWide;
+  const settingsInWorkspace = tab === "settings" && isWide && !bare;
+  const pageInWorkspace =
+    ((tab === "notifications" || tab === "artifacts") && isWide) || settingsInWorkspace;
   const liveSessionIdSet = new Set(
     liveSessions.flatMap((s) =>
       [s.sessionId, s.nativeSessionId].filter((x): x is string => !!x),
@@ -9135,6 +9137,21 @@ export function App() {
         onOpenArtifactSession={openArtifactSession}
       />
     </Suspense>
+  );
+  const settingsPage = (
+    <SettingsView
+      user={userFilter !== "__all" && userFilter !== "__unassigned" ? userFilter : null}
+      onOpenCodingAgents={() => setTab("coding-agents")}
+      onOpenAuto={() => setTab("auto")}
+      onOpenStorage={() => setTab("storage")}
+      onOpenMore={() => setTab("more")}
+      onOpenCustomInstructions={() => setTab("instructions")}
+      onOpenConnectors={() => setTab("connectors")}
+      settings={settings}
+      onSettingsChange={updateSettings}
+      connection={useWsLive ? wsLiveStream.connection : null}
+      computerVersionReport={computerVersionReport}
+    />
   );
   const workspaceVisible =
     (tab === "live" || botsInWorkspace || autoInWorkspace || boardInWorkspace || pageInWorkspace) &&
@@ -9656,7 +9673,9 @@ export function App() {
                     : pageInWorkspace
                       ? tab === "notifications"
                         ? notificationsPage(true)
-                        : artifactsPage(true)
+                        : tab === "artifacts"
+                          ? artifactsPage(true)
+                          : settingsPage
                       : null
               }
               stageSheet={openFinding || openReport ? autoSheet : null}
@@ -9944,20 +9963,9 @@ export function App() {
         tab !== "instructions" &&
         tab !== "connectors" &&
         tab !== "more" &&
+        !settingsInWorkspace &&
         !extNavTabs.some((t) => t.id === tab) ? (
-          <SettingsView
-            user={userFilter !== "__all" && userFilter !== "__unassigned" ? userFilter : null}
-            onOpenCodingAgents={() => setTab("coding-agents")}
-            onOpenAuto={() => setTab("auto")}
-            onOpenStorage={() => setTab("storage")}
-            onOpenMore={() => setTab("more")}
-            onOpenCustomInstructions={() => setTab("instructions")}
-            onOpenConnectors={() => setTab("connectors")}
-            settings={settings}
-            onSettingsChange={updateSettings}
-            connection={useWsLive ? wsLiveStream.connection : null}
-            computerVersionReport={computerVersionReport}
-          />
+          settingsPage
         ) : null}
         </>}
       </main>
