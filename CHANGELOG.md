@@ -5,6 +5,8 @@ Recent product updates and deployment notes.
 ## October 4, 2026 - Host Settings can keep the desktop sidebar (v0.6.174)
 
 - Embedded hosts can place their Settings in the desktop content pane. Sidebar selections can return to the same workspace.
+- The new-chat starters are one-line pills, each with its own icon colour. The row fades at an end that has more pills.
+- On a desktop screen, the content panel is a neutral grey, and the page behind the sidebar is darker. The sidebar has equal space on both sides.
 
 ## October 4, 2026 - A calmer desktop layout (v0.6.173)
 
