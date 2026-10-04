@@ -14090,7 +14090,10 @@ function RailStage({
 
       <div
         className={cn(
-          "grid h-full min-h-0 min-w-0 flex-1 gap-3",
+          // ml-3: the rail's rows sit 18px in from the window (main's 12px
+          // gutter + the list's 6px). The same 12px here puts them 18px from
+          // the panel too, so the rail is centred between its two edges.
+          "ml-3 grid h-full min-h-0 min-w-0 flex-1 gap-3",
           // 1 pane → full; 2 → side by side; 3-4 → 2×2 (panes 1&2 top, 3&4 bottom).
           stagePaneCount <= 1
             ? "grid-cols-1 grid-rows-1"
