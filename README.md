@@ -4,10 +4,13 @@
 
 # omg.dev
 
-**Not 10 interfaces. One portal for all your agents.**
+**Build your ideas on the go.**
 
-Open-source parallel coding agent harness. Run agents on your computer.
-Control them from one UI. Install locally, or start with a hosted Computer.
+Give your agents a task from your phone. Get a notification when the result is
+ready. Your laptop can stay closed.
+
+Open-source harness for Claude Code, Codex, and other coding agents. Install it
+yourself for free.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![GitHub release](https://img.shields.io/github/v/release/BennyKok/omg.dev?label=release)](https://github.com/BennyKok/omg.dev/releases)
@@ -18,8 +21,19 @@ Control them from one UI. Install locally, or start with a hosted Computer.
 <p align="center">
   <img src="./docs/images/omg-chat.webp" alt="omg.dev showing a list of coding-agent sessions and an active agent transcript" width="70%" />
   &nbsp;
-  <img src="./docs/images/ios/live.webp" alt="omg.dev iOS app on the simulator, Live session list" width="22%" />
+  <img src="./docs/images/ios/home.webp" alt="omg.dev iOS app home screen: agent sessions across several repositories" width="22%" />
 </p>
+
+## Free or hosted
+
+|                | Self-host                    | Hosted on omg.dev                                    |
+| -------------- | ---------------------------- | ---------------------------------------------------- |
+| **Price**      | Free (MIT)                   | Free plan to try. Paid plans from $19/mo.            |
+| **Runs on**    | Your Mac or Linux machine    | A cloud computer we run for you                      |
+| **You manage** | Install and updates          | Nothing                                              |
+| **Start**      | [Install below](#install-on-your-computer) | [app.omg.dev](https://app.omg.dev/) · [Pricing](https://omg.dev/pricing) |
+
+Both use the agent subscription you already pay for, such as Claude or ChatGPT.
 
 ## Install on your computer
 
@@ -47,44 +61,22 @@ Or **System Settings → Privacy & Security → Open Anyway**.
 
 ## Use the hosted version
 
-No local server. Runs in the cloud, opens in the browser.
+No local server. Runs in the cloud, opens in the browser. This is a paid
+service with a free plan. See [pricing](https://omg.dev/pricing).
 
 [**Start with a hosted Computer →**](https://app.omg.dev/)
 
 iPhone: [omg.dev on the App Store](https://apps.apple.com/us/app/omg-dev/id6800792515)
 
-## Built for every role
+## Pick a task. Put the phone down.
 
-PMs, engineers, growth, and sales share the same sessions.
-
-<table>
-  <tr>
-    <td width="50%">
-      <img src="./docs/images/personas/pm-1600.webp" alt="omg.dev Board: Needs you, Working, Idle and Shipped columns of agent sessions" />
-      <p><strong>PM.</strong> Needs you, Working, Idle, Shipped.</p>
-    </td>
-    <td width="50%">
-      <img src="./docs/images/personas/engineer-1600.webp" alt="omg.dev session with the diff view open, showing a patch file by file" />
-      <p><strong>Engineer.</strong> Worktree diff, then merge.</p>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%">
-      <img src="./docs/images/personas/growth-1600.webp" alt="omg.dev chat where an agent answers with an interactive funnel chart from the database" />
-      <p><strong>Growth.</strong> Ask in chat. Chart from your database.</p>
-    </td>
-    <td width="50%">
-      <img src="./docs/images/personas/sales-1600.webp" alt="omg.dev chat turning call recordings into objections, risk per deal and follow-ups" />
-      <p><strong>Sales.</strong> Calls to objections, risk, follow-ups.</p>
-    </td>
-  </tr>
-</table>
+Start a task from the app. Your agents work on your computer. You get a
+notification when it is done.
 
 <p align="center">
-  <img src="./docs/images/ios/live.webp" alt="omg.dev iOS: Live session list" width="24%" />
-  <img src="./docs/images/ios/session.webp" alt="omg.dev iOS: session with an agent question" width="24%" />
-  <img src="./docs/images/ios/pages.webp" alt="omg.dev iOS: pages menu" width="24%" />
-  <img src="./docs/images/ios/notifications.webp" alt="omg.dev iOS: Notifications" width="24%" />
+  <img src="./docs/images/ios/home.webp" alt="omg.dev iOS: every task on one board" width="30%" />
+  <img src="./docs/images/ios/live-activity.webp" alt="omg.dev iOS Live Activity: agent sessions that need you, are working, or are done" width="30%" />
+  <img src="./docs/images/ios/widget.webp" alt="omg.dev iOS home-screen widget with a needs-you summary" width="30%" />
 </p>
 
 ## What you get
