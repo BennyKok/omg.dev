@@ -1,0 +1,16 @@
+diff --git a/android/build.gradle b/android/build.gradle
+index b42210f554bcb04d0848fb6388307a0714c2563c..ef243114706b4a6d30f44d647c615986b5ed2b81 100644
+--- a/android/build.gradle
++++ b/android/build.gradle
+@@ -79,6 +79,11 @@ if (useManagedAndroidSdkVersions) {
+ 
+ android {
+   namespace = "expo.modules.iap"
++  // ExpoIapLog reads BuildConfig.DEBUG. AGP 9 no longer generates BuildConfig
++  // for Android libraries unless the library enables it explicitly.
++  buildFeatures {
++    buildConfig = true
++  }
+   defaultConfig {
+     versionCode = 1
+     versionName = expoIapPackageVersion
