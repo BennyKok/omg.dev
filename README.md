@@ -7,7 +7,7 @@
 **Not 10 interfaces. One portal for all your agents.**
 
 Open-source parallel coding agent harness. Run agents on your computer.
-Control them from one UI. Install locally, or start with a hosted Computer.
+Control them from one UI. Install it yourself for free, or pay us to host it.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![GitHub release](https://img.shields.io/github/v/release/BennyKok/omg.dev?label=release)](https://github.com/BennyKok/omg.dev/releases)
@@ -20,6 +20,17 @@ Control them from one UI. Install locally, or start with a hosted Computer.
   &nbsp;
   <img src="./docs/images/ios/live.webp" alt="omg.dev iOS app on the simulator, Live session list" width="22%" />
 </p>
+
+## Free or hosted
+
+|                | Self-host                    | Hosted on omg.dev                                    |
+| -------------- | ---------------------------- | ---------------------------------------------------- |
+| **Price**      | Free (MIT)                   | Free plan to try. Paid plans from $19/mo.            |
+| **Runs on**    | Your Mac or Linux machine    | A cloud computer we run for you                      |
+| **You manage** | Install and updates          | Nothing                                              |
+| **Start**      | [Install below](#install-on-your-computer) | [app.omg.dev](https://app.omg.dev/) · [Pricing](https://omg.dev/pricing) |
+
+Both use the agent subscription you already pay for, such as Claude or ChatGPT.
 
 ## Install on your computer
 
@@ -47,7 +58,8 @@ Or **System Settings → Privacy & Security → Open Anyway**.
 
 ## Use the hosted version
 
-No local server. Runs in the cloud, opens in the browser.
+No local server. Runs in the cloud, opens in the browser. This is a paid
+service with a free plan. See [pricing](https://omg.dev/pricing).
 
 [**Start with a hosted Computer →**](https://app.omg.dev/)
 
