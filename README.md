@@ -18,7 +18,7 @@ Control them from one UI. Install it yourself for free, or pay us to host it.
 <p align="center">
   <img src="./docs/images/omg-chat.webp" alt="omg.dev showing a list of coding-agent sessions and an active agent transcript" width="70%" />
   &nbsp;
-  <img src="./docs/images/ios/live.webp" alt="omg.dev iOS app on the simulator, Live session list" width="22%" />
+  <img src="./docs/images/ios/home.webp" alt="omg.dev iOS app home screen: agent sessions across several repositories" width="22%" />
 </p>
 
 ## Free or hosted
@@ -93,10 +93,9 @@ PMs, engineers, growth, and sales share the same sessions.
 </table>
 
 <p align="center">
-  <img src="./docs/images/ios/live.webp" alt="omg.dev iOS: Live session list" width="24%" />
-  <img src="./docs/images/ios/session.webp" alt="omg.dev iOS: session with an agent question" width="24%" />
-  <img src="./docs/images/ios/pages.webp" alt="omg.dev iOS: pages menu" width="24%" />
-  <img src="./docs/images/ios/notifications.webp" alt="omg.dev iOS: Notifications" width="24%" />
+  <img src="./docs/images/ios/home.webp" alt="omg.dev iOS: every task on one board" width="30%" />
+  <img src="./docs/images/ios/live-activity.webp" alt="omg.dev iOS Live Activity: agent sessions that need you, are working, or are done" width="30%" />
+  <img src="./docs/images/ios/widget.webp" alt="omg.dev iOS home-screen widget with a needs-you summary" width="30%" />
 </p>
 
 ## What you get
