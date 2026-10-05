@@ -47,7 +47,7 @@ import {
   type ProviderUsage,
   type UsageWindow,
 } from "./omg/usage";
-import type { OmgColors } from "./omg/palette";
+import { control, type OmgColors } from "./omg/palette";
 import { DropdownMenu, type MenuOption } from "./omg/menu";
 import { AttachMenuButton, AttachMenuLayer } from "./omg/attach-menu";
 import { AgentSetupSheet } from "./omg/agent-setup-sheet";
@@ -1464,32 +1464,29 @@ export function HomeComposer({
       {/* Keep this rail mounted on the unassigned-chat page. Showing it with
           the keyboard made the two animations compete on iOS. The inset lets
           the first and last cards rest clear of the scroll viewport edges. */}
-      {onStarter ? <View pointerEvents="box-none" style={{ height: 84 }}>
+      {onStarter ? <View pointerEvents="box-none" style={{ height: control.pill + space.sm, paddingBottom: space.sm }}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always"
           keyboardDismissMode="none" directionalLockEnabled testID="chat-starter-row"
-          style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 8, paddingHorizontal: 4 }}>
+          style={{ flexGrow: 0 }} contentContainerStyle={{ gap: space.sm, paddingHorizontal: 4 }}>
+          {/* One-line pills, as on the web since 2026-10-04 (chat-starter-row).
+              The description moves to the accessibility label; a hue per
+              starter replaces the shared blue icon on a tile. */}
           {([
-            ["Website", "Design and publish a site", "Help me create a website.", "globe", "language"],
-            ["App", "Build a mobile or web app", "Help me create an app.", "iphone", "smartphone"],
-            ["API", "Create an endpoint or service", "Help me create an API.", "terminal", "terminal"],
-            ["Image", "Generate a custom visual", "Help me create an image.", "photo", "image"],
-          ] as const satisfies ReadonlyArray<readonly [string, string, string, SFSymbol, AndroidSymbol]>).map(([label, description, prompt, ios, android]) => (
+            ["Website", "Design and publish a site", "Help me create a website.", "globe", "language", "website"],
+            ["App", "Build a mobile or web app", "Help me create an app.", "iphone", "smartphone", "app"],
+            ["API", "Create an endpoint or service", "Help me create an API.", "terminal", "terminal", "api"],
+            ["Image", "Generate a custom visual", "Help me create an image.", "photo", "image", "image"],
+          ] as const satisfies ReadonlyArray<readonly [string, string, string, SFSymbol, AndroidSymbol, keyof OmgColors["starter"]]>).map(([label, description, prompt, ios, android, tint]) => (
             <Pressable key={label} accessibilityRole="button"
               accessibilityLabel={`Start ${label.toLowerCase()}. ${description}`}
               accessibilityHint="Sends a starter prompt" testID={`chat-starter-${label.toLowerCase()}`}
               disabled={starting} onPress={() => onStarter(prompt)}
-              style={({ pressed }) => ({ width: 184, minHeight: 72, paddingHorizontal: 12,
-                flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 18, borderCurve: "continuous",
-                backgroundColor: colors.card, borderWidth: StyleSheet.hairlineWidth,
-                borderColor: colors.borderStrong, opacity: pressed || starting ? 0.5 : 1 })}>
-              <View style={{ width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center",
-                backgroundColor: colors.secondary }}>
-                <Icon ios={ios} android={android} size={18} color={colors.primary} weight="semibold" />
-              </View>
-              <View style={{ flex: 1, gap: 2 }}>
-                <Text style={{ ...type.subhead, color: colors.text }}>{label}</Text>
-                <Text numberOfLines={2} style={{ ...type.caption, color: colors.textMuted }}>{description}</Text>
-              </View>
+              style={({ pressed }) => ({ height: control.pill, paddingLeft: 12, paddingRight: 14,
+                flexDirection: "row", alignItems: "center", gap: space.sm, borderRadius: radius.pill,
+                backgroundColor: pressed ? colors.cardPressed : colors.card, borderWidth: StyleSheet.hairlineWidth,
+                borderColor: colors.borderStrong, opacity: starting ? 0.5 : 1 })}>
+              <Icon ios={ios} android={android} size={16} color={colors.starter[tint]} weight="semibold" />
+              <Text numberOfLines={1} style={{ fontSize: 13, fontWeight: "500", color: colors.text }}>{label}</Text>
             </Pressable>
           ))}
         </ScrollView>

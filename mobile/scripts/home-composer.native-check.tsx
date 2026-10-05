@@ -181,11 +181,14 @@ test('no-project starters stay visible through focus and send one prompt without
   const field=ui.query('textarea');
   ui.flush(()=>input.onFocus?.());
   expect(ui.query('textarea')).toBe(field);
+  // One-line pills since 2026-10-04: the label shows, the description is in
+  // the accessibility label only.
   expect(ui.text()).toContain('Website');
-  expect(ui.text()).toContain('Design and publish a site');
-  expect(ui.text()).toContain('Build a mobile or web app');
-  expect(ui.text()).toContain('Create an endpoint or service');
-  expect(ui.text()).toContain('Generate a custom visual');
+  expect(ui.text()).not.toContain('Design and publish a site');
+  expect(ui.query('[aria-label="Start website. Design and publish a site"]')).not.toBeNull();
+  expect(ui.query('[aria-label="Start app. Build a mobile or web app"]')).not.toBeNull();
+  expect(ui.query('[aria-label="Start api. Create an endpoint or service"]')).not.toBeNull();
+  expect(ui.query('[aria-label="Start image. Generate a custom visual"]')).not.toBeNull();
   ui.flush(()=>input.onBlur?.());
   expect(ui.query('[aria-label^="Start website."]')).not.toBeNull();
   expect(ui.query('textarea')).toBe(field);
