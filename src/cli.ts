@@ -1,30 +1,44 @@
 #!/usr/bin/env bun
 const HELP = `omg — run and manage your AI coding agents on your own box
 
-Usage:
-  omg serve                        Run the web UI + control server (default :8766)
-  omg agents [list|run|show]       Run / inspect insight agents (see 'agents help')
-  omg subagent [create|models]      Spawn a managed worker session on any harness
-  omg projects [status|clean]       Audit or clean safe stale project state
-  omg mcp                          Run the omg.dev MCP stdio server
-  omg connect <code>               Pair this box to a remote-access relay (EXPERIMENTAL)
-  omg setup                        Provision this box (Bun, tmux, service)
-  omg update [--check]             Update to the latest release and restart
-  omg doctor [--json]              Print a shareable diagnostic for bug reports
-  omg uninstall [--purge --yes]    Remove omg.dev (preserves sessions/config by default)
+This computer:
+  omg computer setup               Install omg.dev here (Bun, tmux, service)
+  omg computer status              Show the installed version and if an update exists
+  omg computer update [--check]    Update to the latest release and restart
+  omg computer uninstall [--purge --yes]
+                                   Remove omg.dev. Sessions and settings stay unless --purge
+  omg serve                        Run the web UI and control server (default :8766)
+  omg doctor [--json]              Print a diagnostic for bug reports
+  omg connect <code>               Pair this computer for remote access (EXPERIMENTAL)
+
+Agents:
+  omg subagent create|models       Start a managed agent session on any harness
+  omg agents list|run|show         Run or inspect insight agents (see 'omg agents help')
+  omg projects status|clean        Check or clean old project state
+  omg mcp                          Run the omg.dev MCP server (stdio)
+  omg computer-mcp                 Run the Computer MCP server (stdio)
+
+omg Cloud account:
   omg login [--api-key KEY]        Sign in to omg Cloud
-  omg whoami                       Show the Cloud account
-  omg deploy [--name NAME]         Publish the current directory to *.omgs.app
-  omg apps                         List hosted apps
+  omg logout                       Sign out of omg Cloud
+  omg whoami                       Show the signed-in account
+
+Hosted apps (*.omgs.app):
+  omg create <name>                Publish the current directory as a new app
+  omg deploy [--name NAME]         Publish the current directory
+             [--no-wait] [--generate-icon]
+  omg apps                         List your apps
   omg visibility <slug> [public|omg-users]
+                                   Show or set who can open an app
   omg env list|pull|set|rm|import <slug> ...
+                                   Manage an app's environment variables
 
-Env (read from process env / .env, see .env.example):
-  OMG_PORT, OMG_HOST, OMG_REPOS_ROOT  (the older LFG_* spellings still work)
+Settings (read from the environment or .env, see .env.example):
+  OMG_PORT, OMG_HOST, OMG_REPOS_ROOT  (the older LFG_* names still work)
 
-Machine verbs also answer to \`omg computer <verb>\`, which is the documented
-spelling: \`omg\` may be this CLI or the omg.dev CLI depending on PATH, and that
-form works with either. \`lfg\` remains a working alias for this command.
+setup, update, uninstall, doctor, serve, mcp, agents, subagent, projects and
+connect also work without "computer", for example \`omg update\`.
+\`lfg\` is an older name for this command and still works.
 `;
 
 /**

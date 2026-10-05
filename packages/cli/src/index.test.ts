@@ -4,6 +4,8 @@ import { HELP_BANNER } from "./help.ts";
 import { runCli } from "./index.ts";
 import manifest from "../package.json" with { type: "json" };
 
+const noInstall = { which: () => null, exists: () => false };
+
 function capture() {
   const lines: string[] = [];
   return {
@@ -26,9 +28,9 @@ describe("published version can replace the retired 0.4.x line", () => {
 });
 
 describe("omg help names the control plane and the hosted app verbs", () => {
-  test("help prints the probe phrase setup.sh greps for", async () => {
+  test("help before setup prints the probe phrase setup.sh greps for", async () => {
     const log = capture();
-    expect(await runCli(["help"], log)).toBe(0);
+    expect(await runCli(["help"], { ...log, ...noInstall })).toBe(0);
     expect(log.text()).toContain(HELP_BANNER);
     expect(log.text()).toContain("computer setup");
     expect(log.text()).toContain("localhost:8766");
@@ -38,10 +40,42 @@ describe("omg help names the control plane and the hosted app verbs", () => {
     expect(log.text()).not.toContain("omg-apps");
   });
 
-  test("the forward probe is the same help, so setup.sh can surrender omg", async () => {
+  // setup.sh runs the probe to decide whether this `omg` is the wrapper. If
+  // the probe forwarded, an installed computer would answer with the
+  // install's help instead and the decision would depend on install state.
+  test("the forward probe never forwards, so setup.sh can surrender omg", async () => {
     const log = capture();
-    expect(await runCli(["__omg_forward_probe"], log)).toBe(0);
+    const spawned: string[][] = [];
+    const code = await runCli(["__omg_forward_probe"], {
+      ...log,
+      which: () => "/tmp/lfg",
+      spawn: async (argv) => {
+        spawned.push(argv);
+        return 0;
+      },
+    });
+    expect(code).toBe(0);
+    expect(spawned).toEqual([]);
     expect(log.text()).toContain("run and manage your AI coding agents");
+  });
+
+  // The install owns the complete command list. Without this, `omg help`
+  // showed a short list and hid most commands that `omg` actually runs.
+  test("help on an installed computer shows the install's full list", async () => {
+    for (const argv of [[], ["help"], ["--help"], ["computer", "help"]]) {
+      const log = capture();
+      const spawned: string[][] = [];
+      const code = await runCli(argv, {
+        ...log,
+        which: () => "/tmp/lfg",
+        spawn: async (command) => {
+          spawned.push(command);
+          return 0;
+        },
+      });
+      expect(code, argv.join(" ")).toBe(0);
+      expect(spawned, argv.join(" ")).toEqual([["/tmp/lfg", "help"]]);
+    }
   });
 
   test("hosted app verbs start the old app flow on this same omg", async () => {

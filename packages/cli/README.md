@@ -39,11 +39,14 @@ You bring your own agent accounts. omg.dev does not resell tokens.
 | `omg serve` | After setup, run the web UI (forwarded to the install). |
 | `omg create <name>` | Create an app (hosted `*.omgs.app`). |
 | `omg deploy` | Publish the current directory. |
-| `omg login` | Sign in for create / deploy. |
+| `omg login` | Sign in to omg Cloud. |
 
 Any other verb the install owns (`mcp`, `doctor`, `agents`, …) is forwarded to
 it. `create` / `deploy` / `login` also forward to the install. The retired
 `@omg-dev/cli@0.4.42` tarball is no longer downloaded.
+
+After setup, `omg help` prints the install's complete command list. Before
+setup, it prints only the commands that work without an install.
 
 ## Versioning
 

@@ -1,27 +1,25 @@
 /** Shared so the setup.sh forward probe and `omg help` cannot drift. */
 export const HELP_BANNER = "omg — run and manage your AI coding agents on your own box";
 
+/**
+ * Help for a computer with no install yet.
+ *
+ * Once omg.dev is installed, `omg help` prints the install's own list instead
+ * (src/cli.ts in this repository). That list is the one complete reference,
+ * so this one only covers what works before setup.
+ */
 export const HELP = `${HELP_BANNER}
 
+omg.dev is not installed on this computer yet.
+
 Usage:
-  omg computer setup [--reinstall]     Install the local control plane
-  omg computer status                  Show this machine's install
-  omg computer update                  Update an existing install
-  omg computer uninstall [--purge --yes]
-  omg serve                            Run the web UI (after setup)
-  omg create <name>                    Create an app (hosted *.omgs.app)
-  omg deploy                           Publish the current directory
-  omg login                            Sign in for create / deploy
+  omg computer setup [--reinstall]     Install omg.dev here
+  omg --version                        Show this CLI's version
   omg help
 
-This command installs the local omg.dev agent control plane. After setup,
-open http://localhost:8766.
+After setup, open http://localhost:8766. Run \`omg help\` again to see every
+command: agents, the omg Cloud sign-in (omg login), and hosted apps
+(omg create, omg deploy).
 
 You bring your own agent accounts. omg.dev does not resell tokens.
-
-After setup, unknown commands are forwarded to the install. \`lfg\` remains
-a compatibility alias for that install.
-
-create / deploy / login run on the installed runtime. They no longer download
-the retired 0.4.42 CLI.
 `;
