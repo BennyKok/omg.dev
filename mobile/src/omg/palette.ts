@@ -218,7 +218,21 @@ export const brand = {
 } as const;
 
 // `group` is the iOS 26 grouped-list card. Measured at 64px on a 3x device.
-export const radius = { sm: 8, md: 10, lg: 12, xl: 18, group: 22, pill: 999 } as const;
+// `tile` is the settings icon tile (web: rounded-[9px] on a 32px square).
+export const radius = { sm: 8, tile: 9, md: 10, lg: 12, xl: 18, group: 22, pill: 999 } as const;
+
+/**
+ * Fixed control sizes from the web restyle of 2026-10-03/04. Named here so a
+ * screen never hardcodes them.
+ *
+ * - `pill`: a starter pill (web chat-starter-row: h-9).
+ * - `row`: a one-line update row (web auto-report-row: h-9).
+ * - `tile`: a settings icon tile (web settings-screen: h-8 w-8).
+ * - `meter`: a plan usage bar (web settings-screen: h-1.5).
+ * - `headerFade`: how far a transcript fades in under a rule-less header
+ *   (web `.chat-stream-fade`: 1.5rem).
+ */
+export const control = { pill: 36, row: 36, tile: 32, meter: 6, headerFade: 24 } as const;
 
 export const space = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 } as const;
 
@@ -263,7 +277,48 @@ export type OmgColors = Palette & {
   /** Agent is working. Same green as success — "running" is a good state. */
   busy: string;
   accentSoft: string;
+  /**
+   * The gradient-edged field (web `.lfg-gfield`): a 1px edge that runs at
+   * 160deg through four stops of the foreground, at rest and on focus. Focus
+   * brightens the same neutral edge. There is no accent ring. Use with
+   * `fieldEdgeStops` as the gradient locations.
+   */
+  fieldEdge: readonly [string, string, string, string];
+  fieldEdgeFocus: readonly [string, string, string, string];
+  /** Settings icon tile fill (web `bg-foreground/[0.05]`). */
+  tileFill: string;
+  /** Plan usage bar track (web `bg-foreground/10`). */
+  meterTrack: string;
+  /** Plan usage bar fill when the credit is low or every agent is busy. */
+  meterLow: string;
+  /** "Running low" and "All in use" text (web amber-700, dark amber-300). */
+  meterLowText: string;
+  /** Icon colour per chat starter (web STARTER_TINTS: 500, dark 400). */
+  starter: { website: string; app: string; api: string; image: string };
 };
+
+/** Gradient locations for `fieldEdge` and `fieldEdgeFocus`. */
+export const fieldEdgeStops = [0, 0.44, 0.72, 1] as const;
+
+/** `#rrggbb` at an alpha, as rgba(). The web writes these as color-mix. */
+function alpha(hex: string, a: number): string {
+  const n = Number.parseInt(hex.slice(1, 7), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+}
+
+// Tailwind v4 palette, oklch converted to sRGB.
+const tw = {
+  amber300: "#ffd230",
+  amber400: "#ffb900",
+  amber500: "#fe9a00",
+  amber700: "#bb4d00",
+  sky400: "#00bcff",
+  sky500: "#00a6f4",
+  emerald400: "#00d492",
+  emerald500: "#00bc7d",
+  pink400: "#fb64b6",
+  pink500: "#f6339a",
+} as const;
 
 function withAliases(base: Palette, isDark: boolean): OmgColors {
   return {
@@ -278,6 +333,17 @@ function withAliases(base: Palette, isDark: boolean): OmgColors {
     done: base.success,
     busy: base.success,
     accentSoft: isDark ? "rgba(10, 132, 255, 0.16)" : "rgba(0, 122, 255, 0.12)",
+    // Derived from `foreground`, so these follow the synced token and cannot
+    // drift from it on their own.
+    fieldEdge: [0.24, 0.08, 0.04, 0.14].map((a) => alpha(base.foreground, a)) as unknown as OmgColors["fieldEdge"],
+    fieldEdgeFocus: [0.4, 0.16, 0.1, 0.26].map((a) => alpha(base.foreground, a)) as unknown as OmgColors["fieldEdgeFocus"],
+    tileFill: alpha(base.foreground, 0.05),
+    meterTrack: alpha(base.foreground, 0.1),
+    meterLow: tw.amber500,
+    meterLowText: isDark ? tw.amber300 : tw.amber700,
+    starter: isDark
+      ? { website: tw.sky400, app: tw.emerald400, api: tw.amber400, image: tw.pink400 }
+      : { website: tw.sky500, app: tw.emerald500, api: tw.amber500, image: tw.pink500 },
   };
 }
 
