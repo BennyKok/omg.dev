@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 5, 2026 - `omg help` lists every command (v0.6.179)
+
+- `omg help` now shows every command in one list, grouped by task: this computer, agents, the omg Cloud account, and hosted apps.
+- The list now includes `omg logout`, `omg create`, and the `omg deploy` options.
+- Before setup, `omg help` shows only the commands that work without an install.
+
 ## October 5, 2026 - `omg login` gives AI and computer access (v0.6.178)
 
 - `omg login` now uses the sign-in of the installed runtime. That sign-in includes computer access, so Rename with AI and the Computers list work after you sign in.
