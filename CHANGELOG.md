@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## October 5, 2026 - `omg login` gives AI and computer access (v0.6.178)
+
+- `omg login` now uses the sign-in of the installed runtime. That sign-in includes computer access, so Rename with AI and the Computers list work after you sign in.
+- Before this fix, `omg login` saved a sign-in without computer access. It could replace a good sign-in, and Rename with AI then failed.
+- `@omg-dev/cli` 0.5.2 no longer downloads the retired 0.4.42 CLI.
+- If `omg create` or `omg deploy` says the command is unknown, run `omg computer update` first.
+
 ## October 5, 2026 - Fewer banners in a session (v0.6.177)
 
 - A session no longer shows a banner that asks you to close and resume it to load newer tools.
