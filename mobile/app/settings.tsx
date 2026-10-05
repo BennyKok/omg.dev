@@ -11,6 +11,7 @@
  */
 
 import { useRouter, useFocusEffect } from "expo-router";
+import { PlanUsageMeters, usePlanUsage } from "../src/omg/plan-usage";
 import { reloadAppAsync } from "expo";
 import Constants from "expo-constants";
 import {
@@ -209,6 +210,7 @@ function SettingsRow({
 }
 
 export default function SettingsScreen() {
+  const planUsage = usePlanUsage();
   const insets = useSafeAreaInsets();
   const { colors, type, space } = useTheme();
   const { user, client, signOut, bindings, sharedComputers, bindingId, cloud } = useOmg();
@@ -468,6 +470,14 @@ export default function SettingsScreen() {
           onPress={() => router.push("/settings/connectors")}
         />
         <Separator inset="icon" />
+        {/* The plan's meters sit directly above the row that manages the
+            plan, so the one action for them is the StoreKit row. */}
+        {planUsage && (planUsage.agents || planUsage.credit) ? (
+          <>
+            <PlanUsageMeters model={planUsage} />
+            <Separator inset="icon" />
+          </>
+        ) : null}
         <SettingsRow
           glyph={{ ios: "creditcard.fill", android: "credit_card" }}
           tint={TINT.green}
