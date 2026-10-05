@@ -4,10 +4,13 @@
 
 # omg.dev
 
-**Not 10 interfaces. One portal for all your agents.**
+**Build your ideas on the go.**
 
-Open-source parallel coding agent harness. Run agents on your computer.
-Control them from one UI. Install it yourself for free, or pay us to host it.
+Give your agents a task from your phone. Get a notification when the result is
+ready. Your laptop can stay closed.
+
+Open-source harness for Claude Code, Codex, and other coding agents. Install it
+yourself for free, or pay us to host it.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![GitHub release](https://img.shields.io/github/v/release/BennyKok/omg.dev?label=release)](https://github.com/BennyKok/omg.dev/releases)
@@ -65,32 +68,10 @@ service with a free plan. See [pricing](https://omg.dev/pricing).
 
 iPhone: [omg.dev on the App Store](https://apps.apple.com/us/app/omg-dev/id6800792515)
 
-## Built for every role
+## Pick a task. Put the phone down.
 
-PMs, engineers, growth, and sales share the same sessions.
-
-<table>
-  <tr>
-    <td width="50%">
-      <img src="./docs/images/personas/pm-1600.webp" alt="omg.dev Board: Needs you, Working, Idle and Shipped columns of agent sessions" />
-      <p><strong>PM.</strong> Needs you, Working, Idle, Shipped.</p>
-    </td>
-    <td width="50%">
-      <img src="./docs/images/personas/engineer-1600.webp" alt="omg.dev session with the diff view open, showing a patch file by file" />
-      <p><strong>Engineer.</strong> Worktree diff, then merge.</p>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%">
-      <img src="./docs/images/personas/growth-1600.webp" alt="omg.dev chat where an agent answers with an interactive funnel chart from the database" />
-      <p><strong>Growth.</strong> Ask in chat. Chart from your database.</p>
-    </td>
-    <td width="50%">
-      <img src="./docs/images/personas/sales-1600.webp" alt="omg.dev chat turning call recordings into objections, risk per deal and follow-ups" />
-      <p><strong>Sales.</strong> Calls to objections, risk, follow-ups.</p>
-    </td>
-  </tr>
-</table>
+Start a task from the app. Your agents work on your computer. You get a
+notification when it is done.
 
 <p align="center">
   <img src="./docs/images/ios/home.webp" alt="omg.dev iOS: every task on one board" width="30%" />
