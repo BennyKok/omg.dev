@@ -10,7 +10,7 @@ Give your agents a task from your phone. Get a notification when the result is
 ready. Your laptop can stay closed.
 
 Open-source harness for Claude Code, Codex, and other coding agents. Install it
-yourself for free, or pay us to host it.
+yourself for free.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![GitHub release](https://img.shields.io/github/v/release/BennyKok/omg.dev?label=release)](https://github.com/BennyKok/omg.dev/releases)
