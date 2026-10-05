@@ -295,3 +295,11 @@ export async function submitSignedTransaction(signedTransaction: string): Promis
     body: JSON.stringify({ signedTransaction }),
   });
 }
+
+/**
+ * `billing.getBalance`, the same read the dashboard's Settings plan card uses.
+ * Read-only. The caller picks what it needs out of the reply (plan-card.ts).
+ */
+export async function fetchBalance(): Promise<unknown> {
+  return await billingFetch<unknown>("/api/billing/getBalance", { method: "POST", body: "{}" });
+}
