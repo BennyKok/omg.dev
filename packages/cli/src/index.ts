@@ -18,14 +18,30 @@ function write(writer: ((line: string) => void) | undefined, fallback: typeof co
   (writer ?? fallback)(line);
 }
 
+/**
+ * The install owns the complete command list. Show it when there is one, so
+ * `omg help` lists every command that `omg` will actually run.
+ */
+async function showHelp(dependencies: CliDependencies, out: (line: string) => void): Promise<number> {
+  const forwarded = await forwardToInstall(["help"], dependencies);
+  if (forwarded.forwarded) return forwarded.exitCode;
+  out(HELP);
+  return 0;
+}
+
 export async function runCli(argv: string[], dependencies: CliDependencies = {}): Promise<number> {
   const out = (line: string) => write(dependencies.output, console.log, line);
   const err = (line: string) => write(dependencies.error, console.error, line);
   const [cmd, ...rest] = argv;
 
-  if (!cmd || cmd === "help" || cmd === "-h" || cmd === "--help" || cmd === "__omg_forward_probe") {
-    out(HELP);
+  // The probe must not forward: setup.sh greps its output for HELP_BANNER.
+  if (cmd === "__omg_forward_probe") {
+    out(HELP_BANNER);
     return 0;
+  }
+
+  if (!cmd || cmd === "help" || cmd === "-h" || cmd === "--help") {
+    return await showHelp(dependencies, out);
   }
 
   if (cmd === "version" || cmd === "--version" || cmd === "-v") {
@@ -42,8 +58,7 @@ export async function runCli(argv: string[], dependencies: CliDependencies = {})
     const verb = rest[0];
     const args = rest.slice(1);
     if (!verb || verb === "help" || verb === "-h" || verb === "--help") {
-      out(HELP);
-      return 0;
+      return await showHelp(dependencies, out);
     }
     if (verb === "setup") return await runComputerSetup(args, { ...dependencies, output: out });
     if (verb === "update") return await runComputerForward("setup", args, { ...dependencies, output: out });
