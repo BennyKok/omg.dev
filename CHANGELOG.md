@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 5, 2026 - Fewer banners in a session (v0.6.177)
+
+- A session no longer shows a banner that asks you to close and resume it to load newer tools.
+- A session that stopped because the host restarted, the agent was killed, or the agent ran out of memory no longer shows a paused banner. Send a message to continue it.
+- A paused banner still shows when you must act first: change the model, add credits, or sign in again.
+
 ## October 4, 2026 - Android builds from a Computer work end to end (v0.6.176)
 
 - An agent's Android build now uploads the exact commit in a form the builder can check out. Before this fix, the first build of a new project failed while preparing its source.
