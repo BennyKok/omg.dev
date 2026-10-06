@@ -662,6 +662,7 @@ import {
 import { RemoteAccessSettingsSection } from "./components/remote-access-settings";
 import { CloudAccountSettingsSection } from "./components/cloud-account-settings";
 import { MachineSwitcher } from "./components/machine-switcher";
+import { ConnectionOverlay } from "./components/connection-overlay";
 import { ConnectorsRow } from "./views/connectors-row";
 import {
   UpdateNavButton,
@@ -10121,6 +10122,13 @@ export function App() {
 
       {useWsLive && !error ? (
         <ConnectionStatusToasts recoveryVisible={!bare} connection={wsLiveStream.connection} onRetry={wsLiveStream.reconnectNow} />
+      ) : null}
+      {/* The one connection surface for the full app. Bare pages are hosted
+          inside someone else's page and keep the toasts above. */}
+      {!bare ? (
+        <ConnectionOverlay
+          machineSwitcher={!embedded || hostMachines ? <MachineSwitcher variant="nav" /> : null}
+        />
       ) : null}
       <VoiceSetupDialog />
       {/* Shift toggles the all-agent usage campfire; long-press rings on mobile. */}
