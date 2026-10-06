@@ -14,7 +14,7 @@ test("unavailable runtime shows one short status and retains retry", () => {
   expect(ui.text()).toBe("Reconnecting…Retry");
   expect(ui.queryAll('[role="status"]').length).toBe(1);
   expect(ui.text()).not.toContain("cloud_runtime_unavailable");
-  expect(ui.text()).not.toContain("No running sessions");
+  expect(ui.text()).not.toContain("No sessions yet");
   ui.flush(() => (ui.query("button") as HTMLElement).click());
   expect(retries).toBe(1);
 });
@@ -22,15 +22,15 @@ test("unavailable runtime shows one short status and retains retry", () => {
 test("initial load and live empty lists have distinct messages", () => {
   ui.render(<RuntimeAvailabilityContext.Provider value={{ status: "connecting", loading: true, ready: false, error: null, retry: () => {} }}><RuntimeEmptyState /></RuntimeAvailabilityContext.Provider>);
   expect(ui.text()).toBe("");
-  expect(ui.text()).not.toContain("No running sessions");
+  expect(ui.text()).not.toContain("No sessions yet");
   ui.render(<RuntimeAvailabilityContext.Provider value={{ status: "live", loading: false, ready: true, error: null, retry: () => {} }}><RuntimeRecovery /><RuntimeEmptyState /></RuntimeAvailabilityContext.Provider>);
-  expect(ui.text()).toBe("No running sessions");
+  expect(ui.text()).toBe("No sessions yetType below to start one.");
 });
 
 test("a live socket with failed bootstrap still offers recovery", () => {
   ui.render(<RuntimeAvailabilityContext.Provider value={{ status: "live", loading: false, ready: false, error: "502", retry: () => {} }}><RuntimeRecovery /><RuntimeEmptyState /></RuntimeAvailabilityContext.Provider>);
   expect(ui.text()).toBe("Connection unavailableRetry");
-  expect(ui.text()).not.toContain("No running sessions");
+  expect(ui.text()).not.toContain("No sessions yet");
 });
 
 test("connecting stays compact and recovery clears all connection feedback", () => {

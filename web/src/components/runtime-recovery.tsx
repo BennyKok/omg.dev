@@ -1,4 +1,4 @@
-import { MessageSquare } from "lucide-react";
+import { ArrowDown, MessageSquare } from "lucide-react";
 import type { ReactNode } from "react";
 import {
   useRuntimeAvailability,
@@ -85,14 +85,21 @@ export function RuntimeStatusDot() {
   );
 }
 
+/**
+ * The phone list with no session rows. The persistent composer at the foot of
+ * the screen is the only way to start one, so the copy points at it rather
+ * than adding a second button that would just focus the same input.
+ */
 export function RuntimeEmptyState() {
   const { ready, status, error } = useRuntimeAvailability();
   // The header owns connection feedback. An unknown list is not an empty list.
   if (!ready || status !== "live" || error) return null;
   return (
-    <div className="flex min-h-[50dvh] flex-col items-center justify-center gap-3 px-4 text-center" role="status">
-      <MessageSquare className="size-8 text-muted-foreground/45" aria-hidden />
-      <span className="text-sm font-medium text-muted-foreground">No running sessions</span>
+    <div className="flex min-h-[40dvh] flex-col items-center justify-center gap-2 px-6 text-center" role="status">
+      <MessageSquare className="mb-1 size-8 text-muted-foreground/45" aria-hidden />
+      <span className="text-base font-semibold text-foreground">No sessions yet</span>
+      <span className="text-sm text-muted-foreground">Type below to start one.</span>
+      <ArrowDown className="mt-2 size-4 text-muted-foreground/60 motion-safe:animate-bounce" aria-hidden />
     </div>
   );
 }

@@ -11942,9 +11942,7 @@ function LiveView({
   const isWide = useIsWide();
   const isMobile = useIsMobile();
   // Which session is open is the URL's answer (`/sessions/<id>`), not this
-  // component's. Only the morph origin is local: it anchors the open/close
-  // animation to the row that was tapped, and a DOMRect cannot live in a URL.
-  const [sheetOrigin, setSheetOrigin] = useState<DOMRect | null>(null);
+  // component's.
   // Open findings live behind the Updates pill on a phone, not in the list.
   const [findingsOpen, setFindingsOpen] = useState(false);
   useEffect(() => {
@@ -11975,7 +11973,6 @@ function LiveView({
   // Narrow layout: a focus request goes straight to the session's page.
   useEffect(() => {
     if (!focus || isWide) return;
-    setSheetOrigin(new DOMRect(window.innerWidth / 2 - 120, 120, 240, 44));
     onOpenSessionPage?.(focus.sid);
   }, [focus, isWide, onOpenSessionPage]);
 
@@ -12033,16 +12030,9 @@ function LiveView({
   );
 
   // Opening a session from the list navigates; the view below follows the URL.
-  // The animation still wants the row it came from, and a rect cannot live in
-  // a URL, so the origin is remembered here and the URL stays the truth about
-  // *which* session is open.
   const openSessionPage = useCallback(
     (sid: string) => {
       if (!sid) return;
-      // Rows are a known height (RailItem), so the row's own box is an honest
-      // origin instead of a guess at the middle of the screen.
-      const row = document.querySelector(`[data-rail-sid="${sid}"]`);
-      if (row) setSheetOrigin(row.getBoundingClientRect());
       onOpenSessionPage?.(sid);
     },
     [onOpenSessionPage],
@@ -12160,10 +12150,7 @@ function LiveView({
           onRefresh={onRefresh}
           onRenameSession={onRenameSession}
           onRemove={onRemove}
-          onOpenSheet={(sid, origin) => {
-            setSheetOrigin(origin);
-            onOpenSessionPage?.(sid);
-          }}
+          onOpenSheet={(sid) => onOpenSessionPage?.(sid)}
           entering={recentlyCreatedSids.has(session.sessionId ?? "")}
           pinned={!!session.sessionId && pinnedSet.has(session.sessionId)}
           onTogglePin={toggleTopPin}
@@ -12363,6 +12350,11 @@ function LiveView({
           renderItem={renderMobileItem}
           headerless
         />
+        {/* Threads alone (or a project chip with nothing in it) used to leave
+            the rest of the phone blank above the composer. */}
+        {!pinned.length && !botSessions.length && !working.length && !idle.length ? (
+          <RuntimeEmptyState />
+        ) : null}
       </PullToThread>
     </div>
     {/* Open findings live behind a pill, not at the end of the list. A group
@@ -12417,10 +12409,6 @@ function LiveView({
         session={sheetSession}
         users={users}
         order={sheetOrder}
-        // No remembered origin (a deep link, or a reload straight onto the
-        // page) means there is no row to morph out of. Open from the middle
-        // rather than from a stale rect belonging to a different session.
-        origin={sheetOrigin ?? new DOMRect(window.innerWidth / 2 - 120, 120, 240, 44)}
         busyBySid={busyBySid}
         promptsBySid={promptsBySid}
         typingBySid={typingBySid}
@@ -18402,7 +18390,6 @@ function SessionTitleSheet({
   promptsBySid,
   typingBySid,
   onTyping,
-  origin,
   onSwitch,
   onSubscribeTranscript,
   onRefresh,
@@ -18413,8 +18400,7 @@ function SessionTitleSheet({
   onClose,
 }: {
   // The active session id. The sheet is a top-level modal (lifted out of any one
-  // SessionCard) so it can swap which session it shows while staying mounted —
-  // the morph-in/out animation always references the original `origin` rect.
+  // SessionCard) so it can swap which session it shows while staying mounted.
   sid: string;
   session: Session;
   users: User[];
@@ -18424,7 +18410,6 @@ function SessionTitleSheet({
   promptsBySid: Record<string, SessionPrompt | null>;
   typingBySid: Record<string, string[]>;
   onTyping: (sid: string, typing: boolean) => void;
-  origin: DOMRect;
   onSwitch: (sid: string) => void;
   onSubscribeTranscript?: OmgTranscriptSubscribe;
   onRefresh: () => Promise<void>;
@@ -18636,45 +18621,26 @@ function SessionTitleSheet({
     };
   }, [go, navigationPrefs.swipeBetweenChats, prevSid, nextSid]);
 
-  // The transform that maps the full-screen panel onto the title's rect.
-  // transform-origin is the top-left corner, so scale shrinks toward (0,0) and
-  // the translate then drops it onto the title.
-  const flipTransform = useCallback(() => {
-    const vw = window.innerWidth || 1;
-    const vh = window.innerHeight || 1;
-    const sx = Math.max(origin.width / vw, 0.0001);
-    const sy = Math.max(origin.height / vh, 0.0001);
-    return `translate(${origin.left}px, ${origin.top}px) scale(${sx}, ${sy})`;
-  }, [origin]);
-
-  // Enter morph — runs once on mount.
+  // Enter: a plain page push from the right edge, the way the iOS and Android
+  // apps open a session. Only `transform` animates, so the compositor runs it
+  // without repainting the transcript. The old morph scaled the panel out of
+  // the tapped row and animated `borderRadius`, which forced a full-panel
+  // repaint on every frame and stuttered on mid-range Android phones.
+  // `fill: "backwards"` holds the start frame until the first tick and leaves
+  // no transform behind, so the open page is not kept as a transformed layer.
   useLayoutEffect(() => {
     const panel = panelRef.current;
     const backdrop = backdropRef.current;
-    const body = bodyRef.current;
     if (!panel) return;
-    const from = flipTransform();
     panel.animate(
-      [
-        { transform: from, borderRadius: "16px", opacity: 0.55 },
-        { transform: "translate(0px,0px) scale(1,1)", borderRadius: "0px", opacity: 1 },
-      ],
-      { duration: SHEET_MS, easing: SHEET_EASE, fill: "both" },
+      [{ transform: "translate3d(100%, 0, 0)" }, { transform: "translate3d(0, 0, 0)" }],
+      { duration: SHEET_MS, easing: SHEET_EASE, fill: "backwards" },
     );
     backdrop?.animate([{ opacity: 0 }, { opacity: 1 }], {
       duration: SHEET_MS,
       easing: SHEET_EASE,
-      fill: "both",
+      fill: "backwards",
     });
-    body?.animate(
-      [
-        { opacity: 0, transform: "translateY(12px)" },
-        { opacity: 0, transform: "translateY(12px)", offset: 0.45 },
-        { opacity: 1, transform: "translateY(0px)" },
-      ],
-      { duration: SHEET_MS, easing: "ease-out", fill: "both" },
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const requestClose = useCallback(() => {
@@ -18683,8 +18649,6 @@ function SessionTitleSheet({
     haptic("selection");
     const panel = panelRef.current;
     const backdrop = backdropRef.current;
-    const body = bodyRef.current;
-    const to = flipTransform();
     let done = false;
     const finish = () => {
       if (done) return;
@@ -18692,12 +18656,10 @@ function SessionTitleSheet({
       onClose();
     };
     if (panel) {
+      // Pop: the page slides back out to the right edge it came from.
       const anim = panel.animate(
-        [
-          { transform: "translate(0px,0px) scale(1,1)", borderRadius: "0px", opacity: 1 },
-          { transform: to, borderRadius: "16px", opacity: 0.55 },
-        ],
-        { duration: SHEET_MS * 0.85, easing: SHEET_EASE, fill: "both" },
+        [{ transform: "translate3d(0, 0, 0)" }, { transform: "translate3d(100%, 0, 0)" }],
+        { duration: SHEET_MS * 0.85, easing: SHEET_EASE, fill: "forwards" },
       );
       anim.onfinish = finish;
       anim.oncancel = finish;
@@ -18707,14 +18669,9 @@ function SessionTitleSheet({
     backdrop?.animate([{ opacity: 1 }, { opacity: 0 }], {
       duration: SHEET_MS * 0.85,
       easing: SHEET_EASE,
-      fill: "both",
+      fill: "forwards",
     });
-    body?.animate([{ opacity: 1 }, { opacity: 0 }], {
-      duration: SHEET_MS * 0.4,
-      easing: "ease-in",
-      fill: "both",
-    });
-  }, [flipTransform, onClose]);
+  }, [onClose]);
 
   // Full-details-only gesture: swipe up from the session composer to dismiss
   // the zoomed-in sheet. This deliberately starts only from the input bar area,
@@ -18891,7 +18848,6 @@ function SessionTitleSheet({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        style={{ transformOrigin: "top left" }}
         className="absolute inset-0 flex flex-col overflow-hidden bg-background text-foreground"
       >
         <div
@@ -19314,7 +19270,7 @@ const SessionCard = memo(function SessionCard({
   // Tapping the title asks the parent to open the full-height detail sheet
   // for this sid, anchored to the title's rect. The sheet lives at the parent so
   // it can switch between sessions; undefined → the gesture is disabled.
-  onOpenSheet?: (sid: string, origin: DOMRect) => void;
+  onOpenSheet?: (sid: string) => void;
   // "stage" = fill the column height and show a close affordance that removes
   // the column (without ending the session). Default "grid" keeps the classic
   // fixed-height card + mobile gestures.
@@ -19603,7 +19559,7 @@ const onTouchStart = (e: ReactTouchEvent) => {
     if (openRef.current !== "none") { closeSwipe(); return; }
     if (!onOpenSheet || !sid) return;
     haptic("selection");
-    onOpenSheet(sid, e.currentTarget.getBoundingClientRect());
+    onOpenSheet(sid);
   };
 
   // Mobile cards are always the stripped-down row (no model chip, no actions
