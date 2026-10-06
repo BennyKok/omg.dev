@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 6, 2026 - Boxy splash and page-push session open (v0.6.182)
+
+- The web splash is now Boxy, a hand-drawn computer with a pixel face. It wakes up while the app loads, in light and dark mode. It stays still when the device asks for reduced motion.
+- Opening a session on the web now slides the page in from the right, like the iOS and Android apps. The scale-up animation is gone.
+- On mobile, an empty session list now shows "No sessions yet" and "Type below to start one."
+
 ## October 6, 2026 - Folder dropdown and one model picker (v0.6.181)
 
 - On desktop, the project pill in the new-session drawer opens the folder dropdown. The project dialog is gone.
