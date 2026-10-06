@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 6, 2026 - Gray Apex picker icon (v0.6.186)
+
+- The Apex icon uses gray in the model list and selected model to match the other provider icons.
+
 ## October 6, 2026 - Apex icon and current Claude models (v0.6.185)
 
 - Apex shows its official icon in the model list and the selected-model pill. The local web app and hosted Computer use the same mark.

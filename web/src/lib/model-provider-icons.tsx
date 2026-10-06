@@ -44,7 +44,7 @@ export function ModelProviderIcon({
   const key = modelProviderIconKey(provider);
   if (!key) return null;
   if (PROVIDER_IMAGES[key]) {
-    return <img src={PROVIDER_IMAGES[key]} alt="" aria-hidden="true" className={className} />;
+    return <img src={PROVIDER_IMAGES[key]} alt="" aria-hidden="true" className={`${className ?? ""} grayscale`} />;
   }
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" role="img" aria-hidden="true" className={className}>
