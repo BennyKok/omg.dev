@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 6, 2026 - Boxy shows connection state (v0.6.184)
+
+- When the app loses its computer, Boxy now shows it on one screen. A short drop shows nothing. A longer one shows a small "Reconnecting…" pill.
+- After 8 seconds, or when you are offline or the computer is paused or stopped, the app dims behind a card with Retry and the computer switcher. You can move to another computer from there.
+- When you come back to the app, it says "Resuming…" until it reconnects. When the connection returns, Boxy smiles and the card fades out.
+
 ## October 6, 2026 - Machine dialogs clear navigation (v0.6.183)
 
 - In the hosted app, Add machine and Edit machine close the navigation panel before they open a dialog.
