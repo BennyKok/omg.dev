@@ -19,7 +19,17 @@ Ask one question per question call, and put at most one decision in it. A second
 
 ## Choose the delivery path
 
-- For a website, web app, or API, use the supported omg.dev runtime unless the user requests another platform. Read `https://docs.omg.dev/llms.txt` and only the relevant parts of `https://docs.omg.dev/llms-full.txt` before choosing packages or API contracts.
+- For a website, web app, or API, use the supported omg.dev runtime unless the user requests another platform. In a blank project, scaffold the official omg.dev React template before writing product code. The current directory already contains Git and omg.dev instructions, so generate into a temporary directory inside it, copy the scaffold into the project, and remove only that temporary directory:
+
+  ```bash
+  scaffold="$(mktemp -d .omg-web-scaffold-XXXXXX)"
+  bunx --bun create-omg@latest "$scaffold" --template react-ts --no-install
+  cp -a "$scaffold"/. .
+  rm -rf "$scaffold"
+  bun install
+  ```
+
+  This template supplies `@omg-dev/vite-plugin`, `vibes-build`, server functions, database support, and analytics. Do not substitute `create-vite` or a hand-written Vite scaffold. Read `https://docs.omg.dev/llms.txt` and only the relevant parts of `https://docs.omg.dev/llms-full.txt` before choosing additional packages or API contracts.
 - For an Expo app, start from the managed `expo` template and follow "Expo app: the fast path" below. Adapt its screens and its data store instead of rebuilding configuration. Keep secrets in hosted server routes. A production native build needs any server deployed at a secure origin; do not treat a sandbox tunnel as production hosting.
 - Use one live Metro server for Expo Web and Expo Go in a Cloud Computer. Expose its port through `omg_expose_port`; do not assume a global Expo CLI, Xcode, a simulator, or machine-specific tools exist.
 - When the app is compatible with Expo Go, `omg_expose_port` puts the `exps://` Expo Go link on a preview card in the omg.dev app. Tell the user the preview is ready and to open it from the card below. Do not paste the raw `exps://` URL in your reply; the card already shows it. Paste it only where the user cannot see the card, such as a reply sent with `omg_send_to_origin` to a messaging channel, or when the user asks for the link. Do not use Expo tunnel, LAN exposure, `exp.direct`, or ngrok. If Expo Go cannot load a required native module, use a development build when authorized or report that limit clearly.
