@@ -3007,3 +3007,111 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
     animation: none;
   }
 }
+
+/* ------------------------------------------------------------------
+ * Boxy (components/boxy.tsx): the connection overlay mascot. The ink
+ * follows the text colour; the face is amber pixels on a dark screen.
+ * Each mood animates only transform/opacity on a small SVG.
+ * ------------------------------------------------------------------ */
+.boxy-ink path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 3.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.boxy-grid,
+.boxy-face,
+.boxy-face g,
+.boxy-cover,
+.boxy-crt,
+.boxy-zz {
+  transform-box: fill-box;
+}
+.boxy-zz path {
+  fill: none;
+  stroke: #ffb547;
+  stroke-width: 3;
+  stroke-linejoin: miter;
+}
+.boxy-sleeping .boxy-grid { opacity: 0.35; }
+.boxy-error .boxy-grid { opacity: 0.6; }
+
+/* Booting: a CRT line snaps open, then the eyes boot in row by row. */
+.boxy-booting .boxy-grid { opacity: 0.35; animation: boxy-on 0.01s 0.1s forwards; }
+.boxy-booting .boxy-crt {
+  opacity: 0;
+  transform-origin: 50% 50%;
+  animation: boxy-crt 0.32s 0.05s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+.boxy-booting .boxy-cover {
+  transform-origin: 50% 100%;
+  animation: boxy-boot 0.36s 0.35s steps(7, end) forwards;
+}
+
+/* Booting and searching: blink. Searching also looks left and right. */
+.boxy-booting .boxy-eyes-shut,
+.boxy-searching .boxy-eyes-shut { opacity: 0; }
+.boxy-booting .boxy-eyes-open,
+.boxy-searching .boxy-eyes-open { animation: boxy-open-blink 3.2s 1s infinite; }
+.boxy-booting .boxy-eyes-shut,
+.boxy-searching .boxy-eyes-shut { animation: boxy-shut-blink 3.2s 1s infinite; }
+.boxy-searching .boxy-face { animation: boxy-search 2.4s ease-in-out infinite; }
+
+/* Sleeping: one pixel z drifts off, again and again. */
+.boxy-zz { opacity: 0; animation: boxy-z 2.2s ease-out infinite; }
+
+/* Happy: a small hop when the connection comes back. */
+.boxy-happy { animation: boxy-hop 0.5s cubic-bezier(0.3, 1.6, 0.5, 1) both; }
+
+/* Error: one short shake, then still. */
+.boxy-error .boxy-face { animation: boxy-shake 0.45s ease-in-out both; }
+
+@keyframes boxy-on { to { opacity: 1; } }
+@keyframes boxy-crt {
+  0% { opacity: 1; transform: scale(0.9, 0.04); }
+  55% { opacity: 0.9; transform: scale(1, 1); }
+  100% { opacity: 0; transform: scale(1, 1); }
+}
+@keyframes boxy-boot { from { transform: scaleY(1); } to { transform: scaleY(0); } }
+@keyframes boxy-open-blink { 0%, 92%, 100% { opacity: 1; } 94%, 98% { opacity: 0; } }
+@keyframes boxy-shut-blink { 0%, 92%, 100% { opacity: 0; } 94%, 98% { opacity: 1; } }
+@keyframes boxy-search {
+  0%, 100% { transform: translate(0, 0); }
+  20%, 40% { transform: translate(-6.4px, 0); }
+  60%, 80% { transform: translate(6.4px, 0); }
+}
+@keyframes boxy-z {
+  0% { opacity: 0; transform: translate(0, 4px); }
+  30% { opacity: 1; }
+  70%, 100% { opacity: 0; transform: translate(8px, -16px); }
+}
+@keyframes boxy-hop {
+  0% { transform: translateY(0); }
+  40% { transform: translateY(-8%); }
+  100% { transform: translateY(0); }
+}
+@keyframes boxy-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  50% { transform: translateX(4px); }
+  75% { transform: translateX(-2px); }
+}
+
+/* The overlay fades in, so a state change never snaps the whole screen. */
+@keyframes lfg-connection-in { from { opacity: 0; } to { opacity: 1; } }
+.lfg-connection-in { animation: lfg-connection-in 0.25s ease-out both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .boxy *,
+  .boxy,
+  .lfg-connection-in {
+    animation: none !important;
+  }
+  .boxy-booting .boxy-grid { opacity: 1; }
+  .boxy-cover,
+  .boxy-crt,
+  .boxy-eyes-shut { display: none; }
+  .boxy-zz { opacity: 1; }
+  .boxy-ink { filter: none; }
+}
