@@ -63,19 +63,21 @@
     },
   },
   "patchedDependencies": {
-    "@siteed/audio-studio@3.2.1": "patches/@siteed%2Faudio-studio@3.2.1.patch",
-    "react-native-key-command@1.0.16": "patches/react-native-key-command@1.0.16.patch",
     "expo-modules-core@58.0.4": "patches/expo-modules-core@58.0.4.patch",
     "@novnc/novnc@1.7.0": "patches/@novnc%2Fnovnc@1.7.0.patch",
     "expo-modules-jsi@58.0.3": "patches/expo-modules-jsi@58.0.3.patch",
     "@expo/ui@58.0.4": "patches/@expo%2Fui@58.0.4.patch",
+    "@siteed/audio-studio@3.2.1": "patches/@siteed%2Faudio-studio@3.2.1.patch",
+    "react-native-key-command@1.0.16": "patches/react-native-key-command@1.0.16.patch",
     "expo-iap@5.3.1": "patches/expo-iap@5.3.1.patch",
   },
   "overrides": {
     "brace-expansion": "^5.0.11",
+    "compression": "^1.8.2",
     "image-size": "^2.0.3",
     "js-yaml": "^5.4.1",
     "nanoid": "^3.3.18",
+    "source-map-js": "^1.2.2",
   },
   "packages": {
     "2g": ["2g@0.4.4", "", { "peerDependencies": { "typescript": ">=5.8.0" }, "optionalPeers": ["typescript"], "bin": { "2g": "bin/cli.js" } }, "sha512-ZwH02IRQicm+92YzJZMS8imSAJaqTPI+VASb1zMnisotnWcEP4e7nb57Mr8C2dGAA5G8ZmialbMmpkGLWgAY/w=="],
@@ -572,7 +574,7 @@
 
     "compressible": ["compressible@2.0.18", "", { "dependencies": { "mime-db": ">= 1.43.0 < 2" } }, "sha512-AF3r7P5dWxL8MxyITRMlORQNaOA2IkAFaTr4k7BUumjPtRpGDTZpl0Pb1XCO6JeDCBdp126Cgs9sMxqSjgYyRg=="],
 
-    "compression": ["compression@1.8.1", "", { "dependencies": { "bytes": "3.1.2", "compressible": "~2.0.18", "debug": "2.6.9", "negotiator": "~0.6.4", "on-headers": "~1.1.0", "safe-buffer": "5.2.1", "vary": "~1.1.2" } }, "sha512-9mAqGPHLakhCLeNyxPkK4xVo746zQ/czLH1Ky+vkitMnWfWZps8r0qXuwhwizagCRttsL4lfG4pIOvaWLpAP0w=="],
+    "compression": ["compression@1.8.2", "", { "dependencies": { "bytes": "3.1.2", "compressible": "~2.0.18", "debug": "2.6.9", "destroy": "1.2.0", "negotiator": "~0.6.4", "on-headers": "~1.1.0", "safe-buffer": "5.2.1", "vary": "~1.1.2" } }, "sha512-o8vI5RE5A6EVVOd9o41jKp41aJom+QTEO/Bx8MYNjexMo/Bv2WOjUfZr+aL0WnYSgymUy6zeguqLTsIhV0gMvQ=="],
 
     "connect": ["connect@3.7.0", "", { "dependencies": { "debug": "2.6.9", "finalhandler": "1.1.2", "parseurl": "~1.3.3", "utils-merge": "1.0.1" } }, "sha512-ZqRXc+tZukToSNmh5C2iWMSoV3X1YUcPbqEM4DkEG5tNQXrQUZCNVGGv3IuicnkMtPfGf3Xtp8WCXs295iQ1pQ=="],
 
@@ -1130,7 +1132,7 @@
 
     "source-map": ["source-map@0.5.7", "", {}, "sha512-LbrmJOMUSdEVxIKvdcJzQC+nQhe8FUZQTXQy6+I75skNgn3OoQ0DZA8YnFa7gp8tqtL3KPf1kmo0R5DoApeSGQ=="],
 
-    "source-map-js": ["source-map-js@1.2.1", "", {}, "sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA=="],
+    "source-map-js": ["source-map-js@1.2.2", "", {}, "sha512-KGj/8Y43x35aZVDtt+J4mK1hoLGHULMYfSkODJNQjNDC3oW1PqPoxMwo0pLUsWM/UEGzON/NxeHywEfNXNP3Vw=="],
 
     "source-map-support": ["source-map-support@0.5.21", "", { "dependencies": { "buffer-from": "^1.0.0", "source-map": "^0.6.0" } }, "sha512-uBHU3L3czsIyYXKX88fdrGovxdSCoTGDRZ6SYXtSRxLZUzHg5P/66Ht6uoUlHu9EZod+inXhKo3qQgwXUT/y1w=="],
 

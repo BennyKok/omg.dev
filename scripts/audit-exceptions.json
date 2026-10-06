@@ -23,5 +23,54 @@
     ],
     "defaultReviewDays": 90
   },
-  "accepted": []
+  "accepted": [
+    {
+      "ghsa": "GHSA-vfj7-8cjw-p6xm",
+      "package": "braces",
+      "root": ".",
+      "severity": "high",
+      "title": "braces vulnerable to stack-exhaustion denial of service through deeply nested patterns",
+      "vulnerableVersions": "<=3.0.3",
+      "justification": "no-fix-available",
+      "reason": "GitHub advisory reports no patched upstream version as of 2026-10-06. This vulnerability is already present on main. Accept only to release the independently verified per-session MCP tool fix after all fixable audit findings have been upgraded. Exploitability is not established as absent. Deeply nested input patterns can terminate a process.",
+      "acceptedOn": "2026-10-06",
+      "reviewBy": "2026-11-05"
+    },
+    {
+      "ghsa": "GHSA-vfj7-8cjw-p6xm",
+      "package": "braces",
+      "root": "mobile",
+      "severity": "high",
+      "title": "braces vulnerable to stack-exhaustion denial of service through deeply nested patterns",
+      "vulnerableVersions": "<=3.0.3",
+      "justification": "no-fix-available",
+      "reason": "GitHub advisory reports no patched upstream version as of 2026-10-06. This vulnerability is already present on main. Accept only to release the independently verified per-session MCP tool fix after all fixable audit findings have been upgraded. Exploitability is not established as absent. Deeply nested input patterns can terminate a process.",
+      "acceptedOn": "2026-10-06",
+      "reviewBy": "2026-11-05"
+    },
+    {
+      "ghsa": "GHSA-ch52-4w7c-c8xp",
+      "package": "http-cache-semantics",
+      "root": "mobile",
+      "severity": "high",
+      "title": "http-cache-semantics max-stale handling can disclose cross-user cached responses",
+      "vulnerableVersions": "<=4.2.0",
+      "justification": "no-fix-available",
+      "reason": "GitHub advisory reports no patched upstream version as of 2026-10-06. This vulnerability is already present on main. Accept only to release the independently verified per-session MCP tool fix after all fixable audit findings have been upgraded. Exploitability is not established as absent. Shared cache handling can disclose another user's session cookies.",
+      "acceptedOn": "2026-10-06",
+      "reviewBy": "2026-11-05"
+    },
+    {
+      "ghsa": "GHSA-86w9-cpqp-85rv",
+      "package": "node-forge",
+      "root": "mobile",
+      "severity": "high",
+      "title": "node-forge RSA PKCS#1 v1.5 signature verification accepts extra nested DigestAlgorithm elements",
+      "vulnerableVersions": "<=1.4.0",
+      "justification": "no-fix-available",
+      "reason": "GitHub advisory reports no patched upstream version as of 2026-10-06. This vulnerability is already present on main. Accept only to release the independently verified per-session MCP tool fix after all fixable audit findings have been upgraded. Exploitability is not established as absent. Malformed RSA signatures may pass verification.",
+      "acceptedOn": "2026-10-06",
+      "reviewBy": "2026-11-05"
+    }
+  ]
 }
