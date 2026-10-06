@@ -90,11 +90,14 @@ export function MachineSwitcher({
   variant,
   collapsed = false,
   onSelect = selectMachine,
+  onHostAction,
 }: {
   variant: "rail" | "icon" | "nav";
   /** Rail placement only: the rail is at its 56px width, show the icon alone. */
   collapsed?: boolean;
   onSelect?: (choice: MachineChoice) => void;
+  /** Close enclosing navigation before a host-owned Add/Edit dialog opens. */
+  onHostAction?: () => void;
 }) {
   const [action, setAction] = useState<"add" | "rename" | null>(null);
   const [editing, setEditing] = useState<MachineChoice | null>(null);
@@ -111,7 +114,7 @@ export function MachineSwitcher({
     : box;
   if (!source || source.entries.length === 0) return null;
   const addMachine = () => {
-    if (host) host.onAdd?.();
+    if (host) { onHostAction?.(); host.onAdd?.(); }
     else if (!box?.signedIn) void box?.signIn?.();
     else setAction("add");
   };
@@ -204,7 +207,7 @@ export function MachineSwitcher({
                       data-machine-edit={choice.id}
                       className="size-9 shrink-0 justify-center rounded-lg p-0 text-muted-foreground"
                       onClick={() => {
-                        if (host) host.onRename?.(choice.id);
+                        if (host) { onHostAction?.(); host.onRename?.(choice.id); }
                         else { setEditing(choice); setAction("rename"); }
                       }}
                     >

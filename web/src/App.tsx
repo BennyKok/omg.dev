@@ -9996,7 +9996,7 @@ export function App() {
           onNavigate={setTab}
           brand={<ProductBrand hosted={embedded} />}
           machineSwitcher={
-            !embedded || hostMachines ? <MachineSwitcher variant="nav" /> : null
+            !embedded || hostMachines ? <MachineSwitcher variant="nav" onHostAction={() => setNavOpen(false)} /> : null
           }
           footer={
             embedded || (hostSettingsInMenu && onOpenHostSettings) ? (
@@ -14013,7 +14013,7 @@ function RailStage({
             // The machine lives in the menu, first, as in the phone drawer.
             // It is set once and rarely changed, so it does not need a
             // permanent row at the foot of the rail.
-            machineSwitcher={!hosted || hostMachines ? <MachineSwitcher variant="nav" /> : null}
+            machineSwitcher={!hosted || hostMachines ? <MachineSwitcher variant="nav" onHostAction={() => setRailNavOpen(false)} /> : null}
             footer={
               sideNav.onOpenHostSettings ? (
                 <button
