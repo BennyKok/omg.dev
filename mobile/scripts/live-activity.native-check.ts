@@ -10,6 +10,8 @@ const { code } = transformFileSync(new URL("../src/omg/agent-live-activity.tsx",
 let layout = "";
 runInNewContext(code, { exports: {}, require: (name: string) => name === "expo-widgets"
   ? { createLiveActivity: (_name: string, compiled: string) => { layout = compiled; } }
+  : name.endsWith("platform-live-activity")
+    ? { createPlatformLiveActivity: (_platform: string, create: Function, activityName: string, component: string) => create(activityName, component) }
   : name.includes("interopRequireWildcard") ? { default: (value: unknown) => value }
   : name.includes("interopRequireDefault") ? { default: (value: unknown) => value } : {} });
 const jsx = (type: string, props: any) => ({ type, props });

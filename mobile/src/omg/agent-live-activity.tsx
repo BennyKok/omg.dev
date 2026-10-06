@@ -11,6 +11,7 @@ import { CLOUD_BINDING_ID } from "./config";
 import { controlPlane, useOmg } from "./provider";
 import { bindingLabel } from "./format";
 import { liveActivityRegistration } from "./live-activity-registration";
+import { createPlatformLiveActivity } from "./platform-live-activity";
 
 export type ActivitySession = {
   id: string;
@@ -160,7 +161,12 @@ export function AgentActivity(props: AgentActivityProps, environment: LiveActivi
   };
 }
 
-export const AgentLiveActivity = createLiveActivity<AgentActivityProps>("OmgAgentsActivity", AgentActivity);
+export const AgentLiveActivity = createPlatformLiveActivity(
+  Platform.OS,
+  createLiveActivity<AgentActivityProps>,
+  "OmgAgentsActivity",
+  AgentActivity,
+);
 
 const DEVICE_ID_KEY = "omg.liveActivity.deviceId";
 
