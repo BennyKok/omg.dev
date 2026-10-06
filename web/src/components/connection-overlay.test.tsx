@@ -97,6 +97,9 @@ test("the first load shows the card, says Connected, then closes", async () => {
   ui.render(view({ ...base, ready: false, loading: true }));
   await ui.flushAsync();
   ui.render(view(base));
+  await ui.flushAsync();
+  // The flap does not cut the Connected moment short.
+  expect(overlay()?.textContent).toContain("Connected");
   await ui.flushAsync(() => sleep(1_400));
   expect(overlay()).toBeNull();
 });
