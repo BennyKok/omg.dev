@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## October 6, 2026 - Session tools connect before the first turn (v0.6.180)
+
+- Managed omg sessions connect their tools with a session-specific identity before the first agent turn. Android builds and other omg tools are available from the start.
+- A session shows a notice if its tool connection fails.
+- Tapping Send no longer opens voice input.
+- Patched dependencies are updated. Four approved exceptions for unpatched advisories expire on November 5, 2026.
+
 ## October 5, 2026 - `omg help` lists every command (v0.6.179)
 
 - `omg help` now shows every command in one list, grouped by task: this computer, agents, the omg Cloud account, and hosted apps.
