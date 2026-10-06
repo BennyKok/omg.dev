@@ -82,3 +82,21 @@ test("a flap right after recovery cannot leave Connected on screen", async () =>
   await ui.flushAsync(() => sleep(1_400));
   expect(overlay()).toBeNull();
 });
+
+test("the first load shows the card, says Connected, then closes", async () => {
+  ui = mount();
+  ui.render(view({ ...base, loading: true, ready: false, status: "connecting" }));
+  await ui.flushAsync(() => sleep(700));
+  expect(overlay()?.textContent).toContain("Connecting…");
+  // Bootstrap answers, then the socket connects.
+  ui.render(view({ ...base, status: "connecting" }));
+  ui.render(view(base));
+  await ui.flushAsync();
+  expect(overlay()?.textContent).toContain("Connected");
+  // The first connection retries the bootstrap once: a brief flap.
+  ui.render(view({ ...base, ready: false, loading: true }));
+  await ui.flushAsync();
+  ui.render(view(base));
+  await ui.flushAsync(() => sleep(1_400));
+  expect(overlay()).toBeNull();
+});
