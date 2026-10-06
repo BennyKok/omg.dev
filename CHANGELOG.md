@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 6, 2026 - Machine dialogs clear navigation (v0.6.183)
+
+- In the hosted app, Add machine and Edit machine close the navigation panel before they open a dialog.
+
 ## October 6, 2026 - Boxy splash and page-push session open (v0.6.182)
 
 - The web splash is now Boxy, a hand-drawn computer with a pixel face. It wakes up while the app loads, in light and dark mode. It stays still when the device asks for reduced motion.
