@@ -156,14 +156,14 @@ function ConnectionSurface({
       aria-modal="false"
       aria-label={view.title}
       data-connection-overlay="overlay"
-      className="lfg-connection-in fixed inset-0 z-[96] flex items-center justify-center bg-background/60 px-6"
+      className="lfg-connection-in fixed inset-0 z-[96] flex items-center justify-center bg-background/30 px-6"
     >
-      <div className="flex w-full max-w-xs flex-col items-center gap-3 rounded-3xl border border-border bg-background px-6 pb-6 pt-5 text-center shadow-2xl" role="status" aria-live="polite">
-        <Boxy mood={view.mood} size={112} className="text-foreground" />
+      <div className="flex w-full max-w-[17rem] flex-col items-center gap-2 rounded-3xl border border-border bg-background px-5 pb-5 pt-4 text-center shadow-2xl" role="status" aria-live="polite">
+        <Boxy mood={view.mood} size={80} className="text-foreground" />
         <p className="text-base font-semibold text-foreground">{view.title}</p>
         {view.detail ? <p className="text-sm text-muted-foreground">{view.detail}</p> : null}
         {view.canRetry || machineSwitcher ? (
-          <div className="mt-2 flex w-full flex-col items-stretch gap-2">
+          <div className="mt-1 flex w-full flex-col items-stretch gap-2">
             {view.canRetry ? (
               <button
                 type="button"
