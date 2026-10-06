@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 6, 2026 - Connected shows, then closes (v0.6.190)
+
+- On first load, the connection card now shows "Connected" for a moment and then always closes.
+
 ## October 6, 2026 - Connected card closes (v0.6.189)
 
 - After the connection returns, the "Connected" card now always closes. Before, it could stay on screen when the app reloaded its data at the same moment.
