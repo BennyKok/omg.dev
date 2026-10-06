@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 6, 2026 - Connected card closes (v0.6.189)
+
+- After the connection returns, the "Connected" card now always closes. Before, it could stay on screen when the app reloaded its data at the same moment.
+
 ## October 6, 2026 - Apex lettermark matches provider icons (v0.6.188)
 
 - Apex uses its lettermark with a transparent background and the same gray as other model providers.
