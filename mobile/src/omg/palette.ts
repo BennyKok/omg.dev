@@ -234,6 +234,22 @@ export const radius = { sm: 8, tile: 9, md: 10, lg: 12, xl: 18, group: 22, pill:
  */
 export const control = { pill: 36, row: 36, tile: 32, meter: 6, headerFade: 24 } as const;
 
+/** The web plan overlay's shared geometry, used by both native plan screens. */
+export const paywallStyle = {
+  gutter: 20,
+  cardRadius: 16,
+  cardPadding: 12,
+  cardGap: 12,
+  planArtHeight: 76,
+  heroArtHeight: 90,
+  featureRowHeight: 36,
+  buttonHeight: 52,
+  titleSize: 30,
+  titleTracking: -0.9,
+  priceSize: 22,
+  priceTracking: -0.4,
+} as const;
+
 export const space = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 } as const;
 
 /**

@@ -1,0 +1,118 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": false
+  },
+  "steps": [
+    {
+      "name": "Web design in Settings",
+      "goal": "Tap Light once to switch the appearance to light. Do not tap Reset plans. Inspect the Settings plan screen without buying.",
+      "done": "The web heading and Starter purchase button are visible, with Appearance: light in the fixture header.",
+      "expect": [
+        "Build your ideas.",
+        "Turn your ideas into a business.",
+        "Continue with Starter",
+        "Privacy Policy",
+        "Appearance: light"
+      ]
+    },
+    {
+      "name": "Select without buying",
+      "goal": "Tap the Personal plan radio card, not Continue with Personal.",
+      "done": "Personal is selected and its purchase button reads Continue with Personal. No purchase has started.",
+      "expect": [
+        "Continue with Personal"
+      ],
+      "forbid": [
+        "You're all set"
+      ]
+    },
+    {
+      "name": "Dark appearance",
+      "goal": "Tap Dark. Inspect the selected Personal card and button.",
+      "done": "The feature table, plan artwork, selection ring and purchase button are readable in dark appearance.",
+      "expect": [
+        "Continue with Personal",
+        "Restore purchases",
+        "Appearance: dark"
+      ]
+    },
+    {
+      "name": "Mock purchase through the real hook",
+      "goal": "Tap Continue with Personal once. This is mock StoreKit and cannot charge money.",
+      "done": "The existing purchase hook reaches its success screen.",
+      "expect": [
+        "You're all set"
+      ]
+    },
+    {
+      "name": "Empty storefront",
+      "goal": "Tap Empty store.",
+      "done": "No plans are offered and restore remains available. There is no purchase button.",
+      "expect": [
+        "No plans available on this device right now.",
+        "Restore purchases"
+      ],
+      "forbid": [
+        "Continue with Starter",
+        "Continue with Personal"
+      ]
+    },
+    {
+      "name": "Web subscriber cannot buy twice",
+      "goal": "Tap Web subscriber.",
+      "done": "The existing web billing notice is visible and buying is disabled.",
+      "expect": [
+        "You're subscribed through omg.dev on the web"
+      ]
+    },
+    {
+      "name": "Store failure is recoverable",
+      "goal": "Tap Store error.",
+      "done": "The failed load shows an error and a retry button.",
+      "expect": [
+        "The App Store didn't respond. Try again.",
+        "Try again"
+      ]
+    },
+    {
+      "name": "Shared onboarding display",
+      "goal": "Tap Onboarding plan once. Do not change appearance in this step. Inspect the shared plan display.",
+      "done": "The onboarding plan step uses the same web heading and plan cards. Its skip action remains available.",
+      "expect": [
+        "Build your ideas.",
+        "Continue with Starter",
+        "Continue for now"
+      ]
+    },
+    {
+      "name": "Onboarding in light appearance",
+      "goal": "Tap Light once. Do not tap Onboarding plan again.",
+      "done": "The onboarding plan display is in light appearance and retains the skip action.",
+      "expect": [
+        "Appearance: light",
+        "Continue with Starter",
+        "Continue for now"
+      ]
+    },
+    {
+      "name": "Onboarding in dark appearance",
+      "goal": "Tap Dark. Inspect the plan cards.",
+      "done": "The same plan step is readable in dark appearance and retains the skip and close actions.",
+      "expect": [
+        "Continue with Starter",
+        "Continue for now",
+        "Close",
+        "Appearance: dark"
+      ]
+    },
+    {
+      "name": "Skip retains the onboarding exit",
+      "goal": "Tap Continue for now.",
+      "done": "The existing skip callback fires without any purchase.",
+      "expect": [
+        "Onboarding skipped; task retained"
+      ]
+    }
+  ]
+}

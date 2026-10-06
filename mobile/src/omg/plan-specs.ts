@@ -47,13 +47,13 @@ export type TierSpecs = {
   memoryMb: number;
   diskGb: number;
   /**
-   * Included active hours per month.
+   * Included active hours per month. Null means no active-hour limit.
    *
    * Hours, not "credits": the plan's wallet is dollars of wall-time and the
    * rate card is dollars per hour, so the server divides one by the other and
    * sends the product's own unit rather than a marketing approximation.
    */
-  computeHours: number;
+  computeHours: number | null;
   /** True when the Computer never pauses. One rung has this; it is the reason to buy that rung. */
   alwaysOn: boolean;
 };
@@ -77,8 +77,8 @@ function finitePositive(value: unknown): number | null {
  * The six facts, or null.
  *
  * Every field is required. A partial payload is treated as no payload rather
- * than as a card with gaps — see the header. `alwaysOn` is the one field
- * allowed to be false, so it is checked for type rather than for truth.
+ * than as a card with gaps — see the header. `computeHours: null` means
+ * unlimited. `alwaysOn` may be false, so it is checked for type, not truth.
  */
 export function parseTierSpecs(value: unknown): TierSpecs | null {
   if (!value || typeof value !== "object") return null;
@@ -88,13 +88,13 @@ export function parseTierSpecs(value: unknown): TierSpecs | null {
   const vcpus = finitePositive(raw.vcpus);
   const memoryMb = finitePositive(raw.memoryMb);
   const diskGb = finitePositive(raw.diskGb);
-  const computeHours = finitePositive(raw.computeHours);
+  const computeHours = raw.computeHours === null ? null : finitePositive(raw.computeHours);
   if (
     parallelAgents == null ||
     vcpus == null ||
     memoryMb == null ||
     diskGb == null ||
-    computeHours == null ||
+    (raw.computeHours !== null && computeHours == null) ||
     typeof raw.alwaysOn !== "boolean"
   ) {
     return null;
@@ -236,7 +236,8 @@ export function tierForProduct(
  * "150 hours" / "40 min". Hours are whole at every real rung, but a wallet that
  * genuinely buys some time must never round down to a bare "0 hours".
  */
-export function formatComputeHours(hours: number): string {
+export function formatComputeHours(hours: number | null): string {
+  if (hours === null) return "Unlimited";
   if (hours <= 0) return "None included";
   if (hours < 1) return `${Math.round(hours * 60)} min`;
   const rounded = hours >= 10 ? Math.round(hours) : Math.round(hours * 10) / 10;

@@ -51,6 +51,12 @@ describe("the tier facts the server sends", () => {
     });
   });
 
+  test("the server's explicit unlimited allowance keeps all other specs", () => {
+    expect(parseTierSpecs({ ...PERSONAL.specs, computeHours: null })).toEqual({ ...PERSONAL.specs, computeHours: null });
+    expect(formatComputeHours(null)).toBe("Unlimited");
+    expect(parseTierSpecs({ ...PERSONAL.specs, computeHours: undefined })).toBeNull();
+  });
+
   test("alwaysOn false is a fact, not a missing field", () => {
     // The one field allowed to be falsy. Checking it for truth rather than for
     // type would drop the specs of four of the five tiers.
