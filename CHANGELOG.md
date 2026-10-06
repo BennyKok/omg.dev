@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 6, 2026 - Apex lettermark matches provider icons (v0.6.188)
+
+- Apex uses its lettermark with a transparent background and the same gray as other model providers.
+
 ## October 6, 2026 - Lighter connection card (v0.6.187)
 
 - The connection card is smaller, and the app behind it is less dim. You can read your sessions while it reconnects.
