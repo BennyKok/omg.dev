@@ -4635,7 +4635,7 @@ const MicButton = forwardRef<
 // the other mode. The keyboard twin of the long press is Cmd/Ctrl+Enter,
 // handled on the composer textarea — a pointer-only gesture left desktop with
 // no way to reach the second mode at all.
-function ComposerSendButton({
+export function ComposerSendButton({
   sending,
   defaultMode,
   onSend,
@@ -4655,9 +4655,10 @@ function ComposerSendButton({
   const holdTimer = useRef<number | null>(null);
   const holdFired = useRef(false);
   const pointerDown = useRef(false);
-  // Set on pointer-up so the synthetic click that follows a pointer gesture is
-  // ignored — keyboard activation (no preceding pointer) still sends via onClick.
-  const skipNextClick = useRef(false);
+  // Keep the action until the browser's click. Mobile browsers dispatch click
+  // after pointerup. Sending during pointerup removes this button, moves the mic
+  // into its place, and can make that trailing click start voice input instead.
+  const pendingPointerAction = useRef<"send" | "queue" | null>(null);
 
   const clearHoldTimer = useCallback(() => {
     if (holdTimer.current !== null) {
@@ -4671,6 +4672,7 @@ function ComposerSendButton({
       if (e.button !== 0 || sending) return;
       pointerDown.current = true;
       holdFired.current = false;
+      pendingPointerAction.current = null;
       try {
         e.currentTarget.setPointerCapture(e.pointerId);
       } catch {
@@ -4681,17 +4683,15 @@ function ComposerSendButton({
         holdTimer.current = null;
         holdFired.current = true;
         haptic("heavy");
-        onQueue();
       }, MIC_LONG_PRESS_MS);
     },
-    [sending, onQueue, clearHoldTimer],
+    [sending, clearHoldTimer],
   );
 
   const onPointerUp = useCallback(
     (e: React.PointerEvent<HTMLButtonElement>) => {
       if (!pointerDown.current) return;
       pointerDown.current = false;
-      skipNextClick.current = true;
       try {
         e.currentTarget.releasePointerCapture(e.pointerId);
       } catch {
@@ -4699,34 +4699,35 @@ function ComposerSendButton({
       }
       clearHoldTimer();
       if (holdFired.current) {
-        // The timer already fired onQueue(); nothing left to do on release.
         holdFired.current = false;
-        return;
-      }
-      // Quick tap → send.
-      if (!sending) {
+        pendingPointerAction.current = "queue";
+      } else {
+        // Wait for click before changing the DOM. See pendingPointerAction.
+        pendingPointerAction.current = "send";
         haptic("selection");
-        onSend();
       }
     },
-    [sending, onSend, clearHoldTimer],
+    [clearHoldTimer],
   );
 
   const onPointerCancel = useCallback(() => {
     pointerDown.current = false;
     holdFired.current = false;
+    pendingPointerAction.current = null;
     clearHoldTimer();
   }, [clearHoldTimer]);
 
   const onClick = useCallback(() => {
-    // Pointer gestures already handled this; only keyboard activation reaches here.
-    if (skipNextClick.current) {
-      skipNextClick.current = false;
+    const pointerAction = pendingPointerAction.current;
+    pendingPointerAction.current = null;
+    if (sending) return;
+    if (pointerAction === "queue") {
+      onQueue();
       return;
     }
-    if (sending) return;
+    // A short pointer gesture and keyboard activation both use the default mode.
     onSend();
-  }, [sending, onSend]);
+  }, [sending, onSend, onQueue]);
 
   return (
     <button
