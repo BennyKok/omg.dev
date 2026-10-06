@@ -57,8 +57,12 @@
 
       /* App shell splash — static markup inside #root so it paints on the very
          first frame (no JS needed) and React replaces it the moment the app
-         mounts. Fills the blank white gap on cold loads and on the post-update
-         reload so the PWA feels native. Colours mirror the theme-color metas. */
+         mounts. Colours mirror the theme-color metas.
+         The mascot: "Boxy", a hand-drawn ink computer whose face is amber
+         pixels (line = hardware, pixels = software). It powers on: asleep,
+         a CRT line snaps open, the eyes boot in, it looks around, smiles,
+         then idles with a blink. Pure CSS + SVG so it runs before any JS; the
+         sequence front-loads the power-on because most loads end within ~1s. */
       #app-splash {
         position: fixed;
         inset: 0;
@@ -66,72 +70,87 @@
         align-items: center;
         justify-content: center;
         background: #f2f2f7;
+        --ink: #1d1a17;
+        --ink-muted: rgba(40, 30, 20, 0.55);
       }
       html.dark #app-splash {
         background: #141414;
+        --ink: #f2f2ed;
+        --ink-muted: rgba(235, 230, 220, 0.55);
       }
       #app-splash .splash-inner {
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: 22px;
-        /* nudge up so it sits optically centered above the home indicator */
+        gap: 18px;
         margin-bottom: env(safe-area-inset-bottom, 0px);
       }
-      /* Logo only. The mark carries the brand on its own here; a wordmark
-         under it reads as a caption on a splash that is on screen for a
-         moment. (It used to be that the icon literally spelled "lfg".) */
-      #app-splash .splash-logo {
-        width: 76px;
-        height: 76px;
-        border-radius: 18px;
-        animation: splash-pulse 1.6s ease-in-out infinite;
+      #app-splash .splash-caption {
+        font: 500 14px/1.2 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+        color: var(--ink-muted);
+        opacity: 0;
+        animation: splash-fade 0.4s 0.3s ease-out forwards;
       }
-      #app-splash .splash-bar {
-        position: relative;
-        width: 168px;
-        height: 4px;
-        border-radius: 999px;
-        background: rgba(120, 120, 128, 0.2);
-        overflow: hidden;
+      #app-splash .boxy { overflow: visible; }
+      #app-splash .ink {
+        fill: none;
+        stroke: var(--ink);
+        stroke-width: 3.2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        filter: url(#splash-boil);
       }
-      #app-splash .splash-bar-fill {
-        position: absolute;
-        top: 0;
-        left: 0;
-        height: 100%;
-        width: 40%;
-        border-radius: 999px;
-        background: #0a84ff;
-        animation: splash-indeterminate 1.15s ease-in-out infinite;
+      #app-splash .face rect { fill: #ffb547; }
+      #app-splash .grid, #app-splash .face, #app-splash .cover, #app-splash .crt,
+      #app-splash .face g { transform-box: fill-box; }
+      /* Asleep: dim screen, one pixel z drifts off. */
+      #app-splash .grid { opacity: 0.35; animation: splash-on 0.01s 0.45s forwards; }
+      #app-splash .zz path { fill: none; stroke: #ffb547; stroke-width: 3; stroke-linejoin: miter; }
+      #app-splash .zz { opacity: 0; animation: splash-z 0.6s ease-out forwards; }
+      /* CRT power-on: a bright line snaps open to fill the screen, then fades. */
+      #app-splash .crt {
+        fill: #ffb547;
+        opacity: 0;
+        transform-origin: 50% 50%;
+        animation: splash-crt 0.32s 0.42s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
       }
-      @keyframes splash-indeterminate {
-        0% {
-          transform: translateX(-130%);
-        }
-        100% {
-          transform: translateX(360%);
-        }
+      /* Eyes boot in from the top: the cover slides away row by row. */
+      #app-splash .cover {
+        transform-origin: 50% 100%;
+        animation: splash-boot 0.36s 0.74s steps(7, end) forwards;
       }
-      @keyframes splash-pulse {
-        0%,
-        100% {
-          opacity: 1;
-          transform: scale(1);
-        }
-        50% {
-          opacity: 0.72;
-          transform: scale(0.96);
-        }
+      #app-splash .face { animation: splash-look 0.9s 1.15s ease-in-out both; }
+      #app-splash .f-happy, #app-splash .f-blink { opacity: 0; }
+      #app-splash .f-idle { animation: splash-idle-intro 0.7s 2.05s both, splash-idle-blink 3.2s 2.75s infinite; }
+      #app-splash .f-happy { animation: splash-happy 0.7s 2.05s both; }
+      #app-splash .f-blink { animation: splash-blink 3.2s 2.75s infinite; }
+      @keyframes splash-fade { to { opacity: 1; } }
+      @keyframes splash-on { to { opacity: 1; } }
+      @keyframes splash-z {
+        0% { opacity: 0; transform: translate(0, 4px); }
+        35% { opacity: 1; }
+        100% { opacity: 0; transform: translate(8px, -16px); }
       }
+      @keyframes splash-crt {
+        0% { opacity: 1; transform: scale(0.9, 0.04); }
+        55% { opacity: 0.9; transform: scale(1, 1); }
+        100% { opacity: 0; transform: scale(1, 1); }
+      }
+      @keyframes splash-boot { from { transform: scaleY(1); } to { transform: scaleY(0); } }
+      @keyframes splash-look {
+        0%, 100% { transform: translate(0, 0); }
+        25%, 42% { transform: translate(-6.4px, 0); }
+        62%, 80% { transform: translate(6.4px, 0); }
+      }
+      @keyframes splash-idle-intro { 0%, 100% { opacity: 1; } 1%, 99% { opacity: 0; } }
+      @keyframes splash-happy { 0%, 100% { opacity: 0; } 1%, 99% { opacity: 1; } }
+      @keyframes splash-idle-blink { 0%, 92%, 100% { opacity: 1; } 94%, 98% { opacity: 0; } }
+      @keyframes splash-blink { 0%, 92%, 100% { opacity: 0; } 94%, 98% { opacity: 1; } }
       @media (prefers-reduced-motion: reduce) {
-        #app-splash .splash-logo,
-        #app-splash .splash-bar-fill {
-          animation: none;
-        }
-        #app-splash .splash-bar-fill {
-          width: 100%;
-        }
+        #app-splash *, #app-splash .face g { animation: none !important; }
+        #app-splash .ink { filter: none; }
+        #app-splash .grid, #app-splash .splash-caption { opacity: 1; }
+        #app-splash .cover, #app-splash .crt, #app-splash .zz { display: none; }
       }
     </style>
   </head>
@@ -139,8 +158,18 @@
     <div id="root">
       <div id="app-splash" aria-hidden="true">
         <div class="splash-inner">
-          <img class="splash-logo" src="/icon.svg?v=20260822-omg-mark" alt="" width="76" height="76" />
-          <div class="splash-bar"><div class="splash-bar-fill"></div></div>
+          <svg class="boxy" viewBox="0 0 200 200" width="132" height="132">
+            <defs><pattern id="splash-grid" x="59.4" y="51" width="6.4" height="6.4" patternUnits="userSpaceOnUse"><rect x=".6" y=".6" width="5.2" height="5.2" rx="1" fill="#ffb547" fill-opacity=".13"/></pattern>
+            <filter id="splash-boil" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency=".035" numOctaves="2" seed="1"><animate attributeName="seed" values="1;2;3;4" dur=".5s" repeatCount="indefinite" calcMode="discrete"/></feTurbulence><feDisplacementMap in="SourceGraphic" scale="2.6"/></filter></defs>
+            <rect x="58" y="42" width="86" height="63" rx="6" fill="#1d1209"/>
+            <rect class="grid" x="58" y="42" width="86" height="63" rx="6" fill="url(#splash-grid)"/>
+            <g class="face"><g class="f-idle"><rect x="72.8" y="58.0" width="5.2" height="5.2" rx="1"/><rect x="79.2" y="58.0" width="5.2" height="5.2" rx="1"/><rect x="117.6" y="58.0" width="5.2" height="5.2" rx="1"/><rect x="124.0" y="58.0" width="5.2" height="5.2" rx="1"/><rect x="72.8" y="64.4" width="5.2" height="5.2" rx="1"/><rect x="79.2" y="64.4" width="5.2" height="5.2" rx="1"/><rect x="117.6" y="64.4" width="5.2" height="5.2" rx="1"/><rect x="124.0" y="64.4" width="5.2" height="5.2" rx="1"/><rect x="72.8" y="70.8" width="5.2" height="5.2" rx="1"/><rect x="79.2" y="70.8" width="5.2" height="5.2" rx="1"/><rect x="117.6" y="70.8" width="5.2" height="5.2" rx="1"/><rect x="124.0" y="70.8" width="5.2" height="5.2" rx="1"/><rect x="92.0" y="83.6" width="5.2" height="5.2" rx="1"/><rect x="98.4" y="83.6" width="5.2" height="5.2" rx="1"/><rect x="104.8" y="83.6" width="5.2" height="5.2" rx="1"/></g><g class="f-happy"><rect x="72.8" y="58.0" width="5.2" height="5.2" rx="1"/><rect x="85.6" y="58.0" width="5.2" height="5.2" rx="1"/><rect x="111.2" y="58.0" width="5.2" height="5.2" rx="1"/><rect x="124.0" y="58.0" width="5.2" height="5.2" rx="1"/><rect x="66.4" y="64.4" width="5.2" height="5.2" rx="1"/><rect x="92.0" y="64.4" width="5.2" height="5.2" rx="1"/><rect x="104.8" y="64.4" width="5.2" height="5.2" rx="1"/><rect x="130.4" y="64.4" width="5.2" height="5.2" rx="1"/><rect x="85.6" y="77.2" width="5.2" height="5.2" rx="1"/><rect x="111.2" y="77.2" width="5.2" height="5.2" rx="1"/><rect x="92.0" y="83.6" width="5.2" height="5.2" rx="1"/><rect x="98.4" y="83.6" width="5.2" height="5.2" rx="1"/><rect x="104.8" y="83.6" width="5.2" height="5.2" rx="1"/></g><g class="f-blink"><rect x="72.8" y="70.8" width="5.2" height="5.2" rx="1"/><rect x="79.2" y="70.8" width="5.2" height="5.2" rx="1"/><rect x="117.6" y="70.8" width="5.2" height="5.2" rx="1"/><rect x="124.0" y="70.8" width="5.2" height="5.2" rx="1"/><rect x="92.0" y="83.6" width="5.2" height="5.2" rx="1"/><rect x="98.4" y="83.6" width="5.2" height="5.2" rx="1"/><rect x="104.8" y="83.6" width="5.2" height="5.2" rx="1"/></g></g>
+            <rect class="cover" x="58" y="42" width="86" height="63" rx="6" fill="#1d1209"/>
+            <rect class="crt" x="58" y="42" width="86" height="63" rx="6"/>
+            <g class="ink"><path d="M52 22C92 19 130 20 150 23C160 25 163 32 163 44L164 150C164 160 158 165 147 165L54 166C43 166 38 160 38 149L37 40C37 29 42 23 52 22Z"/><path d="M58 42C85 40 120 40 143 42L144 104C120 106 84 106 57 105Z"/><path d="M110 130L146 129M118 140L146 140M58 136C60 133 66 133 68 136M60 166L56 178M142 166L146 178M48 178L66 178M136 178L154 178"/></g>
+            <g class="zz"><path d="M170 26h10l-10 10h10"/></g>
+          </svg>
+          <div class="splash-caption">Waking up your computer…</div>
         </div>
       </div>
     </div>
