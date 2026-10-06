@@ -90,12 +90,10 @@ export function ConnectionOverlay({ machineSwitcher }: { machineSwitcher?: React
       setBack("hidden");
       return;
     }
-    // Not live but still under the pill threshold: say nothing, and do not
-    // claim "Connected". Keep what was shown for when it really comes back.
-    if (notLive) {
-      setBack("hidden");
-      return;
-    }
+    // Not live but still under the pill threshold: wait. A short flap (the
+    // first connect reloads its bootstrap at once) must not cut "Connected"
+    // short; its own timer closes it, and a real drop brings the pill.
+    if (notLive) return;
     if (lastShown.current === "hidden") return;
     setBack(lastShown.current);
     lastShown.current = "hidden";
