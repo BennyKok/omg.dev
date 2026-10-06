@@ -28,8 +28,7 @@ describe("ModelOptionList", () => {
     expect(text).not.toContain("omg/deepseek/deepseek-v4-flash-0731");
     const rows = ui.queryAll("button");
     expect(rows.length).toBe(OMG_MODELS.length);
-    // Apex has no bundled provider artwork; its readable name still identifies it.
-    expect(ui.queryAll("button svg[role='img']").length).toBe(OMG_MODELS.length - 1);
+    expect(ui.queryAll("button svg[role='img'], button img").length).toBe(OMG_MODELS.length);
     const apex = rows.find((row) => row.textContent?.includes("Apex")) as HTMLButtonElement;
     expect(apex.title).toBe("Callstack · omg/apex");
     ui.flush(() => apex.click());

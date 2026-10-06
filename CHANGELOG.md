@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 6, 2026 - Apex icon and current Claude models (v0.6.185)
+
+- Apex shows its official icon in the model list and the selected-model pill. The local web app and hosted Computer use the same mark.
+- OMG Agent offers Claude Opus 5.5 and Sonnet 5.5. Existing model selections continue to work.
+
 ## October 6, 2026 - Boxy shows connection state (v0.6.184)
 
 - When the app loses its computer, Boxy now shows it on one screen. A short drop shows nothing. A longer one shows a small "Reconnecting…" pill.
