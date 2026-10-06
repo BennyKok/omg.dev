@@ -52,6 +52,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { isRunnableCommand, whichRunnable } from "../../runnable-bin.ts";
 import { extractAttachments } from "../../attachment-images.ts";
+import { OMG_MCP_SERVER, awaitOpencodeMcp, opencodeCallerSessionId, opencodeSessionMcpConfig } from "./opencode-mcp.ts";
 
 // Headless OpenCode can't show its TUI question picker. If the user never
 // answers via LFG, reject after this so the turn can't hang forever.
@@ -626,7 +627,15 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
     // while OpenCode loads its config. The SDK default is five seconds, which
     // is shorter than that valid first launch and kills an otherwise healthy
     // server. Keep the bound finite, but allow the cold path to finish.
-    server = await createOpencodeServer({ port: 0, timeout: 15_000 });
+    //
+    // `config` registers this session's omg.dev MCP servers (./opencode-mcp.ts):
+    // the shared endpoint under this session's id and token, merged over any
+    // global stdio `omg` entry, so the tools exist from the first turn.
+    server = await createOpencodeServer({
+      port: 0,
+      timeout: 15_000,
+      config: opencodeSessionMcpConfig(opencodeCallerSessionId(key)),
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error(`opencode-aisdk-session: failed to start opencode server: ${msg}`);
@@ -686,6 +695,28 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
       sessionId: key,
     });
     parentUuid = uuid;
+  }
+
+  // Do not start a turn before the omg tools are connected. OpenCode connects
+  // MCP servers in the background and runs a prompt without any server that is
+  // not ready yet, so the first turn of a new session could see only the
+  // built-in tools. If the endpoint still cannot be reached, say so in the
+  // transcript instead of letting the model guess that the tools do not exist.
+  const mcpGate = await awaitOpencodeMcp(client, cwd, [OMG_MCP_SERVER]);
+  if (mcpGate.missing.length) {
+    const detail = mcpGate.missing
+      .map((m) => `${m.name}: ${m.status}${m.error ? ` (${m.error})` : ""}`)
+      .join("; ");
+    console.error(`opencode-aisdk-session: omg.dev MCP not connected: ${detail}`);
+    indexSessionMessagesDirect(key, [
+      {
+        id: `${key}:mcp-unavailable:${Date.now()}`,
+        role: "assistant",
+        kind: "text",
+        text: `omg.dev tools are not connected for this session (${detail}). Tools such as omg_build_android are MCP tools, not shell commands.`,
+        ts: Date.now(),
+      },
+    ]);
   }
 
   // opencode session — created UP FRONT (the old provider only revealed the id

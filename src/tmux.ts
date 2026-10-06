@@ -1371,9 +1371,10 @@ export function spawnManagedOpencodeAisdkSession(opts: {
 }): ManagedHarnessSpawnResult {
   if (opts.model.startsWith("omg/")) {
     try {
-      ensureOmgProvider({
-        mcpCommand: [process.execPath, join(PATHS.root, "src", "cli.ts"), "mcp"],
-      });
+      // The provider only. The omg.dev MCP servers are registered per session by
+      // the harness itself (agents/backends/opencode-mcp.ts), not here in the
+      // box-global OpenCode config.
+      ensureOmgProvider();
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }

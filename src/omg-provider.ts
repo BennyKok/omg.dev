@@ -13,8 +13,6 @@ export type OmgProviderOptions = {
   home?: string;
   env?: Record<string, string | undefined>;
   guestConfigPath?: string;
-  /** Local stdio command that gives OpenCode the omg.dev MCP tools. */
-  mcpCommand?: string[];
 };
 
 function readConfig(path: string): Config {
@@ -103,22 +101,12 @@ export function ensureOmgProvider(options: OmgProviderOptions = {}): void {
   const jsonc = join(dir, "opencode.jsonc");
   const path = existsSync(jsonc) ? jsonc : join(dir, "opencode.json");
   const current = readConfig(path);
-  const mcpCommand = options.mcpCommand?.filter(Boolean);
-  const currentMcp = current.mcp && typeof current.mcp === "object" && !Array.isArray(current.mcp)
-    ? current.mcp as Record<string, unknown>
-    : {};
-  const currentOmgMcp = currentMcp.omg as { type?: unknown; command?: unknown; enabled?: unknown } | undefined;
-  const mcpReady = !mcpCommand?.length || (
-    currentOmgMcp?.type === "local" &&
-    currentOmgMcp.enabled === true &&
-    JSON.stringify(currentOmgMcp.command) === JSON.stringify(mcpCommand)
-  );
   // A guest config that already names the provider is left alone, unless a
   // model that takes a thinking level has no variants yet (the level travels
   // as a variant, so without them a chosen level would silently do nothing),
   // or a model's input modalities differ from the catalog.
   const providerReady = hosted && current.provider?.omg && !missingOmgVariants(current.provider.omg);
-  if (providerReady && mcpReady) return;
+  if (providerReady) return;
   const credentials = hosted ? null : loadCloudCredentials(join(home, ".omg", "credentials.json"));
   if (!hosted && !credentials) throw new Error(OMG_SIGN_IN_REQUIRED);
   const previous = current.provider?.omg ?? {};
@@ -129,7 +117,7 @@ export function ensureOmgProvider(options: OmgProviderOptions = {}): void {
     ? `${env.OMG_AI_URL!.trim().replace(/\/+$/, "").replace(/\/v1$/, "")}/v1`
     : `${cloudApiBaseUrl()}/api/cli/llm/v1`;
   const apiKey = hosted ? GUEST_API_KEY : credentials!.token;
-  const provider = providerReady ? current.provider : {
+  const provider = {
     ...current.provider,
     omg: {
       ...previous,
@@ -153,17 +141,7 @@ export function ensureOmgProvider(options: OmgProviderOptions = {}): void {
       },
     },
   };
-  const { lfg: _legacyMcp, ...otherMcp } = currentMcp;
-  const next = {
-    ...current,
-    provider,
-    ...(mcpCommand?.length ? {
-      mcp: {
-        ...otherMcp,
-        omg: { type: "local", command: mcpCommand, enabled: true },
-      },
-    } : {}),
-  };
+  const next = { ...current, provider };
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.${randomUUID()}.tmp`;
   try {
