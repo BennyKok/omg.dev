@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 6, 2026 - Folder dropdown and one model picker (v0.6.181)
+
+- On desktop, the project pill in the new-session drawer opens the folder dropdown. The project dialog is gone.
+- The Continue and Fork dialogs use the same agent and model picker as the new-session composer.
+
 ## October 6, 2026 - Session tools connect before the first turn (v0.6.180)
 
 - Managed omg sessions connect their tools with a session-specific identity before the first agent turn. Android builds and other omg tools are available from the start.
