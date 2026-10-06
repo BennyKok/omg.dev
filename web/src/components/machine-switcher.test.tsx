@@ -253,3 +253,28 @@ test("edits an unpaired local machine and refreshes its displayed name", async (
   expect(ui.query("[data-machine-switcher]")?.textContent).toContain("Studio Mac");
   expect(picked).toEqual([]);
 });
+
+// A host sheet sits below the navigation drawer. The handoff must close the
+// enclosing navigation before the host receives Add/Edit, including desktop.
+for (const action of ["add", "rename"] as const) {
+  test(`closes enclosing navigation before the host ${action} dialog opens`, async () => {
+    const calls: string[] = [];
+    globalThis.fetch = (async () => { throw new Error("unexpected local request"); }) as typeof fetch;
+    ui.render(<EmbeddedHostOptionsProvider value={{ machines: {
+      machines: [{ id: "cloud", name: "Builder", kind: "cloud", online: true }],
+      activeId: "cloud",
+      onSelect: () => {},
+      onAdd: () => calls.push("add"),
+      onRename: (id) => calls.push(`rename:${id}`),
+    } }}><MachineSwitcher variant="nav" onHostAction={() => calls.push("close")} /></EmbeddedHostOptionsProvider>);
+    await ui.flushAsync(() => (ui.query('[data-machine-switcher="nav"]') as HTMLElement).click());
+    await ui.flushAsync(() => {
+      const item = action === "rename"
+        ? document.querySelector('[data-machine-edit="cloud"]')
+        : Array.from(document.querySelectorAll('[role="menuitem"]')).find((el) => el.textContent?.includes("Add machine"));
+      expect(item).toBeTruthy();
+      (item as HTMLElement).click();
+    });
+    expect(calls).toEqual(["close", action === "add" ? "add" : "rename:cloud"]);
+  });
+}
