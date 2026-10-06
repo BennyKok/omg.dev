@@ -19032,6 +19032,9 @@ function ForkSessionDialog({
   const thinkingLevels = useAgentThinkingLevels(agent, model);
   const selectedLaunchId =
     agent === "aisdk" && claudeAccountId ? `aisdk:${claudeAccountId}` : agent;
+  const selectedForkOption =
+    availableAgentOptions.find((option) => (option.selectorId ?? option.key) === selectedLaunchId) ??
+    availableAgentOptions.find((option) => option.key === agent);
   // Same composer plumbing as the new-session composer: eager uploads, drag &
   // drop, paste, annotate.
   const files = useComposerAttachments({
@@ -19200,18 +19203,22 @@ function ForkSessionDialog({
           </div>
 
           <div className="mt-3 flex flex-wrap items-center gap-1.5">
-            <AgentIconStrip
+            {/* The same agent-and-model pill as the new-session composer. */}
+            <AgentModelPicker
               options={availableAgentOptions}
-              value={agent}
+              agent={agent}
+              agentLabel={selectedForkOption?.label ?? agent}
+              agentBadge={selectedForkOption?.badge}
               selectedId={selectedLaunchId}
-              onSelect={(key, option) => {
+              onSelectAgent={(key, option) => {
                 setAgent(key);
-                if (key === "aisdk") setClaudeAccountId(option?.accountId ?? "");
+                setClaudeAccountId(key === "aisdk" ? option?.accountId ?? "" : "");
                 setModel(localStorage.getItem(`lfg_fork_model_${key}`) || defaultModelFor(key));
               }}
+              model={model}
+              models={models}
+              onModelChange={setModel}
             />
-
-            <ModelPicker value={model} models={models} onChange={setModel} width="max-w-28" />
 
             <ThinkingLevelPill
               agent={agent}
@@ -23087,325 +23094,6 @@ async function unlinkRepoFromList(
   }
 }
 
-function ComposerProjectSheet({
-  open,
-  repos,
-  selected,
-  onOpenChange,
-  onSelect,
-  onBrowse,
-  onCreate,
-  allSelected = false,
-  onSelectAll,
-  noProjectSelected = false,
-  onSelectNoProject,
-  manageOnly = false,
-  onReposChanged,
-}: {
-  open: boolean;
-  repos: Repo[];
-  selected: string;
-  onOpenChange: (open: boolean) => void;
-  onSelect: (repo: Repo) => void;
-  onBrowse: () => void;
-  onCreate: () => void;
-  allSelected?: boolean;
-  onSelectAll?: () => void;
-  /** The composer is already on "No project". */
-  noProjectSelected?: boolean;
-  /**
-   * Start chats with no folder at all.
-   *
-   * This sheet is the only route to that scope on a phone, where the rail of
-   * project pills is not drawn. Leaving it out would make the feature
-   * desktop-only on the web while iOS has it on the home screen.
-   */
-  onSelectNoProject?: () => void;
-  /**
-   * Open as "add and manage folders", with no selection in it at all.
-   *
-   * The rail's folder button used to answer two questions with one control —
-   * which folder am I scoped to, and which folders exist — and neither was
-   * discoverable from the list it changed. Scoping is the folder title's job
-   * now (see SessionGroups), so this opens as the folder manager: browse, add,
-   * rename, remove. The composer still opens the selecting version, because
-   * "where will my agent work" is a real choice a new session has to make.
-   */
-  manageOnly?: boolean;
-  /** Called after a project leaves the list, with the cwd that went away. */
-  onReposChanged?: (removedCwd?: string) => void | Promise<void>;
-}) {
-  // Paths are off by default: the folder name is almost always enough to pick
-  // from, and dropping the second line halves each row so twice as many
-  // projects fit before you have to scroll.
-  const { showPaths } = useProjectListPrefs();
-  const [query, setQuery] = useState("");
-  // Managing is a MODE, not a per-row affordance. The common action here is
-  // "pick a project", and hanging a delete button off every row puts a
-  // destructive target under the thumb of the one gesture people repeat all
-  // day. Behind a toggle, tapping a row still cannot destroy anything.
-  const [managing, setManaging] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<{ path: string; name: string } | null>(null);
-  const [busyCwd, setBusyCwd] = useState<string | null>(null);
-  const canManage = !!onReposChanged;
-
-  // A search box only earns its space once the list is long enough that
-  // scanning it is the slow part.
-  const searchable = repos.length > 7;
-  const needle = searchable ? query.trim().toLowerCase() : "";
-
-  // Reset the filter between openings so the sheet never reopens pre-filtered.
-  // Managing resets too: reopening the picker straight into a list of delete
-  // buttons is a mode you did not ask for and might not notice.
-  useEffect(() => {
-    if (!open) {
-      setQuery("");
-      setManaging(false);
-      setDeleteTarget(null);
-    }
-  }, [open]);
-
-  async function unlinkRepo(repo: Repo) {
-    setBusyCwd(repo.cwd);
-    try {
-      await unlinkRepoFromList(repo, onReposChanged);
-    } finally {
-      setBusyCwd(null);
-    }
-  }
-
-  const visibleRepos = useMemo(() => {
-    if (!needle) return repos;
-    return repos.filter(
-      (repo) =>
-        repo.name.toLowerCase().includes(needle) ||
-        repo.cwd.toLowerCase().includes(needle),
-    );
-  }, [repos, needle]);
-
-  // `selected` (the concrete repo a new session will run in) and `allSelected`
-  // (the live-view filter sitting on "__all") are independent inputs, and the
-  // composer passes both at once: with no project filter it still falls back to
-  // a real repo for the session, so it hands us selected="/…/duet-app"
-  // *alongside* allSelected. Ticking each row off its own prop then drew two
-  // ticks in a single-choice list. The concrete repo wins — it's the honest
-  // answer to "choose where your agent will work" — so "All projects" only
-  // ticks when there is no concrete target, which is exactly the live-view
-  // rail's sheet (it passes selected="" whenever the filter is "__all").
-  const allTicked = allSelected && !selected;
-
-  const rowClass = cn(
-    "flex w-full items-center gap-2.5 border-b border-border px-3 text-left last:border-0 active:bg-muted",
-    showPaths ? "py-2.5" : "py-2",
-  );
-
-  return (
-    <Drawer open={open} onOpenChange={onOpenChange} shouldScaleBackground={false}>
-      <DrawerContent className="mx-auto max-h-[78dvh] max-w-lg overflow-hidden">
-        <DrawerTitle className="sr-only">Projects</DrawerTitle>
-        <div className="flex min-h-0 flex-col px-4 pb-[max(var(--lfg-safe-bottom),1rem)]">
-          <div className="mb-2.5 flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <h2 className="text-lg font-semibold">Projects</h2>
-              <p className="text-xs text-muted-foreground">
-                {managing
-                  ? "Remove from the list, or delete the folder"
-                  : manageOnly
-                    ? "Add a folder, or manage the ones you have"
-                    : "Choose where your agent will work"}
-              </p>
-            </div>
-            <div className="flex shrink-0 items-center gap-1.5">
-              {canManage ? (
-                <button
-                  type="button"
-                  onClick={() => setManaging((on) => !on)}
-                  aria-pressed={managing}
-                  title={managing ? "Done managing" : "Manage projects"}
-                  className={cn(
-                    "flex h-8 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium transition-colors",
-                    managing ? "bg-blue-500/15 text-blue-500" : "bg-muted text-muted-foreground",
-                  )}
-                >
-                  {managing ? <Check className="size-3.5" /> : <Pencil className="size-3.5" />}
-                  {managing ? "Done" : "Manage"}
-                </button>
-              ) : null}
-              <button
-                type="button"
-                onClick={() => setProjectListPrefs({ showPaths: !showPaths })}
-                aria-pressed={showPaths}
-                title={showPaths ? "Hide folder paths" : "Show folder paths"}
-                className={cn(
-                  "flex h-8 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium transition-colors",
-                  showPaths ? "bg-blue-500/15 text-blue-500" : "bg-muted text-muted-foreground",
-                )}
-              >
-                {showPaths ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
-                Paths
-              </button>
-              <button type="button" onClick={() => onOpenChange(false)} className="flex size-8 items-center justify-center rounded-full bg-muted" aria-label="Close">
-                <X className="size-4" />
-              </button>
-            </div>
-          </div>
-          {deleteTarget ? (
-            <DeleteFolderPanel
-              target={deleteTarget}
-              onClose={() => setDeleteTarget(null)}
-              onDeleted={async (deletedPath) => {
-                await onReposChanged?.(deletedPath);
-              }}
-            />
-          ) : (
-          <>
-          {searchable ? (
-            <div className="relative mb-2">
-              <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-              {/* Deliberately not autofocused — on mobile the keyboard would
-                  swallow the extra rows this redesign just bought. */}
-              <input
-                type="text"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder={`Search ${repos.length} projects`}
-                aria-label="Search projects"
-                className="h-9 w-full rounded-xl border border-border bg-muted/25 pl-8 pr-3 text-sm outline-none placeholder:text-muted-foreground focus:border-blue-500/50"
-              />
-            </div>
-          ) : null}
-          {/* data-vaul-no-drag keeps a vertical swipe inside the list scrolling
-              the list instead of dragging the whole sheet closed — with the old
-              20dvh window almost every flick hit the drawer's drag handler. */}
-          <div
-            data-vaul-no-drag
-            className="max-h-[min(52dvh,26rem)] min-h-0 overflow-y-auto overscroll-contain rounded-2xl border border-border bg-muted/25"
-          >
-            {onSelectAll && !manageOnly && !needle && !managing ? (
-              <button
-                type="button"
-                onClick={onSelectAll}
-                className={rowClass}
-              >
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-                  <Folder className="size-4" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium">All projects</span>
-                  {showPaths ? (
-                    <span className="block truncate text-xs text-muted-foreground">
-                      Show every session
-                    </span>
-                  ) : null}
-                </span>
-                {allTicked ? (
-                  <Check className="size-4 shrink-0 text-emerald-500" />
-                ) : (
-                  <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-                )}
-              </button>
-            ) : null}
-            {onSelectNoProject && !manageOnly && !needle && !managing ? (
-              <button type="button" onClick={onSelectNoProject} className={rowClass}>
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-                  <Sparkles className="size-4" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium">
-                    {NO_PROJECT_FILTER_LABEL}
-                  </span>
-                  {showPaths ? (
-                    <span className="block truncate text-xs text-muted-foreground">
-                      Start something new, and pick a folder later
-                    </span>
-                  ) : null}
-                </span>
-                {noProjectSelected ? (
-                  <Check className="size-4 shrink-0 text-emerald-500" />
-                ) : (
-                  <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-                )}
-              </button>
-            ) : null}
-            {visibleRepos.map((repo) =>
-              managing ? (
-                // A div, not a button: the row carries two buttons of its own,
-                // and nested buttons are invalid HTML.
-                <div key={repo.cwd} className={rowClass}>
-                  <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-blue-500/10 text-blue-500">
-                    <Folder className="size-4" />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium">{repo.name}</span>
-                    <span className="block truncate text-xs text-muted-foreground">{repo.cwd}</span>
-                  </span>
-                  {busyCwd === repo.cwd ? (
-                    <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
-                  ) : (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => void unlinkRepo(repo)}
-                        aria-label={`Remove ${repo.name} from the list`}
-                        title="Remove from list (keeps the folder)"
-                        className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground active:bg-muted/70"
-                      >
-                        <EyeOff className="size-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setDeleteTarget({ path: repo.cwd, name: repo.name })}
-                        aria-label={`Delete the ${repo.name} folder`}
-                        title="Delete the folder from disk"
-                        className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground active:bg-destructive/15 active:text-destructive"
-                      >
-                        <Trash2 className="size-4" />
-                      </button>
-                    </>
-                  )}
-                </div>
-              ) : (
-                <button
-                  key={repo.cwd}
-                  type="button"
-                  onClick={() => onSelect(repo)}
-                  className={rowClass}
-                >
-                  <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-blue-500/10 text-blue-500"><Folder className="size-4" /></span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium">{repo.name}</span>
-                    {showPaths ? (
-                      <span className="block truncate text-xs text-muted-foreground">{repo.cwd}</span>
-                    ) : null}
-                  </span>
-                  {repo.cwd === selected ? <Check className="size-4 shrink-0 text-emerald-500" /> : <ChevronRight className="size-4 shrink-0 text-muted-foreground" />}
-                </button>
-              ),
-            )}
-            {visibleRepos.length === 0 ? (
-              <p className="px-3 py-6 text-center text-xs text-muted-foreground">
-                {needle ? `No projects match "${query.trim()}"` : "No projects yet"}
-              </p>
-            ) : null}
-          </div>
-          {managing ? (
-            <p className="mt-2 px-1 text-[11px] leading-snug text-muted-foreground">
-              Removing takes a project off this list without touching your files. Deleting erases
-              the folder from disk and asks you to confirm first.
-            </p>
-          ) : null}
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <Button type="button" variant="outline" onClick={onBrowse}><Folder className="size-4" /> Browse</Button>
-            <Button type="button" onClick={onCreate}><Plus className="size-4" /> New Project</Button>
-          </div>
-          </>
-          )}
-        </div>
-      </DrawerContent>
-    </Drawer>
-  );
-}
-
 function NewSessionDialog({
   open,
   repos,
@@ -23613,7 +23301,6 @@ function NewSessionDialog({
     if (blurTimerRef.current != null) window.clearTimeout(blurTimerRef.current);
   }, []);
   const [folderBrowserOpen, setFolderBrowserOpen] = useState(false);
-  const [projectSheetOpen, setProjectSheetOpen] = useState(false);
   const [folderBrowserCreate, setFolderBrowserCreate] = useState(false);
   // Swipe-to-switch state for the inline composer's agent icon. `dir`/`nonce`
   // drive the slide+fade animation when the icon swaps; the button ref lets us
@@ -24056,10 +23743,6 @@ function NewSessionDialog({
         lastCwd: repo,
         repos,
       });
-  const selectedRepoName = unassigned
-    ? projectFilterLabel(NO_PROJECT_FILTER, shortProject)
-    : repos.find((candidate) => candidate.cwd === selectedRepo)?.name ||
-      (selectedRepo ? shortProject(selectedRepo) : "Project");
   const launching = pendingCreates > 0;
   // The project the resume picker should open scoped to: the composer's currently
   // selected repo (which already folds in the live-view filter via `scopedRepo`),
@@ -24087,13 +23770,7 @@ function NewSessionDialog({
     });
   }
 
-  function openProjectSheet() {
-    setAgentPopoverOpen(false);
-    setProjectSheetOpen(true);
-  }
-
   function openFolderBrowser(create: boolean) {
-    setProjectSheetOpen(false);
     setFolderBrowserCreate(create);
     window.setTimeout(() => setFolderBrowserOpen(true), 180);
   }
@@ -24103,7 +23780,6 @@ function NewSessionDialog({
     setRepo(next.cwd);
     localStorage.setItem("lfg_v2_repo", next.cwd);
     if (onProjectChange) onProjectChange(repoProject(next));
-    setProjectSheetOpen(false);
   }
 
   // A pinned account shows its own limits. Claude Auto has no pinned account,
@@ -24484,9 +24160,11 @@ function NewSessionDialog({
     setModel(preferredModelFor(key));
   };
 
-  const stageFolderPicker = (
+  // One folder dropdown for every desktop composer shape: a chip on the home
+  // stage, a pill in the drawer's controls row.
+  const folderPicker = (trigger: "chip" | "pill") => (
     <ProjectFolderMenu
-      trigger="chip"
+      trigger={trigger}
       value={unassigned ? (allProjects ? "__all" : NO_PROJECT_FILTER) : composerProject}
       projects={[NO_PROJECT_FILTER, ...new Set(repos.map(repoProject))]}
       labelFor={(value) => projectFilterLabel(value, shortProject)}
@@ -24590,20 +24268,7 @@ function NewSessionDialog({
       ) : null}
 
 
-      {variant !== "stage" && !projectScoped && (
-        <FieldPill flat={variant === "inline"} icon={<Folder className="size-3.5 text-muted-foreground" />}>
-          <button
-            type="button"
-            onClick={openProjectSheet}
-            aria-label="Choose project"
-            className="max-w-28 truncate pr-1 text-xs font-medium outline-none"
-          >
-            {unassigned
-              ? selectedRepoName
-              : repos.find((item) => item.cwd === selectedRepo)?.name || "Choose project"}
-          </button>
-        </FieldPill>
-      )}
+      {variant !== "stage" && !projectScoped ? folderPicker("pill") : null}
     </>
   );
 
@@ -25011,7 +24676,7 @@ function NewSessionDialog({
                 as on iOS, so the composer carries no folder button. */}
             {inlineExpanded ? resumeButton : null}
             {/* Desktop home uses the same folder menu as the session rail. */}
-            {variant === "stage" ? stageFolderPicker : null}
+            {variant === "stage" ? folderPicker("chip") : null}
             {inlineExpanded ? <span className="flex-1" /> : null}
             {micButton}
             {inlineExpanded ? startButton : null}
@@ -25088,45 +24753,6 @@ function NewSessionDialog({
           setRepo((current) => (current === path ? "" : current));
         }}
         onReposChanged={onReposChanged}
-      />
-      <ComposerProjectSheet
-        open={projectSheetOpen}
-        repos={repos}
-        selected={selectedRepo}
-        onOpenChange={setProjectSheetOpen}
-        onSelect={chooseComposerRepo}
-        onBrowse={() => openFolderBrowser(false)}
-        onCreate={() => openFolderBrowser(true)}
-        // "All projects" is deliberately NOT in the mobile swipe cycle, so on a
-        // phone the project menu was the only way back to it. The embedded
-        // header no longer carries that menu, which would have made __all a
-        // one-way door — the composer's own sheet offers it instead. Same row
-        // the desktop rail's sheet already shows.
-        allSelected={allProjects && !unassigned}
-        onSelectAll={
-          onProjectChange
-            ? () => {
-                onProjectChange("__all");
-                setProjectSheetOpen(false);
-              }
-            : undefined
-        }
-        noProjectSelected={unassigned}
-        onSelectNoProject={
-          onProjectChange
-            ? () => {
-                onProjectChange(NO_PROJECT_FILTER);
-                setProjectSheetOpen(false);
-              }
-            : undefined
-        }
-        onReposChanged={async (removedCwd?: string) => {
-          // A composer pointed at a project that no longer exists would launch
-          // into a 400 "unknown repo", so drop the selection when the thing it
-          // named is what just went away.
-          if (removedCwd && selectedRepo === removedCwd) setRepo("");
-          await onReposChanged();
-        }}
       />
     </form>
     {files.annotator}
