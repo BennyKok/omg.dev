@@ -68,3 +68,17 @@ test("the first bootstrap appears after a short wait", async () => {
   expect(overlay()?.textContent).toContain("Connecting…");
   expect([...overlay()!.querySelectorAll("button")].some((b) => b.textContent === "Retry")).toBe(false);
 });
+
+test("a flap right after recovery cannot leave Connected on screen", async () => {
+  ui = mount();
+  ui.render(view({ ...base, status: "offline" }));
+  ui.render(view(base));
+  await ui.flushAsync();
+  expect(overlay()?.textContent).toContain("Connected");
+  // The runtime reloads its bootstrap at once: briefly not ready, then live.
+  ui.render(view({ ...base, ready: false, loading: true }));
+  await ui.flushAsync();
+  ui.render(view(base));
+  await ui.flushAsync(() => sleep(1_400));
+  expect(overlay()).toBeNull();
+});

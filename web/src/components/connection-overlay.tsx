@@ -90,12 +90,25 @@ export function ConnectionOverlay({ machineSwitcher }: { machineSwitcher?: React
       setBack("hidden");
       return;
     }
-    if (notLive || lastShown.current === "hidden") return;
+    // Not live but still under the pill threshold: say nothing, and do not
+    // claim "Connected". Keep what was shown for when it really comes back.
+    if (notLive) {
+      setBack("hidden");
+      return;
+    }
+    if (lastShown.current === "hidden") return;
     setBack(lastShown.current);
     lastShown.current = "hidden";
+  }, [view.mode, notLive]);
+  // The close timer belongs to the "Connected" moment alone. When it shared
+  // the effect above, a brief flap right after recovery (the runtime reloads
+  // its bootstrap) cancelled it and nothing restarted it, so "Connected"
+  // stayed on screen for good.
+  useEffect(() => {
+    if (back === "hidden") return;
     const timer = setTimeout(() => setBack("hidden"), BACK_MS);
     return () => clearTimeout(timer);
-  }, [view.mode, notLive]);
+  }, [back]);
 
   if (typeof document === "undefined") return null;
   if (view.mode !== "hidden") {
