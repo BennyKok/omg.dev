@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 6, 2026 - Lighter connection card (v0.6.187)
+
+- The connection card is smaller, and the app behind it is less dim. You can read your sessions while it reconnects.
+
 ## October 6, 2026 - Gray Apex picker icon (v0.6.186)
 
 - The Apex icon uses gray in the model list and selected model to match the other provider icons.
