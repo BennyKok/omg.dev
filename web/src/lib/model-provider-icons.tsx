@@ -2,7 +2,7 @@
 //
 // Every `omg/<provider>/<model>` row shows the mark of the lab that serves
 // it, next to the short model name from packages/protocol/src/omg-model-display.
-// Single-path `fill="currentColor"` like brand-icons.tsx, so the mark takes
+// Vector marks use `fill="currentColor"` like brand-icons.tsx, so the mark takes
 // the row's text colour in both themes and never fights the selected tint.
 //
 // Path data: Simple Icons (https://simpleicons.org, CC0) for anthropic,
@@ -10,6 +10,12 @@
 // dropping the fill. Z.ai is not in Simple Icons; its mark is from
 // lobehub/lobe-icons (MIT, Copyright (c) 2023 LobeHub), viewBox 0 0 24 24.
 // The native app rasterises the same paths to mobile/assets/providers.
+
+import apexIcon from "../assets/providers/apex.png";
+
+// Official Apex favicon: https://apex.callstack.com/favicon.png.
+// Import the image so both standalone and embedded builds include the asset.
+const PROVIDER_IMAGES: Record<string, string> = { callstack: apexIcon };
 
 const PROVIDER_PATHS: Record<string, string> = {
   anthropic: "M17.3041 3.541h-3.6718l6.696 16.918H24Zm-10.6082 0L0 20.459h3.7442l1.3693-3.5527h7.0052l1.3693 3.5528h3.7442L10.5363 3.5409Zm-.3712 10.2232 2.2914-5.9456 2.2914 5.9456Z",
@@ -25,7 +31,7 @@ const PROVIDER_PATHS: Record<string, string> = {
 export function modelProviderIconKey(provider: string | null | undefined): string | null {
   if (!provider) return null;
   const key = provider.toLowerCase().replace(/[^a-z0-9]/g, "");
-  return PROVIDER_PATHS[key] ? key : null;
+  return PROVIDER_PATHS[key] || PROVIDER_IMAGES[key] ? key : null;
 }
 
 export function ModelProviderIcon({
@@ -37,6 +43,9 @@ export function ModelProviderIcon({
 }) {
   const key = modelProviderIconKey(provider);
   if (!key) return null;
+  if (PROVIDER_IMAGES[key]) {
+    return <img src={PROVIDER_IMAGES[key]} alt="" aria-hidden="true" className={className} />;
+  }
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" role="img" aria-hidden="true" className={className}>
       <path d={PROVIDER_PATHS[key]} />

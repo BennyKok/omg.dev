@@ -337,7 +337,7 @@ test("grok catalog defaults to Grok 4.7 and keeps the fast variant", async () =>
   expect(grok?.thinkingLevelsByModel?.["grok-4.5"]).toEqual(["low", "medium", "high"]);
 });
 
-test("omg agent lists the 16 routed models in hosted picker order, default first", async () => {
+test("omg agent lists the routed models in hosted picker order, default first", async () => {
   const { OMG_MODELS } = await import("./agent-catalog.ts");
   expect(OMG_MODELS).toEqual([
     "omg/openai/gpt-6-luna",
@@ -351,6 +351,8 @@ test("omg agent lists the 16 routed models in hosted picker order, default first
     "omg/minimax/minimax-m3",
     "omg/x-ai/grok-4.7",
     "omg/anthropic/claude-fable-5.1",
+    "omg/anthropic/claude-opus-5.5",
+    "omg/anthropic/claude-sonnet-5.5",
     "omg/anthropic/claude-opus-4.8",
     "omg/anthropic/claude-sonnet-4.6",
     "omg/openai/gpt-5.6-sol",
@@ -377,6 +379,6 @@ test("omg thinking levels follow the model: effort where OpenRouter honours it, 
   expect(thinkingLevelsForAgent("omg")).toEqual(["low", "medium", "high"]);
   const item = listModelCatalog().find((entry) => entry.key === "omg")!;
   expect(item.thinkingLevels).toEqual(["low", "medium", "high"]);
-  expect(Object.keys(item.thinkingLevelsByModel ?? {})).toHaveLength(12);
+  expect(Object.keys(item.thinkingLevelsByModel ?? {})).toHaveLength(14);
   expect(item.thinkingLevelsByModel?.["omg/qwen/qwen3-coder-next"]).toBeUndefined();
 });

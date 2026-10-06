@@ -22,6 +22,8 @@ describe("omg model display", () => {
       ["omg/minimax/minimax-m3", "minimax", "MiniMax M3"],
       ["omg/x-ai/grok-4.7", "x-ai", "Grok 4.7"],
       ["omg/anthropic/claude-fable-5.1", "anthropic", "Claude Fable 5.1"],
+      ["omg/anthropic/claude-opus-5.5", "anthropic", "Claude Opus 5.5"],
+      ["omg/anthropic/claude-sonnet-5.5", "anthropic", "Claude Sonnet 5.5"],
       ["omg/anthropic/claude-opus-4.8", "anthropic", "Claude Opus 4.8"],
       ["omg/anthropic/claude-sonnet-4.6", "anthropic", "Claude Sonnet 4.6"],
       ["omg/openai/gpt-5.6-sol", "openai", "GPT-5.6 Sol"],
