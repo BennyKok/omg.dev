@@ -132,6 +132,21 @@ test("the chip trigger names the folder and opens the same menu", async () => {
   expect(menuRows()).toEqual(["All projects", "No project", "alpha", "beta", "gamma"]);
 });
 
+test("the pill trigger opens the dropdown, not a dialog", async () => {
+  const picked: string[] = [];
+  ui.render(
+    <ProjectFolderMenu trigger="pill" value={NO_PROJECT_FILTER} projects={projects} labelFor={labelFor} onChange={(v) => picked.push(v)} />,
+  );
+  const pill = byLabel("Folder: No project")!;
+  expect(pill.className).toContain("rounded-full");
+  ui.flush(() => pill.click());
+  await ui.flushAsync();
+  expect(body().querySelector('[role="dialog"][data-vaul-drawer]')).toBeNull();
+  expect(menuRows()).toEqual(["All projects", "No project", "alpha", "beta", "gamma"]);
+  ui.flush(() => (body().querySelector('button[title="gamma"][aria-pressed]') as HTMLButtonElement).click());
+  expect(picked).toEqual(["gamma"]);
+});
+
 test("No project reads as a selection: no icon on its row or the trigger, folders keep theirs", async () => {
   ui.render(<ProjectFolderMenu value={NO_PROJECT_FILTER} projects={projects} labelFor={labelFor} onChange={() => {}} />);
   const trigger = byLabel("Folder: No project")!;

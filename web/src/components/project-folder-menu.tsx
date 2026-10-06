@@ -61,9 +61,10 @@ export type ProjectFolderMenuProps = {
   /**
    * "bar" is a full-width row. "chip" is a small pill, sized to its label
    * and capped, for the trailing edge of the rail's New session row, where
-   * it reads as "new session in this folder".
+   * it reads as "new session in this folder". "pill" matches the other
+   * rounded configuration pills in the composer's controls row.
    */
-  trigger?: "bar" | "chip";
+  trigger?: "bar" | "chip" | "pill";
 };
 
 const ROW = "flex h-9 w-full min-w-0 items-center gap-2.5 rounded-lg px-2.5 text-left text-[13px] outline-none transition-colors";
@@ -128,6 +129,8 @@ export function ProjectFolderMenu({
                 ? // Capped so a long folder name cannot push New session
                   // out of its own row; the full name is in the title.
                   "h-10 max-w-[10rem] shrink-0 gap-1.5 rounded-lg px-3 text-[13px] font-medium hover:bg-muted active:bg-muted data-[popup-open]:bg-muted"
+                : trigger === "pill"
+                ? "h-8 max-w-[11rem] shrink-0 gap-1.5 rounded-full bg-muted px-3 text-xs font-medium"
                 : "h-8 w-full gap-2 rounded-lg bg-secondary px-2.5 text-[13px] font-semibold hover:bg-muted",
             )}
           >
