@@ -1,3 +1,25 @@
+diff --git a/android/src/main/java/net/siteed/audiostudio/AudioRecorderManager.kt b/android/src/main/java/net/siteed/audiostudio/AudioRecorderManager.kt
+--- a/android/src/main/java/net/siteed/audiostudio/AudioRecorderManager.kt
++++ b/android/src/main/java/net/siteed/audiostudio/AudioRecorderManager.kt
+@@ -1151,2 +1151,3 @@
+-                    AudioRecordingService.stopService(context)
+-                }
++                }
++                // keepAwake also starts the service without notification updates.
++                AudioRecordingService.stopService(context)
+@@ -1904,2 +1905,2 @@
+-                    AudioRecordingService.stopService(context)
+-                }
++                }
++                AudioRecordingService.stopService(context)
+diff --git a/android/src/main/java/net/siteed/audiostudio/AudioRecordingService.kt b/android/src/main/java/net/siteed/audiostudio/AudioRecordingService.kt
+--- a/android/src/main/java/net/siteed/audiostudio/AudioRecordingService.kt
++++ b/android/src/main/java/net/siteed/audiostudio/AudioRecordingService.kt
+@@ -58,2 +58,2 @@
+-                    .setContentTitle(" ")  // Space character instead of empty string
+-                    .setContentText(" ")   // Space character instead of empty string
++                    .setContentTitle("Recording audio")
++                    .setContentText("Open the app to finish recording.")
 diff --git a/ios/AudioStreamManager.swift b/ios/AudioStreamManager.swift
 index b4ab6ca..bf918c2 100644
 --- a/ios/AudioStreamManager.swift
