@@ -4,23 +4,22 @@ import { useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { ConnectionSurface } from "../src/omg/connection-overlay";
-import type { NativeOverlayView } from "../src/omg/connection-overlay-state";
+import { nativeOverlayView, type NativeOverlayInput, type NativeOverlayView } from "../src/omg/connection-overlay-state";
 import { LaunchScreen } from "../src/omg/launch";
 
 type Stage = { name: string; view?: NativeOverlayView; launch?: boolean };
-const card = (v: Omit<NativeOverlayView, "mode" | "nextChangeMs">): NativeOverlayView => ({ ...v, mode: "overlay", nextChangeMs: null });
+// Every stage comes from the real rules, so the buttons shown are the app's.
+const LIVE: NativeOverlayInput = { selected: true, everReady: true, readiness: "ready", socket: "live", cloudPaused: false, notLiveMs: 0, resuming: false, suppressed: false };
+const rule = (v: Partial<NativeOverlayInput>) => nativeOverlayView({ ...LIVE, ...v });
 const STAGES: Stage[] = [
   { name: "Launch", launch: true },
   { name: "Live" },
-  {
-    name: "Pill",
-    view: { mode: "pill", mood: "searching", title: "Reconnecting…", detail: null, canSwitch: true, nextChangeMs: null },
-  },
-  { name: "Offline", view: card({ mood: "sleeping", title: "Connection unavailable", detail: "Check your connection, or choose another computer.", canSwitch: true }) },
-  { name: "Paused", view: card({ mood: "sleeping", title: "Computer paused", detail: "This computer is paused. Resume it, or choose another computer.", canSwitch: true }) },
-  { name: "Error", view: card({ mood: "error", title: "Your computer isn't responding", detail: "Try again, or choose another computer.", canSwitch: true }) },
-  { name: "Waking", view: card({ mood: "booting", title: "Waking your computer…", detail: "This can take a moment.", canSwitch: true }) },
-  { name: "Back", view: card({ mood: "happy", title: "Connected", detail: null, canSwitch: false }) },
+  { name: "Pill", view: rule({ socket: "reconnecting", notLiveMs: 3_000 }) },
+  { name: "Offline", view: rule({ socket: "offline" }) },
+  { name: "Paused", view: rule({ everReady: false, readiness: "connecting", socket: "connecting", cloudPaused: true, notLiveMs: 1_000 }) },
+  { name: "Error", view: rule({ readiness: "unavailable" }) },
+  { name: "Waking", view: rule({ readiness: "waking", notLiveMs: 9_000 }) },
+  { name: "Back", view: { mode: "overlay", mood: "happy", title: "Connected", detail: null, canSwitch: false, canRetry: false, nextChangeMs: null } },
 ];
 const ROWS = ["Ads report status and conversions", "Identifying bot session activity", "Top up user credits system", "Why omgs.app blocked the preview", "Threads viral ideas", "Superschool onboarding"];
 

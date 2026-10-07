@@ -118,7 +118,7 @@ export function ConnectionOverlay({ machineSwitcher }: { machineSwitcher?: React
   if (back !== "hidden") {
     return createPortal(
       <ConnectionSurface
-        view={{ mode: back, mood: "happy", title: "Connected", detail: null, canRetry: false, nextChangeMs: null }}
+        view={{ mode: back, mood: "happy", title: "Connected", detail: null, canRetry: false, canSwitch: false, nextChangeMs: null }}
         onRetry={availability.retry}
       />,
       document.body,
@@ -173,7 +173,7 @@ function ConnectionSurface({
         <Boxy mood={view.mood} size={80} className="text-foreground" />
         <p className="text-base font-semibold text-foreground">{view.title}</p>
         {view.detail ? <p className="text-sm text-muted-foreground">{view.detail}</p> : null}
-        {view.canRetry || machineSwitcher ? (
+        {view.canRetry || (view.canSwitch && machineSwitcher) ? (
           <div className="mt-1 flex w-full flex-col items-stretch gap-2">
             {view.canRetry ? (
               <button
@@ -184,7 +184,7 @@ function ConnectionSurface({
                 Retry
               </button>
             ) : null}
-            {machineSwitcher ? (
+            {view.canSwitch && machineSwitcher ? (
               <div className="rounded-xl border border-border bg-popover text-popover-foreground">
                 {machineSwitcher}
               </div>

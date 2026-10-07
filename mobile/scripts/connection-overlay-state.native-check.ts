@@ -29,7 +29,13 @@ test("the first connect shows Connecting after a short wait, as on the web", () 
   const first = (notLiveMs: number, extra: Partial<NativeOverlayInput> = {}) =>
     nativeOverlayView({ ...live, everReady: false, readiness: "connecting", socket: "connecting", notLiveMs, ...extra });
   expect(first(100)).toMatchObject({ mode: "hidden", nextChangeMs: STARTUP_OVERLAY_AFTER_MS - 100 });
-  expect(first(STARTUP_OVERLAY_AFTER_MS)).toMatchObject({ mode: "overlay", mood: "booting", title: "Connecting…" });
+  // Still connecting: no buttons, nothing that reads as a failure.
+  expect(first(STARTUP_OVERLAY_AFTER_MS)).toMatchObject({
+    mode: "overlay", mood: "booting", title: "Connecting…", canRetry: false, canSwitch: false,
+    nextChangeMs: OVERLAY_AFTER_MS - STARTUP_OVERLAY_AFTER_MS,
+  });
+  // A long wait offers another computer, still not a retry.
+  expect(first(OVERLAY_AFTER_MS)).toMatchObject({ mode: "overlay", canRetry: false, canSwitch: true, nextChangeMs: null });
   expect(first(0, { readiness: null, socket: null }).nextChangeMs).toBe(STARTUP_OVERLAY_AFTER_MS);
   expect(first(STARTUP_OVERLAY_AFTER_MS, { readiness: "waking" })).toMatchObject({
     mode: "overlay",
@@ -44,8 +50,8 @@ test("nothing to connect to shows nothing", () => {
 
 test("a reconnect grows from silent to pill to card", () => {
   expect(drop(500)).toMatchObject({ mode: "hidden", nextChangeMs: PILL_AFTER_MS - 500 });
-  expect(drop(PILL_AFTER_MS)).toMatchObject({ mode: "pill", mood: "searching", title: "Reconnecting…" });
-  expect(drop(OVERLAY_AFTER_MS)).toMatchObject({ mode: "overlay", canSwitch: true, nextChangeMs: null });
+  expect(drop(PILL_AFTER_MS)).toMatchObject({ mode: "pill", mood: "searching", title: "Reconnecting…", canRetry: false });
+  expect(drop(OVERLAY_AFTER_MS)).toMatchObject({ mode: "overlay", canSwitch: true, canRetry: false, nextChangeMs: null });
 });
 
 test("coming back from the background says Resuming at once", () => {
@@ -53,17 +59,25 @@ test("coming back from the background says Resuming at once", () => {
 });
 
 test("hard failures show the card at once with the right mood", () => {
-  expect(drop(0, { socket: "offline" })).toMatchObject({ mode: "overlay", mood: "sleeping" });
-  expect(drop(0, { socket: "live", cloudPaused: true })).toMatchObject({
-    mode: "overlay",
-    mood: "sleeping",
-    title: "Computer paused",
-  });
-  expect(drop(0, { socket: "live", readiness: "unavailable" })).toMatchObject({ mode: "overlay", mood: "error" });
+  expect(drop(0, { socket: "offline" })).toMatchObject({ mode: "overlay", mood: "sleeping", canRetry: true });
+  expect(drop(0, { socket: "live", readiness: "unavailable" })).toMatchObject({ mode: "overlay", mood: "error", canRetry: true });
+  expect(drop(0, { socket: "live", readiness: "error" })).toMatchObject({ mode: "overlay", canRetry: true });
+  // Retrying cannot bring back a withdrawn share.
   expect(drop(0, { socket: "live", readiness: "unauthorized" })).toMatchObject({
     mode: "overlay",
     title: "No longer available",
+    canRetry: false,
   });
+});
+
+test("a paused cloud computer reads as waking, because the app wakes it", () => {
+  // A computer that answers is live, whatever the computer list last said.
+  expect(nativeOverlayView({ ...live, cloudPaused: true }).mode).toBe("hidden");
+  const first = nativeOverlayView({
+    ...live, everReady: false, readiness: "connecting", socket: "connecting", cloudPaused: true, notLiveMs: STARTUP_OVERLAY_AFTER_MS,
+  });
+  expect(first).toMatchObject({ mode: "overlay", mood: "booting", title: "Waking your computer…", canRetry: false, canSwitch: false });
+  expect(drop(PILL_AFTER_MS, { cloudPaused: true })).toMatchObject({ mode: "pill", title: "Waking your computer…", canRetry: false });
 });
 
 test("a waking computer boots Boxy", () => {

@@ -30,7 +30,11 @@ export type NativeOverlayInput = {
   everReady: boolean;
   readiness: ReadinessKind | null;
   socket: SocketStatus | null;
-  /** The cloud computer is paused by the server. */
+  /**
+   * The computer list last said the cloud computer is paused. The app wakes
+   * it by itself (presence plus probe), so this reads as waking, never as a
+   * stop, and a computer that answers is live whatever the list said.
+   */
   cloudPaused: boolean;
   /** Milliseconds since the computer stopped being usable. */
   notLiveMs: number;
@@ -45,8 +49,13 @@ export type NativeOverlayView = {
   mood: BoxyMood;
   title: string;
   detail: string | null;
-  /** Offer "Choose another computer". */
+  /** Offer "Choose another computer": a real failure, or a long wait. */
   canSwitch: boolean;
+  /**
+   * Offer "Try again": only a real failure. While the app is still
+   * connecting or waking, a retry button reads as "it already failed".
+   */
+  canRetry: boolean;
   nextChangeMs: number | null;
 };
 
@@ -61,12 +70,12 @@ const HIDDEN: NativeOverlayView = {
   title: "",
   detail: null,
   canSwitch: false,
+  canRetry: false,
   nextChangeMs: null,
 };
 
 /** Usable means: bootstrap answered and the live socket is not down. */
-export function isLive(input: Pick<NativeOverlayInput, "readiness" | "socket" | "cloudPaused">): boolean {
-  if (input.cloudPaused) return false;
+export function isLive(input: Pick<NativeOverlayInput, "readiness" | "socket">): boolean {
   if (input.readiness !== "ready" && input.readiness !== "agent-limit") return false;
   return input.socket !== "reconnecting" && input.socket !== "offline";
 }
@@ -79,17 +88,14 @@ export function nativeOverlayView(input: NativeOverlayInput): NativeOverlayView 
   let title = input.resuming ? "Resuming…" : "Reconnecting…";
   let detail: string | null = "Your sessions keep running. We will catch up when you are back.";
   let hard = false;
+  let canRetry = false;
 
-  if (input.cloudPaused) {
-    mood = "sleeping";
-    title = "Computer paused";
-    detail = "This computer is paused. Resume it, or choose another computer.";
-    hard = true;
-  } else if (input.readiness === "unavailable") {
+  if (input.readiness === "unavailable") {
     mood = "error";
     title = "Your computer isn't responding";
     detail = "Try again, or choose another computer.";
     hard = true;
+    canRetry = true;
   } else if (input.readiness === "unauthorized") {
     mood = "error";
     title = "No longer available";
@@ -100,7 +106,8 @@ export function nativeOverlayView(input: NativeOverlayInput): NativeOverlayView 
     title = "Couldn't reach your computer";
     detail = "Try again, or choose another computer.";
     hard = true;
-  } else if (input.readiness === "waking") {
+    canRetry = true;
+  } else if (input.readiness === "waking" || input.cloudPaused) {
     mood = "booting";
     title = "Waking your computer…";
     detail = "This can take a moment.";
@@ -113,15 +120,18 @@ export function nativeOverlayView(input: NativeOverlayInput): NativeOverlayView 
     title = "Connection unavailable";
     detail = "Check your connection, or choose another computer.";
     hard = true;
+    canRetry = true;
   }
 
-  const base = { mood, title, detail, canSwitch: true };
+  const longWait = input.notLiveMs >= OVERLAY_AFTER_MS;
+  const base = { mood, title, detail, canSwitch: hard || longWait, canRetry };
   if (hard) return { mode: "overlay", ...base, nextChangeMs: null };
 
   if (startup) {
     const wait = STARTUP_OVERLAY_AFTER_MS - input.notLiveMs;
     if (wait > 0) return { ...HIDDEN, nextChangeMs: wait };
-    return { mode: "overlay", ...base, nextChangeMs: null };
+    // Recheck at the long-wait mark, when "Choose another computer" appears.
+    return { mode: "overlay", ...base, nextChangeMs: longWait ? null : OVERLAY_AFTER_MS - input.notLiveMs };
   }
 
   const pillAt = input.resuming ? 0 : PILL_AFTER_MS;

@@ -30,14 +30,17 @@
     {
       "name": "Reconnecting pill",
       "goal": "Tap Next stage once.",
-      "done": "A small Reconnecting pill with Retry floats over the list, and the list is still readable.",
+      "done": "A small Reconnecting pill floats over the list with no Retry, and the list is still readable.",
       "expect": [
         "Stage: Pill",
         "Reconnecting\u2026",
-        "Retry",
         "Top up user credits system"
       ],
-      "timeoutMs": 60000
+      "timeoutMs": 60000,
+      "forbid": [
+        "Retry",
+        "Try again"
+      ]
     },
     {
       "name": "Offline card",
@@ -61,16 +64,20 @@
       "timeoutMs": 60000
     },
     {
-      "name": "Paused card",
+      "name": "Paused wakes by itself",
       "goal": "The Next stage tap already happened. Do not tap anything; wait for the card to show.",
-      "done": "A card says Computer paused.",
+      "done": "A card says Waking your computer with no buttons. It does not say Computer paused.",
       "expect": [
         "Stage: Paused",
-        "Computer paused",
-        "Choose another computer"
+        "Waking your computer\u2026"
       ],
       "timeoutMs": 60000,
-      "tapAt": "50%,91%"
+      "tapAt": "50%,91%",
+      "forbid": [
+        "Computer paused",
+        "Try again",
+        "Choose another computer"
+      ]
     },
     {
       "name": "Error card",
@@ -87,13 +94,17 @@
     {
       "name": "Waking card",
       "goal": "The Next stage tap already happened. Do not tap anything; wait for the card to show.",
-      "done": "A card says Waking your computer.",
+      "done": "A card says Waking your computer with Choose another computer and no Try again.",
       "expect": [
         "Stage: Waking",
-        "Waking your computer\u2026"
+        "Waking your computer\u2026",
+        "Choose another computer"
       ],
       "timeoutMs": 60000,
-      "tapAt": "50%,91%"
+      "tapAt": "50%,91%",
+      "forbid": [
+        "Try again"
+      ]
     },
     {
       "name": "Connected",

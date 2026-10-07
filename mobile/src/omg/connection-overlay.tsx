@@ -145,7 +145,7 @@ export function ConnectionOverlay() {
   if (back !== "hidden") {
     return (
       <ConnectionSurface
-        view={{ mode: back, mood: "happy", title: "Connected", detail: null, canSwitch: false, nextChangeMs: null }}
+        view={{ mode: back, mood: "happy", title: "Connected", detail: null, canSwitch: false, canRetry: false, nextChangeMs: null }}
       />
     );
   }
@@ -165,7 +165,6 @@ export function ConnectionSurface({
   const { colors, isDark, type } = useTheme();
   const insets = useSafeAreaInsets();
   const ink = colors.foreground;
-  const happy = view.mood === "happy";
   // A plain opacity fade. A Reanimated `entering` layout animation around
   // Boxy's Skia canvas left the ink half drawn until the next re-render.
   const shown = useSharedValue(0);
@@ -187,7 +186,7 @@ export function ConnectionSurface({
         >
           <Boxy mood={view.mood} size={28} color={ink} />
           <Text style={[type.subhead, { color: colors.foreground }]}>{view.title}</Text>
-          {onRetry && !happy ? (
+          {onRetry && view.canRetry ? (
             <Pressable accessibilityRole="button" onPress={onRetry} hitSlop={8} style={styles.pillAction}>
               <Text style={[type.subhead, { color: colors.mutedForeground }]}>Retry</Text>
             </Pressable>
@@ -217,7 +216,7 @@ export function ConnectionSurface({
         {view.detail ? (
           <Text style={[type.footnote, styles.center, { color: colors.mutedForeground }]}>{view.detail}</Text>
         ) : null}
-        {onRetry && !happy ? (
+        {onRetry && view.canRetry ? (
           <Pressable
             accessibilityRole="button"
             onPress={onRetry}
