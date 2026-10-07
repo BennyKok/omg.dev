@@ -44,29 +44,17 @@ Checked in CI: `scripts/check-ios-purpose-strings.sh` asserts
 
 Manual, in App Store Connect, for the version that contains the SDK:
 
-1. **App Privacy.** Answer "Yes, we use data for tracking". Add these. They
-   match our own events and the privacy manifests that FBSDK 18 ships in the
-   binary (checked in a Release build on 2026-10-07):
-
-   | Data type | Linked to user | Used to track | Purposes |
-   | --- | --- | --- | --- |
-   | Identifiers > Device ID | Yes | Yes | Third-Party Advertising, Analytics |
-   | Usage Data > Product Interaction | Yes | Yes | Third-Party Advertising, Analytics |
-   | Purchases > Purchase History | Yes | Yes | Third-Party Advertising, Analytics |
-   | Diagnostics > Crash Data | No | No | App Functionality |
-   | Other Data | No | No | Analytics |
-
-   Keep the existing App Functionality entries for these types. The SDK
-   manifests also list User ID for tracking. That comes from FBSDKLoginKit,
-   which we link but never call, so no user id reaches Meta. Do not add it.
+1. **App Privacy.** Answer "Yes, we use data for tracking". Mark these as
+   "Used to Track You" and "Third-Party Advertising":
+   - Identifiers > Device ID (the advertising identifier)
+   - Purchases > Purchase History
+   - Usage Data > Product Interaction
+   Keep the existing App Functionality entries.
 2. **App Review notes.** Add: "The App Tracking Transparency prompt appears
-   right after sign-in on a fresh install. It is used only for Meta ad
-   measurement. All features work if the user denies it. If the review device
-   has Settings > Privacy & Security > Tracking > Allow Apps to Request to
-   Track turned off, iOS does not show the prompt."
-3. **Privacy policy.** It must name Meta, the events, and the tracking
-   prompt. The text is in `vibes` `apps/landing/src/routes/privacy.tsx`
-   (branch `docs/privacy-ios-meta-sdk`). Publish it before the submission.
+   immediately after sign-in on a fresh install. It is used only for Meta ad
+   measurement. All features work if the user denies it."
+3. **Privacy policy.** It must name Meta as a recipient of app events and the
+   advertising identifier. The policy page lives in the `vibes` repository.
 
 Guideline references: 5.1.1 (purpose strings), 5.1.2 (tracking needs ATT
 permission; features must not depend on it), 2.1 (the reviewer must be able
