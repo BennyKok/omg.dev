@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 7, 2026 - Quiet interrupts and app env keys (v0.6.192)
+
+- When you send a new message while an OpenCode agent is working, the session no longer shows "OpenCode turn failed: Aborted". The agent stops and starts on your new message.
+- The web no longer shows an "Interrupted" line in the transcript. This matches the app.
+- Agents can ask you for an app key, such as an API key, through a secure password field. The value goes to the project `.env` and the hosted app. It never goes into the chat.
+
 ## October 7, 2026 - Connection state in one place (v0.6.191)
 
 - Only the connection card shows connection state now. The greeting, the side rail brand, and the collapsed rail no longer change to "Reconnecting…".
