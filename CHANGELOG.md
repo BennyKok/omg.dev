@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 7, 2026 - Calmer connection card (v0.6.194)
+
+- Retry shows only when the connection has really failed. While the app is still connecting or reconnecting, the card shows no buttons.
+- A failed connection check now retries by itself. For the first 20 seconds the card says "Reconnecting…" or "Connecting…", not that the computer is not responding.
+
 ## October 7, 2026 - Android builds report back, with your app icon (v0.6.193)
 
 - After a build starts, the agent now always gets its build id back. Before, a slow upload could make the agent say the build "timed out" while the build finished normally.
