@@ -32,6 +32,12 @@
 /** How close to the bottom still counts as "at the bottom". */
 export const STICK_BOTTOM_SLACK_PX = 72;
 
+/**
+ * How far an upward gesture must be off the bottom to count as leaving it.
+ * Just above sub-pixel rounding, so a clamp at the bottom never qualifies.
+ */
+export const STICK_LEAVE_PX = 1;
+
 export type ScrollMode = "pinned" | "free";
 
 export type ScrollEventInput = {
@@ -68,7 +74,16 @@ export function nextScrollMode(mode: ScrollMode, input: ScrollEventInput): Scrol
   if (!userDriven) return mode;
   const distance = scrollHeight - scrollTop - clientHeight;
   if (mode === "pinned") {
-    return distance >= STICK_BOTTOM_SLACK_PX ? "free" : "pinned";
+    if (distance >= STICK_BOTTOM_SLACK_PX) return "free";
+    // ANY upward step the reader takes off the bottom frees the view, not only
+    // one that clears the slack. While an agent streams, every update snaps a
+    // pinned view back to the bottom. A trackpad scrolls a few pixels per
+    // event, so the reader never got 72px clear between two updates and was
+    // held at the bottom for as long as the session kept talking. A clamp
+    // also moves the offset up, but a pinned clamp lands AT the bottom, so the
+    // distance check keeps it from counting as leaving.
+    if (scrollTop < previousScrollTop && distance > STICK_LEAVE_PX) return "free";
+    return "pinned";
   }
   // free -> pinned needs the reader to arrive at the bottom under their own
   // power. `scrollTop > previousScrollTop` is belt and braces next to
