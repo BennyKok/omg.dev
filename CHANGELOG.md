@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 7, 2026 - Mac app updates itself (v0.6.195)
+
+- The Mac app now checks for a new version when it starts and every 6 hours. It downloads the update in the background and asks before it restarts.
+- Each release now builds a new Mac app. Install this version once by hand. Later versions then arrive by themselves.
+
 ## October 7, 2026 - Calmer connection card (v0.6.194)
 
 - Retry shows only when the connection has really failed. While the app is still connecting or reconnecting, the card shows no buttons.
