@@ -97,3 +97,10 @@ test("a failed bootstrap stays soft while the app retries it", () => {
   // Offline is still a real failure at once.
   expect(connectionOverlayView({ ...failed, status: "offline", notLiveMs: 0 })).toMatchObject({ mode: "overlay", canRetry: true });
 });
+
+test("waking or resuming only asks the user to wait", () => {
+  for (const extra of [{ lifecycle: "waking" as const }, { lifecycle: "starting" as const }, { resuming: true }]) {
+    expect(reconnecting(OVERLAY_AFTER_MS * 3, extra)).toMatchObject({ mode: "overlay", canSwitch: false, canRetry: false });
+  }
+  expect(reconnecting(OVERLAY_AFTER_MS)).toMatchObject({ canSwitch: true });
+});

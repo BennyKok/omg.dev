@@ -130,7 +130,9 @@ function baseView(input: ConnectionOverlayInput): ConnectionOverlayView {
   const hard = hardFailure(input);
   const canRetry = hard;
   const longWait = input.notLiveMs >= OVERLAY_AFTER_MS;
-  const canSwitch = hard || longWait;
+  // Waking or resuming: the only thing to do is wait (Benny, 2026-10-07).
+  const waiting = input.resuming || input.lifecycle === "starting" || input.lifecycle === "waking";
+  const canSwitch = hard || (longWait && !waiting);
 
   if (hard) {
     return { mode: "overlay", mood, title, detail, canRetry, canSwitch, nextChangeMs: null };
