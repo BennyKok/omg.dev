@@ -9,6 +9,8 @@
 // The end-to-end test below runs the real `opencode serve` with a global
 // config whose stdio `omg` entry never answers, as on that Computer, and checks
 // what OpenCode actually sends to the model.
+import { AGENT_CALL_BUDGET_MS } from "../../cloud-builds.ts";
+import { AGENT_DEPLOY_WAIT_MS } from "../../cloud-apps.ts";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -60,6 +62,15 @@ describe("opencodeSessionMcpConfig", () => {
     // The token is this session's own: it does not let it speak as another.
     expect(verifySessionToken("someone-else", omg.headers[SESSION_TOKEN_HEADER])).toBe(false);
     expect(mcp.connectors?.url).toBe("http://127.0.0.1:65530/mcp/connectors?session=sess-abc");
+  });
+
+  // At 15 s OpenCode cut every omg_build_android and omg_build_status call, and
+  // the agent told the user the build "timed out" while it finished (2026-10-07).
+  test("allows the slowest omg tool call to finish", () => {
+    for (const server of Object.values(opencodeSessionMcpConfig("s").mcp)) {
+      expect(server.timeout).toBeGreaterThan(AGENT_CALL_BUDGET_MS + 10_000);
+      expect(server.timeout).toBeGreaterThan(AGENT_DEPLOY_WAIT_MS + 10_000);
+    }
   });
 
   test("never registers a local process", () => {
