@@ -93,6 +93,9 @@ import Reanimated, {
   Easing,
 } from "react-native-reanimated";
 import { Text, TextInput } from "../../src/omg/text";
+import { QuestionCard } from "../../src/omg/question-card";
+// Re-exported for the thread replies screen, which imports it from here.
+export { QuestionCard };
 import { AgentSetupSheet } from "../../src/omg/agent-setup-sheet";
 import { SEND_DURATION, SendOriginContext } from "../../src/omg/send-motion";
 import { remainingReplySpace, sendTargetOffset, type SendOrigin } from "../../src/omg/send-motion-layout";
@@ -107,6 +110,8 @@ export type AskQuestion = {
   question: string;
   options?: string[];
   sessionId?: string | null;
+  /** A secure ask: one env value typed into a password field, never the composer. */
+  secret?: { key: string } | null;
   createdAt: number;
 };
 /** Same cadence as the web's ask center. */
@@ -578,6 +583,45 @@ function SessionScreenContent({
       }
     },
     [client, refreshAsks],
+  );
+  /** Close a question without answering it. The agent stops waiting. */
+  const dismissAsk = useCallback(
+    async (q: AskQuestion) => {
+      if (!client) return;
+      void Haptics.selectionAsync();
+      setAsks((prev) => prev.filter((x) => x.id !== q.id));
+      try {
+        await client.transport.request(`/api/ask/${encodeURIComponent(q.id)}/dismiss`, { method: "POST" });
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        void refreshAsks();
+      }
+    },
+    [client, refreshAsks],
+  );
+  /**
+   * Save a secure ask's value. It goes to the machine, which writes the
+   * project .env and the hosted app; the agent gets the key name only.
+   * Returns false when the save failed, so the field keeps what was typed.
+   */
+  const saveSecret = useCallback(
+    async (q: AskQuestion, value: string): Promise<boolean> => {
+      if (!client || !value.trim()) return false;
+      try {
+        await client.transport.request(`/api/ask/${encodeURIComponent(q.id)}/secret`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ value }),
+        });
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        setAsks((prev) => prev.filter((x) => x.id !== q.id));
+        return true;
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        return false;
+      }
+    },
+    [client],
   );
   /** "Continue with" picker: agent, model and level for the replacement session. */
   const [continueOpen, setContinueOpen] = useState(false);
@@ -1134,7 +1178,9 @@ function SessionScreenContent({
       // its first turn) always has both, unchanged from before.
       if (!trimmed || !client || (!id && !onDeliver)) return;
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      for (const q of asks) void answerAsk(q, trimmed, false);
+      // A secure ask is answered only by its password field: a composer
+      // message is ordinary chat and must not resolve it.
+      for (const q of asks) if (!q.secret) void answerAsk(q, trimmed, false);
       const stashId = stageDraft(trimmed);
       let acceptedSend = false;
       const optimisticId = `local-${++localSeq}`;
@@ -2074,11 +2120,14 @@ function SessionScreenContent({
                   <QuestionCard
                     key={q.id}
                     question={q.question}
-                    options={(q.options ?? []).map((label, index) => ({ index, label }))}
+                    options={q.secret ? [] : (q.options ?? []).map((label, index) => ({ index, label }))}
                     onAnswer={(label) => {
                       void Haptics.selectionAsync();
                       void answerAsk(q, label, true);
                     }}
+                    onDismiss={() => void dismissAsk(q)}
+                    secretKey={q.secret?.key}
+                    onSaveSecret={(value) => saveSecret(q, value)}
                   />
                 ))}
                 {prompt ? (
@@ -2559,80 +2608,6 @@ function SessionScreenContent({
  * over-spec call), only here, where the header's identity is not enough
  * because the header cannot say "happening right now".
  */
-/**
- * The agent asked something — answering has to be one tap, and that tap has
- * to actually answer.
- *
- * IT IS THE LAST THING IN THE TRANSCRIPT, not a tray on the composer. It used
- * to live inside the floating composer, because laid out in the normal flow it
- * landed UNDER the absolutely positioned bar and the field covered the
- * question and most of its answers. Floating it fixed that and bought a worse
- * problem: a question is a turn in the conversation, and parked on the
- * composer it covered the message that explains why the agent is asking, then
- * stayed there while you scrolled. It now renders in the list's footer, which
- * is inside the scroller and above the space the transcript already reserves
- * at its end, so it arrives where the newest turn arrives and scrolls with it.
- * Used for a native prompt from the transcript socket and for an ask-user
- * question from /api/ask alike.
- */
-export function QuestionCard({
-  question,
-  options,
-  onAnswer,
-}: {
-  question?: string | null;
-  options: { index: number; label: string }[];
-  onAnswer: (label: string) => void;
-}) {
-  const { colors, type, space } = useTheme();
-  return (
-    <View
-      style={{
-        padding: space.md,
-        backgroundColor: colors.card,
-        // Same 16 as the website login row above it. It used to be 32, to
-        // match the expanded composer it was parked on; now that both cards
-        // stand in the transcript, the thing it has to agree with is the
-        // other card, and two different corner radii on two stacked cards
-        // read as two unrelated surfaces.
-        borderRadius: 16,
-        borderCurve: "continuous",
-        borderWidth: StyleSheet.hairlineWidth,
-        // borderStrong: this is a card the transcript can hand you at any
-        // moment, asking for a tap that unblocks the agent — it needs to
-        // read as a distinct surface immediately, not the .35-alpha
-        // border that "reads as a rumour against black" everywhere else
-        // it was tried (see SessionCard's own note on the home screen).
-        borderColor: colors.borderStrong,
-        gap: space.sm,
-      }}
-    >
-      {question ? <Text style={{ ...type.callout, color: colors.text }}>{question}</Text> : null}
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}>
-        {options.map((opt) => (
-          <Pressable
-            key={opt.index}
-            onPress={() => onAnswer(opt.label)}
-            accessibilityRole="button"
-            style={({ pressed }) => ({
-              minHeight: 36,
-              justifyContent: "center",
-              paddingHorizontal: space.md,
-              paddingVertical: space.sm,
-              borderRadius: 32,
-              borderCurve: "continuous",
-              backgroundColor: pressed ? colors.cardPressed : colors.secondary,
-              borderWidth: StyleSheet.hairlineWidth,
-              borderColor: colors.borderStrong,
-            })}
-          >
-            <Text style={{ ...type.footnote, color: colors.text }}>{opt.label}</Text>
-          </Pressable>
-        ))}
-      </View>
-    </View>
-  );
-}
 
 function BotWorkingIndicator({ bot }: { bot: Bot }) {
   return (
