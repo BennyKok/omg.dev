@@ -215,6 +215,21 @@ export type DefaultAgentCandidate = {
  *    makes Claude or Codex runnable without a login).
  * 4. `aisdk`, the old constant, so a box with no roster keeps its old answer.
  */
+/**
+ * True when the roster can name a connected agent for pickDefaultSessionAgent.
+ * A cached roster from before the cloud sign-in, or from before a pause, can
+ * list none; the caller then refreshes once instead of falling back to an
+ * installed agent that is not signed in.
+ */
+export function rosterHasConnectedAgent(roster: readonly DefaultAgentCandidate[]): boolean {
+  return roster.some(
+    (row) =>
+      row.visible &&
+      row.status.configured &&
+      (row.key === "opencode" || row.status.accountConnected === true),
+  );
+}
+
 export function pickDefaultSessionAgent(
   roster: readonly DefaultAgentCandidate[],
   preferred?: string | null,

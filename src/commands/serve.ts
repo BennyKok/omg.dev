@@ -366,7 +366,7 @@ import {
 } from "../session-cache.ts";
 import { buildSessionUsageReport, findSessionDevServerPids } from "../session-usage.ts";
 import { memoryReclaimCandidates } from "../idle-archive.ts";
-import { CODING_AGENT_ADAPTERS, pickDefaultSessionAgent, resolveActiveSessionAgent, usesCommandFileRuntime } from "../coding-agent-adapters.ts";
+import { CODING_AGENT_ADAPTERS, pickDefaultSessionAgent, resolveActiveSessionAgent, rosterHasConnectedAgent, usesCommandFileRuntime } from "../coding-agent-adapters.ts";
 import { launchCodingAgentSession } from "../coding-agent-provider.ts";
 import {
   enqueueTranscriptIndex,
@@ -9706,12 +9706,14 @@ a{color:#60a5fa}
         let sessionRole: string | undefined;
         // No agent named: let the box choose one it can actually run, honouring
         // its own defaultAgent setting. See pickDefaultSessionAgent.
+        let roster = body?.agent ? null : await listCodingAgentsCached();
+        // A stale roster (cached before the cloud sign-in or a pause) can show
+        // no connected agent; the fallback would then pick an installed agent
+        // that is not signed in ("Not logged in · Please run /login").
+        if (roster && !rosterHasConnectedAgent(roster)) roster = await listCodingAgentsCached({ refresh: true });
         const agent = body?.agent
           ? resolveActiveSessionAgent(body.agent)
-          : pickDefaultSessionAgent(
-              await listCodingAgentsCached(),
-              (await getGlobalSettings()).defaultAgent,
-            );
+          : pickDefaultSessionAgent(roster ?? [], (await getGlobalSettings()).defaultAgent);
         if (!agent) {
           if (body?.agent === "hermes") return err(410, "agent \"hermes\" has been removed");
           return err(400, `unknown coding agent "${body?.agent ?? ""}"`);

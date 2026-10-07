@@ -8,6 +8,7 @@ import {
   isCommandFileAgent,
   isTmuxAgent,
   pickDefaultSessionAgent,
+  rosterHasConnectedAgent,
   resolveActiveSessionAgent,
   usesCommandFileRuntime,
 } from "./coding-agent-adapters.ts";
@@ -459,6 +460,20 @@ describe("pickDefaultSessionAgent", () => {
       row("opencode", { configured: true, accountConnected: true }),
     ];
     expect(pickDefaultSessionAgent(roster)).toBe("omg");
+  });
+
+  // Builder e2e 2026-10-07: a roster cached before the cloud sign-in (or before
+  // a pause) listed no connected agent, so the session went to Claude without a
+  // login. Such a roster must be refreshed before the fallback runs.
+  test("a roster with no connected agent asks for a refresh; a signed-in one does not", () => {
+    const stale = [
+      row("aisdk", { configured: true, accountConnected: false }),
+      row("omg", { configured: true, accountConnected: false }),
+    ];
+    expect(rosterHasConnectedAgent(stale)).toBe(false);
+    expect(rosterHasConnectedAgent([...stale, row("omg", { configured: true, accountConnected: true })])).toBe(true);
+    expect(rosterHasConnectedAgent([row("opencode", { configured: true })])).toBe(true);
+    expect(rosterHasConnectedAgent([row("omg", { configured: true, accountConnected: true }, false)])).toBe(false);
   });
 
   test("a box with only OpenCode picks OpenCode even with no account", () => {
