@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 7, 2026 - New sessions start with a signed-in agent (v0.6.198)
+
+- A new session that names no agent now starts with an agent that is signed in. Before, a Computer that had just woken up could start it with Claude without a login, and the session stopped with "Not logged in".
+
 ## October 7, 2026 - Thread blocking and Android review fixes (v0.6.197)
 
 - Computers now support blocking a thread participant. Blocked content stays out of messages, replies, previews and targeted notifications.
