@@ -47,6 +47,7 @@ import {
   threadUpdate,
   type ThreadDeps,
 } from "../threads.ts";
+import { blockedThreadParticipants, setThreadParticipantBlocked } from "../thread-blocks.ts";
 import { mentionAgents, mentionedAgent, threadPreview, type ThreadMedia } from "../../packages/protocol/src/threads.ts";
 import { COMPUTER_KIOSK_PATH } from "../../packages/protocol/src/computer-kiosk.ts";
 import { buildContinueSessionPrompt } from "../session-continue-prompt.ts";
@@ -1364,8 +1365,11 @@ function threadAttachmentsFrom(value: unknown): { path: string; name: string | n
     .slice(0, 10);
 }
 
-async function handleThreadRequest(req: Request, url: URL, path: string): Promise<Response | null> {
-  if (path === "/api/threads" && req.method === "GET") return json({ threads: listThreads() });
+export async function handleThreadRequest(req: Request, url: URL, path: string): Promise<Response | null> {
+  if (path === "/api/threads" && req.method === "GET") {
+    const viewer = threadParticipantId(threadViewer(req, url.searchParams.get("user")).identity);
+    return json({ threads: listThreads(viewer) });
+  }
   if (path === "/api/threads" && req.method === "POST") {
     const body = (await req.json().catch(() => null)) as { text?: unknown; title?: unknown; user?: unknown; attachments?: unknown } | null;
     const viewer = threadViewer(req, typeof body?.user === "string" ? body.user : url.searchParams.get("user"));
@@ -1386,10 +1390,19 @@ async function handleThreadRequest(req: Request, url: URL, path: string): Promis
   const one = path.match(/^\/api\/threads\/([0-9a-f-]{36})$/i);
   const messages = path.match(/^\/api\/threads\/([0-9a-f-]{36})\/messages$/i);
   const typing = path.match(/^\/api\/threads\/([0-9a-f-]{36})\/typing$/i);
-  const id = one?.[1] ?? messages?.[1] ?? typing?.[1];
+  const blocks = path.match(/^\/api\/threads\/([0-9a-f-]{36})\/blocks$/i);
+  const id = one?.[1] ?? messages?.[1] ?? typing?.[1] ?? blocks?.[1];
   if (!id) return null;
   const conversation = getConversation(id);
   if (!isThread(conversation)) return err(404, "thread not found");
+  if (blocks && req.method === "POST") {
+    const body = (await req.json().catch(() => null)) as { participantId?: unknown; blocked?: unknown } | null;
+    const me = threadParticipantId(threadViewer(req, url.searchParams.get("user")).identity);
+    const sender = body?.participantId;
+    if (typeof sender !== "string" || typeof body?.blocked !== "boolean" || sender === me ||
+        !conversation.participants.some((row) => row.kind === "human" && row.id === sender)) return err(400, "Invalid block participant");
+    return json({ blockedParticipants: setThreadParticipantBlocked(me, sender, body.blocked) });
+  }
   if (one && req.method === "GET") {
     const limit = Math.min(500, Math.max(1, Number(url.searchParams.get("limit")) || 200));
     const live = await listSessionsCached().catch(() => []);
@@ -1397,10 +1410,11 @@ async function handleThreadRequest(req: Request, url: URL, path: string): Promis
     return json({
       // Which author is the caller, so a client can put their own bubbles on the right.
       me: threadParticipantId(viewer.identity),
-      thread: summarizeThread(conversation),
+      thread: summarizeThread(conversation, threadParticipantId(viewer.identity)),
       participants: participantsForView(conversation, userRoster()),
       people: threadPeople(conversation, userRoster()),
-      messages: readThreadMessages(id, limit),
+      messages: readThreadMessages(id, limit, threadParticipantId(viewer.identity)),
+      blockedParticipants: blockedThreadParticipants(threadParticipantId(viewer.identity)),
       tasks: threadTasks(conversation, live),
       typing: threadTyping(id, threadParticipantId(viewer.identity)),
     });

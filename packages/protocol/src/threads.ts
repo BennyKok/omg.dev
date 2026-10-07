@@ -117,6 +117,8 @@ export type ThreadParticipant = {
 export type ThreadDetail = {
   /** The caller's participant id, so a client can put their own bubbles on the right. */
   me: string;
+  /** Receiver-owned blocks on this machine. Absent on older machines. */
+  blockedParticipants?: string[];
   thread: ThreadSummary;
   participants: ThreadParticipant[];
   messages: ThreadMessage[];
