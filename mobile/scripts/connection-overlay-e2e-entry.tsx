@@ -15,10 +15,12 @@ const STAGES: Stage[] = [
   { name: "Launch", launch: true },
   { name: "Live" },
   { name: "Pill", view: rule({ socket: "reconnecting", notLiveMs: 3_000 }) },
-  { name: "Offline", view: rule({ socket: "offline" }) },
+  { name: "Brief drop", view: rule({ socket: "offline", notLiveMs: 100 }) },
+  { name: "Offline", view: rule({ socket: "offline", notLiveMs: 20_000 }) },
   { name: "Paused", view: rule({ everReady: false, readiness: "connecting", socket: "connecting", cloudPaused: true, notLiveMs: 1_000 }) },
-  { name: "Error", view: rule({ readiness: "unavailable", notLiveMs: 20_000 }) },
-  { name: "Waking", view: rule({ readiness: "waking", notLiveMs: 9_000 }) },
+  { name: "Error", view: rule({ readiness: "unavailable", socket: "offline", notLiveMs: 20_000 }) },
+  { name: "Waking", view: rule({ readiness: "waking", socket: "reconnecting", notLiveMs: 9_000 }) },
+  { name: "Recovered", view: rule({ readiness: "unavailable", socket: "live", notLiveMs: 40_000 }) },
   { name: "Back", view: { mode: "pill", mood: "happy", title: "Connected", detail: null, canSwitch: false, canRetry: false, nextChangeMs: null } },
 ];
 const ROWS = ["Ads report status and conversions", "Identifying bot session activity", "Top up user credits system", "Why omgs.app blocked the preview", "Threads viral ideas", "Superschool onboarding"];
@@ -51,7 +53,7 @@ function App() {
           ))}
           <Text style={styles.sub}>{taps}</Text>
         </ScrollView>
-        {stage.view ? (
+        {stage.view && stage.view.mode !== "hidden" ? (
           <ConnectionSurface
             view={stage.view}
             onRetry={stage.view.mood === "happy" ? undefined : () => setTaps("Retry tapped")}

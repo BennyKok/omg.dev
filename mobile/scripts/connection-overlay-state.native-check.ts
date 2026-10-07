@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+  isLive,
   LONG_WAIT_MS,
   FAIL_AFTER_MS,
   PILL_AFTER_MS,
@@ -76,9 +77,9 @@ test("coming back from the background says Resuming at once", () => {
 });
 
 test("hard failures show the card at once with the right mood", () => {
-  expect(drop(0, { socket: "offline" })).toMatchObject({ mode: "overlay", mood: "sleeping", canRetry: true });
-  expect(drop(FAIL_AFTER_MS, { socket: "live", readiness: "unavailable" })).toMatchObject({ mode: "overlay", mood: "error", canRetry: true });
-  expect(drop(FAIL_AFTER_MS, { socket: "live", readiness: "error" })).toMatchObject({ mode: "overlay", canRetry: true });
+  expect(drop(FAIL_AFTER_MS, { socket: "offline" })).toMatchObject({ mode: "overlay", mood: "sleeping", canRetry: true });
+  expect(drop(FAIL_AFTER_MS, { socket: "reconnecting", readiness: "unavailable" })).toMatchObject({ mode: "overlay", mood: "error", canRetry: true });
+  expect(drop(FAIL_AFTER_MS, { socket: "reconnecting", readiness: "error" })).toMatchObject({ mode: "overlay", canRetry: true });
   // Retrying cannot bring back a withdrawn share.
   expect(drop(0, { socket: "live", readiness: "unauthorized" })).toMatchObject({
     mode: "overlay",
@@ -98,7 +99,7 @@ test("a paused cloud computer reads as waking, because the app wakes it", () => 
 });
 
 test("a waking computer boots Boxy", () => {
-  expect(drop(LONG_WAIT_MS, { socket: "live", readiness: "waking" })).toMatchObject({
+  expect(drop(LONG_WAIT_MS, { socket: "reconnecting", readiness: "waking" })).toMatchObject({
     mode: "pill",
     mood: "booting",
     title: "Waking your computer…",
@@ -111,11 +112,11 @@ test("screens that own machine UI keep the overlay away", () => {
 
 test("a failed check stays soft while the app retries it", () => {
   // One 502 or one network error: no failure card, no Try again yet.
-  expect(drop(0, { socket: "live", readiness: "unavailable" })).toMatchObject({ mode: "hidden" });
-  expect(drop(PILL_AFTER_MS, { socket: "live", readiness: "unavailable" })).toMatchObject({
+  expect(drop(0, { socket: "reconnecting", readiness: "unavailable" })).toMatchObject({ mode: "hidden" });
+  expect(drop(PILL_AFTER_MS, { socket: "reconnecting", readiness: "unavailable" })).toMatchObject({
     mode: "pill", title: "Reconnecting…", canRetry: false,
   });
-  const long = drop(LONG_WAIT_MS, { socket: "live", readiness: "error" });
+  const long = drop(LONG_WAIT_MS, { socket: "reconnecting", readiness: "error" });
   expect(long).toMatchObject({ mode: "pill", title: "Reconnecting…", canRetry: false, nextChangeMs: FAIL_AFTER_MS - LONG_WAIT_MS });
   // On the first connect it reads as connecting.
   expect(nativeOverlayView({ ...live, everReady: false, readiness: "unavailable", notLiveMs: STARTUP_SHOW_AFTER_MS })).toMatchObject({
@@ -125,11 +126,29 @@ test("a failed check stays soft while the app retries it", () => {
 
 test("waking or resuming only asks the user to wait", () => {
   // No switcher and no retry, however long the wake takes.
-  expect(drop(LONG_WAIT_MS * 3, { socket: "live", readiness: "waking" })).toMatchObject({
+  expect(drop(LONG_WAIT_MS * 3, { socket: "reconnecting", readiness: "waking" })).toMatchObject({
     mode: "pill", title: "Waking your computer…", canSwitch: false, canRetry: false,
   });
   expect(drop(LONG_WAIT_MS * 3, { cloudPaused: true })).toMatchObject({ canSwitch: false, canRetry: false });
   expect(drop(LONG_WAIT_MS, { resuming: true })).toMatchObject({ title: "Resuming…", canSwitch: false, canRetry: false });
   // A plain long reconnect still offers another computer.
   expect(drop(LONG_WAIT_MS)).toMatchObject({ canSwitch: true });
+});
+
+test("a brief offline event stays silent, then a pill, before any failure card", () => {
+  expect(drop(100, { socket: "offline" })).toMatchObject({ mode: "hidden" });
+  expect(drop(PILL_AFTER_MS, { socket: "offline" })).toMatchObject({ mode: "pill", canRetry: false });
+  expect(drop(FAIL_AFTER_MS - 1, { socket: "offline" })).toMatchObject({ mode: "pill", nextChangeMs: 1 });
+  expect(drop(FAIL_AFTER_MS, { socket: "offline" })).toMatchObject({ mode: "overlay", canRetry: true });
+});
+
+test("socket recovery overrides stale bootstrap failure but not revoked access", () => {
+  for (const readiness of ["unavailable", "error", "connecting", "waking"] as const) {
+    const input = { ...live, readiness, notLiveMs: FAIL_AFTER_MS * 2 };
+    expect(isLive(input)).toBe(true);
+    expect(nativeOverlayView(input).mode).toBe("hidden");
+  }
+  expect(nativeOverlayView({ ...live, readiness: "unauthorized" }).mode).toBe("overlay");
+  expect(isLive({ ...live, everReady: false, readiness: "unavailable" })).toBe(false);
+  expect(isLive({ ...live, everReady: false, hasSaved: true, readiness: "unavailable" })).toBe(true);
 });

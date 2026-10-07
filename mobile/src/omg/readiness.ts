@@ -13,7 +13,7 @@
  * against a cold cloud Computer.
  */
 
-import type { OmgTransport } from "@omg-dev/client";
+import type { OmgTransport, OmgClient } from "@omg-dev/client";
 
 import { readConnectionJson, timeConnection } from "./connection-trace";
 import { ComputerGrantError } from "./transport";
@@ -150,4 +150,17 @@ export function sharedReadiness(transport: OmgTransport): Promise<ComputerReadin
   });
   pendingReadiness.set(transport, request);
   return request;
+}
+
+/** Bootstrap stays owned by the provider; a recovered socket asks it to recheck. */
+export function subscribeReadinessRecovery(
+  live: Pick<OmgClient["live"], "subscribeConnection">,
+  probe: () => Promise<void>,
+): () => void {
+  let previous: string | null = null;
+  return live.subscribeConnection(({ status }) => {
+    const recovered = status === "live" && previous !== "live";
+    previous = status;
+    if (recovered) void probe();
+  });
 }

@@ -86,8 +86,11 @@ const HIDDEN: NativeOverlayView = {
   nextChangeMs: null,
 };
 
-/** Usable means: bootstrap answered and the live socket is not down. */
-export function isLive(input: Pick<NativeOverlayInput, "readiness" | "socket">): boolean {
+/** A recovered socket can use prior content while bootstrap is refreshed. */
+export function isLive(input: Pick<NativeOverlayInput, "readiness" | "socket" | "everReady" | "hasSaved">): boolean {
+  // A fresh socket is stronger evidence than an older failed HTTP probe.
+  // Keep explicit access revocation blocking, and require usable prior content.
+  if (input.readiness !== "unauthorized" && input.socket === "live" && (input.everReady || input.hasSaved)) return true;
   if (input.readiness !== "ready" && input.readiness !== "agent-limit") return false;
   return input.socket !== "reconnecting" && input.socket !== "offline";
 }
@@ -95,7 +98,7 @@ export function isLive(input: Pick<NativeOverlayInput, "readiness" | "socket">):
 export function nativeOverlayView(input: NativeOverlayInput): NativeOverlayView {
   const view = baseView(input);
   // A soft failure must be looked at again when it settles into a hard one.
-  const failing = input.readiness === "unavailable" || input.readiness === "error";
+  const failing = input.readiness === "unavailable" || input.readiness === "error" || input.socket === "offline";
   if (view.mode === "hidden" && view.nextChangeMs === null) return view;
   if (failing && input.notLiveMs < FAIL_AFTER_MS) {
     const settle = FAIL_AFTER_MS - input.notLiveMs;
@@ -151,7 +154,7 @@ function baseView(input: NativeOverlayInput): NativeOverlayView {
     mood = "booting";
     title = "Connecting…";
     detail = null;
-  } else if (input.socket === "offline") {
+  } else if (input.socket === "offline" && input.notLiveMs >= FAIL_AFTER_MS) {
     mood = "sleeping";
     title = "Connection unavailable";
     detail = "Check your connection, or choose another computer.";

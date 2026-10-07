@@ -43,6 +43,21 @@
       ]
     },
     {
+      "name": "Brief offline event",
+      "goal": "Tap Next stage once.",
+      "done": "The brief offline event shows no connection dialog.",
+      "expect": [
+        "Stage: Brief drop",
+        "Top up user credits system"
+      ],
+      "forbid": [
+        "Connection unavailable",
+        "Reconnecting\u2026",
+        "Try again"
+      ],
+      "timeoutMs": 60000
+    },
+    {
       "name": "Offline card",
       "goal": "Tap Next stage once.",
       "done": "A card says Connection unavailable with Try again and Choose another computer. Boxy is visible at the screen center after moving down from the pill.",
@@ -106,6 +121,22 @@
         "Try again",
         "Choose another computer"
       ]
+    },
+    {
+      "name": "Recovered socket",
+      "goal": "The Next stage tap already happened. Do not tap anything.",
+      "done": "The live socket clears the old error card.",
+      "expect": [
+        "Stage: Recovered",
+        "Top up user credits system"
+      ],
+      "forbid": [
+        "Your computer isn't responding",
+        "Try again",
+        "Choose another computer"
+      ],
+      "tapAt": "50%,91%",
+      "timeoutMs": 60000
     },
     {
       "name": "Connected",

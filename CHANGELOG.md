@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 7, 2026 - Connection dialogs clear on recovery (v0.6.203)
+
+- Brief network drops do not open a blocking connection dialog.
+- The app checks the connection again when the socket recovers. Old errors do not keep the dialog open.
+- The connection pill sits 12 pixels higher.
+
 ## October 7, 2026 - Reconnect without blocking your work (v0.6.202)
 
 - Reconnect, resume, and wake waits stay in a small pill. Saved sessions stay usable.

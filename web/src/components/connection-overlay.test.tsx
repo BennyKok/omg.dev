@@ -32,14 +32,14 @@ test("a live app shows no connection surface", () => {
   expect(overlay()).toBeNull();
 });
 
-test("offline dims the app with Boxy, Retry, and the computer switcher", () => {
+test("a failed computer dims the app with Boxy, Retry, and the computer switcher", () => {
   let retried = 0;
   ui = mount();
-  ui.render(view({ ...base, status: "offline", retry: () => { retried++; } }));
+  ui.render(view({ ...base, status: "reconnecting", lifecycle: "unavailable", retry: () => { retried++; } }));
   const el = overlay()!;
   expect(el.getAttribute("data-connection-overlay")).toBe("overlay");
-  expect(el.querySelector("[data-boxy-mood]")?.getAttribute("data-boxy-mood")).toBe("sleeping");
-  expect(el.textContent).toContain("Connection unavailable");
+  expect(el.querySelector("[data-boxy-mood]")?.getAttribute("data-boxy-mood")).toBe("error");
+  expect(el.textContent).toContain("Computer unavailable");
   expect(el.textContent).toContain("Switch computer");
   const retry = [...el.querySelectorAll("button")].find((b) => b.textContent === "Retry")!;
   ui.flush(() => retry.click());
@@ -48,7 +48,7 @@ test("offline dims the app with Boxy, Retry, and the computer switcher", () => {
 
 test("the recovery smiles in the same place, then fades out", async () => {
   ui = mount();
-  ui.render(view({ ...base, status: "offline" }));
+  ui.render(view({ ...base, status: "reconnecting", lifecycle: "unavailable" }));
   expect(overlay()?.getAttribute("data-connection-overlay")).toBe("overlay");
   ui.render(view(base));
   await ui.flushAsync();
@@ -62,7 +62,7 @@ test("the recovery smiles in the same place, then fades out", async () => {
 
 test("the card is not unmounted between the wait and Connected", async () => {
   ui = mount();
-  ui.render(view({ ...base, status: "offline" }));
+  ui.render(view({ ...base, status: "reconnecting", lifecycle: "unavailable" }));
   const waiting = overlay();
   ui.render(view(base));
   await ui.flushAsync();
@@ -82,7 +82,7 @@ test("the first bootstrap appears after a short wait", async () => {
 
 test("a flap right after recovery cannot leave Connected on screen", async () => {
   ui = mount();
-  ui.render(view({ ...base, status: "offline" }));
+  ui.render(view({ ...base, status: "reconnecting", lifecycle: "unavailable" }));
   ui.render(view(base));
   await ui.flushAsync();
   expect(overlay()?.textContent).toContain("Connected");
@@ -127,7 +127,7 @@ test("still connecting shows Boxy with no Retry and no switcher", async () => {
 
 test("one Boxy moves from the card to the pill and back", async () => {
   ui = mount();
-  ui.render(view({ ...base, status: "offline" }));
+  ui.render(view({ ...base, status: "reconnecting", lifecycle: "unavailable" }));
   const mascot = overlay()!.querySelector("[data-boxy-mood]");
   expect(mascot).not.toBeNull();
   ui.render(view({ ...base, status: "reconnecting", lifecycle: "waking" }));
@@ -136,11 +136,31 @@ test("one Boxy moves from the card to the pill and back", async () => {
   expect(overlay()?.querySelector("[data-boxy-mood]") === mascot).toBe(true);
   expect(mascot?.parentElement?.style.transform).toContain("scale(0.35)");
   expect(overlay()?.querySelectorAll("[data-boxy-mood]").length).toBe(1);
-  ui.render(view({ ...base, status: "offline" }));
+  ui.render(view({ ...base, status: "reconnecting", lifecycle: "unavailable" }));
   expect(overlay()?.getAttribute("data-connection-overlay")).toBe("overlay");
   expect(overlay()?.querySelector("[data-boxy-mood]") === mascot).toBe(true);
   expect(mascot?.parentElement?.style.transform).toContain("scale(1)");
   ui.render(view(base));
   expect(overlay()?.querySelector("[data-boxy-mood]") === mascot).toBe(true);
   expect(mascot?.getAttribute("data-boxy-mood")).toBe("happy");
+});
+
+test("an intermittent offline event does not flash a blocking dialog", async () => {
+  ui = mount();
+  ui.render(view(base));
+  ui.render(view({ ...base, status: "offline" }));
+  expect(overlay()).toBeNull();
+  ui.render(view(base));
+  await ui.flushAsync();
+  expect(overlay()).toBeNull();
+});
+
+test("a dialog closes after socket recovery even with an older error still stored", async () => {
+  ui = mount();
+  ui.render(view({ ...base, status: "reconnecting", lifecycle: "unavailable", error: "old 503" }));
+  expect(overlay()?.getAttribute("data-connection-overlay")).toBe("overlay");
+  ui.render(view({ ...base, error: "old 503" }));
+  expect(overlay()?.textContent).toContain("Connected");
+  await ui.flushAsync(() => sleep(1_400));
+  expect(overlay()).toBeNull();
 });

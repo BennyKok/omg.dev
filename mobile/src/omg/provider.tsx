@@ -34,7 +34,7 @@ import { unregisterForPushNotifications } from "./push";
 import { useUserActive } from "./idle";
 import { startCloudPresence } from "./presence";
 import { wakeAfterPresence } from "./cloud-startup";
-import { sharedReadiness, type ComputerReadiness } from "./readiness";
+import { subscribeReadinessRecovery, sharedReadiness, type ComputerReadiness } from "./readiness";
 import {
   isSharedBindingId,
   SHARED_REVOKED_DETAIL,
@@ -542,6 +542,13 @@ export function OmgProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     if (bindingId && authStatus === "signed-in") void probe();
   }, [bindingId, authStatus, probe]);
+
+  // Reconnects do not necessarily change AppState. Refresh the HTTP state
+  // on socket recovery too, so an old probe cannot leave the failure UI up.
+  useEffect(() => {
+    if (!client || authStatus !== "signed-in") return;
+    return subscribeReadinessRecovery(client.live, probe);
+  }, [client, authStatus, probe]);
 
   // A phone that has been in someone's pocket has a dead socket and stale
   // state; re-probe when it comes back rather than showing yesterday's list.

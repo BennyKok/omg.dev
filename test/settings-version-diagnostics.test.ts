@@ -113,6 +113,7 @@ describe("the Computer version comes only from the Computer", () => {
     const { shouldReloadRuntime } = await import("../web/src/lib/runtime-availability");
     expect(shouldReloadRuntime("boot-a", "boot-b")).toBe(true);
     expect(shouldReloadRuntime("boot-a", "boot-a")).toBe(false);
+    expect(shouldReloadRuntime("boot-a", "boot-a", true)).toBe(true);
     expect(shouldReloadRuntime("boot-a", null)).toBe(false);
     expect(shouldReloadRuntime(null, "boot-a")).toBe(true);
   });

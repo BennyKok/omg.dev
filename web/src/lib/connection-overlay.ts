@@ -67,7 +67,7 @@ const HIDDEN: ConnectionOverlayView = {
 };
 
 function hardLifecycle(input: ConnectionOverlayInput): boolean {
-  if (input.status === "offline") return true;
+  if (input.status === "offline" && input.notLiveMs >= FAIL_AFTER_MS) return true;
   return input.lifecycle === "failed" || input.lifecycle === "paused" || input.lifecycle === "unavailable";
 }
 
@@ -111,7 +111,7 @@ function detailFor(input: ConnectionOverlayInput, mood: BoxyMood): string | null
 export function connectionOverlayView(input: ConnectionOverlayInput): ConnectionOverlayView {
   const view = baseView(input);
   // A soft error must be looked at again when it settles into a hard one.
-  if (softError(input) && !(view.mode === "hidden" && view.nextChangeMs === null)) {
+  if ((softError(input) || input.status === "offline" && input.notLiveMs < FAIL_AFTER_MS) && !(view.mode === "hidden" && view.nextChangeMs === null)) {
     const settle = FAIL_AFTER_MS - input.notLiveMs;
     return { ...view, nextChangeMs: Math.min(view.nextChangeMs ?? settle, settle) };
   }
@@ -122,7 +122,7 @@ function baseView(input: ConnectionOverlayInput): ConnectionOverlayView {
   const label = runtimeStatusText(input);
   if (!label) return HIDDEN;
 
-  const soft = softError(input);
+  const soft = softError(input) || input.status === "offline" && input.notLiveMs < FAIL_AFTER_MS;
   // Still retrying: read as connecting, not as a failure.
   const mood = soft ? (input.ready ? "searching" : "booting") : moodFor(input);
   const title = soft

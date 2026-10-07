@@ -95,6 +95,8 @@ export function ConnectionOverlay() {
   const hasSaved = Array.isArray(cachedRoster) && cachedRoster.length > 0;
 
   const input = {
+    everReady,
+    hasSaved,
     readiness: readiness?.status ?? null,
     socket,
     cloudPaused: bindingId === CLOUD_BINDING_ID && cloud?.status === "paused",
@@ -228,9 +230,9 @@ export function ConnectionSurface({
     <Reanimated.View ref={layer} collapsable={false} pointerEvents="box-none" onLayout={place} style={[StyleSheet.absoluteFill, fade]}>
       <View
         testID={pill ? "connection-pill" : "connection-overlay"}
-        pointerEvents={pill ? "box-none" : "auto"}
+        pointerEvents={view.mood === "happy" ? "none" : pill ? "box-none" : "auto"}
         style={pill
-          ? [styles.pillLayer, { top: insets.top + 56 }]
+          ? [styles.pillLayer, { top: insets.top + 44 }]
           : [StyleSheet.absoluteFill, styles.scrim,
             { paddingTop: Math.max(insets.top, height / 2 - BOXY_CENTER_FROM_CARD_TOP),
               backgroundColor: isDark ? "rgba(20,20,20,0.3)" : "rgba(242,242,247,0.3)" }]}

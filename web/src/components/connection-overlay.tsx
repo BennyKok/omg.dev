@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { useRuntimeAvailability } from "../lib/runtime-availability";
+import { useRuntimeAvailability, runtimeIsLive } from "../lib/runtime-availability";
 import {
   connectionOverlayView,
   PILL_AFTER_MS,
@@ -70,7 +70,7 @@ function useResuming(): boolean {
 export function ConnectionOverlay({ machineSwitcher }: { machineSwitcher?: ReactNode }) {
   const availability = useRuntimeAvailability();
   const resuming = useResuming();
-  const notLive = !(availability.ready && availability.status === "live" && !availability.error);
+  const notLive = !runtimeIsLive(availability);
 
   const [notLiveSince, setNotLiveSince] = useState<number | null>(() => (notLive ? Date.now() : null));
   useEffect(() => {
@@ -180,9 +180,9 @@ function ConnectionSurface({
       data-connection-overlay={view.mode}
       className={pill
         ? "lfg-connection-in pointer-events-none fixed inset-x-0 z-[96] flex justify-center px-4"
-        : "lfg-connection-in fixed inset-0 z-[96] flex items-start justify-center bg-background/30 px-6"}
+        : `lfg-connection-in fixed inset-0 z-[96] flex items-start justify-center bg-background/30 px-6${view.mood === "happy" ? " pointer-events-none" : ""}`}
       style={pill
-        ? { top: "calc(var(--lfg-visual-offset-top, 0px) + env(safe-area-inset-top, 0px) + 60px)" }
+        ? { top: "calc(var(--lfg-visual-offset-top, 0px) + env(safe-area-inset-top, 0px) + 48px)" }
         : { paddingTop: "max(env(safe-area-inset-top, 0px), calc(50dvh - 56px))" }}
     >
       <div
