@@ -80,3 +80,10 @@ export function updateThread(
 
 /** Starter prompts on an empty thread. Each one only fills the composer. */
 export const THREAD_STARTERS = ["Brainstorm", "Plan the week", "@omg what changed?"] as const;
+
+
+export function blockThreadParticipant(client: OmgClient, threadId: string, participantId: string, blocked: boolean) {
+  return client.transport.request<{ blockedParticipants: string[] }>(`/api/threads/${encodeURIComponent(threadId)}/blocks`, {
+    method: "POST", headers: json, body: JSON.stringify({ participantId, blocked }),
+  });
+}

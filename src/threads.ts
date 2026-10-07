@@ -52,6 +52,8 @@ import {
   type ThreadTaskRow,
 } from "../packages/protocol/src/threads.ts";
 
+import { blockedThreadParticipants, isThreadParticipantBlocked } from "./thread-blocks.ts";
+
 export { mentionsOmg };
 export type { ThreadAuthor, ThreadMessage, ThreadSummary, ThreadTaskEvent, ThreadTaskRow };
 
@@ -71,7 +73,7 @@ function messagesPath(threadId: string): string {
   return join(threadsDir(), `${threadId}.jsonl`);
 }
 
-export function readThreadMessages(threadId: string, limit = 200): ThreadMessage[] {
+export function readThreadMessages(threadId: string, limit = 200, viewer?: string): ThreadMessage[] {
   let raw = "";
   try {
     raw = readFileSync(messagesPath(threadId), "utf8");
@@ -87,7 +89,9 @@ export function readThreadMessages(threadId: string, limit = 200): ThreadMessage
       // A torn last line from a crash is skipped, not fatal.
     }
   }
-  return rows.slice(-limit);
+  const blocked = new Set(viewer ? blockedThreadParticipants(viewer) : []);
+  const hidden = new Set(rows.filter((row) => row.author.kind === "human" && blocked.has(row.author.participantId)).map((row) => row.id));
+  return rows.filter((row) => !hidden.has(row.id) && (!row.replyTo || !hidden.has(row.replyTo))).slice(-limit);
 }
 
 export function appendThreadMessage(
@@ -222,7 +226,7 @@ export function threadTyping(threadId: string, exceptParticipant?: string | null
       rows.delete(key);
       continue;
     }
-    if (row.author.kind === "human" && row.author.participantId === exceptParticipant) continue;
+    if (row.author.kind === "human" && (row.author.participantId === exceptParticipant || (exceptParticipant && isThreadParticipantBlocked(exceptParticipant, row.author.participantId)))) continue;
     out.push({ author: row.author, replyTo: row.replyTo });
   }
   if (!rows.size) typingByThread.delete(threadId);
@@ -322,14 +326,19 @@ function notifyThreadMessage(message: ThreadMessage): void {
     // One notice per reply thread, replaced as it grows, like a session's.
     tag: `thread-${message.threadId}-${root ?? "main"}`,
   };
-  const targets = new Set<string | null>();
+  const targets = new Map<string | null, typeof notification>();
   for (const id of recipients) {
+    if (message.author.kind === "human" && isThreadParticipantBlocked(id, message.author.participantId)) continue;
+    const rootMessage = message.replyTo ? messages.find((row) => row.id === message.replyTo) : null;
+    if (rootMessage?.author.kind === "human" && isThreadParticipantBlocked(id, rootMessage.author.participantId)) continue;
     const identity = people[id];
     // An address targets that person's devices. The one local person of a box
     // with no identities has no address, so every device is theirs.
-    targets.add(identity?.includes("@") ? identity : null);
+    targets.set(identity?.includes("@") ? identity : null, {
+      ...notification, title: threadTitle(conversation, readThreadMessages(message.threadId, 500, id)[0]),
+    });
   }
-  for (const user of targets) notifier({ user, notification });
+  for (const [user, filtered] of targets) notifier({ user, notification: filtered });
 }
 
 function threadTitle(conversation: Conversation, first: ThreadMessage | undefined): string {
@@ -344,8 +353,8 @@ export function isThread(conversation: Conversation | null | undefined): convers
   return conversation?.kind === "thread";
 }
 
-export function summarizeThread(conversation: Conversation): ThreadSummary {
-  const messages = readThreadMessages(conversation.id);
+export function summarizeThread(conversation: Conversation, viewer?: string): ThreadSummary {
+  const messages = readThreadMessages(conversation.id, 200, viewer);
   const last = messages.at(-1);
   return {
     id: conversation.id,
@@ -357,10 +366,10 @@ export function summarizeThread(conversation: Conversation): ThreadSummary {
   };
 }
 
-export function listThreads(): ThreadSummary[] {
+export function listThreads(viewer?: string): ThreadSummary[] {
   return listConversations()
     .filter((row) => isThread(row) && !row.archivedAt)
-    .map(summarizeThread)
+    .map((row) => summarizeThread(row, viewer))
     .sort((a, b) => b.updatedAt - a.updatedAt);
 }
 

@@ -16,6 +16,7 @@ import {
   keepSessionFile,
   setThreadNotifier,
   threadPeople,
+  threadParticipantId,
   keepThreadUpload,
   resolveThreadRef,
   listThreads,
@@ -33,6 +34,8 @@ import {
   threadUpdate,
   type ThreadDeps,
 } from "./threads.ts";
+
+import { blockedThreadParticipants, setThreadParticipantBlocked } from "./thread-blocks.ts";
 
 const originalData = PATHS.data;
 let root: string;
@@ -762,5 +765,63 @@ describe("omg wears the mark of the agent whose words it carries", () => {
   test("omg's note and the agent's answer are two groups, each with its own mark", () => {
     expect(startsMessageGroup(started, result)).toBe(true);
     expect(startsMessageGroup(result, { ...result, id: "f2", ts: 5 })).toBe(false);
+  });
+});
+
+
+describe("receiver-owned thread blocks", () => {
+  test("blocking persists, hides content and previews, and suppresses typing and push only for that receiver", () => {
+    const thread = startThread({ identity: "receiver@example.com" });
+    const receiver = threadAuthor(thread.id, "receiver@example.com");
+    const sender = threadAuthor(thread.id, "sender@example.com");
+    const other = threadAuthor(thread.id, "other@example.com");
+    const me = threadParticipantId("receiver@example.com");
+    const them = threadParticipantId("sender@example.com");
+    appendThreadMessage(thread.id, { author: receiver, text: "Visible" });
+    setThreadParticipantBlocked(me, them, true);
+    expect(blockedThreadParticipants(me)).toEqual([them]);
+    const pushes: (string | null)[] = [];
+    setThreadNotifier(({ user }) => pushes.push(user));
+    try {
+      const hidden = appendThreadMessage(thread.id, { author: sender, text: "Hidden" });
+      expect(pushes).toEqual(["other@example.com"]);
+      pushes.length = 0;
+      appendThreadMessage(thread.id, { author: { kind: "omg" }, text: "Answer to hidden", replyTo: hidden.id });
+      expect(pushes).not.toContain("receiver@example.com");
+      expect(readThreadMessages(thread.id, 200, me).map((row) => row.text)).toEqual(["Visible"]);
+      expect(listThreads(me)[0].lastMessage?.text).toBe("Visible");
+      expect(readThreadMessages(thread.id)).toHaveLength(3); // Model context retains the source record.
+      setTyping(thread.id, sender, true);
+      setTyping(thread.id, other, true);
+      expect(threadTyping(thread.id, me).map((row) => row.author)).toEqual([other]);
+      setThreadParticipantBlocked(me, them, false);
+      expect(readThreadMessages(thread.id, 200, me)).toHaveLength(3);
+      expect(blockedThreadParticipants(me)).toEqual([]);
+      pushes.length = 0;
+      appendThreadMessage(thread.id, { author: sender, text: "Visible again" });
+      expect(pushes).toContain("receiver@example.com");
+    } finally { setThreadNotifier(null); }
+  });
+
+  test("a notification for another author does not quote a blocked sender in its title", () => {
+    const thread = startThread({ identity: "sender@example.com" });
+    const sender = threadAuthor(thread.id, "sender@example.com");
+    appendThreadMessage(thread.id, { author: sender, text: "Blocked title" });
+    threadAuthor(thread.id, "receiver@example.com");
+    const other = threadAuthor(thread.id, "other@example.com");
+    setThreadParticipantBlocked(threadParticipantId("receiver@example.com"), threadParticipantId("sender@example.com"), true);
+    const pushes: import("./threads.ts").ThreadPush[] = [];
+    setThreadNotifier((push) => pushes.push(push));
+    try {
+      appendThreadMessage(thread.id, { author: other, text: "Safe title" });
+      expect(pushes.find((row) => row.user === "receiver@example.com")?.notification.title).toBe("Safe title");
+    } finally { setThreadNotifier(null); }
+  });
+
+  test("a receiver cannot block themselves or use a path as an identity", () => {
+    const me = threadParticipantId("receiver@example.com");
+    expect(() => setThreadParticipantBlocked(me, me, true)).toThrow();
+    expect(() => setThreadParticipantBlocked(me, "../other", true)).toThrow();
+    expect(blockedThreadParticipants(me)).toEqual([]);
   });
 });

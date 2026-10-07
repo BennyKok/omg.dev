@@ -1,3 +1,4 @@
+import { ContentReport, type ReportSelection } from "../../src/omg/content-report";
 import { createdSessionPrompt } from "../../src/omg/pending-session";
 import { parseOmgPromptEnvelope } from "../../src/omg/omg-prompt-envelope";
 import { archiveSession } from "../../src/omg/archiving";
@@ -307,6 +308,7 @@ function SessionScreenContent({
     dictation.live && dictation.state === "recording" ? (dictation.partial ?? "").trim() : "";
 
   const [error, setError] = useState<string | null>(null);
+  const [report, setReport] = useState<ReportSelection | null>(null);
   const { messages, setMessages, loading, loadingMore, reachedStart, loadMore } =
     useTranscriptPage(client, bindingId, id, setError, initialPrompt ?? createdSessionPrompt(`${user?.id}:${bindingId}`, id));
   const [historyExpanded, setHistoryExpanded] = useState(false);
@@ -481,6 +483,8 @@ function SessionScreenContent({
     () => [...messages].reverse().find((message) => message.role === "assistant"),
     [messages],
   );
+  const reportContentRef = useRef("");
+  reportContentRef.current = latestAssistant?.text ?? "";
   useFocusEffect(
     useCallback(() => {
       if (!client || !id || !user?.email || loading || error || !atBottom || !latestAssistant) return;
@@ -1625,6 +1629,7 @@ function SessionScreenContent({
         icon: "pencil",
         onPress: () => router.push(`/bots/${encodeURIComponent(bot.id)}/edit`),
       });
+      if (Platform.OS === "android" && id) options.push({ label: "Report content", icon: "flag", onPress: () => setReport({ source: "session", sourceId: id, content: reportContentRef.current }) });
       options.push({ label: "Copy reference", icon: "link", onPress: copyReference });
       return options;
     }
@@ -1632,6 +1637,7 @@ function SessionScreenContent({
     if (busy) {
       options.push({ label: "Stop the agent", icon: "stop.fill", onPress: () => void stop() });
     }
+    if (Platform.OS === "android" && id) options.push({ label: "Report content", icon: "flag", onPress: () => setReport({ source: "session", sourceId: id, content: reportContentRef.current }) });
     options.push({ label: "Rename", icon: "pencil", onPress: rename });
     if (!aiTitlesOff) {
       options.push({ label: "Rename with AI", icon: "sparkles", onPress: renameWithAi });
@@ -1913,6 +1919,7 @@ function SessionScreenContent({
 
   return (
     <ImageGalleryProvider images={galleryImages} onReveal={revealGalleryImage}>
+    {report ? <ContentReport selection={report} onClose={() => setReport(null)} /> : null}
     <Reanimated.View style={{ flex: 1 }}>
       <Reanimated.FlatList
         ref={listRef}
