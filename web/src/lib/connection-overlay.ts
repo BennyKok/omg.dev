@@ -7,9 +7,11 @@ import type { RuntimeLifecycle } from "./runtime-lifecycle";
  * app cannot talk to its computer (first connect, reconnect, resume after the
  * app was in the background, offline, and a computer the server stopped).
  *
- * The app stays mounted and visible behind it. Short blips stay silent, a
- * longer one gets a small pill, and a long or hard failure dims the app and
- * offers Retry and the computer switcher.
+ * The app stays mounted and visible behind it. Short blips stay silent. A
+ * longer reconnect, resume, or wake is a small pill for as long as it lasts,
+ * because the app behind it stays usable (Benny, 2026-10-07). Only a hard
+ * failure, or a first load with nothing to show, dims the app and offers
+ * Retry and the computer switcher.
  */
 export type ConnectionOverlayMode = "hidden" | "pill" | "overlay";
 export type BoxyMood = "booting" | "searching" | "sleeping" | "error" | "happy";
@@ -44,15 +46,15 @@ export type ConnectionOverlayView = {
 
 /** A blip shorter than this is not worth any UI. */
 export const PILL_AFTER_MS = 2_000;
-/** A reconnect longer than this dims the app. */
-export const OVERLAY_AFTER_MS = 8_000;
+/** A wait longer than this offers another computer (never while waking). */
+export const LONG_WAIT_MS = 8_000;
 /**
  * A failed bootstrap stays soft this long. The app retries it by itself, and
  * one network error or one 502 mid-resume is usually gone within seconds.
  */
 export const FAIL_AFTER_MS = 20_000;
 /** The first bootstrap gets the overlay quickly: there is nothing to use yet. */
-export const STARTUP_OVERLAY_AFTER_MS = 600;
+export const STARTUP_SHOW_AFTER_MS = 600;
 
 const HIDDEN: ConnectionOverlayView = {
   mode: "hidden",
@@ -129,7 +131,7 @@ function baseView(input: ConnectionOverlayInput): ConnectionOverlayView {
   const detail = soft ? null : detailFor(input, mood);
   const hard = hardFailure(input);
   const canRetry = hard;
-  const longWait = input.notLiveMs >= OVERLAY_AFTER_MS;
+  const longWait = input.notLiveMs >= LONG_WAIT_MS;
   // Waking or resuming: the only thing to do is wait (Benny, 2026-10-07).
   const waiting = input.resuming || input.lifecycle === "starting" || input.lifecycle === "waking";
   const canSwitch = hard || (longWait && !waiting);
@@ -138,25 +140,17 @@ function baseView(input: ConnectionOverlayInput): ConnectionOverlayView {
     return { mode: "overlay", mood, title, detail, canRetry, canSwitch, nextChangeMs: null };
   }
   if (input.loading) {
-    const wait = STARTUP_OVERLAY_AFTER_MS - input.notLiveMs;
+    const wait = STARTUP_SHOW_AFTER_MS - input.notLiveMs;
     if (wait > 0) return { ...HIDDEN, nextChangeMs: wait };
     // Recheck at the long-wait mark, when the switcher appears.
-    return { mode: "overlay", mood, title, detail, canRetry, canSwitch, nextChangeMs: longWait ? null : OVERLAY_AFTER_MS - input.notLiveMs };
+    return { mode: "overlay", mood, title, detail, canRetry, canSwitch, nextChangeMs: longWait ? null : LONG_WAIT_MS - input.notLiveMs };
   }
   const pillAt = input.resuming ? 0 : PILL_AFTER_MS;
   if (input.notLiveMs < pillAt) {
     return { ...HIDDEN, nextChangeMs: pillAt - input.notLiveMs };
   }
-  if (input.notLiveMs < OVERLAY_AFTER_MS) {
-    return {
-      mode: "pill",
-      mood,
-      title,
-      detail,
-      canRetry,
-      canSwitch,
-      nextChangeMs: OVERLAY_AFTER_MS - input.notLiveMs,
-    };
-  }
-  return { mode: "overlay", mood, title, detail, canRetry, canSwitch, nextChangeMs: null };
+  // The pill stays however long the wait. Recheck at the long-wait mark only
+  // because the switcher can appear there.
+  const nextChangeMs = longWait ? null : LONG_WAIT_MS - input.notLiveMs;
+  return { mode: "pill", mood, title, detail, canRetry, canSwitch, nextChangeMs };
 }

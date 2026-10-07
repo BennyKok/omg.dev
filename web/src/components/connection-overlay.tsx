@@ -58,11 +58,13 @@ function useResuming(): boolean {
  * that App owns and never keeps its own copy of the connection.
  *
  * - A short blip shows nothing.
- * - A longer reconnect shows a pill at the top. The app stays usable.
- * - A long or hard failure dims the app and shows Boxy, Retry, and the
- *   computer switcher. The app stays visible behind it, so the screen is
+ * - A longer reconnect, resume, or wake shows a pill at the top for as long
+ *   as it lasts. The app stays usable.
+ * - A hard failure, or a first load with nothing to show, dims the app and
+ *   shows Boxy, Retry, and the computer switcher. The app stays visible behind it, so the screen is
  *   never blank, and the user can always move to another computer.
- * - When the connection returns, Boxy smiles for a moment and fades out.
+ * - When the connection returns, Boxy smiles for a moment in the same place
+ *   and fades out. The surface is never unmounted in between.
  */
 export function ConnectionOverlay({ machineSwitcher }: { machineSwitcher?: ReactNode }) {
   const availability = useRuntimeAvailability();
@@ -108,6 +110,12 @@ export function ConnectionOverlay({ machineSwitcher }: { machineSwitcher?: React
     return () => clearTimeout(timer);
   }, [back]);
 
+  // Recovery answers in the same render that hides the wait. Waiting for the
+  // effect above left one frame with nothing mounted, so "Connected" faded in
+  // as a new surface: the card vanished and came back.
+  const recovered = view.mode === "hidden" && !notLive && lastShown.current !== "hidden" ? lastShown.current : "hidden";
+  const closing = back !== "hidden" ? back : recovered;
+
   if (typeof document === "undefined") return null;
   if (view.mode !== "hidden") {
     return createPortal(
@@ -115,10 +123,10 @@ export function ConnectionOverlay({ machineSwitcher }: { machineSwitcher?: React
       document.body,
     );
   }
-  if (back !== "hidden") {
+  if (closing !== "hidden") {
     return createPortal(
       <ConnectionSurface
-        view={{ mode: back, mood: "happy", title: "Connected", detail: null, canRetry: false, canSwitch: false, nextChangeMs: null }}
+        view={{ mode: closing, mood: "happy", title: "Connected", detail: null, canRetry: false, canSwitch: false, nextChangeMs: null }}
         onRetry={availability.retry}
       />,
       document.body,
@@ -167,7 +175,11 @@ function ConnectionSurface({
       aria-modal="false"
       aria-label={view.title}
       data-connection-overlay="overlay"
-      className="lfg-connection-in fixed inset-0 z-[96] flex items-center justify-center bg-background/30 px-6"
+      className="lfg-connection-in fixed inset-0 z-[96] flex items-start justify-center bg-background/30 px-6"
+      // Boxy's centre sits on the screen's centre (card pt-4 plus half of
+      // Boxy's 80 px) and the text grows downward. A centred card moved Boxy
+      // whenever the title, detail, or buttons changed its height.
+      style={{ paddingTop: "max(env(safe-area-inset-top, 0px), calc(50dvh - 56px))" }}
     >
       <div className="flex w-full max-w-[17rem] flex-col items-center gap-2 rounded-3xl border border-border bg-background px-5 pb-5 pt-4 text-center shadow-2xl" role="status" aria-live="polite">
         <Boxy mood={view.mood} size={80} className="text-foreground" />
