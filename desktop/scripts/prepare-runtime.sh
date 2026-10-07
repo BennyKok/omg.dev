@@ -71,6 +71,21 @@ test -s "$RUNTIME_DIR/tsconfig.json"
 test -s "$RUNTIME_DIR/web/dist/index.html"
 test -d "$RUNTIME_DIR/node_modules"
 
+# Notarization inspects the archive contents. Electrobun signs only the app
+# shell, so sign every Mach-O file in the runtime (native addons, dylibs, agent
+# CLIs) with the same Developer ID, hardened runtime and a secure timestamp.
+if [ "$TARGET_OS" = "darwin" ] && [ -n "${ELECTROBUN_DEVELOPER_ID:-}" ]; then
+  signed=0
+  while IFS= read -r -d '' candidate; do
+    if file -b "$candidate" | grep -q 'Mach-O'; then
+      codesign --force --timestamp --options runtime \
+        --sign "$ELECTROBUN_DEVELOPER_ID" "$candidate"
+      signed=$((signed + 1))
+    fi
+  done < <(find "$RUNTIME_DIR" -type f \( -perm -u+x -o -name '*.node' -o -name '*.dylib' -o -name '*.so' \) -print0)
+  echo "Signed $signed Mach-O files in the embedded runtime."
+fi
+
 tar -C "$RUNTIME_DIR" -czf "$RUNTIME_ARCHIVE" .
 if command -v sha256sum >/dev/null 2>&1; then
   sha256sum "$RUNTIME_ARCHIVE" | awk '{print $1}' > "$RUNTIME_ARCHIVE.sha256"
