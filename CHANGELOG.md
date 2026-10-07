@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 7, 2026 - Build tools finish for the omg agent (v0.6.199)
+
+- The omg agent now waits for Android build and deploy tools to answer. Before, it stopped waiting after 15 seconds and told you the build "timed out", while the build finished normally.
+
 ## October 7, 2026 - New sessions start with a signed-in agent (v0.6.198)
 
 - A new session that names no agent now starts with an agent that is signed in. Before, a Computer that had just woken up could start it with Claude without a login, and the session stopped with "Not logged in".
