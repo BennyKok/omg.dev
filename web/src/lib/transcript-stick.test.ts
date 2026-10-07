@@ -14,6 +14,28 @@ describe("transitions", () => {
     expect(nextScrollMode("pinned", at({ userDriven: true }))).toBe("free");
   });
 
+  // Workshop report: the view kept snapping back to the bottom while the
+  // agent streamed. A trackpad scrolls a few pixels per event and each update
+  // snapped a pinned view back, so the 72px slack was never reached.
+  test("a small upward gesture off the bottom frees a pinned view", () => {
+    expect(
+      nextScrollMode("pinned", at({ scrollTop: 3594, previousScrollTop: 3600, userDriven: true })),
+    ).toBe("free");
+  });
+
+  test("a clamp at the bottom mid-gesture does not unpin", () => {
+    // Content shrank by 50px while the reader sat at the bottom.
+    expect(
+      nextScrollMode("pinned", at({ scrollTop: 3550, scrollHeight: 3950, previousScrollTop: 3600, userDriven: true })),
+    ).toBe("pinned");
+  });
+
+  test("a small downward gesture near the bottom stays pinned", () => {
+    expect(
+      nextScrollMode("pinned", at({ scrollTop: 3560, previousScrollTop: 3550, userDriven: true })),
+    ).toBe("pinned");
+  });
+
   test("the reader's own scroll reaching the bottom re-pins", () => {
     expect(
       nextScrollMode("free", at({ scrollTop: 3600, previousScrollTop: 3000, userDriven: true })),
