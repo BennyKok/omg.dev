@@ -97,6 +97,11 @@ function StreamingCaret({ active }: { active: boolean }) {
 
   const pulse = useAnimatedStyle(() => ({ opacity: opacity.value }));
 
+  // Android flattens nested text spans and can keep painting this glyph
+  // after its animated opacity and color become transparent. Remove the
+  // finished caret there instead of retaining an invisible layout slot.
+  if (Platform.OS === "android" && !active) return null;
+
   return (
     <AnimatedText
       aria-hidden
