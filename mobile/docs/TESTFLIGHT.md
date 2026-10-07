@@ -5,6 +5,31 @@ read off the EAS docs.
 
 ## Current state
 
+### Boxy connection transition OTA — 2026-10-07
+
+Production updates now serve the connection card/pill changes on iOS and Android:
+
+| Runtime | Update group | Source commit | Workflow |
+| --- | --- | --- | --- |
+| 1.0.14 | `cd17a836-1f5b-41ff-8203-ab82e6be7597` | `b3d775b223584b67026002c5f6c7e107f774e375` | [37631220002](https://github.com/BennyKok/omg.dev/actions/runs/37631220002) |
+| 1.0.15 | `ebe5337b-7956-4fbc-9aae-6ca59d6dc07d` | `32dbd1496c6918e957bb2d535d46b4e355cd339b` | [37631720114](https://github.com/BennyKok/omg.dev/actions/runs/37631720114) |
+| 1.0.16 | `d122d7ef-0e60-44e6-87ca-e14ddd180e9b` | `32dbd1496c6918e957bb2d535d46b4e355cd339b` | [37632293040](https://github.com/BennyKok/omg.dev/actions/runs/37632293040) |
+
+`eas update:view --json` confirms both platforms, runtime, source commit and
+production branch for each group. The production update endpoint serves the
+same six update IDs. Physical-phone activation remains unverified.
+
+No native dependency was added or bumped since the previous 1.0.14 OTA or
+the 1.0.15 build. The package overrides changed only JS dependencies. The
+Android audio patch changes service cleanup and notification text. This UI
+update does not require that patch. No store build or review was replaced.
+
+Verification: 17 focused web tests, all type checks and 63 native check files
+pass. One native check remains quarantined. The iPhone 17 Pro fixture plan
+passes 9/9. A browser check confirms the same Boxy node survives card, pill and
+Connected. Full suite: 4701 pass, one skip, 11 failures outside this change.
+Android rendering and physical-phone activation remain unverified.
+
 ### Compact system-message OTA — 2026-09-13
 
 Production group `61552f09-8310-49f2-91bd-c074cb7e81ce` carries
