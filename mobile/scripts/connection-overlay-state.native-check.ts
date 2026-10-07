@@ -2,11 +2,13 @@ import { expect, test } from "bun:test";
 import {
   OVERLAY_AFTER_MS,
   PILL_AFTER_MS,
+  STARTUP_OVERLAY_AFTER_MS,
   nativeOverlayView,
   type NativeOverlayInput,
 } from "../src/omg/connection-overlay-state";
 
 const live: NativeOverlayInput = {
+  selected: true,
   everReady: true,
   readiness: "ready",
   socket: "live",
@@ -23,9 +25,21 @@ test("a live computer shows nothing", () => {
   expect(nativeOverlayView({ ...live, readiness: "agent-limit" }).mode).toBe("hidden");
 });
 
-test("the first connect belongs to the launch screen and the list", () => {
-  expect(drop(OVERLAY_AFTER_MS, { everReady: false }).mode).toBe("hidden");
-  expect(nativeOverlayView({ ...live, everReady: false, readiness: "unavailable" }).mode).toBe("hidden");
+test("the first connect shows Connecting after a short wait, as on the web", () => {
+  const first = (notLiveMs: number, extra: Partial<NativeOverlayInput> = {}) =>
+    nativeOverlayView({ ...live, everReady: false, readiness: "connecting", socket: "connecting", notLiveMs, ...extra });
+  expect(first(100)).toMatchObject({ mode: "hidden", nextChangeMs: STARTUP_OVERLAY_AFTER_MS - 100 });
+  expect(first(STARTUP_OVERLAY_AFTER_MS)).toMatchObject({ mode: "overlay", mood: "booting", title: "Connecting…" });
+  expect(first(0, { readiness: null, socket: null }).nextChangeMs).toBe(STARTUP_OVERLAY_AFTER_MS);
+  expect(first(STARTUP_OVERLAY_AFTER_MS, { readiness: "waking" })).toMatchObject({
+    mode: "overlay",
+    title: "Waking your computer…",
+  });
+  expect(first(0, { readiness: "unavailable" })).toMatchObject({ mode: "overlay", mood: "error" });
+});
+
+test("nothing to connect to shows nothing", () => {
+  expect(drop(OVERLAY_AFTER_MS, { selected: false, everReady: false }).mode).toBe("hidden");
 });
 
 test("a reconnect grows from silent to pill to card", () => {

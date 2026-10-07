@@ -19,7 +19,7 @@ import {
 import { activeMachine } from "./lib/machines";
 import { useHeaderProfile } from "./lib/header-profile";
 import { RuntimeAvailabilityContext, useRuntimeAvailability, shouldReloadRuntime } from "./lib/runtime-availability";
-import { RuntimeRecovery, RuntimeEmptyState, RuntimeStatusBrand, RuntimeStatusDot } from "./components/runtime-recovery";
+import { RuntimeRecovery, RuntimeEmptyState } from "./components/runtime-recovery";
 import { AutoAgentPage, AutoAgentPageInStage } from "./components/auto-agent-page";
 import { Component, createContext, type ComponentProps, forwardRef, memo, Suspense, useCallback, useContext, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
@@ -13843,7 +13843,6 @@ function RailStage({
             >
               <PanelLeftOpen className="size-4" />
             </button>
-            <RuntimeStatusDot />
             <button
               type="button"
               onClick={startNew}
@@ -13881,11 +13880,9 @@ function RailStage({
                 ) : null}
               </button>
             ) : null}
-            {railHeadline ?? (
-              <RuntimeStatusBrand>
-                <ProductBrand hosted={hosted} />
-              </RuntimeStatusBrand>
-            )}
+            {/* The brand stays put. Connection state is the
+                ConnectionOverlay's alone (Benny, 2026-10-07). */}
+            {railHeadline ?? <ProductBrand hosted={hosted} />}
             <div className="ml-auto flex items-center gap-1">
               {onOpenAsk ? (
                 <>

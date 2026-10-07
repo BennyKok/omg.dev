@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { AppState } from "react-native";
 import { useFocusEffect } from "expo-router";
-import type { OmgConnectionStatus, OmgLiveConnection } from "@omg-dev/client";
+import type { OmgLiveConnection } from "@omg-dev/client";
 import { observeSessionStatus, type SessionStatusState } from "./session-status";
 import { recordConnectionTiming } from "./connection-trace";
 
@@ -13,7 +13,6 @@ export function useSessionStatus(options: {
   cloud: boolean;
   denied: boolean;
   load: (quiet?: boolean) => Promise<void>;
-  connectionChanged: (status: OmgConnectionStatus) => void;
 }) {
   const latest = useRef(options);
   latest.current = options;
@@ -30,7 +29,6 @@ export function useSessionStatus(options: {
         live,
         apply: rows => { recordConnectionTiming("live.status"); return state.apply(rows); },
         refresh: quiet => { if (latest.current.ready) void latest.current.load(quiet); },
-        connectionChanged: value => latest.current.connectionChanged(value),
       });
       stop = () => { unsubscribe(); stop = undefined; };
     };

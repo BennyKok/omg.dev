@@ -77,13 +77,14 @@ export function ConnectionOverlay() {
     return client.live.subscribeConnection((state) => setSocket(state.status));
   }, [client]);
 
-  // The first connect is LaunchGate's and the list's. Speak only after the
-  // selected computer has been ready once in this run.
+  // Before the selected computer is ready once in this run, this is the first
+  // connect, and the card says "Connecting…" sooner than a reconnect would.
   const [readyBinding, setReadyBinding] = useState<string | null>(null);
   useEffect(() => {
     if (readiness?.status === "ready" && bindingId) setReadyBinding(bindingId);
   }, [readiness?.status, bindingId]);
-  const everReady = authStatus === "signed-in" && !!bindingId && readyBinding === bindingId;
+  const selected = authStatus === "signed-in" && !!bindingId;
+  const everReady = selected && readyBinding === bindingId;
 
   const input = {
     readiness: readiness?.status ?? null,
@@ -98,6 +99,7 @@ export function ConnectionOverlay() {
 
   const view = nativeOverlayView({
     ...input,
+    selected,
     everReady,
     notLiveMs: notLiveSince === null ? 0 : Date.now() - notLiveSince,
     resuming,

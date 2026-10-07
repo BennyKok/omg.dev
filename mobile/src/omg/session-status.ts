@@ -105,7 +105,7 @@ export function observeSessionStatus(options: {
   live: Pick<import("@omg-dev/client").OmgLiveConnection, "state" | "subscribeStatus" | "subscribeConnection">;
   apply: (rows: OmgStatusRow[]) => StatusApplyResult;
   refresh: (quiet: boolean) => void;
-  connectionChanged: (status: import("@omg-dev/client").OmgConnectionStatus) => void;
+  connectionChanged?: (status: import("@omg-dev/client").OmgConnectionStatus) => void;
   /**
    * How long to hold a finished turn before refetching the list. One window
    * per burst, not one request per frame: a tree of subagents reporting in
@@ -123,7 +123,7 @@ export function observeSessionStatus(options: {
   options.refresh(false);
   const offConnection = options.live.subscribeConnection((state) => {
     if (stopped) return;
-    options.connectionChanged(state.status);
+    options.connectionChanged?.(state.status);
     if (state.status === "live" && connection !== "live") options.refresh(true);
     if (state.status !== "live") receivedStatus = false;
     connection = state.status;

@@ -28,53 +28,20 @@ test("keeps the welcome readable without an identity and opens notifications", (
 
 const { RuntimeAvailabilityContext } = await import("../lib/runtime-availability");
 
-test("connection status replaces the greeting and tapping retries until recovery", () => {
-  let retries = 0;
+test("connection state never replaces the greeting; the overlay owns it", () => {
   let notifications = 0;
-  const props = { brand: <span>omg</span>, viewerName: "Benny", busyCount: 2, onOpenNotifications: () => notifications++ };
-  const render = (status: "connecting" | "reconnecting" | "live", ready: boolean, error: string | null = null) => {
-    ui.render(<RuntimeAvailabilityContext.Provider value={{ status, ready, error, loading: status === "connecting", retry: () => retries++ }}><AskProvider><LiveHeaderContext {...props} intro={status === "connecting"} /></AskProvider></RuntimeAvailabilityContext.Provider>);
-  };
-  render("connecting", false);
-  const button = ui.query("button") as HTMLElement;
-  expect(button.getAttribute("aria-label")).toBe("Connecting…");
-  ui.flush(() => button.click());
-  expect(retries).toBe(0);
-  render("reconnecting", true);
-  expect(ui.query("button")).toBe(button);
-  expect(button.getAttribute("aria-label")).toBe("Reconnecting… Tap to retry");
-  expect(ui.text()).not.toContain("Welcome");
-  ui.flush(() => button.click());
-  expect(retries).toBe(1);
-  expect(notifications).toBe(0);
-  render("live", false, "cloud_runtime_unavailable");
-  expect(button.getAttribute("aria-label")).toBe("Connection unavailable Tap to retry");
-  expect(ui.text()).not.toContain("cloud_runtime_unavailable");
-  render("live", true);
-  expect(button.getAttribute("aria-label")).toContain("Welcome, Benny");
-  ui.flush(() => button.click());
-  expect(notifications).toBe(1);
-});
-
-test("the greeting uses confirmed cloud lifecycle states during connection", () => {
-  const props = { brand: <span>omg</span>, viewerName: "Benny", busyCount: 0, onOpenNotifications: () => {} };
-  for (const [lifecycle, message] of [["starting", "Starting your computer…"], ["waking", "Waking your computer…"], ["failed", "Could not start your computer"], ["paused", "Computer paused"]] as const) {
-    ui.render(<RuntimeAvailabilityContext.Provider value={{ lifecycle, status: "connecting", ready: false, loading: true, error: null, retry: () => {} }}><AskProvider><LiveHeaderContext {...props} intro /></AskProvider></RuntimeAvailabilityContext.Provider>);
-    expect(ui.query("button")?.getAttribute("aria-label")).toBe(message);
-    expect(ui.text()).not.toContain("Welcome");
+  const props = { brand: <span>omg</span>, viewerName: "Benny", busyCount: 0, onOpenNotifications: () => notifications++ };
+  const states = [
+    { status: "reconnecting", ready: true, error: null, loading: false },
+    { status: "offline", ready: true, error: null, loading: false },
+    { status: "live", ready: false, error: "cloud_runtime_unavailable", loading: false },
+    { status: "connecting", ready: false, error: null, loading: true, lifecycle: "waking" },
+  ] as const;
+  for (const state of states) {
+    ui.render(<RuntimeAvailabilityContext.Provider value={{ ...state, retry: () => {} }}><AskProvider><LiveHeaderContext {...props} intro={false} /></AskProvider></RuntimeAvailabilityContext.Provider>);
+    expect(ui.text()).toContain("Welcome, Benny");
+    expect(ui.text()).not.toMatch(/Reconnecting|Connecting|unavailable|Waking/);
   }
-});
-
-test("a ready cloud keeps connecting until the client recovers", () => {
-  const props = { brand: <span>omg</span>, viewerName: "Benny", busyCount: 0, onOpenNotifications: () => {} };
-  const render = (ready: boolean, error: string | null) => ui.render(
-    <RuntimeAvailabilityContext.Provider value={{ lifecycle: "ready", status: "live", ready, loading: false, error, retry: () => {} }}>
-      <AskProvider><LiveHeaderContext {...props} intro={false} /></AskProvider>
-    </RuntimeAvailabilityContext.Provider>,
-  );
-  render(false, "cloud_runtime_unavailable");
-  expect(ui.text()).toContain("Connecting…");
-  expect(ui.text()).not.toContain("Connection unavailable");
-  render(true, null);
-  expect(ui.text()).toContain("Welcome, Benny");
+  ui.flush(() => (ui.query("button") as HTMLElement).click());
+  expect(notifications).toBe(1);
 });

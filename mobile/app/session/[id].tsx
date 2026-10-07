@@ -92,7 +92,6 @@ import Reanimated, {
   Easing,
 } from "react-native-reanimated";
 import { Text, TextInput } from "../../src/omg/text";
-import type { OmgConnectionStatus } from "@omg-dev/client";
 import { AgentSetupSheet } from "../../src/omg/agent-setup-sheet";
 import { SEND_DURATION, SendOriginContext } from "../../src/omg/send-motion";
 import { remainingReplySpace, sendTargetOffset, type SendOrigin } from "../../src/omg/send-motion-layout";
@@ -427,18 +426,8 @@ function SessionScreenContent({
     },
     [client, id, refreshHeld],
   );
-  /**
-   * Live-socket health, for the title capsule. The transcript socket owns its
-   * own reconnect; this is only so the header can SAY "Reconnecting…" while
-   * it does, the way the web's status text does, instead of a chat that
-   * silently stops moving.
-   */
-  const [connection, setConnection] = useState<OmgConnectionStatus>("live");
-  useEffect(() => {
-    if (!client) return;
-    return client.live.subscribeConnection((state) => setConnection(state.status));
-  }, [client]);
-  const dropped = connection === "reconnecting" || connection === "offline";
+  // The header no longer says "Reconnecting…": the ConnectionOverlay owns
+  // that for the whole app (Benny, 2026-10-07).
   /**
    * Whether the transcript socket has said anything about busy yet. Until
    * it has, the session list's `busy` is the only word on the matter, and
@@ -1738,15 +1727,15 @@ function SessionScreenContent({
             activity={headerActivity}
             style={{ ...type.subhead, fontWeight: "600", color: colors.text }}
           />
-          {dropped || headerModel ? (
+          {headerModel ? (
             <Text numberOfLines={1} style={{ ...type.caption, color: colors.textSecondary }}>
-              {dropped ? "Reconnecting…" : headerModel}
+              {headerModel}
             </Text>
           ) : null}
         </View>
       </View>
     ),
-    [agentLabel, bot, colors, dropped, headerActivity, headerModel, space.sm, title, type],
+    [agentLabel, bot, colors, headerActivity, headerModel, space.sm, title, type],
   );
 
   /**

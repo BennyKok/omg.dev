@@ -66,7 +66,6 @@ import { CreateSheet } from "./create-sheet";
 import { Text } from "./text";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { OmgSession } from "@omg-dev/protocol";
-import type { OmgConnectionStatus } from "@omg-dev/client";
 
 import {
   EmptyState,
@@ -294,27 +293,19 @@ const MIN_COMPOSER_HEIGHT = 76;
 function LiveWelcome({
   firstName,
   busyCount,
-  connection,
-  showingSaved,
   onPress,
 }: {
   firstName: string;
   busyCount: number;
-  /** Live-socket health. A drop takes over the greeting, as the web's status text does. */
-  connection?: OmgConnectionStatus;
-  /**
-   * The list on screen is the saved one and the machine has not answered yet.
-   * The greeting says so, because that is the one place home has to say it.
-   * The list itself must NOT: it is the same component with the same rows and
-   * the same folder rail it keeps once the answer lands, and a banner under it
-   * announced a difference a person cannot see.
+  /*
+   * No connection state here. The greeting used to turn into "Reconnecting…"
+   * on a drop or while the saved list was up; the ConnectionOverlay now owns
+   * saying that, once, for the whole app (Benny, 2026-10-07).
    */
-  showingSaved?: boolean;
   /** The greeting is the door to the Notification Center, as on the web. */
   onPress?: () => void;
 }) {
   const { colors, type } = useTheme();
-  const dropped = showingSaved || connection === "reconnecting" || connection === "offline";
   const [showActivity, setShowActivity] = useState(false);
 
   useEffect(() => {
@@ -337,7 +328,7 @@ function LiveWelcome({
         numberOfLines={1}
         style={{ ...type.headline, color: colors.text, maxWidth: 210 }}
       >
-        {dropped ? "Reconnecting…" : busyCount > 0 && showActivity ? activity : welcome}
+        {busyCount > 0 && showActivity ? activity : welcome}
       </Text>
     </Pressable>
   );
@@ -608,13 +599,6 @@ export function SessionsScreen({
   const mountedAtRef = useRef(Date.now());
   const COLD_LOAD_WINDOW_MS = 3500;
   const animateEntry = Date.now() - mountedAtRef.current >= COLD_LOAD_WINDOW_MS;
-  /**
-   * Live-socket health. The SDK's statuses are connecting | live | reconnecting
-   * | offline. The focused fleet subscription opens the shared socket.
-   * Only a genuine drop is worth saying out loud.
-   */
-  const [connection, setConnection] =
-    useState<OmgConnectionStatus>("connecting");
   const { text: draft, set: setDraft, stage: stageDraft, finish: finishDraft } = usePromptDraft(
     stashScope(user?.email, bindingId), {
       context: "new-session",
@@ -873,7 +857,6 @@ export function SessionsScreen({
     cloud: bindingId === CLOUD_BINDING_ID,
     denied: readiness?.status === "unauthorized",
     load,
-    connectionChanged: setConnection,
   });
 
   const currentSharedComputer = useMemo(
@@ -1678,8 +1661,6 @@ export function SessionsScreen({
             <SideNavButton floating onPress={() => setNavOpen((open) => !open)}
               machineName={machineName} />
             <LiveWelcome firstName={firstName} busyCount={flattenNodes(working).length}
-              connection={connection}
-              showingSaved={showingSaved}
               onPress={() => (navOpen ? setNavOpen(false) : router.push("/notifications"))} />
           </View>
           <GlassSurface fallbackColor={colors.card} variant="regular"
@@ -1763,8 +1744,6 @@ export function SessionsScreen({
                   <LiveWelcome
                     firstName={firstName}
                     busyCount={flattenNodes(working).length}
-                    connection={connection}
-                    showingSaved={showingSaved}
                     onPress={() => navigateWorkspace("/notifications")}
                   />
                 </View>

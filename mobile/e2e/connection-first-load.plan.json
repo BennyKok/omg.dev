@@ -1,0 +1,47 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": false
+  },
+  "steps": [
+    {
+      "name": "Connecting card on first load",
+      "goal": "If a system alert such as Apple Account Verification is showing, tap Not Now. Tap Agree and continue if visible. Otherwise wait and do not tap anything.",
+      "done": "The app is visible behind a connection card with Boxy that reads Connecting\u2026, and no title in the top bar says Reconnecting",
+      "expect": [
+        "Connecting\u2026"
+      ],
+      "timeoutMs": 60000,
+      "forbid": [
+        "Reconnecting\u2026"
+      ]
+    },
+    {
+      "name": "Connected when the first connect lands",
+      "goal": "Wait. Do not tap anything. The computer answers after about ninety seconds.",
+      "done": "The connection card reads Connected",
+      "expect": [
+        "Connected"
+      ],
+      "forbid": [
+        "Connecting\u2026"
+      ],
+      "timeoutMs": 150000
+    },
+    {
+      "name": "Card closes by itself",
+      "goal": "If a sheet titled Your data and AI providers is showing, tap Agree and continue. Otherwise wait and do not tap anything.",
+      "done": "No connection card is on screen. Home shows its greeting and folder pills; the greeting does not say Reconnecting. Session rows may still be loading placeholders.",
+      "expect": [
+        "Welcome",
+        "api-gateway"
+      ],
+      "forbid": [
+        "Connecting\u2026",
+        "Connected",
+        "Reconnecting\u2026"
+      ],
+      "timeoutMs": 30000
+    }
+  ]
+}

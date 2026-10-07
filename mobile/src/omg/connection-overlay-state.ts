@@ -5,9 +5,11 @@ import type { BoxyMood } from "./boxy";
  * overlay (web/src/lib/connection-overlay.ts), fed from the native owners:
  * `readiness` from OmgProvider and the live socket's status from the client.
  *
- * It only speaks once the computer has been ready in this run. The first
- * connect belongs to LaunchGate and the session list, which already say what
- * is happening in their own place.
+ * One rule for every state, the first connect included, as on the web. A
+ * cold start with saved sessions lifts the launch screen at once, so without
+ * this the app connected with no sign at all. The first connect gets the card
+ * quickly ("Connecting…"), because there is nothing live to use yet; a later
+ * drop grows from silent to pill to card.
  */
 export type ConnectionOverlayMode = "hidden" | "pill" | "overlay";
 
@@ -22,6 +24,8 @@ export type ReadinessKind =
 export type SocketStatus = "connecting" | "live" | "reconnecting" | "offline";
 
 export type NativeOverlayInput = {
+  /** Signed in with a computer selected: there is something to connect to. */
+  selected: boolean;
   /** The selected computer reached `ready` at least once in this run. */
   everReady: boolean;
   readiness: ReadinessKind | null;
@@ -48,6 +52,8 @@ export type NativeOverlayView = {
 
 export const PILL_AFTER_MS = 2_000;
 export const OVERLAY_AFTER_MS = 8_000;
+/** The first connect gets the card quickly: there is nothing to use yet. */
+export const STARTUP_OVERLAY_AFTER_MS = 600;
 
 const HIDDEN: NativeOverlayView = {
   mode: "hidden",
@@ -66,7 +72,8 @@ export function isLive(input: Pick<NativeOverlayInput, "readiness" | "socket" | 
 }
 
 export function nativeOverlayView(input: NativeOverlayInput): NativeOverlayView {
-  if (!input.everReady || input.suppressed || isLive(input)) return HIDDEN;
+  if (!input.selected || input.suppressed || isLive(input)) return HIDDEN;
+  const startup = !input.everReady;
 
   let mood: BoxyMood = "searching";
   let title = input.resuming ? "Resuming…" : "Reconnecting…";
@@ -97,6 +104,10 @@ export function nativeOverlayView(input: NativeOverlayInput): NativeOverlayView 
     mood = "booting";
     title = "Waking your computer…";
     detail = "This can take a moment.";
+  } else if (startup) {
+    mood = "booting";
+    title = "Connecting…";
+    detail = null;
   } else if (input.socket === "offline") {
     mood = "sleeping";
     title = "Connection unavailable";
@@ -106,6 +117,12 @@ export function nativeOverlayView(input: NativeOverlayInput): NativeOverlayView 
 
   const base = { mood, title, detail, canSwitch: true };
   if (hard) return { mode: "overlay", ...base, nextChangeMs: null };
+
+  if (startup) {
+    const wait = STARTUP_OVERLAY_AFTER_MS - input.notLiveMs;
+    if (wait > 0) return { ...HIDDEN, nextChangeMs: wait };
+    return { mode: "overlay", ...base, nextChangeMs: null };
+  }
 
   const pillAt = input.resuming ? 0 : PILL_AFTER_MS;
   if (input.notLiveMs < pillAt) return { ...HIDDEN, nextChangeMs: pillAt - input.notLiveMs };

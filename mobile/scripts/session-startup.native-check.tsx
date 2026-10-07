@@ -17,7 +17,7 @@ function setup() {
   const state = new SessionStatusState(() => {});
   const load = async () => { loads++; };
   function Screen({ ready, cloud = false, denied = false }: { ready: boolean; cloud?: boolean; denied?: boolean }) {
-    useSessionStatus({ live, state, ready, cloud, denied, load, connectionChanged: () => {} });
+    useSessionStatus({ live, state, ready, cloud, denied, load });
     return <div>Home</div>;
   }
   return { Screen, counts: () => ({ opens, closes, loads }) };
