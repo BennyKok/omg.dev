@@ -32,7 +32,7 @@ export function runtimeStatusText(state: {
   error: string | null;
   lifecycle?: RuntimeLifecycle | null;
 }): string | null {
-  if (state.ready && state.status === "live" && !state.error) return null;
+  if (runtimeIsLive(state)) return null;
   // The cloud proxy knows why the runtime is not answering yet, so its
   // lifecycle wins over the generic transport words when it has one.
   const lifecycle = runtimeLifecycleMessage(state.lifecycle);
@@ -49,7 +49,12 @@ export function runtimeErrorMessage(error: string): string {
 }
 
 /** The first successful connection must retry a failed bootstrap. Later
- * reconnects reload only when the runtime process changed. */
-export function shouldReloadRuntime(previousBootId: string | null, currentBootId: string | null): boolean {
-  return !previousBootId || (!!currentBootId && previousBootId !== currentBootId);
+ * reconnects reload when the runtime process changed or bootstrap failed. */
+export function shouldReloadRuntime(previousBootId: string | null, currentBootId: string | null, bootstrapFailed = false): boolean {
+  return bootstrapFailed || !previousBootId || (!!currentBootId && previousBootId !== currentBootId);
+}
+
+/** A connected runtime with usable bootstrap data has recovered, even if an older probe failed. */
+export function runtimeIsLive(state: Pick<RuntimeAvailability, "ready" | "status">): boolean {
+  return state.ready && state.status === "live";
 }

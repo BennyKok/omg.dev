@@ -7700,8 +7700,8 @@ export function App() {
   //
   // bootId is the existing owner of "this is a different process", so a
   // reconnect asks the cheap /api/install?ready=1 for it and re-bootstraps only
-  // when it actually changed. An ordinary network blip costs one tiny request
-  // and re-fetches nothing.
+  // when it changed or the previous bootstrap failed. An ordinary network blip
+  // costs one tiny request and re-fetches nothing.
   const liveStatus = wsLiveStream.connection?.status ?? null;
   const wasLiveRef = useRef(false);
   useEffect(() => {
@@ -7715,14 +7715,14 @@ export function App() {
         if (cancelled) return;
         const seen = computerVersionReportRef.current?.bootId ?? null;
         const now = typeof payload.bootId === "string" ? payload.bootId : null;
-        if (!shouldReloadRuntime(seen, now)) return;
+        if (!shouldReloadRuntime(seen, now, !!error)) return;
         void loadCore().catch(() => {});
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [useWsLive, liveStatus, loadCore]);
+  }, [useWsLive, liveStatus, loadCore, error]);
 
   const runtimeReady = computerVersionReport !== null && computerVersionReport.generation === omgTransportGeneration();
   const runtimeLifecycle = useRuntimeLifecycle(

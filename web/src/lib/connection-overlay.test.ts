@@ -43,8 +43,8 @@ test("coming back from the background says Resuming and shows at once", () => {
   expect(reconnecting(0, { resuming: true })).toMatchObject({ mode: "pill", title: "Resuming…" });
 });
 
-test("offline and a server-stopped computer dim the app at once", () => {
-  expect(reconnecting(0, { status: "offline" })).toMatchObject({ mode: "overlay", mood: "sleeping", canRetry: true, canSwitch: true });
+test("offline waits before a card; a server-stopped computer shows it at once", () => {
+  expect(reconnecting(FAIL_AFTER_MS, { status: "offline" })).toMatchObject({ mode: "overlay", mood: "sleeping", canRetry: true, canSwitch: true });
   expect(reconnecting(0, { lifecycle: "paused" })).toMatchObject({
     mode: "overlay",
     mood: "sleeping",
@@ -85,7 +85,7 @@ test("the first bootstrap waits briefly, then covers the empty shell without Ret
 });
 
 test("a failed bootstrap stays soft while the app retries it", () => {
-  const failed = { ...live, ready: true, error: "Failed to fetch" };
+  const failed = { ...live, status: "reconnecting" as const, ready: true, error: "Failed to fetch" };
   expect(connectionOverlayView({ ...failed, notLiveMs: 0 }).mode).toBe("hidden");
   expect(connectionOverlayView({ ...failed, notLiveMs: PILL_AFTER_MS })).toMatchObject({
     mode: "pill", title: "Reconnecting…", canRetry: false,
@@ -96,8 +96,8 @@ test("a failed bootstrap stays soft while the app retries it", () => {
   expect(connectionOverlayView({ ...failed, notLiveMs: FAIL_AFTER_MS })).toMatchObject({
     mode: "overlay", mood: "error", canRetry: true,
   });
-  // Offline is still a real failure at once.
-  expect(connectionOverlayView({ ...failed, status: "offline", notLiveMs: 0 })).toMatchObject({ mode: "overlay", canRetry: true });
+  // Offline also gets the same grace period.
+  expect(connectionOverlayView({ ...failed, status: "offline", notLiveMs: FAIL_AFTER_MS })).toMatchObject({ mode: "overlay", canRetry: true });
 });
 
 test("waking or resuming only asks the user to wait", () => {
@@ -105,4 +105,14 @@ test("waking or resuming only asks the user to wait", () => {
     expect(reconnecting(LONG_WAIT_MS * 3, extra)).toMatchObject({ mode: "pill", canSwitch: false, canRetry: false });
   }
   expect(reconnecting(LONG_WAIT_MS)).toMatchObject({ canSwitch: true });
+});
+
+test("brief offline drops do not open a dialog", () => {
+  expect(reconnecting(100, { status: "offline" })).toMatchObject({ mode: "hidden" });
+  expect(reconnecting(PILL_AFTER_MS, { status: "offline" })).toMatchObject({ mode: "pill", canRetry: false });
+  expect(reconnecting(FAIL_AFTER_MS - 1, { status: "offline" })).toMatchObject({ mode: "pill", nextChangeMs: 1 });
+});
+
+test("a recovered socket clears an older bootstrap error", () => {
+  expect(connectionOverlayView({ ...live, error: "old 503", notLiveMs: FAIL_AFTER_MS * 2 }).mode).toBe("hidden");
 });
