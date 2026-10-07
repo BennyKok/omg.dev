@@ -34,9 +34,13 @@ export default {
         : {}),
     },
     mac: {
-      codesign: false,
+      // CI sets these from repository secrets (see desktop-package.yml).
+      // Local builds without them stay unsigned.
+      codesign: Boolean(process.env.ELECTROBUN_DEVELOPER_ID),
       createDmg: true,
-      notarize: false,
+      notarize: Boolean(
+        process.env.ELECTROBUN_DEVELOPER_ID && process.env.ELECTROBUN_APPLEAPIKEYPATH,
+      ),
       bundleCEF: false,
       defaultRenderer: "native",
     },

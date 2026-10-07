@@ -11,6 +11,11 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish to the desktop-preview release that installed apps update from"
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -74,8 +79,47 @@ jobs:
         if: matrix.target == 'macos-arm64'
         run: bun run --cwd desktop desktop:icon
 
+      - name: Import macOS signing certificate
+        if: matrix.target == 'macos-arm64'
+        shell: bash
+        env:
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+          ELECTROBUN_APPLEAPIKEY: ${{ secrets.ELECTROBUN_APPLEAPIKEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$MACOS_CERT_P12_BASE64" ]; then
+            echo '::warning::No signing certificate secret. The macOS app stays unsigned.'
+            exit 0
+          fi
+
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password="$(openssl rand -base64 24)"
+          echo "$MACOS_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/devid.p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$RUNNER_TEMP/devid.p12" -k "$keychain" \
+            -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productsign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$keychain_password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          rm -f "$RUNNER_TEMP/devid.p12"
+          security find-identity -v -p codesigning "$keychain"
+
+          key_path="$RUNNER_TEMP/AuthKey_${ELECTROBUN_APPLEAPIKEY}.p8"
+          echo "$APPLE_API_KEY_P8_BASE64" | base64 --decode > "$key_path"
+          echo "ELECTROBUN_APPLEAPIKEYPATH=$key_path" >> "$GITHUB_ENV"
+          echo "SIGNING_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+
       - name: Build self-contained native package
         shell: bash
+        env:
+          ELECTROBUN_DEVELOPER_ID: ${{ matrix.target == 'macos-arm64' && secrets.ELECTROBUN_DEVELOPER_ID || '' }}
+          ELECTROBUN_TEAMID: ${{ secrets.ELECTROBUN_TEAMID }}
+          ELECTROBUN_APPLEAPIKEY: ${{ secrets.ELECTROBUN_APPLEAPIKEY }}
+          ELECTROBUN_APPLEAPIISSUER: ${{ secrets.ELECTROBUN_APPLEAPIISSUER }}
         run: |
           set -euo pipefail
 
@@ -89,6 +133,24 @@ jobs:
 
           echo '::warning::The macOS disk image build failed once. Retrying a known transient hdiutil failure.'
           bun run desktop:build
+
+      - name: Verify macOS signature and notarization
+        if: matrix.target == 'macos-arm64' && env.SIGNING_KEYCHAIN != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="$(find desktop/build -maxdepth 5 -name '*.app' -type d | head -1)"
+          echo "Checking $app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          spctl --assess --type execute --verbose=4 "$app"
+          dmg="$(ls desktop/artifacts/*.dmg | head -1)"
+          xcrun stapler validate "$dmg" || echo '::warning::The DMG has no stapled ticket.'
+
+      - name: Remove signing keychain
+        if: always() && matrix.target == 'macos-arm64' && env.SIGNING_KEYCHAIN != ''
+        run: |
+          security delete-keychain "$SIGNING_KEYCHAIN" || true
+          rm -f "$ELECTROBUN_APPLEAPIKEYPATH"
 
       - name: Verify package artifacts
         shell: bash
@@ -148,6 +210,7 @@ jobs:
   publish-preview:
     name: Publish desktop preview
     needs: package
+    if: github.event_name == 'push' || inputs.publish
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -189,7 +252,7 @@ jobs:
             echo 'Native omg.dev desktop preview packages.'
             echo
             echo '- macOS supports Apple Silicon.'
-            echo '- The macOS app is not signed or notarized yet.'
+            echo '- The macOS app is signed with Developer ID and notarized by Apple.'
             echo '- Linux packages are available for x64 and ARM64.'
             echo '- Every package includes the omg.dev UI and local runtime.'
             echo
