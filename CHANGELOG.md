@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 7, 2026 - Connection state in one place (v0.6.191)
+
+- Only the connection card shows connection state now. The greeting, the side rail brand, and the collapsed rail no longer change to "Reconnecting…".
+- The native app shows the same connection card as the web, also on first load: "Connecting…", then "Connected", and then it closes.
+
 ## October 6, 2026 - Connected shows, then closes (v0.6.190)
 
 - On first load, the connection card now shows "Connected" for a moment and then always closes.
