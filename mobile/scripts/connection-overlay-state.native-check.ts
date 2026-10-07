@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   OVERLAY_AFTER_MS,
+  FAIL_AFTER_MS,
   PILL_AFTER_MS,
   STARTUP_OVERLAY_AFTER_MS,
   nativeOverlayView,
@@ -41,7 +42,7 @@ test("the first connect shows Connecting after a short wait, as on the web", () 
     mode: "overlay",
     title: "Waking your computer…",
   });
-  expect(first(0, { readiness: "unavailable" })).toMatchObject({ mode: "overlay", mood: "error" });
+  expect(first(FAIL_AFTER_MS, { readiness: "unavailable" })).toMatchObject({ mode: "overlay", mood: "error" });
 });
 
 test("nothing to connect to shows nothing", () => {
@@ -60,8 +61,8 @@ test("coming back from the background says Resuming at once", () => {
 
 test("hard failures show the card at once with the right mood", () => {
   expect(drop(0, { socket: "offline" })).toMatchObject({ mode: "overlay", mood: "sleeping", canRetry: true });
-  expect(drop(0, { socket: "live", readiness: "unavailable" })).toMatchObject({ mode: "overlay", mood: "error", canRetry: true });
-  expect(drop(0, { socket: "live", readiness: "error" })).toMatchObject({ mode: "overlay", canRetry: true });
+  expect(drop(FAIL_AFTER_MS, { socket: "live", readiness: "unavailable" })).toMatchObject({ mode: "overlay", mood: "error", canRetry: true });
+  expect(drop(FAIL_AFTER_MS, { socket: "live", readiness: "error" })).toMatchObject({ mode: "overlay", canRetry: true });
   // Retrying cannot bring back a withdrawn share.
   expect(drop(0, { socket: "live", readiness: "unauthorized" })).toMatchObject({
     mode: "overlay",
@@ -90,4 +91,18 @@ test("a waking computer boots Boxy", () => {
 
 test("screens that own machine UI keep the overlay away", () => {
   expect(drop(0, { socket: "offline", suppressed: true }).mode).toBe("hidden");
+});
+
+test("a failed check stays soft while the app retries it", () => {
+  // One 502 or one network error: no failure card, no Try again yet.
+  expect(drop(0, { socket: "live", readiness: "unavailable" })).toMatchObject({ mode: "hidden" });
+  expect(drop(PILL_AFTER_MS, { socket: "live", readiness: "unavailable" })).toMatchObject({
+    mode: "pill", title: "Reconnecting…", canRetry: false,
+  });
+  const long = drop(OVERLAY_AFTER_MS, { socket: "live", readiness: "error" });
+  expect(long).toMatchObject({ mode: "overlay", title: "Reconnecting…", canRetry: false, nextChangeMs: FAIL_AFTER_MS - OVERLAY_AFTER_MS });
+  // On the first connect it reads as connecting.
+  expect(nativeOverlayView({ ...live, everReady: false, readiness: "unavailable", notLiveMs: STARTUP_OVERLAY_AFTER_MS })).toMatchObject({
+    mode: "overlay", title: "Connecting…", canRetry: false,
+  });
 });

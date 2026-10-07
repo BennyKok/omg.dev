@@ -558,6 +558,29 @@ export function OmgProvider({ children }: PropsWithChildren) {
     return () => sub.remove();
   }, [authStatus, refreshMachines, probe]);
 
+  /**
+   * A failed readiness check is retried by itself. One network error or one
+   * 502 while a computer resumes used to set "unavailable" and leave it there
+   * until a tap on Try again or a trip to the background, so a computer that
+   * was seconds from answering read as broken. Backoff 2 s, 4 s, 8 s, then
+   * every 15 s while the app is in front. The ConnectionOverlay keeps such a
+   * failure soft for its first 20 s for the same reason.
+   */
+  const failedProbes = useRef(0);
+  useEffect(() => {
+    const failed = readiness?.status === "unavailable" || readiness?.status === "error";
+    if (!failed) {
+      failedProbes.current = 0;
+      return;
+    }
+    if (authStatus !== "signed-in" || !foregrounded) return;
+    const delay = Math.min(15_000, 2_000 * 2 ** failedProbes.current);
+    const timer = setTimeout(() => {
+      failedProbes.current += 1;
+      void probe();
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [readiness, authStatus, foregrounded, probe]);
 
   const signOut = useCallback(async () => {
     // Release the presence lease before the token goes away; a release sent

@@ -61,6 +61,11 @@ export type NativeOverlayView = {
 
 export const PILL_AFTER_MS = 2_000;
 export const OVERLAY_AFTER_MS = 8_000;
+/**
+ * A failed check stays soft this long. The provider retries it by itself, and
+ * one network error or one 502 mid-resume is usually gone within seconds.
+ */
+export const FAIL_AFTER_MS = 20_000;
 /** The first connect gets the card quickly: there is nothing to use yet. */
 export const STARTUP_OVERLAY_AFTER_MS = 600;
 
@@ -81,6 +86,18 @@ export function isLive(input: Pick<NativeOverlayInput, "readiness" | "socket">):
 }
 
 export function nativeOverlayView(input: NativeOverlayInput): NativeOverlayView {
+  const view = baseView(input);
+  // A soft failure must be looked at again when it settles into a hard one.
+  const failing = input.readiness === "unavailable" || input.readiness === "error";
+  if (view.mode === "hidden" && view.nextChangeMs === null) return view;
+  if (failing && input.notLiveMs < FAIL_AFTER_MS) {
+    const settle = FAIL_AFTER_MS - input.notLiveMs;
+    return { ...view, nextChangeMs: Math.min(view.nextChangeMs ?? settle, settle) };
+  }
+  return view;
+}
+
+function baseView(input: NativeOverlayInput): NativeOverlayView {
   if (!input.selected || input.suppressed || isLive(input)) return HIDDEN;
   const startup = !input.everReady;
 
@@ -89,8 +106,15 @@ export function nativeOverlayView(input: NativeOverlayInput): NativeOverlayView 
   let detail: string | null = "Your sessions keep running. We will catch up when you are back.";
   let hard = false;
   let canRetry = false;
+  const failing = input.readiness === "unavailable" || input.readiness === "error";
+  const settledFailure = failing && input.notLiveMs >= FAIL_AFTER_MS;
 
-  if (input.readiness === "unavailable") {
+  if (failing && !settledFailure) {
+    // Still retrying: read as a reconnect, not as a failure.
+    mood = startup ? "booting" : "searching";
+    title = startup ? "Connecting…" : title;
+    detail = startup ? null : detail;
+  } else if (input.readiness === "unavailable") {
     mood = "error";
     title = "Your computer isn't responding";
     detail = "Try again, or choose another computer.";

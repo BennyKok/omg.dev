@@ -17,7 +17,7 @@ const STAGES: Stage[] = [
   { name: "Pill", view: rule({ socket: "reconnecting", notLiveMs: 3_000 }) },
   { name: "Offline", view: rule({ socket: "offline" }) },
   { name: "Paused", view: rule({ everReady: false, readiness: "connecting", socket: "connecting", cloudPaused: true, notLiveMs: 1_000 }) },
-  { name: "Error", view: rule({ readiness: "unavailable" }) },
+  { name: "Error", view: rule({ readiness: "unavailable", notLiveMs: 20_000 }) },
   { name: "Waking", view: rule({ readiness: "waking", notLiveMs: 9_000 }) },
   { name: "Back", view: { mode: "overlay", mood: "happy", title: "Connected", detail: null, canSwitch: false, canRetry: false, nextChangeMs: null } },
 ];
