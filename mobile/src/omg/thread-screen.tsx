@@ -1,5 +1,7 @@
-import { useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Alert, AppState, Keyboard, Modal, Pressable, View } from "react-native";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Alert, AppState, Keyboard, Modal, Platform, Pressable, View } from "react-native";
+import { ContentReport, type ReportSelection } from "./content-report";
+import { DropdownMenu } from "./menu";
 import { useFocusEffect, useRouter, type Href } from "expo-router";
 import * as Haptics from "expo-haptics";
 import Reanimated, { useAnimatedKeyboard, useAnimatedStyle } from "react-native-reanimated";
@@ -23,6 +25,7 @@ import {
   typingPinger,
 } from "./thread-tasks";
 import {
+  blockThreadParticipant,
   getThread,
   sendThreadMessage,
   sendThreadTyping,
@@ -53,6 +56,7 @@ const POLL_MS = 3_000;
 const ASK_POLL_MS = 5_000;
 const OMG_ORANGE = "#FF5530";
 const TIME = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+const ThreadReportContext = createContext<((message: ThreadMessage) => void) | null>(null);
 
 export type ThreadState = ReturnType<typeof useThreadState>;
 
@@ -65,6 +69,7 @@ export function useThreadState(id: string | undefined) {
   const [asks, setAsks] = useState<AskQuestion[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [report, setReport] = useState<ReportSelection | null>(null);
 
   const load = useCallback(async () => {
     if (!client || !id) return;
@@ -211,10 +216,22 @@ export function useThreadState(id: string | undefined) {
       },
     ]);
   };
+  const block = async (participantId: string, blocked: boolean) => {
+    if (!client || !id) return;
+    if (!detail?.blockedParticipants) { Alert.alert("Update your computer", "Update omg.dev on this computer to use blocking."); return; }
+    try { await blockThreadParticipant(client, id, participantId, blocked); await load(); }
+    catch { Alert.alert("Could not change the block", "Please check your connection and try again."); }
+  };
+  const reportUser = (participantId: string) => {
+    if (!id) return;
+    setDetailsOpen(false);
+    setReport({ source: "thread", sourceId: id, participantId });
+  };
   // The thread's verbs, in the same overflow menu a session has.
   const menuOptions: MenuOption[] = [
     { label: "Thread details", icon: "info.circle", onPress: () => setDetailsOpen(true) },
     { label: `Project: ${project?.name ?? "None"}`, icon: "folder", submenu: projectOptions },
+    ...(Platform.OS === "android" && id ? [{ label: "Report content", icon: "flag" as const, onPress: () => setReport({ source: "thread" as const, sourceId: id }) }] : []),
     { label: "Rename", icon: "pencil", onPress: rename },
     { label: "Archive thread", icon: "archivebox", destructive: true, onPress: archive },
   ];
@@ -237,6 +254,7 @@ export function useThreadState(id: string | undefined) {
     archive,
     detailsOpen,
     setDetailsOpen,
+    block, reportUser, report, setReport,
   };
 }
 
@@ -249,6 +267,8 @@ export function ThreadPage({ state, children }: { state: ThreadState; children: 
   const { detail, detailsOpen, setDetailsOpen } = state;
   const openMembers = useCallback(() => setDetailsOpen(true), [setDetailsOpen]);
   return (
+    <ThreadReportContext.Provider value={Platform.OS === "android" ? (message) => state.setReport({ source: "thread", sourceId: message.threadId, messageId: message.id, content: message.text, ...(message.author.kind === "human" ? { participantId: message.author.participantId } : {}) }) : null}>
+    {state.report ? <ContentReport key={`${state.report.messageId ?? "report"}:${state.report.participantId ?? ""}`} selection={state.report} onClose={() => state.setReport(null)} /> : null}
     <MarkdownMentionContext.Provider value={openMembers}>
       <ThreadPeopleContext.Provider value={detail?.participants}>
         <ThreadTasksContext.Provider value={detail?.tasks}>
@@ -263,12 +283,15 @@ export function ThreadPage({ state, children }: { state: ThreadState; children: 
                 router.push(`/session/${sessionId}`);
               }}
               onRename={state.rename}
+              onBlock={Platform.OS === "android" ? state.block : undefined}
+              onReportUser={Platform.OS === "android" ? state.reportUser : undefined}
               onArchive={state.archive}
             />
           </Modal>
         </ThreadTasksContext.Provider>
       </ThreadPeopleContext.Provider>
     </MarkdownMentionContext.Provider>
+    </ThreadReportContext.Provider>
   );
 }
 
@@ -316,6 +339,7 @@ function AuthorName({ author, color }: { author: ThreadAuthor; color: string }) 
 export function MessageRow({ message, first, children }: { message: ThreadMessage; first: boolean; children?: ReactNode }) {
   const { colors, type } = useTheme();
   const people = useContext(ThreadPeopleContext);
+  const report = useContext(ThreadReportContext);
   const { agents } = useOmg();
   const handles = useMemo(() => mentionAgents(agents).map((row) => row.handle), [agents]);
   return (
@@ -333,6 +357,11 @@ export function MessageRow({ message, first, children }: { message: ThreadMessag
           <View style={{ opacity: message.pending ? 0.6 : 1 }}>
             <Markdown text={linkMentions(message.text, people, handles)} />
           </View>
+        ) : null}
+        {report && !message.pending ? (
+          <DropdownMenu title="Message actions" options={[{ label: "Report content", icon: "flag" as const, onPress: () => report(message) }]}>
+            <View style={{ alignSelf: "flex-start", paddingVertical: 4 }}><Text accessibilityLabel="Message actions" style={{ ...type.caption, color: colors.textMuted }}>•••</Text></View>
+          </DropdownMenu>
         ) : null}
         <ThreadMediaList media={message.media} />
         {children}

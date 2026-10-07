@@ -1,5 +1,5 @@
 import { createContext, useContext, type ReactNode } from "react";
-import { Image, Pressable, ScrollView, View } from "react-native";
+import { Alert, Image, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AgentAvatar, Icon } from "../components";
 import { authorAgent, authorHue, authorView, type ThreadAuthor, type ThreadMessage } from "../../../packages/protocol/src/threads";
@@ -155,6 +155,8 @@ export function ThreadDetailsSheet({
   onOpenTask,
   onRename,
   onArchive,
+  onBlock,
+  onReportUser,
 }: {
   detail: ThreadDetail | null;
   projectOptions: MenuOption[];
@@ -162,6 +164,8 @@ export function ThreadDetailsSheet({
   onOpenTask: (sessionId: string) => void;
   onRename: () => void;
   onArchive: () => void;
+  onBlock?: (participantId: string, blocked: boolean) => void;
+  onReportUser?: (participantId: string) => void;
 }) {
   const { colors, type, space } = useTheme();
   const insets = useSafeAreaInsets();
@@ -193,7 +197,15 @@ export function ThreadDetailsSheet({
               key={row.id}
               start={<Initial row={row} size={32} />}
               title={row.id === detail?.me ? `${nameOf(row)} (you)` : nameOf(row)}
-              subtitle={row.role === "owner" ? "Owner" : "Member"}
+              subtitle={detail?.blockedParticipants?.includes(row.id) ? "Blocked on this computer" : row.role === "owner" ? "Owner" : "Member"}
+              end={row.id !== detail?.me && onBlock ? <DropdownMenu title={`Actions for ${nameOf(row)}`} options={[
+                { label: detail?.blockedParticipants?.includes(row.id) ? "Unblock user" : "Block user", destructive: !detail?.blockedParticipants?.includes(row.id), onPress: () => {
+                  const blocked = !detail?.blockedParticipants?.includes(row.id);
+                  if (!blocked) { onBlock(row.id, false); return; }
+                  Alert.alert("Block user?", "Their messages and notifications will be hidden on this computer. You can unblock them here.", [{ text: "Cancel", style: "cancel" }, { text: "Block user", style: "destructive", onPress: () => onBlock(row.id, true) }]);
+                } },
+                ...(onReportUser ? [{ label: "Report user", icon: "flag" as const, onPress: () => onReportUser(row.id) }] : []),
+              ]}><View style={{ padding: 8 }}><Text accessibilityLabel={`Actions for ${nameOf(row)}`} style={{ ...type.body, color: colors.primary }}>•••</Text></View></DropdownMenu> : undefined}
             />
           ))}
           <Row
