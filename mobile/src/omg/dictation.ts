@@ -52,6 +52,7 @@ import {
 import type { OmgSocket, OmgTransport } from "@omg-dev/client";
 import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Platform } from "react-native";
 
 const SAMPLE_RATE = 16000;
 const STREAM_CHUNK_MS = 100;
@@ -288,6 +289,15 @@ export function useDictation(
         channels: 1,
         encoding: "pcm_16bit",
         interval: STREAM_CHUNK_MS,
+        ...(Platform.OS === "android" ? {
+          // The SDK stops its foreground service through the notification path.
+          showNotification: true,
+          notification: {
+            title: "Recording dictation",
+            text: "Open omg.dev to finish or discard the recording.",
+            android: { showPauseResumeActions: false },
+          },
+        } : {}),
         onAudioStream: async (event: AudioDataEvent) => {
           if (typeof event.data !== "string") return; // float32 path, unused here
           const bytes = base64ToBytes(event.data);
