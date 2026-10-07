@@ -19,6 +19,7 @@
  *  - A cancellation is a decision, not an error. Do not shout about it.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Platform } from "react-native";
 import * as Haptics from "expo-haptics";
 
 import {
@@ -175,7 +176,9 @@ export function usePurchaseFlow(
       // air. Not an error state; there is simply no store here.
       setPhase({
         kind: "unavailable",
-        message: "Update omg from the App Store to manage your plan on this device.",
+        message: Platform.OS === "android"
+          ? "Purchases are not available in the Android app. You can use your existing omg.dev plan."
+          : "Update omg from the App Store to manage your plan on this device.",
       });
       return;
     }
