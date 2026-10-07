@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { androidBuildStatus, checkAndroidProject, handleCloudBuildsRequest, startAndroidBuild, type BuildDeps } from "./cloud-builds.ts";
+import { AGENT_CALL_BUDGET_MS, androidBuildStatus, checkAndroidProject, remainingWait, handleCloudBuildsRequest, startAndroidBuild, type BuildDeps } from "./cloud-builds.ts";
 
 // /tmp is RAM on the shared box; keep test trees on disk.
 const ROOT = join(homedir(), ".cache", "lfg", "tmp");
@@ -126,4 +126,25 @@ test("the HTTP surface reports input errors with their message", async () => {
   const res = await handleCloudBuildsRequest(new Request("http://127.0.0.1/api/cloud/builds/android", { method: "POST", body: JSON.stringify({ cwd }) }), new URL("http://127.0.0.1/api/cloud/builds/android"), deps(fakeCloud().fetch));
   expect(res!.status).toBe(400);
   expect(((await res!.json()) as { error: string }).error).toContain("bun.lock");
+});
+
+// Codex stops an MCP tool call after 60 s. A slow upload must shrink the wait,
+// so the agent always receives the buildId instead of a timeout.
+test("a slow upload shortens the wait, so the call ends inside the agent budget", async () => {
+  const cwd = project();
+  const cloud = fakeCloud({ finishAfterPolls: 100 });
+  let t = 0;
+  const slowFetch: BuildDeps["fetch"] = async (url, init) => {
+    if (new URL(url).pathname.includes("/uploads")) t += 25_000;
+    return cloud.fetch(url, init);
+  };
+  const started = await startAndroidBuild({ ...deps(slowFetch), now: () => t, sleep: async (ms) => { t += ms; } }, { cwd });
+  expect(started).toMatchObject({ pending: true, buildId: "b-1" });
+  expect(t).toBeLessThanOrEqual(AGENT_CALL_BUDGET_MS);
+});
+
+test("the wait is what is left of the call budget", () => {
+  expect(remainingWait(0, 0)).toBe(30_000);
+  expect(remainingWait(0, 25_000)).toBe(5_000);
+  expect(remainingWait(0, 60_000)).toBe(0);
 });

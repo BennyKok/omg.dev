@@ -1375,7 +1375,7 @@ export function buildOmgMcpServer(): McpServer {
     {
       title: "Build An Installable Android App",
       description:
-        "Build a signed Android APK of an Expo project through omg Cloud and return a phone install link. Use it when the user wants the app on an Android phone (not Expo Go). The project needs Expo SDK 57, a static app.json and a committed bun.lock; the omg_create_project expo template already meets this. Uncommitted work is committed first. Waits at most 45 seconds; a native build takes about 3 to 5 minutes, so when the result has pending: true call omg_build_status with the returned buildId until it finishes. Do not start a second build. On success, show the APK with omg_display_file (apkPath) and send installUrl.",
+        "Build a signed Android APK of an Expo project through omg Cloud and return a phone install link. Use it when the user wants the app on an Android phone (not Expo Go). The project needs Expo SDK 57, a static app.json and a committed bun.lock; the omg_create_project expo template already meets this. Uncommitted work is committed first. Returns within 40 seconds; a native build takes about 3 to 5 minutes, so when the result has pending: true call omg_build_status with the returned buildId until it finishes. Do not start a second build. On success, show the APK with omg_display_file (apkPath) and send installUrl.",
       inputSchema: {
         cwd: z.string().optional().describe("Absolute Expo project folder. Defaults to the calling session cwd."),
         name: z.string().optional().describe("App name for a new app. Later builds reuse .omg/project.json."),
@@ -1413,7 +1413,7 @@ export function buildOmgMcpServer(): McpServer {
     {
       title: "Wait For An Android Build",
       description:
-        "Wait up to 45 seconds for an Android build started by omg_build_android and return its steps, estimate and status. Call again while the result has pending: true. On success it downloads the APK into the project (apkPath) and returns a fresh installUrl; a failed build returns the error.",
+        "Wait up to 30 seconds for an Android build started by omg_build_android and return its steps, estimate and status. Call again while the result has pending: true. On success it downloads the APK into the project (apkPath) and returns a fresh installUrl; a failed build returns the error.",
       inputSchema: {
         buildId: z.string().optional().describe("buildId returned by omg_build_android. Defaults to the last build of cwd."),
         cwd: z.string().optional().describe("Project folder, used to save the APK. Defaults to the calling session cwd."),

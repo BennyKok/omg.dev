@@ -16,7 +16,7 @@ import { basename, join } from "node:path";
 import { promisify } from "node:util";
 
 import { cloudApiBaseUrl } from "./cloud-account.ts";
-import { loadProjectLink, saveProjectLink, AGENT_DEPLOY_WAIT_MS } from "./cloud-apps.ts";
+import { loadProjectLink, saveProjectLink } from "./cloud-apps.ts";
 
 const run = promisify(execFile);
 
@@ -136,6 +136,21 @@ export function loadLastBuild(cwd: string): { buildId: string; app: BuildState["
   try { return JSON.parse(readFileSync(join(cwd, ".omg", "builds", "last.json"), "utf8")); } catch { return null; }
 }
 
+/**
+ * The most one agent tool call may take, from the first request to the reply.
+ * Codex stops an MCP tool call after 60 s (its default tool_timeout_sec), and
+ * the agent then sees no buildId although the build runs. The wait is what
+ * is left of this budget after the commit, upload and start, and a finished
+ * build still needs the APK download and the install link.
+ */
+export const AGENT_CALL_BUDGET_MS = 40_000;
+const FINISH_RESERVE_MS = 10_000;
+
+/** The wait left for one agent call that began at `startedAt`. */
+export function remainingWait(startedAt: number, now: number, budgetMs = AGENT_CALL_BUDGET_MS): number {
+  return Math.max(0, budgetMs - FINISH_RESERVE_MS - (now - startedAt));
+}
+
 type CloudBuild = { buildId: string; status: string; app?: { id: string; bundleId: string }; version?: { name: string; code: number }; error?: string | null; progress?: BuildProgress | null };
 const TERMINAL = new Set(["succeeded", "failed", "canceled", "timed_out"]);
 
@@ -186,6 +201,7 @@ export type StartBuildInput = { cwd: string; name?: string; versionName?: string
 
 /** Start (or replay) an Android build of the project at cwd. */
 export async function startAndroidBuild(deps: BuildDeps, input: StartBuildInput): Promise<BuildState> {
+  const startedAt = (deps.now ?? Date.now)();
   const cwd = input.cwd;
   const checked = checkAndroidProject(cwd);
   // Register first: .omg/project.json then lands in the build commit, so the
@@ -226,7 +242,7 @@ export async function startAndroidBuild(deps: BuildDeps, input: StartBuildInput)
   });
   saveLast(cwd, { buildId: created.buildId, app });
   if (input.wait === false) return finish(deps, cwd, app, { ...created, status: created.status === "succeeded" ? "running" : created.status });
-  const build = await waitForBuild(deps, created.buildId, input.waitBudgetMs ?? AGENT_DEPLOY_WAIT_MS);
+  const build = await waitForBuild(deps, created.buildId, input.waitBudgetMs ?? remainingWait(startedAt, (deps.now ?? Date.now)()));
   return finish(deps, cwd, app, build);
 }
 
@@ -235,7 +251,7 @@ export async function androidBuildStatus(deps: BuildDeps, input: { buildId?: str
   const last = input.cwd ? loadLastBuild(input.cwd) : null;
   const buildId = input.buildId?.trim() || last?.buildId;
   if (!buildId) throw new BuildError("buildId is required (or a cwd with a previous omg_build_android build)");
-  const build = await waitForBuild(deps, buildId, input.waitBudgetMs ?? AGENT_DEPLOY_WAIT_MS);
+  const build = await waitForBuild(deps, buildId, input.waitBudgetMs ?? remainingWait((deps.now ?? Date.now)(), (deps.now ?? Date.now)()));
   const app = last && last.buildId === buildId ? last.app : { id: build.app?.id ?? "", name: input.cwd ? basename(input.cwd) : "app", bundleId: build.app?.bundleId };
   return finish(deps, input.cwd, app, build);
 }
