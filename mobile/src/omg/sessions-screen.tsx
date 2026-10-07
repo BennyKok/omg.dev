@@ -1603,7 +1603,7 @@ export function SessionsScreen({
             borderColor: projectPicker.unassigned ? colors.borderStrong : "transparent",
           }}
         >
-          <Icon ios="plus" android="add" size={15} weight="semibold" color={colors.text} />
+          <Icon lucide="plus" size={18} color={colors.text} />
         </PressableScale>
         {projectPicker.options.map((folder, index) => (
           <PressableScale

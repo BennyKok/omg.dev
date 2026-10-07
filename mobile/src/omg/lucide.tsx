@@ -68,6 +68,8 @@ export const LUCIDE = {
   // The code block copy button inside a reply's hold menu (see markdown.tsx).
   copy: 0xe09e,
   check: 0xe06c,
+  // Project rail: a fixed-size plus, independent of system text scaling.
+  plus: 0xe13d,
 } as const;
 
 export type LucideName = keyof typeof LUCIDE;

@@ -1,0 +1,26 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": { "clearState": true },
+  "steps": [
+    {
+      "name": "Project plus is visible",
+      "goal": "Reach the isolated demo home screen. Accept the AI data notice for this demo fixture if shown. Do not enter a message.",
+      "done": "The first project pill shows a complete centered plus icon beside the project names at the largest text setting.",
+      "expect": ["Chats without a project", "api-gateway folder", "Start a task"]
+    },
+    {
+      "name": "Plus pill remains visible when selected",
+      "goal": "Tap only Chats without a project, the first pill in the project rail. Do not tap the plus in the bottom composer.",
+      "done": "The plus pill is selected and still shows the complete centered plus. The starter rail and composer are visible below.",
+      "expect": ["Chats without a project", "Start website", "Start a task"],
+      "selected": "Chats without a project"
+    },
+    {
+      "name": "Project selection restores task list",
+      "goal": "Tap api-gateway folder in the project rail.",
+      "done": "The project is selected and its task list is visible. The plus pill remains visible beside it.",
+      "expect": ["Chats without a project", "api-gateway folder", "Start a task"],
+      "selected": "api-gateway folder"
+    }
+  ]
+}
