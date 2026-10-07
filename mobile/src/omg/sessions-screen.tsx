@@ -1443,7 +1443,9 @@ export function SessionsScreen({
   useLayoutEffect(() => {
     if (workspace) return;
     navigation.setOptions({
-      headerShown: true,
+      // Android's empty native toolbar still intercepts touches over our
+      // page-owned controls. Only iOS needs the transparent native bar.
+      headerShown: Platform.OS === "ios",
       headerTransparent: true,
       // No tint of its own: the top EdgeFade below the bar is what keeps its
       // controls readable, the same paint the composer gets at the bottom.
