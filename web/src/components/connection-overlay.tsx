@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useRuntimeAvailability } from "../lib/runtime-availability";
 import {
   connectionOverlayView,
+  PILL_AFTER_MS,
   type ConnectionOverlayMode,
   type ConnectionOverlayView,
 } from "../lib/connection-overlay";
@@ -76,15 +77,17 @@ export function ConnectionOverlay({ machineSwitcher }: { machineSwitcher?: React
     setNotLiveSince((since) => (notLive ? since ?? Date.now() : null));
   }, [notLive]);
 
+  // Once a surface is visible, a change of wait state must not remove it
+  // during the next state's quiet threshold. Move straight into its pill.
+  const lastShown = useRef<ConnectionOverlayMode>("hidden");
   const view = connectionOverlayView({
     ...availability,
-    notLiveMs: notLiveSince === null ? 0 : Date.now() - notLiveSince,
+    notLiveMs: Math.max(lastShown.current === "hidden" ? 0 : PILL_AFTER_MS, notLiveSince === null ? 0 : Date.now() - notLiveSince),
     resuming,
   });
   useNow(view.nextChangeMs);
 
   // Remember what was on screen so the recovery can answer in the same place.
-  const lastShown = useRef<ConnectionOverlayMode>("hidden");
   const [back, setBack] = useState<ConnectionOverlayMode>("hidden");
   useEffect(() => {
     if (view.mode !== "hidden") {
@@ -144,65 +147,76 @@ function ConnectionSurface({
   onRetry: () => void;
   machineSwitcher?: ReactNode;
 }) {
-  if (view.mode === "pill") {
-    return (
-      <div
-        role="status"
-        aria-live="polite"
-        data-connection-overlay="pill"
-        className="lfg-connection-in pointer-events-none fixed inset-x-0 z-[96] flex justify-center px-4"
-        style={{ top: "calc(var(--lfg-visual-offset-top, 0px) + env(safe-area-inset-top, 0px) + 60px)" }}
-      >
-        <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-border bg-popover py-1 pl-1.5 pr-2 text-popover-foreground shadow-lg">
-          <Boxy mood={view.mood} size={28} className="text-foreground" />
-          <span className="text-sm font-medium">{view.title}</span>
-          {view.canRetry ? (
-            <button
-              type="button"
-              onClick={onRetry}
-              className="rounded-full px-2 py-1 text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-            >
-              Retry
-            </button>
-          ) : null}
-        </div>
-      </div>
-    );
-  }
+  const pill = view.mode === "pill";
+  const slot = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState<{ x: number; y: number; scale: number } | null>(null);
+  useLayoutEffect(() => {
+    const place = () => {
+      const rect = slot.current?.getBoundingClientRect();
+      if (!rect) return;
+      const next = { x: rect.left + rect.width / 2 - 40, y: rect.top + rect.height / 2 - 40, scale: pill ? 0.35 : 1 };
+      setPosition((old) => old?.x === next.x && old.y === next.y && old.scale === next.scale ? old : next);
+    };
+    place();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(place);
+    if (slot.current?.parentElement) observer?.observe(slot.current.parentElement);
+    window.addEventListener("resize", place);
+    window.visualViewport?.addEventListener("resize", place);
+    window.visualViewport?.addEventListener("scroll", place);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", place);
+      window.visualViewport?.removeEventListener("resize", place);
+      window.visualViewport?.removeEventListener("scroll", place);
+    };
+  }, [pill, view.title, view.canRetry, view.canSwitch, machineSwitcher]);
+
   return (
     <div
-      role="alertdialog"
-      aria-modal="false"
-      aria-label={view.title}
-      data-connection-overlay="overlay"
-      className="lfg-connection-in fixed inset-0 z-[96] flex items-start justify-center bg-background/30 px-6"
-      // Boxy's centre sits on the screen's centre (card pt-4 plus half of
-      // Boxy's 80 px) and the text grows downward. A centred card moved Boxy
-      // whenever the title, detail, or buttons changed its height.
-      style={{ paddingTop: "max(env(safe-area-inset-top, 0px), calc(50dvh - 56px))" }}
+      role={pill ? "status" : "alertdialog"}
+      aria-live={pill ? "polite" : undefined}
+      aria-modal={pill ? undefined : false}
+      aria-label={pill ? undefined : view.title}
+      data-connection-overlay={view.mode}
+      className={pill
+        ? "lfg-connection-in pointer-events-none fixed inset-x-0 z-[96] flex justify-center px-4"
+        : "lfg-connection-in fixed inset-0 z-[96] flex items-start justify-center bg-background/30 px-6"}
+      style={pill
+        ? { top: "calc(var(--lfg-visual-offset-top, 0px) + env(safe-area-inset-top, 0px) + 60px)" }
+        : { paddingTop: "max(env(safe-area-inset-top, 0px), calc(50dvh - 56px))" }}
     >
-      <div className="flex w-full max-w-[17rem] flex-col items-center gap-2 rounded-3xl border border-border bg-background px-5 pb-5 pt-4 text-center shadow-2xl" role="status" aria-live="polite">
-        <Boxy mood={view.mood} size={80} className="text-foreground" />
-        <p className="text-base font-semibold text-foreground">{view.title}</p>
-        {view.detail ? <p className="text-sm text-muted-foreground">{view.detail}</p> : null}
-        {view.canRetry || (view.canSwitch && machineSwitcher) ? (
-          <div className="mt-1 flex w-full flex-col items-stretch gap-2">
+      <div
+        className={pill
+          ? "pointer-events-auto flex items-center gap-2 rounded-full border border-border bg-popover py-1 pl-1.5 pr-2 text-popover-foreground shadow-lg"
+          : "flex w-full max-w-[17rem] flex-col items-center gap-2 rounded-3xl border border-border bg-background px-5 pb-5 pt-4 text-center shadow-2xl"}
+        role={pill ? undefined : "status"}
+        aria-live={pill ? undefined : "polite"}
+      >
+        <div ref={slot} aria-hidden="true" style={{ width: pill ? 28 : 80, height: pill ? 28 : 80, flexShrink: 0 }} />
+        <p className={pill ? "text-sm font-medium" : "text-base font-semibold text-foreground"}>{view.title}</p>
+        {!pill && view.detail ? <p className="text-sm text-muted-foreground">{view.detail}</p> : null}
+        {view.canRetry || (!pill && view.canSwitch && machineSwitcher) ? (
+          <div className={pill ? "contents" : "mt-1 flex w-full flex-col items-stretch gap-2"}>
             {view.canRetry ? (
-              <button
-                type="button"
-                onClick={onRetry}
-                className="h-10 rounded-full bg-foreground px-5 text-sm font-medium text-background transition-opacity hover:opacity-90"
-              >
+              <button type="button" onClick={onRetry} className={pill
+                ? "rounded-full px-2 py-1 text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                : "h-10 rounded-full bg-foreground px-5 text-sm font-medium text-background transition-opacity hover:opacity-90"}>
                 Retry
               </button>
             ) : null}
-            {view.canSwitch && machineSwitcher ? (
-              <div className="rounded-xl border border-border bg-popover text-popover-foreground">
-                {machineSwitcher}
-              </div>
+            {!pill && view.canSwitch && machineSwitcher ? (
+              <div className="rounded-xl border border-border bg-popover text-popover-foreground">{machineSwitcher}</div>
             ) : null}
           </div>
         ) : null}
+      </div>
+      <div
+        aria-hidden="true"
+        className="pointer-events-none fixed left-0 top-0 motion-safe:transition-transform motion-safe:duration-300"
+        style={{ width: 80, height: 80, visibility: position ? "visible" : "hidden",
+          transform: position ? `translate(${position.x}px, ${position.y}px) scale(${position.scale})` : undefined }}
+      >
+        <Boxy mood={view.mood} size={80} className="text-foreground" />
       </div>
     </div>
   );
