@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 7, 2026 - Signed Mac app (vv0.6.201)
+
+- The Mac app is now signed with a Developer ID and notarized by Apple. macOS opens it with no security warning.
+- An installed Mac app updates to the signed version by itself.
+
 ## October 7, 2026 - Scroll up while the agent works (v0.6.200)
 
 - You can now scroll up in a session while the agent is still writing. Before, a slow trackpad scroll was pulled back to the bottom by each new message.
