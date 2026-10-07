@@ -20037,7 +20037,16 @@ const ChatStream = memo(function ChatStream({
   // Queued turns are pinned below the live turn instead of sitting in timestamp
   // order — see splitQueuedRenderItems.
   const { items: foldedItems, queued: queuedItems } = useMemo(
-    () => splitQueuedRenderItems(buildChatRenderItems(visibleMessages)),
+    () =>
+      splitQueuedRenderItems(
+        // Claude's steering marker carries no words a person wrote. It used
+        // to be an "Interrupted" line; like the app, it is not a row at all.
+        // It is dropped after folding so the work runs on either side of it
+        // stay separate (see mobile/src/omg/transcript-items.ts).
+        buildChatRenderItems(visibleMessages).filter(
+          (item) => item.type !== "msg" || !isRequestInterruptedMessage(item.message),
+        ),
+      ),
     [visibleMessages],
   );
   // An empty live draft after a run of work is left out, so the work row stays
@@ -22043,17 +22052,6 @@ const MessageBubble = memo(function MessageBubble({
         : { html: "", attachments: [] as MessageAttachment[] },
     [message.role, message.text, message.html, omgEnvelope, bot],
   );
-  if (isRequestInterruptedMessage(message)) {
-    return (
-      <div
-        role="status"
-        aria-label="Request interrupted"
-        className="flex w-full items-center justify-center py-0.5 text-[11px] text-muted-foreground/60"
-      >
-        Interrupted
-      </div>
-    );
-  }
   if (message.kind === "thinking") {
     return (
       <AiMessage className="msg" from="assistant">
