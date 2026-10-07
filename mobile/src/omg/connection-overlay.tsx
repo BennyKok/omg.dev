@@ -1,13 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ComponentRef } from "react";
 import { AppState, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import { router, usePathname } from "expo-router";
-import Reanimated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
+import Reanimated, { useAnimatedStyle, useSharedValue, useReducedMotion, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Boxy } from "./boxy";
 import { CLOUD_BINDING_ID } from "./config";
 import {
   nativeOverlayView,
   isLive,
+  PILL_AFTER_MS,
   type ConnectionOverlayMode,
   type NativeOverlayView,
   type SocketStatus,
@@ -104,18 +105,20 @@ export function ConnectionOverlay() {
     setNotLiveSince((since) => (live ? null : since ?? Date.now()));
   }, [live]);
 
+  // Once a surface is visible, a change of wait state must not remove it
+  // during the next state's quiet threshold. Move straight into its pill.
+  const lastShown = useRef<ConnectionOverlayMode>("hidden");
   const view = nativeOverlayView({
     ...input,
     selected,
     everReady,
     hasSaved,
-    notLiveMs: notLiveSince === null ? 0 : Date.now() - notLiveSince,
+    notLiveMs: Math.max(lastShown.current === "hidden" ? 0 : PILL_AFTER_MS, notLiveSince === null ? 0 : Date.now() - notLiveSince),
     resuming,
     suppressed: SUPPRESSED.some((re) => re.test(pathname)),
   });
   useTick(view.nextChangeMs);
 
-  const lastShown = useRef<ConnectionOverlayMode>("hidden");
   const [back, setBack] = useState<ConnectionOverlayMode>("hidden");
   useEffect(() => {
     if (view.mode !== "hidden") {
@@ -188,80 +191,74 @@ export function ConnectionSurface({
   }, [shown]);
   const fade = useAnimatedStyle(() => ({ opacity: shown.value }));
 
-  if (view.mode === "pill") {
-    return (
-      <Reanimated.View
-        pointerEvents="box-none"
-        style={[styles.pillLayer, { top: insets.top + 56 }, fade]}
+  const pill = view.mode === "pill";
+  const layer = useRef<ComponentRef<typeof View>>(null);
+  const slot = useRef<ComponentRef<typeof View>>(null);
+  const placed = useRef(false);
+  const measurement = useRef(0);
+  const reducedMotion = useReducedMotion();
+  const x = useSharedValue(0);
+  const y = useSharedValue(0);
+  const scale = useSharedValue(1);
+  const visible = useSharedValue(0);
+  const place = useCallback(() => {
+    const version = ++measurement.current;
+    layer.current?.measureInWindow((left, top) => {
+      slot.current?.measureInWindow((slotLeft, slotTop, width, slotHeight) => {
+        if (version !== measurement.current || width === 0) return;
+        const duration = placed.current && !reducedMotion ? 300 : 0;
+        x.value = withTiming(slotLeft - left + width / 2 - 40, { duration });
+        y.value = withTiming(slotTop - top + slotHeight / 2 - 40, { duration });
+        scale.value = withTiming(pill ? 0.35 : 1, { duration });
+        visible.value = 1;
+        placed.current = true;
+      });
+    });
+  }, [pill, reducedMotion, x, y, scale, visible]);
+  useEffect(() => {
+    const frame = requestAnimationFrame(place);
+    return () => { cancelAnimationFrame(frame); measurement.current++; };
+  }, [place, height, view.title, view.canRetry, view.canSwitch]);
+  const mascotStyle = useAnimatedStyle(() => ({
+    opacity: visible.value,
+    transform: [{ translateX: x.value }, { translateY: y.value }, { scale: scale.value }],
+  }));
+
+  return (
+    <Reanimated.View ref={layer} collapsable={false} pointerEvents="box-none" onLayout={place} style={[StyleSheet.absoluteFill, fade]}>
+      <View
+        testID={pill ? "connection-pill" : "connection-overlay"}
+        pointerEvents={pill ? "box-none" : "auto"}
+        style={pill
+          ? [styles.pillLayer, { top: insets.top + 56 }]
+          : [StyleSheet.absoluteFill, styles.scrim,
+            { paddingTop: Math.max(insets.top, height / 2 - BOXY_CENTER_FROM_CARD_TOP),
+              backgroundColor: isDark ? "rgba(20,20,20,0.3)" : "rgba(242,242,247,0.3)" }]}
       >
-        <View
-          testID="connection-pill"
-          accessibilityRole="alert"
-          style={[styles.pill, { backgroundColor: colors.popover, borderColor: colors.border }]}
-        >
-          <Boxy mood={view.mood} size={28} color={ink} />
-          <Text style={[type.subhead, { color: colors.foreground }]}>{view.title}</Text>
+        <View accessibilityRole="alert" accessibilityLabel={view.title} onLayout={place}
+          style={pill
+            ? [styles.pill, { backgroundColor: colors.popover, borderColor: colors.border }]
+            : [styles.card, { backgroundColor: colors.background, borderColor: colors.border }]}>
+          <View ref={slot} collapsable={false} onLayout={place} style={{ width: pill ? 28 : 80, height: pill ? 28 : 80 }} />
+          <Text style={[pill ? type.subhead : type.headline, !pill && styles.center, { color: colors.foreground }]}>{view.title}</Text>
+          {!pill && view.detail ? <Text style={[type.footnote, styles.center, { color: colors.mutedForeground }]}>{view.detail}</Text> : null}
           {onRetry && view.canRetry ? (
-            <Pressable accessibilityRole="button" onPress={onRetry} hitSlop={8} style={styles.pillAction}>
-              <Text style={[type.subhead, { color: colors.mutedForeground }]}>Retry</Text>
+            <Pressable accessibilityRole="button" onPress={onRetry} hitSlop={pill ? 8 : undefined}
+              style={pill ? styles.pillAction : ({ pressed }) => [styles.primary, { backgroundColor: colors.foreground, opacity: pressed ? 0.8 : 1 }]}>
+              <Text style={pill ? [type.subhead, { color: colors.mutedForeground }] : [type.callout, { color: colors.background, fontWeight: "600" }]}>{pill ? "Retry" : "Try again"}</Text>
             </Pressable>
           ) : null}
           {onChooseAnother && view.canSwitch ? (
-            <Pressable accessibilityRole="button" onPress={onChooseAnother} hitSlop={8} style={styles.pillAction}>
-              <Text style={[type.subhead, { color: colors.mutedForeground }]}>Switch</Text>
+            <Pressable accessibilityRole="button" onPress={onChooseAnother} hitSlop={pill ? 8 : undefined}
+              style={pill ? styles.pillAction : ({ pressed }) => [styles.secondary, { borderColor: colors.borderStrong, backgroundColor: pressed ? colors.cardPressed : "transparent" }]}>
+              <Text style={pill ? [type.subhead, { color: colors.mutedForeground }] : [type.callout, { color: colors.foreground }]}>{pill ? "Switch" : "Choose another computer"}</Text>
             </Pressable>
           ) : null}
         </View>
-      </Reanimated.View>
-    );
-  }
-
-  return (
-    <Reanimated.View
-      testID="connection-overlay"
-      style={[
-        StyleSheet.absoluteFill,
-        styles.scrim,
-        // Boxy's centre sits on the screen's centre, where the launch mark
-        // was, and the text grows downward from it. A centred card moved
-        // Boxy whenever the title, detail, or buttons changed its height.
-        { paddingTop: Math.max(insets.top, height / 2 - BOXY_CENTER_FROM_CARD_TOP) },
-        { backgroundColor: isDark ? "rgba(20,20,20,0.3)" : "rgba(242,242,247,0.3)" },
-        fade,
-      ]}
-    >
-      <View
-        accessibilityRole="alert"
-        accessibilityLabel={view.title}
-        style={[styles.card, { backgroundColor: colors.background, borderColor: colors.border }]}
-      >
-        <Boxy mood={view.mood} size={CARD_BOXY_SIZE} color={ink} testID={`boxy-${view.mood}`} />
-        <Text style={[type.headline, styles.center, { color: colors.foreground }]}>{view.title}</Text>
-        {view.detail ? (
-          <Text style={[type.footnote, styles.center, { color: colors.mutedForeground }]}>{view.detail}</Text>
-        ) : null}
-        {onRetry && view.canRetry ? (
-          <Pressable
-            accessibilityRole="button"
-            onPress={onRetry}
-            style={({ pressed }) => [styles.primary, { backgroundColor: colors.foreground, opacity: pressed ? 0.8 : 1 }]}
-          >
-            <Text style={[type.callout, { color: colors.background, fontWeight: "600" }]}>Try again</Text>
-          </Pressable>
-        ) : null}
-        {onChooseAnother && view.canSwitch ? (
-          <Pressable
-            accessibilityRole="button"
-            onPress={onChooseAnother}
-            style={({ pressed }) => [
-              styles.secondary,
-              { borderColor: colors.borderStrong, backgroundColor: pressed ? colors.cardPressed : "transparent" },
-            ]}
-          >
-            <Text style={[type.callout, { color: colors.foreground }]}>Choose another computer</Text>
-          </Pressable>
-        ) : null}
       </View>
+      <Reanimated.View pointerEvents="none" style={[{ position: "absolute", left: 0, top: 0, width: 80, height: 80 }, mascotStyle]}>
+        <Boxy mood={view.mood} size={CARD_BOXY_SIZE} color={ink} testID={`boxy-${view.mood}`} />
+      </Reanimated.View>
     </Reanimated.View>
   );
 }

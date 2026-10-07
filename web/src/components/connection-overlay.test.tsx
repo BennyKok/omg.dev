@@ -124,3 +124,23 @@ test("still connecting shows Boxy with no Retry and no switcher", async () => {
   expect(el.textContent).not.toContain("Retry");
   expect(el.textContent).not.toContain("Switch computer");
 });
+
+test("one Boxy moves from the card to the pill and back", async () => {
+  ui = mount();
+  ui.render(view({ ...base, status: "offline" }));
+  const mascot = overlay()!.querySelector("[data-boxy-mood]");
+  expect(mascot).not.toBeNull();
+  ui.render(view({ ...base, status: "reconnecting", lifecycle: "waking" }));
+  await ui.flushAsync();
+  expect(overlay()?.getAttribute("data-connection-overlay")).toBe("pill");
+  expect(overlay()?.querySelector("[data-boxy-mood]") === mascot).toBe(true);
+  expect(mascot?.parentElement?.style.transform).toContain("scale(0.35)");
+  expect(overlay()?.querySelectorAll("[data-boxy-mood]").length).toBe(1);
+  ui.render(view({ ...base, status: "offline" }));
+  expect(overlay()?.getAttribute("data-connection-overlay")).toBe("overlay");
+  expect(overlay()?.querySelector("[data-boxy-mood]") === mascot).toBe(true);
+  expect(mascot?.parentElement?.style.transform).toContain("scale(1)");
+  ui.render(view(base));
+  expect(overlay()?.querySelector("[data-boxy-mood]") === mascot).toBe(true);
+  expect(mascot?.getAttribute("data-boxy-mood")).toBe("happy");
+});
