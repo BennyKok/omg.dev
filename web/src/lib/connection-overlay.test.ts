@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 import {
   FAIL_AFTER_MS,
-  OVERLAY_AFTER_MS,
+  LONG_WAIT_MS,
   PILL_AFTER_MS,
-  STARTUP_OVERLAY_AFTER_MS,
+  STARTUP_SHOW_AFTER_MS,
   connectionOverlayView,
   type ConnectionOverlayInput,
 } from "./connection-overlay";
@@ -24,7 +24,7 @@ test("a live runtime shows nothing", () => {
   expect(connectionOverlayView(live).mode).toBe("hidden");
 });
 
-test("a reconnect grows from silent to pill to overlay", () => {
+test("a reconnect stays a pill however long it takes", () => {
   const blip = reconnecting(500);
   expect(blip.mode).toBe("hidden");
   expect(blip.nextChangeMs).toBe(PILL_AFTER_MS - 500);
@@ -32,9 +32,11 @@ test("a reconnect grows from silent to pill to overlay", () => {
   const pill = reconnecting(PILL_AFTER_MS);
   // Still reconnecting: no Retry, nothing that reads as a failure.
   expect(pill).toMatchObject({ mode: "pill", mood: "searching", title: "Reconnecting…", canRetry: false });
-  expect(pill.nextChangeMs).toBe(OVERLAY_AFTER_MS - PILL_AFTER_MS);
+  expect(pill.nextChangeMs).toBe(LONG_WAIT_MS - PILL_AFTER_MS);
 
-  expect(reconnecting(OVERLAY_AFTER_MS)).toMatchObject({ mode: "overlay", canRetry: false, canSwitch: true, nextChangeMs: null });
+  // The app behind stays usable, so a long wait never dims it.
+  expect(reconnecting(LONG_WAIT_MS)).toMatchObject({ mode: "pill", canRetry: false, canSwitch: true, nextChangeMs: null });
+  expect(reconnecting(LONG_WAIT_MS * 10)).toMatchObject({ mode: "pill" });
 });
 
 test("coming back from the background says Resuming and shows at once", () => {
@@ -58,8 +60,8 @@ test("offline and a server-stopped computer dim the app at once", () => {
 });
 
 test("a waking cloud computer boots Boxy and does not say Resuming", () => {
-  expect(reconnecting(OVERLAY_AFTER_MS, { lifecycle: "waking", resuming: true })).toMatchObject({
-    mode: "overlay",
+  expect(reconnecting(LONG_WAIT_MS, { lifecycle: "waking", resuming: true })).toMatchObject({
+    mode: "pill",
     mood: "booting",
     title: "Waking your computer…",
   });
@@ -68,15 +70,15 @@ test("a waking cloud computer boots Boxy and does not say Resuming", () => {
 test("the first bootstrap waits briefly, then covers the empty shell without Retry", () => {
   const first = { ...live, loading: true, ready: false, status: "connecting" as const };
   expect(connectionOverlayView({ ...first, notLiveMs: 100 }).mode).toBe("hidden");
-  expect(connectionOverlayView({ ...first, notLiveMs: STARTUP_OVERLAY_AFTER_MS })).toMatchObject({
+  expect(connectionOverlayView({ ...first, notLiveMs: STARTUP_SHOW_AFTER_MS })).toMatchObject({
     mode: "overlay",
     mood: "booting",
     title: "Connecting…",
     canRetry: false,
     canSwitch: false,
-    nextChangeMs: OVERLAY_AFTER_MS - STARTUP_OVERLAY_AFTER_MS,
+    nextChangeMs: LONG_WAIT_MS - STARTUP_SHOW_AFTER_MS,
   });
-  expect(connectionOverlayView({ ...first, notLiveMs: OVERLAY_AFTER_MS })).toMatchObject({
+  expect(connectionOverlayView({ ...first, notLiveMs: LONG_WAIT_MS })).toMatchObject({
     canRetry: false,
     canSwitch: true,
   });
@@ -88,8 +90,8 @@ test("a failed bootstrap stays soft while the app retries it", () => {
   expect(connectionOverlayView({ ...failed, notLiveMs: PILL_AFTER_MS })).toMatchObject({
     mode: "pill", title: "Reconnecting…", canRetry: false,
   });
-  expect(connectionOverlayView({ ...failed, notLiveMs: OVERLAY_AFTER_MS })).toMatchObject({
-    mode: "overlay", title: "Reconnecting…", canRetry: false, nextChangeMs: FAIL_AFTER_MS - OVERLAY_AFTER_MS,
+  expect(connectionOverlayView({ ...failed, notLiveMs: LONG_WAIT_MS })).toMatchObject({
+    mode: "pill", title: "Reconnecting…", canRetry: false, nextChangeMs: FAIL_AFTER_MS - LONG_WAIT_MS,
   });
   expect(connectionOverlayView({ ...failed, notLiveMs: FAIL_AFTER_MS })).toMatchObject({
     mode: "overlay", mood: "error", canRetry: true,
@@ -100,7 +102,7 @@ test("a failed bootstrap stays soft while the app retries it", () => {
 
 test("waking or resuming only asks the user to wait", () => {
   for (const extra of [{ lifecycle: "waking" as const }, { lifecycle: "starting" as const }, { resuming: true }]) {
-    expect(reconnecting(OVERLAY_AFTER_MS * 3, extra)).toMatchObject({ mode: "overlay", canSwitch: false, canRetry: false });
+    expect(reconnecting(LONG_WAIT_MS * 3, extra)).toMatchObject({ mode: "pill", canSwitch: false, canRetry: false });
   }
-  expect(reconnecting(OVERLAY_AFTER_MS)).toMatchObject({ canSwitch: true });
+  expect(reconnecting(LONG_WAIT_MS)).toMatchObject({ canSwitch: true });
 });

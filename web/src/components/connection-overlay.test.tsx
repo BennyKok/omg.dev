@@ -60,6 +60,17 @@ test("the recovery smiles in the same place, then fades out", async () => {
   expect(overlay()).toBeNull();
 });
 
+test("the card is not unmounted between the wait and Connected", async () => {
+  ui = mount();
+  ui.render(view({ ...base, status: "offline" }));
+  const waiting = overlay();
+  ui.render(view(base));
+  await ui.flushAsync();
+  // The same node: no frame with nothing on screen, no second fade-in.
+  expect(overlay()).toBe(waiting);
+  expect(overlay()?.textContent).toContain("Connected");
+});
+
 test("the first bootstrap appears after a short wait", async () => {
   ui = mount();
   ui.render(view({ ...base, loading: true, ready: false, status: "connecting" }));

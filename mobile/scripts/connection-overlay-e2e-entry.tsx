@@ -9,7 +9,7 @@ import { LaunchScreen } from "../src/omg/launch";
 
 type Stage = { name: string; view?: NativeOverlayView; launch?: boolean };
 // Every stage comes from the real rules, so the buttons shown are the app's.
-const LIVE: NativeOverlayInput = { selected: true, everReady: true, readiness: "ready", socket: "live", cloudPaused: false, notLiveMs: 0, resuming: false, suppressed: false };
+const LIVE: NativeOverlayInput = { selected: true, everReady: true, hasSaved: false, readiness: "ready", socket: "live", cloudPaused: false, notLiveMs: 0, resuming: false, suppressed: false };
 const rule = (v: Partial<NativeOverlayInput>) => nativeOverlayView({ ...LIVE, ...v });
 const STAGES: Stage[] = [
   { name: "Launch", launch: true },
@@ -19,7 +19,7 @@ const STAGES: Stage[] = [
   { name: "Paused", view: rule({ everReady: false, readiness: "connecting", socket: "connecting", cloudPaused: true, notLiveMs: 1_000 }) },
   { name: "Error", view: rule({ readiness: "unavailable", notLiveMs: 20_000 }) },
   { name: "Waking", view: rule({ readiness: "waking", notLiveMs: 9_000 }) },
-  { name: "Back", view: { mode: "overlay", mood: "happy", title: "Connected", detail: null, canSwitch: false, canRetry: false, nextChangeMs: null } },
+  { name: "Back", view: { mode: "pill", mood: "happy", title: "Connected", detail: null, canSwitch: false, canRetry: false, nextChangeMs: null } },
 ];
 const ROWS = ["Ads report status and conversions", "Identifying bot session activity", "Top up user credits system", "Why omgs.app blocked the preview", "Threads viral ideas", "Superschool onboarding"];
 

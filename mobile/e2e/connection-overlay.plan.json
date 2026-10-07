@@ -92,12 +92,13 @@
       "tapAt": "50%,91%"
     },
     {
-      "name": "Waking card",
-      "goal": "The Next stage tap already happened. Do not tap anything; wait for the card to show.",
-      "done": "A card says Waking your computer with no buttons: no Try again and no Choose another computer.",
+      "name": "Waking pill",
+      "goal": "The Next stage tap already happened. Do not tap anything; wait for the pill to show.",
+      "done": "A small pill says Waking your computer with no buttons, and the list is still readable.",
       "expect": [
         "Stage: Waking",
-        "Waking your computer\u2026"
+        "Waking your computer\u2026",
+        "Top up user credits system"
       ],
       "timeoutMs": 60000,
       "tapAt": "50%,91%",
@@ -108,8 +109,8 @@
     },
     {
       "name": "Connected",
-      "goal": "The Next stage tap already happened. Do not tap anything; wait for the card to show.",
-      "done": "A card says Connected with no buttons.",
+      "goal": "The Next stage tap already happened. Do not tap anything; wait for the pill to show.",
+      "done": "The pill says Connected in the same place, with no buttons.",
       "expect": [
         "Stage: Back",
         "Connected"

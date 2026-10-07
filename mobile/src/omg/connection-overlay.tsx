@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { AppState, Pressable, StyleSheet, View } from "react-native";
+import { AppState, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import { router, usePathname } from "expo-router";
 import Reanimated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -13,6 +13,7 @@ import {
   type SocketStatus,
 } from "./connection-overlay-state";
 import { useOmg } from "./provider";
+import { sessionCache } from "./session-cache-store";
 import { Text } from "./text";
 import { useTheme } from "./theme";
 
@@ -60,10 +61,13 @@ function useResuming(): boolean {
  * the navigator. It reads OmgProvider's readiness and the live socket status
  * and keeps no copy of either.
  *
- * - A short blip shows nothing; a longer one a pill under the header.
- * - A long or hard failure dims the app (still visible behind) and shows a
- *   card with Boxy, Try again, and Choose another computer.
- * - When the connection returns, Boxy smiles "Connected" and fades.
+ * - A short blip shows nothing; a longer wait a pill under the header, for
+ *   as long as it lasts. The saved sessions behind it stay usable.
+ * - A real failure, or a first connect with nothing saved to show, dims the
+ *   app (still visible behind) and shows a card with Boxy, Try again, and
+ *   Choose another computer.
+ * - When the connection returns, Boxy smiles "Connected" in the same place
+ *   and fades. The surface is never unmounted in between.
  */
 export function ConnectionOverlay() {
   const { authStatus, readiness, client, bindingId, cloud, probe } = useOmg();
@@ -85,6 +89,9 @@ export function ConnectionOverlay() {
   }, [readiness?.status, bindingId]);
   const selected = authStatus === "signed-in" && !!bindingId;
   const everReady = selected && readyBinding === bindingId;
+  // The same test LaunchGate uses to lift the launch screen at once.
+  const cachedRoster = bindingId ? sessionCache.read<unknown[]>(`roster:${bindingId}`) : null;
+  const hasSaved = Array.isArray(cachedRoster) && cachedRoster.length > 0;
 
   const input = {
     readiness: readiness?.status ?? null,
@@ -101,6 +108,7 @@ export function ConnectionOverlay() {
     ...input,
     selected,
     everReady,
+    hasSaved,
     notLiveMs: notLiveSince === null ? 0 : Date.now() - notLiveSince,
     resuming,
     suppressed: SUPPRESSED.some((re) => re.test(pathname)),
@@ -133,6 +141,12 @@ export function ConnectionOverlay() {
     return () => clearTimeout(timer);
   }, [back]);
 
+  // Recovery answers in the same render that hides the wait. Waiting for the
+  // effect above left one frame with nothing mounted, so "Connected" faded in
+  // as a new surface: the card vanished and came back.
+  const recovered = view.mode === "hidden" && live && lastShown.current !== "hidden" ? lastShown.current : "hidden";
+  const closing = back !== "hidden" ? back : recovered;
+
   const retry = () => {
     client?.live.reconnectNow();
     void probe();
@@ -142,10 +156,10 @@ export function ConnectionOverlay() {
   if (view.mode !== "hidden") {
     return <ConnectionSurface view={view} onRetry={retry} onChooseAnother={chooseAnother} />;
   }
-  if (back !== "hidden") {
+  if (closing !== "hidden") {
     return (
       <ConnectionSurface
-        view={{ mode: back, mood: "happy", title: "Connected", detail: null, canSwitch: false, canRetry: false, nextChangeMs: null }}
+        view={{ mode: closing, mood: "happy", title: "Connected", detail: null, canSwitch: false, canRetry: false, nextChangeMs: null }}
       />
     );
   }
@@ -164,6 +178,7 @@ export function ConnectionSurface({
 }) {
   const { colors, isDark, type } = useTheme();
   const insets = useSafeAreaInsets();
+  const { height } = useWindowDimensions();
   const ink = colors.foreground;
   // A plain opacity fade. A Reanimated `entering` layout animation around
   // Boxy's Skia canvas left the ink half drawn until the next re-render.
@@ -191,6 +206,11 @@ export function ConnectionSurface({
               <Text style={[type.subhead, { color: colors.mutedForeground }]}>Retry</Text>
             </Pressable>
           ) : null}
+          {onChooseAnother && view.canSwitch ? (
+            <Pressable accessibilityRole="button" onPress={onChooseAnother} hitSlop={8} style={styles.pillAction}>
+              <Text style={[type.subhead, { color: colors.mutedForeground }]}>Switch</Text>
+            </Pressable>
+          ) : null}
         </View>
       </Reanimated.View>
     );
@@ -202,6 +222,10 @@ export function ConnectionSurface({
       style={[
         StyleSheet.absoluteFill,
         styles.scrim,
+        // Boxy's centre sits on the screen's centre, where the launch mark
+        // was, and the text grows downward from it. A centred card moved
+        // Boxy whenever the title, detail, or buttons changed its height.
+        { paddingTop: Math.max(insets.top, height / 2 - BOXY_CENTER_FROM_CARD_TOP) },
         { backgroundColor: isDark ? "rgba(20,20,20,0.3)" : "rgba(242,242,247,0.3)" },
         fade,
       ]}
@@ -211,7 +235,7 @@ export function ConnectionSurface({
         accessibilityLabel={view.title}
         style={[styles.card, { backgroundColor: colors.background, borderColor: colors.border }]}
       >
-        <Boxy mood={view.mood} size={80} color={ink} testID={`boxy-${view.mood}`} />
+        <Boxy mood={view.mood} size={CARD_BOXY_SIZE} color={ink} testID={`boxy-${view.mood}`} />
         <Text style={[type.headline, styles.center, { color: colors.foreground }]}>{view.title}</Text>
         {view.detail ? (
           <Text style={[type.footnote, styles.center, { color: colors.mutedForeground }]}>{view.detail}</Text>
@@ -242,6 +266,10 @@ export function ConnectionSurface({
   );
 }
 
+const CARD_PADDING_TOP = 16;
+const CARD_BOXY_SIZE = 80;
+const BOXY_CENTER_FROM_CARD_TOP = CARD_PADDING_TOP + CARD_BOXY_SIZE / 2;
+
 const styles = StyleSheet.create({
   pillLayer: { position: "absolute", left: 0, right: 0, alignItems: "center" },
   pill: {
@@ -259,14 +287,14 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
   },
   pillAction: { paddingHorizontal: 4, paddingVertical: 2 },
-  scrim: { alignItems: "center", justifyContent: "center", paddingHorizontal: 24 },
+  scrim: { alignItems: "center", justifyContent: "flex-start", paddingHorizontal: 24 },
   card: {
     width: "100%",
     maxWidth: 280,
     alignItems: "center",
     gap: 8,
     paddingHorizontal: 20,
-    paddingTop: 16,
+    paddingTop: CARD_PADDING_TOP,
     paddingBottom: 20,
     borderRadius: 24,
     borderWidth: StyleSheet.hairlineWidth,

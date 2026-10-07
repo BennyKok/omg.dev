@@ -5,11 +5,12 @@ import type { BoxyMood } from "./boxy";
  * overlay (web/src/lib/connection-overlay.ts), fed from the native owners:
  * `readiness` from OmgProvider and the live socket's status from the client.
  *
- * One rule for every state, the first connect included, as on the web. A
- * cold start with saved sessions lifts the launch screen at once, so without
- * this the app connected with no sign at all. The first connect gets the card
- * quickly ("Connecting…"), because there is nothing live to use yet; a later
- * drop grows from silent to pill to card.
+ * The card blocks the app, so it is only for a screen with nothing to use:
+ * a real failure, or a first connect with no saved sessions to show. Every
+ * other wait (reconnect, resume, waking) is a pill, however long it takes,
+ * because the saved sessions behind it stay readable and the composer still
+ * works (Benny, 2026-10-07). A cold start with saved sessions lifts the
+ * launch screen at once, so it gets the pill quickly ("Connecting…").
  */
 export type ConnectionOverlayMode = "hidden" | "pill" | "overlay";
 
@@ -28,6 +29,11 @@ export type NativeOverlayInput = {
   selected: boolean;
   /** The selected computer reached `ready` at least once in this run. */
   everReady: boolean;
+  /**
+   * Saved sessions for the selected computer are on screen. A first connect
+   * then has something to use, so it is a pill, not the card.
+   */
+  hasSaved: boolean;
   readiness: ReadinessKind | null;
   socket: SocketStatus | null;
   /**
@@ -60,14 +66,15 @@ export type NativeOverlayView = {
 };
 
 export const PILL_AFTER_MS = 2_000;
-export const OVERLAY_AFTER_MS = 8_000;
+/** A wait longer than this offers another computer (never while waking). */
+export const LONG_WAIT_MS = 8_000;
 /**
  * A failed check stays soft this long. The provider retries it by itself, and
  * one network error or one 502 mid-resume is usually gone within seconds.
  */
 export const FAIL_AFTER_MS = 20_000;
-/** The first connect gets the card quickly: there is nothing to use yet. */
-export const STARTUP_OVERLAY_AFTER_MS = 600;
+/** The first connect shows quickly: there is nothing live to use yet. */
+export const STARTUP_SHOW_AFTER_MS = 600;
 
 const HIDDEN: NativeOverlayView = {
   mode: "hidden",
@@ -100,6 +107,8 @@ export function nativeOverlayView(input: NativeOverlayInput): NativeOverlayView 
 function baseView(input: NativeOverlayInput): NativeOverlayView {
   if (!input.selected || input.suppressed || isLive(input)) return HIDDEN;
   const startup = !input.everReady;
+  // Only an empty first connect blocks: nothing behind the card to use.
+  const blocking = startup && !input.hasSaved;
 
   let mood: BoxyMood = "searching";
   let title = input.resuming ? "Resuming…" : "Reconnecting…";
@@ -150,21 +159,13 @@ function baseView(input: NativeOverlayInput): NativeOverlayView {
     canRetry = true;
   }
 
-  const longWait = input.notLiveMs >= OVERLAY_AFTER_MS;
+  const longWait = input.notLiveMs >= LONG_WAIT_MS;
   const base = { mood, title, detail, canSwitch: hard || (longWait && !waiting), canRetry };
   if (hard) return { mode: "overlay", ...base, nextChangeMs: null };
 
-  if (startup) {
-    const wait = STARTUP_OVERLAY_AFTER_MS - input.notLiveMs;
-    if (wait > 0) return { ...HIDDEN, nextChangeMs: wait };
-    // Recheck at the long-wait mark, when "Choose another computer" appears.
-    return { mode: "overlay", ...base, nextChangeMs: longWait ? null : OVERLAY_AFTER_MS - input.notLiveMs };
-  }
-
-  const pillAt = input.resuming ? 0 : PILL_AFTER_MS;
-  if (input.notLiveMs < pillAt) return { ...HIDDEN, nextChangeMs: pillAt - input.notLiveMs };
-  if (input.notLiveMs < OVERLAY_AFTER_MS) {
-    return { mode: "pill", ...base, nextChangeMs: OVERLAY_AFTER_MS - input.notLiveMs };
-  }
-  return { mode: "overlay", ...base, nextChangeMs: null };
+  const showAt = input.resuming ? 0 : startup ? STARTUP_SHOW_AFTER_MS : PILL_AFTER_MS;
+  if (input.notLiveMs < showAt) return { ...HIDDEN, nextChangeMs: showAt - input.notLiveMs };
+  // Recheck at the long-wait mark, when "Choose another computer" appears.
+  const nextChangeMs = longWait ? null : LONG_WAIT_MS - input.notLiveMs;
+  return { mode: blocking ? "overlay" : "pill", ...base, nextChangeMs };
 }
