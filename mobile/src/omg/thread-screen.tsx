@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Alert, AppState, Keyboard, Modal, Platform, Pressable, View } from "react-native";
 import { ContentReport, type ReportSelection } from "./content-report";
-import { DropdownMenu } from "./menu";
+import { ReplyTextActions } from "./message-text-actions";
 import { useFocusEffect, useRouter, type Href } from "expo-router";
 import * as Haptics from "expo-haptics";
 import Reanimated, { useAnimatedKeyboard, useAnimatedStyle } from "react-native-reanimated";
@@ -342,6 +342,15 @@ export function MessageRow({ message, first, children }: { message: ThreadMessag
   const report = useContext(ThreadReportContext);
   const { agents } = useOmg();
   const handles = useMemo(() => mentionAgents(agents).map((row) => row.handle), [agents]);
+  const canReport = Boolean(report && !message.pending);
+  const body = <>
+    {message.text ? (
+      <View style={{ opacity: message.pending ? 0.6 : 1 }}>
+        <Markdown text={linkMentions(message.text, people, handles)} inHoldMenu={canReport} />
+      </View>
+    ) : null}
+    <ThreadMediaList media={message.media} />
+  </>;
   return (
     <View style={{ flexDirection: "row", gap: 10, paddingTop: first ? 12 : 2 }}>
       <View style={{ width: 36 }}>{first ? <ThreadAvatar author={message.author} message={message} /> : null}</View>
@@ -353,17 +362,9 @@ export function MessageRow({ message, first, children }: { message: ThreadMessag
           </View>
         ) : null}
         {/* Formatted as the session chat formats a message: the same renderer. */}
-        {message.text ? (
-          <View style={{ opacity: message.pending ? 0.6 : 1 }}>
-            <Markdown text={linkMentions(message.text, people, handles)} />
-          </View>
-        ) : null}
-        {report && !message.pending ? (
-          <DropdownMenu title="Message actions" options={[{ label: "Report content", icon: "flag" as const, onPress: () => report(message) }]}>
-            <View style={{ alignSelf: "flex-start", paddingVertical: 4 }}><Text accessibilityLabel="Message actions" style={{ ...type.caption, color: colors.textMuted }}>•••</Text></View>
-          </DropdownMenu>
-        ) : null}
-        <ThreadMediaList media={message.media} />
+        {canReport ? (
+          <ReplyTextActions text={message.text} onReport={() => report?.(message)}>{body}</ReplyTextActions>
+        ) : body}
         {children}
       </View>
     </View>

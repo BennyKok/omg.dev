@@ -23,8 +23,8 @@ type Selection = ReturnType<typeof useSelectText>;
  * same fix the sent bubble uses. `widthFraction` below 1 makes it a maximum
  * (the bot bubble sizes to its text); 1 fills the row.
  */
-export function ReplyTextActions({ text, children, style, widthFraction = 1 }: {
-  text: string; children: ReactNode; style?: ViewStyle; widthFraction?: number;
+export function ReplyTextActions({ text, children, style, widthFraction = 1, onReport }: {
+  text: string; children: ReactNode; style?: ViewStyle; widthFraction?: number; onReport?: () => void;
 }) {
   const { width: windowWidth } = useWindowDimensions();
   const [rowWidth, setRowWidth] = useState<number | null>(null);
@@ -32,8 +32,8 @@ export function ReplyTextActions({ text, children, style, widthFraction = 1 }: {
   const fill = widthFraction >= 1;
   return (
     <View style={{ alignSelf: "stretch" }} onLayout={event => setRowWidth(event.nativeEvent.layout.width)}>
-      <MessageTextActions text={text} align={fill ? "stretch" : "flex-start"}>
-        <View accessibilityHint="Press and hold for Copy and Select text" style={[style, fill ? { width } : { maxWidth: width }]}>
+      <MessageTextActions text={text} align={fill ? "stretch" : "flex-start"} onReport={onReport}>
+        <View accessibilityHint={onReport ? "Press and hold for message actions and Report content" : "Press and hold for Copy and Select text"} style={[style, fill ? { width } : { maxWidth: width }]}>
           {children}
         </View>
       </MessageTextActions>
@@ -41,9 +41,9 @@ export function ReplyTextActions({ text, children, style, widthFraction = 1 }: {
   );
 }
 
-/** Native hold menu with Copy and Select text. The sent bubble passes its own Copy. */
-export function MessageTextActions({ text, children, onCopy, align = "stretch" }: {
-  text: string; children: ReactNode; onCopy?: () => void; align?: "stretch" | "flex-start";
+/** Native hold menu with text actions and optional reporting. The sent bubble passes its own Copy. */
+export function MessageTextActions({ text, children, onCopy, onReport, align = "stretch" }: {
+  text: string; children: ReactNode; onCopy?: () => void; onReport?: () => void; align?: "stretch" | "flex-start";
 }) {
   const { isDark, colors, type } = useTheme();
   const selection = useSelectText();
@@ -56,12 +56,16 @@ export function MessageTextActions({ text, children, onCopy, align = "stretch" }
     if (noteTimer.current) clearTimeout(noteTimer.current);
     noteTimer.current = setTimeout(() => setNote(""), 1500);
   };
-  if (!text.trim()) return <>{children}</>;
+  const hasText = Boolean(text.trim());
+  if (!hasText && !onReport) return <>{children}</>;
   return <>
     <HoldMenu
       actions={[
-        { id: "copy", title: "Copy", image: "doc.on.doc" },
-        { id: "select", title: "Select text", image: "text.cursor" },
+        ...(hasText ? [
+          { id: "copy", title: "Copy", image: "doc.on.doc" as const },
+          { id: "select", title: "Select text", image: "text.cursor" as const },
+        ] : []),
+        ...(onReport ? [{ id: "report", title: "Report content", image: "flag" as const }] : []),
       ] satisfies MenuAction[]}
       isDark={isDark}
       style={{ alignSelf: align }}
@@ -71,6 +75,7 @@ export function MessageTextActions({ text, children, onCopy, align = "stretch" }
           else void copyAll();
         }
         if (id === "select") selection.open(text);
+        if (id === "report") onReport?.();
       }}
     >
       {children}

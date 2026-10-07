@@ -83,3 +83,34 @@ test('sent message menu preserves Copy and opens selection without an extra butt
     expect((ui.query('textarea') as HTMLTextAreaElement).value).toBe('Sent message');
   } finally { ui.cleanup(); }
 });
+
+test('reporting shares the message hold menu and runs only when selected', () => {
+  const ui = mount();
+  let reports = 0;
+  const click = (name: string) => ui.flush(() => (ui.query(`button[aria-label="${name}"]`) as HTMLButtonElement).click());
+  try {
+    ui.render(<ReplyTextActions text="Thread message" onReport={() => { reports++; }}><span>Thread message</span></ReplyTextActions>);
+    expect(ui.text()).toBe('Thread message');
+    expect(ui.queryAll('button')).toHaveLength(1);
+    expect(reports).toBe(0);
+    click('Message options');
+    expect(ui.queryAll('button').map(b => b.getAttribute('aria-label'))).toEqual(['Message options', 'Copy', 'Select text', 'Report content']);
+    expect(reports).toBe(0);
+    click('Report content');
+    expect(reports).toBe(1);
+    expect(ui.query('textarea')).toBeNull();
+  } finally { ui.cleanup(); }
+});
+
+test('attachment-only messages can be reported without empty copy or selection actions', () => {
+  const ui = mount();
+  let reports = 0;
+  const click = (name: string) => ui.flush(() => (ui.query(`button[aria-label="${name}"]`) as HTMLButtonElement).click());
+  try {
+    ui.render(<ReplyTextActions text="" onReport={() => { reports++; }}><span>Attachment</span></ReplyTextActions>);
+    click('Message options');
+    expect(ui.queryAll('button').map(b => b.getAttribute('aria-label'))).toEqual(['Message options', 'Report content']);
+    click('Report content');
+    expect(reports).toBe(1);
+  } finally { ui.cleanup(); }
+});
