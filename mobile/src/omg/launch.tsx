@@ -43,13 +43,8 @@ import Reanimated, {
   withTiming,
 } from "react-native-reanimated";
 
-import {
-  BrandMark,
-  BrandWordmark,
-  WORDMARK_GAP_RATIO,
-  WORDMARK_MARK_RATIO,
-  WORDMARK_NUDGE_RATIO,
-} from "./brand-mark";
+import { WORDMARK_GAP_RATIO } from "./brand-mark";
+import { Boxy } from "./boxy";
 import { launch } from "./palette";
 import { Text } from "./text";
 import { useTheme } from "./theme";
@@ -134,9 +129,9 @@ const WORDMARK_SIZE = 40;
  * and a second set of hardcoded numbers is exactly how the launch lockup and
  * the real one drift into looking like different logos.
  */
-const MARK_SIZE = WORDMARK_SIZE * WORDMARK_MARK_RATIO;
 const LOCKUP_GAP = WORDMARK_SIZE * WORDMARK_GAP_RATIO;
-const MARK_NUDGE = WORDMARK_SIZE * WORDMARK_NUDGE_RATIO;
+/** Boxy on the launch screen. The caption sits under its feet. */
+const BOXY_SIZE = 120;
 
 const CAPTION_OUT_MS = 120;
 const DIP_MS = 110;
@@ -225,7 +220,6 @@ export function LaunchScreen({
 }) {
   const { isDark } = useTheme();
   const tokens = isDark ? launch.dark : launch.light;
-  const breathe = useSharedValue(0);
   const scale = useSharedValue(1);
   const fade = useSharedValue(1);
   const backdrop = useSharedValue(1);
@@ -244,14 +238,6 @@ export function LaunchScreen({
   /** Lockup width, measured: the slide distance depends on the type's width. */
   const [lockupWidth, setLockupWidth] = useState(0);
   const [leaving, setLeaving] = useState(false);
-
-  useEffect(() => {
-    breathe.value = withRepeat(
-      withTiming(1, { duration: 1600, easing: Easing.inOut(Easing.quad) }),
-      -1,
-      true,
-    );
-  }, [breathe]);
 
   useEffect(() => {
     if (!done || leaving) return;
@@ -294,15 +280,11 @@ export function LaunchScreen({
   }, [done, leaving, scale, fade, backdrop, caption, slide, onFinished]);
 
   // Distance right to the lockup's own centre, which is the screen's centre.
-  const markShift = lockupWidth / 2 - MARK_SIZE / 2;
+  // Boxy alone is the lockup, already on the screen's centre.
+  const markShift = 0 * lockupWidth;
 
   const markStyle = useAnimatedStyle(() => {
-    if (!leaving) {
-      return {
-        opacity: 0.55 + breathe.value * 0.45,
-        transform: [{ scale: 0.97 + breathe.value * 0.03 }],
-      };
-    }
+    if (!leaving) return { opacity: 1, transform: [{ scale: 1 }] };
     // translateX BEFORE scale: the transforms apply in order, so the mark is
     // already centred when it is scaled about its own centre.
     return {
@@ -344,21 +326,14 @@ export function LaunchScreen({
            * array every frame, so a translateY in the same style array is
            * simply replaced and the mark sits on the wrong baseline.
            */}
-          <View style={{ transform: [{ translateY: MARK_NUDGE }] }}>
-            <Reanimated.View style={markStyle}>
-              <BrandMark size={MARK_SIZE} holeColor={tokens.bg} />
-            </Reanimated.View>
-          </View>
           {/**
-           * THE TYPE LEAVES WITH THE CAPTION, NOT WITH THE MARK.
-           *
-           * The mark's exit is a rush past the viewer, and type at 16x is an
-           * unreadable wall crossing the screen. The lockup's two halves part
-           * company on the way out: the type goes quietly while the mark —
-           * the only half that reads at any size — does the travelling.
+           * Boxy powers on while the app connects: asleep screen, a CRT line
+           * snaps open, the eyes boot in, then it blinks. It is the same
+           * mascot as the web splash and the connection overlay, and it
+           * takes the mark's place in the exit below.
            */}
-          <Reanimated.View style={captionStyle}>
-            <BrandWordmark size={WORDMARK_SIZE} mark={false} color={tokens.text} />
+          <Reanimated.View style={markStyle}>
+            <Boxy mood="booting" size={BOXY_SIZE} color={tokens.text} testID="launch-boxy" />
           </Reanimated.View>
         </View>
       </View>
@@ -385,6 +360,6 @@ const styles = StyleSheet.create({
   caption: {
     // Clear of the lockup's own half-height plus a gap. The TYPE is the tall
     // half now that the mark is 0.704 of it, so measure off the type.
-    paddingTop: (WORDMARK_SIZE / 2 + 30) * 2,
+    paddingTop: (BOXY_SIZE / 2 + 14) * 2,
   },
 });

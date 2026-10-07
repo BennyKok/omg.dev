@@ -46,6 +46,7 @@ import { launch } from "../src/omg/palette";
 import { useTheme } from "../src/omg/theme";
 import { getFirstRunRecord, markFirstRunRecordDone } from "../src/omg/first-run-record";
 import { ToastProvider } from "../src/omg/toast";
+import { ConnectionOverlay } from "../src/omg/connection-overlay";
 
 /**
  * THE LAUNCH SCREEN IS THE MARK, BREATHING — not a mark with a spinner under it.
@@ -1089,6 +1090,9 @@ export default function Layout() {
             view underneath it. */}
         <ToastProvider>
           <RootNavigator />
+          {/* Connection drops after the first connect. Below LaunchGate, which
+              owns the first connect; above every screen and its header. */}
+          <ConnectionOverlay />
           {/* Above the navigator so it covers the bar too — see LaunchGate. */}
           <LaunchGate />
         </ToastProvider>

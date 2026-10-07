@@ -1,0 +1,113 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": false
+  },
+  "steps": [
+    {
+      "name": "Launch screen",
+      "goal": "If a system alert such as Apple Account Verification is showing, tap Not Now. Otherwise wait and do not tap anything.",
+      "done": "The launch screen shows the Connecting caption over the stage harness.",
+      "expect": [
+        "Stage: Launch"
+      ],
+      "timeoutMs": 60000
+    },
+    {
+      "name": "Live list",
+      "goal": "Wait for the launch screen to leave by itself. Do not tap anything.",
+      "done": "The harness shows Stage: Live and the fake session list with no connection card.",
+      "expect": [
+        "Stage: Live",
+        "Ads report status and conversions"
+      ],
+      "forbid": [
+        "Connection unavailable",
+        "Reconnecting\u2026"
+      ],
+      "timeoutMs": 60000
+    },
+    {
+      "name": "Reconnecting pill",
+      "goal": "Tap Next stage once.",
+      "done": "A small Reconnecting pill with Retry floats over the list, and the list is still readable.",
+      "expect": [
+        "Stage: Pill",
+        "Reconnecting\u2026",
+        "Retry",
+        "Top up user credits system"
+      ],
+      "timeoutMs": 60000
+    },
+    {
+      "name": "Offline card",
+      "goal": "Tap Next stage once.",
+      "done": "A card says Connection unavailable with Try again and Choose another computer.",
+      "expect": [
+        "Stage: Offline",
+        "Connection unavailable",
+        "Try again",
+        "Choose another computer"
+      ],
+      "timeoutMs": 60000
+    },
+    {
+      "name": "Choose another works",
+      "goal": "Tap Choose another computer once.",
+      "done": "The text Choose another tapped appears under the list.",
+      "expect": [
+        "Choose another tapped"
+      ],
+      "timeoutMs": 60000
+    },
+    {
+      "name": "Paused card",
+      "goal": "The Next stage tap already happened. Do not tap anything; wait for the card to show.",
+      "done": "A card says Computer paused.",
+      "expect": [
+        "Stage: Paused",
+        "Computer paused",
+        "Choose another computer"
+      ],
+      "timeoutMs": 60000,
+      "tapAt": "50%,91%"
+    },
+    {
+      "name": "Error card",
+      "goal": "The Next stage tap already happened. Do not tap anything; wait for the card to show.",
+      "done": "A card says Your computer isn't responding with Try again.",
+      "expect": [
+        "Stage: Error",
+        "Your computer isn't responding",
+        "Try again"
+      ],
+      "timeoutMs": 60000,
+      "tapAt": "50%,91%"
+    },
+    {
+      "name": "Waking card",
+      "goal": "The Next stage tap already happened. Do not tap anything; wait for the card to show.",
+      "done": "A card says Waking your computer.",
+      "expect": [
+        "Stage: Waking",
+        "Waking your computer\u2026"
+      ],
+      "timeoutMs": 60000,
+      "tapAt": "50%,91%"
+    },
+    {
+      "name": "Connected",
+      "goal": "The Next stage tap already happened. Do not tap anything; wait for the card to show.",
+      "done": "A card says Connected with no buttons.",
+      "expect": [
+        "Stage: Back",
+        "Connected"
+      ],
+      "forbid": [
+        "Try again"
+      ],
+      "timeoutMs": 60000,
+      "tapAt": "50%,91%"
+    }
+  ]
+}
