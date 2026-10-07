@@ -2,16 +2,22 @@ name: desktop-package
 
 # Electrobun builds the current host OS and architecture. Use native runners
 # for every supported desktop target. The final job updates a rolling preview
-# release so the README can use a stable, public download URL.
+# release so the README can use a stable, public download URL. Installed apps
+# poll the update.json files on that release to auto-update, so every version
+# tag republishes it.
 
 on:
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: desktop-package-${{ github.ref }}
+  # One rolling release: never publish two builds at once.
+  group: desktop-package
   cancel-in-progress: false
 
 jobs:
@@ -164,6 +170,11 @@ jobs:
           test -s desktop-dist/macos-arm64-SHA256SUMS.txt
           test -s desktop-dist/linux-x64-SHA256SUMS.txt
           test -s desktop-dist/linux-arm64-SHA256SUMS.txt
+          # Auto-update manifests and archives read by installed apps.
+          for target in macos-arm64 linux-x64 linux-arm64; do
+            test -s "desktop-dist/stable-$target-update.json"
+          done
+          test -s desktop-dist/stable-macos-arm64-omg.dev.app.tar.zst
 
       - name: Publish rolling preview release
         env:
@@ -182,7 +193,7 @@ jobs:
             echo '- Linux packages are available for x64 and ARM64.'
             echo '- Every package includes the omg.dev UI and local runtime.'
             echo
-            echo "Built from commit \`$GITHUB_SHA\` by [GitHub Actions]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)."
+            echo "Built from \`$GITHUB_REF_NAME\`, commit \`$GITHUB_SHA\`, by [GitHub Actions]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)."
           } > "$notes_file"
 
           if gh release view "$PREVIEW_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then

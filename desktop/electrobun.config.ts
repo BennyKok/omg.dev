@@ -49,6 +49,9 @@ export default {
     exitOnLastWindowClosed: true,
   },
   release: {
+    // The desktop-package workflow publishes update.json and the app archive
+    // to this rolling release. Installed apps poll it (src/bun/auto-update.ts).
+    baseUrl: "https://github.com/BennyKok/omg.dev/releases/download/desktop-preview",
     generatePatch: false,
   },
 } satisfies ElectrobunConfig;
