@@ -479,6 +479,12 @@ describe("diffAskEvents", () => {
     ...over,
   });
 
+  test("a secure key ask is never sent to a chat channel", () => {
+    const seen = new Set<string>();
+    const secret = ask({ id: "q9", question: "Enter FISH_AUDIO_API_KEY", secret: { key: "FISH_AUDIO_API_KEY" } });
+    expect(diffAskEvents(seen, [secret], false)).toEqual([]);
+  });
+
   test("first poll only seeds the baseline — a parked question isn't re-asked on restart", () => {
     const seen = new Set<string>();
     expect(diffAskEvents(seen, [ask({}), ask({ id: "q2" })], true)).toEqual([]);

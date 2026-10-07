@@ -253,3 +253,123 @@ test("omg_app_identity refuses a bad icon before any upload", async () => {
     expect(called).toBe(false);
   }
 });
+
+function envRequest(path: string, body: unknown) {
+  return new Request(`http://127.0.0.1${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+function linkApp(slug = "shop", projectId = "proj-9") {
+  mkdirSync(join(dir, ".omg"), { recursive: true });
+  writeFileSync(join(dir, ".omg", "project.json"), JSON.stringify({ slug, projectId, name: "Shop" }));
+}
+
+test("omg_app_env import reads the linked folder's .env here and sends it to Cloud", async () => {
+  linkApp();
+  writeFileSync(join(dir, ".env"), "STRIPE_KEY=sk_test_1\nINTERNAL_API=https://api.internal\n");
+  const sent: { url: string; body: unknown }[] = [];
+  const req = envRequest("/api/cloud/env/import", { cwd: dir });
+  const response = await handleCloudAppsRequest(req, new URL(req.url), {
+    getAccessToken: async () => "tok",
+    controlPlaneUrl: "https://backend.example",
+    fetch: async (input, init) => {
+      sent.push({ url: String(input), body: JSON.parse(String(init?.body)) });
+      return json({ slug: "shop", created: ["STRIPE_KEY", "INTERNAL_API"], updated: [], appliesOnNextPublish: true });
+    },
+  });
+  expect(response?.status).toBe(200);
+  expect(sent).toEqual([{
+    url: "https://backend.example/api/cli/env/import",
+    body: {
+      slug: "shop",
+      projectId: "proj-9",
+      contents: "STRIPE_KEY=sk_test_1\nINTERNAL_API=https://api.internal\n",
+    },
+  }]);
+  const body = (await response?.json()) as { created: string[] };
+  expect(body.created).toEqual(["STRIPE_KEY", "INTERNAL_API"]);
+});
+
+test("omg_app_env import accepts a named .env.production relative to cwd", async () => {
+  linkApp();
+  writeFileSync(join(dir, ".env.production"), "A=1\n");
+  let contents: unknown;
+  const req = envRequest("/api/cloud/env/import", { cwd: dir, file: ".env.production" });
+  const response = await handleCloudAppsRequest(req, new URL(req.url), {
+    getAccessToken: async () => "tok",
+    controlPlaneUrl: "https://backend.example",
+    fetch: async (_input, init) => {
+      contents = (JSON.parse(String(init?.body)) as { contents: string }).contents;
+      return json({ slug: "shop", created: ["A"], updated: [], appliesOnNextPublish: true });
+    },
+  });
+  expect(response?.status).toBe(200);
+  expect(contents).toBe("A=1\n");
+});
+
+test("omg_app_env import refuses a file that is not a .env file", async () => {
+  linkApp();
+  writeFileSync(join(dir, "id_rsa"), "secret");
+  let called = false;
+  const req = envRequest("/api/cloud/env/import", { cwd: dir, file: "id_rsa" });
+  const response = await handleCloudAppsRequest(req, new URL(req.url), {
+    getAccessToken: async () => "tok",
+    fetch: async () => {
+      called = true;
+      return json({});
+    },
+  });
+  expect(response?.status).toBe(400);
+  expect(called).toBe(false);
+});
+
+test("omg_app_env without a slug or a linked folder says to deploy first", async () => {
+  const req = envRequest("/api/cloud/env", { cwd: dir, vars: { A: "1" } });
+  const response = await handleCloudAppsRequest(req, new URL(req.url), {
+    getAccessToken: async () => "tok",
+    fetch: async () => json({}),
+  });
+  expect(response?.status).toBe(400);
+  expect(((await response?.json()) as { error: string }).error).toContain("deploy first");
+});
+
+test("omg_app_env set and remove resolve the slug from cwd and keep cwd local", async () => {
+  linkApp();
+  const sent: unknown[] = [];
+  const options = {
+    getAccessToken: async () => "tok",
+    controlPlaneUrl: "https://backend.example",
+    fetch: async (_input: unknown, init?: RequestInit) => {
+      sent.push(JSON.parse(String(init?.body)));
+      return json({ ok: true });
+    },
+  };
+  const set = envRequest("/api/cloud/env", { cwd: dir, vars: { A: "1" } });
+  await handleCloudAppsRequest(set, new URL(set.url), options);
+  const rm = envRequest("/api/cloud/env/rm", { cwd: dir, keys: ["A"] });
+  await handleCloudAppsRequest(rm, new URL(rm.url), options);
+  expect(sent).toEqual([
+    { vars: { A: "1" }, slug: "shop", projectId: "proj-9" },
+    { keys: ["A"], slug: "shop", projectId: "proj-9" },
+  ]);
+});
+
+test("a deploy that leaves out .env files says so and points at omg_app_env", async () => {
+  writeFileSync(join(dir, "index.html"), "<h1>hi</h1>");
+  writeFileSync(join(dir, ".env"), "SECRET=1\n");
+  let uploaded: string[] = [];
+  const client = createCloudAppsClient({
+    getAuthToken: async () => "tok",
+    fetch: async (_input, init) => {
+      uploaded = (JSON.parse(String(init?.body)) as { files: { path: string }[] }).files.map((f) => f.path);
+      return json({ slug: "hi", url: "https://hi.omgs.app", status: "accepted", projectId: "p", runId: "r" });
+    },
+  });
+  const result = await deployFolder(client, { cwd: dir });
+  expect(uploaded).toEqual([`${GUEST_PROJECT_ROOT}/index.html`]);
+  expect(result.skippedSecrets).toEqual([".env"]);
+  expect(result.envHint).toContain("omg_app_env");
+});

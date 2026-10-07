@@ -8118,15 +8118,34 @@ a{color:#60a5fa}
           pushback?: boolean;
           wait?: boolean;
           timeoutMs?: number;
+          secret?: { key?: unknown; cwd?: unknown; slug?: unknown } | null;
         } | null;
         if (!b?.question?.trim()) return err(400, "missing question");
+        let secret: { key: string; cwd: string | null; slug: string | null } | undefined;
+        if (b.secret) {
+          const { validateEnvKey } = await import("../app-secrets.ts");
+          try {
+            secret = {
+              key: validateEnvKey(b.secret.key),
+              cwd: typeof b.secret.cwd === "string" && b.secret.cwd.trim() ? b.secret.cwd.trim() : null,
+              slug: typeof b.secret.slug === "string" && b.secret.slug.trim() ? b.secret.slug.trim() : null,
+            };
+          } catch (e) {
+            return err(400, e instanceof Error ? e.message : "bad secret key");
+          }
+          if (!secret.cwd && !secret.slug) return err(400, "a secret ask needs cwd or slug");
+          if (!b.sessionId) return err(400, "a secret ask needs sessionId");
+        }
         const q = await addQuestion({
           question: b.question,
-          options: b.options,
+          // A secret is typed, never picked from options.
+          options: secret ? undefined : b.options,
           agentId: b.agentId,
           sessionId: b.sessionId,
           user: b.user,
-          pushback: b.pushback === true,
+          // The saved-key notice reaches the agent only by session injection.
+          pushback: secret ? true : b.pushback === true,
+          secret,
         });
         // Wake the user with a push (user-scoped). Voice talk-back happens when
         // they engage: open questions are surfaced in the voice snapshot below,
@@ -8196,6 +8215,11 @@ a{color:#60a5fa}
             deliver?: boolean;
           } | null;
           if (!b?.answer?.trim()) return err(400, "missing answer");
+          // A secret ask takes its value only through the /secret route. Voice,
+          // a channel reply, or an old client must not put a key in the store.
+          if ((await getQuestion(m[1]))?.secret) {
+            return err(400, "this question needs the secure field in omg.dev");
+          }
           const q = await answerQuestion(m[1], { answer: b.answer.trim(), via: b.via });
           if (!q) return err(404, "unknown or already-answered question");
 
@@ -8270,6 +8294,49 @@ a{color:#60a5fa}
             }
           }
           return json({ question: q });
+        }
+      }
+      // Answer a secure ask with its secret value. The value goes to the
+      // project's .env and to the hosted app's Cloud env, and nowhere else: the
+      // stored answer and the message to the agent carry the key name only.
+      {
+        const m = path.match(/^\/api\/ask\/([0-9a-f]+)\/secret$/);
+        if (m && req.method === "POST") {
+          const b = (await req.json().catch(() => null)) as { value?: unknown } | null;
+          const pending = await getQuestion(m[1]);
+          if (!pending) return err(404, "unknown question");
+          if (!pending.secret) return err(400, "this question does not take a secret");
+          if (pending.status !== "open") return err(409, "this question is already answered");
+          const { saveAppSecret, formatSecretSavedText } = await import("../app-secrets.ts");
+          const { createRuntimeAppsClient } = await import("../cloud-apps.ts");
+          let saved;
+          try {
+            saved = await saveAppSecret({
+              key: pending.secret.key,
+              value: b?.value as string,
+              cwd: pending.secret.cwd,
+              slug: pending.secret.slug,
+              client: createRuntimeAppsClient({ getAccessToken: () => cloudAccount.getAccessToken() }),
+            });
+          } catch (e) {
+            // Nothing was answered: the field stays open for another try.
+            return err(400, e instanceof Error ? e.message : "could not save the value");
+          }
+          const q = await answerQuestion(pending.id, { answer: `saved ${saved.key}`, via: "web" });
+          if (!q) return err(409, "this question is already answered");
+          if (q.sessionId) {
+            try {
+              const r = await fetch(`http://127.0.0.1:${PORT}/api/sessions/${q.sessionId}/send`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ text: formatSecretSavedText(q.id, saved), mode: "steer" }),
+              });
+              if (r.ok) await markHandled(q.id);
+            } catch {
+              // loopback failed — the value is saved; the ask stays answered
+            }
+          }
+          return json({ question: q, saved });
         }
       }
       // Mark an answered question as acted-upon (the supervisor calls this after

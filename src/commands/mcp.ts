@@ -1435,6 +1435,77 @@ export function buildOmgMcpServer(): McpServer {
   );
 
   server.registerTool(
+    "omg_app_env",
+    {
+      title: "Manage A Hosted App's Env Vars And API Keys",
+      description:
+        "Give an app its secrets (API keys, internal API URLs, tokens) as env vars. When the app needs a key the user has not given, use action request with one key: the user gets a password field in omg.dev, the value is saved to the project .env and to the hosted app, and you get a message with the key name only. Call request once per key, then end your turn and wait for the [env-set KEY] message. Never ask the user to paste a key in chat. .env files are never uploaded by omg_deploy. action import reads a .env file on this machine and sends it to Cloud, so values never appear in chat: prefer it. action set takes values directly; use it only for values the user already typed. action list shows key names with masked previews. action remove deletes keys. Changes apply on the next deploy, so call omg_deploy after. Never echo secret values back to the user. The app is the slug, else the one linked to cwd by .omg/project.json.",
+      inputSchema: {
+        action: z.enum(["request", "list", "import", "set", "remove"]),
+        slug: z.string().optional().describe("App slug. Defaults to the app linked to cwd."),
+        cwd: z.string().optional().describe("Absolute project folder. Defaults to the calling session cwd."),
+        file: z.string().optional().describe("import: .env or .env.* file, absolute or relative to cwd. Default .env."),
+        vars: z.record(z.string(), z.string()).optional().describe("set: KEY to value map."),
+        keys: z.array(z.string()).optional().describe("remove: keys to delete."),
+        key: z.string().optional().describe("request: the one env var name to ask for, e.g. FISH_AUDIO_API_KEY."),
+        hint: z.string().max(200).optional().describe("request: where the user finds the value, e.g. fish.audio > API Keys."),
+        sessionId: z.string().optional().describe("Session used to default cwd. Defaults to OMG_SESSION_ID."),
+      },
+    },
+    async ({ action, slug, cwd, file, vars, keys, key, hint, sessionId }) => {
+      const sid = await activeSessionId(sessionId);
+      let folder = cwd?.trim();
+      if (!folder) {
+        const { sessions } = await api<{ sessions: SessionRow[] }>("/api/sessions");
+        folder = sessions.find((session) => session.sessionId === sid || session.nativeSessionId === sid)?.cwd?.trim();
+      }
+      const target = { slug: slug?.trim() || undefined, cwd: folder || undefined };
+      if (action === "request") {
+        if (!key?.trim()) throw new Error("key is required for request");
+        const name = key.trim();
+        const data = await api<{ id: string; status: string }>("/api/ask", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            question: `Enter ${name}${hint?.trim() ? ` (${hint.trim()})` : ""}`,
+            sessionId: sid,
+            user: await questionUser(undefined, sid),
+            pushback: true,
+            wait: false,
+            secret: { key: name, cwd: target.cwd, slug: target.slug },
+          }),
+        });
+        return result({
+          id: data.id,
+          status: data.status,
+          next:
+            `The user has a secure field for ${name}. Do not wait, poll, or ask for the value in chat. ` +
+            `End your turn or continue other work; a message starting with "[env-set ${name}]" arrives when it is saved.`,
+        });
+      }
+      const post = (path: string, body: Record<string, unknown>) =>
+        api(path, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...target, ...body }),
+        });
+      if (action === "list") {
+        const query = new URLSearchParams();
+        if (target.slug) query.set("slug", target.slug);
+        if (target.cwd) query.set("cwd", target.cwd);
+        return result(await api(`/api/cloud/env?${query}`));
+      }
+      if (action === "import") return result(await post("/api/cloud/env/import", { file }));
+      if (action === "set") {
+        if (!vars || Object.keys(vars).length === 0) throw new Error("vars is required for set");
+        return result(await post("/api/cloud/env", { vars }));
+      }
+      if (!keys || keys.length === 0) throw new Error("keys is required for remove");
+      return result(await post("/api/cloud/env/rm", { keys }));
+    },
+  );
+
+  server.registerTool(
     "omg_app_visibility",
     {
       title: "Get Or Set Hosted App Visibility",

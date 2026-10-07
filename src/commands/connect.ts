@@ -1062,6 +1062,8 @@ export type AskLite = {
   sessionId?: string | null;
   user?: string | null;
   pushback?: boolean;
+  /** Set on a secure ask. Its value is typed only in omg.dev, never in a channel. */
+  secret?: unknown;
   status?: string | null;
   createdAt?: number | null;
 };
@@ -1083,6 +1085,10 @@ export function diffAskEvents(seen: Set<string>, questions: AskLite[], firstPoll
     // Defensive, same reason as diffAutoFindingEvents: never surface a
     // question that's already been answered or has expired.
     if ((q.status ?? "open") !== "open") continue;
+    // A secure ask must not invite a reply in a chat channel: the reply would
+    // carry the key in plain text. The push notification sends the user to
+    // omg.dev, where the password field is.
+    if (q.secret) continue;
     const question = q.question?.trim();
     if (!question) continue;
     presentIds.add(q.id);
