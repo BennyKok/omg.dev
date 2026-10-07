@@ -25,6 +25,10 @@ on:
       message:
         description: "Update message shown in `eas update:list`"
         required: true
+      runtime_version:
+        description: "Optional compatible app runtime version (for example 1.0.14)"
+        required: false
+        default: ""
       channel:
         description: "EAS channel to publish to"
         default: production
@@ -126,6 +130,24 @@ jobs:
             exit 1
           fi
           echo "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=$id" >> "$GITHUB_ENV"
+
+      # One channel can serve several installed app versions. Use only after
+      # checking that their native dependencies match this JavaScript update.
+      - name: Select the compatible update runtime
+        if: inputs.runtime_version != ''
+        env:
+          UPDATE_RUNTIME_VERSION: ${{ inputs.runtime_version }}
+        run: |
+          if [[ ! "$UPDATE_RUNTIME_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::runtime_version must be a numeric app version."
+            exit 1
+          fi
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const config = JSON.parse(fs.readFileSync('app.json', 'utf8'));
+          config.expo.version = process.env.UPDATE_RUNTIME_VERSION;
+          fs.writeFileSync('app.json', JSON.stringify(config, null, 2) + '\n');
+          NODE
 
       # An OTA publish has no review stage in front of it, so the export has to
       # pass here rather than break on someone's phone.

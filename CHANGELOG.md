@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 7, 2026 - Reconnect without blocking your work (v0.6.202)
+
+- Reconnect, resume, and wake waits stay in a small pill. Saved sessions stay usable.
+- The full connection card appears only for a failure or an empty first connection.
+- Boxy moves between the card and pill. It stays in place when the connection returns.
+
 ## October 7, 2026 - Signed Mac app (v0.6.201)
 
 - The Mac app is now signed with a Developer ID and notarized by Apple. macOS opens it with no security warning.
