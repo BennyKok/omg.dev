@@ -36,6 +36,7 @@
         "expo-router": "~58.0.5",
         "expo-status-bar": "~58.0.1",
         "expo-symbols": "~58.0.2",
+        "expo-tracking-transparency": "58.0.2",
         "expo-updates": "~58.0.6",
         "expo-video": "~58.0.2",
         "expo-web-browser": "~58.0.1",
@@ -45,6 +46,7 @@
         "react": "19.3.0",
         "react-dom": "19.3.0",
         "react-native": "0.88.0-rc.1",
+        "react-native-fbsdk-next": "13.4.3",
         "react-native-gesture-handler": "~3.2.1",
         "react-native-key-command": "1.0.16",
         "react-native-reanimated": "4.6.0",
@@ -710,6 +712,8 @@
 
     "expo-symbols": ["expo-symbols@58.0.2", "", { "dependencies": { "@expo-google-fonts/material-symbols": "^0.4.1", "sf-symbols-typescript": "^2.0.0" }, "peerDependencies": { "expo": "*", "expo-font": "*", "react": "*", "react-native": "*" } }, "sha512-qVOe32DUAr3pgA/neDpMoR40rgkQI60PrZ5hA60BimQ6NnqkuKgNulwwB1hR0CsGwLehKcvQFtdLUvtTvaXFTA=="],
 
+    "expo-tracking-transparency": ["expo-tracking-transparency@58.0.2", "", { "peerDependencies": { "expo": "*", "react-native": "*" } }, "sha512-9nhQgj7EZoyGCawOLSPvUP/4XqkASKXbaedECGXvLVKgwEZplrKDSZ7OEtcJgRhJ3jh+LDpa439PCI6ewYbknA=="],
+
     "expo-updates": ["expo-updates@58.0.6", "", { "dependencies": { "@expo/code-signing-certificates": "^0.0.6", "@expo/plist": "^0.10.0", "@expo/spawn-async": "^1.8.0", "arg": "^4.1.0", "chalk": "^4.1.2", "debug": "^4.3.4", "expo-eas-client": "~58.0.0", "expo-manifests": "~58.0.0", "expo-structured-headers": "~58.0.0", "expo-updates-interface": "~58.0.0", "getenv": "^2.0.0", "glob": "^13.0.0", "ignore": "^5.3.1", "nullthrows": "^1.1.1", "resolve-from": "^5.0.0" }, "peerDependencies": { "expo": "*", "expo-dev-client": "*", "react": "*", "react-native": "*" }, "optionalPeers": ["expo-dev-client"], "bin": { "expo-updates": "bin/cli.js" } }, "sha512-EI3MUZF2rkx1ebCGRgOG3rrOYROYX7uYOlQm9rQ5jKkMaWshFrlS+dPA/cGfwyJNP2GGGH9iHJcwc4fhpwa+Hw=="],
 
     "expo-updates-interface": ["expo-updates-interface@58.0.0", "", { "peerDependencies": { "expo": "*" } }, "sha512-zFh/g/UJIN1NzGQZeH7WAuM3pJ86teBXAU3V234oBjsIEJT4ckcis/IIhHjkWswQ2Li7kOBeRCdCxEYDPAcHbA=="],
@@ -1033,6 +1037,8 @@
     "react-native": ["react-native@0.88.0-rc.1", "", { "dependencies": { "@react-native/asset-utils": "0.88.0-rc.1", "@react-native/codegen": "0.88.0-rc.1", "@react-native/community-cli-plugin": "0.88.0-rc.1", "@react-native/gradle-plugin": "0.88.0-rc.1", "@react-native/normalize-colors": "0.88.0-rc.1", "@react-native/virtualized-lists": "0.88.0-rc.1", "anser": "^1.4.9", "ansi-regex": "^5.0.0", "base64-js": "^1.5.1", "flow-enums-runtime": "^0.0.6", "flow-parser": "0.327.0", "hermes-compiler": "260318099.0.3", "invariant": "^2.2.4", "memoize-one": "^5.0.0", "metro-runtime": "^0.87.0", "metro-source-map": "^0.87.0", "nullthrows": "^1.1.1", "pretty-format": "^29.7.0", "promise": "^8.3.0", "react-devtools-core": "^6.1.5", "react-refresh": "^0.14.0", "regenerator-runtime": "^0.13.2", "scheduler": "0.28.0", "semver": "^7.1.3", "stacktrace-parser": "^0.1.10", "tinyglobby": "^0.2.15", "whatwg-fetch": "^3.0.0", "ws": "^7.5.10", "yargs": "^17.6.2" }, "peerDependencies": { "@types/react": "^19.1.1", "react": "^19.3.0" }, "optionalPeers": ["@types/react"], "bin": { "react-native": "cli.js" } }, "sha512-hOZmhTDWVlhi0JrLLNd9E1X2Xu4paN9EKrsivrQF/04dlMIoHvI7oxu7yJcjPtfmptwiXM64+0utNVhsSPTMLg=="],
 
     "react-native-drawer-layout": ["react-native-drawer-layout@4.2.9", "", { "dependencies": { "color": "^4.2.3", "use-latest-callback": "^0.2.4" }, "peerDependencies": { "react": ">= 18.2.0", "react-native": "*", "react-native-gesture-handler": ">= 2.0.0", "react-native-reanimated": ">= 2.0.0" } }, "sha512-ETOxvlhhb4LmuuG3RN7A3qwt9jr9AZ2it+1G2kNE4g2fTyxxay7QQkPm1HfKi/JzmMSWC5+YTepGSgZNpJIDGg=="],
+
+    "react-native-fbsdk-next": ["react-native-fbsdk-next@13.4.3", "", { "peerDependencies": { "expo": ">=47.0.0", "react-native": ">=0.63.3" }, "optionalPeers": ["expo"] }, "sha512-xGymFmocik7/159i6x/bGx4AHuEk3MFMkVl4MlW7JDuN8LIpbGU76WljEOO+Ucdn248nDlo1EG//CXHMGxZTMg=="],
 
     "react-native-gesture-handler": ["react-native-gesture-handler@3.2.1", "", { "dependencies": { "@types/react-test-renderer": "^19.1.0", "invariant": "^2.2.4" }, "peerDependencies": { "react": "*", "react-native": "*" } }, "sha512-VEWscxUN29aeccbD2McF0LSXrwOhSdisaSRFiEWg0O/3WrVghNJp/tOtLrCgzb9gfcZ3xdA+K2Sp8F5G3iHx/Q=="],
 

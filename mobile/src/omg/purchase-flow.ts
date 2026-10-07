@@ -28,12 +28,14 @@ import {
   type Entitlement,
   type PurchaseAccount,
 } from "./billing";
+import { notePurchase } from "./meta-events";
 import { FALLBACK_TIERS } from "./plan-specs";
 import { useOmg } from "./provider";
 import {
   connectStore,
   fetchTiers,
   finishPurchase,
+  isMockStore,
   isStoreAvailable,
   purchaseTier,
   restoreTiers,
@@ -246,6 +248,10 @@ export function usePurchaseFlow(
       }
 
       // Past this line Apple has charged them. Nothing below may say "failed".
+      // Counted for Meta here, at the charge, so a slow omg submit still counts.
+      if (!isMockStore) {
+        void notePurchase({ ...purchase, price: product.price, currency: product.currency });
+      }
       const entitlement = await record(purchase);
       if (!entitlement) {
         setPhase({ kind: "activating", plan: product.plan });

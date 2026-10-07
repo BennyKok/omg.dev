@@ -42,6 +42,7 @@
     "expo-router": "~58.0.5",
     "expo-status-bar": "~58.0.1",
     "expo-symbols": "~58.0.2",
+    "expo-tracking-transparency": "58.0.2",
     "expo-updates": "~58.0.6",
     "expo-video": "~58.0.2",
     "expo-web-browser": "~58.0.1",
@@ -51,6 +52,7 @@
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-native": "0.88.0-rc.1",
+    "react-native-fbsdk-next": "13.4.3",
     "react-native-gesture-handler": "~3.2.1",
     "react-native-key-command": "1.0.16",
     "react-native-reanimated": "4.6.0",
@@ -89,6 +91,11 @@
   },
   "expo": {
     "autolinking": {
+      "android": {
+        "exclude": [
+          "expo-tracking-transparency"
+        ]
+      },
       "ios": {
         "buildFromSource": [
           "expo-modules-core"

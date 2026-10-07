@@ -67,7 +67,9 @@ const REMOTE_ENV =
   // Demo mode and its fixtures (demo.ts, demo-data.ts) are read at bundle
   // time, so a plan that needs them must set them on the machine that builds.
   Object.entries(process.env)
-    .filter(([key, value]) => /^EXPO_PUBLIC_OMG_[A-Z_]+$/.test(key) && /^[A-Za-z0-9_.-]*$/.test(value ?? ""))
+    // META_APP_ID / META_CLIENT_TOKEN switch on the Meta plugin and its
+    // tracking prompt (app.config.js), so a plan can prove that prompt.
+    .filter(([key, value]) => /^(EXPO_PUBLIC_OMG_[A-Z_]+|META_APP_ID|META_CLIENT_TOKEN)$/.test(key) && /^[A-Za-z0-9_.-]*$/.test(value ?? ""))
     .map(([key, value]) => ` export ${key}=${value};`)
     .join("");
 
@@ -128,6 +130,8 @@ function nativeFingerprint(): string {
     hash.update(file);
     hash.update(readIfPresent(new URL(file, import.meta.url).pathname));
   }
+  // The Meta plugin is on only with these set, so they shape ios/ as well.
+  hash.update(`meta:${process.env.META_APP_ID ? 1 : 0}${process.env.META_CLIENT_TOKEN ? 1 : 0}`);
   return hash.digest("hex");
 }
 

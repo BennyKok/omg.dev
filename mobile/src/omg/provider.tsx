@@ -27,6 +27,7 @@ import { AppState, StyleSheet, View } from "react-native";
 
 import { CLOUD_BINDING_ID, CONTROLPLANE_ORIGIN, STORAGE_KEYS } from "./config";
 import { getAuthToken, getSession, signOut as authSignOut, type SignedInUser } from "./auth";
+import { noteSignedIn } from "./meta-events";
 import { DEMO_BINDING, DEMO_USER, isDemoMode } from "./demo";
 import { forgetAllTransports, getHostedTransport } from "./transport";
 import { registerSessionRefResolver } from "./session-ref-link";
@@ -253,6 +254,8 @@ export function OmgProvider({ children }: PropsWithChildren) {
     setBindingId(typeof savedBinding === "string" ? savedBinding : null);
     setUser(found);
     setAuthStatus(found ? "signed-in" : "signed-out");
+    // Tracking prompt and sign-up measurement. A no-op without a Meta build.
+    if (found && !isDemoMode()) void noteSignedIn(found);
   }, []);
 
   useEffect(() => {

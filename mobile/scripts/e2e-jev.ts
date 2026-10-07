@@ -90,7 +90,11 @@ export type Step = {
 
 export type Plan = {
   appId: string;
-  launch?: { clearState?: boolean };
+  launch?: {
+    clearState?: boolean;
+    /** Maestro launchApp permissions, e.g. `{ userTracking: "unset" }`. */
+    permissions?: Record<string, "allow" | "deny" | "unset">;
+  };
   steps: Step[];
 };
 
@@ -244,7 +248,15 @@ export async function runPlan(opts: {
 
   try {
     if (opts.plan.launch) {
-      const r = await mcp.run(`${header}- launchApp:\n    clearState: ${opts.plan.launch.clearState ? "true" : "false"}\n`);
+      // Maestro's launchApp grants EVERY permission unless told otherwise,
+      // so a plan that must see a system prompt names it here as "unset".
+      const permissions = Object.entries(opts.plan.launch.permissions ?? {})
+        .map(([name, value]) => `      ${name}: ${value}\n`)
+        .join("");
+      const r = await mcp.run(
+        `${header}- launchApp:\n    clearState: ${opts.plan.launch.clearState ? "true" : "false"}\n` +
+          (permissions ? `    permissions:\n${permissions}` : ""),
+      );
       if (!r.ok) throw new Error(`launchApp failed: ${r.text.slice(0, 300)}`);
     }
 
