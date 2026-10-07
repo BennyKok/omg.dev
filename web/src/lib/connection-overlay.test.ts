@@ -29,10 +29,11 @@ test("a reconnect grows from silent to pill to overlay", () => {
   expect(blip.nextChangeMs).toBe(PILL_AFTER_MS - 500);
 
   const pill = reconnecting(PILL_AFTER_MS);
-  expect(pill).toMatchObject({ mode: "pill", mood: "searching", title: "Reconnecting…", canRetry: true });
+  // Still reconnecting: no Retry, nothing that reads as a failure.
+  expect(pill).toMatchObject({ mode: "pill", mood: "searching", title: "Reconnecting…", canRetry: false });
   expect(pill.nextChangeMs).toBe(OVERLAY_AFTER_MS - PILL_AFTER_MS);
 
-  expect(reconnecting(OVERLAY_AFTER_MS)).toMatchObject({ mode: "overlay", nextChangeMs: null });
+  expect(reconnecting(OVERLAY_AFTER_MS)).toMatchObject({ mode: "overlay", canRetry: false, canSwitch: true, nextChangeMs: null });
 });
 
 test("coming back from the background says Resuming and shows at once", () => {
@@ -40,7 +41,7 @@ test("coming back from the background says Resuming and shows at once", () => {
 });
 
 test("offline and a server-stopped computer dim the app at once", () => {
-  expect(reconnecting(0, { status: "offline" })).toMatchObject({ mode: "overlay", mood: "sleeping" });
+  expect(reconnecting(0, { status: "offline" })).toMatchObject({ mode: "overlay", mood: "sleeping", canRetry: true, canSwitch: true });
   expect(reconnecting(0, { lifecycle: "paused" })).toMatchObject({
     mode: "overlay",
     mood: "sleeping",
@@ -71,5 +72,11 @@ test("the first bootstrap waits briefly, then covers the empty shell without Ret
     mood: "booting",
     title: "Connecting…",
     canRetry: false,
+    canSwitch: false,
+    nextChangeMs: OVERLAY_AFTER_MS - STARTUP_OVERLAY_AFTER_MS,
+  });
+  expect(connectionOverlayView({ ...first, notLiveMs: OVERLAY_AFTER_MS })).toMatchObject({
+    canRetry: false,
+    canSwitch: true,
   });
 });

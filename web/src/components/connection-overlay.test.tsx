@@ -103,3 +103,13 @@ test("the first load shows the card, says Connected, then closes", async () => {
   await ui.flushAsync(() => sleep(1_400));
   expect(overlay()).toBeNull();
 });
+
+test("still connecting shows Boxy with no Retry and no switcher", async () => {
+  ui = mount();
+  ui.render(view({ ...base, status: "connecting", loading: true, ready: false }));
+  await ui.flushAsync(() => sleep(700));
+  const el = overlay()!;
+  expect(el.textContent).toContain("Connecting…");
+  expect(el.textContent).not.toContain("Retry");
+  expect(el.textContent).not.toContain("Switch computer");
+});

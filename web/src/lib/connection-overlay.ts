@@ -31,8 +31,13 @@ export type ConnectionOverlayView = {
   mood: BoxyMood;
   title: string;
   detail: string | null;
-  /** Retry makes sense: the app is not in its first bootstrap request. */
+  /**
+   * Offer Retry: only a real failure. While the app is still connecting or
+   * reconnecting, a retry button reads as "it already failed".
+   */
   canRetry: boolean;
+  /** Offer the computer switcher: a real failure, or a long wait. */
+  canSwitch: boolean;
   /** Milliseconds until the mode can change on time alone, or null. */
   nextChangeMs: number | null;
 };
@@ -50,6 +55,7 @@ const HIDDEN: ConnectionOverlayView = {
   title: "",
   detail: null,
   canRetry: false,
+  canSwitch: false,
   nextChangeMs: null,
 };
 
@@ -94,15 +100,19 @@ export function connectionOverlayView(input: ConnectionOverlayInput): Connection
   const mood = moodFor(input);
   const title = input.resuming && mood === "searching" ? "Resuming…" : label;
   const detail = detailFor(input, mood);
-  const canRetry = !input.loading;
+  const hard = hardFailure(input);
+  const canRetry = hard;
+  const longWait = input.notLiveMs >= OVERLAY_AFTER_MS;
+  const canSwitch = hard || longWait;
 
-  if (hardFailure(input)) {
-    return { mode: "overlay", mood, title, detail, canRetry, nextChangeMs: null };
+  if (hard) {
+    return { mode: "overlay", mood, title, detail, canRetry, canSwitch, nextChangeMs: null };
   }
   if (input.loading) {
     const wait = STARTUP_OVERLAY_AFTER_MS - input.notLiveMs;
     if (wait > 0) return { ...HIDDEN, nextChangeMs: wait };
-    return { mode: "overlay", mood, title, detail, canRetry, nextChangeMs: null };
+    // Recheck at the long-wait mark, when the switcher appears.
+    return { mode: "overlay", mood, title, detail, canRetry, canSwitch, nextChangeMs: longWait ? null : OVERLAY_AFTER_MS - input.notLiveMs };
   }
   const pillAt = input.resuming ? 0 : PILL_AFTER_MS;
   if (input.notLiveMs < pillAt) {
@@ -115,8 +125,9 @@ export function connectionOverlayView(input: ConnectionOverlayInput): Connection
       title,
       detail,
       canRetry,
+      canSwitch,
       nextChangeMs: OVERLAY_AFTER_MS - input.notLiveMs,
     };
   }
-  return { mode: "overlay", mood, title, detail, canRetry, nextChangeMs: null };
+  return { mode: "overlay", mood, title, detail, canRetry, canSwitch, nextChangeMs: null };
 }
