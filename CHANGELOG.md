@@ -2,7 +2,7 @@
 
 Recent product updates and deployment notes.
 
-## October 7, 2026 - Signed Mac app (vv0.6.201)
+## October 7, 2026 - Signed Mac app (v0.6.201)
 
 - The Mac app is now signed with a Developer ID and notarized by Apple. macOS opens it with no security warning.
 - An installed Mac app updates to the signed version by itself.
