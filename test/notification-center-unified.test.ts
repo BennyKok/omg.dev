@@ -59,14 +59,10 @@ describe("questions live inside the Notification Center", () => {
   // The bug: a question inside its own conversation drew a reply box directly
   // on top of the session composer. Two identical inputs, no way to tell which
   // one the agent hears.
-  test("a question inside its session has no reply box of its own", async () => {
+  // The card's own reply box is covered by rendering it in
+  // web/src/components/ask-secret-field.test.tsx.
+  test("the session composer says it is the reply box for the open question", async () => {
     const source = await app();
-    const center = await askCenter();
-    // The card's textarea exists for the Notification Center only.
-    expect(center).toContain("{open && showReplyBox ? (");
-    expect(center).toContain("showReplyBox = true,");
-    expect(center).toContain("showReplyBox?: boolean;");
-    // The session composer says it is the reply box for the open question.
     expect(source).toContain('? "Reply to the question"');
   });
 

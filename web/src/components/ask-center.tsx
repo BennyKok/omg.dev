@@ -29,7 +29,7 @@ import { MessageResponse } from "@/components/ai-elements/message";
 import { cn } from "@/lib/utils";
 import { omgFetch } from "@/lib/omg-client";
 import { closePushNotification } from "@/lib/push";
-import { MessageCircleQuestion, Send, X } from "lucide-react";
+import { KeyRound, MessageCircleQuestion, Send, X } from "lucide-react";
 
 export type Question = {
   id: string;
@@ -37,6 +37,8 @@ export type Question = {
   options?: string[];
   agentId?: string | null;
   sessionId?: string | null;
+  /** A secure ask: the answer is one env value, typed in a password field. */
+  secret?: { key: string } | null;
   createdAt: number;
 };
 
@@ -50,8 +52,10 @@ export function stripMd(text: string): string {
     .replace(/```[\s\S]*?```/g, " ") // fenced code
     .replace(/^#{1,6}\s+/gm, "") // heading markers
     .replace(/^\s*[-*+]\s+/gm, "") // list bullets
-    .replace(/\*\*([^*]+)\*\*|\*([^*]+)\*|__([^_]+)__|_([^_]+)_/g, "$1$2$3$4")
     .replace(/`([^`]+)`/g, "$1")
+    // Underscore emphasis only at word edges, as in CommonMark: a name like
+    // FISH_AUDIO_API_KEY must keep its underscores.
+    .replace(/\*\*([^*]+)\*\*|\*([^*]+)\*|(?<!\w)__([^_]+)__(?!\w)|(?<!\w)_([^_]+)_(?!\w)/g, "$1$2$3$4")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -61,6 +65,7 @@ type AskContextValue = {
   busy: boolean;
   answer: (q: Question, text: string) => Promise<void>;
   answerInSession: (q: Question, text: string) => Promise<void>;
+  submitSecret: (q: Question, value: string) => Promise<boolean>;
   dismiss: (q: Question) => Promise<void>;
   dismissAll: () => Promise<void>;
 };
@@ -166,6 +171,9 @@ export function AskProvider({ children }: { children: React.ReactNode }) {
   const answerInSession = useCallback(async (q: Question, text: string) => {
     const body = text.trim();
     if (!body) return;
+    // A secure ask is answered only by its password field. A composer message
+    // is ordinary chat and must not resolve it.
+    if (q.secret) return;
     setQuestions((prev) => prev.filter((x) => x.id !== q.id));
     void closePushNotification(`ask-${q.id}`);
     try {
@@ -178,6 +186,44 @@ export function AskProvider({ children }: { children: React.ReactNode }) {
       // The message itself still went to the agent; the next poll reconciles.
     }
   }, []);
+
+  // The value goes to the runtime, which saves it to the project .env and the
+  // hosted app. It never enters the transcript, and the agent gets the key
+  // name only.
+  const submitSecret = useCallback(
+    async (q: Question, value: string): Promise<boolean> => {
+      if (busy || !value.trim()) return false;
+      setBusy(true);
+      try {
+        const res = await omgFetch(`/api/ask/${q.id}/secret`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ value }),
+        });
+        const body = (await res.json().catch(() => null)) as
+          | { error?: string; saved?: { key: string; cloud: string; cloudError?: string } }
+          | null;
+        if (!res.ok) {
+          toast.error(body?.error || "Could not save the key");
+          return false;
+        }
+        setQuestions((prev) => prev.filter((x) => x.id !== q.id));
+        void closePushNotification(`ask-${q.id}`);
+        if (body?.saved?.cloud === "failed") {
+          toast.error(`${q.secret?.key ?? "Key"} saved locally. The hosted app was not updated.`);
+        } else {
+          toast(`${q.secret?.key ?? "Key"} saved`);
+        }
+        return true;
+      } catch {
+        toast.error("Could not save the key");
+        return false;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [busy],
+  );
 
   // Dismissing is how a person says "I'm not answering this" — the asking agent
   // stops waiting and moves on. Clear the cell locally, and take the sticky OS
@@ -234,7 +280,7 @@ export function AskProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AskContext.Provider
-      value={{ questions, busy, answer, answerInSession, dismiss, dismissAll }}
+      value={{ questions, busy, answer, answerInSession, submitSecret, dismiss, dismissAll }}
     >
       {children}
     </AskContext.Provider>
@@ -428,7 +474,9 @@ export function QuestionNotification({
             </button>
           )}
 
-          {q.options?.length ? (
+          {q.secret ? <SecretField q={q} /> : null}
+
+          {!q.secret && q.options?.length ? (
             <div className="mt-2 flex max-h-24 flex-wrap gap-1.5 overflow-y-auto overscroll-contain">
               {q.options.map((o) => (
                 <Button
@@ -445,7 +493,7 @@ export function QuestionNotification({
             </div>
           ) : null}
 
-          {open && showReplyBox ? (
+          {open && showReplyBox && !q.secret ? (
             <div className="mt-2 flex items-end gap-1.5">
               <Textarea
                 value={draft}
@@ -501,6 +549,54 @@ export function QuestionNotification({
         </div>
       </div>
     </article>
+  );
+}
+
+// The secure field for one env value. Shown on every surface, including the
+// session panel that has no reply box: the composer there is plain chat, and a
+// key typed into it would land in the transcript.
+export function SecretField({ q }: { q: Question }) {
+  const { busy, submitSecret } = useAsk();
+  const [value, setValue] = useState("");
+  useEffect(() => {
+    setValue("");
+  }, [q.id]);
+  const key = q.secret?.key ?? "";
+  const save = async () => {
+    if (await submitSecret(q, value)) setValue("");
+  };
+  return (
+    <form
+      className="mt-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void save();
+      }}
+    >
+      <label className="mb-1 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+        <KeyRound className="size-3" />
+        <span className="font-mono">{key}</span>
+      </label>
+      <div className="flex items-center gap-1.5">
+        <input
+          type="password"
+          name={`secret-${q.id}`}
+          aria-label={`Value for ${key}`}
+          autoComplete="off"
+          spellCheck={false}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="Paste the value"
+          className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-3 font-mono text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        />
+        <Button type="submit" size="sm" disabled={busy || !value.trim()}>
+          Save
+        </Button>
+      </div>
+      <p className="mt-1 text-[11px] text-muted-foreground">
+        Saved to the project .env and the hosted app. The agent sees the name only.
+      </p>
+    </form>
   );
 }
 

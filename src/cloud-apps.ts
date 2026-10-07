@@ -5,7 +5,7 @@
 // deploy updates the same slug. CLI, HTTP, and MCP are thin callers.
 
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { basename, dirname, extname, join, posix, relative, sep } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, posix, relative, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 
 import {
@@ -87,6 +87,10 @@ export type DeployFolderResult = CloudDeployResult & {
   latest?: CloudDeployStatus;
   /** True when the build was still running when the wait budget ended. */
   pending?: true;
+  /** `.env` file names left out of the upload. Their values never ship as files. */
+  skippedSecrets?: string[];
+  /** Tells the agent how to move skipped `.env` values into the app's env vars. */
+  envHint?: string;
 };
 
 export function projectLinkPath(cwd: string): string {
@@ -240,7 +244,8 @@ export async function deployFolder(
     generateIcon: input.generateIcon,
   });
   saveProjectLink(cwd, { slug: started.slug, projectId: started.projectId, name });
-  if (!input.wait) return started;
+  const secrets = skippedSecretsInfo(collected.skippedSecrets);
+  if (!input.wait) return { ...started, ...secrets };
   const status = await waitForDeploy(client, started.slug, {
     intervalMs: input.intervalMs,
     // The budget covers the whole call, upload included, so the agent's
@@ -259,7 +264,61 @@ export async function deployFolder(
     status: status.status ?? started.status,
     latest: status,
     ...(status.pending ? { pending: true as const } : {}),
+    ...secrets,
   };
+}
+
+function skippedSecretsInfo(names: string[]): Pick<DeployFolderResult, "skippedSecrets" | "envHint"> {
+  const unique = [...new Set(names)];
+  if (unique.length === 0) return {};
+  return {
+    skippedSecrets: unique,
+    envHint:
+      "Env files are never uploaded as files. To give the app these values, call omg_app_env with action import (it reads the file on this machine, so values stay out of chat), then deploy again.",
+  };
+}
+
+/** Largest .env file accepted for import. Matches a generous real-world file. */
+export const MAX_ENV_FILE_BYTES = 256 * 1024;
+
+/**
+ * Read a local dotenv file for import. Only `.env` and `.env.*` names are
+ * accepted, so the import cannot be pointed at an arbitrary file. Cloud owns
+ * the dotenv parser, so the contents go up unparsed.
+ */
+export function readEnvFile(path: string): string {
+  const name = basename(path);
+  if (name !== ".env" && !name.startsWith(".env.")) {
+    throw new CloudAppsError(`only .env or .env.* files can be imported: ${path}`, 400);
+  }
+  let stats;
+  try {
+    stats = statSync(path);
+  } catch {
+    throw new CloudAppsError(`env file not found: ${path}`, 404);
+  }
+  if (!stats.isFile()) throw new CloudAppsError(`not a file: ${path}`, 400);
+  if (stats.size > MAX_ENV_FILE_BYTES) {
+    throw new CloudAppsError(`env file is larger than ${MAX_ENV_FILE_BYTES} bytes: ${path}`, 400);
+  }
+  return readFileSync(path, "utf8");
+}
+
+/**
+ * Resolve the app for an env call: an explicit slug wins, else the folder's
+ * `.omg/project.json`. The projectId rides along only when it belongs to the
+ * same slug.
+ */
+export function resolveEnvTarget(input: { slug?: unknown; cwd?: unknown }): { slug: string; projectId?: string } {
+  const slug = typeof input.slug === "string" ? input.slug.trim() : "";
+  const cwd = typeof input.cwd === "string" ? input.cwd.trim() : "";
+  const link = cwd ? loadProjectLink(cwd) : null;
+  if (slug) return link?.slug === slug ? { slug, projectId: link.projectId } : { slug };
+  if (link) return { slug: link.slug, projectId: link.projectId };
+  throw new CloudAppsError(
+    cwd ? `no deployed app is linked to ${cwd}; deploy first or pass slug` : "slug or cwd is required",
+    400,
+  );
 }
 
 const ICON_TYPES: Record<string, string> = {
@@ -309,6 +368,20 @@ export const CLOUD_APPS_PATHS = [
   "/api/cloud/env/rm",
   "/api/cloud/env/import",
 ] as const;
+
+async function envBody(req: Request): Promise<Record<string, unknown>> {
+  const body = (await req.json().catch(() => null)) as unknown;
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new CloudAppsError("a JSON object body is required", 400);
+  }
+  return body as Record<string, unknown>;
+}
+
+/** Drop the local-only fields before the body goes to Cloud. */
+function stripLocal(body: Record<string, unknown>): Record<string, unknown> {
+  const { cwd: _cwd, file: _file, ...rest } = body;
+  return rest;
+}
 
 export function isCloudAppsPath(path: string): boolean {
   return (CLOUD_APPS_PATHS as readonly string[]).includes(path);
@@ -398,9 +471,8 @@ export async function handleCloudAppsRequest(
       return jsonResponse(deployed);
     }
     if (path === "/api/cloud/env" && req.method === "GET") {
-      const slug = url.searchParams.get("slug")?.trim() ?? "";
-      if (!slug) return jsonResponse({ error: "slug is required" }, 400);
-      return jsonResponse(await client.listEnv(slug, url.searchParams.get("projectId") ?? undefined));
+      const target = resolveEnvTarget({ slug: url.searchParams.get("slug"), cwd: url.searchParams.get("cwd") });
+      return jsonResponse(await client.listEnv(target.slug, url.searchParams.get("projectId") ?? target.projectId));
     }
     if (path === "/api/cloud/env/pull" && req.method === "GET") {
       const slug = url.searchParams.get("slug")?.trim() ?? "";
@@ -408,13 +480,27 @@ export async function handleCloudAppsRequest(
       return jsonResponse(await client.pullEnv(slug, url.searchParams.get("projectId") ?? undefined));
     }
     if (path === "/api/cloud/env" && req.method === "POST") {
-      return jsonResponse(await client.setEnv(await req.json()));
+      const body = await envBody(req);
+      return jsonResponse(await client.setEnv({ ...stripLocal(body), ...resolveEnvTarget(body) }));
     }
     if (path === "/api/cloud/env/rm" && req.method === "POST") {
-      return jsonResponse(await client.removeEnv(await req.json()));
+      const body = await envBody(req);
+      return jsonResponse(await client.removeEnv({ ...stripLocal(body), ...resolveEnvTarget(body) }));
     }
     if (path === "/api/cloud/env/import" && req.method === "POST") {
-      return jsonResponse(await client.importEnv(await req.json()));
+      const body = await envBody(req);
+      const target = resolveEnvTarget(body);
+      let contents = typeof body.contents === "string" ? body.contents : undefined;
+      if (contents === undefined) {
+        // Read the file here so the values never pass through the caller.
+        const cwd = typeof body.cwd === "string" ? body.cwd.trim() : "";
+        const file = typeof body.file === "string" && body.file.trim()
+          ? (isAbsolute(body.file.trim()) || !cwd ? body.file.trim() : join(cwd, body.file.trim()))
+          : cwd ? join(cwd, ".env") : "";
+        if (!file) return jsonResponse({ error: "contents, file or cwd is required" }, 400);
+        contents = readEnvFile(file);
+      }
+      return jsonResponse(await client.importEnv({ ...stripLocal(body), ...target, contents }));
     }
     return jsonResponse({ error: "method not allowed" }, 405);
   } catch (error) {

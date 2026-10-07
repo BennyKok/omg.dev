@@ -17,6 +17,17 @@ import { PATHS } from "../config.ts";
 // "handled" is what stops the supervisor re-acting on the same answer each run.
 export type AskStatus = "open" | "answered" | "dismissed" | "expired" | "handled";
 
+/**
+ * A secure ask: the user types one env value (API key, internal URL) into a
+ * password field. The value goes to POST /api/ask/<id>/secret and is never
+ * stored here, never pushed, and never answered by voice or a channel.
+ */
+export type AskSecret = {
+  key: string;
+  cwd?: string | null;
+  slug?: string | null;
+};
+
 export type AskQuestion = {
   id: string;
   question: string;
@@ -29,6 +40,7 @@ export type AskQuestion = {
   // sessionId as a new user message. Legacy asks (pushback falsy) keep the old
   // close/send/none heuristic on delivery.
   pushback?: boolean;
+  secret?: AskSecret;
   status: AskStatus;
   answer?: string | null;
   answeredVia?: "voice" | "web" | null;
@@ -165,6 +177,7 @@ export async function addQuestion(input: {
   sessionId?: string | null;
   user?: string | null;
   pushback?: boolean;
+  secret?: AskSecret;
 }): Promise<AskQuestion> {
   const rows = await listQuestions();
   const q: AskQuestion = {
@@ -175,6 +188,7 @@ export async function addQuestion(input: {
     sessionId: input.sessionId ?? null,
     user: input.user ?? null,
     pushback: input.pushback ?? false,
+    ...(input.secret ? { secret: input.secret } : {}),
     status: "open",
     answer: null,
     answeredVia: null,
