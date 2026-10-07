@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  isAbortedReply,
   answersForIndex,
   answersForText,
   isTrustedUploadPermission,
@@ -329,5 +330,23 @@ describe("opencode permission posture", () => {
 
   test("replaces a blank OPENCODE_PERMISSION", () => {
     expect(JSON.parse(trustAllPermissionEnv({ OPENCODE_PERMISSION: "  " })).edit).toBe("allow");
+  });
+});
+
+describe("isAbortedReply", () => {
+  // Shape copied from a real aborted message in opencode.db.
+  test("recognises the reply OpenCode returns after session.abort", () => {
+    expect(
+      isAbortedReply({
+        info: { role: "assistant", error: { name: "MessageAbortedError", data: { message: "Aborted" } } },
+        parts: [],
+      }),
+    ).toBe(true);
+  });
+
+  test("does not hide real provider failures", () => {
+    expect(isAbortedReply({ info: { error: { name: "ProviderAuthError", data: {} } }, parts: [] })).toBe(false);
+    expect(isAbortedReply({ info: {}, parts: [] })).toBe(false);
+    expect(isAbortedReply(undefined)).toBe(false);
   });
 });

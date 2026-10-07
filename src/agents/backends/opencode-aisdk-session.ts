@@ -422,6 +422,19 @@ export function sessionErrorText(props: unknown): string | null {
   return name || "OpenCode reported an error for this turn";
 }
 
+/**
+ * True when OpenCode closed the assistant message because the turn was
+ * aborted. The reply then has no parts, and the log holds `error=Aborted`,
+ * which the empty-reply fallback used to show as "OpenCode turn failed for
+ * <model>: Aborted" every time a user sent a message mid-turn.
+ *
+ * @internal exported for unit tests
+ */
+export function isAbortedReply(data: unknown): boolean {
+  const error = (data as { info?: { error?: { name?: unknown } } } | null | undefined)?.info?.error;
+  return error?.name === "MessageAbortedError";
+}
+
 function latestOpencodeError(opencodeSessionId: string): string | null {
   try {
     const log = readFileSync(
@@ -763,6 +776,11 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
   let draining = false;
   let closing = false;
   let turnActive = false;
+  // Set when the user stops the running turn (a new message steers it, or the
+  // stop button). OpenCode then answers the pending prompt with an aborted
+  // assistant message and an `error=Aborted` log line. That is our own
+  // interrupt, not a failure, so the turn must end without an error row.
+  let turnInterrupted = false;
   // Set by the `session.error` event for the turn currently in flight. A
   // provider failure is reported ONLY on the event stream, and the matching
   // session.prompt() call can hang indefinitely instead of rejecting, so the
@@ -1150,6 +1168,7 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
   async function runTurn(prompt: string): Promise<void> {
     writeUser(prompt);
     turnActive = true;
+    turnInterrupted = false;
     waitingOnQuestion = false;
     openQuestionRef.current = null;
     openPermissionRef.current = null;
@@ -1170,6 +1189,7 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
         failed.promise,
       ]);
       if (settled === "error") {
+        if (turnInterrupted) return;
         const msg = turnErrorRef.current?.text || "OpenCode reported an error for this turn";
         console.error(`opencode-aisdk-session turn failed: ${msg}`);
         writeAssistant([{ type: "text", text: `OpenCode turn failed for ${model}: ${msg}` }], true);
@@ -1181,6 +1201,7 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
         return;
       }
       const res = settled;
+      if (turnInterrupted && (res.error || !res.data?.parts?.length)) return;
       if (res.error) {
         const msg = JSON.stringify(res.error).slice(0, 500);
         console.error(`opencode-aisdk-session turn failed: ${msg}`);
@@ -1194,6 +1215,7 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
       if (text.trim()) content.push({ type: "text", text });
       else if (blocks.length) content.push(...blocks);
       if (!content.length) {
+        if (turnInterrupted || isAbortedReply(res.data)) return;
         const logged = latestOpencodeError(ocSessionId!);
         writeAssistant(
           [
@@ -1213,7 +1235,7 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
       // session.abort() surfaces here as a failed/aborted request — if we're
       // mid-interrupt that's expected; otherwise record the failure.
       const msg = e instanceof Error ? e.message : String(e);
-      if (!closing) {
+      if (!closing && !turnInterrupted) {
         console.error(`opencode-aisdk-session turn failed: ${msg}`);
         writeAssistant([{ type: "text", text: `OpenCode turn failed for ${model}: ${msg}` }], true);
       }
@@ -1260,6 +1282,7 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
       clearQuestionState(false);
     }
     if (!turnActive) return;
+    turnInterrupted = true;
     void client.session
       .abort({ path: { id: ocSessionId }, query: { directory: cwd } })
       .catch(() => {});
