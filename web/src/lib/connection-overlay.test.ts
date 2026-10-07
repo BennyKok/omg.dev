@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+  FAIL_AFTER_MS,
   OVERLAY_AFTER_MS,
   PILL_AFTER_MS,
   STARTUP_OVERLAY_AFTER_MS,
@@ -48,7 +49,7 @@ test("offline and a server-stopped computer dim the app at once", () => {
     title: "Computer paused",
   });
   expect(reconnecting(0, { lifecycle: "unavailable" })).toMatchObject({ mode: "overlay", mood: "error" });
-  expect(connectionOverlayView({ ...live, ready: false, error: "Failed to fetch" })).toMatchObject({
+  expect(connectionOverlayView({ ...live, ready: false, error: "Failed to fetch", notLiveMs: FAIL_AFTER_MS })).toMatchObject({
     mode: "overlay",
     mood: "error",
     title: "Connection unavailable",
@@ -79,4 +80,20 @@ test("the first bootstrap waits briefly, then covers the empty shell without Ret
     canRetry: false,
     canSwitch: true,
   });
+});
+
+test("a failed bootstrap stays soft while the app retries it", () => {
+  const failed = { ...live, ready: true, error: "Failed to fetch" };
+  expect(connectionOverlayView({ ...failed, notLiveMs: 0 }).mode).toBe("hidden");
+  expect(connectionOverlayView({ ...failed, notLiveMs: PILL_AFTER_MS })).toMatchObject({
+    mode: "pill", title: "Reconnecting…", canRetry: false,
+  });
+  expect(connectionOverlayView({ ...failed, notLiveMs: OVERLAY_AFTER_MS })).toMatchObject({
+    mode: "overlay", title: "Reconnecting…", canRetry: false, nextChangeMs: FAIL_AFTER_MS - OVERLAY_AFTER_MS,
+  });
+  expect(connectionOverlayView({ ...failed, notLiveMs: FAIL_AFTER_MS })).toMatchObject({
+    mode: "overlay", mood: "error", canRetry: true,
+  });
+  // Offline is still a real failure at once.
+  expect(connectionOverlayView({ ...failed, status: "offline", notLiveMs: 0 })).toMatchObject({ mode: "overlay", canRetry: true });
 });

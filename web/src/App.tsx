@@ -7739,6 +7739,27 @@ export function App() {
       .finally(() => setLoading(false));
   }, [loading, loadCore, wsLiveStream.reconnectNow]);
 
+  // A failed bootstrap retries by itself: 2 s, 4 s, 8 s, then every 15 s.
+  // One network error or one 502 while a computer resumes used to sit as
+  // "Connection unavailable" until someone pressed Retry. The overlay keeps
+  // such a failure soft for its first 20 s (FAIL_AFTER_MS).
+  const failedBootstraps = useRef(0);
+  useEffect(() => {
+    if (!error) {
+      failedBootstraps.current = 0;
+      return;
+    }
+    if (loading) return;
+    const delay = Math.min(15_000, 2_000 * 2 ** failedBootstraps.current);
+    // Quietly: no `loading`, so the card does not flip to its first-load
+    // shape on every attempt. loadCore clears the error when it succeeds.
+    const timer = window.setTimeout(() => {
+      failedBootstraps.current += 1;
+      void loadCore().catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)));
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [error, loading, loadCore]);
+
   const selectedConversationSid = selectedBotConversationId
     ? botConversations.find((row) =>
         row.conversationId === selectedBotConversationId || row.sessionId === selectedBotConversationId

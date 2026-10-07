@@ -46,6 +46,11 @@ export type ConnectionOverlayView = {
 export const PILL_AFTER_MS = 2_000;
 /** A reconnect longer than this dims the app. */
 export const OVERLAY_AFTER_MS = 8_000;
+/**
+ * A failed bootstrap stays soft this long. The app retries it by itself, and
+ * one network error or one 502 mid-resume is usually gone within seconds.
+ */
+export const FAIL_AFTER_MS = 20_000;
 /** The first bootstrap gets the overlay quickly: there is nothing to use yet. */
 export const STARTUP_OVERLAY_AFTER_MS = 600;
 
@@ -59,10 +64,18 @@ const HIDDEN: ConnectionOverlayView = {
   nextChangeMs: null,
 };
 
-function hardFailure(input: ConnectionOverlayInput): boolean {
-  if (input.error) return true;
+function hardLifecycle(input: ConnectionOverlayInput): boolean {
   if (input.status === "offline") return true;
   return input.lifecycle === "failed" || input.lifecycle === "paused" || input.lifecycle === "unavailable";
+}
+
+/** A bootstrap error the app is still retrying by itself. */
+function softError(input: ConnectionOverlayInput): boolean {
+  return !!input.error && !hardLifecycle(input) && input.notLiveMs < FAIL_AFTER_MS;
+}
+
+function hardFailure(input: ConnectionOverlayInput): boolean {
+  return hardLifecycle(input) || (!!input.error && !softError(input));
 }
 
 function moodFor(input: ConnectionOverlayInput): BoxyMood {
@@ -94,12 +107,26 @@ function detailFor(input: ConnectionOverlayInput, mood: BoxyMood): string | null
 }
 
 export function connectionOverlayView(input: ConnectionOverlayInput): ConnectionOverlayView {
+  const view = baseView(input);
+  // A soft error must be looked at again when it settles into a hard one.
+  if (softError(input) && !(view.mode === "hidden" && view.nextChangeMs === null)) {
+    const settle = FAIL_AFTER_MS - input.notLiveMs;
+    return { ...view, nextChangeMs: Math.min(view.nextChangeMs ?? settle, settle) };
+  }
+  return view;
+}
+
+function baseView(input: ConnectionOverlayInput): ConnectionOverlayView {
   const label = runtimeStatusText(input);
   if (!label) return HIDDEN;
 
-  const mood = moodFor(input);
-  const title = input.resuming && mood === "searching" ? "Resuming…" : label;
-  const detail = detailFor(input, mood);
+  const soft = softError(input);
+  // Still retrying: read as connecting, not as a failure.
+  const mood = soft ? (input.ready ? "searching" : "booting") : moodFor(input);
+  const title = soft
+    ? input.ready ? (input.resuming ? "Resuming…" : "Reconnecting…") : "Connecting…"
+    : input.resuming && mood === "searching" ? "Resuming…" : label;
+  const detail = soft ? null : detailFor(input, mood);
   const hard = hardFailure(input);
   const canRetry = hard;
   const longWait = input.notLiveMs >= OVERLAY_AFTER_MS;
