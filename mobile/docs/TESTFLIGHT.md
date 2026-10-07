@@ -5,6 +5,30 @@ read off the EAS docs.
 
 ## Current state
 
+### Connection recovery fix OTA — 2026-10-07
+
+The connection pill sits 12 pixels higher. Brief offline events stay silent.
+A recovered socket refreshes readiness and clears older connection errors.
+The Connected transition accepts touches through the former blocking card.
+
+| Runtime | Update group | Source commit | Workflow |
+| --- | --- | --- | --- |
+| 1.0.14 | `c0fc8e9f-3421-4210-ad0e-2f64a54df717` | `9a229882f4abec3260d74bc2f50f87a9068ef0b3` | [37636764699](https://github.com/BennyKok/omg.dev/actions/runs/37636764699) |
+| 1.0.15 | `57c72104-3180-4cd1-9dd2-423f447475cd` | `5d47794872eebc05f1a0e37399b28e1a146f1bab` | [37637258298](https://github.com/BennyKok/omg.dev/actions/runs/37637258298) |
+| 1.0.16 | `36a611ac-4f76-425d-94ee-7a25be24cce6` | `5d47794872eebc05f1a0e37399b28e1a146f1bab` | [37637837855](https://github.com/BennyKok/omg.dev/actions/runs/37637837855) |
+
+EAS readback confirms both platforms, runtimes and source commits. The
+production update endpoint serves the same six update IDs.
+
+Verification: 38 focused web tests and 65 native check files pass. Root, web
+and mobile type checks pass. One native check remains quarantined. The
+pinned iPhone 17 Pro fixture plan passes 11/11. Rendered component tests
+confirm that a recovered socket closes the card while an old HTTP error
+remains stored. The browser confirms the higher pill and recovery dismissal.
+Full suite: 4706 pass, one skip, the same 11 failures outside this change.
+Android rendering and physical-phone activation remain unverified.
+No native dependency changed. No store build or review was replaced.
+
 ### Boxy connection transition OTA — 2026-10-07
 
 Production updates now serve the connection card/pill changes on iOS and Android:
