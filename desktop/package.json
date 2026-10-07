@@ -11,7 +11,7 @@
     "desktop:build": "bun run desktop:runtime && bunx electrobun@2.0.1 build --env=stable",
     "desktop:config": "bunx electrobun@2.0.1 config --env=dev",
     "typecheck": "tsc --noEmit",
-    "test": "bun test src/bun/runtime.test.ts"
+    "test": "bun test src/bun/runtime.test.ts src/bun/auto-update.test.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",

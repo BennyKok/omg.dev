@@ -1,4 +1,5 @@
-import { BrowserWindow } from "electrobun/main";
+import { BrowserWindow, Updater, Utils } from "electrobun/main";
+import { startAutoUpdate } from "./auto-update";
 import { ensureRuntime } from "./runtime";
 
 let mainWindow: BrowserWindow | undefined;
@@ -76,3 +77,16 @@ async function connectToRuntime(): Promise<void> {
 }
 
 void connectToRuntime();
+
+startAutoUpdate(Updater, async (version) => {
+  const { response } = await Utils.showMessageBox({
+    type: "info",
+    title: "omg.dev update",
+    message: `omg.dev ${version} is ready to install.`,
+    detail: "Restart now to update. The local runtime restarts with the new version.",
+    buttons: ["Restart now", "Later"],
+    defaultId: 0,
+    cancelId: 1,
+  });
+  return response === 0;
+});
