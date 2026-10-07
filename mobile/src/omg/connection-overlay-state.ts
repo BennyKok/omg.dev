@@ -106,6 +106,8 @@ function baseView(input: NativeOverlayInput): NativeOverlayView {
   let detail: string | null = "Your sessions keep running. We will catch up when you are back.";
   let hard = false;
   let canRetry = false;
+  // Waking or resuming: the only thing to do is wait (Benny, 2026-10-07).
+  let waiting = input.resuming;
   const failing = input.readiness === "unavailable" || input.readiness === "error";
   const settledFailure = failing && input.notLiveMs >= FAIL_AFTER_MS;
 
@@ -132,6 +134,7 @@ function baseView(input: NativeOverlayInput): NativeOverlayView {
     hard = true;
     canRetry = true;
   } else if (input.readiness === "waking" || input.cloudPaused) {
+    waiting = true;
     mood = "booting";
     title = "Waking your computer…";
     detail = "This can take a moment.";
@@ -148,7 +151,7 @@ function baseView(input: NativeOverlayInput): NativeOverlayView {
   }
 
   const longWait = input.notLiveMs >= OVERLAY_AFTER_MS;
-  const base = { mood, title, detail, canSwitch: hard || longWait, canRetry };
+  const base = { mood, title, detail, canSwitch: hard || (longWait && !waiting), canRetry };
   if (hard) return { mode: "overlay", ...base, nextChangeMs: null };
 
   if (startup) {

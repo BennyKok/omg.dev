@@ -94,16 +94,16 @@
     {
       "name": "Waking card",
       "goal": "The Next stage tap already happened. Do not tap anything; wait for the card to show.",
-      "done": "A card says Waking your computer with Choose another computer and no Try again.",
+      "done": "A card says Waking your computer with no buttons: no Try again and no Choose another computer.",
       "expect": [
         "Stage: Waking",
-        "Waking your computer\u2026",
-        "Choose another computer"
+        "Waking your computer\u2026"
       ],
       "timeoutMs": 60000,
       "tapAt": "50%,91%",
       "forbid": [
-        "Try again"
+        "Try again",
+        "Choose another computer"
       ]
     },
     {

@@ -106,3 +106,14 @@ test("a failed check stays soft while the app retries it", () => {
     mode: "overlay", title: "Connecting…", canRetry: false,
   });
 });
+
+test("waking or resuming only asks the user to wait", () => {
+  // No switcher and no retry, however long the wake takes.
+  expect(drop(OVERLAY_AFTER_MS * 3, { socket: "live", readiness: "waking" })).toMatchObject({
+    mode: "overlay", title: "Waking your computer…", canSwitch: false, canRetry: false,
+  });
+  expect(drop(OVERLAY_AFTER_MS * 3, { cloudPaused: true })).toMatchObject({ canSwitch: false, canRetry: false });
+  expect(drop(OVERLAY_AFTER_MS, { resuming: true })).toMatchObject({ title: "Resuming…", canSwitch: false, canRetry: false });
+  // A plain long reconnect still offers another computer.
+  expect(drop(OVERLAY_AFTER_MS)).toMatchObject({ canSwitch: true });
+});
