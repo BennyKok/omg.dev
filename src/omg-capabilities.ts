@@ -46,7 +46,7 @@ export const OMG_CAPABILITIES = [
     tool: "omg_build_android / omg_build_status",
     useWhen: "The user wants an Expo app installed on an Android phone as a real app, not only in Expo Go.",
     guidance:
-      "omg_build_android builds a signed APK in omg Cloud from the committed project and needs Expo SDK 57, a static app.json and a committed bun.lock (the omg_create_project expo template meets this). It waits at most 45 seconds; a build takes about 3 to 5 minutes, so tell the user it is building and call omg_build_status with the buildId until it finishes. Do not start a second build. On success, show apkPath with omg_display_file and send installUrl, which opens an install page on an Android phone and expires; call omg_build_status again for a fresh link. Later builds of the same project update the installed app and keep its data. It does not make an iPhone app.",
+      "omg_build_android builds a signed APK in omg Cloud from the committed project and needs Expo SDK 57, a static app.json and a committed bun.lock (the omg_create_project expo template meets this). It waits at most 45 seconds; a build takes about 3 to 5 minutes, so tell the user it is building and call omg_build_status with the buildId until it finishes. Do not start a second build. On success, show apkPath with omg_display_file and send installUrl, which opens an install page on an Android phone and expires; call omg_build_status again for a fresh link. Later builds of the same project update the installed app and keep its data. If app.json names no icon, the build commits the icon made on omg.dev as assets/omg-icon.png. It does not make an iPhone app.",
   },
   {
     tool: "omg_display_image / omg_display_video / omg_display_file",
