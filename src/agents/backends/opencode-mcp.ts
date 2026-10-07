@@ -43,12 +43,20 @@ export type OpencodeRemoteMcp = {
   enabled: true;
   /** Our endpoint is not an OAuth server. Do not let OpenCode probe for one. */
   oauth: false;
-  /** Tool listing timeout in ms. OpenCode's default is 5000. */
+  /**
+   * MCP request timeout in ms. The SDK documents it for tool listing, but
+   * OpenCode also bounds tool calls with it. OpenCode's default is 5000.
+   */
   timeout: number;
 };
 
-/** Generous for the local loopback endpoint, which normally answers in < 1 s. */
-const TOOL_LIST_TIMEOUT_MS = 15_000;
+/**
+ * Long enough for the slowest omg tool call. omg_build_android commits,
+ * uploads and starts a build within its own 40 s budget (src/cloud-builds.ts),
+ * and omg_deploy_status waits up to 45 s. At 15 s every such call "timed out"
+ * in the agent while the build itself finished (builder e2e, 2026-10-07).
+ */
+const MCP_REQUEST_TIMEOUT_MS = 90_000;
 
 /**
  * The calling omg.dev session for this harness: the id the spawner exported
@@ -76,7 +84,7 @@ export function opencodeSessionMcpConfig(sessionId: string): { mcp: Record<strin
       headers: server.headers,
       enabled: true,
       oauth: false,
-      timeout: TOOL_LIST_TIMEOUT_MS,
+      timeout: MCP_REQUEST_TIMEOUT_MS,
     };
   }
   return { mcp };
