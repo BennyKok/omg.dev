@@ -72,12 +72,6 @@ export type StoreProduct = Tier & {
    * world. It would also drift the moment pricing changes in App Store Connect.
    */
   displayPrice: string;
-  /**
-   * StoreKit's numeric price and ISO currency, for Meta purchase measurement
-   * ONLY (meta-events.ts). Never shown: see displayPrice.
-   */
-  price?: number;
-  currency?: string;
 };
 
 /** A completed StoreKit purchase, reduced to the only field omg needs. */
@@ -239,13 +233,13 @@ export async function fetchTiers(catalog: readonly Tier[]): Promise<StoreProduct
   const products = (await iap.fetchProducts({
     skus: catalog.map((t) => t.productId),
     type: "subs",
-  })) as unknown as { id?: string; displayPrice?: string; price?: number; currency?: string }[];
+  })) as unknown as { id?: string; displayPrice?: string }[];
 
   const byId = new Map((products ?? []).filter(Boolean).map((p) => [p.id ?? "", p]));
   return catalog.flatMap((tier) => {
     const product = byId.get(tier.productId);
     if (!product?.displayPrice) return [];
-    return [{ ...tier, displayPrice: product.displayPrice, price: product.price, currency: product.currency }];
+    return [{ ...tier, displayPrice: product.displayPrice }];
   });
 }
 

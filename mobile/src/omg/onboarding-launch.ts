@@ -26,7 +26,6 @@ import { composeAttachmentMessage } from "./attachment-message";
 import { uploadAttachment } from "./attachment-upload";
 import { hasOnboardingChoice, takeOnboardingChoice } from "./onboarding-handoff";
 import { markFirstRunRecordDone } from "./first-run-record";
-import { noteFirstTaskStarted } from "./meta-events";
 
 export type LaunchOutcome =
   /** Nothing stashed, or it was too old. Normal for everyone but a new arrival. */
@@ -131,7 +130,6 @@ export async function launchOnboardingTask(
     // The first task exists, so the first run is done for the whole account
     // (web included). Fire and forget; see first-run-record.ts.
     void markFirstRunRecordDone();
-    void noteFirstTaskStarted();
     return { kind: "started", sessionId, prompt: choice.prompt, interest: choice.interest ?? null };
   } catch (e) {
     return {

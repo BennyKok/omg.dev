@@ -14,7 +14,7 @@
 set -euo pipefail
 
 MIN_LEN=${MIN_LEN:-80}
-KEYS=(NSMicrophoneUsageDescription NSCameraUsageDescription NSPhotoLibraryUsageDescription NSUserNotificationsUsageDescription NSUserTrackingUsageDescription)
+KEYS=(NSMicrophoneUsageDescription NSCameraUsageDescription NSPhotoLibraryUsageDescription NSUserNotificationsUsageDescription)
 
 here=$(cd "$(dirname "$0")/.." && pwd)
 tmp=$(mktemp -d)
@@ -25,12 +25,7 @@ trap 'rm -rf "$tmp"' EXIT
 tar -c --exclude=node_modules --exclude=ios --exclude=android --exclude=.git -C "$here" . | tar -x -C "$tmp"
 ln -s "$here/node_modules" "$tmp/node_modules"
 
-# The Meta plugin, and with it NSUserTrackingUsageDescription, is added only
-# when the build has a Meta App ID (app.config.js). CI has no secrets, so give
-# the prebuild placeholders. A production build that tracks without this string
-# is rejected under 5.1.2, and the placeholder ids never reach a binary.
-( cd "$tmp" && META_APP_ID="${META_APP_ID:-1000000000000000}" META_CLIENT_TOKEN="${META_CLIENT_TOKEN:-placeholder}" \
-    npx --yes expo prebuild --platform ios --no-install >/dev/null 2>&1 )
+( cd "$tmp" && npx --yes expo prebuild --platform ios --no-install >/dev/null 2>&1 )
 
 # `head -1` over an unordered `find` was picking AN Info.plist, not THE one.
 # A prebuild emits several (Pods, test targets, expo-dev-client), so asserting on
