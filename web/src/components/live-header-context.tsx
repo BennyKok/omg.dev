@@ -1,5 +1,4 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { useRuntimeAvailability, runtimeStatusText } from "../lib/runtime-availability";
 import { useAsk } from "./ask-center";
 import { MorphText } from "./ui/morph-text";
 import { cn } from "../lib/utils";
@@ -10,6 +9,9 @@ import { haptic } from "../lib/haptics";
 // mark, then expands into a personal status line. The welcome is the resting
 // state; activity only interrupts it while work is genuinely in motion.
 // Questions take precedence, but keep the same quiet plain-text treatment.
+// Connection state is NOT shown here. The greeting used to turn into
+// "Reconnecting…"; the ConnectionOverlay now owns saying that, once, for the
+// whole app (Benny, 2026-10-07).
 export function LiveHeaderContext({
   intro: requestedIntro,
   brand,
@@ -28,10 +30,7 @@ export function LiveHeaderContext({
   onOpenNotifications: () => void;
 }) {
   const { questions } = useAsk();
-  const availability = useRuntimeAvailability();
-  const { loading, retry } = availability;
-  const connectionText = runtimeStatusText(availability);
-  const intro = requestedIntro && !connectionText;
+  const intro = requestedIntro;
   // Hosted identity is presentation-only and intentionally wins over the LFG
   // roster. omg Computers have no roster by design, so deriving this welcome
   // from session ownership would either say "Unassigned" or reintroduce the
@@ -52,7 +51,7 @@ export function LiveHeaderContext({
   const [showAmbientStatus, setShowAmbientStatus] = useState(false);
   const ambientContext = `${busyCount} agent${busyCount === 1 ? "" : "s"} building`;
   const welcomeMessage = firstName ? `Welcome, ${firstName}` : "Welcome";
-  const headline = connectionText ?? (questionCount
+  const headline = questionCount
     ? questionCount === 1
       ? firstName
         ? `${firstName}, an agent needs you`
@@ -62,10 +61,10 @@ export function LiveHeaderContext({
         : `${questionCount} agents need you`
     : actionInMotion && showAmbientStatus
       ? ambientContext
-      : welcomeMessage);
+      : welcomeMessage;
 
   useEffect(() => {
-    if (connectionText || intro || questionCount || !actionInMotion) {
+    if (intro || questionCount || !actionInMotion) {
       setShowAmbientStatus(false);
       return;
     }
@@ -80,7 +79,7 @@ export function LiveHeaderContext({
     }, dwellMs);
 
     return () => window.clearTimeout(dwellTimer);
-  }, [actionInMotion, connectionText, intro, questionCount, showAmbientStatus]);
+  }, [actionInMotion, intro, questionCount, showAmbientStatus]);
 
   return (
     <div className="min-w-0 flex-1 overflow-hidden">
@@ -88,16 +87,10 @@ export function LiveHeaderContext({
         type="button"
         onClick={() => {
           haptic("selection");
-          if (connectionText) {
-            if (!loading) retry();
-          } else {
-            onOpenNotifications();
-          }
+          onOpenNotifications();
         }}
         aria-label={
-          connectionText
-            ? `${connectionText}${loading ? "" : " Tap to retry"}`
-            : intro
+          intro
             ? "omg.dev"
             : questionCount
               ? `${headline}. Tap to open notifications`
@@ -105,7 +98,7 @@ export function LiveHeaderContext({
                 ? `${welcomeMessage}. ${ambientContext}`
                 : welcomeMessage
         }
-        title={connectionText ? loading ? connectionText : "Retry connection" : intro ? "omg.dev" : "Open notifications"}
+        title={intro ? "omg.dev" : "Open notifications"}
         className={cn(
           "relative flex h-11 items-center overflow-hidden rounded-full text-left transition-colors active:scale-[0.98]",
           intro ? "w-11" : "w-full",
@@ -123,7 +116,7 @@ export function LiveHeaderContext({
           {brand}
         </span>
         <span
-          aria-live={connectionText || questionCount ? "polite" : "off"}
+          aria-live={questionCount ? "polite" : "off"}
           className={cn(
             "flex min-w-0 items-center px-1 transition-all duration-300 ease-ios",
             intro ? "translate-y-1 opacity-0" : "translate-y-0 opacity-100 delay-150",
@@ -131,12 +124,10 @@ export function LiveHeaderContext({
         >
           <span className="min-w-0 leading-none">
             <MorphText
-              shimmer={!connectionText && !questionCount && actionInMotion && showAmbientStatus}
+              shimmer={!questionCount && actionInMotion && showAmbientStatus}
               className={cn(
                 "block max-w-full truncate tracking-[-0.01em] transition-[font-size] duration-300 ease-ios",
-                connectionText
-                  ? "text-[14px] font-medium text-muted-foreground"
-                  : questionCount
+                questionCount
                   ? "text-[14px] font-semibold"
                   : actionInMotion && showAmbientStatus
                     ? "text-[12px] font-medium"
