@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 7, 2026 - Scroll up while the agent works (v0.6.200)
+
+- You can now scroll up in a session while the agent is still writing. Before, a slow trackpad scroll was pulled back to the bottom by each new message.
+
 ## October 7, 2026 - Build tools finish for the omg agent (v0.6.199)
 
 - The omg agent now waits for Android build and deploy tools to answer. Before, it stopped waiting after 15 seconds and told you the build "timed out", while the build finished normally.
@@ -34,10 +38,6 @@ Recent product updates and deployment notes.
 
 - After a build starts, the agent now always gets its build id back. Before, a slow upload could make the agent say the build "timed out" while the build finished normally.
 - An Android build now uses the app icon you made on omg.dev. An icon that the app already sets in `app.json` stays as it is.
-
-## October 7, 2026 - Scroll up while the agent works (v0.6.193)
-
-- You can now scroll up in a session while the agent is still writing. Before, a slow trackpad scroll was pulled back to the bottom by each new message.
 
 ## October 7, 2026 - Quiet interrupts and app env keys (v0.6.192)
 
