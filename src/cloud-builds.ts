@@ -12,7 +12,7 @@
 import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
 
 import { cloudApiBaseUrl } from "./cloud-account.ts";
@@ -51,6 +51,8 @@ export type BuildState = {
   /** Present after success: a phone install page, valid until installExpiresAt. */
   installUrl?: string;
   installExpiresAt?: number;
+  /** What happened to the omg.dev app icon before the build commit (applyProjectIcon). */
+  icon?: IconOutcome;
   next?: string;
 };
 
@@ -104,6 +106,58 @@ export function checkAndroidProject(cwd: string): { name: string; versionName: s
   if (!pkg.dependencies?.["react-native"]) throw new BuildError("react-native must be a dependency.");
   const versionName = typeof app.version === "string" && app.version.trim() ? app.version.trim() : "1.0.0";
   return { name: typeof app.name === "string" && app.name.trim() ? app.name.trim() : basename(cwd), versionName };
+}
+
+/** Where the omg.dev app icon (made on the builder Generate tab) lives in the app. */
+export const PROJECT_ICON_PATH = "assets/omg-icon.png";
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+/**
+ * applied: the icon was written or app.json now points at it. unchanged: already in place.
+ * none: the app has no omg.dev icon yet. custom: app.json names its own icon, left alone.
+ * skipped: the icon could not be fetched; the build keeps the current icon.
+ */
+export type IconOutcome = "applied" | "unchanged" | "none" | "custom" | "skipped";
+
+/**
+ * Put the app's omg.dev icon into the project before the build commit, so the
+ * APK shows the icon the user made and each version keeps a fixed icon. Only
+ * fills an unset icon or replaces our own file; an icon the app chose itself
+ * is never overwritten. Never fails the build.
+ */
+export async function applyProjectIcon(deps: BuildDeps, cwd: string, appId: string): Promise<IconOutcome> {
+  const appJsonPath = join(cwd, "app.json");
+  const config = JSON.parse(readFileSync(appJsonPath, "utf8")) as { expo: Record<string, any> };
+  const expo = config.expo;
+  const ours = `./${PROJECT_ICON_PATH}`;
+  const isOurs = (value: unknown) => value === undefined || value === ours || value === PROJECT_ICON_PATH;
+  if (!isOurs(expo.icon)) return "custom";
+
+  let png: Buffer;
+  try {
+    const response = await cloud(deps, `/api/cli/builds/apps/${encodeURIComponent(appId)}/icon.png`);
+    if (response.status === 404) return "none";
+    if (!response.ok) return "skipped";
+    png = Buffer.from(await response.arrayBuffer());
+  } catch {
+    return "skipped";
+  }
+  if (!png.subarray(0, 8).equals(PNG_SIGNATURE)) return "skipped";
+
+  const target = join(cwd, PROJECT_ICON_PATH);
+  let changed = false;
+  if (!existsSync(target) || !readFileSync(target).equals(png)) {
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, png);
+    changed = true;
+  }
+  if (expo.icon !== ours) { expo.icon = ours; changed = true; }
+  const adaptive = expo.android?.adaptiveIcon;
+  if (isOurs(adaptive?.foregroundImage) && adaptive?.foregroundImage !== ours) {
+    expo.android = { ...(expo.android ?? {}), adaptiveIcon: { ...(adaptive ?? {}), foregroundImage: ours, backgroundColor: adaptive?.backgroundColor ?? "#ffffff" } };
+    changed = true;
+  }
+  if (changed) writeFileSync(appJsonPath, `${JSON.stringify(config, null, 2)}\n`);
+  return changed ? "applied" : "unchanged";
 }
 
 /** Commit work in progress so the build is exactly the files the agent sees. */
@@ -213,6 +267,7 @@ export async function startAndroidBuild(deps: BuildDeps, input: StartBuildInput)
   });
   if (!link) saveProjectLink(cwd, { slug: registered.app.slug, projectId: registered.app.id, name: registered.app.name });
   const app = { id: registered.app.id, name: registered.app.name, bundleId: registered.app.bundleId };
+  const icon = await applyProjectIcon(deps, cwd, app.id);
   const commitSha = await commitForBuild(cwd);
   if (!/^[0-9a-f]{40}$/.test(commitSha)) throw new BuildError("Could not resolve the commit to build");
 
@@ -241,9 +296,9 @@ export async function startAndroidBuild(deps: BuildDeps, input: StartBuildInput)
     }),
   });
   saveLast(cwd, { buildId: created.buildId, app });
-  if (input.wait === false) return finish(deps, cwd, app, { ...created, status: created.status === "succeeded" ? "running" : created.status });
+  if (input.wait === false) return { ...(await finish(deps, cwd, app, { ...created, status: created.status === "succeeded" ? "running" : created.status })), icon };
   const build = await waitForBuild(deps, created.buildId, input.waitBudgetMs ?? remainingWait(startedAt, (deps.now ?? Date.now)()));
-  return finish(deps, cwd, app, build);
+  return { ...(await finish(deps, cwd, app, build)), icon };
 }
 
 /** Wait for a build within the agent budget; download and link once it succeeds. */

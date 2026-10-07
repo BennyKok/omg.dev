@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { AGENT_CALL_BUDGET_MS, androidBuildStatus, checkAndroidProject, remainingWait, handleCloudBuildsRequest, startAndroidBuild, type BuildDeps } from "./cloud-builds.ts";
+import { AGENT_CALL_BUDGET_MS, androidBuildStatus, checkAndroidProject, handleCloudBuildsRequest, PROJECT_ICON_PATH, remainingWait, startAndroidBuild, type BuildDeps } from "./cloud-builds.ts";
 
 // /tmp is RAM on the shared box; keep test trees on disk.
 const ROOT = join(homedir(), ".cache", "lfg", "tmp");
@@ -30,7 +30,7 @@ function project(overrides: { pkg?: Record<string, unknown>; files?: Record<stri
 const APK = new TextEncoder().encode("PK fake apk bytes");
 
 /** Minimal fake of the control-plane /api/cli/builds surface. */
-function fakeCloud(opts: { finishAfterPolls?: number } = {}) {
+function fakeCloud(opts: { finishAfterPolls?: number; iconPng?: Uint8Array } = {}) {
   const calls: { method: string; path: string; body?: unknown; query: URLSearchParams }[] = [];
   let polls = 0;
   const fetch = async (url: string, init: RequestInit = {}) => {
@@ -40,6 +40,7 @@ function fakeCloud(opts: { finishAfterPolls?: number } = {}) {
     else if (typeof init.body === "string") body = JSON.parse(init.body);
     calls.push({ method, path, body, query: u.searchParams });
     const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
+    if (path === "/api/cli/builds/apps/proj-1/icon.png") return opts.iconPng ? new Response(opts.iconPng, { headers: { "content-type": "image/png" } }) : json({ error: "This app has no icon yet" }, 404);
     if (path === "/api/cli/builds/apps") return json({ app: { id: "proj-1", slug: "coral-tasks-abcde", name: "Coral Tasks", bundleId: "dev.omg.u12345678.coraltasks" }, created: true }, 201);
     if (path === "/api/cli/builds/uploads") {
       const b = body as { sha256: string };
@@ -147,4 +148,45 @@ test("the wait is what is left of the call budget", () => {
   expect(remainingWait(0, 0)).toBe(30_000);
   expect(remainingWait(0, 25_000)).toBe(5_000);
   expect(remainingWait(0, 60_000)).toBe(0);
+});
+
+// A PNG header is enough for the build flow; the cloud renders the real image.
+const ICON = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
+
+test("the app's omg.dev icon is committed with the build, and the same icon does not change the app again", async () => {
+  const cwd = project();
+  const git = (...args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+  const first = await startAndroidBuild(deps(fakeCloud({ iconPng: ICON }).fetch), { cwd });
+  expect(first.icon).toBe("applied");
+  expect(readFileSync(join(cwd, PROJECT_ICON_PATH))).toEqual(Buffer.from(ICON));
+  const expo = JSON.parse(readFileSync(join(cwd, "app.json"), "utf8")).expo;
+  expect(expo.icon).toBe(`./${PROJECT_ICON_PATH}`);
+  expect(expo.android.adaptiveIcon).toEqual({ foregroundImage: `./${PROJECT_ICON_PATH}`, backgroundColor: "#ffffff" });
+  // The icon is part of the commit the cloud builds, not a later change.
+  expect(git("ls-files")).toContain(PROJECT_ICON_PATH);
+  expect(git("status", "--porcelain")).toBe("");
+  const head = git("rev-parse", "HEAD");
+
+  const again = await startAndroidBuild(deps(fakeCloud({ iconPng: ICON }).fetch), { cwd });
+  expect(again.icon).toBe("unchanged");
+  expect(git("rev-parse", "HEAD")).toBe(head);
+});
+
+test("an icon the app chose itself is left alone and not fetched; no icon or a failed fetch keeps building", async () => {
+  const custom = project({ files: { "app.json": JSON.stringify({ expo: { name: "Coral Tasks", version: "1.2.0", icon: "./assets/mine.png" } }) } });
+  const cloud = fakeCloud({ iconPng: ICON });
+  const state = await startAndroidBuild(deps(cloud.fetch), { cwd: custom });
+  expect(state.icon).toBe("custom");
+  expect(cloud.calls.some((c) => c.path.endsWith("/icon.png"))).toBe(false);
+  expect(JSON.parse(readFileSync(join(custom, "app.json"), "utf8")).expo.icon).toBe("./assets/mine.png");
+
+  const none = await startAndroidBuild(deps(fakeCloud().fetch), { cwd: project() });
+  expect(none.icon).toBe("none");
+  expect(none.status).toBe("succeeded");
+
+  const broken = fakeCloud();
+  const failing = async (url: string, init?: RequestInit) => (url.endsWith("/icon.png") ? new Response("boom", { status: 502 }) : broken.fetch(url, init));
+  const skipped = await startAndroidBuild(deps(failing), { cwd: project() });
+  expect(skipped.icon).toBe("skipped");
+  expect(skipped.status).toBe("succeeded");
 });
