@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 7, 2026 - Thread blocking and Android review fixes (v0.6.197)
+
+- Computers now support blocking a thread participant. Blocked content stays out of messages, replies, previews and targeted notifications.
+- The next Android store build adds content reporting and block controls. It also fixes home header taps, reply cursors and microphone service cleanup. Google purchases stay disabled.
+
 ## October 7, 2026 - Mac app starts again (v0.6.196)
 
 - The Mac app could not start its local runtime and showed "omg.dev could not start". It starts again now.
