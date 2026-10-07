@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 7, 2026 - Android builds report back, with your app icon (v0.6.193)
+
+- After a build starts, the agent now always gets its build id back. Before, a slow upload could make the agent say the build "timed out" while the build finished normally.
+- An Android build now uses the app icon you made on omg.dev. An icon that the app already sets in `app.json` stays as it is.
+
 ## October 7, 2026 - Quiet interrupts and app env keys (v0.6.192)
 
 - When you send a new message while an OpenCode agent is working, the session no longer shows "OpenCode turn failed: Aborted". The agent stops and starts on your new message.
