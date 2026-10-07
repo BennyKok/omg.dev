@@ -1,0 +1,51 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": false
+  },
+  "steps": [
+    {
+      "name": "Large text empty composer",
+      "goal": "Inspect the bottom composer. Dismiss Apple Account Verification with Not Now if present. Do not tap the field yet.",
+      "done": "The large text fixture shows the complete Start a task hint on one line, with agent, attachment and microphone controls.",
+      "expect": [
+        "Large text composer test",
+        "Start a task",
+        "Dictate a prompt"
+      ]
+    },
+    {
+      "name": "Focus expands the field",
+      "goal": "Tap the Start a task input once without typing.",
+      "done": "The keyboard is open, and the full What should we work on? hint sits above the composer controls without clipping.",
+      "expect": [
+        "What should we work on?",
+        "Start session",
+        "Dictate a prompt"
+      ]
+    },
+    {
+      "name": "Draft grows at larger text size",
+      "goal": "Type the supplied long draft in the focused composer. Do not send it.",
+      "type": "One two three four five six seven eight nine ten. One two three four five six seven eight nine ten. One two three four five six seven eight nine ten.",
+      "done": "The draft is visible in the expanded field. The field grows to three lines, then scrolls. Send and microphone remain below it.",
+      "expect": [
+        "One two three four five six seven eight nine ten. One two three four five six seven eight nine ten. One two three four five six seven eight nine ten.",
+        "Start session"
+      ]
+    },
+    {
+      "name": "Clearing restores the compact hint",
+      "goal": "The initial Maestro tap targets the reset button in this fixed iPhone 17 Pro fixture. Inspect the composer after the reset. Do not tap keyboard controls.",
+      "done": "The keyboard is closed, the draft is empty, and Start a task is visible on one line in the collapsed composer again.",
+      "expect": [
+        "Start a task",
+        "Dictate a prompt"
+      ],
+      "forbid": [
+        "Start session"
+      ],
+      "tapAt": "40%,19%"
+    }
+  ]
+}

@@ -17,6 +17,7 @@ mock.module(resolve(import.meta.dir, "../node_modules/react-native/index.js"), (
   Image: () => null,
   ActivityIndicator: () => null,
   Pressable,
+  Platform: { OS: "ios" },
   useWindowDimensions: () => ({ width: 393, height: 852 }),
   StyleSheet: { hairlineWidth: 1, create: (s: any) => s },
 }));
@@ -36,7 +37,7 @@ mock.module(import.meta.resolve("expo-symbols"), () => ({ SymbolView: () => null
 const local = (file: string, exports: any) =>
   mock.module(resolve(import.meta.dir, `../src/omg/${file}`), () => exports);
 local("sheet.tsx", { Sheet: ({ children }: any) => <section>{children}</section> });
-local("text.tsx", { Text: ({ children }: any) => <span>{children}</span>, TextInput: () => null });
+local("text.tsx", { MAX_FONT_SCALE: 1.15, Text: ({ children }: any) => <span>{children}</span>, TextInput: () => null });
 local("agent-icons.ts", { agentIcon: () => null });
 local("model-provider-icons.ts", { modelProviderIcon: () => null });
 local("usage.ts", {

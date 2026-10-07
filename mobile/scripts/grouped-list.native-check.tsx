@@ -41,6 +41,7 @@ mock.module(resolve(import.meta.dir, '../node_modules/react-native/index.js'), (
   ActivityIndicator: () => null,
   Pressable: Probe,
   Switch: () => null,
+  Platform: { OS: "ios" },
   useWindowDimensions: () => ({ width: 402, height: 874 }),
   // theme.ts follows the device appearance; the check exercises both palettes
   // directly, so the hook only has to exist.
@@ -64,7 +65,7 @@ const local = (file: string, exports: unknown) =>
   mock.module(resolve(import.meta.dir, `../src/omg/${file}`), () => exports as never);
 local('sheet.tsx', { Sheet: () => null });
 local('nav-gesture-context.ts', { useBlockNavGesture: () => undefined });
-local('text.tsx', { Text: Probe, TextInput: () => null });
+local('text.tsx', { MAX_FONT_SCALE: 1.15, Text: Probe, TextInput: () => null });
 local('agent-icons.ts', { agentIcon: () => null });
 local('model-provider-icons.ts', { modelProviderIcon: () => null });
 local('glass.tsx', { GlassSurface: Probe, LIQUID_GLASS: false });

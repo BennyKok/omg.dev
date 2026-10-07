@@ -7,7 +7,10 @@ mock.module(resolve(import.meta.dir, '../node_modules/react/index.js'), () => Re
 const View = ({children}: any) => <div>{children}</div>;
 const Pressable = ({children,onPress,disabled,accessibilityLabel}: any) => <button aria-label={accessibilityLabel} disabled={disabled} onClick={onPress}>{children}</button>;
 let input: any;
-mock.module(resolve(import.meta.dir, '../node_modules/react-native/index.js'), () => ({View,ScrollView:View,Image:()=>null,ActivityIndicator:()=>null,Pressable,useWindowDimensions:()=>({width:393,height:400}),StyleSheet:{hairlineWidth:1,create:(s:any)=>s}}));
+let fontScale = 1;
+const platform = { OS: "ios" };
+let surface: any;
+mock.module(resolve(import.meta.dir, '../node_modules/react-native/index.js'), () => ({View,ScrollView:View,Image:()=>null,ActivityIndicator:()=>null,Pressable,Platform:platform,useWindowDimensions:()=>({width:393,height:400,fontScale}),StyleSheet:{hairlineWidth:1,create:(s:any)=>s}}));
 // A chainable stub for the layout-transition builders: every method returns
 // the builder, so `.duration().easing().reduceMotion()` resolves to an object
 // the mocked views simply ignore.
@@ -27,10 +30,10 @@ mock.module(import.meta.resolve('expo-symbols'), () => ({SymbolView:()=>null}));
 const local = (file:string, exports:any) => mock.module(resolve(import.meta.dir, `../src/omg/${file}`), () => exports);
 local('sheet.tsx',{Sheet:()=>null});
 local('session-activity.tsx',{useSessionActivity:(active:boolean)=>({present:active}), SessionActivityTitle:({title}:any)=><span>{title}</span>, SessionActivityField:({activity}:any)=>activity.present?<div data-activity="active"/>:null});
-local('text.tsx',{Text:View,TextInput:(props:any)=>{input=props;return <textarea value={props.value} readOnly/>;}});
+local('text.tsx',{MAX_FONT_SCALE:1.15,Text:View,TextInput:(props:any)=>{input=props;return <textarea value={props.value} readOnly/>;}});
 local('agent-icons.ts',{agentIcon:()=>null});
 local('model-provider-icons.ts',{modelProviderIcon:()=>null});
-local('glass.tsx',{GlassSurface:View,LIQUID_GLASS:false});
+local('glass.tsx',{GlassSurface:(props:any)=>{surface=props;return <View>{props.children}</View>;},LIQUID_GLASS:false});
 local('lucide.tsx',{LucideIcon:()=>null});
 local('usage.ts',{orderWindows:(x:any)=>x,providerKindForAgent:()=>undefined,detailsForKind:(_k:any,accounts:any,merged:any)=>accounts.length?accounts:merged});
 local('menu.tsx',{DropdownMenu:View});
@@ -88,7 +91,7 @@ test('the live composer grows to three lines through layout, not measurement',()
   render('');
   // Empty is pinned to one line, so a sent prompt does not leave a tall box.
   expect(input.style.height).toBe(24);
-  expect(input.multiline).toBe(true);
+  expect(input.multiline).toBe(false);
   expect(input.submitBehavior).toBe('newline');
   ui.flush(()=>input.onFocus?.());
   expect(input.style.height).toBe(24);
@@ -203,4 +206,35 @@ test('no-project starters stay visible through focus and send one prompt without
   ui.render(<HomeComposer {...base} value=""/>);
   expect(ui.query('[aria-label^="Start website."]')).toBeNull();
  } finally {ui.cleanup();}
+});
+
+
+test('large text keeps the collapsed hint single-line and sizes the multiline field',()=>{
+ const ui=mount();
+ const base={onChangeText:()=>{},onStart:()=>{},projectOptions:[],agentOptions:[],attachments:{items:[],options:[],remove:()=>{}},dictation:{state:'idle' as const,toggle:()=>{}}};
+ try {
+  fontScale=2;
+  ui.render(<HomeComposer {...base} value=""/>);
+  expect(input.placeholder).toBe('Start a task');
+  expect(input.multiline).toBe(false);
+  expect(input.style.height).toBe(28);
+  ui.flush(()=>input.onFocus());
+  expect(input.multiline).toBe(true);
+  expect(input.placeholder).toBe('What should we work on?');
+  ui.render(<HomeComposer {...base} value="A longer draft"/>);
+  expect(input.style.height).toBeUndefined();
+  expect(input.style.maxHeight).toBe(84);
+ } finally {fontScale=1;ui.cleanup();}
+});
+
+test('Android composer has no shadow or elevation',()=>{
+ const ui=mount();
+ try {
+  platform.OS='android';
+  ui.render(<HomeComposer value="" onChangeText={()=>{}} onStart={()=>{}} projectOptions={[]} agentOptions={[]} attachments={{items:[],options:[],remove:()=>{}}} dictation={{state:'idle',toggle:()=>{}}}/>);
+  const style=Object.assign({},...surface.style);
+  expect(style.elevation).toBeUndefined();
+  expect(style.shadowOpacity).toBeUndefined();
+  expect(style.shadowRadius).toBeUndefined();
+ } finally {platform.OS='ios';ui.cleanup();}
 });

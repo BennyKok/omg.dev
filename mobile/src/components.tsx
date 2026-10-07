@@ -10,6 +10,8 @@ import {
   ActivityIndicator,
   Image,
   Pressable,
+  Platform,
+  useWindowDimensions,
   ScrollView,
   StyleSheet,
   View,
@@ -26,7 +28,7 @@ import Reanimated, {
   withRepeat,
   withTiming,
 } from "react-native-reanimated";
-import { Text, TextInput } from "./omg/text";
+import { MAX_FONT_SCALE, Text, TextInput } from "./omg/text";
 import {
   SymbolView,
   type AndroidSymbol,
@@ -1273,7 +1275,10 @@ export function HomeComposer({
    * next time the type scale moves. Past the cap the field scrolls; nothing is
    * unreachable.
    */
-  const maxInputHeight = COMPOSER_MAX_LINES * COMPOSER_LINE;
+  const { fontScale } = useWindowDimensions();
+  // Match TextInput's capped Dynamic Type scale when reserving each line.
+  const inputLineHeight = Math.ceil(COMPOSER_LINE * Math.min(fontScale, MAX_FONT_SCALE));
+  const maxInputHeight = COMPOSER_MAX_LINES * inputLineHeight;
   const expanded =
     composerFocused || hasMessage || attachments.items.length > 0 || dictation.state !== "idle";
   /**
@@ -1397,9 +1402,11 @@ export function HomeComposer({
       // to reach a field with a draft already in it has nothing stable to
       // name. See e2e/composer-height.yaml.
       testID="home-composer-input"
-      placeholder="What should we work on?"
+      // The collapsed row shares its width with three controls. Keep its
+      // hint short and single-line; focus gives the multiline field a full row.
+      placeholder={expanded ? "What should we work on?" : "Start a task"}
       placeholderTextColor={colors.textMuted}
-      multiline
+      multiline={expanded}
       submitBehavior="newline"
       scrollEnabled
       onFocus={() => setComposerFocused(true)}
@@ -1408,14 +1415,14 @@ export function HomeComposer({
         flex: expanded ? undefined : 1,
         width: expanded ? "100%" : undefined,
         minWidth: 0,
-        minHeight: COMPOSER_LINE,
+        minHeight: inputLineHeight,
         maxHeight: maxInputHeight,
         // EMPTY IS ONE LINE. A multiline field keeps the height it grew to
         // after its value is cleared, so a sent three-line prompt left a
         // three-line box behind. Pin it while there is nothing in it; the
         // auto-size takes over on the first key. Same rule as the session
         // composer.
-        ...(promptText ? {} : { height: COMPOSER_LINE }),
+        ...(promptText ? {} : { height: inputLineHeight }),
         color: colors.text,
         ...type.body,
         fontSize: 18,
@@ -1524,11 +1531,12 @@ export function HomeComposer({
           borderCurve: "continuous",
           minHeight: 52,
           overflow: "hidden",
-          shadowColor: colors.text,
-          shadowOpacity: isDark || LIQUID_GLASS ? 0 : 0.08,
-          shadowRadius: 16,
-          shadowOffset: { width: 0, height: 4 },
-          elevation: 2,
+          ...(Platform.OS === "android" ? {} : {
+            shadowColor: colors.text,
+            shadowOpacity: isDark || LIQUID_GLASS ? 0 : 0.08,
+            shadowRadius: 16,
+            shadowOffset: { width: 0, height: 4 },
+          }),
           ...(LIQUID_GLASS ? {} : hairline),
         }]}
       >
