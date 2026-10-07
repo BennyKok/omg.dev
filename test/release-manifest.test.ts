@@ -91,5 +91,7 @@ describe("release bundle manifest", () => {
     for (const name of sourceWorkspacePackages()) {
       expect(runtimeScript).toContain(`packages/${name}/src`);
     }
+    // The "paths" aliases only resolve when tsconfig.json ships beside src/.
+    expect(runtimeScript).toMatch(/cp -R \\\n\s+src [^\n]*\btsconfig\.json\b/);
   });
 });

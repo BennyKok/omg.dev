@@ -27,8 +27,10 @@ bun run --cwd web build
 rm -rf "$RUNTIME_DIR"
 rm -f "$RUNTIME_ARCHIVE" "$RUNTIME_ARCHIVE.sha256"
 mkdir -p "$RUNTIME_DIR/web"
+# tsconfig.json is runtime input: Bun resolves the @omg-dev/connectors import
+# through its "paths". Without it the embedded server exits on start.
 cp -R \
-  src agents scripts package.json bun.lock .env.example \
+  src agents scripts package.json bun.lock tsconfig.json .env.example \
   README.md CHANGELOG.md LICENSE SECURITY.md \
   "$RUNTIME_DIR/"
 cp -R web/dist "$RUNTIME_DIR/web/dist"
@@ -65,6 +67,7 @@ bun run scripts/prune-modules.ts \
   --quiet
 
 test -s "$RUNTIME_DIR/src/cli.ts"
+test -s "$RUNTIME_DIR/tsconfig.json"
 test -s "$RUNTIME_DIR/web/dist/index.html"
 test -d "$RUNTIME_DIR/node_modules"
 

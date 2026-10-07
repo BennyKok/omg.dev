@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 7, 2026 - Mac app starts again (v0.6.196)
+
+- The Mac app could not start its local runtime and showed "omg.dev could not start". It starts again now.
+- If you run v0.6.195, the app offers this update by itself.
+
 ## October 7, 2026 - Mac app updates itself (v0.6.195)
 
 - The Mac app now checks for a new version when it starts and every 6 hours. It downloads the update in the background and asks before it restarts.
