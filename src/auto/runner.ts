@@ -82,12 +82,13 @@ const SEVERITY_RANK: Record<Severity, number> = { high: 0, med: 1, low: 2 };
  * after a contentless wake. That only works when the app and this box share an
  * origin, so the text is composed here instead and encrypted into the message.
  */
-function findingNotification(finding: Finding, occurrences?: number): PushNotification {
+export function findingNotification(finding: Finding, occurrences?: number): PushNotification {
   const body = finding.suggest || finding.reasoning?.[0] || "New activity in your sessions";
   return {
     title: occurrences && occurrences > 1 ? `${finding.title} (×${occurrences})` : finding.title,
     body,
     url: "/",
+    nativeUrl: `/auto/${encodeURIComponent(finding.agentId)}/${encodeURIComponent(finding.id)}`,
     tag: `finding-${finding.id}`,
   };
 }

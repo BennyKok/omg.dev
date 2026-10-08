@@ -11,6 +11,8 @@ import {
   toNativeAppUrl,
 } from "./push-native.ts";
 import { notifyAll, saveSubscription } from "./push.ts";
+import { findingNotification } from "./auto/runner.ts";
+import type { Finding } from "./auto/store.ts";
 
 const realData = PATHS.data;
 let dir: string;
@@ -118,6 +120,25 @@ describe("notifyNativeAll", () => {
     const [message] = sent[0].body as Array<Record<string, unknown>>;
     expect(message.to).toBe("ExponentPushToken[benny]");
     expect((message.data as { url: string }).url).toBe("/session/abc");
+  });
+
+  test("new and recurring finding pushes open the exact native finding", async () => {
+    await saveNativeToken({ token: "ExponentPushToken[phone]" });
+    const finding: Finding = {
+      id: "finding/1", agentId: "watch agent", title: "Disk almost full",
+      reasoning: ["Free space is low."], severity: "high", createdAt: 1, status: "open",
+    };
+    for (const occurrences of [undefined, 3]) {
+      const notification = findingNotification(finding, occurrences);
+      expect(notification.url).toBe("/");
+      await notifyNativeAll({ notification });
+    }
+    for (const batch of sent) {
+      const [message] = batch.body as Array<{ data: { url: string; tag: string } }>;
+      expect(message.data.url).toBe("/auto/watch%20agent/finding%2F1");
+      expect(message.data.tag).toBe("finding-finding/1");
+    }
+    expect(sent).toHaveLength(2);
   });
 
   test("an agent marks the message mutable and carries the agent id", async () => {

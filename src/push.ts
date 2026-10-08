@@ -63,6 +63,8 @@ export type PushNotification = {
   title: string;
   body?: string;
   url?: string;
+  /** Native destination when the phone has a different route from the web. */
+  nativeUrl?: string;
   tag?: string;
   /** Keep the notice on screen until acted on — used for questions. */
   requireInteraction?: boolean;
