@@ -13,6 +13,16 @@ Its hosted authentication, billing, and product contracts belong in `vibes`.
 The separate `app-blocker` repository is a different product idea. More
 specific client instructions live in `mobile/AGENTS.md`.
 
+## Context and memory
+
+- Read `docs/STATE.md` first. It records current work and stale pull requests.
+- `docs/archive/` holds old plans. It is history, not current truth. Search
+  tools skip it.
+- Do not explore the whole repository to learn the project. Use the
+  responsibility section below, `docs/STATE.md`, and the nearest document.
+- `/home/dev/repos/lfg` can lag `origin/main`. Read code from `origin/main` or a
+  fresh worktree before you rely on it.
+
 ## Task contract
 
 - Treat one user outcome as one task. Do not add nearby cleanup or features.
