@@ -16,6 +16,9 @@ test("a target-less tap pops to the existing home instead of stacking a new one"
 test("a real target is still pushed, so back returns to where you were", () => {
   expect(notificationTapAction("/session/abc")).toEqual({ kind: "push", path: "/session/abc" });
   expect(notificationTapAction("/notifications")).toEqual({ kind: "push", path: "/notifications" });
+  expect(notificationTapAction("/auto/watch-agent/finding-1")).toEqual({
+    kind: "push", path: "/auto/watch-agent/finding-1",
+  });
 });
 
 test("anything that is not an app-relative path is ignored", () => {

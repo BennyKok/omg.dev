@@ -1,0 +1,27 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": { "clearState": false },
+  "steps": [
+    {
+      "name": "Open the demo Home",
+      "goal": "If Apple Account Verification is shown, tap Not Now to dismiss the system alert. Reach Home. Accept the AI data consent notice for this isolated demo fixture if shown. Do not send a message.",
+      "done": "The demo Home screen is ready.",
+      "expect": ["api-gateway"]
+    },
+    {
+      "name": "Open the finding notification destination",
+      "open": "omg:///auto/demo-auto-prs/f2",
+      "goal": "Wait for the finding detail screen. This is the exact route carried by a finding push. Do not start a session or dismiss the finding.",
+      "done": "The matching finding is open with its agent name and actions.",
+      "expect": ["Review open PRs", "3 PRs waiting on review for over a day", "Make the change", "Copy", "Dismiss"],
+      "forbid": ["This finding is no longer open.", "Two deals at risk in this week's call reviews"]
+    },
+    {
+      "name": "Return from the finding",
+      "goal": "Tap the top navigation Back button to return to Home.",
+      "done": "Home is visible again.",
+      "expect": ["api-gateway"],
+      "forbid": ["Make the change"]
+    }
+  ]
+}

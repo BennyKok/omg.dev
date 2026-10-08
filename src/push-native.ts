@@ -172,7 +172,7 @@ async function sendBatch(tokens: NativeToken[], notification: PushNotification):
     // mark as the avatar. Without `mutableContent` iOS never runs it.
     ...(notification.agent ? { mutableContent: true } : {}),
     data: {
-      url: toNativeAppUrl(notification.url),
+      url: notification.nativeUrl ?? toNativeAppUrl(notification.url),
       tag: notification.tag ?? null,
       ...(notification.agent ? { agent: notification.agent } : {}),
     },

@@ -31,7 +31,7 @@ export default function AutoFindingScreen() {
   const insets = useSafeAreaInsets();
   const { client } = useOmg();
   const toast = useToast();
-  const { agents, findings, setFindingStatus, refresh } = useAutoAgents();
+  const { agents, findings, loading, setFindingStatus, refresh } = useAutoAgents();
   const agent = agents.find((a) => a.id === agentId);
   const finding = findings.find((f) => f.id === findingId);
   const siblings = findings.filter((f) => f.agentId === agentId).length;
@@ -114,7 +114,7 @@ export default function AutoFindingScreen() {
 
         {!finding ? (
           <Text style={{ ...type.callout, color: colors.textMuted }}>
-            This finding is no longer open.
+            {loading ? "Loading finding…" : "This finding is no longer open."}
           </Text>
         ) : (
           <>
