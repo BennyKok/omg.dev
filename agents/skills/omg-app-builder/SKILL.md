@@ -69,6 +69,15 @@ Metro rules: use only ports 8081 to 8099, because Expo Go links work only in tha
 4. Test the important behavior. Also inspect the rendered UI at the target size. For an Expo app, run and inspect Expo Web first. Then verify on Expo Go, a development build, or a simulator when one is available. State which surface was tested; a web preview or type check is not proof of native behavior.
 5. Update the README with the product purpose, local run command, architecture, and delivery notes. Commit the finished source locally so later omg.dev sessions start from a complete baseline.
 
+## Sign-in for a hosted web app
+
+omg.dev owns sign-in for apps at `<slug>.omgs.app`. Never build a sign-in form, a password field, or your own session store.
+
+- Private (the default): every visitor signs in to omg.dev before the app opens. The app needs no sign-in UI.
+- Public with sign-in: use this when the user wants a landing page for visitors. Set the app to `public` with `omg_app_visibility`. Show the landing page when `useAuth().user` from `@omg-dev/sdk` is empty, with a plain link to `https://app.omg.dev/access?return=<encoded current URL>`. The link returns to the same page signed in. A person already signed in to omg.dev returns at once with no form. Then `useAuth().user` has `id`, `email`, and `name`, and `.scoped("user")` collections hold only that person's data. `useAuth().signOut()` signs them out of the app.
+- Wrap the app in `<VibesAuthProvider>`. Do not put `<VibesAuthGuard>` around the landing page, and do not run user-scoped queries on it.
+- Verify the signed-out landing page and the Sign in link on the deployed URL. You cannot sign in as the user. Say that the signed-in path was not checked by you.
+
 ## Deploy and prove it
 
 - For a new website, web app, or API, a working hosted preview is the default result unless the user asks for local-only work or publication needs new authority.
@@ -80,7 +89,7 @@ Metro rules: use only ports 8081 to 8099, because Expo Go links work only in tha
 - If `omg_expose_port` fails, confirm that the server is still running, is bound to `0.0.0.0`, and answers on the same port. Report the exact tool error if it still fails. Do not silently switch the web preview to another exposure method.
 - If `omg_expose_port` is unavailable or the session is on a local computer, report that limit. Do not invent a public URL, expose credentials, or depend on this repository's simulator, SSH hosts, filesystem layout, or globally installed tools.
 - The Expo Go capability link is short-lived. If it expires, restart the preview the same way.
-- For a website, use `omg_deploy` when the user wants a durable hosted deployment. It stays private to omg.dev users; making it public is the user's publishing decision. Publishing the app to TestFlight or the App Store is a separate step the user asks for.
+- For a website, use `omg_deploy` when the user wants a durable hosted deployment. It stays private to omg.dev users. Make it public only when the user wants that or asks for a landing page for visitors (see "Sign-in for a hosted web app"). Publishing the app to TestFlight or the App Store is a separate step the user asks for.
 - Call `omg_deploy` with `cwd` set to the project directory and `wait: true`. It waits at most 45 seconds. If the result has `pending: true`, call `omg_deploy_status` with the returned slug until the build is ready or failed. Do not start a second deploy. Reuse `.omg/project.json` on later deploys. After success, commit this non-secret file with the source so the app keeps one identity.
 - Open the returned URL. Exercise the main user path and any relevant backend operation against the deployed app. A successful build or upload is not proof that the deployment works.
 - Show the live result with `omg_display_image` when a screenshot is useful. Return the actual clickable URL and state which parts were verified.
