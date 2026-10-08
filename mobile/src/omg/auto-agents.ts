@@ -26,10 +26,9 @@
  * home section shows one row per open finding, nothing about the quiet
  * agents that produced none. See selectHomeAutoFindings.
  *
- * Both reads degrade to nothing rather than to an error, the same way
- * resumable.ts does: an older machine has no /api/auto/* at all, and someone
- * who opened this screen to see what needs attention should not be told
- * about it. They degrade INDEPENDENTLY, too — a machine that can list
+ * Home can omit the section on an older machine without /api/auto/*. Detail
+ * pages also receive findingsError so a failed read is not described as a
+ * closed finding. The reads fail INDEPENDENTLY — a machine that can list
  * findings but not agents still owes you the findings, with a generic mark
  * where the agent's name and avatar would be (see AutoFindingRow).
  */
@@ -85,22 +84,21 @@ export type AutoAgentsState = {
   /** The MACHINE's schedule timezone, not the phone's. See cron.ts. */
   tz: string;
   loading: boolean;
+  findingsError: string | null;
   refresh: () => void;
   /**
    * Move a finding off the open list — dismissed (the user doesn't want to
    * act on it) or session (they graduated it into a real agent session; see
-   * `startSessionFromFinding` in index.tsx). Optimistic: the row leaves the
-   * screen immediately, matching `archiveSession`'s swipe. On failure the
-   * optimistic removal is undone by a real refetch rather than by re-inserting
-   * the stale object, so the phone never shows a finding the server has
-   * already resolved a different way (from another device, or the web).
+   * `startSessionFromFinding` in index.tsx). Remove it after the server confirms
+   * the change. A failed request rejects so the screen can keep the finding
+   * and explain the error.
    */
   setFindingStatus: (id: string, status: "dismissed" | "session") => Promise<void>;
   /**
    * Flip one schedule on or off — the Schedules row switch, as on the web's
    * AutoManageView. PATCH /api/auto/agents/:id carries every other field
    * forward server-side, so this never has to know the untruncated prompt.
-   * Optimistic like setFindingStatus; a failure refetches rather than
+   * Optimistic; a failure refetches rather than
    * guessing at the row's real state.
    */
   setAgentEnabled: (id: string, enabled: boolean) => Promise<void>;
@@ -125,7 +123,8 @@ export function useAutoAgents(): AutoAgentsState {
   const [agents, setAgents] = useState<AutoAgent[]>([]);
   const [findings, setFindings] = useState<AutoFinding[]>([]);
   const [tz, setTz] = useState<string>(DEFAULT_SCHED_TZ);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [findingsError, setFindingsError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
 
   const refresh = useCallback(() => setTick((n) => n + 1), []);
@@ -137,12 +136,14 @@ export function useAutoAgents(): AutoAgentsState {
   useEffect(() => {
     setAgents([]);
     setFindings([]);
+    setFindingsError(null);
   }, [bindingId]);
 
   useEffect(() => {
     if (!client) return;
     let cancelled = false;
     setLoading(true);
+    setFindingsError(null);
 
     // Two independent requests, NOT Promise.all: a rejection there would throw
     // away a good response alongside the bad one, and the two endpoints can
@@ -164,7 +165,7 @@ export function useAutoAgents(): AutoAgentsState {
         if (!cancelled) setFindings(payload.findings ?? []);
       })
       .catch(() => {
-        if (!cancelled) setFindings([]);
+        if (!cancelled) setFindingsError("Could not load findings. Please try again.");
       });
 
     void Promise.all([agentsRead, findingsRead]).finally(() => {
@@ -180,28 +181,27 @@ export function useAutoAgents(): AutoAgentsState {
   // backgrounded app has no business talking to the machine.
   useFocusEffect(
     useCallback(() => {
+      setTick((n) => n + 1);
       const timer = setInterval(() => setTick((n) => n + 1), AUTO_POLL_MS);
       return () => clearInterval(timer);
     }, []),
   );
 
-  // Optimistic: the row leaves `findings` the instant the user acts, the same
-  // beat archiveSession drops a session out of its list. If the request
-  // fails, don't splice the stale object back in — bump `tick` and let a real
-  // refetch decide, which is also correct if the finding was independently
-  // resolved elsewhere (another device, the web) in the meantime.
+  // Keep the finding visible until the request succeeds. Screens can show a
+  // busy action and remain in place on failure instead of claiming dismissal.
   const setFindingStatus = useCallback(
     async (id: string, status: "dismissed" | "session") => {
-      if (!client) return;
-      setFindings((prev) => prev.filter((f) => f.id !== id));
+      if (!client) throw new Error("Connect to your Computer and try again.");
       try {
-        await client.transport.request(`/api/auto/findings/${id}`, {
+        await client.transport.request(`/api/auto/findings/${encodeURIComponent(id)}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ status }),
         });
-      } catch {
+        setFindings((prev) => prev.filter((f) => f.id !== id));
+      } catch (error) {
         setTick((n) => n + 1);
+        throw error;
       }
     },
     [client],
@@ -224,7 +224,7 @@ export function useAutoAgents(): AutoAgentsState {
     [client],
   );
 
-  return { agents, findings, tz, loading, refresh, setFindingStatus, setAgentEnabled };
+  return { agents, findings, tz, loading, findingsError, refresh, setFindingStatus, setAgentEnabled };
 }
 
 const SEVERITY_RANK: Record<string, number> = { high: 0, med: 1, low: 2 };

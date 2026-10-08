@@ -450,6 +450,15 @@ function demoAutoAgents() {
 
 function demoAutoFindings() {
   const t = now();
+  // Opt-in recording fixture. The normal demo and real transport are unchanged.
+  if (process.env.EXPO_PUBLIC_OMG_FINDING_UX_FIXTURE === "1") {
+    return { findings: [
+      { id: "f2", agentId: "demo-auto-prs", title: "3 PRs waiting on review for over a day", severity: "high", createdAt: t - 3 * HOUR, lastSeenAt: t - 30 * MIN, occurrences: 3,
+        reasoning: ["Three pull requests have no reviewer assigned.", "The release is waiting for these changes."],
+        suggest: "Assign a reviewer to each pull request and check the release blockers." },
+      { id: "f3", agentId: "demo-auto-prs", title: "Weekly audit is ready", severity: "low", createdAt: t - HOUR },
+    ] };
+  }
   return {
     findings: [
       { id: "f1", agentId: "demo-auto-bugs", title: "Two deals at risk in this week's call reviews", createdAt: t - 45 * MIN },

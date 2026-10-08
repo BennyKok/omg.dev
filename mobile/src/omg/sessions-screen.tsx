@@ -1354,7 +1354,7 @@ export function SessionsScreen({
   /**
    * DISMISS. The finding said its piece; the user doesn't want to act on it.
    *
-   * Delegates to `setFindingStatus`, which owns the optimistic removal and
+   * Delegates to `setFindingStatus`, which owns the confirmed removal and
    * the real request (POST /api/auto/findings/{id} {status:"dismissed"}) —
    * the same status change the web's Dismiss button sends. There is
    * deliberately no local-only hide: a dismiss that reappears on next launch
@@ -1363,7 +1363,9 @@ export function SessionsScreen({
   const dismissFinding = useCallback(
     (findingId: string) => {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      void setAutoFindingStatus(findingId, "dismissed");
+      void setAutoFindingStatus(findingId, "dismissed").catch((e) => {
+        setError(e instanceof Error ? e.message : String(e));
+      });
     },
     [setAutoFindingStatus],
   );

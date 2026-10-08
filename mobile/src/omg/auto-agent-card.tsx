@@ -85,6 +85,20 @@ export function SeverityDot({ severity }: { severity?: AutoFindingSeverity }) {
   );
 }
 
+/** Severity is a word as well as a color on finding and report pages. */
+export function SeverityBadge({ severity }: { severity?: AutoFindingSeverity }) {
+  const { colors, type, space, radius } = useTheme();
+  if (!severity) return null;
+  const label = { high: "High", med: "Medium", low: "Low" }[severity];
+  const color = severityColor(severity, colors);
+  return (
+    <View accessible accessibilityLabel={`${label} severity`} style={{ flexDirection: "row", alignItems: "center", gap: space.xs, paddingHorizontal: space.sm, minHeight: 28, borderRadius: radius.pill, backgroundColor: withAlpha(color, 0.12) }}>
+      <SeverityDot severity={severity} />
+      <Text style={{ ...type.caption, fontWeight: "600", color }}>{label}</Text>
+    </View>
+  );
+}
+
 /** A quiet expanded-state action: an icon, a label, nothing louder than text. */
 function RowAction({
   icon,

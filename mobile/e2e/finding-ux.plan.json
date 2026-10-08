@@ -1,0 +1,73 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": { "clearState": false },
+  "steps": [
+    {
+      "name": "Demo Home",
+      "goal": "Reach Home. If Apple Account Verification appears, tap Not Now. If the AI data notice appears, tap Agree and continue for this isolated demo fixture. Do not send a message.",
+      "done": "Home is ready.",
+      "expect": ["api-gateway"]
+    },
+    {
+      "name": "Notification opens the finding",
+      "open": "omg:///auto/demo-auto-prs/f2",
+      "goal": "Wait for the finding opened through its notification route. Do not tap an action.",
+      "done": "The finding has clear priority, context, reasoning and a suggested next step.",
+      "expect": ["Finding", "Review open PRs", "High", "Seen 3 times", "Why this matters", "Suggested next step", "Start session", "Starts an agent to work on this finding"],
+      "forbid": ["Make the change", "All 2 from"]
+    },
+    {
+      "name": "Context opens the report",
+      "goal": "Tap the element labelled exactly Open Review open PRs report, 2 open findings. This is a link. Tap it to open the findings list. Do not tap Back.",
+      "done": "The report shows both findings from the same agent.",
+      "expect": ["Findings", "2 open findings", "3 PRs waiting on review for over a day", "Weekly audit is ready", "Edit schedule"],
+      "forbid": ["Start session"]
+    },
+    {
+      "name": "Finding without details",
+      "goal": "Tap the Weekly audit is ready finding card.",
+      "done": "The finding has a labeled priority and explains that there are no additional details.",
+      "expect": ["Weekly audit is ready", "Low", "The agent did not include more details", "Start session", "Copy finding", "Dismiss finding"]
+    },
+    {
+      "name": "Return to the report",
+      "goal": "Tap the native Back button at the top left.",
+      "done": "The report is visible again.",
+      "expect": ["Findings", "2 open findings", "Edit schedule"],
+      "forbid": ["Start session"]
+    },
+    {
+      "name": "Return to Home",
+      "goal": "Tap the native Back button at the top left.",
+      "done": "Home is visible. The notification context link did not create a repeated report in the stack.",
+      "expect": ["api-gateway"],
+      "forbid": ["Edit schedule"]
+    },
+    {
+      "name": "Old notification has a useful exit",
+      "open": "omg:///auto/demo-auto-prs/no-longer-open",
+      "goal": "Wait for the missing finding state.",
+      "done": "The screen explains that this finding is no longer open and offers the agent report.",
+      "expect": ["This finding is no longer open", "View agent findings"],
+      "forbid": ["Start session", "Dismiss finding"]
+    },
+    {
+      "name": "Old notification opens current findings",
+      "goal": "Tap View agent findings.",
+      "done": "The current report is visible.",
+      "expect": ["2 open findings", "Weekly audit is ready", "Edit schedule"]
+    },
+    {
+      "name": "Open the detailed finding again",
+      "goal": "Tap the finding card titled 3 PRs waiting on review for over a day.",
+      "done": "The detailed finding is ready for its action.",
+      "expect": ["Why this matters", "Suggested next step", "Start session"]
+    },
+    {
+      "name": "Failed launch keeps the finding open",
+      "goal": "Tap Start session once. This isolated demo transport intentionally returns no session id, so no agent or real work starts. Do not tap it again.",
+      "done": "An error explains the failed launch while the original finding stays visible.",
+      "expect": ["The session did not start. Please try again.", "3 PRs waiting on review for over a day", "Start session"]
+    }
+  ]
+}

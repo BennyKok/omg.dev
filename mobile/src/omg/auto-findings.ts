@@ -26,13 +26,13 @@ export function findingSessionPrompt(finding: AutoFinding, agent: AutoAgent | un
 
 /**
  * The web's "Make the change": start a session on the finding's own agent,
- * model and folder. Returns the new session id when the server reports one.
+ * model and folder. A missing session id is a failure, not a resolved finding.
  */
 export async function startSessionFromFinding(
   client: OmgClient,
   finding: AutoFinding,
   agent: AutoAgent | undefined,
-): Promise<string | null> {
+): Promise<string> {
   const res = await client.transport.request<{ sessionId?: string }>("/api/sessions/new", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -44,7 +44,8 @@ export async function startSessionFromFinding(
       cwd: agent?.cwd ?? undefined,
     }),
   });
-  return res?.sessionId ?? null;
+  if (!res?.sessionId) throw new Error("The session did not start. Please try again.");
+  return res.sessionId;
 }
 
 function shortIn(ts: number, now: number): string {

@@ -1,19 +1,14 @@
-/**
- * One finding, as the web's FindingDetail page: the way back to the report,
- * the agent and the age with the severity, the title, the reasoning, the
- * suggested fix, and the actions in a bar at the bottom. "Make the change"
- * starts a session on the finding's own agent, model and folder.
- */
+/** A finding opened from Updates or a notification, with a route to its report. */
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import type { AndroidSymbol, SFSymbol } from "expo-symbols";
-import { useState } from "react";
-import { ScrollView, StyleSheet, View } from "react-native";
+import { useRef, useState } from "react";
+import { ActivityIndicator, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Icon, PrimaryButton } from "../../../src/components";
-import { SeverityDot } from "../../../src/omg/auto-agent-card";
+import { EmptyState, Icon, PrimaryButton } from "../../../src/components";
+import { SeverityBadge } from "../../../src/omg/auto-agent-card";
 import { useAutoAgents } from "../../../src/omg/auto-agents";
 import { findingAge, startSessionFromFinding } from "../../../src/omg/auto-findings";
 import { PressableScale } from "../../../src/omg/motion";
@@ -31,41 +26,61 @@ export default function AutoFindingScreen() {
   const insets = useSafeAreaInsets();
   const { client } = useOmg();
   const toast = useToast();
-  const { agents, findings, loading, setFindingStatus, refresh } = useAutoAgents();
+  const { agents, findings, loading, findingsError, setFindingStatus, refresh } = useAutoAgents();
   const agent = agents.find((a) => a.id === agentId);
-  const finding = findings.find((f) => f.id === findingId);
+  const finding = findings.find((f) => f.id === findingId && f.agentId === agentId);
   const siblings = findings.filter((f) => f.agentId === agentId).length;
   const name = agent?.name ?? "Auto agent";
-  const [starting, setStarting] = useState(false);
+  const reportPath = `/auto/${encodeURIComponent(agentId)}`;
+  const [action, setAction] = useState<"start" | "dismiss" | null>(null);
+  const actionInFlight = useRef(false);
+  const busy = action !== null;
+  const firstSeen = finding?.createdAt ? findingAge({ ...finding, lastSeenAt: undefined }) : "";
+  const openReport = () => router.dismissTo(reportPath);
+  const leave = () => router.canGoBack() ? router.back() : router.replace("/");
 
-  const makeTheChange = async () => {
-    if (!client || !finding || starting) return;
-    setStarting(true);
+  const startSession = async () => {
+    if (!client || !finding || actionInFlight.current) return;
+    actionInFlight.current = true;
+    setAction("start");
     try {
       const sessionId = await startSessionFromFinding(client, finding, agent);
+      // A created session must still open if marking the finding fails. Staying
+      // on the Start button in that case could create the same work twice.
+      try {
+        await setFindingStatus(finding.id, "session");
+      } catch {
+        toast.show("Session started. The finding could not be marked as handled.", { intent: "error" });
+      }
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      await setFindingStatus(finding.id, "session");
-      refresh();
-      if (sessionId) router.replace(`/session/${sessionId}`);
-      else router.back();
+      router.replace(`/session/${encodeURIComponent(sessionId)}`);
     } catch (e) {
       toast.show(e instanceof Error ? e.message : String(e), { intent: "error" });
     } finally {
-      setStarting(false);
+      actionInFlight.current = false;
+      setAction(null);
     }
   };
 
-  const dismiss = () => {
-    if (!finding) return;
-    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    void setFindingStatus(finding.id, "dismissed").then(() => refresh());
-    router.back();
+  const dismiss = async () => {
+    if (!finding || actionInFlight.current) return;
+    actionInFlight.current = true;
+    setAction("dismiss");
+    try {
+      await setFindingStatus(finding.id, "dismissed");
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      leave();
+    } catch (e) {
+      toast.show(e instanceof Error ? e.message : String(e), { intent: "error" });
+    } finally {
+      actionInFlight.current = false;
+      setAction(null);
+    }
   };
 
   const copy = async () => {
-    if (!finding) return;
-    const text = [
-      finding.title,
+    if (!finding || actionInFlight.current) return;
+    const text = [finding.title,
       ...(finding.reasoning?.length ? ["", ...finding.reasoning.map((r) => `- ${r}`)] : []),
       ...(finding.suggest ? ["", `Suggested: ${finding.suggest}`] : []),
     ].join("\n");
@@ -77,111 +92,110 @@ export default function AutoFindingScreen() {
     }
   };
 
-  const footerAction = (
-    label: string,
-    ios: SFSymbol,
-    android: AndroidSymbol,
-    onPress: () => void,
-  ) => (
+  const footerAction = (label: string, ios: SFSymbol, android: AndroidSymbol, onPress: () => void) => (
     <PressableScale
       onPress={onPress}
+      disabled={busy}
       scale={0.97}
       accessibilityRole="button"
-      style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: space.sm }}
+      accessibilityLabel={`${label === "Dismissing…" ? "Dismiss" : label} finding`}
+      accessibilityState={{ disabled: busy, busy: label === "Dismissing…" }}
+      style={{ minHeight: 44, flexDirection: "row", alignItems: "center", gap: space.xs, paddingHorizontal: space.sm, opacity: busy ? 0.5 : 1 }}
     >
-      <Icon ios={ios} android={android} size={14} color={colors.textMuted} />
-      <Text style={{ ...type.footnote, fontWeight: "500", color: colors.textMuted }}>{label}</Text>
+      <Icon ios={ios} android={android} size={16} color={colors.textSecondary} />
+      <Text style={{ ...type.callout, color: colors.textSecondary }}>{label}</Text>
     </PressableScale>
   );
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      <Stack.Screen options={{ title: `${name} finding` }} />
+      <Stack.Screen options={{ title: "Finding" }} />
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ padding: space.lg, gap: space.md, paddingBottom: insets.bottom + 140 }}
+        contentContainerStyle={{ padding: space.lg, gap: space.lg, paddingBottom: space.xl }}
         contentInsetAdjustmentBehavior="automatic"
       >
         <PressableScale
-          onPress={() => router.back()}
+          onPress={openReport}
+          disabled={busy}
           scale={0.98}
-          accessibilityRole="button"
-          style={{ flexDirection: "row", alignItems: "center", gap: space.xs, alignSelf: "flex-start" }}
+          accessibilityRole="link"
+          accessibilityLabel={`Open ${name} report, ${siblings} open findings`}
+          style={{ minHeight: 44, flexDirection: "row", alignItems: "center", gap: space.sm }}
         >
-          <Icon ios="chevron.left" android="chevron_left" size={12} color={colors.textMuted} />
-          <Text style={{ ...type.callout, color: colors.textMuted }}>{`All ${siblings} from ${name}`}</Text>
+          <View style={{ flex: 1, gap: space.xs }}>
+            <Text style={{ ...type.headline, color: colors.text }}>{name}</Text>
+            <Text style={{ ...type.footnote, color: colors.textSecondary }}>
+              {`${siblings} open finding${siblings === 1 ? "" : "s"}${agent?.project ? ` · ${agent.project}` : ""}`}
+            </Text>
+          </View>
+          <Icon ios="chevron.right" android="chevron_right" size={14} color={colors.textMuted} />
         </PressableScale>
 
         {!finding ? (
-          <Text style={{ ...type.callout, color: colors.textMuted }}>
-            {loading ? "Loading finding…" : "This finding is no longer open."}
-          </Text>
+          loading ? (
+            <View style={{ paddingVertical: space.xl, alignItems: "center", gap: space.md }}>
+              <ActivityIndicator color={colors.textSecondary} />
+              <Text style={{ ...type.callout, color: colors.textSecondary }}>Loading finding…</Text>
+            </View>
+          ) : findingsError ? (
+            <View style={{ gap: space.md }}>
+              <EmptyState title="Could not load this finding" detail={findingsError} />
+              <PrimaryButton label="Try again" onPress={refresh} />
+            </View>
+          ) : (
+            <View style={{ gap: space.md }}>
+              <EmptyState title="This finding is no longer open" detail="It may have been dismissed or moved to a session." />
+              <PrimaryButton label="View agent findings" onPress={openReport} />
+            </View>
+          )
         ) : (
           <>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
-              <Text style={{ ...type.callout, color: colors.textSecondary }}>{name}</Text>
-              <Text style={{ ...type.callout, color: colors.textMuted }}>{`· ${findingAge(finding)}`}</Text>
-              <View style={{ flex: 1 }} />
-              <SeverityDot severity={finding.severity} />
+            <View style={{ gap: space.md }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+                <SeverityBadge severity={finding.severity} />
+                <Text style={{ ...type.footnote, color: colors.textSecondary, flex: 1 }}>
+                  {firstSeen ? `First seen ${firstSeen === "now" ? "just now" : `${firstSeen} ago`}` : ""}
+                  {(finding.occurrences ?? 1) > 1 ? ` · Seen ${finding.occurrences} times` : ""}
+                </Text>
+              </View>
+              <Text selectable accessibilityRole="header" style={{ ...type.title, color: colors.text }}>{finding.title}</Text>
             </View>
-            <Text selectable style={{ ...type.title, color: colors.text }}>{finding.title}</Text>
             {finding.reasoning?.length ? (
               <View style={{ gap: space.sm }}>
+                <Text accessibilityRole="header" style={{ ...type.headline, color: colors.text }}>Why this matters</Text>
                 {finding.reasoning.map((line, i) => (
                   <View key={i} style={{ flexDirection: "row", gap: space.sm }}>
-                    <Text style={{ ...type.callout, color: colors.textMuted }}>•</Text>
-                    <Text selectable style={{ ...type.callout, color: colors.textMuted, flex: 1, lineHeight: 22 }}>
-                      {line}
-                    </Text>
+                    <Text style={{ ...type.body, color: colors.textSecondary }}>•</Text>
+                    <Text selectable style={{ ...type.body, color: colors.textSecondary, flex: 1 }}>{line}</Text>
                   </View>
                 ))}
               </View>
             ) : null}
             {finding.suggest ? (
-              <View
-                style={{
-                  gap: space.xs,
-                  padding: space.md,
-                  borderRadius: radius.xl,
-                  borderWidth: StyleSheet.hairlineWidth,
-                  borderColor: colors.borderStrong,
-                  backgroundColor: colors.card,
-                }}
-              >
-                <Text style={{ ...type.overline, color: colors.textMuted }}>SUGGESTED</Text>
-                <Text selectable style={{ ...type.callout, color: colors.text, lineHeight: 22 }}>
-                  {finding.suggest}
-                </Text>
+              <View style={{ gap: space.sm, padding: space.md, borderRadius: radius.xl, backgroundColor: colors.card, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.borderStrong }}>
+                <Text accessibilityRole="header" style={{ ...type.headline, color: colors.text }}>Suggested next step</Text>
+                <Text selectable style={{ ...type.body, color: colors.textSecondary }}>{finding.suggest}</Text>
               </View>
+            ) : !finding.reasoning?.length ? (
+              <Text style={{ ...type.callout, color: colors.textSecondary }}>The agent did not include more details for this finding.</Text>
+            ) : null}
+            {findingsError ? (
+              <Text accessibilityRole="alert" style={{ ...type.footnote, color: colors.warning }}>{findingsError}</Text>
             ) : null}
           </>
         )}
       </ScrollView>
 
       {finding ? (
-        <View
-          style={{
-            position: "absolute",
-            left: 0,
-            right: 0,
-            bottom: 0,
-            gap: space.sm,
-            paddingHorizontal: space.lg,
-            paddingTop: space.md,
-            paddingBottom: insets.bottom + space.sm,
-            borderTopWidth: StyleSheet.hairlineWidth,
-            borderColor: colors.border,
-            backgroundColor: colors.bg,
-          }}
-        >
-          <PrimaryButton
-            label={starting ? "Starting…" : "Make the change"}
-            loading={starting}
-            onPress={() => void makeTheChange()}
-          />
+        <View style={{ gap: space.xs, paddingHorizontal: space.lg, paddingTop: space.md, paddingBottom: insets.bottom + space.sm, borderTopWidth: StyleSheet.hairlineWidth, borderColor: colors.border, backgroundColor: colors.bg }}>
+          <PrimaryButton label="Start session" loading={action === "start"} disabled={busy || !client} onPress={() => void startSession()} />
+          <Text style={{ ...type.caption, color: colors.textSecondary, textAlign: "center", paddingVertical: space.xs }}>
+            Starts an agent to work on this finding{agent?.project ? ` in ${agent.project}` : ""}.
+          </Text>
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
             {footerAction("Copy", "doc.on.doc", "content_copy", () => void copy())}
-            {footerAction("Dismiss", "xmark", "close", dismiss)}
+            {footerAction(action === "dismiss" ? "Dismissing…" : "Dismiss", "xmark", "close", () => void dismiss())}
           </View>
         </View>
       ) : null}
