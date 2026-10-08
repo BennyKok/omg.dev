@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 8, 2026 - Sign-in for published web apps (v0.6.207)
+
+- When you ask for sign-in, the agent uses your omg.dev sign-in. It no longer builds its own login form.
+- An app can show a landing page to visitors, with a Sign in button. People already signed in to omg.dev return to the app at once.
+
 ## October 8, 2026 - First apps match the design you picked (v0.6.206)
 
 - When a new app starts from a design, the agent compares each screen with the design before it publishes, then fixes what differs.
