@@ -75,7 +75,7 @@ test("hosted guest config that names omg without thinking variants gets them, op
   const config = JSON.parse(readFileSync(guest, "utf8"));
   expect(config.provider.omg.options).toEqual({ baseURL: "http://169.254.0.1:9090/v1", apiKey: "x", timeout: 9 });
   expect(config.provider.omg.models["deepseek/deepseek-v4-pro"].variants.high).toEqual({ reasoningEffort: "high" });
-  expect(config.provider.omg.models["qwen/qwen3-coder-next"].variants).toBeUndefined();
+  expect(config.provider.omg.models["minimax/minimax-m3"].variants).toBeUndefined();
 });
 
 test("every hosted model declares its input modalities", () => {
@@ -96,9 +96,9 @@ test("hosted guest config without modalities gets image input only on image mode
   const config = JSON.parse(readFileSync(guest, "utf8"));
   const omg = config.provider.omg.models;
   expect(omg["z-ai/glm-5.3-flash"].modalities).toEqual({ input: ["text", "image"], output: ["text"] });
-  expect(omg["openai/gpt-5.6-luna"].modalities).toEqual({ input: ["text", "image"], output: ["text"] });
+  expect(omg["anthropic/claude-haiku-5.5"].modalities).toEqual({ input: ["text", "image"], output: ["text"] });
   expect(omg["deepseek/deepseek-v4-flash-0731"].modalities).toEqual({ input: ["text"], output: ["text"] });
-  expect(omg["z-ai/glm-5.2"].modalities).toEqual({ input: ["text"], output: ["text"] });
+  expect(omg["z-ai/glm-5.3"].modalities).toEqual({ input: ["text"], output: ["text"] });
   expect(omg["z-ai/glm-5.3-flash"].attachment).toBe(true);
   expect(omg["deepseek/deepseek-v4-flash-0731"].attachment).toBe(false);
   // A guest that routes its own way keeps its route.
@@ -144,7 +144,7 @@ for (const kind of ["api-key", "oauth", "jwt"]) {
     expect(config.provider.omg.models["deepseek/deepseek-v4-pro"].variants).toEqual({
       low: { reasoningEffort: "low" }, medium: { reasoningEffort: "medium" }, high: { reasoningEffort: "high" },
     });
-    expect(config.provider.omg.models["qwen/qwen3-coder-next"].variants).toBeUndefined();
+    expect(config.provider.omg.models["minimax/minimax-m3"].variants).toBeUndefined();
     expect(statSync(configPath()).mode & 0o777).toBe(0o600);
   });
 }

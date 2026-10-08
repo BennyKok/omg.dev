@@ -341,23 +341,19 @@ test("omg agent lists the routed models in hosted picker order, default first", 
   const { OMG_MODELS } = await import("./agent-catalog.ts");
   expect(OMG_MODELS).toEqual([
     "omg/openai/gpt-6-luna",
+    "omg/anthropic/claude-opus-5.5",
     "omg/apex",
     "omg/deepseek/deepseek-v4-flash-0731",
     "omg/deepseek/deepseek-v4-pro",
     "omg/z-ai/glm-5.3-flash",
-    "omg/z-ai/glm-5.2",
-    "omg/qwen/qwen3.7-plus",
-    "omg/qwen/qwen3-coder-next",
+    "omg/z-ai/glm-5.3",
     "omg/minimax/minimax-m3",
     "omg/x-ai/grok-4.7",
     "omg/anthropic/claude-fable-5.1",
-    "omg/anthropic/claude-opus-5.5",
     "omg/anthropic/claude-sonnet-5.5",
-    "omg/anthropic/claude-opus-4.8",
-    "omg/anthropic/claude-sonnet-4.6",
-    "omg/openai/gpt-5.6-sol",
-    "omg/openai/gpt-5.6-terra",
-    "omg/openai/gpt-5.6-luna",
+    "omg/anthropic/claude-haiku-5.5",
+    "omg/openai/gpt-6.1-sol",
+    "omg/openai/gpt-6-astra",
   ]);
   expect(defaultModelForAgent("omg")).toBe(OMG_MODELS[0]!);
   expect(modelsForAgent("omg")).toEqual(OMG_MODELS);
@@ -369,16 +365,14 @@ test("omg agent lists the routed models in hosted picker order, default first", 
 test("omg thinking levels follow the model: effort where OpenRouter honours it, nothing elsewhere", async () => {
   const { listModelCatalog, thinkingLevelsForAgent } = await import("./agent-catalog.ts");
   expect(thinkingLevelsForAgent("omg", "omg/deepseek/deepseek-v4-flash-0731")).toEqual(["low", "medium", "high"]);
-  expect(thinkingLevelsForAgent("omg", "omg/anthropic/claude-opus-4.8")).toEqual(["low", "medium", "high"]);
-  expect(thinkingLevelsForAgent("omg", "omg/openai/gpt-5.6-sol")).toEqual(["low", "medium", "high"]);
-  expect(thinkingLevelsForAgent("omg", "omg/qwen/qwen3-coder-next")).toBeNull();
-  expect(thinkingLevelsForAgent("omg", "omg/qwen/qwen3.7-plus")).toBeNull();
+  expect(thinkingLevelsForAgent("omg", "omg/anthropic/claude-haiku-5.5")).toEqual(["low", "medium", "high"]);
+  expect(thinkingLevelsForAgent("omg", "omg/openai/gpt-6.1-sol")).toEqual(["low", "medium", "high"]);
   expect(thinkingLevelsForAgent("omg", "omg/minimax/minimax-m3")).toBeNull();
   expect(thinkingLevelsForAgent("omg", "omg/x-ai/grok-4.7")).toEqual(["low", "medium", "high"]);
   expect(thinkingLevelsForAgent("omg", "omg/openai/gpt-6-luna")).toEqual(["low", "medium", "high"]);
   expect(thinkingLevelsForAgent("omg")).toEqual(["low", "medium", "high"]);
   const item = listModelCatalog().find((entry) => entry.key === "omg")!;
   expect(item.thinkingLevels).toEqual(["low", "medium", "high"]);
-  expect(Object.keys(item.thinkingLevelsByModel ?? {})).toHaveLength(14);
-  expect(item.thinkingLevelsByModel?.["omg/qwen/qwen3-coder-next"]).toBeUndefined();
+  expect(Object.keys(item.thinkingLevelsByModel ?? {})).toHaveLength(12);
+  expect(item.thinkingLevelsByModel?.["omg/anthropic/claude-haiku-5.5"]).toEqual(["low", "medium", "high"]);
 });

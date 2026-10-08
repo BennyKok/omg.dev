@@ -5667,6 +5667,14 @@ a{color:#60a5fa}
         }
       }
 
+      if (path === "/api/omg/model-prices") {
+        const { handleOmgModelPrices } = await import("../omg-model-pricing.ts");
+        return handleOmgModelPrices(req, {
+          signedIn: () => cloudAccount.status().signedIn,
+          fetch: cloudAccount.cloudFetch,
+        }, (fields) => evlog("omg_model_prices", fields));
+      }
+
       // ---- coding-agent config: which session backends are shown in the
       // composer, plus lightweight setup health/actions for Settings.
       if (path === "/api/coding-agents" && req.method === "GET") {

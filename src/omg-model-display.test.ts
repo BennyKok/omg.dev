@@ -12,23 +12,19 @@ describe("omg model display", () => {
     const labels = OMG_MODELS.map((id) => [id, parseOmgModel(id)!.provider, omgModelLabel(id)]);
     expect(labels).toEqual([
       ["omg/openai/gpt-6-luna", "openai", "GPT-6 Luna"],
+      ["omg/anthropic/claude-opus-5.5", "anthropic", "Claude Opus 5.5"],
       ["omg/apex", "callstack", "Apex"],
       ["omg/deepseek/deepseek-v4-flash-0731", "deepseek", "DeepSeek V4 Flash"],
       ["omg/deepseek/deepseek-v4-pro", "deepseek", "DeepSeek V4 Pro"],
       ["omg/z-ai/glm-5.3-flash", "z-ai", "GLM 5.3 Flash"],
-      ["omg/z-ai/glm-5.2", "z-ai", "GLM 5.2"],
-      ["omg/qwen/qwen3.7-plus", "qwen", "Qwen3.7 Plus"],
-      ["omg/qwen/qwen3-coder-next", "qwen", "Qwen3 Coder Next"],
+      ["omg/z-ai/glm-5.3", "z-ai", "GLM 5.3"],
       ["omg/minimax/minimax-m3", "minimax", "MiniMax M3"],
       ["omg/x-ai/grok-4.7", "x-ai", "Grok 4.7"],
       ["omg/anthropic/claude-fable-5.1", "anthropic", "Claude Fable 5.1"],
-      ["omg/anthropic/claude-opus-5.5", "anthropic", "Claude Opus 5.5"],
       ["omg/anthropic/claude-sonnet-5.5", "anthropic", "Claude Sonnet 5.5"],
-      ["omg/anthropic/claude-opus-4.8", "anthropic", "Claude Opus 4.8"],
-      ["omg/anthropic/claude-sonnet-4.6", "anthropic", "Claude Sonnet 4.6"],
-      ["omg/openai/gpt-5.6-sol", "openai", "GPT-5.6 Sol"],
-      ["omg/openai/gpt-5.6-terra", "openai", "GPT-5.6 Terra"],
-      ["omg/openai/gpt-5.6-luna", "openai", "GPT-5.6 Luna"],
+      ["omg/anthropic/claude-haiku-5.5", "anthropic", "Claude Haiku 5.5"],
+      ["omg/openai/gpt-6.1-sol", "openai", "GPT-6.1 Sol"],
+      ["omg/openai/gpt-6-astra", "openai", "GPT-6 Astra"],
     ]);
   });
 
@@ -38,9 +34,9 @@ describe("omg model display", () => {
   });
 
   test("provider labels use brand casing", () => {
-    expect(parseOmgModel("omg/z-ai/glm-5.2")!.providerLabel).toBe("Z.ai");
+    expect(parseOmgModel("omg/z-ai/glm-5.3")!.providerLabel).toBe("Z.ai");
     expect(parseOmgModel("omg/minimax/minimax-m3")!.providerLabel).toBe("MiniMax");
-    expect(parseOmgModel("omg/openai/gpt-5.6-sol")!.providerLabel).toBe("OpenAI");
+    expect(parseOmgModel("omg/openai/gpt-6.1-sol")!.providerLabel).toBe("OpenAI");
     expect(parseOmgModel("omg/x-ai/grok-4.7")!.providerLabel).toBe("xAI");
     expect(parseOmgModel("omg/newvendor/thing-1")!.providerLabel).toBe("Newvendor");
   });
