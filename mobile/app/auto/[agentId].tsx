@@ -1,9 +1,8 @@
 /**
  * An auto agent's report: the web's AgentReportSheet as a page.
  *
- * Name and schedule at the top with the worst severity, the count of open
- * findings, then one card per finding (age, severity, title, the suggested
- * fix in two lines) that opens the finding's own page. Edit schedule and
+ * Name and schedule at the top, then compact finding rows with severity,
+ * title, suggestion and age, matching the web report list. Edit schedule and
  * Dismiss all sit in a bar at the bottom, where the web keeps them.
  */
 import * as Haptics from "expo-haptics";
@@ -13,7 +12,7 @@ import { ActivityIndicator, Alert, ScrollView, StyleSheet, View } from "react-na
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { EmptyState, Icon, PrimaryButton } from "../../src/components";
-import { SeverityBadge } from "../../src/omg/auto-agent-card";
+import { SeverityDot } from "../../src/omg/auto-agent-card";
 import { sortFindingRows, useAutoAgents } from "../../src/omg/auto-agents";
 import { agentScheduleLine, findingAge } from "../../src/omg/auto-findings";
 import { PressableScale } from "../../src/omg/motion";
@@ -72,12 +71,12 @@ export default function AutoAgentReportScreen() {
       <Stack.Screen options={{ title: "Findings" }} />
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ padding: space.lg, gap: space.md, paddingBottom: space.xl }}
+        contentContainerStyle={{ padding: space.lg, gap: space.sm, paddingBottom: space.xl }}
         contentInsetAdjustmentBehavior="automatic"
       >
         <View style={{ flexDirection: "row", alignItems: "flex-start", gap: space.md }}>
           <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-            <Text style={{ ...type.title, color: colors.text }}>{name}</Text>
+            <Text style={{ ...type.headline, color: colors.text }}>{name}</Text>
             {agent ? (
               <Text style={{ ...type.footnote, color: colors.textMuted }}>
                 {agentScheduleLine(agent, tz)}
@@ -86,7 +85,7 @@ export default function AutoAgentReportScreen() {
           </View>
         </View>
 
-        <Text style={{ ...type.subhead, color: colors.textMuted }}>
+        <Text style={{ ...type.caption, color: colors.textMuted }}>
           {loading && !open.length ? "Loading findings…" : `${open.length} open finding${open.length === 1 ? "" : "s"}`}
         </Text>
 
@@ -107,29 +106,26 @@ export default function AutoAgentReportScreen() {
               scale={0.98}
               disabled={dismissingAll}
               accessibilityRole="button"
-              accessibilityLabel={`${name} finding: ${finding.title}`}
+              accessibilityLabel={`${name} finding: ${finding.title}. ${finding.severity ?? "Unknown"} severity`}
               style={({ pressed }) => ({
-                gap: space.xs,
-                padding: space.md,
-                borderRadius: radius.xl,
-                borderWidth: StyleSheet.hairlineWidth,
-                borderColor: colors.borderStrong,
-                backgroundColor: pressed ? colors.cardPressed : colors.card,
+                flexDirection: "row", alignItems: "flex-start", gap: space.sm,
+                paddingHorizontal: space.sm, paddingVertical: space.sm, minHeight: 44,
+                borderRadius: radius.md,
+                backgroundColor: pressed ? colors.cardPressed : "transparent",
               })}
             >
-              <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
-                <Text style={{ ...type.caption, color: colors.textMuted, flex: 1 }}>
+              <View style={{ paddingTop: 5 }}><SeverityDot severity={finding.severity} /></View>
+              <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                <Text numberOfLines={2} style={{ ...type.footnote, fontSize: 14, fontWeight: "500", color: colors.text }}>{finding.title}</Text>
+                {finding.suggest ? (
+                  <Text numberOfLines={2} style={{ ...type.caption, fontWeight: "400", color: colors.textSecondary }}>{finding.suggest}</Text>
+                ) : null}
+                <Text style={{ ...type.caption, fontSize: 11, fontWeight: "400", color: colors.textMuted }}>
                   {findingAge(finding) === "now" ? "Just now" : `${findingAge(finding)} ago`}
+                  {(finding.occurrences ?? 1) > 1 ? ` · seen ${finding.occurrences}×` : ""}
                 </Text>
-                <SeverityBadge severity={finding.severity} />
-                <Icon ios="chevron.right" android="chevron_right" size={12} color={colors.textMuted} />
               </View>
-              <Text style={{ ...type.headline, color: colors.text }}>{finding.title}</Text>
-              {finding.suggest || finding.reasoning?.[0] ? (
-                <Text numberOfLines={2} style={{ ...type.footnote, color: colors.textSecondary }}>
-                  {finding.suggest || finding.reasoning?.[0]}
-                </Text>
-              ) : null}
+              <Icon ios="chevron.right" android="chevron_right" size={12} color={colors.textMuted} />
             </PressableScale>
           ))
         )}

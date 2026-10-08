@@ -45,7 +45,7 @@
       "name": "Apply session choices",
       "goal": "Tap Done to close the agent picker.",
       "done": "The finding now shows Codex and the chosen model.",
-      "expect": ["Session agent Codex, GPT-6 Astra. Change agent or model", "Starts Codex to work on this finding in api-gateway.", "Start session"],
+      "expect": ["Session agent Codex, GPT-6 Astra. Change agent or model", "Start session"],
       "forbid": ["Done", "Session agent Claude, Sonnet. Change agent or model"]
     },
     {

@@ -456,7 +456,8 @@ function demoAutoFindings() {
     return { findings: [
       { id: "f1", agentId: "demo-auto-bugs", title: "Old urgent bug report", severity: "high", createdAt: t - 3 * HOUR },
       { id: "f2", agentId: "demo-auto-prs", title: "Earlier urgent PR finding", severity: "high", createdAt: t - 2 * HOUR },
-      { id: "f3", agentId: "demo-auto-prs", title: "Latest PR update", severity: "low", createdAt: t - 5 * HOUR, lastSeenAt: t - 5 * MIN, occurrences: 4 },
+      { id: "f3", agentId: "demo-auto-prs", title: "Latest PR update", severity: "low", createdAt: t - 5 * HOUR, lastSeenAt: t - 5 * MIN, occurrences: 4,
+        reasoning: ["The latest review found an unassigned reviewer.", "The release needs this review before it can proceed."], suggest: "Assign a reviewer and check the release blockers." },
       { id: "f4", agentId: "demo-auto-bugs", title: "Recent bug update", severity: "low", createdAt: t - 30 * MIN },
     ] };
   }

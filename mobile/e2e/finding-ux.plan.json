@@ -13,7 +13,7 @@
       "open": "omg:///auto/demo-auto-prs/f2",
       "goal": "Wait for the finding opened through its notification route. Do not tap an action.",
       "done": "The finding has clear priority, context, reasoning and a suggested next step.",
-      "expect": ["Finding", "Review open PRs", "High", "Seen 3 times", "Why this matters", "Suggested next step", "Start session", "to work on this finding"],
+      "expect": ["Finding", "Review open PRs", "High", "Seen 3 times", "Why this matters", "Suggested next step", "Start session"],
       "forbid": ["Make the change", "All 2 from"]
     },
     {

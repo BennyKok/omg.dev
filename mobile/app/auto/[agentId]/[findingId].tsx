@@ -110,10 +110,10 @@ export default function AutoFindingScreen() {
       accessibilityRole="button"
       accessibilityLabel={`${label === "Dismissing…" ? "Dismiss" : label} finding`}
       accessibilityState={{ disabled: busy, busy: label === "Dismissing…" }}
-      style={{ minHeight: 44, flexDirection: "row", alignItems: "center", gap: space.xs, paddingHorizontal: space.sm, opacity: busy ? 0.5 : 1 }}
+      style={{ minWidth: 44, minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: space.xs, paddingHorizontal: space.sm, opacity: busy ? 0.5 : 1 }}
     >
       <Icon ios={ios} android={android} size={16} color={colors.textSecondary} />
-      <Text style={{ ...type.callout, color: colors.textSecondary }}>{label}</Text>
+      {label !== "Copy" ? <Text style={{ ...type.footnote, color: colors.textSecondary }}>{label}</Text> : null}
     </PressableScale>
   );
 
@@ -122,7 +122,7 @@ export default function AutoFindingScreen() {
       <Stack.Screen options={{ title: "Finding" }} />
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ padding: space.lg, gap: space.lg, paddingBottom: space.xl }}
+        contentContainerStyle={{ padding: space.lg, gap: space.md, paddingBottom: space.xl }}
         contentInsetAdjustmentBehavior="automatic"
       >
         <PressableScale
@@ -133,12 +133,9 @@ export default function AutoFindingScreen() {
           accessibilityLabel={`Open ${name} report, ${siblings} open findings`}
           style={{ minHeight: 44, flexDirection: "row", alignItems: "center", gap: space.sm }}
         >
-          <View style={{ flex: 1, gap: space.xs }}>
-            <Text style={{ ...type.headline, color: colors.text }}>{name}</Text>
-            <Text style={{ ...type.footnote, color: colors.textSecondary }}>
-              {`${siblings} open finding${siblings === 1 ? "" : "s"}${agent?.project ? ` · ${agent.project}` : ""}`}
-            </Text>
-          </View>
+          <Text numberOfLines={1} style={{ ...type.footnote, color: colors.textSecondary, flex: 1 }}>
+            {name} · {siblings} open{agent?.project ? ` · ${agent.project}` : ""}
+          </Text>
           <Icon ios="chevron.right" android="chevron_right" size={14} color={colors.textMuted} />
         </PressableScale>
 
@@ -161,7 +158,7 @@ export default function AutoFindingScreen() {
           )
         ) : (
           <>
-            <View style={{ gap: space.md }}>
+            <View style={{ gap: space.sm }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
                 <SeverityBadge severity={finding.severity} />
                 <Text style={{ ...type.footnote, color: colors.textSecondary, flex: 1 }}>
@@ -169,23 +166,23 @@ export default function AutoFindingScreen() {
                   {(finding.occurrences ?? 1) > 1 ? ` · Seen ${finding.occurrences} times` : ""}
                 </Text>
               </View>
-              <Text selectable accessibilityRole="header" style={{ ...type.title, color: colors.text }}>{finding.title}</Text>
+              <Text selectable accessibilityRole="header" style={{ ...type.headline, fontSize: 18, color: colors.text }}>{finding.title}</Text>
             </View>
             {finding.reasoning?.length ? (
               <View style={{ gap: space.sm }}>
-                <Text accessibilityRole="header" style={{ ...type.headline, color: colors.text }}>Why this matters</Text>
+                <Text accessibilityRole="header" style={{ ...type.caption, color: colors.textSecondary }}>Why this matters</Text>
                 {finding.reasoning.map((line, i) => (
                   <View key={i} style={{ flexDirection: "row", gap: space.sm }}>
-                    <Text style={{ ...type.body, color: colors.textSecondary }}>•</Text>
-                    <Text selectable style={{ ...type.body, color: colors.textSecondary, flex: 1 }}>{line}</Text>
+                    <Text style={{ ...type.subhead, fontWeight: "400", lineHeight: 21, color: colors.textSecondary }}>•</Text>
+                    <Text selectable style={{ ...type.subhead, fontWeight: "400", lineHeight: 21, color: colors.textSecondary, flex: 1 }}>{line}</Text>
                   </View>
                 ))}
               </View>
             ) : null}
             {finding.suggest ? (
-              <View style={{ gap: space.sm, padding: space.md, borderRadius: radius.xl, backgroundColor: colors.card, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.borderStrong }}>
-                <Text accessibilityRole="header" style={{ ...type.headline, color: colors.text }}>Suggested next step</Text>
-                <Text selectable style={{ ...type.body, color: colors.textSecondary }}>{finding.suggest}</Text>
+              <View style={{ gap: space.sm, padding: space.md, borderRadius: radius.lg, backgroundColor: colors.card, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.borderStrong }}>
+                <Text accessibilityRole="header" style={{ ...type.caption, color: colors.textSecondary }}>Suggested next step</Text>
+                <Text selectable style={{ ...type.subhead, fontWeight: "400", lineHeight: 21, color: colors.textSecondary }}>{finding.suggest}</Text>
               </View>
             ) : !finding.reasoning?.length ? (
               <Text style={{ ...type.callout, color: colors.textSecondary }}>The agent did not include more details for this finding.</Text>
@@ -198,26 +195,25 @@ export default function AutoFindingScreen() {
       </ScrollView>
 
       {finding ? (
-        <View style={{ gap: space.xs, paddingHorizontal: space.lg, paddingTop: space.md, paddingBottom: insets.bottom + space.sm, borderTopWidth: StyleSheet.hairlineWidth, borderColor: colors.border, backgroundColor: colors.bg }}>
-          <PressableScale
-            onPress={() => setSetupOpen(true)} disabled={busy}
-            accessibilityRole="button" accessibilityLabel={`Session agent ${picker.label}${picker.modelLabel ? `, ${picker.modelLabel}` : ""}. Change agent or model`}
-            style={{ minHeight: 44, flexDirection: "row", alignItems: "center", gap: space.sm }}
-          >
-            <Icon ios="slider.horizontal.3" android="tune" size={16} color={colors.textSecondary} />
-            <Text numberOfLines={1} style={{ ...type.callout, color: colors.text, flex: 1 }}>
-              {picker.label}{picker.modelLabel ? ` · ${picker.modelLabel}` : ""}{picker.thinkingLabel ? ` · ${picker.thinkingLabel}` : ""}
-            </Text>
-            <Icon ios="chevron.up" android="keyboard_arrow_up" size={12} color={colors.textSecondary} />
-          </PressableScale>
-          <PrimaryButton label="Start session" loading={action === "start"} disabled={busy || !client || picker.loading || (loading && !agent) || !picker.options.length} onPress={() => void startSession()} />
-          <Text style={{ ...type.caption, color: colors.textSecondary, textAlign: "center", paddingVertical: space.xs }}>
-            Starts {picker.label} to work on this finding{agent?.project ? ` in ${agent.project}` : ""}.
-          </Text>
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+        <View style={{ gap: space.xs, paddingHorizontal: space.lg, paddingTop: space.xs, paddingBottom: insets.bottom + space.sm, borderTopWidth: StyleSheet.hairlineWidth, borderColor: colors.border, backgroundColor: colors.bg }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <PressableScale
+                onPress={() => setSetupOpen(true)} disabled={busy}
+                accessibilityRole="button" accessibilityLabel={`Session agent ${picker.label}${picker.modelLabel ? `, ${picker.modelLabel}` : ""}. Change agent or model`}
+                style={{ minHeight: 44, flexDirection: "row", alignItems: "center", gap: space.xs }}
+              >
+                <Icon ios="slider.horizontal.3" android="tune" size={16} color={colors.textSecondary} />
+                <Text numberOfLines={1} style={{ ...type.caption, color: colors.text, flex: 1 }}>
+                  {picker.label}{picker.modelLabel ? ` · ${picker.modelLabel}` : ""}{picker.thinkingLabel ? ` · ${picker.thinkingLabel}` : ""}
+                </Text>
+                <Icon ios="chevron.up" android="keyboard_arrow_up" size={12} color={colors.textSecondary} />
+              </PressableScale>
+            </View>
             {footerAction("Copy", "doc.on.doc", "content_copy", () => void copy())}
             {footerAction(action === "dismiss" ? "Dismissing…" : "Dismiss", "xmark", "close", () => void dismiss())}
           </View>
+          <PrimaryButton label="Start session" loading={action === "start"} disabled={busy || !client || picker.loading || (loading && !agent) || !picker.options.length} onPress={() => void startSession()} />
         </View>
       ) : null}
       <AgentSetupSheet visible={setupOpen && !busy} onClose={() => setSetupOpen(false)}

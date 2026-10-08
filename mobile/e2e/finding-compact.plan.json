@@ -1,0 +1,94 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": false
+  },
+  "steps": [
+    {
+      "name": "Home",
+      "goal": "Reach Home. Dismiss Apple Account Verification with Not Now if shown. Accept the AI data notice for this isolated demo fixture if shown. Do not send a message.",
+      "done": "Home is ready.",
+      "expect": [
+        "api-gateway"
+      ]
+    },
+    {
+      "name": "Show the project updates",
+      "goal": "Tap the api-gateway folder chip at the top. Do not tap add or send a message.",
+      "done": "The api-gateway project is selected and the updates pill is visible.",
+      "expect": [
+        "4 updates from auto agents. Open"
+      ]
+    },
+    {
+      "name": "Compact Updates rows",
+      "goal": "Tap 4 updates from auto agents. Open. Inspect the compact one-line rows. Do not open a report yet.",
+      "done": "Updates shows compact single-line agent rows with leading severity dots, plain counts and times. Review open PRs is above Triage new bug reports.",
+      "expect": [
+        "Updates",
+        "Review open PRs",
+        "Triage new bug reports"
+      ]
+    },
+    {
+      "name": "Compact report rows",
+      "goal": "Tap Review open PRs in Updates. Inspect the order. Latest PR update must be above Earlier urgent PR finding despite its lower severity and earlier first sight.",
+      "done": "The report shows compact plain finding rows. Latest PR update is above Earlier urgent PR finding.",
+      "expect": [
+        "Findings",
+        "Latest PR update",
+        "Earlier urgent PR finding"
+      ]
+    },
+    {
+      "name": "Compact finding detail",
+      "goal": "Tap Latest PR update.",
+      "done": "The latest finding is open with its occurrence count and a Start session action.",
+      "expect": [
+        "Finding",
+        "Latest PR update",
+        "Seen 4 times",
+        "Start session",
+        "Why this matters",
+        "Suggested next step",
+        "Copy finding",
+        "Dismiss finding"
+      ]
+    },
+    {
+      "name": "Agent picker remains available",
+      "goal": "Tap Session agent Claude, Sonnet. Change agent or model.",
+      "done": "The agent picker opens with Claude and Codex choices.",
+      "expect": [
+        "Session agent",
+        "Claude agent",
+        "Codex agent",
+        "Done"
+      ]
+    },
+    {
+      "name": "Return to the compact finding",
+      "goal": "Tap Done.",
+      "done": "The compact finding and its actions are visible again.",
+      "expect": [
+        "Latest PR update",
+        "Start session",
+        "Copy finding",
+        "Dismiss finding"
+      ],
+      "forbid": [
+        "Done"
+      ]
+    },
+    {
+      "name": "Launch error retains the finding",
+      "goal": "Tap Start session once. This isolated demo intentionally returns no session id. Do not tap it again.",
+      "done": "The error leaves the compact finding open with its actions.",
+      "expect": [
+        "The session did not start. Please try again.",
+        "Latest PR update",
+        "Start session"
+      ]
+    }
+  ]
+}

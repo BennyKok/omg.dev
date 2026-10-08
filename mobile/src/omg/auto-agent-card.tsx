@@ -442,16 +442,9 @@ export function worstSeverity(findings: ReadonlyArray<AutoFinding>): AutoFinding
   return worst;
 }
 
-/**
- * The home row for an agent's report, shaped like the web's AutoReportRow:
- * the agent's name with a blue count when it has more than one open
- * finding, the lead finding's title beneath, and on the right the worst
- * severity and when the newest was seen. Tapping opens the report page.
- */
+/** A compact Updates row, matching the web: severity, agent, count, age. */
 export function AutoReportRow({
-  group,
-  onOpen,
-  animateEntry = true,
+  group, onOpen, animateEntry = true,
 }: {
   group: AutoFindingGroup;
   onOpen: () => void;
@@ -464,75 +457,25 @@ export function AutoReportRow({
   const latest = findings.reduce((max, f) => Math.max(max, f.lastSeenAt ?? f.createdAt ?? 0), 0);
   const name = group.agent?.name ?? "Auto agent";
   const count = findings.length;
+  const severity = worstSeverity(findings);
   return (
-    <Reanimated.View
-      entering={animateEntry ? listMotion.entering : undefined}
-      layout={animateEntry ? listMotion.layout : undefined}
-    >
+    <Reanimated.View entering={animateEntry ? listMotion.entering : undefined} layout={animateEntry ? listMotion.layout : undefined}>
       <PressableScale
-        onPress={onOpen}
-        scale={0.98}
-        accessibilityRole="button"
-        accessibilityLabel={`${name}: ${count} open finding${count === 1 ? "" : "s"}. Open report`}
+        onPress={onOpen} scale={0.98} accessibilityRole="button"
+        accessibilityLabel={`${name}: ${count} open finding${count === 1 ? "" : "s"}. Open report. ${severity ?? "Unknown"} severity. ${lead.title}`}
         style={({ pressed }) => ({
-          marginHorizontal: SESSION_ROW.inset,
-          paddingHorizontal: SESSION_ROW.padding,
-          height: SESSION_ROW.height,
-          justifyContent: "center",
-          borderRadius: radius.md,
+          flexDirection: "row", alignItems: "center", gap: space.sm,
+          paddingHorizontal: space.sm, minHeight: 44, borderRadius: radius.md,
           backgroundColor: pressed ? colors.cardPressed : "transparent",
         })}
       >
-        <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
-          <View style={{ flex: 1, gap: 2, minWidth: 0 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
-              <Text numberOfLines={1} style={{ ...type.body, color: colors.text, flexShrink: 1 }}>
-                {name}
-              </Text>
-              {count > 1 ? (
-                <View
-                  style={{
-                    minWidth: 20,
-                    height: 20,
-                    paddingHorizontal: 6,
-                    borderRadius: 10,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    backgroundColor: withAlpha(colors.primary, 0.12),
-                  }}
-                >
-                  <Text
-                    style={{
-                      ...type.caption,
-                      fontWeight: "600",
-                      fontVariant: ["tabular-nums"],
-                      color: colors.primary,
-                    }}
-                  >
-                    {count}
-                  </Text>
-                </View>
-              ) : null}
-              {group.agent?.running ? <ActivityIndicator size="small" color={colors.primary} /> : null}
-            </View>
-            <Text numberOfLines={1} style={{ ...type.footnote, color: colors.textMuted }}>
-              {lead.title}
-            </Text>
-          </View>
-          <SeverityDot severity={worstSeverity(findings)} />
-          <Text
-            numberOfLines={1}
-            style={{
-              ...type.caption,
-              fontVariant: ["tabular-nums"],
-              color: colors.textMuted,
-              minWidth: 28,
-              textAlign: "right",
-            }}
-          >
-            {findingAge({ ...lead, lastSeenAt: latest || undefined })}
-          </Text>
-        </View>
+        <SeverityDot severity={severity} />
+        <Text numberOfLines={1} style={{ ...type.footnote, fontSize: 14, color: colors.text, flex: 1 }}>{name}</Text>
+        {group.agent?.running ? <ActivityIndicator size="small" color={colors.primary} /> : null}
+        {count > 1 ? <Text style={{ ...type.caption, color: colors.textMuted, fontVariant: ["tabular-nums"] }}>{count}</Text> : null}
+        <Text style={{ ...type.caption, fontSize: 11, color: colors.textMuted, fontVariant: ["tabular-nums"], minWidth: 28, textAlign: "right" }}>
+          {findingAge({ ...lead, lastSeenAt: latest || undefined })}
+        </Text>
       </PressableScale>
     </Reanimated.View>
   );

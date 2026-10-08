@@ -26,7 +26,7 @@ import { Pressable, ScrollView as PlainScrollView, StyleSheet, View } from "reac
 import Reanimated, { FadeIn, FadeInUp } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 
-import { Icon, SESSION_ROW, withAlpha } from "../components";
+import { Icon } from "../components";
 import { AutoReportRow } from "./auto-agent-card";
 import type { AutoFindingGroup } from "./auto-agents";
 import { GlassSurface } from "./glass";
@@ -164,9 +164,7 @@ export function FindingsDrawer({
 }
 
 /**
- * One grouped surface with hairline separators, shared by the drawer and the
- * iPad rail. Each row used to sit in its own tinted card, and the row's own
- * inset drew a second box inside it.
+ * Compact plain rows shared by the drawer and iPad rail, like the web.
  */
 function FindingsList({
   groups,
@@ -175,38 +173,14 @@ function FindingsList({
   groups: ReadonlyArray<AutoFindingGroup>;
   onOpen: (agentId: string) => void;
 }) {
-  const { colors } = useTheme();
   return (
-    <View
-      style={{
-        borderRadius: 20,
-        borderCurve: "continuous",
-        overflow: "hidden",
-        backgroundColor: withAlpha(colors.text, 0.04),
-        paddingVertical: SESSION_ROW.inset,
-      }}
-    >
-      {groups.map((group, index) => (
-        <View key={group.agentId}>
-          {index > 0 ? (
-            <View
-              style={{
-                height: StyleSheet.hairlineWidth,
-                marginLeft: SESSION_ROW.inset + SESSION_ROW.padding,
-                marginRight: SESSION_ROW.inset,
-                backgroundColor: colors.borderSoft,
-              }}
-            />
-          ) : null}
-          <AutoReportRow
-            group={group}
-            animateEntry={false}
-            onOpen={() => {
-              void Haptics.selectionAsync();
-              onOpen(group.agentId);
-            }}
-          />
-        </View>
+    <View style={{ gap: 2 }}>
+      {groups.map((group) => (
+        <AutoReportRow key={group.agentId} group={group} animateEntry={false}
+          onOpen={() => {
+            void Haptics.selectionAsync();
+            onOpen(group.agentId);
+          }} />
       ))}
     </View>
   );
