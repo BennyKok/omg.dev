@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 8, 2026 - First apps match the design you picked (v0.6.206)
+
+- When a new app starts from a design, the agent compares each screen with the design before it publishes, then fixes what differs.
+- The agent finishes the first build in one go. It no longer stops to ask whether to continue.
+- Your first published app is public, so anyone you send the link to can open it.
+
 ## October 8, 2026 - Open and act on auto agent findings on your phone (v0.6.205)
 
 - Finding notifications open the exact finding in the mobile app.
