@@ -383,6 +383,34 @@ describe("first-run envelope", () => {
     expect(wrapped).toContain("Replace the template home screen in `src/app/index.tsx`; do not add a second index route");
   });
 
+  test("a first run with a design checks the screens against it before deploying", async () => {
+    // Trial builds (2026-10-08) deployed the first preview without comparing
+    // it to the paid design, so the user opened a different app.
+    const { withFirstRunEnvelope } = await import("./omg-capabilities.ts");
+    const wrapped = withFirstRunEnvelope("Build a jewelry store app. Match this design.", { seesImages: true })!;
+    const gate = wrapped.indexOf("- If the task includes design screens to match");
+    const deploy = wrapped.indexOf("- After the preview:");
+    expect(gate).toBeGreaterThan(-1);
+    expect(gate).toBeLessThan(deploy);
+    expect(wrapped.slice(gate, deploy)).toContain("deploy again after the fixes");
+    // The user has often left. A turn that ends on a question ships nothing.
+    expect(wrapped.slice(gate, deploy)).toContain("Do not stop to ask whether to continue");
+    // Public preview links ask for a sign-in, so the check uses the local server.
+    expect(wrapped.slice(gate, deploy)).toContain("`http://127.0.0.1:8081`");
+    // A model that cannot see images cannot compare screenshots.
+    expect(withFirstRunEnvelope("x", { seesImages: false })).not.toContain("design screens to match");
+  });
+
+  test("a first run makes its first deployed app public", async () => {
+    // An owner-only first app asked everyone, the agent included, to sign in.
+    const { withFirstRunEnvelope } = await import("./omg-capabilities.ts");
+    const rule = withFirstRunEnvelope("Build a habit tracker app", { seesImages: false })!
+      .split("\n")
+      .find((line) => line.startsWith("- After the preview:"));
+    expect(rule).toContain("`omg_app_visibility`");
+    expect(rule!.indexOf("`omg_deploy`")).toBeLessThan(rule!.indexOf("`omg_app_visibility`"));
+  });
+
   test("the image rule is only for models that cannot see", async () => {
     const { withFirstRunEnvelope, modelSeesImages } = await import("./omg-capabilities.ts");
     expect(withFirstRunEnvelope("x", { seesImages: true })).not.toContain("You cannot see images");
