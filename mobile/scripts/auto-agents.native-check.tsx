@@ -17,7 +17,7 @@ const client = { transport: { request: async (path: string, init?: RequestInit) 
   return { findings: [finding] };
 } } };
 mock.module(resolve(import.meta.dir, "../src/omg/provider.tsx"), () => ({ useOmg: () => ({ client, bindingId: "test" }) }));
-const { useAutoAgents } = await import("../src/omg/auto-agents");
+const { useAutoAgents, selectHomeAutoFindings, groupHomeAutoFindings, sortFindingRows } = await import("../src/omg/auto-agents");
 let state: ReturnType<typeof useAutoAgents>;
 function Probe() { state = useAutoAgents(); return <div>{state.findings.map((f) => f.title).join()} {state.findingsError}</div>; }
 let ui: Mounted;
@@ -51,4 +51,22 @@ test("load errors remain distinct from an empty list and retry clears the error"
   readsFail = false;
   await ui.flushAsync(async () => state.refresh());
   expect(state.findingsError).toBeNull(); expect(state.findings).toHaveLength(1);
+});
+
+test("Updates and reports put the latest occurrence first regardless of severity", () => {
+  const findings = [
+    { id: "old-urgent", agentId: "bugs", title: "Old", severity: "high" as const, createdAt: 100 },
+    { id: "earlier-pr", agentId: "prs", title: "Earlier", severity: "high" as const, createdAt: 200 },
+    { id: "repeated-pr", agentId: "prs", title: "Repeated", severity: "low" as const, createdAt: 50, lastSeenAt: 400 },
+    { id: "recent-bug", agentId: "bugs", title: "Recent", severity: "low" as const, createdAt: 300 },
+    { id: "undated", agentId: "gone", title: "Undated" },
+  ];
+  const original = findings.map(f => f.id);
+  const rows = selectHomeAutoFindings([], findings);
+  expect(rows.map(row => row.finding.id)).toEqual(["repeated-pr", "recent-bug", "earlier-pr", "old-urgent", "undated"]);
+  const groups = groupHomeAutoFindings(rows);
+  expect(groups.map(group => group.agentId)).toEqual(["prs", "bugs", "gone"]);
+  expect(groups[0]!.rows.map(row => row.finding.id)).toEqual(["repeated-pr", "earlier-pr"]);
+  expect(sortFindingRows(findings.filter(f => f.agentId === "bugs")).map(f => f.id)).toEqual(["recent-bug", "old-urgent"]);
+  expect(findings.map(f => f.id)).toEqual(original);
 });

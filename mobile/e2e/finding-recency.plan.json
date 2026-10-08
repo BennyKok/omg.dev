@@ -1,0 +1,36 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": { "clearState": false },
+  "steps": [
+    {
+      "name": "Home",
+      "goal": "Reach Home. Dismiss Apple Account Verification with Not Now if shown. Accept the AI data notice for this isolated demo fixture if shown. Do not send a message.",
+      "done": "Home is ready.",
+      "expect": ["api-gateway"]
+    },
+    {
+      "name": "Show the project updates",
+      "goal": "Tap the api-gateway folder chip at the top. Do not tap add or send a message.",
+      "done": "The api-gateway project is selected and the updates pill is visible.",
+      "expect": ["4 updates from auto agents. Open"]
+    },
+    {
+      "name": "Latest report is first in Updates",
+      "goal": "Tap the updates pill labelled 4 updates from auto agents. Open. Then inspect the order. Review open PRs must appear above Triage new bug reports. Its lead title is Latest PR update. Do not open a report yet.",
+      "done": "Updates shows Review open PRs above Triage new bug reports. Latest PR update is the lead finding of the first row. Recent bug update is the lead finding of the second row.",
+      "expect": ["Updates", "Review open PRs", "Triage new bug reports"]
+    },
+    {
+      "name": "Latest occurrence is first inside the report",
+      "goal": "Tap Review open PRs in Updates. Inspect the order. Latest PR update must be above Earlier urgent PR finding despite its lower severity and earlier first sight.",
+      "done": "The report has Latest PR update above Earlier urgent PR finding.",
+      "expect": ["Findings", "Latest PR update", "Earlier urgent PR finding"]
+    },
+    {
+      "name": "Open the latest finding",
+      "goal": "Tap Latest PR update.",
+      "done": "The latest finding is open with its occurrence count and a Start session action.",
+      "expect": ["Finding", "Latest PR update", "Seen 4 times", "Start session"]
+    }
+  ]
+}

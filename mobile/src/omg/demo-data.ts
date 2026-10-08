@@ -452,6 +452,14 @@ function demoAutoAgents() {
 function demoAutoFindings() {
   const t = now();
   // Opt-in recording fixture. The normal demo and real transport are unchanged.
+  if (process.env.EXPO_PUBLIC_OMG_FINDING_RECENCY_FIXTURE === "1") {
+    return { findings: [
+      { id: "f1", agentId: "demo-auto-bugs", title: "Old urgent bug report", severity: "high", createdAt: t - 3 * HOUR },
+      { id: "f2", agentId: "demo-auto-prs", title: "Earlier urgent PR finding", severity: "high", createdAt: t - 2 * HOUR },
+      { id: "f3", agentId: "demo-auto-prs", title: "Latest PR update", severity: "low", createdAt: t - 5 * HOUR, lastSeenAt: t - 5 * MIN, occurrences: 4 },
+      { id: "f4", agentId: "demo-auto-bugs", title: "Recent bug update", severity: "low", createdAt: t - 30 * MIN },
+    ] };
+  }
   if (process.env.EXPO_PUBLIC_OMG_FINDING_UX_FIXTURE === "1") {
     return { findings: [
       { id: "f2", agentId: "demo-auto-prs", title: "3 PRs waiting on review for over a day", severity: "high", createdAt: t - 3 * HOUR, lastSeenAt: t - 30 * MIN, occurrences: 3,

@@ -1026,7 +1026,7 @@ export function SessionsScreen({
    * scoped through the OWNING AGENT's repo (the machine already resolves
    * worktree cwds to it; see withAutoAgentMeta), because a finding carries no
    * project of its own. `selectHomeAutoFindings` then lays the scoped
-   * findings out one row each, worst severity first — see auto-agents.ts for
+   * findings out one row each, newest report first — see auto-agents.ts for
    * why there is no roster here to filter down from.
    */
   const autoRows = useMemo(() => {

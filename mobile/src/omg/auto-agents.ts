@@ -229,8 +229,6 @@ export function useAutoAgents(): AutoAgentsState {
   return { agents, findings, tz, loading, findingsError, refresh, setFindingStatus, setAgentEnabled };
 }
 
-const SEVERITY_RANK: Record<string, number> = { high: 0, med: 1, low: 2 };
-
 export type AutoFindingRow = {
   finding: AutoFinding;
   /**
@@ -243,37 +241,16 @@ export type AutoFindingRow = {
   agent: AutoAgent | undefined;
 };
 
-/**
- * The open findings worth a row on the home screen, in the order they most
- * want a decision.
- *
- * ONE ROW PER FINDING, not per agent. This box can have dozens of auto
- * agents; almost none of that is news. What is news is a finding, and the
- * web's own live view (the "Auto" section in web/src/App.tsx) already proved
- * the right grain: a flat, chronological-by-severity list of findings, not a
- * roster of the agents that produced them. An agent with nothing open —
- * including one running right now — earns no row here; "running" is a
- * schedule-management fact (web's AutoManageView), not news.
- *
- * Order: worst severity first, then most recently seen — so the row at the
- * top is the one that most wants a decision, matching selectHomeAutoAgents's
- * old ordering minus the "running" tiebreaker that no longer applies.
- */
+/** Open findings, newest report first, with their owning agent. */
 export function selectHomeAutoFindings(
   agents: AutoAgent[],
   findings: AutoFinding[],
 ): AutoFindingRow[] {
   const byId = new Map(agents.map((agent) => [agent.id, agent]));
-  const rows = findings.map((finding) => ({ finding, agent: byId.get(finding.agentId) }));
-
-  const sev = (row: AutoFindingRow) => SEVERITY_RANK[row.finding.severity ?? "low"] ?? 2;
-  const seen = (row: AutoFindingRow) => row.finding.lastSeenAt ?? row.finding.createdAt ?? 0;
-
-  rows.sort((a, b) => sev(a) - sev(b) || seen(b) - seen(a));
-  return rows;
+  return sortFindingRows(findings).map((finding) => ({ finding, agent: byId.get(finding.agentId) }));
 }
 
-/** One report per agent: its open findings, worst first, newest first. */
+/** One report per agent, with its newest finding first. */
 export type AutoFindingGroup = {
   agentId: string;
   agent: AutoAgent | undefined;
@@ -288,8 +265,8 @@ export type AutoFindingGroup = {
  * agent once and carries the count; the rows open under it. Same rule as the
  * web's groupFindingsByAgent (web/src/lib/finding-groups.ts).
  *
- * Input is `selectHomeAutoFindings` output, already worst-first and
- * newest-first, so a group's position is that of its worst, newest finding.
+ * Input is `selectHomeAutoFindings` output, already newest-first, so each
+ * group is positioned by its most recently reported finding.
  */
 export function groupHomeAutoFindings(rows: AutoFindingRow[]): AutoFindingGroup[] {
   const groups = new Map<string, AutoFindingGroup>();
@@ -302,9 +279,8 @@ export function groupHomeAutoFindings(rows: AutoFindingRow[]): AutoFindingGroup[
   return [...groups.values()];
 }
 
-/** One agent's findings, worst first, newest first. What its report lists. */
+/** Findings ordered by latest report, falling back to first sight. Does not mutate input. */
 export function sortFindingRows(findings: AutoFinding[]): AutoFinding[] {
-  const sev = (f: AutoFinding) => SEVERITY_RANK[f.severity ?? "low"] ?? 2;
   const seen = (f: AutoFinding) => f.lastSeenAt ?? f.createdAt ?? 0;
-  return [...findings].sort((a, b) => sev(a) - sev(b) || seen(b) - seen(a));
+  return [...findings].sort((a, b) => seen(b) - seen(a));
 }
