@@ -307,7 +307,22 @@ export function withFirstRunEnvelope(prompt: string | undefined, opts: { seesIma
     // preview at 8 min. The A/B runs that exposed first had the card at 27 s.
     `- For a phone app, do these steps first, before you write any app code, even when the request includes a design to match: 1. \`omg_create_project\` with \`template: "expo"\`. 2. \`omg_expose_port\` with port 8081 and \`expoGo: true\`. 3. From the project directory run \`bash scripts/start-expo-preview.sh <expoGo.proxyUrl> 8081\` with a 240000 ms shell timeout. 4. Present the web preview first: tell the user the app is ready and the card below shows it running, on any device, with no account. Then mention the phone in one sentence: to try it on their own phone, tap \"Your phone\" on the card. If the script prints \`WARNING: Expo CLI is not signed in\`, offer \"Create a free Expo account\" for an iPhone: on that tab they tap \"Create free account\", or \"I have one\" if they already have one; Android does not need it. The user creates the account themself; never sign up for them. Metro reloads on every save, so the preview follows your edits. Then read the omg-app-builder skill in the project and build the screens. Replace the template home screen in \`src/app/index.tsx\`; do not add a second index route or a root \`app/\` folder, because the template screen then stays on \`/\`.`,
     "- Before that first preview: no test suites, no self-test loops, and no reading files one by one to learn the template. One quick check that the page loads is enough.",
-    "- After the preview: build in a few larger edits, run one typecheck or build, deploy once with `omg_deploy`, commit, then `omg_ship`.",
+    // A paid design is the spec. Trial builds (2026-10-08) shipped the first
+    // preview, built from the words alone, and stopped: "Adorn By Deonte"
+    // went live as "House of Deonte" in other colours, and the later match
+    // work was never deployed. The preview-first rule above stays; this gate
+    // runs before the deploy, so what the user opens matches what they saw.
+    // Haiku 5.5 on a cloud Computer (same day) found the differences, then
+    // ended its turn asking "continue?" with nothing deployed.
+    ...(opts.seesImages
+      ? [
+          "- If the task includes design screens to match, you are not done until the app matches them. Before `omg_deploy`, take a screenshot of each screen in the preview and compare it with its design screen. Take the screenshots in the Computer browser from the local dev server: `http://127.0.0.1:8081` for a phone app, or the web server port for a web app. Public preview links can ask for a sign-in. If the page is blank or still loading, wait a few seconds and reload until your screen shows. List every difference in layout, colors, name, text and labels, fix them, and check again until none are left. If you deployed before this check, deploy again after the fixes, so that the link the user has shows the matched app. Do not stop to ask whether to continue: fix the differences, deploy, and finish in this turn.",
+        ]
+      : []),
+    // A new app is owner-only, so the link asked everyone else, and the
+    // agent's own browser, to sign in (Haiku 5.5 cloud test, 2026-10-08).
+    // The first app is something to show people, so it is made public.
+    "- After the preview: build in a few larger edits, run one typecheck or build, deploy once with `omg_deploy`, then make the app public with `omg_app_visibility` (`visibility: \"public\"`) so its link opens for anyone, commit, then `omg_ship`.",
     "- When the user asks for an installable Android app, or the task says to build one, call `omg_build_android` once after the preview works. While it builds (about 3 to 5 minutes), say so and keep polling `omg_build_status`. Then show the APK with `omg_display_file` and give the user `installUrl`.",
     ...(opts.seesImages
       ? []
