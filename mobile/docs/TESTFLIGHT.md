@@ -5,6 +5,40 @@ read off the EAS docs.
 
 ## Current state
 
+### Compact findings and notification routes OTA — 2026-10-08
+
+Finding notifications open the exact finding on the phone. Updates and reports
+sort by the latest occurrence. Finding sessions offer agent, model, thinking
+level and Claude account choices. Updates, reports and detail actions use the
+compact web layout.
+
+Source: `2755f29cfd69be78cb30cba65d2426a5afffccfd`, release `v0.6.205`.
+The local service deployed that revision and passed its served-bundle probe.
+The release workflow [37767902886](https://github.com/BennyKok/omg.dev/actions/runs/37767902886)
+passed and verified all 17 release assets.
+
+| Runtime | Update group | Workflow |
+| --- | --- | --- |
+| 1.0.14 | `b697e7e3-f5a8-48d9-9a8e-d4b105c5caf2` | [37767916894](https://github.com/BennyKok/omg.dev/actions/runs/37767916894) |
+| 1.0.15 | `e452b17a-a5ad-4c68-aeed-9f3846ac5d9e` | [37768322722](https://github.com/BennyKok/omg.dev/actions/runs/37768322722) |
+| 1.0.16 | `c84bdbe6-f6d0-4a55-8616-2856d49d2c6d` | [37767924557](https://github.com/BennyKok/omg.dev/actions/runs/37767924557) |
+
+All three workflows passed. EAS JSON readback confirms production, both
+platforms, exact runtime and source commit. The production endpoint serves
+the same six update IDs. Native configuration and dependencies are unchanged
+from the previous production updates at `d0b4cfd29`. No store submission was
+made. App Store Connect reports version 1.0.15 ready for distribution and its
+review complete. Physical-phone activation and Android rendering remain
+unverified.
+
+Verification: the compact iOS plan passes 8/8, the agent selection plan 8/8,
+and the recency plan 5/5. Mobile type checks and 69 native check files pass;
+one existing transcript check is quarantined. Backend and web type checks
+pass during landing. Full suite: 4716 pass, one skip, 12 fail and one error.
+The 11 named failures match the earlier baseline. The stale client build
+prerequisite error passed on a focused first-run test after rebuilding the
+client package. No unrelated test fixes were included.
+
 ### Managed model usage groups (2026-10-08)
 
 The native model picker groups managed models by credit usage. Its neutral
