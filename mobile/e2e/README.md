@@ -106,3 +106,27 @@ Read the screen with `bun run test:e2e --inspect` and copy strings verbatim.
   `a11y:` as a selector key. Maestro does not accept them.
 - Prefer `id:` where the element has a stable `resource-id`. Most of this app
   does not yet. Add `testID` props as you touch screens.
+
+## Managed model picker
+
+The `managed-models` plan uses the production `AgentSetupSheet` in a simulator
+screen. It reads the connected Computer's live model catalog and prices.
+It verifies grouping, scrolling, search, model selection, and return to the
+default model. It does not test account sign-in.
+
+Forward the local Computer API to the Mac's loopback address while testing:
+
+```bash
+ssh -N -R 127.0.0.1:18766:127.0.0.1:8766 bennykok@bennys-macbook-pro-2
+```
+
+In another terminal, from `mobile/`:
+
+```bash
+OMG_E2E_ENTRY_FILE=scripts/managed-models-e2e-entry.tsx \
+  bun run test:e2e --build --plan managed-models --record
+```
+
+Stop the forward after the check. The test screen is included only when the
+explicit `OMG_E2E_ENTRY_FILE` override is set. Normal app builds use the Expo
+Router entrypoint.

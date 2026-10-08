@@ -277,4 +277,4 @@ export interface OmgDeployResult {
 export * from "./session-mention-token.js";
 
 export type { OmgModelPrice, OmgModelPrices } from "./model-pricing.js";
-export { MODEL_CREDIT_SAMPLE, modelCreditSampleMicros } from "./model-pricing.js";
+export { MODEL_CREDIT_SAMPLE, MODEL_USAGE_GROUPS, modelCreditSampleMicros, modelUsageLevel } from "./model-pricing.js";

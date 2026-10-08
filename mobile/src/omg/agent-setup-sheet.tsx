@@ -1,10 +1,12 @@
 /** Compact agent controls. Selection and availability belong to useAgentPicker. */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ActivityIndicator, Image, PanResponder, Platform, Pressable, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Image, PanResponder, Platform, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import Reanimated, { useAnimatedStyle, useSharedValue, withTiming, type SharedValue } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
 import { SymbolView } from "expo-symbols";
+
+import { MODEL_USAGE_GROUPS } from "../../../packages/protocol/src/model-pricing";
 
 import { Sheet } from "./sheet";
 import { SheetScrollView as ScrollView, useSheetExpanded, useBlockSheetDrag } from "./sheet-scroll";
@@ -160,7 +162,10 @@ function Row({ option, first, onPress }: { option: MenuOption; first: boolean; o
       onPress={onPress}
       dim={0.6}
       disabled={option.disabled}
+      accessible
+      testID={option.id ? `model-option:${option.id}` : undefined}
       accessibilityRole="button"
+      accessibilityLabel={option.label}
       accessibilityState={{ selected, disabled: !!option.disabled }}
       style={{
         flexDirection: "row",
@@ -205,6 +210,7 @@ const MODEL_ROWS_SHOWN = 5.5;
 /** Search and rows keep their footprint even for short or empty catalogues. */
 function ModelList({ options, recent, onPick }: { options: MenuOption[]; recent: string[]; onPick: (option: MenuOption) => void }) {
   const { colors, type, space, radius } = useTheme();
+  const { height } = useWindowDimensions();
   const [query, setQuery] = useState("");
   const expanded = useSheetExpanded();
   const q = query.trim().toLowerCase();
@@ -212,9 +218,16 @@ function ModelList({ options, recent, onPick }: { options: MenuOption[]; recent:
     // The short name is what the row shows; the id still matches so a pasted
     // router id, or a provider slug like "z-ai", finds its row.
     const matched = q ? options.filter((o) => o.label.toLowerCase().includes(q) || (o.id?.toLowerCase().includes(q) ?? false)) : options;
+    if (options.some(o => o.id?.startsWith("omg/"))) return matched;
     const current = matched.find(o => o.selected);
     return [...(current ? [current] : []), ...matched.filter(o => o !== current)];
   }, [options, q]);
+
+  const managed = options.some(o => o.id?.startsWith("omg/"));
+  const loading = managed && options.every(o => o.creditUsage === undefined);
+  const groups = managed && !loading
+    ? MODEL_USAGE_GROUPS.map(group => ({ ...group, items: shown.filter(o => (o.creditUsage ?? 0) === group.level) })).filter(group => group.items.length)
+    : [{ level: -1, label: "", items: shown }];
 
   return (
     <View style={{ gap: space.sm }}>
@@ -241,7 +254,7 @@ function ModelList({ options, recent, onPick }: { options: MenuOption[]; recent:
             style={{ flex: 1, ...type.callout, color: colors.text, paddingVertical: 0 }}
           />
       </View>
-      {!q && recent.some(label => options.some(o => o.label === label && !o.selected)) ? <View style={{ gap: 6 }}>
+      {!managed && !q && recent.some(label => options.some(o => o.label === label && !o.selected)) ? <View style={{ gap: 6 }}>
         <Text style={{ ...type.caption, color: colors.textMuted }}>Recent</Text>
         <ScrollView horizontal keyboardShouldPersistTaps="handled" showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
           {recent.map(label => options.find(o => o.label === label && !o.selected)).filter((o): o is MenuOption => !!o).map(option =>
@@ -250,16 +263,21 @@ function ModelList({ options, recent, onPick }: { options: MenuOption[]; recent:
             </Pressable>)}
         </ScrollView>
       </View> : null}
+      {loading ? <View accessibilityLabel="Loading credit usage" style={{ height: 12, width: 120, borderRadius: 6, backgroundColor: colors.borderSoft }} /> : null}
       <View style={{ borderRadius: radius.xl, backgroundColor: colors.card, overflow: "hidden" }}>
         <ScrollView
           bounces={false}
           nestedScrollEnabled
           keyboardShouldPersistTaps="handled"
-          style={{ height: 44 * (expanded ? 10.5 : MODEL_ROWS_SHOWN) }}
+          style={{ height: Math.min(44 * (expanded ? 10.5 : managed ? 8.5 : MODEL_ROWS_SHOWN), height * 0.48) }}
         >
-          {shown.map((option, index) => (
-            <Row key={`${option.label}:${index}`} option={option} first={index === 0} onPress={() => onPick(option)} />
-          ))}
+          {groups.map(group => <View key={group.level}>
+            {group.label ? <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, minHeight: 36, paddingHorizontal: space.lg, paddingTop: 8 }}>
+              <Text accessibilityRole="header" style={{ ...type.caption, color: colors.textMuted }}>{group.label}</Text>
+              {group.level === 2 || group.level === 3 ? <CreditUsageGauge level={group.level} color={colors.textMuted} /> : null}
+            </View> : null}
+            {group.items.map((option, index) => <Row key={option.id ?? option.label} option={option} first={index === 0} onPress={() => onPick(option)} />)}
+          </View>)}
           {!shown.length ? (
             <Text style={{ ...type.footnote, color: colors.textMuted, padding: space.md }}>{options.length ? "No model matches" : "No models available"}</Text>
           ) : null}
@@ -268,6 +286,17 @@ function ModelList({ options, recent, onPick }: { options: MenuOption[]; recent:
       </View>
     </View>
   );
+}
+
+/** Neutral half dial for the group's credit usage. */
+function CreditUsageGauge({ level, color }: { level: 2 | 3; color: string }) {
+  return <View accessible accessibilityLabel={level === 2 ? "Uses more credits" : "Uses credits much faster"} style={{ width: 22, height: 18 }}>
+    <View style={{ width: 22, height: 12, overflow: "hidden" }}>
+      <View style={{ width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: color, opacity: level === 2 ? 0.5 : 1 }} />
+    </View>
+    <View style={{ position: "absolute", left: 10, top: 5, width: 2, height: 12, borderRadius: 1, backgroundColor: color, transform: [{ rotate: level === 2 ? "20deg" : "65deg" }] }} />
+    <View style={{ position: "absolute", left: 9, top: 10, width: 4, height: 4, borderRadius: 2, backgroundColor: color }} />
+  </View>;
 }
 
 const TRACK = 52;

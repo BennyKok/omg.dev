@@ -10,7 +10,7 @@ const View = ({children,style,accessibilityLabel,onLayout}: any) => {
  return <div aria-label={accessibilityLabel} style={Array.isArray(style) ? Object.assign({}, ...style) : style}>{children}</div>;
 };
 const Pressable = ({children,onPress,onLongPress,accessibilityLabel,disabled}: any) => <button aria-label={accessibilityLabel} disabled={disabled} onClick={onPress} onContextMenu={e=>{e.preventDefault();onLongPress?.();}}>{children}</button>;
-mock.module(resolve(import.meta.dir, '../node_modules/react-native/index.js'), () => ({View, ScrollView:View, Image:({source}:any)=><img data-source={typeof source==='object'?JSON.stringify(source):String(source)}/>, ActivityIndicator:()=>null, Pressable, Platform:{OS:'ios'}, StyleSheet:{hairlineWidth:1}, PanResponder:{create:(handlers:any)=>{responders.push(handlers);return {panHandlers:{}};}}}));
+mock.module(resolve(import.meta.dir, '../node_modules/react-native/index.js'), () => ({View, ScrollView:View, Image:({source}:any)=><img data-source={typeof source==='object'?JSON.stringify(source):String(source)}/>, ActivityIndicator:()=>null, Pressable, useWindowDimensions:()=>({width:390,height:844}), Platform:{OS:'ios'}, StyleSheet:{hairlineWidth:1}, PanResponder:{create:(handlers:any)=>{responders.push(handlers);return {panHandlers:{}};}}}));
 mock.module(import.meta.resolve('react-native-reanimated'), () => ({default:{View},useSharedValue:(value:any)=>React.useRef({value}).current,useAnimatedStyle:(fn:any)=>fn(),withTiming:(x:any)=>x}));
 let haptics = 0;
 mock.module(import.meta.resolve('expo-haptics'), () => ({selectionAsync:async()=>{haptics++;}}));
@@ -23,6 +23,43 @@ mock.module(import.meta.resolve('react-native-gesture-handler'), () => ({NativeV
 const { light, space, type, radius } = await import('../src/omg/palette');
 mock.module(resolve(import.meta.dir,'../src/omg/theme.ts'), () => ({useTheme:()=>({colors:light,space,type,radius})}));
 const { AgentSetupSheet, Slider, thinkingDotScale } = await import('../src/omg/agent-setup-sheet');
+
+// Grouping must preserve the server's ranking and the selected router id.
+test('managed groups preserve ranking, filter, and select without moving the selected model first', () => {
+ const ui=mount(); let picked='';
+ const options = [
+  { id:'omg/openai/gpt-6-luna', label:'GPT-6 Luna', creditUsage:1 as const },
+  { id:'omg/anthropic/claude-opus-5.5', label:'Opus 5.5', creditUsage:3 as const },
+  { id:'omg/anthropic/claude-sonnet-5.5', label:'Sonnet 5.5', creditUsage:2 as const },
+  { id:'omg/openai/gpt-6-astra', label:'GPT-6 Astra', creditUsage:3 as const, selected:true },
+ ].map(o=>({...o,onPress:()=>{picked=o.id;}}));
+ try {
+  ui.render(<AgentSetupSheet visible onClose={()=>{}} agentOptions={[{id:'omg',label:'omg',selected:true}]} modelOptions={options}/>);
+  ui.flush(()=> (ui.query('button[aria-label^="Model GPT-6 Astra"]') as HTMLElement).click());
+  const rows=()=>Array.from(ui.queryAll('button')).map(n=>n.textContent).filter(t=>options.some(o=>o.label===t));
+  expect(rows()).toEqual(['GPT-6 Luna','Sonnet 5.5','Opus 5.5','GPT-6 Astra']);
+  expect(ui.query('[aria-label="Uses more credits"]')).not.toBeNull();
+  expect(ui.query('[aria-label="Uses credits much faster"]')).not.toBeNull();
+  const input=ui.query('input') as HTMLInputElement;
+  ui.flush(()=>{input.value='opus';input.dispatchEvent(new Event('input',{bubbles:true}));});
+  expect(rows()).toEqual(['Opus 5.5']);
+  ui.flush(()=> (Array.from(ui.queryAll('button')).find(n=>n.textContent==='Opus 5.5') as HTMLElement).click());
+  expect(picked).toBe('omg/anthropic/claude-opus-5.5');
+  expect(ui.query('input')).toBeNull();
+ } finally {ui.cleanup();}
+});
+
+test('pricing failure leaves managed model selection available', () => {
+ const ui=mount();let picks=0;
+ try {
+  ui.render(<AgentSetupSheet visible onClose={()=>{}} agentOptions={[{id:'omg',label:'omg',selected:true}]}
+   modelOptions={[{id:'omg/openai/gpt-6-luna',label:'GPT-6 Luna',creditUsage:0,selected:true,onPress:()=>picks++}]}/>);
+  ui.flush(()=> (ui.query('button[aria-label^="Model GPT-6 Luna"]') as HTMLElement).click());
+  expect(ui.query('[aria-label="Uses more credits"]')).toBeNull();
+  ui.flush(()=> (Array.from(ui.queryAll('button')).find(n=>n.textContent==='GPT-6 Luna') as HTMLElement).click());
+  expect(picks).toBe(1);
+ } finally {ui.cleanup();}
+});
 
 test('compact controls open searchable models and return after choosing',()=>{
  const ui=mount();

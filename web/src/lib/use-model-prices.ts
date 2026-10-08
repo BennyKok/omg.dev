@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { modelCreditSampleMicros, type OmgModelPrice, type OmgModelPrices } from "../../../packages/protocol/src/model-pricing";
+import type { OmgModelPrices } from "../../../packages/protocol/src/model-pricing";
 import { api, omgTransportGeneration } from "./omg-client";
 
 export function useModelPrices(enabled: boolean) {
@@ -17,14 +17,4 @@ export function useModelPrices(enabled: boolean) {
   return { prices: current?.prices ?? {}, loading: enabled && current === null };
 }
 
-// Compare the same workload with the managed default. This is a usage
-// guide, not a promise about tokens or the cost of an individual task.
-export function modelUsageLevel(price: OmgModelPrice | undefined, baseline: OmgModelPrice | undefined) {
-  if (!price || !baseline) return null;
-  const baselineCost = modelCreditSampleMicros(baseline);
-  if (baselineCost <= 0) return null;
-  const relativeCost = modelCreditSampleMicros(price) / baselineCost;
-  if (relativeCost <= 2) return { label: "Low", bars: 1 } as const;
-  if (relativeCost <= 10) return { label: "Medium", bars: 2 } as const;
-  return { label: "High", bars: 3 } as const;
-}
+export { modelUsageLevel } from "../../../packages/protocol/src/model-pricing";

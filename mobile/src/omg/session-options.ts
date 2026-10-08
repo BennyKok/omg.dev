@@ -9,6 +9,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supportsFastMode } from "../../../packages/protocol/src/fast-mode-support";
 import { omgModelLabel, parseOmgModel } from "../../../packages/protocol/src/omg-model-display";
 import { modelProviderIcon } from "./model-provider-icons";
+import { modelUsageLevel } from "../../../packages/protocol/src/model-pricing";
+import { useModelPrices } from "./use-model-prices";
 import { STORAGE_KEYS } from "./config";
 
 import { preferredAgent } from "./agent-default";
@@ -294,6 +296,9 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
     return entry?.defaultModel ?? models[0] ?? null;
   }, [entry, model]);
 
+  const managedModels = entry?.models?.some((m) => m.startsWith("omg/")) ?? false;
+  const { prices: modelPrices, loading: pricesLoading } = useModelPrices(managedModels);
+
   const modelOptions = useMemo<MenuOption[]>(() => {
     const models = entry?.models ?? [];
 
@@ -303,6 +308,9 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
     return models.map((m) => ({
       id: m,
       label: omgModelLabel(m),
+      creditUsage: m.startsWith("omg/") && !pricesLoading
+        ? modelUsageLevel(modelPrices[m], modelPrices[entry?.defaultModel ?? ""])?.bars ?? 0
+        : undefined,
       image: modelProviderIcon(parseOmgModel(m)?.provider) ?? undefined,
       selected: m === activeModelName,
       onPress: () => {
@@ -310,7 +318,7 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
         remember({ model: m }, `${bindingId ?? "none"}:${agent}`);
       },
     }));
-  }, [entry, activeModelName, remember, bindingId, agent]);
+  }, [entry, activeModelName, remember, bindingId, agent, modelPrices, pricesLoading]);
 
   /**
    * THE LEVEL IS ALWAYS SOMETHING, and the pill always says what.

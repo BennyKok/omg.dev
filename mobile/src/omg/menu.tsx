@@ -106,6 +106,8 @@ export type MenuOption = {
    * without two controls to keep in agreement.
    */
   section?: string;
+  /** Managed model tier. Undefined while pricing loads or for BYO models. */
+  creditUsage?: 0 | 1 | 2 | 3;
   onPress?: () => void;
 };
 

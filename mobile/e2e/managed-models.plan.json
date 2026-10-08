@@ -1,0 +1,116 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": false
+  },
+  "steps": [
+    {
+      "name": "01 Live native controls",
+      "goal": "Tap Open model controls after the live catalog loads.",
+      "done": "The native agent controls show GPT-6 Luna.",
+      "expect": [
+        "Model GPT-6 Luna. Change model"
+      ],
+      "timeoutMs": 90000
+    },
+    {
+      "name": "04 Usage groups",
+      "goal": "Tap the Model control to open the model list. Wait for usage prices to load.",
+      "done": "The managed list shows standard and higher usage groups.",
+      "expect": [
+        "Standard usage",
+        "Higher usage",
+        "Uses more credits",
+        "GPT-6 Luna"
+      ],
+      "forbid": [
+        "Usage unavailable"
+      ],
+      "timeoutMs": 90000
+    },
+    {
+      "name": "05 Highest usage",
+      "swipe": {
+        "start": "50%,85%",
+        "end": "50%,57%"
+      },
+      "goal": "Inspect the lower part of the model list. Do not select a model yet.",
+      "done": "The highest usage group and its neutral gauge are visible with Opus 5.5.",
+      "expect": [
+        "Highest usage",
+        "Uses credits much faster",
+        "Opus 5.5"
+      ]
+    },
+    {
+      "name": "06 Select Opus",
+      "goal": "Tap Opus 5.5 in the model list.",
+      "done": "The controls return and show Opus 5.5 as the selected model.",
+      "expect": [
+        "Model Claude Opus 5.5. Change model"
+      ],
+      "forbid": [
+        "Search 14 models"
+      ]
+    },
+    {
+      "name": "07 Reopen model list",
+      "goal": "Tap the Model Claude Opus 5.5 control to reopen Models.",
+      "done": "The model search is visible with the unfiltered model list.",
+      "expect": [
+        "Search 14 models",
+        "Standard usage"
+      ]
+    },
+    {
+      "name": "07 Search Haiku",
+      "goal": "Tap the Search 14 models text field and enter the supplied text.",
+      "type": "haiku",
+      "done": "Only Haiku 5.5 matches, under standard usage.",
+      "expect": [
+        "Standard usage",
+        "Haiku 5.5"
+      ],
+      "forbid": [
+        "Opus 5.5",
+        "GPT-6 Astra"
+      ]
+    },
+    {
+      "name": "08 Select Haiku",
+      "goal": "Tap the model button labelled Claude Haiku 5.5, with id model-option:omg/anthropic/claude-haiku-5.5. This is the row below Standard usage. Do not tap Search or the text field.",
+      "done": "The controls return and show Haiku 5.5 selected.",
+      "expect": [
+        "Model Claude Haiku 5.5. Change model"
+      ]
+    },
+    {
+      "name": "09 Reopen after search",
+      "goal": "Tap Model Claude Haiku 5.5 to reopen the model list.",
+      "done": "The unfiltered model list is open and the search is empty.",
+      "expect": [
+        "Search 14 models",
+        "GPT-6 Luna"
+      ]
+    },
+    {
+      "name": "09 Restore default",
+      "goal": "Tap the model row labelled exactly GPT-6 Luna, with id model-option:omg/openai/gpt-6-luna. Do not tap Search or the text field.",
+      "done": "The controls return and show GPT-6 Luna selected.",
+      "expect": [
+        "Model GPT-6 Luna. Change model"
+      ]
+    },
+    {
+      "name": "10 Picker evidence",
+      "goal": "Open Model GPT-6 Luna to show the managed picker again.",
+      "done": "Standard and higher usage groups are visible in the native picker.",
+      "expect": [
+        "Standard usage",
+        "Higher usage",
+        "Uses more credits",
+        "GPT-6 Luna"
+      ]
+    }
+  ]
+}

@@ -5,6 +5,33 @@ read off the EAS docs.
 
 ## Current state
 
+### Managed model usage groups — 2026-10-08
+
+The native model picker groups managed models by credit usage. Its neutral
+gauges sit on the right of the higher usage group headings. The default
+stays first. Opus 5.5 stays first in the highest usage group. The selected
+model does not change that ranking. Search and model selection remain usable
+when the Computer cannot supply pricing. The list has more height on phones.
+
+The shared protocol owns the classification and group definitions for web
+and native clients. Prices come from the selected Computer after it is ready.
+A response from a previous Computer cannot supply the new Computer's prices.
+BYO agent lists keep their existing behavior.
+
+Verification: 67 native check files passed. One transcript harness remains
+quarantined. Root, web, and mobile type checks passed. Seven focused web checks
+passed. The iPhone 17 Pro `managed-models` simulator plan passed 10/10 with the
+production picker component and the live Computer catalog and prices. The
+complete signed-in journey was not verified. The test mailbox returned
+`invalid_grant` during sign-in. The full root suite had 4,715 passes, one skip,
+12 failures, and one error outside the model picker. Its stale client-build
+prerequisite check passed in a focused rerun after rebuilding the client.
+
+This change uses the existing native surface. The native inputs match the
+last production updates for runtimes 1.0.14, 1.0.15, and 1.0.16. Delivery uses
+`mobile-ota`. No native dependency or store build changes are required.
+
+
 ### Connection recovery fix OTA — 2026-10-07
 
 The connection pill sits 12 pixels higher. Brief offline events stay silent.
