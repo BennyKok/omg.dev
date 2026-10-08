@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## October 8, 2026 - Open and act on auto agent findings on your phone (v0.6.205)
+
+- Finding notifications open the exact finding in the mobile app.
+- Updates and agent reports show the most recently reported findings first.
+- Choose the session agent, model, thinking level, and Claude account before starting work from a finding.
+- Updates and findings use compact rows and a smaller action bar, matching the web.
+
 ## October 8, 2026 - Model choices and credit usage groups (v0.6.204)
 
 - The omg agent adds Haiku 5.5, GLM 5.3, GPT-6.1 Sol, and GPT-6 Astra. Older choices leave the picker. GPT-6 Luna remains the default.
