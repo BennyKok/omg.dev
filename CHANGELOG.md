@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 8, 2026 - Model choices and credit usage groups (v0.6.204)
+
+- The omg agent adds Haiku 5.5, GLM 5.3, GPT-6.1 Sol, and GPT-6 Astra. Older choices leave the picker. GPT-6 Luna remains the default.
+- Models are grouped by credit use. Higher usage groups have a gray gauge on the right.
+- Opus 5.5 appears first in the highest usage group.
+
 ## October 7, 2026 - Connection dialogs clear on recovery (v0.6.203)
 
 - Brief network drops do not open a blocking connection dialog.
