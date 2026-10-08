@@ -1,3 +1,4 @@
+import { MODEL_USAGE_GROUPS } from "../../packages/protocol/src/model-pricing";
 import { useModelPrices, modelUsageLevel } from "./lib/use-model-prices";
 import { OMG_DEFAULT_MODEL, OMG_MODELS } from "../../src/omg-models";
 import { omgModelLabel, omgModelSearchText, parseOmgModel } from "../../packages/protocol/src/omg-model-display";
@@ -26065,9 +26066,9 @@ export function ModelOptionList({
     return models.filter((item) => omgModelSearchText(item).includes(q));
   }, [models, query]);
   const groups = hasManagedModels && !pricesLoading
-    ? [1, 2, 3, 0].map((level) => ({
+    ? MODEL_USAGE_GROUPS.map(({ level, label }) => ({
         level,
-        label: level === 1 ? "Standard usage" : level === 2 ? "Higher usage" : level === 3 ? "Highest usage" : "Usage unavailable",
+        label,
         items: filtered.filter((item) => (modelUsageLevel(prices[item], prices[OMG_DEFAULT_MODEL])?.bars ?? 0) === level),
       })).filter((group) => group.items.length > 0)
     : [{ level: -1, label: "", items: filtered }];
