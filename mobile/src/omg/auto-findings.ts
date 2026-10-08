@@ -25,13 +25,15 @@ export function findingSessionPrompt(finding: AutoFinding, agent: AutoAgent | un
 }
 
 /**
- * The web's "Make the change": start a session on the finding's own agent,
- * model and folder. A missing session id is a failure, not a resolved finding.
+ * The web's "Make the change": source settings are the defaults, with optional
+ * launch choices from the session picker. The finding keeps its source folder.
+ * A missing session id is a failure, not a resolved finding.
  */
 export async function startSessionFromFinding(
   client: OmgClient,
   finding: AutoFinding,
   agent: AutoAgent | undefined,
+  launch?: { agent: string; model?: string | null; thinkingLevel?: string | null; claudeAccountId?: string },
 ): Promise<string> {
   const res = await client.transport.request<{ sessionId?: string }>("/api/sessions/new", {
     method: "POST",
@@ -39,8 +41,10 @@ export async function startSessionFromFinding(
     body: JSON.stringify({
       prompt: findingSessionPrompt(finding, agent),
       title: finding.title.trim().slice(0, 200),
-      agent: agent?.agent ?? undefined,
-      model: agent?.model ?? undefined,
+      agent: launch?.agent ?? agent?.agent ?? undefined,
+      model: launch ? launch.model ?? undefined : agent?.model ?? undefined,
+      thinkingLevel: launch ? launch.thinkingLevel ?? undefined : agent?.thinkingLevel,
+      claudeAccountId: launch ? launch.claudeAccountId : agent?.claudeAccountId,
       cwd: agent?.cwd ?? undefined,
     }),
   });

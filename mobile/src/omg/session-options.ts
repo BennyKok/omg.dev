@@ -70,9 +70,14 @@ export type ClaudeAccountRow = {
   needsReconnect?: boolean;
 };
 
-export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
+export function useAgentPicker(init: {
+  initialAgent?: string | null;
+  initialModel?: string | null;
+  initialThinking?: string | null;
+  initialClaudeAccountId?: string | null;
+} = {}) {
   const { agents, bindingId, client, readiness, modelsVersion } = useOmg();
-  const { initialAgent } = init;
+  const { initialAgent, initialModel, initialThinking, initialClaudeAccountId } = init;
   /**
    * NOTHING IS FETCHED UNTIL THE BOX ANSWERS, AND A FAILED FETCH RETRIES.
    *
@@ -116,9 +121,13 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
   useEffect(() => clearRetry, [clearRetry]);
   const [chosen, setChosen] = useState<string | null>(null);
   const [model, setModel] = useState<string | null>(null);
+  const [modelPicked, setModelPicked] = useState(false);
   const [fast, setFast] = useState(false);
   const [thinking, setThinking] = useState<string | null>(null);
+  const [thinkingPicked, setThinkingPicked] = useState(false);
   const [catalog, setCatalog] = useState<ModelCatalogEntry[]>([]);
+  const [catalogLoaded, setCatalogLoaded] = useState(false);
+  const [accountsLoaded, setAccountsLoaded] = useState(false);
   /**
    * WHAT WAS CHOSEN LAST TIME, PER MACHINE AND AGENT.
    *
@@ -133,7 +142,7 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
   const [savedLoaded, setSavedLoaded] = useState(false);
   /** Account identity stays internal; the compact picker shows stable numbers. */
   const [claudeAccounts, setClaudeAccounts] = useState<ClaudeAccountRow[]>([]);
-  const [claudeAccount, setClaudeAccount] = useState<string | null>(null);
+  const [claudeAccount, setClaudeAccount] = useState<string | null | undefined>(undefined);
 
   useEffect(() => {
     void AsyncStorage.getItem(STORAGE_KEYS.composerSetup)
@@ -149,6 +158,7 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
   useEffect(() => {
     if (!client || !ready) return;
     let cancelled = false;
+    setAccountsLoaded(false);
     void client.transport
       .request<{ accounts?: ClaudeAccountRow[] }>("/api/coding-agents/claude/accounts")
       .then((res) => {
@@ -162,7 +172,7 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
         if (cancelled) return;
         setClaudeAccounts([]);
         retryLater();
-      });
+      }).finally(() => { if (!cancelled) setAccountsLoaded(true); });
     return () => { cancelled = true; };
   }, [client, ready, fetchAttempt, retryLater]);
 
@@ -176,6 +186,7 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
   useEffect(() => {
     if (!client || !ready) return;
     let cancelled = false;
+    setCatalogLoaded(false);
     client.transport
       .request<{ models?: ModelCatalogEntry[] }>("/api/coding-agents")
       .then((payload) => {
@@ -188,7 +199,7 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
         if (cancelled) return;
         setCatalog([]);
         retryLater();
-      });
+      }).finally(() => { if (!cancelled) setCatalogLoaded(true); });
     return () => {
       cancelled = true;
     };
@@ -199,10 +210,12 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
   // to this box's own first entry rather than 400ing at launch.
   useEffect(() => {
     setChosen(null);
-    setClaudeAccount(null);
+    setClaudeAccount(undefined);
     setFast(false);
     setModel(null);
     setThinking(null);
+    setModelPicked(false);
+    setThinkingPicked(false);
   }, [bindingId]);
 
   /** Remember a choice for this machine and agent. */
@@ -262,11 +275,15 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
         // agent cannot run.
         setModel(null);
         setThinking(null);
+        setModelPicked(false);
+        setThinkingPicked(false);
       },
     }));
   }, [agents, agent]);
 
   const entry = useMemo(() => catalog.find((m) => m.key === agent), [catalog, agent]);
+  const fromSource = agent === initialAgent;
+  const sourceModel = fromSource && initialModel && entry?.models?.includes(initialModel) ? initialModel : null;
 
   /**
    * Restore last time's choices once BOTH the store and the catalog have
@@ -278,23 +295,25 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
     if (!savedLoaded || !entry) return;
     const remembered = saved[`${bindingId ?? "none"}:${agent}`];
     if (!remembered) return;
-    if (remembered.model && entry.models?.includes(remembered.model)) {
+    if (!sourceModel && remembered.model && entry.models?.includes(remembered.model)) {
       setModel((current) => current ?? remembered.model ?? null);
     }
-    if (remembered.thinking && thinkingLevelsFor(entry, remembered.model ?? entry.defaultModel ?? null).includes(remembered.thinking)) {
+    if (!(fromSource && initialThinking) && remembered.thinking && thinkingLevelsFor(entry, sourceModel ?? remembered.model ?? entry.defaultModel ?? null).includes(remembered.thinking)) {
       setThinking((current) => current ?? remembered.thinking ?? null);
     }
     // `saved` is deliberately not a dependency: this restores ONCE per agent,
     // and re-running it on every write would fight the user's next change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [savedLoaded, entry, agent, bindingId]);
+  }, [savedLoaded, entry, agent, bindingId, sourceModel, fromSource, initialThinking]);
 
   /** The model this session will start with, resolved against the box's list. */
   const activeModelName = useMemo(() => {
     const models = entry?.models ?? [];
+    if (sourceModel && !modelPicked) return sourceModel;
     if (model && models.includes(model)) return model;
+    if (sourceModel) return sourceModel;
     return entry?.defaultModel ?? models[0] ?? null;
-  }, [entry, model]);
+  }, [entry, model, sourceModel, modelPicked]);
 
   const managedModels = entry?.models?.some((m) => m.startsWith("omg/")) ?? false;
   const { prices: modelPrices, loading: pricesLoading } = useModelPrices(managedModels);
@@ -315,6 +334,7 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
       selected: m === activeModelName,
       onPress: () => {
         setModel(m);
+        setModelPicked(true);
         remember({ model: m }, `${bindingId ?? "none"}:${agent}`);
       },
     }));
@@ -337,10 +357,12 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
   const activeThinking = useMemo(() => {
     const levels = thinkingLevelsFor(entry, activeModelName);
     if (!levels.length) return null;
+    if (fromSource && !thinkingPicked && initialThinking && levels.includes(initialThinking)) return initialThinking;
     if (thinking && levels.includes(thinking)) return thinking;
+    if (fromSource && initialThinking && levels.includes(initialThinking)) return initialThinking;
     if (levels.includes("medium")) return "medium";
     return levels[Math.floor(levels.length / 2)] ?? null;
-  }, [entry, activeModelName, thinking]);
+  }, [entry, activeModelName, thinking, fromSource, initialThinking, thinkingPicked]);
 
   const thinkingOptions = useMemo<MenuOption[]>(() => {
     const levels = thinkingLevelsFor(entry, activeModelName);
@@ -354,6 +376,7 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
         selected: activeThinking === level,
         onPress: () => {
           setThinking(level);
+          setThinkingPicked(true);
           remember({ thinking: level }, `${bindingId ?? "none"}:${agent}`);
         },
       })),
@@ -362,13 +385,14 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
 
   /** Null means "the box's default", which is what omitting it asks for. */
   const activeModel = useMemo(() => {
+    if (sourceModel && !modelPicked) return sourceModel;
     if (model && entry?.models?.includes(model)) return model;
-    return null;
-  }, [entry, model]);
+    return sourceModel;
+  }, [entry, model, sourceModel, modelPicked]);
 
   /** Auto leaves routing to the server. Explicit profiles must still be usable. */
   const activeAccount = agent === "aisdk"
-    ? claudeAccounts.find(a => a.id === claudeAccount && a.connected && !a.needsReconnect) ?? null
+    ? claudeAccounts.find(a => a.id === (claudeAccount === undefined ? fromSource ? initialClaudeAccountId : null : claudeAccount) && a.connected && !a.needsReconnect) ?? null
     : null;
   const accountOptions = useMemo<MenuOption[]>(() => {
     if (agent !== "aisdk" || claudeAccounts.length < 2) return [];
@@ -386,6 +410,7 @@ export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
   const fastAvailable = supportsFastMode(agent, activeModelName);
 
   return {
+    loading: !ready || !catalogLoaded || !accountsLoaded,
     agent,
     fastMode: fastAvailable && fast,
     toggleFast: fastAvailable ? () => setFast(value => !value) : undefined,

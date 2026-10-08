@@ -441,7 +441,8 @@ function demoAutoAgents() {
   return {
     tz: "Asia/Hong_Kong",
     agents: [
-      { id: "demo-auto-prs", project: "api-gateway", cwd: "/home/user/api-gateway", name: "Review open PRs", enabled: true, schedule: "Every weekday at 09:00", lastRunAt: now() - 3 * HOUR },
+      { id: "demo-auto-prs", project: "api-gateway", cwd: "/home/user/api-gateway", name: "Review open PRs", enabled: true, schedule: "Every weekday at 09:00", lastRunAt: now() - 3 * HOUR,
+        ...(process.env.EXPO_PUBLIC_OMG_FINDING_AGENT_FIXTURE === "1" ? { agent: "aisdk", model: "sonnet", thinkingLevel: "high" } : {}) },
       { id: "demo-auto-bugs", project: "api-gateway", cwd: "/home/user/api-gateway", name: "Triage new bug reports", enabled: true, schedule: "Every 6 hours", lastRunAt: now() - 2 * HOUR },
       { id: "demo-auto-deps", name: "Weekly dependency audit", enabled: false, schedule: "Mondays at 08:00", lastRunAt: now() - 30 * HOUR },
     ],
@@ -473,8 +474,8 @@ function demoBootstrap() {
     version: "demo",
     sessions: demoSessions(),
     codingAgents: [
-      { key: "claude", label: "Claude Code", visible: true, status: { configured: true, accountConnected: true } },
-      { key: "codex", label: "Codex", visible: true, status: { configured: true, accountConnected: true } },
+      { key: process.env.EXPO_PUBLIC_OMG_FINDING_AGENT_FIXTURE === "1" ? "aisdk" : "claude", label: process.env.EXPO_PUBLIC_OMG_FINDING_AGENT_FIXTURE === "1" ? "Claude" : "Claude Code", visible: true, status: { configured: true, accountConnected: true } },
+      { key: process.env.EXPO_PUBLIC_OMG_FINDING_AGENT_FIXTURE === "1" ? "codex-aisdk" : "codex", label: "Codex", visible: true, status: { configured: true, accountConnected: true } },
     ],
     repos: [
       ...(projectCreationFixture && unassignedChats.length ? [{ name: "demo-website", cwd: "/home/user/demo-website", project: "demo-website" }] : []),
@@ -554,6 +555,12 @@ function demoUsageProviders() {
 /** Route a path to its seeded body. Returns null for an unknown path. */
 function answer(path: string): unknown | null {
   const clean = path.split("?")[0];
+  if (process.env.EXPO_PUBLIC_OMG_FINDING_AGENT_FIXTURE === "1" && clean === "/api/coding-agents") {
+    return { models: [
+      { key: "aisdk", defaultModel: "opus", models: ["opus", "sonnet"], thinkingLevels: ["low", "medium", "high"] },
+      { key: "codex-aisdk", defaultModel: "gpt-6.1-sol", models: ["gpt-6.1-sol", "gpt-6-astra"], thinkingLevels: ["low", "medium", "high", "xhigh"] },
+    ] };
+  }
   if (artifactFixture && clean === "/api/artifacts") {
     const offset = Number(new URL(path, "https://demo.invalid").searchParams.get("offset"));
     return { artifacts: offset ? [] : [demoArtifact, { ...demoArtifact, id: "demo-other-artifact", artifactId: "demo-other-artifact", sessionId: "demo-other-chat", title: "Another chat output" },

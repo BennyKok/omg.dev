@@ -21,7 +21,10 @@ mock.module(resolve(import.meta.dir, "../src/omg/auto-agent-card.tsx"), () => ({
 const toasts: string[] = [];
 mock.module(resolve(import.meta.dir, "../src/omg/toast.tsx"), () => ({ useToast: () => ({ show: (text: string) => toasts.push(text) }) }));
 let launch: () => Promise<any>;
-const client = { transport: { request: () => launch() } };
+let launchBody: any;
+const client = { transport: { request: (_: string, init: RequestInit) => { launchBody = JSON.parse(String(init.body)); return launch(); } } };
+mock.module(resolve(import.meta.dir, "../src/omg/session-options.ts"), () => ({ useAgentPicker: () => ({ agent: "codex-aisdk", model: "gpt-6.1-sol", thinking: "high", label: "Codex", options: [{ id: "codex-aisdk" }], modelOptions: [], thinkingOptions: [], accountOptions: [] }) }));
+mock.module(resolve(import.meta.dir, "../src/omg/agent-setup-sheet.tsx"), () => ({ AgentSetupSheet: () => null }));
 mock.module(resolve(import.meta.dir, "../src/omg/provider.tsx"), () => ({ useOmg: () => ({ client }) }));
 let status: (id: string, state: string) => Promise<void>;
 let findings: any[];
@@ -61,6 +64,7 @@ test("starting work disables conflicting actions until the new session opens", a
   expect(ui.query<HTMLButtonElement>('[aria-label="Copy finding"]')!.disabled).toBe(true);
   await ui.flushAsync(async () => finish({ sessionId: "started" }));
   expect(updates).toEqual(["session"]); expect(navigation).toEqual(["replace:/session/started"]);
+  expect(launchBody).toMatchObject({ agent: "codex-aisdk", model: "gpt-6.1-sol", thinkingLevel: "high" });
 });
 test("a missing launch id does not mark the finding handled", async () => {
   let updates = 0; status = async () => { updates++; }; launch = async () => ({});

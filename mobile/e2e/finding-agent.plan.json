@@ -1,0 +1,58 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": { "clearState": false },
+  "steps": [
+    {
+      "name": "Demo Home",
+      "goal": "Reach Home. Dismiss Apple Account Verification with Not Now if shown. Accept the AI data notice for this isolated demo fixture if shown.",
+      "done": "Home is ready.",
+      "expect": ["api-gateway"]
+    },
+    {
+      "name": "Finding starts with source settings",
+      "open": "omg:///auto/demo-auto-prs/f2",
+      "goal": "Wait for the finding opened from its notification route.",
+      "done": "The finding shows the source agent, model and effort in its session control.",
+      "expect": ["3 PRs waiting on review for over a day", "Session agent Claude, Sonnet. Change agent or model", "Start session"]
+    },
+    {
+      "name": "Open session controls",
+      "goal": "Tap the element labelled Session agent Claude, Sonnet. Change agent or model.",
+      "done": "The existing phone agent picker offers both configured agents.",
+      "expect": ["Session agent", "Claude agent", "Codex agent", "Model Sonnet. Change model", "Done"]
+    },
+    {
+      "name": "Switch to Codex",
+      "goal": "Tap Codex agent once. Do not tap Done yet.",
+      "done": "Codex is selected and the model control shows a Codex model.",
+      "selected": "Codex agent",
+      "expect": ["Change model"],
+      "forbid": ["Model Sonnet. Change model"]
+    },
+    {
+      "name": "Choose a Codex model",
+      "goal": "Tap the Model control labelled Change model to open the model list.",
+      "done": "The model list offers the Codex models.",
+      "expect": ["Models", "GPT-6.1 Sol", "GPT-6 Astra"]
+    },
+    {
+      "name": "Select GPT-6 Astra",
+      "goal": "Tap GPT-6 Astra in the model list.",
+      "done": "The picker returns to its main page and shows the selected model.",
+      "expect": ["Session agent", "Model GPT-6 Astra. Change model", "Done"]
+    },
+    {
+      "name": "Apply session choices",
+      "goal": "Tap Done to close the agent picker.",
+      "done": "The finding now shows Codex and the chosen model.",
+      "expect": ["Session agent Codex, GPT-6 Astra. Change agent or model", "Starts Codex to work on this finding in api-gateway.", "Start session"],
+      "forbid": ["Done", "Session agent Claude, Sonnet. Change agent or model"]
+    },
+    {
+      "name": "Launch failure retains the chosen agent",
+      "goal": "Tap Start session once. The isolated demo intentionally returns no session id and starts no real work. Do not tap it again.",
+      "done": "The launch error keeps the finding and chosen session settings visible.",
+      "expect": ["The session did not start. Please try again.", "Session agent Codex, GPT-6 Astra. Change agent or model", "3 PRs waiting on review for over a day"]
+    }
+  ]
+}

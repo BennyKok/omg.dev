@@ -156,3 +156,46 @@ test('omg rows carry the short name and the provider mark, and keep the router i
     expect(picker.thinkingOptions).toEqual([]);
   } finally { ui.cleanup(); }
 });
+
+test('a finding starts with its source model, effort and connected account', async () => {
+  const ui = mount();
+  let picker!: ReturnType<typeof useAgentPicker>;
+  bindingId = 'finding-source'; readiness = { status: 'ready' };
+  function Fixture() { picker = useAgentPicker({ initialAgent: 'aisdk', initialModel: 'sonnet', initialThinking: 'low', initialClaudeAccountId: 'account-a' }); return null; }
+  try {
+    await ui.flushAsync(async () => ui.render(<Fixture />));
+    expect(picker.agent).toBe('aisdk'); expect(picker.model).toBe('sonnet'); expect(picker.thinking).toBe('low'); expect(picker.claudeAccountId).toBe('account-a');
+    ui.flush(() => picker.accountOptions[0]?.onPress?.());
+    expect(picker.claudeAccountId).toBeUndefined();
+    ui.flush(() => picker.options[1]?.onPress?.());
+    expect(picker.agent).toBe('codex-aisdk'); expect(picker.modelLabel).toBe('GPT-6 Astra'); expect(picker.model).not.toBe('sonnet'); expect(picker.claudeAccountId).toBeUndefined();
+  } finally { ui.cleanup(); }
+});
+
+test('late source defaults are used without replacing an explicit model choice', async () => {
+  const ui = mount();
+  let picker!: ReturnType<typeof useAgentPicker>;
+  let initialModel: string | undefined;
+  bindingId = 'finding-late-source'; readiness = { status: 'ready' };
+  function Fixture() { picker = useAgentPicker({ initialAgent: 'aisdk', initialModel }); return null; }
+  try {
+    await ui.flushAsync(async () => ui.render(<Fixture />));
+    await ui.flushAsync(async () => { initialModel = 'sonnet'; ui.render(<Fixture />); });
+    expect(picker.model).toBe('sonnet');
+    ui.flush(() => picker.modelOptions[0]?.onPress?.());
+    expect(picker.model).toBe('opus');
+    await ui.flushAsync(async () => ui.render(<Fixture />));
+    expect(picker.model).toBe('opus');
+  } finally { ui.cleanup(); }
+});
+
+test('invalid source models, effort and disconnected profiles are dropped', async () => {
+  const ui = mount();
+  let picker!: ReturnType<typeof useAgentPicker>;
+  bindingId = 'finding-invalid-source'; readiness = { status: 'ready' };
+  function Fixture() { picker = useAgentPicker({ initialAgent: 'aisdk', initialModel: 'removed-model', initialThinking: 'removed-level', initialClaudeAccountId: 'account-b' }); return null; }
+  try {
+    await ui.flushAsync(async () => ui.render(<Fixture />));
+    expect(picker.model).toBeNull(); expect(picker.modelLabel).toBe('Opus'); expect(picker.thinking).toBe('medium'); expect(picker.claudeAccountId).toBeUndefined();
+  } finally { ui.cleanup(); }
+});

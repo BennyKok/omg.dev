@@ -25,3 +25,29 @@ test("an empty launch response cannot resolve the finding", async () => {
   const client = { transport: { request: async () => ({}) } } as unknown as OmgClient;
   await expect(startSessionFromFinding(client, finding, undefined)).rejects.toThrow("The session did not start");
 });
+
+test("the selected session agent replaces source settings while keeping the finding folder", async () => {
+  let body: any;
+  const client = { transport: { request: async (_: string, init: RequestInit) => {
+    body = JSON.parse(String(init.body)); return { sessionId: "selected-session" };
+  } } } as unknown as OmgClient;
+  await startSessionFromFinding(client, finding, {
+    id: "watch", name: "Health watch", schedule: "0 * * * *", enabled: true,
+    cwd: "/project", agent: "aisdk", model: "sonnet", claudeAccountId: "source-account",
+  }, { agent: "codex-aisdk", model: "gpt-6.1-sol", thinkingLevel: "high" });
+  expect(body).toMatchObject({ agent: "codex-aisdk", model: "gpt-6.1-sol", thinkingLevel: "high", cwd: "/project" });
+  expect(body.claudeAccountId).toBeUndefined();
+  expect(body.prompt).toContain("Health watch");
+});
+
+test("a selected backend with no model uses its own default rather than a source model", async () => {
+  let body: any;
+  const client = { transport: { request: async (_: string, init: RequestInit) => {
+    body = JSON.parse(String(init.body)); return { sessionId: "selected-session" };
+  } } } as unknown as OmgClient;
+  await startSessionFromFinding(client, finding, {
+    id: "watch", name: "Watch", schedule: "0 * * * *", enabled: true, agent: "aisdk", model: "sonnet",
+  }, { agent: "codex-aisdk", model: null });
+  expect(body.agent).toBe("codex-aisdk");
+  expect(body.model).toBeUndefined();
+});

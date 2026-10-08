@@ -16,6 +16,8 @@ import { useOmg } from "../../../src/omg/provider";
 import { Text } from "../../../src/omg/text";
 import { useTheme } from "../../../src/omg/theme";
 import { useToast } from "../../../src/omg/toast";
+import { useAgentPicker } from "../../../src/omg/session-options";
+import { AgentSetupSheet } from "../../../src/omg/agent-setup-sheet";
 
 export default function AutoFindingScreen() {
   const params = useLocalSearchParams<{ agentId: string; findingId: string }>();
@@ -31,6 +33,11 @@ export default function AutoFindingScreen() {
   const finding = findings.find((f) => f.id === findingId && f.agentId === agentId);
   const siblings = findings.filter((f) => f.agentId === agentId).length;
   const name = agent?.name ?? "Auto agent";
+  const picker = useAgentPicker({
+    initialAgent: agent?.agent ?? "aisdk", initialModel: agent?.model,
+    initialThinking: agent?.thinkingLevel, initialClaudeAccountId: agent?.claudeAccountId,
+  });
+  const [setupOpen, setSetupOpen] = useState(false);
   const reportPath = `/auto/${encodeURIComponent(agentId)}`;
   const [action, setAction] = useState<"start" | "dismiss" | null>(null);
   const actionInFlight = useRef(false);
@@ -40,11 +47,14 @@ export default function AutoFindingScreen() {
   const leave = () => router.canGoBack() ? router.back() : router.replace("/");
 
   const startSession = async () => {
-    if (!client || !finding || actionInFlight.current) return;
+    if (!client || !finding || picker.loading || (loading && !agent) || actionInFlight.current) return;
     actionInFlight.current = true;
     setAction("start");
     try {
-      const sessionId = await startSessionFromFinding(client, finding, agent);
+      const sessionId = await startSessionFromFinding(client, finding, agent, {
+        agent: picker.agent, model: picker.model, thinkingLevel: picker.thinking,
+        claudeAccountId: picker.claudeAccountId,
+      });
       // A created session must still open if marking the finding fails. Staying
       // on the Start button in that case could create the same work twice.
       try {
@@ -189,9 +199,20 @@ export default function AutoFindingScreen() {
 
       {finding ? (
         <View style={{ gap: space.xs, paddingHorizontal: space.lg, paddingTop: space.md, paddingBottom: insets.bottom + space.sm, borderTopWidth: StyleSheet.hairlineWidth, borderColor: colors.border, backgroundColor: colors.bg }}>
-          <PrimaryButton label="Start session" loading={action === "start"} disabled={busy || !client} onPress={() => void startSession()} />
+          <PressableScale
+            onPress={() => setSetupOpen(true)} disabled={busy}
+            accessibilityRole="button" accessibilityLabel={`Session agent ${picker.label}${picker.modelLabel ? `, ${picker.modelLabel}` : ""}. Change agent or model`}
+            style={{ minHeight: 44, flexDirection: "row", alignItems: "center", gap: space.sm }}
+          >
+            <Icon ios="slider.horizontal.3" android="tune" size={16} color={colors.textSecondary} />
+            <Text numberOfLines={1} style={{ ...type.callout, color: colors.text, flex: 1 }}>
+              {picker.label}{picker.modelLabel ? ` · ${picker.modelLabel}` : ""}{picker.thinkingLabel ? ` · ${picker.thinkingLabel}` : ""}
+            </Text>
+            <Icon ios="chevron.up" android="keyboard_arrow_up" size={12} color={colors.textSecondary} />
+          </PressableScale>
+          <PrimaryButton label="Start session" loading={action === "start"} disabled={busy || !client || picker.loading || (loading && !agent) || !picker.options.length} onPress={() => void startSession()} />
           <Text style={{ ...type.caption, color: colors.textSecondary, textAlign: "center", paddingVertical: space.xs }}>
-            Starts an agent to work on this finding{agent?.project ? ` in ${agent.project}` : ""}.
+            Starts {picker.label} to work on this finding{agent?.project ? ` in ${agent.project}` : ""}.
           </Text>
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
             {footerAction("Copy", "doc.on.doc", "content_copy", () => void copy())}
@@ -199,6 +220,11 @@ export default function AutoFindingScreen() {
           </View>
         </View>
       ) : null}
+      <AgentSetupSheet visible={setupOpen && !busy} onClose={() => setSetupOpen(false)}
+        title="Session agent" agentOptions={picker.options} modelOptions={picker.modelOptions}
+        thinkingOptions={picker.thinkingOptions} accountOptions={picker.accountOptions}
+        agentLabel={picker.label} modelLabel={picker.modelLabel} accountLabel={picker.claudeAccountLabel}
+        action={{ label: "Done", onPress: () => setSetupOpen(false) }} />
     </View>
   );
 }

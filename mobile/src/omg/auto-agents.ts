@@ -54,6 +54,8 @@ export type AutoAgent = {
   /** Backend key — "grok", "codex-aisdk", …; absent on old rows means Claude. */
   agent?: string;
   model?: string;
+  thinkingLevel?: string;
+  claudeAccountId?: string;
   lastRunAt?: number;
   /** Computed server-side: worktree cwds collapse to the owning repo. */
   project?: string;
