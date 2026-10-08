@@ -5,7 +5,7 @@ read off the EAS docs.
 
 ## Current state
 
-### Managed model usage groups — 2026-10-08
+### Managed model usage groups (2026-10-08)
 
 The native model picker groups managed models by credit usage. Its neutral
 gauges sit on the right of the higher usage group headings. The default
@@ -26,6 +26,20 @@ complete signed-in journey was not verified. The test mailbox returned
 `invalid_grant` during sign-in. The full root suite had 4,715 passes, one skip,
 12 failures, and one error outside the model picker. Its stale client-build
 prerequisite check passed in a focused rerun after rebuilding the client.
+
+Production updates carry source `d0b4cfd299379dcacb581eeadb9cb80f73ef2029`.
+
+| Runtime | Update group | Workflow |
+| --- | --- | --- |
+| 1.0.14 | `55d82be0-c762-4023-9fbb-80b16efd0e65` | [37741351256](https://github.com/BennyKok/omg.dev/actions/runs/37741351256) |
+| 1.0.15 | `ed244055-3c35-4e97-b372-2ed51eef8f1a` | [37741618275](https://github.com/BennyKok/omg.dev/actions/runs/37741618275) |
+| 1.0.16 | `ebbd29e4-fed9-46dc-adfc-06b519fa83cf` | [37741729763](https://github.com/BennyKok/omg.dev/actions/runs/37741729763) |
+
+All publication workflows passed. The production update endpoint returned
+all six expected iOS and Android update IDs and groups. Physical-phone
+activation and Android rendering remain unverified. Direct CDN bundle fetches
+returned HTTP 403 from the test hosts, so asset download was not verified.
+The publish workflows completed their asset uploads and fingerprints.
 
 This change uses the existing native surface. The native inputs match the
 last production updates for runtimes 1.0.14, 1.0.15, and 1.0.16. Delivery uses
