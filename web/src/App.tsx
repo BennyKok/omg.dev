@@ -1,3 +1,4 @@
+import { useModelPrices, modelUsageLevel } from "./lib/use-model-prices";
 import { OMG_DEFAULT_MODEL, OMG_MODELS } from "../../src/omg-models";
 import { omgModelLabel, omgModelSearchText, parseOmgModel } from "../../packages/protocol/src/omg-model-display";
 import { ModelProviderIcon } from "./lib/model-provider-icons";
@@ -26005,7 +26006,7 @@ function ModelPicker({
             // pill on purpose (collisionAvoidance above), so without a cap a
             // long list simply ran off the bottom of the screen and its last
             // models could not be reached at all.
-            className="flex max-h-[var(--available-height)] w-80 max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-2xl border border-border bg-popover p-2 text-popover-foreground shadow-2xl ring-1 ring-foreground/5 outline-none"
+            className={cn("flex max-h-[var(--available-height)] w-80 max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-2xl border border-border bg-popover p-2 text-popover-foreground shadow-2xl ring-1 ring-foreground/5 outline-none", models.some((model) => model.startsWith("omg/")) && "w-96")}
           >
             <ModelOptionList
               value={value}
@@ -26054,6 +26055,8 @@ export function ModelOptionList({
   fill?: boolean;
 }) {
   const [query, setQuery] = useState("");
+  const hasManagedModels = models.some((model) => model.startsWith("omg/"));
+  const { prices, loading: pricesLoading } = useModelPrices(hasManagedModels);
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return models;
@@ -26061,6 +26064,50 @@ export function ModelOptionList({
     // and "deepseek v4" both find omg/deepseek/deepseek-v4-flash-0731.
     return models.filter((item) => omgModelSearchText(item).includes(q));
   }, [models, query]);
+  const groups = hasManagedModels && !pricesLoading
+    ? [1, 2, 3, 0].map((level) => ({
+        level,
+        label: level === 1 ? "Standard usage" : level === 2 ? "Higher usage" : level === 3 ? "Highest usage" : "Usage unavailable",
+        items: filtered.filter((item) => (modelUsageLevel(prices[item], prices[OMG_DEFAULT_MODEL])?.bars ?? 0) === level),
+      })).filter((group) => group.items.length > 0)
+    : [{ level: -1, label: "", items: filtered }];
+  const displayedModels = groups.flatMap((group) => group.items);
+  const renderModel = (item: string) => {
+    const selected = value === item;
+    // A hosted omg id reads as the lab's mark plus the short model
+    // name; the full router id stays in the tooltip. Other agents'
+    // ids are already short and stay as they are.
+    const hosted = parseOmgModel(item);
+    const price = prices[item];
+    const usage = modelUsageLevel(price, prices[OMG_DEFAULT_MODEL]);
+    const priceHint = usage
+      ? usage.bars === 1 ? "" : "Uses credits faster. This model can reach your credit limit sooner. Usage varies by task."
+      : "Credit usage unavailable";
+    return (
+      <button
+        key={item}
+        type="button"
+        onClick={() => onChoose(item)}
+        title={hosted ? `${hosted.providerLabel} · ${item}${priceHint ? `\n${priceHint}` : ""}` : undefined}
+        className={cn(
+          "flex w-full min-w-0 items-center gap-3 rounded-xl px-3 text-left text-sm outline-none transition-colors",
+          large ? "h-12" : "h-10",
+          selected
+            ? "bg-primary/12 text-foreground ring-1 ring-inset ring-primary/20"
+            : cn("text-foreground focus-visible:bg-muted", !large && "hover:bg-muted"),
+        )}
+      >
+        <Check className={cn("size-4 shrink-0 text-primary", selected ? "opacity-100" : "opacity-0")} />
+        {hosted ? (
+          <ModelProviderIcon
+            provider={hosted.provider}
+            className={cn("size-4 shrink-0", selected ? "text-foreground" : "text-muted-foreground")}
+          />
+        ) : null}
+        <span className="min-w-0 flex-1 truncate">{omgModelLabel(item)}</span>
+      </button>
+    );
+  };
   return (
     <div
       className={cn(
@@ -26078,13 +26125,14 @@ export function ModelOptionList({
             onKeyDown={(event) => {
               event.stopPropagation();
               if (event.key === "Escape") onEscape?.();
-              if (event.key === "Enter" && filtered[0]) onChoose(filtered[0]);
+              if (event.key === "Enter" && displayedModels[0]) onChoose(displayedModels[0]);
             }}
             placeholder="Filter models"
             className="h-10 w-full rounded-xl border border-border bg-background pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground/30"
           />
         </div>
       ) : null}
+      {hasManagedModels && pricesLoading ? <div aria-label="Loading credit usage" className="mx-3 h-3 w-24 animate-pulse rounded bg-muted" /> : null}
       <div
         className={cn(
           "overflow-y-auto pr-1",
@@ -26092,37 +26140,24 @@ export function ModelOptionList({
         )}
       >
         {filtered.length ? (
-          filtered.map((item) => {
-            const selected = value === item;
-            // A hosted omg id reads as the lab's mark plus the short model
-            // name; the full router id stays in the tooltip. Other agents'
-            // ids are already short and stay as they are.
-            const hosted = parseOmgModel(item);
-            return (
-              <button
-                key={item}
-                type="button"
-                onClick={() => onChoose(item)}
-                title={hosted ? `${hosted.providerLabel} · ${item}` : undefined}
-                className={cn(
-                  "flex w-full min-w-0 items-center gap-3 rounded-xl px-3 text-left text-sm outline-none transition-colors",
-                  large ? "h-12" : "h-10",
-                  selected
-                    ? "bg-primary/12 text-foreground ring-1 ring-inset ring-primary/20"
-                    : cn("text-foreground focus-visible:bg-muted", !large && "hover:bg-muted"),
-                )}
-              >
-                <Check className={cn("size-4 shrink-0 text-primary", selected ? "opacity-100" : "opacity-0")} />
-                {hosted ? (
-                  <ModelProviderIcon
-                    provider={hosted.provider}
-                    className={cn("size-4 shrink-0", selected ? "text-foreground" : "text-muted-foreground")}
-                  />
-                ) : null}
-                <span className="min-w-0 flex-1 truncate">{omgModelLabel(item)}</span>
-              </button>
-            );
-          })
+          groups.map((group) => (
+            <div key={group.level} role={group.label ? "group" : undefined} aria-label={group.label || undefined} className="mb-2 last:mb-0">
+              {group.label ? (
+                <div className="flex items-center justify-between gap-2 px-3 pb-1 pt-2 text-[11px] font-medium text-muted-foreground">
+                  <span aria-label={group.level === 0 ? "Credit usage unavailable" : undefined}>{group.label}</span>
+                  {group.level === 2 || group.level === 3 ? (
+                    <svg aria-label={group.level === 2 ? "Uses more credits" : "Uses credits much faster"} viewBox="0 0 20 16" className="h-4 w-5 shrink-0" fill="none">
+                      <path d="M2 12a8 8 0 0 1 16 0" stroke="currentColor" strokeWidth="2" strokeLinecap="round" opacity="0.25" />
+                      <path d={group.level === 2 ? "M2 12a8 8 0 0 1 10.1-7.7" : "M2 12a8 8 0 0 1 16 0"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                      <path d={group.level === 2 ? "M10 12l2-5" : "M10 12l5-2"} stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                      <circle cx="10" cy="12" r="1.5" fill="currentColor" />
+                    </svg>
+                  ) : null}
+                </div>
+              ) : null}
+              {group.items.map(renderModel)}
+            </div>
+          ))
         ) : (
           <div className="px-3 py-8 text-center text-sm text-muted-foreground">
             No matching models
@@ -26245,7 +26280,7 @@ export function AgentModelPicker<K extends AgentKind>({
             // the bottom of the screen and its last models could not be
             // reached at all — reported on an iPad, where the composer sits
             // low and the agent strip eats the space above the list.
-            className="flex max-h-[var(--available-height)] w-80 max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-2xl border border-border bg-popover p-2 text-popover-foreground shadow-2xl ring-1 ring-foreground/5 outline-none"
+            className={cn("flex max-h-[var(--available-height)] w-80 max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-2xl border border-border bg-popover p-2 text-popover-foreground shadow-2xl ring-1 ring-foreground/5 outline-none", agent === "omg" && showModels && "w-96")}
           >
             {/* No section labels. The icon strip is obviously the agent
                 row and the list under it is obviously models; the words

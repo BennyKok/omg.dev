@@ -392,9 +392,8 @@ describe("first-run envelope", () => {
     expect(modelSeesImages("omg/deepseek/deepseek-v4-pro")).toBe(false);
     // Hosted models follow the catalog that declares image input to OpenCode.
     expect(modelSeesImages("omg/z-ai/glm-5.3-flash")).toBe(true);
-    expect(modelSeesImages("omg/openai/gpt-5.6-luna")).toBe(true);
-    expect(modelSeesImages("omg/z-ai/glm-5.2")).toBe(false);
-    expect(modelSeesImages("omg/qwen/qwen3-coder-next")).toBe(false);
+    expect(modelSeesImages("omg/anthropic/claude-haiku-5.5")).toBe(true);
+    expect(modelSeesImages("omg/z-ai/glm-5.3")).toBe(false);
     expect(modelSeesImages("opus")).toBe(true);
     expect(modelSeesImages(undefined)).toBe(true);
     expect(withFirstRunEnvelope("", { seesImages: true })).toBe("");

@@ -24,19 +24,19 @@ describe("ModelOptionList", () => {
     const text = ui.text();
     expect(text).toContain("DeepSeek V4 Flash");
     expect(text).toContain("GLM 5.3 Flash");
-    expect(text).toContain("GPT-5.6 Sol");
+    expect(text).toContain("GPT-6.1 Sol");
     expect(text).not.toContain("omg/deepseek/deepseek-v4-flash-0731");
     const rows = ui.queryAll("button");
     expect(rows.length).toBe(OMG_MODELS.length);
     expect(ui.queryAll("button svg[role='img'], button img").length).toBe(OMG_MODELS.length);
     const apex = rows.find((row) => row.textContent?.includes("Apex")) as HTMLButtonElement;
-    expect(apex.title).toBe("Callstack · omg/apex");
+    expect(apex.title.split("\n")[0]).toBe("Callstack · omg/apex");
     ui.flush(() => apex.click());
     expect(chosen).toBe("omg/apex");
-    const glm = rows.find((row) => row.textContent?.includes("GLM 5.2")) as HTMLButtonElement;
-    expect(glm.title).toBe("Z.ai · omg/z-ai/glm-5.2");
+    const glm = rows.find((row) => row.textContent === "GLM 5.3") as HTMLButtonElement;
+    expect(glm.title.split("\n")[0]).toBe("Z.ai · omg/z-ai/glm-5.3");
     ui.flush(() => glm.click());
-    expect(chosen).toBe("omg/z-ai/glm-5.2");
+    expect(chosen).toBe("omg/z-ai/glm-5.3");
   });
 
   test("the filter matches the short name and the router id", () => {
@@ -55,7 +55,7 @@ describe("ModelOptionList", () => {
     expect(ui.queryAll("button").length).toBe(2);
     type("z-ai");
     expect(ui.queryAll("button").length).toBe(2);
-    expect(ui.text()).toContain("GLM 5.2");
+    expect(ui.text()).toContain("GLM 5.3");
     type("nothing-here");
     expect(ui.text()).toContain("No matching models");
   });
@@ -91,14 +91,14 @@ describe("AgentModelPicker pill", () => {
         agent="omg"
         agentLabel="omg agent"
         onSelectAgent={() => {}}
-        model="omg/z-ai/glm-5.2"
+        model="omg/z-ai/glm-5.3"
         models={OMG_MODELS}
         onModelChange={() => {}}
       />,
     );
     const pill = ui.query("button[aria-label^='Agent omg agent']") as HTMLButtonElement;
     expect(pill).not.toBeNull();
-    expect(pill.textContent).toContain("GLM 5.2");
+    expect(pill.textContent).toContain("GLM 5.3");
     expect(pill.querySelectorAll("svg[role='img']").length).toBe(1);
     expect(pill.querySelector("img[data-testid='omg-model-badge']")).not.toBeNull();
   });
@@ -165,6 +165,25 @@ test("the model dropdown retains thinking changes without closing", async () => 
     ui.flush(() => trigger().click());
     await ui.flushAsync();
     expect(slider().getAttribute("aria-valuetext")).toBe("high");
+  } finally {
+    ui.cleanup();
+  }
+});
+
+// A removed model must not be offered for new sessions. Haiku selection must
+// return the exact router id that the runtime can execute.
+test("managed picker offers Haiku 5.5 and excludes retired choices", () => {
+  const ui = mount();
+  let chosen: string | null = null;
+  try {
+    ui.render(<ModelOptionList value={OMG_MODELS[0]!} models={OMG_MODELS} onChoose={(model) => { chosen = model; }} />);
+    const haiku = ui.queryAll("button").find((row) => row.title.split("\n")[0]!.endsWith("omg/anthropic/claude-haiku-5.5")) as HTMLButtonElement;
+    expect(haiku).toBeDefined();
+    ui.flush(() => haiku.click());
+    expect(chosen).toBe("omg/anthropic/claude-haiku-5.5");
+    for (const retired of ["omg/z-ai/glm-5.2", "omg/openai/gpt-5.6-sol", "omg/openai/gpt-5.6-terra", "omg/anthropic/claude-opus-4.8", "omg/anthropic/claude-sonnet-4.6", "omg/openai/gpt-5.6-luna", "omg/qwen/qwen3.7-plus", "omg/qwen/qwen3-coder-next"]) {
+      expect(ui.queryAll("button").some((row) => row.title.split("\n")[0]!.endsWith(retired))).toBe(false);
+    }
   } finally {
     ui.cleanup();
   }
