@@ -82,10 +82,9 @@
   },
   "submit": {
     "testflight": {
-      "extends": "production",
-      "ios": {
-        "groups": ["Team (Expo)"]
-      }
+      // Team (Expo) has automatic access to all builds. Explicit assignment
+      // fails after a successful upload because Apple already added the build.
+      "extends": "production"
     },
     "production": {
       "ios": {
