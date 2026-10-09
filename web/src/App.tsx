@@ -1,3 +1,6 @@
+import { browserTranscription, selectTranscriptionTake, type TranscriptionTake } from "./lib/browser-transcription";
+import { BrowserTranscriptionSettings, useBrowserTranscription } from "./components/browser-transcription-settings";
+import { replayCloudTranscription } from "./lib/transcription-cloud-replay";
 import { MODEL_USAGE_GROUPS } from "../../packages/protocol/src/model-pricing";
 import { useModelPrices, modelUsageLevel } from "./lib/use-model-prices";
 import { OMG_DEFAULT_MODEL, OMG_MODELS } from "../../src/omg-models";
@@ -3312,6 +3315,13 @@ function seedMessageForSession(session: Session): Message | null {
   };
 }
 
+function mergePcm(chunks: Float32Array[]): Float32Array {
+  const merged = new Float32Array(chunks.reduce((size, chunk) => size + chunk.length, 0));
+  let offset = 0;
+  for (const chunk of chunks) { merged.set(chunk, offset); offset += chunk.length; }
+  return merged;
+}
+
 // Encode captured PCM (Float32) as a 16-bit mono WAV — the format the server's
 // /api/voice/stt (faster-whisper) accepts. We capture raw PCM via the Web Audio
 // API rather than MediaRecorder because MediaRecorder emits webm/opus (Chrome)
@@ -3516,6 +3526,8 @@ function useDictation(opts: {
   baseText?: string;
   silenceMs?: number;
 }) {
+  const browserState = useBrowserTranscription();
+  const [provider, setProvider] = useState<"cloud" | "local">("cloud");
   const [state, setState] = useState<DictationState>("idle");
   // Live 0..1 microphone level, smoothed by an envelope follower. Drives the
   // recording button's glow + scale so it reacts to volume and velocity.
@@ -3524,6 +3536,8 @@ function useDictation(opts: {
   const levelSmoothRef = useRef(0); // envelope-smoothed value the rAF loop emits
   const rafRef = useRef<number | null>(null);
   const sessionRef = useRef<{
+    take: TranscriptionTake;
+    epoch: number;
     ac: AudioContext;
     stream: MediaStream;
     proc: ScriptProcessorNode;
@@ -3703,6 +3717,40 @@ function useDictation(opts: {
 
       setState("transcribing");
 
+      if (s.take.provider === "local") {
+        const pcm = new Int16Array(pcm16kFrom(mergePcm(s.chunks), s.rate));
+        const samples = Float32Array.from(pcm, (value) => value / 32768);
+        const epoch = s.epoch;
+        try {
+          const text = await browserTranscription.transcribe(samples, s.take);
+          if (epoch === acquireEpochRef.current) {
+            if (text.trim()) deliver(text);
+            else toast.error("No speech was detected. Try again.");
+          }
+          finish();
+          return;
+        } catch (error) {
+          if (epoch !== acquireEpochRef.current) { finish(); return; }
+          if (s.take.mode === "local") {
+            toast.error(error instanceof Error ? error.message : "On-device transcription failed");
+            finish();
+            return;
+          }
+          toast.info("On-device transcription failed. Using cloud for this recording.");
+          setProvider("cloud");
+          try {
+            const text = await replayCloudTranscription(pcm.buffer, hostedTranscriptionRef.current);
+            if (epoch === acquireEpochRef.current && text.trim()) deliver(text);
+            else if (epoch === acquireEpochRef.current) toast.error("No speech was detected. Try again.");
+            finish();
+            return;
+          } catch {
+            if (epoch !== acquireEpochRef.current) { finish(); return; }
+            // Self-hosted batch providers can recover if realtime is unavailable.
+          }
+        }
+      }
+
       // Primary path: ask the realtime bridge to commit the trailing audio, wait
       // briefly for the final segment, then deliver the joined transcript. We
       // resolve on the first `final` frame OR a timeout so a missing commit can't
@@ -3793,6 +3841,10 @@ function useDictation(opts: {
   const start = useCallback(async (startOpts?: { autoStop?: boolean }) => {
     const autoStop = startOpts?.autoStop ?? true;
     if (sessionRef.current || startingRef.current) return;
+    let take: TranscriptionTake;
+    try { take = selectTranscriptionTake(browserTranscription.getSnapshot()); }
+    catch (error) { toast.error(error instanceof Error ? error.message : "Transcription is unavailable"); return; }
+    setProvider(take.provider);
     startingRef.current = true;
     pendingStopRef.current = null;
     capturedBaseRef.current = baseTextRef.current;
@@ -3804,7 +3856,7 @@ function useDictation(opts: {
     // synchronous cache read — the old code awaited a network round trip here on
     // every tap, which both delayed the permission prompt (the "10 seconds then
     // it asks" symptom) and burned the user activation getUserMedia needs.
-    if (voiceConfiguredCached("input") === false) {
+    if (take.provider === "cloud" && !hostedTranscriptionRef.current && voiceConfiguredCached("input") === false) {
       startingRef.current = false;
       setState("idle");
       showVoiceSetup("input");
@@ -3950,7 +4002,7 @@ function useDictation(opts: {
       // platform is the provider. Running it anyway would abort the take (and
       // pop a "configure a key" dialog) on exactly the keyless self-hosted box
       // that hosted transcription exists to serve.
-      if (!hostedTranscriptionRef.current) {
+      if (take.provider === "cloud" && !hostedTranscriptionRef.current) {
         const configured = await guard(ensureVoiceConfigured("input"));
         if (configured === ACQUIRE_ABORTED || configured === ACQUIRE_EXPIRED) {
           parkStream();
@@ -3989,21 +4041,23 @@ function useDictation(opts: {
       let ws: WebSocket | null = null;
       const hosted = hostedTranscriptionRef.current;
       try {
-        if (hosted) {
-          // Hosted surface: stream straight to the platform broker. The JWT
-          // rides the subprotocol because that is the only header a browser
-          // lets a WS client set. A null token means the session can no longer
-          // be proven — fall through to the box rather than opening a socket
-          // that would only be refused after the upgrade.
-          const token = await hosted.getToken();
-          if (token) {
-            ws = new WebSocket(hosted.url, [`vibes-bearer.${token}`]);
+        if (take.provider === "cloud") {
+          if (hosted) {
+            // Hosted surface: stream straight to the platform broker. The JWT
+            // rides the subprotocol because that is the only header a browser
+            // lets a WS client set. A null token means the session can no longer
+            // be proven — fall through to the box rather than opening a socket
+            // that would only be refused after the upgrade.
+            const token = await hosted.getToken();
+            if (token) {
+              ws = new WebSocket(hosted.url, [`vibes-bearer.${token}`]);
+            }
           }
+          if (!ws) {
+            ws = new WebSocket(`${proto}//${location.host}/api/voice/stt-stream`);
+          }
+          ws.binaryType = "arraybuffer";
         }
-        if (!ws) {
-          ws = new WebSocket(`${proto}//${location.host}/api/voice/stt-stream`);
-        }
-        ws.binaryType = "arraybuffer";
       } catch {
         ws = null;
       }
@@ -4103,6 +4157,8 @@ function useDictation(opts: {
             }, 200) as unknown as number)
           : null;
       sessionRef.current = {
+        take,
+        epoch: acquireEpochRef.current,
         ac,
         stream,
         proc,
@@ -4200,7 +4256,8 @@ function useDictation(opts: {
     [releaseStream],
   );
 
-  return { state, toggle, start, stop, cancel, supported, level };
+  const nextProvider = browserState.mode === "local" ? "local" : selectTranscriptionTake(browserState).provider;
+  return { state, toggle, start, stop, cancel, supported, level, provider: state === "idle" ? nextProvider : provider };
 }
 
 // Imperative handle so a parent can drive dictation without a click on the
@@ -4330,7 +4387,7 @@ function DictationCancelButton({
   );
 }
 
-const MicButton = forwardRef<
+export const MicButton = forwardRef<
   MicHandle,
   {
     onText: (text: string, base: string) => void;
@@ -4352,7 +4409,7 @@ const MicButton = forwardRef<
   { onText, onAutoSubmit, onInterim, onCancel, baseText, silenceMs, className, minimal = false, onRecordingChange },
   ref,
 ) {
-  const { state, toggle, start, stop, cancel, supported, level } = useDictation({
+  const { state, toggle, start, stop, cancel, supported, level, provider } = useDictation({
     onText,
     onAutoSubmit,
     onInterim,
@@ -4554,7 +4611,7 @@ const MicButton = forwardRef<
 
   if (!supported) return null;
   const recording = state === "recording";
-  const batchOnly = voiceBatchOnlyCached();
+  const batchOnly = provider === "local" || voiceBatchOnlyCached();
   const busy = state === "starting" || state === "transcribing";
   const accessibleLabel = state === "starting"
     ? "Starting microphone"
@@ -4589,7 +4646,7 @@ const MicButton = forwardRef<
         onPointerCancel={onPointerCancel}
         onClick={onClick}
         onContextMenu={(e) => e.preventDefault()}
-        aria-label={accessibleLabel}
+        aria-label={`${accessibleLabel} · ${provider === "local" ? "On-device" : "Cloud"}`}
         aria-busy={busy}
         title={
           // A batch-only provider still transcribes, it just can't show words as
@@ -4625,6 +4682,7 @@ const MicButton = forwardRef<
           <Mic className="size-4" />
         )}
       </button>
+      <span className="shrink-0 text-[10px] text-muted-foreground" aria-live="polite">{provider === "local" ? "On-device" : "Cloud"}</span>
     </>
   );
 });
@@ -27964,6 +28022,7 @@ function VoiceSettingsSection() {
     // was a second copy of the same word, not new information.
     <section className="space-y-2">
       <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
+        <BrowserTranscriptionSettings />
         <ProviderRow
           icon={<Mic className="size-4" />}
           label="Voice input"
