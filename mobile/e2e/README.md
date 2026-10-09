@@ -25,6 +25,18 @@ skips the tap. `timeoutMs` is the ceiling per step (default 60s).
 right ticking green or red as the runner decides. The raw capture is next to
 it as `<name>-capture.mp4`. Both are gitignored.
 
+The session folder move plan uses the full app with local demo data:
+
+```bash
+EXPO_PUBLIC_OMG_DEMO=1 OMG_E2E_ENTRY_FILE=scripts/no-project-e2e-entry.tsx \
+  OMG_MAESTRO_DRIVER_PORT=7179 \
+  bun run test:e2e --build --plan session-move --record
+```
+
+Use an unused driver port. The plan checks both move directions and retained
+chat history. It does not contact an agent provider. The runtime restart and
+rollback checks are in `src/session-move.test.ts` at the repository root.
+
 Each onboarding run signs up a new plus-alias of `OMG_E2E_MAILBOX` (default
 `itechbenny@gmail.com`) and provisions a new hosted Computer. Nothing removes
 them: account deletion finishes in the browser. Expect the accounts to pile up.

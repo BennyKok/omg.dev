@@ -1,5 +1,6 @@
 import { ContentReport, type ReportSelection } from "../../src/omg/content-report";
 import { createdSessionPrompt } from "../../src/omg/pending-session";
+import { MoveSessionSheet } from "../../src/omg/move-session-sheet";
 import { parseOmgPromptEnvelope } from "../../src/omg/omg-prompt-envelope";
 import { archiveSession } from "../../src/omg/archiving";
 import { openingReveal } from "../../src/omg/opening-reveal";
@@ -521,6 +522,7 @@ function SessionScreenContent({
     model?: string | null;
     /** Where the agent runs; the "#" picker ranks sibling sessions first. */
     cwd?: string | null;
+    project?: string;
     /** Every id the machine files this session under: its own and the native one. */
     aliases: string[];
   } | null>(null);
@@ -634,6 +636,7 @@ function SessionScreenContent({
    * this session's agent, so accepting it forks like-for-like.
    */
   const [forkOpen, setForkOpen] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
   const forkPicker = useAgentPicker({ initialAgent: sessionInfo?.agent });
   /**
    * Whether an agent is attached to this session right now. `null` until the
@@ -769,6 +772,7 @@ function SessionScreenContent({
         agent: found.agent?.trim() || found.agentLabel?.trim() || "omg",
         model: found.model,
         cwd: found.cwd ?? null,
+        project: found.project,
         aliases: [found.sessionId, found.nativeSessionId].filter((v): v is string => !!v),
       });
       if (!socketBusySeen.current) setBusy(!!found.busy);
@@ -1686,6 +1690,7 @@ function SessionScreenContent({
     }
     if (Platform.OS === "android" && id) options.push({ label: "Report content", icon: "flag", onPress: () => setReport({ source: "session", sourceId: id, content: reportContentRef.current }) });
     options.push({ label: "Rename", icon: "pencil", onPress: rename });
+    if (!busy && live !== false) options.push({ label: "Move to folder…", icon: "folder", onPress: () => setMoveOpen(true) });
     if (!aiTitlesOff) {
       options.push({ label: "Rename with AI", icon: "sparkles", onPress: renameWithAi });
     }
@@ -1738,6 +1743,7 @@ function SessionScreenContent({
     agents,
     bot,
     busy,
+    live,
     stop,
     archive,
     rename,
@@ -2195,6 +2201,9 @@ function SessionScreenContent({
        */}
       {readOnly ? null : (
         <>
+      {id && !bot ? <MoveSessionSheet visible={moveOpen} onClose={() => setMoveOpen(false)} sessionId={id}
+        currentProject={sessionInfo?.project}
+        onMoved={({ cwd, project }) => setSessionInfo((info) => info ? { ...info, cwd, project } : info)} /> : null}
       <ChatHeaderBar onBack={() => navigation.goBack()} menuOptions={menuOptions} menuLabel="Session actions">
         <HeaderIdentity />
       </ChatHeaderBar>

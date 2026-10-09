@@ -1,10 +1,19 @@
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
+import { readCursor, readNewCmdLines, writeCursor } from "./agents/backends/cmd-tail.ts";
 import {
   currentBootId,
   findEntryByAnyId,
   isPidAlive,
   listEntries,
   patchEntry,
+  appendCmd,
+  readEntry,
+  writeEntry,
+  terminateHarnessProcess,
+  waitForHarnessExit,
+  wakeHarnessCommandReader,
+  isEntryBusy,
+  cmdPath,
   type AisdkEntry,
 } from "./aisdk-registry.ts";
 import {
@@ -35,7 +44,7 @@ import {
 import { userAssignments } from "./users.ts";
 import { getSessionContainment } from "./session-containment-record.ts";
 import { listConversations } from "./conversations.ts";
-import { CODING_AGENT_ADAPTERS } from "./coding-agent-adapters.ts";
+import { CODING_AGENT_ADAPTERS, usesCommandFileRuntime } from "./coding-agent-adapters.ts";
 
 export { managedContainment };
 
@@ -119,6 +128,131 @@ export function setRecoveryEgressProxy(resolve: ((sessionId: string) => string |
 // (ACTIVE_CODING_AGENT_PROVIDERS: aisdk, codex-aisdk, opencode/omg, pi). The
 // others ran without them, and a relaunch matches the first launch.
 const AGENTS_WITHOUT_POLICY = ["grok", "cursor", "fx", "muse", "copilot", "jcode", "deepseek", "devin"];
+
+// A move temporarily replaces a harness while keeping its durable owner row.
+// Send/resume/close callers use this same claim until the replacement is ready.
+const movingSessions = new Set<string>();
+export function sessionIsMoving(sessionId: string): boolean {
+  return movingSessions.has(sessionId);
+}
+
+export type SessionMoveTarget = { cwd: string; project: string; repoRoot?: string };
+export type SessionMoveResult =
+  | { ok: true; sessionId: string; cwd: string; project: string }
+  | { ok: false; status: number; error: string };
+
+/** Relaunch at an idle boundary using the same backend resume handle. */
+export async function moveCommandFileSession(
+  sessionId: string,
+  target: SessionMoveTarget,
+  deps: {
+    launch?: typeof launchRecovered;
+    stop?: (entry: AisdkEntry) => Promise<boolean>;
+    ready?: (entry: AisdkEntry, pid: number | undefined, cwd: string) => Promise<boolean>;
+  } = {},
+): Promise<SessionMoveResult> {
+  if (sessionIsMoving(sessionId)) return { ok: false, status: 409, error: "The session is already moving" };
+  const entry = findEntryByAnyId(sessionId);
+  const owner = entry ? matchingManaged(entry, listManaged()) : null;
+  if (!entry || !owner) return { ok: false, status: 409, error: "This session must be resumed before it can move" };
+  if (commandFileHarnessIsDead(entry)) return { ok: false, status: 409, error: "Resume this session before moving it" };
+  if (!usesCommandFileRuntime(owner.agent, owner.runtime))
+    return { ok: false, status: 409, error: "This agent cannot move an existing chat between folders" };
+  const adapter = owner.agent && owner.agent !== "hermes" ? CODING_AGENT_ADAPTERS[owner.agent] : null;
+  if (adapter?.recovery === "process-bound") return { ok: false, status: 409, error: "This agent cannot resume in a different folder" };
+  if (owner.botId || owner.persistent) return { ok: false, status: 409, error: "Change a bot's folder in its settings" };
+  if (entry.agent && entry.agent !== "claude" && !entry.threadId)
+    return { ok: false, status: 409, error: "Wait for the agent's first turn to finish before moving this session" };
+  if (isEntryBusy(entry) || entry.prompt || owner.launchState === "launching")
+    return { ok: false, status: 409, error: "Wait for the agent to finish before moving this session" };
+  const commandFile = cmdPath(entry.sessionId);
+  const cursor = readCursor(commandFile);
+  if (cursor !== null && readNewCmdLines(commandFile, cursor).lines.length)
+    return { ok: false, status: 409, error: "Wait for pending agent commands before moving this session" };
+  if (owner.cwd === target.cwd && owner.project === target.project)
+    return { ok: true, sessionId: owner.sessionId ?? entry.sessionId, ...target };
+
+  const ids = [sessionId, entry.sessionId, entry.threadId, owner.sessionId, owner.nativeSessionId].filter((id): id is string => !!id);
+  if (ids.some(sessionIsMoving)) return { ok: false, status: 409, error: "The session is already moving" };
+  ids.forEach((id) => movingSessions.add(id));
+  const launch = deps.launch ?? launchRecovered;
+  const stop = deps.stop ?? stopHarnessForMove;
+  const ready = deps.ready ?? waitForMovedHarness;
+  const user = userAssignments()[owner.tmuxName] ?? null;
+  const at = Date.now();
+  const movedOwner = { ...owner, ...target, worktreeBranch: undefined };
+  let stopped = false;
+  let launchedPid: number | undefined;
+  try {
+    patchManaged(owner.tmuxName, { launchState: "launching" });
+    if (!await stop(entry)) {
+      patchManaged(owner.tmuxName, { launchState: owner.launchState ?? "running" });
+      return { ok: false, status: 409, error: "The agent did not stop; its folder was not changed" };
+    }
+    stopped = true;
+    // A forced stop may leave the close command unread. It must not close the
+    // replacement process. Pending user commands were refused above.
+    if (existsSync(commandFile)) writeCursor(commandFile, statSync(commandFile).size);
+    const movedEntry = { ...entry, cwd: target.cwd, harnessPid: 0, busy: false };
+    // Recovery needs a registry row even when a graceful close removed it.
+    writeEntry(movedEntry);
+    patchManaged(owner.tmuxName, { ...target, worktreeBranch: undefined });
+    const launched = launch(movedEntry, movedOwner, at, user);
+    if (!launched.ok) throw new Error(launched.error || "Agent restart failed");
+    launchedPid = launched.pid;
+    if (!await ready(movedEntry, launched.pid, target.cwd)) throw new Error("The agent did not restart in the selected folder");
+    patchManaged(owner.tmuxName, { launchState: "running", launchError: undefined });
+    return { ok: true, sessionId: owner.sessionId ?? entry.sessionId, cwd: target.cwd, project: target.project };
+  } catch (error) {
+    // Restore both the durable owner and the runtime. Never report a move
+    // after a failed resume, or leave the owner pointing at an old process.
+    const replacement = readEntry(entry.sessionId);
+    if (launchedPid && !await stop(replacement?.harnessPid ? replacement : { ...entry, harnessPid: launchedPid })) {
+      patchManaged(owner.tmuxName, { launchState: "failed", launchError: "Move failed; the replacement agent could not be stopped" });
+      return { ok: false, status: 502, error: "Move failed; the replacement agent could not be stopped" };
+    }
+    patchManaged(owner.tmuxName, { cwd: owner.cwd, project: owner.project, repoRoot: owner.repoRoot, worktreeBranch: owner.worktreeBranch });
+    if (stopped) {
+      writeEntry({ ...entry, harnessPid: 0, busy: false });
+      let recovered = false;
+      try {
+        const restored = launch(entry, owner, at, user);
+        recovered = restored.ok && await ready({ ...entry, harnessPid: 0 }, restored.pid, owner.cwd);
+      } catch {}
+      patchManaged(owner.tmuxName, {
+        launchState: recovered ? "running" : "failed",
+        launchError: recovered ? undefined : "The agent could not restart in its original folder",
+      });
+    } else patchManaged(owner.tmuxName, { launchState: owner.launchState ?? "running" });
+    return { ok: false, status: 502, error: `Could not move this session: ${error instanceof Error ? error.message : String(error)}` };
+  } finally {
+    ids.forEach((id) => movingSessions.delete(id));
+  }
+}
+
+async function stopHarnessForMove(entry: AisdkEntry): Promise<boolean> {
+  if (!isPidAlive(entry.harnessPid)) return true;
+  appendCmd(entry.sessionId, { type: "close" });
+  wakeHarnessCommandReader(entry);
+  if (await waitForHarnessExit(entry.harnessPid, { timeoutMs: 2_000 })) return true;
+  if (!terminateHarnessProcess(entry)) return false;
+  return waitForHarnessExit(entry.harnessPid, { timeoutMs: 2_000 });
+}
+
+async function waitForMovedHarness(entry: AisdkEntry, pid: number | undefined, cwd: string): Promise<boolean> {
+  const deadline = Date.now() + 10_000;
+  let registeredAt: number | null = null;
+  while (Date.now() < deadline) {
+    const current = readEntry(entry.sessionId);
+    if (current?.cwd === cwd && current.harnessPid !== entry.harnessPid && isPidAlive(current.harnessPid)) {
+      registeredAt ??= Date.now();
+      if (Date.now() - registeredAt >= 500) return true;
+    } else registeredAt = null;
+    if (pid && !isPidAlive(pid)) return false;
+    await Bun.sleep(50);
+  }
+  return false;
+}
 
 export type ContainmentLaunchPolicy = { sandbox: ManagedContainment["sandbox"]; egressProxyUrl?: string };
 

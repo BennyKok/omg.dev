@@ -40,6 +40,7 @@ const now = () => Date.now();
  */
 type DemoSession = OmgSession & { botId?: string };
 const unassignedChats: DemoSession[] = [];
+const movedFolders = new Map<string, { cwd: string; project: string }>();
 
 /**
  * The home is scoped to ONE folder on the phone (session-options.ts picks the
@@ -289,7 +290,7 @@ function demoSessions(): DemoSession[] {
     busy: false, botId: undefined, lastActivityAt: t - 40 * MIN,
     last: { role: "assistant", text: "Attribution fix is merged.", ts: t - 40 * MIN },
   });
-  return [...unassignedChats, ...sessions];
+  return [...unassignedChats, ...sessions].map((session) => ({ ...session, ...movedFolders.get(session.sessionId!) }));
 }
 
 const artifactFixture = process.env.EXPO_PUBLIC_OMG_ARTIFACT_FIXTURE === "1";
@@ -585,6 +586,7 @@ function answer(path: string): unknown | null {
       { id: "demo-created-reply", role: "assistant", text: "Your new conversation is ready.", ts: createdAt + 1000 }] };
   }
   if (clean === "/api/bootstrap") return demoBootstrap();
+  if (clean === "/api/repos") return { repos: demoBootstrap().repos };
   // The Settings software row reads this. Without an answer the row is absent,
   // so demo mode could not show the version it exists to show.
   if (clean === "/api/install") {
@@ -702,6 +704,21 @@ export function getDemoTransport(): OmgTransport {
     async request<T>(path: string, init?: RequestInit): Promise<T> {
       const requestedAt = Date.now();
       await openingDelay(path);
+      const move = path.match(/^\/api\/sessions\/([^/]+)\/move$/);
+      if (move && init?.method === "POST") {
+        const id = decodeURIComponent(move[1]);
+        const session = demoSessions().find((row) => row.sessionId === id);
+        if (!session) throw new Error("session not found");
+        if (session.busy) throw new Error("Wait for the agent to finish before moving this session");
+        const body = JSON.parse(String(init.body ?? "{}"));
+        const repo = demoBootstrap().repos.find((repo) => repo.cwd === body.cwd);
+        if (!body.unassigned && !repo) throw new Error("Select a folder from this computer's project list");
+        const folder = body.unassigned
+          ? { cwd: `/home/user/.omg/chats/${id}`, project: "" }
+          : { cwd: repo!.cwd, project: repo!.project };
+        movedFolders.set(id, folder);
+        return { ok: true, sessionId: id, ...folder } as T;
+      }
       if (openingFixture && path === "/api/sessions/new") {
         createdPrompt = JSON.parse(String(init?.body ?? "{}")).prompt ?? "";
         createdAt = requestedAt;

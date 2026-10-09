@@ -1,0 +1,98 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": true
+  },
+  "steps": [
+    {
+      "name": "Accept fixture data notice",
+      "goal": "Tap Agree and continue on the Your data and AI providers screen for this isolated demo fixture. Wait for Home. Do not tap the root element named omg.",
+      "done": "Home shows the project navigation.",
+      "expect": [
+        "Chats without a project",
+        "api-gateway folder"
+      ],
+      "timeoutMs": 180000
+    },
+    {
+      "name": "Open no-project chat",
+      "goal": "On Home, select Chats without a project if it is not already selected. Tap Start website once. Do not send any additional message.",
+      "done": "The newly created chat shows its prompt and reply.",
+      "expect": [
+        "Help me create a website.",
+        "What would you like your website to do?"
+      ],
+      "timeoutMs": 180000
+    },
+    {
+      "name": "Open Move to folder",
+      "goal": "Open Session actions at the top right and select Move to folder\u2026.",
+      "done": "The folder picker is visible with No project selected and existing destination folders.",
+      "expect": [
+        "Move to folder",
+        "Move to No project",
+        "Move to api-gateway",
+        "Move to checkout"
+      ],
+      "timeoutMs": 180000
+    },
+    {
+      "name": "Move into an existing folder",
+      "goal": "Tap Move to checkout. Wait for the picker to close. Do not send a message.",
+      "done": "The same chat remains open with the original prompt and reply.",
+      "expect": [
+        "Help me create a website.",
+        "What would you like your website to do?"
+      ],
+      "forbid": [
+        "Move to folder",
+        "source session repo is not in the repo picker"
+      ],
+      "timeoutMs": 180000
+    },
+    {
+      "name": "Destination grouping",
+      "goal": "Tap the Back button at the top left to return to Home. Then tap checkout folder. Do not open another session.",
+      "done": "The moved conversation is in the checkout folder.",
+      "expect": [
+        "Help me create a website."
+      ],
+      "selected": "checkout folder",
+      "timeoutMs": 180000
+    },
+    {
+      "name": "Open picker from moved chat",
+      "goal": "Open the Help me create a website. conversation. Tap Session actions at the top right. Then tap Move to folder\u2026.",
+      "done": "The folder picker is open again.",
+      "expect": [
+        "Move to folder",
+        "Move to No project",
+        "Move to checkout"
+      ],
+      "timeoutMs": 180000
+    },
+    {
+      "name": "Move back to No project",
+      "goal": "Tap Move to No project. Wait for the picker to close. Do not send a message.",
+      "done": "The same conversation remains open after the picker closes.",
+      "expect": [
+        "Help me create a website.",
+        "What would you like your website to do?"
+      ],
+      "forbid": [
+        "Move to folder"
+      ],
+      "timeoutMs": 180000
+    },
+    {
+      "name": "No-project grouping",
+      "goal": "Tap the Back button at the top left to return to Home. Then select Chats without a project.",
+      "done": "The original conversation appears under No project again.",
+      "expect": [
+        "Help me create a website."
+      ],
+      "selected": "Chats without a project",
+      "timeoutMs": 180000
+    }
+  ]
+}

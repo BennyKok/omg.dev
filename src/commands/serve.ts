@@ -52,6 +52,8 @@ import { mentionAgents, mentionedAgent, threadPreview, type ThreadMedia } from "
 import { COMPUTER_KIOSK_PATH } from "../../packages/protocol/src/computer-kiosk.ts";
 import { buildContinueSessionPrompt } from "../session-continue-prompt.ts";
 import { createForkSession } from "../session-fork.ts";
+import { handleSessionMove } from "../session-move.ts";
+import { sessionIsMoving } from "../session-recovery.ts";
 import { regenerateSessionTitle } from "../session-title-regenerate.ts";
 import { hasHostedOmgAiProxy, hasOmgProviderAccess } from "../omg-provider.ts";
 import { createCloudMachineProxy, type CloudProxySocketData } from "../cloud-machine-proxy.ts";
@@ -2470,6 +2472,7 @@ async function closeLiveSession(
   id: string,
   closeLog: Record<string, unknown>,
 ): Promise<CloseOutcome> {
+  if (sessionIsMoving(id)) return { ok: false, status: 409, reason: "The session is moving; try again when it is ready" };
   persistManagedResume(sess);
   // Reap headless Chrome for this managed name before killing the agent.
   // agent-browser daemons reparent under user systemd and outlive tmux/harness
@@ -2987,6 +2990,7 @@ async function reviveDeadCommandFileHarness(
   session: Session,
   opts: { overLimit?: boolean } = {},
 ): Promise<Response | { state: "relaunched" | "claimed" } | null> {
+  if (session.sessionId && sessionIsMoving(session.sessionId)) return err(409, "The session is moving; try again when it is ready");
   if (!usesCommandFileRuntime(session.agent, session.runtime)) return null;
   const ids = [session.sessionId, session.nativeSessionId].filter((id): id is string => !!id);
   const entry = ids.map((id) => findAisdkEntryByAnyId(id)).find((found) => !!found) ?? null;
@@ -3022,6 +3026,7 @@ function sendPromptToLiveSession(
   if (!prompt) return { ok: true };
   const sid = session.sessionId;
   if (!sid) return { ok: false, error: "live session has no id" };
+  if (sessionIsMoving(sid)) return { ok: false, error: "The session is moving; try again when it is ready" };
   if (session.agent === "hermes") return { ok: false, error: "Hermes has been removed" };
   traceLog("session_send_request", {
     sessionId: sid,
@@ -9130,6 +9135,7 @@ a{color:#60a5fa}
         } | null;
         const sessionId = body?.sessionId?.trim();
         if (!sessionId) return err(400, "sessionId required");
+        if (sessionIsMoving(sessionId)) return err(409, "The session is moving; try again when it is ready");
         const model = body?.model?.trim() || undefined;
         // Already running? Don't double-spawn — point the client at the live one.
         //
@@ -11005,6 +11011,23 @@ a{color:#60a5fa}
             }).catch((error) => console.error("[mention] fan-out failed:", error));
           }
           return json({ ok: true, msg: sentMsg, mentions: mentionOutcomes });
+        }
+      }
+
+      {
+        const m = path.match(/^\/api\/sessions\/([0-9a-fA-F-]{36})\/move$/);
+        if (m && req.method === "POST") {
+          const session = (await listSessions()).find((s) => s.sessionId === m[1] || s.nativeSessionId === m[1]);
+          if (!session) return err(404, "session not found");
+          const response = await handleSessionMove(req, {
+            sessionId: session.sessionId ?? m[1],
+            tmuxName: session.managed ? session.tmuxName : undefined,
+            busy: session.busy,
+            queued: queueBlocksBotRotation(listQueue(session.sessionId ?? m[1])),
+            repos: await listRepos(),
+          });
+          invalidateListSessionsCache();
+          return response;
         }
       }
 

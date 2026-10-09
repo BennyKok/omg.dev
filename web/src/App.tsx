@@ -561,6 +561,7 @@ import {
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { useAppDialog } from "@/components/ui/app-dialog";
+import { MoveSessionDialog } from "@/components/move-session-dialog";
 import { claimShortcutScope } from "@/lib/shortcut-scope";
 // Code-split: the terminal pulls in ghostty-web's ~400KB WASM, so only load it
 // when the Terminal tab is actually opened — keeps the initial bundle lean.
@@ -17804,6 +17805,7 @@ function useSessionActions({
   onError: (error: string | null) => void;
 }) {
   const [forkMode, setForkMode] = useState<"fork" | "continue" | null>(null);
+  const [moveOpen, setMoveOpen] = useState(false);
   const restoreSession = useContext(SessionRestoreContext);
   const sid = session.sessionId;
   const assignee = users.find((user) => user.email === session.assignedUser);
@@ -17870,6 +17872,8 @@ function useSessionActions({
     assignee,
     forkMode,
     setForkMode,
+    moveOpen,
+    setMoveOpen,
     assign,
     interrupt,
     copyReference,
@@ -17949,6 +17953,8 @@ function SessionActionsMenu({
     assignee,
     forkMode,
     setForkMode,
+    moveOpen,
+    setMoveOpen,
     assign,
     interrupt,
     copyReference,
@@ -17965,6 +17971,7 @@ function SessionActionsMenu({
 
   return (
     <>
+      {moveOpen && sid ? <MoveSessionDialog sessionId={sid} currentProject={session.project} request={api} onClose={() => setMoveOpen(false)} onMoved={onRefresh} /> : null}
       {filesOpen && sid ? (
         <Suspense fallback={null}>
           <LazySessionFilesPanel sid={sid} onClose={() => setFilesOpen(false)} />
@@ -18106,6 +18113,12 @@ function SessionActionsMenu({
               Rename with AI
             </DropdownMenuItem>
           ) : null}
+          {canDriveSession(session) && !busy && !session.botId ? (
+            <DropdownMenuItem disabled={!sid} onClick={() => setMoveOpen(true)}>
+              <Folder className="size-4" />
+              Move to folder…
+            </DropdownMenuItem>
+          ) : null}
           {/* Files lives in this menu with the rest of the per-session actions
               — it was briefly a separate header button. */}
           <DropdownMenuItem disabled={!sid} onClick={() => setFilesOpen(true)}>
@@ -18195,6 +18208,8 @@ function RailSessionContextMenu({
     assignee,
     forkMode,
     setForkMode,
+    moveOpen,
+    setMoveOpen,
     assign,
     interrupt,
     copyReference,
@@ -18214,6 +18229,7 @@ function RailSessionContextMenu({
 
   return (
     <>
+      {moveOpen && sid ? <MoveSessionDialog sessionId={sid} currentProject={session.project} request={api} onClose={() => setMoveOpen(false)} onMoved={onRefresh} /> : null}
       {forkMode ? (
         <ForkSessionDialog
           session={session}
@@ -18330,6 +18346,12 @@ function RailSessionContextMenu({
               </ContextMenuRadioGroup>
             </ContextMenuSubContent>
           </ContextMenuSub>
+          {canDriveSession(session) && !busy && !session.botId ? (
+            <ContextMenuItem disabled={!sid} onClick={() => setMoveOpen(true)}>
+              <Folder className="size-4" />
+              Move to folder…
+            </ContextMenuItem>
+          ) : null}
           <ContextMenuItem disabled={!sid} onClick={() => void copyReference()}>
             <Copy className="size-4" />
             Copy reference
