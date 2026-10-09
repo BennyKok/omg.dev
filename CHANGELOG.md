@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 9, 2026 - Shorter audio settings (v0.6.210)
+
+- Web audio settings use two controls and one short status line. Choose Auto, Cloud, or Local and your language.
+
 ## October 9, 2026 - Clear computer resume progress (v0.6.209)
 
 - A paused computer shows resume progress while it wakes. The app keeps trying without asking you to press Retry.
