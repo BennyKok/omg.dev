@@ -1,6 +1,9 @@
-# Browser transcription prototype
+# Browser transcription
 
-Status: local prototype. No deployment or release.
+Status: integrated into web dictation and Settings. The standalone page remains
+a local test harness.
+
+Open Settings > More > Transcription to choose Auto, Cloud, or Local.
 
 The web mic now uses one browser-owned transcription service. Its persisted
 preference is independent of the computer's cloud provider configuration.
@@ -56,3 +59,10 @@ speech recognition, mic-to-composer delivery, Cloud preference after reload,
 model readiness after a cached reload, and a live Cloud override through the
 existing ElevenLabs provider. Unit tests cover cloud before
 readiness, fixed provider selection, local failures, and broker replay.
+
+The integration checks also exercised the normal web Settings page at desktop
+and phone widths. The full suite initially reported missing native dependencies
+and 10 existing failures. Native checks passed after installing `mobile/`
+dependencies. The same 10 remaining assertions fail on unchanged `origin/main`:
+feedback wiring, rail swipe actions, restart recovery, thinking controls,
+chat-send invariants, and Meta Ads defaults. They are outside this change.
