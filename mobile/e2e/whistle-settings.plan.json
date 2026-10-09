@@ -8,7 +8,9 @@
       "name": "Enter demo app",
       "goal": "If the data and AI providers consent screen is shown, tap Agree and continue for this demo test account. Otherwise wait for Home.",
       "done": "The app navigation button is visible.",
-      "expect": ["Navigation"],
+      "expect": [
+        "Navigation"
+      ],
       "timeoutMs": 60000
     },
     {
@@ -17,77 +19,154 @@
       "done": "The production Settings screen includes the three transcription modes and language.",
       "expect": [
         "Audio",
-        "Auto",
-        "Cloud",
-        "Local",
-        "Language \u00b7 Auto detect"
+        "Transcription",
+        "Language",
+        "Auto detect"
       ],
       "timeoutMs": 60000
     },
     {
+      "name": "Native transcription menu",
+      "goal": "Tap the Transcription row. Leave the menu open.",
+      "done": "The native picker shows all three transcription modes.",
+      "expect": [
+        "Auto",
+        "Cloud",
+        "Local"
+      ],
+      "timeoutMs": 30000
+    },
+    {
       "name": "Select Auto mode",
-      "goal": "Tap the Auto transcription mode button with id transcription-auto. Keep the language unchanged.",
+      "goal": "The native menu is already open. Tap the Auto menu option to select it and close the menu. Do not tap the Transcription row again.",
       "done": "The Auto mode button is selected.",
-      "expect": ["Audio", "Auto", "Cloud", "Local"],
-      "timeoutMs": 30000,
-      "selected": "Auto"
+      "expect": [
+        "Audio",
+        "Transcription",
+        "Auto"
+      ],
+      "timeoutMs": 30000
     },
     {
       "name": "Native model ready",
-      "goal": "Wait for the native on-device model to become ready. Do not change the controls.",
+      "goal": "If a transcription menu is open, tap Auto to close it. Wait for the native model ready status on the Audio settings screen.",
       "done": "Whistle has downloaded and loaded in the actual iOS app.",
       "expect": [
+        "Audio",
         "On-device ready \u00b7 text after recording"
       ],
       "timeoutMs": 180000
     },
     {
+      "name": "Open picker for cloud override",
+      "goal": "Tap the Transcription settings row to open its native menu. Leave it open.",
+      "done": "All three mode choices are visible in the native menu.",
+      "expect": [
+        "Auto",
+        "Cloud",
+        "Local"
+      ],
+      "timeoutMs": 30000
+    },
+    {
       "name": "Cloud override",
-      "goal": "Tap Cloud in Audio.",
+      "goal": "The native menu is already open. Tap the Cloud option to select it and close the menu. Do not tap the Transcription title.",
       "done": "Cloud transcription is selected.",
       "expect": [
+        "Audio",
         "Cloud transcription"
       ],
-      "timeoutMs": 30000,
-      "selected": "Cloud"
+      "timeoutMs": 30000
+    },
+    {
+      "name": "Open picker for local override",
+      "goal": "Tap the Transcription settings row to open its native menu. Leave it open.",
+      "done": "All three mode choices are visible in the native menu.",
+      "expect": [
+        "Auto",
+        "Cloud",
+        "Local"
+      ],
+      "timeoutMs": 30000
     },
     {
       "name": "Local override",
-      "goal": "Tap Local in Audio.",
+      "goal": "The native menu is already open. Tap the Local option to select it and close the menu. Do not tap the Transcription title.",
       "done": "Local transcription uses the loaded native model.",
       "expect": [
+        "Audio",
+        "Transcription",
+        "Local",
         "On-device ready \u00b7 text after recording"
       ],
-      "timeoutMs": 30000,
-      "selected": "Local"
+      "timeoutMs": 30000
+    },
+    {
+      "name": "Open picker for unsupported language",
+      "goal": "Tap the Language settings row to open its native menu. Leave it open.",
+      "done": "The native menu shows the language choices.",
+      "expect": [
+        "English",
+        "Cantonese (cloud)"
+      ],
+      "timeoutMs": 30000
     },
     {
       "name": "Unsupported language",
-      "goal": "Tap Language, then choose Cantonese (cloud).",
+      "goal": "The native language menu is already open. Tap the Cantonese (cloud) option to select it and close the menu. Do not tap the Language title.",
       "done": "Settings explains that Cantonese requires cloud.",
       "expect": [
-        "Language \u00b7 Cantonese (cloud)",
+        "Audio",
+        "Language",
+        "Cantonese (cloud)",
         "This language needs cloud"
       ],
       "timeoutMs": 30000
     },
     {
+      "name": "Open picker for restore language",
+      "goal": "Tap the Language settings row to open its native menu. Leave it open.",
+      "done": "The native menu shows the language choices.",
+      "expect": [
+        "English",
+        "Cantonese (cloud)"
+      ],
+      "timeoutMs": 30000
+    },
+    {
       "name": "Restore language",
-      "goal": "Tap Language and choose Auto detect.",
+      "goal": "The native language menu is already open. Tap the Auto detect option to select it and close the menu. Do not tap the Language title.",
       "done": "The language is Auto detect and the native model is ready.",
       "expect": [
-        "Language \u00b7 Auto detect",
+        "Audio",
+        "Language",
+        "Auto detect",
         "On-device ready \u00b7 text after recording"
       ],
       "timeoutMs": 30000
     },
     {
+      "name": "Open picker for restore auto mode",
+      "goal": "Tap the Transcription settings row to open its native menu. Leave it open.",
+      "done": "All three mode choices are visible in the native menu.",
+      "expect": [
+        "Auto",
+        "Cloud",
+        "Local"
+      ],
+      "timeoutMs": 30000
+    },
+    {
       "name": "Restore Auto mode",
-      "goal": "Tap the Auto transcription mode button with id transcription-auto. Keep the language unchanged.",
+      "goal": "The native menu is already open. Tap the Auto option to select it and close the menu. Do not tap the Transcription title.",
       "done": "The Auto mode button is selected with the model ready.",
-      "expect": ["On-device ready \u00b7 text after recording"],
-      "timeoutMs": 30000,
-      "selected": "Auto"
+      "expect": [
+        "Audio",
+        "Transcription",
+        "Auto",
+        "On-device ready \u00b7 text after recording"
+      ],
+      "timeoutMs": 30000
     }
   ]
 }
