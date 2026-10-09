@@ -18,7 +18,7 @@
  * in the list.
  */
 import { type ReactNode } from "react";
-import { Drawer as VaulDrawer } from "vaul";
+import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
 import { ChevronUp } from "lucide-react";
 
 /**
@@ -88,23 +88,16 @@ export function FindingsSheet({
   children: ReactNode;
 }) {
   return (
-    <VaulDrawer.Root open={open} onOpenChange={onOpenChange} repositionInputs={false}>
-      <VaulDrawer.Portal>
-        <VaulDrawer.Overlay className="fixed inset-0 z-[179] bg-black/[0.28]" />
-        <VaulDrawer.Content
+    <Drawer presentation="sheet" layer={180} open={open} onOpenChange={onOpenChange}>
+      <DrawerContent unstyled expandOnFocus={false} overlayClassName="fixed inset-0 z-[179] bg-black/[0.28]"
           data-slot="findings-sheet"
           aria-describedby={undefined}
-          // Anchored at the bottom edge, not inset from it: vaul dismisses
-          // with translate3d(0, 100%, 0), 100% of this element's own height,
-          // so an element held off the bottom stops that far short and leaves
-          // a sliver on screen. The float is the padding plus the card.
-          data-vaul-custom-container="true"
-          className="fixed inset-x-0 bottom-0 z-[180] flex max-h-[80dvh] flex-col bg-transparent px-2 pb-[max(var(--lfg-safe-bottom),0.5rem)] outline-none"
+          className="z-[180] flex max-h-[80dvh] flex-col bg-transparent px-2 pb-[max(var(--lfg-safe-bottom),0.5rem)] outline-none"
         >
           <div className="mx-auto flex min-h-0 w-full max-w-[414px] flex-col rounded-[2rem] border border-border bg-popover px-3 pb-3 text-popover-foreground shadow-2xl">
             <div className="mx-auto mb-1 mt-2.5 h-1.5 w-10 shrink-0 rounded-full bg-muted-foreground/30" />
             <div className="flex min-h-11 items-baseline gap-2 px-1">
-              <VaulDrawer.Title className="text-[17px] font-semibold">Updates</VaulDrawer.Title>
+              <DrawerTitle className="text-[17px] font-semibold">Updates</DrawerTitle>
               <span className="text-[13px] tabular-nums text-muted-foreground">{count} open</span>
               {actions ? <span className="ml-auto self-center">{actions}</span> : null}
             </div>
@@ -112,8 +105,7 @@ export function FindingsSheet({
               {children}
             </div>
           </div>
-        </VaulDrawer.Content>
-      </VaulDrawer.Portal>
-    </VaulDrawer.Root>
+        </DrawerContent>
+    </Drawer>
   );
 }

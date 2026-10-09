@@ -141,7 +141,7 @@ test("the pill trigger opens the dropdown, not a dialog", async () => {
   expect(pill.className).toContain("rounded-full");
   ui.flush(() => pill.click());
   await ui.flushAsync();
-  expect(body().querySelector('[role="dialog"][data-vaul-drawer]')).toBeNull();
+  expect(body().querySelector('[data-slot="drawer-content"]')).toBeNull();
   expect(menuRows()).toEqual(["All projects", "No project", "alpha", "beta", "gamma"]);
   ui.flush(() => (body().querySelector('button[title="gamma"][aria-pressed]') as HTMLButtonElement).click());
   expect(picked).toEqual(["gamma"]);

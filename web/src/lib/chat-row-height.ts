@@ -729,7 +729,7 @@ export function messageRowHeight(message: RowMessage, ctx: RowContext): number {
  * row gap it carries as its own bottom padding and the speaker-change gap.
  *
  * Expanding a tool group costs nothing here on purpose: the details are a
- * portalled Popover on desktop and a Vaul Drawer on mobile, neither of which
+ * portalled Popover on desktop and a React Aria sheet on mobile, neither of which
  * is in flow. The only row that grows in place is an opened thinking
  * Collapsible, and that row is mounted when it is opened, so the DOM
  * measurement takes over before the estimate can be wrong on screen.

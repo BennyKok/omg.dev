@@ -7,7 +7,7 @@
  * same way HomeComposer feeds the iOS sheet from useAgentPicker.
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Drawer as VaulDrawer } from "vaul";
+import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
 import { ChevronLeft, ChevronRight, Gauge, Plus, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -92,7 +92,7 @@ export function AgentSetupSheet({
   // actually takes, not the height of all its content.
   //
   // The observer follows the page ELEMENT through a callback ref, not an
-  // effect. The page mounts inside vaul's portal, which can land after an
+  // effect. The page mounts inside the sheet portal, which can land after an
   // effect keyed on `open` has already run and found nothing, and a closing
   // sheet detaches the page, which reports a 0 height. Together those left
   // the body pinned at 0 px on reopen: a sheet with a title and nothing under
@@ -123,26 +123,11 @@ export function AgentSetupSheet({
     page === "usage" ? "Usage" : page === "models" ? "Models" : page === "profiles" ? "Claude profile" : title;
 
   return (
-    <VaulDrawer.Root open={open} onOpenChange={onOpenChange} repositionInputs={false} shouldScaleBackground={false}>
-      <VaulDrawer.Portal>
-        <VaulDrawer.Overlay className="fixed inset-0 z-[179] bg-black/60" />
-        <VaulDrawer.Content
+    <Drawer presentation="sheet" layer={180} open={open} onOpenChange={onOpenChange}>
+      <DrawerContent unstyled expandOnFocus={false} overlayClassName="fixed inset-0 z-[179] bg-black/60"
           data-slot="agent-setup-sheet"
           aria-describedby={undefined}
-          // Opt out of vaul's overshoot filler. It paints a ::after with
-          // `background: inherit`, full width and 200% tall, starting at this
-          // element's bottom edge. On a sheet that is flush to bottom-0 that
-          // band is off screen; this one floats inset from the bottom, so the
-          // band showed as an opaque square-cornered slab of bg-popover under
-          // the card's rounded corners, sitting over the dimmed backdrop.
-          data-vaul-custom-container="true"
-          // Anchored at bottom-0, NOT inset from it, even though the card
-          // floats. vaul dismisses with translate3d(0, 100%, 0) — 100% of
-          // this element's own height — so an element held 8px off the bottom
-          // stops 8px short and leaves a sliver of itself on screen. The
-          // float is drawn by the padding here and the card below, the same
-          // way components/ui/drawer.tsx does it with before:inset-2.
-          className="fixed inset-x-0 bottom-0 z-[180] flex max-h-[90dvh] select-none flex-col bg-transparent px-2 pb-[max(var(--lfg-safe-bottom),0.5rem)] outline-none"
+          className="z-[180] flex max-h-[90dvh] select-none flex-col bg-transparent px-2 pb-[max(var(--lfg-safe-bottom),0.5rem)] outline-none"
         >
           <div className="mx-auto flex min-h-0 w-full max-w-[414px] flex-col rounded-[2rem] border border-border bg-popover px-3 pb-3 text-popover-foreground shadow-2xl">
           <div className="mx-auto mb-1 mt-2.5 h-1.5 w-10 shrink-0 rounded-full bg-muted-foreground/30" />
@@ -157,9 +142,9 @@ export function AgentSetupSheet({
                 <ChevronLeft className="size-5" />
               </button>
             ) : null}
-            <VaulDrawer.Title className="min-w-0 flex-1 truncate text-[17px] font-semibold">
+            <DrawerTitle className="min-w-0 flex-1 truncate text-[17px] font-semibold">
               {heading}
-            </VaulDrawer.Title>
+            </DrawerTitle>
             {page === "root" && usageRing ? (
               <button
                 type="button"
@@ -270,9 +255,8 @@ export function AgentSetupSheet({
           </div>
           </div>
           </div>
-        </VaulDrawer.Content>
-      </VaulDrawer.Portal>
-    </VaulDrawer.Root>
+        </DrawerContent>
+    </Drawer>
   );
 }
 
@@ -424,7 +408,6 @@ export function ThinkingBar({ options, onPick, compact = false }: {
       aria-valuemax={options.length - 1}
       aria-valuenow={active}
       aria-valuetext={options[active]?.label}
-      data-vaul-no-drag
       style={{ touchAction: "none" }}
       onKeyDown={(event) => {
         if (event.key === "ArrowRight" || event.key === "ArrowUp") {
