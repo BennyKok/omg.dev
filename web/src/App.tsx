@@ -17399,7 +17399,9 @@ function SessionChatBody({
             // column (max-w-3xl), and never drops under 0.5rem in a narrow
             // pane. Padding percentages resolve against the form's width.
             "relative overflow-x-clip bg-[var(--lfg-pane-bg,var(--background))] px-4 pb-[calc(0.5rem+var(--lfg-safe-bottom))] pt-1.5 transition-colors md:px-[max(0.5rem,calc((100%-48rem)/2))]",
-            "before:pointer-events-none before:absolute before:inset-x-0 before:-top-6 before:h-8 before:bg-gradient-to-t before:from-[var(--lfg-pane-bg,var(--background))] before:to-transparent before:content-['']",
+            // Keep the fade above the form. Extending it into the 6px top
+            // padding paints over the preview card's rounded top border.
+            "before:pointer-events-none before:absolute before:inset-x-0 before:-top-8 before:h-8 before:bg-gradient-to-t before:from-[var(--lfg-pane-bg,var(--background))] before:to-transparent before:content-['']",
             draggingFiles && "bg-primary/8",
             launching && "lfg-composer-launching",
           )}
