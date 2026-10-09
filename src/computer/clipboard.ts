@@ -1,16 +1,42 @@
 import { desktopStatus } from "./desktop.ts";
+import { existsSync } from "node:fs";
+
+/** Hosted Computers install their missing helper once; local hosts report it. */
+export function createClipboardDependency(deps: {
+  installed(): boolean;
+  hosted(): boolean;
+  install(): Promise<void>;
+}) {
+  let installing: Promise<void> | null = null;
+  return async () => {
+    if (deps.installed()) return;
+    if (!deps.hosted()) throw new Error("xclip is not installed. Install it with: sudo apt-get install -y xclip");
+    installing ??= deps.install().then(() => {
+      if (!deps.installed()) throw new Error("The Computer clipboard helper is still missing.");
+    }).finally(() => { installing = null; });
+    await installing;
+  };
+}
+
+const ensureClipboardDependency = createClipboardDependency({
+  installed: () => !!Bun.which("xclip"),
+  hosted: () => process.platform === "linux" && existsSync("/usr/local/bin/vibes-agent"),
+  async install() {
+    console.info("[computer] installing missing hosted clipboard helper");
+    const proc = Bun.spawn(["sudo", "-n", "apt-get", "install", "-y", "--no-install-recommends", "xclip"], {
+      stdin: "ignore", stdout: "ignore", stderr: "ignore", timeout: 90_000,
+      env: { ...process.env, DEBIAN_FRONTEND: "noninteractive" },
+    });
+    if (await proc.exited !== 0) throw new Error("The Computer could not install its clipboard helper. Try again or contact support.");
+  },
+});
 
 /** Put text on the desktop's CLIPBOARD selection. xclip daemonizes to serve
  *  it until something else takes the selection, which is exactly clipboard
  *  semantics. */
 export async function setDesktopClipboard(text: string, display = desktopStatus().display): Promise<void> {
   if (!display) throw new Error("the computer is not running; start it first");
-  if (!Bun.which("xclip")) {
-    throw new Error(
-      "xclip is not installed, so the desktop clipboard cannot be set. " +
-        "Install it with: sudo apt-get install -y xclip",
-    );
-  }
+  await ensureClipboardDependency();
   const proc = Bun.spawn(["xclip", "-selection", "clipboard"], {
     stdin: "pipe",
     stdout: "ignore",
@@ -29,6 +55,7 @@ export async function setDesktopClipboard(text: string, display = desktopStatus(
 /** Read UTF-8 directly, because legacy RFB clipboard packets lose Unicode. */
 export async function readDesktopClipboard(display = desktopStatus().display): Promise<string> {
   if (!display) throw new Error("the computer is not running; start it first");
+  await ensureClipboardDependency();
   const proc = Bun.spawn(["xclip", "-selection", "clipboard", "-out"], {
     stdout: "pipe", stderr: "ignore", stdin: "ignore",
     env: { ...process.env, DISPLAY: display }, timeout: 5000,

@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 let display = 190;
 while (existsSync(`/tmp/.X${display}-lock`)) display++;
 const env = { ...process.env, DISPLAY: `:${display}` };
-const { computerClipboardRequest, readDesktopClipboard, setDesktopClipboard } = await import("./clipboard.ts");
+const { computerClipboardRequest, readDesktopClipboard, setDesktopClipboard, createClipboardDependency } = await import("./clipboard.ts");
 let x: ReturnType<typeof Bun.spawn>;
 beforeAll(async () => {
   x = Bun.spawn(["Xvfb", env.DISPLAY, "-screen", "0", "640x480x24", "-nolisten", "tcp"], { stdout: "ignore", stderr: "ignore" });
@@ -38,4 +38,29 @@ test("an invalid clipboard request cannot replace the existing selection", async
   }), env.DISPLAY);
   expect(response.status).toBe(400);
   expect(await readDesktopClipboard(env.DISPLAY)).toBe("keep this");
+});
+
+test("concurrent hosted clipboard requests share one dependency install", async () => {
+  let installed = false;
+  let installs = 0;
+  const ready = createClipboardDependency({ installed: () => installed, hosted: () => true, async install() { installs++; await Bun.sleep(10); installed = true; } });
+  await Promise.all([ready(), ready(), ready()]);
+  await ready();
+  expect(installs).toBe(1);
+});
+
+test("a local desktop missing xclip reports the dependency without installing packages", async () => {
+  let installs = 0;
+  const ready = createClipboardDependency({ installed: () => false, hosted: () => false, async install() { installs++; } });
+  await expect(ready()).rejects.toThrow("sudo apt-get install -y xclip");
+  expect(installs).toBe(0);
+});
+
+test("failed helper installation can be retried after the host recovers", async () => {
+  let installs = 0;
+  let installed = false;
+  const ready = createClipboardDependency({ installed: () => installed, hosted: () => true, async install() { if (++installs === 1) throw new Error("offline"); installed = true; } });
+  await expect(ready()).rejects.toThrow("offline");
+  await ready();
+  expect(installs).toBe(2);
 });

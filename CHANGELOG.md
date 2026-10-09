@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 9, 2026 - Clipboard support for older Computers (v0.6.212)
+
+- Older cloud Computers install the missing clipboard helper when Copy or Paste needs it. Concurrent requests share one installation.
+- Local Computers show the command to install the helper when it is missing.
+
 ## October 9, 2026 - Computer sign-in and clipboard fixes (v0.6.211)
 
 - Expo sign-in opens in the Computer browser even when Linux already has a browser opener installed.

@@ -697,11 +697,12 @@ async function reapOrphanKioskBrowsers(config: DesktopConfig): Promise<void> {
     const prefix = `${hostname()}-`;
     if (!lock.startsWith(prefix) || !/^\d+$/.test(lock.slice(prefix.length))) return;
     pid = Number(lock.slice(prefix.length));
+    identity = processIdentity(pid);
+    if (!identity) return;
     if (statSync(`/proc/${pid}`).uid !== process.getuid?.()) return;
     const args = readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0");
     if (!isOrphanKioskBrowser(readlinkSync(`/proc/${pid}/exe`), args, config)) return;
-    identity = processIdentity(pid);
-    if (!identity) return;
+    if (!sameProcess(pid, identity)) return;
   } catch { return; }
   console.warn("[computer] recovering orphan kiosk browser holding the Computer profile");
   killPid(pid, identity);
