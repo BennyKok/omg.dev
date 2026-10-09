@@ -2,14 +2,14 @@
 
 Read this first. It records what is true now. The nightly librarian agent
 updates it from merged pull requests. Verify a fact in code before you depend
-on it. Last refresh: 2026-10-08.
+on it. Last refresh: 2026-10-09.
 
 ## Active work (last 14 days)
 
 - **First run and previews**: preview-first tasks, Expo preview cards,
   Connect Expo for iPhone, Simulator streaming, clipped viewport fixes,
   design checks, and public first apps (#316, #318–#324, #328–#329, #331,
-  #334–#335, #339, #341, #347, #368, #373).
+  #334–#335, #339, #341, #347, #368, #373, #378).
 - **Android builds**: cloud APK builds, committed app icons, and tool timeout
   handling (#357, #367, #370).
 - **Agent media**: media generation billed to omg credits (#325).
@@ -22,11 +22,13 @@ on it. Last refresh: 2026-10-08.
   removal of the screen-lock password prompt (#336–#337, #349–#350).
 - **Web, connectors, and embed**: token exchange, paste-back sign-in, correct
   project chat selection, host toasts, hidden Bots/Board, and lazy Connectors
-  loading (#315, #340, #342, #351–#352, #354–#355).
+  loading, and work-row timing (#315, #317, #340, #342, #351–#352,
+  #354–#355).
 - **Security and updates**: signed-in tailnet access, dependency audit fixes,
   and fresh release lookup for self-update (#338, #344, #353).
 - **Agent docs**: self-host pricing, current context and archive rules, and
-  hosted web app sign-in guidance (#359, #374–#375).
+  hosted web app sign-in, automatic sign-in/sign-out rules, and corrected
+  bot plan status (#359, #374–#377, #380).
 
 ## Open pull requests
 
@@ -41,6 +43,6 @@ on it. Last refresh: 2026-10-08.
 - Hosted product, billing, and fleet: the `vibes` repository.
 - Native client: `mobile/` and `mobile/AGENTS.md`.
 - Design and protocol documents: `docs/`. Check top `Status:` lines against
-  code; the bot plans and team-tooling status still describe earlier stages.
+  code; the team-tooling status still describes an earlier stage.
 - Old plans that were not built: `docs/archive/`. They are history, not current
   truth. Search tools skip this folder.
