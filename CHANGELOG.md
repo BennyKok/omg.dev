@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 9, 2026 - Simpler dictation button (v0.6.214)
+
+- Web dictation uses an icon-only mic button. Choose Auto, Cloud, or Local in Audio settings.
+- Computer Chrome shows fewer first-run prompts.
+- The iOS dictation prototype supports on-device Whistle. An App Store build is still required.
+
 ## October 9, 2026 - Automatic sign-in for returning visitors (v0.6.213)
 
 - Apps the agent builds sign returning visitors in automatically after their first Sign in. Sign out stays signed out.

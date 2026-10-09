@@ -4662,7 +4662,7 @@ export const MicButton = forwardRef<
         }
         style={reactiveStyle}
         className={cn(
-          "flex shrink-0 touch-none select-none flex-col items-center justify-center gap-0.5 rounded-full transition",
+          "flex shrink-0 touch-none select-none items-center justify-center rounded-full transition",
           recording
             ? cancelArmed
               ? "z-10 bg-muted-foreground text-background"
@@ -4682,7 +4682,6 @@ export const MicButton = forwardRef<
         ) : (
           <Mic className="size-4" />
         )}
-        <span className="text-[8px] leading-none" aria-hidden="true">{provider === "local" ? "Local" : "Cloud"}</span>
       </button>
     </>
   );
