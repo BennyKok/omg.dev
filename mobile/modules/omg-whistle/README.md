@@ -14,7 +14,15 @@ before model loading. Audio stays on the device during native inference.
 
 The native transcription service owns readiness and persisted mode/language.
 The existing dictation hook captures its provider before microphone access.
-Cloud keeps its live transcript. Local returns text after recording stops.
+Cloud keeps its live transcript. New native builds also stream Local words.
+`startStream(language)` opens one engine stream. `processStream(id, pcm)` accepts
+base64 PCM16 chunks and returns newly committed text plus the provisional tail.
+`stopStream(id)` commits the tail and releases the stream. Calls use the same
+serial engine queue, and stream IDs reject late chunks from another take.
+The JS stream buffers one second of audio per pass and flushes a shorter final
+chunk. Cancellation drops queued audio and ignores in-flight text. Older app
+binaries use the existing batch method. Streaming failures retry the complete
+recording locally before Auto considers cloud recovery.
 Auto can replay a failed local take through the existing authenticated computer
 transport. If realtime replay fails, Auto retains the existing file endpoint
 fallback. Forced Local and cancelled takes do not use those fallbacks.
@@ -25,11 +33,10 @@ production settings component, service, and native engine against public-domain
 JFK audio. It does not prove physical microphone behavior, battery use, or
 performance on real iPhones.
 
-Verified on the dedicated iPhone 17 Pro iOS 26.5 simulator: nine production
-Settings steps and four native audio fixture steps passed. The native fixture
-returned the JFK transcript with cloud fallback disabled. Mobile type checking
-and 73 native check files passed. One existing transcript-body harness remains
-quarantined by the native check runner.
+The `whistle-stream` fixture proves live words before stop, cancellation,
+a fresh stream, and finalization with cloud disabled. `voice-input-motion` tests
+the production microphone controls and draft retention. One existing
+transcript-body harness remains quarantined by the native check runner.
 
 ```sh
 EXPO_PUBLIC_OMG_DEMO=1 OMG_SIM_DEVICE=omg-whistle-207954 \
@@ -42,8 +49,12 @@ OMG_E2E_ENTRY_FILE=scripts/whistle-engine-e2e-entry.tsx \
 bun run test:e2e --build --plan whistle-engine --record
 ```
 
-Run these commands from `mobile/`. Use the Mac build path. This prototype does
-not submit a store build or change an existing app review.
+For streaming inference, use `OMG_E2E_ENTRY_FILE=scripts/whistle-stream-e2e-entry.tsx`
+with `--plan whistle-stream --record`. Restore a normal app build before running
+`voice-input-motion` or `whistle-settings`.
+
+Run these commands from `mobile/`. Use the Mac build path. Simulator verification does
+not submit an App Store review.
 
 Upstream: https://github.com/cactus-compute/needle (Apache-2.0).
 Engine revision: `2ae11323dc000f5e70c49f7403efa6af12ba9e67`.

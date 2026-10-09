@@ -3,6 +3,9 @@ export type TranscriptionLanguage = "auto" | "en" | "de" | "fr" | "es" | "it" | 
 export interface NativeTranscriptionEngine {
   prepare(): Promise<void>;
   transcribe(uri: string, language: string): Promise<string>;
+  startStream?(language: string): Promise<string>;
+  processStream?(id: string, pcm: string): Promise<{ text: string; pending: string }>;
+  stopStream?(id: string): Promise<{ text: string; pending: string }>;
 }
 export interface NativeTranscriptionState {
   mode: TranscriptionMode;
@@ -78,6 +81,18 @@ export class NativeTranscription {
   async transcribe(uri: string, take: DictationTake): Promise<string> {
     if (!this.engine || take.provider !== "local") throw new Error("On-device transcription is unavailable");
     return this.engine.transcribe(uri, take.language);
+  }
+  get streamingAvailable() {
+    return !!(this.engine?.startStream && this.engine.processStream && this.engine.stopStream);
+  }
+  async openStream(take: DictationTake) {
+    if (take.provider !== "local" || !this.streamingAvailable) return null;
+    const engine = this.engine!;
+    const id = await engine.startStream!(take.language);
+    return {
+      process: (pcm: string) => engine.processStream!(id, pcm),
+      stop: () => engine.stopStream!(id),
+    };
   }
 }
 

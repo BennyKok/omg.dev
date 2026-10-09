@@ -16,6 +16,7 @@ import {
 } from "../../../packages/protocol/src/threads";
 import { PersonFace, ThreadPeopleContext } from "./thread-details";
 import { agentIcon } from "./agent-icons";
+import { VoiceInputField } from "./voice-input-field";
 import { useDictation } from "./dictation";
 import { GlassSurface, LIQUID_GLASS } from "./glass";
 import { PressableScale, useReduceMotionEnabled, useVoiceInputPresence } from "./motion";
@@ -274,7 +275,7 @@ export function ThreadChatBar({
     if (meta?.final === false) setText(next);
     else void send(next);
   });
-  const tail = dictation.live && dictation.state === "recording" ? (dictation.partial ?? "").trim() : "";
+  const tail = dictation.state !== "idle" ? [dictation.committed, dictation.partial].filter(Boolean).join(" ").trim() : "";
   const hasFiles = attachments.items.some((item) => item.path);
   const canSend = (text.trim().length > 0 || hasFiles) && !sending && !attachments.uploading;
   const voicePresent = useVoiceInputPresence(dictation.state !== "idle");
@@ -340,12 +341,15 @@ export function ThreadChatBar({
           )
         }
       >
+        <VoiceInputField draft={text} dictation={dictation} style={{ flex: 1, minWidth: 0 }}>
         <TextInput
           testID={testID}
+          accessible
+          accessibilityLabel={placeholder}
           autoFocus={autoFocus}
-          value={tail ? `${text}${text ? " " : ""}${tail}` : text}
+          value={text}
           onChangeText={setText}
-          editable={!tail}
+          editable={dictation.state === "idle"}
           placeholder={placeholder}
           placeholderTextColor={colors.textMuted}
           multiline
@@ -358,6 +362,7 @@ export function ThreadChatBar({
           onBlur={() => setFocused(false)}
           style={inputStyle}
         />
+        </VoiceInputField>
       </ChatBarShell>
       </AttachMenuLayer>
     </View>

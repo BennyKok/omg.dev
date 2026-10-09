@@ -10,7 +10,7 @@
       "done": "The production native service loads Whistle on iOS.",
       "expect": [
         "Whistle iOS audio fixture",
-        "On-device ready \u00b7 text after recording"
+        "On-device ready \u00b7 live text"
       ],
       "timeoutMs": 180000,
       "selected": "Auto"
@@ -21,7 +21,7 @@
       "done": "Local is selected with the model ready.",
       "selected": "Local",
       "expect": [
-        "On-device ready \u00b7 text after recording"
+        "On-device ready \u00b7 live text"
       ],
       "timeoutMs": 30000
     },

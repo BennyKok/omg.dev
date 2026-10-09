@@ -1,6 +1,6 @@
 /**
  * Dictation uses a provider captured before microphone access. Cloud streams
- * live; Whistle runs on the phone after recording stops. Auto replays local
+ * live; Whistle streams on supported phone builds. Auto replays local
  * failures through the same computer transport. Forced Local never uploads.
  *
  * The cloud path runs on the selected computer. What
@@ -55,6 +55,7 @@ import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { nativeTranscription, useNativeTranscription } from "./native-transcription";
 import { finishLocalTake, type DictationTake } from "./native-transcription-state";
+import { LocalDictationStream } from "./local-dictation-stream";
 import { replayDictationAudio } from "./dictation-cloud-replay";
 
 const SAMPLE_RATE = 16000;
@@ -151,6 +152,8 @@ export function useDictation(
   const recorder = useAudioRecorder();
   useNativeTranscription();
   const takeRef = useRef<DictationTake | null>(null);
+  const localStreamRef = useRef<LocalDictationStream | null>(null);
+  const [committed, setCommitted] = useState("");
   const localChunksRef = useRef<Uint8Array[]>([]);
   const recorderRef = useRef(recorder);
   recorderRef.current = recorder;
@@ -218,6 +221,7 @@ export function useDictation(
       mountedRef.current = false;
       cancelledRef.current = true;
       closeSocket();
+      void localStreamRef.current?.cancel();
       void recorderRef.current.stopRecording().catch(() => {});
     };
   }, [closeSocket]);
@@ -240,6 +244,7 @@ export function useDictation(
     phaseRef.current = "recording";
     setState("recording");
     setPartial("");
+    setCommitted("");
     setLevel(0);
     setLive(false);
     setError(null);
@@ -249,6 +254,27 @@ export function useDictation(
     pendingRef.current = [];
     finalWaitersRef.current = [];
     localChunksRef.current = [];
+    localStreamRef.current = null;
+    const startingTake = takeRef.current;
+    if (takeRef.current?.provider === "local") {
+      try {
+        const native = await nativeTranscription.openStream(takeRef.current);
+        if (native) {
+          const stream = new LocalDictationStream(native, (text, tail) => {
+            if (!mountedRef.current || cancelledRef.current || takeRef.current !== startingTake) return;
+            committedRef.current = text;
+            partialRef.current = tail;
+            setCommitted(text);
+            setPartial(tail);
+          }, () => {
+            if (mountedRef.current && takeRef.current === startingTake) setLive(false);
+          });
+          if (!mountedRef.current || cancelledRef.current || phaseRef.current !== "recording" || takeRef.current !== startingTake) { await stream.cancel(); return; }
+          localStreamRef.current = stream;
+          setLive(true);
+        }
+      } catch { /* The complete recording remains available for batch inference. */ }
+    }
 
     // Open the realtime bridge FIRST — see stt-stream in serve.ts: a machine
     // with no realtime provider configured accepts the upgrade and then
@@ -258,6 +284,9 @@ export function useDictation(
     // true, and stop() falls through to the batch path.
     if (takeRef.current?.provider === "cloud") try {
       const socket = await transport.openSocket("/api/voice/stt-stream");
+      if (!mountedRef.current || phaseRef.current !== "recording" || takeRef.current !== startingTake) {
+        socket.close(); return;
+      }
       socketRef.current = socket;
       socket.binaryType = "arraybuffer";
       socket.addEventListener("open", () => {
@@ -292,6 +321,7 @@ export function useDictation(
               : committedRef.current
             : text;
           partialRef.current = "";
+          setCommitted(committedRef.current);
           setPartial("");
           settleFinalWaiters();
         }
@@ -312,6 +342,8 @@ export function useDictation(
       socketBrokenRef.current = true;
     }
 
+    if (!mountedRef.current || phaseRef.current !== "recording" || takeRef.current !== startingTake) return;
+    const recordingTake = takeRef.current;
     try {
       await recorder.startRecording({
         sampleRate: SAMPLE_RATE,
@@ -319,10 +351,12 @@ export function useDictation(
         encoding: "pcm_16bit",
         interval: STREAM_CHUNK_MS,
         onAudioStream: async (event: AudioDataEvent) => {
+          if (!mountedRef.current || cancelledRef.current || takeRef.current !== recordingTake) return;
           if (typeof event.data !== "string") return; // float32 path, unused here
           const bytes = base64ToBytes(event.data);
           setLevel(rmsLevel(bytes));
           if (takeRef.current?.provider === "local" && takeRef.current.mode === "auto") localChunksRef.current.push(bytes);
+          localStreamRef.current?.push(bytes);
           const socket = socketRef.current;
           if (!socket) return;
           if (socket.readyState === WS_OPEN) {
@@ -340,6 +374,8 @@ export function useDictation(
       // Mic never actually started (device busy, permission raced away,
       // etc.) — leave nothing running.
       closeSocket();
+      await localStreamRef.current?.cancel();
+      localStreamRef.current = null;
       phaseRef.current = "idle";
       setState("idle");
       setLive(false);
@@ -357,11 +393,18 @@ export function useDictation(
       let text: string | null = null;
       const take = takeRef.current;
       if (take?.provider === "local") {
-        if (!result?.fileUri) throw new Error("Recording is unavailable");
         try {
-          text = await finishLocalTake(nativeTranscription, result.fileUri, take,
-            () => replayDictationAudio(transport, localChunksRef.current, () => cancelledRef.current),
-            () => cancelledRef.current);
+          const stream = localStreamRef.current;
+          if (stream) {
+            try { text = cancelledRef.current ? await stream.cancel() : await stream.finish(); }
+            catch { /* Retry this complete recording with batch inference. */ }
+          }
+          if (text == null) {
+            if (!result?.fileUri) throw new Error("Recording is unavailable");
+            text = await finishLocalTake(nativeTranscription, result.fileUri, take,
+              () => replayDictationAudio(transport, localChunksRef.current, () => cancelledRef.current),
+              () => cancelledRef.current);
+          }
         } catch (error) {
           if (take.mode !== "auto") throw error;
           // A computer without realtime STT can still support the existing
@@ -448,7 +491,10 @@ export function useDictation(
     } finally {
       extendFinalWaitRef.current = null;
       closeSocket();
+      await localStreamRef.current?.cancel();
+      localStreamRef.current = null;
       setPartial("");
+      setCommitted("");
       setLevel(0);
       setLive(false);
       setState("idle");
@@ -510,6 +556,7 @@ export function useDictation(
   const cancel = useCallback(() => {
     if (phaseRef.current !== "recording") return;
     cancelledRef.current = true;
+    void localStreamRef.current?.cancel();
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     void stop();
   }, [stop]);
@@ -520,5 +567,5 @@ export function useDictation(
     else void start();
   }, [start, state, stop]);
 
-  return { state, level, partial, live, error, toggle, cancel };
+  return { state, level, partial, committed, live, error, toggle, cancel };
 }

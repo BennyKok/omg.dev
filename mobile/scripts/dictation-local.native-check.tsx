@@ -13,15 +13,16 @@ let replays = 0;
 let replayFails = false;
 let outputs: string[] = [];
 let service: NativeTranscription;
+let audio: (event: { data: string }) => Promise<void>;
 const recorder = {
-  startRecording: async () => { recorderStarts++; },
+  startRecording: async (options: any) => { recorderStarts++; audio = options.onAudioStream; },
   stopRecording: async () => ({ fileUri: "file:///take.wav" }),
 };
 mock.module("@siteed/audio-studio", () => ({ useAudioRecorder: () => recorder,
   AudioStudioModule: { requestPermissionsAsync: async () => ({ granted: permission }) } }));
 mock.module("expo-haptics", () => ({ notificationAsync: async () => {}, NotificationFeedbackType: { Warning: "warning" } }));
 mock.module(resolve(import.meta.dir, "../src/omg/native-transcription.ts"), () => ({
-  nativeTranscription: { captureTake: () => service.captureTake(), transcribe: (uri: string, take: Parameters<NativeTranscription["transcribe"]>[1]) => service.transcribe(uri, take) },
+  nativeTranscription: { openStream: (take: Parameters<NativeTranscription["openStream"]>[0]) => service.openStream(take), captureTake: () => service.captureTake(), transcribe: (uri: string, take: Parameters<NativeTranscription["transcribe"]>[1]) => service.transcribe(uri, take) },
   useNativeTranscription: () => {},
 }));
 mock.module(resolve(import.meta.dir, "../src/omg/dictation-cloud-replay.ts"), () => ({
@@ -83,4 +84,32 @@ test("cancelling a local recording keeps the draft and does not upload", async (
 test("rapid taps start only one recorder", async () => {
   React.act(() => driver.toggle()); React.act(() => driver.toggle()); await ui.flushAsync();
   expect(recorderStarts).toBe(1); expect(driver.state).toBe("recording");
+});
+
+test("local streaming shows stable words and pending tail before sending a final", async () => {
+  const engine = { prepare: async () => {}, transcribe: async () => { throw Error("batch should not run"); },
+    startStream: async () => "take", processStream: async () => ({ text: "hello", pending: "world" }),
+    stopStream: async () => ({ text: "world", pending: "" }) };
+  service = new NativeTranscription(engine, { getItem: async () => null, setItem: async () => {} });
+  await service.initialize(); await service.ensureLoaded();
+  React.act(() => driver.toggle()); await ui.flushAsync();
+  expect(driver.live).toBe(true);
+  await React.act(async () => { await audio({ data: Buffer.alloc(32_000).toString("base64") }); }); await ui.flushAsync();
+  expect(driver.committed).toBe("hello"); expect(driver.partial).toBe("world"); expect(outputs).toEqual([]);
+  React.act(() => driver.toggle()); await ui.flushAsync();
+  expect(outputs).toEqual(["hello world"]); expect(replays).toBe(0); expect(cloudOpens).toBe(0);
+});
+test("failed local streaming closes first and recovers through the local file", async () => {
+  let closed = false;
+  service = new NativeTranscription({ prepare: async () => {},
+    transcribe: async () => { expect(closed).toBe(true); return "local recovery"; },
+    startStream: async () => "take", processStream: async () => { throw Error("stream failed"); },
+    stopStream: async () => { closed = true; return { text: "", pending: "" }; },
+  }, { getItem: async () => null, setItem: async () => {} });
+  await service.initialize(); await service.ensureLoaded(); await service.setPreferences("local");
+  React.act(() => driver.toggle()); await ui.flushAsync();
+  await React.act(async () => { await audio({ data: Buffer.alloc(32_000).toString("base64") }); }); await ui.flushAsync();
+  expect(driver.live).toBe(false);
+  React.act(() => driver.toggle()); await ui.flushAsync();
+  expect(outputs).toEqual(["local recovery"]); expect(cloudOpens).toBe(0); expect(replays).toBe(0);
 });

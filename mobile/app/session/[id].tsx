@@ -139,6 +139,7 @@ import { BotAvatar } from "../../src/omg/bot-avatar";
 import { WorkingIndicator } from "../../src/omg/working-indicator";
 import { filterBotChatEntries, stripBotLaunchEnvelope } from "../../src/omg/bot-transcript";
 import type { Bot } from "../../src/omg/bots";
+import { VoiceInputField } from "../../src/omg/voice-input-field";
 import { useDictation } from "../../src/omg/dictation";
 import { useVoiceInputPresence } from "../../src/omg/motion";
 import { GlassSurface } from "../../src/omg/glass";
@@ -312,7 +313,7 @@ function SessionScreenContent({
   const submitRef = useRef<((text: string) => void) | null>(null);
   /** The not-yet-settled words, when a live take is running. */
   const dictationTail =
-    dictation.live && dictation.state === "recording" ? (dictation.partial ?? "").trim() : "";
+    dictation.state !== "idle" ? [dictation.committed, dictation.partial].filter(Boolean).join(" ").trim() : "";
 
   const [error, setError] = useState<string | null>(null);
   const [report, setReport] = useState<ReportSelection | null>(null);
@@ -2503,24 +2504,27 @@ function SessionScreenContent({
             </>
           }
         >
+            <VoiceInputField draft={draft} dictation={dictation} style={{ flex: 1, minWidth: 0 }}>
             <TextInput
             /**
              * THE LIVE TRANSCRIPT GOES IN THE FIELD. Dictation is typing with
              * your voice, so the words belong where typed words would be —
              * not in a caption above the box they are about to become.
-             * Committed chunks are already in `draft`; `partial` is only the
-             * unsettled tail, so appending it double-counts nothing.
+             * The voice display holds committed words and the unsettled tail.
+             * The draft remains unchanged until the final result.
              */
             // A Maestro handle for the field itself. Its accessibility label
             // is either the placeholder or whatever has been typed, and the
             // placeholder here is one of four strings, so a flow has nothing
             // stable to name. See e2e/composer-height.yaml.
             testID="session-composer-input"
-            value={dictationTail ? `${draft}${draft ? " " : ""}${dictationTail}` : draft}
+            accessible
+            accessibilityLabel="Message"
+            value={draft}
             onChangeText={setDraft}
             // Not editable mid-take: part of what is on screen is provisional
             // and will be replaced when the transcriber settles it.
-            editable={!dictationTail}
+            editable={dictation.state === "idle"}
             /**
              * Say what SENDING will do, because it is three different things.
              * Steering a running agent, queueing a follow-up behind one that
@@ -2576,6 +2580,7 @@ function SessionScreenContent({
               lineHeight: 21,
             }}
             />
+            </VoiceInputField>
             {/* Confirmation paints over the empty field. It never adds a row
               or changes the measured composer/transcript padding. */}
           {queuedHint && !draft && !dictationTail ? (

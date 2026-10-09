@@ -7,6 +7,8 @@ public class OmgWhistleModule: Module {
   // Needle has process-global state. Every engine call uses this one queue.
   private static let engineQueue = DispatchQueue(label: "dev.omg.whistle")
   private var model: Data?
+  private static var streamID: String?
+  private var streamLanguage = "auto"
   private let checksum = "b6e02f048568ac5d01a2042556c658061e699acbc0aa2a1439f52f3d461dffeb"
 
   public func definition() -> ModuleDefinition {
@@ -15,6 +17,51 @@ public class OmgWhistleModule: Module {
     AsyncFunction("transcribe") { (uri: String, language: String) in
       return try self.transcribe(uri, language: language)
     }.runOnQueue(Self.engineQueue)
+    AsyncFunction("startStream") { (language: String) in
+      guard self.model != nil else { throw self.failure("On-device transcription is not ready") }
+      guard Self.streamID == nil else { throw self.failure("A voice stream is already active") }
+      guard ["auto", "en", "de", "fr", "es", "it", "nl", "pl"].contains(language) else {
+        throw self.failure("This language needs cloud")
+      }
+      let id = UUID().uuidString
+      Self.streamID = id
+      self.streamLanguage = language
+      return id
+    }.runOnQueue(Self.engineQueue)
+    AsyncFunction("processStream") { (id: String, pcm: String) in
+      guard Self.streamID == id else { throw self.failure("Voice stream has ended") }
+      guard let data = Data(base64Encoded: pcm), data.count % 2 == 0,
+            data.count > 0, data.count <= 960_000 else { throw self.failure("Invalid PCM chunk") }
+      let bytes = [UInt8](data)
+      let samples = stride(from: 0, to: bytes.count, by: 2).map {
+        Float(Int16(bitPattern: UInt16(bytes[$0]) | UInt16(bytes[$0 + 1]) << 8)) / 32768
+      }
+      return try self.streamResult(samples)
+    }.runOnQueue(Self.engineQueue)
+    AsyncFunction("stopStream") { (id: String) in
+      guard Self.streamID == id else { throw self.failure("Voice stream has ended") }
+      defer { Self.streamID = nil }
+      return try self.streamResult(nil)
+    }.runOnQueue(Self.engineQueue)
+  }
+
+  private func streamResult(_ samples: [Float]?) throws -> [String: String] {
+    var output = [CChar](repeating: 0, count: 65_536)
+    let result = output.withUnsafeMutableBufferPointer { out in
+      guard let samples else { return needle_stream_transcribe_stop(out.baseAddress, Int32(out.count)) }
+      return samples.withUnsafeBufferPointer { pcm in
+        if streamLanguage == "auto" {
+          return needle_stream_transcribe_process(pcm.baseAddress, Int32(pcm.count), nil, nil, out.baseAddress, Int32(out.count))
+        }
+        return streamLanguage.withCString { lang in
+          needle_stream_transcribe_process(pcm.baseAddress, Int32(pcm.count), lang, nil, out.baseAddress, Int32(out.count))
+        }
+      }
+    }
+    guard result >= 0 else { throw failure(String(cString: needle_last_error())) }
+    guard let body = try JSONSerialization.jsonObject(with: Data(String(cString: output).utf8)) as? [String: Any],
+          let text = body["text"] as? String else { throw failure("Invalid streaming result") }
+    return ["text": text, "pending": body["pending"] as? String ?? ""]
   }
 
   private func failure(_ message: String) -> NSError {
@@ -76,6 +123,7 @@ public class OmgWhistleModule: Module {
 
   private func transcribe(_ uri: String, language: String) throws -> String {
     guard model != nil else { throw failure("On-device transcription is not ready") }
+    guard Self.streamID == nil else { throw failure("A voice stream is already active") }
     guard ["auto", "en", "de", "fr", "es", "it", "nl", "pl"].contains(language) else {
       throw failure("This language needs cloud")
     }

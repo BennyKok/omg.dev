@@ -1,0 +1,73 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": false
+  },
+  "steps": [
+    {
+      "name": "Fixture ready",
+      "goal": "Dismiss any Apple Account Verification with Not Now.",
+      "done": "The labelled native audio fixture is ready.",
+      "expect": [
+        "Whistle streaming audio fixture",
+        "Stream test clip"
+      ]
+    },
+    {
+      "name": "Live words before stop",
+      "goal": "Tap Stream test clip and wait for live words. Do not finish or discard yet.",
+      "done": "The real native engine returns words while recording remains active.",
+      "expect": [
+        "Live native words",
+        "Americans",
+        "Finish recording",
+        "Discard recording"
+      ],
+      "forbid": [
+        "Failed:"
+      ],
+      "timeoutMs": 120000
+    },
+    {
+      "name": "Cancel stream",
+      "goal": "Tap Discard recording.",
+      "done": "Cancellation clears the live transcript without sending it.",
+      "expect": [
+        "Stream cancelled",
+        "Stream test clip"
+      ],
+      "forbid": [
+        "Finish recording",
+        "Failed:"
+      ]
+    },
+    {
+      "name": "Fresh stream",
+      "goal": "Tap Stream test clip again. Wait until the live words include Americans.",
+      "done": "A new stream works after cancellation.",
+      "expect": [
+        "Live native words",
+        "Americans",
+        "Finish recording"
+      ],
+      "forbid": [
+        "Failed:"
+      ],
+      "timeoutMs": 120000
+    },
+    {
+      "name": "Finalize stream",
+      "goal": "Tap Finish recording.",
+      "done": "Stopping flushes the real native engine and shows the final transcript.",
+      "expect": [
+        "Final native words:",
+        "Americans",
+        "Stream test clip"
+      ],
+      "forbid": [
+        "Finish recording",
+        "Failed:"
+      ]
+    }
+  ]
+}

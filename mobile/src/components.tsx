@@ -36,6 +36,7 @@ import {
   type SymbolWeight,
 } from "expo-symbols";
 
+import { VoiceInputField } from "./omg/voice-input-field";
 import { agentIcon } from "./omg/agent-icons";
 import { modelProviderIcon } from "./omg/model-provider-icons";
 import { parseOmgModel } from "../../packages/protocol/src/omg-model-display";
@@ -1216,9 +1217,10 @@ export function HomeComposer({
     toggle: () => void;
     /** Throw the current take away instead of sending it. */
     cancel?: () => void;
-    /** 0..1 input level, and the live tail — see DictationCaption. */
+    /** 0..1 input level, confirmed words, and the live tail. */
     level?: number;
     partial?: string;
+    committed?: string;
     live?: boolean;
   };
   /** Rate-limit windows, one ring each. Empty until the machine answers. */
@@ -1234,7 +1236,7 @@ export function HomeComposer({
   const [usageSheet, setUsageSheet] = useState<"agent" | "all" | null>(null);
   /** The not-yet-settled words, when a live take is running. */
   const dictationTail =
-    dictation.live && dictation.state === "recording" ? (dictation.partial ?? "").trim() : "";
+    dictation.state !== "idle" ? [dictation.committed, dictation.partial].filter(Boolean).join(" ").trim() : "";
   const hasMessage = value.trim().length > 0 || attachments.items.some((item) => item.path);
   const uploading = attachments.items.some((item) => !item.path && !item.failed);
   const canStart = hasMessage && !starting && !uploading;
@@ -1394,20 +1396,25 @@ export function HomeComposer({
     </PressableScale>
   );
   const inputControl = (
+    <VoiceInputField draft={value} dictation={dictation} fontSize={18} lineHeight={24}
+      style={{ flex: expanded ? undefined : 1, width: expanded ? "100%" : undefined, minWidth: 0 }}>
     <TextInput
-      value={promptText}
+      value={value}
       onChangeText={onChangeText}
-      editable={!dictationTail}
+      editable={dictation.state === "idle"}
       // A Maestro handle for the field itself. Its accessibility label is
       // either the placeholder or whatever has been typed, so a flow that has
       // to reach a field with a draft already in it has nothing stable to
       // name. See e2e/composer-height.yaml.
       testID="home-composer-input"
+      accessible
+      accessibilityLabel="Task prompt"
       // The collapsed row shares its width with three controls. Keep its
       // hint short and single-line; focus gives the multiline field a full row.
       placeholder={expanded ? "What should we work on?" : "Start a task"}
       placeholderTextColor={colors.textMuted}
-      multiline={expanded}
+      // Keep the native text view type stable when focus expands the composer.
+      multiline
       submitBehavior="newline"
       scrollEnabled
       onFocus={() => setComposerFocused(true)}
@@ -1432,6 +1439,7 @@ export function HomeComposer({
         paddingVertical: 0,
       }}
     />
+    </VoiceInputField>
   );
   return (
     <View onTouchStart={blockNavGesture} pointerEvents="box-none"
@@ -2061,6 +2069,13 @@ export function InlineVoiceRecorder({
 }) {
   const { colors } = useTheme();
   const recording = state === "recording";
+  const [showSpinner, setShowSpinner] = useState(false);
+  useEffect(() => {
+    setShowSpinner(false);
+    if (state !== "transcribing") return;
+    const timer = setTimeout(() => setShowSpinner(true), 350);
+    return () => clearTimeout(timer);
+  }, [state]);
   const reducedMotion = useReduceMotionEnabled();
   const enter = () => {
     "worklet";
@@ -2134,9 +2149,9 @@ export function InlineVoiceRecorder({
           gap: 6,
         }}
       >
-        {recording ? (
+        {!showSpinner ? (
           <>
-            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.danger }} />
+            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: recording ? colors.danger : colors.textMuted }} />
             <VoiceMeter level={level} color={colors.text} />
           </>
         ) : (

@@ -89,9 +89,9 @@ test('the live composer grows to three lines through layout, not measurement',()
  const render=(value:string)=>ui.render(<HomeComposer value={value} onChangeText={()=>{}} onStart={()=>{}} projectOptions={[]} agentOptions={[]} attachments={{items:[],options:[],remove:()=>{}}} dictation={{state:'idle',toggle:()=>{}}}/>);
  try {
   render('');
-  // Empty is pinned to one line, so a sent prompt does not leave a tall box.
+  // The native text view stays multiline; height keeps an empty prompt to one line.
   expect(input.style.height).toBe(24);
-  expect(input.multiline).toBe(false);
+  expect(input.multiline).toBe(true);
   expect(input.submitBehavior).toBe('newline');
   ui.flush(()=>input.onFocus?.());
   expect(input.style.height).toBe(24);
@@ -216,7 +216,7 @@ test('large text keeps the collapsed hint single-line and sizes the multiline fi
   fontScale=2;
   ui.render(<HomeComposer {...base} value=""/>);
   expect(input.placeholder).toBe('Start a task');
-  expect(input.multiline).toBe(false);
+  expect(input.multiline).toBe(true);
   expect(input.style.height).toBe(28);
   ui.flush(()=>input.onFocus());
   expect(input.multiline).toBe(true);

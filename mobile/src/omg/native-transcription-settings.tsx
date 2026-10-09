@@ -35,7 +35,7 @@ export function NativeTranscriptionSettings() {
   const status = state.mode === "cloud" ? "Cloud transcription"
     : !supportsLocalLanguage(state.language) ? "This language needs cloud"
     : !state.available ? "Local needs an app update"
-    : state.status === "ready" ? "On-device ready · text after recording"
+    : state.status === "ready" ? nativeTranscription.streamingAvailable ? "On-device ready · live text" : "On-device ready · text after recording"
     : state.status === "downloading" ? "Downloading model…" : state.status === "error" ? "Local unavailable" : "Preparing model…";
   return <>
     <SectionLabel>Audio</SectionLabel>

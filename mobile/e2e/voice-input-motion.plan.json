@@ -1,43 +1,95 @@
 {
   "appId": "dev.omg.computer",
-  "launch": { "clearState": false },
+  "launch": {
+    "clearState": false
+  },
   "steps": [
     {
       "name": "Home composer",
       "goal": "Dismiss Apple Account Verification with Not Now. If data and AI consent appears, tap Agree and continue for this demo account. If Settings is open, use Navigation and go to Home. Do not type or send a message.",
       "done": "The Home composer microphone is visible.",
-      "expect": ["Dictate a prompt"],
+      "expect": [
+        "Dictate a prompt"
+      ],
       "timeoutMs": 60000
     },
     {
       "name": "Voice controls enter",
       "goal": "Tap Dictate a prompt. If iOS asks for microphone access, tap Allow. Do not tap Finish recording.",
       "done": "The expanded composer shows both recording controls.",
-      "expect": ["Discard recording", "Finish recording"],
+      "expect": [
+        "Discard recording",
+        "Finish recording"
+      ],
       "timeoutMs": 30000
     },
     {
       "name": "Voice controls exit",
       "goal": "Tap Discard recording. Wait for the composer to settle.",
       "done": "The recorder leaves and the normal microphone returns.",
-      "expect": ["Dictate a prompt"],
-      "forbid": ["Discard recording", "Finish recording"],
+      "expect": [
+        "Dictate a prompt"
+      ],
+      "forbid": [
+        "Discard recording",
+        "Finish recording"
+      ],
       "timeoutMs": 30000
     },
     {
       "name": "Record again",
       "goal": "Tap Dictate a prompt again. Do not send anything.",
       "done": "Recording controls return after the previous exit.",
-      "expect": ["Discard recording", "Finish recording"],
+      "expect": [
+        "Discard recording",
+        "Finish recording"
+      ],
       "timeoutMs": 30000
     },
     {
       "name": "Cancel again",
       "goal": "Tap Discard recording again. Wait for the composer to settle.",
       "done": "The voice controls leave and the compact composer returns.",
-      "expect": ["Dictate a prompt"],
-      "forbid": ["Discard recording", "Finish recording"],
+      "expect": [
+        "Dictate a prompt"
+      ],
+      "forbid": [
+        "Discard recording",
+        "Finish recording"
+      ],
       "timeoutMs": 30000
+    },
+    {
+      "name": "Draft field stays editable",
+      "goal": "Tap the text input whose hint is Start a task (or What should we work on?). Type Voice draft test into that input. Keep the draft unsent.",
+      "done": "The editable composer shows the test draft after recording controls have closed.",
+      "type": "Voice draft test",
+      "expect": [
+        "Voice draft test"
+      ]
+    },
+    {
+      "name": "Draft during recording",
+      "goal": "Tap the button labelled Dictate a prompt beside Start session. It is the composer microphone above the keyboard. Leave the draft text unchanged.",
+      "done": "Discard recording and Finish recording are visible beside the existing Voice draft test text.",
+      "expect": [
+        "Voice draft test",
+        "Discard recording",
+        "Finish recording"
+      ]
+    },
+    {
+      "name": "Cancel preserves draft",
+      "goal": "Tap Discard recording.",
+      "done": "The editable draft is restored without sending it.",
+      "expect": [
+        "Voice draft test",
+        "Dictate a prompt"
+      ],
+      "forbid": [
+        "Discard recording",
+        "Finish recording"
+      ]
     }
   ]
 }

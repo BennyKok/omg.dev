@@ -15,13 +15,12 @@
     },
     {
       "name": "Open audio settings",
-      "goal": "Tap Navigation. Computer: Your Computer, then tap Settings.",
-      "done": "The production Settings screen includes the three transcription modes and language.",
+      "goal": "Tap Navigation. Computer: Your Computer, then tap Settings. If Audio is already visible, wait.",
+      "done": "The production Settings screen shows Audio, Transcription, and Language.",
       "expect": [
         "Audio",
         "Transcription",
-        "Language",
-        "Auto detect"
+        "Language"
       ],
       "timeoutMs": 60000
     },
@@ -53,7 +52,7 @@
       "done": "Whistle has downloaded and loaded in the actual iOS app.",
       "expect": [
         "Audio",
-        "On-device ready \u00b7 text after recording"
+        "On-device ready \u00b7 live text"
       ],
       "timeoutMs": 180000
     },
@@ -97,7 +96,7 @@
         "Audio",
         "Transcription",
         "Local",
-        "On-device ready \u00b7 text after recording"
+        "On-device ready \u00b7 live text"
       ],
       "timeoutMs": 30000
     },
@@ -141,7 +140,7 @@
         "Audio",
         "Language",
         "Auto detect",
-        "On-device ready \u00b7 text after recording"
+        "On-device ready \u00b7 live text"
       ],
       "timeoutMs": 30000
     },
@@ -164,7 +163,7 @@
         "Audio",
         "Transcription",
         "Auto",
-        "On-device ready \u00b7 text after recording"
+        "On-device ready \u00b7 live text"
       ],
       "timeoutMs": 30000
     }
