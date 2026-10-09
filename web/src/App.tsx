@@ -12442,7 +12442,6 @@ function LiveView({
           projectFilter={projectFilter}
           onProjectChange={onProjectChange}
           renderItem={renderMobileItem}
-          headerless
         />
         {/* Threads alone (or a project chip with nothing in it) used to leave
             the rest of the phone blank above the composer. */}
@@ -14421,7 +14420,7 @@ type RailSideNav = {
   onOpenHostSettings?: () => void;
 };
 
-function SessionGroups({
+export function SessionGroups({
   groups,
   pinnedNodes,
   pinnedCount,
@@ -14441,15 +14440,7 @@ function SessionGroups({
   projectFilter: string;
   onProjectChange?: (value: string) => void;
   renderItem: (session: Session) => ReactNode;
-  /**
-   * Draw the folder groups as plain runs of rows, with no header.
-   *
-   * The phone has the project rail directly above this list: the pills name
-   * every folder and one of them is lit, so a header repeating that name
-   * under it said the same thing twice. Its two controls are covered there
-   * too — the pill scopes, and pressing the lit pill clears. The desktop
-   * rail has no pills, so it keeps its headers and they stay the filter.
-   */
+  /** Hide repeated project headers when the desktop folder menu names the scope. */
   headerless?: boolean;
   /** Desktop rail: headerless runs keep the rows' own tight gap. */
   dense?: boolean;
