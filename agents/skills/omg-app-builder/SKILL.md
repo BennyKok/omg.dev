@@ -77,7 +77,9 @@ Metro rules: use only ports 8081 to 8099, because Expo Go links work only in tha
 omg.dev owns sign-in for apps at `<slug>.omgs.app`. Never build a sign-in form, a password field, or your own session store.
 
 - Private (the default): every visitor signs in to omg.dev before the app opens. The app needs no sign-in UI.
-- Public with sign-in: use this when the user wants a landing page for visitors. Set the app to `public` with `omg_app_visibility`. Show the landing page when `useAuth().user` from `@omg-dev/sdk` is empty, with a plain link to `https://app.omg.dev/access?return=<encoded current URL>`. The link returns to the same page signed in. A person already signed in to omg.dev returns at once with no form. Then `useAuth().user` has `id`, `email`, and `name`, and `.scoped("user")` collections hold only that person's data. `useAuth().signOut()` signs them out of the app.
+- Public with sign-in: use this when the user wants a landing page for visitors. Set the app to `public` with `omg_app_visibility`. Show the landing page when `useAuth().user` from `@omg-dev/sdk` is empty, with a plain link to `https://app.omg.dev/access?return=<encoded current URL>`. The link returns to the same page signed in. A person already signed in to omg.dev returns at once with no form. Then `useAuth().user` has `id`, `email`, and `name`, and `.scoped("user")` collections hold only that person's data. After one Sign in, later visits sign the person in automatically before the page loads. Do not add redirects to the sign-in page or a "remember me" option.
+- Sign out only with `useAuth().signOut()`. Any other way, such as clearing app state or reloading, signs the person back in on the next visit.
+- On a custom domain there is no automatic sign-in. Keep the Sign in link.
 - Wrap the app in `<VibesAuthProvider>`. Do not put `<VibesAuthGuard>` around the landing page, and do not run user-scoped queries on it.
 - Verify the signed-out landing page and the Sign in link on the deployed URL. You cannot sign in as the user. Say that the signed-in path was not checked by you.
 
