@@ -124,7 +124,9 @@ async function main(): Promise<number> {
     `echo "==> xcode $(${developerDir}/usr/bin/xcodebuild -version | head -1)"`,
     "cd mobile",
     "bun install --frozen-lockfile 2>&1 | tail -2",
-    `npx -y eas-cli@latest build --local --platform ios --profile ${profile} --non-interactive --output ${out}`,
+    // CI uses the stored certificates and profiles. Do not try to register
+    // existing extension identifiers or change capabilities during a beta build.
+    `npx -y eas-cli@latest build --local --platform ios --profile ${profile} --non-interactive --freeze-credentials --output ${out}`,
     `ls -lh ${out}`,
     ...(submit
       ? [
