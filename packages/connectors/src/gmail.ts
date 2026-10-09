@@ -45,7 +45,7 @@ export const GMAIL_TOOLS: NativeTool[] = [
   },
   {
     name: "get_thread",
-    description: "Read every message in a thread: headers and the plain-text body.",
+    description: "Read every message in a thread: headers and the plain-text body, with link URLs kept.",
     inputSchema: { type: "object", properties: { thread_id: str }, required: ["thread_id"] },
   },
   {
@@ -166,28 +166,77 @@ function findPart(part: Part | undefined, mime: string): Part | undefined {
   return undefined;
 }
 
-function htmlToText(html: string): string {
-  return html
-    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, "")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(p|div|tr|li|h[1-6])>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
+function decodeEntities(text: string): string {
+  return text
     .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
+const ANCHOR = /<a\b[^>]*?\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/gi;
+
+/** A link an agent can follow: http(s) or mailto, with entities decoded. */
+function linkTarget(raw: string): string | undefined {
+  const href = decodeEntities(raw).trim();
+  return /^(https?:|mailto:)/i.test(href) ? href : undefined;
+}
+
+function stripTags(html: string): string {
+  return decodeEntities(html.replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
+}
+
+/** Every followable link in an HTML body, in order, without duplicates. */
+function htmlLinks(html: string): { label: string; href: string }[] {
+  const seen = new Set<string>();
+  const links: { label: string; href: string }[] = [];
+  for (const m of html.matchAll(ANCHOR)) {
+    const href = linkTarget(m[1] ?? m[2] ?? m[3] ?? "");
+    if (!href || seen.has(href)) continue;
+    seen.add(href);
+    links.push({ label: stripTags(m[4] ?? ""), href });
+  }
+  return links;
+}
+
+function htmlToText(html: string): string {
+  const withLinks = html
+    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, "")
+    .replace(ANCHOR, (whole, a, b, c, inner: string) => {
+      const href = linkTarget(a ?? b ?? c ?? "");
+      if (!href) return whole;
+      const label = stripTags(inner);
+      return label && label !== href ? `${inner} (${href})` : href;
+    });
+  return decodeEntities(
+    withLinks
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/(p|div|tr|li|h[1-6])>/gi, "\n")
+      .replace(/<[^>]+>/g, ""),
+  )
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
-/** The readable body of a message: text/plain, else text/html as text. */
+/**
+ * The readable body of a message: text/plain, else text/html as text. Link
+ * URLs are kept. A text/plain part often names a button ("Sign in") without
+ * its URL, so links that exist only in the HTML part are listed after it.
+ */
 export function messageText(payload: Part | undefined): string {
   const plain = findPart(payload, "text/plain");
-  if (plain?.body?.data) return decode(plain.body.data);
   const html = findPart(payload, "text/html");
-  if (html?.body?.data) return htmlToText(decode(html.body.data));
+  const htmlBody = html?.body?.data ? decode(html.body.data) : undefined;
+  if (plain?.body?.data) {
+    const text = decode(plain.body.data);
+    const missing = htmlBody ? htmlLinks(htmlBody).filter((l) => !text.includes(l.href)) : [];
+    if (missing.length === 0) return text;
+    const list = missing.map((l) => (l.label && l.label !== l.href ? `- ${l.label}: ${l.href}` : `- ${l.href}`));
+    return `${text.trimEnd()}\n\nLinks:\n${list.join("\n")}`;
+  }
+  if (htmlBody) return htmlToText(htmlBody);
   return "";
 }
 
