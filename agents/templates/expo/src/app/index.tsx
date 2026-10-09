@@ -3,20 +3,28 @@ import { Check, Circle, Plus, RotateCw, Trash2 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
-  SafeAreaView,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
+// The safe-area-context SafeAreaView pads for the status bar and the gesture
+// bar on Android too. React Native's own SafeAreaView is iOS-only: every
+// Android build put its header under the clock.
+import { SafeAreaView } from "react-native-safe-area-context";
+import { KeyboardAwareScrollView } from "../lib/keyboard";
 import { type Task, tasksApi } from "../lib/tasks";
 
+// Theme. Replace every value with the colours of the design: background,
+// card surface, border, text and accent. The translucent white surfaces are
+// for this light starter only; a dark or coloured design needs its own card
+// colour, or its cards come out white.
 const INK = "#191724";
 const CORAL = "#ff6542";
+const BACKGROUND = "#f7f1eb";
+const SURFACE = "rgba(255,255,255,0.76)";
+const SURFACE_BORDER = "rgba(255,255,255,0.9)";
 
 export default function HomeScreen() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -79,11 +87,10 @@ export default function HomeScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.flex}>
-        <View pointerEvents="none" style={styles.orbTop} />
-        <View pointerEvents="none" style={styles.orbBottom} />
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+    <SafeAreaView edges={["top", "bottom"]} style={styles.safeArea}>
+      <View pointerEvents="none" style={styles.orbTop} />
+      <View pointerEvents="none" style={styles.orbBottom} />
+      <KeyboardAwareScrollView bottomOffset={24} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" style={styles.flex}>
           <View style={styles.header}>
             <View>
               <Text style={styles.eyebrow}>__OMG_PROJECT_NAME__</Text>
@@ -146,15 +153,14 @@ export default function HomeScreen() {
               </View>
             ))}
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  safeArea: { flex: 1, backgroundColor: "#f7f1eb" },
+  safeArea: { flex: 1, backgroundColor: BACKGROUND },
   content: { alignSelf: "center", maxWidth: 620, minHeight: "100%", paddingBottom: 44, paddingHorizontal: 22, paddingTop: 38, width: "100%" },
   orbTop: { backgroundColor: "#ffab8e", borderRadius: 180, height: 260, opacity: 0.38, position: "absolute", right: -90, top: -100, width: 260 },
   orbBottom: { backgroundColor: "#cbbdff", borderRadius: 180, bottom: -120, height: 280, left: -100, opacity: 0.28, position: "absolute", width: 280 },
@@ -162,13 +168,13 @@ const styles = StyleSheet.create({
   eyebrow: { color: CORAL, fontSize: 12, fontWeight: "800", letterSpacing: 1.2, textTransform: "uppercase" },
   title: { color: INK, fontSize: 44, fontWeight: "800", letterSpacing: -1.4, marginTop: 4 },
   subtitle: { color: "#716a78", fontSize: 15, fontWeight: "600", marginTop: 3 },
-  iconButton: { alignItems: "center", backgroundColor: "rgba(255,255,255,0.58)", borderColor: "rgba(255,255,255,0.82)", borderRadius: 18, borderWidth: 1, height: 44, justifyContent: "center", width: 44 },
+  iconButton: { alignItems: "center", backgroundColor: SURFACE, borderColor: SURFACE_BORDER, borderRadius: 18, borderWidth: 1, height: 44, justifyContent: "center", width: 44 },
   composer: { alignItems: "center", borderColor: "rgba(255,255,255,0.78)", borderRadius: 24, borderWidth: 1, flexDirection: "row", minHeight: 70, overflow: "hidden", paddingHorizontal: 12, paddingVertical: 10 },
   input: { color: INK, flex: 1, fontSize: 17, paddingHorizontal: 8, paddingVertical: 10 },
   addButton: { alignItems: "center", backgroundColor: CORAL, borderRadius: 17, height: 48, justifyContent: "center", width: 48 },
   addButtonDisabled: { opacity: 0.42 },
   pressed: { opacity: 0.72 },
-  errorCard: { backgroundColor: "rgba(255,255,255,0.66)", borderColor: "rgba(179,64,64,0.18)", borderRadius: 18, borderWidth: 1, marginTop: 16, padding: 16 },
+  errorCard: { backgroundColor: SURFACE, borderColor: "rgba(179,64,64,0.18)", borderRadius: 18, borderWidth: 1, marginTop: 16, padding: 16 },
   errorTitle: { color: "#9c3434", fontSize: 14, fontWeight: "800" },
   errorText: { color: "#765f66", fontSize: 13, lineHeight: 19, marginTop: 4 },
   list: { gap: 10, marginTop: 22 },
@@ -176,7 +182,7 @@ const styles = StyleSheet.create({
   empty: { alignItems: "center", paddingVertical: 54 },
   emptyTitle: { color: INK, fontSize: 18, fontWeight: "800", marginTop: 12 },
   emptyText: { color: "#777180", fontSize: 14, marginTop: 5 },
-  taskRow: { alignItems: "center", backgroundColor: "rgba(255,255,255,0.76)", borderColor: "rgba(255,255,255,0.9)", borderRadius: 20, borderWidth: 1, flexDirection: "row", gap: 13, minHeight: 66, paddingHorizontal: 17, paddingVertical: 13, shadowColor: INK, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.04, shadowRadius: 14 },
+  taskRow: { alignItems: "center", backgroundColor: SURFACE, borderColor: SURFACE_BORDER, borderRadius: 20, borderWidth: 1, flexDirection: "row", gap: 13, minHeight: 66, paddingHorizontal: 17, paddingVertical: 13, shadowColor: INK, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.04, shadowRadius: 14 },
   checked: { alignItems: "center", backgroundColor: CORAL, borderRadius: 12, height: 24, justifyContent: "center", width: 24 },
   taskText: { color: INK, flex: 1, fontSize: 16, fontWeight: "600", lineHeight: 22 },
   taskTextDone: { color: "#99929e", textDecorationLine: "line-through" },

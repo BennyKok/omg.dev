@@ -1,6 +1,6 @@
 # __OMG_PROJECT_NAME__
 
-A small universal todo app created by omg.dev. It uses Expo Router, Lucide icons, and native Liquid Glass on supported iOS devices. Its data is stored on the phone, so it works in Expo Go and in the web preview with no backend.
+A small universal todo app created by omg.dev. It uses Expo Router, Lucide icons, native Liquid Glass on supported iOS devices, safe-area insets on both platforms, and a keyboard-aware scroll view. Its data is stored on the phone, so it works in Expo Go and in the web preview with no backend.
 
 ## Preview
 
