@@ -129,7 +129,7 @@ async function main(): Promise<number> {
     ...(submit
       ? [
           'echo "==> submitting to App Store Connect"',
-          `npx -y eas-cli@latest submit --platform ios --path ${out} --non-interactive`,
+          `npx -y eas-cli@latest submit --platform ios --profile ${profile} --path ${out} --non-interactive`,
         ]
       : ['echo "==> not submitting (pass --submit to upload)"']),
   ].join("\n");

@@ -64,6 +64,11 @@
       },
       "channel": "preview"
     },
+    "testflight": {
+      "extends": "production",
+      "distribution": "store",
+      "channel": "testflight-whistle"
+    },
     "production": {
       // Google iOS OAuth client (public identifier, not a secret). app.config.js
       // registers the Google Sign-In plugin and reversed URL scheme only when
@@ -76,6 +81,12 @@
     }
   },
   "submit": {
+    "testflight": {
+      "extends": "production",
+      "ios": {
+        "groups": ["Team (Expo)"]
+      }
+    },
     "production": {
       "ios": {
         "appleTeamId": "2T82F3J732",

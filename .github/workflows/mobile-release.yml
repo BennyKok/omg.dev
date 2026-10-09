@@ -26,6 +26,7 @@ on:
         type: choice
         options:
           - production
+          - testflight
           - preview
           # Unsigned dev client for the iOS Simulator. Native modules cannot
           # ship over the air, so every native dependency change needs one of
