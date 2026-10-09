@@ -51,6 +51,7 @@ import { blockedThreadParticipants, setThreadParticipantBlocked } from "../threa
 import { mentionAgents, mentionedAgent, threadPreview, type ThreadMedia } from "../../packages/protocol/src/threads.ts";
 import { COMPUTER_KIOSK_PATH } from "../../packages/protocol/src/computer-kiosk.ts";
 import { buildContinueSessionPrompt } from "../session-continue-prompt.ts";
+import { createForkSession } from "../session-fork.ts";
 import { regenerateSessionTitle } from "../session-title-regenerate.ts";
 import { hasHostedOmgAiProxy, hasOmgProviderAccess } from "../omg-provider.ts";
 import { createCloudMachineProxy, type CloudProxySocketData } from "../cloud-machine-proxy.ts";
@@ -9614,11 +9615,6 @@ a{color:#60a5fa}
             : await cwdForTranscript(transcript).catch(() => null);
           const sourceCwd = source?.cwd || cachedSource?.cwd || transcriptCwd || SELF_REPO;
           const repos = await listRepos();
-          const repo =
-            repos.find((r) => r.cwd === sourceCwd) ??
-            repos.find((r) => r.project === (source?.project || cachedSource?.project)) ??
-            repos.find((r) => r.project === projectName(sourceCwd));
-          if (!repo) return err(400, "source session repo is not in the repo picker");
 
           const extra = body?.prompt?.trim();
           const title =
@@ -9635,11 +9631,12 @@ a{color:#60a5fa}
             extra,
           });
 
-          const r = await fetch(`http://127.0.0.1:${PORT}/api/sessions/new`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              cwd: repo.cwd,
+          const r = await createForkSession({
+            endpoint: `http://127.0.0.1:${PORT}/api/sessions/new`,
+            sourceCwd,
+            sourceProject: source?.project ?? cachedSource?.project,
+            repos,
+            body: {
               prompt,
               // Continue replaces the source session, so keep the name the
               // user already chose. A normal fork remains independently
@@ -9650,7 +9647,7 @@ a{color:#60a5fa}
               model: body?.model,
               thinkingLevel: body?.thinkingLevel,
               claudeAccountId: body?.claudeAccountId,
-            }),
+            },
           });
           const text = await r.text();
           if (r.ok && body?.archiveSource === true) {
