@@ -121,7 +121,7 @@ export function ProjectPreviewCard({ sessionId, user, agentBusy = false }: { ses
   const reopenSheet = () => setSheet({ mode: connectStatus?.state === "signup" ? "signup" : "login", run: connectStatus?.startedAt });
   const deviceAction = current === "device" && expoGoUrl && phone && !stopped;
   return <>
-    <div className="mb-2 rounded-xl border bg-card text-sm" role="status" data-testid="project-preview-card" data-expanded={expanded && !stopped ? "true" : "false"} data-level={current}>
+    <div className="mb-2 min-w-0 max-w-full rounded-xl border bg-card text-sm" role="status" data-testid="project-preview-card" data-expanded={expanded && !stopped ? "true" : "false"} data-level={current}>
       <div className="flex min-h-11 items-center gap-2 py-1 pl-2 pr-1.5">
         {/* The whole left side toggles the details, so the chevron is not a
             second tiny target on a phone. A web-only preview has no details. */}
@@ -319,19 +319,19 @@ function DeviceLevel({ url, phone, android, account, error, connecting, onConnec
   const signedOut = !android && account !== null && !account.signedIn;
   const status = account?.connect;
   const action = connecting && status
-    ? <div className="flex flex-col items-center gap-1" data-testid="project-preview-expo-connecting">
+    ? <div className="flex min-w-0 max-w-full flex-col items-center gap-1" data-testid="project-preview-expo-connecting">
         <Button size="sm" onClick={onOpenComputer} data-testid="project-preview-open-sheet">Show Expo page</Button>
         <span className="text-xs text-muted-foreground">{expoConnectMessage(status)}{" "}
           {status.state === "waiting" || status.state === "signup" ? <button className="font-medium text-foreground underline-offset-2 hover:underline" onClick={onCancel} data-testid="project-preview-cancel-expo">Cancel</button> : null}
         </span>
       </div>
     : signedOut
-    ? <div className="flex flex-col items-center gap-2" data-testid="project-preview-expo-signed-out">
-        <span className="flex items-center gap-2 text-xs font-medium">
-          <ExpoLogo className="size-4" />
+    ? <div className="flex min-w-0 max-w-full flex-col items-center gap-2" data-testid="project-preview-expo-signed-out">
+        <span className="flex min-w-0 max-w-full items-center gap-2 text-xs font-medium">
+          <ExpoLogo className="size-4 shrink-0" />
           {status?.state === "failed" || status?.state === "cancelled" ? <span className="font-normal text-muted-foreground">{expoConnectMessage(status)}</span> : "Preview on your iPhone"}
         </span>
-        <div className="flex gap-2">
+        <div className="flex max-w-full flex-wrap justify-center gap-2">
           <Button size="sm" onClick={() => onConnect("signup")} data-testid="project-preview-expo-signup">{EXPO_SIGNUP_LABEL}</Button>
           <Button size="sm" variant="outline" onClick={() => onConnect("login")} data-testid="project-preview-connect-expo">I have one</Button>
         </div>
@@ -344,9 +344,9 @@ function DeviceLevel({ url, phone, android, account, error, connecting, onConnec
           : <span className="text-xs font-medium">Scan with Expo Go</span>}
       </div>;
   const qr = phone ? null : `data:image/svg+xml;utf8,${encodeURIComponent(renderSVG(url, { border: 1 }))}`;
-  return <div className="mt-2.5 flex items-center justify-center gap-4 py-2" data-testid="project-preview-device">
+  return <div className="mt-2.5 flex min-w-0 flex-wrap items-center justify-center gap-4 py-2" data-testid="project-preview-device">
     {qr ? <img className="size-24 shrink-0 rounded-md bg-white p-1" src={qr} alt="QR code that opens this app in Expo Go" data-testid="expo-go-guide" /> : null}
-    <div className="flex flex-col items-center gap-1">
+    <div className="flex min-w-0 max-w-full flex-1 basis-60 flex-col items-center gap-1 [overflow-wrap:anywhere]">
       {action}
       {error ? <p className="text-xs text-destructive" role="alert">{error}</p> : null}
     </div>
@@ -359,7 +359,7 @@ function DeviceLevel({ url, phone, android, account, error, connecting, onConnec
  * step 2 ticks that and the other steps stay plain.
  */
 function ExpoSteps({ url, phone, username }: { url: string; phone: boolean; username?: string }) {
-  const row = "flex h-7 items-center gap-2 text-xs";
+  const row = "flex min-h-7 flex-wrap items-center gap-2 text-xs";
   return <ol className="flex flex-col gap-0.5" data-testid="project-preview-expo-steps">
     <li className={row}>
       <Download className="size-4 shrink-0 text-muted-foreground" aria-hidden />
