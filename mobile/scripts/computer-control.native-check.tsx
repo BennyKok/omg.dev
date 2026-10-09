@@ -62,8 +62,12 @@ class FakeRFB {
     (this.listeners[name] ??= []).push(handler);
   }
 
-  emit(name: string) {
-    for (const handler of this.listeners[name] ?? []) handler({});
+  removeEventListener(name: string, handler: (event: unknown) => void) {
+    this.listeners[name] = (this.listeners[name] ?? []).filter(value => value !== handler);
+  }
+
+  emit(name: string, detail?: unknown) {
+    for (const handler of this.listeners[name] ?? []) handler({ detail });
   }
 
   sendKey(keysym: number, code: string | null, down: boolean) {
@@ -343,4 +347,43 @@ test('the screen gives up exactly the height the keyboard covers', () => {
 
   ui.flush(() => button('Hide keyboard').click());
   expect(root.getAttribute('data-keyboard-inset')).toBe('0');
+});
+
+
+test('the Paste button uses the native clipboard and takes control', async () => {
+  const rfb = open({ readClipboard: async () => 'two lines\n中文 🔑' });
+  await ui.flushAsync(async () => { button('Paste from this device').click(); await Promise.resolve(); });
+  expect(rfb.pasted).toEqual(['two lines\n中文 🔑']);
+  expect(rfb.viewOnly).toBe(false);
+  expect(pressed(rfb)).toEqual([0xffe3, 0x76]);
+});
+
+test('the Copy button bridges the remote selection to the native clipboard', async () => {
+  const writes: string[] = [];
+  const rfb = open({ writeClipboard: async (text: string) => { writes.push(text); } });
+  await ui.flushAsync(async () => {
+    button('Copy selected text').click();
+    rfb.emit('clipboard', { text: 'selected remote text' });
+    await Promise.resolve();
+  });
+  expect(writes).toEqual(['selected remote text']);
+});
+
+test('native action updates keep the stream connected and use the current device clipboard', async () => {
+  const rfb = open({ readClipboard: async () => 'old clipboard' });
+  ui.render(<ComputerControlDom {...SOCKET} readClipboard={async () => 'current clipboard'} />);
+  expect(FakeRFB.last).toBe(rfb);
+  await ui.flushAsync(async () => { button('Paste from this device').click(); await Promise.resolve(); });
+  expect(rfb.pasted).toEqual(['current clipboard']);
+});
+
+test('a disconnect from the previous Computer cannot remove the new stream clipboard', async () => {
+  const old = open({ readClipboard: async () => 'old' });
+  ui.render(<ComputerControlDom {...SOCKET} socketUrl="wss://second.example/api/computer" readClipboard={async () => 'second computer'} />);
+  const next = FakeRFB.last!;
+  expect(next).not.toBe(old);
+  ui.flush(() => { old.emit('disconnect'); next.emit('connect'); });
+  await ui.flushAsync(async () => { button('Paste from this device').click(); await Promise.resolve(); });
+  expect(old.pasted).toEqual([]);
+  expect(next.pasted).toEqual(['second computer']);
 });

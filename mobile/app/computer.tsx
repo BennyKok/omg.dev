@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Keyboard, Pressable, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Keyboard, Platform, Pressable, StyleSheet, View } from "react-native";
 
+import { readDeviceClipboard, writeDeviceClipboard } from "../src/omg/computer-clipboard-native";
 import ComputerControlDom from "../src/omg/computer-control-dom";
 import { isDemoMode } from "../src/omg/demo";
 import { Text } from "../src/omg/text";
@@ -89,6 +90,13 @@ export default function ComputerScreen() {
   }, [bindingId, client]);
 
   useEffect(() => { void open(); }, [open]);
+  const readRemoteClipboard = useCallback(async () => {
+    const result = await getHostedTransport(bindingId!).request<{ text: string }>("/api/computer/clipboard");
+    return result.text;
+  }, [bindingId]);
+  const setRemoteClipboard = useCallback(async (text: string) => {
+    await getHostedTransport(bindingId!).request("/api/computer/clipboard", { method: "POST", body: JSON.stringify({ text }) });
+  }, [bindingId]);
 
   if (access) {
     return (
@@ -98,6 +106,10 @@ export default function ComputerScreen() {
           protocol={access.protocol}
           preview={preview}
           keyboardInset={keyboardInset}
+          readRemoteClipboard={readRemoteClipboard}
+          setRemoteClipboard={setRemoteClipboard}
+          readClipboard={Platform.OS === "web" ? undefined : readDeviceClipboard}
+          writeClipboard={Platform.OS === "web" ? undefined : writeDeviceClipboard}
           dom={{
             scrollEnabled: false,
             // The system accessory bar above the keyboard is 45pt of

@@ -16,6 +16,7 @@
  */
 
 import RFB from "@novnc/novnc";
+import { attachComputerClipboard, clipboardButtonHandlers, type ComputerClipboard } from "../../../packages/protocol/src/computer-clipboard";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import {
@@ -26,6 +27,10 @@ type Props = {
   socketUrl: string;
   protocol: string;
   frame: KioskFrame | null;
+  readRemoteClipboard?: () => Promise<string>;
+  setRemoteClipboard?: (text: string) => Promise<void>;
+  readClipboard?: () => Promise<string>;
+  writeClipboard?: (text: string) => Promise<void>;
   dom?: import("expo/dom").DOMProps;
 };
 
@@ -41,7 +46,12 @@ function dispatchMouse(canvas: HTMLCanvasElement, x: number, y: number, type: "m
   target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons }));
 }
 
-export default function ExpoSigninSheetDom({ socketUrl, protocol, frame }: Props) {
+export default function ExpoSigninSheetDom({ socketUrl, protocol, frame, readRemoteClipboard, setRemoteClipboard, readClipboard, writeClipboard }: Props) {
+  const clipboardActions = useRef({ readRemoteClipboard, setRemoteClipboard, readClipboard, writeClipboard });
+  clipboardActions.current = { readRemoteClipboard, setRemoteClipboard, readClipboard, writeClipboard };
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const clipboardRef = useRef<ComputerClipboard | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const viewRef = useRef<HTMLDivElement | null>(null);
   const screenRef = useRef<HTMLDivElement | null>(null);
   const fieldRef = useRef<HTMLTextAreaElement | null>(null);
@@ -69,9 +79,24 @@ export default function ExpoSigninSheetDom({ socketUrl, protocol, frame }: Props
     rfb.background = "transparent";
     rfb.viewOnly = false;
     rfb.addEventListener("connect", () => setPhase("live"));
-    rfb.addEventListener("disconnect", () => setPhase("lost"));
+    rfb.addEventListener("disconnect", () => {
+      clipboard.dispose();
+      if (clipboardRef.current === clipboard) clipboardRef.current = null;
+      if (rfbRef.current === rfb) setPhase("lost");
+    });
+    const clipboard = attachComputerClipboard(rfb, rootRef.current!, {
+      notice: setNotice,
+      readRemoteText: readRemoteClipboard ? () => clipboardActions.current.readRemoteClipboard!() : undefined,
+      setRemoteText: setRemoteClipboard ? text => clipboardActions.current.setRemoteClipboard!(text) : undefined,
+      focusKeyboard: () => fieldRef.current?.focus({ preventScroll: true }),
+      readText: readClipboard ? () => clipboardActions.current.readClipboard!() : undefined,
+      writeText: writeClipboard ? text => text.then(value => clipboardActions.current.writeClipboard!(value)) : undefined,
+    });
+    clipboardRef.current = clipboard;
     rfbRef.current = rfb;
     return () => {
+      clipboard.dispose();
+      clipboardRef.current = null;
       rfbRef.current = null;
       try { rfb.disconnect(); } catch {}
     };
@@ -149,6 +174,7 @@ export default function ExpoSigninSheetDom({ socketUrl, protocol, frame }: Props
 
   const layout = frame ? kioskLayout(frame, width) : null;
   return (
+    <div ref={rootRef} style={{ position: "fixed", inset: 0 }}>
     <main ref={viewRef} style={styles.root} data-testid="expo-signin-sheet-view">
       <div style={{ ...styles.clip, height: layout?.pageHeight ?? 0 }}>
         <div ref={screenRef} style={layout
@@ -187,12 +213,19 @@ export default function ExpoSigninSheetDom({ socketUrl, protocol, frame }: Props
         }}
       />
     </main>
+    <div role="toolbar" aria-label="Clipboard" style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 48, display: "flex", alignItems: "center", justifyContent: "center", gap: 20, background: "white", borderTop: "1px solid #ddd" }}>
+      <button type="button" style={styles.clipboardButton} disabled={phase !== "live"} {...clipboardButtonHandlers(() => void clipboardRef.current?.pasteFromDevice())} aria-label="Paste from this device">Paste</button>
+      <button type="button" style={styles.clipboardButton} disabled={phase !== "live"} {...clipboardButtonHandlers(() => void clipboardRef.current?.copy())} aria-label="Copy selected text from the Computer">Copy</button>
+      {notice ? <span role="status" style={{ fontSize: 12 }}>{notice}</span> : null}
+    </div>
+    </div>
   );
 }
 
 const styles = {
+  clipboardButton: { minWidth: 64, height: 40, padding: "0 12px", border: "1px solid #ddd", borderRadius: 8, background: "#f4f4f5", color: "#18181b", fontSize: 15 },
   root: {
-    position: "fixed", inset: 0, overflow: "hidden", background: "#ffffff",
+    position: "absolute", inset: "0 0 48px", overflow: "hidden", background: "#ffffff",
     touchAction: "none", userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none",
   },
   clip: { position: "absolute", left: 0, top: 0, width: "100%", overflow: "hidden" },

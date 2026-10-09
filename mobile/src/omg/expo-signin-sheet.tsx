@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
-import { Modal, Pressable, View } from "react-native";
+import { useCallback, useEffect, useState } from "react";
+import { Modal, Platform, Pressable, View } from "react-native";
 import type { OmgTransport } from "@omg-dev/client";
 import { COMPUTER_KIOSK_PATH, kioskHost, type KioskFrame } from "../../../packages/protocol/src/computer-kiosk";
 import type { ExpoConnectMode } from "../../../packages/protocol/src/expo-account";
 import { Icon } from "../components";
+import { readDeviceClipboard, writeDeviceClipboard } from "./computer-clipboard-native";
 import ExpoSigninSheetDom from "./expo-signin-sheet-dom";
 import { useTheme } from "./theme";
 import { Text } from "./text";
@@ -55,6 +56,14 @@ export function ExpoSigninSheet({ mode, transport, socket, onClose, onOpenComput
     return () => { alive = false; };
   }, [socket]);
 
+  const readRemoteClipboard = useCallback(async () => {
+    const result = await transport.request<{ text: string }>("/api/computer/clipboard");
+    return result.text;
+  }, [transport]);
+  const setRemoteClipboard = useCallback(async (text: string) => {
+    await transport.request("/api/computer/clipboard", { method: "POST", body: JSON.stringify({ text }) });
+  }, [transport]);
+
   return <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
     <View testID="expo-signin-sheet" style={{ flex: 1, backgroundColor: colors.bg }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, paddingTop: 14, paddingBottom: 10, borderBottomWidth: 1, borderColor: colors.border }}>
@@ -73,6 +82,10 @@ export function ExpoSigninSheet({ mode, transport, socket, onClose, onOpenComput
       <View style={{ flex: 1, backgroundColor: "#ffffff" }}>
         {access
           ? <ExpoSigninSheetDom socketUrl={access.url} protocol={access.protocol} frame={frame}
+              readRemoteClipboard={readRemoteClipboard}
+              setRemoteClipboard={setRemoteClipboard}
+              readClipboard={Platform.OS === "web" ? undefined : readDeviceClipboard}
+              writeClipboard={Platform.OS === "web" ? undefined : writeDeviceClipboard}
               dom={{ scrollEnabled: false, hideKeyboardAccessoryView: true, style: { flex: 1 } }} />
           : <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
               <Text style={{ color: colors.mutedForeground, fontSize: 15 }}>Opening {kioskHost(frame)}…</Text>

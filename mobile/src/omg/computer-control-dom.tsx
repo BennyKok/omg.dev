@@ -31,6 +31,7 @@
  */
 
 import RFB from "@novnc/novnc";
+import { attachComputerClipboard, clipboardButtonHandlers, type ComputerClipboard } from "../../../packages/protocol/src/computer-clipboard";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { dark } from "./palette";
@@ -45,6 +46,10 @@ type Props = {
    * is not enough on its own.
    */
   keyboardInset?: number;
+  readRemoteClipboard?: () => Promise<string>;
+  setRemoteClipboard?: (text: string) => Promise<void>;
+  readClipboard?: () => Promise<string>;
+  writeClipboard?: (text: string) => Promise<void>;
   dom?: import("expo/dom").DOMProps;
 };
 
@@ -191,7 +196,15 @@ export default function ComputerControlDom({
   protocol,
   preview = false,
   keyboardInset = 0,
+  readRemoteClipboard,
+  setRemoteClipboard,
+  readClipboard,
+  writeClipboard,
 }: Props) {
+  const clipboardActions = useRef({ readRemoteClipboard, setRemoteClipboard, readClipboard, writeClipboard });
+  clipboardActions.current = { readRemoteClipboard, setRemoteClipboard, readClipboard, writeClipboard };
+  const rootRef = useRef<HTMLElement | null>(null);
+  const clipboardRef = useRef<ComputerClipboard | null>(null);
   const screenRef = useRef<HTMLDivElement | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const fieldRef = useRef<HTMLTextAreaElement | null>(null);
@@ -232,9 +245,25 @@ export default function ComputerControlDom({
     // land a stray tap on whatever the agent is doing.
     rfb.viewOnly = !controlRef.current;
     rfb.addEventListener("connect", () => setPhase("live"));
-    rfb.addEventListener("disconnect", () => setPhase("error"));
+    rfb.addEventListener("disconnect", () => {
+      clipboard.dispose();
+      if (clipboardRef.current === clipboard) clipboardRef.current = null;
+      if (rfbRef.current === rfb) setPhase("error");
+    });
+    const clipboard = attachComputerClipboard(rfb, rootRef.current!, {
+      notice: setNotice,
+      readRemoteText: readRemoteClipboard ? () => clipboardActions.current.readRemoteClipboard!() : undefined,
+      setRemoteText: setRemoteClipboard ? text => clipboardActions.current.setRemoteClipboard!(text) : undefined,
+      focusKeyboard: () => openKeyboard(),
+      takeControl: () => { controlRef.current = true; setControl(true); },
+      readText: readClipboard ? () => clipboardActions.current.readClipboard!() : undefined,
+      writeText: writeClipboard ? text => text.then(value => clipboardActions.current.writeClipboard!(value)) : undefined,
+    });
+    clipboardRef.current = clipboard;
     rfbRef.current = rfb;
     return () => {
+      clipboard.dispose();
+      clipboardRef.current = null;
       rfbRef.current = null;
       try { rfb.disconnect(); } catch {}
     };
@@ -506,6 +535,7 @@ export default function ComputerControlDom({
 
   return (
     <main
+      ref={rootRef}
       style={{ ...styles.root, bottom: inset }}
       data-testid="computer-control-viewer"
       data-keyboard-inset={inset}
@@ -577,6 +607,8 @@ export default function ComputerControlDom({
           >
             <KeyboardIcon />
           </button>
+          <button type="button" style={styles.icon} aria-label="Paste from this device" data-testid="computer-paste" {...clipboardButtonHandlers(() => void clipboardRef.current?.pasteFromDevice())}>Paste</button>
+          <button type="button" style={styles.icon} aria-label="Copy selected text from the Computer" data-testid="computer-copy" {...clipboardButtonHandlers(() => void clipboardRef.current?.copy())}>Copy</button>
           <button
             type="button"
             style={styles.icon}
@@ -655,21 +687,6 @@ export default function ComputerControlDom({
           const field = event.currentTarget;
           sendText(field.value.slice(padRef.current));
           refillPad(field);
-        }}
-        onPaste={(event) => {
-          const rfb = rfbRef.current;
-          const text = event.clipboardData.getData("text");
-          if (!rfb || !text || !controlRef.current) return;
-          // A real paste, through the desktop's own clipboard: paste handlers
-          // fire over there and a split code field still works, neither of
-          // which is true of one key per character.
-          event.preventDefault();
-          rfb.clipboardPasteFrom(text);
-          rfb.sendKey(KEYSYM.ctrl, "ControlLeft", true);
-          rfb.sendKey(0x76, "KeyV", true);
-          rfb.sendKey(0x76, "KeyV", false);
-          rfb.sendKey(KEYSYM.ctrl, "ControlLeft", false);
-          refillPad(event.currentTarget);
         }}
         onKeyDown={(event) => {
           const keysym = NAMED_KEYS[event.key];

@@ -1,3 +1,4 @@
+import { setDesktopClipboard } from "./clipboard.ts";
 // Agent-facing control of the browser running on the Computer's desktop.
 //
 // This is a thin layer over Bun.WebView (built into Bun 1.3.12+). On Linux
@@ -373,33 +374,6 @@ export async function browserPaste(text: string): Promise<void> {
     for (const event of pasteKeyEvents()) await page.call("Input.dispatchKeyEvent", event);
   } finally {
     page.close();
-  }
-}
-
-/** Put text on the desktop's CLIPBOARD selection. xclip daemonizes to serve
- *  it until something else takes the selection, which is exactly clipboard
- *  semantics. */
-async function setDesktopClipboard(text: string): Promise<void> {
-  const display = desktopStatus().display;
-  if (!display) throw new Error("the computer is not running; start it first");
-  if (!Bun.which("xclip")) {
-    throw new Error(
-      "xclip is not installed, so the desktop clipboard cannot be set. " +
-        "Install it with: sudo apt-get install -y xclip",
-    );
-  }
-  const proc = Bun.spawn(["xclip", "-selection", "clipboard"], {
-    stdin: "pipe",
-    stdout: "ignore",
-    stderr: "pipe",
-    env: { ...process.env, DISPLAY: display },
-  });
-  proc.stdin.write(text);
-  proc.stdin.end();
-  const exit = await proc.exited;
-  if (exit !== 0) {
-    const stderr = await new Response(proc.stderr).text();
-    throw new Error(`xclip failed (${exit}): ${stderr.trim() || "no output"}`);
   }
 }
 

@@ -1,0 +1,112 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": false
+  },
+  "steps": [
+    {
+      "name": "Open Full Computer",
+      "goal": "If iOS asks permission to paste, tap Allow Paste first. Tap only the Full Computer button in the native fixture header at the top. Do not tap any stream toolbar button. This switches to the Full Computer viewer and resets the test.",
+      "done": "The header says exactly Clipboard fixture \u00b7 Full Computer and Waiting for paste is visible.",
+      "expect": [
+        "Clipboard fixture \u00b7 Full Computer",
+        "Waiting for paste"
+      ],
+      "timeoutMs": 60000
+    },
+    {
+      "name": "1 Paste in Full Computer",
+      "goal": "Tap Paste from this device in the stream toolbar. If iOS asks, tap Allow Paste.",
+      "done": "Pasted is visible in the clipboard status.",
+      "expect": [
+        "Clipboard fixture \u00b7 Full Computer",
+        "Pasted"
+      ],
+      "timeoutMs": 90000
+    },
+    {
+      "name": "Verify paste in Full Computer",
+      "goal": "Wait for Remote paste verified. Do not tap any button and do not type.",
+      "done": "Remote paste verified is visible, proving exact Unicode text reached the remote form once.",
+      "expect": [
+        "Clipboard fixture \u00b7 Full Computer",
+        "Remote paste verified"
+      ],
+      "timeoutMs": 30000
+    },
+    {
+      "name": "Select text in Full Computer",
+      "goal": "Tap Select remote text in the native header. Do not tap Copy yet.",
+      "done": "Selection ready is visible in the native header.",
+      "expect": [
+        "Clipboard fixture \u00b7 Full Computer",
+        "Selection ready",
+        "Remote paste verified"
+      ],
+      "timeoutMs": 60000
+    },
+    {
+      "name": "1 Copy in Full Computer",
+      "goal": "Tap Copy selected text from the Computer in the stream toolbar. Then wait for Device copy verified.",
+      "done": "The native header says exactly Clipboard fixture \u00b7 Full Computer. Device copy verified and Remote paste verified are both visible, proving the native clipboard contains the exact remote Unicode text.",
+      "expect": [
+        "Clipboard fixture \u00b7 Full Computer",
+        "Device copy verified",
+        "Remote paste verified"
+      ],
+      "timeoutMs": 90000
+    },
+    {
+      "name": "Open Sign-in dialog",
+      "goal": "If iOS asks permission to paste, tap Allow Paste first. Tap only the Sign-in dialog button in the native fixture header at the top. Do not tap any stream toolbar button. This switches to the Sign-in dialog viewer and resets the test.",
+      "done": "The header says exactly Clipboard fixture \u00b7 Sign-in dialog and Waiting for paste is visible.",
+      "expect": [
+        "Clipboard fixture \u00b7 Sign-in dialog",
+        "Waiting for paste"
+      ],
+      "timeoutMs": 60000
+    },
+    {
+      "name": "2 Paste in Sign-in dialog",
+      "goal": "Tap Paste from this device in the stream toolbar. If iOS asks, tap Allow Paste.",
+      "done": "Pasted is visible in the clipboard status.",
+      "expect": [
+        "Clipboard fixture \u00b7 Sign-in dialog",
+        "Pasted"
+      ],
+      "timeoutMs": 90000
+    },
+    {
+      "name": "Verify paste in Sign-in dialog",
+      "goal": "Wait for Remote paste verified. Do not tap any button and do not type.",
+      "done": "Remote paste verified is visible, proving exact Unicode text reached the remote form once.",
+      "expect": [
+        "Clipboard fixture \u00b7 Sign-in dialog",
+        "Remote paste verified"
+      ],
+      "timeoutMs": 30000
+    },
+    {
+      "name": "Select text in Sign-in dialog",
+      "goal": "Tap Select remote text in the native header. Do not tap Copy yet.",
+      "done": "Selection ready is visible in the native header.",
+      "expect": [
+        "Clipboard fixture \u00b7 Sign-in dialog",
+        "Selection ready",
+        "Remote paste verified"
+      ],
+      "timeoutMs": 60000
+    },
+    {
+      "name": "2 Copy in Sign-in dialog",
+      "goal": "Tap Copy selected text from the Computer in the stream toolbar. Then wait for Device copy verified.",
+      "done": "The native header says exactly Clipboard fixture \u00b7 Sign-in dialog. Device copy verified and Remote paste verified are both visible, proving the native clipboard contains the exact remote Unicode text.",
+      "expect": [
+        "Clipboard fixture \u00b7 Sign-in dialog",
+        "Device copy verified",
+        "Remote paste verified"
+      ],
+      "timeoutMs": 90000
+    }
+  ]
+}
