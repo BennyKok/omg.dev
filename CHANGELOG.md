@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## October 9, 2026 - Computer sign-in and clipboard fixes (v0.6.211)
+
+- Expo sign-in opens in the Computer browser even when Linux already has a browser opener installed.
+- Closing and retrying sign-in keeps the browser ready. A Computer can recover an orphan sign-in browser that blocks startup.
+- Copy and Paste work in the full Computer view and the Expo sign-in sheet, with desktop shortcuts, touch buttons, and a keyboard paste fallback. Text keeps Unicode characters and line breaks.
+- New Expo apps use Android safe areas and a keyboard layout that follows the focused field.
+
 ## October 9, 2026 - Shorter audio settings (v0.6.210)
 
 - Web audio settings use two controls and one short status line. Choose Auto, Cloud, or Local and your language.

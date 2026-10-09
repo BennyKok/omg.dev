@@ -104,6 +104,15 @@ export function installXdgOpenShim(env: NodeJS.ProcessEnv = process.env, port?: 
   return true;
 }
 
+/** Expo sign-in belongs to the Computer, including hosts with a system opener. */
+export function expoLoginEnvironment(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const opener = join(XDG_OPEN_SHIM_DIR, "xdg-open");
+  if (!existsSync(opener)) throw new Error("The Computer login helper is missing. Update the Computer and try again.");
+  const next: NodeJS.ProcessEnv = { ...env, BROWSER: opener, OMG_COMPUTER_KIOSK: "1" };
+  delete next.BROWSER_ARGS;
+  return next;
+}
+
 /** The working directory of the Metro process on `port`, from /proc. */
 export function metroCwd(port: number): string | null {
   const found = Bun.spawnSync(["pgrep", "-f", `expo start .*--port ${port}`], { stdout: "pipe", stderr: "ignore" });
@@ -190,6 +199,7 @@ export function createExpoAccountService(deps: ExpoAccountDeps) {
   async function finish(session: Session, preview: ProjectPreview | null, dir: string, code: number): Promise<void> {
     if (cancelled) { end({ state: "cancelled", startedAt: status!.startedAt }); return; }
     if (code !== 0) {
+      console.warn(`[expo-account] CLI login failed with exit code ${code}`);
       const tail = login?.output().trim().split("\n").filter(Boolean).pop();
       end({ state: "failed", startedAt: status!.startedAt, message: `Expo sign-in did not finish${tail ? `: ${tail.slice(0, 160)}` : "."} Try again.` });
       return;
@@ -356,7 +366,7 @@ export function liveExpoAccountDeps(): Pick<ExpoAccountDeps, "spawnLogin" | "run
     spawnLogin(expo, cwd) {
       // OMG_COMPUTER_KIOSK: the xdg-open shim opens the login page in the
       // kiosk window, which the card shows in its sign-in sheet.
-      const proc = Bun.spawn([expo, "login", "--browser"], { cwd, env: { ...env(), OMG_COMPUTER_KIOSK: "1" }, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+      const proc = Bun.spawn([expo, "login", "--browser"], { cwd, env: expoLoginEnvironment(env()), stdin: "ignore", stdout: "pipe", stderr: "pipe" });
       let out = "";
       const drain = async (stream: ReadableStream<Uint8Array>) => {
         const decoder = new TextDecoder();

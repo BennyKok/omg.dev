@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createKiosk, KIOSK_WIDTH, kioskFrameFrom, type Cdp } from "./kiosk.ts";
 import { kioskHitsInput, kioskHost, kioskLayout } from "../../packages/protocol/src/computer-kiosk.ts";
+import { isOrphanKioskBrowser, DEFAULT_DESKTOP } from "./desktop.ts";
 
 const SCREEN = { width: 1280, height: 800 };
 
@@ -141,6 +142,17 @@ describe("Computer kiosk", () => {
     expect(await k.frame()).toEqual({ open: false });
   });
 
+  test("closing the last sign-in window keeps Chrome alive for a retry", async () => {
+    const { k, browser } = kiosk();
+    await k.open("https://expo.dev/login");
+    browser.pages.splice(browser.pages.findIndex(p => p.targetId === "agent"), 1);
+    await k.close();
+    expect(browser.pages).toHaveLength(1);
+    expect(browser.pages[0]!.url).toBe("about:blank");
+    await k.open("https://expo.dev/login");
+    expect((await k.frame()).open).toBe(true);
+  });
+
   test("falls back to a normal window when no app window appears", async () => {
     const { k, browser } = kiosk(fakeBrowser(), false);
     await k.open("https://expo.dev/signup");
@@ -169,6 +181,16 @@ describe("kiosk geometry", () => {
 });
 
 describe("Computer browser profile", () => {
+  test("recovery targets only an app browser on the owned profile", () => {
+    const config = { ...DEFAULT_DESKTOP, profileDir: "/owned/profile" };
+    const args = ["chrome", "--user-data-dir=/owned/profile", "--app=https://expo.dev/login"];
+    expect(isOrphanKioskBrowser("/opt/google/chrome/chrome", args, config)).toBe(true);
+    expect(isOrphanKioskBrowser("/bin/bash", args, config)).toBe(false);
+    expect(isOrphanKioskBrowser("chrome", [args.join(" ")], config)).toBe(true);
+    expect(isOrphanKioskBrowser("chrome", args, { ...config, profileDir: "/somebody/else" })).toBe(false);
+    expect(isOrphanKioskBrowser("chrome", [...args, "--type=renderer"], config)).toBe(false);
+    expect(isOrphanKioskBrowser("chrome", [...args, "--remote-debugging-port=12345"], config)).toBe(false);
+  });
   test("Chrome does not offer to save a password typed in the sheet", async () => {
     const { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } = await import("node:fs");
     const { join } = await import("node:path");
