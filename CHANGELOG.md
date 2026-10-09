@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 9, 2026 - Automatic sign-in for returning visitors (v0.6.213)
+
+- Apps the agent builds sign returning visitors in automatically after their first Sign in. Sign out stays signed out.
+- Gmail messages keep their link addresses when the agent reads them.
+
 ## October 9, 2026 - Clipboard support for older Computers (v0.6.212)
 
 - Older cloud Computers install the missing clipboard helper when Copy or Paste needs it. Concurrent requests share one installation.
