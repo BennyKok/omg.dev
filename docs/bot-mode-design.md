@@ -1,6 +1,6 @@
 # Bot Mode — design sketch
 
-Status: exploration, not scheduled. Written 2026-08-15 after mapping the codebase
+Status: built. Named bots live in `src/bots/`. This sketch is history; the code is the source of truth. Written 2026-08-15 after mapping the codebase
 against two reference products: xAI's Grok Bot (launched 2026-08-11: always-on AI
 teammates with their own cloud computer, group-chat coordination, routines learned
 by demonstration) and Hermes Bot Mode (persistent named bots as an alternative to
