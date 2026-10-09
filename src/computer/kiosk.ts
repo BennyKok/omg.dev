@@ -268,6 +268,11 @@ export function createKiosk(deps: KioskDeps) {
     reset();
     const c = await deps.cdp().catch(() => null);
     if (!c) return;
+    // Closing Chrome's last window exits the controlled browser. Keep a
+    // normal tab so a later app launch cannot take over its profile.
+    if (!(await pages(c)).some((t) => !ids.includes(t.targetId))) {
+      await c.send("Target.createTarget", { url: "about:blank", newWindow: true });
+    }
     for (const targetId of ids) await c.send("Target.closeTarget", { targetId }).catch(() => {});
   }
 

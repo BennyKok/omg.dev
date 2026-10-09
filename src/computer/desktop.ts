@@ -32,8 +32,9 @@
 // when someone asks for it.
 
 import { spawn } from "node:child_process";
-import { accessSync, constants, existsSync, mkdirSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
+import { accessSync, constants, existsSync, mkdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { hostname } from "node:os";
 
 export interface DesktopConfig {
   /** X display number. 99 keeps us clear of any real session on :0. */
@@ -659,7 +660,7 @@ async function launchDesktop(next: DesktopState): Promise<DesktopStatus> {
 
   next.identities.vnc = processIdentity(next.vnc.pid);
 
-  spawnBrowser(next);
+  await spawnBrowser(next);
   // Publish the state BEFORE waiting on ports. If a wait fails or throws, the
   // processes we just spawned must still be reachable by stopDesktop -- an
   // early return here used to orphan Xvfb, openbox, x11vnc and Chrome.
@@ -678,12 +679,43 @@ async function launchDesktop(next: DesktopState): Promise<DesktopStatus> {
   return desktopStatus();
 }
 
-/** Spawn the desktop's Chrome on its display. Does not wait for it. */
-function spawnBrowser(next: DesktopState): void {
+/** Match only a kiosk launcher that took over this Computer's own profile. */
+export function isOrphanKioskBrowser(executable: string, args: string[], config: DesktopConfig): boolean {
+  // Chrome rewrites /proc/cmdline to one space-separated process title.
+  const title = ` ${args.join(" ").trim()} `;
+  return ["chrome", "google-chrome", "google-chrome-stable", "chromium", "chromium-browser"].includes(basename(executable)) &&
+    title.includes(` --user-data-dir=${config.profileDir} `) && title.includes(" --app=") &&
+    !title.includes(" --type=") && !title.includes(" --remote-debugging-port=");
+}
+
+async function reapOrphanKioskBrowsers(config: DesktopConfig): Promise<void> {
+  if (process.platform !== "linux") return;
+  let pid: number;
+  let identity: ProcessIdentity | undefined;
+  try {
+    const lock = readlinkSync(join(config.profileDir, "SingletonLock"));
+    const prefix = `${hostname()}-`;
+    if (!lock.startsWith(prefix) || !/^\d+$/.test(lock.slice(prefix.length))) return;
+    pid = Number(lock.slice(prefix.length));
+    if (statSync(`/proc/${pid}`).uid !== process.getuid?.()) return;
+    const args = readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0");
+    if (!isOrphanKioskBrowser(readlinkSync(`/proc/${pid}/exe`), args, config)) return;
+    identity = processIdentity(pid);
+    if (!identity) return;
+  } catch { return; }
+  console.warn("[computer] recovering orphan kiosk browser holding the Computer profile");
+  killPid(pid, identity);
+  await Bun.sleep(600);
+  killPid(pid, identity, "SIGKILL");
+}
+
+/** Spawn the desktop's Chrome on its display. Does not wait for readiness. */
+async function spawnBrowser(next: DesktopState): Promise<void> {
   const config = next.config;
   const env = { ...process.env, DISPLAY: `:${config.display}` };
   const chrome = chromePath();
   if (!chrome) throw new Error("no Chrome binary found");
+  await reapOrphanKioskBrowsers(config);
   disablePasswordSaving(config.profileDir);
   // Chrome writes this file only with --remote-debugging-port=0. Remove an
   // old endpoint before launching, so a failed start cannot attach elsewhere.
@@ -735,7 +767,7 @@ async function relaunchBrowser(s: DesktopState): Promise<void> {
     console.warn(`[computer] configured port ${s.config.cdpPort} is in use`);
     throw new Error("The Computer cannot open its browser. Try again or contact support.");
   }
-  spawnBrowser(s);
+  await spawnBrowser(s);
   // An adopted desktop is stopped through its recorded pids.
   if (s.adoptedPids) s.adoptedPids.chrome = s.chrome?.pid;
   writeStateFile(s);

@@ -6,6 +6,7 @@ import type { ExpoAccountSnapshot } from "../packages/protocol/src/expo-account.
 import {
   createExpoAccountService,
   installXdgOpenShim,
+  expoLoginEnvironment,
   manifestUsername,
   parseWhoami,
   readExpoStateAccount,
@@ -354,6 +355,25 @@ describe("expo.dev browser sign-in rule", () => {
 });
 
 describe("xdg-open shim", () => {
+  test("Expo selects the Computer helper even with a system opener or BROWSER override", async () => {
+    const bin = join(dir, "bin");
+    mkdirSync(bin);
+    writeFileSync(join(bin, "xdg-open"), "#!/bin/sh\nexit 3\n");
+    chmodSync(join(bin, "xdg-open"), 0o755);
+    const original = { ...process.env, PATH: `${bin}:${process.env.PATH}`, BROWSER: "/bad/browser" };
+    const env = expoLoginEnvironment(original);
+    expect(env.BROWSER).toBe(join(XDG_OPEN_SHIM_DIR, "xdg-open"));
+    expect(env.OMG_COMPUTER_KIOSK).toBe("1");
+    expect(original.BROWSER).toBe("/bad/browser");
+    const seen: string[] = [];
+    const server = Bun.serve({ port: 0, hostname: "127.0.0.1", async fetch(req) { seen.push(new URL(req.url).pathname); return Response.json({ ok: true }); } });
+    try {
+      // Execute the selected opener, as Expo's browser option does.
+      const proc = Bun.spawn([env.BROWSER!, "https://expo.dev/login"], { env: { ...env, OMG_COMPUTER_API: `http://127.0.0.1:${server.port}` }, stderr: "ignore" });
+      expect(await proc.exited).toBe(0);
+      expect(seen).toEqual(["/api/computer/start", "/api/computer/browser/navigate"]);
+    } finally { server.stop(true); }
+  });
   test("goes on PATH only when the system has none", () => {
     const bin = join(dir, "bin");
     mkdirSync(bin);
