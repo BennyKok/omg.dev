@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 9, 2026 - Move chats between folders (v0.6.215)
+
+- Move an idle managed chat to another folder or to No project. Chat history stays intact. Existing files stay in place.
+- Continue and Fork keep no-project chats outside the project list.
+- Mobile project filters and headers show the selected project correctly.
+
 ## October 9, 2026 - Simpler dictation button (v0.6.214)
 
 - Web dictation uses an icon-only mic button. Choose Auto, Cloud, or Local in Audio settings.
