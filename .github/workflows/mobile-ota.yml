@@ -36,6 +36,14 @@ on:
         options:
           - production
           - preview
+      platform:
+        description: "Platforms to update"
+        default: all
+        type: choice
+        options:
+          - all
+          - android
+          - ios
 
 concurrency:
   group: mobile-ota
@@ -152,7 +160,9 @@ jobs:
       # An OTA publish has no review stage in front of it, so the export has to
       # pass here rather than break on someone's phone.
       - name: Metro export smoke test
-        run: bunx expo export --platform ios
+        env:
+          UPDATE_PLATFORM: ${{ inputs.platform || 'all' }}
+        run: bunx expo export --platform "$UPDATE_PLATFORM"
 
       # The export is the same bundle the publish will ship, so assert the id
       # actually reached it. The step above can be right and still produce a
@@ -177,9 +187,11 @@ jobs:
       - name: Publish update
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          UPDATE_PLATFORM: ${{ inputs.platform || 'all' }}
         run: |
           bunx eas-cli@22.0.0 update \
             --channel "${{ inputs.channel }}" \
+            --platform "$UPDATE_PLATFORM" \
             --environment production \
             --non-interactive \
             --message "${{ inputs.message }}"

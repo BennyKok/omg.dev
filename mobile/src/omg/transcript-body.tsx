@@ -4,9 +4,12 @@ import { Markdown } from "./markdown";
 
 type VirtualBodyProps = { children?: ReactNode };
 
-// Read the lazy native export only on native platforms. Older development
-// clients and react-native-web keep the ordinary Markdown path.
-const VirtualView = RN.Platform.OS !== "web" &&
+// RN 0.88's Android VirtualViewModeChangeEvent reuses native maps after the
+// event dispatcher consumes them. Opening or scrolling a transcript then
+// crashes with ObjectAlreadyConsumedException: Map already consumed. Keep
+// Android on ordinary bodies; FlatList still virtualizes the message rows.
+// Older iOS development clients and react-native-web use the same fallback.
+const VirtualView = RN.Platform.OS === "ios" &&
   (RN.UIManager.hasViewManagerConfig?.("VirtualView") ||
     RN.UIManager.hasViewManagerConfig?.("VirtualViewExperimental"))
   ? (RN as unknown as { unstable_VirtualView?: ComponentType<VirtualBodyProps> }).unstable_VirtualView
