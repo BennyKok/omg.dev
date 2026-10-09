@@ -163,7 +163,14 @@ jobs:
       - name: Metro export smoke test
         env:
           UPDATE_PLATFORM: ${{ inputs.platform || 'all' }}
-        run: bunx expo export --platform "$UPDATE_PLATFORM"
+        run: |
+          # EAS Update's "all" means both native platforms. Expo export's
+          # "all" also includes web, which this native app does not support.
+          if [ "$UPDATE_PLATFORM" = "all" ]; then
+            bunx expo export --platform ios --platform android
+          else
+            bunx expo export --platform "$UPDATE_PLATFORM"
+          fi
 
       # The export is the same bundle the publish will ship, so assert the id
       # actually reached it. The step above can be right and still produce a
