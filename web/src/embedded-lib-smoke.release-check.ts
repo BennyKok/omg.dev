@@ -1,7 +1,7 @@
 // Runtime smoke for the prebuilt @omg-dev/app embed.
 //
 // The lib build externalizes host-shared packages (react, tanstack router,
-// cnfast, vaul, cva). This file is what proves those specifiers resolve and
+// cnfast, cva). This file is what proves those specifiers resolve and
 // that OmgAppSurface still mounts a real router tree — not just that vite
 // printed "built in Ns".
 //
@@ -37,7 +37,6 @@ const EXPECTED_PEERS = {
   react: "^19.2.4",
   "react-dom": "^19.2.4",
   sonner: "^2.0.7",
-  vaul: "^1.1.2",
 } as const;
 
 const win = new Window({ url: "https://app.omg.dev/" });
@@ -100,7 +99,6 @@ describe("vite.lib.config host-shared externals", () => {
       '"@tanstack/react-router"',
       '"cnfast"',
       '"class-variance-authority"',
-      '"vaul"',
       '"react"',
       '"@base-ui/react"',
       '"sonner"',
@@ -163,7 +161,6 @@ describe("built embed resolves host externals and mounts", () => {
     const code = readFileSync(join(DIST, embedded!), "utf8");
     expect(code).toContain('from "@tanstack/react-router"');
     expect(code).toContain('from "cnfast"');
-    expect(code).toContain('from "vaul"');
     expect(code).toContain('from "class-variance-authority"');
     // One Sonner per document: the host's Toaster draws the surface's toasts.
     expect(code).toContain('from "sonner"');

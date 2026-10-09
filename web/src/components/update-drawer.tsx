@@ -401,7 +401,7 @@ function UpdateDrawer() {
       : null;
 
   return (
-    <Drawer open={drawerOpen} onOpenChange={handleOpenChange} shouldScaleBackground={false}>
+    <Drawer open={drawerOpen} onOpenChange={handleOpenChange}>
       <DrawerContent className="mx-auto flex max-h-[80dvh] w-full max-w-lg flex-col overflow-hidden">
         {/* flex-auto keeps short changelogs content-sized, then shrinks the body
             into a scroller before the actions can leave the viewport. */}

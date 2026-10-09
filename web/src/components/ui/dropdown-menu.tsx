@@ -18,7 +18,7 @@ function DropdownMenu({ ...props }: MenuPrimitive.Root.Props) {
 }
 
 function DropdownMenuPortal({ ...props }: MenuPrimitive.Portal.Props) {
-  return <MenuPrimitive.Portal data-slot="dropdown-menu-portal" {...props} />
+  return <MenuPrimitive.Portal data-react-aria-top-layer="" data-slot="dropdown-menu-portal" {...props} />
 }
 
 function DropdownMenuTrigger({ ...props }: MenuPrimitive.Trigger.Props) {
@@ -38,7 +38,7 @@ function DropdownMenuContent({
     "align" | "alignOffset" | "side" | "sideOffset"
   >) {
   return (
-    <MenuPrimitive.Portal>
+    <MenuPrimitive.Portal data-react-aria-top-layer="">
       <MenuPrimitive.Positioner
         // Menus are portalled to body, so they do not inherit the stacking
         // context of the dialog that opened them. Keep floating controls above

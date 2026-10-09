@@ -200,38 +200,22 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
   --lfg-safe-bottom: 0px;
 }
 
-/* A bottom sheet that has morphed into a page.
- *
- * An auto-height sheet is the wrong shape the moment a field inside it takes
- * focus: the sheet is sized by its content, so the soft keyboard either covers
- * the field it just opened for or shoves the whole card up until the finding
- * above it is off-screen. In page mode the sheet instead claims the visible
- * band exactly — `--lfg-visual-height` is the visual viewport (what is left
- * above the keyboard) and `--lfg-keyboard-height` lifts its bottom edge onto
- * the keyboard's top edge, both published live by the visualViewport sync in
- * App.tsx. Its body then scrolls and its footer sits on the keyboard, which is
- * the layout a keyboard is supposed to push against.
- *
- * On Android (`interactive-widget=resizes-content`) the layout viewport itself
- * shrinks, so the keyboard height reads ~0 and the visual height is already the
- * band above the keyboard — the same two vars land in the right place.
- *
- * Qualified by the vaul direction attribute to match the specificity of the
- * component's own `data-[vaul-drawer-direction=bottom]:` height/bottom
- * utilities, and left unlayered so it wins over Tailwind's utility layer. */
-[data-vaul-drawer-direction="bottom"].lfg-sheet-page {
-  height: var(--lfg-visual-height, 100dvh);
-  max-height: var(--lfg-visual-height, 100dvh);
-  bottom: var(--lfg-keyboard-height, 0px);
+/* Focused fields expand the shared drawer into a page. React Aria tracks
+   the visual viewport and reserves the area obscured by the software keyboard
+   in its scrollable content. The sheet stays anchored to its native scroll
+   stage instead of adding a second keyboard-driven bottom offset. */
+[data-position="bottom"].lfg-sheet-page {
+  height: 100dvh;
+  max-height: 100dvh;
   transition:
     height 260ms var(--ease-ios),
-    bottom 200ms var(--ease-ios);
+    padding-bottom 200ms var(--ease-ios);
 }
 
 /* Desktop presents these surfaces as a centered dialog with its own height
    cap; there is no soft keyboard to make room for, so the morph is a no-op. */
 @media (min-width: 768px) {
-  [data-vaul-drawer-direction="bottom"].lfg-sheet-page {
+  [data-position="bottom"].lfg-sheet-page {
     height: auto;
     max-height: 85dvh;
     bottom: auto;
@@ -3114,4 +3098,24 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
   .boxy-eyes-shut { display: none; }
   .boxy-zz { opacity: 1; }
   .boxy-ink { filter: none; }
+}
+
+/* React Aria owns swipe geometry and visual-viewport tracking. Keep our
+   surface relative to its scroll stage and reserve the obscured viewport
+   space inside the dialog so fields and actions can scroll above a keyboard. */
+.lfg-aria-sheet {
+  flex-shrink: 0;
+  isolation: isolate;
+}
+
+.lfg-sheet-dialog {
+  box-sizing: border-box;
+  padding-bottom: var(--sheet-scroll-padding-y, 0px);
+  overflow: auto;
+  overscroll-behavior: auto;
+}
+
+@keyframes lfg-sheet-backdrop {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }

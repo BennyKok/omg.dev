@@ -59,8 +59,8 @@
     "streamdown": "^2.6.0",
     "torph": "^0.1.3",
     "uqr": "0.1.3",
-    "vaul": "^1.1.2",
-    "web-haptics": "^0.0.6"
+    "web-haptics": "^0.0.6",
+    "react-aria-components": "^1.22.0"
   },
   "peerDependencies": {
     "@base-ui/react": "^1.6.0",
@@ -69,8 +69,7 @@
     "cnfast": "0.0.8",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "sonner": "^2.0.7",
-    "vaul": "^1.1.2"
+    "sonner": "^2.0.7"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.2",

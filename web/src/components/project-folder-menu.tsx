@@ -144,7 +144,7 @@ export function ProjectFolderMenu({
           </button>
         }
       />
-      <Popover.Portal>
+      <Popover.Portal data-react-aria-top-layer="">
         <Popover.Positioner side="bottom" align={trigger === "chip" ? "end" : "start"} sideOffset={6} className="isolate z-[170] outline-none">
           <Popover.Popup
             initialFocus={page === "pick" && searchable ? inputRef : true}

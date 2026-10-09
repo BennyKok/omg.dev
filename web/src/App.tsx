@@ -601,7 +601,6 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Popover } from "@base-ui/react/popover";
-import { Drawer as VaulDrawer } from "vaul";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -6624,7 +6623,7 @@ export function App() {
       // host's bottom padding). The <html> vars above still publish, because
       // portaled chrome reads them wherever it renders.
       if (el && !bare) {
-        // Outside Terminal, leave keyboard-open layout to the browser/Vaul. When
+        // Outside Terminal, leave keyboard-open layout to the browser/React Aria. When
         // the keyboard is closed, always override `h-dvh` with the measured
         // visual viewport so foreground-return stale `dvh` cannot leave a white
         // strip until the next pinch/zoom/layout event.
@@ -19169,7 +19168,7 @@ function ForkSessionDialog({
     >
       <DialogContent
         showCloseButton={false}
-        // Forking is an input-heavy flow. Keep it out of the mobile Vaul drawer:
+        // Forking is an input-heavy flow. Keep it out of the mobile drawer:
         // the drawer's drag gesture and focus handling compete with textarea
         // scrolling while the soft keyboard resizes the viewport. A real modal
         // keeps the form stationary and gives the form itself the scroll area.
@@ -21658,16 +21657,13 @@ const ToolGroup = memo(function ToolGroup({
     return (
       <div className="w-fit max-w-full">
         {pill}
-        <VaulDrawer.Root open={open} onOpenChange={handleOpenChange} repositionInputs={false} shouldScaleBackground={false}>
-          <VaulDrawer.Portal>
-            <VaulDrawer.Overlay className="fixed inset-0 z-[149] bg-black/80" />
-            <VaulDrawer.Content className="fixed inset-x-0 bottom-0 z-[150] mx-auto flex max-h-[82dvh] max-w-lg flex-col rounded-t-[2rem] border border-border bg-background p-4 pb-[max(var(--lfg-safe-bottom),1rem)] text-foreground shadow-2xl outline-none">
+        <Drawer presentation="sheet" layer={150} open={open} onOpenChange={handleOpenChange}>
+          <DrawerContent unstyled expandOnFocus={false} overlayClassName="fixed inset-0 z-[149] bg-black/80" className="z-[150] mx-auto flex max-h-[82dvh] max-w-lg flex-col rounded-t-[2rem] border border-border bg-background p-4 pb-[max(var(--lfg-safe-bottom),1rem)] text-foreground shadow-2xl outline-none">
               <div className="mx-auto mb-3 h-1.5 w-24 shrink-0 rounded-full bg-muted" />
-              <VaulDrawer.Title className="mb-3 text-base font-semibold">{summary}</VaulDrawer.Title>
+              <DrawerTitle className="mb-3 text-base font-semibold">{summary}</DrawerTitle>
               <div className="min-h-0 overflow-y-auto">{details}</div>
-            </VaulDrawer.Content>
-          </VaulDrawer.Portal>
-        </VaulDrawer.Root>
+            </DrawerContent>
+        </Drawer>
       </div>
     );
   }
@@ -21675,7 +21671,7 @@ const ToolGroup = memo(function ToolGroup({
   return (
     <Popover.Root open={open} onOpenChange={handleOpenChange}>
       <Popover.Trigger render={pill} />
-      <Popover.Portal>
+      <Popover.Portal data-react-aria-top-layer="">
         <Popover.Positioner side="top" align="start" sideOffset={7} className="isolate z-[170] outline-none">
           <Popover.Popup
             onMouseEnter={keepHoverOpen}
@@ -22737,7 +22733,7 @@ type FolderDeletePlan = {
  * with real content gets the contents listed and a destructive-styled button.
  *
  * Rendered inline inside the picker rather than as a nested modal: the picker
- * is already a vaul Drawer, and stacking a second overlay on top of it fights
+ * is already a Drawer, and stacking a second overlay on top of it fights
  * the drawer's focus trap on mobile for no UX gain.
  */
 function DeleteFolderPanel({
@@ -22967,7 +22963,7 @@ function ProjectFolderBrowser({
   }
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange} shouldScaleBackground={false}>
+    <Drawer open={open} onOpenChange={onOpenChange}>
       {/* The browser wants a tall, stable window so the list doesn't resize as
           you navigate; the delete confirmation is short and looks stranded in
           it, so let that one state hug its content. */}
@@ -23146,7 +23142,7 @@ function NewSessionDialog({
   onReposChanged,
   onProjectSwipe,
   // Presentation shell for the shared composer core:
-  //  - "drawer" (default): desktop bottom sheet (Vaul), opened by the "C"
+  //  - "drawer" (default): responsive drawer, opened by the "C"
   //    shortcut.
   //  - "inline": mobile home screen — anchored at the bottom of the viewport,
   //    compact at rest and expandable. Always mounted (no open/close).
@@ -24874,11 +24870,6 @@ function NewSessionDialog({
   return (
     <Drawer
       open
-      // Let the browser (viewport `interactive-widget=resizes-content`) handle the
-      // on-screen keyboard. Vaul's default reposition imperatively rewrites the
-      // sheet's height/bottom on every visualViewport change, which fights the
-      // reflow and causes the layout shift/jump when a field takes focus.
-      repositionInputs={false}
       onOpenChange={(o) => {
         if (!o) onClose();
       }}
@@ -26019,27 +26010,22 @@ function ModelPicker({
           <ChevronDown className="size-4 shrink-0 text-muted-foreground/70" />
         </button>
         {mobileMounted ? (
-          <VaulDrawer.Root
+          <Drawer presentation="sheet" layer={180}
             open={open}
             onOpenChange={setOpen}
-            repositionInputs={false}
-            shouldScaleBackground={false}
           >
-            <VaulDrawer.Portal>
-              <VaulDrawer.Overlay className="fixed inset-0 z-[179] bg-black/80" />
-              <VaulDrawer.Content
+            <DrawerContent unstyled expandOnFocus={false} overlayClassName="fixed inset-0 z-[179] bg-black/80"
                 data-slot="model-picker-drawer-content"
-                className="fixed inset-x-0 bottom-0 z-[180] mx-auto flex max-h-[82dvh] max-w-lg select-none flex-col rounded-t-[2rem] border border-border bg-background p-4 pb-[max(var(--lfg-safe-bottom),1rem)] text-foreground shadow-2xl outline-none"
+                className="z-[180] mx-auto flex max-h-[82dvh] max-w-lg select-none flex-col rounded-t-[2rem] border border-border bg-background p-4 pb-[max(var(--lfg-safe-bottom),1rem)] text-foreground shadow-2xl outline-none"
                 aria-label="Model"
               >
                 <div className="mx-auto mb-3 h-1.5 w-24 shrink-0 rounded-full bg-muted" />
-                <VaulDrawer.Title className="mb-3 text-base font-semibold">
+                <DrawerTitle className="mb-3 text-base font-semibold">
                   Model
-                </VaulDrawer.Title>
+                </DrawerTitle>
                 {optionList}
-              </VaulDrawer.Content>
-            </VaulDrawer.Portal>
-          </VaulDrawer.Root>
+              </DrawerContent>
+          </Drawer>
         ) : null}
       </>
     );
@@ -26047,7 +26033,7 @@ function ModelPicker({
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger render={trigger} />
-      <Popover.Portal>
+      <Popover.Portal data-react-aria-top-layer="">
         <Popover.Positioner
           side="bottom"
           align="start"
@@ -26319,7 +26305,7 @@ export function AgentModelPicker<K extends AgentKind>({
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger render={trigger} />
-      <Popover.Portal>
+      <Popover.Portal data-react-aria-top-layer="">
         <Popover.Positioner
           side={side}
           align="start"

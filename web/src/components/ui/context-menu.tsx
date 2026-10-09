@@ -35,7 +35,7 @@ function ContextMenuContent({
     "align" | "alignOffset" | "side" | "sideOffset"
   >) {
   return (
-    <ContextMenuPrimitive.Portal>
+    <ContextMenuPrimitive.Portal data-react-aria-top-layer="">
       <ContextMenuPrimitive.Positioner
         // Match dropdown-menu: above dialogs (z-160) so menus stay usable.
         className="isolate z-[170] outline-none"

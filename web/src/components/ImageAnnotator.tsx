@@ -294,7 +294,7 @@ export function ImageAnnotator({
       }}
     >
       {/* z-[190] — the annotator is always opened FROM another surface (the
-          new-session composer, which is a Vaul drawer on mobile but a plain
+          new-session composer, which is a React Aria sheet on mobile but a plain
           Dialog at z-[160] on desktop, or the chat composer). Anything lower
           lets that surface paint on top of the canvas. 190 also clears the
           model-picker layer (z-[180]); nothing in here portals a menu, so it

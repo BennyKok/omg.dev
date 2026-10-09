@@ -32,11 +32,20 @@ Object.assign(globalThis, {
   navigator: window.navigator,
   HTMLElement: window.HTMLElement,
   Element: window.Element,
+  HTMLButtonElement: window.HTMLButtonElement,
+  HTMLInputElement: window.HTMLInputElement,
+  HTMLTextAreaElement: window.HTMLTextAreaElement,
+  HTMLSelectElement: window.HTMLSelectElement,
+  SVGElement: window.SVGElement,
+  NodeFilter: window.NodeFilter,
+  CSS: window.CSS,
+  // happy-dom has no layout. Real swipe geometry is verified in a browser.
+  IntersectionObserver: window.IntersectionObserver,
   Node: window.Node,
   Event: window.Event,
   CustomEvent: window.CustomEvent,
   KeyboardEvent: window.KeyboardEvent,
-  // Vaul drawers mount a Radix focus scope, which watches its subtree.
+  // Overlay focus scopes watch their subtrees.
   MutationObserver: window.MutationObserver,
   getComputedStyle: window.getComputedStyle.bind(window),
   // Base UI schedules its open/close transitions on animation frames. Without

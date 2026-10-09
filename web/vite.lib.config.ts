@@ -29,7 +29,6 @@ const HOST_SHARED_EXTERNALS = [
   "@tanstack/react-router",
   "cnfast",
   "class-variance-authority",
-  "vaul",
   "@base-ui/react",
   "sonner",
 ] as const;
@@ -176,9 +175,6 @@ export default defineConfig({
       //                                instances isolated via context.
       //   cnfast                     — both 0.0.8 exactly
       //   class-variance-authority   — both 0.7.1
-      //   vaul                       — both 1.1.2. Pulls @radix-ui/* with
-      //                                it; those drop out of this graph
-      //                                once vaul is external.
       //   @base-ui/react             — the largest single duplicate here.
       //                                Externalizing this REQUIRES the host
       //                                to move first, and the trap is that

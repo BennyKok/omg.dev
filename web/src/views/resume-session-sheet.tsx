@@ -197,7 +197,6 @@ export default function ResumeSessionSheet({
   return (
     <Drawer
       open
-      repositionInputs={false}
       onOpenChange={(next) => {
         if (!next) onClose();
       }}

@@ -16,7 +16,7 @@ function DialogTrigger({ ...props }: DialogPrimitive.Trigger.Props) {
 }
 
 function DialogPortal({ ...props }: DialogPrimitive.Portal.Props) {
-  return <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />
+  return <DialogPrimitive.Portal data-react-aria-top-layer="" data-slot="dialog-portal" {...props} />
 }
 
 function DialogClose({ ...props }: DialogPrimitive.Close.Props) {
@@ -37,10 +37,7 @@ function DialogOverlay({
         // receive clicks. Portalled menus/popovers sit at z-[170] so controls
         // opened from inside a dialog render above this backdrop.
         //
-        // pointer-events-auto is critical: vaul (the Drawer lib) sets
-        // `pointer-events: none` on <body> while a Drawer is open, and
-        // base-ui portals our Dialog content as a descendant of body —
-        // without overriding here every click is dropped silently.
+        // Portal surfaces must receive input above any open parent overlay.
         "pointer-events-auto fixed inset-0 isolate z-[160] bg-black/80 data-open:duration-[var(--duration-fast)] data-closed:duration-[var(--duration-quick)] ease-ios data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
         className
       )}

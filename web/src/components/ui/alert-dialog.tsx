@@ -17,7 +17,7 @@ function AlertDialogTrigger({ ...props }: AlertDialogPrimitive.Trigger.Props) {
 
 function AlertDialogPortal({ ...props }: AlertDialogPrimitive.Portal.Props) {
   return (
-    <AlertDialogPrimitive.Portal data-slot="alert-dialog-portal" {...props} />
+    <AlertDialogPrimitive.Portal data-react-aria-top-layer="" data-slot="alert-dialog-portal" {...props} />
   )
 }
 
@@ -35,11 +35,7 @@ function AlertDialogOverlay({
         // remain visible and receive clicks. Portalled menus/popovers sit at
         // z-[170] so controls opened from inside a dialog render above it.
         //
-        // pointer-events-auto is critical: vaul (the Drawer lib) sets
-        // `pointer-events: none` on <body> while a Drawer is open, and
-        // base-ui portals our AlertDialog content as a descendant of
-        // body — so without overriding here every click is dropped and
-        // the confirm flow silently no-ops.
+        // Portal surfaces must receive input above any open parent overlay.
         "pointer-events-auto fixed inset-0 isolate z-[160] bg-black/80 data-open:duration-[var(--duration-fast)] data-closed:duration-[var(--duration-quick)] ease-ios data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
         className
       )}

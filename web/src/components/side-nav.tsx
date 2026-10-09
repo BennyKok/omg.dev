@@ -16,7 +16,7 @@
  * timings and dim.
  */
 import { type ReactNode, useEffect, useRef } from "react";
-import { Drawer as VaulDrawer } from "vaul";
+import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
 import {
   Bell,
   Bot,
@@ -130,25 +130,17 @@ export function SideNavDrawer({
   footer?: ReactNode;
 }) {
   return (
-    <VaulDrawer.Root
+    <Drawer presentation="sheet" layer={180}
       open={open}
       onOpenChange={onOpenChange}
       direction="left"
-      repositionInputs={false}
-      shouldScaleBackground={false}
     >
-      <VaulDrawer.Portal>
-        {/* 28% black, the iOS value. */}
-        <VaulDrawer.Overlay className="fixed inset-0 z-[179] bg-black/[0.28]" />
-        <VaulDrawer.Content
+      <DrawerContent unstyled expandOnFocus={false} overlayClassName="fixed inset-0 z-[179] bg-black/[0.28]"
           data-slot="side-nav"
           aria-describedby={undefined}
-          // Same opt-out as the agent sheet: vaul's ::after inherits this
-          // element's background and paints a slab past its edge.
-          data-vaul-custom-container="true"
-          className="fixed inset-y-0 left-0 z-[180] flex w-[min(20rem,72vw)] select-none flex-col border-r border-border bg-background text-foreground shadow-2xl outline-none"
+          className="h-[100dvh] z-[180] flex w-[min(20rem,72vw)] select-none flex-col border-r border-border bg-background text-foreground shadow-2xl outline-none"
         >
-          <VaulDrawer.Title className="sr-only">Navigation</VaulDrawer.Title>
+          <DrawerTitle className="sr-only">Navigation</DrawerTitle>
           <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-3 pb-[max(var(--lfg-safe-bottom),1rem)] pt-[calc(0.75rem+env(safe-area-inset-top))]">
             {brand ? <div className="px-1 pb-4 pt-1">{brand}</div> : null}
             {/* The machine, first. It is the thing every other row is scoped
@@ -157,9 +149,8 @@ export function SideNavDrawer({
             <SideNavRows rows={rows} onNavigate={onNavigate} onClose={() => onOpenChange(false)} />
             {footer ? <div className="mt-2 border-t border-border pt-2">{footer}</div> : null}
           </div>
-        </VaulDrawer.Content>
-      </VaulDrawer.Portal>
-    </VaulDrawer.Root>
+        </DrawerContent>
+    </Drawer>
   );
 }
 
