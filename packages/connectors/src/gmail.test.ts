@@ -94,6 +94,44 @@ test("an html-only body is read as text", () => {
   expect(messageText({ mimeType: "text/html", body: { data: b64url("<div>One</div><div>Two &amp; three</div>") } })).toBe("One\nTwo & three");
 });
 
+test("an html-only body keeps link URLs next to their labels", () => {
+  const html = '<p>Click below.</p><a href="https://example.com/login?a=1&amp;b=2" class="btn"><span>Sign in</span></a><a href="https://example.com/x">https://example.com/x</a><a href="#top">Top</a>';
+  expect(messageText({ mimeType: "text/html", body: { data: b64url(html) } })).toBe(
+    "Click below.\nSign in (https://example.com/login?a=1&b=2)https://example.com/xTop",
+  );
+});
+
+test("links only in the html part are listed after a plain-text body", () => {
+  const payload = {
+    mimeType: "multipart/alternative",
+    parts: [
+      { mimeType: "text/plain", body: { data: b64url("Sign in to Claude Console\n\nSign in\n\nHelp: https://help.example.com\n") } },
+      {
+        mimeType: "text/html",
+        body: {
+          data: b64url(
+            '<a href="https://console.example.com/magic?token=abc&amp;n=1">Sign in</a><a href="https://help.example.com">Help</a><a href="javascript:void(0)">Bad</a><a href="https://console.example.com/magic?token=abc&amp;n=1">Again</a>',
+          ),
+        },
+      },
+    ],
+  };
+  expect(messageText(payload)).toBe(
+    "Sign in to Claude Console\n\nSign in\n\nHelp: https://help.example.com\n\nLinks:\n- Sign in: https://console.example.com/magic?token=abc&n=1",
+  );
+});
+
+test("a plain-text body that already has every link is unchanged", () => {
+  const payload = {
+    mimeType: "multipart/alternative",
+    parts: [
+      { mimeType: "text/plain", body: { data: b64url("Go: https://x.com/a") } },
+      { mimeType: "text/html", body: { data: b64url('<a href="https://x.com/a">Go</a>') } },
+    ],
+  };
+  expect(messageText(payload)).toBe("Go: https://x.com/a");
+});
+
 test("a reply stays in the thread and carries In-Reply-To and a Re: subject", async () => {
   const g = fakeGmail();
   const r = parse(await callGmailTool(token, "send_email", { to: "a@x.com", body: "Sounds good", reply_to_message_id: "m1" }, g.fetchImpl));
