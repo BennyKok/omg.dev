@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## October 9, 2026 - On-device web dictation (v0.6.208)
+
+- Web dictation starts with your current transcription service. After Whistle downloads and loads in your browser, Auto switches to on-device transcription between recordings.
+- In Settings > More, choose Auto, Cloud, or Local. Your choice stays in this browser. Auto uses cloud if local transcription fails. Local does not upload recordings.
+- Local dictation supports English, German, French, Spanish, Italian, Dutch, and Polish. It shows the transcript after recording stops. Chinese and Cantonese selections use cloud in Auto mode.
+- The composer fade stays above the phone preview card.
+
 ## October 8, 2026 - Sign-in for published web apps (v0.6.207)
 
 - When you ask for sign-in, the agent uses your omg.dev sign-in. It no longer builds its own login form.
