@@ -44,7 +44,7 @@ local('agent-setup-sheet.tsx',{AgentSetupSheet:()=>null});
 local('edge-fade.tsx',{RailEdgeFades:()=>null});
 local('skill-suggest.tsx',{SkillSuggest:()=>null});
 local('session-mention-suggest.tsx',{SessionMentionSuggest:()=>null});
-local('motion.tsx',{PressableScale:Pressable,useListItemMotion:()=>({}),useReduceMotionEnabled:()=>false});
+local('motion.tsx',{PressableScale:Pressable,useListItemMotion:()=>({}),useReduceMotionEnabled:()=>false,useVoiceInputPresence:(active:boolean)=>active});
 local('swipe-row.ts',{useSwipeToCommit:()=>({})});
 const { light, space, type, radius, motion } = await import('../src/omg/palette');
 local('theme.ts',{useTheme:()=>({colors:light,space,type,radius,motion,isDark:false})});

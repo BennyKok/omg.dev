@@ -139,6 +139,7 @@ import { WorkingIndicator } from "../../src/omg/working-indicator";
 import { filterBotChatEntries, stripBotLaunchEnvelope } from "../../src/omg/bot-transcript";
 import type { Bot } from "../../src/omg/bots";
 import { useDictation } from "../../src/omg/dictation";
+import { useVoiceInputPresence } from "../../src/omg/motion";
 import { GlassSurface } from "../../src/omg/glass";
 import { ChatBarShell } from "../../src/omg/chat-bar";
 import { ChatHeaderBar } from "../../src/omg/chat-header";
@@ -1890,11 +1891,12 @@ function SessionScreenContent({
   const [composerHeight, setComposerHeight] = useState(0);
   /** The field has the keyboard: a little more room around the text while typing. */
   const [composerFocused, setComposerFocused] = useState(false);
+  const voicePresent = useVoiceInputPresence(dictation.state !== "idle");
   const composerExpanded =
     composerFocused ||
     draft.trim().length > 0 ||
     attachments.items.length > 0 ||
-    dictation.state !== "idle";
+    voicePresent;
 
   /**
    * THE LIFT ALONE IS NOT ENOUGH — the list has to follow it.

@@ -59,6 +59,7 @@ local("motion.tsx", {
   PressableScale: Pressable,
   useListItemMotion: () => ({}),
   useReduceMotionEnabled: () => false,
+  useVoiceInputPresence: (active: boolean) => active,
 });
 local("swipe-row.ts", { useSwipeToCommit: () => ({}) });
 local("session-activity.tsx", {

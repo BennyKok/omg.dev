@@ -36,6 +36,7 @@ on:
         options:
           - production
           - preview
+          - testflight-whistle
       platform:
         description: "Platforms to update"
         default: all

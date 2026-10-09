@@ -1,6 +1,6 @@
 import { useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { Image, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
-import Reanimated, { FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withDelay, withRepeat, withSequence, withTiming } from "react-native-reanimated";
+import Reanimated, { Easing, FadeIn, FadeOut, LinearTransition, ReduceMotion, useAnimatedStyle, useSharedValue, withDelay, withRepeat, withSequence, withTiming } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { AttachmentStrip, Icon, InlineVoiceRecorder } from "../components";
 import { AttachMenuButton, AttachMenuLayer } from "./attach-menu";
@@ -18,10 +18,12 @@ import { PersonFace, ThreadPeopleContext } from "./thread-details";
 import { agentIcon } from "./agent-icons";
 import { useDictation } from "./dictation";
 import { GlassSurface, LIQUID_GLASS } from "./glass";
-import { PressableScale } from "./motion";
+import { PressableScale, useReduceMotionEnabled, useVoiceInputPresence } from "./motion";
 import { useOmg } from "./provider";
 import { Text } from "./text";
 import { useTheme } from "./theme";
+
+const AnimatedGlassSurface = Reanimated.createAnimatedComponent(GlassSurface);
 
 /**
  * THE CHAT BAR'S GLASS SHELL: one owner for how the app's message field looks.
@@ -53,8 +55,12 @@ export function ChatBarShell({
   children: ReactNode;
 }) {
   const { colors, space } = useTheme();
+  const reducedMotion = useReduceMotionEnabled();
+  const slide = LinearTransition.duration(250).easing(Easing.out(Easing.cubic))
+    .reduceMotion(reducedMotion ? ReduceMotion.Always : ReduceMotion.Never);
   return (
-    <GlassSurface
+    <AnimatedGlassSurface
+      layout={slide}
       variant="regular"
       fallbackColor={colors.card}
       style={{
@@ -75,7 +81,8 @@ export function ChatBarShell({
     >
       {attachments}
       {!expanded ? collapsedStart : null}
-      <View
+      <Reanimated.View
+        layout={slide}
         style={{
           flex: expanded ? undefined : 1,
           width: expanded ? "100%" : undefined,
@@ -84,13 +91,13 @@ export function ChatBarShell({
         }}
       >
         {children}
-      </View>
+      </Reanimated.View>
       {expanded ? (
-        <View style={{ minHeight: 40, flexDirection: "row", alignItems: "center", gap: 8 }}>{expandedActions}</View>
+        <Reanimated.View collapsable={false} layout={slide} style={{ minHeight: 40, flexDirection: "row", alignItems: "center", gap: 8 }}>{expandedActions}</Reanimated.View>
       ) : (
         collapsedEnd
       )}
-    </GlassSurface>
+    </AnimatedGlassSurface>
   );
 }
 
@@ -270,7 +277,8 @@ export function ThreadChatBar({
   const tail = dictation.live && dictation.state === "recording" ? (dictation.partial ?? "").trim() : "";
   const hasFiles = attachments.items.some((item) => item.path);
   const canSend = (text.trim().length > 0 || hasFiles) && !sending && !attachments.uploading;
-  const expanded = focused || text.trim().length > 0 || attachments.items.length > 0 || dictation.state !== "idle";
+  const voicePresent = useVoiceInputPresence(dictation.state !== "idle");
+  const expanded = focused || text.trim().length > 0 || attachments.items.length > 0 || voicePresent;
   const plus = (size: number) => (
     <AttachMenuButton key="thread-attach" options={attachments.options} size={size}>
       <Icon ios="plus" android="add" size={20} color={colors.textSecondary} />

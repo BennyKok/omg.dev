@@ -1,0 +1,43 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": { "clearState": false },
+  "steps": [
+    {
+      "name": "Home composer",
+      "goal": "Dismiss Apple Account Verification with Not Now. If data and AI consent appears, tap Agree and continue for this demo account. If Settings is open, use Navigation and go to Home. Do not type or send a message.",
+      "done": "The Home composer microphone is visible.",
+      "expect": ["Dictate a prompt"],
+      "timeoutMs": 60000
+    },
+    {
+      "name": "Voice controls enter",
+      "goal": "Tap Dictate a prompt. If iOS asks for microphone access, tap Allow. Do not tap Finish recording.",
+      "done": "The expanded composer shows both recording controls.",
+      "expect": ["Discard recording", "Finish recording"],
+      "timeoutMs": 30000
+    },
+    {
+      "name": "Voice controls exit",
+      "goal": "Tap Discard recording. Wait for the composer to settle.",
+      "done": "The recorder leaves and the normal microphone returns.",
+      "expect": ["Dictate a prompt"],
+      "forbid": ["Discard recording", "Finish recording"],
+      "timeoutMs": 30000
+    },
+    {
+      "name": "Record again",
+      "goal": "Tap Dictate a prompt again. Do not send anything.",
+      "done": "Recording controls return after the previous exit.",
+      "expect": ["Discard recording", "Finish recording"],
+      "timeoutMs": 30000
+    },
+    {
+      "name": "Cancel again",
+      "goal": "Tap Discard recording again. Wait for the composer to settle.",
+      "done": "The voice controls leave and the compact composer returns.",
+      "expect": ["Dictate a prompt"],
+      "forbid": ["Discard recording", "Finish recording"],
+      "timeoutMs": 30000
+    }
+  ]
+}

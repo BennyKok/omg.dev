@@ -101,6 +101,25 @@ export function useReduceMotionEnabled(): boolean {
   return enabled;
 }
 
+/** Keep the composer open while its voice controls finish their exit. */
+export function useVoiceInputPresence(active: boolean): boolean {
+  const reducedMotion = useReduceMotionEnabled();
+  const [present, setPresent] = useState(active);
+  useEffect(() => {
+    if (active) {
+      setPresent(true);
+      return;
+    }
+    if (reducedMotion) {
+      setPresent(false);
+      return;
+    }
+    const timer = setTimeout(() => setPresent(false), motion.quick);
+    return () => clearTimeout(timer);
+  }, [active, reducedMotion]);
+  return active || (!reducedMotion && present);
+}
+
 /**
  * The compress-and-release feedback: a single 0→1 shared value drives both
  * scale and a slight opacity dim, so a caller that wants only one just passes

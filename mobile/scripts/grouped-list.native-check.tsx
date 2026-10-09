@@ -96,6 +96,7 @@ local('motion.tsx', {
   },
   useListItemMotion: () => ({}),
   useReduceMotionEnabled: () => true,
+  useVoiceInputPresence: (active: boolean) => active,
 });
 
 const { dark, light } = await import('../src/omg/palette');

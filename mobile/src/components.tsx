@@ -56,7 +56,7 @@ import { AgentSetupSheet } from "./omg/agent-setup-sheet";
 import { RailEdgeFades } from "./omg/edge-fade";
 import { SkillSuggest } from "./omg/skill-suggest";
 import { SessionMentionSuggest } from "./omg/session-mention-suggest";
-import { PressableScale, useListItemMotion, useReduceMotionEnabled } from "./omg/motion";
+import { PressableScale, useListItemMotion, useReduceMotionEnabled, useVoiceInputPresence } from "./omg/motion";
 import { useSwipeToCommit } from "./omg/swipe-row";
 import { useTheme } from "./omg/theme";
 import { SessionActivityField, SessionActivityTitle, useSessionActivity } from "./omg/session-activity";
@@ -1279,8 +1279,9 @@ export function HomeComposer({
   // Match TextInput's capped Dynamic Type scale when reserving each line.
   const inputLineHeight = Math.ceil(COMPOSER_LINE * Math.min(fontScale, MAX_FONT_SCALE));
   const maxInputHeight = COMPOSER_MAX_LINES * inputLineHeight;
+  const voicePresent = useVoiceInputPresence(dictation.state !== "idle");
   const expanded =
-    composerFocused || hasMessage || attachments.items.length > 0 || dictation.state !== "idle";
+    composerFocused || hasMessage || attachments.items.length > 0 || voicePresent;
   /**
    * ONE VALUE DRIVES THE MORPH, so the parts cannot arrive out of step.
    *
@@ -1569,7 +1570,7 @@ export function HomeComposer({
         {expanded ? null : agentControl}
         {inputControl}
         {expanded ? (
-          <Reanimated.View layout={slide} style={{ minHeight: 40, flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <Reanimated.View collapsable={false} layout={slide} style={{ minHeight: 40, flexDirection: "row", alignItems: "center", gap: 8 }}>
             {agentControl}
             {attachmentControl}
             <View style={{ flex: 1 }} />
@@ -2060,9 +2061,29 @@ export function InlineVoiceRecorder({
 }) {
   const { colors } = useTheme();
   const recording = state === "recording";
+  const reducedMotion = useReduceMotionEnabled();
+  const enter = () => {
+    "worklet";
+    const config = { duration: reducedMotion ? 0 : 250, easing: Easing.out(Easing.cubic) };
+    return {
+      initialValues: { opacity: reducedMotion ? 1 : 0, transform: [{ translateX: reducedMotion ? 0 : 12 }, { scale: reducedMotion ? 1 : 0.92 }] },
+      animations: { opacity: withTiming(1, config), transform: [{ translateX: withTiming(0, config) }, { scale: withTiming(1, config) }] },
+    };
+  };
+  const exit = () => {
+    "worklet";
+    const config = { duration: reducedMotion ? 0 : 150, easing: Easing.in(Easing.cubic) };
+    return {
+      initialValues: { opacity: 1, transform: [{ translateX: 0 }, { scale: 1 }] },
+      animations: { opacity: withTiming(0, config), transform: [{ translateX: withTiming(8, config) }, { scale: withTiming(0.96, config) }] },
+    };
+  };
 
   return (
-    <View
+    <Reanimated.View
+      collapsable={false}
+      entering={enter}
+      exiting={exit}
       accessibilityLabel={recording ? "Voice recording controls" : "Transcribing voice"}
       style={{
         width: 126,
@@ -2142,7 +2163,7 @@ export function InlineVoiceRecorder({
       >
         <Icon ios="checkmark" android="check" size={14} color={colors.bg} weight="semibold" />
       </PressableScale>
-    </View>
+    </Reanimated.View>
   );
 }
 
