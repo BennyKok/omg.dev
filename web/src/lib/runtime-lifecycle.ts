@@ -26,10 +26,11 @@ export function useRuntimeLifecycle(enabled: boolean, generation: number) {
           return;
         }
         const state = response.ok ? parseRuntimeLifecycle(await response.json()) : null;
-        if (!disposed) setSnapshot({ generation, state });
+        if (!disposed && state) setSnapshot({ generation, state });
         if (response.ok && !state) return;
       } catch {
-        if (!disposed) setSnapshot({ generation, state: null });
+        // A transient proxy/network failure must not replace known wake state
+        // with a generic failure while the computer is still resuming.
       }
       if (!disposed) timer = setTimeout(poll, 3000);
     };
@@ -42,11 +43,11 @@ export function useRuntimeLifecycle(enabled: boolean, generation: number) {
 export function runtimeLifecycleMessage(state: RuntimeLifecycle | null | undefined): string | null {
   switch (state) {
     case "starting": return "Starting your computer…";
-    case "waking": return "Waking your computer…";
+    case "waking": return "Resuming your computer…";
     // Infrastructure can be ready before the client finishes its connection.
     case "ready": return "Connecting…";
     case "failed": return "Could not start your computer";
-    case "paused": return "Computer paused";
+    case "paused": return "Resuming your computer…";
     case "unavailable": return "Computer unavailable";
     default: return null;
   }

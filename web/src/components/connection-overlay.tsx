@@ -17,12 +17,12 @@ const RESUME_WINDOW_MS = 15_000;
 const BACK_MS = 1_200;
 
 function useNow(nextChangeMs: number | null): void {
-  const [, setTick] = useState(0);
+  const [tick, setTick] = useState(0);
   useEffect(() => {
     if (nextChangeMs === null) return;
     const timer = setTimeout(() => setTick((n) => n + 1), Math.max(16, nextChangeMs));
     return () => clearTimeout(timer);
-  }, [nextChangeMs]);
+  }, [nextChangeMs, tick]);
 }
 
 /** True for a short window after the page returns from the background. */
@@ -193,8 +193,21 @@ function ConnectionSurface({
         aria-live={pill ? undefined : "polite"}
       >
         <div ref={slot} aria-hidden="true" style={{ width: pill ? 28 : 80, height: pill ? 28 : 80, flexShrink: 0 }} />
-        <p className={pill ? "text-sm font-medium" : "text-base font-semibold text-foreground"}>{view.title}</p>
-        {!pill && view.detail ? <p className="text-sm text-muted-foreground">{view.detail}</p> : null}
+        <div className={pill && view.progress !== undefined ? "min-w-0 py-1 pr-1" : "contents"}>
+          <p className={pill ? "text-sm font-medium" : "text-base font-semibold text-foreground"}>{view.title}</p>
+          {view.progress !== undefined ? (
+            <div className="mt-2 w-full">
+              <div role="progressbar" aria-label="Estimated computer resume progress"
+                aria-valuemin={0} aria-valuemax={100} aria-valuenow={view.progress}
+                aria-valuetext={`${view.progress}% estimated. ${view.detail}`}
+                className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                <div className="h-full rounded-full bg-foreground motion-safe:transition-[width] motion-safe:duration-300"
+                  style={{ width: `${view.progress}%` }} />
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">{view.detail}</p>
+            </div>
+          ) : !pill && view.detail ? <p className="text-sm text-muted-foreground">{view.detail}</p> : null}
+        </div>
         {view.canRetry || (!pill && view.canSwitch && machineSwitcher) ? (
           <div className={pill ? "contents" : "mt-1 flex w-full flex-col items-stretch gap-2"}>
             {view.canRetry ? (

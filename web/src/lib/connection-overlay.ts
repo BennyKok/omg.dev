@@ -42,6 +42,8 @@ export type ConnectionOverlayView = {
   canSwitch: boolean;
   /** Milliseconds until the mode can change on time alone, or null. */
   nextChangeMs: number | null;
+  /** Estimated progress only; completion comes from the live connection. */
+  progress?: number;
 };
 
 /** A blip shorter than this is not worth any UI. */
@@ -55,6 +57,11 @@ export const LONG_WAIT_MS = 8_000;
 export const FAIL_AFTER_MS = 20_000;
 /** The first bootstrap gets the overlay quickly: there is nothing to use yet. */
 export const STARTUP_SHOW_AFTER_MS = 600;
+export const RESUME_ESTIMATE_MS = 30_000;
+
+export function computerIsResuming(lifecycle: RuntimeLifecycle | null | undefined): boolean {
+  return lifecycle === "paused" || lifecycle === "waking" || lifecycle === "starting" || lifecycle === "ready";
+}
 
 const HIDDEN: ConnectionOverlayView = {
   mode: "hidden",
@@ -68,7 +75,7 @@ const HIDDEN: ConnectionOverlayView = {
 
 function hardLifecycle(input: ConnectionOverlayInput): boolean {
   if (input.status === "offline" && input.notLiveMs >= FAIL_AFTER_MS) return true;
-  return input.lifecycle === "failed" || input.lifecycle === "paused" || input.lifecycle === "unavailable";
+  return input.lifecycle === "failed" || input.lifecycle === "unavailable";
 }
 
 /** A bootstrap error the app is still retrying by itself. */
@@ -100,7 +107,6 @@ function moodFor(input: ConnectionOverlayInput): BoxyMood {
 }
 
 function detailFor(input: ConnectionOverlayInput, mood: BoxyMood): string | null {
-  if (input.lifecycle === "paused") return "This computer is paused. Resume it, or switch to another computer.";
   if (input.lifecycle === "starting" || input.lifecycle === "waking") return "This can take a moment.";
   if (mood === "error") return "Try again, or switch to another computer.";
   if (input.status === "offline") return "Check your connection, or switch to another computer.";
@@ -121,6 +127,24 @@ export function connectionOverlayView(input: ConnectionOverlayInput): Connection
 function baseView(input: ConnectionOverlayInput): ConnectionOverlayView {
   const label = runtimeStatusText(input);
   if (!label) return HIDDEN;
+
+  // The hosted page holds a presence lease that wakes its computer. A paused
+  // response is part of that wait, including stale socket/bootstrap failures.
+  if (computerIsResuming(input.lifecycle)) {
+    return {
+      mode: input.ready ? "pill" : "overlay",
+      mood: "booting",
+      title: input.lifecycle === "starting" ? "Starting your computer…"
+        : input.lifecycle === "ready" ? "Connecting to your computer…" : "Resuming your computer…",
+      detail: input.notLiveMs < RESUME_ESTIMATE_MS
+        ? "Please wait. Allow about 30 seconds."
+        : "This is taking longer than expected. We are still connecting.",
+      canRetry: false,
+      canSwitch: false,
+      progress: Math.min(95, Math.round(95 * (1 - Math.exp(-3 * input.notLiveMs / RESUME_ESTIMATE_MS)))),
+      nextChangeMs: 250,
+    };
+  }
 
   const soft = softError(input) || input.status === "offline" && input.notLiveMs < FAIL_AFTER_MS;
   // Still retrying: read as connecting, not as a failure.

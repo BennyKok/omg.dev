@@ -32,6 +32,27 @@ test("a live app shows no connection surface", () => {
   expect(overlay()).toBeNull();
 });
 
+test("paused automatically shows resume progress without action buttons, then recovers", async () => {
+  ui = mount();
+  ui.render(view({ ...base, ready: false, lifecycle: "paused", status: "offline", error: "old 425" }));
+  const el = overlay()!;
+  expect(el.textContent).toContain("Resuming your computer…");
+  expect(el.textContent).toContain("about 30 seconds");
+  expect(el.querySelectorAll("button").length).toBe(0);
+  const progress = el.querySelector('[role="progressbar"]')!;
+  expect(progress.getAttribute("aria-label")).toContain("Estimated");
+  const initial = Number(progress.getAttribute("aria-valuenow"));
+  await ui.flushAsync(() => sleep(800));
+  expect(Number(progress.getAttribute("aria-valuenow"))).toBeGreaterThan(initial);
+  ui.render(view({ ...base, lifecycle: "waking", status: "offline" }));
+  expect(overlay()?.getAttribute("data-connection-overlay")).toBe("pill");
+  expect(overlay()?.querySelector('[role="progressbar"]')).not.toBeNull();
+  expect(overlay()?.querySelectorAll("button").length).toBe(0);
+  ui.render(view(base));
+  expect(overlay()?.textContent).toContain("Connected");
+  expect(overlay()?.querySelector('[role="progressbar"]')).toBeNull();
+});
+
 test("a failed computer dims the app with Boxy, Retry, and the computer switcher", () => {
   let retried = 0;
   ui = mount();

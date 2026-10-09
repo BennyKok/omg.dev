@@ -1,6 +1,8 @@
 import { useEffect, useRef } from "react";
 import { routedToast as toast } from "./lib/host-toast";
 import type { ConnectionState } from "./useLiveSocket";
+import { useRuntimeAvailability } from "./lib/runtime-availability";
+import { computerIsResuming } from "./lib/connection-overlay";
 
 const WS_TOAST_ID = "ws-conn";
 
@@ -21,6 +23,7 @@ export function ConnectionStatusToasts({
   recoveryVisible?: boolean;
 }) {
   const { status, attempt, lastCloseCode } = connection;
+  const { lifecycle } = useRuntimeAvailability();
   const prevStatusRef = useRef(status);
 
   useEffect(() => {
@@ -29,6 +32,11 @@ export function ConnectionStatusToasts({
 
     if (recoveryVisible) {
       toast.dismiss(WS_TOAST_ID);
+      return;
+    }
+
+    if (status !== "live" && computerIsResuming(lifecycle)) {
+      toast.loading("Resuming your computer… Please wait.", { id: WS_TOAST_ID });
       return;
     }
 
@@ -55,7 +63,7 @@ export function ConnectionStatusToasts({
     }
     // "connecting" (initial load) and steady-state "live" stay silent — no nagging.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, attempt, lastCloseCode, onRetry, recoveryVisible]);
+  }, [status, attempt, lastCloseCode, onRetry, recoveryVisible, lifecycle]);
 
   return null;
 }
