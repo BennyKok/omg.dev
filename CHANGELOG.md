@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 9, 2026 - Clear computer resume progress (v0.6.209)
+
+- A paused computer shows resume progress while it wakes. The app keeps trying without asking you to press Retry.
+- If the wait exceeds the estimate, the app explains that it is still connecting.
+- Resume metrics record the measured wait until the app is usable. Reports show the average, median, slow waits, and failed attempts.
+
 ## October 9, 2026 - On-device web dictation (v0.6.208)
 
 - Web dictation starts with your current transcription service. After Whistle downloads and loads in your browser, Auto switches to on-device transcription between recordings.

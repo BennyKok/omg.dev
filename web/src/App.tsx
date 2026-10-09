@@ -7,6 +7,7 @@ import { OMG_DEFAULT_MODEL, OMG_MODELS } from "../../src/omg-models";
 import { omgModelLabel, omgModelSearchText, parseOmgModel } from "../../packages/protocol/src/omg-model-display";
 import { ModelProviderIcon } from "./lib/model-provider-icons";
 import { useRuntimeLifecycle } from "./lib/runtime-lifecycle";
+import { useComputerResumeMetrics } from "./lib/use-computer-resume-metrics";
 import { LiveHeaderContext } from "./components/live-header-context";
 import { ProjectPillRail, projectPillsFor } from "./components/project-pill-rail";
 import { ProjectFolderMenu } from "./components/project-folder-menu";
@@ -7789,6 +7790,11 @@ export function App() {
     loading || !runtimeReady || !!error || (useWsLive && wsLiveStream.connection.status !== "live"),
     omgTransportGeneration(),
   );
+  useComputerResumeMetrics({
+    generation: omgTransportGeneration(),
+    live: runtimeReady && (!useWsLive || wsLiveStream.connection.status === "live"),
+    lifecycle: runtimeLifecycle,
+  }, !bare);
 
   const retryRuntime = useCallback(() => {
     if (loading) return;
