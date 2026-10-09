@@ -63,3 +63,10 @@ test("the unassigned tab matches only explicit no-project chats", () => {
   expect(sessionMatchesProject({ cwd: "/home/user/repos/lfg" }, "")).toBe(false);
   expect(sessionMatchesProject({ project: "", cwd: "/home/user/.omg/chats/one" }, "one")).toBe(false);
 });
+
+
+test("all projects includes assigned, unassigned, and legacy sessions", () => {
+  for (const session of [{ project: "site" }, { project: "other" }, { project: "" }, { cwd: "/repos/legacy" }]) {
+    expect(sessionMatchesProject(session, "__all")).toBe(true);
+  }
+});

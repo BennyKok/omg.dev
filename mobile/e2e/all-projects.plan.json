@@ -1,0 +1,56 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": true
+  },
+  "steps": [
+    {
+      "name": "Choose one project",
+      "goal": "Reach the demo Home screen. Accept AI data consent if shown. Tap api-gateway folder in the top project rail. Do not open a session.",
+      "done": "The api-gateway folder is selected and its project subheader and sessions are visible.",
+      "expect": [
+        "api-gateway. Showing only this folder. Show all",
+        "Refactor the rate limiter"
+      ],
+      "forbid": [
+        "Fix the failing checkout test"
+      ],
+      "selected": "api-gateway folder"
+    },
+    {
+      "name": "Clear to all projects",
+      "goal": "Tap the selected api-gateway folder pill again once to clear the filter. Do not tap the composer project control.",
+      "done": "Sessions from multiple projects appear under separate project subheaders.",
+      "expect": [
+        "checkout. Show only this folder",
+        "api-gateway. Show only this folder",
+        "Fix the failing checkout test",
+        "Refactor the rate limiter"
+      ]
+    },
+    {
+      "name": "Scope again",
+      "goal": "Tap the project subheader labelled api-gateway. Show only this folder. Do not tap the project pill for this step.",
+      "done": "Only api-gateway sessions remain under its header.",
+      "expect": [
+        "api-gateway. Showing only this folder. Show all",
+        "Refactor the rate limiter"
+      ],
+      "forbid": [
+        "Fix the failing checkout test"
+      ],
+      "selected": "api-gateway folder"
+    },
+    {
+      "name": "Clear no-project filter",
+      "goal": "Tap Chats without a project once to select it. Then tap that same tab again once to clear it.",
+      "done": "All projects are shown again with separate headers.",
+      "expect": [
+        "checkout. Show only this folder",
+        "api-gateway. Show only this folder",
+        "Fix the failing checkout test",
+        "Refactor the rate limiter"
+      ]
+    }
+  ]
+}

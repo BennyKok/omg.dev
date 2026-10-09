@@ -15,7 +15,7 @@
     },
     {
       "name": "Empty unassigned chats",
-      "goal": "Tap ONLY the element labelled Chats without a project. It is the first chip in the top project rail below Welcome. Do not tap add or Attach a file in the bottom composer. If a menu is open, close it first.",
+      "goal": "Stay on the selected Chats without a project tab. If another project is selected, tap Chats without a project once. Do not tap an already selected tab. Do not focus the composer.",
       "done": "The plus tab is selected and the session list is blank. Do not focus the composer yet.",
       "expect": [
         "Chats without a project",

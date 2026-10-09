@@ -17,7 +17,7 @@ import { preferredAgent } from "./agent-default";
 import { agentIcon, agentLabel as agentDisplayName } from "./agent-icons";
 import { type MenuOption } from "./menu";
 import { useOmg, type CodingAgent, type Repo } from "./provider";
-import { basename, projectKey, sessionMatchesProject } from "./project-filter";
+import { ALL_PROJECTS_FILTER, basename, projectKey, sessionMatchesProject } from "./project-filter";
 import { toRail, toStored, type RailArrangement, type StoredArrangement } from "./folder-arrangement";
 
 /**
@@ -610,6 +610,12 @@ export function useProjectPicker() {
     setChosen("");
   }, [bindingId]);
   const selectUnassigned = useCallback(() => setChosen(""), []);
+  const selectAll = useCallback(() => setChosen(ALL_PROJECTS_FILTER), []);
+  const selectProject = useCallback((project: string) => {
+    if (!project) return setChosen("");
+    const repo = repos.find((repo) => projectKey(repo) === project);
+    if (repo) setChosen(repo.cwd);
+  }, [repos]);
 
 
   const binding = useMemo(
@@ -632,12 +638,13 @@ export function useProjectPicker() {
   const visible = useMemo(() => ordered.filter((r) => !hiddenSet.has(r.cwd)), [ordered, hiddenSet]);
 
   /**
-   * Empty chosen means the explicit no-project tab. Null keeps the existing
-   * machine default. One selection owns both filtering and session creation.
+   * Empty chosen is no project; __all shows every project. Both start new
+   * chats without a folder. One selection owns filtering and session creation.
    */
   const unassigned = chosen === "";
+  const allProjects = chosen === ALL_PROJECTS_FILTER;
   const cwd = useMemo(() => {
-    if (chosen === "") return null;
+    if (chosen === "" || chosen === ALL_PROJECTS_FILTER) return null;
     if (chosen && repos.some((r) => r.cwd === chosen)) return chosen;
     const fallback = binding?.defaultFolder ?? null;
     if (fallback && visible.some((r) => r.cwd === fallback)) return fallback;
@@ -653,7 +660,7 @@ export function useProjectPicker() {
     () => repos.find((r) => r.cwd === cwd) ?? null,
     [cwd, repos],
   );
-  const activeFilter = unassigned ? "" : activeProject ? projectKey(activeProject) : null;
+  const activeFilter = allProjects ? ALL_PROJECTS_FILTER : unassigned ? "" : activeProject ? projectKey(activeProject) : null;
 
   const matches = useCallback(
     (session: { project?: string; cwd?: string }) => sessionMatchesProject(session, activeFilter),
@@ -666,7 +673,7 @@ export function useProjectPicker() {
         label: r.name || basename(r.cwd),
         selected: cwd === r.cwd,
         onPress: () => {
-          setChosen(r.cwd);
+          setChosen((current) => current === r.cwd ? ALL_PROJECTS_FILTER : r.cwd);
         },
       })),
     [visible, cwd],
@@ -780,6 +787,9 @@ export function useProjectPicker() {
     folderOrder,
     unassigned,
     selectUnassigned,
+    selectAll,
+    selectProject,
+    allProjects,
     cwd,
     label,
     options,

@@ -28,6 +28,8 @@
  * So take `project` when the box sent it, and fall back only when it did not.
  */
 
+export const ALL_PROJECTS_FILTER = "__all";
+
 export type ProjectRepo = { name: string; cwd: string; project?: string };
 
 export function basename(path: string): string {
@@ -50,6 +52,7 @@ export function sessionMatchesProject(
   session: { project?: string; cwd?: string },
   activeFilter: string | null,
 ): boolean {
+  if (activeFilter === ALL_PROJECTS_FILTER) return true;
   if (activeFilter === "") return session.project === "";
   if (!activeFilter || session.project === "") return false;
   if (session.project) return session.project === activeFilter;

@@ -987,6 +987,7 @@ export function SessionsScreen({
     ? projectGroups.flatMap((group) => group.nodes.map((node, index) => ({
         key: `${group.key}:${sessionStableId(node.session)}`, node,
         gap: index < group.nodes.length - 1 ? 2 : 0,
+        header: index === 0 ? { label: group.label, count: group.count, project: group.project } : null,
       }))) : [], [bindingId, readiness?.status, projectGroups]);
 
   const prefetchKeys = useMemo(
@@ -1258,7 +1259,7 @@ export function SessionsScreen({
       let acceptedSend = false;
       setStarting(true);
       try {
-        await beginConversation(prompt, projectPicker.cwd ?? undefined, projectPicker.unassigned);
+        await beginConversation(prompt, projectPicker.cwd ?? undefined, projectPicker.unassigned || projectPicker.allProjects);
         acceptedSend = true;
         attachments.clear();
         void Haptics.notificationAsync(
@@ -1283,6 +1284,7 @@ export function SessionsScreen({
       agentPicker.fastMode,
       projectPicker.cwd,
       projectPicker.unassigned,
+      projectPicker.allProjects,
       draft,
       stageDraft,
       finishDraft,
@@ -1586,7 +1588,8 @@ export function SessionsScreen({
         <PressableScale
           onPress={() => {
             void Haptics.selectionAsync();
-            projectPicker.selectUnassigned();
+            if (projectPicker.unassigned) projectPicker.selectAll();
+            else projectPicker.selectUnassigned();
           }}
           accessibilityRole="button"
           onLongPress={() => setRailSheetOpen(true)}
@@ -1836,6 +1839,11 @@ export function SessionsScreen({
           data={homeRows}
           renderItem={({ item }) => (
             <View style={{ paddingBottom: item.gap }}>
+              {item.header ? <SectionHeader
+                label={item.header.label} count={item.header.count}
+                onPress={projectPicker.allProjects ? () => projectPicker.selectProject(item.header!.project) : undefined}
+                onClear={projectPicker.allProjects ? undefined : projectPicker.selectAll}
+              /> : null}
               <OverlapRow id={item.key}>
                 <SessionFamily node={item.node} onOpen={openSession}
                   onArchive={nodeBusy(item.node) ? undefined : archiveSession}

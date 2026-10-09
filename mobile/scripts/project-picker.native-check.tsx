@@ -39,3 +39,35 @@ test('unassigned selection cannot silently fall back to the default project', as
     expect(picker.unassigned).toBe(false);
   } finally { ui.cleanup(); }
 });
+
+
+test('pressing a selected project clears the filter without choosing a composer folder', async () => {
+  const ui = mount();
+  let picker!: ReturnType<typeof useProjectPicker>;
+  function Fixture() { picker = useProjectPicker(); return null; }
+  try {
+    await ui.flushAsync(async () => { ui.render(<Fixture />); });
+    ui.flush(() => picker.options[0].onPress?.());
+    expect(picker.matches({ project: 'site' })).toBe(true);
+    expect(picker.matches({ project: 'other' })).toBe(false);
+    ui.flush(() => picker.options[0].onPress?.());
+    expect(picker.allProjects).toBe(true);
+    expect(picker.options.every((option) => !option.selected)).toBe(true);
+    expect(picker.cwd).toBeNull();
+    expect(picker.matches({ project: 'site' })).toBe(true);
+    expect(picker.matches({ project: 'other' })).toBe(true);
+    expect(picker.matches({ project: '' })).toBe(true);
+    repos = [...repos];
+    ui.render(<Fixture />);
+    expect(picker.allProjects).toBe(true);
+    ui.flush(() => picker.selectUnassigned());
+    expect(picker.matches({ project: 'site' })).toBe(false);
+    ui.flush(() => picker.selectAll());
+    expect(picker.matches({ project: 'site' })).toBe(true);
+    ui.flush(() => picker.selectProject('site'));
+    expect(picker.cwd).toBe('/repos/site');
+    expect(picker.matches({ project: 'other' })).toBe(false);
+    ui.flush(() => picker.selectProject(''));
+    expect(picker.unassigned).toBe(true);
+  } finally { ui.cleanup(); }
+});
