@@ -1,6 +1,6 @@
 # Bot-owned automations — implementation plan
 
-Status: proposal, not yet scheduled. Written 2026-08-19, top-ranked item from the
+Status: built. Bots own auto agents (`src/auto/`, bot routines). This plan is history; the code is the source of truth. Written 2026-08-19, top-ranked item from the
 xAI Grok Bot comparison pass. This is a plan document only — no code changes.
 
 Companion to `docs/bot-mode-design.md` (the bot-mode design sketch this builds on).
