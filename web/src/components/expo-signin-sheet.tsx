@@ -15,7 +15,9 @@
 //    keyboard, and each key it produces goes to the Computer.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { readRemoteClipboard, setRemoteClipboard } from "@/lib/computer-clipboard-transport";
 import RFB from "@novnc/novnc";
+import { attachComputerClipboard, clipboardButtonHandlers, type ComputerClipboard } from "../../../packages/protocol/src/computer-clipboard";
 import { Loader2, Lock, X } from "lucide-react";
 import {
   COMPUTER_KIOSK_PATH, keysymFor, kioskHitsInput, kioskHost, kioskLayout, NAMED_KEYSYMS, type KioskFrame,
@@ -43,6 +45,9 @@ export function ExpoSigninSheet({ mode, onClose, onOpenComputer }: {
   /** The fallback: the whole Computer screen. */
   onOpenComputer(): void;
 }) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const clipboardRef = useRef<ComputerClipboard | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [frame, setFrame] = useState<KioskFrame | null>(null);
   const [live, setLive] = useState(false);
   const [lost, setLost] = useState(false);
@@ -96,13 +101,20 @@ export function ExpoSigninSheet({ mode, onClose, onOpenComputer }: {
         rfb.background = "transparent";
         rfb.viewOnly = false;
         rfb.addEventListener("connect", () => { setLive(true); setLost(false); });
-        rfb.addEventListener("disconnect", () => { rfbRef.current = null; setLive(false); setLost(true); });
+        rfb.addEventListener("disconnect", () => { clipboardRef.current?.dispose(); clipboardRef.current = null; rfbRef.current = null; setLive(false); setLost(true); });
+        clipboardRef.current = attachComputerClipboard(rfb, rootRef.current!, {
+          notice: setNotice,
+          readRemoteText: readRemoteClipboard, setRemoteText: setRemoteClipboard,
+          focusKeyboard: () => fieldRef.current?.focus({ preventScroll: true }),
+        });
         rfbRef.current = rfb;
       } catch { setLost(true); }
     })();
     return () => { cancelled = true; };
   }, [open]);
   useEffect(() => () => {
+    clipboardRef.current?.dispose();
+    clipboardRef.current = null;
     try { rfbRef.current?.disconnect(); } catch { /* Already closed. */ }
     rfbRef.current = null;
   }, []);
@@ -191,6 +203,7 @@ export function ExpoSigninSheet({ mode, onClose, onOpenComputer }: {
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/40 sm:items-center" data-testid="expo-signin-sheet-backdrop">
       <div
+        ref={rootRef}
         role="dialog"
         aria-label={EXPO_SHEET_TITLE[mode]}
         data-testid="expo-signin-sheet"
@@ -250,6 +263,11 @@ export function ExpoSigninSheet({ mode, onClose, onOpenComputer }: {
             }}
           />
         </div>
+        <div className="flex shrink-0 items-center justify-center gap-4 border-t px-3 py-2" role="toolbar" aria-label="Clipboard">
+          <button type="button" className="h-10 min-w-16 rounded-md bg-secondary px-3 text-sm disabled:opacity-50" disabled={!ready} {...clipboardButtonHandlers(() => void clipboardRef.current?.pasteFromDevice())} aria-label="Paste from this device">Paste</button>
+          <button type="button" className="h-10 min-w-16 rounded-md bg-secondary px-3 text-sm disabled:opacity-50" disabled={!ready} {...clipboardButtonHandlers(() => void clipboardRef.current?.copy())} aria-label="Copy selected text from the Computer">Copy</button>
+        </div>
+        {notice ? <p role="status" className="px-3 text-center text-xs text-muted-foreground">{notice}</p> : null}
         <div className="flex shrink-0 justify-center border-t px-3 py-1.5">
           <button type="button" className="text-xs text-muted-foreground underline-offset-2 hover:underline" onClick={onOpenComputer} data-testid="expo-signin-sheet-full-computer">
             Open the full Computer view

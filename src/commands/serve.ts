@@ -86,6 +86,7 @@ import { resolveCaller } from "../policy/caller.ts";
 import { createBrowserLoginService } from "../computer/login.ts";
 import { createProjectPreviewService, storedProjectPreview } from "../project-previews.ts";
 import { simulatorStreamProvider } from "../simulator-stream.ts";
+import { computerClipboardRequest } from "../computer/clipboard.ts";
 import { createExpoAccountService, installXdgOpenShim, liveExpoAccountDeps } from "../expo-account.ts";
 import { importBrowserLogin } from "../computer/browser.ts";
 import {
@@ -4807,6 +4808,11 @@ export async function cmdServe() {
       // Status is safe to poll and reports what is installed, so the UI can
       // show the exact apt command when the stack is missing rather than a
       // dead screen.
+      if (path === "/api/computer/clipboard") {
+        await ensureDesktopAdopted();
+        return computerClipboardRequest(req);
+      }
+
       if (path === "/api/computer/status" && req.method === "GET") {
         // Reattach first: this process may have restarted while the desktop
         // kept running, and reporting "stopped" for a live screen is worse
