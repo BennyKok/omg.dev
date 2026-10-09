@@ -1,0 +1,93 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": false
+  },
+  "steps": [
+    {
+      "name": "Enter demo app",
+      "goal": "If the data and AI providers consent screen is shown, tap Agree and continue for this demo test account. Otherwise wait for Home.",
+      "done": "The app navigation button is visible.",
+      "expect": ["Navigation"],
+      "timeoutMs": 60000
+    },
+    {
+      "name": "Open audio settings",
+      "goal": "Tap Navigation. Computer: Your Computer, then tap Settings.",
+      "done": "The production Settings screen includes the three transcription modes and language.",
+      "expect": [
+        "Audio",
+        "Auto",
+        "Cloud",
+        "Local",
+        "Language \u00b7 Auto detect"
+      ],
+      "timeoutMs": 60000
+    },
+    {
+      "name": "Select Auto mode",
+      "goal": "Tap the Auto transcription mode button with id transcription-auto. Keep the language unchanged.",
+      "done": "The Auto mode button is selected.",
+      "expect": ["Audio", "Auto", "Cloud", "Local"],
+      "timeoutMs": 30000,
+      "selected": "Auto"
+    },
+    {
+      "name": "Native model ready",
+      "goal": "Wait for the native on-device model to become ready. Do not change the controls.",
+      "done": "Whistle has downloaded and loaded in the actual iOS app.",
+      "expect": [
+        "On-device ready \u00b7 text after recording"
+      ],
+      "timeoutMs": 180000
+    },
+    {
+      "name": "Cloud override",
+      "goal": "Tap Cloud in Audio.",
+      "done": "Cloud transcription is selected.",
+      "expect": [
+        "Cloud transcription"
+      ],
+      "timeoutMs": 30000,
+      "selected": "Cloud"
+    },
+    {
+      "name": "Local override",
+      "goal": "Tap Local in Audio.",
+      "done": "Local transcription uses the loaded native model.",
+      "expect": [
+        "On-device ready \u00b7 text after recording"
+      ],
+      "timeoutMs": 30000,
+      "selected": "Local"
+    },
+    {
+      "name": "Unsupported language",
+      "goal": "Tap Language, then choose Cantonese (cloud).",
+      "done": "Settings explains that Cantonese requires cloud.",
+      "expect": [
+        "Language \u00b7 Cantonese (cloud)",
+        "This language needs cloud"
+      ],
+      "timeoutMs": 30000
+    },
+    {
+      "name": "Restore language",
+      "goal": "Tap Language and choose Auto detect.",
+      "done": "The language is Auto detect and the native model is ready.",
+      "expect": [
+        "Language \u00b7 Auto detect",
+        "On-device ready \u00b7 text after recording"
+      ],
+      "timeoutMs": 30000
+    },
+    {
+      "name": "Restore Auto mode",
+      "goal": "Tap the Auto transcription mode button with id transcription-auto. Keep the language unchanged.",
+      "done": "The Auto mode button is selected with the model ready.",
+      "expect": ["On-device ready \u00b7 text after recording"],
+      "timeoutMs": 30000,
+      "selected": "Auto"
+    }
+  ]
+}

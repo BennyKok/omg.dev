@@ -1,8 +1,9 @@
 /**
- * Dictation: hold the mic, speak, get text in the composer — live, not just
- * at the end.
+ * Dictation uses a provider captured before microphone access. Cloud streams
+ * live; Whistle runs on the phone after recording stops. Auto replays local
+ * failures through the same computer transport. Forced Local never uploads.
  *
- * THE FINAL TRANSCRIPT STILL HAPPENS ON THE COMPUTER, not on the phone. What
+ * The cloud path runs on the selected computer. What
  * changed from the file-only version of this hook: the machine's realtime
  * bridge at `/api/voice/stt-stream` (the same websocket the web composer's
  * dictation speaks — see lfg-serve's src/voice-providers.ts, "Streaming-STT
@@ -52,6 +53,9 @@ import {
 import type { OmgSocket, OmgTransport } from "@omg-dev/client";
 import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { nativeTranscription, useNativeTranscription } from "./native-transcription";
+import { finishLocalTake, type DictationTake } from "./native-transcription-state";
+import { replayDictationAudio } from "./dictation-cloud-replay";
 
 const SAMPLE_RATE = 16000;
 const STREAM_CHUNK_MS = 100;
@@ -145,7 +149,14 @@ export function useDictation(
   onText: (text: string, meta?: { final: boolean }) => void,
 ) {
   const recorder = useAudioRecorder();
+  useNativeTranscription();
+  const takeRef = useRef<DictationTake | null>(null);
+  const localChunksRef = useRef<Uint8Array[]>([]);
+  const recorderRef = useRef(recorder);
+  recorderRef.current = recorder;
   const [state, setState] = useState<DictationState>("idle");
+  const phaseRef = useRef<DictationState | "starting">("idle");
+  const mountedRef = useRef(true);
   // Live 0..1 input amplitude for a UI meter. Name and range match what
   // expo-audio's metering used to hand the composer, so the meter built
   // against it keeps working unchanged.
@@ -201,14 +212,32 @@ export function useDictation(
 
   // A component that unmounts mid-recording must not leave a socket open
   // against a machine nobody is listening to any more.
-  useEffect(() => closeSocket, [closeSocket]);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      cancelledRef.current = true;
+      closeSocket();
+      void recorderRef.current.stopRecording().catch(() => {});
+    };
+  }, [closeSocket]);
 
   const start = useCallback(async () => {
-    if (state !== "idle" || !transport) return;
+    if (phaseRef.current !== "idle" || !transport) return;
+    phaseRef.current = "starting";
+    cancelledRef.current = false;
 
-    const permission = await AudioStudioModule.requestPermissionsAsync();
-    if (!permission?.granted) return;
+    try { takeRef.current = await nativeTranscription.captureTake(); }
+    catch (error) {
+      phaseRef.current = "idle";
+      if (mountedRef.current) setError(error instanceof Error ? error.message : "Local transcription is unavailable");
+      return;
+    }
 
+    const permission = await AudioStudioModule.requestPermissionsAsync().catch(() => null);
+    if (!permission?.granted || !mountedRef.current) { phaseRef.current = "idle"; return; }
+
+    phaseRef.current = "recording";
     setState("recording");
     setPartial("");
     setLevel(0);
@@ -219,6 +248,7 @@ export function useDictation(
     socketBrokenRef.current = false;
     pendingRef.current = [];
     finalWaitersRef.current = [];
+    localChunksRef.current = [];
 
     // Open the realtime bridge FIRST — see stt-stream in serve.ts: a machine
     // with no realtime provider configured accepts the upgrade and then
@@ -226,7 +256,7 @@ export function useDictation(
     // it is the documented fallback signal, so it is handled the same way as
     // a socket that never manages to open at all: `live` just never goes
     // true, and stop() falls through to the batch path.
-    try {
+    if (takeRef.current?.provider === "cloud") try {
       const socket = await transport.openSocket("/api/voice/stt-stream");
       socketRef.current = socket;
       socket.binaryType = "arraybuffer";
@@ -292,6 +322,7 @@ export function useDictation(
           if (typeof event.data !== "string") return; // float32 path, unused here
           const bytes = base64ToBytes(event.data);
           setLevel(rmsLevel(bytes));
+          if (takeRef.current?.provider === "local" && takeRef.current.mode === "auto") localChunksRef.current.push(bytes);
           const socket = socketRef.current;
           if (!socket) return;
           if (socket.readyState === WS_OPEN) {
@@ -309,19 +340,35 @@ export function useDictation(
       // Mic never actually started (device busy, permission raced away,
       // etc.) — leave nothing running.
       closeSocket();
+      phaseRef.current = "idle";
       setState("idle");
       setLive(false);
     }
-  }, [closeSocket, recorder, settleFinalWaiters, state, transport]);
+  }, [closeSocket, recorder, settleFinalWaiters, transport]);
 
   const stop = useCallback(async () => {
-    if (state !== "recording" || !transport) return;
+    if (phaseRef.current !== "recording" || !transport) return;
+    phaseRef.current = "transcribing";
     setState("transcribing");
     try {
       const result = await recorder.stopRecording().catch(() => null);
       const socket = socketRef.current;
 
       let text: string | null = null;
+      const take = takeRef.current;
+      if (take?.provider === "local") {
+        if (!result?.fileUri) throw new Error("Recording is unavailable");
+        try {
+          text = await finishLocalTake(nativeTranscription, result.fileUri, take,
+            () => replayDictationAudio(transport, localChunksRef.current, () => cancelledRef.current),
+            () => cancelledRef.current);
+        } catch (error) {
+          if (take.mode !== "auto") throw error;
+          // A computer without realtime STT can still support the existing
+          // file endpoint. Auto uses that path if replay also fails.
+          text = cancelledRef.current ? "" : null;
+        }
+      }
       // Captured before the flush wait: a socket that drops DURING the wait
       // still leaves these words on screen, and they must not be thrown away.
       let streamed = false;
@@ -395,12 +442,9 @@ export function useDictation(
 
       if (text && !cancelledRef.current) onText(text, { final: true });
       else if (providerError && !cancelledRef.current) setError(providerError);
-    } catch {
-      // Silent: a failed take leaves the draft exactly as it was, which is
-      // the state the user can retry from. This covers the unexpected cases
-      // (network exception, a response that wasn't JSON at all) where there
-      // is no good message to show — the provider-not-configured case above
-      // has one and says so.
+    } catch (error) {
+      if (!cancelledRef.current) setError(error instanceof Error ? error.message : "Dictation failed");
+      // A failed take leaves the draft unchanged and reports the failure.
     } finally {
       extendFinalWaitRef.current = null;
       closeSocket();
@@ -408,9 +452,12 @@ export function useDictation(
       setLevel(0);
       setLive(false);
       setState("idle");
+      phaseRef.current = "idle";
       cancelledRef.current = false;
+      localChunksRef.current = [];
+      takeRef.current = null;
     }
-  }, [closeSocket, onText, recorder, state, transport]);
+  }, [closeSocket, onText, recorder, transport]);
 
   /**
    * SILENCE ENDS THE TAKE.
@@ -461,11 +508,11 @@ export function useDictation(
    * a worse bug than the one being avoided.
    */
   const cancel = useCallback(() => {
-    if (state !== "recording") return;
+    if (phaseRef.current !== "recording") return;
     cancelledRef.current = true;
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     void stop();
-  }, [state, stop]);
+  }, [stop]);
 
   /** One button: tap to start, tap again to finish. */
   const toggle = useCallback(() => {

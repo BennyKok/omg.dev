@@ -1,0 +1,52 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": false
+  },
+  "steps": [
+    {
+      "name": "Native model ready",
+      "goal": "Select Auto and wait for the model to load in this simulator audio fixture.",
+      "done": "The production native service loads Whistle on iOS.",
+      "expect": [
+        "Whistle iOS audio fixture",
+        "On-device ready \u00b7 text after recording"
+      ],
+      "timeoutMs": 180000,
+      "selected": "Auto"
+    },
+    {
+      "name": "Forced Local",
+      "goal": "Select Local in the Audio controls.",
+      "done": "Local is selected with the model ready.",
+      "selected": "Local",
+      "expect": [
+        "On-device ready \u00b7 text after recording"
+      ],
+      "timeoutMs": 30000
+    },
+    {
+      "name": "Native inference",
+      "goal": "Tap Transcribe test clip. Wait for the transcript.",
+      "done": "The production native engine transcribes real 16 kHz WAV audio with no cloud fallback.",
+      "expect": [
+        "Native speech verified",
+        "country"
+      ],
+      "forbid": [
+        "Failed:"
+      ],
+      "timeoutMs": 120000
+    },
+    {
+      "name": "Cloud override",
+      "goal": "Select Cloud in Audio.",
+      "done": "Cloud mode remains available.",
+      "selected": "Cloud",
+      "expect": [
+        "Cloud transcription"
+      ],
+      "timeoutMs": 30000
+    }
+  ]
+}

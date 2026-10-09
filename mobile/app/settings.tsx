@@ -16,6 +16,7 @@ import { reloadAppAsync } from "expo";
 import Constants from "expo-constants";
 import {
   Alert,
+  Platform,
   Linking,
   Pressable,
   ScrollView,
@@ -36,6 +37,7 @@ import { sharedBindingLabel } from "../src/omg/computer-shared-binding";
 import { useComputerUpdate } from "../src/omg/computer-update";
 import { ConnectionDebugSection } from "../src/omg/connection-debug-section";
 import { ComputerSoftwareRow } from "../src/omg/computer-software-row";
+import { NativeTranscriptionSettings } from "../src/omg/native-transcription-settings";
 import {
   getStoredPushToken,
   pushPermissionStatus,
@@ -411,6 +413,7 @@ export default function SettingsScreen() {
         />
       </Card>
 
+      {Platform.OS === "ios" && <NativeTranscriptionSettings />}
       <SectionLabel>Computer</SectionLabel>
       <Card>
         {/* This one pushes rather than opening the switcher menu. The header

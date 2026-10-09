@@ -42,6 +42,7 @@
         "expo-widgets": "~58.0.4",
         "jpeg-js": "^0.4.4",
         "marked": "^18.0.9",
+        "omg-whistle": "file:./modules/omg-whistle",
         "react": "19.3.0",
         "react-dom": "19.3.0",
         "react-native": "0.88.0-rc.1",
@@ -961,6 +962,8 @@
     "ob1": ["ob1@0.87.1", "", { "dependencies": { "flow-enums-runtime": "^0.0.6" } }, "sha512-i8iA8uij0g1YQzS8uOJPSRCgwDjO9warIHUAu1Fqj877Wc3wlfxDYBioYWgKTBF2+URVJttyDWSEpmd99nlvtQ=="],
 
     "object-assign": ["object-assign@4.1.1", "", {}, "sha512-rJgTQnkUnH1sFw8yT6VSU3zD3sWmu6sZhIseY8VX+GRu3P6F7Fu+JNDoXfklElbLJSnc3FUQHVe4cU5hj+BcUg=="],
+
+    "omg-whistle": ["omg-whistle@file:modules/omg-whistle", {}],
 
     "on-finished": ["on-finished@2.4.1", "", { "dependencies": { "ee-first": "1.1.1" } }, "sha512-oVlzkg3ENAhCk2zdv7IJwd/QUD4z2RxRwpkcGY8psCVcCYZNq4wYnVWALHM+brtuJjePWiYF/ClmuDr8Ch5+kg=="],
 

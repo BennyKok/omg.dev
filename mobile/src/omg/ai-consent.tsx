@@ -72,7 +72,7 @@ export const DISCLOSURES: Disclosure[] = [
     icon: { ios: "mic.fill", android: "mic" },
     what: "Voice recordings",
     who: "ElevenLabs, for speech to text",
-    when: "Only while dictation is on.",
+    when: "When cloud dictation is used.",
   },
   {
     icon: { ios: "text.bubble.fill", android: "chat_bubble" },

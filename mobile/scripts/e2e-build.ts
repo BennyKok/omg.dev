@@ -96,11 +96,18 @@ function depsFingerprint(): string {
       hash.update(readIfPresent(new URL(`../${file}`, import.meta.url).pathname));
       return `patch:${name}#${hash.digest("hex").slice(0, 12)}`;
     });
+  // CocoaPods owns local native module setup too. Changes to that setup must
+  // run pod install even when the file dependency keeps the same version.
+  const whistleSetup = new Bun.CryptoHasher("sha256");
+  for (const file of ["modules/omg-whistle/ios/OmgWhistle.podspec", "modules/omg-whistle/scripts/prepare-ios.sh", "modules/omg-whistle/expo-module.config.json"]) {
+    whistleSetup.update(readIfPresent(new URL(`../${file}`, import.meta.url).pathname));
+  }
   return [
     ...Object.keys(all)
       .sort()
       .map((name) => `${name}@${all[name]}`),
     ...patches,
+    `whistle:${whistleSetup.digest("hex")}`,
     `expo:${JSON.stringify(pkg.expo ?? null)}`,
   ].join(" ");
 }
@@ -215,6 +222,7 @@ export async function buildSimulatorApp(): Promise<string> {
     "node_modules",
     "/ios",
     "/android",
+    "/modules/omg-whistle/ios/vendor",
     ".expo",
     "e2e/*.mp4",
   ]);
@@ -272,7 +280,7 @@ export async function buildSimulatorApp(): Promise<string> {
     "cd ios",
     'xcodebuild -workspace omg.xcworkspace -scheme omg -configuration Release ' +
       '-sdk iphonesimulator -destination "generic/platform=iOS Simulator" ' +
-      "-derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | tee ../xcode-build.log " +
+      "-derivedDataPath build ARCHS=arm64 CODE_SIGNING_ALLOWED=NO build 2>&1 | tee ../xcode-build.log " +
       "| grep -E \"error:|warning: no rule|BUILD (SUCCEEDED|FAILED)\"",
     // An absolute path: `simctl install` runs from the home directory.
     'ls -d "$PWD"/build/Build/Products/Release-iphonesimulator/*.app | head -1',
