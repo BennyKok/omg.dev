@@ -16,19 +16,17 @@ export function BrowserTranscriptionSettings({ service = browserTranscription }:
         <option value="auto">Auto</option><option value="cloud">Cloud</option><option value="local">Local</option>
       </select>
     </div>
-    <p className="text-xs text-muted-foreground">Auto uses cloud until Whistle is ready, then switches between recordings. Local transcribes after you stop. This setting applies to this browser.</p>
     <div className="flex items-center justify-between gap-4">
-      <label htmlFor="browser-transcription-language" className="text-sm">Dictation language</label>
+      <label htmlFor="browser-transcription-language" className="text-sm">Language</label>
       <select id="browser-transcription-language" className="rounded-md border border-border bg-background p-2 text-sm" value={state.language} onChange={(event) => service.configure({ language: event.target.value as TranscriptionLanguage })}>
-        <option value="auto">Detect (seven languages)</option>
+        <option value="auto">Auto detect</option>
         <option value="en">English</option><option value="de">German</option><option value="fr">French</option><option value="es">Spanish</option><option value="it">Italian</option><option value="nl">Dutch</option><option value="pl">Polish</option>
         <option value="zh">Chinese (cloud)</option><option value="yue">Cantonese (cloud)</option>
       </select>
     </div>
     <p role="status" className="text-xs text-muted-foreground">
-      {state.mode === "cloud" ? "Cloud transcription selected." : !localLanguageSupported(state.language) ? "This language requires cloud transcription. Select Auto or Cloud." : state.status === "ready" ? "Whistle is ready. Audio stays in this browser during local transcription." : state.status === "downloading" ? `Downloading Whistle · ${state.progress}% · 16.9 MB model` : state.status === "loading" ? "Loading Whistle…" : state.status === "error" ? (state.mode === "auto" ? "Whistle is unavailable. Auto uses cloud transcription." : "Whistle is unavailable. Retry or select Cloud.") : "Preparing on-device transcription…"}
+      {state.mode === "cloud" ? "Cloud transcription" : !localLanguageSupported(state.language) ? "This language needs cloud" : state.status === "ready" ? (state.mode === "auto" ? "On-device ready · cloud fallback" : "On-device ready · audio stays here") : state.status === "downloading" ? `Downloading · ${state.progress}%${state.mode === "auto" ? " · using cloud" : ""}` : state.status === "loading" ? "Loading on-device model…" : state.status === "error" ? (state.mode === "auto" ? "Using cloud · local unavailable" : "Local unavailable · retry or use Cloud") : "Preparing on-device model…"}
     </p>
-    {state.mode === "auto" && <p className="text-xs text-muted-foreground">If local transcription fails, Auto sends the recording to cloud transcription.</p>}
-    {state.status === "error" && state.mode !== "cloud" && <div className="text-xs"><p>{state.error}</p><button type="button" className="mt-2 underline" onClick={() => service.prepare()}>Retry download</button></div>}
+    {state.status === "error" && state.mode !== "cloud" && <div className="text-xs"><button type="button" className="underline" onClick={() => service.prepare()}>Retry</button></div>}
   </div>;
 }
