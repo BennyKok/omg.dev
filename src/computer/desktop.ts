@@ -710,24 +710,22 @@ async function reapOrphanKioskBrowsers(config: DesktopConfig): Promise<void> {
   killPid(pid, identity, "SIGKILL");
 }
 
-/** Spawn the desktop's Chrome on its display. Does not wait for readiness. */
-async function spawnBrowser(next: DesktopState): Promise<void> {
-  const config = next.config;
-  const env = { ...process.env, DISPLAY: `:${config.display}` };
-  const chrome = chromePath();
-  if (!chrome) throw new Error("no Chrome binary found");
-  await reapOrphanKioskBrowsers(config);
-  disablePasswordSaving(config.profileDir);
-  // Chrome writes this file only with --remote-debugging-port=0. Remove an
-  // old endpoint before launching, so a failed start cannot attach elsewhere.
-  if (config.cdpPort === 0) rmSync(join(config.profileDir, "DevToolsActivePort"), { force: true });
-  const chromeArgs = [
+/** The command-line flags for the desktop's Chrome. */
+export function chromeLaunchArgs(config: DesktopConfig): string[] {
+  const args = [
     `--remote-debugging-port=${config.cdpPort}`,
     "--remote-debugging-address=127.0.0.1",
     `--user-data-dir=${config.profileDir}`,
     "--no-first-run",
     "--no-default-browser-check",
-    "--disable-gpu",
+    // A person signs in to real sites here. Google refuses sign-in ("This
+    // browser or app may not be secure") when navigator.webdriver is true, and
+    // a debugging client can turn it on. Keep it false for every page.
+    "--disable-blink-features=AutomationControlled",
+    // Software WebGL instead of --disable-gpu. A browser with no WebGL context
+    // reads as a headless bot to sign-in risk checks. The guest has no GPU.
+    "--use-angle=swiftshader",
+    "--enable-unsafe-swiftshader",
     // Firecracker guests booted from an older rootfs have no /dev/shm. Chrome
     // aborts at start without it ("Unable to access /dev/shm"), which reads as
     // "rfb=up cdp=down". Keep Chrome's shared memory in /tmp instead.
@@ -739,7 +737,22 @@ async function spawnBrowser(next: DesktopState): Promise<void> {
     `--window-size=${Math.round(config.width * 0.82)},${Math.round(config.height * 0.78)}`,
   ];
   // Guus's setup runs each browser behind a webshare proxy; this is that knob.
-  if (config.proxy) chromeArgs.push(`--proxy-server=${config.proxy}`);
+  if (config.proxy) args.push(`--proxy-server=${config.proxy}`);
+  return args;
+}
+
+/** Spawn the desktop's Chrome on its display. Does not wait for readiness. */
+async function spawnBrowser(next: DesktopState): Promise<void> {
+  const config = next.config;
+  const env = { ...process.env, DISPLAY: `:${config.display}` };
+  const chrome = chromePath();
+  if (!chrome) throw new Error("no Chrome binary found");
+  await reapOrphanKioskBrowsers(config);
+  disablePasswordSaving(config.profileDir);
+  // Chrome writes this file only with --remote-debugging-port=0. Remove an
+  // old endpoint before launching, so a failed start cannot attach elsewhere.
+  if (config.cdpPort === 0) rmSync(join(config.profileDir, "DevToolsActivePort"), { force: true });
+  const chromeArgs = chromeLaunchArgs(config);
   next.chrome = spawn(chrome, chromeArgs, { stdio: "ignore", env, detached: false });
   next.identities.chrome = processIdentity(next.chrome.pid);
   browserLaunches++;
