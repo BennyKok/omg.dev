@@ -3,6 +3,7 @@ import { mount, type Mounted } from "./test-support/render";
 import type { ConnectionState } from "./useLiveSocket";
 const { toast } = await import("sonner");
 const { ConnectionStatusToasts } = await import("./ConnectionStatus");
+const { RuntimeAvailabilityContext } = await import("./lib/runtime-availability");
 let ui: Mounted;
 const spies: ReturnType<typeof spyOn>[] = [];
 afterEach(() => { ui?.cleanup(); for (const spy of spies.splice(0)) spy.mockRestore(); });
@@ -31,4 +32,20 @@ test("surfaces without inline feedback retain one shared connection toast", () =
   ui.render(<ConnectionStatusToasts connection={connection("live")} onRetry={() => {}} />);
   expect(loading).toHaveBeenCalledWith("Reconnecting…", { toasterId: "lfg", id: "ws-conn" });
   expect(success).toHaveBeenCalledWith("Reconnected", { toasterId: "lfg", id: "ws-conn", duration: 2000 });
+});
+
+test("a waking computer never produces an offline error toast", () => {
+  const loading = spyOn(toast, "loading");
+  const error = spyOn(toast, "error");
+  spies.push(loading, error);
+  ui = mount();
+  for (const lifecycle of ["paused", "waking"] as const) {
+    ui.render(
+      <RuntimeAvailabilityContext.Provider value={{ lifecycle, loading: false, ready: false, error: null, status: "offline", retry: () => {} }}>
+        <ConnectionStatusToasts connection={connection("offline")} onRetry={() => {}} />
+      </RuntimeAvailabilityContext.Provider>,
+    );
+  }
+  expect(error).not.toHaveBeenCalled();
+  expect(loading).toHaveBeenCalledWith("Resuming your computer… Please wait.", { toasterId: "lfg", id: "ws-conn" });
 });

@@ -4,6 +4,7 @@ import {
   LONG_WAIT_MS,
   PILL_AFTER_MS,
   STARTUP_SHOW_AFTER_MS,
+  RESUME_ESTIMATE_MS,
   connectionOverlayView,
   type ConnectionOverlayInput,
 } from "./connection-overlay";
@@ -43,12 +44,14 @@ test("coming back from the background says Resuming and shows at once", () => {
   expect(reconnecting(0, { resuming: true })).toMatchObject({ mode: "pill", title: "Resuming…" });
 });
 
-test("offline waits before a card; a server-stopped computer shows it at once", () => {
+test("offline waits before a card; an unavailable computer shows it at once", () => {
   expect(reconnecting(FAIL_AFTER_MS, { status: "offline" })).toMatchObject({ mode: "overlay", mood: "sleeping", canRetry: true, canSwitch: true });
   expect(reconnecting(0, { lifecycle: "paused" })).toMatchObject({
-    mode: "overlay",
-    mood: "sleeping",
-    title: "Computer paused",
+    mode: "pill",
+    mood: "booting",
+    title: "Resuming your computer…",
+    canRetry: false,
+    canSwitch: false,
   });
   expect(reconnecting(0, { lifecycle: "unavailable" })).toMatchObject({ mode: "overlay", mood: "error" });
   expect(connectionOverlayView({ ...live, ready: false, error: "Failed to fetch", notLiveMs: FAIL_AFTER_MS })).toMatchObject({
@@ -59,12 +62,26 @@ test("offline waits before a card; a server-stopped computer shows it at once", 
   });
 });
 
-test("a waking cloud computer boots Boxy and does not say Resuming", () => {
+test("a waking cloud computer shows resume progress", () => {
   expect(reconnecting(LONG_WAIT_MS, { lifecycle: "waking", resuming: true })).toMatchObject({
     mode: "pill",
     mood: "booting",
-    title: "Waking your computer…",
+    title: "Resuming your computer…",
   });
+});
+
+test("paused and waking stay in progress beyond the failure grace period", () => {
+  for (const lifecycle of ["paused", "waking", "starting", "ready"] as const) {
+    const initial = reconnecting(0, { lifecycle, loading: true, ready: false });
+    expect(initial).toMatchObject({ mode: "overlay", progress: 0, canRetry: false, canSwitch: false });
+    expect(initial.detail).toContain("about 30 seconds");
+    const delayed = reconnecting(RESUME_ESTIMATE_MS, { lifecycle, status: "offline", error: "old 425" });
+    expect(delayed).toMatchObject({ mode: "pill", mood: "booting", canRetry: false, canSwitch: false });
+    expect(delayed.detail).toContain("longer than expected");
+    expect(delayed.progress).toBeGreaterThan(initial.progress!);
+    expect(reconnecting(300_000, { lifecycle }).progress).toBeLessThan(100);
+  }
+  expect(connectionOverlayView({ ...live, lifecycle: "waking" }).mode).toBe("hidden");
 });
 
 test("the first bootstrap waits briefly, then covers the empty shell without Retry", () => {

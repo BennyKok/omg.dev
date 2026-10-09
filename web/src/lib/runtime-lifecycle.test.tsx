@@ -37,6 +37,25 @@ test("old servers retain generic connection feedback", async () => {
   expect(parseRuntimeLifecycle(null)).toBeNull();
 });
 
+test("a temporary status failure preserves wake feedback until a confirmed failure", async () => {
+  let response: Response | Error = Response.json({ state: "waking" });
+  globalThis.fetch = (async () => {
+    if (response instanceof Error) throw response;
+    return response.clone();
+  }) as typeof fetch;
+  configureOmgTransport(createSameOriginTransport({ fetch: globalThis.fetch }));
+  ui = mount();
+  ui.render(<Probe />);
+  await ui.flushAsync();
+  expect(ui.text()).toBe("waking");
+  response = new Error("Failed to fetch");
+  await ui.flushAsync(() => new Promise((resolve) => setTimeout(resolve, 3100)));
+  expect(ui.text()).toBe("waking");
+  response = Response.json({ state: "failed" });
+  await ui.flushAsync(() => new Promise((resolve) => setTimeout(resolve, 3100)));
+  expect(ui.text()).toBe("failed");
+}, 10_000);
+
 test("a response from the previous transport cannot change the selected computer", async () => {
   let resolveOld!: (response: Response) => void;
   let reads = 0;
