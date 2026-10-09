@@ -62,7 +62,9 @@ readiness, fixed provider selection, local failures, and broker replay.
 
 The integration checks also exercised the normal web Settings page at desktop
 and phone widths. The full suite initially reported missing native dependencies
-and 10 existing failures. Native checks passed after installing `mobile/`
-dependencies. The same 10 remaining assertions fail on unchanged `origin/main`:
+and existing failures. After installing `mobile/` dependencies, eight native
+checks passed. One native transcript check still fails because Bun cannot parse
+React Native Flow syntax. That check also fails on unchanged `origin/main`.
+The same 10 remaining source assertions fail on unchanged `origin/main`:
 feedback wiring, rail swipe actions, restart recovery, thinking controls,
 chat-send invariants, and Meta Ads defaults. They are outside this change.
