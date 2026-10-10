@@ -48,6 +48,7 @@ import { isEmbedded, readLocationEmbedFlag } from "./lib/embed";
 import { useBareSurface } from "./lib/bare-surface";
 import {
   useEmbeddedHostOptions,
+  useModelPlanErrorHandler,
   type HostSettingsPage,
   type PlanLimitDetail,
 } from "./lib/embedded-host-options";
@@ -443,6 +444,7 @@ import {
   RotateCcw,
   ScrollText,
   Search,
+  Lock,
   Send,
   SlidersHorizontal,
   Settings,
@@ -16736,7 +16738,14 @@ function SessionChat(rawProps: SessionChatProps) {
         : undefined,
     [sid, onSubscribeTranscript, botId, viewerIdentity],
   );
-  const reportError = useCallback((message: string) => onError(message), [onError]);
+  const handleModelPlanError = useModelPlanErrorHandler();
+  const reportError = useCallback((message: string | null) => {
+    if (message && handleModelPlanError(message)) {
+      onError(null);
+      return;
+    }
+    onError(message);
+  }, [onError, handleModelPlanError]);
   return (
     <Suspense fallback={<SessionChatSkeleton />}>
       <OmgChatEngine
@@ -16744,7 +16753,7 @@ function SessionChat(rawProps: SessionChatProps) {
         transport={chatTransport}
         onError={reportError}
       >
-        <SessionChatBody {...props} />
+        <SessionChatBody {...props} onError={reportError} />
       </OmgChatEngine>
     </Suspense>
   );
@@ -26023,6 +26032,16 @@ export function ModelOptionList({
   const [query, setQuery] = useState("");
   const hasManagedModels = models.some((model) => model.startsWith("omg/"));
   const { prices, loading: pricesLoading } = useModelPrices(hasManagedModels);
+  const { onPlanLimit } = useEmbeddedHostOptions();
+  const chooseModel = (item: string) => {
+    if (prices[item]?.available === false) {
+      const message = `Upgrade your plan to use ${omgModelLabel(item)}.`;
+      if (onPlanLimit) onPlanLimit({ message, action: "select-model" });
+      else toast.error(message);
+      return;
+    }
+    onChoose(item);
+  };
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return models;
@@ -26040,6 +26059,7 @@ export function ModelOptionList({
   const displayedModels = groups.flatMap((group) => group.items);
   const renderModel = (item: string) => {
     const selected = value === item;
+    const locked = prices[item]?.available === false;
     // A hosted omg id reads as the lab's mark plus the short model
     // name; the full router id stays in the tooltip. Other agents'
     // ids are already short and stay as they are.
@@ -26053,7 +26073,8 @@ export function ModelOptionList({
       <button
         key={item}
         type="button"
-        onClick={() => onChoose(item)}
+        onClick={() => chooseModel(item)}
+        aria-disabled={locked || undefined}
         title={hosted ? `${hosted.providerLabel} · ${item}${priceHint ? `\n${priceHint}` : ""}` : undefined}
         className={cn(
           "flex w-full min-w-0 items-center gap-3 rounded-xl px-3 text-left text-sm outline-none transition-colors",
@@ -26070,7 +26091,8 @@ export function ModelOptionList({
             className={cn("size-4 shrink-0", selected ? "text-foreground" : "text-muted-foreground")}
           />
         ) : null}
-        <span className="min-w-0 flex-1 truncate">{omgModelLabel(item)}</span>
+        <span className={cn("min-w-0 flex-1 truncate", locked && "text-muted-foreground")}>{omgModelLabel(item)}</span>
+        {locked ? <Lock className="size-4 shrink-0 text-muted-foreground" aria-label="Upgrade required" /> : null}
       </button>
     );
   };
@@ -26091,7 +26113,7 @@ export function ModelOptionList({
             onKeyDown={(event) => {
               event.stopPropagation();
               if (event.key === "Escape") onEscape?.();
-              if (event.key === "Enter" && displayedModels[0]) onChoose(displayedModels[0]);
+              if (event.key === "Enter" && displayedModels[0]) chooseModel(displayedModels[0]);
             }}
             placeholder="Filter models"
             className="h-10 w-full rounded-xl border border-border bg-background pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground/30"

@@ -3,6 +3,9 @@ export interface OmgModelPrice {
   inputPricePerMillion: number;
   outputPricePerMillion: number;
   cacheReadPricePerMillion?: number;
+  /** Account permissions from the billing router. Missing on older servers. */
+  available?: boolean;
+  minPlan?: string;
 }
 
 export interface OmgModelPrices {
