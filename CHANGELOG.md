@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 10, 2026 - Expo apps open again (v0.6.216)
+
+- New Expo apps open in Expo Go again. Before this fix, a new app showed "undefined is not a function" on start.
+
 ## October 9, 2026 - Move chats between folders (v0.6.215)
 
 - Move an idle managed chat to another folder or to No project. Chat history stays intact. Existing files stay in place.
