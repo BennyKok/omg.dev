@@ -8,7 +8,7 @@
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
-import { ChevronLeft, ChevronRight, Gauge, Plus, Zap } from "lucide-react";
+import { ChevronLeft, ChevronRight, Gauge, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export type SetupSheetPage = "root" | "models" | "profiles" | "usage";
@@ -45,7 +45,6 @@ export function AgentSetupSheet({
   modelLabel,
   renderModels,
   fast,
-  tibo,
   thinking,
   usageRing,
   usageDetails,
@@ -64,7 +63,6 @@ export function AgentSetupSheet({
   /** The searchable model list. `done` returns to the root page. */
   renderModels?: (done: () => void) => ReactNode;
   fast?: { enabled: boolean; onToggle: () => void } | null;
-  tibo?: { enabled: boolean; onToggle: () => void } | null;
   thinking?: { options: SetupChoice[]; onPick: (id: string) => void } | null;
   usageRing?: ReactNode;
   usageDetails?: ReactNode;
@@ -188,7 +186,7 @@ export function AgentSetupSheet({
                   />
                 ))}
               </div>
-              {modelLabel || fast || tibo ? (
+              {modelLabel || fast ? (
                 <div className="flex items-center gap-3">
                   {modelLabel ? (
                     <button
@@ -204,14 +202,6 @@ export function AgentSetupSheet({
                   ) : (
                     <span className="flex-1" />
                   )}
-                  {tibo ? (
-                    <ToggleSquare
-                      label="Tibo mode: Fast service tier and High thinking"
-                      enabled={tibo.enabled}
-                      onToggle={tibo.onToggle}
-                      icon={<Zap className={cn("size-[18px]", tibo.enabled && "fill-orange-400 text-orange-500")} />}
-                    />
-                  ) : null}
                   {fast ? (
                     <ToggleSquare
                       label="Fast mode"

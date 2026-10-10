@@ -24,7 +24,7 @@ describe("resolveGlobalSettings", () => {
     expect(settings.customInstructions.trim()).toBe("");
     expect(settings.timeZone).toBe("Asia/Hong_Kong");
     expect(settings.maxLiveAgents).toBe(4);
-    expect(settings.showComposerFastMode).toBe(true);
+    expect(settings.showComposerFastMode).toBe(false);
     expect(settings.autoUpdateEnabled).toBe(true);
   });
 

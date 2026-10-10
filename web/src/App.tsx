@@ -17,11 +17,12 @@ import { sideNavRows, type SideNavRow } from "./lib/side-nav-items";
 import { settledParagraphs } from "./lib/paragraph-stream";
 import {
   AgentSetupSheet,
-  ThinkingBar,
   type SetupAgentTile,
   type SetupChoice,
   type SetupSheetPage,
 } from "./components/agent-setup-sheet";
+import { ComposerPickerFooter } from "./components/composer-picker-footer";
+import { FastModeSettingsSection } from "./components/fast-mode-settings-section";
 import { activeMachine } from "./lib/machines";
 import { useHeaderProfile } from "./lib/header-profile";
 import { RuntimeAvailabilityContext, useRuntimeAvailability, shouldReloadRuntime } from "./lib/runtime-availability";
@@ -369,12 +370,6 @@ import {
 } from "./lib/session-pins";
 import { pendingLiveFocusRequest } from "./lib/live-focus";
 import {
-  canUseTiboMode,
-  readTiboMode,
-  resolveTiboLaunch,
-  writeTiboMode,
-} from "./lib/tibo-mode";
-import {
   composerSupportsFastMode,
   parseFastChatCommand,
   readFastMode,
@@ -460,7 +455,6 @@ import {
   Trash2,
   TriangleAlert,
   UserRound,
-  Zap,
   Camera,
   X,
   Ellipsis,
@@ -23294,7 +23288,6 @@ function NewSessionDialog({
     () => savedThinkingLevel(),
   );
   const [fastMode, setFastModeState] = useState(() => readFastMode(localStorage, agent));
-  const [tiboMode, setTiboModeState] = useState(() => readTiboMode(localStorage));
   // Default the owner to the active profile, falling back to the first known user
   // — never empty when a roster exists. An unowned session lands unassigned, and
   // the live view's auto-default filter (which flips to a specific user) then
@@ -23772,9 +23765,6 @@ function NewSessionDialog({
   // localStorage must not launch fast mode through a pill nobody can see.
   const fastModeAvailable = view.showComposerFastMode && composerSupportsFastMode({ agent, model });
   const fastModeEnabled = fastMode && fastModeAvailable;
-  const tiboModeAvailable = canUseTiboMode({ agent, model, thinkingLevels });
-  const tiboModeActive =
-    tiboMode && tiboModeAvailable && fastModeEnabled && thinkingLevel === "high";
   // When the live view is filtered to a specific project, lock new sessions to
   // that project's repo (and hide the picker below). Falls back to the normal
   // localStorage/first-repo default when viewing "All projects" or when the
@@ -23858,39 +23848,12 @@ function NewSessionDialog({
   useEffect(() => {
     setFastModeState(readFastMode(localStorage, agent));
   }, [agent]);
-  useEffect(() => {
-    if (tiboModeActive && thinkingLevel !== "high") setThinkingLevel("high");
-  }, [tiboModeActive, thinkingLevel]);
-
-  function setTiboMode(enabled: boolean) {
-    setTiboModeState(enabled);
-    writeTiboMode(localStorage, enabled);
-    if (enabled && tiboModeAvailable) {
-      setFastModeState(true);
-      writeFastMode(localStorage, agent, true);
-      setThinkingLevel("high");
-    } else if (!enabled && tiboModeActive) {
-      setFastModeState(false);
-      writeFastMode(localStorage, agent, false);
-    }
-  }
-
   function setFastMode(enabled: boolean) {
     setFastModeState(enabled);
     writeFastMode(localStorage, agent, enabled);
-    if (!enabled && tiboMode) {
-      setTiboModeState(false);
-      writeTiboMode(localStorage, false);
-    }
   }
 
   function changeComposerThinkingLevel(next: ThinkingLevel) {
-    if (tiboModeActive && next !== "high") {
-      // Leaving High exits the Tibo preset, but normal Fast deliberately stays
-      // on. Fast and reasoning effort are independent provider controls.
-      setTiboModeState(false);
-      writeTiboMode(localStorage, false);
-    }
     setThinkingLevel(next);
   }
 
@@ -23972,15 +23935,9 @@ function NewSessionDialog({
     }
     const launchUser = resolveRosterUser(user, users) || null;
     const launchAgent = agent;
-    const tiboLaunch = resolveTiboLaunch({
-      enabled: tiboMode,
-      available: tiboModeAvailable,
-      model,
-      thinkingLevel: overrideThinking ?? thinkingLevel,
-    });
-    const launchModel = tiboLaunch.model;
-    const launchThinkingLevel = tiboLaunch.thinkingLevel as ThinkingLevel;
-    const launchFastMode = fastModeEnabled || tiboLaunch.fastMode === true;
+    const launchModel = model;
+    const launchThinkingLevel: ThinkingLevel = overrideThinking ?? thinkingLevel;
+    const launchFastMode = fastModeEnabled;
     const launchClaudeAccountId = launchAgent === "aisdk" ? claudeAccountId || undefined : undefined;
     const stashed = stagePromptSend({
       contextKey: "new-session",
@@ -24272,28 +24229,34 @@ function NewSessionDialog({
           showModels={view.showComposerModels}
           showAgents={view.showComposerAgents}
           footer={
-            variant === "stage" && !tiboModeActive && agentSupportsThinking(agent) && thinkingLevels.length > 0 ? (
-              <div className="space-y-2">
-                <span className="text-xs font-medium text-muted-foreground">Thinking</span>
-                <ThinkingBar
-                  compact
-                  options={thinkingLevels.map((level) => ({
-                    id: level,
-                    label: thinkingLevelLabel(level),
-                    selected: level === thinkingLevel,
-                  }))}
-                  onPick={(level) => changeComposerThinkingLevel(level as ThinkingLevel)}
-                />
-              </div>
+            // The stage keeps Thinking and Fast inside the picker, so the
+            // toolbar holds one row and the send button never wraps below it.
+            variant === "stage" ? (
+              <ComposerPickerFooter
+                thinking={
+                  agentSupportsThinking(agent) && thinkingLevels.length > 0
+                    ? {
+                        options: thinkingLevels.map((level) => ({
+                          id: level,
+                          label: thinkingLevelLabel(level),
+                          selected: level === thinkingLevel,
+                        })),
+                        onPick: (level) => changeComposerThinkingLevel(level as ThinkingLevel),
+                      }
+                    : null
+                }
+                fast={
+                  fastModeAvailable
+                    ? { enabled: fastModeEnabled, onToggle: () => setFastMode(!fastModeEnabled) }
+                    : null
+                }
+              />
             ) : null
           }
         />
       }
 
-      {/* Tibo mode pins Fast plus High, so its own pill is the single control
-          for both. Showing the thinking and Fast pills next to it would offer
-          two more controls that only restate what Tibo already decided. */}
-      {variant === "stage" || tiboModeActive ? null : (
+      {variant === "stage" ? null : (
         <ThinkingLevelPill
           agent={agent}
           value={thinkingLevel}
@@ -24304,21 +24267,10 @@ function NewSessionDialog({
         />
       )}
 
-      {fastModeAvailable && !tiboModeActive ? (
+      {fastModeAvailable && variant !== "stage" ? (
         <FastModePill
           enabled={fastModeEnabled}
           onToggle={() => setFastMode(!fastModeEnabled)}
-          flat={variant === "inline"}
-        />
-      ) : null}
-
-      {/* The pill only appears when the agent and the model can actually run
-          Tibo mode. A permanently disabled pill taught nobody which model to
-          pick, so an unsupported model now shows no control at all. */}
-      {tiboModeAvailable ? (
-        <TiboModePill
-          enabled={tiboModeActive}
-          onToggle={() => setTiboMode(!tiboMode)}
           flat={variant === "inline"}
         />
       ) : null}
@@ -24478,13 +24430,12 @@ function NewSessionDialog({
             : undefined
         }
         fast={
-          fastModeAvailable && !tiboModeActive
+          fastModeAvailable
             ? { enabled: fastModeEnabled, onToggle: () => setFastMode(!fastModeEnabled) }
             : null
         }
-        tibo={tiboModeAvailable ? { enabled: tiboModeActive, onToggle: () => setTiboMode(!tiboMode) } : null}
         thinking={
-          !tiboModeActive && agentSupportsThinking(agent)
+          agentSupportsThinking(agent)
             ? {
                 options: thinkingLevels.map((level) => ({
                   id: level,
@@ -24563,13 +24514,7 @@ function NewSessionDialog({
     <ComposerStartButton
       disabled={!canSubmit}
       thinkingLevel={thinkingLevel}
-      thinkingLevels={
-        tiboModeActive
-          ? ["high"]
-          : agentSupportsThinking(agent)
-            ? thinkingLevels
-            : []
-      }
+      thinkingLevels={agentSupportsThinking(agent) ? thinkingLevels : []}
       onLaunch={(next) => {
         changeComposerThinkingLevel(next);
         submit(undefined, undefined, next);
@@ -24717,7 +24662,7 @@ function NewSessionDialog({
         {sheetShape ? (
           <div
             // Tighter at rest, so a narrow phone keeps width for the field.
-            className={cn("flex shrink-0 items-center", variant === "stage" && "flex-wrap", inlineExpanded ? "gap-2" : "gap-0.5")}
+            className={cn("flex shrink-0 items-center", variant === "stage" && "min-w-0", inlineExpanded ? "gap-2" : "gap-0.5")}
             // Keep the field focused while a control is tapped, so the
             // composer does not collapse under the finger.
             onMouseDown={(event) => {
@@ -25883,50 +25828,6 @@ function FastModePill({
   );
 }
 
-// Only rendered when Tibo mode is available, so there is no disabled state.
-function TiboModePill({
-  enabled,
-  onToggle,
-  flat = false,
-}: {
-  enabled: boolean;
-  onToggle: () => void;
-  flat?: boolean;
-}) {
-  const description = enabled
-    ? "Tibo mode is on: Fast service tier and High thinking"
-    : "Turn on Tibo mode: Fast service tier and High thinking";
-
-  return (
-    <button
-      type="button"
-      aria-label={description}
-      aria-pressed={enabled}
-      title={description}
-      onClick={onToggle}
-      className={cn(
-        "relative inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs font-semibold outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-ring",
-        flat && !enabled ? "px-1.5 text-muted-foreground" : "bg-muted text-muted-foreground",
-        enabled &&
-          "bg-gradient-to-r from-orange-500/22 via-fuchsia-500/20 to-violet-500/22 text-foreground ring-1 ring-inset ring-orange-400/45 shadow-[0_0_18px_rgba(249,115,22,0.22)]",
-      )}
-    >
-      <Zap
-        className={cn(
-          "size-3.5",
-          enabled && "fill-orange-400 text-orange-500 animate-pulse motion-reduce:animate-none",
-        )}
-      />
-      <span>Tibo</span>
-      {enabled ? (
-        <>
-          <span aria-hidden="true" className="text-[11px] text-orange-500/70">·</span>
-          <span className="text-[11px] text-orange-600 dark:text-orange-300">Fast + High</span>
-        </>
-      ) : null}
-    </button>
-  );
-}
 
 function ModelPicker({
   value,
@@ -30098,6 +29999,8 @@ function SettingsView({
           settings={settings}
           onChange={onSettingsChange}
         />
+
+        <FastModeSettingsSection settings={settings} onChange={onSettingsChange} />
       </AdvancedSettingsGroup>
 
       <CustomInstructionsRow
@@ -30425,7 +30328,6 @@ function ViewSettingsSection({
     { key: "showSessionDiffBar", label: "Worktree diff badge in chat", hint: "The floating changes bar above the composer." },
     { key: "showComposerAgents", label: "Agent picker in the composer", hint: "Off: every new session uses the default agent." },
     { key: "showComposerModels", label: "Model picker in the composer", hint: "Off: every new session uses the default model." },
-    { key: "showComposerFastMode", label: "Fast mode toggle in the composer", hint: "Off: no Fast pill; new sessions launch without fast mode." },
     { key: "showBots", label: "Bots", hint: "The Bots surface and its switch." },
     { key: "showSchedules", label: "Schedules", hint: "The Schedules surface and its switch." },
   ];

@@ -258,7 +258,10 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
   const showBots = input?.showBots !== false;
   const showSchedules = input?.showSchedules !== false;
   const showSessionDiffBar = input?.showSessionDiffBar !== false;
-  const showComposerFastMode = input?.showComposerFastMode !== false;
+  // Off unless the owner turns it on under Settings > Advanced. A new user
+  // does not see Fast mode. A box that has saved settings before keeps the
+  // value it saved, because every save writes this key.
+  const showComposerFastMode = input?.showComposerFastMode === true;
   const composerSendMode: ComposerSendMode = input?.composerSendMode === "queue" ? "queue" : "steer";
   // Anything unrecognised, including a value written by a newer build, reads
   // as the default rather than disabling the feature.
