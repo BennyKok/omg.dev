@@ -1,3 +1,4 @@
+import { isModelPlanDenied } from "../../../packages/protocol/src/model-access";
 import { ContentReport, type ReportSelection } from "../../src/omg/content-report";
 import { createdSessionPrompt } from "../../src/omg/pending-session";
 import { MoveSessionSheet } from "../../src/omg/move-session-sheet";
@@ -463,8 +464,13 @@ function SessionScreenContent({
     __DEV__ || user?.email === "itechbenny@gmail.com",
   );
   useEffect(() => {
+    if (error && isModelPlanDenied(error)) {
+      setError(null);
+      router.push("/plan");
+      return;
+    }
     if (error) toast.show(error, { intent: "error" });
-  }, [error, toast]);
+  }, [error, toast, router]);
   // A take that definitively failed (no working STT provider, not just
   // silence) — say so instead of leaving the mic looking like it forgot.
   useEffect(() => {

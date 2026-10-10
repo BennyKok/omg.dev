@@ -87,6 +87,8 @@ export type MenuOption = {
   destructive?: boolean;
   /** Listed but not pickable — a computer whose plan cannot serve, say. */
   disabled?: boolean;
+  /** This action opens the plan picker instead of selecting the row. */
+  upgradeRequired?: boolean;
   /**
    * Rows behind this one. A SwiftUI `Menu` nested in a menu is a submenu.
    *

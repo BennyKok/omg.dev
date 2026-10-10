@@ -3,6 +3,7 @@
  * Availability comes from the selected machine. Saved model and effort
  * choices are validated against its catalog before use.
  */
+import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -317,6 +318,7 @@ export function useAgentPicker(init: {
 
   const managedModels = entry?.models?.some((m) => m.startsWith("omg/")) ?? false;
   const { prices: modelPrices, loading: pricesLoading } = useModelPrices(managedModels);
+  const router = useRouter();
 
   const modelOptions = useMemo<MenuOption[]>(() => {
     const models = entry?.models ?? [];
@@ -326,19 +328,25 @@ export function useAgentPicker(init: {
     // agents' ids are already short strings with no face, and get no gutter.
     return models.map((m) => ({
       id: m,
-      label: omgModelLabel(m),
+      label: modelPrices[m]?.available === false ? `${omgModelLabel(m)} (Upgrade)` : omgModelLabel(m),
+      icon: modelPrices[m]?.available === false ? "lock.fill" : undefined,
+      upgradeRequired: modelPrices[m]?.available === false,
       creditUsage: m.startsWith("omg/") && !pricesLoading
         ? modelUsageLevel(modelPrices[m], modelPrices[entry?.defaultModel ?? ""])?.bars ?? 0
         : undefined,
-      image: modelProviderIcon(parseOmgModel(m)?.provider) ?? undefined,
+      image: modelPrices[m]?.available === false ? undefined : modelProviderIcon(parseOmgModel(m)?.provider) ?? undefined,
       selected: m === activeModelName,
       onPress: () => {
+        if (modelPrices[m]?.available === false) {
+          router.push("/plan");
+          return;
+        }
         setModel(m);
         setModelPicked(true);
         remember({ model: m }, `${bindingId ?? "none"}:${agent}`);
       },
     }));
-  }, [entry, activeModelName, remember, bindingId, agent, modelPrices, pricesLoading]);
+  }, [entry, activeModelName, remember, bindingId, agent, modelPrices, pricesLoading, router]);
 
   /**
    * THE LEVEL IS ALWAYS SOMETHING, and the pill always says what.

@@ -41,6 +41,8 @@ export async function handleOmgModelPrices(
         outputPricePerMillion: row.outputPricePerMillion,
       };
       if (validRate(row.cacheReadPricePerMillion)) price.cacheReadPricePerMillion = row.cacheReadPricePerMillion;
+      if (typeof row.available === "boolean") price.available = row.available;
+      if (typeof row.minPlan === "string") price.minPlan = row.minPlan;
       models[id] = price;
     }
     fields.modelCount = Object.keys(models).length;

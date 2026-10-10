@@ -13,7 +13,7 @@ test("credit estimates use router prices and omit unlisted or invalid rates", as
       calls.push(path);
       return Response.json([
         { id: "anthropic/claude-haiku-5.5", inputPricePerMillion: 100_000, outputPricePerMillion: 500_000, cacheReadPricePerMillion: 10_000 },
-        { id: "anthropic/claude-opus-5.5", inputPricePerMillion: 4_000_000, outputPricePerMillion: 20_000_000 },
+        { id: "anthropic/claude-opus-5.5", inputPricePerMillion: 4_000_000, outputPricePerMillion: 20_000_000, available: false, minPlan: "pro" },
         { id: "not-offered", inputPricePerMillion: 1, outputPricePerMillion: 1 },
         { id: "apex", inputPricePerMillion: -1, outputPricePerMillion: 1 },
         { id: "openai/gpt-6-luna", inputPricePerMillion: "100000", outputPricePerMillion: 1 },
@@ -27,6 +27,9 @@ test("credit estimates use router prices and omit unlisted or invalid rates", as
   expect(modelCreditSampleMicros(models["omg/anthropic/claude-haiku-5.5"])).toBe(1500);
   expect(modelCreditSampleMicros(models["omg/anthropic/claude-opus-5.5"])).toBe(60_000);
   expect(models["omg/anthropic/claude-haiku-5.5"].cacheReadPricePerMillion).toBe(10_000);
+  expect(models["omg/anthropic/claude-opus-5.5"].available).toBe(false);
+  expect(models["omg/anthropic/claude-opus-5.5"].minPlan).toBe("pro");
+  expect(models["omg/anthropic/claude-haiku-5.5"].available).toBeUndefined();
   expect(events[0]).toMatchObject({ status: 200, upstreamStatus: 200, modelCount: 2 });
 });
 

@@ -16,6 +16,10 @@ mock.module(resolve(import.meta.dir, '../src/omg/agent-icons.ts'), () => ({
 mock.module(resolve(import.meta.dir, '../src/omg/model-provider-icons.ts'), () => ({
   modelProviderIcon: (provider?: string | null) => provider ? { uri: `provider-${provider}` } : null,
 }));
+const upgrades: string[] = [];
+const router = { push: (path: string) => upgrades.push(path) };
+mock.module(import.meta.resolve('expo-router'), () => ({ useRouter: () => router }));
+let modelPrices: Record<string, unknown> = {};
 const agents = [{ key: 'aisdk', label: 'Claude' }, { key: 'codex-aisdk', label: 'Codex' }, { key: 'omg', label: 'omg agent' }];
 let bindingId = 'machine-a';
 /**
@@ -27,7 +31,7 @@ let readiness: { status: string } | null = { status: 'ready' };
 /** Fail the next N requests, to stand in for a box that is still waking. */
 let failures = 0;
 let requests = 0;
-const client = { transport: { request: async (path: string) => { requests++; if (failures > 0) { failures--; throw new Error('sandbox waking'); } return path.endsWith('/accounts') ? {
+const client = { transport: { request: async (path: string) => { requests++; if (path === '/api/omg/model-prices') return { models: modelPrices }; if (failures > 0) { failures--; throw new Error('sandbox waking'); } return path.endsWith('/accounts') ? {
   accounts: [
     { id: 'account-a', number: 1, connected: true, profile: { label: 'private@example.com' } },
     { id: 'account-b', number: 2, connected: true, needsReconnect: true },
@@ -198,4 +202,27 @@ test('invalid source models, effort and disconnected profiles are dropped', asyn
     await ui.flushAsync(async () => ui.render(<Fixture />));
     expect(picker.model).toBeNull(); expect(picker.modelLabel).toBe('Opus'); expect(picker.thinking).toBe('medium'); expect(picker.claudeAccountId).toBeUndefined();
   } finally { ui.cleanup(); }
+});
+
+
+test('locked managed models offer upgrade and keep the previous model', async () => {
+  const ui = mount();
+  let picker!: ReturnType<typeof useAgentPicker>;
+  const locked = 'omg/z-ai/glm-5.2';
+  bindingId = 'machine-free'; readiness = { status: 'ready' };
+  upgrades.length = 0;
+  modelPrices = { [locked]: { inputPricePerMillion: 1_000_000, outputPricePerMillion: 3_000_000, available: false, minPlan: 'pro' } };
+  function Fixture() { picker = useAgentPicker({ initialAgent: 'omg' }); return null; }
+  try {
+    await ui.flushAsync(async () => ui.render(<Fixture />));
+    const row = picker.modelOptions.find(option => option.id === locked)!;
+    expect(row.label).toContain('Upgrade');
+    expect(row.icon).toBe('lock.fill');
+    const before = picker.model;
+    ui.flush(() => row.onPress!());
+    expect(picker.model).toBe(before);
+    expect(upgrades).toEqual(['/plan']);
+    ui.flush(() => picker.modelOptions[0]!.onPress!());
+    expect(picker.model).toBe('omg/deepseek/deepseek-v4-flash-0731');
+  } finally { ui.cleanup(); modelPrices = {}; }
 });

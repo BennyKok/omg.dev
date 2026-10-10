@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 10, 2026 - Clear model upgrade choices (v0.6.218)
+
+- Models outside your plan show a lock in the model picker. Choose a locked model to open the upgrade screen.
+- A model access error opens the upgrade screen in web and mobile chats.
+- Your selected model stays unchanged when you choose a locked model.
+
 ## October 10, 2026 - Simpler composer toolbar (v0.6.217)
 
 - The desktop composer toolbar stays on one row. The send button no longer drops to a second line.

@@ -15,7 +15,7 @@ mock.module(import.meta.resolve('react-native-reanimated'), () => ({default:{Vie
 let haptics = 0;
 mock.module(import.meta.resolve('expo-haptics'), () => ({selectionAsync:async()=>{haptics++;}}));
 mock.module(import.meta.resolve('expo-linear-gradient'), () => ({LinearGradient:View}));
-mock.module(import.meta.resolve('expo-symbols'), () => ({SymbolView:()=>null}));
+mock.module(import.meta.resolve('expo-symbols'), () => ({SymbolView:({name}:any)=><span data-symbol={name}/>}));
 mock.module(resolve(import.meta.dir,'../src/omg/sheet.tsx'), () => ({Sheet:({children}:any)=><section>{children}</section>}));
 mock.module(resolve(import.meta.dir,'../src/omg/motion.tsx'), () => ({PressableScale:Pressable,useReduceMotionEnabled:()=>false}));
 mock.module(resolve(import.meta.dir,'../src/omg/text.tsx'), () => ({Text:({children}:any)=><span>{children}</span>,TextInput:({value,onChangeText,placeholder}:any)=><input value={value} placeholder={placeholder} onInput={e=>onChangeText(e.currentTarget.value)}/>}));
@@ -211,5 +211,19 @@ test('a model with a provider mark draws it in its row and on the model button',
   ui.flush(()=>{input.value='omg/deepseek';input.dispatchEvent(new Event('input',{bubbles:true}));});
   expect(ui.text()).toContain('DeepSeek V4 Flash');
   expect(ui.text()).not.toContain('gpt-5.6');
+ } finally {ui.cleanup();}
+});
+
+
+test('a locked model closes setup before opening upgrade', () => {
+ const ui=mount(); const actions:string[]=[];
+ try {
+  ui.render(<AgentSetupSheet visible onClose={()=>actions.push('close')} agentOptions={[{id:'omg',label:'omg',selected:true}]}
+   modelOptions={[{id:'omg/anthropic/claude-opus-5.5',label:'Opus 5.5 (Upgrade)',selected:true,icon:'lock.fill',upgradeRequired:true,onPress:()=>actions.push('upgrade')}]}/>);
+  ui.flush(()=> (ui.query('button[aria-label^="Model Opus"]') as HTMLElement).click());
+  const row=Array.from(ui.queryAll('button')).find(n=>n.textContent==='Opus 5.5 (Upgrade)') as HTMLElement;
+  expect(row.querySelector('[data-symbol="lock.fill"]')).not.toBeNull();
+  ui.flush(()=>row.click());
+  expect(actions).toEqual(['close','upgrade']);
  } finally {ui.cleanup();}
 });

@@ -1,4 +1,5 @@
-import { createContext, useContext, type ReactNode } from "react";
+import { isModelPlanDenied } from "../../../packages/protocol/src/model-access";
+import { createContext, useCallback, useContext, type ReactNode } from "react";
 import type { AgentKind } from "./coding-agent-options";
 import type { PlanLimitLiveAgent } from "./plan-limit-live";
 import type { PreviewAuthContext, PreviewAppCredential } from "../../../packages/protocol/src/preview-auth";
@@ -150,7 +151,7 @@ export interface PlanLimitDetail {
   /** The server's own sentence, already written for a human to read. */
   message: string;
   /** What the person was trying to do when the plan stopped them. */
-  action: "start-session";
+  action: "start-session" | "select-model" | "run-model";
   /**
    * The live chats the plan counted, so the host can list them. Home shows one
    * project at a time and can hide most of them. Absent on an older surface.
@@ -201,4 +202,15 @@ export function EmbeddedHostOptionsProvider({
 
 export function useEmbeddedHostOptions(): EmbeddedHostOptions {
   return useContext(EmbeddedHostOptionsContext);
+}
+
+
+/** Offer a model-plan refusal to the host that owns the upgrade dialog. */
+export function useModelPlanErrorHandler() {
+  const { onPlanLimit } = useEmbeddedHostOptions();
+  return useCallback((error: unknown): boolean => {
+    if (!onPlanLimit || !isModelPlanDenied(error)) return false;
+    onPlanLimit({ message: "Upgrade your plan to use this model.", action: "run-model" });
+    return true;
+  }, [onPlanLimit]);
 }

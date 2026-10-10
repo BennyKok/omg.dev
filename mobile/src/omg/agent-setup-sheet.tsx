@@ -94,6 +94,11 @@ export function AgentSetupSheet({
           </PressableScale> : null}
         </> : page === "usage" ? <ScrollView style={{ maxHeight: 380 }}>{usageDetails}</ScrollView> : page === "models" ? <ModelList key={agentKey} options={modelOptions} recent={recent[agentKey] ?? []} onPick={option => {
           if (option.disabled) return;
+          if (option.upgradeRequired) {
+            onClose();
+            pick(option);
+            return;
+          }
           pick(option);
           setRecent(current => ({ ...current, [agentKey]: [option.label, ...(current[agentKey] ?? []).filter(label => label !== option.label)].slice(0, 3) }));
           goBack();
@@ -115,7 +120,7 @@ function SymbolIf({
   name,
   color,
 }: {
-  name: "chevron.down" | "checkmark" | "magnifyingglass";
+  name: "chevron.down" | "checkmark" | "magnifyingglass" | "lock.fill";
   color: string;
 }) {
   if (Platform.OS !== "ios") {
@@ -198,6 +203,7 @@ function Row({ option, first, onPress }: { option: MenuOption; first: boolean; o
       >
         {option.label}
       </Text>
+      {option.icon === "lock.fill" ? <SymbolIf name="lock.fill" color={colors.textSecondary} /> : null}
       {selected ? <SymbolIf name="checkmark" color={colors.text} /> : null}
     </PressableScale>
   );
