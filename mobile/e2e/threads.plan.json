@@ -6,18 +6,40 @@
   "steps": [
     {
       "name": "Threads sit above tasks on Home, title only",
-      "goal": "Reach the Home screen list. If the system Home screen is visible, tap the omg app icon. If the Your data and AI providers screen appears, tap Agree and continue. Then look at the list. Do not open a thread or a session.",
-      "done": "A Threads section with the Pricing ideas thread is at the top of the list, five thread titles with no preview line, See more in the Threads header, and a Tasks section after it.",
+      "goal": "Reach the Home screen list. If the system Home screen is visible, tap the omg app icon. If the Your data and AI providers screen appears, tap Agree and continue. If the Chats without a project chip is selected (Start website and Start app suggestions are listed), tap that chip once to show every project. Then look at the list. Do not open a thread or a session.",
+      "done": "A Threads section with the Pricing ideas thread is at the top of the list, five thread titles with no preview line, See more in the Threads header, and the session folders after it with no separate Tasks heading.",
       "expect": [
         "Threads",
         "Pricing ideas",
         "Support rota",
-        "See all 6 threads",
-        "Tasks"
+        "See all 6 threads"
       ],
       "forbid": [
         "Office move",
         "Fixed \"recieve\" in the signup email. Tests pass."
+      ]
+    },
+    {
+      "name": "Threads fold to the heading",
+      "goal": "Tap the word Threads in the Threads section heading at the top of the list. Do not tap See more and do not tap a thread row.",
+      "done": "The Threads heading is still listed, but its thread rows (Pricing ideas, Support rota) and See more are gone.",
+      "expect": [
+        "Threads"
+      ],
+      "forbid": [
+        "Pricing ideas",
+        "Support rota",
+        "See all 6 threads"
+      ]
+    },
+    {
+      "name": "Threads unfold again",
+      "goal": "Tap the word Threads in the Threads section heading again.",
+      "done": "The thread rows are back under the Threads heading, with See more in the header.",
+      "expect": [
+        "Threads",
+        "Pricing ideas",
+        "See all 6 threads"
       ]
     },
     {
@@ -34,10 +56,9 @@
     {
       "name": "Back to Home",
       "goal": "Tap Back at the top left of the Threads page.",
-      "done": "The Home screen is visible again with its Threads and Tasks sections.",
+      "done": "The Home screen is visible again with its Threads section and the session folders.",
       "expect": [
-        "See all 6 threads",
-        "Tasks"
+        "See all 6 threads"
       ],
       "forbid": [
         "Office move"

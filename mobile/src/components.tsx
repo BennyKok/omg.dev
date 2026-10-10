@@ -372,10 +372,13 @@ export function Row({
 }
 
 export function EmptyState({
+  icon,
   title,
   detail,
   action,
 }: {
+  /** Drawn above the title, as the web's empty home draws its mark. */
+  icon?: React.ReactNode;
   title: string;
   detail?: string;
   action?: React.ReactNode;
@@ -383,6 +386,7 @@ export function EmptyState({
   const { colors, type, space } = useTheme();
   return (
     <View style={{ alignItems: "center", paddingHorizontal: space.xl, paddingVertical: space.xxl * 2 }}>
+      {icon ? <View style={{ marginBottom: space.sm }}>{icon}</View> : null}
       <Text style={{ ...type.headline, color: colors.text, textAlign: "center" }}>{title}</Text>
       {detail ? (
         <Text
@@ -720,9 +724,15 @@ export function SectionHeader({
   actionLabel,
   actionAccessibilityLabel,
   onAction,
+  collapsed,
 }: {
   label: string;
   count?: number;
+  /**
+   * Makes the heading a fold control. `true` or `false` draws the chevron and
+   * says the state to VoiceOver; `onPress` toggles it. Unset is not foldable.
+   */
+  collapsed?: boolean;
   /**
    * Omit for a header that names a FOLDER rather than a status. The dot is a
    * status marker; a folder does not have one, and painting a neutral dot
@@ -744,16 +754,20 @@ export function SectionHeader({
 }) {
   const { colors, type, space } = useTheme();
   const pressable = !!onPress || !!onClear;
+  const foldable = typeof collapsed === "boolean";
   return (
     <Pressable
       onPress={onClear ?? onPress}
       disabled={!pressable}
       // A heading that is not a control must not merge its children into one
       // element, or its action button ("New") cannot be reached by VoiceOver.
-      accessible={pressable}
-      accessibilityRole={pressable ? "button" : undefined}
+      // A foldable heading keeps the row as the touch target but exposes the
+      // fold on its label, so "See more" stays a separate element.
+      accessible={pressable && !foldable}
+      accessibilityRole={pressable && !foldable ? "button" : undefined}
       accessibilityLabel={
-        onClear ? `${label}. Showing only this folder. Show all` : pressable ? `${label}. Show only this folder` : undefined
+        onClear ? `${label}. Showing only this folder. Show all`
+          : pressable && !foldable ? `${label}. Show only this folder` : undefined
       }
       style={{
         flexDirection: "row",
@@ -778,7 +792,15 @@ export function SectionHeader({
           The web dropped the uppercase from its own group labels for the same
           reason; tracking goes with it, since letterspacing exists to make
           uppercase readable. */}
-      <Text style={{ ...type.overline, letterSpacing: 0, textTransform: "none", color: onClear ? colors.text : colors.textMuted }}>
+      <Text
+        {...(foldable ? {
+          onPress,
+          accessibilityRole: "button" as const,
+          accessibilityState: { expanded: !collapsed },
+          accessibilityLabel: `${label}${typeof count === "number" ? `, ${count}` : ""}`,
+        } : {})}
+        style={{ ...type.overline, letterSpacing: 0, textTransform: "none", color: onClear ? colors.text : colors.textMuted }}
+      >
         {label}
       </Text>
       {/* The count is a CHIP, not part of the label. Same as the web: a
@@ -812,6 +834,14 @@ export function SectionHeader({
           are the same object. */}
       {onClear ? (
         <Icon ios="xmark.circle.fill" android="cancel" size={14} color={colors.textMuted} />
+      ) : null}
+      {foldable ? (
+        <Icon
+          ios={collapsed ? "chevron.right" : "chevron.down"}
+          android={collapsed ? "chevron_right" : "expand_more"}
+          size={11}
+          color={colors.textMuted}
+        />
       ) : null}
       <View style={{ flex: 1 }} />
       {actionLabel && onAction ? (

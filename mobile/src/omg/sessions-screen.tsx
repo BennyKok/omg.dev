@@ -403,6 +403,26 @@ export function SessionsScreen({
       .catch(() => {});
   }, []);
   const railOpen = wide && !railCollapsed;
+  /**
+   * THE THREADS SECTION FOLDS to its heading, remembered per device. Tasks
+   * are the work; a reader who does not need the chats can put them away.
+   */
+  const [threadsCollapsed, setThreadsCollapsed] = useState(false);
+  useEffect(() => {
+    void AsyncStorage.getItem(STORAGE_KEYS.threadsCollapsed)
+      .then((saved) => {
+        if (saved === "1") setThreadsCollapsed(true);
+      })
+      .catch(() => {});
+  }, []);
+  const toggleThreads = useCallback(() => {
+    void Haptics.selectionAsync();
+    setThreadsCollapsed((current) => {
+      const next = !current;
+      void AsyncStorage.setItem(STORAGE_KEYS.threadsCollapsed, next ? "1" : "0").catch(() => {});
+      return next;
+    });
+  }, []);
   const railWidth = railOpen ? 320 : 0;
   const router = useRouter();
   const navigateWorkspace = (href: Href) => {
@@ -2031,7 +2051,9 @@ export function SessionsScreen({
                   <SectionHeader
                     label="Threads"
                     count={threads.length}
-                    {...(threads.length > HOME_THREAD_LIMIT
+                    collapsed={threadsCollapsed}
+                    onPress={toggleThreads}
+                    {...(!threadsCollapsed && threads.length > HOME_THREAD_LIMIT
                       ? {
                           actionLabel: "See more",
                           actionAccessibilityLabel: `See all ${threads.length} threads`,
@@ -2042,7 +2064,7 @@ export function SessionsScreen({
                   {/* Title only, and at most HOME_THREAD_LIMIT rows: the list
                       is a shortcut to recent chats, not their inbox. The rest
                       are one tap away on /threads, from the header's See more. */}
-                  {threads.slice(0, HOME_THREAD_LIMIT).map((thread) => (
+                  {(threadsCollapsed ? [] : threads.slice(0, HOME_THREAD_LIMIT)).map((thread) => (
                     <SessionCard
                       key={`thread:${thread.id}`}
                       sessionId={thread.id}
@@ -2055,7 +2077,6 @@ export function SessionsScreen({
                       animateEntry={animateEntry}
                     />
                   ))}
-                  {homeRows.length ? <SectionHeader label="Tasks" count={roots.length} /> : null}
                 </View>
               ) : null}
               {visibleSessions.length === 0 && loading ? (
@@ -2064,10 +2085,15 @@ export function SessionsScreen({
                 // is the loading affordance instead — real rows must never be
                 // swapped out for skeletons under someone's thumb.
                 <SessionListSkeleton style={{ paddingTop: space.xl }} />
-              ) : visibleSessions.length === 0 && !loading && !projectPicker.unassigned ? (
+              ) : roots.length === 0 && !loading && !projectPicker.unassigned ? (
+                // The web's empty home (RuntimeEmptyState): the composer below
+                // is the action, so this points at it instead of adding a
+                // second button. A scoped folder with no work says so by name.
                 <EmptyState
-                  title="No sessions yet"
-                  detail="Start one below and it shows up here."
+                  icon={<Icon ios="bubble.left.and.bubble.right" android="forum" size={30} color={colors.textMuted} />}
+                  title={visibleSessions.length && !projectPicker.allProjects ? `No sessions in ${projectPicker.label}` : "No sessions yet"}
+                  detail="Type below to start one."
+                  action={<Icon ios="arrow.down" android="arrow_downward" size={16} color={colors.textMuted} />}
                 />
               ) : null}
 

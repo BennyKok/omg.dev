@@ -1,0 +1,31 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": false
+  },
+  "steps": [
+    {
+      "name": "An empty project points at the composer",
+      "goal": "Reach the Home screen list. If the system Home screen is visible, tap the omg app icon. If the Your data and AI providers screen appears, tap Agree and continue. Then tap the docs folder chip in the row of project chips under the greeting. Do not open a session.",
+      "done": "The docs project is selected and the list shows an empty state that says there are no sessions in docs and to type below to start one.",
+      "expect": [
+        "No sessions in docs",
+        "Type below to start one."
+      ],
+      "forbid": [
+        "Tasks"
+      ]
+    },
+    {
+      "name": "Back to every project",
+      "goal": "Tap the docs folder chip again to clear the project filter.",
+      "done": "The list shows sessions from several projects again and the empty state is gone.",
+      "expect": [
+        "api-gateway"
+      ],
+      "forbid": [
+        "No sessions in docs"
+      ]
+    }
+  ]
+}

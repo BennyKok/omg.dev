@@ -120,6 +120,8 @@ export const STORAGE_KEYS = {
   previewCardExpanded: "omg:mobile:preview-card-expanded",
   /** "1" while the iPad rail is collapsed from its divider handle. */
   railCollapsed: "omg:mobile:rail-collapsed",
+  /** "1" while the home Threads section is folded to its heading. */
+  threadsCollapsed: "omg:mobile:threads-collapsed",
 } as const;
 
 export type ComputerMode = "direct" | "hosted";
