@@ -899,7 +899,7 @@ export const SESSION_ROW = {
   textGap: 4,
   paddingRight: 14,
   /** A title-only row (home's thread list): one line, no preview. */
-  singleLineHeight: 40,
+  singleLineHeight: 32,
 } as const;
 
 /** The mark's centre, measured from the left edge of the row's column. */
@@ -1066,9 +1066,9 @@ export function SessionCard({
              * and 16 gives it the same breathing room the title has from the
              * text beside it.
              */
-            // A title-only row has no mark, so its title lines up with the
-            // section header's label (SectionHeader's space.md) instead.
-            paddingLeft: singleLine ? space.md - SESSION_ROW.inset : SESSION_ROW.padding,
+            // A title-only row has no mark. Its title takes the same inset as
+            // its timestamp on the right, so the line reads as centred.
+            paddingLeft: singleLine ? SESSION_ROW.paddingRight : SESSION_ROW.padding,
             // More room on the right than the left: the status dot is a 10pt
             // circle with no visual mass of its own, so an equal inset leaves
             // it looking stuck to the group's edge. The avatar on the left is

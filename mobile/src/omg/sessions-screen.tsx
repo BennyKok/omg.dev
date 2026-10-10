@@ -2053,13 +2053,6 @@ export function SessionsScreen({
                     count={threads.length}
                     collapsed={threadsCollapsed}
                     onPress={toggleThreads}
-                    {...(!threadsCollapsed && threads.length > HOME_THREAD_LIMIT
-                      ? {
-                          actionLabel: "See more",
-                          actionAccessibilityLabel: `See all ${threads.length} threads`,
-                          onAction: () => router.push("/threads" as Href),
-                        }
-                      : {})}
                   />
                   {/* Title only, and at most HOME_THREAD_LIMIT rows: the list
                       is a shortcut to recent chats, not their inbox. The rest
@@ -2077,6 +2070,31 @@ export function SessionsScreen({
                       animateEntry={animateEntry}
                     />
                   ))}
+                  {/* The way to the rest is a quiet last line, not a coloured
+                      link in the heading: it is there when wanted and does
+                      not compete with the rows. */}
+                  {!threadsCollapsed && threads.length > HOME_THREAD_LIMIT ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`See all ${threads.length} threads`}
+                      onPress={() => router.push("/threads" as Href)}
+                      style={({ pressed }) => ({
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 4,
+                        height: SESSION_ROW.singleLineHeight,
+                        marginHorizontal: SESSION_ROW.inset,
+                        paddingHorizontal: SESSION_ROW.paddingRight,
+                        borderRadius: radius.md,
+                        backgroundColor: pressed ? colors.cardPressed : "transparent",
+                      })}
+                    >
+                      <Text style={{ ...type.subhead, color: colors.textMuted }}>
+                        See all {threads.length}
+                      </Text>
+                      <Icon ios="chevron.right" android="chevron_right" size={11} color={colors.textMuted} />
+                    </Pressable>
+                  ) : null}
                 </View>
               ) : null}
               {visibleSessions.length === 0 && loading ? (

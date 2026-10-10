@@ -7,7 +7,7 @@
     {
       "name": "Threads sit above tasks on Home, title only",
       "goal": "Reach the Home screen list. If the system Home screen is visible, tap the omg app icon. If the Your data and AI providers screen appears, tap Agree and continue. If the Chats without a project chip is selected (Start website and Start app suggestions are listed), tap that chip once to show every project. Then look at the list. Do not open a thread or a session.",
-      "done": "A Threads section with the Pricing ideas thread is at the top of the list, five thread titles with no preview line, See more in the Threads header, and the session folders after it with no separate Tasks heading.",
+      "done": "A Threads section with the Pricing ideas thread is at the top of the list, five thread titles with no preview line, a quiet See all 6 row under them, and the session folders after it with no separate Tasks heading.",
       "expect": [
         "Threads",
         "Pricing ideas",
@@ -21,8 +21,8 @@
     },
     {
       "name": "Threads fold to the heading",
-      "goal": "Tap the word Threads in the Threads section heading at the top of the list. Do not tap See more and do not tap a thread row.",
-      "done": "The Threads heading is still listed, but its thread rows (Pricing ideas, Support rota) and See more are gone.",
+      "goal": "Tap the word Threads in the Threads section heading at the top of the list. Do not tap See all and do not tap a thread row.",
+      "done": "The Threads heading is still listed, but its thread rows (Pricing ideas, Support rota) and the See all 6 row are gone.",
       "expect": [
         "Threads"
       ],
@@ -35,7 +35,7 @@
     {
       "name": "Threads unfold again",
       "goal": "Tap the word Threads in the Threads section heading again.",
-      "done": "The thread rows are back under the Threads heading, with See more in the header.",
+      "done": "The thread rows are back under the Threads heading, with the See all 6 row under them.",
       "expect": [
         "Threads",
         "Pricing ideas",
@@ -43,8 +43,8 @@
       ]
     },
     {
-      "name": "See more opens every thread",
-      "goal": "Tap See more at the right of the Threads header. Do not tap a thread row.",
+      "name": "See all opens every thread",
+      "goal": "Tap the See all 6 row under the last thread in the Threads section. Do not tap a thread row.",
       "done": "The Threads page is open and lists all six threads, each with its preview line.",
       "expect": [
         "Threads",
