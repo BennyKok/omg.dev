@@ -21,11 +21,14 @@ afterAll(async () => {
 });
 
 describe("showComposerFastMode", () => {
-  test("defaults on for boxes that predate the setting", () => {
-    expect(settings.getGlobalSettingsSync().showComposerFastMode).toBe(true);
+  test("defaults off, so a new user does not see Fast mode", () => {
+    expect(settings.getGlobalSettingsSync().showComposerFastMode).toBe(false);
   });
 
-  test("persists an off choice", async () => {
+  test("persists an on choice, then an off choice", async () => {
+    await settings.setGlobalSettings({ showComposerFastMode: true });
+    settings.resetSettingsDbConnectionForTests();
+    expect(settings.getGlobalSettingsSync().showComposerFastMode).toBe(true);
     await settings.setGlobalSettings({ showComposerFastMode: false });
     settings.resetSettingsDbConnectionForTests();
     expect(settings.getGlobalSettingsSync().showComposerFastMode).toBe(false);

@@ -297,9 +297,7 @@ describe("thinking level menu", () => {
     expect(source).toContain(
       "function submit(e?: FormEvent, overrideText?: string, overrideThinking?: ThinkingLevel)",
     );
-    expect(source).toContain("thinkingLevel: overrideThinking ?? thinkingLevel");
-    expect(source).toContain("const launchThinkingLevel = tiboLaunch.thinkingLevel as ThinkingLevel");
-    expect(source).toContain("tiboModeActive");
+    expect(source).toContain("const launchThinkingLevel: ThinkingLevel = overrideThinking ?? thinkingLevel");
     expect(source).toContain("agentSupportsThinking(agent)");
     expect(source).toContain("submit(undefined, undefined, next)");
     // A press that opened the scrubber owns its trailing click even when the

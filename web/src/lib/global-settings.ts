@@ -51,8 +51,8 @@ export type GlobalSettings = {
   showSchedules: boolean;
   // Off hides the floating worktree diff bar in a session's chat.
   showSessionDiffBar: boolean;
-  // Off hides the Fast pill in the composer; new sessions launch without
-  // fast mode.
+  // Off by default. On shows the Fast mode switch in the composer's model
+  // picker. Off launches new sessions without fast mode. Set under Advanced.
   showComposerFastMode: boolean;
   // What a plain send (Enter, tap) does while the agent is on a turn: "steer"
   // interrupts the turn, "queue" holds the text as an editable card under the
@@ -112,7 +112,7 @@ export const DEFAULT_VIEW_PREFS: ViewPrefs = {
   showBots: true,
   showSchedules: true,
   showSessionDiffBar: true,
-  showComposerFastMode: true,
+  showComposerFastMode: false,
   composerSendMode: "steer",
   autoSessionTitles: "on",
 };
