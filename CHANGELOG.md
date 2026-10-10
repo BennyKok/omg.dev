@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## October 10, 2026 - Simpler composer toolbar (v0.6.217)
+
+- The desktop composer toolbar stays on one row. The send button no longer drops to a second line.
+- Fast mode is a switch inside the model picker, under Thinking.
+- Fast mode is off for new users. Turn it on in Settings > Advanced > Fast mode. A saved choice does not change.
+- Tibo mode is removed.
+
 ## October 10, 2026 - Expo apps open again (v0.6.216)
 
 - New Expo apps open in Expo Go again. Before this fix, a new app showed "undefined is not a function" on start.
