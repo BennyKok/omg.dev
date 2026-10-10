@@ -3,6 +3,7 @@ import { mount } from '../../web/src/test-support/render';
 import { expect, mock, test } from 'bun:test';
 import * as React from '../../web/node_modules/react';
 import { resolve } from 'node:path';
+mock.module('expo-router', () => ({ useRouter: () => ({ push: () => {} }) }));
 mock.module(resolve(import.meta.dir, '../node_modules/react/index.js'), () => React);
 mock.module(import.meta.resolve('@react-native-async-storage/async-storage'), () => ({
   default: { getItem: async () => null, setItem: async () => {} },
