@@ -30,6 +30,16 @@ describe("OpenCode model variants", () => {
   });
 });
 
+test("builder repair forwards reference and current screenshot images in order", () => {
+  const images = [
+    { type: "file" as const, mime: "image/jpeg", url: "data:image/jpeg;base64,reference", filename: "reference-1.jpg" },
+    { type: "file" as const, mime: "image/jpeg", url: "data:image/jpeg;base64,current", filename: "rendered-app.jpg" },
+  ];
+  const body = opencodePromptBody("omg/anthropic/claude-haiku-5.5", "low", "Compare and repair", images);
+  expect(body.parts).toEqual([{ type: "text", text: "Compare and repair" }, ...images]);
+  expect(body.model?.modelID).toBe("anthropic/claude-haiku-5.5");
+});
+
 describe("opencode draft streaming", () => {
   test("does not publish OpenCode's streamed user prompt as an assistant draft", () => {
     const roles = new Map<string, "user" | "assistant">([

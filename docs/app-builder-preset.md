@@ -13,11 +13,15 @@ The preset is stored with the session and in the resume cache.
 
 The controller owns the review loop:
 
-1. The selected builder implements the request and runs focused checks.
+1. The selected builder implements the request, runs focused checks, and
+   inspects the rendered UI against the design references.
 2. Apex reviews bounded source excerpts in a separate OpenCode session.
 3. The controller captures the live app at 390 by 844 pixels. Luna compares
    that screenshot with the user brief and up to three reference images.
-4. If either review fails, the builder repairs the findings once. Both
+4. If either review fails, the builder receives the same reference images and
+   current screenshot as image inputs, alongside both reviewers’ findings.
+   It compares the images, repairs the findings once, and inspects a fresh
+   screenshot after the repair. Both
    reviewers then check the current version again with a fresh screenshot.
 
 Both reviewers must return a passing JSON verdict on the same version before
@@ -92,3 +96,31 @@ were 390 by 757 pixels before an explicit viewport override was added. Keep
 this variation in mind when comparing the images. More app samples, the repair
 strategy, runtime screenshot support, hosted authentication, and launch paths
 remain rollout checks. General remains the default.
+
+## Direct visual repair replay (2026-10-11)
+
+The repair turn now receives the same reference images and candidate screenshot
+as the design reviewer. Both build and repair prompts request rendered UI
+inspection. The OpenCode SDK forwards the image parts in order. There are 64
+passing focused runtime tests. Root typecheck passes.
+
+The fresh Tealist replay confirms four direct repair attachments and five
+completed reads of builder screenshots. Extra benchmark compact-build and
+browser restrictions were removed. Final code review passes. Final design
+review fails. The layout improves over the previous repair, but Luna remains
+closer to the reference. The screenshot reviewer also falsely claims that the
+visible due-soon banner is missing. Its findings need evidence checks.
+
+The clean replay takes 5 minutes 46 seconds and costs $0.05883676 in recorded
+token estimates. A failed local proxy setup adds 7 minutes 7 seconds and
+$0.02518478 in recorded overhead. Combined recorded cost is $0.08402154.
+Unlogged HTTP retry charges may add more. These are API credits, not Claude
+subscription usage. The historical Luna cloud window is 15 minutes 26 seconds,
+including preview/deployment work. It is not a controlled timing comparison.
+
+Independent browser checks pass 12 and fail 3: shared live updates, project
+creation, and shared item completion. Backend restart and concurrent writes
+pass. No full-suite rerun, native build, deployment, or rollout was performed.
+The full suite retains previously recorded baseline failures. General remains
+the default. Evidence is in
+`/home/dev/.cache/lfg/tmp/tealist-visual-loop-v2-2026-10-11/REPORT.md`.

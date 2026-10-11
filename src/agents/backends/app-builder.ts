@@ -12,7 +12,7 @@ export function validateBuilderPreset(value: unknown, agent: string): string | u
   return APP_BUILDER_PRESET;
 }
 
-export const appBuilderBuildPrompt = (prompt: string) => `${prompt}\n\nApp Builder workflow: build the requested app and run its focused checks. Separate code and screenshot design reviews follow this turn. Keep a local web preview running. Write .omg/app-builder-preview.json with {"url":"http://127.0.0.1:PORT"} for the controller to capture the rendered app. Do not deploy, publish, ship, or claim final completion before that review. Keep commentary short. Do not invoke reviewers or subagents yourself.`;
+export const appBuilderBuildPrompt = (prompt: string) => `${prompt}\n\nApp Builder workflow: build the requested app and run its focused checks. Inspect the rendered UI at the target size against the supplied design references before ending this turn. Separate code and screenshot design reviews follow this turn. Keep a local web preview running. Write .omg/app-builder-preview.json with {"url":"http://127.0.0.1:PORT"} for the controller to capture the rendered app. Do not deploy, publish, ship, or claim final completion before that review. Keep commentary short. Do not invoke reviewers or subagents yourself.`;
 export const appBuilderFixPrompt = (review: string) => `App Builder review findings follow. Check code claims against the code and visual claims against the supplied references. Fix confirmed issues only, run focused tests and typecheck, and verify the main app flow. Keep code and visual findings separate. Follow the original delivery scope; do not deploy or publish unless the user requested it. Report exact checks and remaining limits.\n\n${review}`;
 
 /** Source excerpts only. Never read ignored files, secrets, dependencies or symlink escapes. */
@@ -73,7 +73,7 @@ export function parseBuilderVerdict(text: string): { passed: boolean; issues: st
 
 /** Both reviews must pass on the same revision. At most one repair round. */
 export async function runAppBuilder<T>(opts: {
-  prompt: string; build(prompt: string): Promise<T>; succeeded(result: T): boolean;
+  prompt: string; build(prompt: string, images?: DesignEvidence["parts"]): Promise<T>; succeeded(result: T): boolean;
   packet(): Promise<string>; review(packet: string): Promise<BuilderReview>;
   evidence(): Promise<DesignEvidence>; designReview(evidence: DesignEvidence): Promise<BuilderReview>;
   stopped(): boolean;
@@ -89,12 +89,13 @@ export async function runAppBuilder<T>(opts: {
       const code = await opts.review(await opts.packet());
       if (opts.stopped()) { opts.phase("failed"); return result; }
       opts.phase("design-review");
-      const design = await opts.designReview(await opts.evidence());
+      const evidence = await opts.evidence();
+      const design = await opts.designReview(evidence);
       if (opts.stopped()) { opts.phase("failed"); return result; }
       if (code.passed && design.passed) { opts.phase("complete"); return result; }
       if (round === 1) throw new Error("Code and design have not both passed after the repair round");
       opts.phase("fix", code);
-      result = await opts.build(appBuilderFixPrompt(code.text) + `\n\nScreenshot design review:\n${design.text}\nFix the visual mismatches. Keep the preview running and refresh it with the latest code for the final screenshot check.`);
+      result = await opts.build(appBuilderFixPrompt(code.text) + `\n\nScreenshot design review:\n${design.text}\nThe attached images are the user references followed by the current app screenshot. Compare them directly before editing. Fix the visual mismatches without making the composition worse. After changes, inspect a fresh rendered screenshot at the same viewport before ending your turn. Keep the preview running and refresh it with the latest code for the final screenshot check.`, evidence.parts);
       if (opts.stopped() || !opts.succeeded(result)) { opts.phase("failed"); return result; }
     }
     throw new Error("Reviews did not complete");
