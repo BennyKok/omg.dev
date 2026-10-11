@@ -5,6 +5,10 @@ The app tile is the existing `#FF5530` orange omg.dev mark on `#FFFFFF` white.
 circular cutout use the same geometry as the inline brand mark, with .82 tile
 padding. Keep the tile white in both themes.
 
+The browser tab favicon is `web/public/icon-small.svg`. It is generated with no
+white tile and the mark at 1.3 scale, so it fills the tab slot. A white square
+with a small disc looked broken in dark tab strips.
+
 The coding-agent avatar uses the previous cream mark on a dark brown tile.
 `web/public/agent-omg.svg` owns this separate artwork. The generator preserves
 its dark palette and transparent corners for the native 1x, 2x and 3x PNGs.
