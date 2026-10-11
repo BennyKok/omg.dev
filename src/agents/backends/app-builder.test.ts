@@ -13,7 +13,7 @@ test("preset is opt-in and restricted to OMG Agent", () => {
 
 
 const verdict = (passed = true) => ({ text: JSON.stringify({ passed, issues: passed ? [] : ["Fix mascot"] }), passed, issues: passed ? [] : ["Fix mascot"], cost: .004, tokens: {}, sessionId: "review" });
-const evidence = { parts: [], screenshotPath: "/candidate.jpg", brief: "teal blob holding a mug" };
+const evidence = { parts: [{ type: "file" as const, mime: "image/jpeg", url: "data:image/jpeg;base64,abc", filename: "rendered-app.jpg" }], screenshotPath: "/candidate.jpg", brief: "teal blob holding a mug" };
 
 test("completion requires both reviewers to pass on the same revision", async () => {
   const phases: string[] = []; let builds = 0;
@@ -24,13 +24,15 @@ test("completion requires both reviewers to pass on the same revision", async ()
 });
 
 test("a design mismatch triggers repair and both reviews on fresh evidence", async () => {
-  let builds = 0, codes = 0, designs = 0, screenshots = 0; const prompts: string[] = [];
-  await runAppBuilder({ prompt: "build", build: async p => { builds++; prompts.push(p); return true; }, succeeded: Boolean,
+  let builds = 0, codes = 0, designs = 0, screenshots = 0; const prompts: string[] = []; const images: unknown[] = [];
+  await runAppBuilder({ prompt: "build", build: async (p, parts) => { builds++; prompts.push(p); images.push(parts); return true; }, succeeded: Boolean,
     packet: async () => "source", review: async () => { codes++; return verdict(); },
     evidence: async () => { screenshots++; return evidence; }, designReview: async () => verdict(++designs > 1),
     stopped: () => false, phase: () => {} });
   expect(builds).toBe(2); expect(codes).toBe(2); expect(screenshots).toBe(2); expect(designs).toBe(2);
   expect(prompts[1]).toContain("Fix mascot");
+  expect(images[0]).toBeUndefined(); expect(images[1]).toEqual(evidence.parts);
+  expect(prompts[1]).toContain("inspect a fresh rendered screenshot");
 });
 
 test("passing design cannot hide a code failure after repair", async () => {

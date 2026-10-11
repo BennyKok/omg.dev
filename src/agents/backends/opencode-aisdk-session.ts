@@ -143,6 +143,7 @@ export function opencodePromptBody(
   model: string,
   thinkingLevel: string | undefined,
   prompt: string,
+  images: Array<{ type: "file"; mime: string; url: string; filename?: string }> = [],
 ): {
   model?: { providerID: string; modelID: string };
   variant?: string;
@@ -161,7 +162,7 @@ export function opencodePromptBody(
   return {
     ...(modelRef(model) ? { model: modelRef(model) } : {}),
     ...(thinkingLevel ? { variant: thinkingLevel } : {}),
-    parts,
+    parts: [...parts, ...images],
   };
 }
 
@@ -1189,7 +1190,7 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
     void syncPendingPermissions();
   }, 1500);
 
-  async function runSingleTurn(prompt: string): Promise<boolean> {
+  async function runSingleTurn(prompt: string, images: Array<{ type: "file"; mime: string; url: string; filename?: string }> = []): Promise<boolean> {
     writeUser(prompt);
     turnActive = true;
     turnInterrupted = false;
@@ -1225,7 +1226,7 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
             client.session.prompt({
               path: { id: ocSessionId! },
               query: { directory: cwd },
-              body: opencodePromptBody(model, thinkingLevel, prompt),
+              body: opencodePromptBody(model, thinkingLevel, prompt, images),
             }),
             failed.promise,
           ]);
