@@ -74,4 +74,14 @@ These failures remain outside this logo change.
 
 App Store status was read again after publication: 1.0.16 build 92 still waits
 for review; the public version remains 1.0.15. The new native launcher and
-extension artwork stays prepared for the next binary. No review was restarted.
+extension artwork stays prepared for the next binary. The macOS icon generator
+also uses `mobile/assets/icon.png`, so its next build inherits this artwork. No review was restarted.
+
+The hosted runtime bake check `38136184643` passed against the 0.6.221 pin.
+Its live registry result was `agent-lfg v338`, `agent-lfg-v338-51805b8a`,
+pointing at `44551d386ff3`. The final local frontend build serves 0.6.221
+from `/assets/index-ftTZeqno.js`.
+
+Backend deployment `38135979770` also passed for the same hosted pin commit,
+including regional service checks. Public and control-plane health checks passed.
+The current App Store review was read again at handoff and was left unchanged.
