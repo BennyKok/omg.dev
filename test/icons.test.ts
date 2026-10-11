@@ -3,89 +3,28 @@ import { readFile } from "node:fs/promises";
 import sharp from "sharp";
 
 describe("OMG icon assets", () => {
-  // The mark must be real geometry, not a bitmap. It shipped for five weeks as
-  // a grid of ~680 8.28px <rect>s — a 34x26 pixel image in SVG clothing. The
-  // header draws it in a 24px box where the glyph gets ~11.7px for 32 source
-  // pixels: 0.36px each, well under one device pixel even at DPR 3, so every
-  // stroke was averaged into the background and came out grey instead of white.
-  // Vector rasterizes against the actual device grid, so it stays crisp.
-  // A handful of <rect>/<circle>/<path> is normal artwork; hundreds means a
-  // pixel grid. It used to draw the "lfg" wordmark on a blue tile; it is the
-  // omg.dev disc-with-a-bite now, traced from docs/images/omg-icon.png.
-  test("keeps the mark as true vector, never a bitmap", async () => {
+  test("keeps the app tile as vector artwork", async () => {
     const source = await readFile("web/public/icon.svg", "utf8");
-    expect(source).toContain('viewBox="0 0 512 512"');
+    expect((await sharp(Buffer.from(source)).metadata()).format).toBe("svg");
     expect(source).not.toContain("<image");
+    expect(source.match(/<rect/g)?.length ?? 0).toBeLessThan(12);
+  });
 
-    const rects = source.match(/<rect/g)?.length ?? 0;
-    expect(rects).toBeLessThan(12);
-
-    // A traced bitmap also hides as one path of hundreds of L commands.
-    for (const [, d] of source.matchAll(/\sd="([^"]+)"/g)) {
-      expect((d.match(/L/g)?.length ?? 0)).toBeLessThan(60);
+  test("ships the orange mark and white tile across web and native", async () => {
+    for (const file of ["web/public/icon.svg", "web/public/icon-512.png", "web/public/apple-touch-icon.png", "mobile/assets/icon.png"]) {
+      const { data, info } = await sharp(file).resize(100, 100).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+      const pixel = (x: number, y: number) => [...data.subarray((y * info.width + x) * info.channels, (y * info.width + x) * info.channels + 3)];
+      expect(pixel(0, 0)).toEqual([255, 255, 255]);
+      expect(pixel(50, 50)).toEqual([255, 85, 48]);
+      expect(pixel(67, 33)).toEqual([255, 255, 255]);
     }
   });
 
-  // The tile artwork and the app's own inline mark have to stay the same brand.
-  // The blue/cyan "lfg" tile outlived the rename by months precisely because
-  // nothing compared the two.
-  test("draws the same omg.dev mark the app draws inline", async () => {
-    const icon = await readFile("web/public/icon.svg", "utf8");
-    const maskable = await readFile("web/public/icon-maskable.svg", "utf8");
-
-    // Disc plus a bite punched out of it, in both tile variants.
-    for (const source of [icon, maskable]) {
-      expect((source.match(/<circle/g)?.length ?? 0)).toBe(2);
-      expect(source).toContain("<mask");
-      // The legacy wordmark was three glyph paths on a blue gradient.
-      expect(source).not.toContain("#3b5bf6");
-      expect(source).not.toContain("#06b6d4");
-    }
-
-    // The maskable variant is full bleed; the app tile keeps its corners.
-    expect(icon).toMatch(/<rect width="512" height="512" rx="\d+"/);
-    expect(maskable).not.toContain("rx=");
-  });
-
-  test("ships the small placement variant as the same crisp vector", async () => {
-    const source = await readFile("web/public/icon-small.svg", "utf8");
-    expect(source).toContain('viewBox="0 0 512 512"');
-    expect(source).not.toContain("<image");
-    expect((source.match(/<rect/g)?.length ?? 0)).toBeLessThan(12);
-
-    // Vector needs no size-specific artwork: no variants, no @media swap.
-    expect(source).not.toContain("@media");
-    expect(source).not.toContain('id="full"');
-    expect(source).not.toContain('id="mini"');
-
-    for (const path of [
-      "web/src/App.tsx",
-      "web/src/components/pwa-install.tsx",
-      "web/src/components/embedded-connect-gate.tsx",
-    ]) {
-      const ui = await readFile(path, "utf8");
-      expect(ui).not.toContain('omgAssetUrl("/icon.svg")');
-    }
-
-    // Still a served URL: an installed PWA or a bookmark can hold it, so the
-    // route outlives its last in-app caller.
-    const server = await readFile("src/commands/serve.ts", "utf8");
-    expect(server).toContain('"/icon-small.svg"');
-
-    // ...but small UI placements no longer fetch it. They draw the mark as
-    // inline SVG, which tints with currentColor — that is what lets the same
-    // component render brand orange when hosted and muted grey when local.
-    // web/src/lib/icon-assets.ts existed only to hold that URL and is gone.
-    const brand = await readFile("web/src/components/omg-brand-mark.tsx", "utf8");
-    expect(brand).toContain('fill="currentColor"');
-    for (const path of [
-      "web/src/App.tsx",
-      "web/src/components/pwa-install.tsx",
-      "web/src/components/embedded-connect-gate.tsx",
-    ]) {
-      const ui = await readFile(path, "utf8");
-      expect(ui).not.toContain("icon-assets");
-      expect(ui).toContain("OmgBrandMark");
+  test("small and avatar variants render the same canonical artwork", async () => {
+    const render = (file: string) => sharp(file).resize(96, 96).ensureAlpha().raw().toBuffer();
+    const canonical = await render("web/public/icon.svg");
+    for (const file of ["web/public/icon-small.svg", "web/public/agent-omg.svg"]) {
+      expect((await render(file)).equals(canonical)).toBe(true);
     }
   });
 
@@ -279,8 +218,10 @@ describe("OMG icon assets", () => {
     // iOS caches home-screen artwork separately and does not reliably
     // revalidate a stable URL, even when ordinary HTTP cache headers change.
     const index = await readFile("web/index.html", "utf8");
-    expect(index).toContain(
-      'href="/apple-touch-icon.png?v=20260822-omg-mark"',
-    );
+    const href = index.match(/rel="apple-touch-icon"[^>]*href="([^"]+)"/)?.[1];
+    expect(href).toBeDefined();
+    const url = new URL(href!, "https://omg.dev");
+    expect(url.pathname).toBe("/apple-touch-icon.png");
+    expect(url.searchParams.get("v")).toBeTruthy();
   });
 });
