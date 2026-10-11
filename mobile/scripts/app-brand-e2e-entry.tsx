@@ -12,7 +12,7 @@ function App() {
     <View style={{ padding: 24, gap: 24 }}>
       <Text style={{ color: colors.text, fontSize: 24 }}>omg.dev app icon · {isDark ? "dark" : "light"}</Text>
       <Image accessibilityLabel="Orange omg.dev app icon on white" source={require("../assets/icon.png")} style={{ width: 200, height: 200, borderRadius: 44 }} />
-      <Text style={{ color: colors.text }}>Production omg agent avatars</Text>
+      <Text style={{ color: colors.text }}>Production omg agent avatars · cream on dark</Text>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 20 }}>
         {[56, 32, 20].map(size => <AgentAvatar key={size} agent="omg" size={size} plain />)}
       </View>

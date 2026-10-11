@@ -5,8 +5,12 @@ The app tile is the existing `#FF5530` orange omg.dev mark on `#FFFFFF` white.
 circular cutout use the same geometry as the inline brand mark, with .82 tile
 padding. Keep the tile white in both themes.
 
+The coding-agent avatar uses the previous cream mark on a dark brown tile.
+`web/public/agent-omg.svg` owns this separate artwork. The generator preserves
+its dark palette and transparent corners for the native 1x, 2x and 3x PNGs.
+
 Run `bun run icons` to generate the web icons, touch icon, documentation image,
-native launcher assets and omg agent avatar at 1x, 2x and 3x. Run
+native launcher assets and coding-agent avatar PNGs. Run
 `bun run icons --check` to check decoded pixels, dimensions and alpha contracts.
 `mobile/scripts/make-icons.py` forwards to this generator for old callers.
 
@@ -23,6 +27,10 @@ Verification: the app-brand iPhone simulator plan renders the actual launcher
 asset and production AgentAvatar in both themes. The recorded two-step plan
 passed on iPhone 17 Pro, iOS 26.5. Generated assets and icon checks passed.
 The hosted GaspAppIcon was rendered at three sizes in both themes in a browser.
+
+The dark coding-agent avatar restoration passed all 12 icon tests, the generated
+asset check, root/web/mobile type checks, and both recorded app-brand fixture
+steps. This restoration is prepared locally and has not been deployed.
 
 Native launcher, Android status, widget and notification-extension images need
 another binary. App Store 1.0.16 build 92 was already WAITING_FOR_REVIEW on

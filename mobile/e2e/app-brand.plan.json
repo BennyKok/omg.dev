@@ -3,16 +3,16 @@
   "launch": { "clearState": true },
   "steps": [
     {
-      "name": "Orange app icon in dark theme",
+      "name": "Dark agent avatars in dark theme",
       "goal": "Do not tap anything. Wait for the app icon screen.",
-      "done": "The large app icon is an orange disc with a round hole at the upper right on a white tile. Three smaller production omg agent avatars show the same orange mark on white. None uses the old cream mark on brown.",
-      "expect": ["omg.dev app icon · dark", "Orange omg.dev app icon on white", "Production omg agent avatars", "Light theme"]
+      "done": "The large app icon is an orange disc with a round hole at the upper right on a white tile. Three smaller production omg coding agent avatars show a cream mark on a dark brown tile at 56, 32 and 20 pixels.",
+      "expect": ["omg.dev app icon · dark", "Orange omg.dev app icon on white", "Production omg agent avatars · cream on dark", "Light theme"]
     },
     {
-      "name": "Orange app icon in light theme",
+      "name": "Dark agent avatars in light theme",
       "goal": "Tap Light theme once.",
-      "done": "The light screen shows the same orange-on-white app icon and all three orange-on-white agent avatars.",
-      "expect": ["omg.dev app icon · light", "Orange omg.dev app icon on white", "Production omg agent avatars", "Dark theme"]
+      "done": "The light screen shows the orange-on-white app icon and three cream-on-dark coding agent avatars at 56, 32 and 20 pixels.",
+      "expect": ["omg.dev app icon · light", "Orange omg.dev app icon on white", "Production omg agent avatars · cream on dark", "Dark theme"]
     }
   ]
 }
