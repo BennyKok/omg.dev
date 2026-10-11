@@ -32,6 +32,7 @@ Object.assign(globalThis, {
   navigator: window.navigator,
   HTMLElement: window.HTMLElement,
   Element: window.Element,
+  DOMRect: window.DOMRect,
   HTMLButtonElement: window.HTMLButtonElement,
   HTMLInputElement: window.HTMLInputElement,
   HTMLTextAreaElement: window.HTMLTextAreaElement,

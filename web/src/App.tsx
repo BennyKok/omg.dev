@@ -520,6 +520,7 @@ import {
   type MessageAttachment,
 } from "./lib/message-attachments";
 import { parseOmgPromptEnvelope } from "./lib/omg-prompt-envelope";
+import { assistantMessageText, userMessageText } from "./lib/chat-message-presentation";
 import {
   messagesForTranscriptView,
   type TranscriptView,
@@ -21768,11 +21769,12 @@ function renderableUserContent(
   html?: string,
 ): { html: string; attachments: MessageAttachment[] } {
   const parsed = parseMessageAttachments(text);
-  if (!parsed.attachments.length) return { html: html || escapeHtml(text), attachments: [] };
+  const body = userMessageText(parsed.body);
+  if (!parsed.attachments.length && body === text) return { html: html || escapeHtml(body), attachments: [] };
   // Re-derive the HTML from the trimmed body: any pre-rendered `html` still
   // has the upload paths baked into it.
   return {
-    html: escapeHtml(parsed.body).replace(/\n/g, "<br>"),
+    html: escapeHtml(body).replace(/\n/g, "<br>"),
     attachments: parsed.attachments,
   };
 }
@@ -21874,7 +21876,9 @@ function UserBubble({
         // via the same layer instead of fighting it on specificity.
         // Width cap lives on MessageActions (definite parent); bubble just
         // hugs content up to that cap so multi-line turns stay right-aligned.
-        "msg-text markdown user-bubble text-base w-fit max-w-full",
+        // The shared content's 3.5rem minimum adds blank space after short
+        // prompts such as "Hi". Sent bubbles should fit their own text.
+        "msg-text markdown user-bubble text-base w-fit min-w-0 max-w-full",
         pending && !queued && "is-pending",
         queued && "is-queued",
         failed && "is-failed",
@@ -22088,7 +22092,7 @@ function MessageActions({
 // id — see the `ai_part`/message handlers), so a shallow prop comparison
 // correctly skips re-rendering every settled bubble on every token instead of
 // re-running all of them for a change that touched exactly one.
-const MessageBubble = memo(function MessageBubble({
+export const MessageBubble = memo(function MessageBubble({
   message,
   live = false,
   entering = false,
@@ -22406,13 +22410,14 @@ const MessageBubble = memo(function MessageBubble({
   // would otherwise put a second creature inside a bubble beside the first.
   // A live reply shows whole paragraphs, not tokens. See lib/paragraph-stream.
   // Until the first paragraph completes, the empty text shows the typing state.
-  const shownText =
+  const shownText = assistantMessageText(
     message.kind === "text" && isDraftAssistantMessage(message)
       ? settledParagraphs(message.text ?? "")
-      : message.text;
+      : message.text ?? "",
+  );
   const botBubble = !!bot && !!shownText;
   const body = (
-    <MessageActions text={message.text || ""} isUser={false}>
+    <MessageActions text={assistantMessageText(message.text || "")} isUser={false}>
         {/* Assistant turns render markdown from the raw source via Streamdown,
             which tolerates half-finished markdown mid-stream (no html injection). */}
         {/* max-w-full, not MessageContent's default 92% (or a second, tighter
