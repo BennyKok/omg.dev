@@ -1,3 +1,4 @@
+import { EmptyOpencodeReply, OPENCODE_RECOVERY_MESSAGE, opencodeTurnHasProgress, recoverOpencodeTurn } from "./opencode-turn-recovery.ts";
 import { ensureOmgProvider } from "../../omg-provider.ts";
 // Headless interactive session harness for the "opencode" agent kind.
 //
@@ -435,7 +436,7 @@ export function isAbortedReply(data: unknown): boolean {
   return error?.name === "MessageAbortedError";
 }
 
-function latestOpencodeError(opencodeSessionId: string): string | null {
+function latestOpencodeError(opencodeSessionId: string, since: number): string | null {
   try {
     const log = readFileSync(
       join(homedir(), ".local", "share", "opencode", "log", "opencode.log"),
@@ -446,6 +447,8 @@ function latestOpencodeError(opencodeSessionId: string): string | null {
       const line = lines[i];
       if (!line.includes(`session.id=${opencodeSessionId}`) || !line.includes("level=ERROR"))
         continue;
+      const timestamp = line.match(/\btimestamp=([^ ]+)/)?.[1];
+      if (!timestamp || Date.parse(timestamp) < since) continue;
       const quoted = line.match(/\berror(?:\.error)?="([^"]+)"/)?.[1];
       if (quoted) return quoted.replace(/\\"/g, '"');
       const bare = line.match(/\berror=([^ ]+)/)?.[1];
@@ -776,6 +779,7 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
   let draining = false;
   let closing = false;
   let turnActive = false;
+  let turnHasProgress = false;
   // Set when the user stops the running turn (a new message steers it, or the
   // stop button). OpenCode then answers the pending prompt with an aborted
   // assistant message and an `error=Aborted` log line. That is our own
@@ -1125,8 +1129,12 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
             // The tracker owns what the draft shows. Reasoning is published as
             // kind "thinking" so no client renders it as answer text.
             const next = draftTracker.apply(part);
-            if (next) publishDraft(next.text, false, next.kind);
+            if (next) {
+              if (next.text.trim()) turnHasProgress = true;
+              publishDraft(next.text, false, next.kind);
+            }
           } else if (part.type === "tool") {
+            turnHasProgress = true;
             const fallbackId = `${ocSessionId}:tool:${part.id ?? part.tool ?? "tool"}`;
             const rows = toolPartMessages(part, fallbackId, emittedToolIds);
             if (rows.length) indexSessionMessagesDirect(key, rows);
@@ -1174,70 +1182,54 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
     openPermissionRef.current = null;
     draftTracker.reset();
     publishDraft("", true);
-    // Arm the session.error escape hatch for this turn before the prompt is
-    // sent, so an error that arrives while the request is still opening still
-    // has somewhere to land.
-    const failed = Promise.withResolvers<"error">();
-    turnErrorRef.current = { text: "", notify: () => failed.resolve("error") };
+    turnHasProgress = false;
+    const turnStarted = Date.now();
     try {
-      const settled = await Promise.race([
-        client.session.prompt({
-          path: { id: ocSessionId! },
-          query: { directory: cwd },
-          body: opencodePromptBody(model, thinkingLevel, prompt),
-        }),
-        failed.promise,
-      ]);
-      if (settled === "error") {
-        if (turnInterrupted) return;
-        const msg = turnErrorRef.current?.text || "OpenCode reported an error for this turn";
-        console.error(`opencode-aisdk-session turn failed: ${msg}`);
-        writeAssistant([{ type: "text", text: `OpenCode turn failed for ${model}: ${msg}` }], true);
-        // The prompt request may never return on its own after a stream error;
-        // abort it so the next queued turn is not stuck behind a dead one.
-        await client.session
-          .abort({ path: { id: ocSessionId! }, query: { directory: cwd } })
-          .catch(() => {});
-        return;
-      }
-      const res = settled;
-      if (turnInterrupted && (res.error || !res.data?.parts?.length)) return;
-      if (res.error) {
-        const msg = JSON.stringify(res.error).slice(0, 500);
-        console.error(`opencode-aisdk-session turn failed: ${msg}`);
-        writeAssistant([{ type: "text", text: `OpenCode turn failed for ${model}: ${msg}` }], true);
-        return;
-      }
-      const { text, blocks } = partsToBlocks((res.data?.parts ?? []) as OcPart[]);
-      // Tools are already streamed into the index as they run — only commit the
-      // final assistant text here to avoid duplicate tool_use rows.
-      const content: unknown[] = [];
-      if (text.trim()) content.push({ type: "text", text });
-      else if (blocks.length) content.push(...blocks);
-      if (!content.length) {
-        if (turnInterrupted || isAbortedReply(res.data)) return;
-        const logged = latestOpencodeError(ocSessionId!);
-        writeAssistant(
-          [
-            {
-              type: "text",
-              text: logged
-                ? `OpenCode turn failed for ${model}: ${logged}`
-                : `OpenCode returned no assistant output for ${model}; check the OpenCode provider logs.`,
-            },
-          ],
-          true,
-        );
-        return;
-      }
-      writeAssistant(content);
-    } catch (e) {
-      // session.abort() surfaces here as a failed/aborted request — if we're
-      // mid-interrupt that's expected; otherwise record the failure.
-      const msg = e instanceof Error ? e.message : String(e);
+      const content = await recoverOpencodeTurn({
+        stopped: () => closing || turnInterrupted,
+        hasProgress: async () => {
+          if (turnHasProgress) return true;
+          const history = await client.session.messages({ path: { id: ocSessionId! }, query: { directory: cwd }, signal: AbortSignal.timeout(5_000) });
+          // If progress cannot be verified, do not replay the turn.
+          if (history.error || !history.data) return true;
+          return opencodeTurnHasProgress(history.data, turnStarted);
+        },
+        report: (error) => console.error(`opencode-aisdk-session turn failed (${model}, ${ocSessionId}): ${error instanceof Error ? error.message : String(error)}`),
+        abort: async () => {
+          const result = await client.session.abort({ path: { id: ocSessionId! }, query: { directory: cwd }, signal: AbortSignal.timeout(5_000) });
+          if (result.error || result.data === false) throw new Error("Could not stop the failed OpenCode turn");
+        },
+        request: async () => {
+          // Each attempt gets its own escape hatch. A failed provider stream
+          // can leave session.prompt() pending forever.
+          const started = Date.now();
+          const failed = Promise.withResolvers<"error">();
+          turnErrorRef.current = { text: "", notify: () => failed.resolve("error") };
+          const settled = await Promise.race([
+            client.session.prompt({
+              path: { id: ocSessionId! },
+              query: { directory: cwd },
+              body: opencodePromptBody(model, thinkingLevel, prompt),
+            }),
+            failed.promise,
+          ]);
+          if (settled === "error") throw new Error(turnErrorRef.current?.text || "OpenCode reported an error for this turn");
+          if (settled.error) throw new Error(JSON.stringify(settled.error).slice(0, 500));
+          if (isAbortedReply(settled.data)) return [];
+          const { text, blocks } = partsToBlocks((settled.data?.parts ?? []) as OcPart[]);
+          // Tools already entered the index from SSE. Do not duplicate them.
+          const content: unknown[] = text.trim() ? [{ type: "text", text }] : blocks;
+          if (!content.length) {
+            const info = (settled.data as { info?: { error?: unknown } } | undefined)?.info;
+            throw new EmptyOpencodeReply(sessionErrorText(info) || latestOpencodeError(ocSessionId!, started) || "OpenCode returned no assistant output");
+          }
+          return content;
+        },
+      });
+      if (content?.length) writeAssistant(content);
+    } catch {
       if (!closing && !turnInterrupted) {
-        console.error(`opencode-aisdk-session turn failed: ${msg}`);
-        writeAssistant([{ type: "text", text: `OpenCode turn failed for ${model}: ${msg}` }], true);
+        writeAssistant([{ type: "text", text: OPENCODE_RECOVERY_MESSAGE }], true);
       }
     } finally {
       turnActive = false;

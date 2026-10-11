@@ -1,0 +1,32 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": { "clearState": true },
+  "steps": [
+    {
+      "name": "Calm failure and compact greeting",
+      "goal": "Open omg if the system Home screen is visible. Dismiss an Apple Account Verification alert with Not Now if it appears. Stay on this transcript fixture.",
+      "done": "The Hi bubble has one line and equal side padding. The old raw error is replaced by a calm recovery message. The long URL wraps inside its bubble. Both lines of the multiline message remain visible.",
+      "expect": ["Chat recovery check", "Hi", "The reply could not be completed. Please send your message again.", "First line", "Second line"],
+      "forbid": ["OpenCode returned", "provider logs", "gpt-6-luna", "Queued"]
+    },
+    {
+      "name": "Greeting actions",
+      "goal": "Touch and hold the Hi bubble.",
+      "longPress": true,
+      "done": "The native menu still offers Copy and Select text.",
+      "expect": ["Copy", "Select text"]
+    },
+    {
+      "name": "Original text remains selectable",
+      "goal": "Tap Select text in the open menu.",
+      "done": "The original greeting can still be selected and copied.",
+      "expect": ["Message text", "Hi", "Copy selection", "Copy all", "Done"]
+    },
+    {
+      "name": "Return to transcript",
+      "goal": "Tap Done to return to the transcript.",
+      "done": "The compact greeting and friendly failure remain visible.",
+      "expect": ["Chat recovery check", "Hi", "The reply could not be completed. Please send your message again."]
+    }
+  ]
+}

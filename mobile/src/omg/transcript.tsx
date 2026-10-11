@@ -1,3 +1,4 @@
+import { assistantMessageText, userMessageText } from "./chat-message-presentation";
 import { entryKey, isInterruptedTurn } from "./transcript-items";
 export { buildTranscriptItems } from "./transcript-items";
 /**
@@ -723,6 +724,8 @@ export function TranscriptEntry({
     );
   }
 
+  const replyText = assistantMessageText(message.text ?? "");
+
   // A bot's reply gets a bubble — spec §4.2, and the point of bot chat at
   // all: it should read as talking to somebody, not as a session log. Card
   // shell + taller corner (matches the web's shipped `rounded-[18px]
@@ -738,7 +741,7 @@ export function TranscriptEntry({
     return (
       <VirtualBoundary enabled={virtualize}>
       <ReplyTextActions
-        text={message.text ?? ""}
+        text={replyText}
         widthFraction={0.84}
         style={{
           borderRadius: radius.xl,
@@ -749,7 +752,7 @@ export function TranscriptEntry({
           paddingVertical: 10,
         }}
       >
-        <TranscriptBody text={message.text ?? ""} streaming={message.streaming} virtualize={false} inHoldMenu />
+        <TranscriptBody text={replyText} streaming={message.streaming} virtualize={false} inHoldMenu />
       </ReplyTextActions>
       </VirtualBoundary>
     );
@@ -761,8 +764,8 @@ export function TranscriptEntry({
     <View style={{ alignSelf: "stretch", paddingHorizontal: space.xs }}>
       {/* The virtual boundary sits OUTSIDE the hold menu; see VirtualBoundary. */}
       <VirtualBoundary enabled={virtualize}>
-        <ReplyTextActions text={message.text ?? ""}>
-          <TranscriptBody text={message.text ?? ""} streaming={message.streaming} virtualize={false} inHoldMenu />
+        <ReplyTextActions text={replyText}>
+          <TranscriptBody text={replyText} streaming={message.streaming} virtualize={false} inHoldMenu />
         </ReplyTextActions>
       </VirtualBoundary>
     </View>
@@ -1752,10 +1755,11 @@ export function UserMessage({ message, firstOfRun, lastOfRun }: { message: Entry
   // shows the pictures instead of `/tmp/lfg-uploads/…-IMG_0850.png` on its own
   // line. COPY STILL TAKES THE RAW TEXT: what the agent saw is what gets
   // copied, exactly as on the web.
-  const { body: text, attachments } = useMemo(
+  const { body: messageBody, attachments } = useMemo(
     () => parseMessageAttachments(rawText),
     [rawText],
   );
+  const text = userMessageText(messageBody);
   const isLong = text.length > LONG_MESSAGE_CHARS;
 
   // Not something the person typed: see SystemLine. The launch chip stays,
@@ -1882,7 +1886,7 @@ export function UserMessage({ message, firstOfRun, lastOfRun }: { message: Entry
         </MessageTextActions>
         </Reanimated.View>
       ) : null}
-      <View
+      {copied || message.queued ? <View
         style={{
           flexDirection: "row",
           alignItems: "center",
@@ -1904,7 +1908,7 @@ export function UserMessage({ message, firstOfRun, lastOfRun }: { message: Entry
             <Text style={{ ...type.caption, color: colors.textMuted }}>Queued</Text>
           </View>
         ) : null}
-      </View>
+      </View> : null}
     </View>
     </HumanMessageFrame>
   );
