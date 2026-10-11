@@ -60,7 +60,9 @@ export type AisdkEntry = {
   commandWakeSignal?: "SIGUSR1";
   thinkingLevel?: string | null;
   builderPreset?: string;
-  builderPhase?: "build" | "review" | "fix" | "complete" | "failed";
+  builderPhase?: "build" | "review" | "design-review" | "fix" | "complete" | "failed";
+  builderCodeReviews?: Array<{ text: string; passed: boolean; cost: number; tokens: unknown; sessionId: string }>;
+  builderDesignReviews?: Array<{ text: string; passed: boolean; cost: number; tokens: unknown; sessionId: string; screenshotPath?: string }>;
   builderReview?: { text: string; cost: number; tokens: unknown; sessionId: string };
   serviceTier?: CodexServiceTier | null;
   fastMode?: boolean;

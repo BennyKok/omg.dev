@@ -1,7 +1,7 @@
 import { EmptyOpencodeReply, OPENCODE_RECOVERY_MESSAGE, opencodeTurnHasProgress, recoverOpencodeTurn } from "./opencode-turn-recovery.ts";
 import { ensureOmgProvider } from "../../omg-provider.ts";
 import { ensureCustomProviders, isCustomModel } from "../../custom-models.ts";
-import { APP_BUILDER_PRESET, builderReviewerConfig, builderReviewPacket, reviewBuilderCode, runAppBuilder, validateBuilderPreset } from "./app-builder.ts";
+import { APP_BUILDER_PRESET, builderReviewerConfig, builderReviewPacket, captureBuilderDesign, reviewBuilderDesign, reviewBuilderCode, runAppBuilder, validateBuilderPreset } from "./app-builder.ts";
 // Headless interactive session harness for the "opencode" agent kind.
 //
 // This is the long-lived process behind a managed opencode session. Like its
@@ -41,6 +41,7 @@ import {
   type AisdkPrompt,
   cmdPath,
   patchEntry,
+  readEntry,
   removeEntry,
   writeEntry,
   currentBootId,
@@ -1270,12 +1271,28 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
         succeeded: (result) => result,
         packet: () => builderReviewPacket(cwd, baseline, prompt),
         stopped: () => closing || abort.signal.aborted,
-        review: (packet) => reviewBuilderCode(client, cwd, packet, AbortSignal.any([abort.signal, AbortSignal.timeout(90_000)])),
+        review: async (packet) => {
+          const review = await reviewBuilderCode(client, cwd, packet, AbortSignal.any([abort.signal, AbortSignal.timeout(90_000)]));
+          const entry = readEntry(key);
+          patchEntry(key, { builderCodeReviews: [...(entry?.builderCodeReviews ?? []), review] });
+          writeAssistant([{ type: "text", text: `Apex code review (${review.passed ? "passed" : "needs repair"}):\n${review.text}` }]);
+          return review;
+        },
+        evidence: () => captureBuilderDesign(cwd, prompt, AbortSignal.any([abort.signal, AbortSignal.timeout(30_000)])),
+        designReview: async (evidence) => {
+          const review = await reviewBuilderDesign(client, cwd, evidence, AbortSignal.any([abort.signal, AbortSignal.timeout(90_000)]));
+          const entry = readEntry(key);
+          patchEntry(key, { builderDesignReviews: [...(entry?.builderDesignReviews ?? []), { ...review, screenshotPath: evidence.screenshotPath }] });
+          writeAssistant([{ type: "text", text: `Screenshot design review (${review.passed ? "passed" : "needs repair"}):\n${review.text}` }]);
+          return review;
+        },
         phase: (phase, review) => {
-          turnActive = phase === "review" || phase === "fix";
+          turnActive = phase === "review" || phase === "design-review" || phase === "fix";
           patchEntry(key, { builderPhase: phase, ...(review ? { builderReview: review } : {}) });
           if (phase === "review") writeAssistant([{ type: "text", text: "App Builder: reviewing changed code with Apex." }]);
-          if (phase === "fix" && review) writeAssistant([{ type: "text", text: `Apex code review:\n${review.text}` }]);
+          if (phase === "design-review") writeAssistant([{ type: "text", text: "App Builder: comparing the rendered app with the design references." }]);
+          if (phase === "complete") writeAssistant([{ type: "text", text: "App Builder: code and screenshot design reviews both passed." }]);
+
         },
       });
     } catch (error) {

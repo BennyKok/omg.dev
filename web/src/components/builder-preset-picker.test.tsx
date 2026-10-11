@@ -11,7 +11,9 @@ test("shows the workflow choices and sends the selected versioned preset", () =>
   act(() => { select.value = "app-builder-v1"; select.dispatchEvent(new Event("change", { bubbles: true })); });
   expect(onChange).toHaveBeenCalledWith("app-builder-v1");
 });
-test("the selected mode identifies the code reviewer", () => {
+test("the selected mode identifies both required reviews", () => {
   ui.render(<BuilderPresetPicker value="app-builder-v1" onChange={() => {}} />);
   expect(ui.text()).toContain("Apex reviews code");
+  expect(ui.text()).toContain("Luna checks screenshots");
+  expect(ui.text()).toContain("both reviews must pass");
 });
