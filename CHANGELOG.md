@@ -1,10 +1,11 @@
 # Changelog
 
-## 0.6.221
+Recent product updates and deployment notes.
+
+## October 11, 2026 - Orange app icons on white (v0.6.221)
 
 - Use the orange omg.dev mark on white for app icons, browser icons, and the omg agent avatar. Native launcher icons are prepared for the next store update.
 
-Recent product updates and deployment notes.
 
 ## October 11, 2026 - Correct logos and stable image previews (v0.6.220)
 
