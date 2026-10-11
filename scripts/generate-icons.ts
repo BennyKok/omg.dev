@@ -16,7 +16,7 @@ function variant({ scale = 1, transparent = false, monochrome = false } = {}): s
   if (transparent) svg = svg.replace(/\s*<rect id="background"[^>]+\/>/, "");
   if (monochrome) svg = svg.replace('fill="#FF5530"', 'fill="#FFFFFF"');
   if (scale !== 1) {
-    const inset = 50 * (1 - scale);
+    const inset = +(50 * (1 - scale)).toFixed(3);
     svg = svg.replace('<g id="mark"', `<g transform="translate(${inset} ${inset}) scale(${scale})"><g id="mark"`)
       .replace("</g>\n</svg>", "</g></g>\n</svg>");
   }
@@ -47,7 +47,9 @@ async function pngOutput(file: string, svg: string, size: number, opaque = true)
 }
 
 const safe = variant({ scale: .8 });
-await svgOutput("web/public/icon-small.svg", source);
+// Browser tab favicon: no white tile, mark fills the square. A white square
+// with a small disc reads as a broken image in a dark tab strip.
+await svgOutput("web/public/icon-small.svg", variant({ scale: 1.3, transparent: true }));
 await svgOutput("web/public/icon-maskable.svg", safe);
 for (const [file, size] of [
   ["web/public/icon-192.png", 192],

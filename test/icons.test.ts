@@ -20,10 +20,15 @@ describe("OMG icon assets", () => {
     }
   });
 
-  test("small variant renders the canonical app artwork", async () => {
-    const render = (file: string) => sharp(file).resize(96, 96).ensureAlpha().raw().toBuffer();
-    const canonical = await render("web/public/icon.svg");
-    expect((await render("web/public/icon-small.svg")).equals(canonical)).toBe(true);
+  test("tab favicon is the bare orange mark on a transparent square", async () => {
+    const index = await readFile("web/index.html", "utf8");
+    expect(index.match(/rel="icon"[^>]*href="([^"?]+)/)?.[1]).toBe("/icon-small.svg");
+    const { data, info } = await sharp("web/public/icon-small.svg").resize(100, 100).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    const pixel = (x: number, y: number) => [...data.subarray((y * info.width + x) * 4, (y * info.width + x) * 4 + 4)];
+    expect(pixel(0, 0)[3]).toBe(0);
+    expect(pixel(50, 50)).toEqual([255, 85, 48, 255]);
+    expect(pixel(50, 95)).toEqual([255, 85, 48, 255]);
+    expect(pixel(73, 27)[3]).toBe(0);
   });
 
   test("keeps the coding-agent avatar cream on dark at every native scale", async () => {
