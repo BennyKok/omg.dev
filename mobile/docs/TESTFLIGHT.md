@@ -5,6 +5,56 @@ read off the EAS docs.
 
 ## Current state
 
+### Correct logos and stable image previews — 2026-10-11
+
+Mobile chat images use the existing Skia decoder to avoid recycled native
+image callbacks. Grok, Devin, Muse, and xAI use accurate marks. All eight
+provider icons have matching web and mobile geometry. Mobile also supplies
+xAI and Apex icons.
+
+Implementation: `e773f3c68`, `c349f077a`. Release: `v0.6.220`.
+The local service runs the release and passed its served-bundle probe.
+The release workflow [38131472996](https://github.com/BennyKok/omg.dev/actions/runs/38131472996)
+passed and verified all 17 release assets.
+
+The hosted package update is `f039f4675d97f883e663da75e557238ce1935a06`
+in `vibes`. The website workflow
+[38132752898](https://github.com/BennyKok/vibes/actions/runs/38132752898)
+passed on its third attempt after two runner kills. All 14 agent SVGs match
+this source on both app.omg.dev and console.omg.dev. The cloud runtime
+workflow [38132764092](https://github.com/BennyKok/vibes/actions/runs/38132764092)
+passed. The updater's cloud Computer bake and live registry check also passed.
+The existing updater owns package pins, served icons, and Computer images.
+
+| Channel | Runtime | Update group | Workflow |
+| --- | --- | --- | --- |
+| production | 1.0.15 | `c1a52640-f6d2-465a-99ec-0230f6ba5603` | [38131454198](https://github.com/BennyKok/omg.dev/actions/runs/38131454198) |
+| production | 1.0.14 | `210982fc-b887-4072-a38f-b8fbd6192d4d` | [38131715028](https://github.com/BennyKok/omg.dev/actions/runs/38131715028) |
+| production | 1.0.16 | `82267524-d7ca-4f11-94f9-cfc811b43ac5` | [38131952793](https://github.com/BennyKok/omg.dev/actions/runs/38131952793) |
+| testflight-whistle | 1.0.16 | `36636923-4927-4d00-84c5-2d494a908ea5` | [38132212822](https://github.com/BennyKok/omg.dev/actions/runs/38132212822) |
+
+EAS readback confirms both platforms, exact runtime, branch, and source
+commit. Update endpoints serve all eight expected update IDs. Their manifests
+contain the SHA-256 hashes of all 33 provider and corrected agent PNGs.
+Native dependencies and configuration match the previous production OTA.
+Physical-phone activation and Android rendering remain unverified.
+
+The iOS production workflow
+[38131456284](https://github.com/BennyKok/omg.dev/actions/runs/38131456284)
+built and uploaded version 1.0.16, build 92. Both compiled extension catalogs
+contain the corrected Grok, Devin, and Muse marks. The signed IPA contains
+all 33 verified logo PNGs with matching SHA-256 hashes. App Store Connect reports
+build 92 VALID. Review submission `ab93de89-2d2b-4919-bcfd-e7a3862f0a61`
+was submitted on 2026-10-11 and is WAITING_FOR_REVIEW. Release is automatic
+after approval. The public App Store version remains 1.0.15 at this check.
+Do not replace or restart this pending review without specific user approval.
+
+Verification: iOS image-preview plan 8/8 and provider-icons plan 4/4.
+Root, web, and mobile type checks pass. All 81 native check files pass;
+one existing transcript harness is quarantined. Full root suite: 4821 pass,
+one skip, and 13 failures in unchanged tests. Raster consistency checks pass
+for all eight providers at all three scales.
+
 ### Compact findings and notification routes OTA — 2026-10-08
 
 Finding notifications open the exact finding on the phone. Updates and reports
