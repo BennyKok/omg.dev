@@ -1,0 +1,30 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": { "clearState": true },
+  "steps": [
+    {
+      "name": "Agent marks",
+      "goal": "Do not tap anything. Wait for the icon audit screen.",
+      "done": "The agents page shows fourteen labeled agent icons, including the Grok ring, Devin geometric symbol, and blue Muse squiggle.",
+      "expect": ["Icon audit · agents · dark", "grok", "devin", "muse", "copilot", "fx"]
+    },
+    {
+      "name": "Provider marks in dark theme",
+      "goal": "Tap Show providers once.",
+      "done": "Eight providers are visible. Each has a hosted avatar and a picker mark. The white xAI lettermark and Callstack A are visible.",
+      "expect": ["Icon audit · providers · dark", "callstack", "anthropic", "deepseek", "minimax", "openai", "qwen", "x-ai", "z-ai"]
+    },
+    {
+      "name": "Provider marks in light theme",
+      "goal": "Tap Light theme once.",
+      "done": "The same eight provider marks are visible in black on the light page.",
+      "expect": ["Icon audit · providers · light", "callstack", "x-ai", "z-ai", "Dark theme"]
+    },
+    {
+      "name": "Agent marks in light theme",
+      "goal": "Tap Show agents once.",
+      "done": "The fourteen agent marks are visible on the light page, including Grok, Devin and Muse.",
+      "expect": ["Icon audit · agents · light", "grok", "devin", "muse", "copilot", "fx"]
+    }
+  ]
+}
