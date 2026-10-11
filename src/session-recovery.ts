@@ -385,6 +385,7 @@ export function launchRecovered(
       key: entry.sessionId,
       resume: entry.threadId,
       thinkingLevel: entry.thinkingLevel ?? undefined,
+      builderPreset: managed.builderPreset ?? entry.builderPreset,
     });
   }
   if (entry.agent === "pi") {

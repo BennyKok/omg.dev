@@ -125,6 +125,7 @@ type Row = {
   resume_handle: string | null;
   model: string | null;
   thinking_level: string | null;
+  builder_preset: string | null;
   service_tier: string | null;
   fast_mode: number;
   assigned_user: string | null;
@@ -225,6 +226,9 @@ function init(): Database {
     );
     d.exec(migration);
   }
+  if (version < 9) {
+    d.exec(readFileSync(new URL("./migrations/resume-cache/009_builder_preset.sql", import.meta.url), "utf8"));
+  }
   initialized = true;
   return d;
 }
@@ -252,6 +256,7 @@ function toSession(row: Row): ResumableSession {
     resumeHandle: row.resume_handle,
     model: row.model,
     thinkingLevel: row.thinking_level,
+    builderPreset: row.builder_preset,
     serviceTier: row.service_tier === "fast" ? "fast" : null,
     fastMode: row.fast_mode === 1 || row.service_tier === "fast",
     assignedUser: row.assigned_user,
@@ -283,8 +288,8 @@ export function upsertResumableRows(rows: ResumableCacheRow[]): void {
     INSERT INTO resumable_sessions
       (session_id, cwd, project, title, last_user_text, last_activity_at, agent, path, mtime_ms,
        backend, resume_handle, model, thinking_level, service_tier, fast_mode,
-       assigned_user, managed, resumable, scheduled, archived_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       assigned_user, managed, resumable, scheduled, archived_at, builder_preset)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(session_id) DO UPDATE SET
       cwd = excluded.cwd,
       project = excluded.project,
@@ -298,6 +303,7 @@ export function upsertResumableRows(rows: ResumableCacheRow[]): void {
       resume_handle = excluded.resume_handle,
       model = excluded.model,
       thinking_level = excluded.thinking_level,
+      builder_preset = COALESCE(excluded.builder_preset, resumable_sessions.builder_preset),
       service_tier = excluded.service_tier,
       fast_mode = excluded.fast_mode,
       assigned_user = COALESCE(excluded.assigned_user, resumable_sessions.assigned_user),
@@ -339,6 +345,7 @@ export function upsertResumableRows(rows: ResumableCacheRow[]): void {
         r.resumable === false ? 0 : 1,
         r.scheduled ? 1 : 0,
         r.archivedAt ?? null,
+        r.builderPreset ?? null,
       );
     }
   })(rows);
@@ -408,7 +415,7 @@ export function getCachedResumableSession(sessionId: string): ResumableSession |
   const row = d
     .query<Row, [string]>(`
       SELECT session_id, cwd, project, title, last_user_text, last_activity_at, agent, path, mtime_ms,
-             backend, resume_handle, model, thinking_level, service_tier, fast_mode,
+             backend, resume_handle, model, thinking_level, service_tier, fast_mode, builder_preset,
              assigned_user, managed, resumable, scheduled, archived_at
       FROM resumable_sessions
       WHERE session_id = ? AND resumable = 1
@@ -565,7 +572,7 @@ export function queryResumableCache(opts: ResumableQuery = {}): ResumableQueryRe
   const rows = d
     .query<Row, (string | number)[]>(`
       SELECT session_id, cwd, project, title, last_user_text, last_activity_at, agent, path, mtime_ms,
-             backend, resume_handle, model, thinking_level, service_tier, fast_mode,
+             backend, resume_handle, model, thinking_level, service_tier, fast_mode, builder_preset,
              assigned_user, managed, resumable, scheduled, archived_at
       FROM resumable_sessions
       ${whereSql}
@@ -638,7 +645,7 @@ export function queryHistoricalCache(opts: HistoricalQuery = {}): HistoricalQuer
   const rows = d
     .query<Row, (string | number)[]>(`
       SELECT session_id, cwd, project, title, last_user_text, last_activity_at, agent, path, mtime_ms,
-             backend, resume_handle, model, thinking_level, service_tier, fast_mode,
+             backend, resume_handle, model, thinking_level, service_tier, fast_mode, builder_preset,
              assigned_user, managed, resumable, scheduled, archived_at
       FROM resumable_sessions
       ${whereSql}

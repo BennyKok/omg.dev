@@ -1,3 +1,4 @@
+export { APP_BUILDER_PRESET, APP_BUILDER_MODEL, APP_BUILDER_REVIEWER } from "./builder-presets.js";
 export type { BrowserLoginRequest, BrowserLoginSnapshot, BrowserLoginCookie } from "./browser-login";
 export type { PreviewLevel, ProjectPreview, ProjectPreviewSnapshot, SimulatorStream, SimulatorStreamProvider } from "./project-preview";
 export { inlinePreviewUrl, PREVIEW_LEVEL_LABEL, PROJECT_PREVIEW_RESTART_MESSAGE, PROJECT_PREVIEW_SIMULATOR_PATH, previewLevels, simulatorStatusText } from "./project-preview.js";
@@ -39,6 +40,7 @@ export interface OmgSession {
   managed?: boolean;
   assignedUser?: string | null;
   model?: string | null;
+  builderPreset?: string | null;
   parentSessionId?: string | null;
   parentNativeSessionId?: string | null;
   parentAgent?: string | null;

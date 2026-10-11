@@ -59,6 +59,9 @@ export type AisdkEntry = {
   // omit this and continue to rely on the bounded polling fallback.
   commandWakeSignal?: "SIGUSR1";
   thinkingLevel?: string | null;
+  builderPreset?: string;
+  builderPhase?: "build" | "review" | "fix" | "complete" | "failed";
+  builderReview?: { text: string; cost: number; tokens: unknown; sessionId: string };
   serviceTier?: CodexServiceTier | null;
   fastMode?: boolean;
   cwd: string;

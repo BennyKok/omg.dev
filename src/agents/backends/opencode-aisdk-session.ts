@@ -1,6 +1,7 @@
 import { EmptyOpencodeReply, OPENCODE_RECOVERY_MESSAGE, opencodeTurnHasProgress, recoverOpencodeTurn } from "./opencode-turn-recovery.ts";
 import { ensureOmgProvider } from "../../omg-provider.ts";
 import { ensureCustomProviders, isCustomModel } from "../../custom-models.ts";
+import { APP_BUILDER_PRESET, builderReviewerConfig, builderReviewPacket, reviewBuilderCode, runAppBuilder, validateBuilderPreset } from "./app-builder.ts";
 // Headless interactive session harness for the "opencode" agent kind.
 //
 // This is the long-lived process behind a managed opencode session. Like its
@@ -609,6 +610,7 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
   const keyArg = arg(argv, "--key");
   let model = arg(argv, "--model") ?? "anthropic/claude-sonnet-4-6";
   let thinkingLevel = arg(argv, "--thinking-level");
+  const builderPreset = validateBuilderPreset(arg(argv, "--builder-preset"), model.startsWith("omg/") ? "omg" : "opencode");
   const cwd = arg(argv, "--cwd") ?? process.cwd();
   const tmuxName = arg(argv, "--managed-name") ?? arg(argv, "--tmux") ?? "";
   const recoveredAt = Number(arg(argv, "--recovered-at")) || null;
@@ -632,6 +634,11 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
   if (isCustomModel(model)) ensureCustomProviders();
   ensureOpencodeOnPath();
   ensureOpencodeTrustAll();
+  // Parcel's native watcher can deadlock this Linux SDK server at first prompt.
+  // Builder turns read source directly and do not need live file-change events.
+  if (builderPreset && process.platform === "linux") {
+    process.env.OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER = "1";
+  }
   const { createOpencodeServer, createOpencodeClient } = await import("@opencode-ai/sdk");
 
   // One server + client per harness, reused across every turn.
@@ -653,7 +660,10 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
     server = await createOpencodeServer({
       port: 0,
       timeout: 15_000,
-      config: opencodeSessionMcpConfig(opencodeCallerSessionId(key)),
+      config: {
+        ...opencodeSessionMcpConfig(opencodeCallerSessionId(key)),
+        ...(builderPreset ? { agent: { ...builderReviewerConfig, build: { steps: 50 } } } : {}),
+      },
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -772,6 +782,7 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
     cwd,
     model,
     thinkingLevel: thinkingLevel ?? null,
+    ...(builderPreset ? { builderPreset } : {}),
     busy: false,
     prompt: null,
     title: initialPrompt ? initialPrompt.slice(0, 72) : null,
@@ -788,6 +799,7 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
   // assistant message and an `error=Aborted` log line. That is our own
   // interrupt, not a failure, so the turn must end without an error row.
   let turnInterrupted = false;
+  let builderAbort: AbortController | null = null;
   // Set by the `session.error` event for the turn currently in flight. A
   // provider failure is reported ONLY on the event stream, and the matching
   // session.prompt() call can hang indefinitely instead of rejecting, so the
@@ -1176,7 +1188,7 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
     void syncPendingPermissions();
   }, 1500);
 
-  async function runTurn(prompt: string): Promise<void> {
+  async function runSingleTurn(prompt: string): Promise<boolean> {
     writeUser(prompt);
     turnActive = true;
     turnInterrupted = false;
@@ -1230,15 +1242,48 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
         },
       });
       if (content?.length) writeAssistant(content);
+      return !!content?.length && !turnInterrupted && !closing;
     } catch {
       if (!closing && !turnInterrupted) {
         writeAssistant([{ type: "text", text: OPENCODE_RECOVERY_MESSAGE }], true);
       }
+      return false;
     } finally {
       turnActive = false;
       turnErrorRef.current = null;
       clearQuestionState(false);
       publishDraft("", true);
+    }
+  }
+
+  async function runTurn(prompt: string): Promise<void> {
+    if (builderPreset !== APP_BUILDER_PRESET) { await runSingleTurn(prompt); return; }
+    builderAbort = new AbortController();
+    const abort = builderAbort;
+    try {
+      const proc = Bun.spawn(["git", "rev-parse", "HEAD"], { cwd, stdout: "pipe", stderr: "ignore" });
+      const baseline = (await new Response(proc.stdout).text()).trim();
+      if (await proc.exited !== 0) throw new Error("App Builder requires a Git project with an initial commit");
+      await runAppBuilder({
+        prompt,
+        build: runSingleTurn,
+        succeeded: (result) => result,
+        packet: () => builderReviewPacket(cwd, baseline, prompt),
+        stopped: () => closing || abort.signal.aborted,
+        review: (packet) => reviewBuilderCode(client, cwd, packet, AbortSignal.any([abort.signal, AbortSignal.timeout(90_000)])),
+        phase: (phase, review) => {
+          turnActive = phase === "review" || phase === "fix";
+          patchEntry(key, { builderPhase: phase, ...(review ? { builderReview: review } : {}) });
+          if (phase === "review") writeAssistant([{ type: "text", text: "App Builder: reviewing changed code with Apex." }]);
+          if (phase === "fix" && review) writeAssistant([{ type: "text", text: `Apex code review:\n${review.text}` }]);
+        },
+      });
+    } catch (error) {
+      patchEntry(key, { builderPhase: "failed" });
+      if (!closing && !abort.signal.aborted) writeAssistant([{ type: "text", text: `App Builder stopped: ${error instanceof Error ? error.message : "review failed"}. The app has not passed the complete workflow.` }], true);
+    } finally {
+      turnActive = false;
+      builderAbort = null;
     }
   }
 
@@ -1278,6 +1323,7 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
     }
     if (!turnActive) return;
     turnInterrupted = true;
+    builderAbort?.abort();
     void client.session
       .abort({ path: { id: ocSessionId }, query: { directory: cwd } })
       .catch(() => {});

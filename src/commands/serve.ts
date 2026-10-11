@@ -1,4 +1,5 @@
 import { createNoProjectWorkspace, existingNoProjectWorkspace, NO_PROJECT } from "../no-project-chat.ts";
+import { APP_BUILDER_MODEL, validateBuilderPreset } from "../agents/backends/app-builder.ts";
 import { readinessBootstrap } from "../bootstrap-readiness.ts";
 import { mkdir, open, readdir, realpath, stat } from "node:fs/promises";
 import { appendFileSync, existsSync, statSync, mkdirSync, readFileSync } from "node:fs";
@@ -1788,6 +1789,7 @@ function persistManagedResume(session: Session): void {
     backend: backend ?? undefined,
     model: session.model,
     thinkingLevel: session.thinkingLevel,
+    builderPreset: session.builderPreset,
     serviceTier: session.serviceTier,
     fastMode: session.fastMode === true || session.serviceTier === "fast",
     assignedUser: session.assignedUser,
@@ -9291,6 +9293,7 @@ a{color:#60a5fa}
             launchState: "launching",
             model: resumeModel,
             thinkingLevel: cachedResume.thinkingLevel ?? undefined,
+            builderPreset: cachedResume.builderPreset ?? undefined,
             serviceTier: cachedResume.serviceTier ?? undefined,
             fastMode: cachedResume.fastMode ?? cachedResume.serviceTier === "fast",
             ...(cachedResume.backend === "aisdk"
@@ -9324,6 +9327,7 @@ a{color:#60a5fa}
             prompt,
             model: resumeModel,
             thinkingLevel: cachedResume.thinkingLevel ?? undefined,
+            builderPreset: cachedResume.builderPreset ?? undefined,
             serviceTier: cachedResume.serviceTier ?? undefined,
             fastMode: cachedResume.fastMode ?? cachedResume.serviceTier === "fast",
             sessionId,
@@ -9740,6 +9744,7 @@ a{color:#60a5fa}
           worktree?: boolean;
           model?: string;
           thinkingLevel?: string;
+          builderPreset?: string;
           fastMode?: unknown;
           serviceTier?: unknown;
           claudeAccountId?: string;
@@ -9778,6 +9783,9 @@ a{color:#60a5fa}
           return err(400, `unknown coding agent "${body?.agent ?? ""}"`);
         }
         const requestedClaudeAccountId = body?.claudeAccountId?.trim() || undefined;
+        let builderPreset: string | undefined;
+        try { builderPreset = validateBuilderPreset(body?.builderPreset, agent); }
+        catch (error) { return err(400, error instanceof Error ? error.message : "Invalid builder preset"); }
         const selectedClaudeAccount =
           agent === "aisdk"
             ? await pickClaudeAccountForNewSession({
@@ -9792,7 +9800,7 @@ a{color:#60a5fa}
         // Allowlist Claude models — they land on a shell argv. Unknown value =
         // hard 400, never a silent fallback to some other model. Codex model
         // names are provider/catalog driven, so validate shape instead.
-        const requestedModel = body?.model?.trim() || undefined;
+        const requestedModel = body?.model?.trim() || (builderPreset ? APP_BUILDER_MODEL : undefined);
         const opencodeDefault =
           (agent === "opencode" || agent === "omg") ? defaultModelForAgent(agent) : undefined;
         const model =
@@ -9833,7 +9841,7 @@ a{color:#60a5fa}
           return err(400, "invalid opencode model name");
         if (agent === "jcode" && model && !/^[A-Za-z0-9_.:\/\-[\],=]{1,160}$/.test(model))
           return err(400, "invalid jcode model name");
-        const thinkingLevel = body?.thinkingLevel?.trim() || undefined;
+        const thinkingLevel = body?.thinkingLevel?.trim() || (builderPreset ? "low" : undefined);
         // Thinking mode is supported on every agent kind that exposes a
         // reasoning-effort knob. OpenCode exposes it as a model-specific
         // `variant`, so validate against the selected model rather than against
@@ -10019,6 +10027,7 @@ a{color:#60a5fa}
           serviceTier,
           fastMode,
           claudeAccountId,
+          builderPreset,
           title: requestedTitle || body?.prompt?.slice(0, 72),
           project: unassigned ? NO_PROJECT : repo!.project,
           parentSessionId: parent?.sessionId ?? parentId,
@@ -10046,6 +10055,7 @@ a{color:#60a5fa}
           prompt,
           model: launchModel,
           thinkingLevel,
+          builderPreset,
           serviceTier,
           fastMode,
           sessionId: launchId,

@@ -423,4 +423,23 @@ describe("command-file session boot recovery", () => {
     expect(result.recoveredTmux).toBe(0);
     expect(existsSync(capture)).toBe(false);
   });
+
+  test("recovers an OMG builder with its preset and original OpenCode session", async () => {
+    const key = "88888888-8888-4888-8888-888888888888";
+    const thread = "ses_builder";
+    addManaged({ tmuxName: "lfg-builder-recover", cwd: root, createdAt: 1,
+      agent: "omg", sessionId: key, nativeSessionId: thread,
+      model: "omg/anthropic/claude-haiku-5.5", builderPreset: "app-builder-v1", launchState: "running" });
+    writeEntry({ sessionId: key, agent: "opencode", threadId: thread,
+      harnessPid: 2147483647, tmuxName: "lfg-builder-recover", supervisor: "process",
+      bootId: "prior-boot", cwd: root, model: "omg/anthropic/claude-haiku-5.5", busy: false, createdAt: 1 });
+    const result = await reconcileCommandFileSessions(() => {});
+    expect(result.recovered).toBe(1);
+    const launch = JSON.parse(readFileSync(capture, "utf8")) as { cmd: string[] };
+    const preset = launch.cmd.indexOf("--builder-preset");
+    expect(preset).toBeGreaterThan(0);
+    expect(launch.cmd[preset + 1]).toBe("app-builder-v1");
+    expect(launch.cmd[launch.cmd.indexOf("--resume") + 1]).toBe(thread);
+  });
+
 });
