@@ -30,7 +30,7 @@ The hosted GaspAppIcon was rendered at three sizes in both themes in a browser.
 
 The dark coding-agent avatar restoration passed all 12 icon tests, the generated
 asset check, root/web/mobile type checks, and both recorded app-brand fixture
-steps. This restoration is prepared locally and has not been deployed.
+steps. The receipts below describe the earlier orange avatar rollout.
 
 Native launcher, Android status, widget and notification-extension images need
 another binary. App Store 1.0.16 build 92 was already WAITING_FOR_REVIEW on
