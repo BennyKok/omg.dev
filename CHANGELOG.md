@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 11, 2026 - Clearer browser tab icon (v0.6.223)
+
+- The browser tab shows the orange omg mark at full size, without the white square behind it.
+
 ## October 11, 2026 - Dark coding agent icon (v0.6.222)
 
 - Restore the cream omg coding agent mark on a dark background in web and mobile.
