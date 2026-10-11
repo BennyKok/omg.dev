@@ -21,7 +21,7 @@
     "android": {
       "package": "dev.omg.computer",
       "adaptiveIcon": {
-        "backgroundColor": "#1B1210",
+        "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
@@ -51,7 +51,7 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/icon.png"
+          "icon": "./assets/notification-icon.png"
         }
       ],
       "expo-iap",
