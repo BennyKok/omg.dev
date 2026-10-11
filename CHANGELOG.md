@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 11, 2026 - Calmer chat recovery (v0.6.219)
+
+- Chat shows a calm message when a provider reply fails. Temporary failures get one safe retry before text or tools start.
+- Web and mobile messages discard trailing blank space. Short web messages fit their text.
+- The mobile home screen has compact thread rows and clearer empty states.
+
 ## October 10, 2026 - Clear model upgrade choices (v0.6.218)
 
 - Models outside your plan show a lock in the model picker. Choose a locked model to open the upgrade screen.
