@@ -31,6 +31,7 @@ export type CodingAgentLaunchRequest = {
   prompt?: string;
   model?: string;
   thinkingLevel?: string;
+  builderPreset?: string;
   serviceTier?: CodexServiceTier;
   fastMode?: boolean;
   sessionId: string;
@@ -141,6 +142,7 @@ export const ACTIVE_CODING_AGENT_PROVIDERS = {
       resume: request.resume,
       sandbox: request.sandbox,
       egressProxyUrl: request.egressProxyUrl,
+      builderPreset: request.builderPreset,
     });
   }),
   jcode: provider("jcode", (request) =>

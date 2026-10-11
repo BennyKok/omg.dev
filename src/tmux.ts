@@ -1360,6 +1360,7 @@ export function spawnManagedOpencodeAisdkSession(opts: {
   model: string;
   key: string;
   thinkingLevel?: string;
+  builderPreset?: string;
   omgSessionId?: string;
   omgUser?: string | null;
   resume?: string;
@@ -1402,6 +1403,7 @@ export function spawnManagedOpencodeAisdkSession(opts: {
     "--managed-name", opts.name,
   ];
   if (opts.thinkingLevel) argv.push("--thinking-level", opts.thinkingLevel);
+  if (opts.builderPreset) argv.push("--builder-preset", opts.builderPreset);
   if (opts.resume) argv.push("--resume", opts.resume);
   if (opts.recoveredAt) argv.push("--recovered-at", String(opts.recoveredAt));
   const prompt = launchEnvelope(opts.prompt);

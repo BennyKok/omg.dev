@@ -48,6 +48,7 @@ export function AgentSetupSheet({
   thinking,
   usageRing,
   usageDetails,
+  preset,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -66,6 +67,7 @@ export function AgentSetupSheet({
   thinking?: { options: SetupChoice[]; onPick: (id: string) => void } | null;
   usageRing?: ReactNode;
   usageDetails?: ReactNode;
+  preset?: ReactNode;
 }) {
   const [page, setPage] = useState<SetupSheetPage>(initialPage);
   useEffect(() => {
@@ -212,6 +214,7 @@ export function AgentSetupSheet({
                   ) : null}
                 </div>
               ) : null}
+              {preset}
               {thinking?.options.length ? <ThinkingBar options={thinking.options} onPick={thinking.onPick} /> : null}
             </div>
           ) : page === "models" ? (

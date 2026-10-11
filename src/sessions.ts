@@ -442,6 +442,7 @@ export type Session = {
   // without a live effort control or older sessions launched before it was
   // tracked.
   thinkingLevel?: string | null;
+  builderPreset?: string | null;
   /** Fast when Codex launched on its higher-throughput account service tier. */
   serviceTier?: "fast" | null;
   fastMode?: boolean;
@@ -703,6 +704,7 @@ export function managedLaunchRow(
         ? model
         : modelAlias(model),
     thinkingLevel: m.thinkingLevel ?? null,
+    builderPreset: m.builderPreset ?? directEntry?.builderPreset ?? null,
     serviceTier: m.serviceTier ?? directEntry?.serviceTier ?? null,
     fastMode:
       m.fastMode ??
@@ -3151,6 +3153,7 @@ export async function listSessions(): Promise<Session[]> {
       // pass them through raw. modelAlias would leave them unchanged anyway, but
       // be explicit about intent.
       model: publicAgent === "aisdk" || isPi ? modelAlias(e.model) : e.model,
+      builderPreset: e.builderPreset ?? managedRec?.builderPreset ?? null,
       thinkingLevel: e.thinkingLevel ?? managedRec?.thinkingLevel ?? null,
       serviceTier: e.serviceTier ?? managedRec?.serviceTier ?? null,
       fastMode:
@@ -3527,6 +3530,7 @@ export type ResumableSession = {
   resumeHandle?: string | null;
   model?: string | null;
   thinkingLevel?: string | null;
+  builderPreset?: string | null;
   serviceTier?: "fast" | null;
   fastMode?: boolean;
   assignedUser?: string | null;
@@ -3867,6 +3871,7 @@ async function refreshResumableCacheOnce(focusSessionId?: string): Promise<void>
       backend,
       resumeHandle,
       model: sdkEntry?.model || m.model || null,
+      builderPreset: m.builderPreset ?? sdkEntry?.builderPreset ?? null,
       assignedUser: assignments[m.tmuxName] || null,
       managed: true,
       scheduled: isScheduleSpawned(m.spawnedBy),

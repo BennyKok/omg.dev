@@ -15,6 +15,8 @@ import { HostDrawerSlot, SideNavButton, SideNavDrawer, SideNavGlyph, SideNavPane
 import { FindingsPill, FindingsSheet } from "./components/findings-pill";
 import { sideNavRows, type SideNavRow } from "./lib/side-nav-items";
 import { settledParagraphs } from "./lib/paragraph-stream";
+import { BuilderPresetPicker } from "./components/builder-preset-picker";
+import { APP_BUILDER_MODEL } from "../../packages/protocol/src/builder-presets";
 import {
   AgentSetupSheet,
   type SetupAgentTile,
@@ -23307,6 +23309,7 @@ function NewSessionDialog({
     () => savedThinkingLevel(),
   );
   const [fastMode, setFastModeState] = useState(() => readFastMode(localStorage, agent));
+  const [builderPreset, setBuilderPreset] = useState("");
   // Default the owner to the active profile, falling back to the first known user
   // — never empty when a roster exists. An unowned session lands unassigned, and
   // the live view's auto-default filter (which flips to a specific user) then
@@ -24034,6 +24037,7 @@ function NewSessionDialog({
             agent: launchAgent,
             model: launchModel,
             thinkingLevel: thinkingLevels.length ? launchThinkingLevel : undefined,
+            builderPreset: launchAgent === "omg" ? builderPreset || undefined : undefined,
             fastMode: launchFastMode,
             claudeAccountId: launchClaudeAccountId,
             overLimit: overLimit || undefined,
@@ -24247,9 +24251,13 @@ function NewSessionDialog({
           onModelChange={setModel}
           showModels={view.showComposerModels}
           showAgents={view.showComposerAgents}
-          footer={
-            // The stage keeps Thinking and Fast inside the picker, so the
-            // toolbar holds one row and the send button never wraps below it.
+          footer={<>
+            {agent === "omg" ? <BuilderPresetPicker value={builderPreset} onChange={(next) => {
+              setBuilderPreset(next);
+              if (next) { setModel(APP_BUILDER_MODEL); changeComposerThinkingLevel("low"); }
+            }} /> : null}
+            {/* The stage keeps Thinking and Fast inside the picker. */}
+            {
             variant === "stage" ? (
               <ComposerPickerFooter
                 thinking={
@@ -24270,8 +24278,8 @@ function NewSessionDialog({
                     : null
                 }
               />
-            ) : null
-          }
+            ) : null}
+          </>}
         />
       }
 
@@ -24429,6 +24437,10 @@ function NewSessionDialog({
           onAgentLocked();
         }}
         profiles={setupProfiles}
+        preset={agent === "omg" ? <BuilderPresetPicker value={builderPreset} onChange={(next) => {
+          setBuilderPreset(next);
+          if (next) { setModel(APP_BUILDER_MODEL); changeComposerThinkingLevel("low"); }
+        }} /> : undefined}
         onSelectProfile={(id) => setClaudeAccountId(id)}
         modelLabel={view.showComposerModels ? omgModelLabel(model) || model || null : null}
         renderModels={

@@ -169,3 +169,15 @@ describe("resumable cache cwd filter", () => {
     expect(queryResumableCache({}).sessions.map((s) => s.title)).toEqual(["Elsewhere", "In folder"]);
   });
 });
+
+test("builder preset survives scanner updates and a cache reconnect", () => {
+  const row = {
+    sessionId: "builder-resume", cwd: "/project", project: "project", title: "Build app",
+    agent: "omg" as const, backend: "omg" as const, path: "/project/transcript.jsonl", mtimeMs: 1,
+    lastUserText: "Build app", lastActivityAt: 1000, resumable: true,
+  };
+  upsertResumableRows([{ ...row, builderPreset: "app-builder-v1" }]);
+  upsertResumableRows([{ ...row, mtimeMs: 2 }]);
+  resetResumeCacheConnectionForTests();
+  expect(queryResumableCache().sessions.find((session) => session.sessionId === row.sessionId)?.builderPreset).toBe("app-builder-v1");
+});
