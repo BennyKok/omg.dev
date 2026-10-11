@@ -9,7 +9,8 @@
  *
  * So the bytes are fetched through `client.transport` (the one object that owns
  * the grant, its refresh, and the base URL of the selected machine) and handed
- * to `<Image>` as a data URI. `URL.createObjectURL`, which the web uses for the
+ * to the preview renderer and full-screen `<Image>` as a data URI.
+ * `URL.createObjectURL`, which the web uses for the
  * same job, does not exist on React Native — a data URI is the equivalent that
  * does, and `FileReader.readAsDataURL` is the only conversion RN implements for
  * a Blob.
@@ -50,6 +51,7 @@ import { ImageGalleryContext, ImageGalleryRow, type ImageRect } from "./image-ga
 import { galleryImageId, gallerySwipe } from "./image-gallery-data";
 import { saveImage } from "./image-save";
 import { MediaMenu, SaveMenu } from "./media-menu";
+import { ImagePreview } from "./image-preview";
 
 type Load =
   | { status: "loading" }
@@ -307,16 +309,7 @@ function TappableImage({
           accessibilityLabel={`${accessibilityLabel}. Open`}
           style={({ pressed }) => ({ opacity: pressed ? 0.8 : 1 })}
         >
-          <Image
-            source={{ uri }}
-            accessibilityLabel={accessibilityLabel}
-            accessible
-            resizeMode="cover"
-            style={[
-              { width, height, borderRadius: radius, backgroundColor: placeholderColor },
-              style,
-            ]}
-          />
+          <ImagePreview {...{ uri, width, height, radius, placeholderColor, style, accessibilityLabel }} />
         </Pressable>
       </View>
   );

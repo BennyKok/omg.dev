@@ -1,0 +1,83 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": true
+  },
+  "steps": [
+    {
+      "name": "Home",
+      "goal": "If Your data and AI providers is visible, tap Agree and continue to enter the local demo. Otherwise only wait for the session list. Do not tap the composer.",
+      "done": "Home shows a Threads section with the Pricing ideas thread.",
+      "expect": [
+        "Pricing ideas"
+      ]
+    },
+    {
+      "name": "Thread",
+      "goal": "Tap the row named Pricing ideas under the Threads heading. Do not tap the message field.",
+      "done": "The thread is open and its messages are listed.",
+      "expect": [
+        "@omg update the pricing page with the cap"
+      ]
+    },
+    {
+      "name": "Replies",
+      "goal": "Tap the reply link that says the task needs you. Do not tap the thread title.",
+      "done": "The Replies page is open.",
+      "expect": [
+        "Replies",
+        "Agreed. Ship it after the Stripe question."
+      ]
+    },
+    {
+      "name": "Image in replies",
+      "goal": "Do not tap anything. Only wait.",
+      "done": "The Pricing mockup picture is on screen.",
+      "expect": [
+        "Pricing mockup. Open"
+      ],
+      "swipe": {
+        "start": "50%,35%",
+        "end": "50%,75%"
+      }
+    },
+    {
+      "name": "Open preview",
+      "goal": "Tap exactly Pricing mockup. Open. Do not tap the caption.",
+      "done": "The full-screen image viewer is open.",
+      "expect": [
+        "Close image"
+      ]
+    },
+    {
+      "name": "Return to preview",
+      "goal": "Tap Close image.",
+      "done": "The inline picture is visible again.",
+      "expect": [
+        "Pricing mockup. Open"
+      ],
+      "forbid": [
+        "Close image"
+      ]
+    },
+    {
+      "name": "Open preview again",
+      "goal": "Tap exactly Pricing mockup. Open.",
+      "done": "The same full-screen image viewer opens again.",
+      "expect": [
+        "Close image"
+      ]
+    },
+    {
+      "name": "Return again",
+      "goal": "Tap Close image.",
+      "done": "The same inline picture is visible.",
+      "expect": [
+        "Pricing mockup. Open"
+      ],
+      "forbid": [
+        "Close image"
+      ]
+    }
+  ]
+}

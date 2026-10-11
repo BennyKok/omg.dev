@@ -9,7 +9,7 @@ const Image=Object.assign(({accessibilityLabel}:any)=><span>{accessibilityLabel}
 let pans:any;
 const finished:Function[]=[];
 mock.module(resolve(import.meta.dir,'../node_modules/react-native/index.js'),()=>({
- View,Image,StatusBar:()=>null,Keyboard:{dismiss(){}},Platform:{OS:'ios'},
+ View,Image,StyleSheet:{flatten:(style:any)=>style},StatusBar:()=>null,Keyboard:{dismiss(){}},Platform:{OS:'ios'},
  Modal:({children}:any)=><section role="dialog">{children}</section>,
  Pressable:({children,onPress,accessibilityLabel,disabled}:any)=><button aria-label={accessibilityLabel} disabled={disabled} onClick={onPress}>{children}</button>,
  PanResponder:{create:(handlers:any)=>{pans=handlers;return {panHandlers:{}};}},
