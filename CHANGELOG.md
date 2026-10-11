@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 11, 2026 - Correct logos and stable image previews (v0.6.220)
+
+- Mobile chat images show the correct preview when image views are reused.
+- Grok, Devin, Muse, and xAI use accurate logos.
+- All eight provider icons match between web and mobile. Mobile also shows xAI and Apex icons.
+
 ## October 11, 2026 - Calmer chat recovery (v0.6.219)
 
 - Chat shows a calm message when a provider reply fails. Temporary failures get one safe retry before text or tools start.
