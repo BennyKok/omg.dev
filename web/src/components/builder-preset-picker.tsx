@@ -9,6 +9,6 @@ export function BuilderPresetPicker({ value, onChange }: { value: string; onChan
         <option value={APP_BUILDER_PRESET}>App Builder</option>
       </select>
     </label>
-    {value === APP_BUILDER_PRESET ? <p className="text-xs text-muted-foreground">Build with the selected model. Apex reviews code, then the builder fixes and verifies it.</p> : null}
+    {value === APP_BUILDER_PRESET ? <p className="text-xs text-muted-foreground">Build with the selected model. Apex reviews code. Luna checks screenshots against the design. The builder repairs issues; both reviews must pass.</p> : null}
   </div>;
 }
