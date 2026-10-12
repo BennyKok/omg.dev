@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 12, 2026 - Schedules load without a long pause (v0.6.227)
+
+- Phone and web schedule lists calculate next-run times by day instead of scanning every minute. A 62-schedule check fell from 12.7 seconds to 29 milliseconds, with the same results. Repeated renders reuse the result until the next run.
+- Finding sessions can start from Quick Chat workspaces.
+
 ## October 12, 2026 - Faster computer updates (v0.6.226)
 
 - Updates keep the installed libraries when a release does not change them. A cloud computer that updates when it wakes is ready in seconds. Before, it waited about 40 seconds.
