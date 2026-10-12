@@ -12,6 +12,7 @@ The preview link is temporary.
 
 - `src/app/index.tsx`: todo screen
 - `src/lib/tasks.ts`: the data, stored on the phone (AsyncStorage)
+- `src/kit/`: web-safe building blocks: confirm dialog and sheets, action row, persistent images, persisted timer, viewport hook
 - `schema.ts`: hosted collections; empty until the app has sign-in
 - `app.json`: Expo configuration
 - `eas.json`: development, preview, and production build profiles
