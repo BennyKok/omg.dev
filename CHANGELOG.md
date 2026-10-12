@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 12, 2026 - First message shows only your prompt (v0.6.224)
+
+- A new user's first chat message shows the prompt they wrote. The omg.dev setup rules for a first session stay inside the omg.dev instructions chip.
+
 ## October 11, 2026 - Clearer browser tab icon (v0.6.223)
 
 - The browser tab shows the orange omg mark at full size, without the white square behind it.
