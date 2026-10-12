@@ -140,9 +140,9 @@ import {
 } from "@omg-dev/connectors";
 import { enforceRole } from "../policy/mcp-filter.ts";
 import { withConnectorGrants } from "../policy/connector-grants.ts";
-import { createRole, deleteRole, getRole, listRoles, roleEgress, roleForUser, roleSandbox, updateRole, OWNER_ROLE_ID, VIEW_TOGGLE_KEYS } from "../policy/roles.ts";
+import { createRole, deleteRole, getRole, listRoles, roleEgress, roleForUser, roleSandbox, updateRole, OWNER_ROLE, OWNER_ROLE_ID, VIEW_TOGGLE_KEYS } from "../policy/roles.ts";
 import { DEFAULT_ALLOW_HOSTS, startEgressProxy, type EgressProxy } from "../sandbox/egress-proxy.ts";
-import { sessionToken, verifySessionToken, boxSecretMaterial } from "../policy/session-token.ts";
+import { sessionToken, verifySessionToken, verifyAutoAgentToken, boxSecretMaterial, SESSION_TOKEN_HEADER as SESSION_TOKEN_HEADER_NAME } from "../policy/session-token.ts";
 import * as pwaBootLog from "../pwa-boot-log.ts";
 import { botRuntimeContract, modelSeesImages, shortSessionId, withFirstRunEnvelope } from "../omg-capabilities.ts";
 import {
@@ -4720,6 +4720,30 @@ export async function cmdServe() {
       // are `<slug>__<tool>`, so the role id is `connectors.<slug>.<tool>` and
       // a rule can block one connector (`connectors.gmail.*`) or one tool.
       if (path === "/mcp/connectors") {
+        // A scheduled auto agent run: no session, so it presents its agent id
+        // and a signed token. It gets only the connector slugs listed on its
+        // row, as the member who saved it. Approval-gated connectors are
+        // refused, because a headless run has nobody to ask.
+        const autoId = new URL(req.url).searchParams.get("auto")?.trim();
+        if (autoId) {
+          if (!verifyAutoAgentToken(autoId, req.headers.get(SESSION_TOKEN_HEADER_NAME))) {
+            return err(401, "invalid auto agent token");
+          }
+          const autoAgent = await getAutoAgent(autoId);
+          const allow = new Set(autoAgent?.connectorUser ? (autoAgent.connectors ?? []) : []);
+          const autoOwner = ownerForUser(autoAgent?.connectorUser);
+          const refuseApproval: ConnectorApprovalGate = async (connector) =>
+            connector.requireApproval
+              ? {
+                  held: true,
+                  text: `${connector.name} needs the owner's approval for each call, and a scheduled run cannot ask. Turn off "require approval" for this connector, or run the task in a session.`,
+                }
+              : { held: false };
+          const autoRole = withConnectorGrants(OWNER_ROLE, connectorsForMember(autoOwner, null));
+          return await enforceRole(req, autoRole, { namespace: "connectors", split: "__" }, (r) =>
+            serveConnectorsMcpRequest(r, autoOwner, refuseApproval, null, allow),
+          );
+        }
         const caller = resolveCaller(req);
         const owner = connectorOwnerForSession(caller.sessionId);
         const gate: ConnectorApprovalGate = async (connector, tool, args) => {
@@ -7441,6 +7465,7 @@ a{color:#60a5fa}
             model?: string;
             thinkingLevel?: string;
             tools?: string[];
+            connectors?: unknown;
             owner?: { kind?: string; botId?: string } | null;
           } | null;
           if (!b?.name || !b?.prompt || !b?.schedule) {
@@ -7509,6 +7534,21 @@ a{color:#60a5fa}
           const runtime = resolveAutoAgentRuntime(b);
           if (!runtime.ok) return err(runtime.status, runtime.error);
           const { agent: autoAgent, claudeAccountId, model, thinkingLevel } = runtime;
+          // Connector access for headless runs. The list comes from the body;
+          // the member whose connections back it never does. It is the owner of
+          // the saving session (the same lookup that session uses for its own
+          // /mcp/connectors), so nobody can grant an agent another member's
+          // accounts. A bot may not hand a schedule its owner's connectors.
+          let connectors: string[] | undefined;
+          let connectorUser: string | undefined;
+          if (b.connectors !== undefined) {
+            if (!Array.isArray(b.connectors) || b.connectors.some((c) => typeof c !== "string")) {
+              return err(400, "connectors must be an array of connector slugs");
+            }
+            if (callerBot && b.connectors.length) return err(403, "a bot cannot grant connector access");
+            connectors = b.connectors as string[];
+            connectorUser = connectorOwnerForSession(req.headers.get("x-omg-caller-session-id")?.trim() || undefined);
+          }
           const agent = await saveAutoAgent({
             id: b.id,
             name: b.name,
@@ -7522,6 +7562,8 @@ a{color:#60a5fa}
             model,
             thinkingLevel,
             tools: Array.isArray(b.tools) ? b.tools : undefined,
+            connectors,
+            connectorUser,
           });
           return json({ agent: withAutoAgentMeta(agent) });
         }

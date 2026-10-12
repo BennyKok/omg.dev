@@ -10,7 +10,7 @@ import { defaultModelForAgent } from "../agent-catalog.ts";
 // them at best and the rest were discarded with no trace. The cap now lives at
 // MAX_FINDINGS_PER_RUN and drops the least severe, never the outage.
 
-import { PATHS } from "../config.ts";
+import { CONNECTORS_MCP_SERVER_NAME, PATHS, autoAgentConnectorsMcpServer } from "../config.ts";
 import { notifyAll, type PushNotification } from "../push.ts";
 import { runInCwd } from "./cwd-lock.ts";
 import { WATCH_AGENT_OPENING } from "./watch-agent-signature.ts";
@@ -194,9 +194,12 @@ async function runClaude(
   cwd: string,
   onLog: (s: string) => void,
   extraTools: string[] = [],
-  opts: { model?: string; thinkingLevel?: string; claudeAccountId?: string } = {},
+  opts: { model?: string; thinkingLevel?: string; claudeAccountId?: string; agentId?: string; connectors?: string[] } = {},
 ): Promise<string> {
-  const allowedTools = [...READONLY_TOOLS, ...extraTools];
+  const connectorServers = opts.agentId ? autoAgentConnectorsMcpServer(opts.agentId, opts.connectors).mcpServers : undefined;
+  // A granted connector server is allowed whole: the server itself only lists
+  // the slugs on the agent row, so this cannot widen access past the grant.
+  const allowedTools = [...READONLY_TOOLS, ...extraTools, ...(connectorServers ? [`mcp__${CONNECTORS_MCP_SERVER_NAME}`] : [])];
   onLog(`[auto] claude run (${prompt.length} chars) in ${cwd} [model: ${opts.model ?? "default"}; tools: ${allowedTools.join(",")}]`);
   // Route through the AI-SDK report backend instead of spawning `claude -p`
   // directly: it drives the same installed claude binary + subscription auth,
@@ -215,6 +218,7 @@ async function runClaude(
     return await runInCwd(cwd, () =>
       pipeToClaudeAiSdk(prompt, onLog, {
         allowedTools,
+        mcpServers: connectorServers,
         model: opts.model,
         thinkingLevel: opts.thinkingLevel,
         // Scoped to this query only. Billing a run to a pinned account by
@@ -253,6 +257,7 @@ async function runSelectedBackend(
         cwd,
         model: agent.model,
         thinkingLevel: agent.thinkingLevel,
+        mcpServers: autoAgentConnectorsMcpServer(agent.id, agent.connectorUser ? agent.connectors : undefined).mcpServers,
       }),
     );
   }
@@ -321,6 +326,8 @@ async function runSelectedBackend(
     model: agent.model,
     thinkingLevel: agent.thinkingLevel,
     claudeAccountId: agent.claudeAccountId,
+    agentId: agent.id,
+    connectors: agent.connectorUser ? agent.connectors : undefined,
   });
 }
 

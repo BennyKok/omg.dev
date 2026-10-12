@@ -1981,6 +1981,10 @@ export function buildOmgMcpServer(): McpServer {
           .array(z.string())
           .optional()
           .describe("Extra tools granted on top of the read-only default set (Read/Grep/Glob/WebSearch/WebFetch), e.g. [\"Bash\"]. Omit to stay read-only."),
+        connectors: z
+          .array(z.string())
+          .optional()
+          .describe("Connector slugs the run may call through your own connections, e.g. [\"meta-ads\"]. Only these are exposed (mcp__connectors__<slug>__*). Omit to keep the current list; [] removes access. Connectors that require approval are refused in headless runs."),
       },
     },
     async (input) => {

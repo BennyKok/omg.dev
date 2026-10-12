@@ -1,7 +1,7 @@
 import { join, dirname, resolve } from "node:path";
 // Cyclic on purpose: session-token reads PATHS from here, and this module only
 // calls sessionToken() at launch time, never during module evaluation.
-import { SESSION_TOKEN_HEADER, sessionToken } from "./policy/session-token.ts";
+import { SESSION_TOKEN_HEADER, autoAgentToken, sessionToken } from "./policy/session-token.ts";
 // Cyclic for the same reason: settings.ts reads PATHS from here, and this
 // module only calls getGlobalSettingsSync() at launch time.
 import { getGlobalSettingsSync } from "./settings.ts";
@@ -162,6 +162,28 @@ export function omgMcpServers(
     };
   }
   return { mcpServers };
+}
+
+/**
+ * The connectors MCP server for one scheduled auto agent run. Auto runs have no
+ * session, so they identify by agent id plus a signed token; the server serves
+ * only the slugs listed on the agent row, as the member who saved it. Returns
+ * an empty object when the agent lists no connectors, so nothing is attached.
+ */
+export function autoAgentConnectorsMcpServer(
+  agentId: string,
+  connectors: readonly string[] | undefined,
+): { mcpServers?: Record<string, OmgMcpServerConfig> } {
+  if (!connectors?.length) return {};
+  return {
+    mcpServers: {
+      [CONNECTORS_MCP_SERVER_NAME]: {
+        type: "http",
+        url: `${localServeBaseUrl()}/mcp/connectors?auto=${encodeURIComponent(agentId)}`,
+        headers: { [SESSION_TOKEN_HEADER]: autoAgentToken(agentId) },
+      },
+    },
+  };
 }
 
 function computerMcpEnabled(): boolean {

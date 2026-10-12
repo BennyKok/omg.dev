@@ -54,6 +54,13 @@ export type AutoAgent = {
   // (Read/Grep/Glob/WebSearch/WebFetch). e.g. ["Bash"] for agents that need to
   // shell out to a data bridge. Empty/undefined = read-only.
   tools?: string[];
+  // Connector slugs this agent may call (for example ["meta-ads"]), served from
+  // /mcp/connectors as `connectorUser`'s connections. Opt-in and least access:
+  // unset or empty = no connectors. connectorUser is never taken from a request
+  // body; the server stamps the member who saved the row (see serve.ts), so a
+  // caller cannot grant an agent someone else's accounts.
+  connectors?: string[];
+  connectorUser?: string;
   lastRunAt?: number;
 };
 
@@ -226,6 +233,28 @@ export function claudeAccountForBackend(
   return backend === undefined || backend === "aisdk" ? accountId : undefined;
 }
 
+/**
+ * Merge the connector grant on save. A new list re-stamps the member (the
+ * saver now vouches for it); a plain edit keeps both; an empty list removes
+ * access. A list with no resolvable member is dropped rather than served as
+ * the box owner, which could expose a different person's connections.
+ */
+export function connectorAccess(
+  connectors: string[] | undefined,
+  connectorUser: string | null | undefined,
+  existing: Pick<AutoAgent, "connectors" | "connectorUser"> | undefined,
+): Pick<AutoAgent, "connectors" | "connectorUser"> {
+  if (connectors === undefined) {
+    return existing?.connectors?.length
+      ? { connectors: existing.connectors, connectorUser: existing.connectorUser }
+      : {};
+  }
+  const slugs = [...new Set(connectors.map((c) => c.trim()).filter(Boolean))];
+  const user = connectorUser?.trim();
+  if (!slugs.length || !user) return {};
+  return { connectors: slugs, connectorUser: user };
+}
+
 export async function saveAutoAgent(input: {
   id?: string;
   name: string;
@@ -246,6 +275,10 @@ export async function saveAutoAgent(input: {
   model?: string;
   thinkingLevel?: string;
   tools?: string[];
+  /** undefined = keep the stored list; [] = remove connector access. */
+  connectors?: string[];
+  /** The member whose connections back `connectors`. Server-resolved, never user input. */
+  connectorUser?: string | null;
 }): Promise<AutoAgent> {
   await ensure();
   const list = await listAutoAgents();
@@ -284,6 +317,7 @@ export async function saveAutoAgent(input: {
       input.model ?? existing?.model,
     ),
     tools: input.tools ?? existing?.tools,
+    ...connectorAccess(input.connectors, input.connectorUser, existing),
     lastRunAt: existing?.lastRunAt,
   };
   const next = existing

@@ -33,7 +33,7 @@ import type { SessionMsg } from "../../sessions.ts";
 import { sessionTitleFromPrompt } from "../../omg-capabilities.ts";
 import { indexSessionMessagesDirect, reindexFileHistoryUnderSessionKey } from "../../transcript-index.ts";
 import { makeDraftPublisher } from "./draft.ts";
-import { codexOmgMcpConfig, type CodexConfigValue } from "../../codex-mcp-config.ts";
+import { codexOmgMcpConfig, withCodexHttpMcpServers, type CodexConfigValue } from "../../codex-mcp-config.ts";
 import {
   withCodexServiceTierConfig,
   type CodexServiceTier,
@@ -241,7 +241,14 @@ function codexInputForPrompt(prompt: string): string | Array<{ type: "text"; tex
 export async function pipeToCodexAiSdk(
   prompt: string,
   log: (s: string) => void,
-  opts: { model?: string; thinkingLevel?: string; serviceTier?: CodexServiceTier; cwd?: string } = {},
+  opts: {
+    model?: string;
+    thinkingLevel?: string;
+    serviceTier?: CodexServiceTier;
+    cwd?: string;
+    /** Extra HTTP MCP servers for this run (a scheduled agent's connectors). */
+    mcpServers?: Parameters<typeof withCodexHttpMcpServers>[1];
+  } = {},
 ): Promise<string> {
   const model = opts.model ?? "gpt-5.5";
   const cwd = opts.cwd ?? process.cwd();
@@ -249,7 +256,7 @@ export async function pipeToCodexAiSdk(
   const codexPathOverride = resolveCodexPathOverride();
   const codex = new Codex({
     ...(codexPathOverride ? { codexPathOverride } : {}),
-    ...omgMcpConfig(opts.serviceTier),
+    ...withCodexHttpMcpServers(omgMcpConfig(opts.serviceTier), opts.mcpServers),
   });
 
   log(`[runner] piping ${prompt.length} chars to codex via codex-sdk (${model})`);

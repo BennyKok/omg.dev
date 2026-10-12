@@ -5,12 +5,19 @@
 // legacy CLI path, but uses the official Agent SDK `query()` surface so report
 // generation no longer depends on the Vercel AI SDK Claude Code provider.
 
+import type { OmgMcpServerConfig } from "../../config.ts";
 import { omgMcpServers } from "../../config.ts";
 import { resolveClaudePath } from "./claude-path.ts";
 
 export type AiSdkOptions = {
   /** Model id: "opus" | "sonnet" | "haiku" or a full id like "claude-opus-4-8". */
   model?: string;
+  /**
+   * Extra MCP servers for this run, merged over the omg session servers. A
+   * scheduled auto agent uses this for its connectors (see
+   * autoAgentConnectorsMcpServer), because it has no session of its own.
+   */
+  mcpServers?: Record<string, OmgMcpServerConfig>;
   /** Tools to allow (mirrors the CLI's --allowedTools). */
   allowedTools?: string[];
   /** Claude Code reasoning effort. */
@@ -72,6 +79,14 @@ function toolStartsFromContent(content: unknown): Array<{ id?: string; name: str
   return tools;
 }
 
+function withExtraMcpServers(
+  base: { mcpServers?: Record<string, OmgMcpServerConfig> },
+  extra: Record<string, OmgMcpServerConfig> | undefined,
+): { mcpServers?: Record<string, OmgMcpServerConfig> } {
+  if (!extra || !Object.keys(extra).length) return base;
+  return { mcpServers: { ...(base.mcpServers ?? {}), ...extra } };
+}
+
 export async function pipeToClaudeAiSdk(
   prompt: string,
   log: (s: string) => void,
@@ -101,7 +116,7 @@ export async function pipeToClaudeAiSdk(
       // user-scope registration is session-agnostic — it has to be, one config
       // serves every session — so without this the serve process cannot tell
       // who is calling and every session-scoped tool fails "sessionId required".
-      ...omgMcpServers(),
+      ...withExtraMcpServers({ ...omgMcpServers() }, opts.mcpServers),
       includePartialMessages: true,
       ...(effort ? { effort } : {}),
       // With no opts.env, `env` stays omitted and the Agent SDK inherits

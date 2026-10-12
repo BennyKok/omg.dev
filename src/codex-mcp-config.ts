@@ -96,3 +96,24 @@ export function codexOmgMcpConfig(
   }
   return { config: { mcp_servers } };
 }
+
+/**
+ * Add HTTP MCP servers to a codex config override. Each is a complete server
+ * definition (url + http_headers), so codex accepts it even though
+ * config.toml does not define the name; see codexOmgMcpConfig below for why a
+ * partial override of an undefined name is rejected.
+ */
+export function withCodexHttpMcpServers(
+  base: { config?: { [key: string]: CodexConfigValue } },
+  servers: Record<string, { url: string; headers: Record<string, string> }> | undefined,
+): { config?: { [key: string]: CodexConfigValue } } {
+  if (!servers || !Object.keys(servers).length) return base;
+  const config = { ...(base.config ?? {}) };
+  const existing = (config.mcp_servers ?? {}) as { [key: string]: CodexConfigValue };
+  const mcp_servers: { [key: string]: CodexConfigValue } = { ...existing };
+  for (const [name, server] of Object.entries(servers)) {
+    mcp_servers[name] = { url: server.url, http_headers: { ...server.headers } };
+  }
+  config.mcp_servers = mcp_servers;
+  return { config };
+}

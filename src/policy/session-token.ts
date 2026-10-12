@@ -68,3 +68,16 @@ export function boxSecretMaterial(): string {
 export function resetSessionSecretForTests(): void {
   cached = null;
 }
+
+/**
+ * The token a scheduled auto agent run presents on /mcp/connectors?auto=<id>.
+ * Same box secret, separate namespace, so an auto agent id can never be
+ * replayed as a session id or the other way round.
+ */
+export function autoAgentToken(agentId: string): string {
+  return sessionToken(`auto-agent:${agentId}`);
+}
+
+export function verifyAutoAgentToken(agentId: string, token: string | null | undefined): boolean {
+  return verifySessionToken(`auto-agent:${agentId}`, token);
+}
