@@ -339,27 +339,39 @@ test("grok catalog defaults to Grok 4.7 and keeps the fast variant", async () =>
 
 test("omg agent lists the routed models in hosted picker order, default first", async () => {
   const { OMG_MODELS } = await import("./agent-catalog.ts");
-  expect(OMG_MODELS).toEqual([
-    "omg/openai/gpt-6-luna",
-    "omg/anthropic/claude-opus-5.5",
-    "omg/apex",
-    "omg/deepseek/deepseek-v4-flash-0731",
-    "omg/deepseek/deepseek-v4-pro",
-    "omg/z-ai/glm-5.3-flash",
-    "omg/z-ai/glm-5.3",
-    "omg/minimax/minimax-m3",
-    "omg/x-ai/grok-4.7",
-    "omg/anthropic/claude-fable-5.1",
-    "omg/anthropic/claude-sonnet-5.5",
-    "omg/anthropic/claude-haiku-5.5",
-    "omg/openai/gpt-6.1-sol",
-    "omg/openai/gpt-6-astra",
-  ]);
-  expect(defaultModelForAgent("omg")).toBe(OMG_MODELS[0]!);
-  expect(modelsForAgent("omg")).toEqual(OMG_MODELS);
-  expect(listModelCatalog().find((item) => item.key === "omg")).toMatchObject({
-    label: "omg agent", models: OMG_MODELS, defaultModel: OMG_MODELS[0], session: true, auto: true,
-  });
+  // An owner's ~/.omg/models.json would append custom models; read an empty home.
+  const savedHome = process.env.HOME;
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const emptyHome = mkdtempSync(join(tmpdir(), "omg-catalog-home-"));
+  process.env.HOME = emptyHome;
+  try {
+    expect(OMG_MODELS).toEqual([
+      "omg/openai/gpt-6-luna",
+      "omg/anthropic/claude-opus-5.5",
+      "omg/apex",
+      "omg/deepseek/deepseek-v4-flash-0731",
+      "omg/deepseek/deepseek-v4-pro",
+      "omg/z-ai/glm-5.3-flash",
+      "omg/z-ai/glm-5.3",
+      "omg/minimax/minimax-m3",
+      "omg/x-ai/grok-4.7",
+      "omg/anthropic/claude-fable-5.1",
+      "omg/anthropic/claude-sonnet-5.5",
+      "omg/anthropic/claude-haiku-5.5",
+      "omg/openai/gpt-6.1-sol",
+      "omg/openai/gpt-6-astra",
+    ]);
+    expect(defaultModelForAgent("omg")).toBe(OMG_MODELS[0]!);
+    expect(modelsForAgent("omg")).toEqual(OMG_MODELS);
+    expect(listModelCatalog().find((item) => item.key === "omg")).toMatchObject({
+      label: "omg agent", models: OMG_MODELS, defaultModel: OMG_MODELS[0], session: true, auto: true,
+    });
+  } finally {
+    process.env.HOME = savedHome;
+    rmSync(emptyHome, { recursive: true, force: true });
+  }
 });
 
 test("omg thinking levels follow the model: effort where OpenRouter honours it, nothing elsewhere", async () => {
