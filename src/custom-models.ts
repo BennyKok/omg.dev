@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
+import { COMPUTER_MCP_SERVER_NAME, CONNECTORS_MCP_SERVER_NAME } from "./config.ts";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -200,3 +201,33 @@ export function ensureCustomProviders(options: OmgProviderOptions = {}): void {
   if (JSON.stringify(next) === JSON.stringify(current)) return;
   writeOpenCodeConfig(path, next);
 }
+
+/**
+ * Smallest context, in tokens, that can carry each omg.dev MCP server's tools.
+ *
+ * OpenCode sends every tool description with every request. Measured
+ * 2026-10-12 on custom-pc/gemma-4-e4b (OpenCode 1.18): the base prompt and
+ * built-in tools take about 14k tokens; omg (59 tools, 58k chars) and
+ * computer (10 tools, 5k chars) add about 17k; connectors (121 tools, 723k
+ * chars) add about 200k. A 24k model with every server attached was sent
+ * 867k characters and every turn failed. Hosted models are not limited.
+ */
+const MCP_MIN_CONTEXT: Record<string, number> = {
+  omg: 49_152,
+  [COMPUTER_MCP_SERVER_NAME]: 49_152,
+  [CONNECTORS_MCP_SERVER_NAME]: 262_144,
+};
+
+/**
+ * OpenCode `tools` entries that switch off the MCP servers a custom model's
+ * context cannot hold, as `<server>_*` patterns. Null when nothing is cut.
+ * Applied per turn, so a session that switches models keeps working.
+ */
+export function customModelToolFilter(model: string, options: { home?: string } = {}): Record<string, boolean> | null {
+  const found = findCustomModel(model, options);
+  if (!found) return null;
+  const context = found.model.context ?? 0;
+  const off = Object.entries(MCP_MIN_CONTEXT).filter(([, min]) => context < min).map(([name]) => [`${name}_*`, false] as const);
+  return off.length ? Object.fromEntries(off) : null;
+}
+

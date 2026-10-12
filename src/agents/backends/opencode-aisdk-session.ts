@@ -1,6 +1,6 @@
 import { EmptyOpencodeReply, OPENCODE_RECOVERY_MESSAGE, opencodeTurnHasProgress, recoverOpencodeTurn } from "./opencode-turn-recovery.ts";
 import { ensureOmgProvider } from "../../omg-provider.ts";
-import { ensureCustomProviders, isCustomModel } from "../../custom-models.ts";
+import { customModelToolFilter, ensureCustomProviders, isCustomModel } from "../../custom-models.ts";
 import { APP_BUILDER_PRESET, builderReviewerConfig, builderReviewPacket, captureBuilderDesign, reviewBuilderDesign, reviewBuilderCode, runAppBuilder, validateBuilderPreset } from "./app-builder.ts";
 // Headless interactive session harness for the "opencode" agent kind.
 //
@@ -147,6 +147,7 @@ export function opencodePromptBody(
 ): {
   model?: { providerID: string; modelID: string };
   variant?: string;
+  tools?: Record<string, boolean>;
   parts: Array<{ type: "text"; text: string } | { type: "file"; mime: string; url: string; filename?: string }>;
 } {
   const extracted = extractAttachments(prompt);
@@ -159,9 +160,12 @@ export function opencodePromptBody(
   for (const att of extracted.attachments) {
     parts.push({ type: "file", mime: att.mime, url: `file://${att.path}`, filename: att.filename });
   }
+  // A small custom model cannot hold every MCP tool description (src/custom-models.ts).
+  const tools = customModelToolFilter(model);
   return {
     ...(modelRef(model) ? { model: modelRef(model) } : {}),
     ...(thinkingLevel ? { variant: thinkingLevel } : {}),
+    ...(tools ? { tools } : {}),
     parts: [...parts, ...images],
   };
 }

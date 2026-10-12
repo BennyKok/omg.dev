@@ -58,8 +58,23 @@ picker ──▶ omg agent ──▶ OpenCode ──▶ provider "custom-pc" ─
   For vLLM, start with `--enable-auto-tool-choice --tool-call-parser <parser>`.
   Without it every turn fails with `"auto" tool choice requires
   --enable-auto-tool-choice`.
-- A context of about 16k tokens or more. The OpenCode system prompt and tool
-  list use several thousand tokens before the first message.
+- A context of about 16k tokens or more. The OpenCode system prompt and
+  built-in tools use about 14k tokens before the first message.
+
+## Tools by context size
+
+OpenCode sends every tool description with every request. The omg.dev MCP
+tools are large, so a custom model gets only the servers its `context` can
+hold. The filter applies on each turn.
+
+| `context` | MCP tools |
+|---|---|
+| under 48k, or not set | none (built-in file and shell tools only) |
+| 48k to under 256k | `omg` and `computer` |
+| 256k or more | all, including `connectors` |
+
+Measured on 2026-10-12: `omg` and `computer` add about 17k tokens.
+`connectors` adds about 200k tokens.
 
 ## Not in this version
 
