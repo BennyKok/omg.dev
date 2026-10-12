@@ -5,7 +5,9 @@ import { dirname, join } from "node:path";
 import {
   customInputModalities,
   customModelIds,
+  customModelContext,
   customModelToolFilter,
+  refreshCustomModelContexts,
   ensureCustomProviders,
   findCustomModel,
   parseCustomModels,
@@ -122,17 +124,66 @@ test("the omg catalog item carries names set in the file", () => {
   expect(omg?.modelLabels).toEqual({ "custom-pc/gemma-4-e4b": "Gemma 4 E4B (3060 Ti)" });
 });
 
-test("a small custom model gets no MCP tools; a larger one keeps omg and computer", () => {
+const LITE = {
+  "omg_*": false,
+  "computer_*": false,
+  "connectors_*": false,
+  omg_omg_ship: true,
+  omg_omg_display_image: true,
+  omg_omg_display_file: true,
+  omg_omg_deploy: true,
+  omg_omg_deploy_status: true,
+};
+
+test("a small custom model gets the lite omg tools; a larger one gets more", () => {
   writeModels([{ id: "pc", baseURL: "http://pc/v1", models: [
     { id: "small", context: 24576 },
     { id: "mid", context: 131072 },
     { id: "huge", context: 1_000_000 },
     { id: "unknown" },
   ] }]);
-  const all = { "omg_*": false, "computer_*": false, "connectors_*": false };
-  expect(customModelToolFilter("custom-pc/small", { home })).toEqual(all);
-  expect(customModelToolFilter("custom-pc/unknown", { home })).toEqual(all);
+  expect(customModelToolFilter("custom-pc/small", { home })).toEqual(LITE);
+  // Switch-offs must come before the tools that turn back on: the last match wins.
+  expect(Object.keys(customModelToolFilter("custom-pc/small", { home })!).slice(0, 3)).toEqual(["omg_*", "computer_*", "connectors_*"]);
+  expect(customModelToolFilter("custom-pc/unknown", { home })).toEqual(LITE);
   expect(customModelToolFilter("custom-pc/mid", { home })).toEqual({ "connectors_*": false });
   expect(customModelToolFilter("custom-pc/huge", { home })).toBeNull();
   expect(customModelToolFilter("omg/openai/gpt-6-luna", { home })).toBeNull();
+});
+
+function fakeFetch(routes: Record<string, unknown>): typeof fetch {
+  return (async (url: string | URL) => {
+    const body = routes[String(url)];
+    return body === undefined ? new Response("no", { status: 404 }) : Response.json(body);
+  }) as typeof fetch;
+}
+
+test("context comes from the server when the file has none", async () => {
+  writeModels([
+    { id: "vllm", baseURL: "http://vllm/v1", models: [{ id: "gemma" }, { id: "pinned", context: 8192 }] },
+    { id: "llama", baseURL: "http://llama/v1", models: [{ id: "qwen" }] },
+    { id: "down", baseURL: "http://down/v1", models: [{ id: "x" }] },
+  ]);
+  await refreshCustomModelContexts({
+    home,
+    fetcher: fakeFetch({
+      "http://vllm/v1/models": { data: [{ id: "gemma", max_model_len: 131072 }, { id: "pinned", max_model_len: 131072 }] },
+      "http://llama/props": { default_generation_settings: { n_ctx: 65536 } },
+    }),
+  });
+  expect(customModelContext("custom-vllm/gemma", { home })).toBe(131072);
+  expect(customModelContext("custom-vllm/pinned", { home })).toBe(8192);
+  expect(customModelContext("custom-llama/qwen", { home })).toBe(65536);
+  expect(customModelContext("custom-down/x", { home })).toBeUndefined();
+  expect(customModelToolFilter("custom-vllm/gemma", { home })).toEqual({ "connectors_*": false });
+
+  // OpenCode's limit follows the detected size, so compaction does too.
+  ensureCustomProviders(options());
+  const config = JSON.parse(readFileSync(configPath(), "utf8"));
+  expect(config.provider["custom-vllm"].models.gemma.limit).toEqual({ context: 131072, output: 4096 });
+  expect(config.provider["custom-down"].models.x.limit).toBeUndefined();
+
+  // A server that stops answering keeps its last value.
+  await refreshCustomModelContexts({ home, fetcher: fakeFetch({}) });
+  expect(customModelContext("custom-vllm/gemma", { home })).toBe(131072);
 });

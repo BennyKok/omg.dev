@@ -1,6 +1,6 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   openCodeConfigPath,
   readOpenCodeConfig,
@@ -162,22 +162,27 @@ export function customInputModalities(model: string, options: { home?: string } 
   return findCustomModel(model, options)?.model.input ?? null;
 }
 
-function openCodeProvider(provider: CustomProvider) {
+function openCodeProvider(provider: CustomProvider, detected: DetectedContexts) {
   return {
     npm: "@ai-sdk/openai-compatible",
     name: provider.name ?? provider.id,
     // The openai-compatible provider wants a non-empty key; a local server
     // with no auth ignores it.
     options: { baseURL: provider.baseURL, apiKey: provider.apiKey ?? "none" },
-    models: Object.fromEntries(provider.models.map((model) => [model.id, {
+    models: Object.fromEntries(provider.models.map((model) => {
+      // The file wins; otherwise the size the server reported. OpenCode
+      // compacts the chat against this limit.
+      const context = model.context ?? positiveInt(detected[customModelId(provider.id, model.id)]?.context);
+      return [model.id, {
       name: model.name ?? model.id,
-      ...(model.context
-        ? { limit: { context: model.context, output: Math.min(model.output ?? DEFAULT_OUTPUT, model.context) } }
+      ...(context
+        ? { limit: { context, output: Math.min(model.output ?? DEFAULT_OUTPUT, context) } }
         : {}),
       // Without modalities OpenCode drops every image part (see omg-provider.ts).
       attachment: model.input.includes("image"),
       modalities: { input: [...model.input], output: ["text"] },
-    }])),
+    }];
+    })),
   };
 }
 
@@ -195,40 +200,138 @@ export function ensureCustomProviders(options: OmgProviderOptions = {}): void {
   const kept = Object.fromEntries(
     Object.entries((current.provider ?? {}) as Record<string, unknown>).filter(([key]) => !key.startsWith(CUSTOM_PROVIDER_PREFIX)),
   );
-  const custom = Object.fromEntries(providers.map((provider) => [`${CUSTOM_PROVIDER_PREFIX}${provider.id}`, openCodeProvider(provider)]));
+  const detected = readDetectedContexts(options);
+  const custom = Object.fromEntries(providers.map((provider) => [`${CUSTOM_PROVIDER_PREFIX}${provider.id}`, openCodeProvider(provider, detected)]));
   const next = { ...current, provider: { ...kept, ...custom } };
   if (JSON.stringify(next) === JSON.stringify(current)) return;
   writeOpenCodeConfig(path, next);
 }
 
 /**
- * Smallest context, in tokens, that can carry each omg.dev MCP server's tools.
- *
- * OpenCode sends every tool description with every request. Measured
- * 2026-10-12 on custom-pc/gemma-4-e4b (OpenCode 1.18): the base prompt and
- * built-in tools take about 14k tokens; omg (59 tools, 58k chars) and
- * computer (10 tools, 5k chars) add about 17k; connectors (121 tools, 723k
- * chars) add about 200k. A 24k model with every server attached was sent
- * 867k characters and every turn failed. Hosted models are not limited.
+ * Context sizes read from the servers themselves, cached on disk because the
+ * OpenCode harness runs in its own process. Keyed by picker id.
  */
-const MCP_MIN_CONTEXT: Record<string, number> = {
-  omg: 49_152,
-  // Literal names: importing them from config.ts makes an import cycle that
-  // crashed the service at startup (COMPUTER_MCP_SERVER_NAME before init).
-  computer: 49_152,
-  connectors: 262_144,
-};
+type DetectedContexts = Record<string, { context: number; at: number }>;
+
+function detectedContextsPath(options: { home?: string } = {}): string {
+  return join(dirname(customModelsPath(options)), "cache", "custom-model-context.json");
+}
+
+function readDetectedContexts(options: { home?: string } = {}): DetectedContexts {
+  try {
+    const value = JSON.parse(readFileSync(detectedContextsPath(options), "utf8"));
+    return value && typeof value === "object" ? value : {};
+  } catch {
+    return {};
+  }
+}
+
+/** The context a model runs with: `context` from the file wins, then the size its server reported. */
+export function customModelContext(model: string, options: { home?: string } = {}): number | undefined {
+  const found = findCustomModel(model, options);
+  if (!found) return undefined;
+  return found.model.context ?? positiveInt(readDetectedContexts(options)[model]?.context);
+}
+
+async function getJson(url: string, apiKey: string | undefined, fetcher: typeof fetch): Promise<any> {
+  const response = await fetcher(url, {
+    headers: apiKey ? { authorization: `Bearer ${apiKey}` } : {},
+    signal: AbortSignal.timeout(3000),
+  });
+  if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
+  return response.json();
+}
 
 /**
- * OpenCode `tools` entries that switch off the MCP servers a custom model's
- * context cannot hold, as `<server>_*` patterns. Null when nothing is cut.
+ * Ask each provider for its context size and cache the answers.
+ *  - vLLM: `max_model_len` on each entry of GET /v1/models.
+ *  - llama.cpp: `n_ctx` from GET /props (one model per server).
+ * Ollama is not read: its served context (num_ctx) is not in any response.
+ * A server that does not answer keeps its last cached value. Never throws.
+ */
+export async function refreshCustomModelContexts(
+  options: { home?: string; fetcher?: typeof fetch } = {},
+): Promise<void> {
+  const fetcher = options.fetcher ?? fetch;
+  const providers = loadCustomModels(options);
+  if (!providers.length) return;
+  const cached = readDetectedContexts(options);
+  const next: DetectedContexts = {};
+  const now = Date.now();
+  await Promise.all(providers.map(async (provider) => {
+    const found: Record<string, number> = {};
+    try {
+      const body = await getJson(`${provider.baseURL}/models`, provider.apiKey, fetcher);
+      for (const entry of Array.isArray(body?.data) ? body.data : []) {
+        const context = positiveInt(entry?.max_model_len);
+        if (typeof entry?.id === "string" && context) found[entry.id] = context;
+      }
+    } catch {}
+    if (provider.models.some((model) => !found[model.id])) {
+      try {
+        const body = await getJson(`${provider.baseURL.replace(/\/v1$/, "")}/props`, provider.apiKey, fetcher);
+        const context = positiveInt(body?.default_generation_settings?.n_ctx) ?? positiveInt(body?.n_ctx);
+        if (context) for (const model of provider.models) found[model.id] ??= context;
+      } catch {}
+    }
+    for (const model of provider.models) {
+      const id = customModelId(provider.id, model.id);
+      if (found[model.id]) next[id] = { context: found[model.id]!, at: now };
+      else if (cached[id]) next[id] = cached[id]!;
+    }
+  }));
+  if (JSON.stringify(next) === JSON.stringify(cached)) return;
+  const path = detectedContextsPath(options);
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, `${JSON.stringify(next, null, 2)}\n`);
+  } catch {}
+}
+
+/**
+ * How many omg.dev MCP tools a custom model can carry. OpenCode sends every
+ * tool description with every request, and the hardcoded sizes below were
+ * measured 2026-10-12 on custom-pc/gemma-4-e4b (OpenCode 1.18):
+ *  - base prompt and built-in tools: about 14k tokens;
+ *  - omg (59 tools, 58k chars) plus computer (10 tools, 5k chars): about 17k;
+ *  - connectors (121 tools, 723k chars): about 200k.
+ * A 24k model with every server attached was sent 867k characters and every
+ * turn failed. Hosted models are not limited.
+ */
+const FULL_OMG_MIN_CONTEXT = 49_152;
+const CONNECTORS_MIN_CONTEXT = 262_144;
+
+/**
+ * The lite set: the omg tools a small model needs to show and deliver its
+ * work, about 5.6k chars (1.6k tokens) together. OpenCode names an MCP tool
+ * `<server>_<tool>`, so omg_ship is `omg_omg_ship`.
+ */
+export const LITE_OMG_TOOLS = [
+  "omg_ship",
+  "omg_display_image",
+  "omg_display_file",
+  "omg_deploy",
+  "omg_deploy_status",
+] as const;
+
+/**
+ * OpenCode `tools` entries for one turn, or null when nothing is cut.
+ *  - under 48k (or unknown): the lite omg set only;
+ *  - 48k to under 256k: every omg and computer tool, no connectors;
+ *  - 256k or more: everything.
+ * OpenCode applies the entries in order and the last match wins, so the
+ * `<server>_*` switch-offs come before the lite tools that turn back on.
  * Applied per turn, so a session that switches models keeps working.
  */
 export function customModelToolFilter(model: string, options: { home?: string } = {}): Record<string, boolean> | null {
-  const found = findCustomModel(model, options);
-  if (!found) return null;
-  const context = found.model.context ?? 0;
-  const off = Object.entries(MCP_MIN_CONTEXT).filter(([, min]) => context < min).map(([name]) => [`${name}_*`, false] as const);
-  return off.length ? Object.fromEntries(off) : null;
+  if (!findCustomModel(model, options)) return null;
+  const context = customModelContext(model, options) ?? 0;
+  if (context >= CONNECTORS_MIN_CONTEXT) return null;
+  if (context >= FULL_OMG_MIN_CONTEXT) return { "connectors_*": false };
+  return {
+    "omg_*": false,
+    "computer_*": false,
+    "connectors_*": false,
+    ...Object.fromEntries(LITE_OMG_TOOLS.map((tool) => [`omg_${tool}`, true])),
+  };
 }
-

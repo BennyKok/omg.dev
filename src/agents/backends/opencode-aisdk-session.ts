@@ -1,6 +1,6 @@
 import { EmptyOpencodeReply, OPENCODE_RECOVERY_MESSAGE, opencodeTurnHasProgress, recoverOpencodeTurn } from "./opencode-turn-recovery.ts";
 import { ensureOmgProvider } from "../../omg-provider.ts";
-import { customModelToolFilter, ensureCustomProviders, isCustomModel } from "../../custom-models.ts";
+import { customModelToolFilter, ensureCustomProviders, isCustomModel, refreshCustomModelContexts } from "../../custom-models.ts";
 import { APP_BUILDER_PRESET, builderReviewerConfig, builderReviewPacket, captureBuilderDesign, reviewBuilderDesign, reviewBuilderCode, runAppBuilder, validateBuilderPreset } from "./app-builder.ts";
 // Headless interactive session harness for the "opencode" agent kind.
 //
@@ -570,7 +570,11 @@ export async function pipeToOpencodeAiSdk(
   const model = opts.model ?? "opencode/big-pickle";
   const cwd = opts.cwd ?? process.cwd();
   if (model.startsWith("omg/")) ensureOmgProvider();
-  if (isCustomModel(model)) ensureCustomProviders();
+  if (isCustomModel(model)) {
+    // Read each server's context size before OpenCode loads the provider config.
+    await refreshCustomModelContexts();
+    ensureCustomProviders();
+  }
   ensureOpencodeOnPath();
   ensureOpencodeTrustAll();
   const { createOpencodeServer, createOpencodeClient } = await import("@opencode-ai/sdk");
@@ -637,7 +641,11 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
   } catch {}
 
   if (model.startsWith("omg/")) ensureOmgProvider();
-  if (isCustomModel(model)) ensureCustomProviders();
+  if (isCustomModel(model)) {
+    // Read each server's context size before OpenCode loads the provider config.
+    await refreshCustomModelContexts();
+    ensureCustomProviders();
+  }
   ensureOpencodeOnPath();
   ensureOpencodeTrustAll();
   // Parcel's native watcher can deadlock this Linux SDK server at first prompt.
