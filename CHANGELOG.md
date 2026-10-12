@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 12, 2026 - Triage one group of findings (v0.6.225)
+
+- Each auto agent's findings page has a Triage all button on web and in the iOS app. It starts one Triage & execute session for that agent's open findings only. It also works on a phone, where the hover button in the updates list cannot be tapped.
+- Scheduled auto agents can use the connectors their owner grants, such as Meta Ads or Gmail. Codex auto runs can call those connectors without an approval prompt.
+
 ## October 12, 2026 - First message shows only your prompt (v0.6.224)
 
 - A new user's first chat message shows the prompt they wrote. The omg.dev setup rules for a first session stay inside the omg.dev instructions chip.
