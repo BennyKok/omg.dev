@@ -1,6 +1,7 @@
 import type { CodingAgentKind } from "./coding-agents.ts";
 import { DEFAULT_MAX_BOT_SCHEDULES } from "./settings.ts";
 import { omgInputModalities } from "./omg-models.ts";
+import { customInputModalities } from "./custom-models.ts";
 
 // Bump whenever an agent-facing omg.dev capability or its operating guidance
 // changes. Managed sessions persist the value they launched with, which lets
@@ -275,7 +276,7 @@ export const FIRST_RUN_HEADER = "=== omg.dev FIRST RUN ===";
  * DeepSeek.
  */
 export function modelSeesImages(model: string | undefined | null): boolean {
-  const input = model ? omgInputModalities(model) : null;
+  const input = model ? omgInputModalities(model) ?? customInputModalities(model) : null;
   if (input) return input.includes("image");
   return !/deepseek/i.test(model ?? "");
 }
