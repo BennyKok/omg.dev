@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 12, 2026 - Faster computer updates (v0.6.226)
+
+- Updates keep the installed libraries when a release does not change them. A cloud computer that updates when it wakes is ready in seconds. Before, it waited about 40 seconds.
+- While a cloud computer installs an update and restarts, the page says "Updating your computer…".
+
 ## October 12, 2026 - Triage one group of findings (v0.6.225)
 
 - Each auto agent's findings page has a Triage all button on web and in the iOS app. It starts one Triage & execute session for that agent's open findings only. It also works on a phone, where the hover button in the updates list cannot be tapped.
