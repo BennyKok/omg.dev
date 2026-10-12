@@ -73,3 +73,30 @@ test("the finding footer uses the home composer's agent and model pill, and has 
   expect(labels).toContain("Dismiss");
   expect(labels).not.toContain("Feedback");
 });
+
+test("Triage all hands every finding in the group to triage, worst first", () => {
+  let got: { id: string }[] | null = null;
+  ui.render(
+    <AgentReportSheet
+      agentName="Repo review"
+      findings={[finding("a", "low", "Low thing"), finding("b", "high", "Prod is on fire")]}
+      tz="UTC"
+      onClose={() => {}}
+      onReply={async () => {}}
+      onDismiss={() => {}}
+      onDismissAll={() => {}}
+      onTriageAll={(targets) => (got = targets)}
+      onEditAgent={() => {}}
+    />,
+  );
+  // Off the stage the report is a sheet, portalled to the body.
+  const button = document.querySelector('button[aria-label="Triage and execute 2 Repo review findings"]') as HTMLButtonElement;
+  expect(button?.textContent).toContain("Triage all");
+  ui.flush(() => button.click());
+  expect(got!.map((f) => f.id)).toEqual(["b", "a"]);
+});
+
+test("no Triage all without a handler", () => {
+  renderInStage([finding("a", "high", "Prod is on fire")]);
+  expect(ui.text()).not.toContain("Triage all");
+});

@@ -9282,6 +9282,11 @@ export function App() {
           onDismiss={dismissFinding}
           onDismissAll={(targets) => void clearAllFindings(targets)}
           dismissAllBusy={clearFindingsBusy}
+          onTriageAll={(targets) => {
+            setOpenReport(null);
+            void launchAutoTriage(targets);
+          }}
+          triageBusy={autoTriageBusy}
           onEditAgent={(agent) => {
             setOpenReport(null);
             setEditingAgent(agent);
@@ -26922,6 +26927,8 @@ export function AgentReportSheet({
   onDismiss,
   onDismissAll,
   dismissAllBusy,
+  onTriageAll,
+  triageBusy = false,
   onEditAgent,
 }: {
   agent?: AutoAgent;
@@ -26935,6 +26942,9 @@ export function AgentReportSheet({
   onDismiss: (f: AutoFinding) => void;
   onDismissAll: (targets: AutoFinding[]) => void;
   dismissAllBusy?: boolean;
+  /** Triage & execute every open finding in this group. Omitted: no button. */
+  onTriageAll?: (targets: AutoFinding[]) => void;
+  triageBusy?: boolean;
   onEditAgent: (agent: AutoAgent) => void;
 }) {
   const inStage = useContext(AutoAgentPageInStage);
@@ -26990,6 +27000,23 @@ export function AgentReportSheet({
         {dismissAllBusy ? <Loader2 className="size-3.5 animate-spin" /> : <X className="size-3.5" />}
         Dismiss all
       </Button>
+      {/* The group's own Triage & execute. The row in the updates list has
+          one too, but it shows on hover only, so on a phone this is the way
+          to triage one agent's findings without the rest. */}
+      {onTriageAll ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-primary"
+          disabled={triageBusy || findings.length === 0}
+          onClick={() => onTriageAll(findings)}
+          aria-label={`Triage and execute ${findings.length} ${agentName} finding${findings.length === 1 ? "" : "s"}`}
+          title="Group related findings and launch linked agents to execute them"
+        >
+          {triageBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
+          Triage all
+        </Button>
+      ) : null}
     </>
   );
 
