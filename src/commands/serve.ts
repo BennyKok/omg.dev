@@ -1,4 +1,4 @@
-import { createNoProjectWorkspace, NO_PROJECT } from "../no-project-chat.ts";
+import { createNoProjectWorkspace, existingNoProjectWorkspace, NO_PROJECT } from "../no-project-chat.ts";
 import { readinessBootstrap } from "../bootstrap-readiness.ts";
 import { mkdir, open, readdir, realpath, stat } from "node:fs/promises";
 import { appendFileSync, existsSync, statSync, mkdirSync, readFileSync } from "node:fs";
@@ -9757,7 +9757,7 @@ a{color:#60a5fa}
           return err(400, "unassigned must be a boolean");
         if ((body?.unassigned || newUnassigned) && (body?.cwd || body?.parentSessionId || body?.worktree))
           return err(400, "unassigned cannot be combined with cwd, parentSessionId, or worktree");
-        const unassigned = newUnassigned || body?.unassigned === true;
+        let unassigned = newUnassigned || body?.unassigned === true;
         const requestedRole = typeof body?.role === "string" ? body.role.trim() : "";
         if (requestedRole && !getRole(requestedRole)) return err(400, `unknown role "${requestedRole}"`);
         // Resolved below once the user tag is known: an explicit role wins,
@@ -9880,6 +9880,13 @@ a{color:#60a5fa}
             // like any other project, so fall back to any listed repo rather
             // than 400-ing every root session for a user who hid it.
             : (repos.find((r) => r.cwd === SELF_REPO) ?? repos[0]);
+        // Findings from Quick Chat auto agents carry their scratch cwd, which
+        // intentionally has no picker entry. Reuse that workspace and keep its
+        // artifacts instead of rejecting it or choosing an unrelated repo.
+        const sourceChatCwd = !repo && !parent && !body?.worktree
+          ? await existingNoProjectWorkspace(requestedCwd)
+          : undefined;
+        if (sourceChatCwd) unassigned = true;
         if (!repo && !unassigned) {
           return err(
             400,
@@ -9943,7 +9950,7 @@ a{color:#60a5fa}
         const tmuxName = `lfg-${randomBytes(3).toString("hex")}`;
         const isSubagent = spawnedBy === "subagent";
         const cwdResolved = unassigned
-          ? { ok: true as const, cwd: await createNoProjectWorkspace(tmuxName), worktree: undefined }
+          ? { ok: true as const, cwd: sourceChatCwd ?? await createNoProjectWorkspace(tmuxName), worktree: undefined }
           : await resolveSessionCwd(repo!.cwd, tmuxName, {
               worktree: body?.worktree,
               selfRepo: SELF_REPO,

@@ -1,9 +1,39 @@
 import { expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createNoProjectWorkspace, noProjectChatsRoot, NO_PROJECT_INSTRUCTIONS } from "./no-project-chat";
+import { createNoProjectWorkspace, existingNoProjectWorkspace, noProjectChatsRoot, NO_PROJECT_INSTRUCTIONS } from "./no-project-chat";
 import { PROJECT_BUILDER_SKILL } from "./project-starter";
+
+test("finding launches recognize an existing Quick Chat workspace and retain its artifacts", async () => {
+  const root = await mkdtemp(join(tmpdir(), "omg-chat-finding-"));
+  try {
+    const cwd = await createNoProjectWorkspace("lfg-972003", root);
+    await writeFile(join(cwd, "report.txt"), "Signup findings");
+    expect(await existingNoProjectWorkspace(` ${cwd}/ `, root)).toBe(cwd);
+    expect(await readFile(join(cwd, "report.txt"), "utf8")).toBe("Signup findings");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("chat recognition rejects missing, nested, outside, and symlink escape paths", async () => {
+  const root = await mkdtemp(join(tmpdir(), "omg-chat-boundary-"));
+  try {
+    const chats = join(root, "chats");
+    const outside = join(root, "outside");
+    await mkdir(join(chats, "lfg-123456", "nested"), { recursive: true });
+    await mkdir(outside);
+    await symlink(outside, join(chats, "lfg-escape"));
+    await writeFile(join(chats, "lfg-file"), "Not a workspace");
+    for (const cwd of [undefined, "", chats, outside, join(chats, "missing"),
+      join(chats, "lfg-123456", "nested"), join(chats, "lfg-escape"), join(chats, "lfg-file")]) {
+      expect(await existingNoProjectWorkspace(cwd, chats)).toBeUndefined();
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("each unassigned chat has a persistent workspace and project guidance", async () => {
   const root = await mkdtemp(join(tmpdir(), "omg-chat-"));

@@ -1,6 +1,6 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, realpath, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { installProjectBuilderSkill, PROJECT_BUILDER_SKILL } from "./project-starter.ts";
 
 /** Empty project is intentional, unlike undefined on older session records. */
@@ -32,6 +32,25 @@ export function noProjectChatsRoot(
   dataHome = process.env.XDG_DATA_HOME,
 ): string {
   return join(dataHome?.trim() || join(home, ".local", "share"), "omg", "chats");
+}
+
+/** Recognize an existing managed chat, without accepting arbitrary folders. */
+export async function existingNoProjectWorkspace(
+  cwd: string | undefined,
+  root = noProjectChatsRoot(),
+): Promise<string | undefined> {
+  if (!cwd?.trim()) return undefined;
+  const requested = resolve(cwd.trim());
+  if (dirname(requested) !== resolve(root) || !/^[a-zA-Z0-9-]+$/.test(basename(requested))) return undefined;
+  try {
+    const [canonicalRoot, canonicalCwd, info] = await Promise.all([
+      realpath(root), realpath(requested), stat(requested),
+    ]);
+    if (dirname(canonicalCwd) !== canonicalRoot || !info.isDirectory()) return undefined;
+    return canonicalCwd;
+  } catch {
+    return undefined;
+  }
 }
 
 /** One workspace per conversation, outside repository instruction ancestry. */
