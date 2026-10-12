@@ -90,6 +90,8 @@ export type CloudAppIdentityInput = {
   name?: string;
   tagline?: string;
   icon?: { contentType: string; dataBase64: string };
+  /** Store page screenshots, in order. Replaces the whole set; [] clears it. */
+  screenshots?: { contentType: string; dataBase64: string }[];
 };
 
 export type CloudAppIdentity = {
@@ -98,6 +100,8 @@ export type CloudAppIdentity = {
   name: string;
   tagline: string | null;
   iconUrl: string | null;
+  /** Store page screenshots, in order. Missing from older servers. */
+  screenshots?: string[];
 };
 
 export interface CloudAppsClient {

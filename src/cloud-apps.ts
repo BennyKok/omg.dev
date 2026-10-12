@@ -349,6 +349,43 @@ export function readIconFile(path: string): { contentType: string; dataBase64: s
   return { contentType, dataBase64: data.toString("base64") };
 }
 
+const SCREENSHOT_TYPES: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+};
+const MAX_SCREENSHOT_BYTES = 1536 * 1024;
+export const MAX_SCREENSHOTS = 5;
+
+/**
+ * Read the store screenshots for omg_app_identity, in order. Type, size and
+ * count are checked here so the agent gets the error before any upload; Cloud
+ * also checks the bytes and the portrait phone shape.
+ */
+export function readScreenshotFiles(paths: unknown): { contentType: string; dataBase64: string }[] {
+  if (!Array.isArray(paths) || paths.some((p) => typeof p !== "string" || !p.trim())) {
+    throw new CloudAppsError("screenshotPaths must be a list of file paths", 400);
+  }
+  if (paths.length > MAX_SCREENSHOTS) throw new CloudAppsError(`pass at most ${MAX_SCREENSHOTS} screenshots`, 400);
+  return (paths as string[]).map((raw, i) => {
+    const path = raw.trim();
+    const n = `screenshot ${i + 1}`;
+    if (!isAbsolute(path)) throw new CloudAppsError(`${n} must be an absolute path: ${path}`, 400);
+    const contentType = SCREENSHOT_TYPES[extname(path).toLowerCase()];
+    if (!contentType) throw new CloudAppsError(`${n} must be a .png, .jpg or .webp file`, 400);
+    let data: Buffer;
+    try {
+      data = readFileSync(path);
+    } catch {
+      throw new CloudAppsError(`${n} file not found: ${path}`, 400);
+    }
+    if (data.byteLength === 0) throw new CloudAppsError(`${n} file is empty`, 400);
+    if (data.byteLength > MAX_SCREENSHOT_BYTES) throw new CloudAppsError(`${n} must be 1.5 MB or smaller`, 400);
+    return { contentType, dataBase64: data.toString("base64") };
+  });
+}
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -435,6 +472,7 @@ export async function handleCloudAppsRequest(
         name?: unknown;
         tagline?: unknown;
         iconPath?: unknown;
+        screenshotPaths?: unknown;
       } | null;
       if (typeof body?.slug !== "string" || !body.slug.trim()) {
         return jsonResponse({ error: "slug is required" }, 400);
@@ -442,11 +480,13 @@ export async function handleCloudAppsRequest(
       const icon = typeof body.iconPath === "string" && body.iconPath.trim()
         ? readIconFile(body.iconPath.trim())
         : undefined;
+      const screenshots = body.screenshotPaths === undefined ? undefined : readScreenshotFiles(body.screenshotPaths);
       return jsonResponse(await client.updateIdentity({
         slug: body.slug.trim(),
         ...(typeof body.name === "string" ? { name: body.name } : {}),
         ...(typeof body.tagline === "string" ? { tagline: body.tagline } : {}),
         ...(icon ? { icon } : {}),
+        ...(screenshots ? { screenshots } : {}),
       }));
     }
     if (path === "/api/cloud/apps/deploy" && req.method === "POST") {
