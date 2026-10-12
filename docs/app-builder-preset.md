@@ -3,8 +3,12 @@
 Status: local opt-in pilot. No default change or production rollout.
 
 OMG Agent runs this preset through the OpenCode SDK. The web composer offers
-General and App Builder under OMG Agent. Selecting App Builder selects Haiku
-with low reasoning. The user can then select another builder model.
+App Builder as a row in the OMG Agent model list on desktop and mobile web.
+Its subtitle is “Haiku · Apex code review · Luna design review”. Selecting
+the row selects Haiku with low reasoning and activates the workflow. The
+composer pill shows App Builder. Selecting a regular model or another agent
+exits the workflow. The separate Preset dropdown was removed.
+General remains the default. The native client is unchanged.
 
 The launch API accepts `builderPreset: "app-builder-v1"` with `agent: "omg"`.
 When no model or reasoning level is given, the preset uses
