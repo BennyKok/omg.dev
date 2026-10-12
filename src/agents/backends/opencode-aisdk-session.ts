@@ -1,7 +1,7 @@
 import { EmptyOpencodeReply, OPENCODE_RECOVERY_MESSAGE, opencodeTurnHasProgress, recoverOpencodeTurn } from "./opencode-turn-recovery.ts";
 import { ensureOmgProvider } from "../../omg-provider.ts";
 import { customModelToolFilter, ensureCustomProviders, isCustomModel, refreshCustomModelContexts } from "../../custom-models.ts";
-import { APP_BUILDER_PRESET, builderReviewerConfig, builderReviewPacket, captureBuilderDesign, reviewBuilderDesign, reviewBuilderCode, runAppBuilder, validateBuilderPreset } from "./app-builder.ts";
+import { APP_BUILDER_PRESET, BUILDER_MAX_STEPS, builderAgentConfig, createStepBound, builderReviewPacket, captureBuilderDesign, reviewBuilderDesign, reviewBuilderCode, runAppBuilder, validateBuilderPreset } from "./app-builder.ts";
 // Headless interactive session harness for the "opencode" agent kind.
 //
 // This is the long-lived process behind a managed opencode session. Like its
@@ -676,7 +676,7 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
       timeout: 15_000,
       config: {
         ...opencodeSessionMcpConfig(opencodeCallerSessionId(key)),
-        ...(builderPreset ? { agent: { ...builderReviewerConfig, build: { steps: 50 } } } : {}),
+        ...(builderPreset ? { agent: builderAgentConfig } : {}),
       },
     });
   } catch (e) {
@@ -814,6 +814,7 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
   // interrupt, not a failure, so the turn must end without an error row.
   let turnInterrupted = false;
   let builderAbort: AbortController | null = null;
+  const stepBound = createStepBound();
   // Set by the `session.error` event for the turn currently in flight. A
   // provider failure is reported ONLY on the event stream, and the matching
   // session.prompt() call can hang indefinitely instead of rejecting, so the
@@ -1162,6 +1163,12 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
               if (next.text.trim()) turnHasProgress = true;
               publishDraft(next.text, false, next.kind);
             }
+          } else if (part.type === "step-finish" && builderPreset && typeof part.id === "string") {
+            // Bound a runaway build without OpenCode's step cap (see BUILDER_MAX_STEPS).
+            if (stepBound.record(part.id)) {
+              writeAssistant([{ type: "text", text: `App Builder stopped after ${BUILDER_MAX_STEPS} model steps without finishing.` }], true);
+              interrupt();
+            }
           } else if (part.type === "tool") {
             turnHasProgress = true;
             const fallbackId = `${ocSessionId}:tool:${part.id ?? part.tool ?? "tool"}`;
@@ -1212,6 +1219,7 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
     draftTracker.reset();
     publishDraft("", true);
     turnHasProgress = false;
+    stepBound.reset();
     const turnStarted = Date.now();
     try {
       const content = await recoverOpencodeTurn({
