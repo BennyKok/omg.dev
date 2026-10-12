@@ -1,6 +1,6 @@
 import { OMG_DEFAULT_MODEL, OMG_MODELS, OMG_THINKING_LEVELS_BY_MODEL, omgThinkingLevels } from "./omg-models.ts";
 export { OMG_MODELS } from "./omg-models.ts";
-import { customModelIds } from "./custom-models.ts";
+import { customModelIds, customModelLabels } from "./custom-models.ts";
 
 import type { Agent } from "./agents/registry.ts";
 import type { AutoAgent } from "./auto/store.ts";
@@ -293,6 +293,8 @@ export type ModelCatalogItem = {
   thinkingLevels: string[];
   /** Model-specific levels for providers whose variants differ per model. */
   thinkingLevelsByModel?: Record<string, string[]>;
+  /** Display names for ids the client cannot name itself (custom models). */
+  modelLabels?: Record<string, string>;
   session: boolean;
   auto: boolean;
   visible?: boolean;
@@ -842,6 +844,11 @@ export function defaultModelForAgent(
   );
 }
 
+function omgModelLabels(models: string[]): { modelLabels?: Record<string, string> } {
+  const labels = Object.fromEntries(Object.entries(customModelLabels()).filter(([id]) => models.includes(id)));
+  return Object.keys(labels).length ? { modelLabels: labels } : {};
+}
+
 export function listModelCatalog(codingAgents: CodingAgentInfo[] = []): ModelCatalogItem[] {
   const configured = new Map(codingAgents.map((agent) => [agent.key, agent]));
   const accountConnected = hasConnectedModelAccount(codingAgents);
@@ -878,6 +885,7 @@ export function listModelCatalog(codingAgents: CodingAgentInfo[] = []): ModelCat
       ...(thinkingLevelsByModel && Object.keys(thinkingLevelsByModel).length
         ? { thinkingLevelsByModel }
         : {}),
+      ...(key === "omg" ? omgModelLabels(models) : {}),
       session: key !== "claude" && key !== "codex",
       auto: (AUTO_AGENT_BACKENDS as readonly string[]).includes(key),
       visible: status?.visible,

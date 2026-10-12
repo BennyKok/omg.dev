@@ -4,7 +4,7 @@ import { replayCloudTranscription } from "./lib/transcription-cloud-replay";
 import { MODEL_USAGE_GROUPS } from "../../packages/protocol/src/model-pricing";
 import { useModelPrices, modelUsageLevel } from "./lib/use-model-prices";
 import { OMG_DEFAULT_MODEL, OMG_MODELS } from "../../src/omg-models";
-import { omgModelLabel, omgModelSearchText, parseOmgModel } from "../../packages/protocol/src/omg-model-display";
+import { omgModelLabel, omgModelSearchText, parseOmgModel, setServerModelLabels } from "../../packages/protocol/src/omg-model-display";
 import { ModelProviderIcon } from "./lib/model-provider-icons";
 import { useRuntimeLifecycle } from "./lib/runtime-lifecycle";
 import { useComputerResumeMetrics } from "./lib/use-computer-resume-metrics";
@@ -1236,6 +1236,7 @@ type ModelCatalogItem = {
   models: string[];
   thinkingLevels: string[];
   thinkingLevelsByModel?: Record<string, string[]>;
+  modelLabels?: Record<string, string>;
   session: boolean;
   auto: boolean;
   visible?: boolean;
@@ -1595,6 +1596,8 @@ function buildAgentModelCatalog(items?: ModelCatalogItem[] | null): AgentModelCa
   const thinkingLevelsByModel = Object.fromEntries(
     Object.keys(AGENT_MODELS).map((key) => [key, {}]),
   ) as Record<AgentKind, Record<string, string[]>>;
+  // Only a server payload carries labels; the built-in fallback keeps the last ones.
+  if (items) setServerModelLabels(Object.assign({}, ...items.map((item) => item.modelLabels ?? {})));
   for (const item of items ?? []) {
     if (!AGENT_MODELS[item.key] || !item.models?.length) continue;
     models[item.key] = item.models;

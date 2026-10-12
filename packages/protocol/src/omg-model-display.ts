@@ -51,8 +51,10 @@ const HYPHEN_BEFORE_VERSION = new Set(["gpt"]);
 function caseToken(token: string): string {
   const lower = token.toLowerCase();
   if (TOKEN_CASE[lower]) return TOKEN_CASE[lower];
-  // v4, m3, r2: a letter and digits reads as a version mark.
-  if (/^[a-z]\d+(\.\d+)*$/.test(lower)) return lower.toUpperCase();
+  // v4, m3, r2, e4b, a3b: a letter and digits reads as a version mark.
+  if (/^[a-z]\d+(\.\d+)*[a-z]?$/.test(lower)) return lower.toUpperCase();
+  // 8b, 70b, 1.5b: a parameter count reads in capitals.
+  if (/^\d+(\.\d+)?[bkm]$/.test(lower)) return lower.toUpperCase();
   if (/^\d/.test(lower)) return lower;
   return lower.charAt(0).toUpperCase() + lower.slice(1);
 }
@@ -122,18 +124,39 @@ export function codexModelLabel(id: string | null | undefined): string | null {
 }
 
 /**
+ * Names the server sends for models it alone knows, such as the owner's own
+ * endpoints in ~/.omg/models.json. The client sets them when the model
+ * catalog arrives; every label call below reads them first.
+ */
+let serverLabels: Record<string, string> = {};
+
+export function setServerModelLabels(labels: Record<string, string> | null | undefined): void {
+  serverLabels = { ...(labels ?? {}) };
+}
+
+/** Custom ids `custom-<provider>/<model>` -> "Gemma 4 E4B" for gemma-4-e4b. Null for anything else. */
+export function customModelLabel(id: string | null | undefined): string | null {
+  if (!id) return null;
+  const match = /^custom-[^/]+\/(.+)$/.exec(id.trim());
+  if (!match) return null;
+  // A served name like Qwen/Qwen3-8B keeps only its last part.
+  return humanizeOmgModelName(match[1]!.split("/").pop()!);
+}
+
+/**
  * The one display name for a model id, for a picker row, pill, or badge.
  * The id stays the value everywhere; only the text shown changes. Ids with no
  * rule (codex, cursor, and other agents) pass through unchanged.
  */
 export function omgModelLabel(id: string | null | undefined): string {
-  return parseOmgModel(id)?.label ?? claudeModelLabel(id) ?? codexModelLabel(id) ?? (id ?? "");
+  if (id && serverLabels[id]) return serverLabels[id]!;
+  return parseOmgModel(id)?.label ?? customModelLabel(id) ?? claudeModelLabel(id) ?? codexModelLabel(id) ?? (id ?? "");
 }
 
 /** Lower-case text a filter box should match: the id and the short name. */
 export function omgModelSearchText(id: string): string {
   const info = parseOmgModel(id);
   if (info) return `${id} ${info.providerLabel} ${info.label}`.toLowerCase();
-  const label = claudeModelLabel(id) ?? codexModelLabel(id);
+  const label = serverLabels[id] ?? customModelLabel(id) ?? claudeModelLabel(id) ?? codexModelLabel(id);
   return (label ? `${id} ${label}` : id).toLowerCase();
 }

@@ -4,6 +4,7 @@ import {
   omgModelLabel,
   omgModelSearchText,
   parseOmgModel,
+  setServerModelLabels as setLabels,
 } from "../packages/protocol/src/omg-model-display.ts";
 import { OMG_MODELS } from "./omg-models.ts";
 
@@ -99,4 +100,14 @@ describe("claude model display", () => {
   test("filter text matches the display name", () => {
     expect(omgModelSearchText("claude-opus-5-5")).toContain("opus 5.5");
   });
+});
+
+test("custom models get a readable name, and a server name wins", () => {
+  setLabels({});
+  expect(omgModelLabel("custom-pc/gemma-4-e4b")).toBe("Gemma 4 E4B");
+  expect(omgModelLabel("custom-box/Qwen/Qwen3-8B")).toBe("Qwen3 8B");
+  setLabels({ "custom-pc/gemma-4-e4b": "Gemma 4 E4B (3060 Ti)" });
+  expect(omgModelLabel("custom-pc/gemma-4-e4b")).toBe("Gemma 4 E4B (3060 Ti)");
+  expect(omgModelSearchText("custom-pc/gemma-4-e4b")).toContain("3060 ti");
+  setLabels({});
 });

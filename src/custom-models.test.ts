@@ -9,7 +9,7 @@ import {
   findCustomModel,
   parseCustomModels,
 } from "./custom-models.ts";
-import { modelsForAgent, OMG_MODELS } from "./agent-catalog.ts";
+import { listModelCatalog, modelsForAgent, OMG_MODELS } from "./agent-catalog.ts";
 import { modelSeesImages } from "./omg-capabilities.ts";
 
 let home: string;
@@ -112,4 +112,11 @@ test("a provider removed from the file is removed from OpenCode", () => {
 test("no models and no config writes nothing", () => {
   ensureCustomProviders(options());
   expect(() => statSync(configPath())).toThrow();
+});
+
+test("the omg catalog item carries names set in the file", () => {
+  process.env.HOME = home;
+  writeModels([{ ...PC, models: [{ id: "gemma-4-e4b", name: "Gemma 4 E4B (3060 Ti)" }, { id: "plain" }] }]);
+  const omg = listModelCatalog().find((item) => item.key === "omg");
+  expect(omg?.modelLabels).toEqual({ "custom-pc/gemma-4-e4b": "Gemma 4 E4B (3060 Ti)" });
 });

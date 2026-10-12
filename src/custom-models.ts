@@ -132,6 +132,13 @@ export function customModelIds(options: { home?: string } = {}): string[] {
   return loadCustomModels(options).flatMap((provider) => provider.models.map((model) => customModelId(provider.id, model.id)));
 }
 
+/** Display names the owner set with `name`, keyed by picker id. */
+export function customModelLabels(options: { home?: string } = {}): Record<string, string> {
+  return Object.fromEntries(loadCustomModels(options).flatMap((provider) =>
+    provider.models.flatMap((model) => (model.name ? [[customModelId(provider.id, model.id), model.name]] : [])),
+  ));
+}
+
 export function isCustomModel(model: string | undefined | null): boolean {
   return !!model && model.startsWith(CUSTOM_PROVIDER_PREFIX) && model.includes("/");
 }

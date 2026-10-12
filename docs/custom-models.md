@@ -27,11 +27,14 @@ Create `~/.omg/models.json`:
 - `id` (model): the name the server serves (`/v1/models`).
 - `context`: the server's context window. OpenCode compacts the chat before it
   is full. Set it to the server's `--max-model-len` or lower.
+- `name` (model): the name the picker shows, for example
+  `"Gemma 4 E4B (3060 Ti)"`. With no name, the picker makes one from the id:
+  `gemma-4-e4b` shows as `Gemma 4 E4B`.
 - `output`: the most tokens for one reply. Default 4096.
 - `input`: add `"image"` only when the server accepts images.
 
-The model appears in the omg agent picker as `custom-<provider>/<model>`, for
-example `custom-pc/gemma-4-e4b`. The picker reads the file again when it
+The model id is `custom-<provider>/<model>`, for example
+`custom-pc/gemma-4-e4b`. The picker shows its name, not the id. The picker reads the file again when it
 changes.
 
 ## How it runs
