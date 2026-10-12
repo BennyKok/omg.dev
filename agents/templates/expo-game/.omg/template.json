@@ -1,0 +1,5 @@
+{
+  "name": "expo-game",
+  "version": 1,
+  "extends": "expo"
+}
