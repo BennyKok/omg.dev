@@ -199,3 +199,26 @@ export const builderReviewerConfig = {
   "omg-code-review": reviewer(APP_BUILDER_REVIEWER, "Review source only. Return the requested JSON verdict. No tools or file edits."),
   "omg-design-review": reviewer(APP_BUILDER_DESIGN_REVIEWER, "Review supplied images only. Return the requested JSON verdict. No tools or file edits."),
 };
+
+/**
+ * Runaway bound for the build agent, counted in model steps.
+ *
+ * OpenCode's own `agent.build.steps` cap is NOT usable here. At the cap it
+ * sends one more request whose last message has role "assistant" (a text
+ * prompt telling the model to stop). Claude Haiku 5.5 rejects assistant
+ * prefill with HTTP 400, so every build that reaches the cap died with a
+ * provider error instead of ending cleanly. We count `step-finish` parts
+ * ourselves and abort the session, which ends the turn with no extra request.
+ * A healthy Tealist build needs about 80 steps.
+ */
+export const BUILDER_MAX_STEPS = 250;
+export function createStepBound(limit = BUILDER_MAX_STEPS) {
+  const seen = new Set<string>();
+  return {
+    reset: () => seen.clear(),
+    /** True once the number of distinct finished steps reaches the limit. */
+    record: (partId: string) => { seen.add(partId); return seen.size >= limit; },
+  };
+}
+// No `build` entry on purpose: see BUILDER_MAX_STEPS.
+export const builderAgentConfig = { ...builderReviewerConfig };
