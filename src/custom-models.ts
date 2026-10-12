@@ -1,5 +1,4 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { COMPUTER_MCP_SERVER_NAME, CONNECTORS_MCP_SERVER_NAME } from "./config.ts";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -214,8 +213,10 @@ export function ensureCustomProviders(options: OmgProviderOptions = {}): void {
  */
 const MCP_MIN_CONTEXT: Record<string, number> = {
   omg: 49_152,
-  [COMPUTER_MCP_SERVER_NAME]: 49_152,
-  [CONNECTORS_MCP_SERVER_NAME]: 262_144,
+  // Literal names: importing them from config.ts makes an import cycle that
+  // crashed the service at startup (COMPUTER_MCP_SERVER_NAME before init).
+  computer: 49_152,
+  connectors: 262_144,
 };
 
 /**
