@@ -43,3 +43,15 @@ test("the selected workflow names the composer pill", () => {
   expect(pill.textContent).toContain("App Builder");
   expect(pill.getAttribute("aria-label")).toContain("model App Builder");
 });
+
+test("Workflows is last and Enter follows the visible order", () => {
+  const chosen: string[] = []; let builds = 0;
+  ui.render(<ModelOptionList value={OMG_MODELS[0]!} models={OMG_MODELS}
+    builderChoice={{ selected: false, onChoose: () => { builds++; } }} onChoose={m => chosen.push(m)} />);
+  const rows = ui.queryAll("button");
+  expect(rows.at(-1)?.textContent).toContain("App Builder");
+  expect(ui.query('[role="group"][aria-label="Workflows"]')?.contains(rows.at(-1)!)).toBe(true);
+  const input = ui.query("input")!;
+  ui.flush(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+  expect(chosen.length).toBe(1); expect(builds).toBe(0);
+});
