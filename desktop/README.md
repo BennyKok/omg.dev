@@ -72,8 +72,8 @@ The client checks the provider's discovery metadata before registration and
 refresh. It requires the signing scope and the expected first-party endpoints.
 The ordinary CLI token has no signing authority. Signing access and refresh tokens stay in the
 Mac Keychain, separately from CLI credentials, and have no
-browser token endpoint. The hosted routes and auth changes must be deployed
-together before this flow can work against production.
+browser token endpoint. The hosted signing routes and dedicated consent grant
+are available in production.
 Apple uses a private protocol for login. Changes at Apple can require an update
 to the pinned Expo library.
 

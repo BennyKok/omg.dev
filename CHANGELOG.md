@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 12, 2026 - Set up iPhone testing on your Mac (v0.6.229)
+
+- Mac Settings can connect your Apple developer account and select an iPhone connected by USB.
+- Prepare a testing profile locally, then approve signing access and save it for an owned app. Apple passwords and verification codes stay on your Mac.
+- Signing keys and upload retries use the Mac login Keychain. Adding a phone preserves existing device coverage.
+
 ## October 12, 2026 - Use your own models (v0.6.228)
 
 - The omg agent can run on your own OpenAI-compatible server, such as vLLM or llama.cpp on a home GPU. List it in `~/.omg/models.json`, and its models appear in the omg agent's model list. No omg.dev sign-in is needed for these models. See `docs/custom-models.md`.
