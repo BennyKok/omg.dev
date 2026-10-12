@@ -254,6 +254,29 @@ test("omg_app_identity refuses a bad icon before any upload", async () => {
   }
 });
 
+// Fails if the agent's store screenshot links are dropped or reordered on the
+// way to Cloud, or [] (clear) is lost.
+test("omg_app_identity passes the screenshot links in order, and [] clears them", async () => {
+  const urls = ["https://hi.omgs.app/omg-store/1.png", "https://hi.omgs.app/omg-store/2.png", "https://hi.omgs.app/omg-store/3.png"];
+  const sent: any[] = [];
+  for (const screenshotUrls of [urls, []]) {
+    const req = identityRequest({ slug: "hi", screenshotUrls });
+    const response = await handleCloudAppsRequest(req, new URL(req.url), {
+      getAccessToken: async () => "tok",
+      controlPlaneUrl: "https://backend.example",
+      fetch: async (_input, init) => {
+        sent.push(JSON.parse(String(init?.body)));
+        return json({ ok: true, slug: "hi", name: "Hi", tagline: null, iconUrl: null, screenshots: screenshotUrls });
+      },
+    });
+    expect(response?.status).toBe(200);
+  }
+  expect(sent).toEqual([
+    { slug: "hi", screenshotUrls: urls },
+    { slug: "hi", screenshotUrls: [] },
+  ]);
+});
+
 function envRequest(path: string, body: unknown) {
   return new Request(`http://127.0.0.1${path}`, {
     method: "POST",
