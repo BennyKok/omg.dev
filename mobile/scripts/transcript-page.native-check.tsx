@@ -28,31 +28,101 @@ test("cached text is present on the first render, before refresh resolves", asyn
     expect(ui.text()).toBe("Reply 40");
   } finally { ui.cleanup(); }
 });
-test("pagination keeps the current page and stays pending until the request finishes", async () => {
-  writeTranscriptCache(transcriptCacheKey("mac", "s"), rows(40), 40);
-  const requests: { limit: number; resolve: (value: any) => void }[] = [];
-  const client = { getMessages: (_id: string, limit: number) => new Promise<any>(resolve => requests.push({ limit, resolve })) };
+type Pending = { path: string; resolve: (value: any) => void };
+function pagingClient() {
+  const tails: { limit: number; resolve: (value: any) => void }[] = [];
+  const older: Pending[] = [];
+  const client = {
+    getMessages: (_id: string, limit: number) => new Promise<any>(resolve => tails.push({ limit, resolve })),
+    transport: { request: (path: string) => new Promise<any>(resolve => older.push({ path, resolve })) },
+  };
+  return { client, tails, older };
+}
+const range = (from: number, to: number) => Array.from({ length: to - from }, (_, i) => ({ id: String(from + i), role: "assistant" as const, text: `Reply ${from + i}` }));
+
+test("a folded page shorter than the request is not the start of the session", async () => {
+  // 1566 raw messages, workRows on: the machine answered a page of 40 with 7 rows.
+  const { client, tails, older } = pagingClient();
   let page!: ReturnType<typeof useTranscriptPage>;
   function Probe() { page = useTranscriptPage(client, "mac", "s", noop); return <div>{page.messages.length}</div>; }
   const ui = mount();
   try {
     ui.render(<Probe />);
-    await ui.flushAsync(async () => { requests[0].resolve({ messages: rows(40) }); });
+    await ui.flushAsync(async () => { tails[0].resolve({ messages: range(100, 107), nextBefore: 1526 }); });
+    expect(page.reachedStart).toBe(false);
     ui.flush(() => page.loadMore());
-    expect(requests[1].limit).toBe(80);
     expect(page.loadingMore).toBe(true);
-    expect(page.messages.length).toBe(40);
-    await ui.flushAsync(async () => { requests[1].resolve({ messages: rows(80) }); });
+    expect(older[0].path).toContain("page=backward&before=1526");
+    expect(older[0].path).toContain("workRows=1");
+    expect(tails.length).toBe(1);
+    // The page overlaps the tail by one row; it is not drawn twice.
+    await ui.flushAsync(async () => { older[0].resolve({ messages: range(90, 101), nextBefore: 1400 }); });
     expect(page.loadingMore).toBe(false);
+    expect(page.messages.map(m => m.id)).toEqual(range(90, 107).map(m => m.id));
+    expect(page.reachedStart).toBe(false);
+    // Past the 200-message cap the old growing request hit: the cursor keeps going.
     ui.flush(() => page.loadMore());
-    expect(page.messages.length).toBe(80);
-    expect(requests[2].limit).toBe(120);
-    await ui.flushAsync(async () => { requests[2].resolve({ messages: rows(100) }); });
+    expect(older[1].path).toContain("before=1400");
+    await ui.flushAsync(async () => { older[1].resolve({ messages: range(80, 90), nextBefore: null }); });
+    expect(page.messages[0].id).toBe("80");
     expect(page.reachedStart).toBe(true);
     ui.flush(() => page.loadMore());
-    expect(requests.length).toBe(3);
+    expect(older.length).toBe(2);
   } finally { ui.cleanup(); }
 });
+
+test("a scroll to the top before the tail answers loads once the cursor arrives", async () => {
+  writeTranscriptCache(transcriptCacheKey("mac", "s"), rows(40), 40);
+  const { client, tails, older } = pagingClient();
+  let page!: ReturnType<typeof useTranscriptPage>;
+  function Probe() { page = useTranscriptPage(client, "mac", "s", noop); return <div>{page.messages.length}</div>; }
+  const ui = mount();
+  try {
+    ui.render(<Probe />);
+    expect(page.loading).toBe(false);
+    ui.flush(() => page.loadMore());
+    expect(older.length).toBe(0);
+    await ui.flushAsync(async () => { tails[0].resolve({ messages: rows(40), nextBefore: 60 }); });
+    expect(older[0]?.path).toContain("before=60");
+  } finally { ui.cleanup(); }
+});
+
+test("a machine that sends no cursor keeps the growing request", async () => {
+  const { client, tails, older } = pagingClient();
+  let page!: ReturnType<typeof useTranscriptPage>;
+  function Probe() { page = useTranscriptPage(client, "mac", "s", noop); return <div>{page.messages.length}</div>; }
+  const ui = mount();
+  try {
+    ui.render(<Probe />);
+    await ui.flushAsync(async () => { tails[0].resolve({ messages: rows(40) }); });
+    expect(page.reachedStart).toBe(false);
+    ui.flush(() => page.loadMore());
+    expect(tails[1].limit).toBe(80);
+    expect(page.messages.length).toBe(40);
+    await ui.flushAsync(async () => { tails[1].resolve({ messages: rows(70) }); });
+    expect(page.messages.length).toBe(70);
+    expect(page.reachedStart).toBe(true);
+    expect(older.length).toBe(0);
+  } finally { ui.cleanup(); }
+});
+
+test("a live snapshot resets the cursor and a stale older page is dropped", async () => {
+  const { client, tails, older } = pagingClient();
+  let page!: ReturnType<typeof useTranscriptPage>;
+  function Probe() { page = useTranscriptPage(client, "mac", "s", noop); return <div>{page.messages.length}</div>; }
+  const ui = mount();
+  try {
+    ui.render(<Probe />);
+    await ui.flushAsync(async () => { tails[0].resolve({ messages: range(100, 107), nextBefore: 500 }); });
+    ui.flush(() => page.loadMore());
+    ui.flush(() => page.applySnapshot(range(101, 110), 510));
+    await ui.flushAsync(async () => { older[0].resolve({ messages: range(50, 60), nextBefore: 400 }); });
+    expect(page.messages[0].id).toBe("101");
+    ui.flush(() => page.loadMore());
+    expect(older[1].path).toContain("before=510");
+  } finally { ui.cleanup(); }
+});
+
 test("late responses from a previous session cannot overwrite the newly mounted page", async () => {
   const requests: { resolve: (value: any) => void }[] = [];
   const client = { getMessages: () => new Promise<any>(resolve => requests.push({ resolve })) };

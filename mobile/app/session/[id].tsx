@@ -5,7 +5,7 @@ import { MoveSessionSheet } from "../../src/omg/move-session-sheet";
 import { parseOmgPromptEnvelope } from "../../src/omg/omg-prompt-envelope";
 import { archiveSession } from "../../src/omg/archiving";
 import { openingReveal } from "../../src/omg/opening-reveal";
-import { keepOpener, useTranscriptPage } from "../../src/omg/use-transcript-page";
+import { useTranscriptPage } from "../../src/omg/use-transcript-page";
 import { appendTranscriptDraft, INITIAL_TRANSCRIPT_ITEMS, TranscriptWindow } from "../../src/omg/transcript-items";
 import { settledParagraphs } from "../../src/omg/paragraph-stream";
 import { ChatIdentityContext, useChatIdentity } from "../../src/omg/chat-identity";
@@ -318,7 +318,7 @@ function SessionScreenContent({
 
   const [error, setError] = useState<string | null>(null);
   const [report, setReport] = useState<ReportSelection | null>(null);
-  const { messages, setMessages, loading, loadingMore, reachedStart, loadMore } =
+  const { messages, setMessages, applySnapshot, loading, loadingMore, reachedStart, loadMore } =
     useTranscriptPage(client, bindingId, id, setError, initialPrompt ?? createdSessionPrompt(`${user?.id}:${bindingId}`, id));
   const [historyExpanded, setHistoryExpanded] = useState(false);
   const [transcriptWindow] = useState(() => new TranscriptWindow());
@@ -833,7 +833,7 @@ function SessionScreenContent({
     return client.live.subscribeTranscript(id, (event) => {
       switch (event.type) {
         case "snapshot":
-          setMessages((prev) => keepOpener(prev, event.messages ?? []));
+          applySnapshot(event.messages ?? [], event.nextBefore);
           break;
         case "message":
           if (!atBottomRef.current) setUnseen(true);
@@ -930,7 +930,7 @@ function SessionScreenContent({
           break;
       }
     });
-  }, [client, id]);
+  }, [client, id, applySnapshot]);
 
   // Draft tokens do not regroup settled history or recreate completed rows.
   const settledMessages = useMemo(() => bot ? filterBotChatEntries(messages) : messages, [messages, bot]);
