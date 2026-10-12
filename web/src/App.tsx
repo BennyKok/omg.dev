@@ -15,8 +15,8 @@ import { HostDrawerSlot, SideNavButton, SideNavDrawer, SideNavGlyph, SideNavPane
 import { FindingsPill, FindingsSheet } from "./components/findings-pill";
 import { sideNavRows, type SideNavRow } from "./lib/side-nav-items";
 import { settledParagraphs } from "./lib/paragraph-stream";
-import { BuilderPresetPicker } from "./components/builder-preset-picker";
-import { APP_BUILDER_MODEL } from "../../packages/protocol/src/builder-presets";
+import { AppBuilderOption, type BuilderChoice } from "./components/app-builder-option";
+import { APP_BUILDER_MODEL, APP_BUILDER_PRESET } from "../../packages/protocol/src/builder-presets";
 import {
   AgentSetupSheet,
   type SetupAgentTile,
@@ -24192,9 +24192,21 @@ function NewSessionDialog({
     }
     desiredAgentRef.current = key;
     setAgent(key);
+    setBuilderPreset("");
     if (key === "aisdk") setClaudeAccountId(option?.accountId ?? "");
     setModel(preferredModelFor(key));
   };
+
+  const chooseBuilder = () => {
+    setBuilderPreset(APP_BUILDER_PRESET);
+    setModel(APP_BUILDER_MODEL);
+    changeComposerThinkingLevel("low");
+  };
+  const chooseModel = (next: string) => {
+    setBuilderPreset("");
+    setModel(next);
+  };
+  const builderChoice = agent === "omg" ? { selected: builderPreset === APP_BUILDER_PRESET, onChoose: chooseBuilder } : undefined;
 
   // One folder dropdown for every desktop composer shape: a chip on the home
   // stage, a pill in the drawer's controls row.
@@ -24248,14 +24260,11 @@ function NewSessionDialog({
           onLocked={onAgentLocked}
           model={model}
           models={models}
-          onModelChange={setModel}
+          onModelChange={chooseModel}
+          builderChoice={builderChoice}
           showModels={view.showComposerModels}
           showAgents={view.showComposerAgents}
           footer={<>
-            {agent === "omg" ? <BuilderPresetPicker value={builderPreset} onChange={(next) => {
-              setBuilderPreset(next);
-              if (next) { setModel(APP_BUILDER_MODEL); changeComposerThinkingLevel("low"); }
-            }} /> : null}
             {/* The stage keeps Thinking and Fast inside the picker. */}
             {
             variant === "stage" ? (
@@ -24429,6 +24438,7 @@ function NewSessionDialog({
           if (key === agent) return;
           desiredAgentRef.current = key;
           setAgent(key);
+          setBuilderPreset("");
           if (key === "aisdk") setClaudeAccountId("");
           setModel(preferredModelFor(key));
         }}
@@ -24437,20 +24447,17 @@ function NewSessionDialog({
           onAgentLocked();
         }}
         profiles={setupProfiles}
-        preset={agent === "omg" ? <BuilderPresetPicker value={builderPreset} onChange={(next) => {
-          setBuilderPreset(next);
-          if (next) { setModel(APP_BUILDER_MODEL); changeComposerThinkingLevel("low"); }
-        }} /> : undefined}
         onSelectProfile={(id) => setClaudeAccountId(id)}
-        modelLabel={view.showComposerModels ? omgModelLabel(model) || model || null : null}
+        modelLabel={view.showComposerModels ? builderChoice?.selected ? "App Builder" : omgModelLabel(model) || model || null : null}
         renderModels={
           view.showComposerModels
             ? (done) => (
                 <ModelOptionList
                   value={model}
                   models={models}
+                  builderChoice={builderChoice ? { ...builderChoice, onChoose: () => { chooseBuilder(); done(); } } : undefined}
                   onChoose={(next) => {
-                    setModel(next);
+                    chooseModel(next);
                     done();
                   }}
                   onEscape={done}
@@ -26031,6 +26038,7 @@ export function ModelOptionList({
   value,
   models,
   onChoose,
+  builderChoice,
   onEscape,
   inputRef,
   large = false,
@@ -26039,6 +26047,7 @@ export function ModelOptionList({
   value: string;
   models: string[];
   onChoose: (model: string) => void;
+  builderChoice?: BuilderChoice;
   onEscape?: () => void;
   inputRef?: { current: HTMLInputElement | null };
   large?: boolean;
@@ -26064,6 +26073,11 @@ export function ModelOptionList({
     }
     onChoose(item);
   };
+  const showBuilder = !!builderChoice && "app builder haiku apex code review luna design review".includes(query.trim().toLowerCase());
+  const chooseBuilder = () => {
+    if (prices[APP_BUILDER_MODEL]?.available === false) { chooseModel(APP_BUILDER_MODEL); return; }
+    builderChoice?.onChoose();
+  };
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return models;
@@ -26080,7 +26094,7 @@ export function ModelOptionList({
     : [{ level: -1, label: "", items: filtered }];
   const displayedModels = groups.flatMap((group) => group.items);
   const renderModel = (item: string) => {
-    const selected = value === item;
+    const selected = !builderChoice?.selected && value === item;
     const locked = prices[item]?.available === false;
     // A hosted omg id reads as the lab's mark plus the short model
     // name; the full router id stays in the tooltip. Other agents'
@@ -26135,7 +26149,10 @@ export function ModelOptionList({
             onKeyDown={(event) => {
               event.stopPropagation();
               if (event.key === "Escape") onEscape?.();
-              if (event.key === "Enter" && displayedModels[0]) chooseModel(displayedModels[0]);
+              if (event.key === "Enter") {
+                if (showBuilder) chooseBuilder();
+                else if (displayedModels[0]) chooseModel(displayedModels[0]);
+              }
             }}
             placeholder="Filter models"
             className="h-10 w-full rounded-xl border border-border bg-background pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground/30"
@@ -26149,6 +26166,7 @@ export function ModelOptionList({
           fill ? "min-h-0 flex-1" : large ? "max-h-[52dvh]" : "max-h-72",
         )}
       >
+        {showBuilder ? <AppBuilderOption selected={!!builderChoice?.selected} onChoose={chooseBuilder} locked={prices[APP_BUILDER_MODEL]?.available === false} /> : null}
         {filtered.length ? (
           groups.map((group) => (
             <div key={group.level} role={group.label ? "group" : undefined} aria-label={group.label || undefined} className="mb-2 last:mb-0">
@@ -26168,11 +26186,11 @@ export function ModelOptionList({
               {group.items.map(renderModel)}
             </div>
           ))
-        ) : (
+        ) : !showBuilder ? (
           <div className="px-3 py-8 text-center text-sm text-muted-foreground">
             No matching models
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );
@@ -26195,6 +26213,7 @@ export function AgentModelPicker<K extends AgentKind>({
   model,
   models,
   onModelChange,
+  builderChoice,
   showModels = true,
   showAgents = true,
   side = "bottom",
@@ -26217,6 +26236,7 @@ export function AgentModelPicker<K extends AgentKind>({
   model: string;
   models: string[];
   onModelChange: (value: string) => void;
+  builderChoice?: BuilderChoice;
   /** Off: the pill names the agent and the popover lists agents only. The
    *  model then comes from the box default (see ViewPrefs). */
   showModels?: boolean;
@@ -26233,12 +26253,13 @@ export function AgentModelPicker<K extends AgentKind>({
   if (!showAgents && !showModels && !footer) return null;
   // A hosted omg model makes the pill wear the lab's mark, with a small omg
   // mark in the corner so the agent is still readable at a glance.
+  const modelLabel = builderChoice?.selected ? "App Builder" : omgModelLabel(model);
   const hostedModel = showModels && agent === "omg" ? parseOmgModel(model) : null;
   const trigger = (
     <button
       type="button"
-      aria-label={`Agent ${agentLabel}, model ${omgModelLabel(model) || "not set"}. Change agent or model`}
-      title={`${agentLabel} · ${model || "model"}`}
+      aria-label={`Agent ${agentLabel}, model ${modelLabel || "not set"}. Change agent or model`}
+      title={`${agentLabel} · ${builderChoice?.selected ? "App Builder" : model || "model"}`}
       aria-haspopup="dialog"
       aria-expanded={open}
       className="inline-flex h-8 min-w-0 cursor-pointer items-center gap-1.5 rounded-full bg-muted pl-1 pr-2.5 text-foreground transition active:scale-[0.98]"
@@ -26264,7 +26285,7 @@ export function AgentModelPicker<K extends AgentKind>({
         ) : null}
       </span>
       <span className="max-w-32 truncate text-xs font-medium">
-        {showModels ? omgModelLabel(model) || "model" : agentLabel}
+        {showModels ? modelLabel || "model" : agentLabel}
       </span>
       <ChevronDown className="size-3 shrink-0 text-muted-foreground/70" />
     </button>
@@ -26313,6 +26334,7 @@ export function AgentModelPicker<K extends AgentKind>({
               <ModelOptionList
                 value={model}
                 models={models}
+                builderChoice={builderChoice ? { ...builderChoice, onChoose: () => { builderChoice.onChoose(); setOpen(false); } } : undefined}
                 onChoose={(next) => {
                   onModelChange(next);
                   setOpen(false);
