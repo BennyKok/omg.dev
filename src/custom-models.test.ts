@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import {
   customInputModalities,
   customModelIds,
+  customModelToolFilter,
   ensureCustomProviders,
   findCustomModel,
   parseCustomModels,
@@ -119,4 +120,19 @@ test("the omg catalog item carries names set in the file", () => {
   writeModels([{ ...PC, models: [{ id: "gemma-4-e4b", name: "Gemma 4 E4B (3060 Ti)" }, { id: "plain" }] }]);
   const omg = listModelCatalog().find((item) => item.key === "omg");
   expect(omg?.modelLabels).toEqual({ "custom-pc/gemma-4-e4b": "Gemma 4 E4B (3060 Ti)" });
+});
+
+test("a small custom model gets no MCP tools; a larger one keeps omg and computer", () => {
+  writeModels([{ id: "pc", baseURL: "http://pc/v1", models: [
+    { id: "small", context: 24576 },
+    { id: "mid", context: 131072 },
+    { id: "huge", context: 1_000_000 },
+    { id: "unknown" },
+  ] }]);
+  const all = { "omg_*": false, "computer_*": false, "connectors_*": false };
+  expect(customModelToolFilter("custom-pc/small", { home })).toEqual(all);
+  expect(customModelToolFilter("custom-pc/unknown", { home })).toEqual(all);
+  expect(customModelToolFilter("custom-pc/mid", { home })).toEqual({ "connectors_*": false });
+  expect(customModelToolFilter("custom-pc/huge", { home })).toBeNull();
+  expect(customModelToolFilter("omg/openai/gpt-6-luna", { home })).toBeNull();
 });
