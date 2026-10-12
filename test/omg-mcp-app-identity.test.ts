@@ -47,7 +47,7 @@ test("the tool lists screenshotUrls as an ordered list of at most 5 links", asyn
 });
 
 test("the screenshot links reach the identity route in order, and [] is sent to clear", async () => {
-  const urls = ["https://hi.omgs.app/store/1.png", "https://hi.omgs.app/store/2.png", "https://hi.omgs.app/store/3.png"];
+  const urls = ["https://hi.omgs.app/omg-store/1.png", "https://hi.omgs.app/omg-store/2.png", "https://hi.omgs.app/omg-store/3.png"];
   const out = await rpc("tools/call", { name: "omg_app_identity", arguments: { slug: "hi", screenshotUrls: urls } });
   expect(out.isError).not.toBe(true);
   await rpc("tools/call", { name: "omg_app_identity", arguments: { slug: "hi", screenshotUrls: [] } });
@@ -59,7 +59,7 @@ test("the screenshot links reach the identity route in order, and [] is sent to 
 
 test("six links, an http link or a file path are refused before any request", async () => {
   const six = [1, 2, 3, 4, 5, 6].map((n) => `https://hi.omgs.app/store/${n}.png`);
-  for (const screenshotUrls of [six, ["http://hi.omgs.app/store/1.png"], ["/w/home.png"]]) {
+  for (const screenshotUrls of [six, ["http://hi.omgs.app/omg-store/1.png"], ["/w/home.png"]]) {
     const out = await rpc("tools/call", { name: "omg_app_identity", arguments: { slug: "hi", screenshotUrls } });
     expect(out.isError).toBe(true);
   }

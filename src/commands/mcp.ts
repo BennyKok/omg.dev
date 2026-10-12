@@ -1546,7 +1546,7 @@ export function buildOmgMcpServer(): McpServer {
           .max(5)
           .optional()
           .describe(
-            "Store page screenshots, in order: 1 to 5 https links to portrait phone screenshots (about 390x844) of the live app's main screens. Publish the images with the app first, for example /store/1.png. Replaces the whole set; [] clears it.",
+            "Store page screenshots, in order: 1 to 5 https links to portrait phone screenshots (about 390x844) of the live app's main screens. Publish the images with the app first under /omg-store/ (for example /omg-store/1.png), which stays public even when the app needs sign-in. Replaces the whole set; [] clears it.",
           ),
       },
     },

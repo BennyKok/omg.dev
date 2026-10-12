@@ -257,7 +257,7 @@ test("omg_app_identity refuses a bad icon before any upload", async () => {
 // Fails if the agent's store screenshot links are dropped or reordered on the
 // way to Cloud, or [] (clear) is lost.
 test("omg_app_identity passes the screenshot links in order, and [] clears them", async () => {
-  const urls = ["https://hi.omgs.app/store/1.png", "https://hi.omgs.app/store/2.png", "https://hi.omgs.app/store/3.png"];
+  const urls = ["https://hi.omgs.app/omg-store/1.png", "https://hi.omgs.app/omg-store/2.png", "https://hi.omgs.app/omg-store/3.png"];
   const sent: any[] = [];
   for (const screenshotUrls of [urls, []]) {
     const req = identityRequest({ slug: "hi", screenshotUrls });
