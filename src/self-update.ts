@@ -5,6 +5,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -178,6 +179,66 @@ async function installProductionDependencies(
 }
 
 /**
+ * Fields of package.json that decide what `bun install --production` puts in
+ * node_modules. Two installs with the same values here resolve the same ranges.
+ */
+const DEPENDENCY_FIELDS = [
+  "dependencies",
+  "optionalDependencies",
+  "peerDependencies",
+  "overrides",
+  "resolutions",
+  "trustedDependencies",
+  "patchedDependencies",
+  "workspaces",
+] as const;
+
+/**
+ * Specs that name something outside the registry. Their contents can change
+ * while the spec stays the same (release.sh can rewrite a dependency to
+ * file:vendor/<tarball>), so an unchanged manifest proves nothing for them.
+ */
+function isRegistrySpec(spec: unknown): boolean {
+  if (typeof spec !== "string") return false;
+  return !/^(file:|link:|workspace:|git\+|git:|github:|https?:|\.|\/|~)/.test(spec.trim())
+    && !/^[^@\s]+\/[^\s]+$/.test(spec.trim());
+}
+
+/**
+ * The dependency manifest of an install, as a stable string, or null when it
+ * cannot be read or names a dependency that is not a registry package.
+ */
+export function dependencyManifest(root: string): string | null {
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  for (const field of ["dependencies", "optionalDependencies", "peerDependencies"]) {
+    const deps = parsed[field];
+    if (deps == null) continue;
+    if (typeof deps !== "object" || Array.isArray(deps)) return null;
+    if (!Object.values(deps as Record<string, unknown>).every(isRegistrySpec)) return null;
+  }
+  const picked: Record<string, unknown> = {};
+  for (const field of DEPENDENCY_FIELDS) {
+    if (parsed[field] != null) picked[field] = sortKeys(parsed[field]);
+  }
+  return JSON.stringify(picked);
+}
+
+function sortKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortKeys);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.keys(value as Record<string, unknown>)
+      .sort()
+      .map((key) => [key, sortKeys((value as Record<string, unknown>)[key])]),
+  );
+}
+
+/**
  * Extract a downloaded release over an install and make its dependencies match.
  *
  * A per-platform bundle ships node_modules already resolved and pruned for this
@@ -186,12 +247,17 @@ async function installProductionDependencies(
  * every dependency the download just delivered got fetched from npm a second
  * time — and the pruned-away musl builds came back with them.
  *
- * The old tree is removed *before* extraction, not after, so two things hold at
- * once: what lands is exactly the bundle's tree rather than a merge that keeps
- * files this release deleted, and node_modules existing afterwards proves the
- * bundle shipped it. That second part is what makes skipping safe — a neutral
- * bundle (which carries no dependencies) still installs, even when the install
- * it replaced had a full node_modules sitting there.
+ * The old tree is moved aside *before* extraction, so node_modules existing
+ * afterwards proves the bundle shipped it, and what lands is exactly the
+ * bundle's tree rather than a merge that keeps files this release deleted.
+ *
+ * A neutral bundle carries no dependencies. When its dependency manifest is
+ * the same as the one the old tree was installed from, the old tree already
+ * satisfies it, so it is moved back and no install runs. Cloud Computers take
+ * this path on almost every update: a production install deletes and
+ * re-resolves about 2 GB, which held a woken Computer for about 40 seconds
+ * (2026-10-12, 0.6.224) while only 1 of the 39 releases before it changed a
+ * dependency.
  *
  * Returns whether a target-side install was needed.
  */
@@ -199,14 +265,35 @@ export async function installReleaseBundle(
   archive: string,
   root: string,
   bun = process.execPath,
-): Promise<{ dependenciesInstalled: boolean }> {
+): Promise<{ dependenciesInstalled: boolean; dependenciesReused?: boolean }> {
   const modules = join(root, "node_modules");
-  rmSync(modules, { recursive: true, force: true });
+  const previousModules = join(root, "node_modules.previous");
+  const previousManifest = hasEntries(modules) ? dependencyManifest(root) : null;
+  rmSync(previousModules, { recursive: true, force: true });
+  if (previousManifest) renameSync(modules, previousModules);
+  else rmSync(modules, { recursive: true, force: true });
 
-  const extract = await extractReleaseArchive(archive, root);
-  if (!extract.ok) throw new Error(extract.stderr || "Could not extract the release bundle.");
+  try {
+    const extract = await extractReleaseArchive(archive, root);
+    if (!extract.ok) throw new Error(extract.stderr || "Could not extract the release bundle.");
 
-  if (hasEntries(modules)) return { dependenciesInstalled: false };
+    if (hasEntries(modules)) return { dependenciesInstalled: false };
+
+    if (previousManifest && dependencyManifest(root) === previousManifest) {
+      rmSync(modules, { recursive: true, force: true });
+      renameSync(previousModules, modules);
+      return { dependenciesInstalled: false, dependenciesReused: true };
+    }
+  } catch (error) {
+    // Put the old tree back so the running version can still start.
+    if (previousManifest && hasEntries(previousModules) && !hasEntries(modules)) {
+      rmSync(modules, { recursive: true, force: true });
+      renameSync(previousModules, modules);
+    }
+    throw error;
+  } finally {
+    rmSync(previousModules, { recursive: true, force: true });
+  }
 
   const installResult = await installProductionDependencies(root, bun);
   if (!installResult.ok) {

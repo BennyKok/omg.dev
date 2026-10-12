@@ -1,11 +1,15 @@
 import { useEffect, useState } from "react";
 import { omgFetch } from "./omg-client";
 
-export type RuntimeLifecycle = "starting" | "waking" | "ready" | "failed" | "paused" | "unavailable";
+/** `updating` is not a server state: the cloud proxy sends `ready` with
+ * `updating: true` while the Computer installs a release and restarts. */
+export type RuntimeLifecycle = "starting" | "waking" | "ready" | "updating" | "failed" | "paused" | "unavailable";
 const states: readonly string[] = ["starting", "waking", "ready", "failed", "paused", "unavailable"];
 export function parseRuntimeLifecycle(value: unknown): RuntimeLifecycle | null {
-  const state = value && typeof value === "object" ? (value as { state?: unknown }).state : null;
-  return typeof state === "string" && states.includes(state) ? state as RuntimeLifecycle : null;
+  const body = value && typeof value === "object" ? value as { state?: unknown; updating?: unknown } : null;
+  const state = body?.state;
+  if (typeof state !== "string" || !states.includes(state)) return null;
+  return state === "ready" && body?.updating === true ? "updating" : state as RuntimeLifecycle;
 }
 
 /** The cloud proxy serves this read before the runtime can answer. Older and
@@ -46,6 +50,7 @@ export function runtimeLifecycleMessage(state: RuntimeLifecycle | null | undefin
     case "waking": return "Resuming your computer…";
     // Infrastructure can be ready before the client finishes its connection.
     case "ready": return "Connecting…";
+    case "updating": return "Updating your computer…";
     case "failed": return "Could not start your computer";
     case "paused": return "Resuming your computer…";
     case "unavailable": return "Computer unavailable";

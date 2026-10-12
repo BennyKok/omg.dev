@@ -71,3 +71,12 @@ test("a response from the previous transport cannot change the selected computer
   await ui.flushAsync(() => { resolveOld(Response.json({ state: "failed" })); });
   expect(ui.text()).toBe("starting");
 });
+
+// The cloud proxy flags a Computer that is installing an update on `ready`, so
+// clients that predate the flag keep working. This catches a page that cannot
+// tell an update restart from an ordinary reconnect.
+test("a ready Computer that is updating reads as updating", () => {
+  expect(parseRuntimeLifecycle({ state: "ready", updating: true })).toBe("updating");
+  expect(parseRuntimeLifecycle({ state: "ready" })).toBe("ready");
+  expect(parseRuntimeLifecycle({ state: "waking", updating: true })).toBe("waking");
+});
