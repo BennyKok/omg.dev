@@ -25,8 +25,12 @@ Create `~/.omg/models.json`:
 
 - `id` (provider): letters, digits, `.`, `_`, `-`.
 - `id` (model): the name the server serves (`/v1/models`).
-- `context`: the server's context window. OpenCode compacts the chat before it
-  is full. Set it to the server's `--max-model-len` or lower.
+- `context` (optional): the context window in tokens. With no value, omg asks
+  the server at each session start: vLLM `max_model_len` on `/v1/models`, or
+  llama.cpp `n_ctx` on `/props`. The answer is cached in
+  `~/.omg/cache/custom-model-context.json`. Ollama does not report its served
+  context, so set it by hand there. OpenCode compacts the chat against this
+  size.
 - `name` (model): the name the picker shows, for example
   `"Gemma 4 E4B (3060 Ti)"`. With no name, the picker makes one from the id:
   `gemma-4-e4b` shows as `Gemma 4 E4B`.
@@ -64,20 +68,21 @@ picker ──▶ omg agent ──▶ OpenCode ──▶ provider "custom-pc" ─
 ## Tools by context size
 
 OpenCode sends every tool description with every request. The omg.dev MCP
-tools are large, so a custom model gets only the servers its `context` can
-hold. The filter applies on each turn.
+tools are large, so a custom model gets only what its context can hold. The
+filter applies on each turn. The sizes are hardcoded from a measurement on
+2026-10-12.
 
-| `context` | MCP tools |
+| Context | MCP tools |
 |---|---|
-| under 48k, or not set | none (built-in file and shell tools only) |
-| 48k to under 256k | `omg` and `computer` |
-| 256k or more | all, including `connectors` |
+| under 48k, or unknown | lite set: `omg_ship`, `omg_display_image`, `omg_display_file`, `omg_deploy`, `omg_deploy_status` (about 1.6k tokens) |
+| 48k to under 256k | every `omg` and `computer` tool (about 17k tokens) |
+| 256k or more | all, including `connectors` (about 200k tokens) |
 
-Measured on 2026-10-12: `omg` and `computer` add about 17k tokens.
-`connectors` adds about 200k tokens.
+OpenCode's base prompt and built-in tools take about 14k tokens.
 
 ## Not in this version
 
 - No routing of internal jobs (session titles, summaries) to a custom model.
 - No fallback when the server is offline. The turn fails with the server error.
 - No add or edit screen. Edit the file by hand.
+- No tool search. A small model cannot load an omg tool outside the lite set.
