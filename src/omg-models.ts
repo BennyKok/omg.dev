@@ -7,11 +7,13 @@ export const OMG_CHEAPEST_MODEL = "omg/deepseek/deepseek-v4-flash-0731";
  * scheduled tasks, and any client that sends no model. One constant; set it
  * back to OMG_CHEAPEST_MODEL to revert.
  *
- * gpt-6-luna (Benny, 2026-09-30): on a real first-run build it finished in
- * 5.3 min for $0.024, 2 of 2 without help, 0 tool errors, and scored 5.65 on
- * design match against 2.65 for deepseek-v4-flash-0731. It reads images.
+ * claude-haiku-5.5 (user decision, 2026-10-12, after the Opus 5.5 app
+ * benchmark). It reads images and runs at its own default thinking level.
+ * Before that the default was gpt-6-luna (2026-09-30); set it back to
+ * "omg/openai/gpt-6-luna" to revert. The hosted default lives in vibes
+ * control-plane/lib/omg-agent-models.ts and must move with this one.
  */
-export const OMG_DEFAULT_MODEL = "omg/openai/gpt-6-luna";
+export const OMG_DEFAULT_MODEL = "omg/anthropic/claude-haiku-5.5";
 
 // Shared by the runtime and dashboard. Order is the hosted router picker
 // order, and the first entry is the default.

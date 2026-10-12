@@ -348,7 +348,7 @@ test("omg agent lists the routed models in hosted picker order, default first", 
   process.env.HOME = emptyHome;
   try {
     expect(OMG_MODELS).toEqual([
-      "omg/openai/gpt-6-luna",
+      "omg/anthropic/claude-haiku-5.5",
       "omg/anthropic/claude-opus-5.5",
       "omg/apex",
       "omg/deepseek/deepseek-v4-flash-0731",
@@ -359,10 +359,11 @@ test("omg agent lists the routed models in hosted picker order, default first", 
       "omg/x-ai/grok-4.7",
       "omg/anthropic/claude-fable-5.1",
       "omg/anthropic/claude-sonnet-5.5",
-      "omg/anthropic/claude-haiku-5.5",
       "omg/openai/gpt-6.1-sol",
       "omg/openai/gpt-6-astra",
+      "omg/openai/gpt-6-luna",
     ]);
+    expect(defaultModelForAgent("omg")).toBe("omg/anthropic/claude-haiku-5.5");
     expect(defaultModelForAgent("omg")).toBe(OMG_MODELS[0]!);
     expect(modelsForAgent("omg")).toEqual(OMG_MODELS);
     expect(listModelCatalog().find((item) => item.key === "omg")).toMatchObject({

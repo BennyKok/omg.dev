@@ -6,7 +6,7 @@ import { EmbeddedHostOptionsProvider } from "./lib/embedded-host-options";
 const { ModelOptionList } = await import("./App");
 let ui: Mounted;
 afterEach(() => { ui?.cleanup(); configureOmgTransport(createSameOriginTransport()); });
-const baseline = { "omg/openai/gpt-6-luna": { inputPricePerMillion: 100_000, outputPricePerMillion: 500_000 } };
+const baseline = { "omg/anthropic/claude-haiku-5.5": { inputPricePerMillion: 100_000, outputPricePerMillion: 500_000 } };
 const models = ["omg/anthropic/claude-haiku-5.5", "omg/anthropic/claude-opus-5.5"];
 function respond(fetch: () => Promise<Response>) {
   configureOmgTransport(createSameOriginTransport({ fetch: fetch as typeof globalThis.fetch }));
@@ -66,7 +66,7 @@ test("switching machines clears the previous machine's prices", async () => {
 });
 
 test("usage comparison needs the default model price", async () => {
-  respond(async () => Response.json({ models: { [models[0]!]: baseline["omg/openai/gpt-6-luna"] } }));
+  respond(async () => Response.json({ models: { [models[1]!]: baseline["omg/anthropic/claude-haiku-5.5"] } }));
   ui = mount();
   ui.render(<ModelOptionList value={models[0]!} models={models} onChoose={() => {}} />);
   await ui.flushAsync();
@@ -78,7 +78,7 @@ test("groups models by credit use and selects the first visible filtered result"
   const list = [models[1]!, medium, ...Object.keys(baseline), models[0]!, "omg/unknown", "a", "b", "c", "d"];
   respond(async () => Response.json({ models: { ...baseline,
     [medium]: { inputPricePerMillion: 500_000, outputPricePerMillion: 2_500_000 },
-    [models[0]!]: baseline["omg/openai/gpt-6-luna"],
+    [models[0]!]: baseline["omg/anthropic/claude-haiku-5.5"],
     [models[1]!]: { inputPricePerMillion: 4_000_000, outputPricePerMillion: 20_000_000 },
   } }));
   ui = mount();
@@ -87,11 +87,11 @@ test("groups models by credit use and selects the first visible filtered result"
   await ui.flushAsync();
   const groups = ui.queryAll('[role="group"]');
   expect(groups.map((group) => group.querySelectorAll("button").length)).toEqual([2, 1, 1, 5]);
-  expect(groups[0]!.textContent).toContain("GPT-6 Luna");
+  expect(groups[0]!.textContent).toContain("Claude Haiku 5.5");
   expect(groups[1]!.textContent).toContain("Apex");
   expect(groups[2]!.textContent).toContain("Opus");
   ui.flush(() => ui.query("input")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
-  expect(selected).toBe("omg/openai/gpt-6-luna");
+  expect(selected).toBe("omg/anthropic/claude-haiku-5.5");
 });
 
 
@@ -123,7 +123,7 @@ test("locked model clicks and keyboard selection open upgrade without changing t
   expect(selected).toBe("");
   expect(upgrades).toEqual(["select-model", "select-model"]);
   ui.flush(() => {
-    Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value")!.set!.call(input, "luna");
+    Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value")!.set!.call(input, "haiku");
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
   ui.flush(() => (ui.query("button") as HTMLButtonElement).click());
