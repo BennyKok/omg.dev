@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { APP_BUILDER_PRESET, builderReviewPacket, captureBuilderDesign, reviewBuilderCode, reviewBuilderDesign, parseBuilderVerdict, runAppBuilder, validateBuilderPreset } from "./app-builder";
+import { BUILDER_MAX_STEPS, builderAgentConfig, createStepBound, APP_BUILDER_PRESET, builderReviewPacket, captureBuilderDesign, reviewBuilderCode, reviewBuilderDesign, parseBuilderVerdict, runAppBuilder, validateBuilderPreset } from "./app-builder";
 
 test("preset is opt-in and restricted to OMG Agent", () => {
   expect(validateBuilderPreset(undefined, "omg")).toBeUndefined();
@@ -143,4 +143,20 @@ test("App Builder rejects Quick Chat before launch but General still permits it"
   expect(() => validateBuilderPreset(APP_BUILDER_PRESET, "omg", false)).toThrow("selected Git project");
   expect(validateBuilderPreset(undefined, "omg", false)).toBeUndefined();
   expect(validateBuilderPreset(APP_BUILDER_PRESET, "omg", true)).toBe(APP_BUILDER_PRESET);
+});
+
+test("build agent has no OpenCode step cap, because the cap ends with an assistant prefill that Haiku rejects", () => {
+  expect("build" in builderAgentConfig).toBe(false);
+  expect(Object.keys(builderAgentConfig).sort()).toEqual(["omg-code-review", "omg-design-review"]);
+});
+
+test("step bound trips once at the limit, counts each step once, and resets per turn", () => {
+  const bound = createStepBound(3);
+  expect(bound.record("a")).toBe(false);
+  expect(bound.record("a")).toBe(false);
+  expect(bound.record("b")).toBe(false);
+  expect(bound.record("c")).toBe(true);
+  bound.reset();
+  expect(bound.record("d")).toBe(false);
+  expect(BUILDER_MAX_STEPS).toBeGreaterThan(80);
 });
