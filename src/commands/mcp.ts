@@ -1533,22 +1533,29 @@ export function buildOmgMcpServer(): McpServer {
   server.registerTool(
     "omg_app_identity",
     {
-      title: "Set A Hosted App's Name, Tagline And Icon",
+      title: "Set A Hosted App's Name, Tagline, Icon And Store Screenshots",
       description:
-        "Set how a hosted app appears on its link preview, its sign-in page and the omg.dev dashboard. Pass only the fields to change; tagline \"\" clears it. The owner can edit the same fields in app settings; the last write wins. Pass only slug to read the current values.",
+        "Set how a hosted app appears on its link preview, its sign-in page, its store page (omg.dev/apps/<slug>) and the omg.dev dashboard. Pass only the fields to change; tagline \"\" clears it. The owner can edit the same fields in app settings; the last write wins. Pass only slug to read the current values, including the store screenshots.",
       inputSchema: {
         slug: z.string().min(1).describe("App slug, for example hello from hello.omgs.app."),
         name: z.string().min(1).max(80).optional().describe("Display name, up to 80 characters."),
         tagline: z.string().max(120).optional().describe("One line about what the app does, up to 120 characters. Do not repeat the name."),
         iconPath: z.string().optional().describe("Absolute path to a square .svg, .png or .jpg icon, 512 KB or smaller. SVG must not contain scripts."),
+        screenshotUrls: z
+          .array(z.string().url().startsWith("https://").max(2048))
+          .max(5)
+          .optional()
+          .describe(
+            "Store page screenshots, in order: 1 to 5 https links to portrait phone screenshots (about 390x844) of the live app's main screens. Publish the images with the app first under /omg-store/ (for example /omg-store/1.png), which stays public even when the app needs sign-in. Replaces the whole set; [] clears it.",
+          ),
       },
     },
-    async ({ slug, name, tagline, iconPath }) =>
+    async ({ slug, name, tagline, iconPath, screenshotUrls }) =>
       result(
         await api("/api/cloud/apps/identity", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ slug, name, tagline, iconPath }),
+          body: JSON.stringify({ slug, name, tagline, iconPath, screenshotUrls }),
         }),
       ),
   );
