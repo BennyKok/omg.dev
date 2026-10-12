@@ -27,6 +27,7 @@ import {
   type PiAuthProviderId,
 } from "./pi-auth.ts";
 import { hasOmgProviderAccess } from "./omg-provider.ts";
+import { customModelIds } from "./custom-models.ts";
 import { hasOpenCodeAccountAuth, opencodeAuthProviders } from "./opencode-auth.ts";
 import {
   clearJcodePendingLogin,
@@ -1525,10 +1526,11 @@ async function statusFor(kind: CodingAgentKind): Promise<CodingAgentStatus> {
     );
     instructions.push("Use Login to connect ChatGPT in your browser, or set OPENAI_API_KEY.");
   } else if (kind === "omg") {
-    accountConnected = hasOmgProviderAccess();
+    // Custom models in ~/.omg/models.json need no omg.dev account.
+    accountConnected = hasOmgProviderAccess() || customModelIds().length > 0;
     addBinary("OpenCode CLI", opencodePath());
-    addAuth("omg account", accountConnected, "Sign in with `omg login` to use the omg agent.");
-    instructions.push("Sign in with `omg login` to use the omg agent.");
+    addAuth("omg account", accountConnected, "Sign in with `omg login` or add a model to ~/.omg/models.json to use the omg agent.");
+    instructions.push("Sign in with `omg login` to use the omg agent, or add your own OpenAI-compatible endpoint to ~/.omg/models.json.");
   } else if (kind === "opencode") {
     // Auth is deliberately not a `checks` row: OpenCode Zen's free tier needs no
     // credential, so an unauthenticated install is still fully usable and must

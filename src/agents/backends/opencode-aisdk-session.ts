@@ -1,5 +1,6 @@
 import { EmptyOpencodeReply, OPENCODE_RECOVERY_MESSAGE, opencodeTurnHasProgress, recoverOpencodeTurn } from "./opencode-turn-recovery.ts";
 import { ensureOmgProvider } from "../../omg-provider.ts";
+import { ensureCustomProviders, isCustomModel } from "../../custom-models.ts";
 // Headless interactive session harness for the "opencode" agent kind.
 //
 // This is the long-lived process behind a managed opencode session. Like its
@@ -562,6 +563,7 @@ export async function pipeToOpencodeAiSdk(
   const model = opts.model ?? "opencode/big-pickle";
   const cwd = opts.cwd ?? process.cwd();
   if (model.startsWith("omg/")) ensureOmgProvider();
+  if (isCustomModel(model)) ensureCustomProviders();
   ensureOpencodeOnPath();
   ensureOpencodeTrustAll();
   const { createOpencodeServer, createOpencodeClient } = await import("@opencode-ai/sdk");
@@ -627,6 +629,7 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
   } catch {}
 
   if (model.startsWith("omg/")) ensureOmgProvider();
+  if (isCustomModel(model)) ensureCustomProviders();
   ensureOpencodeOnPath();
   ensureOpencodeTrustAll();
   const { createOpencodeServer, createOpencodeClient } = await import("@opencode-ai/sdk");

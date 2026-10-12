@@ -91,15 +91,38 @@ function missingOmgVariants(provider: { models?: Record<string, { variants?: unk
   });
 }
 
+/** The OpenCode config file that provider writers merge into. */
+export function openCodeConfigPath(options: OmgProviderOptions = {}): string {
+  const env = options.env ?? process.env;
+  const home = options.home ?? homedir();
+  const dir = join(env.XDG_CONFIG_HOME?.trim() || join(home, ".config"), "opencode");
+  // Match the existing MCP writer's opencode.json path on a new installation.
+  const jsonc = join(dir, "opencode.jsonc");
+  return existsSync(jsonc) ? jsonc : join(dir, "opencode.json");
+}
+
+export function readOpenCodeConfig(path: string): Config {
+  return readConfig(path);
+}
+
+/** Atomic write; the file can hold an API key, so it stays owner-only. */
+export function writeOpenCodeConfig(path: string, next: Config): void {
+  mkdirSync(dirname(path), { recursive: true });
+  const tmp = `${path}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
+    renameSync(tmp, path);
+  } finally {
+    rmSync(tmp, { force: true });
+  }
+}
+
 export function ensureOmgProvider(options: OmgProviderOptions = {}): void {
   const env = options.env ?? process.env;
   const hosted = hasHostedOmgAiProxy(options);
   if (!hosted && isHostedOmgSandbox(options)) return;
   const home = options.home ?? homedir();
-  const dir = join(env.XDG_CONFIG_HOME?.trim() || join(home, ".config"), "opencode");
-  // Match the existing MCP writer's opencode.json path on a new installation.
-  const jsonc = join(dir, "opencode.jsonc");
-  const path = existsSync(jsonc) ? jsonc : join(dir, "opencode.json");
+  const path = openCodeConfigPath(options);
   const current = readConfig(path);
   // A guest config that already names the provider is left alone, unless a
   // model that takes a thinking level has no variants yet (the level travels
@@ -141,13 +164,5 @@ export function ensureOmgProvider(options: OmgProviderOptions = {}): void {
       },
     },
   };
-  const next = { ...current, provider };
-  mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.${randomUUID()}.tmp`;
-  try {
-    writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
-    renameSync(tmp, path);
-  } finally {
-    rmSync(tmp, { force: true });
-  }
+  writeOpenCodeConfig(path, { ...current, provider });
 }
