@@ -20,6 +20,15 @@ const CONTRACT_ENDS = [
   "=== END LFG RUNTIME CONTRACT ===",
 ] as const;
 const USER_TASK = "=== USER TASK ===";
+// Envelopes with no END marker, each terminated by USER TASK. Keep in step
+// with SUBAGENT_HEADERS in src/omg-capabilities.ts.
+const INNER_ENVELOPE_HEADERS = [
+  "=== omg.dev FIRST RUN ===",
+  "=== omg.dev THREAD TASK ===",
+  "=== omg.dev SUBAGENT OPERATING CONTRACT ===",
+  "=== OMG SUBAGENT OPERATING CONTRACT ===",
+  "=== LFG SUBAGENT OPERATING CONTRACT ===",
+] as const;
 
 /**
  * Splits omg.dev's agent-facing launch envelope for presentation only.
@@ -63,8 +72,21 @@ export function parseOmgPromptEnvelope(text: string): OmgPromptEnvelope | null {
   // they are sent to the agent, so they belong in the inspect chip too.
   const contractBody = envelope.slice(headerEnd + 1, contractEnd).trim();
   const standing = envelope.slice(contractEnd + endMarker.length, taskMarker).trim();
-  const instructions = standing ? `${contractBody}\n\n${standing}` : contractBody;
-  const task = envelope.slice(taskMarker + USER_TASK.length).replace(/^\s*\n?/, "").trim();
+  let task = envelope.slice(taskMarker + USER_TASK.length).replace(/^\s*\n?/, "").trim();
+  // Inner envelopes (first run, subagent, thread task) sit after the first
+  // USER TASK and are terminated by their own USER TASK. They are agent rules,
+  // not the person's words: peel them into the inspect chip so a new user's
+  // first message is their prompt, not "=== omg.dev FIRST RUN ===".
+  const inner: string[] = [];
+  for (let i = 0; i < 4; i++) {
+    const innerHeader = INNER_ENVELOPE_HEADERS.find((candidate) => task.startsWith(candidate));
+    if (!innerHeader) break;
+    const innerEnd = task.indexOf(USER_TASK, innerHeader.length);
+    if (innerEnd < 0) break;
+    inner.push(task.slice(0, innerEnd).trim());
+    task = task.slice(innerEnd + USER_TASK.length).replace(/^\s*\n?/, "").trim();
+  }
+  const instructions = [contractBody, standing, ...inner].filter(Boolean).join("\n\n");
 
   if (!instructions || !task) return null;
   return { instructions, task, version };
