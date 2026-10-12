@@ -433,7 +433,7 @@ test("omg accepts its own kind and delegates to the OpenCode launch with the def
       agent: "omg", name: "test", cwd: "/tmp", sessionId: "test-session",
     })).toEqual({ ok: true });
     expect(request?.agent).toBe("omg");
-    expect(request?.model).toBe("omg/openai/gpt-6-luna");
+    expect(request?.model).toBe("omg/anthropic/claude-haiku-5.5");
   } finally { opencode.launch = original; }
 });
 
