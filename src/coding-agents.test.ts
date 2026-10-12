@@ -600,6 +600,7 @@ describe("coding agent auth detection", () => {
 
   test("the coding agent list reports the version of the selected CLI", async () => {
     const home = useTmpHome();
+    setEnv("PATH", `${home}:${process.env.PATH ?? ""}`);
     const codex = join(home, "codex");
     writeFileSync(codex, '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "codex-cli 0.159.2"; else exit 1; fi\n', { mode: 0o755 });
     setEnv("LFG_CODEX_PATH", codex);
