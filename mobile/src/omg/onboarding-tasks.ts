@@ -90,9 +90,9 @@ export const FIRST_TASKS: FirstTask[] = [
       ] },
     ],
     template: (who, about, does) =>
-      `Build a mobile app ${who} ${about} that ${does}. Make it an Expo app and give me a preview I can open on my phone as soon as the first screen works. When the preview works, publish the web version with omg_deploy (bun run build makes the Expo web export) and build an installable Android app with omg_build_android. Send me the web link and the Android install link.`,
+      `Build a mobile app ${who} ${about} that ${does}. Make it an Expo app and give me a preview I can open on my phone as soon as the first screen works. When the preview works, publish the web version with omg_deploy (bun run build makes the Expo web export) and build an installable Android app with omg_build_android. Make the web version public with omg_app_visibility so anyone with the link can open it. Send me the web link and the Android install link.`,
     prompt:
-      "Build a mobile app prototype for Lumen Yoga Studio with a class list, class details and a booking button. Make it an Expo app and give me a preview I can open on my phone as soon as the first screen works. When the preview works, publish the web version with omg_deploy (bun run build makes the Expo web export) and build an installable Android app with omg_build_android. Send me the web link and the Android install link.",
+      "Build a mobile app prototype for Lumen Yoga Studio with a class list, class details and a booking button. Make it an Expo app and give me a preview I can open on my phone as soon as the first screen works. When the preview works, publish the web version with omg_deploy (bun run build makes the Expo web export) and build an installable Android app with omg_build_android. Make the web version public with omg_app_visibility so anyone with the link can open it. Send me the web link and the Android install link.",
   },
   {
     key: "game",
@@ -122,9 +122,9 @@ export const FIRST_TASKS: FirstTask[] = [
       ] },
     ],
     template: (who, about, does) =>
-      `Build a ${about} game ${who} where ${does}. Publish it and send me the link so it can be played on a phone.`,
+      `Build a ${about} game ${who} where ${does}. Publish it, make it public with omg_app_visibility so anyone with the link can open it, and send me the link so it can be played on a phone.`,
     prompt:
-      "Build a fun party quiz game for friends and family that we can play together on our phones. Publish it and send me the link.",
+      "Build a fun party quiz game for friends and family that we can play together on our phones. Publish it, make it public with omg_app_visibility so anyone with the link can open it, and send me the link.",
   },
   {
     key: "website",
@@ -153,9 +153,9 @@ export const FIRST_TASKS: FirstTask[] = [
       ] },
     ],
     template: (who, about, does) =>
-      `Build ${about} website ${who} with ${does}. Publish it and send me the link.`,
+      `Build ${about} website ${who} with ${does}. Publish it, make it public with omg_app_visibility so anyone with the link can open it, and send me the link.`,
     prompt:
-      "Build a one-page website for Lumen Yoga Studio with a hero, class schedule, prices and a contact form. Publish it and send me the link.",
+      "Build a one-page website for Lumen Yoga Studio with a hero, class schedule, prices and a contact form. Publish it, make it public with omg_app_visibility so anyone with the link can open it, and send me the link.",
   },
   {
     key: "slides",
@@ -184,9 +184,9 @@ export const FIRST_TASKS: FirstTask[] = [
       ] },
     ],
     template: (who, about, does) =>
-      `Make ${does} ${about} ${who}. Publish it as a web page I can open and present from my phone.`,
+      `Make ${does} ${about} ${who}. Publish it as a web page I can open and present from my phone, and make it public with omg_app_visibility so anyone with the link can open it.`,
     prompt:
-      "Make a 6-slide pitch deck for Lumen Yoga Studio: problem, offer, classes, pricing, testimonials and a call to action. Publish it as a web page I can open and present from my phone.",
+      "Make a 6-slide pitch deck for Lumen Yoga Studio: problem, offer, classes, pricing, testimonials and a call to action. Publish it as a web page I can open and present from my phone, and make it public with omg_app_visibility so anyone with the link can open it.",
   },
   {
     key: "news",
