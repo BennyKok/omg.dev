@@ -2057,7 +2057,11 @@ function SessionScreenContent({
         maintainVisibleContentPosition={{ minIndexForVisible: 1 }}
         ListHeaderComponent={
           loadingMore ? (
-            <ActivityIndicator color={colors.textMuted} style={{ paddingVertical: space.md }} />
+            <ActivityIndicator
+              accessibilityLabel="Loading earlier messages"
+              color={colors.textMuted}
+              style={{ paddingVertical: space.md }}
+            />
           ) : undefined
         }
         keyboardDismissMode="interactive"

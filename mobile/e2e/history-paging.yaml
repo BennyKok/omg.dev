@@ -1,0 +1,58 @@
+# Scrolling up loads older history until the first message.
+#
+# The fixture answers like a machine for a client that declares workRows: a
+# page of 40 raw messages folds to 7 rows, and a cursor (nextBefore) says
+# where older history starts. The old hook read the short page as the start
+# of the session, so the reader was stuck at "History message 094". Older
+# pages wait 2.5 s, so the loading spinner is on screen long enough to check.
+#
+#   EXPO_PUBLIC_OMG_DEMO=1 EXPO_PUBLIC_OMG_PERFORMANCE_FIXTURE=1 \
+#     bun run test:e2e --build --flow history-paging --record
+appId: dev.omg.computer
+---
+- launchApp:
+    clearState: false
+# A simulator-level Apple Account prompt can cover the app. It is not ours.
+- runFlow:
+    when:
+      visible: "Apple.*Account Verification"
+    commands:
+      - tapOn: "Not Now"
+- runFlow:
+    when:
+      visible: "Agree and continue"
+    commands:
+      - tapOn: "Agree and continue"
+- extendedWaitUntil:
+    visible: ".*api-gateway.*"
+    timeout: 150000
+- tapOn: "api-gateway folder"
+- extendedWaitUntil:
+    visible: ".*Refactor the rate limiter to a sliding window.*"
+    timeout: 30000
+- tapOn: ".*Refactor the rate limiter to a sliding window.*"
+- extendedWaitUntil:
+    visible: ".*History message 100.*"
+    timeout: 30000
+- swipe:
+    start: "50%, 30%"
+    end: "50%, 85%"
+# Advisory: reading the tree can outlast the 2.5 s load. The video shows it.
+- extendedWaitUntil:
+    visible: "Loading earlier messages"
+    timeout: 5000
+    optional: true
+- takeScreenshot: history-paging-spinner
+- scrollUntilVisible:
+    element:
+      text: ".*History message 060.*"
+    direction: UP
+    timeout: 90000
+- assertVisible: ".*History message 060.*"
+- scrollUntilVisible:
+    element:
+      text: ".*History message 001.*"
+    direction: UP
+    timeout: 120000
+- assertVisible: ".*History message 001.*"
+- takeScreenshot: history-paging-start

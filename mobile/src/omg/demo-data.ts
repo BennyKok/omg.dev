@@ -658,12 +658,36 @@ function answer(path: string): unknown | null {
   }
   const messages = clean.match(/^\/api\/sessions\/([^/]+)\/messages$/);
   if (messages) {
-    const limit = Number(new URL(path, "https://demo.invalid").searchParams.get("limit")) || 40;
-    return { messages: demoMessages(decodeURIComponent(messages[1])).slice(-limit) };
+    const query = new URL(path, "https://demo.invalid").searchParams;
+    const limit = Number(query.get("limit")) || 40;
+    const sessionId = decodeURIComponent(messages[1]);
+    if (performanceFixture && sessionId === "demo-rate-limiter") return foldedHistoryPage(demoMessages(sessionId), query);
+    return { messages: demoMessages(sessionId).slice(-limit) };
   }
   // Writes (send / interrupt / toggles) succeed silently — demo mode never
   // reaches a real box, and a screenshot is not going to send a message.
   return {};
+}
+
+const performanceFixture = process.env.EXPO_PUBLIC_OMG_PERFORMANCE_FIXTURE === "1";
+
+/**
+ * The 100-row history answers the way a real machine does for a client that
+ * declares `workRows`: each row stands for FOLD raw messages (a run of tool
+ * calls folded into one), the cursor counts raw messages, and a page of 40 raw
+ * messages is only 7 rows. The old hook read that short page as the start of
+ * the session and never loaded more. `page=backward&before=` with `rows` reads
+ * back until it has that many rows, as indexedMessageRowPage does.
+ */
+const FOLD = 6;
+function foldedHistoryPage(rows: OmgMessage[], query: URLSearchParams) {
+  const limit = Number(query.get("limit")) || 40;
+  const backward = query.get("page") === "backward";
+  const before = backward ? Math.max(0, Number(query.get("before")) || 0) : rows.length * FOLD;
+  const end = Math.ceil(before / FOLD);
+  const wanted = backward && Number(query.get("rows")) > 0 ? Number(query.get("rows")) : Math.ceil(limit / FOLD);
+  const start = Math.max(0, end - wanted);
+  return { messages: rows.slice(start, end), nextBefore: start > 0 ? start * FOLD : null, total: rows.length * FOLD };
 }
 
 // Opt-in slow-network fixture for recorded opening/navigation checks only.
@@ -718,6 +742,7 @@ export function getDemoTransport(): OmgTransport {
     async request<T>(path: string, init?: RequestInit): Promise<T> {
       const requestedAt = Date.now();
       await openingDelay(path);
+      if (performanceFixture && path.includes("page=backward")) await new Promise((done) => setTimeout(done, 2500));
       const move = path.match(/^\/api\/sessions\/([^/]+)\/move$/);
       if (move && init?.method === "POST") {
         const id = decodeURIComponent(move[1]);
