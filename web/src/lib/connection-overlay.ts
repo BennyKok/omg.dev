@@ -60,7 +60,8 @@ export const STARTUP_SHOW_AFTER_MS = 600;
 export const RESUME_ESTIMATE_MS = 30_000;
 
 export function computerIsResuming(lifecycle: RuntimeLifecycle | null | undefined): boolean {
-  return lifecycle === "paused" || lifecycle === "waking" || lifecycle === "starting" || lifecycle === "ready";
+  return lifecycle === "paused" || lifecycle === "waking" || lifecycle === "starting" || lifecycle === "ready"
+    || lifecycle === "updating";
 }
 
 const HIDDEN: ConnectionOverlayView = {
@@ -135,6 +136,7 @@ function baseView(input: ConnectionOverlayInput): ConnectionOverlayView {
       mode: input.ready ? "pill" : "overlay",
       mood: "booting",
       title: input.lifecycle === "starting" ? "Starting your computer…"
+        : input.lifecycle === "updating" ? "Updating your computer…"
         : input.lifecycle === "ready" ? "Connecting to your computer…" : "Resuming your computer…",
       detail: input.notLiveMs < RESUME_ESTIMATE_MS
         ? "Please wait. Allow about 30 seconds."

@@ -133,3 +133,9 @@ test("brief offline drops do not open a dialog", () => {
 test("a recovered socket clears an older bootstrap error", () => {
   expect(connectionOverlayView({ ...live, error: "old 503", notLiveMs: FAIL_AFTER_MS * 2 }).mode).toBe("hidden");
 });
+
+test("an update restart says so and only asks the user to wait", () => {
+  const view = reconnecting(LONG_WAIT_MS + FAIL_AFTER_MS, { lifecycle: "updating" });
+  expect(view).toMatchObject({ mode: "pill", mood: "booting", canRetry: false, canSwitch: false });
+  expect(view.title).toMatch(/updat/i);
+});

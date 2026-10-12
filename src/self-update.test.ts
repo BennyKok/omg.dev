@@ -320,6 +320,72 @@ echo recovered > node_modules/recovered/index.js
     expect(existsSync(join(target, "bun.lock"))).toBe(false);
   });
 
+  // Cloud Computers update from the neutral bundle. Re-resolving ~2 GB on every
+  // update held a woken Computer for ~40 s although the dependencies were the
+  // same. The failure this catches: an install runs, or the old tree is lost,
+  // when the manifest did not change.
+  function neutralOverInstalledTree(
+    root: string,
+    oldDeps: Record<string, string>,
+    newDeps: Record<string, string>,
+  ): { archive: string; target: string; bun: string } {
+    stage(root, "neutral", {
+      "package.json": JSON.stringify({ name: "omg", version: "9.9.9", dependencies: newDeps }),
+      "src/cli.ts": "new\n",
+    });
+    const archive = packBundle(root, "neutral");
+    const target = join(root, "install");
+    mkdirSync(join(target, "node_modules", "left-pad"), { recursive: true });
+    writeFileSync(join(target, "node_modules", "left-pad", "index.js"), "old\n");
+    writeFileSync(
+      join(target, "package.json"),
+      JSON.stringify({ name: "omg", version: "9.9.8", dependencies: oldDeps }),
+    );
+    const bun = writeFakeBun(
+      root,
+      `mkdir -p node_modules/fresh && echo fresh > node_modules/fresh/index.js\n`,
+    );
+    return { archive, target, bun };
+  }
+
+  test("keeps the installed tree when the dependency manifest did not change", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lfg-bundle-install-"));
+    cleanup.push(root);
+    const deps = { "left-pad": "^1.3.0", zod: "^4.0.0" };
+    const { archive, target, bun } = neutralOverInstalledTree(root, deps, { zod: "^4.0.0", "left-pad": "^1.3.0" });
+
+    const result = await installReleaseBundle(archive, target, bun);
+    expect(result).toEqual({ dependenciesInstalled: false, dependenciesReused: true });
+    expect(readFileSync(join(target, "node_modules", "left-pad", "index.js"), "utf8")).toBe("old\n");
+    expect(existsSync(join(target, "node_modules", "fresh"))).toBe(false);
+    expect(existsSync(join(target, "node_modules.previous"))).toBe(false);
+    expect(readFileSync(join(target, "src", "cli.ts"), "utf8")).toBe("new\n");
+  });
+
+  test("installs when the dependency manifest changed", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lfg-bundle-install-"));
+    cleanup.push(root);
+    const { archive, target, bun } = neutralOverInstalledTree(root, { "left-pad": "^1.3.0" }, { "left-pad": "^2.0.0" });
+
+    const result = await installReleaseBundle(archive, target, bun);
+    expect(result.dependenciesInstalled).toBe(true);
+    expect(existsSync(join(target, "node_modules", "left-pad"))).toBe(false);
+    expect(existsSync(join(target, "node_modules", "fresh"))).toBe(true);
+    expect(existsSync(join(target, "node_modules.previous"))).toBe(false);
+  });
+
+  // A file: spec can point at a tarball whose contents changed under the same name.
+  test("installs when a dependency is not a registry package", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lfg-bundle-install-"));
+    cleanup.push(root);
+    const deps = { "left-pad": "file:vendor/left-pad.tgz" };
+    const { archive, target, bun } = neutralOverInstalledTree(root, deps, deps);
+
+    const result = await installReleaseBundle(archive, target, bun);
+    expect(result.dependenciesInstalled).toBe(true);
+    expect(existsSync(join(target, "node_modules", "fresh"))).toBe(true);
+  });
+
   test("does not drop the lockfile on a different install failure", async () => {
     const root = mkdtempSync(join(tmpdir(), "lfg-bundle-install-"));
     cleanup.push(root);
