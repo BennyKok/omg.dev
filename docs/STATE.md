@@ -2,14 +2,15 @@
 
 Read this first. It records what is true now. The nightly librarian agent
 updates it from merged pull requests. Verify a fact in code before you depend
-on it. Last refresh: 2026-10-09.
+on it. Last refresh: 2026-10-12.
 
 ## Active work (last 14 days)
 
-- **First run and previews**: preview-first tasks, Expo preview cards,
-  Connect Expo for iPhone, Simulator streaming, clipped viewport fixes,
-  design checks, and public first apps (#316, #318–#324, #328–#329, #331,
-  #334–#335, #339, #341, #347, #368, #373, #378).
+- **First run and previews**: Expo sign-in and preview cards, Simulator
+  streaming and auto-start, clipped viewport fixes, web scaffolding,
+  design checks, public first apps, Android template fixes, instruction-chip
+  display, and first-task web publishing and APK builds (#328–#329, #331,
+  #334–#335, #339, #341, #347, #368, #373, #378, #382, #385).
 - **Android builds**: cloud APK builds, committed app icons, and tool timeout
   handling (#357, #367, #370).
 - **Agent media**: media generation billed to omg credits (#325).
@@ -20,15 +21,15 @@ on it. Last refresh: 2026-10-09.
   #333, #365, #371–#372).
 - **Computer**: writable state fallback, paused polling, Chrome startup, and
   removal of the screen-lock password prompt (#336–#337, #349–#350).
-- **Web, connectors, and embed**: token exchange, paste-back sign-in, correct
-  project chat selection, host toasts, hidden Bots/Board, and lazy Connectors
-  loading, and work-row timing (#315, #317, #340, #342, #351–#352,
-  #354–#355).
+- **Web, connectors, and embed**: paste-back sign-in, correct project chat
+  selection, host toasts, hidden Bots/Board, lazy Connectors loading, and
+  owner connector access for scheduled auto agents (#340, #342, #351–#352,
+  #354–#355, #383).
 - **Security and updates**: signed-in tailnet access, dependency audit fixes,
   and fresh release lookup for self-update (#338, #344, #353).
-- **Agent docs**: self-host pricing, current context and archive rules, and
-  hosted web app sign-in, automatic sign-in/sign-out rules, and corrected
-  bot plan status (#359, #374–#377, #380).
+- **Agent docs**: self-host pricing, current context and archive rules,
+  STATE.md refreshes, hosted web app sign-in, automatic sign-in/sign-out
+  rules, and corrected bot plan status (#359, #374–#377, #380–#381).
 
 ## Open pull requests
 
