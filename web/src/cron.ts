@@ -43,9 +43,7 @@ function fieldMatch(field: string, value: number): boolean {
   return false;
 }
 
-// Intl.DateTimeFormat construction is expensive (~tens of µs). nextRunAt scans
-// minute-by-minute, so building one per iteration dominated the cost and made
-// the list lag. Cache one formatter per timezone.
+// Reuse the timezone formatter across matching and next-run previews.
 const fmtCache = new Map<string, Intl.DateTimeFormat>();
 function zonedFormatter(tz: string): Intl.DateTimeFormat {
   let f = fmtCache.get(tz);
@@ -96,17 +94,71 @@ export function cronMatches(expr: string, d: Date, tz: string): boolean {
   );
 }
 
-// Next minute (> from) at which the cron fires, in the scheduler tz. Scans up to
-// ~400 days forward; returns null if nothing matches (or expr is invalid).
+// Keep repeated renders cheap without retaining an unbounded schedule history.
+const nextRunCache = new Map<string, { from: number; next: number | null }>();
+const MAX_NEXT_RUN_CACHE = 256;
+
+// Next minute (> from) at which the cron fires, within the same 400-day
+// horizon as the scheduler preview. Inspect calendar days, not every minute.
+// A day whose UTC offset changes falls back to the minute scan, preserving
+// missing/repeated wall times (including half-hour DST changes).
 export function nextRunAt(expr: string, tz: string, from: number = Date.now()): number | null {
-  if (!isValidCron(expr)) return null;
-  const start = Math.floor(from / 60_000) * 60_000 + 60_000; // next whole minute
-  const maxMinutes = 400 * 24 * 60;
-  for (let i = 0; i < maxMinutes; i++) {
-    const t = start + i * 60_000;
-    if (cronMatches(expr, new Date(t), tz)) return t;
+  if (!isValidCron(expr) || !Number.isFinite(from)) return null;
+  const start = Math.floor(from / 60_000) * 60_000 + 60_000;
+  const key = JSON.stringify([expr, tz]);
+  const cached = nextRunCache.get(key);
+  if (cached && start >= cached.from &&
+      (cached.next === null ? start === cached.from : start <= cached.next)) {
+    return cached.next;
   }
-  return null;
+  const fields = expr.trim().split(/\s+/);
+  const allowed = fields.map((field, index) => {
+    const min = index === 2 || index === 3 ? 1 : 0;
+    const max = [59, 23, 31, 12, 6][index];
+    const values = new Set<number>();
+    for (let value = min; value <= max; value++) {
+      if (fieldMatch(field, value)) values.add(value);
+    }
+    return values;
+  });
+  const remember = (next: number | null) => {
+    nextRunCache.delete(key);
+    if (nextRunCache.size >= MAX_NEXT_RUN_CACHE) {
+      nextRunCache.delete(nextRunCache.keys().next().value!);
+    }
+    nextRunCache.set(key, { from: start, next });
+    return next;
+  };
+  if (allowed.some((values) => values.size === 0)) return remember(null);
+  const times: number[] = [];
+  for (const hour of allowed[1]) for (const minute of allowed[0]) times.push(hour * 60 + minute);
+  const dateMatches = (p: ReturnType<typeof zonedParts>) =>
+    allowed[2].has(p.dom) && allowed[3].has(p.month) && allowed[4].has(p.dow);
+  const end = start + 400 * 24 * 60 * 60_000;
+  for (let t = start; t < end;) {
+    const p = zonedParts(new Date(t), tz);
+    const minuteOfDay = p.hour * 60 + p.minute;
+    const span = Math.min(1440 - minuteOfDay, (end - t) / 60_000);
+    const last = zonedParts(new Date(t + (span - 1) * 60_000), tz);
+    const steady = last.dom === p.dom && last.month === p.month && last.dow === p.dow &&
+      last.hour * 60 + last.minute === minuteOfDay + span - 1;
+    if (steady) {
+      if (dateMatches(p)) {
+        const candidate = times.find((minute) => minute >= minuteOfDay && minute < minuteOfDay + span);
+        if (candidate !== undefined) return remember(t + (candidate - minuteOfDay) * 60_000);
+      }
+    } else {
+      for (let i = 0; i < span; i++) {
+        const instant = t + i * 60_000;
+        const at = i === 0 ? p : zonedParts(new Date(instant), tz);
+        if (dateMatches(at) && allowed[1].has(at.hour) && allowed[0].has(at.minute)) {
+          return remember(instant);
+        }
+      }
+    }
+    t += span * 60_000;
+  }
+  return remember(null);
 }
 
 // ---- locale-aware relative time ("in 3h", "in 2 days") ----
