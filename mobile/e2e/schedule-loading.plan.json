@@ -1,0 +1,46 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": false
+  },
+  "steps": [
+    {
+      "name": "Load 200 schedules",
+      "open": "omg:///schedules",
+      "goal": "If iOS asks Open in omg, tap Open. Dismiss Apple Account Verification with Not Now if needed. Accept the AI data notice for this isolated demo fixture if shown. Wait for Schedules. Do not change any switches.",
+      "done": "The schedule list shows 200 schedules and the first rows.",
+      "expect": [
+        "200 of 200 on",
+        "Schedule 001",
+        "Schedule 002"
+      ],
+      "timeoutMs": 60000
+    },
+    {
+      "name": "Schedule responds to taps",
+      "goal": "Tap the Schedule 001 row label to expand it. Do not tap its switch.",
+      "done": "The row expands to show its prompt and run history.",
+      "expect": [
+        "Schedule loading regression fixture.",
+        "Never run"
+      ],
+      "timeoutMs": 60000
+    },
+    {
+      "name": "List scrolls",
+      "goal": "Wait after the list scroll. Do not tap a switch.",
+      "done": "Rows farther down the list are visible and the screen responds.",
+      "expect": [
+        "Schedule 015"
+      ],
+      "timeoutMs": 60000,
+      "swipe": {
+        "start": "50%, 85%",
+        "end": "50%, 35%"
+      },
+      "forbid": [
+        "Schedule 001"
+      ]
+    }
+  ]
+}

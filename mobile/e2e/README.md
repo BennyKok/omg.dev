@@ -142,3 +142,15 @@ OMG_E2E_ENTRY_FILE=scripts/managed-models-e2e-entry.tsx \
 Stop the forward after the check. The test screen is included only when the
 explicit `OMG_E2E_ENTRY_FILE` override is set. Normal app builds use the Expo
 Router entrypoint.
+
+Schedule loading regression (200 daily, weekly, monthly, annual, and
+impossible schedules through the demo transport):
+
+```bash
+EXPO_PUBLIC_OMG_DEMO=1 EXPO_PUBLIC_OMG_SCHEDULE_LOAD_FIXTURE=1 \
+  OMG_E2E_ENTRY_FILE=scripts/no-project-e2e-entry.tsx \
+  bun run test:e2e --build --plan schedule-loading --record
+```
+
+This tests the real native screen with synthetic schedules. It does not
+measure the hosted API or relay.

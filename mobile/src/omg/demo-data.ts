@@ -439,6 +439,20 @@ function demoBots() {
  * matches no scope, so demo mode would never show the Updates pill.
  */
 function demoAutoAgents() {
+  // Opt-in load regression fixture; uses the real Schedules screen and hook.
+  if (process.env.EXPO_PUBLIC_OMG_SCHEDULE_LOAD_FIXTURE === "1") {
+    const schedules = ["0 9 * * *", "0 9 * * 1", "0 9 1 * *", "0 0 1 1 *", "0 0 31 2 *"];
+    return {
+      tz: "Asia/Hong_Kong",
+      agents: Array.from({ length: 200 }, (_, index) => ({
+        id: `schedule-load-${index}`,
+        name: `Schedule ${String(index + 1).padStart(3, "0")}`,
+        enabled: true,
+        schedule: schedules[index % schedules.length],
+        prompt: "Schedule loading regression fixture.",
+      })),
+    };
+  }
   return {
     tz: "Asia/Hong_Kong",
     agents: [
