@@ -26150,8 +26150,8 @@ export function ModelOptionList({
               event.stopPropagation();
               if (event.key === "Escape") onEscape?.();
               if (event.key === "Enter") {
-                if (showBuilder) chooseBuilder();
-                else if (displayedModels[0]) chooseModel(displayedModels[0]);
+                if (displayedModels[0]) chooseModel(displayedModels[0]);
+                else if (showBuilder) chooseBuilder();
               }
             }}
             placeholder="Filter models"
@@ -26166,7 +26166,6 @@ export function ModelOptionList({
           fill ? "min-h-0 flex-1" : large ? "max-h-[52dvh]" : "max-h-72",
         )}
       >
-        {showBuilder ? <AppBuilderOption selected={!!builderChoice?.selected} onChoose={chooseBuilder} locked={prices[APP_BUILDER_MODEL]?.available === false} /> : null}
         {filtered.length ? (
           groups.map((group) => (
             <div key={group.level} role={group.label ? "group" : undefined} aria-label={group.label || undefined} className="mb-2 last:mb-0">
@@ -26189,6 +26188,12 @@ export function ModelOptionList({
         ) : !showBuilder ? (
           <div className="px-3 py-8 text-center text-sm text-muted-foreground">
             No matching models
+          </div>
+        ) : null}
+        {showBuilder ? (
+          <div role="group" aria-label="Workflows" className="mt-2 border-t border-border pt-2">
+            <div className="px-3 pb-1 pt-2 text-[11px] font-medium text-muted-foreground">Workflows</div>
+            <AppBuilderOption selected={!!builderChoice?.selected} onChoose={chooseBuilder} locked={prices[APP_BUILDER_MODEL]?.available === false} />
           </div>
         ) : null}
       </div>
