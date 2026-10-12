@@ -172,4 +172,42 @@ describe("tools-changed stream", () => {
     const res = await serveConnectorsMcpRequest(new Request("http://box/mcp/connectors", { method: "GET" }), "benny");
     expect(res.status).toBe(405);
   });
+  test("an allow-list exposes only the listed connectors and refuses the rest", async () => {
+    // A scheduled auto agent granted ["benny"] must not see or call the member's
+    // other connections (here the shared one), even though the member can.
+    createConnector({ owner: "benny", name: "Benny", endpoint: `http://127.0.0.1:${s1.port}/mcp` });
+    createConnector({ owner: ORG_OWNER, name: "Shared", endpoint: `http://127.0.0.1:${s2.port}/mcp` });
+    const allow = new Set(["benny"]);
+    const post = (body: unknown) =>
+      serveConnectorsMcpRequest(
+        new Request("http://box/mcp/connectors", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
+        "benny",
+        undefined,
+        null,
+        allow,
+      );
+
+    const list = (await (await post({ jsonrpc: "2.0", id: 1, method: "tools/list" })).json()) as { result: { tools: { name: string }[] } };
+    expect(list.result.tools.map((t) => t.name)).toEqual(["benny__echo"]);
+
+    const ok = (await (await post({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "benny__echo", arguments: { message: "hi" } } })).json()) as { result: { content: { text: string }[] } };
+    expect(ok.result.content[0]!.text).toBe("bennySrv:hi");
+
+    const denied = (await (await post({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "shared__echo", arguments: { message: "hi" } } })).json()) as { result: { isError?: boolean; content: { text: string }[] } };
+    expect(denied.result.isError).toBe(true);
+    expect(denied.result.content[0]!.text).toContain("unknown connector tool");
+  });
+
+  test("an empty allow-list exposes nothing", async () => {
+    createConnector({ owner: "benny", name: "Benny", endpoint: `http://127.0.0.1:${s1.port}/mcp` });
+    const res = await serveConnectorsMcpRequest(
+      new Request("http://box/mcp/connectors", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) }),
+      "benny",
+      undefined,
+      null,
+      new Set(),
+    );
+    const body = (await res.json()) as { result: { tools: unknown[] } };
+    expect(body.result.tools).toEqual([]);
+  });
 });

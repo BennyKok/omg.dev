@@ -41,17 +41,29 @@ export type ApprovalGate = (
 
 const runInline: ApprovalGate = async () => ({ held: false });
 
+/**
+ * Connector slugs a caller may use, or null for "every connector of the
+ * member". Interactive sessions pass null. A scheduled auto agent passes the
+ * slugs its row lists, so a report that needs Meta Ads never sees Gmail.
+ */
+export type ConnectorAllowList = ReadonlySet<string> | null;
+
+function memberConnectors(owner: string, roleId: string | null | undefined, allow: ConnectorAllowList): Connector[] {
+  const all = connectorsForMember(owner, roleId);
+  return allow ? all.filter((c) => allow.has(c.slug)) : all;
+}
+
 type Rpc = { jsonrpc?: string; id?: number | string | null; method?: string; params?: Record<string, unknown> };
 
 /**
  * The tools this member's connectors expose, namespaced, with a slug index.
  * The member reads three buckets: team, their role (`roleId`), and their own.
  */
-export async function listOwnerTools(owner: string, roleId?: string | null): Promise<{
+export async function listOwnerTools(owner: string, roleId?: string | null, allow: ConnectorAllowList = null): Promise<{
   tools: { name: string; description: string; inputSchema: unknown }[];
   bySlug: Map<string, Connector>;
 }> {
-  const connectors = connectorsForMember(owner, roleId);
+  const connectors = memberConnectors(owner, roleId, allow);
   const bySlug = new Map(connectors.map((c) => [c.slug, c]));
   const tools: { name: string; description: string; inputSchema: unknown }[] = [];
   for (const connector of connectors) {
@@ -72,7 +84,13 @@ export async function listOwnerTools(owner: string, roleId?: string | null): Pro
   return { tools, bySlug };
 }
 
-async function handleMessage(msg: Rpc, owner: string, gate: ApprovalGate, roleId?: string | null): Promise<Rpc | null> {
+async function handleMessage(
+  msg: Rpc,
+  owner: string,
+  gate: ApprovalGate,
+  roleId: string | null | undefined,
+  allow: ConnectorAllowList,
+): Promise<Rpc | null> {
   const id = msg.id ?? null;
   switch (msg.method) {
     case "initialize":
@@ -89,14 +107,14 @@ async function handleMessage(msg: Rpc, owner: string, gate: ApprovalGate, roleId
     case "notifications/cancelled":
       return null; // notifications get no response
     case "tools/list": {
-      const { tools } = await listOwnerTools(owner, roleId);
+      const { tools } = await listOwnerTools(owner, roleId, allow);
       return { jsonrpc: "2.0", id, result: { tools } } as Rpc;
     }
     case "tools/call": {
       const name = String(msg.params?.name ?? "");
       const args = (msg.params?.arguments as Record<string, unknown>) ?? {};
       const split = splitConnectorTool(name);
-      const bySlug = new Map(connectorsForMember(owner, roleId).map((c) => [c.slug, c]));
+      const bySlug = new Map(memberConnectors(owner, roleId, allow).map((c) => [c.slug, c]));
       const connector = split ? bySlug.get(split.slug) : undefined;
       if (!split || !connector) {
         return { jsonrpc: "2.0", id, result: toolError(`unknown connector tool "${name}"`) } as Rpc;
@@ -182,6 +200,7 @@ export async function serveConnectorsMcpRequest(
   owner: string,
   gate: ApprovalGate = runInline,
   roleId?: string | null,
+  allow: ConnectorAllowList = null,
 ): Promise<Response> {
   if (req.method === "GET") return toolsChangedStream(req);
   if (req.method !== "POST") return new Response(null, { status: 405 });
@@ -195,7 +214,7 @@ export async function serveConnectorsMcpRequest(
   const messages = (batch ? parsed : [parsed]) as Rpc[];
   const responses: Rpc[] = [];
   for (const m of messages) {
-    const r = await handleMessage(m, owner, gate, roleId);
+    const r = await handleMessage(m, owner, gate, roleId, allow);
     if (r) responses.push(r);
   }
   const headers = { "Cache-Control": "no-store" } as Record<string, string>;
