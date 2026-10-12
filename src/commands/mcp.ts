@@ -1693,7 +1693,7 @@ export function buildOmgMcpServer(): McpServer {
       inputSchema: {
         name: z.string().min(1).describe("Short project folder name"),
         parent: z.string().optional().describe("Existing parent folder; omit to use the configured projects directory"),
-        template: z.enum(["blank", "expo"]).optional().describe("Starter template. Use expo for Expo or universal mobile apps; omit for blank."),
+        template: z.enum(["blank", "expo", "expo-game"]).optional().describe("Starter template. Use expo for Expo or universal mobile apps, expo-game for games (real-time, arcade, racing, puzzle, 3D; adds the game kit and the omg-game-builder skill); omit for blank."),
       },
     },
     async ({ name, parent, template }) => result(await api("/api/projects/create-folder", {

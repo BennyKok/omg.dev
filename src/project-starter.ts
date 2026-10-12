@@ -2,7 +2,8 @@ import { copyFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path";
 
 export const PROJECT_BUILDER_SKILL = ".agents/skills/omg-app-builder/SKILL.md";
-export const PROJECT_TEMPLATES = ["blank", "expo"] as const;
+export const PROJECT_GAME_SKILL = ".agents/skills/omg-game-builder/SKILL.md";
+export const PROJECT_TEMPLATES = ["blank", "expo", "expo-game"] as const;
 export type ProjectTemplate = (typeof PROJECT_TEMPLATES)[number];
 
 const PROJECT_INSTRUCTIONS = `# omg.dev project
@@ -11,9 +12,18 @@ For initial product creation or first deployment, read \`${PROJECT_BUILDER_SKILL
 Keep later maintenance scoped to the user's request. Preserve existing project instructions and deployment identity.
 `;
 
-function skillSourcePath(): string {
-  return join(import.meta.dir, "..", "agents", "skills", "omg-app-builder", "SKILL.md");
+function skillSourcePath(name = "omg-app-builder"): string {
+  return join(import.meta.dir, "..", "agents", "skills", name, "SKILL.md");
 }
+
+/**
+ * Templates that start from another template. The base is copied first, then
+ * the overlay replaces and adds files, so the game kit does not fork the Expo
+ * configuration, scripts or dependencies.
+ */
+const TEMPLATE_BASE: Partial<Record<ProjectTemplate, Exclude<ProjectTemplate, "blank">>> = {
+  "expo-game": "expo",
+};
 
 function templateSourcePath(template: Exclude<ProjectTemplate, "blank">): string {
   return join(import.meta.dir, "..", "agents", "templates", template);
@@ -56,10 +66,19 @@ export async function installProjectTemplate(cwd: string, template: ProjectTempl
     await Bun.write(join(cwd, "README.md"), `# ${name}\n`);
     return;
   }
-  await copyTemplateTree(templateSourcePath(template), cwd, {
-    __OMG_PROJECT_NAME__: name,
-    __OMG_PROJECT_SLUG__: projectSlug(name),
-  });
+  const replacements = { __OMG_PROJECT_NAME__: name, __OMG_PROJECT_SLUG__: projectSlug(name) };
+  const base = TEMPLATE_BASE[template];
+  if (base) await copyTemplateTree(templateSourcePath(base), cwd, replacements);
+  await copyTemplateTree(templateSourcePath(template), cwd, replacements);
+  if (template === "expo-game") {
+    // The overlay adds no dependencies; it only needs a test script on top of the base package.json.
+    const pkgPath = join(cwd, "package.json");
+    const pkg = JSON.parse(await readFile(pkgPath, "utf8")) as { scripts?: Record<string, string> };
+    pkg.scripts = { ...pkg.scripts, test: "bun test" };
+    await writeFile(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
+    await mkdir(join(cwd, ".agents", "skills", "omg-game-builder"), { recursive: true });
+    await Bun.write(join(cwd, PROJECT_GAME_SKILL), await Bun.file(skillSourcePath("omg-game-builder")).text());
+  }
 }
 
 export async function installProjectBuilderSkill(cwd: string): Promise<void> {
