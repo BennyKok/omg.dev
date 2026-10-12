@@ -1,0 +1,13 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "lib": [
+      "ESNext",
+      "DOM"
+    ]
+  },
+  "include": [
+    "../src/ios-testing/**/*.ts",
+    "scripts/apple-login.ts"
+  ]
+}

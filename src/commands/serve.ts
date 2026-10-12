@@ -19,6 +19,7 @@ import { PATHS, appVersion, installInfo, localServeBaseUrl } from "../config.ts"
 import { hostDisks } from "../host-disks.ts";
 import { desktopRuntimeReadyPayload } from "../desktop-parent.ts";
 import { handleServerAccessRequest } from "../server-access.ts";
+import { iosSetupRoutes } from "../ios-testing/routes.ts";
 import { CloudAccountError, createCloudAccount } from "../cloud-account.ts";
 import { generateSessionTitle, omgChatCompletionsEndpoint } from "../session-auto-title.ts";
 import {
@@ -4372,6 +4373,7 @@ export async function cmdServe() {
     localName: () => getGlobalSettingsSync().machineName,
     renameLocal: async (machineName) => { await setGlobalSettings({ machineName }); },
   });
+  const handleIosSetup = iosSetupRoutes({ root: join(PATHS.data, "ios-testing"), runtimeRoot: PATHS.root });
   const projectPreview = createProjectPreviewService({
     session: async (id) => {
       const row = (await listSessions()).find(s => s.sessionId === id || s.nativeSessionId === id);
@@ -4642,6 +4644,10 @@ export async function cmdServe() {
 
       const response = await (async () => {
       try {
+      if (path === "/api/ios-testing" || path.startsWith("/api/ios-testing/")) {
+        const iosSetupResponse = await handleIosSetup(req, server.requestIP(req)?.address ?? null);
+        if (iosSetupResponse) return iosSetupResponse;
+      }
       // The shared MCP endpoint. Agents registered with `--transport http`
       // reach the same tool surface `lfg mcp` exposes over stdio, without each
       // session spawning its own copy of this process. Streamable HTTP drives

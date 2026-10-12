@@ -81,9 +81,25 @@ export type FetchLike = (input: string | URL | Request, init?: RequestInit) => P
 
 export interface CloudAccountOptions {
   credentialPath?: string;
+  /** Native clients can keep credentials in their platform's protected store. */
+  credentialStore?: {
+    id: string;
+    load(): CloudCredentials | null;
+    save(credentials: CloudCredentials): void;
+    clear(): void;
+  };
   authUrl?: string;
   controlPlaneUrl?: string;
   resource?: string;
+  /** A separate explicit capability grant can reuse the same PKCE lifecycle. */
+  scopes?: string;
+  clientName?: string;
+  routePrefix?: string;
+  inheritIdentity?: boolean;
+  /** Verify the provider's public metadata before using a separate grant. */
+  discoverOAuth?: boolean;
+  /** Native purpose grants receive callbacks only on the local runtime. */
+  loopbackOnly?: boolean;
   fetch?: FetchLike;
   now?: () => number;
   /** How long a started sign-in waits for its callback. Default 10 minutes. */
@@ -281,6 +297,10 @@ export function cloudApiBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
 
 export function createCloudAccount(options: CloudAccountOptions = {}): CloudAccount {
   const credentialPath = options.credentialPath ?? CLOUD_CREDENTIALS_PATH;
+  const storageId = options.credentialStore?.id ?? credentialPath;
+  const loadCredentials = () => options.credentialStore ? options.credentialStore.load() : loadCloudCredentials(credentialPath);
+  const saveCredentials = (credentials: CloudCredentials) => options.credentialStore ? options.credentialStore.save(credentials) : saveCloudCredentials(credentials, credentialPath);
+  const clearCredentials = () => options.credentialStore ? options.credentialStore.clear() : clearCloudCredentials(credentialPath);
   const authUrl = (
     options.authUrl ?? (process.env.OMG_AUTH_URL?.trim() || DEFAULT_AUTH_URL)
   ).replace(/\/+$/, "");
@@ -288,10 +308,33 @@ export function createCloudAccount(options: CloudAccountOptions = {}): CloudAcco
     options.controlPlaneUrl ?? cloudApiBaseUrl()
   ).replace(/\/+$/, "");
   const resource = options.resource ?? (process.env.OMG_OAUTH_RESOURCE?.trim() || DEFAULT_RESOURCE);
+  const scopes = options.scopes ?? OAUTH_SCOPES;
+  const routePrefix = options.routePrefix ?? "/api/cloud";
   const fetchImpl = options.fetch ?? globalThis.fetch;
   const now = options.now ?? Date.now;
   const pendingTtlMs = options.pendingTtlMs ?? 10 * 60 * 1000;
   const pending = new Map<string, PendingLogin>();
+  let discovery: Promise<void> | undefined;
+
+  async function discoverProvider(): Promise<void> {
+    if (!options.discoverOAuth) return;
+    if (!discovery) {
+      discovery = (async () => {
+        const response = await fetchImpl(`${authUrl}/.well-known/oauth-authorization-server`, { redirect: "error", signal: AbortSignal.timeout(15_000) });
+        if (!response.ok) throw new CloudAccountError("Signing access could not be checked. Try again.", 502);
+        const metadata = await response.json() as Record<string, unknown>;
+        const supports = (field: string, value: string) => Array.isArray(metadata[field]) && metadata[field].includes(value);
+        if (metadata.issuer !== authUrl || metadata.authorization_endpoint !== `${authUrl}/api/auth/oauth2/authorize`
+          || metadata.token_endpoint !== `${authUrl}/api/auth/oauth2/token` || metadata.registration_endpoint !== `${authUrl}/api/auth/oauth2/register`
+          || !supports("code_challenge_methods_supported", "S256") || !supports("token_endpoint_auth_methods_supported", "none")
+          || !supports("grant_types_supported", "authorization_code") || !supports("grant_types_supported", "refresh_token")
+          || !supports("prompt_values_supported", "consent") || scopes.split(/\s+/).some((scope) => !supports("scopes_supported", scope))) {
+          throw new CloudAccountError("iOS signing access is not available from this service yet.", 503);
+        }
+      })().catch((error) => { discovery = undefined; throw error; });
+    }
+    await discovery;
+  }
 
   const prunePending = () => {
     for (const [state, entry] of pending) {
@@ -300,6 +343,7 @@ export function createCloudAccount(options: CloudAccountOptions = {}): CloudAcco
   };
 
   async function requestToken(params: URLSearchParams, action: string) {
+    await discoverProvider();
     const response = await fetchImpl(`${authUrl}/api/auth/oauth2/token`, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
@@ -322,15 +366,17 @@ export function createCloudAccount(options: CloudAccountOptions = {}): CloudAcco
   }
 
   async function registerClient(redirectUri: string): Promise<string> {
+    await discoverProvider();
     const response = await fetchImpl(`${authUrl}/api/auth/oauth2/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({
-        client_name: "omg.dev computer",
+        client_name: options.clientName ?? "omg.dev computer",
         redirect_uris: [redirectUri],
         grant_types: ["authorization_code", "refresh_token"],
         response_types: ["code"],
         token_endpoint_auth_method: "none",
+        ...(options.scopes ? { scope: scopes, application_type: "native" } : {}),
       }),
     });
     if (!response.ok) throw await oauthFailure(response, "Client registration");
@@ -356,22 +402,23 @@ export function createCloudAccount(options: CloudAccountOptions = {}): CloudAcco
       refreshToken: token.refreshToken ?? creds.refreshToken,
       expiresAt: now() + token.expiresIn * 1000,
     };
-    saveCloudCredentials(refreshed, credentialPath);
+    saveCredentials(refreshed);
     return refreshed;
   }
 
   async function getAccessToken(): Promise<string | null> {
-    const creds = loadCloudCredentials(credentialPath);
+    const creds = loadCredentials();
     if (!creds) return null;
+    if (options.scopes && (creds.kind !== "oauth" || creds.resource !== resource)) return null;
     if (creds.kind === "api-key" || !creds.expiresAt) return creds.token;
     if (creds.expiresAt > now() + REFRESH_WINDOW_MS) return creds.token;
     if (creds.kind === "oauth" && creds.refreshToken) {
       // One refresh at a time. A burst of callers on an expiring token must
       // not each spend the refresh token, which is single use on rotation.
-      let refreshing = refreshesInFlight.get(credentialPath);
+      let refreshing = refreshesInFlight.get(storageId);
       if (!refreshing) {
-        refreshing = refresh(creds).finally(() => refreshesInFlight.delete(credentialPath));
-        refreshesInFlight.set(credentialPath, refreshing);
+        refreshing = refresh(creds).finally(() => refreshesInFlight.delete(storageId));
+        refreshesInFlight.set(storageId, refreshing);
       }
       const refreshed = await refreshing;
       if (refreshed) return refreshed.token;
@@ -380,9 +427,10 @@ export function createCloudAccount(options: CloudAccountOptions = {}): CloudAcco
   }
 
   function status(): CloudAccountStatus {
-    const creds = loadCloudCredentials(credentialPath);
-    const live = creds && (!creds.expiresAt || creds.expiresAt > now() || Boolean(creds.refreshToken));
-    const inherited = !live && isInheritedCloudIdentity(credentialPath);
+    const creds = loadCredentials();
+    const compatible = !options.scopes || (creds?.kind === "oauth" && creds.resource === resource);
+    const live = compatible && creds && (!creds.expiresAt || creds.expiresAt > now() || Boolean(creds.refreshToken));
+    const inherited = options.inheritIdentity !== false && !live && isInheritedCloudIdentity(credentialPath);
     return {
       signedIn: Boolean(live) || inherited,
       inherited,
@@ -440,7 +488,7 @@ export function createCloudAccount(options: CloudAccountOptions = {}): CloudAcco
     // The callback lands on THIS server, at whatever address the browser used
     // to reach it. A box behind Tailscale is reached by its tailnet name, and
     // a redirect to 127.0.0.1 would land in the wrong browser.
-    const redirectUri = `${url.origin}/api/cloud/callback`;
+    const redirectUri = `${url.origin}${routePrefix}/callback`;
     const state = base64Url(randomBytes(32));
     const verifier = base64Url(randomBytes(64));
     const clientId = await registerClient(redirectUri);
@@ -452,11 +500,12 @@ export function createCloudAccount(options: CloudAccountOptions = {}): CloudAcco
       response_type: "code",
       client_id: clientId,
       redirect_uri: redirectUri,
-      scope: OAUTH_SCOPES,
+      scope: scopes,
       code_challenge: pkceChallenge(verifier),
       code_challenge_method: "S256",
       state,
       resource,
+      ...(options.scopes ? { prompt: "consent" } : {}),
     }).toString();
     return json({ authorizeUrl: authorizeUrl.toString() });
   }
@@ -472,6 +521,9 @@ export function createCloudAccount(options: CloudAccountOptions = {}): CloudAcco
     if (!entry || entry.createdAt + pendingTtlMs < now()) {
       return htmlPage(false, "This sign-in link has expired. Go back to omg.dev and try again.");
     }
+    if (options.loopbackOnly && url.origin !== new URL(entry.redirectUri).origin) {
+      return htmlPage(false, "Return to the Mac app to complete sign-in.");
+    }
     const code = url.searchParams.get("code") ?? "";
     if (!code) return htmlPage(false, "The authorization server sent no code.");
 
@@ -486,7 +538,7 @@ export function createCloudAccount(options: CloudAccountOptions = {}): CloudAcco
       }),
       "Token exchange",
     );
-    saveCloudCredentials(
+    saveCredentials(
       {
         token: token.accessToken,
         refreshToken: token.refreshToken,
@@ -496,7 +548,6 @@ export function createCloudAccount(options: CloudAccountOptions = {}): CloudAcco
         resource,
         kind: "oauth",
       },
-      credentialPath,
     );
     return new Response(null, {
       status: 302,
@@ -521,8 +572,11 @@ export function createCloudAccount(options: CloudAccountOptions = {}): CloudAcco
     listComputers,
     cloudFetch,
     async handleRequest(req, url) {
-      const path = url.pathname;
-      if (!path.startsWith("/api/cloud/")) return null;
+      if (!url.pathname.startsWith(`${routePrefix}/`)) return null;
+      if (options.loopbackOnly && (url.protocol !== "http:" || !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname))) {
+        return json({ error: "Open iOS signing setup in the Mac app." }, { status: 403 });
+      }
+      const path = `/api/cloud${url.pathname.slice(routePrefix.length)}`;
       try {
         if (path === "/api/cloud/session" && req.method === "GET") return json(status());
         if (path === "/api/cloud/login" && req.method === "POST") return await startLogin(req, url);
@@ -532,7 +586,7 @@ export function createCloudAccount(options: CloudAccountOptions = {}): CloudAcco
           return token ? json({ token }) : json({ error: "Not signed in to omg Cloud." }, { status: 401 });
         }
         if (path === "/api/cloud/logout" && req.method === "POST") {
-          clearCloudCredentials(credentialPath);
+          clearCredentials();
           return json({ ok: true });
         }
         if (path === "/api/cloud/computers" && req.method === "GET") return json(await listComputers());

@@ -329,6 +329,11 @@ export function desktopRuntimeStateRoot(
   env: DesktopEnvironment = process.env,
   home: string = homedir(),
 ): string {
+  const testRoot = env.OMG_DESKTOP_TEST_STATE_ROOT?.trim();
+  if (testRoot) {
+    if (!testRoot.startsWith("/")) throw new Error("OMG_DESKTOP_TEST_STATE_ROOT must be an absolute path.");
+    return testRoot;
+  }
   if (platform === "darwin") {
     return join(home, "Library", "Application Support", "dev.omg.desktop", "runtime");
   }

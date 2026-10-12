@@ -36,6 +36,9 @@ const ROUTED_ELSEWHERE = new Set<string>([
   // vibes/control-plane/lib/session-proxy.ts reads the cloud lifecycle before
   // the runtime exists. The client stops this optional probe on local 404s.
   "/api/runtime-status",
+  // src/ios-testing/routes.ts owns the optional Mac setup routes. Its
+  // executable contracts are covered by src/ios-testing/routes.test.ts.
+  "/api/ios-testing/apps",
 ]);
 
 function walk(dir: string, out: string[] = []): string[] {
