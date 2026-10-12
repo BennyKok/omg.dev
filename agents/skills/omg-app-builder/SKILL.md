@@ -64,6 +64,18 @@ For hosted data, install the latest `@omg-dev/sdk` and deploy the backend before
 
 Metro rules: use only ports 8081 to 8099, because Expo Go links work only in that range. Start Metro only with the script; `npx` and `ss` are not installed on every Computer.
 
+## Building blocks (Expo)
+
+The template ships tested helpers in `src/kit/`. Import them; do not rewrite them. They work on iOS, Android and web. Each file starts with a comment that shows its use.
+
+- `overlay.tsx`: `useConfirm()` and `useSheet()`. `<OverlayProvider>` is already in `_layout.tsx`. Use `if (await confirm({ title, destructive: true }))` for every delete or confirm. `Alert.alert` with buttons does nothing on web. Use `useSheet().open(node)` for sheets and forms. Do not stack `Modal` components: the second one draws behind the first on web.
+- `ActionRow.tsx`: a pressable row with a delete or other action beside it. A button nested inside a pressable row also fires the row on web.
+- `image.ts`: `await toPersistentImage(pickerAsset)`. Call the picker with `base64: true, quality: 0.5` and store the returned string. A picker URI on web is a `blob:` URL that is gone after a reload.
+- `use-timer.ts`: `usePersistedTimer(key, durationMs)` with `start`, `pause`, `resume`, `reset`, and `formatClock`. It stores the end time, so a reload does not reset it. Use it for every timer or countdown.
+- `use-viewport.ts`: `useViewport()` and `useIsWide()`. In the static web export `useWindowDimensions()` can give width 0 on first render. Prefer `flex` and `maxWidth`; use the hook only when you need a number.
+
+Shared data between people (a shared list, a trade, a group): use the hosted `@omg-dev/sdk` path in "Data" above. Do not write a local server. If a local server is unavoidable, answer `OPTIONS` and send these headers on every response: `Access-Control-Allow-Origin` with the request `Origin` (or `*`), `Access-Control-Allow-Methods: GET,POST,PUT,PATCH,DELETE,OPTIONS`, and `Access-Control-Allow-Headers: content-type,authorization`. A missing `PUT` or `DELETE` fails only in the browser.
+
 ## Build
 
 1. Convert the request into a small observable done condition. Make reasonable visual and technical choices when the user did not specify them.
