@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## October 12, 2026 - Use your own models (v0.6.228)
+
+- The omg agent can run on your own OpenAI-compatible server, such as vLLM or llama.cpp on a home GPU. List it in `~/.omg/models.json`, and its models appear in the omg agent's model list. No omg.dev sign-in is needed for these models. See `docs/custom-models.md`.
+- Each model can have a friendly name, for example "Gemma 4 E4B (3060 Ti)". With no name, the list makes one from the model id.
+- The model's context size and image support come from the same file. The agent then compacts long chats in time and sends images only to models that read them.
+- App Builder is an opt-in workflow in the omg model list. It needs a project, and it adds code and screenshot design review passes.
+
 ## October 12, 2026 - Schedules load without a long pause (v0.6.227)
 
 - Phone and web schedule lists calculate next-run times by day instead of scanning every minute. A 62-schedule check fell from 12.7 seconds to 29 milliseconds, with the same results. Repeated renders reuse the result until the next run.
