@@ -21,7 +21,10 @@ export const MAX_IMAGE_CHARS = 1_500_000;
 async function defaultRead(uri: string): Promise<string> {
   const blob = await (await fetch(uri)).blob();
   return await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
+    // FileReader exists on web and in React Native; typed loosely so the lfg root
+    // typecheck (no DOM lib) and the template typecheck both pass.
+    const Reader = (globalThis as unknown as { FileReader: new () => { result: unknown; onload: (() => void) | null; onerror: (() => void) | null; readAsDataURL(b: Blob): void } }).FileReader;
+    const reader = new Reader();
     reader.onload = () => resolve(String(reader.result));
     reader.onerror = () => reject(new Error("Could not read the image."));
     reader.readAsDataURL(blob);
