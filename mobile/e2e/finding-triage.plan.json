@@ -1,0 +1,52 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": false
+  },
+  "steps": [
+    {
+      "name": "Demo Home",
+      "goal": "Reach Home. If Apple Account Verification appears, tap Not Now. If the AI data notice appears, tap Agree and continue for this isolated demo fixture. Do not send a message.",
+      "done": "Home is ready.",
+      "expect": [
+        "api-gateway"
+      ]
+    },
+    {
+      "name": "Group report offers Triage all",
+      "open": "omg:///auto/demo-auto-prs",
+      "goal": "Wait for the agent's findings report. Do not tap anything.",
+      "done": "The report lists the group's open findings, with a full-width Triage all button above Edit schedule and Dismiss all.",
+      "expect": [
+        "Findings",
+        "Review open PRs",
+        "3 PRs waiting on review for over a day",
+        "Triage and execute",
+        "Edit schedule",
+        "Dismiss all"
+      ]
+    },
+    {
+      "name": "Triage all asks first",
+      "goal": "Tap the full-width Triage all button at the bottom. Its accessibility label starts with Triage and execute. Do not tap Dismiss all.",
+      "done": "A confirmation asks whether to triage the group's findings.",
+      "expect": [
+        "groups related ones",
+        "Cancel"
+      ]
+    },
+    {
+      "name": "Confirm starts one triage for the group",
+      "goal": "In the confirmation, tap Triage all once. This isolated demo transport returns no session id, so no agent or real work starts. The error banner lasts about 4 seconds. Do not tap anything after that.",
+      "done": "The confirmation is closed and the group report is still visible: the failed launch did not leave the page or drop the findings.",
+      "expect": [
+        "Findings",
+        "3 PRs waiting on review for over a day",
+        "Triage and execute"
+      ],
+      "forbid": [
+        "One session checks each finding"
+      ]
+    }
+  ]
+}

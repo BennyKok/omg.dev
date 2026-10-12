@@ -3,7 +3,8 @@
  *
  * Name and schedule at the top, then compact finding rows with severity,
  * title, suggestion and age, matching the web report list. Edit schedule and
- * Dismiss all sit in a bar at the bottom, where the web keeps them.
+ * Dismiss all sit at the bottom, where the web keeps them, under a full-width Triage
+ * all. It starts one Triage & execute session for this agent's findings only.
  */
 import * as Haptics from "expo-haptics";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
@@ -14,8 +15,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { EmptyState, Icon, PrimaryButton } from "../../src/components";
 import { SeverityDot } from "../../src/omg/auto-agent-card";
 import { sortFindingRows, useAutoAgents } from "../../src/omg/auto-agents";
-import { agentScheduleLine, findingAge } from "../../src/omg/auto-findings";
+import { agentScheduleLine, findingAge, startTriageFromFindings } from "../../src/omg/auto-findings";
 import { PressableScale } from "../../src/omg/motion";
+import { useOmg } from "../../src/omg/provider";
 import { Text } from "../../src/omg/text";
 import { useTheme } from "../../src/omg/theme";
 import { useToast } from "../../src/omg/toast";
@@ -35,6 +37,35 @@ export default function AutoAgentReportScreen() {
   );
   const name = agent?.name ?? "Auto agent";
   const [dismissingAll, setDismissingAll] = useState(false);
+  const { client } = useOmg();
+  const [triaging, setTriaging] = useState(false);
+  const busy = dismissingAll || triaging;
+
+  // One session works through the whole group. It starts agents that change
+  // code, so it asks first, like Dismiss all.
+  const triageAll = () => {
+    if (!client || !open.length || busy) return;
+    Alert.alert(
+      `Triage ${open.length} finding${open.length === 1 ? "" : "s"}?`,
+      "One session checks each finding, groups related ones, and starts agents to fix them.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Triage all",
+          onPress: () => {
+            setTriaging(true);
+            void startTriageFromFindings(client, open, agent)
+              .then((sessionId) => {
+                void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                router.replace(`/session/${encodeURIComponent(sessionId)}`);
+              })
+              .catch((e) => toast.show(e instanceof Error ? e.message : String(e), { intent: "error" }))
+              .finally(() => setTriaging(false));
+          },
+        },
+      ],
+    );
+  };
 
   const dismissAll = () => {
     if (!open.length || dismissingAll) return;
@@ -104,7 +135,7 @@ export default function AutoAgentReportScreen() {
               key={finding.id}
               onPress={() => router.push(`/auto/${encodeURIComponent(id)}/${encodeURIComponent(finding.id)}`)}
               scale={0.98}
-              disabled={dismissingAll}
+              disabled={busy}
               accessibilityRole="button"
               accessibilityLabel={`${name} finding: ${finding.title}. ${finding.severity ?? "Unknown"} severity`}
               style={({ pressed }) => ({
@@ -131,11 +162,11 @@ export default function AutoAgentReportScreen() {
         )}
       </ScrollView>
 
+      {/* Triage all is the main action, so it gets the full width. Three
+          buttons on one row ran off the right edge of an iPhone 17 Pro. */}
       <View
         style={{
-          flexDirection: "row",
-          alignItems: "center",
-          gap: space.md,
+          gap: space.sm,
           paddingHorizontal: space.lg,
           paddingTop: space.sm,
           paddingBottom: insets.bottom + space.sm,
@@ -145,40 +176,66 @@ export default function AutoAgentReportScreen() {
         }}
       >
         <PressableScale
-          onPress={() => router.push("/schedules")}
-          disabled={dismissingAll}
-          scale={0.97}
+          onPress={triageAll}
+          disabled={!client || !open.length || busy}
+          scale={0.98}
           accessibilityRole="button"
+          accessibilityLabel={`Triage and execute ${open.length} ${name} finding${open.length === 1 ? "" : "s"}`}
           style={{
             flexDirection: "row",
             alignItems: "center",
+            justifyContent: "center",
             gap: space.sm,
-            paddingHorizontal: space.lg,
-            minHeight: 44,
+            minHeight: 48,
             borderRadius: radius.pill,
-            backgroundColor: colors.secondary,
-          }}
-        >
-          <Icon ios="slider.horizontal.3" android="tune" size={16} color={colors.text} />
-          <Text style={{ ...type.callout, fontWeight: "600", color: colors.text }}>Edit schedule</Text>
-        </PressableScale>
-        <PressableScale
-          onPress={dismissAll}
-          disabled={!open.length || dismissingAll}
-          scale={0.97}
-          accessibilityRole="button"
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            gap: space.sm,
-            paddingHorizontal: space.md,
-            minHeight: 44,
+            backgroundColor: colors.primary,
             opacity: open.length ? 1 : 0.5,
           }}
         >
-          <Icon ios="xmark" android="close" size={14} color={colors.textMuted} />
-          <Text style={{ ...type.callout, fontWeight: "600", color: colors.textMuted }}>{dismissingAll ? "Dismissing…" : "Dismiss all"}</Text>
+          {triaging ? (
+            <ActivityIndicator size="small" color={colors.primaryForeground} />
+          ) : (
+            <Icon ios="sparkles" android="auto_awesome" size={15} color={colors.primaryForeground} />
+          )}
+          <Text style={{ ...type.callout, fontWeight: "600", color: colors.primaryForeground }}>
+            {triaging ? "Starting…" : "Triage all"}
+          </Text>
         </PressableScale>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+          <PressableScale
+            onPress={() => router.push("/schedules")}
+            disabled={busy}
+            scale={0.97}
+            accessibilityRole="button"
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: space.sm,
+              paddingHorizontal: space.md,
+              minHeight: 44,
+            }}
+          >
+            <Icon ios="slider.horizontal.3" android="tune" size={16} color={colors.text} />
+            <Text style={{ ...type.callout, fontWeight: "600", color: colors.text }}>Edit schedule</Text>
+          </PressableScale>
+          <PressableScale
+            onPress={dismissAll}
+            disabled={!open.length || busy}
+            scale={0.97}
+            accessibilityRole="button"
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: space.sm,
+              paddingHorizontal: space.md,
+              minHeight: 44,
+              opacity: open.length ? 1 : 0.5,
+            }}
+          >
+            <Icon ios="xmark" android="close" size={14} color={colors.textMuted} />
+            <Text style={{ ...type.callout, fontWeight: "600", color: colors.textMuted }}>{dismissingAll ? "Dismissing…" : "Dismiss all"}</Text>
+          </PressableScale>
+        </View>
       </View>
     </View>
   );
