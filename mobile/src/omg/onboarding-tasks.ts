@@ -90,9 +90,9 @@ export const FIRST_TASKS: FirstTask[] = [
       ] },
     ],
     template: (who, about, does) =>
-      `Build a mobile app ${who} ${about} that ${does}. Make it an Expo app and give me a preview I can open on my phone as soon as the first screen works.`,
+      `Build a mobile app ${who} ${about} that ${does}. Make it an Expo app and give me a preview I can open on my phone as soon as the first screen works. When the preview works, publish the web version with omg_deploy (bun run build makes the Expo web export) and build an installable Android app with omg_build_android. Send me the web link and the Android install link.`,
     prompt:
-      "Build a mobile app prototype for Lumen Yoga Studio with a class list, class details and a booking button. Make it an Expo app and give me a preview I can open on my phone as soon as the first screen works.",
+      "Build a mobile app prototype for Lumen Yoga Studio with a class list, class details and a booking button. Make it an Expo app and give me a preview I can open on my phone as soon as the first screen works. When the preview works, publish the web version with omg_deploy (bun run build makes the Expo web export) and build an installable Android app with omg_build_android. Send me the web link and the Android install link.",
   },
   {
     key: "game",
