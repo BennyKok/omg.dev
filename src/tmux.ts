@@ -1,4 +1,5 @@
 import { ensureOmgProvider } from "./omg-provider.ts";
+import { ensureCustomProviders, isCustomModel } from "./custom-models.ts";
 // Map a live process to its tmux pane and inject input. Claude Code sessions
 // run inside tmux panes; we discover the `claude` pid via pgrep/proc, walk up
 // its parent chain to the pane's top process, and `send-keys` into that pane.
@@ -1375,6 +1376,13 @@ export function spawnManagedOpencodeAisdkSession(opts: {
       // the harness itself (agents/backends/opencode-mcp.ts), not here in the
       // box-global OpenCode config.
       ensureOmgProvider();
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+  if (isCustomModel(opts.model)) {
+    try {
+      ensureCustomProviders();
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }

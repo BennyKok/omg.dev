@@ -1,5 +1,6 @@
 import { OMG_DEFAULT_MODEL, OMG_MODELS, OMG_THINKING_LEVELS_BY_MODEL, omgThinkingLevels } from "./omg-models.ts";
 export { OMG_MODELS } from "./omg-models.ts";
+import { customModelIds } from "./custom-models.ts";
 
 import type { Agent } from "./agents/registry.ts";
 import type { AutoAgent } from "./auto/store.ts";
@@ -605,7 +606,8 @@ function curateModels(
 }
 
 export function rawModelsForAgent(agent: CodingAgentKind): string[] {
-  if (agent === "omg") return [...OMG_MODELS];
+  // Hosted models first, then the owner's own endpoints (src/custom-models.ts).
+  if (agent === "omg") return [...OMG_MODELS, ...customModelIds()];
   const fallback = MODEL_OPTIONS[agent]?.models;
   const provider = readModelDiscoveryCacheSync()?.providers?.[agent];
   // A successful harness query is authoritative. Unioning it with the static
