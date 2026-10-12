@@ -17,6 +17,17 @@ import { indexSessionMessagesDirect } from "../../transcript-index.ts";
 import { managedSdkStartupCmdOffset, readNewCmdLines, writeCursor } from "./cmd-tail.ts";
 import { makeDraftPublisher } from "./draft.ts";
 
+/**
+ * The option a typed reply picks: an exact label, case-insensitive. Null when
+ * the text is the user's own answer rather than one of the options.
+ * @internal exported for tests
+ */
+export function optionIndexForText(prompt: AisdkPrompt | null, text: string): number | null {
+  const typed = text.trim().toLowerCase();
+  const match = prompt?.options.find((o) => o.label.trim().toLowerCase() === typed);
+  return match ? match.index : null;
+}
+
 export type ManagedSdkAgent = "grok" | "cursor" | "fx" | "muse" | "deepseek" | "devin" | "copilot" | "jcode";
 
 export type ManagedSdkPromptOption = {
@@ -105,6 +116,7 @@ export async function runManagedSdkSession(options: ManagedSdkSessionOptions): P
   const publishDraft = makeDraftPublisher(key);
   const emittedTools = new Set<string>();
   let promptResolver: ((index: number | null) => void) | null = null;
+  let openPrompt: AisdkPrompt | null = null;
   const commandFile = cmdPath(key);
   let commandOffset = managedSdkStartupCmdOffset(commandFile, recoveredAt);
   writeCursor(commandFile, commandOffset);
@@ -180,6 +192,7 @@ export async function runManagedSdkSession(options: ManagedSdkSessionOptions): P
           selected: index === 0,
         })),
       };
+      openPrompt = prompt;
       patchEntry(key, { busy: false, prompt, draftText: null, draftKind: null, draftUpdatedAt: null });
       publishDraft("", true);
       return new Promise<number | null>((resolve) => {
@@ -269,21 +282,35 @@ export async function runManagedSdkSession(options: ManagedSdkSessionOptions): P
 
   function dispatch(command: AisdkCommand): void {
     if (command.type === "send") {
-      if (command.text.trim()) {
-        queue.push(command.text);
-        void drain();
+      if (!command.text.trim()) return;
+      // A message sent while a question is open answers it. The iOS card sends
+      // the chosen label this way, and a queued message would wait behind a
+      // question that never resolves. An exact label picks that option; other
+      // text closes the question and goes to the agent as the next message.
+      if (promptResolver) {
+        const resolve = promptResolver;
+        const index = optionIndexForText(openPrompt, command.text);
+        promptResolver = null;
+        openPrompt = null;
+        patchEntry(key, { prompt: null, busy: true });
+        resolve(index);
+        if (index !== null) return;
       }
+      queue.push(command.text);
+      void drain();
       return;
     }
     if (command.type === "interrupt") {
       promptResolver?.(null);
       promptResolver = null;
+      openPrompt = null;
       void runtime?.interrupt();
       return;
     }
     if (command.type === "answer") {
       const resolve = promptResolver;
       promptResolver = null;
+      openPrompt = null;
       patchEntry(key, { prompt: null, busy: true });
       resolve?.(command.index);
       return;
@@ -291,6 +318,7 @@ export async function runManagedSdkSession(options: ManagedSdkSessionOptions): P
     if (command.type === "dismiss") {
       const resolve = promptResolver;
       promptResolver = null;
+      openPrompt = null;
       patchEntry(key, { prompt: null, busy: true });
       resolve?.(null);
       return;

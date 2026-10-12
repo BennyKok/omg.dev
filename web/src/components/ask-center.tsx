@@ -30,6 +30,7 @@ import { cn } from "@/lib/utils";
 import { omgFetch } from "@/lib/omg-client";
 import { closePushNotification } from "@/lib/push";
 import { KeyRound, MessageCircleQuestion, Send, X } from "lucide-react";
+import { QuestionCard, QuestionChoices } from "./question-card";
 
 export type Question = {
   id: string;
@@ -364,14 +365,56 @@ export function SessionQuestionPanel({
       aria-label={
         matching.length === 1 ? "Question from this session" : "Questions from this session"
       }
-      className="max-h-80 shrink-0 overflow-y-auto border-t border-primary/20 bg-primary/5"
+      className="max-h-[60vh] shrink-0 divide-y divide-primary/15 overflow-y-auto border-t border-primary/20 bg-primary/5"
     >
       {matching.map((q) => (
-        <QuestionNotification key={q.id} q={q} compactPreview={false} showReplyBox={false} />
+        <SessionAskCard key={q.id} q={q} />
       ))}
     </section>
   );
 }
+
+// An ask-user question inside its own session: the same QuestionCard a harness
+// prompt uses, so the two kinds of question look and tap alike. The composer
+// below answers it with free text (SessionChatBody resolves the question as it
+// sends), which is why the card says so instead of growing its own reply box.
+function SessionAskCard({ q }: { q: Question }) {
+  const { busy, answer, dismiss } = useAsk();
+  const [picked, setPicked] = useState<number | null>(null);
+  useEffect(() => {
+    if (!busy) setPicked(null);
+  }, [busy]);
+  const options = q.secret ? [] : (q.options ?? []);
+  return (
+    <QuestionCard
+      question={
+        <MessageResponse className={QUESTION_MARKDOWN}>{q.question}</MessageResponse>
+      }
+      choices={options.map((label) => ({ label }))}
+      disabled={busy}
+      pendingIndex={busy ? picked : null}
+      onDismiss={() => void dismiss(q)}
+      freeText={!q.secret}
+      onPick={(index) => {
+        const label = options[index];
+        if (!label) return;
+        setPicked(index);
+        void answer(q, label);
+      }}
+    >
+      {q.secret ? <SecretField q={q} /> : null}
+    </QuestionCard>
+  );
+}
+
+// Demote headings: a question card must never look like a pile of h1s.
+const QUESTION_MARKDOWN = cn(
+  "text-sm leading-relaxed",
+  "[&_h1]:text-sm [&_h2]:text-sm [&_h3]:text-sm [&_h4]:text-sm",
+  "[&_h1]:font-semibold [&_h2]:font-semibold [&_h3]:font-semibold",
+  "[&_h1]:mt-2 [&_h2]:mt-2 [&_h3]:mt-1.5 [&_h1]:mb-1 [&_h2]:mb-1 [&_h3]:mb-1",
+  "[&_p]:my-1 [&_ul]:my-1.5 [&_ol]:my-1.5 [&_li]:my-0.5",
+);
 
 // One answerable question, shaped like a notification rather than a page. Rests
 // collapsed at two lines; tapping the question returns to its conversation,
@@ -477,20 +520,14 @@ export function QuestionNotification({
           {q.secret ? <SecretField q={q} /> : null}
 
           {!q.secret && q.options?.length ? (
-            <div className="mt-2 flex max-h-24 flex-wrap gap-1.5 overflow-y-auto overscroll-contain">
-              {q.options.map((o) => (
-                <Button
-                  key={o}
-                  variant="tint"
-                  size="sm"
-                  disabled={busy}
-                  onClick={() => void answer(q, o)}
-                  className="h-auto min-h-7 max-w-full whitespace-normal py-1 text-left text-xs"
-                >
-                  {o}
-                </Button>
-              ))}
-            </div>
+            <QuestionChoices
+              choices={q.options.map((label) => ({ label }))}
+              disabled={busy}
+              onPick={(index) => {
+                const label = q.options?.[index];
+                if (label) void answer(q, label);
+              }}
+            />
           ) : null}
 
           {open && showReplyBox && !q.secret ? (

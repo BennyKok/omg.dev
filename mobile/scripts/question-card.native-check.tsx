@@ -91,3 +91,28 @@ test("a failed save keeps what was typed", async () => {
     expect(ui.query<HTMLInputElement>('input[type="password"]')!.value).toBe("abc");
   } finally { ui.cleanup(); }
 });
+
+test("answers are lettered rows that carry their description and answer with the label", () => {
+  const ui = mount();
+  const answered: string[] = [];
+  try {
+    ui.render(
+      <QuestionCard
+        question="Ship now?"
+        header="Ship"
+        options={[
+          { index: 0, label: "Yes", description: "Push to main" },
+          { index: 1, label: "No" },
+        ]}
+        onAnswer={(label) => answered.push(label)}
+      />,
+    );
+    const rows = ui.queryAll<HTMLButtonElement>('button[aria-label$="Yes"], button[aria-label$="No"]');
+    expect(rows.map((b) => b.getAttribute("aria-label"))).toEqual(["A. Yes", "B. No"]);
+    expect(ui.text()).toContain("Push to main");
+    expect(ui.text()).toContain("SHIP");
+    expect(ui.text()).toContain("Or type your own answer below.");
+    rows[1]!.click();
+    expect(answered).toEqual(["No"]);
+  } finally { ui.cleanup(); }
+});

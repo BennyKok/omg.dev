@@ -41,13 +41,14 @@
       ]
     },
     {
-      "name": "Question card is in the transcript",
+      "name": "Question card shows lettered answer rows",
       "goal": "Read the agent's question at the end of the transcript. Do not tap an answer.",
-      "done": "The question and both of its one-tap answers are visible above the message field.",
+      "done": "The question is visible, and its two answers are full-width rows stacked vertically, lettered A and B, above the message field, with a line that says the person can type their own answer.",
       "expect": [
         "cancel box-1 now, or wait for the billing cycle",
-        "Cancel now",
-        "Wait"
+        "A. Cancel now",
+        "B. Wait",
+        "Or type your own answer below."
       ]
     }
   ]

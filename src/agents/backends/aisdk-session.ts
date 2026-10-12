@@ -38,6 +38,7 @@ import {
   sessionHasIndexedMessages,
 } from "../../transcript-index.ts";
 import { makeDraftPublisher } from "./draft.ts";
+import { createClaudeAskBridge } from "./claude-ask-user.ts";
 import { readFileSync, statSync } from "node:fs";
 import { initialCmdOffset, readNewCmdLines, writeCursor } from "./cmd-tail.ts";
 import { claudeAccountEnv } from "../../claude-creds.ts";
@@ -521,7 +522,29 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
   // Instead: any send or assistant activity marks busy, any turn result clears
   // it, and if the CLI immediately starts another turn for a queued message the
   // next stream event flips it right back. Self-healing in every ordering.
+  // AskUserQuestion → the question card. While a question is open the turn is
+  // paused on the user, so the session reads as idle (no busy dot, no stall
+  // watchdog) and resumes as busy the moment an answer resolves the tool call.
+  const askBridge = createClaudeAskBridge({
+    show: (prompt) => {
+      if (prompt) {
+        draft = "";
+        publishDraft("", true);
+        busy = false;
+        patchEntry(sessionId, { busy: false, prompt, draftText: null, draftUpdatedAt: null });
+      } else {
+        busy = true;
+        lastSdkEventAt = Date.now();
+        patchEntry(sessionId, { busy: true, prompt: null });
+      }
+    },
+  });
+
   const setBusy = (next: boolean) => {
+    // Stream events still arrive after AskUserQuestion opens (the tool_use
+    // message itself, partial deltas). They must not flip a session that is
+    // waiting on the person back to busy.
+    if (next && askBridge.waiting) return;
     if (busy === next) return;
     busy = next;
     if (next) lastSdkEventAt = Date.now();
@@ -538,14 +561,15 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
       // --dangerously-skip-permissions. settingSources honors ~/.claude config
       // (and loads filesystem skills).
       permissionMode: "bypassPermissions",
-      // This headless/paneless harness can't render or answer an interactive
-      // question, and bypassPermissions does NOT auto-resolve AskUserQuestion —
-      // the CLI's permission resolver returns behavior:"ask" for it BEFORE the
-      // bypass auto-allow branch, so without this a turn would hang busy
-      // forever. Disallowing the tool forces the agent to decide for itself.
-      // (The Agent SDK's canUseTool callback is the future path to answering
-      // these from the dashboard instead.)
-      disallowedTools: ["AskUserQuestion"],
+      // bypassPermissions does NOT auto-resolve AskUserQuestion: the CLI's
+      // permission resolver returns behavior:"ask" for it BEFORE the bypass
+      // auto-allow branch. That "ask" lands here. AskUserQuestion goes to the
+      // question card through the registry prompt (see claude-ask-user.ts);
+      // anything else that still asks is allowed, as the bypass mode intends.
+      canUseTool: async (toolName, toolInput, { signal }) => {
+        if (toolName === "AskUserQuestion") return askBridge.ask(toolInput, signal);
+        return { behavior: "allow", updatedInput: toolInput };
+      },
       settingSources: ["user", "project"],
       // Re-register the omg.dev MCP endpoint under this session's own URL. The
       // user-scope registration settingSources loads is session-agnostic — one
@@ -693,8 +717,25 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
 
   function dispatch(cmd: AisdkCommand): void {
     if (cmd.type === "send") {
-      if (cmd.text.trim()) send(cmd.text, interruptedTurnOpen);
+      if (!cmd.text.trim()) return;
+      // A message sent while a question is open answers it. The turn cannot
+      // end until AskUserQuestion resolves, so a queued message would wait
+      // behind a question nobody else will answer. Record it in the transcript
+      // like any reply.
+      if (askBridge.waiting) {
+        userRows.send(cmd.text, false);
+        askBridge.answerText(cmd.text);
+        return;
+      }
+      send(cmd.text, interruptedTurnOpen);
+    } else if (cmd.type === "answer") {
+      askBridge.answerIndex(cmd.index);
+    } else if (cmd.type === "dismiss") {
+      askBridge.dismiss();
     } else if (cmd.type === "interrupt") {
+      // Stop waiting first: the SDK interrupt aborts the pending tool call,
+      // but clear the card now rather than after the round trip.
+      askBridge.dismiss();
       interruptedTurnOpen = true;
       void q.interrupt().catch(() => {
         interruptedTurnOpen = false;

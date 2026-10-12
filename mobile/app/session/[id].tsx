@@ -2152,6 +2152,10 @@ function SessionScreenContent({
                 {prompt ? (
                   <QuestionCard
                     question={prompt.question}
+                    // `header` and option `description` are newer than the
+                    // published protocol package this app pins; the server
+                    // sends them already, so read them through a local type.
+                    header={(prompt as OmgSessionPrompt & { header?: string }).header}
                     options={prompt.options ?? []}
                     onAnswer={answerPrompt}
                   />

@@ -20,8 +20,14 @@ import { useTheme } from "./theme";
  * Used for a native prompt from the transcript socket and for an ask-user
  * question from /api/ask alike.
  */
+/** A, B, C … Z, then 27, 28 … — a question never has that many options. */
+export function choiceLetter(index: number): string {
+  return index < 26 ? String.fromCharCode(65 + index) : String(index + 1);
+}
+
 export function QuestionCard({
   question,
+  header,
   options,
   onAnswer,
   onDismiss,
@@ -29,7 +35,9 @@ export function QuestionCard({
   onSaveSecret,
 }: {
   question?: string | null;
-  options: { index: number; label: string }[];
+  /** A short label for the question, from the agent ("Auth method"). */
+  header?: string | null;
+  options: { index: number; label: string; description?: string | null }[];
   onAnswer: (label: string) => void;
   /** Ask-user questions can be closed unanswered. A native prompt cannot. */
   onDismiss?: () => void;
@@ -70,7 +78,10 @@ export function QuestionCard({
       }}
     >
       <View style={{ flexDirection: "row", alignItems: "flex-start", gap: space.sm }}>
-        {question ? <Text style={{ ...type.callout, color: colors.text, flex: 1 }}>{question}</Text> : <View style={{ flex: 1 }} />}
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text style={{ ...type.overline, color: colors.primary }}>{(header || "Needs your input").toUpperCase()}</Text>
+          {question ? <Text style={{ ...type.callout, fontWeight: "500", color: colors.text }}>{question}</Text> : null}
+        </View>
         {onDismiss ? (
           // Always visible: a question you cannot clear owns the chat. The
           // hit area is 44pt; the glyph stays small so it reads as chrome.
@@ -150,28 +161,74 @@ export function QuestionCard({
           </Text>
         </View>
       ) : null}
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}>
-        {options.map((opt) => (
-          <Pressable
-            key={opt.index}
-            onPress={() => onAnswer(opt.label)}
-            accessibilityRole="button"
-            style={({ pressed }) => ({
-              minHeight: 36,
-              justifyContent: "center",
-              paddingHorizontal: space.md,
-              paddingVertical: space.sm,
-              borderRadius: 32,
-              borderCurve: "continuous",
-              backgroundColor: pressed ? colors.cardPressed : colors.secondary,
-              borderWidth: StyleSheet.hairlineWidth,
-              borderColor: colors.borderStrong,
-            })}
-          >
-            <Text style={{ ...type.footnote, color: colors.text }}>{opt.label}</Text>
-          </Pressable>
-        ))}
+      {/* The answers are a vertical list of full-width rows lettered A, B, C.
+          They used to be wrapped 36pt pills: hard to hit with a thumb, and the
+          option's description had nowhere to go. A row is at least 52pt tall
+          and the whole row is the target. */}
+      <View style={{ gap: space.xs }} accessibilityLabel="Answers">
+        {options.map((opt, position) => {
+          const letter = choiceLetter(position);
+          return (
+            <Pressable
+              key={opt.index}
+              onPress={() => onAnswer(opt.label)}
+              accessibilityRole="button"
+              accessibilityLabel={`${letter}. ${opt.label}`}
+              accessibilityHint={opt.description ?? undefined}
+              testID={`question-choice-${letter}`}
+              style={({ pressed }) => ({
+                minHeight: 52,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: space.sm,
+                paddingHorizontal: space.md,
+                paddingVertical: space.sm,
+                borderRadius: 14,
+                borderCurve: "continuous",
+                backgroundColor: pressed ? colors.cardPressed : colors.secondary,
+                borderWidth: StyleSheet.hairlineWidth,
+                borderColor: pressed ? colors.primary : colors.borderStrong,
+              })}
+            >
+              {({ pressed }) => (
+                <>
+                  <View
+                    style={{
+                      width: 28,
+                      height: 28,
+                      borderRadius: 14,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      backgroundColor: pressed ? colors.primary : "transparent",
+                      borderWidth: StyleSheet.hairlineWidth,
+                      borderColor: pressed ? colors.primary : colors.borderStrong,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        ...type.footnote,
+                        fontWeight: "600",
+                        color: pressed ? colors.primaryForeground : colors.textMuted,
+                      }}
+                    >
+                      {letter}
+                    </Text>
+                  </View>
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <Text style={{ ...type.callout, fontWeight: "500", color: colors.text }}>{opt.label}</Text>
+                    {opt.description ? (
+                      <Text style={{ ...type.footnote, color: colors.textMuted }}>{opt.description}</Text>
+                    ) : null}
+                  </View>
+                </>
+              )}
+            </Pressable>
+          );
+        })}
       </View>
+      {options.length && !secretKey ? (
+        <Text style={{ ...type.caption, color: colors.textMuted }}>Or type your own answer below.</Text>
+      ) : null}
     </View>
   );
 }
