@@ -74,6 +74,9 @@ describe("auto agent connectors", () => {
     expect(servers.omg).toEqual({ env: { OMG_SESSION_ID: "s1" } } as never);
     expect(servers.connectors?.url).toEndWith("/mcp/connectors?auto=daily");
     expect(servers.connectors?.http_headers?.[tokens.SESSION_TOKEN_HEADER]).toBe(tokens.autoAgentToken("daily"));
+    // Headless codex runs with approval policy "never": without this every
+    // connector call is refused before it reaches the server.
+    expect((servers.connectors as { default_tools_approval_mode?: string }).default_tools_approval_mode).toBe("approve");
     expect(merged.config?.service_tier).toBe("fast");
     expect(codex.withCodexHttpMcpServers(base, undefined)).toBe(base);
   });

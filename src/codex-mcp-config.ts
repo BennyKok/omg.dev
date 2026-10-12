@@ -112,7 +112,12 @@ export function withCodexHttpMcpServers(
   const existing = (config.mcp_servers ?? {}) as { [key: string]: CodexConfigValue };
   const mcp_servers: { [key: string]: CodexConfigValue } = { ...existing };
   for (const [name, server] of Object.entries(servers)) {
-    mcp_servers[name] = { url: server.url, http_headers: { ...server.headers } };
+    // Approve without asking: a headless `codex exec` runs with approval
+    // policy "never", so every MCP call that wants approval is refused ("MCP
+    // tool call requires approval, but approval policy is never"). The grant
+    // itself is the approval. The server only lists the slugs on the agent
+    // row and refuses connectors marked requireApproval for these runs.
+    mcp_servers[name] = { url: server.url, http_headers: { ...server.headers }, default_tools_approval_mode: "approve" };
   }
   config.mcp_servers = mcp_servers;
   return { config };
