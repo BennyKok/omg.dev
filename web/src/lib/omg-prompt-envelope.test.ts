@@ -53,4 +53,28 @@ describe("parseOmgPromptEnvelope", () => {
       version: "2026-08-21.1",
     });
   });
+  test("keeps the first-run rules in the inspect chip, not in the user's first message", () => {
+    // Production shape (2026-10-11): the first-run envelope sits after the
+    // contract's USER TASK and ends with its own USER TASK. Before this fix the
+    // new user's first bubble read "=== omg.dev FIRST RUN === This session is…".
+    const firstRun = [
+      "=== omg.dev RUNTIME CONTRACT (capability version 2026-10-07.1) ===",
+      "- Use the omg.dev tools.",
+      "=== END omg.dev RUNTIME CONTRACT ===",
+      "=== USER TASK ===",
+      "=== omg.dev FIRST RUN ===",
+      "This session is a new user's first task on omg.dev.",
+      "=== USER TASK ===",
+      "A personal to-do app with work projects.",
+    ].join("\n");
+    const parsed = parseOmgPromptEnvelope(firstRun);
+    expect(parsed?.task).toBe("A personal to-do app with work projects.");
+    expect(parsed?.instructions).toContain("=== omg.dev FIRST RUN ===");
+    expect(parsed?.instructions).toContain("- Use the omg.dev tools.");
+  });
+
+  test("leaves a task that only mentions the first-run header as the task", () => {
+    const quoted = `${contract.replace("Fix the status", "Why do I see === omg.dev FIRST RUN === here?")}`;
+    expect(parseOmgPromptEnvelope(quoted)?.task).toBe("Why do I see === omg.dev FIRST RUN === here?");
+  });
 });
