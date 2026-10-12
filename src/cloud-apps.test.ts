@@ -254,66 +254,27 @@ test("omg_app_identity refuses a bad icon before any upload", async () => {
   }
 });
 
-test("omg_app_identity sends the screenshot files in order, and [] clears them", async () => {
-  const paths = ["home.png", "detail.jpg", "stats.webp"].map((name) => {
-    const path = join(dir, name);
-    writeFileSync(path, `bytes of ${name}`);
-    return path;
-  });
+// Fails if the agent's store screenshot links are dropped or reordered on the
+// way to Cloud, or [] (clear) is lost.
+test("omg_app_identity passes the screenshot links in order, and [] clears them", async () => {
+  const urls = ["https://hi.omgs.app/store/1.png", "https://hi.omgs.app/store/2.png", "https://hi.omgs.app/store/3.png"];
   const sent: any[] = [];
-  const send = async (screenshotPaths: string[]) => {
-    const req = identityRequest({ slug: "hi", screenshotPaths });
-    return handleCloudAppsRequest(req, new URL(req.url), {
+  for (const screenshotUrls of [urls, []]) {
+    const req = identityRequest({ slug: "hi", screenshotUrls });
+    const response = await handleCloudAppsRequest(req, new URL(req.url), {
       getAccessToken: async () => "tok",
       controlPlaneUrl: "https://backend.example",
       fetch: async (_input, init) => {
         sent.push(JSON.parse(String(init?.body)));
-        return json({ ok: true, slug: "hi", name: "Hi", tagline: null, iconUrl: null, screenshots: [] });
+        return json({ ok: true, slug: "hi", name: "Hi", tagline: null, iconUrl: null, screenshots: screenshotUrls });
       },
     });
-  };
-  expect((await send(paths))?.status).toBe(200);
-  expect((await send([]))?.status).toBe(200);
-  const b64 = (name: string) => Buffer.from(`bytes of ${name}`).toString("base64");
-  expect(sent).toEqual([
-    {
-      slug: "hi",
-      screenshots: [
-        { contentType: "image/png", dataBase64: b64("home.png") },
-        { contentType: "image/jpeg", dataBase64: b64("detail.jpg") },
-        { contentType: "image/webp", dataBase64: b64("stats.webp") },
-      ],
-    },
-    { slug: "hi", screenshots: [] },
-  ]);
-});
-
-test("omg_app_identity refuses bad screenshots before any upload", async () => {
-  writeFileSync(join(dir, "shot.svg"), "<svg/>");
-  writeFileSync(join(dir, "huge.png"), Buffer.alloc(1536 * 1024 + 1));
-  writeFileSync(join(dir, "ok.png"), "png");
-  const ok = join(dir, "ok.png");
-  for (const screenshotPaths of [
-    [join(dir, "shot.svg")],
-    [join(dir, "huge.png")],
-    [join(dir, "missing.png")],
-    ["ok.png"],
-    [ok, ok, ok, ok, ok, ok],
-    "not-a-list",
-  ]) {
-    let called = false;
-    const req = identityRequest({ slug: "hi", screenshotPaths });
-    const response = await handleCloudAppsRequest(req, new URL(req.url), {
-      getAccessToken: async () => "tok",
-      controlPlaneUrl: "https://backend.example",
-      fetch: async () => {
-        called = true;
-        return json({});
-      },
-    });
-    expect(response?.status).toBe(400);
-    expect(called).toBe(false);
+    expect(response?.status).toBe(200);
   }
+  expect(sent).toEqual([
+    { slug: "hi", screenshotUrls: urls },
+    { slug: "hi", screenshotUrls: [] },
+  ]);
 });
 
 function envRequest(path: string, body: unknown) {

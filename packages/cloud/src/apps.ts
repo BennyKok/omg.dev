@@ -90,8 +90,8 @@ export type CloudAppIdentityInput = {
   name?: string;
   tagline?: string;
   icon?: { contentType: string; dataBase64: string };
-  /** Store page screenshots, in order. Replaces the whole set; [] clears it. */
-  screenshots?: { contentType: string; dataBase64: string }[];
+  /** Store page screenshot links (https), in order. Replaces the whole set; [] clears it. */
+  screenshotUrls?: string[];
 };
 
 export type CloudAppIdentity = {

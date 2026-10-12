@@ -1541,21 +1541,21 @@ export function buildOmgMcpServer(): McpServer {
         name: z.string().min(1).max(80).optional().describe("Display name, up to 80 characters."),
         tagline: z.string().max(120).optional().describe("One line about what the app does, up to 120 characters. Do not repeat the name."),
         iconPath: z.string().optional().describe("Absolute path to a square .svg, .png or .jpg icon, 512 KB or smaller. SVG must not contain scripts."),
-        screenshotPaths: z
-          .array(z.string().min(1))
+        screenshotUrls: z
+          .array(z.string().url().startsWith("https://").max(2048))
           .max(5)
           .optional()
           .describe(
-            "Store page screenshots, in order: 1 to 5 absolute paths to portrait phone screenshots of the live app (.png, .jpg or .webp, 1.5 MB or smaller each, about 390x844). Replaces the whole set; [] clears it.",
+            "Store page screenshots, in order: 1 to 5 https links to portrait phone screenshots (about 390x844) of the live app's main screens. Publish the images with the app first, for example /store/1.png. Replaces the whole set; [] clears it.",
           ),
       },
     },
-    async ({ slug, name, tagline, iconPath, screenshotPaths }) =>
+    async ({ slug, name, tagline, iconPath, screenshotUrls }) =>
       result(
         await api("/api/cloud/apps/identity", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ slug, name, tagline, iconPath, screenshotPaths }),
+          body: JSON.stringify({ slug, name, tagline, iconPath, screenshotUrls }),
         }),
       ),
   );
