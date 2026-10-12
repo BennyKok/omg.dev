@@ -38,22 +38,14 @@ describe("questions live inside the Notification Center", () => {
     expect(center).not.toContain("Show more");
   });
 
-  test("the owning session renders its ask-user questions in place", async () => {
+  // The owning session renders its ask-user questions in place, with one-tap
+  // lettered answers and no second reply box. That is covered by rendering
+  // SessionQuestionPanel in web/src/components/question-card.test.tsx.
+  test("the owning session mounts its question panel", async () => {
     const source = await app();
-    const center = await askCenter();
     expect(source).toContain(
       "<SessionQuestionPanel sessionIds={[session.sessionId, session.nativeSessionId]} />",
     );
-    expect(center).toContain("export function SessionQuestionPanel({");
-    expect(center).toContain("aliases.has(q.sessionId)");
-    expect(center).toContain(
-      "<QuestionNotification key={q.id} q={q} compactPreview={false} showReplyBox={false} />",
-    );
-    // Suggested answers stay in the card: one tap is not a second input.
-    expect(center).toContain("onClick={() => void answer(q, o)}");
-    // One matcher decides which questions belong to a session, so the panel,
-    // the composer, and the live card cannot disagree.
-    expect(center).toContain("export function useSessionQuestions(");
   });
 
   // The bug: a question inside its own conversation drew a reply box directly

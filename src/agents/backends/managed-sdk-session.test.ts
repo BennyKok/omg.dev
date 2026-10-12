@@ -253,3 +253,54 @@ describe("managed SDK startup journaling and first-launch commands", () => {
     }));
   });
 });
+
+describe("managed SDK questions answered by a typed message", () => {
+  async function run(reply: string) {
+    const turns: string[] = [];
+    const picks: Array<number | null> = [];
+    const done = runManagedSdkSession({
+      key: KEY,
+      agent: "grok",
+      cwd: root,
+      model: "grok-4.6",
+      managedName: "lfg-ask-text",
+      exitProcess: () => {},
+      async createRuntime(sink) {
+        return {
+          nativeSessionId: "native-ask-text",
+          async runTurn(prompt) {
+            turns.push(prompt);
+            if (prompt === "go") picks.push(await sink.ask("Ship it?", [{ label: "Yes" }, { label: "No" }]));
+            return { text: "ok" };
+          },
+          interrupt() {},
+          close() {},
+        };
+      },
+    });
+    await waitFor(() => readEntry(KEY)?.commandWakeSignal === "SIGUSR1");
+    appendCmd(KEY, { type: "send", text: "go" });
+    wakeHarnessCommandReader(readEntry(KEY)!);
+    await waitFor(() => readEntry(KEY)?.prompt?.question === "Ship it?");
+    appendCmd(KEY, { type: "send", text: reply });
+    wakeHarnessCommandReader(readEntry(KEY)!);
+    await waitFor(() => picks.length === 1);
+    await waitFor(() => readEntry(KEY)?.busy === false);
+    appendCmd(KEY, { type: "close" });
+    wakeHarnessCommandReader(readEntry(KEY)!);
+    await done;
+    return { turns, picks };
+  }
+
+  test("an exact option label answers the open question", async () => {
+    const { turns, picks } = await run("no");
+    expect(picks).toEqual([1]);
+    expect(turns).toEqual(["go"]);
+  });
+
+  test("other text closes the question and reaches the agent as the next message", async () => {
+    const { turns, picks } = await run("wait until the tests pass");
+    expect(picks).toEqual([null]);
+    expect(turns).toEqual(["go", "wait until the tests pass"]);
+  });
+});

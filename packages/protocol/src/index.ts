@@ -138,10 +138,14 @@ export interface OmgPromptOption {
   index: number;
   label: string;
   selected?: boolean;
+  /** What picking this option means, when the agent wrote it. */
+  description?: string;
 }
 
 export interface OmgSessionPrompt {
   question?: string;
+  /** A short label for the question, such as "Auth method". */
+  header?: string;
   options: OmgPromptOption[];
 }
 

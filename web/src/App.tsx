@@ -659,6 +659,7 @@ import {
   useAsk,
   useSessionQuestions,
 } from "./components/ask-center";
+import { SessionPromptPanel, type SessionPrompt } from "./components/question-card";
 import { GetAppsRailCard, PwaInstallCallout, PwaInstallSettingsSection } from "./components/pwa-install";
 import {
   CustomInstructionsPage,
@@ -1167,8 +1168,6 @@ const STREAMING_RESPONSE_ANIMATION = {
 // while we watch stays under it and animates normally.
 const DRAFT_CATCHUP_MIN_CHARS = 160;
 
-type PromptOption = { index: number; label: string; selected?: boolean };
-type SessionPrompt = { question?: string; options: PromptOption[] };
 type QueueMsg = {
   id: string;
   text: string;
@@ -17426,7 +17425,7 @@ function SessionChatBody({
 
       <SessionQuestionPanel sessionIds={[session.sessionId, session.nativeSessionId]} />
 
-      <PromptPanel prompt={prompt} sid={sid} onError={onError} />
+      <SessionPromptPanel prompt={prompt} sid={sid} onError={onError} freeText={!session.tmuxTarget} />
 
       {error ? (
         <div className="border-t border-border/70 px-3 py-1.5 text-xs text-destructive">{error}</div>
@@ -22617,106 +22616,6 @@ function isBotBackgroundUpdateMessage(message: Message): boolean {
   return (
     (message.role === "user" || message.role === "system") &&
     isSubagentUpdateText(message.text ?? "")
-  );
-}
-
-function PromptPanel({
-  prompt,
-  sid,
-  onError,
-}: {
-  prompt: SessionPrompt | null;
-  sid: string | null;
-  onError: (error: string | null) => void;
-}) {
-  // Selecting an option drives the tmux selector (arrow keys + Enter) and the
-  // panel only clears on the next ~1s server poll. Without a lock the stale
-  // options stay clickable, so a second click fires another /answer that
-  // overshoots the (now different) selector — the "answer bricks" symptom.
-  const sig = prompt
-    ? `${prompt.question ?? ""}|${prompt.options.map((o) => o.label).join("|")}`
-    : "";
-  // `pending` holds the in-flight option index, or DISMISS while the skip (X)
-  // request is in flight. Real option indices are positive, so -1 is a safe
-  // sentinel that never collides with one.
-  const DISMISS = -1;
-  const [pending, setPending] = useState<number | null>(null);
-
-  // Reset the lock whenever the prompt itself changes (answered → new / gone).
-  useLayoutEffect(() => {
-    setPending(null);
-  }, [sig]);
-
-  // Safety valve: if the prompt didn't clear (answer didn't land), re-enable so
-  // the user can retry instead of being stuck on a dead panel.
-  useEffect(() => {
-    if (pending === null) return;
-    const timer = setTimeout(() => setPending(null), 4000);
-    return () => clearTimeout(timer);
-  }, [pending]);
-
-  if (!prompt || !sid) return null;
-  const locked = pending !== null;
-  return (
-    <div className="prompt-panel border-t border-warning/25 bg-warning/12 px-3 py-2">
-      <div className="mb-2 flex items-start justify-between gap-2">
-        <div className="text-sm font-medium">{prompt.question ?? "Waiting for a choice"}</div>
-        <Button
-          type="button"
-          variant="tint"
-          size="icon-sm"
-          className="-mr-1 shrink-0"
-          disabled={locked}
-          title="Skip this question without answering"
-          aria-label="Dismiss question"
-          onClick={async () => {
-            setPending(DISMISS); // lock the panel while the skip is in flight
-            onError(null);
-            try {
-              await api(`/api/sessions/${sid}/dismiss`, { method: "POST" });
-            } catch (e) {
-              onError(e instanceof Error ? e.message : String(e));
-              setPending(null);
-            }
-          }}
-        >
-          {pending === DISMISS ? (
-            <Loader2 className="size-3.5 animate-spin" />
-          ) : (
-            <X className="size-4" />
-          )}
-        </Button>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        {prompt.options.map((option) => (
-          <Button
-            key={option.index}
-            type="button"
-            variant={option.selected || pending === option.index ? "brand" : "secondary"}
-            size="sm"
-            className="h-auto min-h-8 max-w-full whitespace-normal py-1 text-left"
-            disabled={locked}
-            onClick={async () => {
-              setPending(option.index);
-              onError(null);
-              try {
-                await api(`/api/sessions/${sid}/answer`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ index: option.index }),
-                });
-              } catch (e) {
-                onError(e instanceof Error ? e.message : String(e));
-                setPending(null);
-              }
-            }}
-          >
-            {pending === option.index ? <Loader2 className="size-3.5 animate-spin" /> : null}
-            {option.label}
-          </Button>
-        ))}
-      </div>
-    </div>
   );
 }
 
