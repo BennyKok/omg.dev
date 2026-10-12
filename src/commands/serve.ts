@@ -9895,6 +9895,8 @@ a{color:#60a5fa}
           ? await existingNoProjectWorkspace(requestedCwd)
           : undefined;
         if (sourceChatCwd) unassigned = true;
+        try { validateBuilderPreset(builderPreset, agent, !unassigned); }
+        catch (error) { return err(400, error instanceof Error ? error.message : "Invalid builder project"); }
         if (!repo && !unassigned) {
           return err(
             400,

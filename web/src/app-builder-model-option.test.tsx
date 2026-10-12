@@ -27,10 +27,10 @@ test("filtering and Enter can choose the workflow without a fake model id", () =
   const input = ui.query("input") as HTMLInputElement;
   function type(value: string) { ui.flush(() => {
     Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value")!.set!.call(input, value);
-    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new input.ownerDocument.defaultView!.Event("input", { bubbles: true }));
   }); }
   type("app builder"); expect(ui.queryAll("button").length).toBe(1); expect(ui.text()).not.toContain("No matching models");
-  ui.flush(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+  ui.flush(() => input.dispatchEvent(new input.ownerDocument.defaultView!.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
   expect(builds).toBe(1);
   type("deepseek"); expect(ui.text()).not.toContain("App Builder");
 });
@@ -52,6 +52,15 @@ test("Workflows is last and Enter follows the visible order", () => {
   expect(rows.at(-1)?.textContent).toContain("App Builder");
   expect(ui.query('[role="group"][aria-label="Workflows"]')?.contains(rows.at(-1)!)).toBe(true);
   const input = ui.query("input")!;
-  ui.flush(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+  ui.flush(() => input.dispatchEvent(new input.ownerDocument.defaultView!.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
   expect(chosen.length).toBe(1); expect(builds).toBe(0);
+});
+
+test("the workflow explains the project requirement and cannot run without a project", () => {
+  let builds = 0;
+  ui.render(<ModelOptionList value={OMG_MODELS[0]!} models={OMG_MODELS}
+    builderChoice={{ selected: false, disabled: true, onChoose: () => { builds++; } }} onChoose={() => {}} />);
+  const row = ui.queryAll("button").find(x => x.textContent?.includes("App Builder")) as HTMLButtonElement;
+  expect(row.disabled).toBe(true); expect(row.textContent).toContain("Choose a project");
+  ui.flush(() => row.click()); expect(builds).toBe(0);
 });

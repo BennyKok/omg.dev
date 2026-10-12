@@ -138,3 +138,9 @@ test("review failure reports status without exposing provider response headers",
     abort: async () => ({})
   } }, "/project", "source", new AbortController().signal)).rejects.toThrow("Reviewer failed: APIError (HTTP 401)");
 });
+
+test("App Builder rejects Quick Chat before launch but General still permits it", () => {
+  expect(() => validateBuilderPreset(APP_BUILDER_PRESET, "omg", false)).toThrow("selected Git project");
+  expect(validateBuilderPreset(undefined, "omg", false)).toBeUndefined();
+  expect(validateBuilderPreset(APP_BUILDER_PRESET, "omg", true)).toBe(APP_BUILDER_PRESET);
+});
