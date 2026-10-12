@@ -63,7 +63,7 @@ test("every task asks three questions, each with four or five short answers", ()
 test("the answers are built into the prompt", () => {
   const app = FIRST_TASKS.find((t) => t.key === "app")!;
   expect(compose(app, [1, 1, 2])).toBe(
-    "Build a mobile app for my friends about food and recipes that lets people share with each other. Make it an Expo app and give me a preview I can open on my phone as soon as the first screen works. When the preview works, publish the web version with omg_deploy (bun run build makes the Expo web export) and build an installable Android app with omg_build_android. Send me the web link and the Android install link.",
+    "Build a mobile app for my friends about food and recipes that lets people share with each other. Make it an Expo app and give me a preview I can open on my phone as soon as the first screen works. When the preview works, publish the web version with omg_deploy (bun run build makes the Expo web export) and build an installable Android app with omg_build_android. Make the web version public with omg_app_visibility so anyone with the link can open it. Send me the web link and the Android install link.",
   );
   const news = FIRST_TASKS.find((t) => t.key === "news")!;
   expect(compose(news, [0, 1, 1])).toContain("top 10 Hacker News stories about AI");
