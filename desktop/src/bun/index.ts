@@ -78,7 +78,8 @@ async function connectToRuntime(): Promise<void> {
 
 void connectToRuntime();
 
-startAutoUpdate(Updater, async (version) => {
+// An isolated review app must keep its prepared build throughout the test.
+if (!process.env.OMG_DESKTOP_TEST_STATE_ROOT) startAutoUpdate(Updater, async (version) => {
   const { response } = await Utils.showMessageBox({
     type: "info",
     title: "omg.dev update",

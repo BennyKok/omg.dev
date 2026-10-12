@@ -37,7 +37,8 @@
     "desktop:dev": "bun run --cwd desktop desktop:dev",
     "desktop:build": "bun run --cwd desktop desktop:build",
     "desktop:test": "bun run --cwd desktop test",
-    "sitemap:submit": "bun run scripts/gsc-submit-sitemaps.ts"
+    "sitemap:submit": "bun run scripts/gsc-submit-sitemaps.ts",
+    "ios:login": "bun run src/ios-testing/setup-cli.ts login"
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "^0.83.0",
@@ -59,7 +60,8 @@
     "sharp": "^0.35.5",
     "tldts": "^7.4.13",
     "yaml": "^2.9.0",
-    "zod": "^4.0.0"
+    "zod": "^4.0.0",
+    "@expo/apple-utils": "2.2.1"
   },
   "overrides": {
     "proxy-addr": "^2.0.8",

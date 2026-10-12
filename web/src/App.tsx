@@ -666,6 +666,7 @@ import {
 } from "./views/custom-instructions-page";
 import { RemoteAccessSettingsSection } from "./components/remote-access-settings";
 import { CloudAccountSettingsSection } from "./components/cloud-account-settings";
+import { IosTestingSettingsSection } from "./components/ios-testing-settings";
 import { MachineSwitcher } from "./components/machine-switcher";
 import { ConnectionOverlay } from "./components/connection-overlay";
 import { ConnectorsRow } from "./views/connectors-row";
@@ -30080,6 +30081,8 @@ function SettingsView({
       </section>
 
       <CloudAccountSettingsSection />
+
+      <IosTestingSettingsSection />
 
       <RemoteAccessSettingsSection />
 

@@ -31,6 +31,61 @@ For `desktop:dev`, an existing local runtime is still the fastest development
 path. A production `desktop:build` first builds and stages the complete embedded
 runtime, then creates the native package.
 
+## Local Apple Developer sign-in
+
+From an interactive terminal on your Mac:
+
+```bash
+bun run ios:login
+# Optional: select a known developer team.
+bun run ios:login --team-id ABCDE12345
+```
+
+This command uses `@expo/apple-utils`, the Apple login library used by EAS CLI.
+It prompts for your Apple ID, then restores the local Apple session or asks for
+your password and two-factor code. You can select a developer team. Success
+requires an active iOS developer membership and a verified team response.
+
+The password goes directly from the Mac to Apple. Password storage in Keychain
+is disabled for this command. Session cookies remain in Expo's existing local
+cache at `~/.app-store/auth/<Apple ID>/cookie`. Cache directories use mode `0700`.
+Cookies use mode `0600`. The command returns only the connected team name and ID.
+The `ios:login` command connects the account. In the Mac app, Settings also
+offers USB iPhone selection and local testing-profile preparation. It opens a
+native Terminal window for Expo's interactive prompts. Passwords and 2FA never
+pass through the local Settings HTTP routes.
+
+Local provisioning reuses a saved distribution certificate and its matching
+key. It registers selected USB devices, creates or reuses a wildcard ad hoc
+profile, and saves signing material in the macOS login Keychain. It never
+revokes a certificate or deletes an Apple profile. Adding a phone preserves
+previous device coverage. Expired or revoked certificates require a deliberate
+renewal flow.
+
+The local exporter prepares the hosted v1 handoff once. It rewraps PKCS12 with
+a random export password and preserves the exact intent, shared owner/team
+revision, password, and signed profile bytes for retries. Pending exports stay
+in Keychain. The Settings upload step uses a separate browser-approved OAuth
+grant for `omg:ios-signing` and the signing-service audience. It reuses the
+existing account client's consent, PKCE and refresh lifecycle.
+The client checks the provider's discovery metadata before registration and
+refresh. It requires the signing scope and the expected first-party endpoints.
+The ordinary CLI token has no signing authority. Signing access and refresh tokens stay in the
+Mac Keychain, separately from CLI credentials, and have no
+browser token endpoint. The hosted routes and auth changes must be deployed
+together before this flow can work against production.
+Apple uses a private protocol for login. Changes at Apple can require an update
+to the pinned Expo library.
+
+Focused checks:
+
+```bash
+bun test src/ios-testing web/src/components/ios-testing-settings.test.tsx
+bun run --cwd desktop apple:typecheck
+# Native Keychain checks require a GUI terminal on the Mac, rather than SSH.
+OMG_NATIVE_KEYCHAIN_TEST=1 bun test src/ios-testing/provisioning.test.ts -t 'native Keychain'
+```
+
 Useful checks:
 
 ```bash
@@ -42,6 +97,11 @@ bun run desktop:build
 
 `desktop:build` builds the current host target. A signed and notarized macOS
 release must run on a macOS runner with signing configured.
+
+For a local review, launch the built app with an absolute
+`OMG_DESKTOP_TEST_STATE_ROOT` through `open --env`. This uses separate runtime
+state and disables the review app's update prompt. The installed app keeps its
+own runtime and state.
 
 Before a local macOS package build, prepare the icon set from the shared app
 icon:

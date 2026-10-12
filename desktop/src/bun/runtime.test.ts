@@ -40,6 +40,10 @@ afterEach(() => {
 });
 
 describe("runtimeOrigin", () => {
+  test("a desktop test can use isolated state without replacing the installed runtime", () => {
+    expect(desktopRuntimeStateRoot("darwin", { OMG_DESKTOP_TEST_STATE_ROOT: "/Users/test/ios-setup-review" }, "/Users/test")).toBe("/Users/test/ios-setup-review");
+    expect(() => desktopRuntimeStateRoot("darwin", { OMG_DESKTOP_TEST_STATE_ROOT: "relative" })).toThrow("absolute path");
+  });
   test("uses the fixed local omg.dev origin by default", () => {
     expect(runtimeOrigin({})).toBe(DEFAULT_DESKTOP_RUNTIME_ORIGIN);
   });
