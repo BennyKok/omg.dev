@@ -24198,6 +24198,7 @@ function NewSessionDialog({
   };
 
   const chooseBuilder = () => {
+    if (!selectedRepo) return;
     setBuilderPreset(APP_BUILDER_PRESET);
     setModel(APP_BUILDER_MODEL);
     changeComposerThinkingLevel("low");
@@ -24206,7 +24207,7 @@ function NewSessionDialog({
     setBuilderPreset("");
     setModel(next);
   };
-  const builderChoice = agent === "omg" ? { selected: builderPreset === APP_BUILDER_PRESET, onChoose: chooseBuilder } : undefined;
+  const builderChoice = agent === "omg" ? { selected: builderPreset === APP_BUILDER_PRESET, disabled: !selectedRepo, onChoose: chooseBuilder } : undefined;
 
   // One folder dropdown for every desktop composer shape: a chip on the home
   // stage, a pill in the drawer's controls row.
@@ -26075,6 +26076,7 @@ export function ModelOptionList({
   };
   const showBuilder = !!builderChoice && "app builder haiku apex code review luna design review".includes(query.trim().toLowerCase());
   const chooseBuilder = () => {
+    if (builderChoice?.disabled) return;
     if (prices[APP_BUILDER_MODEL]?.available === false) { chooseModel(APP_BUILDER_MODEL); return; }
     builderChoice?.onChoose();
   };
@@ -26193,7 +26195,7 @@ export function ModelOptionList({
         {showBuilder ? (
           <div role="group" aria-label="Workflows" className="mt-2 border-t border-border pt-2">
             <div className="px-3 pb-1 pt-2 text-[11px] font-medium text-muted-foreground">Workflows</div>
-            <AppBuilderOption selected={!!builderChoice?.selected} onChoose={chooseBuilder} locked={prices[APP_BUILDER_MODEL]?.available === false} />
+            <AppBuilderOption selected={!!builderChoice?.selected} disabled={builderChoice?.disabled} onChoose={chooseBuilder} locked={prices[APP_BUILDER_MODEL]?.available === false} />
           </div>
         ) : null}
       </div>

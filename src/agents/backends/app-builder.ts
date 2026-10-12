@@ -5,10 +5,11 @@ import { extractAttachments, isImageMime } from "../../attachment-images.ts";
 import { APP_BUILDER_PRESET, APP_BUILDER_MODEL, APP_BUILDER_REVIEWER, APP_BUILDER_DESIGN_REVIEWER } from "../../../packages/protocol/src/builder-presets.ts";
 export { APP_BUILDER_PRESET, APP_BUILDER_MODEL, APP_BUILDER_REVIEWER, APP_BUILDER_DESIGN_REVIEWER };
 
-export function validateBuilderPreset(value: unknown, agent: string): string | undefined {
+export function validateBuilderPreset(value: unknown, agent: string, hasProject = true): string | undefined {
   if (value === undefined || value === null || value === "") return undefined;
   if (value !== APP_BUILDER_PRESET) throw new Error("Unknown workflow preset");
   if (agent !== "omg") throw new Error("App Builder is available for OMG Agent only");
+  if (!hasProject) throw new Error("App Builder needs a selected Git project");
   return APP_BUILDER_PRESET;
 }
 
