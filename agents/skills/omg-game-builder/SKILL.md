@@ -27,7 +27,7 @@ Create the project with `omg_create_project` and `template: "expo-game"`. Follow
 3. `src/games/<your-game>/game-view.tsx`: copy `coin-dash/game-view.tsx`. Draw with `World` and `Sprite` (coloured shapes, emoji `label`, or `react-native-svg`). Use world units; the camera converts.
 4. `src/app/play.tsx`: change the imports from coin-dash to your game. Set `kind` on `TouchControls` (`dpad`, `stick`, `steer`) and its `buttons` (`{ action: "a", label: "JUMP" }`). Keep the loop, keyboard, pause and finish wiring as it is.
 5. `src/app/index.tsx`, `results.tsx`, `unlocks.tsx`: titles, text, and the `UNLOCKS` import.
-6. `tests/`: test your `logic.ts` with `bun test` (step with a fake `Input`, assert score, collision, game over). Copy the pattern from `tests/coin-dash.test.ts` (build a game, set keys with `setAction`, call `stepGame` in a loop, assert).
+Do not write automated tests unless the user asks. Verify with the self-check instead (see Finish).
 
 Do not edit `src/game/loop.ts`, `input.ts`, `collision.ts`, `camera.ts`, `progress.ts` unless a kit bug blocks you. Add helpers in your game folder.
 
@@ -68,4 +68,4 @@ Verified in the kit spike: a 3D scene renders in Expo Web, and the Android JS bu
 
 ## Finish
 
-Run `bun run typecheck`, `bun test`, and `bun run build`. Check the game in Expo Web: it must move with keys, end, show the results screen, and keep the best score after a reload. Say which surfaces you tested; a web run is not proof of native behaviour.
+Run `bun run typecheck` and `bun run build`. Do not write automated tests unless the user asks. Then run `bun run check:ui`: it opens every route at 390x844, saves one PNG per route in `.omg/ui-check/`, and reports blank pages, error boundaries, console errors, failed requests, and buttons covered by another element. Open each PNG, compare it with the request and any design references, fix what is wrong, and run it again until the report is clean. The check does not play the game, so also check it in Expo Web: it must move with keys, end, show the results screen, and keep the best score after a reload. Say which surfaces you tested; a web run is not proof of native behaviour.

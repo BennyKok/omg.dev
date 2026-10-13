@@ -37,6 +37,8 @@ test("expo-game installs the Expo base, the game kit and the game skill", async 
   expect(pkg.name).toBe("neon-racer");
   expect(pkg.scripts.test).toBe("bun test");
   expect(pkg.scripts.typecheck).toContain("check-routes");
+  expect(pkg.scripts["check:ui"]).toContain("check-ui.mjs");
+  expect(existsSync(join(cwd, "scripts/check-ui.mjs"))).toBe(true);
   expect(JSON.parse(readFileSync(join(cwd, ".omg/template.json"), "utf8")).name).toBe("expo-game");
 });
 

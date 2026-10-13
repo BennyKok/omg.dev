@@ -13,7 +13,7 @@ Ask one question per question call, and put at most one decision in it. A second
 
 ## Establish the project
 
-- In Quick Chat, call `omg_create_project` once with a short descriptive name. Set `template` to `expo` for an Expo or universal mobile app. The Expo template already contains a working todo flow with data stored on the phone, Expo Router, Liquid Glass, Lucide icons, web support, and EAS configuration. Use the returned `repo.cwd` for every command, edit, test, and deployment. Inspect `omg_list_repos` before retrying an uncertain create call.
+- In Quick Chat, call `omg_create_project` once with a short descriptive name. Set `template` to `expo` for an Expo or universal mobile app. The Expo template already contains a working todo flow with data stored on the phone, Expo Router, Liquid Glass, Lucide icons, web support, and EAS configuration. Use the returned `repo.cwd` for every command, edit, check, and deployment. Inspect `omg_list_repos` before retrying an uncertain create call.
 - In a New Project session, the current directory is already the project. It contains Git, a README, and this skill. Do not create a second project.
 - Preserve `.git`. Do not overwrite an existing folder or move the current Quick Chat into the new project.
 
@@ -43,11 +43,11 @@ A new user is waiting. The first screen must reach their phone within about 3 mi
 1. `omg_create_project` with `template: "expo"`. If `node_modules` is missing, run `bun install` once.
 2. Preview before you write any code. Call `omg_expose_port` with port 8081 and `expoGo: true`. Then run `bash scripts/start-expo-preview.sh <expoGo.proxyUrl> 8081` from the project directory, with a 240000 ms shell timeout. When it prints `Sandbox proxy answers: HTTP 200`, present the web preview first: "Your app is ready. The card below shows it running, and it works on any device." Then mention the phone in one sentence: "To try it on your own phone, tap Your phone on the card." When the `omg_expose_port` result has `simulatorAvailable: true`, add one more sentence: "You can also try it on an iPhone right in the card: tap Simulator." Do not promise the simulator when that field is false or missing. Do not paste `expoGo.url`; the card shows it. Metro reloads the app on every save, so the preview follows your edits from here on.
 3. Write the screens, in a few larger edits rather than one small edit per turn. Replace the template home screen in `src/app/index.tsx`; do not add a second index route.
-4. Run `bun run typecheck` once and fix what it reports. It also checks the routes and fails on a second home screen or a root `app/` folder.
+4. Run `bun run typecheck` and fix what it reports. It also checks the routes and fails on a second home screen or a root `app/` folder. Then run `bun run check:ui`, open its PNGs, and fix what is wrong (see Build step 4). Do not write automated tests unless the user asks.
 5. Deploy once with `omg_deploy` (see below). The data stays on the phone, so this is a static web build.
 6. Finish with `omg_ship`.
 
-Do not browse `node_modules`, fetch documentation, or read the template file by file before the first preview: the summary below is enough. Do not run repeated browser test loops. Do not write screenshot scripts when you cannot see images.
+Do not browse `node_modules`, fetch documentation, or read the template file by file before the first preview: the summary below is enough. Do not write your own browser test loops or screenshot scripts: `bun run check:ui` does that. If you cannot view images, read its text report only.
 
 The template:
 
@@ -82,7 +82,7 @@ Shared data between people (a shared list, a trade, a group): use the hosted `@o
 1. Convert the request into a small observable done condition. Make reasonable visual and technical choices when the user did not specify them.
 2. Scaffold inside the project directory. For a managed Expo template, install its pinned dependencies and preserve `.omg/template.json`; do not replace it with another starter. For a blank project, install the current documented dependencies and configuration. Do not install a retired omg.dev CLI or ask the user for infrastructure tokens; runtime tools provide the Cloud credential.
 3. Implement the real path. If the product needs shared data, authentication, uploads, or server work, use the documented hosted APIs and verify persistence and access control. Do not replace requested shared behavior with mock data or browser-only storage.
-4. Test the important behavior. Also inspect the rendered UI at the target size. For an Expo app, run and inspect Expo Web first. Then verify on Expo Go, a development build, or a simulator when one is available. State which surface was tested; a web preview or type check is not proof of native behavior.
+4. Do not write automated tests unless the user asks for them. Verify with the self-check instead: run `bun run typecheck`, then `bun run check:ui`. The check builds the web export, starts the app's `server` or `backend` script if there is one, opens every route at 390x844, and saves one PNG per route in `.omg/ui-check/`. It reports blank pages, error boundaries, console errors, failed requests, a crashed server, and buttons or links that another element covers (for example an "Add" button under a tab bar). Then open each PNG with the image viewer and compare it with the request and any design references. Fix what is wrong and run the check again until the report is clean. State which surface you checked; a web run is not proof of native behavior.
 5. Update the README with the product purpose, local run command, architecture, and delivery notes. Commit the finished source locally so later omg.dev sessions start from a complete baseline.
 
 ## Sign-in for a hosted web app
