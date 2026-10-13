@@ -2,6 +2,14 @@
 
 Recent product updates and deployment notes.
 
+## October 13, 2026 - Claude Haiku 5.5 builds apps by default (v0.6.230)
+
+- New omg agent sessions use Claude Haiku 5.5. It starts with reasoning off, so it spends its output on code. Pick low, medium, or high in the model menu to turn reasoning on.
+- New Expo apps include a web-safe app kit in `src/kit`. Its action rows, overlays, timers, and image helpers work the same in the browser preview and on the phone.
+- A new `expo-game` starter includes a game kit with a game loop, keyboard and touch controls, and a sample game. The game builder skill uses it.
+- The app builder checks its own screens with `bun run check:ui` before it finishes. It writes automated tests only when you ask for them.
+- App Builder runs can take up to 250 steps. Before, a run with Claude Haiku 5.5 failed at step 50.
+
 ## October 12, 2026 - Set up iPhone testing on your Mac (v0.6.229)
 
 - Mac Settings can connect your Apple developer account and select an iPhone connected by USB.
