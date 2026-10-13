@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { cloudApiBaseUrl, loadCloudCredentials } from "./cloud-account.ts";
-import { OMG_MODELS, omgInputModalities, omgThinkingLevels } from "./omg-models.ts";
+import { OMG_MODELS, omgInputModalities, omgModelOptions, omgThinkingLevels, omgVariantOptions } from "./omg-models.ts";
 
 const GUEST_PROXY = "http://169.254.0.1:9090";
 export const OMG_SIGN_IN_REQUIRED = "Sign in with `omg login` to use the omg agent.";
@@ -78,7 +78,7 @@ function omgInputConfig(model: string): { attachment: boolean; modalities: { inp
  * provider, or its declared input modalities differ from the catalog. With no
  * `modalities`, OpenCode drops every image sent to an image-capable model.
  */
-function missingOmgVariants(provider: { models?: Record<string, { variants?: unknown; attachment?: unknown; modalities?: { input?: unknown } }> }): boolean {
+function missingOmgVariants(provider: { models?: Record<string, { variants?: unknown; options?: { reasoning?: unknown }; attachment?: unknown; modalities?: { input?: unknown } }> }): boolean {
   return OMG_MODELS.some((model) => {
     const entry = provider.models?.[model.slice("omg/".length)];
     const input = omgInputModalities(model);
@@ -87,7 +87,13 @@ function missingOmgVariants(provider: { models?: Record<string, { variants?: unk
     const levels = omgThinkingLevels(model);
     if (!levels) return false;
     const variants = entry?.variants;
-    return !variants || typeof variants !== "object" || levels.some((level) => !(level in (variants as object)));
+    if (!variants || typeof variants !== "object") return true;
+    // Compare the full variant body, not just the name: an old Haiku entry has
+    // `low` with `reasoningEffort`, which no longer turns reasoning on.
+    const stale = levels.some((level) => JSON.stringify((variants as Record<string, unknown>)[level]) !== JSON.stringify(omgVariantOptions(model, level)));
+    if (stale) return true;
+    const options = omgModelOptions(model);
+    return !!options && JSON.stringify((entry as { options?: { reasoning?: unknown } } | undefined)?.options?.reasoning) !== JSON.stringify(options.reasoning);
   });
 }
 
@@ -154,12 +160,22 @@ export function ensureOmgProvider(options: OmgProviderOptions = {}): void {
         ...Object.fromEntries(OMG_MODELS.map((model) => {
           const id = model.slice("omg/".length);
           // A thinking level travels as an OpenCode variant; the
-          // openai-compatible provider sends it as `reasoning_effort`.
+          // openai-compatible provider sends it as `reasoning_effort`, or as
+          // the `reasoning` object for models that default to reasoning off.
           const levels = omgThinkingLevels(model);
           const variants = levels
-            ? Object.fromEntries(levels.map((level) => [level, { reasoningEffort: level }]))
+            ? Object.fromEntries(levels.map((level) => [level, omgVariantOptions(model, level)]))
             : undefined;
-          return [id, { ...previous.models?.[id], name: id, ...(variants ? { variants } : {}), ...omgInputConfig(model) }];
+          const modelOptions = omgModelOptions(model);
+          const prior = previous.models?.[id];
+          return [id, {
+            ...prior,
+            name: id,
+            ...(variants ? { variants: { ...prior?.variants, ...variants } } : {}),
+            // Keep the user's other options; only the managed reasoning key is ours.
+            ...(modelOptions ? { options: { ...prior?.options, ...modelOptions } } : {}),
+            ...omgInputConfig(model),
+          }];
         })),
       },
     },

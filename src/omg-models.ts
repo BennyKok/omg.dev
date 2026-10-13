@@ -90,6 +90,15 @@ export function omgInputModalities(model: string): readonly ("text" | "image")[]
  */
 const OMG_EFFORT_LEVELS = ["low", "medium", "high"] as const;
 
+// Claude Haiku 5.5 runs with reasoning OFF unless the user picks a level.
+// Measured 2026-10-13 through the router and OpenRouter: with no `reasoning`
+// field it spends the whole output budget on reasoning and writes no code, and
+// inside an OpenCode agent loop `reasoning_effort: "minimal"` still escalated.
+// Only the `reasoning: { enabled: false }` object held it at 0 reasoning tokens.
+const OMG_REASONING_OFF_MODELS: readonly string[] = ["omg/anthropic/claude-haiku-5.5"];
+/** The level name that stands for "reasoning off" in the picker and in variants. */
+export const OMG_THINKING_OFF = "off";
+
 export const OMG_THINKING_LEVELS_BY_MODEL: Record<string, readonly string[]> = Object.fromEntries(
   [
     "omg/deepseek/deepseek-v4-flash-0731",
@@ -105,10 +114,37 @@ export const OMG_THINKING_LEVELS_BY_MODEL: Record<string, readonly string[]> = O
     "omg/openai/gpt-6-astra",
     // reasoning_effort listed 2026-09-30.
     "omg/openai/gpt-6-luna",
-  ].map((model) => [model, OMG_EFFORT_LEVELS]),
+  ].map((model) => [model, OMG_REASONING_OFF_MODELS.includes(model) ? [OMG_THINKING_OFF, ...OMG_EFFORT_LEVELS] : OMG_EFFORT_LEVELS]),
 );
 
 /** Levels for one hosted model, or null when the router has no control for it. */
 export function omgThinkingLevels(model: string): readonly string[] | null {
   return OMG_THINKING_LEVELS_BY_MODEL[model] ?? null;
+}
+
+/** The level a new session starts at when the model has its own default, else null. */
+export function omgDefaultThinkingLevel(model: string): string | null {
+  return OMG_REASONING_OFF_MODELS.includes(model) ? OMG_THINKING_OFF : null;
+}
+
+/**
+ * Model-level OpenCode `options`, merged into every request body. Only the
+ * reasoning-off models have any: the default request carries
+ * `reasoning: { enabled: false }`.
+ */
+export function omgModelOptions(model: string): Record<string, unknown> | undefined {
+  return OMG_REASONING_OFF_MODELS.includes(model) ? { reasoning: { enabled: false } } : undefined;
+}
+
+/**
+ * The OpenCode variant for one level. OpenCode merges a variant over the model
+ * options with a deep merge, so a chosen level sets `enabled: true` itself and
+ * cannot be cancelled by the model default. Other models send the level as
+ * `reasoning_effort`.
+ */
+export function omgVariantOptions(model: string, level: string): Record<string, unknown> {
+  if (!OMG_REASONING_OFF_MODELS.includes(model)) return { reasoningEffort: level };
+  return level === OMG_THINKING_OFF
+    ? { reasoning: { enabled: false } }
+    : { reasoning: { enabled: true, effort: level } };
 }

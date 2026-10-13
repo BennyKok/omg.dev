@@ -1,4 +1,4 @@
-import { OMG_DEFAULT_MODEL, OMG_MODELS, OMG_THINKING_LEVELS_BY_MODEL, omgThinkingLevels } from "./omg-models.ts";
+import { OMG_DEFAULT_MODEL, OMG_MODELS, OMG_THINKING_LEVELS_BY_MODEL, OMG_THINKING_OFF, omgThinkingLevels } from "./omg-models.ts";
 export { OMG_MODELS } from "./omg-models.ts";
 import { customModelIds, customModelLabels } from "./custom-models.ts";
 
@@ -670,7 +670,9 @@ export function thinkingLevelsForAgent(
   // some and has no control for others. See OMG_THINKING_LEVELS_BY_MODEL.
   if (agent === "omg") {
     if (model) return omgThinkingLevels(model);
-    const levels = [...new Set(Object.values(OMG_THINKING_LEVELS_BY_MODEL).flat())];
+    // "off" belongs to the models that default to it; the model-less union
+    // stays the effort levels every model understands.
+    const levels = [...new Set(Object.values(OMG_THINKING_LEVELS_BY_MODEL).flat())].filter((level) => level !== OMG_THINKING_OFF);
     return levels.length ? levels : null;
   }
   if (agent === "claude" || agent === "aisdk") return CLAUDE_THINKING_LEVELS;
@@ -874,7 +876,7 @@ export function listModelCatalog(codingAgents: CodingAgentInfo[] = []): ModelCat
         )
       : undefined;
     const thinkingLevels = perModelLevels
-      ? [...new Set(Object.values(thinkingLevelsByModel ?? {}).flat())]
+      ? [...new Set(Object.values(thinkingLevelsByModel ?? {}).flat())].filter((level) => key !== "omg" || level !== OMG_THINKING_OFF)
       : [...(thinkingLevelsForAgent(key) ?? [])];
     return {
       key,

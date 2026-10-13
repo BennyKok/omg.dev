@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, wri
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { ensureOmgProvider, hasHostedOmgAiProxy, hasOmgProviderAccess, isHostedOmgSandbox, OMG_SIGN_IN_REQUIRED } from "./omg-provider.ts";
-import { OMG_INPUT_MODALITIES_BY_MODEL, OMG_MODELS, omgInputModalities, omgThinkingLevels } from "./omg-models.ts";
+import { OMG_INPUT_MODALITIES_BY_MODEL, OMG_MODELS, omgInputModalities, omgModelOptions, omgThinkingLevels, omgVariantOptions } from "./omg-models.ts";
 
 const modalities = (model: string) => {
   const input = omgInputModalities(model);
@@ -57,7 +57,7 @@ test("hosted proxy environment leaves a complete guest config alone", () => {
   const guest = join(home, ".config/opencode/opencode.jsonc");
   const models = Object.fromEntries(OMG_MODELS.map((model) => {
     const levels = omgThinkingLevels(model);
-    return [model.slice(4), { ...(levels ? { variants: Object.fromEntries(levels.map((l) => [l, { reasoningEffort: l }])) } : {}), ...modalities(model) }];
+    return [model.slice(4), { ...(levels ? { variants: Object.fromEntries(levels.map((l) => [l, omgVariantOptions(model, l)])) } : {}), ...(omgModelOptions(model) ? { options: omgModelOptions(model) } : {}), ...modalities(model) }];
   }));
   const source = `{ // guest managed\n "provider": { "omg": { "options": { "baseURL": "http://169.254.0.1:9090/v1", "apiKey": "x" }, "models": ${JSON.stringify(models)} } } }`;
   put(guest, source);
@@ -89,7 +89,7 @@ test("hosted guest config without modalities gets image input only on image mode
   const guest = join(home, ".config/opencode/opencode.jsonc");
   const models = Object.fromEntries(OMG_MODELS.map((model) => {
     const levels = omgThinkingLevels(model);
-    return [model.slice(4), levels ? { variants: Object.fromEntries(levels.map((l) => [l, { reasoningEffort: l }])) } : {}];
+    return [model.slice(4), levels ? { variants: Object.fromEntries(levels.map((l) => [l, omgVariantOptions(model, l)])) } : {}];
   }));
   put(guest, JSON.stringify({ provider: { omg: { options: { baseURL: "https://openrouter.example/v1", apiKey: "x" }, models } } }));
   ensureOmgProvider(opts);
@@ -135,7 +135,8 @@ for (const kind of ["api-key", "oauth", "jwt"]) {
         const levels = omgThinkingLevels(model);
         return [id, {
           name: id,
-          ...(levels ? { variants: Object.fromEntries(levels.map((level) => [level, { reasoningEffort: level }])) } : {}),
+          ...(levels ? { variants: Object.fromEntries(levels.map((level) => [level, omgVariantOptions(model, level)])) } : {}),
+          ...(omgModelOptions(model) ? { options: omgModelOptions(model) } : {}),
           ...modalities(model),
         }];
       })),
@@ -190,4 +191,52 @@ test("invalid config is not overwritten", () => {
   put(configPath(), "{broken");
   expect(() => ensureOmgProvider(options())).toThrow("Cannot update invalid JSON config:");
   expect(readFileSync(configPath(), "utf8")).toBe("{broken");
+});
+
+const HAIKU = "anthropic/claude-haiku-5.5";
+
+test("Haiku 5.5 defaults to reasoning off and a chosen level turns it on", () => {
+  credentials();
+  ensureOmgProvider(options());
+  const haiku = JSON.parse(readFileSync(configPath(), "utf8")).provider.omg.models[HAIKU];
+  // The default request carries the disabled reasoning object.
+  expect(haiku.options).toEqual({ reasoning: { enabled: false } });
+  expect(Object.keys(haiku.variants)).toEqual(["off", "low", "medium", "high"]);
+  expect(haiku.variants.off).toEqual({ reasoning: { enabled: false } });
+  // A level sets enabled: true itself, so the deep merge over the options wins.
+  for (const level of ["low", "medium", "high"]) {
+    expect(haiku.variants[level]).toEqual({ reasoning: { enabled: true, effort: level } });
+    const merged = structuredClone(haiku.options);
+    Object.assign(merged.reasoning, haiku.variants[level].reasoning);
+    expect(merged.reasoning).toEqual({ enabled: true, effort: level });
+  }
+  // Other models keep reasoning_effort variants and carry no default options.
+  const opus = JSON.parse(readFileSync(configPath(), "utf8")).provider.omg.models["anthropic/claude-opus-5.5"];
+  expect(opus.variants.high).toEqual({ reasoningEffort: "high" });
+  expect(opus.options).toBeUndefined();
+});
+
+test("a stale Haiku entry from an older config is rewritten without losing user config", () => {
+  const opts = { ...options(), env: { OMG_AI_URL: "http://169.254.0.1:9090" } };
+  const guest = join(home, ".config/opencode/opencode.jsonc");
+  const models: Record<string, any> = Object.fromEntries(OMG_MODELS.map((model) => {
+    const levels = omgThinkingLevels(model);
+    const old = levels ? { variants: Object.fromEntries(levels.filter((l) => l !== "off").map((l) => [l, { reasoningEffort: l }])) } : {};
+    return [model.slice(4), { ...old, ...modalities(model) }];
+  }));
+  (models as Record<string, any>)[HAIKU] = { ...models[HAIKU], options: { temperature: 0.2 } };
+  put(guest, JSON.stringify({ theme: "mine", provider: { omg: { options: { baseURL: "http://169.254.0.1:9090/v1", apiKey: "k" }, models }, other: { name: "x" } } }));
+  ensureOmgProvider(opts);
+  const config = JSON.parse(readFileSync(guest, "utf8"));
+  expect(config.theme).toBe("mine");
+  expect(config.provider.other).toEqual({ name: "x" });
+  expect(config.provider.omg.options.apiKey).toBe("k");
+  const haiku = config.provider.omg.models[HAIKU];
+  expect(haiku.options).toEqual({ temperature: 0.2, reasoning: { enabled: false } });
+  expect(haiku.variants.medium).toEqual({ reasoning: { enabled: true, effort: "medium" } });
+  expect(haiku.variants.off).toEqual({ reasoning: { enabled: false } });
+  // A second run finds the config current and leaves it byte for byte alone.
+  const before = readFileSync(guest, "utf8");
+  ensureOmgProvider(opts);
+  expect(readFileSync(guest, "utf8")).toBe(before);
 });
