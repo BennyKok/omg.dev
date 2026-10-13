@@ -2,7 +2,7 @@
 
 Read this first. It records what is true now. The nightly librarian agent
 updates it from merged pull requests. Verify a fact in code before you depend
-on it. Last refresh: 2026-10-12.
+on it. Last refresh: 2026-10-13.
 
 ## Active work (last 14 days)
 
@@ -13,7 +13,8 @@ on it. Last refresh: 2026-10-12.
   #334–#335, #339, #341, #347, #368, #373, #378, #382, #385).
 - **Android builds**: cloud APK builds, committed app icons, and tool timeout
   handling (#357, #367, #370).
-- **Agent media**: media generation billed to omg credits (#325).
+- **App kits and default agent**: Haiku 5.5 default, web app and game kits,
+  UI self-checks, and badge placement that keeps app content clear (#388–#389).
 - **Plans and mobile**: agent usage limits, matching iOS plan display, restyle
   tokens, starter pills, and Settings plan meters (#356, #361–#363, #366).
 - **Sessions and OpenCode**: harness relaunch, recorded containment, refreshed
@@ -29,7 +30,7 @@ on it. Last refresh: 2026-10-12.
   and fresh release lookup for self-update (#338, #344, #353).
 - **Agent docs**: self-host pricing, current context and archive rules,
   STATE.md refreshes, hosted web app sign-in, automatic sign-in/sign-out
-  rules, and corrected bot plan status (#359, #374–#377, #380–#381).
+  rules, and corrected bot plan status (#359, #374–#377, #380–#381, #387).
 
 ## Open pull requests
 
