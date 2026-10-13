@@ -43,7 +43,7 @@
     {
       "name": "Question card shows lettered answer rows",
       "goal": "Read the agent's question at the end of the transcript. Do not tap an answer.",
-      "done": "The question is visible, and its two answers are full-width rows stacked vertically, lettered A and B, above the message field.",
+      "done": "The question is visible, and its two answers are full-width rows lettered A and B in one flush list: no gap between them, square row edges, and a thin divider line between the rows, above the message field.",
       "expect": [
         "cancel box-1 now, or wait for the billing cycle",
         "A. Cancel now",

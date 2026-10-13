@@ -12,8 +12,9 @@
 // card (mobile/src/omg/question-card.tsx) and the website login card: a
 // question is a turn in the conversation, not a tray docked on the composer.
 // The two clients share one design: a rounded card, the agent's optional
-// header, the question, then a vertical list of full-width rows lettered
-// A, B, C. The old wrapped pills were 28–32px tall and hard to hit on a
+// header, the question, then a flush list of full-width rows lettered A, B,
+// C: no gaps, no row corners, a hairline divider between rows, running to the
+// card's edges. The old wrapped pills were 28–32px tall and hard to hit on a
 // phone; a row is at least 52px and carries the option's description.
 
 import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
@@ -42,7 +43,7 @@ export function QuestionChoices({
 }) {
   if (!choices.length) return null;
   return (
-    <ol className="mt-3 flex flex-col gap-1.5" aria-label="Answers">
+    <ol className="-mx-3 -mb-3 mt-3 divide-y divide-border border-t border-border" aria-label="Answers">
       {choices.map((choice, index) => {
         const active = pendingIndex === index || !!choice.selected;
         const letter = choiceLetter(index);
@@ -55,12 +56,10 @@ export function QuestionChoices({
               aria-label={`${letter}. ${choice.label}`}
               data-choice={letter}
               className={cn(
-                "group flex min-h-[52px] w-full items-center gap-2.5 rounded-[14px] border px-3 py-2 text-left",
-                "transition-[background-color,border-color] duration-150",
+                "group flex min-h-[52px] w-full items-center gap-2.5 px-3 py-2 text-left",
+                "transition-colors duration-150",
                 "disabled:pointer-events-none disabled:opacity-60",
-                active
-                  ? "border-primary bg-muted"
-                  : "border-border bg-muted/60 hover:bg-muted active:border-primary",
+                active ? "bg-muted" : "hover:bg-muted/60 active:bg-muted",
               )}
             >
               <span
@@ -119,7 +118,7 @@ export function QuestionCard({
   children?: ReactNode;
 }) {
   return (
-    <article className="question-card mb-2 rounded-2xl border bg-card p-3" aria-label="Question">
+    <article className="question-card mb-2 overflow-hidden rounded-2xl border bg-card p-3" aria-label="Question">
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           {header ? (

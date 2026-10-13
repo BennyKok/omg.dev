@@ -64,7 +64,7 @@ test("a harness prompt shows lettered, full-width answers with descriptions", ()
   expect(ui.text()).not.toContain("Needs your input");
   expect(ui.text()).not.toContain("Or type your own answer");
   // A TUI cursor row is not a choice the person made.
-  expect(buttons[0]!.className).not.toContain("border-primary bg-muted");
+  expect(buttons[0]!.className).not.toMatch(/(^| )bg-muted( |$)/);
 });
 
 test("tapping an answer posts its option index and locks the card", async () => {

@@ -75,6 +75,9 @@ export function QuestionCard({
         // it was tried (see SessionCard's own note on the home screen).
         borderColor: colors.borderStrong,
         gap: space.sm,
+        // The answer list runs to the card's edges; clip its pressed row to
+        // the card's rounded bottom corners.
+        overflow: "hidden",
       }}
     >
       <View style={{ flexDirection: "row", alignItems: "flex-start", gap: space.sm }}>
@@ -161,11 +164,20 @@ export function QuestionCard({
           </Text>
         </View>
       ) : null}
-      {/* The answers are a vertical list of full-width rows lettered A, B, C.
-          They used to be wrapped 36pt pills: hard to hit with a thumb, and the
-          option's description had nowhere to go. A row is at least 52pt tall
-          and the whole row is the target. */}
-      <View style={{ gap: space.xs }} accessibilityLabel="Answers">
+      {/* The answers are a flush list of full-width rows lettered A, B, C:
+          no gaps, no row corners, a hairline divider between rows, running
+          to the card's edges. They used to be wrapped 36pt pills: hard to
+          hit with a thumb, and the option's description had nowhere to go.
+          A row is at least 52pt tall and the whole row is the target. */}
+      <View
+        accessibilityLabel="Answers"
+        style={{
+          marginHorizontal: -space.md,
+          marginBottom: -space.md,
+          borderTopWidth: options.length ? StyleSheet.hairlineWidth : 0,
+          borderColor: colors.borderStrong,
+        }}
+      >
         {options.map((opt, position) => {
           const letter = choiceLetter(position);
           return (
@@ -183,11 +195,9 @@ export function QuestionCard({
                 gap: space.sm,
                 paddingHorizontal: space.md,
                 paddingVertical: space.sm,
-                borderRadius: 14,
-                borderCurve: "continuous",
-                backgroundColor: pressed ? colors.cardPressed : colors.secondary,
-                borderWidth: StyleSheet.hairlineWidth,
-                borderColor: pressed ? colors.primary : colors.borderStrong,
+                backgroundColor: pressed ? colors.cardPressed : "transparent",
+                borderTopWidth: position === 0 ? 0 : StyleSheet.hairlineWidth,
+                borderColor: colors.borderStrong,
               })}
             >
               {({ pressed }) => (
