@@ -8,12 +8,16 @@
 // every option list — including the Notification Center cell — renders through
 // QuestionChoices, so a question looks and taps the same wherever it appears.
 //
-// The options are a vertical list of full-width rows lettered A, B, C. The old
-// wrapped pills were 28–32px tall and hard to hit on a phone; a row is at
-// least 48px and carries the option's description when the agent wrote one.
+// The card sits IN the transcript, at the end of the stream, like the iOS
+// card (mobile/src/omg/question-card.tsx) and the website login card: a
+// question is a turn in the conversation, not a tray docked on the composer.
+// The two clients share one design: a rounded card, the agent's optional
+// header, the question, then a vertical list of full-width rows lettered
+// A, B, C. The old wrapped pills were 28–32px tall and hard to hit on a
+// phone; a row is at least 52px and carries the option's description.
 
 import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
-import { Loader2, MessageCircleQuestion, X } from "lucide-react";
+import { Loader2, X } from "lucide-react";
 import { api } from "@/lib/omg-client";
 import { cn } from "@/lib/utils";
 
@@ -38,9 +42,9 @@ export function QuestionChoices({
 }) {
   if (!choices.length) return null;
   return (
-    <ol className="mt-2 flex flex-col gap-1.5" aria-label="Answers">
+    <ol className="mt-3 flex flex-col gap-1.5" aria-label="Answers">
       {choices.map((choice, index) => {
-        const pending = pendingIndex === index;
+        const active = pendingIndex === index || !!choice.selected;
         const letter = choiceLetter(index);
         return (
           <li key={`${index}:${choice.label}`}>
@@ -51,29 +55,31 @@ export function QuestionChoices({
               aria-label={`${letter}. ${choice.label}`}
               data-choice={letter}
               className={cn(
-                "group flex min-h-12 w-full items-center gap-3 rounded-xl border px-3 py-2 text-left",
-                "transition-[background-color,border-color,transform] duration-150 active:scale-[0.99]",
-                "disabled:pointer-events-none disabled:opacity-50",
-                pending || choice.selected
-                  ? "border-primary bg-primary/10"
-                  : "border-border bg-background hover:border-primary/50 hover:bg-primary/5",
+                "group flex min-h-[52px] w-full items-center gap-2.5 rounded-[14px] border px-3 py-2 text-left",
+                "transition-[background-color,border-color] duration-150",
+                "disabled:pointer-events-none disabled:opacity-60",
+                active
+                  ? "border-primary bg-muted"
+                  : "border-border bg-muted/60 hover:bg-muted active:border-primary",
               )}
             >
               <span
                 aria-hidden
                 className={cn(
-                  "flex size-7 shrink-0 items-center justify-center rounded-full border text-xs font-semibold tabular-nums",
-                  pending || choice.selected
+                  "flex size-7 shrink-0 items-center justify-center rounded-full border text-[13px] font-semibold tabular-nums",
+                  active
                     ? "border-primary bg-primary text-primary-foreground"
-                    : "border-border text-muted-foreground group-hover:border-primary/60 group-hover:text-primary",
+                    : "border-border text-muted-foreground group-active:border-primary group-active:bg-primary group-active:text-primary-foreground",
                 )}
               >
-                {pending ? <Loader2 className="size-3.5 animate-spin" /> : letter}
+                {pendingIndex === index ? <Loader2 className="size-3.5 animate-spin" /> : letter}
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block text-sm font-medium leading-snug break-words">{choice.label}</span>
+                <span className="block text-[15px] font-medium leading-snug break-words text-foreground">
+                  {choice.label}
+                </span>
                 {choice.description ? (
-                  <span className="mt-0.5 block text-xs leading-snug text-muted-foreground break-words">
+                  <span className="mt-0.5 block text-[13px] leading-snug text-muted-foreground break-words">
                     {choice.description}
                   </span>
                 ) : null}
@@ -87,8 +93,9 @@ export function QuestionChoices({
 }
 
 /**
- * The in-conversation question: what the agent asked, its lettered answers,
- * a dismiss, and a reminder that the composer below takes a free answer.
+ * One question in the conversation: the agent's optional header, what it
+ * asked, its lettered answers, and a dismiss. The composer below takes a
+ * free answer, so the card has no reply box of its own.
  */
 export function QuestionCard({
   question,
@@ -99,7 +106,6 @@ export function QuestionCard({
   disabled = false,
   pendingIndex = null,
   dismissing = false,
-  freeText = true,
   children,
 }: {
   question: ReactNode;
@@ -110,21 +116,18 @@ export function QuestionCard({
   disabled?: boolean;
   pendingIndex?: number | null;
   dismissing?: boolean;
-  /** Whether typing in the composer answers this question. */
-  freeText?: boolean;
   children?: ReactNode;
 }) {
   return (
-    <article className="question-card px-3 py-3" aria-label="Question">
-      <div className="flex items-start gap-2.5">
-        <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/12 text-primary">
-          <MessageCircleQuestion className="size-4" />
-        </span>
+    <article className="question-card mb-2 rounded-2xl border bg-card p-3" aria-label="Question">
+      <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-primary">
-            {header || "Needs your input"}
+          {header ? (
+            <div className="text-[11px] font-bold uppercase tracking-[0.07em] text-primary">{header}</div>
+          ) : null}
+          <div className={cn("text-[15px] font-medium leading-snug text-foreground", header && "mt-0.5")}>
+            {question}
           </div>
-          <div className="mt-0.5 text-sm font-medium leading-relaxed text-foreground">{question}</div>
         </div>
         {onDismiss ? (
           <button
@@ -133,7 +136,7 @@ export function QuestionCard({
             disabled={disabled}
             aria-label="Dismiss question"
             title="Dismiss — the agent stops waiting"
-            className="-mr-1 flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground/80 transition-colors hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none disabled:opacity-40"
+            className="-mr-1 -mt-1 flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
           >
             {dismissing ? <Loader2 className="size-3.5 animate-spin" /> : <X className="size-4" />}
           </button>
@@ -141,9 +144,6 @@ export function QuestionCard({
       </div>
       {children}
       <QuestionChoices choices={choices} onPick={onPick} disabled={disabled} pendingIndex={pendingIndex} />
-      {freeText && choices.length ? (
-        <p className="mt-2 text-xs text-muted-foreground">Or type your own answer below.</p>
-      ) : null}
     </article>
   );
 }
@@ -161,16 +161,10 @@ export function SessionPromptPanel({
   prompt,
   sid,
   onError,
-  freeText = false,
 }: {
   prompt: SessionPrompt | null;
   sid: string | null;
   onError: (error: string | null) => void;
-  /**
-   * True for SDK harnesses, where a sent message answers the open question.
-   * A TUI selector in a tmux pane takes only an option.
-   */
-  freeText?: boolean;
 }) {
   // Selecting an option drives the harness (or the tmux selector) and the
   // panel only clears on the next prompt event. Without a lock the stale
@@ -200,47 +194,41 @@ export function SessionPromptPanel({
     : prompt.options.findIndex((o) => o.index === pending);
 
   return (
-    <section
-      aria-label="Question from this session"
-      className="max-h-[60vh] shrink-0 overflow-y-auto border-t border-primary/20 bg-primary/5"
-    >
-      <QuestionCard
-        question={prompt.question ?? "Waiting for a choice"}
-        header={prompt.header}
-        // No `selected` here: on a TUI selector it marks the cursor row, not a
-        // choice the person made.
-        choices={prompt.options.map(({ label, description }) => ({ label, description }))}
-        freeText={freeText}
-        disabled={locked}
-        pendingIndex={pendingPosition}
-        dismissing={pending === DISMISS}
-        onDismiss={async () => {
-          setPending(DISMISS);
-          onError(null);
-          try {
-            await api(`/api/sessions/${sid}/dismiss`, { method: "POST" });
-          } catch (e) {
-            onError(e instanceof Error ? e.message : String(e));
-            setPending(null);
-          }
-        }}
-        onPick={async (position) => {
-          const option = prompt.options[position];
-          if (!option) return;
-          setPending(option.index);
-          onError(null);
-          try {
-            await api(`/api/sessions/${sid}/answer`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ index: option.index }),
-            });
-          } catch (e) {
-            onError(e instanceof Error ? e.message : String(e));
-            setPending(null);
-          }
-        }}
-      />
-    </section>
+    <QuestionCard
+      question={prompt.question ?? "Waiting for a choice"}
+      header={prompt.header}
+      // No `selected` here: on a TUI selector it marks the cursor row, not a
+      // choice the person made.
+      choices={prompt.options.map(({ label, description }) => ({ label, description }))}
+      disabled={locked}
+      pendingIndex={pendingPosition}
+      dismissing={pending === DISMISS}
+      onDismiss={async () => {
+        setPending(DISMISS);
+        onError(null);
+        try {
+          await api(`/api/sessions/${sid}/dismiss`, { method: "POST" });
+        } catch (e) {
+          onError(e instanceof Error ? e.message : String(e));
+          setPending(null);
+        }
+      }}
+      onPick={async (position) => {
+        const option = prompt.options[position];
+        if (!option) return;
+        setPending(option.index);
+        onError(null);
+        try {
+          await api(`/api/sessions/${sid}/answer`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ index: option.index }),
+          });
+        } catch (e) {
+          onError(e instanceof Error ? e.message : String(e));
+          setPending(null);
+        }
+      }}
+    />
   );
 }

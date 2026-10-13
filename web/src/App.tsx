@@ -16794,9 +16794,10 @@ function SessionChatBody({
 }: SessionChatProps) {
   const sid = session.sessionId;
   const reviewingShipped = !!session.shippedReview;
-  // Open ask-user questions raised BY this session. The conversation shows them
-  // above the composer (SessionQuestionPanel) and the composer is their reply
-  // box — there is no second input, so what you type here is the answer.
+  // Open ask-user questions raised BY this session. The transcript shows them
+  // at the end of the stream (SessionQuestionPanel in ChatStream) and the
+  // composer is their reply box — there is no second input, so what you type
+  // here is the answer.
   const sessionQuestions = useSessionQuestions([session.sessionId, session.nativeSessionId]);
   const { answerInSession } = useAsk();
   const stashContext = sid ? `session:${sid}` : "session:missing";
@@ -17421,11 +17422,10 @@ function SessionChatBody({
         bot={bot}
         conversation={session.conversation}
         loginUser={session.assignedUser}
+        nativeSid={session.nativeSessionId ?? null}
+        prompt={prompt}
+        onPromptError={onError}
       />
-
-      <SessionQuestionPanel sessionIds={[session.sessionId, session.nativeSessionId]} />
-
-      <SessionPromptPanel prompt={prompt} sid={sid} onError={onError} freeText={!session.tmuxTarget} />
 
       {error ? (
         <div className="border-t border-border/70 px-3 py-1.5 text-xs text-destructive">{error}</div>
@@ -20031,6 +20031,8 @@ const SCROLL_KEYS = new Set([
   " ",
 ]);
 
+const noopPromptError = () => {};
+
 const ChatStream = memo(function ChatStream({
   sid,
   messages,
@@ -20041,6 +20043,9 @@ const ChatStream = memo(function ChatStream({
   bot,
   conversation,
   loginUser,
+  nativeSid = null,
+  prompt = null,
+  onPromptError,
 }: {
   sid: string | null;
   messages: Message[];
@@ -20055,6 +20060,11 @@ const ChatStream = memo(function ChatStream({
   conversation?: ProductConversation | null;
   /** The session owner, for the inline website login card. */
   loginUser?: string | null;
+  /** The provider-native id; an ask-user question can be filed under it. */
+  nativeSid?: string | null;
+  /** The harness's open question, drawn at the end of the stream. */
+  prompt?: SessionPrompt | null;
+  onPromptError?: (error: string | null) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const transcriptView = useContext(TranscriptViewContext);
@@ -20177,6 +20187,10 @@ const ChatStream = memo(function ChatStream({
   // idle. The tail here is the live turn's, not the pinned queue's.
   const tailItem = items[items.length - 1];
   const showTypingIndicator = showsTypingIndicator(busy, tailItem, !!bot);
+  // A question card at the end of the stream is new content like a message:
+  // when one appears, a transcript pinned to the bottom follows it.
+  const waitingQuestions = useSessionQuestions([sid, nativeSid]);
+  const waitingKey = `${prompt ? `${prompt.question ?? ""}|${prompt.options.length}` : ""}#${waitingQuestions.map((q) => q.id).join(",")}`;
 
   // ---- Virtualization ----------------------------------------------------
   //
@@ -20356,7 +20370,7 @@ const ChatStream = memo(function ChatStream({
   const programmaticScrollRef = useRef(false);
   const glideRafRef = useRef<number | null>(null);
   const glideSpringRef = useRef(createTranscriptGlideState());
-  const growthKeyRef = useRef<{ len: number; typing: boolean } | null>(null);
+  const growthKeyRef = useRef<{ len: number; typing: boolean; waiting: string } | null>(null);
   const prevStickRef = useRef(stick);
   const justSwitchedRef = useRef(true);
 
@@ -20855,7 +20869,7 @@ const ChatStream = memo(function ChatStream({
       prevStickRef.current = stick;
       return;
     }
-    const key = { len: items.length, typing: showTypingIndicator };
+    const key = { len: items.length, typing: showTypingIndicator, waiting: waitingKey };
     const prevKey = growthKeyRef.current;
     const switched = justSwitchedRef.current;
     const switching = revealedSid !== sid;
@@ -20867,7 +20881,7 @@ const ChatStream = memo(function ChatStream({
     // transcript correctly on its own and doesn't need a restart. The same
     // item just growing mid-stream (neither of these) isn't discrete at all.
     const reengaged = !switched && !prevStickRef.current;
-    const grew = !switched && !!prevKey && (prevKey.len !== key.len || prevKey.typing !== key.typing);
+    const grew = !switched && !!prevKey && (prevKey.len !== key.len || prevKey.typing !== key.typing || prevKey.waiting !== key.waiting);
     const discrete = reengaged || grew;
     growthKeyRef.current = key;
     prevStickRef.current = stick;
@@ -20915,7 +20929,7 @@ const ChatStream = memo(function ChatStream({
       // Our write, not theirs: the event this raises must not move the mode.
       userDrivenRef.current = false;
     }
-  }, [visibleMessages, busy, stick, items.length, showTypingIndicator, totalSize, viewportHeight, revealedSid, sid, startGlide, stopGlide]);
+  }, [visibleMessages, busy, stick, items.length, showTypingIndicator, waitingKey, totalSize, viewportHeight, revealedSid, sid, startGlide, stopGlide]);
 
   // The virtual list sits below the loading-older spinner, so the offsets the
   // virtualizer hands out are shifted by however much chrome is above it.
@@ -21191,6 +21205,11 @@ const ChatStream = memo(function ChatStream({
           {/* No visible login call (an older page, or a view that hides tool
               runs): the card closes the stream instead. */}
           {loginRowIndex < 0 ? <BrowserLoginCard sessionId={sid} user={loginUser} /> : null}
+          {/* What the agent is waiting on you for: a question is a turn in the
+              conversation, so it arrives where the newest turn arrives and
+              scrolls with it, as on iOS. The composer stays a composer. */}
+          <SessionQuestionPanel sessionIds={[sid, nativeSid]} />
+          <SessionPromptPanel prompt={prompt} sid={sid} onError={onPromptError ?? noopPromptError} />
           {/* Pinned below the working indicator: what the agent is doing now,
               then what it will read next. */}
           {queuedItems.map((item) =>
