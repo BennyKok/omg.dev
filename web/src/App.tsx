@@ -18478,12 +18478,12 @@ function SessionThinkingLevelSubmenu({
         )}
         <span className="flex-1">Thinking</span>
         <span className="text-xs text-muted-foreground">
-          {session.thinkingLevel || "Default"}
+          {session.thinkingLevel || (levels.includes("off") ? "off" : "Default")}
         </span>
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent align="start" className="min-w-40">
         <DropdownMenuRadioGroup
-          value={session.thinkingLevel ?? ""}
+          value={session.thinkingLevel ?? (levels.includes("off") ? "off" : "")}
           onValueChange={(value) =>
             void changeThinkingLevel(typeof value === "string" ? value : "")
           }
@@ -19139,7 +19139,7 @@ function ForkSessionDialog({
   }, [agent, availableAgentOptions, selectedLaunchId]);
   useEffect(() => {
     if (thinkingLevels.length && !thinkingLevels.includes(thinkingLevel)) {
-      setThinkingLevel(thinkingLevels.includes("high") ? "high" : thinkingLevels[0]);
+      setThinkingLevel(thinkingLevels.includes("off") ? "off" : thinkingLevels.includes("high") ? "high" : thinkingLevels[0]);
     }
   }, [thinkingLevel, thinkingLevels]);
 
@@ -23786,7 +23786,7 @@ function NewSessionDialog({
   }, [models, model]);
   useEffect(() => {
     if (thinkingLevels.length && !thinkingLevels.includes(thinkingLevel)) {
-      setThinkingLevel(thinkingLevels.includes("high") ? "high" : thinkingLevels[0]);
+      setThinkingLevel(thinkingLevels.includes("off") ? "off" : thinkingLevels.includes("high") ? "high" : thinkingLevels[0]);
     }
   }, [thinkingLevel, thinkingLevels]);
   useEffect(() => {
@@ -26364,7 +26364,7 @@ function AgentModelRow<K extends AgentKind>({
 
   useEffect(() => {
     if (thinkingLevels.length && !thinkingLevels.includes(thinkingLevel)) {
-      setThinkingLevel(thinkingLevels.includes("high") ? "high" : thinkingLevels[0]);
+      setThinkingLevel(thinkingLevels.includes("off") ? "off" : thinkingLevels.includes("high") ? "high" : thinkingLevels[0]);
     }
   }, [setThinkingLevel, thinkingLevel, thinkingLevels]);
 
@@ -26483,7 +26483,7 @@ function FindingDetail({
   }, [backend, catalog.defaults, launchOptions]);
   useEffect(() => {
     if (thinkingLevels.length && !thinkingLevels.includes(thinkingLevel)) {
-      setThinkingLevel(thinkingLevels.includes("high") ? "high" : thinkingLevels[0]);
+      setThinkingLevel(thinkingLevels.includes("off") ? "off" : thinkingLevels.includes("high") ? "high" : thinkingLevels[0]);
     }
   }, [thinkingLevel, thinkingLevels]);
 
