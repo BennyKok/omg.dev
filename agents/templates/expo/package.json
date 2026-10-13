@@ -8,7 +8,8 @@
     "web": "expo start --web",
     "preview": "bash scripts/start-expo-preview.sh",
     "build": "expo export --platform web --output-dir dist",
-    "typecheck": "node scripts/check-routes.mjs && tsc --noEmit"
+    "typecheck": "node scripts/check-routes.mjs && tsc --noEmit",
+    "check:ui": "bun scripts/check-ui.mjs"
   },
   "omg": {
     "clientBuild": "prebuilt"
