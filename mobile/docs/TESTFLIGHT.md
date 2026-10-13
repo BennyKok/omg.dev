@@ -5,6 +5,32 @@ read off the EAS docs.
 
 ## Current state
 
+### Agent question card OTA — 2026-10-13
+
+An agent's question renders at the end of the transcript as one card: the
+question, a dismiss, and a flush list of full-width answer rows lettered A, B,
+C with the option's description. No default label and no hint line. Claude
+sessions now ask through AskUserQuestion, so their questions reach this card.
+
+Implementation: `8be3ac731`, `ddb82626e`, `ca99fbb6b`, `a78704f44`.
+Production updates carry source `a78704f441b99df79d4a296a69e598fc8a470567`.
+
+| Runtime | Update group | Workflow |
+| --- | --- | --- |
+| 1.0.16 | `f115e056-8850-43c9-8b60-48c9c08dca82` | [38348774229](https://github.com/BennyKok/omg.dev/actions/runs/38348774229) |
+| 1.0.15 | `af600cbd-d7f1-4e9f-b366-7f6683652622` | [38349114991](https://github.com/BennyKok/omg.dev/actions/runs/38349114991) |
+| 1.0.14 | `bcf702c2-382f-4e82-8762-30aca46793a4` | [38348791868](https://github.com/BennyKok/omg.dev/actions/runs/38348791868) |
+
+The production update endpoint serves all six iOS and Android update IDs.
+Since the previous OTA source `bace61062`, only four JS files changed under
+`mobile/`; no native input changed. No store build or submission was made:
+App Store version 1.0.16 (build 92) was already live and its review was
+COMPLETE at publish time. A dispatched 1.0.15 run was cancelled by the
+workflow's concurrency queue and dispatched again.
+
+Verification: `session-inline-cards` simulator plan 4/4 on a Release build.
+Physical-phone activation and Android rendering remain unverified.
+
 ### Correct logos and stable image previews — 2026-10-11
 
 Mobile chat images use the existing Skia decoder to avoid recycled native
