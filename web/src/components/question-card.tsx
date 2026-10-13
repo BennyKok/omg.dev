@@ -11,8 +11,7 @@
 // The card sits IN the transcript, at the end of the stream, like the iOS
 // card (mobile/src/omg/question-card.tsx) and the website login card: a
 // question is a turn in the conversation, not a tray docked on the composer.
-// The two clients share one design: a rounded card, the agent's optional
-// header, the question, then a flush list of full-width rows lettered A, B,
+// The two clients share one design: a rounded card, the question, then a flush list of full-width rows lettered A, B,
 // C: no gaps, no row corners, a hairline divider between rows, running to the
 // card's edges. The old wrapped pills were 28–32px tall and hard to hit on a
 // phone; a row is at least 52px and carries the option's description.
@@ -92,13 +91,12 @@ export function QuestionChoices({
 }
 
 /**
- * One question in the conversation: the agent's optional header, what it
- * asked, its lettered answers, and a dismiss. The composer below takes a
+ * One question in the conversation: what the agent asked, its lettered
+ * answers, and a dismiss. The composer below takes a
  * free answer, so the card has no reply box of its own.
  */
 export function QuestionCard({
   question,
-  header,
   choices,
   onPick,
   onDismiss,
@@ -108,7 +106,6 @@ export function QuestionCard({
   children,
 }: {
   question: ReactNode;
-  header?: string | null;
   choices: QuestionChoice[];
   onPick: (index: number) => void;
   onDismiss?: () => void;
@@ -120,14 +117,9 @@ export function QuestionCard({
   return (
     <article className="question-card mb-2 overflow-hidden rounded-2xl border bg-card p-3" aria-label="Question">
       <div className="flex items-start gap-2">
-        <div className="min-w-0 flex-1">
-          {header ? (
-            <div className="text-[11px] font-bold uppercase tracking-[0.07em] text-primary">{header}</div>
-          ) : null}
-          <div className={cn("text-[15px] font-medium leading-snug text-foreground", header && "mt-0.5")}>
-            {question}
-          </div>
-        </div>
+        {/* Just the question. The agent's short header ("Ship plan") is not
+            drawn: it repeats the question in fewer words. */}
+        <div className="min-w-0 flex-1 text-[15px] font-medium leading-snug text-foreground">{question}</div>
         {onDismiss ? (
           <button
             type="button"
@@ -195,7 +187,6 @@ export function SessionPromptPanel({
   return (
     <QuestionCard
       question={prompt.question ?? "Waiting for a choice"}
-      header={prompt.header}
       // No `selected` here: on a TUI selector it marks the cursor row, not a
       // choice the person made.
       choices={prompt.options.map(({ label, description }) => ({ label, description }))}
