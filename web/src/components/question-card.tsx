@@ -16,7 +16,7 @@
 // card's edges. The old wrapped pills were 28–32px tall and hard to hit on a
 // phone; a row is at least 52px and carries the option's description.
 
-import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Loader2, X } from "lucide-react";
 import { api } from "@/lib/omg-client";
 import { cn } from "@/lib/utils";
@@ -142,47 +142,88 @@ export function QuestionCard({
 export type SessionPromptOption = { index: number; label: string; selected?: boolean; description?: string };
 export type SessionPrompt = { question?: string; header?: string; options: SessionPromptOption[] };
 
-const DISMISS = -1;
+/** Identity of one prompt: a new question or a new option list is a new prompt. */
+export function promptSignature(prompt: SessionPrompt | null | undefined): string {
+  return prompt ? `${prompt.question ?? ""}|${prompt.options.map((o) => o.label).join("|")}` : "";
+}
+
+/**
+ * How long an answered prompt stays hidden while the server still reports it.
+ * The clearing `prompt` event normally lands well inside this window; if it has
+ * not, the answer did not take and the card comes back so the person can retry.
+ */
+export const PROMPT_RESTORE_MS = 8000;
 
 /**
  * The harness prompt of one session (OpenCode question, Claude AskUserQuestion,
  * TUI selector), answered by option index through /api/sessions/:id/answer.
+ *
+ * Answering is optimistic. A tap hides the card at once and the request runs
+ * behind it, because the clearing `prompt` event is a full round trip (and the
+ * answer route itself lists sessions first), which read as a dead tap. Hiding
+ * also removes the stale options, so a second tap cannot fire another /answer
+ * that overshoots the next TUI selector — the old "answer bricks" symptom. A
+ * failed request, or a prompt that is still there after PROMPT_RESTORE_MS,
+ * brings the card back.
+ *
+ * `composerSendSeq` increments when the session composer sends a message. The
+ * server treats a message sent while a question is open as its answer, so the
+ * card goes the same way a tap does.
  */
 export function SessionPromptPanel({
   prompt,
   sid,
   onError,
+  composerSendSeq = 0,
 }: {
   prompt: SessionPrompt | null;
   sid: string | null;
   onError: (error: string | null) => void;
+  composerSendSeq?: number;
 }) {
-  // Selecting an option drives the harness (or the tmux selector) and the
-  // panel only clears on the next prompt event. Without a lock the stale
-  // options stay clickable, so a second click fires another /answer that
-  // overshoots the (now different) selector — the "answer bricks" symptom.
-  const sig = prompt ? `${prompt.question ?? ""}|${prompt.options.map((o) => o.label).join("|")}` : "";
-  // The in-flight option index, or DISMISS while the skip is in flight.
-  const [pending, setPending] = useState<number | null>(null);
+  const sig = promptSignature(prompt);
+  // The signature of the prompt answered locally and not yet cleared upstream.
+  const [answeredSig, setAnsweredSig] = useState<string | null>(null);
 
-  // Reset the lock whenever the prompt itself changes (answered → new / gone).
+  // Once the server clears the prompt, forget the local answer: the same
+  // question asked again later is a new question.
   useLayoutEffect(() => {
-    setPending(null);
+    if (!sig) setAnsweredSig(null);
   }, [sig]);
 
-  // Safety valve: if the prompt didn't clear (answer didn't land), re-enable so
-  // the user can retry instead of being stuck on a dead panel.
-  useEffect(() => {
-    if (pending === null) return;
-    const timer = setTimeout(() => setPending(null), 4000);
-    return () => clearTimeout(timer);
-  }, [pending]);
+  // A composer send answers whatever is open at that moment.
+  const lastSendSeq = useRef(composerSendSeq);
+  useLayoutEffect(() => {
+    if (composerSendSeq === lastSendSeq.current) return;
+    lastSendSeq.current = composerSendSeq;
+    if (sig) setAnsweredSig(sig);
+  }, [composerSendSeq, sig]);
 
-  if (!prompt || !sid) return null;
-  const locked = pending !== null;
-  const pendingPosition = pending === null || pending === DISMISS
-    ? null
-    : prompt.options.findIndex((o) => o.index === pending);
+  // Safety valve: the answer did not land, so show the prompt again.
+  useEffect(() => {
+    if (answeredSig === null || answeredSig !== sig) return;
+    const timer = setTimeout(() => setAnsweredSig(null), PROMPT_RESTORE_MS);
+    return () => clearTimeout(timer);
+  }, [answeredSig, sig]);
+
+  if (!prompt || !sid || answeredSig === sig) return null;
+
+  const settle = async (path: "answer" | "dismiss", body?: unknown) => {
+    const answered = sig;
+    setAnsweredSig(answered);
+    onError(null);
+    try {
+      await api(`/api/sessions/${sid}/${path}`, {
+        method: "POST",
+        ...(body === undefined
+          ? {}
+          : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+      });
+    } catch (e) {
+      onError(e instanceof Error ? e.message : String(e));
+      setAnsweredSig((current) => (current === answered ? null : current));
+    }
+  };
 
   return (
     <QuestionCard
@@ -190,34 +231,10 @@ export function SessionPromptPanel({
       // No `selected` here: on a TUI selector it marks the cursor row, not a
       // choice the person made.
       choices={prompt.options.map(({ label, description }) => ({ label, description }))}
-      disabled={locked}
-      pendingIndex={pendingPosition}
-      dismissing={pending === DISMISS}
-      onDismiss={async () => {
-        setPending(DISMISS);
-        onError(null);
-        try {
-          await api(`/api/sessions/${sid}/dismiss`, { method: "POST" });
-        } catch (e) {
-          onError(e instanceof Error ? e.message : String(e));
-          setPending(null);
-        }
-      }}
-      onPick={async (position) => {
+      onDismiss={() => void settle("dismiss")}
+      onPick={(position) => {
         const option = prompt.options[position];
-        if (!option) return;
-        setPending(option.index);
-        onError(null);
-        try {
-          await api(`/api/sessions/${sid}/answer`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ index: option.index }),
-          });
-        } catch (e) {
-          onError(e instanceof Error ? e.message : String(e));
-          setPending(null);
-        }
+        if (option) void settle("answer", { index: option.index });
       }}
     />
   );

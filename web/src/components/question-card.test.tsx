@@ -37,6 +37,8 @@ afterEach(() => {
 
 const SID = "11111111-2222-4333-8444-555555555555";
 
+const settle = () => ui.flushAsync(() => new Promise((resolve) => setTimeout(resolve, 20)));
+
 const choiceButtons = () => ui.queryAll<HTMLButtonElement>("button[data-choice]");
 
 test("a harness prompt shows lettered, full-width answers with descriptions", () => {
@@ -67,7 +69,17 @@ test("a harness prompt shows lettered, full-width answers with descriptions", ()
   expect(buttons[0]!.className).not.toMatch(/(^| )bg-muted( |$)/);
 });
 
-test("tapping an answer posts its option index and locks the card", async () => {
+test("tapping an answer hides the card at once and posts its option index", async () => {
+  // Hold the answer request open: the card must go before the server replies.
+  let release!: () => void;
+  const answered = new Promise<void>((resolve) => (release = resolve));
+  const plainFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const response = plainFetch(input, init);
+    if (String(input instanceof Request ? input.url : input).endsWith("/answer")) await answered;
+    return response;
+  }) as typeof fetch;
+  configureOmgTransport(createSameOriginTransport());
   ui.render(
     <SessionPromptPanel
       sid={SID}
@@ -77,8 +89,48 @@ test("tapping an answer posts its option index and locks the card", async () => 
   );
   choiceButtons()[1]!.click();
   await ui.flushAsync();
+  expect(ui.query(".question-card")).toBeNull();
   expect(calls.find((c) => c.url.endsWith(`/api/sessions/${SID}/answer`))?.body).toEqual({ index: 2 });
-  expect(choiceButtons().every((b) => b.disabled)).toBe(true);
+  release();
+  await ui.flushAsync();
+  expect(ui.query(".question-card")).toBeNull();
+});
+
+test("a failed answer brings the card back with the error", async () => {
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    calls.push({ url: String(input), body: null });
+    return Response.json({ error: "answer failed" }, { status: 400 });
+  }) as typeof fetch;
+  configureOmgTransport(createSameOriginTransport());
+  const errors: (string | null)[] = [];
+  ui.render(
+    <SessionPromptPanel
+      sid={SID}
+      onError={(e) => errors.push(e)}
+      prompt={{ question: "Pick", options: [{ index: 0, label: "One" }] }}
+    />,
+  );
+  choiceButtons()[0]!.click();
+  await settle();
+  expect(ui.query(".question-card")).not.toBeNull();
+  expect(errors.at(-1)).toBeTruthy();
+});
+
+test("a composer send hides the open prompt, and a new prompt shows", async () => {
+  const pick = { question: "Pick", options: [{ index: 0, label: "One" }] };
+  const view = (seq: number, prompt: typeof pick | null) => (
+    <SessionPromptPanel sid={SID} onError={() => {}} prompt={prompt} composerSendSeq={seq} />
+  );
+  ui.render(view(0, pick));
+  expect(ui.query(".question-card")).not.toBeNull();
+  ui.render(view(1, pick));
+  await ui.flushAsync();
+  expect(ui.query(".question-card")).toBeNull();
+  // The server clears it; a later question with the same words is new.
+  ui.render(view(1, null));
+  ui.render(view(1, pick));
+  await ui.flushAsync();
+  expect(ui.query(".question-card")).not.toBeNull();
 });
 
 test("an ask-user question in the session uses the same lettered answers", async () => {
@@ -95,6 +147,56 @@ test("an ask-user question in the session uses the same lettered answers", async
   expect(calls.find((c) => c.url.endsWith("/api/ask/abc123/answer"))?.body).toEqual(
     expect.objectContaining({ answer: "Not yet" }),
   );
+  expect(ui.query(".question-card")).toBeNull();
+});
+
+test("an answered ask leaves at once and a stale poll does not bring it back", async () => {
+  open = [{ id: "abc123", question: "Deploy?", options: ["Yes"], sessionId: "s1", createdAt: Date.now() }];
+  let release!: () => void;
+  const answered = new Promise<void>((resolve) => (release = resolve));
+  const plainFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const response = plainFetch(input, init);
+    if (String(input instanceof Request ? input.url : input).endsWith("/answer")) await answered;
+    return response;
+  }) as typeof fetch;
+  configureOmgTransport(createSameOriginTransport());
+  ui.render(
+    <AskProvider>
+      <SessionQuestionPanel sessionIds={["s1"]} />
+    </AskProvider>,
+  );
+  await settle();
+  choiceButtons()[0]!.click();
+  await ui.flushAsync();
+  expect(ui.query(".question-card")).toBeNull();
+  // A poll while the answer is in flight still lists the question.
+  window.dispatchEvent(new Event("focus"));
+  await settle();
+  expect(ui.query(".question-card")).toBeNull();
+  release();
+  await ui.flushAsync();
+});
+
+test("a failed ask answer puts the question back", async () => {
+  open = [{ id: "abc123", question: "Deploy?", options: ["Yes"], sessionId: "s1", createdAt: Date.now() }];
+  const plainFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    if (String(input instanceof Request ? input.url : input).endsWith("/answer")) {
+      return new Response("nope", { status: 500 });
+    }
+    return plainFetch(input, init);
+  }) as typeof fetch;
+  configureOmgTransport(createSameOriginTransport());
+  ui.render(
+    <AskProvider>
+      <SessionQuestionPanel sessionIds={["s1"]} />
+    </AskProvider>,
+  );
+  await settle();
+  choiceButtons()[0]!.click();
+  await settle();
+  expect(ui.query(".question-card")).not.toBeNull();
 });
 
 test("no options renders no list", () => {

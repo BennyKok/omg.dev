@@ -86,6 +86,10 @@ export function AskProvider({ children }: { children: React.ReactNode }) {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [busy, setBusy] = useState(false);
   const seen = useRef<Set<string>>(new Set());
+  // Questions answered or dismissed here. They leave the list the moment the
+  // person acts, and a poll that was already in flight must not bring them
+  // back before the server has recorded the answer. Ids are never reused.
+  const settled = useRef<Set<string>>(new Set());
 
   const refresh = useCallback(async () => {
     try {
@@ -106,7 +110,7 @@ export function AskProvider({ children }: { children: React.ReactNode }) {
       const res = await omgFetch(feedUrl, { cache: "no-store" });
       if (!res.ok) return;
       const data = (await res.json()) as { questions: Question[] };
-      const qs = data.questions || [];
+      const qs = (data.questions || []).filter((q) => !settled.current.has(q.id));
       // Oldest-first so we work the queue in order.
       qs.sort((a, b) => a.createdAt - b.createdAt);
       setQuestions(qs);
@@ -138,10 +142,32 @@ export function AskProvider({ children }: { children: React.ReactNode }) {
     };
   }, [refresh]);
 
+  // Take a question out of the list now, before its request. `restore` puts
+  // it back when that request fails, so the person can try again.
+  const settleLocally = useCallback((q: Question) => {
+    settled.current.add(q.id);
+    setQuestions((prev) => prev.filter((x) => x.id !== q.id));
+    void closePushNotification(`ask-${q.id}`);
+  }, []);
+  const restore = useCallback(
+    (q: Question) => {
+      settled.current.delete(q.id);
+      setQuestions((prev) =>
+        prev.some((x) => x.id === q.id)
+          ? prev
+          : [...prev, q].sort((a, b) => a.createdAt - b.createdAt),
+      );
+      void refresh();
+    },
+    [refresh],
+  );
+
+  // Optimistic: the card goes on the tap. Waiting for the round trip left a
+  // spinner on a question the person had already answered.
   const answer = useCallback(
     async (q: Question, text: string) => {
-      if (busy || !text.trim()) return;
-      setBusy(true);
+      if (!text.trim() || settled.current.has(q.id)) return;
+      settleLocally(q);
       try {
         const res = await omgFetch(`/api/ask/${q.id}/answer`, {
           method: "POST",
@@ -149,18 +175,13 @@ export function AskProvider({ children }: { children: React.ReactNode }) {
           body: JSON.stringify({ answer: text.trim(), via: "web" }),
         });
         if (!res.ok) throw new Error(await res.text());
-        // Drop it locally so the next question shows immediately; the poll
-        // reconciles shortly after.
-        setQuestions((prev) => prev.filter((x) => x.id !== q.id));
-        void closePushNotification(`ask-${q.id}`);
         toast("Sent to the agent");
       } catch {
+        restore(q);
         toast.error("Could not send your answer");
-      } finally {
-        setBusy(false);
       }
     },
-    [busy],
+    [settleLocally, restore],
   );
 
   // The person answered by typing in the owning session's own composer. That
@@ -175,8 +196,7 @@ export function AskProvider({ children }: { children: React.ReactNode }) {
     // A secure ask is answered only by its password field. A composer message
     // is ordinary chat and must not resolve it.
     if (q.secret) return;
-    setQuestions((prev) => prev.filter((x) => x.id !== q.id));
-    void closePushNotification(`ask-${q.id}`);
+    settleLocally(q);
     try {
       await omgFetch(`/api/ask/${q.id}/answer`, {
         method: "POST",
@@ -184,9 +204,11 @@ export function AskProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify({ answer: body, via: "web", deliver: false }),
       });
     } catch {
-      // The message itself still went to the agent; the next poll reconciles.
+      // The message itself still went to the agent. Let the next poll show
+      // the question again if the server still has it open.
+      settled.current.delete(q.id);
     }
-  }, []);
+  }, [settleLocally]);
 
   // The value goes to the runtime, which saves it to the project .env and the
   // hosted app. It never enters the transcript, and the agent gets the key
@@ -229,27 +251,32 @@ export function AskProvider({ children }: { children: React.ReactNode }) {
   // Dismissing is how a person says "I'm not answering this" — the asking agent
   // stops waiting and moves on. Clear the cell locally, and take the sticky OS
   // banner down with it so the notification doesn't outlive the question.
-  const dismissOne = useCallback(async (q: Question) => {
-    const res = await omgFetch(`/api/ask/${q.id}/dismiss`, { method: "POST" });
-    if (!res.ok) throw new Error(await res.text());
-    setQuestions((prev) => prev.filter((x) => x.id !== q.id));
-    void closePushNotification(`ask-${q.id}`);
-  }, []);
+  // Optimistic, like answer: the cell goes first and returns on failure.
+  const dismissOne = useCallback(
+    async (q: Question) => {
+      settleLocally(q);
+      try {
+        const res = await omgFetch(`/api/ask/${q.id}/dismiss`, { method: "POST" });
+        if (!res.ok) throw new Error(await res.text());
+      } catch (e) {
+        restore(q);
+        throw e;
+      }
+    },
+    [settleLocally, restore],
+  );
 
   const dismiss = useCallback(
     async (q: Question) => {
-      if (busy) return;
-      setBusy(true);
+      if (settled.current.has(q.id)) return;
       try {
         await dismissOne(q);
         toast("Question dismissed — the agent will stop waiting");
       } catch {
         toast.error("Could not dismiss the question");
-      } finally {
-        setBusy(false);
       }
     },
-    [busy, dismissOne],
+    [dismissOne],
   );
 
   // Clearing a backlog one X at a time is the thing people actually complain
@@ -369,10 +396,6 @@ export function SessionQuestionPanel({
 
 function SessionAskCard({ q }: { q: Question }) {
   const { busy, answer, dismiss } = useAsk();
-  const [picked, setPicked] = useState<number | null>(null);
-  useEffect(() => {
-    if (!busy) setPicked(null);
-  }, [busy]);
   const options = q.secret ? [] : (q.options ?? []);
   return (
     <QuestionCard
@@ -381,13 +404,10 @@ function SessionAskCard({ q }: { q: Question }) {
       }
       choices={options.map((label) => ({ label }))}
       disabled={busy}
-      pendingIndex={busy ? picked : null}
       onDismiss={() => void dismiss(q)}
       onPick={(index) => {
         const label = options[index];
-        if (!label) return;
-        setPicked(index);
-        void answer(q, label);
+        if (label) void answer(q, label);
       }}
     >
       {q.secret ? <SecretField q={q} /> : null}

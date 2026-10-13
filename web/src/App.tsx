@@ -16805,6 +16805,9 @@ function SessionChatBody({
     () => readPromptDraft(stashContext)?.text ?? "",
   );
   const [sending, setSending] = useState(false);
+  // Counts composer sends, so the open harness prompt can hide on the send
+  // that answers it (see SessionPromptPanel).
+  const [composerSendSeq, setComposerSendSeq] = useState(0);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [nextBefore, setNextBefore] = useState<number | null>(null);
   // Brief one-shot "launch" pulse on the composer as a message is sent, so the
@@ -17159,6 +17162,9 @@ function SessionChatBody({
     feedback.send();
     onError(null);
     setMessageTextState("");
+    // The server takes a message sent while a question is open as its answer.
+    // A held message waits behind the turn and answers nothing yet.
+    if (!holdOnServer) setComposerSendSeq((seq) => seq + 1);
     // Sending is the end of typing. Retract now rather than letting the TTL
     // lapse, or the indicator outlives the message it was announcing and
     // briefly reads as "still typing" beside their delivered turn.
@@ -17425,6 +17431,7 @@ function SessionChatBody({
         nativeSid={session.nativeSessionId ?? null}
         prompt={prompt}
         onPromptError={onError}
+        composerSendSeq={composerSendSeq}
       />
 
       {error ? (
@@ -20046,6 +20053,7 @@ const ChatStream = memo(function ChatStream({
   nativeSid = null,
   prompt = null,
   onPromptError,
+  composerSendSeq = 0,
 }: {
   sid: string | null;
   messages: Message[];
@@ -20065,6 +20073,8 @@ const ChatStream = memo(function ChatStream({
   /** The harness's open question, drawn at the end of the stream. */
   prompt?: SessionPrompt | null;
   onPromptError?: (error: string | null) => void;
+  /** Increments on each composer send; that send answers an open prompt. */
+  composerSendSeq?: number;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const transcriptView = useContext(TranscriptViewContext);
@@ -21209,7 +21219,12 @@ const ChatStream = memo(function ChatStream({
               conversation, so it arrives where the newest turn arrives and
               scrolls with it, as on iOS. The composer stays a composer. */}
           <SessionQuestionPanel sessionIds={[sid, nativeSid]} />
-          <SessionPromptPanel prompt={prompt} sid={sid} onError={onPromptError ?? noopPromptError} />
+          <SessionPromptPanel
+            prompt={prompt}
+            sid={sid}
+            onError={onPromptError ?? noopPromptError}
+            composerSendSeq={composerSendSeq}
+          />
           {/* Pinned below the working indicator: what the agent is doing now,
               then what it will read next. */}
           {queuedItems.map((item) =>

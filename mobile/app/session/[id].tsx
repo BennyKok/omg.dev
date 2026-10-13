@@ -449,6 +449,10 @@ function SessionScreenContent({
    */
   const socketBusySeen = useRef(false);
   const [prompt, setPrompt] = useState<OmgSessionPrompt | null>(null);
+  // Read by submit, which clears the card on send and must restore it if the
+  // send fails.
+  const promptRef = useRef<OmgSessionPrompt | null>(null);
+  promptRef.current = prompt;
 
   const [sending, setSending] = useState(false);
   const toast = useToast();
@@ -549,6 +553,12 @@ function SessionScreenContent({
    * options; typing in the composer answers it too.
    */
   const [asks, setAsks] = useState<AskQuestion[]>([]);
+  /**
+   * Questions answered or dismissed on this screen. The card leaves on the
+   * tap, and a poll that was already in flight must not bring it back before
+   * the machine has recorded the answer. Ask ids are never reused.
+   */
+  const settledAsks = useRef<Set<string>>(new Set());
   const askAliases = useMemo(() => {
     const set = new Set<string>(sessionInfo?.aliases ?? []);
     if (id) set.add(id);
@@ -559,7 +569,7 @@ function SessionScreenContent({
     try {
       const res = await client.transport.request<{ questions?: AskQuestion[] }>("/api/ask?status=open");
       const rows = (Array.isArray(res?.questions) ? res.questions : [])
-        .filter((q) => !!q.sessionId && askAliases.has(q.sessionId))
+        .filter((q) => !!q.sessionId && askAliases.has(q.sessionId) && !settledAsks.current.has(q.id))
         .sort((a, b) => a.createdAt - b.createdAt);
       setAsks(rows);
     } catch {
@@ -579,7 +589,8 @@ function SessionScreenContent({
    */
   const answerAsk = useCallback(
     async (q: AskQuestion, answer: string, deliver: boolean) => {
-      if (!client) return;
+      if (!client || settledAsks.current.has(q.id)) return;
+      settledAsks.current.add(q.id);
       setAsks((prev) => prev.filter((x) => x.id !== q.id));
       try {
         await client.transport.request(`/api/ask/${encodeURIComponent(q.id)}/answer`, {
@@ -588,6 +599,7 @@ function SessionScreenContent({
           body: JSON.stringify({ answer, via: "web", deliver }),
         });
       } catch (e) {
+        settledAsks.current.delete(q.id);
         setError(e instanceof Error ? e.message : String(e));
         void refreshAsks();
       }
@@ -599,10 +611,12 @@ function SessionScreenContent({
     async (q: AskQuestion) => {
       if (!client) return;
       void Haptics.selectionAsync();
+      settledAsks.current.add(q.id);
       setAsks((prev) => prev.filter((x) => x.id !== q.id));
       try {
         await client.transport.request(`/api/ask/${encodeURIComponent(q.id)}/dismiss`, { method: "POST" });
       } catch (e) {
+        settledAsks.current.delete(q.id);
         setError(e instanceof Error ? e.message : String(e));
         void refreshAsks();
       }
@@ -664,6 +678,12 @@ function SessionScreenContent({
   const listRef = useAnimatedRef<FlatList<TranscriptItem>>();
   const composerSource = useRef<HostInstance>(null);
   const preparingSend = useRef(false);
+  /**
+   * Sends still waiting on the machine. The composer does not wait for them:
+   * the optimistic row is already on screen, so the next message can go at
+   * once. `sending` stays true until the last one settles.
+   */
+  const sendsInFlight = useRef(0);
   const reducedMotion = useReducedMotion();
   const [sendTurn, setSendTurn] = useState<{ key: string; reserve: number; origin: SendOrigin | null } | null>(null);
   const rowHeights = useRef(new Map<string, number>());
@@ -1208,6 +1228,14 @@ function SessionScreenContent({
       liveKeysRef.current.add(optimisticId);
       const queueRequest = mode === "queue" && !onDeliver && live !== false;
       const showInQueue = queueRequest && busy;
+      /**
+       * A message sent while the agent's question is open IS the answer: the
+       * machine resolves the question with it (an exact option label picks
+       * that option). Take the card down now instead of after the round
+       * trip. A held message waits behind the turn and answers nothing yet.
+       */
+      const answeredPrompt = showInQueue ? null : promptRef.current;
+      if (answeredPrompt) setPrompt(null);
       if (queueRequest) {
         queueSendPending.current = true;
         ++queueRevision.current; // An older poll must not erase this send.
@@ -1250,6 +1278,7 @@ function SessionScreenContent({
         }
         setMessages((prev) => [...prev, optimistic]);
       }
+      sendsInFlight.current += 1;
       setSending(true);
       try {
         if (onDeliver) {
@@ -1356,6 +1385,8 @@ function SessionScreenContent({
         sendActive.value = false;
         setHeld((prev) => prev.filter((m) => m.id !== optimisticId));
         setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
+        // The question is still open on the machine; show it again.
+        if (answeredPrompt) setPrompt((current) => current ?? answeredPrompt);
         setError(e instanceof Error ? e.message : String(e));
       } finally {
         finishDraft(stashId, acceptedSend ? "sent" : "failed");
@@ -1363,7 +1394,8 @@ function SessionScreenContent({
           queueSendPending.current = false;
           void refreshHeld();
         }
-        setSending(false);
+        sendsInFlight.current -= 1;
+        if (sendsInFlight.current === 0) setSending(false);
         setResuming(false);
       }
     },
@@ -1396,7 +1428,11 @@ function SessionScreenContent({
   const send = useCallback(
     (mode: "steer" | "queue" = "steer", spoken?: string) => {
       const text = attachments.compose((spoken ?? draft).trim());
-      if (!text || sending || preparingSend.current) return;
+      // Not gated on `sending`: a send in flight is already drawn, and making
+      // the next one wait for its round trip is what made the composer feel
+      // dead. Only a cold resume, which can hand back a new session id, holds
+      // the composer until it lands.
+      if (!text || resuming || preparingSend.current) return;
       if (mode === "queue" && busy) {
         /**
          * A DIFFERENT WEIGHT FOR A DIFFERENT ACT. Queueing puts the message
@@ -1428,7 +1464,7 @@ function SessionScreenContent({
         deliver();
       }
     },
-    [attachments, busy, contentReady, draft, sending, submit, setDraft],
+    [attachments, busy, contentReady, draft, resuming, submit, setDraft],
   );
 
   // Kept current for the dictation callback declared above it.
@@ -1853,7 +1889,7 @@ function SessionScreenContent({
   // most common thing a screenshot is sent for.
   const canSend =
     (draft.trim().length > 0 || attachments.items.some((item) => item.path)) &&
-    !sending &&
+    !resuming &&
     !attachments.uploading;
   // ⌘↩ sends the other way: steer on a queue-mode machine, queue on a
   // steer-mode one. The same key the web binds to its alternate send.
