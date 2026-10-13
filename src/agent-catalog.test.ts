@@ -378,7 +378,7 @@ test("omg agent lists the routed models in hosted picker order, default first", 
 test("omg thinking levels follow the model: effort where OpenRouter honours it, nothing elsewhere", async () => {
   const { listModelCatalog, thinkingLevelsForAgent } = await import("./agent-catalog.ts");
   expect(thinkingLevelsForAgent("omg", "omg/deepseek/deepseek-v4-flash-0731")).toEqual(["low", "medium", "high"]);
-  expect(thinkingLevelsForAgent("omg", "omg/anthropic/claude-haiku-5.5")).toEqual(["low", "medium", "high"]);
+  expect(thinkingLevelsForAgent("omg", "omg/anthropic/claude-haiku-5.5")).toEqual(["off", "low", "medium", "high"]);
   expect(thinkingLevelsForAgent("omg", "omg/openai/gpt-6.1-sol")).toEqual(["low", "medium", "high"]);
   expect(thinkingLevelsForAgent("omg", "omg/minimax/minimax-m3")).toBeNull();
   expect(thinkingLevelsForAgent("omg", "omg/x-ai/grok-4.7")).toEqual(["low", "medium", "high"]);
@@ -387,5 +387,5 @@ test("omg thinking levels follow the model: effort where OpenRouter honours it, 
   const item = listModelCatalog().find((entry) => entry.key === "omg")!;
   expect(item.thinkingLevels).toEqual(["low", "medium", "high"]);
   expect(Object.keys(item.thinkingLevelsByModel ?? {})).toHaveLength(12);
-  expect(item.thinkingLevelsByModel?.["omg/anthropic/claude-haiku-5.5"]).toEqual(["low", "medium", "high"]);
+  expect(item.thinkingLevelsByModel?.["omg/anthropic/claude-haiku-5.5"]).toEqual(["off", "low", "medium", "high"]);
 });
