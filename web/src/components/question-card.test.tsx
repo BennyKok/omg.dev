@@ -59,8 +59,8 @@ test("a harness prompt shows lettered, full-width answers with descriptions", ()
   expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual(["A. Yes", "B. No"]);
   expect(ui.text()).toContain("Ship the fix now?");
   expect(ui.text()).toContain("Push to main");
-  expect(ui.text()).toContain("Ship");
-  // No filler: no default label, no "type your own answer" line.
+  // Just the question: no header, no default label, no hint line.
+  expect(ui.query(".question-card")?.textContent?.startsWith("Ship the fix now?")).toBe(true);
   expect(ui.text()).not.toContain("Needs your input");
   expect(ui.text()).not.toContain("Or type your own answer");
   // A TUI cursor row is not a choice the person made.
