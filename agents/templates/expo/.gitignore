@@ -10,3 +10,4 @@ web-build/
 *.key
 *.mobileprovision
 *.orig.*
+.omg/ui-check/
