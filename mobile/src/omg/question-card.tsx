@@ -79,7 +79,7 @@ export function QuestionCard({
     >
       <View style={{ flexDirection: "row", alignItems: "flex-start", gap: space.sm }}>
         <View style={{ flex: 1, gap: 2 }}>
-          <Text style={{ ...type.overline, color: colors.primary }}>{(header || "Needs your input").toUpperCase()}</Text>
+          {header ? <Text style={{ ...type.overline, color: colors.primary }}>{header.toUpperCase()}</Text> : null}
           {question ? <Text style={{ ...type.callout, fontWeight: "500", color: colors.text }}>{question}</Text> : null}
         </View>
         {onDismiss ? (
@@ -226,9 +226,6 @@ export function QuestionCard({
           );
         })}
       </View>
-      {options.length && !secretKey ? (
-        <Text style={{ ...type.caption, color: colors.textMuted }}>Or type your own answer below.</Text>
-      ) : null}
     </View>
   );
 }

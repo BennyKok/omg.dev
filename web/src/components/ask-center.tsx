@@ -346,38 +346,27 @@ export function useSessionQuestions(
 
 // Keep an ask-user question in the conversation that raised it.
 //
-// This surface has NO reply box. The session already owns one — its composer
-// sits directly below — and rendering a second text field on top of it gave a
-// question two identical inputs stacked one above the other, with no way to
-// tell which one the agent would hear. So the card here shows the question and
-// its one-tap options; anything typed goes in the composer, which resolves the
-// question as it sends (see SessionChatBody).
+// The cards render IN the transcript, at the end of the stream (ChatStream
+// places them), the same place and the same QuestionCard as a harness prompt
+// and as the iOS client. They have NO reply box: the session composer below
+// is the reply box, and it resolves the question as it sends (see
+// SessionChatBody). Two inputs for one question was a bug once already.
 export function SessionQuestionPanel({
   sessionIds,
 }: {
   sessionIds: Array<string | null | undefined>;
 }) {
   const matching = useSessionQuestions(sessionIds);
-
   if (!matching.length) return null;
   return (
-    <section
-      aria-label={
-        matching.length === 1 ? "Question from this session" : "Questions from this session"
-      }
-      className="max-h-[60vh] shrink-0 divide-y divide-primary/15 overflow-y-auto border-t border-primary/20 bg-primary/5"
-    >
+    <>
       {matching.map((q) => (
         <SessionAskCard key={q.id} q={q} />
       ))}
-    </section>
+    </>
   );
 }
 
-// An ask-user question inside its own session: the same QuestionCard a harness
-// prompt uses, so the two kinds of question look and tap alike. The composer
-// below answers it with free text (SessionChatBody resolves the question as it
-// sends), which is why the card says so instead of growing its own reply box.
 function SessionAskCard({ q }: { q: Question }) {
   const { busy, answer, dismiss } = useAsk();
   const [picked, setPicked] = useState<number | null>(null);
@@ -394,7 +383,6 @@ function SessionAskCard({ q }: { q: Question }) {
       disabled={busy}
       pendingIndex={busy ? picked : null}
       onDismiss={() => void dismiss(q)}
-      freeText={!q.secret}
       onPick={(index) => {
         const label = options[index];
         if (!label) return;
@@ -409,8 +397,8 @@ function SessionAskCard({ q }: { q: Question }) {
 
 // Demote headings: a question card must never look like a pile of h1s.
 const QUESTION_MARKDOWN = cn(
-  "text-sm leading-relaxed",
-  "[&_h1]:text-sm [&_h2]:text-sm [&_h3]:text-sm [&_h4]:text-sm",
+  "text-[15px] leading-snug",
+  "[&_h1]:text-[15px] [&_h2]:text-[15px] [&_h3]:text-[15px] [&_h4]:text-[15px]",
   "[&_h1]:font-semibold [&_h2]:font-semibold [&_h3]:font-semibold",
   "[&_h1]:mt-2 [&_h2]:mt-2 [&_h3]:mt-1.5 [&_h1]:mb-1 [&_h2]:mb-1 [&_h3]:mb-1",
   "[&_p]:my-1 [&_ul]:my-1.5 [&_ol]:my-1.5 [&_li]:my-0.5",

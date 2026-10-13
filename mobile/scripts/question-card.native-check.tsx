@@ -111,7 +111,8 @@ test("answers are lettered rows that carry their description and answer with the
     expect(rows.map((b) => b.getAttribute("aria-label"))).toEqual(["A. Yes", "B. No"]);
     expect(ui.text()).toContain("Push to main");
     expect(ui.text()).toContain("SHIP");
-    expect(ui.text()).toContain("Or type your own answer below.");
+    expect(ui.text()).not.toContain("Or type your own answer");
+    expect(ui.text()).not.toContain("NEEDS YOUR INPUT");
     rows[1]!.click();
     expect(answered).toEqual(["No"]);
   } finally { ui.cleanup(); }

@@ -38,15 +38,10 @@ describe("questions live inside the Notification Center", () => {
     expect(center).not.toContain("Show more");
   });
 
-  // The owning session renders its ask-user questions in place, with one-tap
-  // lettered answers and no second reply box. That is covered by rendering
-  // SessionQuestionPanel in web/src/components/question-card.test.tsx.
-  test("the owning session mounts its question panel", async () => {
-    const source = await app();
-    expect(source).toContain(
-      "<SessionQuestionPanel sessionIds={[session.sessionId, session.nativeSessionId]} />",
-    );
-  });
+  // The owning session renders its ask-user questions in place, at the end of
+  // its transcript, with one-tap lettered answers and no second reply box.
+  // That is covered by rendering SessionQuestionPanel in
+  // web/src/components/question-card.test.tsx.
 
   // The bug: a question inside its own conversation drew a reply box directly
   // on top of the session composer. Two identical inputs, no way to tell which

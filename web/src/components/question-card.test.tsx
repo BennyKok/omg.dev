@@ -44,7 +44,6 @@ test("a harness prompt shows lettered, full-width answers with descriptions", ()
     <SessionPromptPanel
       sid={SID}
       onError={() => {}}
-      freeText
       prompt={{
         question: "Ship the fix now?",
         header: "Ship",
@@ -60,9 +59,12 @@ test("a harness prompt shows lettered, full-width answers with descriptions", ()
   expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual(["A. Yes", "B. No"]);
   expect(ui.text()).toContain("Ship the fix now?");
   expect(ui.text()).toContain("Push to main");
-  expect(ui.text()).toContain("Or type your own answer below.");
+  expect(ui.text()).toContain("Ship");
+  // No filler: no default label, no "type your own answer" line.
+  expect(ui.text()).not.toContain("Needs your input");
+  expect(ui.text()).not.toContain("Or type your own answer");
   // A TUI cursor row is not a choice the person made.
-  expect(buttons[0]!.className).not.toContain("bg-primary/10");
+  expect(buttons[0]!.className).not.toContain("border-primary bg-muted");
 });
 
 test("tapping an answer posts its option index and locks the card", async () => {
@@ -77,8 +79,6 @@ test("tapping an answer posts its option index and locks the card", async () => 
   await ui.flushAsync();
   expect(calls.find((c) => c.url.endsWith(`/api/sessions/${SID}/answer`))?.body).toEqual({ index: 2 });
   expect(choiceButtons().every((b) => b.disabled)).toBe(true);
-  // A tmux selector does not take typed text, so the hint stays away.
-  expect(ui.text()).not.toContain("Or type your own answer");
 });
 
 test("an ask-user question in the session uses the same lettered answers", async () => {
