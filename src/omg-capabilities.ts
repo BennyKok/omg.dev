@@ -6,7 +6,7 @@ import { customInputModalities } from "./custom-models.ts";
 // Bump whenever an agent-facing omg.dev capability or its operating guidance
 // changes. Managed sessions persist the value they launched with, which lets
 // the UI identify long-lived sessions whose MCP/tool catalog predates a ship.
-export const OMG_CAPABILITY_VERSION = "2026-10-12.1";
+export const OMG_CAPABILITY_VERSION = "2026-10-14.1";
 
 export const OMG_CAPABILITIES = [
   {
@@ -62,9 +62,9 @@ export const OMG_CAPABILITIES = [
   },
   {
     tool: "omg_input",
-    useWhen: "You need the human's decision before you continue: an irreversible, risky, or ambiguous choice, or a yes/no confirmation you would otherwise ask in prose.",
+    useWhen: "You are blocked on a decision only the human can make: an irreversible or external action, or intent you cannot resolve from the request, the code, or a sensible default.",
     guidance:
-      "Prefer deciding autonomously — do NOT ask merely to check in. When you do ask, ask here (or with your own AskUserQuestion tool when you have it) with 2-4 short options, not as a question at the end of a message. This is fire-and-forget: raise it once, do not poll or block; the answer arrives later as a user message.",
+      "Act by default. Do NOT ask to check in, to confirm the next step, to ask \"what next?\", or to approve work already in scope: do it, then report it. When a real decision remains, ask here (or with your own AskUserQuestion tool when you have it) with 2-4 short options. This is fire-and-forget: raise it once, do not poll or block; the answer arrives later as a user message.",
   },
   {
     tool: "omg_list_threads / omg_read_thread / omg_send_thread_message",
@@ -114,7 +114,7 @@ export const OMG_MCP_INSTRUCTIONS = [
   // invisible" told a named bot the exact opposite of its own envelope — which
   // is one of the reasons bot chats behaved like task sessions.
   "In a task session, publish every verified result with omg_ship; work that is never shipped never reaches the human. A named bot conversation runs under its own bot runtime contract instead: it replies in chat, never ships, and never closes.",
-  "Decide autonomously; use omg_input only for a genuinely irreversible, risky, or ambiguous decision, and when you do need the human's choice, ask with options through omg_input (or your own AskUserQuestion tool) rather than as a question in prose. Use omg.dev-managed delegation only when delegation is explicitly requested.",
+  "Decide autonomously and keep working: do not ask to check in, to confirm the next step, or to approve work already in scope. Use omg_input (or your own AskUserQuestion tool) only for a genuinely irreversible, external, or ambiguous decision, with 2-4 options. Use omg.dev-managed delegation only when delegation is explicitly requested.",
   "Recurring scheduled work belongs to the auto agent tools (omg_list_auto_agents, omg_compose_auto_agent, omg_save_auto_agent, omg_run_auto_agent, omg_list_findings).",
   "Hosted apps use omg_deploy, omg_deploy_status, omg_apps, omg_whoami, omg_app_visibility, omg_app_identity, and omg_app_env. Installable Android apps use omg_build_android and omg_build_status. For a live Cloud Computer preview, use omg_expose_port. For Expo Go, prepare the Metro port with expoGo:true and use the returned sandbox proxy URL. The runtime supplies the Cloud credential.",
   `Session ids are returned in short form (${SHORT_SESSION_ID_LENGTH}-char prefix, like a git short sha). Pass them back exactly as given — any unambiguous prefix resolves to the full id.`,
@@ -128,7 +128,7 @@ export function omgRuntimeContract(): string {
     "- Finish verified work with `omg_ship`: a short headline, a tweet-length result, and your strongest evidence. Publishing does not close the session, so keep working if anything is left. Never ship planning, partial, or blocked work.",
     "- Shipped is not deployed. If deployment was requested, verify it before you claim it.",
     "- For a website login, use `omg_request_browser_login` and `omg_browser_login_status`. The iOS app can transfer an approved login to the shared Computer browser. Check client availability and verify the signed-in page after transfer; never request cookies or passwords in chat.",
-    "- Decide and continue when safe. Use `omg_input` only for an irreversible, risky, or ambiguous decision; it is fire-and-forget, so do not poll. To wait on the human's choice, ask with 2-4 options via `AskUserQuestion` if you have it, else `omg_input`; never end a turn on a yes/no question in prose.",
+    "- Act by default: do the next step yourself. Do not ask to check in, confirm a plan, ask \"what next?\", or approve in-scope work. Ask only when blocked on a decision that is truly the human's (irreversible, external, or unclear intent): once, with 2-4 options via `AskUserQuestion`, else `omg_input` (fire-and-forget; do not poll).",
     "- Never request channel identity or credentials. Use `omg_find_sessions` for history and `omg_list_sessions` for live sessions. Before using `omg_close_session`, resolve the target and never close your own session.",
     "- Delegate only when explicitly requested, using `omg_create_subagent` or `omg_delegate_*` so children remain linked and visible.",
     "- Recurring/scheduled work is an auto agent, not a long-lived session: compose it with `omg_compose_auto_agent`, save it with `omg_save_auto_agent`, and read results with `omg_list_findings`.",
