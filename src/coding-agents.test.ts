@@ -15,6 +15,7 @@ import {
   loginCommandFor,
   runCodingAgentUpdate,
   runCodingAgentUpdates,
+  getCodingAgentSetupResult,
   updatableCodingAgentKinds,
   parseAuthOutput,
   pendingCodingAgentLogins,
@@ -1039,6 +1040,30 @@ describe("runCodingAgentUpdates", () => {
     await expect(run).rejects.toThrow("network down");
     expect(calls.some((c) => c.includes("opencode-ai"))).toBe(true);
     expect(calls.at(-1)).toBe("refresh");
+  });
+
+  test("records how each agent's update ended", async () => {
+    const run = runCodingAgentUpdates(["codex", "opencode"], {
+      runInstaller: async (command) => {
+        if (command.includes("@openai/codex")) throw new Error("network down");
+      },
+      refreshCatalog: async () => {},
+    });
+    await expect(run).rejects.toThrow("network down");
+    expect(getCodingAgentSetupResult("codex")).toMatchObject({ action: "update", ok: false, error: "network down" });
+    expect(getCodingAgentSetupResult("opencode")).toMatchObject({ action: "update", ok: true });
+    expect(getCodingAgentSetupResult("opencode")?.error).toBeUndefined();
+  });
+
+  test("a failed model refresh marks every agent in the run as failed", async () => {
+    const run = runCodingAgentUpdates(["opencode"], {
+      runInstaller: async () => {},
+      refreshCatalog: async () => {
+        throw new Error("catalog probe failed");
+      },
+    });
+    await expect(run).rejects.toThrow("catalog probe failed");
+    expect(getCodingAgentSetupResult("opencode")).toMatchObject({ ok: false, error: "catalog probe failed" });
   });
 });
 

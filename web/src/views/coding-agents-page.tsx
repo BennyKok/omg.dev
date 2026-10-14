@@ -8,6 +8,7 @@ import type {
 } from "../App";
 import { agentIconAlt, agentIconSrc } from "../lib/session-ui";
 import { agentStatusNote, binaryMissing } from "../lib/coding-agent-status-note";
+import { setupRowNote } from "../lib/coding-agent-setup-outcome";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/lib/notify";
@@ -73,6 +74,8 @@ function ExpandableRow({
   title,
   version,
   note,
+  noteTone,
+  progress,
   ok,
   showDot = true,
   control,
@@ -84,6 +87,10 @@ function ExpandableRow({
   title: string;
   version?: string;
   note: string | null;
+  /** Colours the note for a running or just-finished install or update. */
+  noteTone?: "progress" | "success" | "error";
+  /** 0 to 100 while an install or update runs. Draws a bar under the row. */
+  progress?: number | null;
   ok: boolean;
   showDot?: boolean;
   control?: React.ReactNode;
@@ -117,7 +124,37 @@ function ExpandableRow({
               ) : null}
             </span>
             {note ? (
-              <span className="block truncate text-xs text-muted-foreground">{note}</span>
+              <span
+                className={cn(
+                  "flex min-w-0 items-center gap-1 truncate text-xs",
+                  noteTone === "success"
+                    ? "text-success"
+                    : noteTone === "error"
+                    ? "text-destructive"
+                    : "text-muted-foreground",
+                )}
+                role={noteTone ? "status" : undefined}
+              >
+                {noteTone === "progress" ? <Loader2 className="size-3 shrink-0 animate-spin" /> : null}
+                {noteTone === "success" ? <Check className="size-3 shrink-0" /> : null}
+                {noteTone === "error" ? <X className="size-3 shrink-0" /> : null}
+                <span className="truncate">{note}</span>
+              </span>
+            ) : null}
+            {progress != null ? (
+              <span
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.round(progress)}
+                aria-label={note ?? "Progress"}
+                className="mt-1.5 block h-1 w-full overflow-hidden rounded-full bg-muted"
+              >
+                <span
+                  className="block h-full rounded-full bg-primary transition-[width] duration-500"
+                  style={{ width: `${Math.max(4, Math.min(100, progress))}%` }}
+                />
+              </span>
             ) : null}
           </span>
           <ChevronDown
@@ -229,7 +266,8 @@ export default function CodingAgentsPage({
   const [refreshing, setRefreshing] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const toggle = (key: string) => setExpanded((current) => (current === key ? null : key));
-  const anySetupRunning = agents.some((agent) => agent.status.setupRunning);
+  const runningCount = agents.filter((agent) => agent.status.setupRunning).length;
+  const anySetupRunning = runningCount > 0;
   const canUpdateAll = agents.some(
     (agent) => agent.status.canAutoSetup && !binaryMissing(agent.status.checks),
   );
@@ -263,7 +301,11 @@ export default function CodingAgentsPage({
             className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
           >
             <Download className={cn("size-3.5", anySetupRunning && "animate-pulse")} />
-            {anySetupRunning ? "Updating…" : "Update all"}
+            {anySetupRunning
+              ? runningCount === 1
+                ? "Updating 1 agent…"
+                : `Updating ${runningCount} agents…`
+              : "Update all"}
           </button>
         ) : null}
         <button
@@ -351,6 +393,7 @@ export default function CodingAgentsPage({
           const hasConnectedAccount = accounts.some((account) => account.connected);
           const hasProviderOrAccountRows = accounts.length > 0 || providers.length > 0;
           const needsBinary = binaryMissing(status.checks);
+          const setupNote = setupRowNote(status);
           return (
             <ExpandableRow
               key={agent.key}
@@ -359,11 +402,16 @@ export default function CodingAgentsPage({
               }
               title={agent.label}
               version={status.version}
-              note={agentStatusNote(
-                status.checks,
-                status.profile,
-                accounts.filter((account) => account.connected).length,
-              )}
+              note={
+                setupNote?.text ??
+                agentStatusNote(
+                  status.checks,
+                  status.profile,
+                  accounts.filter((account) => account.connected).length,
+                )
+              }
+              noteTone={setupNote?.tone}
+              progress={status.setupRunning ? (status.setupProgress?.percent ?? 5) : null}
               ok={status.configured}
               showDot={false}
               open={expanded === `agent:${agent.key}`}
@@ -382,6 +430,11 @@ export default function CodingAgentsPage({
                 />
               }
             >
+              {setupNote?.tone === "error" && status.setupResult?.error ? (
+                <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-destructive/30 bg-destructive/5 px-2.5 py-2 font-mono text-[11px] text-destructive">
+                  {status.setupResult.error}
+                </pre>
+              ) : null}
               {accounts.length ? (
                 <div className="space-y-1.5">
                   {accounts.map((account) => (
