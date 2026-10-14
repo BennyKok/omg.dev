@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { followCamera, clampCamera, createCamera, screenToWorld, worldToScreen } from "../src/game/camera";
 import { angleDiff, circleRectOverlap, circlesOverlap, keepCircleInside, pushCircleOutOfRect, rectsOverlap, seeded } from "../src/game/collision";
 import { axisX, axisY, createInput, endFrame, keyToAction, releaseAll, setAction, setStick, wasTapped } from "../src/game/input";
+import { addLive, createRenderGate, liveCount, syncLive } from "../src/game/live";
 import { createLoop } from "../src/game/loop";
 import { emptyProfile, formatTime, isUnlocked, migrateProfile, recordRun, type Unlock } from "../src/game/progress";
 
@@ -34,6 +35,34 @@ describe("loop", () => {
     const loop = createLoop({ step: 0.01, maxFrame: 10, maxSteps: 3 });
     expect(loop.advance(1, () => {})).toBe(3);
     expect(loop.advance(0.005, () => {})).toBe(0);
+  });
+});
+
+describe("live drawing", () => {
+  test("React redraws at most renderHz times a second on a 60 Hz or 120 Hz screen", () => {
+    for (const fps of [60, 120]) {
+      const gate = createRenderGate(30);
+      let redraws = 0;
+      for (let i = 0; i < fps; i++) if (gate.due((i * 1000) / fps)) redraws++;
+      expect(redraws).toBe(30);
+    }
+  });
+  test("renderHz 0 redraws every frame", () => {
+    const gate = createRenderGate(0);
+    let redraws = 0;
+    for (let i = 0; i < 60; i++) if (gate.due((i * 1000) / 60)) redraws++;
+    expect(redraws).toBe(60);
+  });
+  test("every registered object is moved on each sync until it is removed", () => {
+    const seen: number[] = [];
+    const before = liveCount();
+    const remove = addLive(() => seen.push(1));
+    syncLive();
+    syncLive();
+    remove();
+    syncLive();
+    expect(seen.length).toBe(2);
+    expect(liveCount()).toBe(before);
   });
 });
 

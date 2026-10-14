@@ -11,16 +11,15 @@ export function GameView({ game, cam, width, height, shipColors, time }: {
   return (
     <World cam={cam} width={width} height={height} background="#1c2a4a" worldSize={{ w: WORLD.w, h: WORLD.h }}>
       {game.coins.map((c) => (
-        <Sprite key={c.id} x={c.x} y={c.y} size={c.r * 2} shape="circle" color={theme.accent} borderColor="#fff3b0" />
+        <Sprite key={c.id} of={c} size={c.r * 2} shape="circle" color={theme.accent} borderColor="#fff3b0" />
       ))}
       {game.hazards.map((h, i) => (
-        <Sprite key={i} x={h.x} y={h.y} size={h.r * 2} shape="circle" color="#7a3cff" borderColor="#c7a8ff" />
+        <Sprite key={i} of={h} size={h.r * 2} shape="circle" color="#7a3cff" borderColor="#c7a8ff" />
       ))}
       {game.players.map((p) => (
         <Sprite
           key={p.id}
-          x={p.x}
-          y={p.y}
+          of={p}
           size={p.r * 2}
           shape="circle"
           color={shipColors[p.id]}
