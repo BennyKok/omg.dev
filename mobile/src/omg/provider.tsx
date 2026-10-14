@@ -32,6 +32,8 @@ import { forgetAllTransports, getHostedTransport } from "./transport";
 import { registerSessionRefResolver } from "./session-ref-link";
 import { unregisterForPushNotifications } from "./push";
 import { useUserActive } from "./idle";
+import { runAgentUpdateAll, type AgentUpdateRow } from "./agent-updates";
+import type { SetupOutcome } from "../../../packages/protocol/src/coding-agent-setup-outcome";
 import { startCloudPresence } from "./presence";
 import { wakeAfterPresence } from "./cloud-startup";
 import { subscribeReadinessRecovery, sharedReadiness, type ComputerReadiness } from "./readiness";
@@ -183,10 +185,11 @@ type OmgContextValue = {
   modelsVersion: number;
   /**
    * Reinstall every installed agent CLI on the box and wait for it to finish.
-   * The box refreshes the model catalog itself at the end. Throws when the
-   * box refuses or does not have the route yet.
+   * `onProgress` gets each agent's step while it runs. Resolves with how the
+   * run ended, failures included. Throws when the box refuses, does not have
+   * the route yet, or is still running at the time limit.
    */
-  updateAllAgents: () => Promise<void>;
+  updateAllAgents: (onProgress?: (rows: AgentUpdateRow[]) => void) => Promise<SetupOutcome>;
 };
 
 const Context = createContext<OmgContextValue | null>(null);
@@ -688,36 +691,19 @@ export function OmgProvider({ children }: PropsWithChildren) {
     void probe();
   }, [client, probe]);
 
-  const updateAllAgents = useCallback(async () => {
-    if (!client) throw new Error("No Computer selected.");
-    try {
-      await client.transport.request("/api/coding-agents/update-all", { method: "POST" });
-    } catch (e) {
-      // A box older than the route answers the per-agent POST's 404.
-      if ((e as { status?: number })?.status === 404) {
-        throw new Error("Your Computer needs a software update before it can update agents.");
+  const updateAllAgents = useCallback(
+    async (onProgress?: (rows: AgentUpdateRow[]) => void): Promise<SetupOutcome> => {
+      if (!client) throw new Error("No Computer selected.");
+      try {
+        return await runAgentUpdateAll(client.transport, { onProgress });
+      } finally {
+        // The box refreshes its model catalog at the end of the run.
+        setModelsVersion((n) => n + 1);
+        void probe();
       }
-      throw e;
-    }
-    // The box answers at once and runs the installs in the background. Watch
-    // `setupRunning` until every agent is idle. Bounded: installers that hang
-    // should not keep a spinner up forever.
-    const deadline = Date.now() + 15 * 60_000;
-    while (Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      const payload = await client.transport
-        .request<{ agents?: { status?: { setupRunning?: boolean } }[] }>("/api/coding-agents")
-        .catch(() => null);
-      if (payload && !(payload.agents ?? []).some((a) => a.status?.setupRunning)) break;
-    }
-    setModelsVersion((n) => n + 1);
-    void probe();
-    const log = await client.transport
-      .request<{ running?: boolean; error?: string | null }>("/api/coding-agents/setup/log")
-      .catch(() => null);
-    if (log?.running) throw new Error("Still updating on your Computer. Check back in a few minutes.");
-    if (log?.error) throw new Error(log.error.split("\n")[0] ?? log.error);
-  }, [client, probe]);
+    },
+    [client, probe],
+  );
 
   const value = useMemo<OmgContextValue>(
     () => ({

@@ -49,6 +49,31 @@ test('managed groups preserve ranking, filter, and select without moving the sel
  } finally {ui.cleanup();}
 });
 
+// OpenCode reaches models through several routers. Its rows carry a router
+// section and group under it; marked and unmarked rows share one name column.
+test('routed models group by router section with an aligned gutter', () => {
+ const ui=mount(); let picked='';
+ const options = [
+  { id:'opencode-go/glm-5.3', label:'GLM 5.3', section:'OpenCode Go', image:1 },
+  { id:'opencode/big-pickle', label:'Big Pickle', section:'OpenCode Zen' },
+  { id:'omg/openai/gpt-6-luna', label:'GPT-6 Luna', section:'omg.dev', image:2, selected:true },
+  { id:'opencode-go/kimi-k3', label:'Kimi K3', section:'OpenCode Go' },
+ ].map(o=>({...o,onPress:()=>{picked=o.id;}}));
+ try {
+  ui.render(<AgentSetupSheet visible onClose={()=>{}} agentOptions={[{id:'opencode',label:'OpenCode',selected:true}]} modelOptions={options as any}/>);
+  ui.flush(()=> (ui.query('button[aria-label^="Model GPT-6 Luna"]') as HTMLElement).click());
+  const text=ui.text();
+  expect(text.indexOf('OpenCode Go')).toBeLessThan(text.indexOf('OpenCode Zen'));
+  expect(text.indexOf('OpenCode Zen')).toBeLessThan(text.indexOf('omg.dev'));
+  // A routed list is not a credit-usage list, even with omg ids in it.
+  expect(ui.query('[aria-label="Loading credit usage"]')).toBeNull();
+  const rows=Array.from(ui.queryAll('button')).filter(n=>options.some(o=>o.label===n.textContent));
+  expect(rows.map(n=>n.textContent)).toEqual(['GLM 5.3','Kimi K3','Big Pickle','GPT-6 Luna']);
+  ui.flush(()=> (rows.find(n=>n.textContent==='GLM 5.3') as HTMLElement).click());
+  expect(picked).toBe('opencode-go/glm-5.3');
+ } finally {ui.cleanup();}
+});
+
 test('pricing failure leaves managed model selection available', () => {
  const ui=mount();let picks=0;
  try {

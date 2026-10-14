@@ -159,7 +159,7 @@ function AgentTile({ option, onPress, onLongPress }: { option: MenuOption; onPre
 }
 
 /** One choice in an inset list, iOS style: label, hairline above, check at the end. */
-function Row({ option, first, onPress }: { option: MenuOption; first: boolean; onPress: () => void }) {
+function Row({ option, first, gutter = false, onPress }: { option: MenuOption; first: boolean; gutter?: boolean; onPress: () => void }) {
   const { colors, type, space } = useTheme();
   const selected = !!option.selected;
   return (
@@ -191,6 +191,10 @@ function Row({ option, first, onPress }: { option: MenuOption; first: boolean; o
           accessible={false}
           style={{ width: 18, height: 18, tintColor: selected ? colors.text : colors.textSecondary }}
         />
+      ) : gutter ? (
+        // Some rows in this list have a mark and this one does not. Keep the
+        // names in one column.
+        <View style={{ width: 18, height: 18 }} />
       ) : null}
       <Text
         numberOfLines={1}
@@ -224,14 +228,21 @@ function ModelList({ options, recent, onPick }: { options: MenuOption[]; recent:
     // The short name is what the row shows; the id still matches so a pasted
     // router id, or a provider slug like "z-ai", finds its row.
     const matched = q ? options.filter((o) => o.label.toLowerCase().includes(q) || (o.id?.toLowerCase().includes(q) ?? false)) : options;
-    if (options.some(o => o.id?.startsWith("omg/"))) return matched;
+    if (options.some(o => o.id?.startsWith("omg/") || o.section)) return matched;
     const current = matched.find(o => o.selected);
     return [...(current ? [current] : []), ...matched.filter(o => o !== current)];
   }, [options, q]);
 
-  const managed = options.some(o => o.id?.startsWith("omg/"));
+  // A routed list (OpenCode) carries a router `section` per row and groups by
+  // it, in the order the routers first appear. A hosted omg list groups by
+  // credit use. Anything else is one flat list.
+  const anyImage = options.some(o => !!o.image);
+  const sections = [...new Set(options.map(o => o.section).filter((s): s is string => !!s))];
+  const managed = !sections.length && options.some(o => o.id?.startsWith("omg/"));
   const loading = managed && options.every(o => o.creditUsage === undefined);
-  const groups = managed && !loading
+  const groups = sections.length
+    ? sections.map((label, index) => ({ level: 100 + index, label: sections.length > 1 ? label : "", items: shown.filter(o => o.section === label) })).filter(group => group.items.length)
+    : managed && !loading
     ? MODEL_USAGE_GROUPS.map(group => ({ ...group, items: shown.filter(o => (o.creditUsage ?? 0) === group.level) })).filter(group => group.items.length)
     : [{ level: -1, label: "", items: shown }];
 
@@ -260,7 +271,7 @@ function ModelList({ options, recent, onPick }: { options: MenuOption[]; recent:
             style={{ flex: 1, ...type.callout, color: colors.text, paddingVertical: 0 }}
           />
       </View>
-      {!managed && !q && recent.some(label => options.some(o => o.label === label && !o.selected)) ? <View style={{ gap: 6 }}>
+      {!managed && !sections.length && !q && recent.some(label => options.some(o => o.label === label && !o.selected)) ? <View style={{ gap: 6 }}>
         <Text style={{ ...type.caption, color: colors.textMuted }}>Recent</Text>
         <ScrollView horizontal keyboardShouldPersistTaps="handled" showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
           {recent.map(label => options.find(o => o.label === label && !o.selected)).filter((o): o is MenuOption => !!o).map(option =>
@@ -275,14 +286,14 @@ function ModelList({ options, recent, onPick }: { options: MenuOption[]; recent:
           bounces={false}
           nestedScrollEnabled
           keyboardShouldPersistTaps="handled"
-          style={{ height: Math.min(44 * (expanded ? 10.5 : managed ? 8.5 : MODEL_ROWS_SHOWN), height * 0.48) }}
+          style={{ height: Math.min(44 * (expanded ? 10.5 : managed || sections.length ? 8.5 : MODEL_ROWS_SHOWN), height * 0.48) }}
         >
           {groups.map(group => <View key={group.level}>
             {group.label ? <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, minHeight: 36, paddingHorizontal: space.lg, paddingTop: 8 }}>
               <Text accessibilityRole="header" style={{ ...type.caption, color: colors.textMuted }}>{group.label}</Text>
               {group.level === 2 || group.level === 3 ? <CreditUsageGauge level={group.level} color={colors.textMuted} /> : null}
             </View> : null}
-            {group.items.map((option, index) => <Row key={option.id ?? option.label} option={option} first={index === 0} onPress={() => onPick(option)} />)}
+            {group.items.map((option, index) => <Row key={option.id ?? option.label} option={option} first={index === 0} gutter={anyImage} onPress={() => onPick(option)} />)}
           </View>)}
           {!shown.length ? (
             <Text style={{ ...type.footnote, color: colors.textMuted, padding: space.md }}>{options.length ? "No model matches" : "No models available"}</Text>

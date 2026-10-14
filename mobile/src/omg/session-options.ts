@@ -6,9 +6,10 @@
 import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ImageSourcePropType } from "react-native";
 
 import { supportsFastMode } from "../../../packages/protocol/src/fast-mode-support";
-import { omgModelLabel, parseOmgModel } from "../../../packages/protocol/src/omg-model-display";
+import { modelLabProvider, modelListHasRoutes, omgModelLabel, parseRoutedModel } from "../../../packages/protocol/src/omg-model-display";
 import { modelProviderIcon } from "./model-provider-icons";
 import { modelUsageLevel } from "../../../packages/protocol/src/model-pricing";
 import { useModelPrices } from "./use-model-prices";
@@ -70,6 +71,23 @@ export type ClaudeAccountRow = {
   connected: boolean;
   needsReconnect?: boolean;
 };
+
+/**
+ * How one model row looks: short name, the lab's mark, and, in a routed list
+ * such as OpenCode's, the router section it sits under. The id stays the
+ * value. Exported so a simulator test entry draws the same rows.
+ */
+export function modelOptionLook(
+  id: string,
+  routed: boolean,
+): { label: string; image?: ImageSourcePropType; section?: string } {
+  const image = modelProviderIcon(modelLabProvider(id));
+  return {
+    label: omgModelLabel(id),
+    ...(image ? { image } : {}),
+    ...(routed ? { section: parseRoutedModel(id)?.routeLabel ?? "Other" } : {}),
+  };
+}
 
 export function useAgentPicker(init: {
   initialAgent?: string | null;
@@ -322,19 +340,24 @@ export function useAgentPicker(init: {
 
   const modelOptions = useMemo<MenuOption[]>(() => {
     const models = entry?.models ?? [];
+    // OpenCode reaches models through several routers, and one model can come
+    // from more than one. Such a list is sectioned by router (OpenCode Go,
+    // Novita AI) instead of by credit use.
+    const routed = modelListHasRoutes(models);
 
-    // The router id stays the value. A hosted `omg/<provider>/<model>` id
-    // shows the lab's mark and its short name ("DeepSeek V4 Flash"); other
-    // agents' ids are already short strings with no face, and get no gutter.
+    // The router id stays the value. A hosted `omg/<provider>/<model>` id, or
+    // a routed one such as `opencode-go/glm-5.3`, shows the lab's mark and its
+    // short name ("GLM 5.3"); bare ids (Claude, Codex) get no gutter.
     return models.map((m) => ({
       id: m,
+      ...modelOptionLook(m, routed),
       label: modelPrices[m]?.available === false ? `${omgModelLabel(m)} (Upgrade)` : omgModelLabel(m),
       icon: modelPrices[m]?.available === false ? "lock.fill" : undefined,
       upgradeRequired: modelPrices[m]?.available === false,
-      creditUsage: m.startsWith("omg/") && !pricesLoading
+      creditUsage: !routed && m.startsWith("omg/") && !pricesLoading
         ? modelUsageLevel(modelPrices[m], modelPrices[entry?.defaultModel ?? ""])?.bars ?? 0
         : undefined,
-      image: modelPrices[m]?.available === false ? undefined : modelProviderIcon(parseOmgModel(m)?.provider) ?? undefined,
+      ...(modelPrices[m]?.available === false ? { image: undefined } : {}),
       selected: m === activeModelName,
       onPress: () => {
         if (modelPrices[m]?.available === false) {

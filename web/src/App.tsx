@@ -4,9 +4,9 @@ import { replayCloudTranscription } from "./lib/transcription-cloud-replay";
 import { MODEL_USAGE_GROUPS } from "../../packages/protocol/src/model-pricing";
 import { useModelPrices, modelUsageLevel } from "./lib/use-model-prices";
 import { OMG_DEFAULT_MODEL, OMG_MODELS } from "../../src/omg-models";
-import { omgModelLabel, omgModelSearchText, parseOmgModel, parseRoutedModel, setServerModelLabels } from "../../packages/protocol/src/omg-model-display";
+import { modelLabProvider, modelListHasRoutes, omgModelLabel, omgModelSearchText, parseOmgModel, parseRoutedModel, setServerModelLabels } from "../../packages/protocol/src/omg-model-display";
 import { ModelProviderIcon, modelProviderIconKey } from "./lib/model-provider-icons";
-import { setupOutcome, type SetupResultInfo, type SetupWatchAgent } from "./lib/coding-agent-setup-outcome";
+import { setupOutcome, type SetupResultInfo, type SetupWatchAgent } from "../../packages/protocol/src/coding-agent-setup-outcome";
 import { useRuntimeLifecycle } from "./lib/runtime-lifecycle";
 import { useComputerResumeMetrics } from "./lib/use-computer-resume-metrics";
 import { LiveHeaderContext } from "./components/live-header-context";
@@ -26030,7 +26030,7 @@ function modelListSearchable(models: string[]): boolean {
 
 /** Icon key for a model row or pill: the lab behind a hosted or routed id. */
 function modelMarkProvider(id: string): string | null {
-  const provider = parseOmgModel(id)?.provider ?? parseRoutedModel(id)?.provider ?? null;
+  const provider = modelLabProvider(id);
   return modelProviderIconKey(provider) ? provider : null;
 }
 
@@ -26045,12 +26045,7 @@ export function routedModelGroups(
   items: string[],
   all: string[],
 ): { level: number; label: string; items: string[] }[] | null {
-  const isThirdPartyRoute = (id: string) => {
-    if (id.startsWith("custom-")) return false;
-    const route = parseRoutedModel(id)?.route;
-    return !!route && route !== "omg";
-  };
-  if (!all.some(isThirdPartyRoute)) return null;
+  if (!modelListHasRoutes(all)) return null;
   const order: string[] = [];
   const byRoute = new Map<string, { label: string; items: string[] }>();
   for (const id of all) {

@@ -8,7 +8,7 @@ import type {
 } from "../App";
 import { agentIconAlt, agentIconSrc } from "../lib/session-ui";
 import { agentStatusNote, binaryMissing } from "../lib/coding-agent-status-note";
-import { setupRowNote } from "../lib/coding-agent-setup-outcome";
+import { setupRowNote } from "../../../packages/protocol/src/coding-agent-setup-outcome";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/lib/notify";

@@ -1,0 +1,106 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": false
+  },
+  "steps": [
+    {
+      "name": "01 Fixture",
+      "goal": "If a system alert titled Apple Account Verification is showing, tap Not Now to dismiss it. Then wait for the test screen to load.",
+      "done": "A screen titled OpenCode models and agent updates, with an Open OpenCode models button and an Update all agents row.",
+      "expect": [
+        "OpenCode models and agent updates",
+        "Selected: GLM 5.3",
+        "Update all agents"
+      ],
+      "timeoutMs": 90000
+    },
+    {
+      "name": "02 Open model controls",
+      "goal": "Tap Open OpenCode models.",
+      "done": "The agent controls tray is open and shows the model GLM 5.3.",
+      "expect": [
+        "Model GLM 5.3. Change model"
+      ],
+      "timeoutMs": 60000
+    },
+    {
+      "name": "03 Router sections",
+      "goal": "Tap the Model GLM 5.3 control to open the model list. Do not select a model yet.",
+      "done": "The model list shows short model names under router headings such as OpenCode Go and OpenCode Zen.",
+      "expect": [
+        "OpenCode Go",
+        "OpenCode Zen",
+        "GLM 5.3",
+        "Kimi K3",
+        "Claude Haiku 5.5",
+        "Big Pickle"
+      ],
+      "forbid": [
+        "opencode-go/glm-5.3",
+        "Standard usage"
+      ],
+      "timeoutMs": 60000
+    },
+    {
+      "name": "04 Lower routers",
+      "swipe": {
+        "start": "50%,85%",
+        "end": "50%,50%"
+      },
+      "goal": "Inspect the lower part of the model list. Do not select a model yet.",
+      "done": "The Novita AI, OpenAI and xAI sections are visible.",
+      "expect": [
+        "Novita AI",
+        "OpenAI",
+        "GPT-6.1 Sol",
+        "xAI",
+        "Grok 4.5"
+      ],
+      "timeoutMs": 60000
+    },
+    {
+      "name": "05 Close tray",
+      "swipe": {
+        "start": "50%,45%",
+        "end": "50%,90%"
+      },
+      "goal": "Close the model tray. If it is still open, swipe it down or tap the dimmed area above it.",
+      "done": "The test screen is showing with the Update all agents row, and no model tray.",
+      "expect": [
+        "Update all agents",
+        "Selected: GLM 5.3"
+      ],
+      "forbid": [
+        "Search 9 models"
+      ],
+      "timeoutMs": 60000
+    },
+    {
+      "name": "06 Update running",
+      "goal": "Tap the Update all agents row once. Then wait. Do not tap it again.",
+      "done": "The row says it is updating 2 agents, and Codex and OpenCode each show a step such as Installing latest CLI.",
+      "expect": [
+        "Updating 2 agents\u2026",
+        "Codex \u00b7",
+        "OpenCode \u00b7"
+      ],
+      "timeoutMs": 30000
+    },
+    {
+      "name": "07 Update result",
+      "goal": "Wait for the update to finish. Do not tap anything.",
+      "done": "The row names the result: 1 of 2 agents failed. Codex says its update failed with an npm error, and OpenCode says it updated from v1.17.6 to v1.17.7.",
+      "expect": [
+        "1 of 2 agents failed to update",
+        "Codex update failed",
+        "npm ERR! network request to registry.npmjs.org failed",
+        "OpenCode updated from v1.17.6 to v1.17.7"
+      ],
+      "forbid": [
+        "Updating 2 agents\u2026"
+      ],
+      "timeoutMs": 60000
+    }
+  ]
+}

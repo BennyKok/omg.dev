@@ -39,7 +39,7 @@ import {
 import { VoiceInputField } from "./omg/voice-input-field";
 import { agentIcon } from "./omg/agent-icons";
 import { modelProviderIcon } from "./omg/model-provider-icons";
-import { parseOmgModel } from "../../packages/protocol/src/omg-model-display";
+import { modelLabProvider } from "../../packages/protocol/src/omg-model-display";
 import type { Attachment } from "./omg/attachments";
 import { GlassSurface, LIQUID_GLASS } from "./omg/glass";
 import { LucideIcon, type LucideName } from "./omg/lucide";
@@ -629,8 +629,9 @@ export function AgentAvatar({
    */
   const ringSize = size;
   const markSize = busy ? size - 9 : size;
-  const providerMark =
-    (agent ?? "").trim().toLowerCase() === "omg" ? modelProviderIcon(parseOmgModel(model)?.provider) : null;
+  // A hosted omg model, or a routed one such as OpenCode's opencode-go/glm-5.3,
+  // wears its lab's mark with the agent's own mark as the corner badge.
+  const providerMark = modelProviderIcon(modelLabProvider(model));
   const badgeSize = Math.round(markSize * 0.45);
   return (
     <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
@@ -702,7 +703,7 @@ export function AgentAvatar({
             backgroundColor: colors.bg,
           }}
         >
-          <Image source={agentIcon("omg")} accessible={false} style={{ width: "100%", height: "100%" }} resizeMode="cover" />
+          <Image source={agentIcon(agent)} accessible={false} style={{ width: "100%", height: "100%" }} resizeMode="cover" />
         </View>
       ) : null}
     </View>

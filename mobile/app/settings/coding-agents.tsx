@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Card, Icon, Row, Separator } from "../../src/components";
 import { connectProviderFor, FALLBACK_KIND, listClaudeAccounts, type ClaudeAccount, type ConnectProvider } from "../../src/omg/agent-auth";
 import { agentIcon } from "../../src/omg/agent-icons";
+import { AgentUpdateAllRow } from "../../src/omg/agent-update-all-row";
 import { ConnectAgentSheet } from "../../src/omg/connect-agent-sheet";
 import { PressableScale } from "../../src/omg/motion";
 import { useOmg } from "../../src/omg/provider";
@@ -68,17 +69,6 @@ export default function CodingAgentsScreen() {
     }
   }, [modelsState, refreshModels]);
 
-  const [updateState, setUpdateState] = useState<"idle" | "running" | "done" | { error: string }>("idle");
-  const runUpdateAll = useCallback(async () => {
-    if (updateState === "running") return;
-    setUpdateState("running");
-    try {
-      await updateAllAgents();
-      setUpdateState("done");
-    } catch (e) {
-      setUpdateState({ error: e instanceof Error ? e.message : "Could not update agents" });
-    }
-  }, [updateState, updateAllAgents]);
 
   const visible = useMemo(() => agents.filter((a) => a.visible !== false), [agents]);
   const connectedClaude = accounts.filter((a) => a.connected);
@@ -191,22 +181,7 @@ export default function CodingAgentsScreen() {
 
         {ready ? (
           <Card style={{ marginTop: space.lg }}>
-            <Row onPress={updateState === "running" ? undefined : () => void runUpdateAll()}>
-              <Icon ios="arrow.down.circle" android="download" size={17} color={colors.text} />
-              <View style={{ flex: 1, gap: 3 }}>
-                <Text style={{ ...type.callout, color: colors.text }}>Update all agents</Text>
-                <Text style={{ ...type.footnote, color: typeof updateState === "object" ? colors.danger : colors.textMuted }} numberOfLines={2}>
-                  {updateState === "running"
-                    ? "Installing the latest version of each agent…"
-                    : updateState === "done"
-                      ? "All agents updated"
-                      : typeof updateState === "object"
-                        ? updateState.error
-                        : "Install the latest version of every agent, then refresh models"}
-                </Text>
-              </View>
-              {updateState === "running" ? <ActivityIndicator size="small" color={colors.textMuted} /> : null}
-            </Row>
+            <AgentUpdateAllRow run={updateAllAgents} />
             <Separator inset={space.lg} />
             <Row onPress={modelsState === "running" ? undefined : () => void runModelsRefresh()}>
               <Icon ios="arrow.clockwise" android="refresh" size={17} color={colors.text} />
