@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { setupOutcome } from "./coding-agent-setup-outcome";
+import { setupOutcome } from "../packages/protocol/src/coding-agent-setup-outcome.ts";
 
 const done = (key: string, version: string | undefined, ok = true, error?: string) => ({
   key,
@@ -16,7 +16,7 @@ describe("setupOutcome", () => {
   test("names the version change for one agent", () => {
     expect(
       setupOutcome([{ key: "opencode", label: "OpenCode", fromVersion: "1.2.0" }], [done("opencode", "1.3.0")]),
-    ).toEqual({ ok: true, title: "OpenCode updated from v1.2.0 to v1.3.0" });
+    ).toMatchObject({ ok: true, title: "OpenCode updated from v1.2.0 to v1.3.0" });
   });
 
   test("says up to date when the version did not move", () => {
@@ -28,7 +28,12 @@ describe("setupOutcome", () => {
   test("a failure carries the error", () => {
     expect(
       setupOutcome([{ key: "codex", label: "Codex" }], [done("codex", "0.1.0", false, "network down")]),
-    ).toEqual({ ok: false, title: "Codex update failed", description: "network down" });
+    ).toMatchObject({
+      ok: false,
+      title: "Codex update failed",
+      description: "network down",
+      rows: [{ key: "codex", ok: false, line: "Codex update failed", error: "network down" }],
+    });
   });
 
   test("several agents get a count and one line each", () => {

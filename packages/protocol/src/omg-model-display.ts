@@ -272,6 +272,25 @@ export function parseRoutedModel(id: string | null | undefined): RoutedModelInfo
 }
 
 /**
+ * True when a model list goes through routers other than omg, as OpenCode's
+ * does. Pickers group such a list by router (`routeLabel`) instead of by
+ * credit use. The omg agent's own list (hosted ids plus the owner's
+ * `custom-*` endpoints) is false.
+ */
+export function modelListHasRoutes(ids: readonly string[]): boolean {
+  return ids.some((id) => {
+    if (id.startsWith("custom-")) return false;
+    const route = parseRoutedModel(id)?.route;
+    return !!route && route !== "omg";
+  });
+}
+
+/** The lab slug for a model's mark: hosted or routed id, else null. */
+export function modelLabProvider(id: string | null | undefined): string | null {
+  return parseOmgModel(id)?.provider ?? parseRoutedModel(id)?.provider ?? null;
+}
+
+/**
  * The one display name for a model id, for a picker row, pill, or badge.
  * The id stays the value everywhere; only the text shown changes. Ids with no
  * rule (codex, cursor, and other agents) pass through unchanged.

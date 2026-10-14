@@ -26,10 +26,19 @@ export type SetupWatchStatus = {
   status: { setupRunning: boolean; version?: string; setupResult?: SetupResultInfo };
 };
 
+export type SetupOutcomeRow = {
+  key: string;
+  ok: boolean;
+  line: string;
+  error?: string;
+};
+
 export type SetupOutcome = {
   ok: boolean;
   title: string;
   description?: string;
+  /** One entry per watched agent, in the order they were watched. */
+  rows: SetupOutcomeRow[];
 };
 
 /** One line for one finished agent. */
@@ -65,6 +74,7 @@ export function setupOutcome(
     const status = byKey.get(item.key)?.status;
     const result = status?.setupResult;
     return {
+      key: item.key,
       ok: result ? result.ok : true,
       line: setupOutcomeLine(item.label, result, item.fromVersion, status?.version),
       error: result && !result.ok ? result.error : undefined,
@@ -73,12 +83,12 @@ export function setupOutcome(
   const failed = rows.filter((row) => !row.ok);
   if (rows.length === 1) {
     const row = rows[0]!;
-    return { ok: row.ok, title: row.line, ...(row.error ? { description: row.error } : {}) };
+    return { ok: row.ok, title: row.line, ...(row.error ? { description: row.error } : {}), rows };
   }
   const title = failed.length
     ? `${failed.length} of ${rows.length} agents failed to update`
     : `${rows.length} agents updated`;
-  return { ok: failed.length === 0, title, description: rows.map((row) => row.line).join("\n") };
+  return { ok: failed.length === 0, title, description: rows.map((row) => row.line).join("\n"), rows };
 }
 
 /** A finished run stays on its row for this long, then the row goes quiet. */
