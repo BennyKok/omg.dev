@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 14, 2026 - Computer screenshots recover by themselves (v0.6.232)
+
+- A Computer screenshot that hangs now stops after 15 seconds and reports a timeout. The next screenshot opens a fresh browser view and works again. Before, one stuck screenshot blocked every later screenshot until the Computer restarted, so the agent could not check its app against the design or take store screenshots.
+- Before each screenshot, the agent's browser tab comes to the front.
+
 ## October 14, 2026 - Agents do the work instead of asking first (v0.6.231)
 
 - Agents again do the next step themselves. They no longer stop to ask "OK? What next?" or to ask approval for work you already asked for. They ask only before an action that cannot be undone or that changes something outside the session, or when your intent is not clear. The question card stays for those questions.
