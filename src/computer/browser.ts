@@ -377,9 +377,66 @@ export async function browserPaste(text: string): Promise<void> {
   }
 }
 
+/** How long one capture may take before the view is judged stuck. */
+export const SCREENSHOT_TIMEOUT_MS = 15_000;
+
+/** What screenshotWithRecovery needs. Injectable so a test can use a fake view. */
+export interface ScreenshotDeps {
+  view(): Promise<WebViewLike>;
+  focus(): Promise<void>;
+  /** Drop the cached view so the next view() builds a fresh one. */
+  reset(): void;
+  timeoutMs: number;
+}
+
+class ScreenshotTimeout extends Error {}
+
+/**
+ * Bun.WebView allows one screenshot() at a time. A capture that never resolves
+ * (no compositor frame for a tab that is not painting) keeps the slot taken
+ * for as long as the view lives, and the view is cached per process. So a
+ * capture is time-limited, and a stuck or "already pending" view is dropped
+ * so the next call gets a fresh one.
+ */
+export async function screenshotWithRecovery(deps: ScreenshotDeps): Promise<Blob> {
+  for (let attempt = 0; ; attempt++) {
+    const v = await deps.view();
+    await deps.focus();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new ScreenshotTimeout()), deps.timeoutMs);
+      });
+      return await Promise.race([v.screenshot({ format: "png" }), timeout]);
+    } catch (e) {
+      const pending = e instanceof Error && /already pending/i.test(e.message);
+      if (!(e instanceof ScreenshotTimeout) && !pending) throw e;
+      deps.reset();
+      if (e instanceof ScreenshotTimeout) throw new Error("screenshot timed out; try again");
+      if (attempt >= 1) throw e;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+}
+
+/** Forget the cached agent view. The next agentView() opens a new tab. */
+function resetAgentView(): void {
+  const old = view;
+  view = null;
+  viewTargetId = null;
+  viewGeneration = -1;
+  // Closing may also fail on a stuck view; the new view does not need it.
+  try { old?.close(); } catch {}
+}
+
 export async function browserScreenshot(): Promise<Blob> {
-  const v = await agentView();
-  return await v.screenshot({ format: "png" });
+  return await screenshotWithRecovery({
+    view: agentView,
+    focus: focusAgentTab,
+    reset: resetAgentView,
+    timeoutMs: SCREENSHOT_TIMEOUT_MS,
+  });
 }
 
 /**
