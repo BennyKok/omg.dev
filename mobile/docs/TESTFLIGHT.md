@@ -5,6 +5,26 @@ read off the EAS docs.
 
 ## Current state
 
+### Instant question answers OTA — 2026-10-14
+
+A send while a question is open clears the card at once (restored on
+failure), answered asks stay gone across polls, and the composer accepts the
+next message without waiting for the previous send's round trip.
+
+Implementation: `80bbb4416`. Only `mobile/app/session/[id].tsx` changed under
+`mobile/` since the previous OTA source `a78704f44`; no native input changed.
+No store build or submission was made.
+
+| Runtime | iOS update | Android update | Workflow |
+| --- | --- | --- | --- |
+| 1.0.16 | `01a13801-d023-7415-8aab-f61b97434723` | `01a13801-d023-7178-9d57-5af5cd8d5611` | [38495092169](https://github.com/BennyKok/omg.dev/actions/runs/38495092169) |
+| 1.0.15 | `01a13805-6a05-72a6-bd2a-112278fd4136` | `01a13805-6a05-78da-a900-7ad485b41239` | [38495111402](https://github.com/BennyKok/omg.dev/actions/runs/38495111402) |
+| 1.0.14 | `01a13809-146c-7029-82fc-ccb2aefb0c1c` | `01a13809-146c-785f-822f-5b3fd4f30bc0` | [38495481365](https://github.com/BennyKok/omg.dev/actions/runs/38495481365) |
+
+The production update endpoint serves all six IDs (read back 2026-10-14).
+Verification: none on a device. The demo data replies instantly, so the
+simulator cannot show the slow reply this fixes.
+
 ### Agent question card OTA — 2026-10-13
 
 An agent's question renders at the end of the transcript as one card: the
