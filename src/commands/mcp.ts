@@ -1848,7 +1848,7 @@ export function buildOmgMcpServer(): McpServer {
     {
       title: "Input From The User (ask)",
       description:
-        "Ask the human only when an irreversible, risky, or ambiguous decision genuinely requires their answer; do not use this merely to check in or report progress. When you do need their choice, ask here with 2-4 short options instead of ending your message on a question in prose: only a structured question reaches them as an answerable card. It is fire-and-forget: raises a push notification and returns immediately with a question id — do NOT wait, poll, or block; the answer arrives later as a user message starting with [ask-user answer <id>], so continue other safe work or end your turn.",
+        "Ask the human only when an irreversible, external, or ambiguous decision genuinely requires their answer. Do not use this to check in, report progress, confirm the next step, ask what to do next, or approve work already in scope: do that work and report it. When you do need their choice, give 2-4 short options. It is fire-and-forget: raises a push notification and returns immediately with a question id — do NOT wait, poll, or block; the answer arrives later as a user message starting with [ask-user answer <id>], so continue other safe work or end your turn.",
       inputSchema: {
         prompt: z
           .string()
