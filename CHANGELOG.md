@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 14, 2026 - Agents do the work instead of asking first (v0.6.231)
+
+- Agents again do the next step themselves. They no longer stop to ask "OK? What next?" or to ask approval for work you already asked for. They ask only before an action that cannot be undone or that changes something outside the session, or when your intent is not clear. The question card stays for those questions.
+- When you tap an answer or dismiss a question on web, the card goes away at once. If the request fails, the card comes back. A message that you send while a question is open answers it and hides the card.
+
 ## October 13, 2026 - Claude Haiku 5.5 builds apps by default (v0.6.230)
 
 - New omg agent sessions use Claude Haiku 5.5. It starts with reasoning off, so it spends its output on code. Pick low, medium, or high in the model menu to turn reasoning on.
