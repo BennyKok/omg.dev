@@ -91,6 +91,12 @@ export type CodingAgentStatus = {
     percent: number;
     label: string;
   };
+  /**
+   * How the last install or update of this agent ended. Kept in memory until
+   * the next run, so a client that watched `setupRunning` go false can say
+   * whether it worked. Absent when no run finished since the service started.
+   */
+  setupResult?: CodingAgentSetupResult;
   installCommand?: string;
   loginCommand?: string;
   /**
@@ -259,6 +265,32 @@ export const CODING_AGENT_LABELS: Record<CodingAgentKind, string> = {
 const configPath = () => join(PATHS.data, "coding-agents.json");
 const setupRuns = new Map<CodingAgentKind, Promise<void>>();
 const setupProgress = new Map<CodingAgentKind, { percent: number; label: string }>();
+
+export type CodingAgentSetupResult = {
+  action: "install" | "update";
+  ok: boolean;
+  /** First lines of the failure. Absent when `ok`. */
+  error?: string;
+  finishedAt: number;
+};
+const setupResults = new Map<CodingAgentKind, CodingAgentSetupResult>();
+
+export function getCodingAgentSetupResult(kind: CodingAgentKind): CodingAgentSetupResult | undefined {
+  return setupResults.get(kind);
+}
+
+function recordSetupResult(
+  kind: CodingAgentKind,
+  action: CodingAgentSetupResult["action"],
+  error?: string,
+): void {
+  setupResults.set(kind, {
+    action,
+    ok: !error,
+    ...(error ? { error: error.slice(0, 500) } : {}),
+    finishedAt: Date.now(),
+  });
+}
 
 export type CodingAgentSetupLog = {
   running: boolean;
@@ -1621,6 +1653,7 @@ async function statusFor(kind: CodingAgentKind): Promise<CodingAgentStatus> {
     canLoginInTerminal,
     setupRunning: setupRuns.has(kind),
     setupProgress: setupProgress.get(kind),
+    setupResult: setupResults.get(kind),
     installCommand: installCommandFor(kind) ?? undefined,
     loginCommand: loginCommandFor(kind) ?? undefined,
     // Only name an account the user actually connected. An agent that is
@@ -1931,6 +1964,7 @@ export async function runCodingAgentSetups(kinds: CodingAgentKind[]): Promise<vo
     if (!env) throw new Error(`${kind} does not have an automatic setup path`);
     Object.assign(setupEnv, env);
     setupProgress.set(kind, { percent: 10, label: "Starting…" });
+    setupResults.delete(kind);
   }
 
   setupLog = {
@@ -2015,9 +2049,11 @@ export async function runCodingAgentSetups(kinds: CodingAgentKind[]): Promise<vo
       });
     }
     appendSetupLog("Done.");
+    for (const kind of uniqueKinds) recordSetupResult(kind, "install");
   } catch (e) {
     setupLog.error = e instanceof Error ? e.message : String(e);
     appendSetupLog(`Error: ${setupLog.error}`);
+    for (const kind of uniqueKinds) recordSetupResult(kind, "install", setupLog.error);
     throw e;
   } finally {
     setupLog.running = false;
@@ -2137,7 +2173,11 @@ export async function runCodingAgentUpdates(
     groups.set(command, [...(groups.get(command) ?? []), kind]);
   }
 
-  for (const kind of uniqueKinds) setupProgress.set(kind, { percent: 10, label: "Updating…" });
+  // Every kind is queued at once, but installers run one group at a time.
+  for (const kind of uniqueKinds) {
+    setupProgress.set(kind, { percent: 5, label: "Waiting…" });
+    setupResults.delete(kind);
+  }
   setupLog = {
     running: true,
     kinds: [...uniqueKinds],
@@ -2149,6 +2189,7 @@ export async function runCodingAgentUpdates(
   const run = (async () => {
     const runInstaller = hooks.runInstaller ?? ((cmd) => runInstallerCommand(cmd, appendSetupLog));
     const failures: string[] = [];
+    const failedKinds = new Map<CodingAgentKind, string>();
     for (const [command, group] of groups) {
       appendSetupLog(`Updating ${[...new Set(group.map((kind) => CODING_AGENT_LABELS[kind]))].join(", ")}…`);
       appendSetupLog(command);
@@ -2158,7 +2199,16 @@ export async function runCodingAgentUpdates(
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
         failures.push(`${CODING_AGENT_LABELS[group[0]!]}: ${message}`);
+        for (const kind of group) failedKinds.set(kind, message);
         appendSetupLog(`Error: ${message}`);
+      }
+      for (const kind of group) {
+        setupProgress.set(
+          kind,
+          failedKinds.has(kind)
+            ? { percent: 70, label: "Install failed" }
+            : { percent: 70, label: "Installed. Waiting for models…" },
+        );
       }
     }
     const keys = [...new Set(uniqueKinds.flatMap((kind) => modelDiscoveryKeysForAgent(kind)))];
@@ -2175,6 +2225,7 @@ export async function runCodingAgentUpdates(
         });
       await refresh(keys);
     }
+    for (const kind of uniqueKinds) recordSetupResult(kind, "update", failedKinds.get(kind));
     if (failures.length) throw new Error(failures.join("\n"));
     for (const kind of uniqueKinds) setupProgress.set(kind, { percent: 100, label: "Done" });
     appendSetupLog("Done.");
@@ -2185,6 +2236,10 @@ export async function runCodingAgentUpdates(
   } catch (e) {
     setupLog.error = e instanceof Error ? e.message : String(e);
     appendSetupLog(`Error: ${setupLog.error}`);
+    // A model refresh that throws never reached the per-kind record above.
+    for (const kind of uniqueKinds) {
+      if (!setupResults.has(kind)) recordSetupResult(kind, "update", setupLog.error);
+    }
     throw e;
   } finally {
     setupLog.running = false;

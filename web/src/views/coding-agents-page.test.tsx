@@ -161,7 +161,58 @@ describe("CodingAgentsPage", () => {
     renderPage(ui, [
       agent({ status: { canAutoSetup: true, setupRunning: true, checks: [{ label: "Codex CLI", ok: true }] } as never }),
     ]);
-    expect(ui.text()).toContain("Updating…");
+    expect(ui.text()).toContain("Updating 1 agent…");
+  });
+
+  test("a running update shows its step and a progress bar on the collapsed row", () => {
+    renderPage(ui, [
+      agent({
+        status: {
+          setupRunning: true,
+          setupProgress: { percent: 40, label: "Installing latest CLI…" },
+          profile: { label: "person@example.com", source: "local-cli" },
+        } as never,
+      }),
+    ]);
+    expect(ui.text()).toContain("Installing latest CLI…");
+    expect(ui.text()).not.toContain("person@example.com");
+    const bar = ui.query('[role="progressbar"]');
+    expect(bar?.getAttribute("aria-valuenow")).toBe("40");
+  });
+
+  test("a finished update says so on the row, with the new version", () => {
+    renderPage(ui, [
+      agent({
+        status: {
+          version: "1.4.2",
+          setupResult: { action: "update", ok: true, finishedAt: Date.now() },
+        } as never,
+      }),
+    ]);
+    expect(ui.text()).toContain("Updated · v1.4.2");
+    expect(ui.query('[role="progressbar"]')).toBeNull();
+  });
+
+  test("a failed update says so and shows the error when opened", () => {
+    renderPage(ui, [
+      agent({
+        status: { setupResult: { action: "update", ok: false, error: "npm ERR! network down", finishedAt: Date.now() } } as never,
+      }),
+    ]);
+    expect(ui.text()).toContain("Update failed");
+    expect(ui.text()).not.toContain("network down");
+    const row = ui.query('button[aria-expanded="false"]') as HTMLButtonElement;
+    ui.flush(() => row.click());
+    expect(ui.text()).toContain("npm ERR! network down");
+  });
+
+  test("an old result no longer shows on the row", () => {
+    renderPage(ui, [
+      agent({
+        status: { setupResult: { action: "update", ok: true, finishedAt: Date.now() - 60 * 60 * 1000 } } as never,
+      }),
+    ]);
+    expect(ui.text()).not.toContain("Updated");
   });
 
   test("Update all hides when no agent is installed", () => {

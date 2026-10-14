@@ -4,8 +4,9 @@ import { replayCloudTranscription } from "./lib/transcription-cloud-replay";
 import { MODEL_USAGE_GROUPS } from "../../packages/protocol/src/model-pricing";
 import { useModelPrices, modelUsageLevel } from "./lib/use-model-prices";
 import { OMG_DEFAULT_MODEL, OMG_MODELS } from "../../src/omg-models";
-import { omgModelLabel, omgModelSearchText, parseOmgModel, setServerModelLabels } from "../../packages/protocol/src/omg-model-display";
-import { ModelProviderIcon } from "./lib/model-provider-icons";
+import { omgModelLabel, omgModelSearchText, parseOmgModel, parseRoutedModel, setServerModelLabels } from "../../packages/protocol/src/omg-model-display";
+import { ModelProviderIcon, modelProviderIconKey } from "./lib/model-provider-icons";
+import { setupOutcome, type SetupResultInfo, type SetupWatchAgent } from "./lib/coding-agent-setup-outcome";
 import { useRuntimeLifecycle } from "./lib/runtime-lifecycle";
 import { useComputerResumeMetrics } from "./lib/use-computer-resume-metrics";
 import { LiveHeaderContext } from "./components/live-header-context";
@@ -733,6 +734,8 @@ export type CodingAgentInfo = {
     omgCapabilityAccess: "mcp" | "contract-only";
     setupRunning: boolean;
     setupProgress?: { percent: number; label: string };
+    /** How the last install or update ended. See src/coding-agents.ts. */
+    setupResult?: SetupResultInfo;
     canAutoSetup: boolean;
     canLoginInTerminal: boolean;
     checks: { label: string; ok: boolean; detail?: string }[];
@@ -8575,6 +8578,48 @@ export function App() {
 
   const agentSetupRunning = codingAgents.some((agent) => agent.status.setupRunning);
   const agentSetupWasRunning = useRef(false);
+
+  // Each install or update this client started keeps one toast open until the
+  // server says the run ended, then turns it into the result. The server only
+  // answers "started" to the POST, so a toast that resolved on that answer
+  // told the user nothing about the end state.
+  const setupWatches = useRef<{ id: string; agents: SetupWatchAgent[]; seenRunning: boolean }[]>([]);
+  useEffect(() => {
+    if (!setupWatches.current.length) return;
+    setupWatches.current = setupWatches.current.filter((watch) => {
+      const running = watch.agents.some(
+        (item) => codingAgents.find((agent) => agent.key === item.key)?.status.setupRunning,
+      );
+      if (running) {
+        watch.seenRunning = true;
+        return true;
+      }
+      // The optimistic state can lag one render behind the click. Wait until
+      // the run has been seen before calling it finished.
+      if (!watch.seenRunning) return true;
+      const outcome = setupOutcome(watch.agents, codingAgents);
+      if (!outcome) return true;
+      const options = { id: watch.id, description: outcome.description, duration: outcome.ok ? 6000 : 15000 };
+      if (outcome.ok) toast.success(outcome.title, options);
+      else toast.error(outcome.title, options);
+      return false;
+    });
+  }, [codingAgents]);
+
+  const watchCodingAgentSetup = (kinds: AgentKind[], loading: string) => {
+    const id = `agent-setup:${kinds.join(",")}:${Date.now()}`;
+    const agents = kinds.map((kind) => {
+      const agent = codingAgents.find((item) => item.key === kind);
+      return { key: kind, label: agent?.label ?? kind, fromVersion: agent?.status.version };
+    });
+    setupWatches.current.push({ id, agents, seenRunning: false });
+    toast.loading(loading, { id, duration: Infinity });
+    return id;
+  };
+  const failCodingAgentSetup = (id: string, e: unknown, fallback: string) => {
+    setupWatches.current = setupWatches.current.filter((watch) => watch.id !== id);
+    toast.error(e instanceof Error ? e.message : fallback, { id, duration: 8000 });
+  };
   useEffect(() => {
     if (agentSetupRunning) {
       agentSetupWasRunning.current = true;
@@ -8634,68 +8679,82 @@ export function App() {
     }
   }
 
-  function setupCodingAgent(kind: AgentKind) {
+  function markCodingAgentsRunning(kinds: AgentKind[]) {
     setCodingAgents((current) =>
       current.map((item) =>
-        item.key === kind
-          ? { ...item, status: { ...item.status, setupRunning: true } }
+        kinds.includes(item.key)
+          ? {
+              ...item,
+              status: {
+                ...item.status,
+                setupRunning: true,
+                setupProgress: { percent: 5, label: "Starting…" },
+                setupResult: undefined,
+              },
+            }
           : item,
       ),
     );
-    toast.promise(
-      api<{ agents: CodingAgentInfo[]; models?: ModelCatalogItem[] | null }>(`/api/coding-agents/${kind}/setup`, {
-        method: "POST",
+  }
+
+  function setupCodingAgent(kind: AgentKind) {
+    const label = codingAgents.find((item) => item.key === kind)?.label ?? kind;
+    const id = watchCodingAgentSetup([kind], `Installing ${label}…`);
+    markCodingAgentsRunning([kind]);
+    api<{ agents: CodingAgentInfo[]; models?: ModelCatalogItem[] | null }>(`/api/coding-agents/${kind}/setup`, {
+      method: "POST",
+    })
+      .then((payload) => {
+        setCodingAgents(payload.agents ?? []);
+        setModelCatalog(buildAgentModelCatalog(payload.models));
       })
-        .then((payload) => {
-          setCodingAgents(payload.agents ?? []);
-          setModelCatalog(buildAgentModelCatalog(payload.models));
-          window.setTimeout(() => void refreshCodingAgents(), 3000);
-        }),
-      {
-        loading: "Starting setup…",
-        success: "Setup started",
-        error: (e) => (e instanceof Error ? e.message : "Couldn't start setup"),
-      },
-    );
+      .catch((e) => {
+        failCodingAgentSetup(id, e, "Couldn't start setup");
+        void refreshCodingAgents();
+      });
   }
 
   function updateCodingAgent(kind: AgentKind) {
-    setCodingAgents((current) =>
-      current.map((item) =>
-        item.key === kind
-          ? { ...item, status: { ...item.status, setupRunning: true } }
-          : item,
-      ),
-    );
-    toast.promise(
-      api<{ agents: CodingAgentInfo[]; models?: ModelCatalogItem[] | null }>(`/api/coding-agents/${kind}/update`, {
-        method: "POST",
-      }).then((payload) => {
+    const label = codingAgents.find((item) => item.key === kind)?.label ?? kind;
+    const id = watchCodingAgentSetup([kind], `Updating ${label}…`);
+    markCodingAgentsRunning([kind]);
+    api<{ agents: CodingAgentInfo[]; models?: ModelCatalogItem[] | null }>(`/api/coding-agents/${kind}/update`, {
+      method: "POST",
+    })
+      .then((payload) => {
         setCodingAgents(payload.agents ?? []);
         setModelCatalog(buildAgentModelCatalog(payload.models));
-      }),
-      {
-        loading: "Updating CLI…",
-        success: "Update started",
-        error: (e) => (e instanceof Error ? e.message : "Couldn't start update"),
-      },
-    );
+      })
+      .catch((e) => {
+        failCodingAgentSetup(id, e, "Couldn't start update");
+        void refreshCodingAgents();
+      });
   }
 
   function updateAllCodingAgents() {
-    toast.promise(
-      api<{ agents: CodingAgentInfo[]; models?: ModelCatalogItem[] | null }>("/api/coding-agents/update-all", {
-        method: "POST",
-      }).then((payload) => {
+    const id = `agent-setup:all:${Date.now()}`;
+    toast.loading("Starting updates…", { id, duration: Infinity });
+    api<{ kinds?: AgentKind[]; agents: CodingAgentInfo[]; models?: ModelCatalogItem[] | null }>(
+      "/api/coding-agents/update-all",
+      { method: "POST" },
+    )
+      .then((payload) => {
+        // The server picks which agents it updates, so the watch starts from
+        // its answer. Versions come from the list from before the run.
+        const kinds = payload.kinds ?? [];
+        const agents = kinds.map((kind) => {
+          const agent = codingAgents.find((item) => item.key === kind);
+          return { key: kind, label: agent?.label ?? kind, fromVersion: agent?.status.version };
+        });
+        setupWatches.current.push({ id, agents, seenRunning: false });
+        toast.loading(
+          kinds.length === 1 ? `Updating ${agents[0]!.label}…` : `Updating ${kinds.length} agents…`,
+          { id, duration: Infinity },
+        );
         setCodingAgents(payload.agents ?? []);
         setModelCatalog(buildAgentModelCatalog(payload.models));
-      }),
-      {
-        loading: "Starting updates…",
-        success: "Updating every installed agent",
-        error: (e) => (e instanceof Error ? e.message : "Couldn't start updates"),
-      },
-    );
+      })
+      .catch((e) => failCodingAgentSetup(id, e, "Couldn't start updates"));
   }
 
   // Preparing a login NEVER opens a browser tab. The dialog does, from its own
@@ -25969,6 +26028,47 @@ function modelListSearchable(models: string[]): boolean {
   return models.length > 8;
 }
 
+/** Icon key for a model row or pill: the lab behind a hosted or routed id. */
+function modelMarkProvider(id: string): string | null {
+  const provider = parseOmgModel(id)?.provider ?? parseRoutedModel(id)?.provider ?? null;
+  return modelProviderIconKey(provider) ? provider : null;
+}
+
+/**
+ * Agents such as OpenCode reach models through several routers, and the same
+ * model can come from more than one of them. Those lists group by router
+ * (OpenCode Go, Novita AI, OpenAI), in the order the routers first appear.
+ * Null for the omg agent's own list (hosted ids and the owner's custom
+ * endpoints only), which keeps its credit-usage groups.
+ */
+export function routedModelGroups(
+  items: string[],
+  all: string[],
+): { level: number; label: string; items: string[] }[] | null {
+  const isThirdPartyRoute = (id: string) => {
+    if (id.startsWith("custom-")) return false;
+    const route = parseRoutedModel(id)?.route;
+    return !!route && route !== "omg";
+  };
+  if (!all.some(isThirdPartyRoute)) return null;
+  const order: string[] = [];
+  const byRoute = new Map<string, { label: string; items: string[] }>();
+  for (const id of all) {
+    const route = parseRoutedModel(id)?.route ?? "";
+    if (!byRoute.has(route)) {
+      order.push(route);
+      byRoute.set(route, { label: route ? parseRoutedModel(id)!.routeLabel : "Other", items: [] });
+    }
+  }
+  for (const id of items) byRoute.get(parseRoutedModel(id)?.route ?? "")?.items.push(id);
+  const groups = order
+    .map((route, index) => ({ level: 100 + index, ...byRoute.get(route)! }))
+    .filter((group) => group.items.length > 0);
+  // One router has nothing to tell apart; drop the heading.
+  if (order.length === 1) return groups.map((group) => ({ ...group, label: "" }));
+  return groups;
+}
+
 // Filter box + option list shared by the model pill and the combined
 // agent/model pill. Owns the query, so closing the popover (which unmounts
 // this) is what clears it. Exported for the render test.
@@ -26024,7 +26124,10 @@ export function ModelOptionList({
     // and "deepseek v4" both find omg/deepseek/deepseek-v4-flash-0731.
     return models.filter((item) => omgModelSearchText(item).includes(q));
   }, [models, query]);
-  const groups = hasManagedModels && !pricesLoading
+  const routeGroups = routedModelGroups(filtered, models);
+  const groups = routeGroups
+    ? routeGroups
+    : hasManagedModels && !pricesLoading
     ? MODEL_USAGE_GROUPS.map(({ level, label }) => ({
         level,
         label,
@@ -26032,13 +26135,17 @@ export function ModelOptionList({
       })).filter((group) => group.items.length > 0)
     : [{ level: -1, label: "", items: filtered }];
   const displayedModels = groups.flatMap((group) => group.items);
+  // Keep names in one column when only some rows have a lab mark.
+  const anyMarked = models.some((item) => !!modelMarkProvider(item));
   const renderModel = (item: string) => {
     const selected = !builderChoice?.selected && value === item;
     const locked = prices[item]?.available === false;
-    // A hosted omg id reads as the lab's mark plus the short model
-    // name; the full router id stays in the tooltip. Other agents'
-    // ids are already short and stay as they are.
+    // A hosted omg id, or a routed id such as OpenCode's opencode-go/glm-5.3,
+    // reads as the lab's mark plus the short model name; the full id stays in
+    // the tooltip. Bare ids (Claude, Codex) are already short.
     const hosted = parseOmgModel(item);
+    const routed = hosted ? null : parseRoutedModel(item);
+    const markProvider = modelMarkProvider(item);
     const price = prices[item];
     const usage = modelUsageLevel(price, prices[OMG_DEFAULT_MODEL]);
     const priceHint = usage
@@ -26050,7 +26157,13 @@ export function ModelOptionList({
         type="button"
         onClick={() => chooseModel(item)}
         aria-disabled={locked || undefined}
-        title={hosted ? `${hosted.providerLabel} · ${item}${priceHint ? `\n${priceHint}` : ""}` : undefined}
+        title={
+          hosted
+            ? `${hosted.providerLabel} · ${item}${priceHint ? `\n${priceHint}` : ""}`
+            : routed
+              ? `${routed.providerLabel ? `${routed.providerLabel} via ` : ""}${routed.routeLabel} · ${item}`
+              : undefined
+        }
         className={cn(
           "flex w-full min-w-0 items-center gap-3 rounded-xl px-3 text-left text-sm outline-none transition-colors",
           large ? "h-12" : "h-10",
@@ -26060,11 +26173,13 @@ export function ModelOptionList({
         )}
       >
         <Check className={cn("size-4 shrink-0 text-primary", selected ? "opacity-100" : "opacity-0")} />
-        {hosted ? (
+        {markProvider ? (
           <ModelProviderIcon
-            provider={hosted.provider}
+            provider={markProvider}
             className={cn("size-4 shrink-0", selected ? "text-foreground" : "text-muted-foreground")}
           />
+        ) : anyMarked ? (
+          <span aria-hidden className="size-4 shrink-0" />
         ) : null}
         <span className={cn("min-w-0 flex-1 truncate", locked && "text-muted-foreground")}>{omgModelLabel(item)}</span>
         {locked ? <Lock className="size-4 shrink-0 text-muted-foreground" aria-label="Upgrade required" /> : null}
@@ -26198,7 +26313,10 @@ export function AgentModelPicker<K extends AgentKind>({
   // A hosted omg model makes the pill wear the lab's mark, with a small omg
   // mark in the corner so the agent is still readable at a glance.
   const modelLabel = builderChoice?.selected ? "App Builder" : omgModelLabel(model);
-  const hostedModel = showModels && agent === "omg" ? parseOmgModel(model) : null;
+  // Routed ids (OpenCode's opencode-go/glm-5.3) wear their lab's mark the
+  // same way, with this agent's icon in the corner.
+  const markProvider = showModels && model ? modelMarkProvider(model) : null;
+  const hostedModel = markProvider ? { provider: markProvider } : null;
   const trigger = (
     <button
       type="button"
@@ -26213,9 +26331,9 @@ export function AgentModelPicker<K extends AgentKind>({
           <>
             <ModelProviderIcon provider={hostedModel.provider} className="size-3.5 text-foreground" />
             <img
-              src={agentIconSrc("omg")}
+              src={agentIconSrc(agent)}
               alt=""
-              data-testid="omg-model-badge"
+              data-testid={agent === "omg" ? "omg-model-badge" : "agent-model-badge"}
               className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full ring-1 ring-background"
             />
           </>

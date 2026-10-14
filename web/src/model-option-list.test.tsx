@@ -121,6 +121,62 @@ describe("AgentModelPicker pill", () => {
     expect(pill.querySelector("img[data-testid='omg-model-badge']")).toBeNull();
     expect(pill.querySelectorAll("img").length).toBe(1);
   });
+
+  test("an OpenCode pill wears the lab mark with the OpenCode badge", async () => {
+    const { AgentModelPicker } = await import("./App");
+    ui.render(
+      <AgentModelPicker
+        options={[{ key: "opencode", label: "OpenCode" }]}
+        agent="opencode"
+        agentLabel="OpenCode"
+        onSelectAgent={() => {}}
+        model="opencode-go/glm-5.3"
+        models={["opencode-go/glm-5.3"]}
+        onModelChange={() => {}}
+      />,
+    );
+    const pill = ui.query("button[aria-label^='Agent OpenCode']") as HTMLButtonElement;
+    expect(pill.textContent).toContain("GLM 5.3");
+    expect(pill.querySelectorAll("svg[role='img']").length).toBe(1);
+    expect(pill.querySelector("img[data-testid='agent-model-badge']")).not.toBeNull();
+  });
+});
+
+describe("ModelOptionList with OpenCode ids", () => {
+  let ui: Mounted;
+  beforeEach(() => {
+    ui = mount();
+  });
+  afterEach(() => ui.cleanup());
+
+  const OPENCODE = [
+    "opencode-go/glm-5.3",
+    "opencode-go/kimi-k3",
+    "opencode/big-pickle",
+    "novita-ai/zai-org/glm-5",
+    "xai/grok-4.5",
+  ];
+
+  test("rows show short names under router headings, with lab marks where known", () => {
+    let chosen: string | null = null;
+    ui.render(<ModelOptionList value={OPENCODE[0]!} models={OPENCODE} onChoose={(m) => { chosen = m; }} />);
+    const groups = ui.queryAll("[role='group']").map((group) => group.getAttribute("aria-label"));
+    expect(groups).toEqual(["OpenCode Go", "OpenCode Zen", "Novita AI", "xAI"]);
+    const text = ui.text();
+    expect(text).toContain("GLM 5.3");
+    expect(text).toContain("Kimi K3");
+    expect(text).toContain("Big Pickle");
+    expect(text).toContain("Grok 4.5");
+    expect(text).not.toContain("opencode-go/glm-5.3");
+    // Big Pickle has no known lab, and Moonshot (Kimi) has no mark yet: no
+    // icon for those rows, but a spacer keeps the names in one column.
+    const rows = ui.queryAll("button");
+    expect(rows.filter((row) => row.querySelector("svg[role='img']")).length).toBe(3);
+    const glm = rows.find((row) => row.textContent === "GLM 5") as HTMLButtonElement;
+    expect(glm.title).toBe("Z.ai via Novita AI · novita-ai/zai-org/glm-5");
+    ui.flush(() => glm.click());
+    expect(chosen).toBe("novita-ai/zai-org/glm-5");
+  });
 });
 
 

@@ -4,6 +4,7 @@ import {
   omgModelLabel,
   omgModelSearchText,
   parseOmgModel,
+  parseRoutedModel,
   setServerModelLabels as setLabels,
 } from "../packages/protocol/src/omg-model-display.ts";
 import { OMG_MODELS } from "./omg-models.ts";
@@ -93,8 +94,25 @@ describe("claude model display", () => {
 
   test("other agents' ids pass through", () => {
     expect(omgModelLabel("grok-4.7")).toBe("grok-4.7");
-    expect(omgModelLabel("anthropic/claude-opus-5")).toBe("anthropic/claude-opus-5");
     expect(omgModelLabel(null)).toBe("");
+  });
+
+  test("routed ids such as OpenCode's read as the short name, with route and lab", () => {
+    expect(omgModelLabel("anthropic/claude-opus-5")).toBe("Claude Opus 5");
+    expect(parseRoutedModel("opencode-go/glm-5.3")).toMatchObject({
+      route: "opencode-go",
+      routeLabel: "OpenCode Go",
+      provider: "z-ai",
+      label: "GLM 5.3",
+    });
+    expect(parseRoutedModel("novita-ai/zai-org/glm-5")).toMatchObject({ routeLabel: "Novita AI", provider: "z-ai", label: "GLM 5" });
+    expect(parseRoutedModel("novita-ai/moonshotai/kimi-k3")).toMatchObject({ provider: "moonshot", label: "Kimi K3" });
+    expect(parseRoutedModel("xai/grok-4.5")).toMatchObject({ routeLabel: "xAI", provider: "xai", label: "Grok 4.5" });
+    expect(parseRoutedModel("opencode-go/claude-haiku-5-5")).toMatchObject({ provider: "anthropic", label: "Claude Haiku 5.5" });
+    expect(parseRoutedModel("opencode/big-pickle")).toMatchObject({ routeLabel: "OpenCode Zen", provider: null, label: "Big Pickle" });
+    expect(parseRoutedModel("omg/openai/gpt-6.1-sol")).toMatchObject({ route: "omg", provider: "openai", label: "GPT-6.1 Sol" });
+    expect(parseRoutedModel("grok-4.7")).toBeNull();
+    expect(omgModelSearchText("opencode-go/glm-5.3")).toContain("opencode go");
   });
 
   test("filter text matches the display name", () => {
