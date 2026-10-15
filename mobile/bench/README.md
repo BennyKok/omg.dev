@@ -93,3 +93,30 @@ a previous client, and duplicate retries are ignored. Check for all ten
 trial indices before drawing conclusions. Keep raw results with the report.
 
 Stop the runner and forwarder after use. The runner restores the app entry.
+
+## Long-session scroll benchmark
+
+`scripts/long-transcript-bench-e2e-entry.tsx` renders 300 product
+`TranscriptRow`s with the session screen's FlatList settings, opens at the end,
+and scrolls the whole list four times. It compares the default `windowSize`
+with 5 and 7, and reports UI-thread frame intervals (Reanimated frame callback)
+and JS `requestAnimationFrame` intervals to a collector on 127.0.0.1:8098.
+
+Build and install it as a Release simulator app on the Mac:
+
+```sh
+OMG_E2E_ENTRY_FILE=scripts/long-transcript-bench-e2e-entry.tsx bun scripts/e2e-build.ts
+ssh -N -R 8098:127.0.0.1:8098 bennykok@bennys-macbook-pro-2   # plus a collector on :8098
+```
+
+Result on 2026-10-15, iPhone 17 simulator (iOS 26.5), Mac under load:
+
+| windowSize | Mean UI frame | p95 | Frames over 25 ms |
+| --- | ---: | ---: | ---: |
+| default (21) | 25–38 ms | 54–85 ms | 346–406 |
+| 7 | 17.0 ms | 16.7 ms | 26 |
+| 5 | 16.8 ms | 16.7 ms | 11–14 |
+
+Every reply sits in a native hold menu (a SwiftUI host view), so each extra
+mounted row is UI-thread work. A recording of the 5 run showed no blank rows.
+Simulator numbers are not phone numbers; the ratio is the finding.
