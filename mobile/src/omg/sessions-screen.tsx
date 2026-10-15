@@ -130,6 +130,7 @@ import {
 import { UserFilterMenu } from "./user-filter-menu";
 import { GlassSurface } from "./glass";
 import {
+  newSessionOwner,
   sessionMatchesUserFilter,
   useUserFilter,
   useUserRoster,
@@ -1243,7 +1244,7 @@ export function SessionsScreen({
       client.transport.request<{ sessionId?: string }>(unassigned ? "/api/sessions/new-unassigned" : "/api/sessions/new", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, cwd, agent: agentPicker.agent,
+        body: JSON.stringify({ prompt, cwd, user: newSessionOwner(userFilter, rosterUsers), agent: agentPicker.agent,
           model: agentPicker.model ?? undefined, thinkingLevel: agentPicker.thinking ?? undefined,
           fastMode: agentPicker.fastMode, claudeAccountId: agentPicker.claudeAccountId }),
       }), { agent: agentPicker.agent, model: agentPicker.model });
@@ -1256,7 +1257,7 @@ export function SessionsScreen({
     if (workspace) navigateWorkspace(href);
     else router.push(href);
     return pending.result;
-  }, [client, user?.id, bindingId, agentPicker.agent, agentPicker.model, agentPicker.thinking,
+  }, [client, user?.id, bindingId, userFilter, rosterUsers, agentPicker.agent, agentPicker.model, agentPicker.thinking,
     agentPicker.fastMode, agentPicker.claudeAccountId, workspace, navigateWorkspace, router]);
 
   const launch = useCallback(
@@ -1441,6 +1442,7 @@ export function SessionsScreen({
             body: JSON.stringify({
               prompt,
               title: finding.title.trim().slice(0, 200),
+              user: newSessionOwner(userFilter, rosterUsers),
               agent: agent?.agent ?? undefined,
               model: agent?.model ?? undefined,
               cwd: agent?.cwd ?? undefined,

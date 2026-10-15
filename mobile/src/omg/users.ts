@@ -10,10 +10,11 @@
  * see sessionMatchesUserFilter for why that inclusion is the whole point.
  *
  * The chosen filter is persisted the way the web persists
- * `lfg_v2_user_filter`, so the list reopens the way it was left. It is NOT
- * carried into new sessions as an identity: the native app authenticates by
- * omg account and never sends a roster email (the web's hosted rule,
- * `userFilterUpdatesStandaloneIdentity`, is false here always).
+ * `lfg_v2_user_filter`, so the list reopens the way it was left. It never
+ * becomes the phone's own identity (the web's hosted rule,
+ * `userFilterUpdatesStandaloneIdentity`, is false here always), but a person
+ * filter does name the owner of a session started from the phone — see
+ * newSessionOwner, the phone's copy of the web's composerDefaultOwner.
  */
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -22,9 +23,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { STORAGE_KEYS } from "./config";
 import { useOmg } from "./provider";
-import { hostedStartUserFilter } from "./user-filter-start";
+import { hostedStartUserFilter, newSessionOwner } from "./user-filter-start";
 
-export { hostedStartUserFilter };
+export { hostedStartUserFilter, newSessionOwner };
 
 /** Mirrors the `users` rows of GET /api/users (src/users.ts userRoster). */
 export type RosterUser = {
