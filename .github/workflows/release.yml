@@ -215,6 +215,26 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: bash scripts/verify-release-assets.sh "$RELEASE_TAG"
 
+      # A failed attempt files an issue even when a later run repairs the same
+      # tag. Close that exact issue only after publication and asset verification
+      # both succeed, so the issue list reflects the current release state.
+      - name: Close issue after successful release
+        if: ${{ success() && startsWith(inputs.tag || github.ref_name, 'v') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          title="Release ${RELEASE_TAG} failed"
+          issues="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+            --search "\"${title}\" in:title" --limit 100 --json number,title \
+            | jq -r --arg title "$title" '.[] | select(.title == $title) | .number')"
+          while IFS= read -r issue; do
+            [ -n "$issue" ] || continue
+            gh issue close "$issue" --repo "$GITHUB_REPOSITORY" \
+              --comment "Release ${RELEASE_TAG} completed successfully: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          done <<< "$issues"
+
       # A failed tag build emails only the pusher, and v0.1.360 showed that
       # is not enough — it sat broken until someone read `gh run list` for
       # an unrelated reason. File one issue per tag so the failure is
