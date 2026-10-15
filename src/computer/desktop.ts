@@ -35,6 +35,7 @@ import { spawn } from "node:child_process";
 import { accessSync, constants, existsSync, mkdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { hostname } from "node:os";
+import { browserTimeZone } from "./timezone.ts";
 
 export interface DesktopConfig {
   /** X display number. 99 keeps us clear of any real session on :0. */
@@ -744,9 +745,13 @@ export function chromeLaunchArgs(config: DesktopConfig): string[] {
 /** Spawn the desktop's Chrome on its display. Does not wait for readiness. */
 async function spawnBrowser(next: DesktopState): Promise<void> {
   const config = next.config;
-  const env = { ...process.env, DISPLAY: `:${config.display}` };
+  const env: NodeJS.ProcessEnv = { ...process.env, DISPLAY: `:${config.display}` };
   const chrome = chromePath();
   if (!chrome) throw new Error("no Chrome binary found");
+  // Sign-in risk checks refuse a browser whose time zone does not match its
+  // exit address. See timezone.ts.
+  const zone = await browserTimeZone({ proxy: config.proxy });
+  if (zone) env.TZ = zone;
   await reapOrphanKioskBrowsers(config);
   disablePasswordSaving(config.profileDir);
   // Chrome writes this file only with --remote-debugging-port=0. Remove an

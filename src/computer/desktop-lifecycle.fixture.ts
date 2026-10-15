@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 const role = process.argv[2];
 const root = process.env.HOME!;
-appendFileSync(join(root, "calls"), `${role} ${process.pid}\n`);
+appendFileSync(join(root, "calls"), `${role} ${process.pid} ${process.env.TZ ?? "-"}\n`);
 if (role === "google-chrome") {
   if (process.env.FAIL_CHROME) process.exit(1);
   // Like a Firecracker guest with no /dev/shm: real Chrome aborts at start
