@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 15, 2026 - Projects know their live app (v0.6.236)
+
+- A chat with no project that creates one now moves into that project when the agent's turn ends. Later turns run in the project folder, and the chat appears under the project.
+- A session whose project has a live app shows the app's address in its header on the web. Tap it to open the app, open it in the console, copy the link, or unlink it. On iOS, the app is the first row of the session menu. The folder menu marks projects that have a live app with a globe.
+- Agents can link a project to an app that already exists with `omg_link_app`, so the next deploy updates that app instead of creating a copy. The agent asks you first unless it knows the app came from that project. It cannot link an app that another project on the same computer already uses.
+
 ## October 15, 2026 - Store pages get screenshots from every deploy (v0.6.235)
 
 - After the first `omg_deploy` of an app, the agent now captures 3 phone screens and adds them to the app's store page. Before, only apps made from a first-run design or the builder got store screenshots, so most apps built in a chat had a store page with no pictures.
