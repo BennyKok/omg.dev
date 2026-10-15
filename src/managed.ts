@@ -58,6 +58,11 @@ export type ManagedSession = {
   title?: string;
   /** Stable UI project label. Empty string means explicitly no project; undefined is legacy. */
   project?: string;
+  /**
+   * Project this no-project chat created with omg_create_project. The serve
+   * sweep moves the session there at its next idle boundary, then clears it.
+   */
+  pendingProjectMove?: { cwd: string; project: string; requestedAt: number };
   parentSessionId?: string;
   parentNativeSessionId?: string;
   parentAgent?: string;

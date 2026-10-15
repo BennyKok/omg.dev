@@ -71,10 +71,21 @@ one build, verification, and deployment workflow.
 `parent` is optional on the MCP tool and `POST /api/projects/create-folder`;
 omitting it uses `LFG_REPOS_ROOT` (or `~/repos`). Existing folders are rejected.
 
-The agent uses the returned `repo.cwd` explicitly for building and deployment.
-Quick Chat keeps its original scratch cwd and empty project. Home re-probes the
-existing readiness owner on focus, so a project created during chat appears
-when the user returns. Future sessions can select it normally.
+The agent uses the returned `repo.cwd` explicitly for the rest of its turn.
+The chat then moves into the new project. The MCP request carries the calling
+session id. When that session has the explicit empty project, the endpoint
+records `pendingProjectMove` on its managed row and returns
+`sessionMove: { status: "after_turn" }`. A serve sweep
+(`src/project-session-move.ts`) waits until the session is idle with no queued
+messages. It then calls `moveCommandFileSession`, the same owner as the manual
+move, which relaunches the agent in the project folder with the same resume
+handle. A `409` from the move keeps the request for the next idle point. Any
+other failure clears it, and the chat stays in Quick Chat. A chat that already
+has a project, a bot, or a terminal agent is not moved, and the response says
+why. A user move before the turn ends wins over the agent request. Calls from
+the web and iOS project sheets send no session id and move nothing. Home
+re-probes the existing readiness owner on focus, so a project created during
+chat appears when the user returns.
 
 A hosted preview is the default outcome for a new web project. User constraints
 and applicable approval requirements still apply. Instructions direct the agent to test,

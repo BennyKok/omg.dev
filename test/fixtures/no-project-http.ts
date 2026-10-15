@@ -81,6 +81,21 @@ try {
     assert.equal(await readFile(join(body.repo.cwd, "README.md"), "utf8"), "# demo-site\n");
     const duplicate = await client.callTool({ name: "omg_create_project", arguments: { name: "demo-site" } });
     assert.equal(duplicate.isError, true);
+    // Without a caller session id (the web and iOS sheets), nothing moves.
+    assert.equal(body.sessionMove, undefined);
+    assert.equal(listManaged().find(row => row.sessionId === result.sessionId)?.pendingProjectMove, undefined);
+    // The calling chat's id makes the route record a move for its next idle point.
+    const fromChat = await (await fetch(`${server.url}api/projects/create-folder`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-OMG-Session-ID": result.sessionId },
+      body: JSON.stringify({ name: "chat-site" }),
+    })).json() as any;
+    const chatRow = listManaged().find(row => row.sessionId === result.sessionId)!;
+    assert.deepEqual(fromChat.sessionMove, { status: "after_turn", cwd: fromChat.repo.cwd, project: "chat-site" });
+    assert.equal(chatRow.pendingProjectMove?.cwd, fromChat.repo.cwd);
+    // The sweep is a background service, which this fixture never starts.
+    const { patchManaged } = await import("../../src/managed");
+    patchManaged(chatRow.tmuxName, { pendingProjectMove: undefined });
     const badName = await post("/api/projects/create-folder", { name: "../escape" });
     assert.equal(badName.status, 400);
     const badParent = await post("/api/projects/create-folder", { name: "site", parent: 42 });
