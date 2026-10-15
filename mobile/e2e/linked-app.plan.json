@@ -1,0 +1,56 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": true
+  },
+  "steps": [
+    {
+      "name": "Accept fixture data notice",
+      "goal": "Tap Agree and continue on the Your data and AI providers screen for this isolated demo fixture. Wait for Home. Do not tap the root element named omg.",
+      "done": "Home shows the project navigation.",
+      "expect": [
+        "api-gateway folder"
+      ],
+      "timeoutMs": 180000
+    },
+    {
+      "name": "Open a session in a linked project",
+      "goal": "On Home, tap the api-gateway folder chip in the project rail. Then open the conversation titled Refactor the rate limiter to a sliding window. Do not type a message.",
+      "done": "The conversation screen is open: its title is in the top bar and Home's folder list is gone.",
+      "expect": [
+        "Refactor the rate limiter to a sliding window"
+      ],
+      "timeoutMs": 120000,
+      "forbid": [
+        "Showing only this folder",
+        "Chats without a project"
+      ]
+    },
+    {
+      "name": "The linked app leads the session menu",
+      "goal": "Tap Session actions at the top right. Do not select any row.",
+      "done": "The session menu is open and its first row names the linked app.",
+      "expect": [
+        "API Gateway",
+        "Artifacts",
+        "Rename"
+      ],
+      "timeoutMs": 90000
+    },
+    {
+      "name": "App actions",
+      "goal": "Tap the API Gateway row once to open its submenu. Do not tap any action inside it.",
+      "done": "The app submenu shows its actions.",
+      "expect": [
+        "Open app",
+        "Open in console",
+        "Copy link",
+        "Unlink"
+      ],
+      "forbid": [
+        "Link app"
+      ],
+      "timeoutMs": 90000
+    }
+  ]
+}

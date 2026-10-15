@@ -503,7 +503,8 @@ function demoBootstrap() {
     ],
     repos: [
       ...(projectCreationFixture && unassignedChats.length ? [{ name: "demo-website", cwd: "/home/user/demo-website", project: "demo-website" }] : []),
-      { name: "api-gateway", cwd: "/home/user/api-gateway", project: "api-gateway" },
+      // A linked hosted app: the session menu shows it as its first row.
+      { name: "api-gateway", cwd: "/home/user/api-gateway", project: "api-gateway", deploy: { slug: "api-gateway-demo", url: "https://api-gateway-demo.omgs.app", name: "API Gateway" } },
       { name: "checkout", cwd: "/home/user/checkout", project: "checkout" },
       { name: "docs", cwd: "/home/user/docs", project: "docs" },
       { name: "email-service", cwd: "/home/user/email-service", project: "email-service" },

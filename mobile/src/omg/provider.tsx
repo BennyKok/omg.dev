@@ -1,4 +1,5 @@
 import { clearPendingSessions } from "./pending-session";
+import type { AppLink } from "../../../packages/protocol/src/app-link";
 import { sessionCache } from "./session-cache-store";
 import { clearTranscriptCache } from "./transcript-cache";
 /**
@@ -123,7 +124,8 @@ export type CodingAgent = {
  * session filter must compare against -- see `project-filter.ts`. Optional
  * only because an older box may not send it.
  */
-export type Repo = { name: string; cwd: string; project?: string };
+/** `deploy` is the hosted app the folder links to (.omg/project.json). */
+export type Repo = { name: string; cwd: string; project?: string; deploy?: AppLink };
 
 /** Shape returned by control-plane getCloudComputer. */
 export type CloudComputer = {

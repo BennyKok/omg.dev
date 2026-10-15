@@ -70,6 +70,7 @@ import {
   Animated,
   FlatList,
   Keyboard,
+  Linking,
   Platform,
   Pressable,
   StyleSheet,
@@ -153,6 +154,7 @@ import { usePromptDraft, stashScope } from "../../src/omg/prompt-stash";
 import { useOmg } from "../../src/omg/provider";
 import { BrowserLoginCard, useBrowserLogin } from "../../src/omg/browser-login-card";
 import { isBrowserLoginCall } from "../../../packages/protocol/src/browser-login";
+import { consoleAppUrl, sessionAppRepo } from "../../../packages/protocol/src/app-link";
 import { ProjectPreviewCard } from "../../src/omg/project-preview-card";
 import { SessionActivityTitle, useSessionActivity } from "../../src/omg/session-activity";
 import { useTheme } from "../../src/omg/theme";
@@ -279,7 +281,7 @@ function SessionScreenContent({
   const insets = readOnly ? NO_INSETS : safeInsets;
   const window = useWindowDimensions();
   const { colors, type, space, radius } = useTheme();
-  const { client, agents, user, bindingId } = useOmg();
+  const { client, agents, user, bindingId, repos, probe } = useOmg();
   const chatIdentity = useChatIdentity(client, id, user?.email);
 
   const attachments = useAttachments(id ?? null);
@@ -1685,6 +1687,59 @@ function SessionScreenContent({
   );
 
   /** The id, for pasting into another agent — what the web's "Copy reference" does. */
+  /**
+   * The hosted app this session's project links to. It is the first row of the
+   * session menu, with its actions in a submenu: the header has no room for it
+   * on a phone. There is no "link" action: the agent links (omg_link_app),
+   * because a wrong link makes the next deploy replace another live app.
+   */
+  const appRepo = useMemo(
+    () => sessionAppRepo({ cwd: sessionInfo?.cwd, project: sessionInfo?.project }, repos),
+    [repos, sessionInfo?.cwd, sessionInfo?.project],
+  );
+  const appLink = appRepo?.deploy;
+  const appMenuOption = useMemo<MenuOption | null>(() => {
+    if (!appRepo || !appLink) return null;
+    const unlink = () => {
+      Alert.alert(`Unlink ${appLink.slug}?`, "The live app stays as it is. The next deploy from this project creates a new app.", [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Unlink",
+          style: "destructive",
+          onPress: () => {
+            if (!client) return;
+            void client.transport.request("/api/cloud/apps/unlink", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ cwd: appRepo.cwd }),
+            }).then(
+              () => probe(),
+              (e) => Alert.alert("Couldn't unlink the app", e instanceof Error ? e.message : String(e)),
+            );
+          },
+        },
+      ]);
+    };
+    return {
+      id: "linked-app",
+      label: appLink.name || appLink.slug,
+      icon: "globe",
+      submenu: [
+        { label: "Open app", icon: "safari", onPress: () => void Linking.openURL(appLink.url) },
+        { label: "Open in console", icon: "square.grid.2x2", onPress: () => void Linking.openURL(consoleAppUrl(appLink.slug)) },
+        {
+          label: "Copy link",
+          icon: "doc.on.doc",
+          onPress: () => void Clipboard.setStringAsync(appLink.url).then(
+            () => toast.show("Link copied", { intent: "success" }),
+            () => toast.show("Could not copy the link.", { intent: "error" }),
+          ),
+        },
+        { label: "Unlink", icon: "link", destructive: true, onPress: unlink },
+      ],
+    };
+  }, [appLink, appRepo, client, probe, toast]);
+
   const copyReference = useCallback(() => {
     if (!id) return;
     void Clipboard.setStringAsync(id).then(
@@ -1728,6 +1783,7 @@ function SessionScreenContent({
       return options;
     }
     const options: MenuOption[] = id ? [{ label: "Artifacts", icon: "square.stack", onPress: () => router.push({ pathname: "/artifact", params: { sessionId: id } }) }] : [];
+    if (appMenuOption) options.unshift(appMenuOption);
     if (busy) {
       options.push({ label: "Stop the agent", icon: "stop.fill", onPress: () => void stop() });
     }
@@ -1797,6 +1853,7 @@ function SessionScreenContent({
     copyReference,
     sessionInfo,
     router,
+    appMenuOption,
   ]);
 
   /** Identity uses the remaining bar width so long titles cannot move actions. */

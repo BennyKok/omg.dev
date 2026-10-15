@@ -21,7 +21,7 @@ import { ComputerGrantError } from "./transport";
 /** What the box can run, and the folders it can run in. */
 export type BootstrapRoster = {
   agents: { key: string; label: string; visible?: boolean; status?: { configured?: boolean; accountConnected?: boolean } }[];
-  repos: { name: string; cwd: string }[];
+  repos: { name: string; cwd: string; project?: string; deploy?: { slug: string; url: string; name?: string; projectId?: string } }[];
 };
 
 export type ComputerReadiness =

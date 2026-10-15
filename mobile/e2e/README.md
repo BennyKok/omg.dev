@@ -37,6 +37,15 @@ Use an unused driver port. The plan checks both move directions and retained
 chat history. It does not contact an agent provider. The runtime restart and
 rollback checks are in `src/session-move.test.ts` at the repository root.
 
+The linked app plan uses the same demo data. Its `api-gateway` project links
+to a demo app, and the plan opens the session menu and the app submenu:
+
+```bash
+EXPO_PUBLIC_OMG_DEMO=1 OMG_E2E_ENTRY_FILE=scripts/no-project-e2e-entry.tsx \
+  OMG_MAESTRO_DRIVER_PORT=7179 \
+  bun run test:e2e --build --plan linked-app --record
+```
+
 Each onboarding run signs up a new plus-alias of `OMG_E2E_MAILBOX` (default
 `itechbenny@gmail.com`) and provisions a new hosted Computer. Nothing removes
 them: account deletion finishes in the browser. Expect the accounts to pile up.
