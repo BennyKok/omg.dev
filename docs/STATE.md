@@ -2,15 +2,15 @@
 
 Read this first. It records what is true now. The nightly librarian agent
 updates it from merged pull requests. Verify a fact in code before you depend
-on it. Last refresh: 2026-10-14.
+on it. Last refresh: 2026-10-15.
 
 ## Active work (last 14 days)
 
-- **First run and previews**: preview progress dots, Simulator auto-start,
-  clipped viewport fixes, web scaffolding, design checks, public first apps,
+- **First run and previews**: clipped viewport fixes, web scaffolding, design
+  checks, public first apps,
   Android template fixes, instruction-chip display, first-task web publishing
-  and APK builds, and game first runs from the Expo game kit (#339, #341,
-  #347, #368, #373, #378, #382, #385, #392).
+  and APK builds, and game first runs from the Expo game kit (#347, #368,
+  #373, #378, #382, #385, #392).
 - **Android builds**: cloud APK builds, committed app icons, and tool timeout
   handling (#357, #367, #370).
 - **App kits and default agent**: Haiku 5.5 default, web app and game kits,
@@ -21,15 +21,17 @@ on it. Last refresh: 2026-10-14.
   registration, and 90 s tool calls (#365, #371–#372).
 - **Computer**: Chrome startup, removal of the screen-lock password prompt,
   bounded screenshots, and reset of a stuck agent view (#349–#350, #391).
-- **Web, connectors, and embed**: paste-back sign-in, correct project chat
-  selection, host toasts, hidden Bots/Board, lazy Connectors loading, and
-  owner connector access for scheduled auto agents (#340, #342, #351–#352,
-  #354–#355, #383).
+- **Web, connectors, and embed**: host toasts, hidden Bots/Board, lazy
+  Connectors loading, and owner connector access for scheduled auto agents
+  (#351–#352, #354–#355, #383).
+- **Cloud deploy**: deployment sends its session to Cloud and requests store
+  screenshots (#395).
 - **Security and updates**: dependency audit fixes and fresh release lookup
   for self-update (#344, #353).
 - **Agent docs**: self-host pricing, current context and archive rules,
   STATE.md refreshes, hosted web app sign-in, automatic sign-in/sign-out
-  rules, and corrected bot plan status (#359, #374–#377, #380–#381, #387, #390).
+  rules, and corrected bot plan status (#359, #374–#377, #380–#381, #387,
+  #390, #394).
 
 ## Open pull requests
 
