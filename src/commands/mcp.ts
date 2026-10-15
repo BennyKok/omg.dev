@@ -1357,6 +1357,63 @@ export function buildOmgMcpServer(): McpServer {
     },
   );
 
+  /** The folder a tool acts on: the explicit cwd, else the calling session's cwd. */
+  async function toolFolder(cwd: string | undefined, sessionId: string | undefined): Promise<{ folder: string; sid: string }> {
+    const sid = await activeSessionId(sessionId);
+    let folder = cwd?.trim();
+    if (!folder) {
+      const { sessions } = await api<{ sessions: SessionRow[] }>("/api/sessions");
+      const row = sessions.find((session) => session.sessionId === sid || session.nativeSessionId === sid);
+      folder = row?.cwd?.trim();
+    }
+    if (!folder) throw new Error("cwd is required");
+    return { folder, sid };
+  }
+
+  server.registerTool(
+    "omg_link_app",
+    {
+      title: "Link A Project Folder To An Existing App",
+      description:
+        "Make deploys from a project folder update an app that already exists on omg Infra, instead of creating a new app. Writes .omg/project.json. A wrong link makes the next deploy replace a different live app, so link only when you know this folder is that app's source: this folder deployed it before, or the app's live page matches this project. Otherwise ask the user first with omg_ask_user and name both the folder and the app URL. Use omg_apps to find the slug. It refuses an app that another folder on this computer links to, and it refuses to replace this folder's current link unless replace is true.",
+      inputSchema: {
+        slug: z.string().min(1).describe("Slug of the app to link, from omg_apps."),
+        cwd: z.string().optional().describe("Absolute project folder. Defaults to the calling session cwd."),
+        replace: z.boolean().optional().describe("Replace this folder's current link. Only when the user asked to switch apps."),
+        sessionId: z.string().optional().describe("Session used to default cwd. Defaults to OMG_SESSION_ID."),
+      },
+    },
+    async ({ slug, cwd, replace, sessionId }) => {
+      const { folder, sid } = await toolFolder(cwd, sessionId);
+      return result(await api("/api/cloud/apps/link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-OMG-Session-ID": sid },
+        body: JSON.stringify({ cwd: folder, slug, replace: replace === true }),
+      }));
+    },
+  );
+
+  server.registerTool(
+    "omg_unlink_app",
+    {
+      title: "Unlink A Project Folder From Its App",
+      description:
+        "Remove a project folder's app link (.omg/project.json). The live app is not changed. The next omg_deploy from the folder creates a new app.",
+      inputSchema: {
+        cwd: z.string().optional().describe("Absolute project folder. Defaults to the calling session cwd."),
+        sessionId: z.string().optional().describe("Session used to default cwd. Defaults to OMG_SESSION_ID."),
+      },
+    },
+    async ({ cwd, sessionId }) => {
+      const { folder, sid } = await toolFolder(cwd, sessionId);
+      return result(await api("/api/cloud/apps/unlink", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-OMG-Session-ID": sid },
+        body: JSON.stringify({ cwd: folder }),
+      }));
+    },
+  );
+
   server.registerTool(
     "omg_deploy_status",
     {

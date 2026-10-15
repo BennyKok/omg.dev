@@ -4,7 +4,7 @@
 // POST it with the runtime credential, persist `.omg/project.json` so the next
 // deploy updates the same slug. CLI, HTTP, and MCP are thin callers.
 
-import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, posix, relative, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -115,6 +115,72 @@ export function saveProjectLink(cwd: string, link: ProjectLink): void {
   const path = projectLinkPath(cwd);
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   writeFileSync(path, `${JSON.stringify(link, null, 2)}\n`, { mode: 0o600 });
+}
+
+export type LinkAppInput = {
+  cwd: string;
+  slug: string;
+  /** Replace a link this folder already has to a different app. */
+  replace?: boolean;
+};
+
+export type LinkAppResult = RepoDeployLink & {
+  /** False when the folder already linked to this app. */
+  changed: boolean;
+};
+
+/**
+ * Link a project folder to an app that already exists, so the next deploy
+ * from the folder updates that app instead of creating a new one.
+ *
+ * A wrong link is worse than no link: the next deploy replaces another live
+ * app. So the app must be in the caller's account, no other folder on this
+ * computer may link to it, and an existing link changes only with `replace`.
+ */
+export async function linkProjectApp(
+  client: Pick<CloudAppsClient, "listApps">,
+  input: LinkAppInput,
+  otherFolders: readonly string[],
+): Promise<LinkAppResult> {
+  const cwd = input.cwd.trim();
+  const slug = input.slug.trim();
+  if (!cwd || !isAbsolute(cwd)) throw new CloudAppsError("cwd must be an absolute project folder", 400);
+  if (!slug) throw new CloudAppsError("slug is required", 400);
+  if (!statSync(cwd, { throwIfNoEntry: false })?.isDirectory()) {
+    throw new CloudAppsError(`${cwd} is not a folder`, 400);
+  }
+  const app = (await client.listApps()).find((row) => row.slug === slug);
+  if (!app) throw new CloudAppsError(`No app ${slug} in this omg account`, 404);
+  if (!app.projectId) {
+    throw new CloudAppsError("omg Cloud did not return this app's id. Try again after the Cloud update ships.", 409);
+  }
+  const current = loadProjectLink(cwd);
+  if (current?.projectId === app.projectId) {
+    return { ...current, url: publicAppUrl(current.slug), changed: false };
+  }
+  if (current && !input.replace) {
+    throw new CloudAppsError(
+      `${basename(cwd)} already deploys to ${current.slug}. Pass replace: true only if the user asked to switch apps.`,
+      409,
+    );
+  }
+  const elsewhere = otherFolders.find((folder) =>
+    folder !== cwd && loadProjectLink(folder)?.projectId === app.projectId);
+  if (elsewhere) {
+    throw new CloudAppsError(`${elsewhere} already deploys to ${slug}. Unlink it there first.`, 409);
+  }
+  const link: ProjectLink = { slug: app.slug, projectId: app.projectId, name: app.name };
+  saveProjectLink(cwd, link);
+  return { ...link, url: publicAppUrl(link.slug), changed: true };
+}
+
+/** Remove a folder's app link. The next deploy from it creates a new app. */
+export function unlinkProjectApp(cwd: string): { unlinked: boolean } {
+  const folder = cwd.trim();
+  if (!folder || !isAbsolute(folder)) throw new CloudAppsError("cwd must be an absolute project folder", 400);
+  if (!loadProjectLink(folder)) return { unlinked: false };
+  rmSync(projectLinkPath(folder), { force: true });
+  return { unlinked: true };
 }
 
 function shouldSkipName(name: string): boolean {
@@ -377,6 +443,8 @@ export const CLOUD_APPS_PATHS = [
   "/api/cloud/apps/status",
   "/api/cloud/apps/visibility",
   "/api/cloud/apps/identity",
+  "/api/cloud/apps/link",
+  "/api/cloud/apps/unlink",
   "/api/cloud/env",
   "/api/cloud/env/pull",
   "/api/cloud/env/rm",
@@ -408,6 +476,8 @@ export async function handleCloudAppsRequest(
     getAccessToken: GetAuthToken;
     fetch?: FetchLike;
     controlPlaneUrl?: string;
+    /** Project folders on this computer, to refuse a second link to one app. */
+    projectFolders?: () => Promise<readonly string[]>;
   },
 ): Promise<Response | null> {
   const path = url.pathname;
@@ -490,6 +560,23 @@ export async function handleCloudAppsRequest(
           : req.headers.get("X-OMG-Session-ID")?.trim() || undefined,
       });
       return jsonResponse(deployed);
+    }
+    if (path === "/api/cloud/apps/link" && req.method === "POST") {
+      const body = await envBody(req);
+      if (typeof body.cwd !== "string" || typeof body.slug !== "string") {
+        return jsonResponse({ error: "cwd and slug are required" }, 400);
+      }
+      const folders = (await options.projectFolders?.()) ?? [];
+      return jsonResponse(await linkProjectApp(client, {
+        cwd: body.cwd,
+        slug: body.slug,
+        replace: body.replace === true,
+      }, folders));
+    }
+    if (path === "/api/cloud/apps/unlink" && req.method === "POST") {
+      const body = await envBody(req);
+      if (typeof body.cwd !== "string") return jsonResponse({ error: "cwd is required" }, 400);
+      return jsonResponse(unlinkProjectApp(body.cwd));
     }
     if (path === "/api/cloud/env" && req.method === "GET") {
       const target = resolveEnvTarget({ slug: url.searchParams.get("slug"), cwd: url.searchParams.get("cwd") });

@@ -159,3 +159,22 @@ test("No project reads as a selection: no icon on its row or the trigger, folder
   expect(rows[1]!.querySelectorAll("svg")).toHaveLength(1);
   expect(rows[2]!.querySelectorAll("svg")).toHaveLength(2);
 });
+
+test("marks folders whose project has a live app", async () => {
+  ui.render(
+    <ProjectFolderMenu
+      value="alpha"
+      projects={projects}
+      labelFor={labelFor}
+      onChange={() => {}}
+      liveProjects={new Set(["beta"])}
+    />,
+  );
+  ui.flush(() => byLabel("Folder: alpha")!.click());
+  await ui.flushAsync();
+  const live = (title: string) =>
+    !!body().querySelector(`button[title="${title}"][aria-pressed] [aria-label="Live app"]`);
+  expect(live("beta")).toBe(true);
+  expect(live("alpha")).toBe(false);
+  expect(live("gamma")).toBe(false);
+});

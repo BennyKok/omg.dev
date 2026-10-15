@@ -5824,6 +5824,8 @@ a{color:#60a5fa}
         path === "/api/cloud/apps/status" ||
         path === "/api/cloud/apps/visibility" ||
         path === "/api/cloud/apps/identity" ||
+        path === "/api/cloud/apps/link" ||
+        path === "/api/cloud/apps/unlink" ||
         path === "/api/cloud/env" ||
         path === "/api/cloud/env/pull" ||
         path === "/api/cloud/env/rm" ||
@@ -5832,6 +5834,7 @@ a{color:#60a5fa}
         const { handleCloudAppsRequest } = await import("../cloud-apps.ts");
         const handled = await handleCloudAppsRequest(req, url, {
           getAccessToken: () => cloudAccount.getAccessToken(),
+          projectFolders: async () => (await listRepos()).map((repo) => repo.cwd),
         });
         if (handled) return handled;
       }

@@ -561,6 +561,7 @@ import {
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { useAppDialog } from "@/components/ui/app-dialog";
+import { SessionAppChip, sessionAppRepo } from "@/components/session-app-chip";
 import { MoveSessionDialog } from "@/components/move-session-dialog";
 import { claimShortcutScope } from "@/lib/shortcut-scope";
 // Code-split: the terminal pulls in ghostty-web's ~400KB WASM, so only load it
@@ -12314,6 +12315,7 @@ function LiveView({
           entering={recentlyCreatedSids.has(session.sessionId ?? "")}
           pinned={!!session.sessionId && pinnedSet.has(session.sessionId)}
           onTogglePin={toggleTopPin}
+          repos={repos}
         />
       </ErrorBoundary>
     </div>
@@ -13738,6 +13740,7 @@ function RailStage({
             pinned={!session.shippedReview && topPinnedSet.has(sid)}
             onTogglePin={session.shippedReview ? undefined : onToggleTopPin}
             stageBotId={stageBotId}
+            repos={repos}
           />
         </ErrorBoundary>
       </div>
@@ -14100,6 +14103,7 @@ function RailStage({
                   }}
                   onAddFolder={() => openFolderBrowser(false)}
                   onNewFolder={() => openFolderBrowser(true)}
+                  liveProjects={new Set(repos.filter((repo) => repo.deploy).map(repoProject))}
                 />
               ) : null}
             </div>
@@ -19438,6 +19442,7 @@ const SessionCard = memo(function SessionCard({
   pinned = false,
   onTogglePin,
   stageBotId,
+  repos,
 }: {
   session: Session;
   users: User[];
@@ -19479,6 +19484,8 @@ const SessionCard = memo(function SessionCard({
   // attachment. Undefined (every other caller: grid cards, regular stage
   // columns) keeps the existing productBotId-derived behavior unchanged.
   stageBotId?: string | null;
+  /** Project folders, for the app the session's project links to. */
+  repos?: readonly Repo[];
 }) {
   const appDialog = useAppDialog();
   const catalog = useAgentModelCatalog();
@@ -19494,6 +19501,26 @@ const SessionCard = memo(function SessionCard({
   const headerBotId = renderedBotId(session, stageBotId);
   const headerBot = headerBotId ? botDirectory.get(headerBotId) ?? null : null;
   const editBot = useContext(EditBotContext);
+  const appRepo = repos ? sessionAppRepo(session, repos) : undefined;
+  const unlinkApp = async (cwd: string, slug: string) => {
+    const confirmed = await appDialog.confirm({
+      title: `Unlink ${slug}?`,
+      description: "The live app stays as it is. The next deploy from this project creates a new app.",
+      confirmLabel: "Unlink",
+      destructive: true,
+    });
+    if (!confirmed) return;
+    const response = await omgFetch("/api/cloud/apps/unlink", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cwd }),
+    }).catch(() => null);
+    if (!response?.ok) {
+      toast.error("Could not unlink the app");
+      return;
+    }
+    await onRefresh();
+  };
 
   const sid = session.sessionId;
   // An ask-user question raised by this session is the one state on the live
@@ -19919,6 +19946,13 @@ const onTouchStart = (e: ReactTouchEvent) => {
             The harness it happens to run on is a session detail, and picking a
             model mid-conversation is a session action — both belong to the
             session view of this same session, not to the chat. */}
+        {!collapsedView && !headerBot && appRepo?.deploy ? (
+          <SessionAppChip
+            link={appRepo.deploy}
+            onCopied={() => toast.success("Link copied")}
+            onUnlink={() => void unlinkApp(appRepo.cwd, appRepo.deploy!.slug)}
+          />
+        ) : null}
         {!collapsedView && !headerBot && (
           (session.agent === "claude" || session.agent === "opencode" || session.agent === "omg") &&
           (session.tmuxTarget || session.agent === "opencode" || session.agent === "omg") &&
@@ -24214,6 +24248,7 @@ function NewSessionDialog({
       projects={[NO_PROJECT_FILTER, ...new Set(repos.map(repoProject))]}
       labelFor={(value) => projectFilterLabel(value, shortProject)}
       counts={projectCounts}
+      liveProjects={new Set(repos.filter((repo) => repo.deploy).map(repoProject))}
       onChange={(next) => {
         if (next === "__all" || next === NO_PROJECT_FILTER) {
           setFolderPicked(false);
