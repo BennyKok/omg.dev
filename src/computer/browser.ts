@@ -48,8 +48,9 @@ export async function transferBrowserLogin(v: Pick<WebViewLike, "navigate" | "cd
     // CDP's URL form preserves host-only cookies, including __Host- cookies.
     ...(domain.startsWith(".") ? { domain } : { url: `https://${domain}${cookie.path}` }),
   })) });
-  const urls = [...new Set(normalized.map(cookie =>
-    `https://${cookie.domain.startsWith(".") ? new URL(url).hostname : cookie.domain}${cookie.path}`))];
+  // Cookies can belong to several sites (the start page and its identity
+  // provider), so read each one back from its own domain.
+  const urls = [...new Set(normalized.map(cookie => `https://${cookie.domain.replace(/^\./, "")}${cookie.path}`))];
   const stored = await v.cdp("Network.getCookies", { urls }) as { cookies?: BrowserLoginCookie[] };
   // setCookies can succeed while discarding an individual cookie. Never
   // announce an import until every approved value exists in this profile.

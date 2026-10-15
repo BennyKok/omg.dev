@@ -97,17 +97,24 @@ test("a competing claim and unapproved transfer cannot consume the request", asy
   expect(imported).toHaveLength(0);
 });
 
-for (const domain of [".com", ".co.uk", ".evil.com", "www.example.com.evil.com", "other.example.com"]) {
-  test(`rejects out-of-scope cookie ${domain}`, () => {
-    expect(() => validateLoginCookies([{ ...cookie, domain }], "https://www.example.com")).toThrow();
+for (const domain of [".com", ".co.uk", "com", ".github.io", "", "."]) {
+  test(`rejects a cookie for a public suffix or no site: "${domain}"`, () => {
+    expect(() => validateLoginCookies([{ ...cookie, domain }])).toThrow();
   });
 }
-test("private suffixes cannot capture another tenant", () => {
-  expect(() => validateLoginCookies([{ ...cookie, domain: ".github.io" }], "https://my.github.io")).toThrow();
-});
 test("expired cookies and invalid SameSite fail before any import", () => {
-  expect(() => validateLoginCookies([{ ...cookie, expires: 1 }], "https://www.example.com")).toThrow();
-  expect(() => validateLoginCookies([{ ...cookie, sameSite: "invalid" }], "https://www.example.com")).toThrow();
+  expect(() => validateLoginCookies([{ ...cookie, expires: 1 }])).toThrow();
+  expect(() => validateLoginCookies([{ ...cookie, sameSite: "invalid" }])).toThrow();
+});
+test("a login that signs in on another site transfers that site's cookies too", async () => {
+  // Play Console signs in on accounts.google.com; Anthropic Console can sign in with Google.
+  const row = (await call("", { url: "https://play.google.com/console", reason: "Upload screenshots" }, "", "a", true)).data.request;
+  const provider = [{ ...cookie, domain: ".google.com" }, { ...cookie, name: "ACCOUNT", domain: "accounts.google.com" },
+    { ...cookie, name: "tenant", domain: "my.github.io" }];
+  const claim = await call(`/${row.id}/claim`, {});
+  const complete = await call(`/${row.id}/complete`, { token: claim.data.token, approved: true, cookies: provider });
+  expect(complete.data.request.status).toBe("imported");
+  expect(imported).toEqual([{ url: "https://play.google.com/console", cookies: provider }]);
 });
 test("HTTPS and credential-free request URLs are required", async () => {
   for (const url of ["http://example.com", "https://user:pass@example.com", "file:///etc/passwd", "https://127.0.0.1"]) {
@@ -125,7 +132,7 @@ test("CDP import preserves host-only, domain, HttpOnly and SameSite fields", asy
   }, "https://www.example.com/account", [cookie as any, { ...cookie, name: "__Host-session", domain: "www.example.com" } as any]);
   expect(calls).toEqual(["about:blank", { method: "Network.setCookies", params: { cookies: [cookie, {
     name: "__Host-session", value: cookie.value, path: "/", secure: true, httpOnly: true, sameSite: "Lax", url: "https://www.example.com/",
-  }] } }, { method: "Network.getCookies", params: { urls: ["https://www.example.com/"] } }, "https://www.example.com/account"]);
+  }] } }, { method: "Network.getCookies", params: { urls: ["https://example.com/", "https://www.example.com/"] } }, "https://www.example.com/account"]);
 });
 
 test("import failures return a safe message without exposing credentials", async () => {
@@ -186,4 +193,18 @@ test("silent cookie rejection or an old value fails before opening the protected
     }, "https://www.example.com/account", [cookie as any])).rejects.toThrow("did not retain every login cookie");
     expect(navigations).toEqual(["about:blank"]);
   }
+});
+
+test("a cookie from the sign-in site is read back from its own domain", async () => {
+  const provider = { ...cookie, domain: ".google.com", sameSite: "Lax" as const };
+  let read: any;
+  await transferBrowserLogin({
+    navigate: async () => {},
+    cdp: async (method, params) => {
+      if (method !== "Network.getCookies") return {};
+      read = params;
+      return { cookies: (params as { urls: string[] }).urls.includes("https://google.com/") ? [provider] : [] };
+    },
+  }, "https://play.google.com/console", [provider]);
+  expect(read.urls).toEqual(["https://google.com/"]);
 });

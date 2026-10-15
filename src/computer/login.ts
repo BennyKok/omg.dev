@@ -24,18 +24,24 @@ function loginUrl(value: unknown): URL {
   return url;
 }
 
-export function validateLoginCookies(input: unknown, origin: string, now = Date.now()): BrowserLoginCookie[] {
+/**
+ * The transfer is not scoped to the requested site. The iOS sheet starts each
+ * request with an empty, non-persistent jar, so its cookies are exactly the
+ * sites the user visited while signing in: the start page, its sign-in host,
+ * and any identity provider. The requested URL is only where the sheet opens.
+ * A cookie must still belong to a registrable site; a public suffix such as
+ * `.com` or `.github.io` would apply to every tenant under it.
+ */
+export function validateLoginCookies(input: unknown, now = Date.now()): BrowserLoginCookie[] {
   if (!Array.isArray(input) || !input.length || input.length > 200) reject("Provide between 1 and 200 site cookies");
-  const host = new URL(origin).hostname;
-  const site = getDomain(host, { allowPrivateDomains: true });
   return input.map((raw) => {
     if (!raw || typeof raw !== "object") reject("Invalid cookie");
     const c = raw as Record<string, unknown>;
     if (typeof c.domain !== "string") reject("Invalid cookie domain");
     const domain = c.domain.toLowerCase();
     const bare = domain.replace(/^\./, "");
-    if (getDomain(bare, { allowPrivateDomains: true }) !== site ||
-      !(host === bare || (domain.startsWith(".") && host.endsWith(`.${bare}`)))) reject("Cookie is outside the approved website");
+    const site = getDomain(bare, { allowPrivateDomains: true });
+    if (!site || !(bare === site || bare.endsWith(`.${site}`)) || bare.length > 253) reject("Invalid cookie domain");
     if (typeof c.name !== "string" || !c.name || c.name.length > 256 || /[\s;=\x00-\x1f\x7f]/.test(c.name) ||
       typeof c.value !== "string" || c.value.length > 8192 || /[\x00-\x1f\x7f]/.test(c.value) ||
       typeof c.path !== "string" || !c.path.startsWith("/") || c.path.length > 2048 ||
@@ -158,7 +164,7 @@ export function createBrowserLoginService(deps: {
         if (!row.token || token.length !== row.token.length || !timingSafeEqual(Buffer.from(token), Buffer.from(row.token)) || row.claimant !== viewer || data.approved !== true) {
           throw new LoginError(403, "Open and approve this login on the same device first");
         }
-        const cookies = validateLoginCookies(data.cookies, row.public.origin, now());
+        const cookies = validateLoginCookies(data.cookies, now());
         if (importing) throw new LoginError(409, "Another login transfer is running. Try again");
         importing = true; row.public.status = "importing"; delete row.token;
         try {
