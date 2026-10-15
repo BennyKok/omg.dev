@@ -318,6 +318,20 @@ export function errorFrameMessage(value: unknown): string | null {
   return typeof message === "string" && message ? message : "the relay rejected this connection";
 }
 
+/**
+ * Event forwarding starts only after the relay confirms the hello.
+ *
+ * Regional relays authenticate through the authority asynchronously. The
+ * WebSocket is already OPEN during that round trip. Publishing an event in
+ * that window makes the relay correctly answer `not authenticated`, which a
+ * client can then mistake for a rejected saved token.
+ */
+export function relayHandshakeAccepted(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  const type = (value as { type?: unknown }).type;
+  return type === "hello-ok" || type === "paired";
+}
+
 /** A `{type:"error"}` frame the relay sent for `hello` — the saved token is
  * dead (expired/revoked/unknown); re-pairing is the only fix, so the
  * reconnect loop treats this as fatal rather than backing off forever. */
@@ -1385,7 +1399,6 @@ async function runConnectLoop(explicitComputerUrl?: string): Promise<void> {
         name: boxName(),
         ...(computerUrl ? { computerUrl } : {}),
       });
-      currentWs = ws;
       backoffMs = RECONNECT_MIN_MS;
       console.log(`lfg connect: connected — proxying to local serve on ${LOCAL_HOST}:${LOCAL_PORT}`);
 
@@ -1444,10 +1457,12 @@ async function runConnectLoop(explicitComputerUrl?: string): Promise<void> {
               }
             }
             // The relay's answer to hello/pair carries the negotiated set.
-            const frameType = (frame as { type?: unknown })?.type;
-            if (frameType === "hello-ok" || frameType === "paired") {
+            if (relayHandshakeAccepted(frame)) {
               clearTimeout(helloDeadline);
               for (const cap of negotiateCaps((frame as { caps?: unknown }).caps)) caps.add(cap);
+              // The pollers may publish only after the authority accepted this
+              // socket. WebSocket.OPEN alone is not an authentication state.
+              currentWs = ws;
               if (caps.size) console.log(`lfg connect: negotiated ${[...caps].join(", ")}`);
               return;
             }
