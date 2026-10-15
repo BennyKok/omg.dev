@@ -1886,7 +1886,7 @@ export function buildOmgMcpServer(): McpServer {
     title: "Request Website Login",
     description: "Ask the user to sign in to a website in the omg iOS app and approve transfer to this Computer's Chrome. Returns a request ID and whether a compatible iOS client is active. Never ask for passwords or cookies in chat. After transfer, verify the signed-in page with Computer tools; imported does not mean authenticated. This uses the shared Computer browser, not a separate browser you launched.",
     inputSchema: {
-      url: z.string().url().describe("Public HTTPS website to sign in to. Do not include credentials."),
+      url: z.string().url().describe("Public HTTPS page where the login sheet opens. Prefer the site home or dashboard over a guessed /login or /sign-up path. The transfer is not limited to this host: every site the user signs in to in the sheet (for example an identity provider) is transferred. Check the Computer browser first; the user may already be signed in. Do not include credentials."),
       reason: z.string().min(1).max(500).describe("Why this task needs access to this website."),
     },
   }, async ({ url, reason }) => {

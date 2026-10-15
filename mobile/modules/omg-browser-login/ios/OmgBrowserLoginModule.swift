@@ -139,44 +139,45 @@ private final class LoginController: UIViewController, WKNavigationDelegate, WKU
     present(alert, animated: true)
   }
 
+  // The transfer is not scoped to the requested host. Logins often finish on
+  // another host (a sign-in subdomain, a region, or an identity provider such
+  // as accounts.google.com). This jar is non-persistent and new for each
+  // request, so it holds only the sites the user visited in this sheet. The
+  // dialog names every one of them before anything leaves the device.
   @objc private func approve() {
-    guard web.url?.host?.lowercased() == target.host?.lowercased(), web.url?.scheme == "https" else {
-      showError("Finish signing in and return to \(target.host ?? "the requested website") first.")
-      return
-    }
-    let alert = UIAlertController(title: "Use this login on your computer?",
-      message: "Agents on \(computer) will be able to use your \(target.host ?? "website") account. Only this website's login will be transferred.", preferredStyle: .alert)
-    alert.addAction(UIAlertAction(title: "Not now", style: .cancel))
-    alert.addAction(UIAlertAction(title: "Transfer login", style: .default) { [weak self] _ in self?.exportCookies() })
-    present(alert, animated: true)
-  }
-
-  private func exportCookies() {
-    let host = target.host!.lowercased()
     web.configuration.websiteDataStore.httpCookieStore.getAllCookies { [weak self] cookies in
       guard let self, !self.finished else { return }
-      let matching = cookies.filter { cookie in
-        let domain = cookie.domain.lowercased()
-        let bare = domain.hasPrefix(".") ? String(domain.dropFirst()) : domain
-        return (host == bare || (domain.hasPrefix(".") && host.hasSuffix("." + bare))) &&
-          (cookie.expiresDate == nil || cookie.expiresDate! > Date())
-      }
-      guard !matching.isEmpty else {
-        self.showError("This website has no login cookies to transfer. Finish signing in, or use the Computer browser.")
+      let live = cookies.filter { $0.expiresDate == nil || $0.expiresDate! > Date() }
+      guard !live.isEmpty else {
+        self.showError("No website login was found to transfer. Finish signing in, or use the Computer browser.")
         return
       }
-      let payload: [[String: Any]] = matching.map { cookie in
-        var item: [String: Any] = ["name": cookie.name, "value": cookie.value,
-          "domain": cookie.domain, "path": cookie.path, "secure": cookie.isSecure, "httpOnly": cookie.isHTTPOnly]
-        if let expires = cookie.expiresDate { item["expires"] = expires.timeIntervalSince1970 }
-        if let policy = cookie.sameSitePolicy {
-          let value = policy.rawValue.lowercased()
-          if ["strict", "lax", "none"].contains(value) { item["sameSite"] = value.capitalized }
-        }
-        return item
-      }
-      self.complete(["cancelled": false, "cookies": payload])
+      let sites = Array(Set(live.map { cookie -> String in
+        let domain = cookie.domain.lowercased()
+        return domain.hasPrefix(".") ? String(domain.dropFirst()) : domain
+      })).sorted()
+      let alert = UIAlertController(title: "Use this login on your computer?",
+        message: "Agents on \(self.computer) will be able to use your accounts on:\n\n\(sites.joined(separator: "\n"))\n\nThese are the sites you opened in this login window.",
+        preferredStyle: .alert)
+      alert.addAction(UIAlertAction(title: "Not now", style: .cancel))
+      alert.addAction(UIAlertAction(title: "Transfer login", style: .default) { [weak self] _ in self?.transfer(live) })
+      self.present(alert, animated: true)
     }
+  }
+
+  private func transfer(_ cookies: [HTTPCookie]) {
+    guard !finished else { return }
+    let payload: [[String: Any]] = cookies.map { cookie in
+      var item: [String: Any] = ["name": cookie.name, "value": cookie.value,
+        "domain": cookie.domain, "path": cookie.path, "secure": cookie.isSecure, "httpOnly": cookie.isHTTPOnly]
+      if let expires = cookie.expiresDate { item["expires"] = expires.timeIntervalSince1970 }
+      if let policy = cookie.sameSitePolicy {
+        let value = policy.rawValue.lowercased()
+        if ["strict", "lax", "none"].contains(value) { item["sameSite"] = value.capitalized }
+      }
+      return item
+    }
+    complete(["cancelled": false, "cookies": payload])
   }
 
   func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
