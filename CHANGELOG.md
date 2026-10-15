@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 15, 2026 - OpenCode models show their lab, and agent updates show their result (v0.6.234)
+
+- The OpenCode model list on web and iOS shows each model's lab logo and a short name, such as "GLM 5.3" for `opencode-go/glm-5.3`. Models are grouped by where they come from: OpenCode Go, OpenCode Zen, Novita AI, OpenAI, xAI. The model button shows the lab logo with a small OpenCode badge, like the omg agent.
+- In Settings > Coding agents, an install or update now shows each step and a progress bar on the agent's row. When it ends, the row says "Updated" with the version, or "Update failed" with the error. Before, the page said "Update started" and then nothing.
+- On web, the update notice stays open until the run ends, then names the result, such as "OpenCode updated from v1.17.6 to v1.17.7". On iOS, "Update all agents" lists each agent's step while it runs, then each agent's result.
+
 ## October 14, 2026 - New games start from the game kit (v0.6.233)
 
 - A first game build now starts from the `expo-game` starter, with its game kit and the game builder skill. It shows the same phone preview as a new Expo app, then the agent replaces the sample game with yours. Before, a first game started from an empty web page.
