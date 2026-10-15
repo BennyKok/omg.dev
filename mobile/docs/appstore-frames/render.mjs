@@ -17,7 +17,7 @@
 // this any time captures are retaken; nothing here is hand-tuned per image.
 //
 // It also renders the App Store creative assets (product page header and
-// search results image, iOS 27+) into <out>/creative/ as JPEG -- see
+// search results image, iOS 27+) into <out>/creative/ as RGB PNG -- see
 // CREATIVE_ASSETS in config.mjs.
 //
 // Pipeline: HTML/CSS composited to PNG via headless Chromium (Playwright),
@@ -135,6 +135,23 @@ const OMG_MARK_SVG = `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/s
   <mask id="bite"><rect width="100" height="100" fill="white"/><circle cx="71" cy="29" r="14" fill="black"/></mask>
   <circle cx="50" cy="50" r="44" fill="${COLORS.brand}" mask="url(#bite)"/>
 </svg>`;
+
+// Apple refuses creative assets with an alpha channel (alphaAllowed: false in
+// GET /v1/appAssetLibraryRefData). Chromium writes an opaque page as RGB
+// (colour type 2), but check rather than trust it: fail on colour types with
+// alpha (4, 6) and on a tRNS chunk.
+function assertNoAlpha(png, file) {
+  const colorType = png[25];
+  if (png.toString('ascii', 12, 16) !== 'IHDR') throw new Error(`${file}: not a PNG`);
+  if (colorType === 4 || colorType === 6) throw new Error(`${file}: PNG has an alpha channel (colour type ${colorType})`);
+  let off = 8;
+  while (off < png.length) {
+    const len = png.readUInt32BE(off);
+    if (png.toString('ascii', off + 4, off + 8) === 'tRNS') throw new Error(`${file}: PNG has a tRNS transparency chunk`);
+    off += 12 + len;
+  }
+  return png;
+}
 
 // Review overlay: Apple's safe area (green), the layout box (orange) and,
 // for the header, the iPhone status bar and floating buttons.
@@ -273,11 +290,16 @@ async function renderCreativeAssets({ browser, srcDir, outDir, tmpDir, showSafeA
       throw new Error(`${name}: content leaves its content box: ${overflow.join('; ')}`);
     }
 
-    // JPEG, not PNG: Apple refuses creative assets with an alpha channel, and
-    // Chromium writes PNG screenshots as RGBA even when every pixel is opaque.
-    const suffix = showSafeArea ? '.safe-area' : '';
-    const outPath = path.join(creativeOutDir, `${name}${suffix}.jpg`);
-    await page.screenshot({ path: outPath, type: 'jpeg', quality: 92 });
+    // Upload copies are PNG without alpha (see assertNoAlpha). Review copies, which are
+    // never uploaded, stay JPEG so they are quick to open and share.
+    let outPath;
+    if (showSafeArea) {
+      outPath = path.join(creativeOutDir, `${name}.safe-area.jpg`);
+      await page.screenshot({ path: outPath, type: 'jpeg', quality: 92 });
+    } else {
+      outPath = path.join(creativeOutDir, `${name}.png`);
+      await writeFile(outPath, assertNoAlpha(await page.screenshot({ type: 'png' }), outPath));
+    }
     if (showSafeArea && cfg.iphone) {
       // What an iPhone in portrait shows of the header (review only).
       const v = cfg.iphone.view;

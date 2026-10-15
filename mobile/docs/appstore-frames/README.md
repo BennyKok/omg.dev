@@ -128,8 +128,8 @@ Library. Apple reviews them apart from an app version.
 
 | Asset | Output | Size | Apple's art safe area |
 |---|---|---|---|
-| Product page header | `creative/product-page-header.jpg` | 3840×1646 (21:9) | 1646×661 at (1097, 493) |
-| Search results | `creative/search-results.jpg` | 3840×2560 (3:2) | 2168×1030 at (836, 765) |
+| Product page header | `creative/product-page-header.png` | 3840×1646 (21:9) | 1646×661 at (1097, 493) |
+| Search results | `creative/search-results.png` | 3840×2560 (3:2) | 2168×1030 at (836, 765) |
 
 Sources:
 - Spec: <https://developer.apple.com/help/app-store-connect/reference/app-information/creative-assets-specifications/>
@@ -180,8 +180,10 @@ most of the card, as in Apple's example. `--safe-area` also writes
   search card.
 - No prices, URLs (so no "omg.dev" text), awards, or other products or
   stores.
-- No alpha channel. The output is JPEG, because Chromium writes PNG
-  screenshots as RGBA even when they are opaque.
+- No alpha channel. The output is PNG, because the API's catalogue
+  (`GET /v1/appAssetLibraryRefData`, spec `i3840x1646a0`) accepts the header
+  only as `.png`, although the help page also lists JPEG. The renderer fails
+  if a PNG has an alpha channel or a `tRNS` chunk.
 
 ### Rendering
 
@@ -221,6 +223,21 @@ search asset uses a centre crop of the same image. Prompt:
 > colored-pencil texture. Absolutely no people, no animals, no text, no
 > letters, no logos, no sun, no buildings, no UI.
 
+### Upload
+
+```sh
+python3 mobile/scripts/asc-upload-creative.py --dry-run   # check files against Apple's specs
+python3 mobile/scripts/asc-upload-creative.py             # upload to the Asset Library
+```
+
+The script uploads both PNGs to the App Asset Library through the App Store
+Connect API and waits until Apple has processed them. It checks each file
+against `GET /v1/appAssetLibraryRefData` first. After processing, it checks
+that Apple matched the intended spec. It skips an asset that is already
+uploaded under the same reference name. It never submits for review and never
+places an asset on a version. Do those two steps in App Store Connect, when
+no version review is pending.
+
 ### Before upload
 
 - Check both assets in the App Store Connect preview, on iPhone and iPad, in
@@ -232,7 +249,7 @@ search asset uses a centre crop of the same image. Prompt:
 Check the output:
 
 ```sh
-identify -format "%f: %wx%h %[channels]\n" designed/creative/*.jpg
+identify -format "%f: %wx%h %[channels]\n" designed/creative/*.png
 ```
 
 Expected: `3840x1646 srgb` and `3840x2560 srgb`, with no alpha.

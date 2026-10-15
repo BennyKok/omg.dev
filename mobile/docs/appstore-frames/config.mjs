@@ -63,9 +63,11 @@ export const BUCKETS = {
 // Both are optional and are uploaded to the App Store Connect Asset Library,
 // which reviews them apart from an app version.
 // Spec: https://developer.apple.com/help/app-store-connect/reference/app-information/creative-assets-specifications/
-//   Product page header: 21:9, exactly 3840x1646, JPEG or PNG.
-//   Search results:      3:2, 1920x1280 up to 3840x2560, JPEG or PNG.
-//   Neither may have an alpha channel. render.mjs writes JPEG, which has none.
+//   Product page header: 21:9, exactly 3840x1646.
+//   Search results:      3:2, 1920x1280 up to 3840x2560.
+//   Neither may have an alpha channel. The help page allows JPEG for both, but
+//   the API's catalogue (GET /v1/appAssetLibraryRefData, spec i3840x1646a0)
+//   accepts the header only as .png. render.mjs writes PNG without alpha for both.
 //
 // safeArea is the 'Art Safe Area' layer of Apple's own Photoshop templates
 // (developer.apple.com/app-store/asset-best-practices, read 2026-10-15).
