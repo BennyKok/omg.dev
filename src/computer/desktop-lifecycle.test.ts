@@ -18,7 +18,7 @@ test("desktop isolates foreign CDP, reuses/adopts/relaunches its browser, serial
   const reserve = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("") });
   const port = reserve.port!;
   reserve.stop(true);
-  const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH}`, OMG_COMPUTER_RFB_PORT: String(port) };
+  const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH}`, OMG_COMPUTER_RFB_PORT: String(port), OMG_COMPUTER_TZ: "Asia/Hong_Kong" };
   delete env.OMG_COMPUTER_CDP_PORT;
   delete env.XDG_CONFIG_HOME;
   const proc = Bun.spawn([process.execPath, fixture, "scenario"], { env, stdout: "pipe", stderr: "pipe" });
@@ -29,6 +29,8 @@ test("desktop isolates foreign CDP, reuses/adopts/relaunches its browser, serial
     const calls = readFileSync(join(home, "calls"), "utf8").trim().split("\n");
     // Three starts, including the failure, plus one relaunch of a dead browser.
     expect(calls.filter(line => line.startsWith("google-chrome "))).toHaveLength(4);
+    // Every launch runs in the configured zone. Sign-in checks refuse a mismatch.
+    for (const line of calls.filter(line => line.startsWith("google-chrome "))) expect(line.split(" ")[2]).toBe("Asia/Hong_Kong");
     // The session must not start a screen locker that asks for a Linux password.
     const saver = readFileSync(join(home, ".config", "xfce4", "xfconf", "xfce-perchannel-xml", "xfce4-screensaver.xml"), "utf8");
     expect(saver).toContain('<property name="lock" type="empty">\n    <property name="enabled" type="bool" value="false"/>');
