@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 15, 2026 - Computer sign-ins pass GoDaddy (v0.6.237)
+
+- The Computer's browser now uses the time zone of the internet address that websites see. Before, it always used UTC. GoDaddy refused sign-in with "Your browser is a bit unusual..." when the address was in Los Angeles or Helsinki and the browser said UTC. The new zone applies the next time the Computer's browser starts.
+- Set `OMG_COMPUTER_TZ` to choose a zone yourself, or `OMG_COMPUTER_TZ=off` to keep the old behavior.
+
 ## October 15, 2026 - Projects know their live app (v0.6.236)
 
 - A chat with no project that creates one now moves into that project when the agent's turn ends. Later turns run in the project folder, and the chat appears under the project.
