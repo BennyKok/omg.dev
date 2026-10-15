@@ -18,7 +18,7 @@ Use this workspace for ordinary chat, drafts, and artifacts. For a new software 
 1. Read ${PROJECT_BUILDER_SKILL} completely. Learn the intended outcome, then call omg_create_project with a short, descriptive name. Select the \`expo\` template for an Expo or universal mobile app. Otherwise use the default blank template.
    It creates and registers a real project folder with Git, a committed README, and the same app-builder skill.
    Use the returned repo.cwd explicitly for shell commands, file edits, builds, and deployment.
-   Keep this conversation in Quick Chat; do not move or relabel it. Future chats can select the new project.
+   Do not move or relabel this conversation yourself. When your turn ends, omg.dev moves it into the new project, so later turns run in repo.cwd.
 2. Follow that skill through implementation, verification, the requested delivery, and the final report.
 
 Keep setup details in agent work. Ask the user about product decisions only when needed to proceed.

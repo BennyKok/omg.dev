@@ -55,6 +55,7 @@ import { COMPUTER_KIOSK_PATH } from "../../packages/protocol/src/computer-kiosk.
 import { buildContinueSessionPrompt } from "../session-continue-prompt.ts";
 import { createForkSession } from "../session-fork.ts";
 import { handleSessionMove } from "../session-move.ts";
+import { applyPendingProjectMoves, requestProjectSessionMove } from "../project-session-move.ts";
 import { sessionIsMoving } from "../session-recovery.ts";
 import { regenerateSessionTitle } from "../session-title-regenerate.ts";
 import { hasHostedOmgAiProxy, hasOmgProviderAccess } from "../omg-provider.ts";
@@ -2685,6 +2686,27 @@ export function startBotCompactionSweep(): void {
       });
   }, BOT_COMPACTION_SWEEP_MS);
   botCompactionTimer.unref?.();
+}
+
+const PROJECT_MOVE_SWEEP_MS = 2_000;
+let projectMoveRunning = false;
+
+/** Move no-project chats into the project they created, once each turn ends. */
+function startProjectMoveSweep(): void {
+  const timer = setInterval(() => {
+    if (projectMoveRunning || !listManaged().some((row) => row.pendingProjectMove)) return;
+    projectMoveRunning = true;
+    void applyPendingProjectMoves({
+      isBusy: async (sessionId) => {
+        const session = (await listSessions()).find((s) => s.sessionId === sessionId || s.nativeSessionId === sessionId);
+        return !!session?.busy || queueBlocksBotRotation(listQueue(sessionId));
+      },
+    })
+      .then((moved) => { if (moved) invalidateListSessionsCache(); })
+      .catch((error) => console.error(`[project-move] ${error instanceof Error ? error.message : String(error)}`))
+      .finally(() => { projectMoveRunning = false; });
+  }, PROJECT_MOVE_SWEEP_MS);
+  timer.unref?.();
 }
 
 type ParentableSession = {
@@ -8697,7 +8719,12 @@ a{color:#60a5fa}
         }
         try {
           const repo = await createProjectFolder(b.parent, b.name, b.template ?? "blank");
-          return json({ repo, repos: await listRepos() });
+          const repos = await listRepos();
+          // An agent in a no-project chat sends its own session id. That chat
+          // moves into the new project when its current turn ends.
+          const entry = repos.find((r) => r.cwd === repo.cwd);
+          const sessionMove = entry ? requestProjectSessionMove(callerSessionHeader(req), entry) : null;
+          return json(sessionMove ? { repo, repos, sessionMove } : { repo, repos });
         } catch (e) {
           return err(400, e instanceof Error ? e.message : String(e));
         }
@@ -12394,6 +12421,7 @@ a{color:#60a5fa}
   startWorktreeSweep((l) => console.log(l));
   startTmpSweep((l) => console.log(l));
   startBotCompactionSweep();
+  startProjectMoveSweep();
   // Watch the fleet for busy -> idle transitions and fan "completed" events out
   // to fleet subscribers (Web Push). Idempotent + best-effort.
   startFleetWatcher();

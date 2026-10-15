@@ -1689,7 +1689,7 @@ export function buildOmgMcpServer(): McpServer {
     "omg_create_project",
     {
       title: "Create omg.dev Project",
-      description: "Create and register a new project folder with Git and the omg-app-builder skill. Select the expo template for an Expo or universal mobile app; it includes Expo Router, Expo Web, an API route, and EAS configuration. Defaults to a blank project. Returns repo.cwd for building and deploying; does not move the calling chat. Read the generated skill before building. Existing folders are never overwritten. Inspect omg_list_repos after an uncertain response before retrying.",
+      description: "Create and register a new project folder with Git and the omg-app-builder skill. Select the expo template for an Expo or universal mobile app; it includes Expo Router, Expo Web, an API route, and EAS configuration. Defaults to a blank project. Returns repo.cwd for building and deploying. When the calling chat has no project, it moves into the new project after the current turn ends (sessionMove.status is after_turn); until then, use repo.cwd explicitly. Read the generated skill before building. Existing folders are never overwritten. Inspect omg_list_repos after an uncertain response before retrying.",
       inputSchema: {
         name: z.string().min(1).describe("Short project folder name"),
         parent: z.string().optional().describe("Existing parent folder; omit to use the configured projects directory"),
