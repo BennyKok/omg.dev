@@ -5,6 +5,28 @@ read off the EAS docs.
 
 ## Current state
 
+### OpenCode model marks and agent update results OTA — 2026-10-15
+
+OpenCode model rows show the lab's mark and a short name, grouped by router,
+and the session mark wears the lab with the agent badge. Settings > Coding
+agents > Update all agents lists each agent's step with a bar while it runs,
+then each agent's result.
+
+Implementation: `2517b1a31`, `e14a523ef`; published from release `1b3bc4146`
+(v0.6.234). Only JS changed under `mobile/` and `packages/protocol/src` since
+the previous OTA source `80bbb4416`; no native input changed. No store build
+or submission was made.
+
+| Runtime | iOS update | Android update | Workflow |
+| --- | --- | --- | --- |
+| 1.0.16 | `01a13da9-18d5-7e63-94fe-8f4798b83f89` | `01a13da9-18d5-79cb-af2c-3866a7c6b6a8` | [38677493189](https://github.com/BennyKok/omg.dev/actions/runs/38677493189) |
+| 1.0.15 | `01a13daf-f795-7280-abf8-ec6194e7a7b8` | `01a13daf-f795-7ac9-ab2a-a2a6f5091ac5` | [38678177200](https://github.com/BennyKok/omg.dev/actions/runs/38678177200) |
+| 1.0.14 | `01a13dac-9bfb-71d7-8c7b-be213d7624b9` | `01a13dac-9bfb-7844-a744-571962acb6f3` | [38677510099](https://github.com/BennyKok/omg.dev/actions/runs/38677510099) |
+
+The production update endpoint serves all six IDs (read back 2026-10-15).
+Verification: `e2e/opencode-agents.plan.json`, 7/7 on the iPhone 17 Pro
+simulator, against a scripted Computer.
+
 ### Instant question answers OTA — 2026-10-14
 
 A send while a question is open clears the card at once (restored on
