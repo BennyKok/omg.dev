@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 15, 2026 - Store pages get screenshots from every deploy (v0.6.235)
+
+- After the first `omg_deploy` of an app, the agent now captures 3 phone screens and adds them to the app's store page. Before, only apps made from a first-run design or the builder got store screenshots, so most apps built in a chat had a store page with no pictures.
+- `omg_deploy` now tells omg.dev which session published the app. The app's "ready" email links back to that session, so you can ask for changes.
+- The login sheet transfers every site that the login needs, not only the site that you asked for.
+
 ## October 15, 2026 - OpenCode models show their lab, and agent updates show their result (v0.6.234)
 
 - The OpenCode model list on web and iOS shows each model's lab logo and a short name, such as "GLM 5.3" for `opencode-go/glm-5.3`. Models are grouped by where they come from: OpenCode Go, OpenCode Zen, Novita AI, OpenAI, xAI. The model button shows the lab logo with a small OpenCode badge, like the omg agent.
