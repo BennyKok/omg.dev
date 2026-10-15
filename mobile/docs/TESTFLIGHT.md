@@ -73,6 +73,21 @@ workflow's concurrency queue and dispatched again.
 Verification: `session-inline-cards` simulator plan 4/4 on a Release build.
 Physical-phone activation and Android rendering remain unverified.
 
+### Orange app icon iOS release — 2026-10-15
+
+Version 1.0.17, build 93, carries the orange-on-white launcher icon from
+`444bcf6f5`. Build 92 (1.0.16) predates that commit and still shows the old
+icon. The version bump is `2992a38fc`. Mac workflow
+[38686015379](https://github.com/BennyKok/omg.dev/actions/runs/38686015379)
+built and uploaded it. App Store Connect reports build 93 VALID. Review
+submission `e9f5ebcf-38fb-4a1d-83ee-bcc459f44a1d` is WAITING_FOR_REVIEW, with
+automatic release after approval. Do not replace or restart it without
+specific user approval.
+
+OTA updates for 1.0.16 installs, including Android build 22, now need
+`runtime_version: 1.0.16`. The Play listing icon (512 px) is still the old dark
+icon. It is to be replaced after the pending Play reviews finish.
+
 ### Correct logos and stable image previews — 2026-10-11
 
 Mobile chat images use the existing Skia decoder to avoid recycled native
