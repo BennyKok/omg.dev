@@ -396,3 +396,32 @@ test("a deploy that leaves out .env files says so and points at omg_app_env", as
   expect(result.skippedSecrets).toEqual([".env"]);
   expect(result.envHint).toContain("omg_app_env");
 });
+
+// The app's "ready" email links the session that published it, and its store
+// page needs screenshots that a chat deploy never asked for (2026-10-15).
+test("an agent deploy sends its session to Cloud, and only a first deploy asks for store screenshots", async () => {
+  writeFileSync(join(dir, "index.html"), "<h1>hi</h1>");
+  const sent: Record<string, unknown>[] = [];
+  const deploy = async () => {
+    const req = new Request("http://127.0.0.1/api/cloud/apps/deploy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-OMG-Session-ID": "836d781b-4bbc-4e27-ab94-447615bce178" },
+      body: JSON.stringify({ cwd: dir, name: "Hi" }),
+    });
+    const response = await handleCloudAppsRequest(req, new URL(req.url), {
+      getAccessToken: async () => "tok",
+      controlPlaneUrl: "https://backend.example",
+      fetch: async (_input, init) => {
+        sent.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return json({ slug: "hi", url: "https://hi.omgs.app", status: "accepted", projectId: "proj-1", runId: "run-1", dashboardUrl: "" });
+      },
+    });
+    return (await response?.json()) as { storeScreenshotsHint?: string };
+  };
+  const first = await deploy();
+  expect(sent[0].sessionId).toBe("836d781b-4bbc-4e27-ab94-447615bce178");
+  expect(first.storeScreenshotsHint).toContain("omg_app_identity");
+  const second = await deploy();
+  expect(sent[1].sessionId).toBe("836d781b-4bbc-4e27-ab94-447615bce178");
+  expect(second.storeScreenshotsHint).toBeUndefined();
+});

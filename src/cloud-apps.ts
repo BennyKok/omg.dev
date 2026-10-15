@@ -81,6 +81,8 @@ export type DeployFolderInput = {
   onStatus?: (status: CloudDeployStatus) => void;
   /** Stop waiting after this long and return `pending: true` while the build continues. */
   waitBudgetMs?: number;
+  /** The agent session that ran the deploy. */
+  sessionId?: string;
 };
 
 export type DeployFolderResult = CloudDeployResult & {
@@ -91,6 +93,8 @@ export type DeployFolderResult = CloudDeployResult & {
   skippedSecrets?: string[];
   /** Tells the agent how to move skipped `.env` values into the app's env vars. */
   envHint?: string;
+  /** First deploy only: how to add store screenshots once the build is ready. */
+  storeScreenshotsHint?: string;
 };
 
 export function projectLinkPath(cwd: string): string {
@@ -242,10 +246,17 @@ export async function deployFolder(
     files: collected.files,
     projectId: input.projectId ?? link?.projectId,
     generateIcon: input.generateIcon,
+    ...(input.sessionId ? { sessionId: input.sessionId } : {}),
   });
   saveProjectLink(cwd, { slug: started.slug, projectId: started.projectId, name });
-  const secrets = skippedSecretsInfo(collected.skippedSecrets);
-  if (!input.wait) return { ...started, ...secrets };
+  const extras = {
+    ...skippedSecretsInfo(collected.skippedSecrets),
+    // A first deploy from a chat had no step that asked for store screenshots,
+    // so most store pages (omg.dev/apps/<slug>) and "ready" emails showed no
+    // picture of the app (2026-10-15).
+    ...(link ? {} : { storeScreenshotsHint: STORE_SCREENSHOTS_HINT }),
+  };
+  if (!input.wait) return { ...started, ...extras };
   const status = await waitForDeploy(client, started.slug, {
     intervalMs: input.intervalMs,
     // The budget covers the whole call, upload included, so the agent's
@@ -264,9 +275,12 @@ export async function deployFolder(
     status: status.status ?? started.status,
     latest: status,
     ...(status.pending ? { pending: true as const } : {}),
-    ...secrets,
+    ...extras,
   };
 }
+
+export const STORE_SCREENSHOTS_HINT =
+  "When this build is ready, add store screenshots: open the live link at phone size (390x844) and capture its 3 main screens with real-looking sample data (no empty states, error screens or dev overlays). Put them in the app's public folder under omg-store/ (served as /omg-store/1.png, /omg-store/2.png, /omg-store/3.png; that folder is public even when the app needs sign-in), deploy again, and call omg_app_identity with screenshotUrls set to their live https links, in order. They show on the app's store page and in its \"ready\" email. Skip this for a slide deck or an app with no screens.";
 
 function skippedSecretsInfo(names: string[]): Pick<DeployFolderResult, "skippedSecrets" | "envHint"> {
   const unique = [...new Set(names)];
@@ -459,6 +473,7 @@ export async function handleCloudAppsRequest(
         wait?: unknown;
         agentWait?: unknown;
         generateIcon?: unknown;
+        sessionId?: unknown;
       } | null;
       if (typeof body?.cwd !== "string" || !body.cwd.trim()) {
         return jsonResponse({ error: "cwd is required" }, 400);
@@ -470,6 +485,9 @@ export async function handleCloudAppsRequest(
         // An agent tool call must answer before its client aborts the request.
         waitBudgetMs: body.agentWait === true ? AGENT_DEPLOY_WAIT_MS : undefined,
         generateIcon: body.generateIcon === true,
+        sessionId: typeof body.sessionId === "string" && body.sessionId.trim()
+          ? body.sessionId.trim()
+          : req.headers.get("X-OMG-Session-ID")?.trim() || undefined,
       });
       return jsonResponse(deployed);
     }

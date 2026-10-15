@@ -78,6 +78,8 @@ export type CloudDeploySourceInput = {
   files: CloudSourceFile[];
   projectId?: string;
   generateIcon?: boolean;
+  /** The agent session that ran the deploy. Cloud links it from the app's "ready" email. */
+  sessionId?: string;
 };
 
 export type CloudEnvSummary = {
