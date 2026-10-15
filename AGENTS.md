@@ -78,8 +78,12 @@ The web type check needs no build. The ROOT one still needs
 `web/src/lib/omg-client.ts`, which imports `@omg-dev/client`. `exclude` stops
 direct inclusion, not imports. The root program has no DOM library, so it
 cannot read that package from source the way `web/tsconfig.json` does. In a
-fresh worktree, run `bun run --cwd packages/client build` once. That is a few
-seconds, not the full `build:packages`.
+fresh worktree, build the protocol package first and then the client:
+`bun run --cwd packages/protocol build && bun run --cwd packages/client build`.
+That is a few seconds, not the full `build:packages`. The client imports the
+protocol package's `dist`. Built alone, it fails with
+`Cannot find module '@omg-dev/protocol'` and a follow-on `TS2322` in
+`src/index.ts`. That is a missing prerequisite, not a code error.
 
 `bun run test` builds exactly two prerequisites: `packages/protocol` and
 `packages/client`. That is the whole chain. `src/plan-limit-error.test.ts`
