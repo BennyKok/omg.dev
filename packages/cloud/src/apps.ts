@@ -33,6 +33,8 @@ export type CloudWhoami = {
 export type CloudAppRow = {
   slug: string;
   name: string;
+  /** The id a project folder links to. Missing on a control plane older than the field. */
+  projectId?: string;
   sandboxState?: string;
   latestRunId?: string | null;
   dashboardUrl?: string;

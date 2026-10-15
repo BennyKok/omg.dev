@@ -27,6 +27,7 @@ import {
   Folder,
   FolderMinus,
   FolderPlus,
+  Globe,
   GripVertical,
   Layers,
   Loader2,
@@ -58,6 +59,8 @@ export type ProjectFolderMenuProps = {
   onRemove?: (project: string) => Promise<void>;
   onAddFolder?: () => void;
   onNewFolder?: () => void;
+  /** Folders whose project links to a hosted app. They get a globe. */
+  liveProjects?: ReadonlySet<string>;
   /**
    * "bar" is a full-width row. "chip" is a small pill, sized to its label
    * and capped, for the trailing edge of the rail's New session row, where
@@ -79,6 +82,7 @@ export function ProjectFolderMenu({
   onRemove,
   onAddFolder,
   onNewFolder,
+  liveProjects,
   trigger = "bar",
 }: ProjectFolderMenuProps) {
   const [open, setOpen] = useState(false);
@@ -197,6 +201,7 @@ export function ProjectFolderMenu({
                       selected={value === folder.value}
                       icon={<Folder className="size-3.5" />}
                       label={labelFor(folder.value)}
+                      live={liveProjects?.has(folder.value)}
                       count={counts?.get(folder.value)}
                       onClick={() => choose(folder.value)}
                     />
@@ -257,12 +262,14 @@ function PickRow({
   selected,
   icon,
   label,
+  live = false,
   count,
   onClick,
 }: {
   selected: boolean;
   icon: ReactNode;
   label: string;
+  live?: boolean;
   count?: number;
   onClick: () => void;
 }) {
@@ -278,7 +285,13 @@ function PickRow({
       )}
     >
       <span className="shrink-0 text-muted-foreground">{icon}</span>
-      <span className="min-w-0 flex-1 truncate">{label}</span>
+      <span className={cn("min-w-0 truncate", !live && "flex-1")}>{label}</span>
+      {live ? (
+        <>
+          <Globe className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" aria-label="Live app" />
+          <span className="flex-1" />
+        </>
+      ) : null}
       {count ? (
         <span className="shrink-0 text-xs tabular-nums text-muted-foreground" aria-label={`${count} session${count === 1 ? "" : "s"}`}>
           {count}
