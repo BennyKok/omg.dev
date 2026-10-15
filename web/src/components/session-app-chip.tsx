@@ -22,28 +22,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-export type SessionAppLink = { slug: string; url: string; name?: string };
+import { consoleAppUrl, type AppLink } from "../../../packages/protocol/src/app-link";
 
-type RepoWithLink = { cwd: string; project?: string; deploy?: SessionAppLink };
-
-/** The repo a session runs in: its folder, or the repo that holds its worktree. */
-export function sessionAppRepo<R extends RepoWithLink>(
-  session: { cwd?: string | null; project?: string | null },
-  repos: readonly R[],
-): R | undefined {
-  const cwd = session.cwd?.trim();
-  if (!cwd) return undefined;
-  const byFolder = repos
-    .filter((repo) => cwd === repo.cwd || cwd.startsWith(`${repo.cwd}/`))
-    .sort((a, b) => b.cwd.length - a.cwd.length)[0];
-  if (byFolder) return byFolder;
-  // A worktree lives outside its repo folder. The project label still names it.
-  return session.project ? repos.find((repo) => repo.project === session.project) : undefined;
-}
-
-export function consoleAppUrl(slug: string): string {
-  return `https://console.omg.dev/apps/${encodeURIComponent(slug)}`;
-}
+export { consoleAppUrl, sessionAppRepo } from "../../../packages/protocol/src/app-link";
+export type SessionAppLink = AppLink;
 
 export function SessionAppChip({
   link,
