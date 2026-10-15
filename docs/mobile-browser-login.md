@@ -9,8 +9,9 @@ cannot load, it shows the first letter of the domain. The reason the agent
 gave is in the agent's own message above the row, and the target computer is
 named in the native consent alert, so the row repeats neither.
 The app opens a private `WKWebView`. After signing in, the user taps
-**Use login**, checks the site and target computer, and taps **Transfer login**.
-The runtime imports the approved site cookies into its shared Chrome browser.
+**Use login**, checks the listed sites and target computer, and taps
+**Transfer login**. The runtime imports the approved cookies into its shared
+Chrome browser.
 It then sends a status message to the requesting agent.
 
 The agent must inspect the protected page before treating the login as complete.
@@ -44,7 +45,7 @@ agent. The agent can then check status. It must not poll in a tight loop.
 ## Ownership
 
 - `src/computer/login.ts`: request lifecycle and HTTP handler. One instance in
-  `serve` owns all state. It validates session ownership, site scope, expiry,
+  `serve` owns all state. It validates session ownership, cookie domains, expiry,
   one-use claims, body limits, and transfer concurrency.
 - `src/computer/browser.ts`: import into the existing agent browser via CDP.
 - `packages/protocol/src/browser-login.ts`: shared public state and transfer DTOs.
@@ -54,8 +55,21 @@ agent. The agent can then check status. It must not poll in a tight loop.
 - `src/commands/mcp.ts` and `src/omg-capabilities.ts`: agent tools and guidance.
 
 The native sheet creates a separate, nonpersistent cookie store per request.
-It exports matching site cookies only after consent. The server checks their
-registrable domain, including private suffixes, before CDP import.
+The transfer is not scoped to the requested URL. That URL is only the page
+where the sheet opens. Logins often finish on another host: a sign-in
+subdomain, a regional console, or an identity provider such as
+`accounts.google.com`. A host-scoped transfer could not complete those, and
+an agent cannot know the final host before it asks.
+
+After consent, the sheet exports every unexpired cookie in its store. Because
+the store is new and empty for each request, these are exactly the sites the
+user opened in the sheet. The consent alert lists every one of those sites by
+name. The server rejects a cookie whose domain is a public suffix, including
+private suffixes such as `github.io`, because such a cookie applies to every
+tenant under it. The importer reads each cookie back from its own domain.
+
+An older iOS app still sends only the requested host's cookies. The server
+accepts both shapes.
 Cookies and claim tokens are not persisted in request state or included in
 public status. Browser cookies persist in Chrome under its normal behavior.
 Requests expire after ten minutes. Client presence expires after 45 seconds.

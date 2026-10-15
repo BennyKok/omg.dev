@@ -49,7 +49,7 @@
     {
       "name": "Website sign-in",
       "goal": "Tap Sign in to test site in the web page.",
-      "done": "The website confirms sign-in",
+      "done": "The website confirms sign-in. The sheet has moved to a different site than the one the agent requested.",
       "expect": [
         "Test account signed in"
       ]
@@ -61,7 +61,12 @@
       "expect": [
         "Use this login on your computer?",
         "Transfer login",
-        "Test Computer"
+        "Test Computer",
+        "localtest.me"
+      ],
+      "forbid": [
+        "Login not ready",
+        "Finish signing in and return to"
       ]
     },
     {
