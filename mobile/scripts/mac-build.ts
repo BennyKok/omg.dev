@@ -117,7 +117,10 @@ async function main(): Promise<number> {
     // writes ios/ into the tree and we never want that carried between runs.
     `if [ ! -d ~/${REPO}/.git ]; then git clone ${ORIGIN} ~/${REPO}; fi`,
     `cd ~/${REPO}`,
-    "git fetch -q origin",
+    // The clone was made with a main-only refspec, so a plain fetch never sees
+    // a release branch, and the workflow passes that branch's commit SHA.
+    // Fetch every branch so --ref accepts a branch name or a commit on one.
+    'git fetch -q --prune origin "+refs/heads/*:refs/remotes/origin/*"',
     `git reset -q --hard origin/${ref} 2>/dev/null || git reset -q --hard ${ref}`,
     "git clean -qfd mobile/ios || true",
     'echo "==> building $(git log --oneline -1)"',
