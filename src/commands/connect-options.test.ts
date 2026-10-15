@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { cmdConnect, parseRelayOption } from "./connect";
+import { cmdConnect, parseRelayOption, relayHandshakeAccepted } from "./connect";
 test("copied omg command carries its relay without an environment prefix", () => {
   expect(parseRelayOption(["ABC123", "--relay", "wss://relay.example/connect", "--url", "https://box.example"])).toEqual({
     args: ["ABC123", "--url", "https://box.example"], relayUrl: "wss://relay.example/connect",
@@ -41,4 +41,10 @@ test("relay option rejects missing, duplicate and unsafe values", () => {
   for (const args of [["--relay"], ["--relay", "--url"], ["--relay", "file:///tmp/x"], ["--relay", "https://relay.example"], ["--relay", "wss://user:pass@relay.example"], ["--relay", "wss://a", "--relay", "wss://b"]]) {
     expect(() => parseRelayOption(args)).toThrow("omg connect:");
   }
+});
+
+test("event forwarding waits for the relay authentication acknowledgement", () => {
+  expect(relayHandshakeAccepted({ type: "ping" })).toBe(false);
+  expect(relayHandshakeAccepted({ type: "error", message: "not authenticated" })).toBe(false);
+  expect(relayHandshakeAccepted({ type: "hello-ok", caps: ["http-stream"] })).toBe(true);
 });
