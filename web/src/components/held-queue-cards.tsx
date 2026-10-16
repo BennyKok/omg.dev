@@ -12,6 +12,14 @@ import type { OmgQueueMessage } from "../lib/omg-chat-transport";
  */
 export const LOCAL_HELD_ID_PREFIX = "local-held-";
 
+/** Held texts sent together, in queue order, as one message. */
+export function joinHeldTexts(rows: { text: string }[]): string {
+  return rows
+    .map((row) => row.text.trim())
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 /**
  * The held sends under the composer: queue-mode text the server keeps back
  * until the running turn ends, then releases in this order. Each card is still
@@ -34,12 +42,13 @@ export function HeldQueueCards({
   onChange: (update: (current: OmgQueueMessage[]) => OmgQueueMessage[]) => void;
   onError: (message: string | null) => void;
   /**
-   * Stop waiting and steer this text into the running turn. The caller paints
-   * the bubble first, then awaits `release` (which takes the row out of the
-   * held queue) before it sends, so a failed release never sends twice. A
-   * rejection puts the card back.
+   * Stop waiting and steer the whole queue into the running turn as one
+   * message. The caller paints `text` first, then awaits `release`, which
+   * takes the rows out of the held queue and resolves to the text of the rows
+   * it actually released. The caller sends THAT text, so a failed release
+   * never sends twice. A rejection puts the cards back.
    */
-  onSendNow: (text: string, release: () => Promise<void>) => Promise<void>;
+  onSendNow: (text: string, release: () => Promise<string>) => Promise<void>;
   request?: <T>(path: string, init?: RequestInit) => Promise<T>;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -83,21 +92,39 @@ export function HeldQueueCards({
       fail(err);
     }
   };
-  // The card leaves and the caller paints the bubble in the same tick, so the
-  // text never disappears while the delete is in flight. The delete still runs
-  // before the send, so a failed send never duplicates the row. A failed
-  // delete brings the card back (fail() refreshes); a failed send after the
-  // delete is the same trade as mobile: never twice, even if the text has to
-  // be retyped.
-  const sendNow = async (id: string, text: string) => {
-    onChange((current) => current.filter((item) => item.id !== id));
+  // Send now takes the WHOLE queue, not just the tapped card: the user has
+  // decided to stop waiting, and leaving the other cards behind would release
+  // them one per idle turn after a reply that already saw the first. The
+  // texts go in queue order as ONE steer, so the agent gets one turn.
+  //
+  // The cards leave and the caller paints the bubble in the same tick, so the
+  // text never disappears while the deletes are in flight. The deletes still
+  // run before the send, and only the rows whose delete succeeded are sent,
+  // so a failed delete never duplicates a row: that card comes back (fail()
+  // refreshes) and stays queued. Cards still waiting for their server row
+  // (local ids) cannot be deleted yet, so they stay.
+  const sendNow = async () => {
+    const rows = items.filter((item) => !item.id.startsWith(LOCAL_HELD_ID_PREFIX) && item.text.trim());
+    if (!rows.length) return;
+    const ids = new Set(rows.map((item) => item.id));
+    onChange((current) => current.filter((item) => !ids.has(item.id)));
+    const failures: unknown[] = [];
     try {
-      await onSendNow(text, async () => {
-        await request(`${base}/${id}`, { method: "DELETE" });
+      await onSendNow(joinHeldTexts(rows), async () => {
+        const results = await Promise.allSettled(
+          rows.map((item) => request(`${base}/${item.id}`, { method: "DELETE" })),
+        );
+        const released = rows.filter((_, index) => results[index]?.status === "fulfilled");
+        results.forEach((result) => {
+          if (result.status === "rejected") failures.push(result.reason);
+        });
+        if (!released.length) throw failures[0];
+        return joinHeldTexts(released);
       });
     } catch (err) {
-      fail(err);
+      return fail(err);
     }
+    if (failures.length) fail(failures[0]);
   };
 
   const hidden = expanded ? 0 : Math.max(0, items.length - 1);
@@ -206,10 +233,12 @@ export function HeldQueueCards({
               <>
                 <button
                   type="button"
-                  onClick={() => void sendNow(item.id, item.text)}
+                  onClick={() => void sendNow()}
                   className="shrink-0 rounded-full p-1 text-muted-foreground hover:text-foreground"
-                  aria-label="Send now, into the current turn"
-                  title="Send now"
+                  aria-label={
+                    items.length > 1 ? "Send all queued now, into the current turn" : "Send now, into the current turn"
+                  }
+                  title={items.length > 1 ? "Send all now" : "Send now"}
                 >
                   <ArrowUp className="size-3.5" />
                 </button>

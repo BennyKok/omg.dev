@@ -17410,14 +17410,14 @@ function SessionChatBody({
   // succeeds, because the send must not start before the row has left the
   // queue: a release that fails means the server may already have sent it.
   const steerHeldText = useCallback(
-    async (text: string, release: () => Promise<void>) => {
-      const outgoingText = text.trim();
-      if (!sid || !outgoingText) return;
+    async (text: string, release: () => Promise<string>) => {
+      const paintedText = text.trim();
+      if (!sid || !paintedText) return;
       const omgMessage = {
         role: "user",
         kind: "text",
-        text: outgoingText,
-        html: escapeHtml(outgoingText).replace(/\n/g, "<br>"),
+        text: paintedText,
+        html: escapeHtml(paintedText).replace(/\n/g, "<br>"),
         ts: Date.now(),
         pending: true,
       };
@@ -17426,8 +17426,12 @@ function SessionChatBody({
       if (placeholder) setMessages((current) => [...current, placeholder]);
       const dropPlaceholder = () =>
         setMessages((current) => current.filter((message) => message.id !== placeholderId));
+      let outgoingText: string;
       try {
-        await release();
+        // The text of the rows the server actually let go. It is shorter than
+        // the painted text only when some deletes failed; those rows stay
+        // queued, so sending them too would deliver them twice.
+        outgoingText = (await release()).trim();
       } catch (err) {
         dropPlaceholder();
         throw err;
@@ -17436,11 +17440,16 @@ function SessionChatBody({
       // AbstractChat's push synchronous (it awaits a file conversion
       // otherwise), so no frame paints without the bubble.
       dropPlaceholder();
+      if (!outgoingText) return;
+      const sentMessage =
+        outgoingText === paintedText
+          ? omgMessage
+          : { ...omgMessage, text: outgoingText, html: escapeHtml(outgoingText).replace(/\n/g, "<br>") };
       void sendIntoChat(
         {
           text: outgoingText,
           files: [],
-          metadata: { omgMessage: { ...omgMessage, renderKey: placeholderId } },
+          metadata: { omgMessage: { ...sentMessage, renderKey: placeholderId } },
         },
         "steer",
       ).catch((err) => onError(err instanceof Error ? err.message : String(err)));
