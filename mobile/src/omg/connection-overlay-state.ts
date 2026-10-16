@@ -1,18 +1,27 @@
 import type { BoxyMood } from "./boxy";
 
 /**
- * The native connection overlay's rules. Same timing and moods as the web
- * overlay (web/src/lib/connection-overlay.ts), fed from the native owners:
- * `readiness` from OmgProvider and the live socket's status from the client.
+ * The native connection screen's rules. The same rules, timings and words as
+ * the hosted web app (vibes apps/web/src/components/computer/
+ * computer-connection-screen.ts), fed from the native owners: `readiness` from
+ * OmgProvider and the live socket's status from the client.
  *
- * The card blocks the app, so it is only for a screen with nothing to use:
- * a real failure, or a first connect with no saved sessions to show. Every
- * other wait (reconnect, resume, waking) is a pill, however long it takes,
- * because the saved sessions behind it stay readable and the composer still
- * works (Benny, 2026-10-07). A cold start with saved sessions lifts the
- * launch screen at once, so it gets the pill quickly ("Connecting…").
+ * There is one connection display, and it is a full page. The pill and the
+ * translucent card it replaced drew in the middle of a screen the person was
+ * using, and read as broken (Benny, 2026-10-16).
+ *
+ * - First connect with nothing saved to show: the page at once, one step at
+ *   a time. LaunchGate draws it until the first connect, ConnectionOverlay
+ *   after; both read this function, so the two look and read the same.
+ * - Saved sessions on screen, or a drop after the computer was ready: silent
+ *   for QUIET_MS, because the screen behind is usable and most drops come
+ *   back within seconds. Then the page.
+ * - After LONG_WAIT_MS the page says the wait is longer than usual. After
+ *   GIVE_UP_MS it offers Try again and another computer. No wait is without a
+ *   way out.
+ * - A real failure says so at once, with Try again.
  */
-export type ConnectionOverlayMode = "hidden" | "pill" | "overlay";
+export type ConnectionOverlayMode = "hidden" | "page";
 
 export type ReadinessKind =
   | "ready"
@@ -29,10 +38,7 @@ export type NativeOverlayInput = {
   selected: boolean;
   /** The selected computer reached `ready` at least once in this run. */
   everReady: boolean;
-  /**
-   * Saved sessions for the selected computer are on screen. A first connect
-   * then has something to use, so it is a pill, not the card.
-   */
+  /** Saved sessions for the selected computer are on screen. */
   hasSaved: boolean;
   readiness: ReadinessKind | null;
   socket: SocketStatus | null;
@@ -44,8 +50,6 @@ export type NativeOverlayInput = {
   cloudPaused: boolean;
   /** Milliseconds since the computer stopped being usable. */
   notLiveMs: number;
-  /** The app came back from the background and is not live yet. */
-  resuming: boolean;
   /** A screen that owns its own machine UI is on top (Computers, sign-in). */
   suppressed: boolean;
 };
@@ -55,26 +59,24 @@ export type NativeOverlayView = {
   mood: BoxyMood;
   title: string;
   detail: string | null;
-  /** Offer "Choose another computer": a real failure, or a long wait. */
+  /** Offer "Choose another computer". */
   canSwitch: boolean;
-  /**
-   * Offer "Try again": only a real failure. While the app is still
-   * connecting or waking, a retry button reads as "it already failed".
-   */
+  /** Offer "Try again". */
   canRetry: boolean;
   nextChangeMs: number | null;
 };
 
-export const PILL_AFTER_MS = 2_000;
-/** A wait longer than this offers another computer (never while waking). */
-export const LONG_WAIT_MS = 8_000;
+/** A drop shorter than this, with something usable on screen, shows nothing. */
+export const QUIET_MS = 10_000;
+/** After this, the page says the wait is longer than usual. */
+export const LONG_WAIT_MS = 20_000;
+/** After this, the page offers Try again and another computer. */
+export const GIVE_UP_MS = 60_000;
 /**
  * A failed check stays soft this long. The provider retries it by itself, and
  * one network error or one 502 mid-resume is usually gone within seconds.
  */
 export const FAIL_AFTER_MS = 20_000;
-/** The first connect shows quickly: there is nothing live to use yet. */
-export const STARTUP_SHOW_AFTER_MS = 600;
 
 const HIDDEN: NativeOverlayView = {
   mode: "hidden",
@@ -95,80 +97,63 @@ export function isLive(input: Pick<NativeOverlayInput, "readiness" | "socket" | 
   return input.socket !== "reconnecting" && input.socket !== "offline";
 }
 
-export function nativeOverlayView(input: NativeOverlayInput): NativeOverlayView {
-  const view = baseView(input);
-  // A soft failure must be looked at again when it settles into a hard one.
-  const failing = input.readiness === "unavailable" || input.readiness === "error" || input.socket === "offline";
-  if (view.mode === "hidden" && view.nextChangeMs === null) return view;
-  if (failing && input.notLiveMs < FAIL_AFTER_MS) {
-    const settle = FAIL_AFTER_MS - input.notLiveMs;
-    return { ...view, nextChangeMs: Math.min(view.nextChangeMs ?? settle, settle) };
-  }
-  return view;
+function nextMark(ms: number, marks: number[]): number | null {
+  const next = marks.find((mark) => mark > ms);
+  return next === undefined ? null : next - ms;
 }
 
-function baseView(input: NativeOverlayInput): NativeOverlayView {
+function failure(title: string, detail: string, canRetry: boolean): NativeOverlayView {
+  return { mode: "page", mood: "error", title, detail, canRetry, canSwitch: true, nextChangeMs: null };
+}
+
+export function nativeOverlayView(input: NativeOverlayInput): NativeOverlayView {
   if (!input.selected || input.suppressed || isLive(input)) return HIDDEN;
-  const startup = !input.everReady;
-  // Only an empty first connect blocks: nothing behind the card to use.
-  const blocking = startup && !input.hasSaved;
+  const ms = input.notLiveMs;
 
-  let mood: BoxyMood = "searching";
-  let title = input.resuming ? "Resuming…" : "Reconnecting…";
-  let detail: string | null = "Your sessions keep running. We will catch up when you are back.";
-  let hard = false;
-  let canRetry = false;
-  // Waking or resuming: the only thing to do is wait (Benny, 2026-10-07).
-  let waiting = input.resuming;
+  // Revoked access does not come back by waiting.
+  if (input.readiness === "unauthorized") {
+    return failure("This computer is no longer shared with you", "Choose another computer.", false);
+  }
   const failing = input.readiness === "unavailable" || input.readiness === "error";
-  const settledFailure = failing && input.notLiveMs >= FAIL_AFTER_MS;
-
-  if (failing && !settledFailure) {
-    // Still retrying: read as a reconnect, not as a failure.
-    mood = startup ? "booting" : "searching";
-    title = startup ? "Connecting…" : title;
-    detail = startup ? null : detail;
-  } else if (input.readiness === "unavailable") {
-    mood = "error";
-    title = "Your computer isn't responding";
-    detail = "Try again, or choose another computer.";
-    hard = true;
-    canRetry = true;
-  } else if (input.readiness === "unauthorized") {
-    mood = "error";
-    title = "No longer available";
-    detail = "This computer is no longer shared with you. Choose another computer.";
-    hard = true;
-  } else if (input.readiness === "error") {
-    mood = "error";
-    title = "Couldn't reach your computer";
-    detail = "Try again, or choose another computer.";
-    hard = true;
-    canRetry = true;
-  } else if (input.readiness === "waking" || input.cloudPaused) {
-    waiting = true;
-    mood = "booting";
-    title = "Waking your computer…";
-    detail = "This can take a moment.";
-  } else if (startup) {
-    mood = "booting";
-    title = "Connecting…";
-    detail = null;
-  } else if (input.socket === "offline" && input.notLiveMs >= FAIL_AFTER_MS) {
-    mood = "sleeping";
-    title = "Connection unavailable";
-    detail = "Check your connection, or choose another computer.";
-    hard = true;
-    canRetry = true;
+  const offline = input.socket === "offline";
+  if (failing && ms >= FAIL_AFTER_MS) {
+    return input.readiness === "unavailable"
+      ? failure("Your computer is not available", "Try again, or choose another computer.", true)
+      : failure("Could not reach your computer", "Try again, or choose another computer.", true);
+  }
+  if (offline && input.everReady && ms >= FAIL_AFTER_MS) {
+    return failure("Could not reach your computer", "Check your connection, then try again.", true);
   }
 
-  const longWait = input.notLiveMs >= LONG_WAIT_MS;
-  const base = { mood, title, detail, canSwitch: hard || (longWait && !waiting), canRetry };
-  if (hard) return { mode: "overlay", ...base, nextChangeMs: null };
+  // Something usable is on screen: stay out of the way for a while.
+  const usableBehind = input.everReady || input.hasSaved;
+  // A soft failure must be looked at again when it settles into a hard one.
+  const settleMs = (failing || offline) && ms < FAIL_AFTER_MS ? FAIL_AFTER_MS - ms : null;
+  if (usableBehind && ms < QUIET_MS) {
+    const quiet = QUIET_MS - ms;
+    return { ...HIDDEN, nextChangeMs: settleMs === null ? quiet : Math.min(quiet, settleMs) };
+  }
 
-  const showAt = input.resuming ? 0 : startup ? STARTUP_SHOW_AFTER_MS : PILL_AFTER_MS;
-  if (input.notLiveMs < showAt) return { ...HIDDEN, nextChangeMs: showAt - input.notLiveMs };
-  // Recheck at the long-wait mark, when "Choose another computer" appears.
-  const nextChangeMs = longWait ? null : LONG_WAIT_MS - input.notLiveMs;
-  return { mode: blocking ? "overlay" : "pill", ...base, nextChangeMs };
+  const waking = input.readiness === "waking" || input.cloudPaused;
+  const title = waking
+    ? "Waking your computer"
+    : input.everReady
+      ? "Reconnecting to your computer"
+      : "Connecting to your computer";
+  const gaveUp = ms >= GIVE_UP_MS;
+  const detail = gaveUp
+    ? "This is taking longer than it should. You can try again."
+    : ms >= LONG_WAIT_MS
+      ? "Still working. This can take up to a minute."
+      : null;
+  const next = nextMark(ms, [LONG_WAIT_MS, GIVE_UP_MS]);
+  return {
+    mode: "page",
+    mood: waking ? "booting" : input.everReady ? "searching" : "booting",
+    title,
+    detail,
+    canRetry: gaveUp,
+    canSwitch: gaveUp,
+    nextChangeMs: settleMs === null ? next : next === null ? settleMs : Math.min(next, settleMs),
+  };
 }

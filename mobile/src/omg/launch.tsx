@@ -44,7 +44,7 @@ import Reanimated, {
 } from "react-native-reanimated";
 
 import { WORDMARK_GAP_RATIO } from "./brand-mark";
-import { Boxy } from "./boxy";
+import { Boxy, type BoxyMood } from "./boxy";
 import { launch } from "./palette";
 import { Text } from "./text";
 import { useTheme } from "./theme";
@@ -154,7 +154,15 @@ function ShimmerText({ text, color }: { text: string; color: string }) {
   const chars = [...text];
 
   return (
-    <View style={{ flexDirection: "row" }}>
+    // One label for assistive tech: the letters are separate views only so
+    // each can carry its own brightness. Without this, VoiceOver read the
+    // caption one letter at a time.
+    <View
+      accessible
+      accessibilityRole="text"
+      accessibilityLabel={text}
+      style={{ flexDirection: "row" }}
+    >
       {chars.map((char, index) => (
         <ShimmerChar
           // Position IS the identity here: the same letter appears many times
@@ -213,10 +221,24 @@ export function LaunchScreen({
    */
   done,
   onFinished,
+  detail,
+  actions,
+  mood = "booting",
+  testID,
 }: {
   label: string;
   done?: boolean;
   onFinished?: () => void;
+  /**
+   * The connection screen's second line (connection-overlay-state.ts owns
+   * when it appears). The launch screen and the connection screen are one
+   * page, so a wait reads the same whichever of them is drawing it.
+   */
+  detail?: string | null;
+  /** Try again / Choose another computer, when the rules offer them. */
+  actions?: React.ReactNode;
+  mood?: BoxyMood;
+  testID?: string;
 }) {
   const { isDark } = useTheme();
   const tokens = isDark ? launch.dark : launch.light;
@@ -298,7 +320,7 @@ export function LaunchScreen({
   const backdropStyle = useAnimatedStyle(() => ({ opacity: backdrop.value }));
 
   return (
-    <Reanimated.View pointerEvents={leaving ? "none" : "auto"} style={[StyleSheet.absoluteFill, backdropStyle]}>
+    <Reanimated.View testID={testID} pointerEvents={leaving ? "none" : "auto"} style={[StyleSheet.absoluteFill, backdropStyle]}>
       <LaunchBackdrop />
       {/**
        * TWO LAYERS, EACH CENTRED ON THE SCREEN — the lockup and the caption —
@@ -333,15 +355,19 @@ export function LaunchScreen({
            * takes the mark's place in the exit below.
            */}
           <Reanimated.View style={markStyle}>
-            <Boxy mood="booting" size={BOXY_SIZE} color={tokens.text} testID="launch-boxy" />
+            <Boxy mood={mood} size={BOXY_SIZE} color={tokens.text} testID="launch-boxy" />
           </Reanimated.View>
         </View>
       </View>
       <Reanimated.View
-        pointerEvents="none"
+        pointerEvents={actions ? "box-none" : "none"}
         style={[StyleSheet.absoluteFill, styles.screen, styles.caption, captionStyle]}
       >
         <ShimmerText text={label} color={tokens.textMuted} />
+        {detail ? (
+          <Text style={[styles.detail, { color: tokens.textMuted }]}>{detail}</Text>
+        ) : null}
+        {actions ? <View style={styles.actions}>{actions}</View> : null}
       </Reanimated.View>
     </Reanimated.View>
   );
@@ -356,6 +382,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     gap: LOCKUP_GAP,
+  },
+  detail: {
+    marginTop: 10,
+    maxWidth: 300,
+    fontSize: 14,
+    lineHeight: 19,
+    textAlign: "center",
+  },
+  actions: {
+    marginTop: 20,
+    width: 280,
+    gap: 10,
   },
   caption: {
     // Clear of the lockup's own half-height plus a gap. The TYPE is the tall

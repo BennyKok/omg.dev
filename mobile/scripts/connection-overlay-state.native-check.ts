@@ -1,13 +1,17 @@
 import { expect, test } from "bun:test";
 import {
-  isLive,
-  LONG_WAIT_MS,
   FAIL_AFTER_MS,
-  PILL_AFTER_MS,
-  STARTUP_SHOW_AFTER_MS,
+  GIVE_UP_MS,
+  LONG_WAIT_MS,
+  QUIET_MS,
+  isLive,
   nativeOverlayView,
   type NativeOverlayInput,
 } from "../src/omg/connection-overlay-state";
+
+// The rules a person sees, and the same rules as the hosted web app
+// (vibes computer-connection-screen.ts): one full page, never a pill or a
+// card over a screen in use.
 
 const live: NativeOverlayInput = {
   selected: true,
@@ -17,138 +21,64 @@ const live: NativeOverlayInput = {
   socket: "live",
   cloudPaused: false,
   notLiveMs: 0,
-  resuming: false,
   suppressed: false,
 };
-const drop = (notLiveMs: number, extra: Partial<NativeOverlayInput> = {}) =>
-  nativeOverlayView({ ...live, socket: "reconnecting", notLiveMs, ...extra });
+const view = (extra: Partial<NativeOverlayInput>) => nativeOverlayView({ ...live, ...extra });
+const first = (notLiveMs: number, extra: Partial<NativeOverlayInput> = {}) =>
+  view({ everReady: false, readiness: "connecting", socket: "connecting", notLiveMs, ...extra });
 
 test("a live computer shows nothing", () => {
-  expect(nativeOverlayView(live).mode).toBe("hidden");
-  expect(nativeOverlayView({ ...live, readiness: "agent-limit" }).mode).toBe("hidden");
+  expect(view({}).mode).toBe("hidden");
+  expect(view({ readiness: "agent-limit" }).mode).toBe("hidden");
 });
 
-test("the first connect shows Connecting after a short wait, as on the web", () => {
-  const first = (notLiveMs: number, extra: Partial<NativeOverlayInput> = {}) =>
-    nativeOverlayView({ ...live, everReady: false, readiness: "connecting", socket: "connecting", notLiveMs, ...extra });
-  expect(first(100)).toMatchObject({ mode: "hidden", nextChangeMs: STARTUP_SHOW_AFTER_MS - 100 });
-  // Still connecting: no buttons, nothing that reads as a failure.
-  expect(first(STARTUP_SHOW_AFTER_MS)).toMatchObject({
-    mode: "overlay", mood: "booting", title: "Connecting…", canRetry: false, canSwitch: false,
-    nextChangeMs: LONG_WAIT_MS - STARTUP_SHOW_AFTER_MS,
+test("a first connect with nothing saved shows the full page at once, one step at a time", () => {
+  expect(first(0)).toMatchObject({ mode: "page", title: "Connecting to your computer", canRetry: false, canSwitch: false });
+  expect(first(0, { readiness: "waking" })).toMatchObject({ mode: "page", title: "Waking your computer" });
+  expect(first(0, { cloudPaused: true })).toMatchObject({ mode: "page", title: "Waking your computer" });
+});
+
+test("a screen with something usable stays quiet, then the full page takes over", () => {
+  // Saved sessions on a cold start.
+  expect(first(2_000, { hasSaved: true })).toEqual(expect.objectContaining({ mode: "hidden", nextChangeMs: QUIET_MS - 2_000 }));
+  expect(first(QUIET_MS, { hasSaved: true })).toMatchObject({ mode: "page", title: "Connecting to your computer" });
+  // A drop after the computer was ready.
+  expect(view({ socket: "reconnecting", notLiveMs: 3_000 }).mode).toBe("hidden");
+  expect(view({ socket: "reconnecting", notLiveMs: QUIET_MS })).toMatchObject({ mode: "page", title: "Reconnecting to your computer", canRetry: false });
+});
+
+test("every wait offers Try again and another computer after the limit", () => {
+  expect(first(LONG_WAIT_MS)).toMatchObject({ detail: "Still working. This can take up to a minute.", canRetry: false, nextChangeMs: GIVE_UP_MS - LONG_WAIT_MS });
+  expect(first(GIVE_UP_MS)).toMatchObject({ mode: "page", canRetry: true, canSwitch: true, nextChangeMs: null });
+  expect(view({ socket: "reconnecting", notLiveMs: GIVE_UP_MS })).toMatchObject({ mode: "page", canRetry: true, canSwitch: true });
+});
+
+test("a failed check stays a wait while the provider retries it, then names the failure", () => {
+  const unavailable = { readiness: "unavailable" as const, socket: "offline" as const };
+  expect(view({ ...unavailable, notLiveMs: 1_000 }).mode).toBe("hidden");
+  expect(first(1_000, unavailable)).toMatchObject({ mode: "page", title: "Connecting to your computer", canRetry: false });
+  // The soft window is looked at again when it settles.
+  expect(first(1_000, unavailable).nextChangeMs).toBe(FAIL_AFTER_MS - 1_000);
+  expect(view({ ...unavailable, notLiveMs: FAIL_AFTER_MS })).toMatchObject({
+    mode: "page", mood: "error", title: "Your computer is not available", canRetry: true, canSwitch: true,
   });
-  // A long wait offers another computer, still not a retry.
-  expect(first(LONG_WAIT_MS)).toMatchObject({ mode: "overlay", canRetry: false, canSwitch: true, nextChangeMs: null });
-  expect(first(0, { readiness: null, socket: null }).nextChangeMs).toBe(STARTUP_SHOW_AFTER_MS);
-  expect(first(STARTUP_SHOW_AFTER_MS, { readiness: "waking" })).toMatchObject({
-    mode: "overlay",
-    title: "Waking your computer…",
-  });
-  expect(first(FAIL_AFTER_MS, { readiness: "unavailable" })).toMatchObject({ mode: "overlay", mood: "error" });
+  expect(view({ readiness: "error", socket: "offline", notLiveMs: FAIL_AFTER_MS })).toMatchObject({ title: "Could not reach your computer", canRetry: true });
+  expect(view({ socket: "offline", notLiveMs: FAIL_AFTER_MS })).toMatchObject({ title: "Could not reach your computer", canRetry: true });
 });
 
-test("nothing to connect to shows nothing", () => {
-  expect(drop(LONG_WAIT_MS, { selected: false, everReady: false }).mode).toBe("hidden");
-});
-
-test("a reconnect stays a pill however long it takes", () => {
-  expect(drop(500)).toMatchObject({ mode: "hidden", nextChangeMs: PILL_AFTER_MS - 500 });
-  expect(drop(PILL_AFTER_MS)).toMatchObject({
-    mode: "pill", mood: "searching", title: "Reconnecting…", canRetry: false, canSwitch: false,
-    nextChangeMs: LONG_WAIT_MS - PILL_AFTER_MS,
-  });
-  // A long wait adds Switch to the pill. It does not block the app.
-  expect(drop(LONG_WAIT_MS)).toMatchObject({ mode: "pill", canSwitch: true, canRetry: false, nextChangeMs: null });
-  expect(drop(LONG_WAIT_MS * 10)).toMatchObject({ mode: "pill" });
-});
-
-test("a first connect with saved sessions is a pill, not the card", () => {
-  const saved = (notLiveMs: number, extra: Partial<NativeOverlayInput> = {}) =>
-    nativeOverlayView({ ...live, everReady: false, hasSaved: true, readiness: "connecting", socket: "connecting", notLiveMs, ...extra });
-  expect(saved(100)).toMatchObject({ mode: "hidden", nextChangeMs: STARTUP_SHOW_AFTER_MS - 100 });
-  expect(saved(STARTUP_SHOW_AFTER_MS)).toMatchObject({ mode: "pill", title: "Connecting…", canRetry: false, canSwitch: false });
-  expect(saved(LONG_WAIT_MS * 3, { readiness: "waking" })).toMatchObject({ mode: "pill", title: "Waking your computer…", canSwitch: false });
-  // A real failure still blocks.
-  expect(saved(FAIL_AFTER_MS, { readiness: "unavailable" })).toMatchObject({ mode: "overlay", canRetry: true });
-});
-
-test("coming back from the background says Resuming at once", () => {
-  expect(drop(0, { resuming: true })).toMatchObject({ mode: "pill", title: "Resuming…" });
-});
-
-test("hard failures show the card at once with the right mood", () => {
-  expect(drop(FAIL_AFTER_MS, { socket: "offline" })).toMatchObject({ mode: "overlay", mood: "sleeping", canRetry: true });
-  expect(drop(FAIL_AFTER_MS, { socket: "reconnecting", readiness: "unavailable" })).toMatchObject({ mode: "overlay", mood: "error", canRetry: true });
-  expect(drop(FAIL_AFTER_MS, { socket: "reconnecting", readiness: "error" })).toMatchObject({ mode: "overlay", canRetry: true });
-  // Retrying cannot bring back a withdrawn share.
-  expect(drop(0, { socket: "live", readiness: "unauthorized" })).toMatchObject({
-    mode: "overlay",
-    title: "No longer available",
-    canRetry: false,
+test("revoked access says so at once and offers only another computer", () => {
+  expect(view({ readiness: "unauthorized", socket: "live", notLiveMs: 0 })).toMatchObject({
+    mode: "page", title: "This computer is no longer shared with you", canRetry: false, canSwitch: true,
   });
 });
 
-test("a paused cloud computer reads as waking, because the app wakes it", () => {
-  // A computer that answers is live, whatever the computer list last said.
-  expect(nativeOverlayView({ ...live, cloudPaused: true }).mode).toBe("hidden");
-  const first = nativeOverlayView({
-    ...live, everReady: false, readiness: "connecting", socket: "connecting", cloudPaused: true, notLiveMs: STARTUP_SHOW_AFTER_MS,
-  });
-  expect(first).toMatchObject({ mode: "overlay", mood: "booting", title: "Waking your computer…", canRetry: false, canSwitch: false });
-  expect(drop(PILL_AFTER_MS, { cloudPaused: true })).toMatchObject({ mode: "pill", title: "Waking your computer…", canRetry: false });
+test("a screen that owns machine UI, or no selected computer, shows nothing", () => {
+  expect(first(GIVE_UP_MS, { suppressed: true }).mode).toBe("hidden");
+  expect(first(GIVE_UP_MS, { selected: false }).mode).toBe("hidden");
 });
 
-test("a waking computer boots Boxy", () => {
-  expect(drop(LONG_WAIT_MS, { socket: "reconnecting", readiness: "waking" })).toMatchObject({
-    mode: "pill",
-    mood: "booting",
-    title: "Waking your computer…",
-  });
-});
-
-test("screens that own machine UI keep the overlay away", () => {
-  expect(drop(0, { socket: "offline", suppressed: true }).mode).toBe("hidden");
-});
-
-test("a failed check stays soft while the app retries it", () => {
-  // One 502 or one network error: no failure card, no Try again yet.
-  expect(drop(0, { socket: "reconnecting", readiness: "unavailable" })).toMatchObject({ mode: "hidden" });
-  expect(drop(PILL_AFTER_MS, { socket: "reconnecting", readiness: "unavailable" })).toMatchObject({
-    mode: "pill", title: "Reconnecting…", canRetry: false,
-  });
-  const long = drop(LONG_WAIT_MS, { socket: "reconnecting", readiness: "error" });
-  expect(long).toMatchObject({ mode: "pill", title: "Reconnecting…", canRetry: false, nextChangeMs: FAIL_AFTER_MS - LONG_WAIT_MS });
-  // On the first connect it reads as connecting.
-  expect(nativeOverlayView({ ...live, everReady: false, readiness: "unavailable", notLiveMs: STARTUP_SHOW_AFTER_MS })).toMatchObject({
-    mode: "overlay", title: "Connecting…", canRetry: false,
-  });
-});
-
-test("waking or resuming only asks the user to wait", () => {
-  // No switcher and no retry, however long the wake takes.
-  expect(drop(LONG_WAIT_MS * 3, { socket: "reconnecting", readiness: "waking" })).toMatchObject({
-    mode: "pill", title: "Waking your computer…", canSwitch: false, canRetry: false,
-  });
-  expect(drop(LONG_WAIT_MS * 3, { cloudPaused: true })).toMatchObject({ canSwitch: false, canRetry: false });
-  expect(drop(LONG_WAIT_MS, { resuming: true })).toMatchObject({ title: "Resuming…", canSwitch: false, canRetry: false });
-  // A plain long reconnect still offers another computer.
-  expect(drop(LONG_WAIT_MS)).toMatchObject({ canSwitch: true });
-});
-
-test("a brief offline event stays silent, then a pill, before any failure card", () => {
-  expect(drop(100, { socket: "offline" })).toMatchObject({ mode: "hidden" });
-  expect(drop(PILL_AFTER_MS, { socket: "offline" })).toMatchObject({ mode: "pill", canRetry: false });
-  expect(drop(FAIL_AFTER_MS - 1, { socket: "offline" })).toMatchObject({ mode: "pill", nextChangeMs: 1 });
-  expect(drop(FAIL_AFTER_MS, { socket: "offline" })).toMatchObject({ mode: "overlay", canRetry: true });
-});
-
-test("socket recovery overrides stale bootstrap failure but not revoked access", () => {
-  for (const readiness of ["unavailable", "error", "connecting", "waking"] as const) {
-    const input = { ...live, readiness, notLiveMs: FAIL_AFTER_MS * 2 };
-    expect(isLive(input)).toBe(true);
-    expect(nativeOverlayView(input).mode).toBe("hidden");
-  }
-  expect(nativeOverlayView({ ...live, readiness: "unauthorized" }).mode).toBe("overlay");
-  expect(isLive({ ...live, everReady: false, readiness: "unavailable" })).toBe(false);
-  expect(isLive({ ...live, everReady: false, hasSaved: true, readiness: "unavailable" })).toBe(true);
+test("a fresh socket beats an older failed probe when there is content to show", () => {
+  expect(isLive({ readiness: "unavailable", socket: "live", everReady: true, hasSaved: false })).toBe(true);
+  expect(isLive({ readiness: "unavailable", socket: "live", everReady: false, hasSaved: false })).toBe(false);
+  expect(isLive({ readiness: "unauthorized", socket: "live", everReady: true, hasSaved: true })).toBe(false);
 });

@@ -1,4 +1,3 @@
-import { sessionCache } from "../src/omg/session-cache-store";
 import { DarkTheme, DefaultTheme, router, Stack, ThemeProvider, type Href } from "expo-router";
 import { IpadWorkspaceLayout } from "../src/omg/sessions-screen";
 import { StatusBar } from "expo-status-bar";
@@ -46,7 +45,8 @@ import { launch } from "../src/omg/palette";
 import { useTheme } from "../src/omg/theme";
 import { getFirstRunRecord, markFirstRunRecordDone } from "../src/omg/first-run-record";
 import { ToastProvider } from "../src/omg/toast";
-import { ConnectionOverlay } from "../src/omg/connection-overlay";
+import { ConnectionActions, ConnectionOverlay, useNativeConnectionView } from "../src/omg/connection-overlay";
+import { GIVE_UP_MS } from "../src/omg/connection-overlay-state";
 
 /**
  * THE LAUNCH SCREEN IS THE MARK, BREATHING — not a mark with a spinner under it.
@@ -115,24 +115,26 @@ function Splash() {
  * machine reconnects. After the first hand-off the list owns its own
  * connecting states, inline, where they belong.
  */
-function LaunchGate() {
-  const { authStatus, readiness, bindingId, machinesLoaded } = useOmg();
+function LaunchGate({ onDone }: { onDone: () => void }) {
+  const { authStatus, bindingId, machinesLoaded } = useOmg();
+  // The same rules as every later wait (connection-overlay-state.ts): one
+  // page, one step at a time, Try again and another computer after a minute.
+  const { view, retry, chooseAnother } = useNativeConnectionView({ suppressible: false });
   const [finished, setFinished] = useState(false);
   /**
-   * A HARD CEILING ON HOLDING THE APP HOSTAGE.
-   *
-   * Everything below waits on the machine answering, and a machine that never
-   * answers would leave this screen up forever — the app would look hung, with
-   * no list, no error and no way to reach Settings to switch computers. After
-   * eight seconds the surface underneath takes over and says what is wrong in
-   * its own words, which it is built to do. The splash is a courtesy for the
-   * common fast case, not a gate on using the app.
+   * A HARD CEILING ON HOLDING THE APP HOSTAGE, for the part before there is a
+   * computer to wait on. Once one is selected, the connection rules own the
+   * wait and offer their own way out on this same screen.
    */
   const [expired, setExpired] = useState(false);
   useEffect(() => {
-    const timer = setTimeout(() => setExpired(true), 8000);
+    const timer = setTimeout(() => setExpired(true), GIVE_UP_MS);
     return () => clearTimeout(timer);
   }, []);
+  const finish = () => {
+    setFinished(true);
+    onDone();
+  };
 
   /**
    * AUTH IS PART OF SETTLING, and leaving it out is what let the very screen
@@ -144,18 +146,14 @@ function LaunchGate() {
    * knew nothing yet, and unmounted for good. By the time the account and its
    * computers arrived, the list was on screen saying "Connecting to No
    * computer…" with no cover left to hide it. Reported from the device twice.
+   *
+   * Saved sessions lift it at once: the connection rules keep a usable
+   * screen quiet for the first seconds.
    */
-  const cachedRoster = bindingId ? sessionCache.read<unknown[]>(`roster:${bindingId}`) : null;
-  const canShowSaved = Array.isArray(cachedRoster) && cachedRoster.length > 0;
-  const settling =
-    !expired &&
-    (authStatus === "loading" ||
-      (authStatus === "signed-in" && !canShowSaved &&
-        (!machinesLoaded ||
-          (!!bindingId &&
-            (readiness === null ||
-              readiness.status === "connecting" ||
-              readiness.status === "waking")))));
+  const preparing = authStatus === "loading" || (authStatus === "signed-in" && !machinesLoaded);
+  const settling = preparing
+    ? !expired
+    : authStatus === "signed-in" && !!bindingId && view.mode === "page";
 
   if (finished) return null;
 
@@ -166,15 +164,24 @@ function LaunchGate() {
        * at the moment this screen exists, which is how the old copy ended up
        * reading "Connecting to No computer…".
        */
-      label={
-        readiness?.status === "waking"
-          ? "Waking your computer"
-          : machinesLoaded && bindingId
-            ? "Connecting"
-            : "Setting things up"
+      label={preparing || view.mode !== "page" ? "Setting things up" : view.title}
+      detail={preparing ? null : view.detail}
+      mood={preparing ? "booting" : view.mood}
+      actions={
+        preparing || view.mode !== "page" ? null : (
+          <ConnectionActions
+            view={view}
+            onRetry={retry}
+            // The gate covers the navigator, so it leaves before the picker opens.
+            onChooseAnother={() => {
+              finish();
+              chooseAnother();
+            }}
+          />
+        )
       }
       done={!settling}
-      onFinished={() => setFinished(true)}
+      onFinished={finish}
     />
   );
 }
@@ -1060,6 +1067,8 @@ export default function Layout() {
   useEffect(() => {
     void loadDemoMode().finally(() => setDemoReady(true));
   }, []);
+  // LaunchGate owns the first connect; ConnectionOverlay every wait after it.
+  const [launchDone, setLaunchDone] = useState(false);
   if (!demoReady) return null;
   return (
     <OmgProvider>
@@ -1092,9 +1101,9 @@ export default function Layout() {
           <RootNavigator />
           {/* Connection drops after the first connect. Below LaunchGate, which
               owns the first connect; above every screen and its header. */}
-          <ConnectionOverlay />
+          <ConnectionOverlay enabled={launchDone} />
           {/* Above the navigator so it covers the bar too — see LaunchGate. */}
-          <LaunchGate />
+          <LaunchGate onDone={() => setLaunchDone(true)} />
         </ToastProvider>
       </ThemeProvider>
     </OmgProvider>

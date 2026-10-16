@@ -7,63 +7,100 @@
     {
       "name": "Launch screen",
       "goal": "If a system alert such as Apple Account Verification is showing, tap Not Now. Otherwise wait and do not tap anything.",
-      "done": "The launch screen shows the Connecting caption over the stage harness.",
+      "done": "The launch screen shows Boxy and the caption Connecting to your computer.",
       "expect": [
-        "Stage: Launch"
+        "Connecting to your computer"
       ],
       "timeoutMs": 60000
     },
     {
       "name": "Live list",
-      "goal": "Wait for the launch screen to leave by itself. Do not tap anything.",
-      "done": "The harness shows Stage: Live and the fake session list with no connection card.",
+      "goal": "Tap Next stage once.",
+      "done": "The launch screen is gone. The harness shows Stage: Live and the fake session list with nothing over it.",
       "expect": [
         "Stage: Live",
         "Ads report status and conversions"
       ],
       "forbid": [
-        "Connection unavailable",
-        "Reconnecting\u2026"
+        "Reconnecting to your computer",
+        "Try again"
       ],
       "timeoutMs": 60000
     },
     {
-      "name": "Reconnecting pill",
+      "name": "Brief drop stays silent",
       "goal": "Tap Next stage once.",
-      "done": "A small Reconnecting pill floats over the list with no Retry, and the list is still readable.",
-      "expect": [
-        "Stage: Pill",
-        "Reconnecting\u2026",
-        "Top up user credits system"
-      ],
-      "timeoutMs": 60000,
-      "forbid": [
-        "Retry",
-        "Try again"
-      ]
-    },
-    {
-      "name": "Brief offline event",
-      "goal": "Tap Next stage once.",
-      "done": "The brief offline event shows no connection dialog.",
+      "done": "The harness shows Stage: Brief drop and the list, with no connection page, pill or card over it.",
       "expect": [
         "Stage: Brief drop",
         "Top up user credits system"
       ],
       "forbid": [
-        "Connection unavailable",
+        "Reconnecting to your computer",
         "Reconnecting\u2026",
         "Try again"
       ],
       "timeoutMs": 60000
     },
     {
-      "name": "Offline card",
+      "name": "Long drop takes the full page",
       "goal": "Tap Next stage once.",
-      "done": "A card says Connection unavailable with Try again and Choose another computer. Boxy is visible at the screen center after moving down from the pill.",
+      "done": "A full page covers the list: Boxy in the middle and the caption Reconnecting to your computer. There is no Try again button. The list is not visible.",
       "expect": [
-        "Stage: Offline",
-        "Connection unavailable",
+        "Reconnecting to your computer"
+      ],
+      "forbid": [
+        "Try again",
+        "Choose another computer"
+      ],
+      "timeoutMs": 60000
+    },
+    {
+      "name": "First connect",
+      "goal": "Tap Next stage once.",
+      "done": "The full page reads Connecting to your computer, with no buttons.",
+      "expect": [
+        "Connecting to your computer"
+      ],
+      "forbid": [
+        "Try again",
+        "Reconnecting to your computer"
+      ],
+      "timeoutMs": 60000
+    },
+    {
+      "name": "Paused wakes by itself",
+      "goal": "Tap Next stage once.",
+      "done": "The full page reads Waking your computer, with no buttons.",
+      "expect": [
+        "Waking your computer"
+      ],
+      "forbid": [
+        "Try again",
+        "Choose another computer",
+        "Computer paused"
+      ],
+      "timeoutMs": 60000
+    },
+    {
+      "name": "Long wait explains itself",
+      "goal": "Tap Next stage once.",
+      "done": "The full page reads Waking your computer and, under it, Still working. This can take up to a minute. There are no buttons yet.",
+      "expect": [
+        "Waking your computer",
+        "Still working. This can take up to a minute."
+      ],
+      "forbid": [
+        "Try again"
+      ],
+      "timeoutMs": 60000
+    },
+    {
+      "name": "After a minute there is a way out",
+      "goal": "Tap Next stage once.",
+      "done": "The full page offers Try again and Choose another computer under Connecting to your computer.",
+      "expect": [
+        "Connecting to your computer",
         "Try again",
         "Choose another computer"
       ],
@@ -72,85 +109,47 @@
     {
       "name": "Choose another works",
       "goal": "Tap Choose another computer once.",
-      "done": "The text Choose another tapped appears under the list.",
+      "done": "The text Choose another tapped is on screen.",
       "expect": [
         "Choose another tapped"
       ],
       "timeoutMs": 60000
     },
     {
-      "name": "Paused wakes by itself",
-      "goal": "The Next stage tap already happened. Do not tap anything; wait for the card to show.",
-      "done": "A card says Waking your computer with no buttons. It does not say Computer paused. Boxy stays at the same center position when the card text and buttons change.",
+      "name": "Unavailable computer",
+      "goal": "Tap Next stage once.",
+      "done": "The full page reads Your computer is not available, with Try again and Choose another computer.",
       "expect": [
-        "Stage: Paused",
-        "Waking your computer\u2026"
-      ],
-      "timeoutMs": 60000,
-      "tapAt": "50%,91%",
-      "forbid": [
-        "Computer paused",
+        "Your computer is not available",
         "Try again",
         "Choose another computer"
-      ]
+      ],
+      "timeoutMs": 60000
     },
     {
-      "name": "Error card",
-      "goal": "The Next stage tap already happened. Do not tap anything; wait for the card to show.",
-      "done": "A card says Your computer isn't responding with Try again.",
+      "name": "Offline",
+      "goal": "Tap Next stage once.",
+      "done": "The full page reads Could not reach your computer, with Try again.",
       "expect": [
-        "Stage: Error",
-        "Your computer isn't responding",
+        "Could not reach your computer",
         "Try again"
       ],
-      "timeoutMs": 60000,
-      "tapAt": "50%,91%"
-    },
-    {
-      "name": "Waking pill",
-      "goal": "The Next stage tap already happened. Do not tap anything; wait for the pill to show.",
-      "done": "A small pill says Waking your computer with no buttons, and the list is still readable. Boxy is visible inside the pill after shrinking and moving up from the error card.",
-      "expect": [
-        "Stage: Waking",
-        "Waking your computer\u2026",
-        "Top up user credits system"
-      ],
-      "timeoutMs": 60000,
-      "tapAt": "50%,91%",
-      "forbid": [
-        "Try again",
-        "Choose another computer"
-      ]
+      "timeoutMs": 60000
     },
     {
       "name": "Recovered socket",
-      "goal": "The Next stage tap already happened. Do not tap anything.",
-      "done": "The live socket clears the old error card.",
+      "goal": "Tap Next stage once.",
+      "done": "The harness shows Stage: Recovered and the list, with no connection page over it.",
       "expect": [
         "Stage: Recovered",
         "Top up user credits system"
       ],
       "forbid": [
-        "Your computer isn't responding",
+        "Your computer is not available",
         "Try again",
         "Choose another computer"
       ],
-      "tapAt": "50%,91%",
       "timeoutMs": 60000
-    },
-    {
-      "name": "Connected",
-      "goal": "The Next stage tap already happened. Do not tap anything; wait for the pill to show.",
-      "done": "The pill says Connected in the same place, with no buttons.",
-      "expect": [
-        "Stage: Back",
-        "Connected"
-      ],
-      "forbid": [
-        "Try again"
-      ],
-      "timeoutMs": 60000,
-      "tapAt": "50%,91%"
     }
   ]
 }
