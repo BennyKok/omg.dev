@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## October 16, 2026 - A Computer opens with fewer requests (v0.6.244)
+
+- The session list now shows as soon as the Computer's first answer (the bootstrap) arrives. Before, it also waited for the Bots list, and a failed Bots read made the whole page show a load error.
+- On a first open, the live connection often connects before the first answer arrives. That no longer loads everything a second time.
+- When several parts of the app ask for the same data at the same moment, one request now answers all of them. A change you make always reads fresh data afterwards.
+- Hosted omg.dev Computers do not show Bots and do not load them. A Computer you run yourself keeps Bots, on by default.
+
 ## October 16, 2026 - Hosts can own the connection screen (v0.6.243)
 
 - A host app that embeds omg (`OmgAppSurface` or `OmgSettingsSurface`) can pass the new `onConnectionChange` option. The surface then reports each change of its connection state (socket, bootstrap, and computer lifecycle) and draws no connection card, pill, toast, startup pill, or inline Retry. The host shows the one message the person sees. Without the option, nothing changes.
