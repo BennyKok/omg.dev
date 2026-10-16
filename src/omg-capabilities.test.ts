@@ -332,6 +332,24 @@ describe("first-run envelope", () => {
     expect(sessionTitleFromPrompt(launched)).toBe(ask);
   });
 
+  // A host's guided first task (omg.dev install campaign): the person
+  // publishes from the guide. Fails if the guide shows in the person's bubble,
+  // if the deploy rule stays beside it, or if an ordinary first run loses it.
+  test("a guided first task carries the host's rules in place of the deploy rule, out of the person's bubble", async () => {
+    const { withFirstRunEnvelope, withOmgRuntimeContract, stripOmgRuntimeContract } = await import("./omg-capabilities.ts");
+    const ask = "A to-do app where I add tasks.";
+    const guide = "Do not publish until I send Publish my app.";
+    const guided = withFirstRunEnvelope(ask, { seesImages: false, guide })!;
+    expect(guided).toContain(guide);
+    expect(guided).not.toContain("deploy once with `omg_deploy`");
+    expect(guided.indexOf(guide)).toBeLessThan(guided.indexOf("=== USER TASK ==="));
+    expect(stripOmgRuntimeContract(withOmgRuntimeContract(guided)!)).toBe(ask);
+
+    const ordinary = withFirstRunEnvelope(ask, { seesImages: false })!;
+    expect(ordinary).toContain("deploy once with `omg_deploy`");
+    expect(ordinary).not.toContain("guided first task");
+  });
+
   test("a phone app exposes Metro before any code, with the concrete Expo steps", async () => {
     const { withFirstRunEnvelope } = await import("./omg-capabilities.ts");
     const wrapped = withFirstRunEnvelope("Build a mobile app for my family", { seesImages: true })!;

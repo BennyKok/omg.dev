@@ -98,6 +98,36 @@ export interface EmbeddedHostOptions {
    * Omit it and the hosted surface draws no switcher at all.
    */
   machines?: HostMachines;
+  /**
+   * A host's guided tutorial over the composers (the home composer and a
+   * session's composer). The host draws its own guide UI; the surface only
+   * holds Send until the draft is accepted, reports drafts and sends, and
+   * adds the host's agent instructions to the session the home composer
+   * starts. Omit it and the composers behave as usual.
+   */
+  composerGuide?: ComposerGuide;
+}
+
+export type ComposerGuideSurface = "new-session" | "session";
+
+export interface ComposerGuide {
+  /** Send stays off, and Enter does nothing, until this returns true for the draft. */
+  accepts?: (draft: string, surface: ComposerGuideSurface) => boolean;
+  /** Every change to a composer's draft, so the host's guide can show progress. */
+  onDraft?: (draft: string, surface: ComposerGuideSurface) => void;
+  /**
+   * Added to the session the home composer starts: `firstRun` wraps it in the
+   * first-run rules, and `guide` adds the host's instructions to them. Both
+   * travel inside the launch envelope, so the person's bubble shows only what
+   * they typed.
+   */
+  newSession?: { firstRun?: boolean; guide?: string };
+  /**
+   * The person sent `text`. From the home composer it fires once the session
+   * exists, with its id; from a session's composer it fires when the send is
+   * accepted, with that session's id.
+   */
+  onSent?: (event: { surface: ComposerGuideSurface; text: string; sessionId: string | null }) => void;
 }
 
 export interface HostedPreviewAuth {

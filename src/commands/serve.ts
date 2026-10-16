@@ -9790,6 +9790,8 @@ a{color:#60a5fa}
           overLimit?: boolean;
           /** A new user's first task: wrap it in the first-run rules (withFirstRunEnvelope). */
           firstRun?: boolean;
+          /** A host's guided first task: its instructions join the first-run rules (needs firstRun). */
+          guide?: string;
           /** Role the session runs as at the MCP endpoints. Missing = owner. */
           role?: string;
           agent?: "claude" | "codex" | "aisdk" | "codex-aisdk" | "opencode" | "omg" | "jcode" | "grok" | "cursor" | "copilot" | "hermes" | "pi";
@@ -10008,7 +10010,11 @@ a{color:#60a5fa}
         const worktree = cwdResolved.worktree;
         let prompt = body?.prompt;
         if (body?.firstRun === true && spawnedBy !== "subagent") {
-          prompt = withFirstRunEnvelope(prompt, { seesImages: modelSeesImages(model ?? opencodeDefault) });
+          const guide = typeof body.guide === "string" ? body.guide.trim().slice(0, 4_000) : "";
+          prompt = withFirstRunEnvelope(prompt, {
+            seesImages: modelSeesImages(model ?? opencodeDefault),
+            ...(guide ? { guide } : {}),
+          });
         }
         if (spawnedBy === "subagent") {
           prompt = withOmgSubagentContract(prompt, {
