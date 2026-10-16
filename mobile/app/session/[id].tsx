@@ -1481,22 +1481,41 @@ function SessionScreenContent({
    * the machine has no "release now" for a held row; the delete comes first
    * so a failure leaves a message you can still see, never one sent twice.
    */
+  /**
+   * Send now takes the WHOLE queue, not just the tapped card, as ONE steer in
+   * queue order: the person has stopped waiting, and leaving the rest behind
+   * would release them one per idle turn after a reply that already saw the
+   * first. Same as the web's HeldQueueCards. Only rows whose delete succeeded
+   * are sent, so a failed delete never delivers a row twice; that row comes
+   * back on the refresh and stays queued. Optimistic rows (status "pending")
+   * have no server row yet and stay.
+   */
   const steerHeld = useCallback(
-    async (mid: string) => {
+    async (_mid: string) => {
       if (!client || !id) return;
-      const row = held.find((m) => m.id === mid);
-      if (!row) return;
-      setHeld((prev) => prev.filter((m) => m.id !== mid));
-      try {
-        await client.transport.request(`/api/sessions/${encodeURIComponent(id)}/queue/${encodeURIComponent(mid)}`, {
-          method: "DELETE",
-        });
-      } catch (e) {
+      const rows = held.filter((m) => m.status === "held" && m.text.trim());
+      if (!rows.length) return;
+      const ids = new Set(rows.map((m) => m.id));
+      setHeld((prev) => prev.filter((m) => !ids.has(m.id)));
+      const results = await Promise.allSettled(
+        rows.map((m) =>
+          client.transport.request(`/api/sessions/${encodeURIComponent(id)}/queue/${encodeURIComponent(m.id)}`, {
+            method: "DELETE",
+          }),
+        ),
+      );
+      const released = rows.filter((_, index) => results[index]?.status === "fulfilled");
+      const failed = results.find((r): r is PromiseRejectedResult => r.status === "rejected");
+      if (failed) {
+        const e = failed.reason;
         setError(e instanceof Error ? e.message : String(e));
         await refreshHeld();
-        return;
       }
-      await submit(row.text, "steer");
+      const text = released
+        .map((m) => m.text.trim())
+        .filter(Boolean)
+        .join("\n\n");
+      if (text) await submit(text, "steer");
     },
     [client, id, held, refreshHeld, submit],
   );

@@ -48,8 +48,7 @@ function harness(opts?: {
         onError={(message) => errors.push(message)}
         onSendNow={async (text, release) => {
           painted.push(text);
-          await release();
-          sent.push(text);
+          sent.push(await release());
         }}
         request={request}
       />,
@@ -84,46 +83,90 @@ describe("HeldQueueCards", () => {
     expect(ui.text()).not.toContain("second thing");
   });
 
-  test("send now deletes the held row then steers the text", async () => {
+  const SEND_ALL = 'button[aria-label="Send all queued now, into the current turn"]';
+  const Q = "/api/sessions/11111111-1111-4111-8111-111111111111/queue";
+
+  test("send now deletes every held row then steers them as one message, in order", async () => {
     const h = harness();
-    const send = ui.query('button[aria-label="Send now, into the current turn"]') as HTMLButtonElement;
+    const send = ui.query(SEND_ALL) as HTMLButtonElement;
     await ui.flushAsync(() => send.click());
-    expect(h.current().map((item) => item.id)).toEqual(["bb22"]);
+    expect(h.current()).toEqual([]);
     expect(h.calls).toEqual([
-      { path: "/api/sessions/11111111-1111-4111-8111-111111111111/queue/aa11", method: "DELETE", body: undefined },
+      { path: `${Q}/aa11`, method: "DELETE", body: undefined },
+      { path: `${Q}/bb22`, method: "DELETE", body: undefined },
     ]);
-    expect(h.sent).toEqual(["first thing"]);
+    expect(h.sent).toEqual(["first thing\n\nsecond thing"]);
     expect(ui.text()).not.toContain("first thing");
   });
 
-  test("send now hands the text to the caller before the delete resolves", async () => {
-    let finishDelete: () => void = () => {};
-    const h = harness({
-      request: <T,>() => new Promise<T>((resolve) => (finishDelete = () => resolve({ ok: true } as T))),
-    });
+  test("send now on a later card still sends the whole queue in queue order", async () => {
+    const h = harness();
+    await ui.flushAsync(() => (ui.query("button[aria-expanded]") as HTMLButtonElement).click());
+    const second = ui.queryAll(SEND_ALL)[1] as HTMLButtonElement;
+    await ui.flushAsync(() => second.click());
+    expect(h.sent).toEqual(["first thing\n\nsecond thing"]);
+  });
+
+  test("a single queued card keeps the plain send-now label", async () => {
+    const h = harness({ items: [held[0]!] });
+    expect(ui.query(SEND_ALL)).toBeNull();
     const send = ui.query('button[aria-label="Send now, into the current turn"]') as HTMLButtonElement;
     await ui.flushAsync(() => send.click());
-    // The card is gone and the bubble is painted while the DELETE is pending.
-    expect(h.painted).toEqual(["first thing"]);
+    expect(h.sent).toEqual(["first thing"]);
+  });
+
+  test("send now hands the text to the caller before the deletes resolve", async () => {
+    const finishers: (() => void)[] = [];
+    const h = harness({
+      request: <T,>() => new Promise<T>((resolve) => finishers.push(() => resolve({ ok: true } as T))),
+    });
+    const send = ui.query(SEND_ALL) as HTMLButtonElement;
+    await ui.flushAsync(() => send.click());
+    // The cards are gone and the bubble is painted while the DELETEs are pending.
+    expect(h.painted).toEqual(["first thing\n\nsecond thing"]);
     expect(h.sent).toEqual([]);
     expect(ui.text()).not.toContain("first thing");
-    await ui.flushAsync(() => finishDelete());
-    expect(h.sent).toEqual(["first thing"]);
+    await ui.flushAsync(() => finishers.forEach((finish) => finish()));
+    expect(h.sent).toEqual(["first thing\n\nsecond thing"]);
   });
 
-  test("send now does not steer when the delete fails, and the card comes back", async () => {
+  test("send now does not steer when every delete fails, and the cards come back", async () => {
     const h = harness({
       request: async <T,>(_path: string, init?: RequestInit) => {
         if (init?.method === "DELETE") throw new Error("network down");
         return { queue: held } as T;
       },
     });
-    const send = ui.query('button[aria-label="Send now, into the current turn"]') as HTMLButtonElement;
+    const send = ui.query(SEND_ALL) as HTMLButtonElement;
     await ui.flushAsync(() => send.click());
     expect(h.sent).toEqual([]);
     expect(h.errors).toEqual(["network down"]);
     expect(h.current().map((item) => item.id)).toEqual(["aa11", "bb22"]);
     expect(ui.text()).toContain("first thing");
+  });
+
+  test("send now sends only the rows the server released; a failed row stays queued", async () => {
+    const h = harness({
+      request: async <T,>(path: string, init?: RequestInit) => {
+        if (init?.method === "DELETE" && path.endsWith("/bb22")) throw new Error("network down");
+        return { queue: [held[1]] } as T;
+      },
+    });
+    const send = ui.query(SEND_ALL) as HTMLButtonElement;
+    await ui.flushAsync(() => send.click());
+    expect(h.painted).toEqual(["first thing\n\nsecond thing"]);
+    expect(h.sent).toEqual(["first thing"]);
+    expect(h.errors).toEqual(["network down"]);
+    expect(h.current().map((item) => item.id)).toEqual(["bb22"]);
+  });
+
+  test("send now leaves a card that is still waiting for its server row", async () => {
+    const local = { id: `${LOCAL_HELD_ID_PREFIX}x1`, text: "just typed", status: "held" as const, createdAt: 3 };
+    const h = harness({ items: [...held, local] });
+    const send = ui.query(SEND_ALL) as HTMLButtonElement;
+    await ui.flushAsync(() => send.click());
+    expect(h.sent).toEqual(["first thing\n\nsecond thing"]);
+    expect(h.current().map((item) => item.id)).toEqual([local.id]);
   });
 
   test("a card the server has not answered for yet shows a spinner and no actions", () => {

@@ -9,7 +9,8 @@
  * counts the queue; collapsed, only the first message shows (truncated,
  * with a +N chip); expanded, all of them, numbered, in the order they will
  * go. Tap a message to edit it in place, the cross to drop it, the arrow
- * to stop waiting and steer it into the running turn now.
+ * to stop waiting and steer the whole queue into the running turn now, as
+ * one message in queue order.
  */
 import { useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
@@ -42,7 +43,7 @@ export function HeldQueue({
   busy: boolean;
   onEdit: (id: string, text: string) => Promise<void>;
   onRemove: (id: string) => Promise<void>;
-  /** Stop waiting: pull the message out of the queue and steer it into the turn now. */
+  /** Stop waiting: pull every held message out of the queue and steer them into the turn now, as one. */
   onSendNow: (id: string) => Promise<void>;
 }) {
   const { colors, type, space } = useTheme();
@@ -219,7 +220,9 @@ export function HeldQueue({
                   }}
                   hitSlop={8}
                   accessibilityRole="button"
-                  accessibilityLabel="Send now, into the current turn"
+                  accessibilityLabel={
+                    items.length > 1 ? "Send all queued now, into the current turn" : "Send now, into the current turn"
+                  }
                   style={({ pressed }) => ({
                     width: 32,
                     height: 32,
