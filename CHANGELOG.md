@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 16, 2026 - New apps start as web apps (v0.6.239)
+
+- A new user's first app is now built as a web app in the Computer's ready web project. It is quicker to build, and its link opens on any phone. The agent uses Expo only when you ask for an app to install on iPhone or Android, or name Expo or a native app.
+- An Android build of a web app first moves the app into an Expo project.
+
 ## October 16, 2026 - Subagents fold into one row on the web (v0.6.239)
 
 - In the web session list and rail, the subagents of a session now fold behind one "N subagents" row, as in the iOS app. The row shows up to four agent icons, how many subagents are working, and an unread dot. Click it to show all subagents, including subagents that a subagent started.
