@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 16, 2026 - Subagents fold into one row on the web (v0.6.239)
+
+- In the web session list and rail, the subagents of a session now fold behind one "N subagents" row, as in the iOS app. The row shows up to four agent icons, how many subagents are working, and an unread dot. Click it to show all subagents, including subagents that a subagent started.
+- A group opens by itself when one of its subagents is open as a column. Keyboard navigation skips the rows in a closed group.
+- On a phone, the back button on a session page is now `<`. Before, it was a down arrow.
+
 ## October 16, 2026 - Hosts can guide a first task over the chat box (v0.6.238)
 
 - A host app that embeds omg (`OmgAppSurface`) can now run a guided tutorial over the real chat box with the new `composerGuide` option. The host draws its own guide. The chat box holds Send until the host accepts what was typed, tells the host about each draft and send, and starts the first session with the host's instructions for the agent. The person's chat bubble shows only what they typed.
