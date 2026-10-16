@@ -139,6 +139,15 @@ import {
   subscribeFoldedRailGroups,
 } from "./lib/rail-group-fold";
 import {
+  flattenDescendants,
+  getSubagentGroupChoices,
+  isSubagentGroupOpen,
+  setSubagentGroupOpen,
+  subscribeSubagentGroupChoices,
+  visibleTreeSessions,
+} from "./lib/subagent-group-open";
+import { SubagentGroup } from "./components/subagent-group";
+import {
   addVisibleTranscriptSid,
   removeVisibleTranscriptSid,
   useVisibleTranscriptSids,
@@ -13261,11 +13270,29 @@ function RailStage({
   const foldedRailGroups = useFoldedRailGroups();
   const isRailGroupFolded = (key: string) =>
     !railCollapsed && foldedRailGroups.includes(key);
+  // A shut subagent group takes its rows out of the DOM the same way.
+  const subagentChoices = useSyncExternalStore(
+    subscribeSubagentGroupChoices,
+    getSubagentGroupChoices,
+    getSubagentGroupChoices,
+  );
+  const activeColumnSet = new Set(columnIds);
+  const railVisible = (nodes: SessionTreeNode[]) =>
+    railCollapsed
+      ? railTree.flatten(nodes)
+      : visibleTreeSessions(nodes, (root, descendants) =>
+          isSubagentGroupOpen(
+            sessionStableId(root.session),
+            descendants.map(sessionStableId),
+            activeColumnSet,
+            subagentChoices,
+          ),
+        );
   const railOrderedSessions = [
-    ...(isRailGroupFolded("__pinned") ? [] : topPinnedSessions),
+    ...(isRailGroupFolded("__pinned") ? [] : railVisible(topPinnedNodes)),
     ...botSessions,
     ...projectRailGroups.flatMap((group) =>
-      isRailGroupFolded(group.key) ? [] : railTree.flatten(group.nodes),
+      isRailGroupFolded(group.key) ? [] : railVisible(group.nodes),
     ),
   ];
 
@@ -14116,6 +14143,7 @@ function RailStage({
             projectFilter={projectFilter}
             onProjectChange={onProjectChange}
             renderItem={renderRailItem}
+            activeIds={columnIds}
             // Threads, as on the iPad rail: a group like the others, only when
             // there are some, rows drawn exactly like session rows with no
             // agent mark. A thread starts from the + on its header (hover).
@@ -14502,6 +14530,7 @@ export function SessionGroups({
   dense = false,
   leading,
   trailing,
+  activeIds,
 }: {
   groups: ProjectGroup<SessionTreeNode>[];
   pinnedNodes: SessionTreeNode[];
@@ -14518,72 +14547,51 @@ export function SessionGroups({
   leading?: ReactNode;
   /** Below every group. Auto findings. */
   trailing?: ReactNode;
+  /** Sessions open on the stage. Their subagent group opens until the reader chooses. */
+  activeIds?: readonly string[];
 }) {
-  // Delegated children hang off their parent on a spine, at every width. A
+  const { unread } = useContext(SessionUnreadContext);
+  const subagentChoices = useSyncExternalStore(
+    subscribeSubagentGroupChoices,
+    getSubagentGroupChoices,
+    getSubagentGroupChoices,
+  );
+  const activeSet = useMemo(() => new Set(activeIds ?? []), [activeIds]);
+  // A parent's subagents fold behind one "N subagents" row, as on iOS. A
   // subagent is not a sibling of the session that spawned it, and a flat list
-  // said it was.
-  const renderNode = (
-    node: SessionTreeNode,
-    depth = 0,
-    isLast = true,
-  ): ReactNode => {
+  // said it was; a fully drawn tree said it at the cost of the list. The
+  // icon rail draws no headers, so there every row stays a mark.
+  const renderNode = (node: SessionTreeNode): ReactNode => {
     const id = sessionStableId(node.session);
     if (collapsed) {
       return (
         <div key={id} className="contents">
           {renderItem(node.session)}
-          {node.children.map((child, index) =>
-            renderNode(child, depth + 1, index === node.children.length - 1),
-          )}
+          {node.children.map((child) => renderNode(child))}
         </div>
       );
     }
-    if (depth === 0) {
-      if (!node.children.length) return renderItem(node.session);
-      return (
-        <div key={id} className="flex flex-col gap-0.5">
-          {renderItem(node.session)}
-          {/* pl-5, not pl-3: at pl-3 the child row sat right on top of the
-              spine, too tight to read as a child rather than a continuation
-              of the same row. The margin that places the spine itself is
-              deliberately untouched here — only the gap between the spine
-              and the row content grows. TreeConnector's offset below is
-              keyed to this padding; keep the two in sync. */}
-          <div className="relative ml-7 flex flex-col gap-0.5 pl-5">
-            {node.children.map((child, index) =>
-              renderNode(child, 1, index === node.children.length - 1),
-            )}
-          </div>
-        </div>
-      );
-    }
+    if (!node.children.length) return renderItem(node.session);
+    const descendants = flattenDescendants(node);
+    const open = isSubagentGroupOpen(
+      id,
+      descendants.map(sessionStableId),
+      activeSet,
+      subagentChoices,
+    );
     return (
-      <div key={id} className="relative">
-        {/* Spine through card+descendants when more siblings follow.
-            -left-5 reaches back across the pl-5 gap below to meet the
-            spine drawn by the ancestor wrapper; keep this matched to that
-            padding or the line stops short of it. */}
-        {!isLast ? (
-          <TreeSpine className="-left-5 -top-1 bottom-0 w-[1.5px]" colorClassName="text-zinc-500" />
-        ) : null}
-        {/* Connector sized to the row only so the branch hits mid-row.
-            Same -left-5/w-5 pairing as the spine above, for the same reason. */}
-        <div className="relative">
-          <TreeConnector
-            className="-left-5 -top-1 h-[calc(100%+0.5rem)] w-5"
-            colorClassName="text-zinc-500"
-            continueAfter={!isLast}
-            subtle
-          />
-          {renderItem(node.session)}
-        </div>
-        {node.children.length ? (
-          <div className="relative ml-7 mt-0.5 flex flex-col gap-0.5 pl-5">
-            {node.children.map((child, index) =>
-              renderNode(child, depth + 1, index === node.children.length - 1),
-            )}
-          </div>
-        ) : null}
+      <div key={id} className="flex flex-col gap-0.5">
+        {renderItem(node.session)}
+        <SubagentGroup
+          sessions={descendants}
+          open={open}
+          onToggle={() => setSubagentGroupOpen(id, !open)}
+          unreadCount={
+            descendants.filter((session) => !!session.sessionId && unread.has(session.sessionId)).length
+          }
+          dense={dense}
+          renderItem={renderItem}
+        />
       </div>
     );
   };
