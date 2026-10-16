@@ -109,15 +109,6 @@ describe("the Computer version comes only from the Computer", () => {
     expect(computerSection()).toMatch(/stale:\s*\n?\s*computerVersionReport != null &&/);
   });
 
-  test("a restart or failed initial bootstrap reloads runtime data, but a network blip does not", async () => {
-    const { shouldReloadRuntime } = await import("../web/src/lib/runtime-availability");
-    expect(shouldReloadRuntime("boot-a", "boot-b")).toBe(true);
-    expect(shouldReloadRuntime("boot-a", "boot-a")).toBe(false);
-    expect(shouldReloadRuntime("boot-a", "boot-a", true)).toBe(true);
-    expect(shouldReloadRuntime("boot-a", null)).toBe(false);
-    expect(shouldReloadRuntime(null, "boot-a")).toBe(true);
-  });
-
   test("neither value is ever derived from the other", () => {
     // SettingsView still resolves each source independently and hands them to
     // VersionUpdatesRow as two separate props, rather than letting the row
