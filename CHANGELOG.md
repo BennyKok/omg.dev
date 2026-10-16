@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 16, 2026 - Hosts can own the connection screen (v0.6.243)
+
+- A host app that embeds omg (`OmgAppSurface` or `OmgSettingsSurface`) can pass the new `onConnectionChange` option. The surface then reports each change of its connection state (socket, bootstrap, and computer lifecycle) and draws no connection card, pill, toast, startup pill, or inline Retry. The host shows the one message the person sees. Without the option, nothing changes.
+- A computer that failed to start, or that is unavailable, now shows that message with Retry. Before, for the first 20 seconds of an offline connection, the card said "Connecting…" next to a Retry button.
+
 ## October 16, 2026 - Coding agents share current model defaults (v0.6.242)
 
 - New Codex tasks use `gpt-6.1-sol` when no model is selected. Claude uses the `opus` alias.
