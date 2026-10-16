@@ -2,10 +2,11 @@
 
 Recent product updates and deployment notes.
 
-## October 16, 2026 - New apps start as web apps (v0.6.239)
+## October 16, 2026 - New apps start as web apps (v0.6.240)
 
 - A new user's first app is now built as a web app in the Computer's ready web project. It is quicker to build, and its link opens on any phone. The agent uses Expo only when you ask for an app to install on iPhone or Android, or name Expo or a native app.
 - An Android build of a web app first moves the app into an Expo project.
+- Agents can turn an image into a 3D model (GLB) with `omg_generate_3d`. Media generation now has a $25 daily cap by default.
 
 ## October 16, 2026 - Subagents fold into one row on the web (v0.6.239)
 
