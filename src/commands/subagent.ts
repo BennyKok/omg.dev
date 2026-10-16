@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 import {
   MODEL_OPTIONS,
+  defaultModelForAgent,
   listModelCatalog,
   thinkingLevelsForAgent,
   type ModelCatalogItem,
@@ -200,7 +201,7 @@ async function cmdCreate(args: string[]) {
     console.error(`unknown agent "${agent}"`);
     process.exit(1);
   }
-  const model = option(args, "--model")?.trim() || MODEL_OPTIONS[agent as keyof typeof MODEL_OPTIONS].defaultModel;
+  const model = option(args, "--model")?.trim() || defaultModelForAgent(agent as keyof typeof MODEL_OPTIONS);
   const thinkingLevel = option(args, "--thinking-level")?.trim();
   if (thinkingLevel) {
     const allowed = thinkingLevelsForAgent(agent, model);

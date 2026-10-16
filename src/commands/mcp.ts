@@ -7,6 +7,7 @@ import * as z from "zod/v4";
 import {
   AUTO_AGENT_BACKENDS,
   MODEL_OPTIONS,
+  defaultModelForAgent,
   listModelCatalog,
   thinkingLevelsForAgent,
 } from "../agent-catalog.ts";
@@ -475,7 +476,7 @@ const DELEGATION_GUIDANCE = {
   },
 } as const;
 
-async function createSubagent({
+export async function createSubagent({
   prompt,
   agent: rawAgent,
   model: rawModel,
@@ -493,13 +494,13 @@ async function createSubagent({
     throw new Error(`unknown agent "${agent}"`);
   }
   if (thinkingLevel) {
-    const model = rawModel?.trim() || MODEL_OPTIONS[agent as keyof typeof MODEL_OPTIONS].defaultModel;
+    const model = rawModel?.trim() || defaultModelForAgent(agent as keyof typeof MODEL_OPTIONS);
     const allowed = thinkingLevelsForAgent(agent, model);
     if (!allowed || !allowed.includes(thinkingLevel)) {
       throw new Error(`unknown thinking level "${thinkingLevel}" for ${agent}`);
     }
   }
-  const model = rawModel?.trim() || MODEL_OPTIONS[agent as keyof typeof MODEL_OPTIONS].defaultModel;
+  const model = rawModel?.trim() || defaultModelForAgent(agent as keyof typeof MODEL_OPTIONS);
   const parentInput = parentSessionId?.trim() || callerSessionId();
   const parent = parentInput ? await resolveSid(parentInput) : undefined;
   // Tag the child to the same user as the calling session. OMG_USER is injected

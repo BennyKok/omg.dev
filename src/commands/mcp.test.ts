@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { closeOmgSession, findOmgSessions, sendToOrigin } from "./mcp.ts";
+import { createSubagent, closeOmgSession, findOmgSessions, sendToOrigin } from "./mcp.ts";
 
 const originalFetch = globalThis.fetch;
 const originalBase = process.env.LFG_BASE;
@@ -191,5 +191,24 @@ describe("sendToOrigin", () => {
       text: "wrong target",
       sessionId: "22222222-2222-4222-8222-222222222222",
     })).rejects.toThrow("owning omg.dev session");
+  });
+});
+
+// A model-free delegation must use the current launch policy, while an
+// explicit older model must remain a valid user choice.
+describe("subagent model selection", () => {
+  test.each(["codex", "codex-aisdk"])("%s defaults to GPT 6.1 and preserves an explicit model", async (agent) => {
+    process.env.LFG_BASE = "http://127.0.0.1:9876";
+    const requests: Record<string, unknown>[] = [];
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      if (String(url).endsWith("/api/sessions/new")) {
+        requests.push(JSON.parse(String(init?.body)));
+        return Response.json({ sessionId: "abcd1234-1111-4111-8111-111111111111" });
+      }
+      return Response.json({ sessions: [] });
+    }) as typeof fetch;
+    await createSubagent({ agent, prompt: "Inspect this project" });
+    await createSubagent({ agent, prompt: "Inspect this project", model: "gpt-5.6-sol" });
+    expect(requests.map((body) => body.model)).toEqual(["gpt-6.1-sol", "gpt-5.6-sol"]);
   });
 });

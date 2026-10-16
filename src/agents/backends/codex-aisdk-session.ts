@@ -1,3 +1,4 @@
+import { AGENT_DEFAULT_MODELS } from "../../agent-defaults.ts";
 // Headless interactive session harness for the "codex-aisdk" agent kind.
 //
 // This is the long-lived process behind a managed codex session. Like its
@@ -250,7 +251,7 @@ export async function pipeToCodexAiSdk(
     mcpServers?: Parameters<typeof withCodexHttpMcpServers>[1];
   } = {},
 ): Promise<string> {
-  const model = opts.model ?? "gpt-5.5";
+  const model = opts.model ?? AGENT_DEFAULT_MODELS["codex-aisdk"];
   const cwd = opts.cwd ?? process.cwd();
   const { Codex } = await import("@openai/codex-sdk");
   const codexPathOverride = resolveCodexPathOverride();
@@ -297,7 +298,7 @@ export async function cmdCodexAisdkSession(argv: string[]): Promise<void> {
   // The control-plane key (a uuid) — names the registry/command files. NOT the
   // codex thread id (which we learn at thread.started on turn 1).
   const keyArg = arg(argv, "--key");
-  const model = arg(argv, "--model") ?? "gpt-5.5";
+  const model = arg(argv, "--model") ?? AGENT_DEFAULT_MODELS["codex-aisdk"];
   let thinkingLevel = arg(argv, "--thinking-level");
   const requestedServiceTier = arg(argv, "--service-tier");
   if (requestedServiceTier && requestedServiceTier !== "fast") {

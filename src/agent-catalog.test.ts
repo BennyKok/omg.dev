@@ -389,3 +389,8 @@ test("omg thinking levels follow the model: effort where OpenRouter honours it, 
   expect(Object.keys(item.thinkingLevelsByModel ?? {})).toHaveLength(12);
   expect(item.thinkingLevelsByModel?.["omg/anthropic/claude-haiku-5.5"]).toEqual(["off", "low", "medium", "high"]);
 });
+
+test("Codex defaults follow the preferred catalog model", () => {
+  expect(MODEL_OPTIONS.codex.defaultModel).toBe(CODEX_MODELS[0]);
+  expect(MODEL_OPTIONS["codex-aisdk"].defaultModel).toBe(CODEX_AISDK_MODELS[0]);
+});
