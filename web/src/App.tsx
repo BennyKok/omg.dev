@@ -10129,6 +10129,7 @@ export function App() {
             // it, and doing so would demand a profile and a repo it doesn't
             // need), and a self-hosted box has no hosted tour to replay.
             onRedoOnboarding={embedded ? restartHostedFirstRun : redoOnboarding}
+            managedComputer={managedComputer}
             extTabs={extNavTabs}
             onOpenExt={(id) => setTab(id)}
             settings={settings}
@@ -30300,6 +30301,7 @@ function MoreView({
   onOpenUsage,
   onOpenChangelog,
   onRedoOnboarding,
+  managedComputer,
   extTabs,
   onOpenExt,
   connection,
@@ -30314,6 +30316,8 @@ function MoreView({
   onOpenUsage: () => void;
   onOpenChangelog: () => void;
   onRedoOnboarding: () => Promise<void>;
+  /** A hosted omg.dev Computer: its server keeps Bots off (src/settings.ts). */
+  managedComputer: boolean;
   extTabs: ExtensionNavTab[];
   onOpenExt: (id: string) => void;
   connection: ConnectionState | null;
@@ -30379,7 +30383,7 @@ function MoreView({
         </div>
       </section>
 
-      <ViewSettingsSection settings={settings} onChange={onSettingsChange} />
+      <ViewSettingsSection settings={settings} onChange={onSettingsChange} hideBots={managedComputer} />
 
       <VoiceSettingsSection />
 
@@ -30545,9 +30549,12 @@ function MoreView({
 function ViewSettingsSection({
   settings,
   onChange,
+  hideBots = false,
 }: {
   settings: GlobalSettings;
   onChange: (patch: Partial<GlobalSettings>) => Promise<void>;
+  /** The server keeps Bots off here, so a switch for them would do nothing. */
+  hideBots?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const codingAgents = useContext(CodingAgentsContext);
@@ -30573,7 +30580,7 @@ function ViewSettingsSection({
     { key: "showSessionDiffBar", label: "Worktree diff badge in chat", hint: "The floating changes bar above the composer." },
     { key: "showComposerAgents", label: "Agent picker in the composer", hint: "Off: every new session uses the default agent." },
     { key: "showComposerModels", label: "Model picker in the composer", hint: "Off: every new session uses the default model." },
-    { key: "showBots", label: "Bots", hint: "The Bots surface and its switch." },
+    ...(hideBots ? [] : [{ key: "showBots" as const, label: "Bots", hint: "The Bots surface and its switch." }]),
     { key: "showSchedules", label: "Schedules", hint: "The Schedules surface and its switch." },
   ];
   return (

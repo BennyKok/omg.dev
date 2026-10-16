@@ -3,6 +3,7 @@ import { Database } from "bun:sqlite";
 import { PATHS } from "./config.ts";
 import { join } from "node:path";
 import { sanitizeBotCompactionThreshold } from "./bots/rotation.ts";
+import { computerAgentAdmissionContext } from "./agent-admission.ts";
 
 export type GlobalSettings = {
   /** Display name for this box before it is paired to an account. */
@@ -206,7 +207,22 @@ export function validAutoSessionTitles(value: unknown): value is AutoSessionTitl
 // filtering. Simply never reading them here is what makes that safe — an
 // unrecognized stored key is just ignored, never a crash or a validation
 // failure, satisfying AGENTS.md's backward-compatible migration rule.
-function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSettings {
+let hostedComputerForTests: boolean | null = null;
+
+/** Test seam: pretend to be (or not be) a hosted omg.dev Computer. null resets. */
+export function setHostedComputerForTests(hosted: boolean | null): void {
+  hostedComputerForTests = hosted;
+}
+
+/** A hosted omg.dev Computer has an entitlement; a self-run box does not. */
+function isHostedComputer(): boolean {
+  return hostedComputerForTests ?? computerAgentAdmissionContext() !== null;
+}
+
+function sanitize(
+  input: Partial<GlobalSettings> | null | undefined,
+  hosted = isHostedComputer(),
+): GlobalSettings {
   const timeZone = typeof input?.timeZone === "string" && validTimeZone(input.timeZone)
     ? input.timeZone
     : envTimeZone();
@@ -255,7 +271,10 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
   const showSessionAgentIcons = input?.showSessionAgentIcons !== false;
   const showComposerModels = input?.showComposerModels !== false;
   const showComposerAgents = input?.showComposerAgents !== false;
-  const showBots = input?.showBots !== false;
+  // A hosted omg.dev Computer does not offer Bots, whatever a past save wrote
+  // (every save writes every key, so a stored `true` is usually just the old
+  // default). Off here means the web app never loads /api/bots on it.
+  const showBots = !hosted && input?.showBots !== false;
   const showSchedules = input?.showSchedules !== false;
   const showSessionDiffBar = input?.showSessionDiffBar !== false;
   // Off unless the owner turns it on under Settings > Advanced. A new user
