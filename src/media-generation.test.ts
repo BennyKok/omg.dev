@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { faststart, handleMediaRequest, MEDIA_MESSAGES, type MediaOptions } from "./media-generation.ts";
+import { DEFAULT_3D_MODEL, DEFAULT_MAX_DAY_USD, faststart, handleMediaRequest, MEDIA_MESSAGES, type MediaOptions } from "./media-generation.ts";
 
 // A fake host media router. Each test sets `router` to shape its responses.
 type Call = { method: string; path: string; body: any; auth: string | null };
@@ -18,6 +18,7 @@ let server: ReturnType<typeof Bun.serve>;
 let base = "";
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
+const GLB = new Uint8Array([0x67, 0x6c, 0x54, 0x46, 2, 0, 0, 0]);
 
 beforeAll(() => {
   server = Bun.serve({
@@ -34,6 +35,7 @@ beforeAll(() => {
       if (path === "/models" && router.models) return router.models();
       const job = path.match(/^\/jobs\/(.+)$/);
       if (job && router.job) return router.job(decodeURIComponent(job[1]), ++jobPolls);
+      if (path === "/files/model.glb") return new Response(GLB, { headers: { "Content-Type": "model/gltf-binary" } });
       if (path === "/files/out.png") return new Response(PNG, { headers: { "Content-Type": "image/png" } });
       return new Response("not found", { status: 404 });
     },
@@ -96,7 +98,7 @@ describe("media generation routes", () => {
     expect(data.costMicros).toBe(8_000);
     expect(data.costUsd).toBe(0.008);
     expect(data.spentTodayUsd).toBe(0.008);
-    expect(data.dailyCapUsd).toBe(5);
+    expect(data.dailyCapUsd).toBe(DEFAULT_MAX_DAY_USD);
     expect(data.urls).toEqual([`${base}/files/out.png`]);
     expect(data.paths).toEqual([join(dir, "out", "2026-09-28", "job-1-1.png")]);
     expect(new Uint8Array(readFileSync(data.paths[0]))).toEqual(PNG);
@@ -108,9 +110,22 @@ describe("media generation routes", () => {
     // Submit runs the model that was priced, never "auto" again.
     expect(submit.body.model).toBe("wavespeed-ai/flux-schnell");
     expect(submit.body.provider).toBe("wavespeed");
-    // Tightest of the per-call cap ($1) and what is left today ($5).
+    // Tightest of the per-call cap ($1) and what is left today.
     expect(submit.body.maxCostMicros).toBe(1_000_000);
     expect(JSON.parse(readFileSync(opts.spendPath, "utf8"))).toEqual({ day: "2026-09-28", spentMicros: 8_000 });
+  });
+
+  // The router's auto refuses 3D, so a 3D call with no model must name the
+  // default 3D model, wait long enough, and save the mesh as a .glb file.
+  test("a 3D job runs the default 3D model and saves a GLB", async () => {
+    router.quote = (b) => Response.json({ model: b.model, kind: "3d", provider: "fal", costMicros: 300_000 });
+    router.submit = () => Response.json({ jobId: "job-3d", status: "queued", costMicros: 300_000 }, { status: 202 });
+    router.job = (id) => Response.json({ jobId: id, status: "succeeded", model: DEFAULT_3D_MODEL, results: [{ url: `${base}/files/model.glb`, contentType: "model/gltf-binary" }] });
+    const { status, data } = await call("POST", "/api/media/generate", { kind: "3d", input: { image_url: "https://x/a.png" } });
+    expect(status).toBe(200);
+    expect(calls.find((c) => c.path === "/quote")!.body).toEqual({ model: DEFAULT_3D_MODEL, kind: "3d", input: { image_url: "https://x/a.png" } });
+    expect(data.paths).toEqual([join(dir, "out", "2026-09-28", "job-3d-1.glb")]);
+    expect(new Uint8Array(readFileSync(data.paths[0]))).toEqual(GLB);
   });
 
   test("an open fal model id passes through with its provider", async () => {
@@ -154,13 +169,13 @@ describe("media generation routes", () => {
   });
 
   test("refuses a job above what is left of the daily cap and says how much is left", async () => {
-    writeFileSync(opts.spendPath, JSON.stringify({ day: "2026-09-28", spentMicros: 4_900_000 }));
+    writeFileSync(opts.spendPath, JSON.stringify({ day: "2026-09-28", spentMicros: DEFAULT_MAX_DAY_USD * 1_000_000 - 100_000 }));
     router.quote = () => Response.json({ model: "x", kind: "video", costMicros: 200_000 });
     const { status, data } = await call("POST", "/api/media/generate", { kind: "video", input: { prompt: "p" } });
     expect(status).toBe(400);
     expect(data.status).toBe("daily_cap");
     expect(data.leftTodayUsd).toBe(0.1);
-    expect(data.error).toContain("only $0.100 of the $5.00 daily media cap is left");
+    expect(data.error).toContain(`only $0.100 of the $${DEFAULT_MAX_DAY_USD.toFixed(2)} daily media cap is left`);
     expect(calls.some((c) => c.path === "/submit")).toBe(false);
   });
 
@@ -295,7 +310,7 @@ describe("media generation routes", () => {
     expect(status).toBe(200);
     expect(data.models[0].defaultCostUsd).toBe(0.008);
     expect(data.maxCallUsd).toBe(1);
-    expect(data.dailyCapUsd).toBe(5);
+    expect(data.dailyCapUsd).toBe(DEFAULT_MAX_DAY_USD);
     expect(existsSync(data.guidePath)).toBe(true);
   });
 

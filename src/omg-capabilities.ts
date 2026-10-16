@@ -55,8 +55,8 @@ export const OMG_CAPABILITIES = [
     guidance: "Use omg_display_file for a PDF, an audio clip, a CSV, a log, or any other document. Use these to show artifacts, not to talk: communicate with the human through normal assistant messages.",
   },
   {
-    tool: "omg_generate_image / omg_generate_video / omg_media_job / omg_media_models",
-    useWhen: "A task needs a new image or video made from a prompt on an omg.dev Computer.",
+    tool: "omg_generate_image / omg_generate_video / omg_generate_3d / omg_media_job / omg_media_models",
+    useWhen: "A task needs a new image or video made from a prompt, or a 3D model (GLB) made from an image, on an omg.dev Computer.",
     guidance:
       "These spend the user's omg credits. Read the media-generation skill (guidePath from omg_media_models) first. Prefer the cheapest model that fits and tell the user the costUsd in your reply. Calls are capped per call and per UTC day. When a result has pending: true, call omg_media_job with the jobId and do not generate again. Show results with omg_display_image or omg_display_video; a video must be under 6 MB, H.264, faststart.",
   },

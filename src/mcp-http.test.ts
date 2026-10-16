@@ -370,9 +370,9 @@ describe("media generation tools", () => {
     });
   });
 
-  test("lists all four media tools", async () => {
+  test("lists all five media tools", async () => {
     const names = await listToolNames();
-    for (const name of ["omg_generate_image", "omg_generate_video", "omg_media_job", "omg_media_models"]) {
+    for (const name of ["omg_generate_image", "omg_generate_video", "omg_generate_3d", "omg_media_job", "omg_media_models"]) {
       expect(names).toContain(name);
     }
   });

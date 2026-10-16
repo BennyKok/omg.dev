@@ -19,7 +19,7 @@ These tools spend the user's omg credits. 1 credit is 1 USD. Treat every call as
 
 1. Leave `model` out unless the request needs a specific look. With no model the router picks the cheapest curated model for the task ("auto") and names it in the result.
 2. Each result has `model` and `costUsd`. Tell the user both in your reply, for example "Generated with flux-schnell for $0.003."
-3. A call is refused above the per-call cap ($1.00 default) or when the daily cap ($5.00 default, UTC day) is used up. The error says how much is left. Do not work around the cap. Tell the user.
+3. A call is refused above the per-call cap ($1.00 default) or when the daily cap ($25.00 default, UTC day) is used up. The error says how much is left. Do not work around the cap. Tell the user.
 4. If the result has `pending: true`, call `omg_media_job` with the `jobId`. Do not generate again; that charges twice.
 5. If the error says the credits are used up, tell the user to add credits at omg.dev. Do not retry.
 6. Show images with `omg_display_image`. Show videos with `omg_display_video`.
@@ -43,3 +43,13 @@ Video takes 30 seconds to 5 minutes. Images take 3 to 20 seconds.
 - Friendly fields map to provider input: `prompt`, `aspectRatio` to `aspect_ratio`, `durationSeconds` to `duration`, `resolution` to `resolution`.
 - Put any other provider field in `input`, for example `{"generate_audio": false}` or `{"quality": "high"}`.
 - Files save to `~/omg-media/<date>/<jobId>-<n>.<ext>` unless you pass `outputPath`.
+
+## 3D models
+
+Use `omg_generate_3d` to turn one image of an object into a GLB file. Give `imageUrl`, or `imagePath` for a local image under 600 KB. Use one object on a plain background.
+
+- `tripo3d/h3.1/image-to-3d` is the default. It costs $0.30. Use `{face_limit: 8000}` for a game-ready mesh.
+- `fal-ai/hyper3d/rodin/v2.5/fast` costs $0.10. Use it for quick drafts.
+- `fal-ai/trellis-2` costs $0.25 to $0.35, by `resolution`.
+- `fal-ai/hunyuan3d-v3/image-to-3d` costs $0.375. `{generate_type: "LowPoly"}` costs $0.45.
+- PBR, extra views, and detailed geometry cost more. The quote includes them.
