@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## October 16, 2026 - Hosts can guide a first task over the chat box (v0.6.238)
+
+- A host app that embeds omg (`OmgAppSurface`) can now run a guided tutorial over the real chat box with the new `composerGuide` option. The host draws its own guide. The chat box holds Send until the host accepts what was typed, tells the host about each draft and send, and starts the first session with the host's instructions for the agent. The person's chat bubble shows only what they typed.
+- `POST /api/sessions/new` accepts `guide` together with `firstRun`. The guide's instructions replace the first-run rule to deploy after the preview, so the person can publish from the guide.
+- Send now on a queued card sends every queued message as one message, in queue order.
+- Long sessions scroll more smoothly on the phone, and a session started from the phone is tagged with the person you picked.
+
 ## October 15, 2026 - Computer sign-ins pass GoDaddy (v0.6.237)
 
 - The Computer's browser now uses the time zone of the internet address that websites see. Before, it always used UTC. GoDaddy refused sign-in with "Your browser is a bit unusual..." when the address was in Los Angeles or Helsinki and the browser said UTC. The new zone applies the next time the Computer's browser starts.
