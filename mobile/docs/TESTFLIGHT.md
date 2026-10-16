@@ -5,6 +5,36 @@ read off the EAS docs.
 
 ## Current state
 
+### One full-page connection screen OTA — 2026-10-16
+
+The app shows one full page for every connection wait. The pill and the
+translucent card are gone. The launch screen no longer steps aside after
+8 s. A first connect shows the page at once. Saved sessions, or a drop after
+the computer was ready, stay quiet for 10 s. After 20 s the page explains the
+wait. After 60 s it offers Try again and Choose another computer. The rules
+and the words match the hosted web app. The shimmer caption is now one
+accessibility label.
+
+Implementation: `58a858382`. Since the previous OTA source `b52df5509`,
+`mobile/package.json`, `app.json` and `app.config.js` did not change. Each run
+overrode the runtime version. No store build or submission was made. The
+1.0.17 App Store review was complete and the version was live (`asc-status`,
+2026-10-16), so iOS 1.0.17 was targeted. Android 1.0.17 was not targeted
+because a Play review may still be pending.
+
+| Runtime | Platforms | iOS update | Android update | Workflow |
+| --- | --- | --- | --- | --- |
+| 1.0.17 | ios | `01a1457e-f273-7aba-8981-94eb0b1155e6` | not published | [38930085196](https://github.com/BennyKok/omg.dev/actions/runs/38930085196) |
+| 1.0.16 | ios, android | `01a14585-ef7b-7954-b081-cacea32694f4` | `01a14585-ef7b-71ad-9931-9656e9bf36d6` | [38931032055](https://github.com/BennyKok/omg.dev/actions/runs/38931032055) |
+| 1.0.15 | ios, android | `01a14589-641b-76e9-875f-f9a1bc7c047a` | `01a14589-641b-7676-aa7f-d90c041e9235` | [38931558764](https://github.com/BennyKok/omg.dev/actions/runs/38931558764) |
+| 1.0.14 | ios, android | `01a14582-c1d6-7561-b131-fe465378396d` | `01a14582-c1d6-7c9b-8d7f-5a893d5a2601` | [38930118914](https://github.com/BennyKok/omg.dev/actions/runs/38930118914) |
+
+The production update endpoint serves all seven IDs (read back 2026-10-16).
+Verification: 81 native check files pass (one quarantined), the mobile type
+check passes, and the `connection-overlay` simulator plan passes 12/12 on
+iPhone 17 Pro (Release build, `--build --record`). The real first-connect
+plan (`connection-first-load`) and a physical phone were not checked.
+
 ### Send all queued messages OTA — 2026-10-16
 
 Send now on any queued card steers every queued message into the running turn
