@@ -2,19 +2,18 @@
 
 Read this first. It records what is true now. The nightly librarian agent
 updates it from merged pull requests. Verify a fact in code before you depend
-on it. Last refresh: 2026-10-15.
+on it. Last refresh: 2026-10-16.
 
 ## Active work (last 14 days)
 
-- **First run and previews**: clipped viewport fixes, web scaffolding, design
-  checks, public first apps,
-  Android template fixes, instruction-chip display, first-task web publishing
-  and APK builds, and game first runs from the Expo game kit (#347, #368,
-  #373, #378, #382, #385, #392).
+- **First run and previews**: web scaffolding, design checks, public first
+  apps, Android template fixes, instruction-chip display, first-task web
+  publishing and APK builds, and game first runs from the Expo game kit
+  (#368, #373, #378, #382, #385, #392).
 - **Android builds**: cloud APK builds, committed app icons, and tool timeout
   handling (#357, #367, #370).
 - **App kits and default agent**: Haiku 5.5 default, web app and game kits,
-  UI self-checks, and badge placement that keeps app content clear (#388–#389).
+  UI self-checks, and removal of the badge-moving step (#388–#389, #397).
 - **Plans and mobile**: agent usage limits, matching iOS plan display, restyle
   tokens, starter pills, and Settings plan meters (#356, #361–#363, #366).
 - **Sessions and OpenCode**: refreshed agent rosters, per-session MCP
@@ -26,12 +25,12 @@ on it. Last refresh: 2026-10-15.
   (#351–#352, #354–#355, #383).
 - **Cloud deploy**: deployment sends its session to Cloud and requests store
   screenshots (#395).
-- **Security and updates**: dependency audit fixes and fresh release lookup
-  for self-update (#344, #353).
+- **Media**: 3D generation and a $25 default daily media cap (#398).
+- **Updates**: fresh release lookup for self-update (#353).
 - **Agent docs**: self-host pricing, current context and archive rules,
   STATE.md refreshes, hosted web app sign-in, automatic sign-in/sign-out
   rules, and corrected bot plan status (#359, #374–#377, #380–#381, #387,
-  #390, #394).
+  #390, #394, #396).
 
 ## Open pull requests
 
