@@ -40,19 +40,40 @@ beforeEach(() => {
 });
 afterEach(() => { ui.cleanup(); setPhone(false); globalThis.fetch = originalFetch; configureOmgTransport(createSameOriginTransport()); });
 
-test("shows the structured private live preview and opens it in-app", async () => {
+// New apps are web apps (2026-10-16). Fails if a web preview goes back to a
+// one-line link: the person must see their app in the chat, as with Expo.
+test("a web app's preview opens inline at phone size, and full screen from its icon", async () => {
   globalThis.fetch = (async () => Response.json({ preview: {
-    sessionId: "session-1", title: "Expo web", url: "https://sandbox-5173.preview.omgs.app",
+    sessionId: "session-1", title: "Todo web", url: "https://sandbox-5173.preview.omgs.app",
     port: 5173, kind: "sandbox-preview", visibility: "owner", temporary: true, createdAt: 1,
   } })) as typeof fetch;
   ui.render(<ProjectPreviewCard sessionId="session-1" user="person@example.com" />);
   await ui.flushAsync();
-  expect(ui.text()).toContain("Expo web");
+  expect(ui.text()).toContain("Todo web");
+  const card = document.querySelector('[data-testid="project-preview-card"]');
+  expect(card?.getAttribute("data-expanded")).toBe("true");
+  const frame = document.querySelector('[data-testid="project-preview-web"] iframe') as HTMLIFrameElement;
+  expect(frame.getAttribute("src")).toBe("https://sandbox-5173.preview.omgs.app");
+  expect(frame.style.width).toBe("390px");
+  // One level only: no switcher.
+  expect(document.querySelector('[data-testid="project-preview-levels"]')).toBeNull();
+  const full = document.querySelector('[data-testid="project-preview-fullscreen"]') as HTMLElement;
+  ui.flush(() => full.click());
+  expect(document.querySelector('[role="dialog"] iframe')?.getAttribute("src")).toBe("https://sandbox-5173.preview.omgs.app");
+});
+
+test("a collapsed web preview still opens full screen from its button", async () => {
+  window.localStorage.setItem("lfg_preview_card_expanded", "0");
+  globalThis.fetch = (async () => Response.json({ preview: {
+    sessionId: "session-1", title: "Todo web", url: "https://sandbox-5173.preview.omgs.app",
+    port: 5173, kind: "sandbox-preview", visibility: "owner", temporary: true, createdAt: 1,
+  } })) as typeof fetch;
+  ui.render(<ProjectPreviewCard sessionId="session-1" user="person@example.com" />);
+  await ui.flushAsync();
   expect(ui.text()).toContain("Live preview");
   const button = ui.queryAll("button").find((node) => node.textContent === "Open preview") as HTMLElement;
   ui.flush(() => button.click());
-  const dialog = document.querySelector('[role="dialog"]');
-  expect(dialog?.querySelector("iframe")?.getAttribute("src")).toBe("https://sandbox-5173.preview.omgs.app");
+  expect(document.querySelector('[role="dialog"] iframe')?.getAttribute("src")).toBe("https://sandbox-5173.preview.omgs.app");
 });
 
 test("renders nothing when the session has no preview", async () => {

@@ -120,6 +120,9 @@ export function ProjectPreviewCard({ sessionId, user, agentBusy = false }: { ses
   const closeSheet = () => { setSheet(null); void expo.cancel(); };
   const reopenSheet = () => setSheet({ mode: connectStatus?.state === "signup" ? "signup" : "login", run: connectStatus?.startedAt });
   const deviceAction = current === "device" && expoGoUrl && phone && !stopped;
+  // Every live preview can open inline at phone size, a web app as much as an
+  // Expo app (owner decision 2026-10-16: new apps start as web apps).
+  const expandable = !stopped;
   return <>
     <div className="mb-2 rounded-xl border bg-card text-sm" role="status" data-testid="project-preview-card" data-expanded={expanded && !stopped ? "true" : "false"} data-level={current}>
       <div className="flex min-h-11 items-center gap-2 py-1 pl-2 pr-1.5">
@@ -128,8 +131,8 @@ export function ProjectPreviewCard({ sessionId, user, agentBusy = false }: { ses
         <button
           type="button"
           className="flex min-w-0 flex-1 items-center gap-2 rounded-lg py-1 text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-default"
-          aria-expanded={expoGoUrl && !stopped ? expanded : undefined}
-          disabled={!expoGoUrl || stopped}
+          aria-expanded={expandable ? expanded : undefined}
+          disabled={!expandable}
           onClick={() => setExpanded(!expanded)}
           data-testid="project-preview-toggle"
         >
@@ -141,13 +144,13 @@ export function ProjectPreviewCard({ sessionId, user, agentBusy = false }: { ses
           {stopped || !expoGoUrl
             ? <span className="shrink-0 text-xs text-muted-foreground">{expired ? "Link expired" : stopped ? "Stopped" : "Live preview"}</span>
             : null}
-          {expoGoUrl && !stopped
+          {expandable
             ? <ChevronDown className={cn("ml-auto size-4 shrink-0 text-muted-foreground transition-transform duration-200", expanded && "rotate-180")} aria-hidden />
             : null}
         </button>
         {/* Expanded, the level itself holds its action. The one-line card
             keeps the action of the level it shows. */}
-        {stopped ? null : expoGoUrl && expanded
+        {stopped ? null : expanded
           ? current === "web" ? <Button size="icon-sm" variant="ghost" onClick={openWeb} aria-label="Full screen web preview" title="Full screen" data-testid="project-preview-fullscreen"><Maximize2 className="size-4" /></Button> : null
           : deviceAction && needsConnect
           ? <Button size="sm" disabled={connecting} onClick={() => void connect()} data-testid="project-preview-connect-expo">Connect Expo</Button>
@@ -162,16 +165,18 @@ export function ProjectPreviewCard({ sessionId, user, agentBusy = false }: { ses
         <button className="inline-flex items-center gap-1.5 font-medium text-primary disabled:text-muted-foreground" disabled={restartAsked} onClick={() => void restart()}>
           <RotateCw className="size-3.5" />{restartAsked ? "Asked the agent to restart it" : "Restart preview"}
         </button>
-      </div> : expoGoUrl && expanded ? <div className="border-t px-3 pb-2" data-testid="project-preview-details">
+      </div> : expanded ? <div className="border-t px-3 pb-2" data-testid="project-preview-details">
         {current === "web"
           ? <PhoneFrame key={frameRevision} src={inlinePreviewUrl(preview)} identity={previewAppIdentity(preview)} title={`${preview.title} web preview`} testId="project-preview-web" />
+          : !expoGoUrl
+          ? null
           : current === "simulator" && state?.simulator
           ? <SimulatorLevel stream={state.simulator} webUrl={inlinePreviewUrl(preview)} identity={previewAppIdentity(preview)} title={preview.title} onStart={() => void simulatorAction("start")} />
-          : <DeviceLevel url={expoGoUrl} phone={phone} android={android} account={expo.account} error={expo.error} connecting={connecting}
+          : <DeviceLevel url={expoGoUrl!} phone={phone} android={android} account={expo.account} error={expo.error} connecting={connecting}
               onConnect={(mode) => void connect(mode)} onOpenComputer={reopenSheet} onCancel={() => void expo.cancel()} />}
         {/* The level switcher sits under the preview, with the two small links. */}
         <div className="mt-2 flex items-center gap-2">
-          <LevelSwitcher levels={levels} value={current} onChange={setLevel} />
+          {levels.length > 1 ? <LevelSwitcher levels={levels} value={current} onChange={setLevel} /> : null}
           <a className="ml-auto inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted" href={preview.url} target="_blank" rel="noreferrer" aria-label="Open preview in new tab" title="New tab"><ExternalLink className="size-4" aria-hidden /></a>
           <InfoTip text={current === "device" ? DEVICE_INFO : "Private to you. The link is temporary."} store={current === "device" ? expoGoStore() : null} />
         </div>
