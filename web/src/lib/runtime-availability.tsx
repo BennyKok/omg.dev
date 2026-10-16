@@ -48,10 +48,28 @@ export function runtimeErrorMessage(error: string): string {
   return "Could not load this computer. Please try again.";
 }
 
-/** The first successful connection must retry a failed bootstrap. Later
- * reconnects reload when the runtime process changed or bootstrap failed. */
-export function shouldReloadRuntime(previousBootId: string | null, currentBootId: string | null, bootstrapFailed = false): boolean {
-  return bootstrapFailed || !previousBootId || (!!currentBootId && previousBootId !== currentBootId);
+/**
+ * Whether a socket that just went live must re-run the bootstrap.
+ *
+ * - A bootstrap already in flight answers for this connection, so starting a
+ *   second one only fetches everything twice. On a first open the socket and
+ *   the first bootstrap race, and the socket often wins.
+ * - Nothing loaded for this transport generation, or the last load failed:
+ *   reload.
+ * - Otherwise reload only when the runtime process changed. A runtime that
+ *   sends no bootId (an older box) has nothing to compare, so its loaded
+ *   bootstrap stands.
+ */
+export function shouldReloadRuntime(input: {
+  inFlight: boolean;
+  loaded: boolean;
+  failed: boolean;
+  previousBootId: string | null;
+  currentBootId: string | null;
+}): boolean {
+  if (input.inFlight) return false;
+  if (input.failed || !input.loaded) return true;
+  return !!input.previousBootId && !!input.currentBootId && input.previousBootId !== input.currentBootId;
 }
 
 /** A connected runtime with usable bootstrap data has recovered, even if an older probe failed. */

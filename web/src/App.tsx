@@ -6702,14 +6702,11 @@ export function App() {
     setBotQuota((prev) => sameJson(prev, payload.quota ?? null));
   }, [botUnreadIdentity]);
 
-  const loadCore = useCallback(async () => {
-    const [payload, botPayload] = await Promise.all([
-      fetchBootstrap<BootstrapPayload>(botUnreadIdentity),
-      api<{ bots: PersistentBot[]; conversations?: BotConversationUnread[]; quota?: PersistentBotQuota }>(
-        `/api/bots?user=${encodeURIComponent(botUnreadIdentity)}`,
-        { cache: "no-store" },
-      ),
-    ]);
+  // The bootstrap alone draws the Computer. Bots load on their own once it has
+  // answered, and only where the Bots surface is switched on (see the effect
+  // after runtimeReady), so they never hold the first screen.
+  const applyBootstrap = useCallback(async () => {
+    const payload = await fetchBootstrap<BootstrapPayload>(botUnreadIdentity);
     // Stored raw, including absent/blank. Settings needs to tell "an older
     // runtime that sends no version marker" apart from "we have not asked yet",
     // and `|| "unknown"` collapsed both into one unreadable string.
@@ -6784,9 +6781,6 @@ export function App() {
     }
     setRepos(payload.repos ?? []);
     setAutoAgents(payload.auto?.agents ?? []);
-    setBots(botPayload.bots ?? []);
-    setBotConversations(botPayload.conversations ?? []);
-    setBotQuota(botPayload.quota ?? null);
     setSchedTz(payload.settings?.timeZone ?? payload.auto?.tz ?? DEFAULT_SCHED_TZ);
     const findingList = payload.auto?.findings ?? [];
     setFindings(findingList);
@@ -6797,6 +6791,18 @@ export function App() {
     // full of freshly loaded state is just noise the reader has to disbelieve.
     setError(null);
   }, [botUnreadIdentity, embedded]);
+
+  // How many bootstraps are in flight. A socket that goes live while one is
+  // running must not start another (see shouldReloadRuntime).
+  const loadCoreInFlightRef = useRef(0);
+  const loadCore = useCallback(async () => {
+    loadCoreInFlightRef.current += 1;
+    try {
+      await applyBootstrap();
+    } finally {
+      loadCoreInFlightRef.current -= 1;
+    }
+  }, [applyBootstrap]);
 
   // Sessions the user just deleted. The server's list can lag a beat (tmux pane
   // still tearing down), and the 5s poll below would otherwise resurrect a card
@@ -7165,6 +7171,8 @@ export function App() {
   // applyLiveStatusRows). The moment the socket is not live the poll is back
   // to 5 s, which is what the non-socket transports always had.
   const wsLiveRef = useRef(false);
+  const showBotsRef = useRef(settings.showBots);
+  showBotsRef.current = settings.showBots;
   useEffect(() => {
     let id: number | null = null;
     let cyclesSinceTick = 0;
@@ -7172,7 +7180,7 @@ export function App() {
       refreshSessions().catch(() => {});
       refreshSessionPins().catch(() => {});
       refreshAuto().catch(() => {});
-      refreshBots().catch(() => {});
+      if (showBotsRef.current) refreshBots().catch(() => {});
       // Rides this cycle instead of a focus listener of its own. On a phone
       // iOS can wait for focus, because the project rail is only on Home and
       // you leave the chat to reach it. On the web the rail sits beside the
@@ -7769,13 +7777,22 @@ export function App() {
     const wasLive = wasLiveRef.current;
     wasLiveRef.current = liveStatus === "live";
     if (liveStatus !== "live" || wasLive) return;
+    // The bootstrap running now (the first open, usually) answers for this
+    // connection by itself; do not even ask for the bootId.
+    if (loadCoreInFlightRef.current > 0) return;
     let cancelled = false;
     void api<{ bootId?: string | null }>("/api/install?ready=1", { cache: "no-store" })
       .then((payload) => {
         if (cancelled) return;
-        const seen = computerVersionReportRef.current?.bootId ?? null;
-        const now = typeof payload.bootId === "string" ? payload.bootId : null;
-        if (!shouldReloadRuntime(seen, now, !!error)) return;
+        const seen = computerVersionReportRef.current;
+        const reload = shouldReloadRuntime({
+          inFlight: loadCoreInFlightRef.current > 0,
+          loaded: seen !== null && seen.generation === omgTransportGeneration(),
+          failed: !!error,
+          previousBootId: seen?.bootId ?? null,
+          currentBootId: typeof payload.bootId === "string" ? payload.bootId : null,
+        });
+        if (!reload) return;
         void loadCore().catch(() => {});
       })
       .catch(() => {});
@@ -7785,6 +7802,12 @@ export function App() {
   }, [useWsLive, liveStatus, loadCore, error]);
 
   const runtimeReady = computerVersionReport !== null && computerVersionReport.generation === omgTransportGeneration();
+  // Bots follow each successful bootstrap instead of riding inside it, and
+  // only where the Bots surface is on. With it off they are never fetched.
+  useEffect(() => {
+    if (!runtimeReady || !settings.showBots) return;
+    void refreshBots().catch(() => {});
+  }, [runtimeReady, settings.showBots, refreshBots, computerVersionReport]);
   const runtimeLifecycle = useRuntimeLifecycle(
     loading || !runtimeReady || !!error || (useWsLive && wsLiveStream.connection.status !== "live"),
     omgTransportGeneration(),
@@ -7953,8 +7976,9 @@ export function App() {
       return;
     }
     botActivitySeenRef.current = botActivityKey;
+    if (!settings.showBots) return;
     void refreshBots().catch(() => {});
-  }, [botActivityKey, refreshBots, useWsLive]);
+  }, [botActivityKey, refreshBots, useWsLive, settings.showBots]);
   function toggleTheme() {
     setThemePreference(!document.documentElement.classList.contains("dark"));
   }
