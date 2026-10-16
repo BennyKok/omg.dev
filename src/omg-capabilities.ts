@@ -293,7 +293,19 @@ export function modelSeesImages(model: string | undefined | null): boolean {
  * prompt, and they hold for the whole session, so a request typed after the
  * user stops the agent follows them too.
  */
-export function withFirstRunEnvelope(prompt: string | undefined, opts: { seesImages: boolean }): string | undefined {
+export function withFirstRunEnvelope(
+  prompt: string | undefined,
+  opts: {
+    seesImages: boolean;
+    /**
+     * A host's guided first task (the omg.dev install campaign): its own
+     * instructions, which replace the deploy rule because the guide has the
+     * person publish. Inside the envelope, so the person's bubble shows only
+     * their own words.
+     */
+    guide?: string;
+  },
+): string | undefined {
   const text = prompt?.trim();
   if (!text) return prompt;
   return [
@@ -327,7 +339,9 @@ export function withFirstRunEnvelope(prompt: string | undefined, opts: { seesIma
     // A new app is owner-only, so the link asked everyone else, and the
     // agent's own browser, to sign in (Haiku 5.5 cloud test, 2026-10-08).
     // The first app is something to show people, so it is made public.
-    "- After the preview: build in a few larger edits, run one typecheck or build, deploy once with `omg_deploy`, then make the app public with `omg_app_visibility` (`visibility: \"public\"`) so its link opens for anyone, commit, then `omg_ship`.",
+    opts.guide
+      ? `- This is a guided first task. These rules replace the usual deploy rule and hold for the whole session:\n${opts.guide}`
+      : "- After the preview: build in a few larger edits, run one typecheck or build, deploy once with `omg_deploy`, then make the app public with `omg_app_visibility` (`visibility: \"public\"`) so its link opens for anyone, commit, then `omg_ship`.",
     "- When the user asks for an installable Android app, or the task says to build one, call `omg_build_android` once after the preview works. While it builds (about 3 to 5 minutes), say so and keep polling `omg_build_status`. Then show the APK with `omg_display_file` and give the user `installUrl`.",
     ...(opts.seesImages
       ? []

@@ -26,12 +26,15 @@ import {
   type HostMachines,
   type HostSettingsPage,
   type PlanLimitDetail,
+  type ComposerGuide,
 } from "./lib/embedded-host-options";
 import { claimSurfaceAttribute } from "./lib/surface-attribute";
 import { createOmgRouter } from "./router";
 import type { AgentKind } from "./lib/coding-agent-options";
 
 export type {
+  ComposerGuide,
+  ComposerGuideSurface,
   EmbeddedAnalyticsEventHandler,
   EmbeddedViewer,
   HostMachine,
@@ -167,6 +170,13 @@ export interface OmgAppSurfaceProps {
    * so the host's floating chrome, sheets and dialogs cover it.
    */
   hostToast?: OmgHostToast;
+  /**
+   * A guided tutorial over the composers. The host draws the guide; the
+   * surface holds Send until the draft is accepted, reports drafts and sends,
+   * and adds the host's agent instructions to the session the home composer
+   * starts.
+   */
+  composerGuide?: ComposerGuide;
   /**
    * Central sink for client errors, in addition to the report that goes through
    * the transport into the user's own lfg instance. A hosted surface should set
@@ -389,6 +399,7 @@ export function OmgAppSurface({
   errorSink,
   machines,
   hostToast,
+  composerGuide,
 }: OmgAppSurfaceProps) {
   // A full LFG app is the sole owner of its runtime transport. Install it
   // synchronously so child effects cannot race the host boundary; there is no
@@ -429,6 +440,7 @@ export function OmgAppSurface({
           onNavigate,
           onPlanLimit,
           machines,
+          composerGuide,
         }}
       >
         <BareSurfaceProvider bare={false}>

@@ -111,6 +111,20 @@ export type OmgHostToast = ((message: any, data?: any) => string | number) & {
 };
 
 /** Presentation-only identity supplied by an embedding host. */
+export type ComposerGuideSurface = "new-session" | "session";
+
+/** A host's guided tutorial over the composers (OmgAppSurfaceProps.composerGuide). */
+export interface ComposerGuide {
+  /** Send stays off, and Enter does nothing, until this returns true for the draft. */
+  accepts?: (draft: string, surface: ComposerGuideSurface) => boolean;
+  /** Every change to a composer's draft, so the host's guide can show progress. */
+  onDraft?: (draft: string, surface: ComposerGuideSurface) => void;
+  /** Added to the session the home composer starts, inside the launch envelope. */
+  newSession?: { firstRun?: boolean; guide?: string };
+  /** The person sent `text`: from the home composer once the session exists, from a session composer when the send is accepted. */
+  onSent?: (event: { surface: ComposerGuideSurface; text: string; sessionId: string | null }) => void;
+}
+
 export interface EmbeddedViewer {
   id: string;
   name: string;
@@ -164,6 +178,13 @@ export interface OmgAppSurfaceProps {
    * that container.
    */
   hostToast?: OmgHostToast;
+  /**
+   * A guided tutorial over the composers. The host draws the guide; the
+   * surface holds Send until the draft is accepted, reports drafts and sends,
+   * and adds the host's agent instructions to the session the home composer
+   * starts.
+   */
+  composerGuide?: ComposerGuide;
   /**
    * Open one of the machine's settings pages (the ones OmgSettingsSurface
    * mounts) in the HOST's own navigation.

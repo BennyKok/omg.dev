@@ -16857,6 +16857,9 @@ function SessionChatBody({
 }: SessionChatProps) {
   const sid = session.sessionId;
   const reviewingShipped = !!session.shippedReview;
+  // A host's guided tutorial (OmgAppSurfaceProps.composerGuide): Send waits
+  // for the draft it accepts, and the host hears each draft and send.
+  const { composerGuide } = useEmbeddedHostOptions();
   // Open ask-user questions raised BY this session. The transcript shows them
   // at the end of the stream (SessionQuestionPanel in ChatStream) and the
   // composer is their reply box — there is no second input, so what you type
@@ -16867,6 +16870,10 @@ function SessionChatBody({
   const [messageText, setMessageTextState] = useState(
     () => readPromptDraft(stashContext)?.text ?? "",
   );
+  const onGuideDraft = composerGuide?.onDraft;
+  useEffect(() => {
+    onGuideDraft?.(messageText, "session");
+  }, [messageText, onGuideDraft]);
   const [sending, setSending] = useState(false);
   // Counts composer sends, so the open harness prompt can hide on the send
   // that answers it (see SessionPromptPanel).
@@ -17166,6 +17173,7 @@ function SessionChatBody({
     const text = (overrideText ?? messageText).trim();
     const files = attachments;
     if (!sid || (!text && !files.length)) return;
+    if (composerGuide?.accepts && !composerGuide.accepts(text, "session")) return;
     const fastCommand = parseFastChatCommand(text);
     if (fastCommand.matched) {
       if (files.length) {
@@ -17204,6 +17212,7 @@ function SessionChatBody({
     // both modes deliver immediately and the bubble is an ordinary send. The
     // busy read can lag the server by a poll; reconcileOmgQueueMessages drops
     // an optimistic bubble the server turned into a held row instead.
+    composerGuide?.onSent?.({ surface: "session", text, sessionId: sid });
     const holdOnServer = mode === "queue" && chatBusy && !bot && !reviewingShipped;
     const queuedBehindTurn = mode === "queue" && chatBusy;
     // Dismiss a real soft keyboard so the newly-sent turn has room to read.
@@ -17736,7 +17745,8 @@ function SessionChatBody({
                 A live-but-still-silent recording has nothing to show here yet;
                 the mic button's own recording state (red, level-reactive) is
                 what carries "gesture in progress" until words land. */}
-            {messageText.trim() || attachments.length || sending ? (
+            {(messageText.trim() || attachments.length || sending) &&
+            (sending || !composerGuide?.accepts || composerGuide.accepts(messageText.trim(), "session")) ? (
               <ComposerSendButton
                 className="size-10 shrink-0 md:size-8"
                 sending={sending}
@@ -23267,6 +23277,8 @@ function NewSessionDialog({
   const runtime = useRuntimeAvailability();
   const catalog = useAgentModelCatalog();
   const accessMode = useContext(AgentAccessModeContext);
+  // A host's guided tutorial (OmgAppSurfaceProps.composerGuide).
+  const { composerGuide } = useEmbeddedHostOptions();
   const view = useContext(ViewPrefsContext);
   const { defaultAgent: hostDefaultAgent } = useEmbeddedHostOptions();
   // Box default (Settings > More > View) sits between the browser's saved
@@ -23360,6 +23372,10 @@ function NewSessionDialog({
   const [prompt, setPromptState] = useState(
     () => readPromptDraft("new-session")?.text ?? "",
   );
+  const onGuideDraft = composerGuide?.onDraft;
+  useEffect(() => {
+    onGuideDraft?.(prompt, "new-session");
+  }, [prompt, onGuideDraft]);
   // A mirror of `prompt` for callbacks that outlive the render that made them.
   // The agent-cap offer is the one that does: it now waits to be answered, so
   // the box can be edited while it sits there, and answering it must send what
@@ -23988,6 +24004,8 @@ function NewSessionDialog({
     const taskPrompt = (overrideText ?? prompt).trim();
     const files = attachments;
     if (!taskPrompt && !files.length) return;
+    if (composerGuide?.accepts && !composerGuide.accepts(taskPrompt, "new-session")) return;
+    const guideLaunch = composerGuide?.newSession;
     if (!visibleAgentOptions.some((option) => option.key === agent)) {
       const message = "Set up and sign in to a coding agent before starting a session.";
       setError(message);
@@ -24080,6 +24098,10 @@ function NewSessionDialog({
             fastMode: launchFastMode,
             claudeAccountId: launchClaudeAccountId,
             overLimit: overLimit || undefined,
+            // The host's guide (composerGuide.newSession): first-run rules
+            // plus its own instructions, inside the launch envelope.
+            ...(guideLaunch?.firstRun ? { firstRun: true } : {}),
+            ...(guideLaunch?.guide ? { guide: guideLaunch.guide } : {}),
           }),
         });
       const settle = async (res: CreateResult) => {
@@ -24095,6 +24117,7 @@ function NewSessionDialog({
           );
         }
         setPromptStashStatus(stashed?.id, "sent");
+        composerGuide?.onSent?.({ surface: "new-session", text: taskPrompt, sessionId: sid ?? null });
         await onCreated({ launchId: sid, sessionId: sid, session: res?.session ?? null });
       };
       try {
@@ -24168,7 +24191,8 @@ function NewSessionDialog({
     !runtime.loading && runtime.ready && runtime.status === "live" && !runtime.error &&
     (unassigned || !!selectedRepo) &&
     visibleAgentOptions.some((option) => option.key === agent) &&
-    (!!prompt.trim() || attachments.length > 0);
+    (!!prompt.trim() || attachments.length > 0) &&
+    (!composerGuide?.accepts || composerGuide.accepts(prompt.trim(), "new-session"));
   const selectedAgentOption = displayedAgentOption<AgentLaunchOption>(
     AGENT_CATALOG,
     visibleAgentOptions,
