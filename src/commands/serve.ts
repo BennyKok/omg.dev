@@ -829,7 +829,6 @@ function uploadChunkParams(url: URL): { uploadId: string; offset: number; total:
 // at startup and keeps serving it long after a newer Grok appears — and a pinned
 // id also strands boxes whose grok CLI does not have that exact model.
 const GROK_DEFAULT_MODEL = () => defaultModelForAgent("grok");
-const PI_DEFAULT_MODEL = "sonnet";
 // Models whose provider currently rejects our requests (Sakana's fugu returns a
 // hard 403 Forbidden, and the local Novita credential currently 403s too — see
 // opencode.log). A session born onto one of these streams zero output and
@@ -3262,19 +3261,7 @@ async function launchBotSession(
       : null;
     const claudeAccountId = selectedClaudeAccount?.id;
     const resolvedModel = resolveModelForAgent(agent, bot.model, bot.thinkingLevel);
-    const launchModel = agent === "grok"
-      ? resolvedModel ?? GROK_DEFAULT_MODEL()
-      : agent === "cursor" || agent === "jcode" || agent === "copilot" || agent === "fx"
-        ? resolvedModel ?? "auto"
-        : agent === "opencode" || agent === "omg" || agent === "muse"
-          ? resolvedModel ?? defaultModelForAgent(agent)
-          : agent === "codex-aisdk"
-            ? resolvedModel ?? "gpt-5.5"
-            : agent === "aisdk"
-              ? resolvedModel ?? "opus"
-              : agent === "pi"
-                ? resolvedModel ?? PI_DEFAULT_MODEL
-                : resolvedModel;
+    const launchModel = resolvedModel ?? defaultModelForAgent(agent);
     const legacyId = bot.sessionId?.trim();
     const sessionId = opts.runtimeSessionId?.trim() || crypto.randomUUID();
     const conversationId = opts.conversationId?.trim() || bot.conversationId?.trim() || legacyId || sessionId;
@@ -9579,7 +9566,7 @@ a{color:#60a5fa}
             name: tmuxName,
             cwd,
             prompt: body?.prompt,
-            model: model ?? "gpt-5.5",
+            model: model ?? defaultModelForAgent("codex-aisdk"),
             key,
             resume: sessionId,
             omgUser: body?.user,
@@ -9596,7 +9583,7 @@ a{color:#60a5fa}
             sessionId: key,
             nativeSessionId: sessionId,
             launchState: "running",
-            model: model ?? "gpt-5.5",
+            model: model ?? defaultModelForAgent("codex-aisdk"),
             title: body?.prompt?.slice(0, 72),
             project: cachedResume?.project ?? undefined,
             repoRoot: repoRootForManagedCwd(cwd),
@@ -9898,7 +9885,7 @@ a{color:#60a5fa}
           requested: body?.fastMode,
           legacyServiceTier: body?.serviceTier,
           agent,
-          model: agent === "codex-aisdk" ? resolvedModel ?? "gpt-5.5" : resolvedModel,
+          model: agent === "codex-aisdk" ? resolvedModel ?? defaultModelForAgent("codex-aisdk") : resolvedModel,
         });
         if (!fastModeResult.ok) return err(400, fastModeResult.error);
         const fastMode = fastModeResult.enabled;
@@ -10027,22 +10014,7 @@ a{color:#60a5fa}
         // native transcript id. This keeps provider-specific ids out of serve.
         const launchId = crypto.randomUUID();
         const createdAt = Date.now();
-        const launchModel =
-          agent === "grok"
-            ? resolvedModel ?? GROK_DEFAULT_MODEL()
-            : agent === "cursor"
-              ? resolvedModel ?? "auto"
-              : (agent === "opencode" || agent === "omg")
-                  ? resolvedModel ?? opencodeDefault
-                : agent === "jcode"
-                  ? resolvedModel ?? "auto"
-                  : agent === "codex-aisdk"
-                    ? resolvedModel ?? "gpt-5.5"
-                    : agent === "aisdk"
-                      ? resolvedModel ?? "opus"
-                      : agent === "pi"
-                        ? resolvedModel ?? PI_DEFAULT_MODEL
-                        : resolvedModel;
+        const launchModel = resolvedModel ?? opencodeDefault ?? defaultModelForAgent(agent);
         const requestedTitle = body?.title?.trim().slice(0, 200);
         const fallbackTitle = body?.prompt?.slice(0, 72);
         const resolvedRole = requestedRole || roleForUser(assignedUser).id;

@@ -1,4 +1,5 @@
-import { OMG_DEFAULT_MODEL, OMG_MODELS, OMG_THINKING_LEVELS_BY_MODEL, OMG_THINKING_OFF, omgThinkingLevels } from "./omg-models.ts";
+import { AGENT_DEFAULT_MODELS } from "./agent-defaults.ts";
+import { OMG_MODELS, OMG_THINKING_LEVELS_BY_MODEL, OMG_THINKING_OFF, omgThinkingLevels } from "./omg-models.ts";
 export { OMG_MODELS } from "./omg-models.ts";
 import { customModelIds, customModelLabels } from "./custom-models.ts";
 
@@ -321,22 +322,22 @@ const LABELS: Record<CodingAgentKind, string> = {
 };
 
 export const MODEL_OPTIONS: Record<CodingAgentKind, { defaultModel: string; models: readonly string[] }> = {
-  claude: { defaultModel: "sonnet", models: CLAUDE_MODELS },
-  aisdk: { defaultModel: "opus", models: AISDK_MODELS },
-  codex: { defaultModel: "gpt-5.6-sol", models: CODEX_MODELS },
-  "codex-aisdk": { defaultModel: "gpt-5.6-sol", models: CODEX_AISDK_MODELS },
-  grok: { defaultModel: "grok-4.7", models: GROK_MODELS },
-  cursor: { defaultModel: "auto", models: CURSOR_MODELS },
-  fx: { defaultModel: "auto", models: FX_MODELS },
-  muse: { defaultModel: "muse-spark-1.2", models: MUSE_MODELS },
-  deepseek: { defaultModel: "deepseek-v4-flash", models: DEEPSEEK_MODELS },
-  devin: { defaultModel: "adaptive", models: DEVIN_MODELS },
-  hermes: { defaultModel: "nousresearch/hermes-4-405b", models: HERMES_MODELS },
-  opencode: { defaultModel: "opencode/nemotron-3.5-lightning-free", models: OPENCODE_MODELS },
-  omg: { defaultModel: OMG_DEFAULT_MODEL, models: OMG_MODELS },
-  jcode: { defaultModel: "auto", models: JCODE_MODELS },
-  pi: { defaultModel: "sonnet", models: PI_MODELS },
-  copilot: { defaultModel: "claude-sonnet-4.5", models: COPILOT_MODELS },
+  claude: { defaultModel: AGENT_DEFAULT_MODELS.claude, models: CLAUDE_MODELS },
+  aisdk: { defaultModel: AGENT_DEFAULT_MODELS.aisdk, models: AISDK_MODELS },
+  codex: { defaultModel: AGENT_DEFAULT_MODELS.codex, models: CODEX_MODELS },
+  "codex-aisdk": { defaultModel: AGENT_DEFAULT_MODELS["codex-aisdk"], models: CODEX_AISDK_MODELS },
+  grok: { defaultModel: AGENT_DEFAULT_MODELS.grok, models: GROK_MODELS },
+  cursor: { defaultModel: AGENT_DEFAULT_MODELS.cursor, models: CURSOR_MODELS },
+  fx: { defaultModel: AGENT_DEFAULT_MODELS.fx, models: FX_MODELS },
+  muse: { defaultModel: AGENT_DEFAULT_MODELS.muse, models: MUSE_MODELS },
+  deepseek: { defaultModel: AGENT_DEFAULT_MODELS.deepseek, models: DEEPSEEK_MODELS },
+  devin: { defaultModel: AGENT_DEFAULT_MODELS.devin, models: DEVIN_MODELS },
+  hermes: { defaultModel: AGENT_DEFAULT_MODELS.hermes, models: HERMES_MODELS },
+  opencode: { defaultModel: AGENT_DEFAULT_MODELS.opencode, models: OPENCODE_MODELS },
+  omg: { defaultModel: AGENT_DEFAULT_MODELS.omg, models: OMG_MODELS },
+  jcode: { defaultModel: AGENT_DEFAULT_MODELS.jcode, models: JCODE_MODELS },
+  pi: { defaultModel: AGENT_DEFAULT_MODELS.pi, models: PI_MODELS },
+  copilot: { defaultModel: AGENT_DEFAULT_MODELS.copilot, models: COPILOT_MODELS },
 };
 
 function mergeModels(...sets: Array<readonly string[] | undefined>): string[] {

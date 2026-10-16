@@ -1,3 +1,4 @@
+import { AGENT_DEFAULT_MODELS as AGENT_DEFAULT_MODEL } from "../../src/agent-defaults";
 import { browserTranscription, selectTranscriptionTake, type TranscriptionTake } from "./lib/browser-transcription";
 import { BrowserTranscriptionSettings, useBrowserTranscription } from "./components/browser-transcription-settings";
 import { replayCloudTranscription } from "./lib/transcription-cloud-replay";
@@ -1545,23 +1546,6 @@ const AGENT_MODELS: Record<AgentKind, string[]> = {
   jcode: JCODE_MODELS,
   pi: PI_MODELS_FALLBACK,
   copilot: COPILOT_MODELS,
-};
-const AGENT_DEFAULT_MODEL: Record<AgentKind, string> = {
-  claude: "sonnet",
-  aisdk: "opus",
-  codex: "gpt-5.6-sol",
-  "codex-aisdk": "gpt-5.6-sol",
-  grok: "grok-4.7",
-  cursor: "auto",
-  fx: "auto",
-  muse: "muse-spark-1.2",
-  deepseek: "deepseek-v4-flash",
-  devin: "adaptive",
-  opencode: "opencode/nemotron-3.5-lightning-free",
-  omg: OMG_DEFAULT_MODEL,
-  jcode: "auto",
-  pi: "sonnet",
-  copilot: "claude-sonnet-4.5",
 };
 const AGENT_THINKING_LEVELS: Record<AgentKind, string[]> = {
   claude: ["low", "medium", "high", "xhigh", "max"],

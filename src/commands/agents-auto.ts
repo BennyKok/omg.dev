@@ -17,6 +17,7 @@ import { resolve } from "node:path";
 import {
   AUTO_AGENT_BACKENDS,
   MODEL_OPTIONS,
+  defaultModelForAgent,
   modelsForAgent,
   thinkingLevelsForAgent,
 } from "../agent-catalog.ts";
@@ -201,7 +202,9 @@ export function parseBackendSelection(
 }
 
 export function defaultModelFor(backend: StoredBackend): string | undefined {
-  return MODEL_OPTIONS[backend as keyof typeof MODEL_OPTIONS]?.defaultModel;
+  return backend in MODEL_OPTIONS
+    ? defaultModelForAgent(backend as keyof typeof MODEL_OPTIONS)
+    : undefined;
 }
 
 // The base repo the agent runs in. Unlike the web form (a repo picker) the CLI
