@@ -39,9 +39,12 @@ export const AUTO_MODEL = "auto";
 export const DEFAULT_IMAGE_MODEL = AUTO_MODEL;
 export const DEFAULT_VIDEO_MODEL = AUTO_MODEL;
 export const DEFAULT_MAX_CALL_USD = 1;
-export const DEFAULT_MAX_DAY_USD = 5;
+export const DEFAULT_MAX_DAY_USD = 25;
+/** The router's auto never picks a 3D model (their inputs differ), so 3D names one. */
+export const DEFAULT_3D_MODEL = "tripo3d/h3.1/image-to-3d";
 const IMAGE_WAIT_MS = 120_000;
 const VIDEO_WAIT_MS = 300_000;
+const MODEL_3D_WAIT_MS = 300_000;
 const DEFAULT_POLL_MS = 2_500;
 
 export const MEDIA_MESSAGES = {
@@ -52,7 +55,18 @@ export const MEDIA_MESSAGES = {
   grantDenied: "This Computer is not allowed to generate media (runtime grant denied: media.invoke).",
 };
 
-export type MediaKind = "image" | "video";
+export type MediaKind = "image" | "video" | "3d";
+
+export function mediaKind(value: unknown): MediaKind {
+  return value === "video" || value === "3d" ? value : "image";
+}
+
+/** Each fal 3D model names its source image field differently. */
+export function imageInputFor3D(model: string, imageUrl: string): Record<string, unknown> {
+  if (model.startsWith("fal-ai/hunyuan3d")) return { input_image_url: imageUrl };
+  if (model.startsWith("fal-ai/hyper3d/rodin")) return { image_urls: [imageUrl] };
+  return { image_url: imageUrl };
+}
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
 export type MediaOptions = {
@@ -279,6 +293,7 @@ const EXT_BY_TYPE: Record<string, string> = {
   "video/quicktime": ".mov",
   "audio/mpeg": ".mp3",
   "audio/wav": ".wav",
+  "model/gltf-binary": ".glb",
 };
 
 function extensionFor(result: JobResult): string {
@@ -405,7 +420,7 @@ async function finishJob(
 
 function waitMsFor(kind: MediaKind, req: { wait?: boolean; waitSeconds?: number }): number {
   if (req.wait === false) return 0;
-  const cap = kind === "video" ? VIDEO_WAIT_MS : IMAGE_WAIT_MS;
+  const cap = kind === "video" ? VIDEO_WAIT_MS : kind === "3d" ? MODEL_3D_WAIT_MS : IMAGE_WAIT_MS;
   if (typeof req.waitSeconds === "number" && req.waitSeconds >= 0) return Math.min(req.waitSeconds * 1000, VIDEO_WAIT_MS);
   return cap;
 }
@@ -413,8 +428,8 @@ function waitMsFor(kind: MediaKind, req: { wait?: boolean; waitSeconds?: number 
 export async function generateMedia(req: GenerateRequest, opts: MediaOptions) {
   const s = settings(opts);
   requireBase(s.base);
-  const kind: MediaKind = req.kind === "video" ? "video" : "image";
-  const model = req.model?.trim() || (kind === "video" ? DEFAULT_VIDEO_MODEL : DEFAULT_IMAGE_MODEL);
+  const kind = mediaKind(req.kind);
+  const model = req.model?.trim() || (kind === "video" ? DEFAULT_VIDEO_MODEL : kind === "3d" ? DEFAULT_3D_MODEL : DEFAULT_IMAGE_MODEL);
   const input = req.input ?? {};
 
   const submitted = await withSpendLock(async () => {
@@ -478,7 +493,7 @@ export async function generateMedia(req: GenerateRequest, opts: MediaOptions) {
       status: String(sub.body.json?.status ?? "queued"),
       costMicros: chargedMicros,
       model: chosen,
-      kind: (quotedKind === "video" || quotedKind === "image" ? quotedKind : kind) as MediaKind,
+      kind: quotedKind === "video" || quotedKind === "image" || quotedKind === "3d" ? quotedKind : kind,
     };
   });
 
@@ -551,7 +566,7 @@ export async function handleMediaRequest(req: Request, url: URL, opts: MediaOpti
       return json(
         await generateMedia(
           {
-            kind: body.kind === "video" ? "video" : "image",
+            kind: mediaKind(body.kind),
             model: typeof body.model === "string" ? body.model : undefined,
             provider: body.provider === "fal" || body.provider === "wavespeed" ? body.provider : undefined,
             input: plainObject(body.input),
