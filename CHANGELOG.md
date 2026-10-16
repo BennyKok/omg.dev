@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 16, 2026 - Web app previews show in the chat (v0.6.241)
+
+- The preview of a web app now opens inside the chat at phone size, as an Expo app's preview does. Before, a web app only had an "Open preview" button. Tap the card's header to fold it, and the full-screen icon to open it full screen.
+
 ## October 16, 2026 - New apps start as web apps (v0.6.240)
 
 - A new user's first app is now built as a web app in the Computer's ready web project. It is quicker to build, and its link opens on any phone. The agent uses Expo only when you ask for an app to install on iPhone or Android, or name Expo or a native app.
