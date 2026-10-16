@@ -159,17 +159,98 @@ async function observed(response: Promise<Response>): Promise<Response> {
   return settled;
 }
 
+// One read per Computer at a time.
+//
+// Many owners ask for the same read in the same moment: a mount, the window's
+// focus and its visibilitychange all fire during a page load, and a host can
+// keep two surfaces of this app on screen. An identical GET that is already in
+// flight answers every caller who asks while it runs. Each caller still gets
+// its own copy, so one caller changing its result cannot change another's.
+//
+// A write through this client ends every shared read when it starts and again
+// when it settles. A refresh that follows a change therefore always fetches
+// after the change, never an answer that left before it.
+type SharedFetch = { buffered: { body: ArrayBuffer; init: ResponseInit } } | { response: Response };
+const sharedApiReads = new Map<string, Promise<unknown>>();
+const sharedFetchReads = new Map<string, Promise<SharedFetch>>();
+
+function isRead(init?: RequestInit): boolean {
+  const method = (init?.method ?? "GET").toUpperCase();
+  return method === "GET" || method === "HEAD";
+}
+
+function sharedReadKey(path: string, init?: RequestInit): string | null {
+  // A caller that can cancel its read owns it alone: cancelling a shared read
+  // would cancel it for everyone else too.
+  if ((init?.method ?? "GET").toUpperCase() !== "GET" || init?.body != null || init?.signal) return null;
+  const headers = [...new Headers(init?.headers).entries()].sort(([a], [b]) => a.localeCompare(b));
+  return `${omgTransportGenerationCounter} ${path} ${JSON.stringify(headers)}`;
+}
+
+function endSharedReads(): void {
+  sharedApiReads.clear();
+  sharedFetchReads.clear();
+}
+
+/** Run a write so that no read shared before or during it answers after it. */
+function asWrite<T>(init: RequestInit | undefined, run: () => Promise<T>): Promise<T> {
+  if (isRead(init)) return run();
+  endSharedReads();
+  return run().finally(endSharedReads);
+}
+
+function joinOrStart<T>(map: Map<string, Promise<T>>, key: string, start: () => Promise<T>): { read: Promise<T>; joined: boolean } {
+  const running = map.get(key);
+  if (running) return { read: running, joined: true };
+  const read = start();
+  map.set(key, read);
+  const done = () => {
+    if (map.get(key) === read) map.delete(key);
+  };
+  read.then(done, done);
+  return { read, joined: false };
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   if (pausedGate.blocks(init)) throw new ComputerPausedError();
+  const key = sharedReadKey(path, init);
+  const read = key === null
+    ? asWrite(init, () => omgTransport.request<T>(path, init))
+    : joinOrStart(sharedApiReads as Map<string, Promise<T>>, key, () => omgTransport.request<T>(path, init)).read;
   try {
-    const value = await omgTransport.request<T>(path, init);
+    const value = await read;
     pausedGate.observe(200);
-    return value;
+    return key === null ? value : structuredClone(value);
   } catch (error) {
     const status = errorStatus(error);
     if (status !== undefined) pausedGate.observe(status);
     throw error;
   }
+}
+
+/**
+ * A JSON answer is read once and every caller gets a fresh Response over the
+ * same bytes. Anything else (a file, an image) goes to the first caller as it
+ * arrived, streaming and all; a caller who joined that read starts its own,
+ * so no download is ever held twice in memory.
+ */
+function sharedFetch(path: string, init: RequestInit | undefined, key: string): Promise<Response> {
+  const { read, joined } = joinOrStart(sharedFetchReads, key, async (): Promise<SharedFetch> => {
+    const response = await omgTransport.fetch(path, init);
+    // Only a real JSON Response is shared. A host transport may answer with
+    // something else; that goes to its caller untouched.
+    const type = typeof response?.headers?.get === "function" ? response.headers.get("content-type") ?? "" : "";
+    if (!type.toLowerCase().includes("json")) return { response };
+    const body = await response.arrayBuffer();
+    return { buffered: { body, init: { status: response.status, statusText: response.statusText, headers: response.headers } } };
+  });
+  return read.then((shared) => {
+    if ("buffered" in shared) {
+      const empty = [101, 204, 205, 304].includes(shared.buffered.init.status ?? 200);
+      return new Response(empty ? null : shared.buffered.body.slice(0), shared.buffered.init);
+    }
+    return joined ? omgTransport.fetch(path, init) : shared.response;
+  });
 }
 
 /**
@@ -182,7 +263,9 @@ export function omgFetch(
   options: { background?: boolean } = {},
 ): Promise<Response> {
   if (pausedGate.blocks(init, options.background)) return Promise.resolve(computerPausedResponse());
-  return observed(omgTransport.fetch(path, init));
+  const key = sharedReadKey(path, init);
+  if (key === null) return observed(asWrite(init, () => omgTransport.fetch(path, init)));
+  return observed(sharedFetch(path, init, key));
 }
 
 export function omgUpload(
@@ -190,9 +273,8 @@ export function omgUpload(
   init: RequestInit,
   onProgress: (progress: OmgUploadProgress) => void,
 ): Promise<Response> {
-  return observed(
-    omgTransport.upload?.(path, init, onProgress) ?? omgTransport.fetch(path, init),
-  );
+  return observed(asWrite(init, () =>
+    omgTransport.upload?.(path, init, onProgress) ?? omgTransport.fetch(path, init)));
 }
 
 export function openOmgLiveSocket(query?: string): Promise<OmgSocket> {
