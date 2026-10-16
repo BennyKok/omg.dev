@@ -139,3 +139,15 @@ test("an update restart says so and only asks the user to wait", () => {
   expect(view).toMatchObject({ mode: "pill", mood: "booting", canRetry: false, canSwitch: false });
   expect(view.title).toMatch(/updat/i);
 });
+
+test("a failed or unavailable computer names the failure even while the socket is newly offline", () => {
+  // The title and Retry once came from two different rules. Within the first
+  // FAIL_AFTER_MS of an offline socket, a failed computer read "Connecting…"
+  // beside a Retry button.
+  for (const lifecycle of ["failed", "unavailable"] as const) {
+    const view = connectionOverlayView({ ...live, ready: false, status: "offline", lifecycle, notLiveMs: 1_000 });
+    expect(view).toMatchObject({ mode: "overlay", mood: "error", canRetry: true });
+    expect(view.title).not.toBe("Connecting…");
+    expect(view.title).toBe(lifecycle === "failed" ? "Could not start your computer" : "Computer unavailable");
+  }
+});

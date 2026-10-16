@@ -94,6 +94,20 @@ export interface HostPushConfig {
   workerUrl?: string;
 }
 
+/** A surface's connection state, reported to a host that owns its display. */
+export interface OmgConnectionState {
+  /** Socket state. "live" when the surface does not use a live socket. */
+  status: "connecting" | "live" | "reconnecting" | "offline";
+  /** The first bootstrap is still loading. */
+  loading: boolean;
+  /** Bootstrap data is usable. */
+  ready: boolean;
+  /** Last bootstrap error, while the surface retries it. */
+  error: string | null;
+  /** Why the runtime is not answering, from the cloud proxy, when it knows. */
+  lifecycle: "starting" | "waking" | "ready" | "updating" | "failed" | "paused" | "unavailable" | null;
+}
+
 /**
  * The host's toast function. Pass Sonner's `toast` export from the host's own
  * bundle; it satisfies this shape as is.
@@ -233,6 +247,14 @@ export interface OmgAppSurfaceProps {
    * Omit it and no switcher is drawn.
    */
   machines?: HostMachines;
+  /**
+   * Hand the connection display to the host. Pass this and the surface draws
+   * no connection overlay, pill, toast, startup pill or inline Retry. It
+   * reports each change of its connection state here instead, and the host
+   * draws the one message the person sees. Omit it and the surface draws its
+   * own connection UI, as before.
+   */
+  onConnectionChange?: (state: OmgConnectionState) => void;
 }
 
 /** One machine in a host-supplied list. `local` is the box serving the page. */
@@ -352,6 +374,14 @@ export interface OmgSettingsSurfaceProps {
    * that container.
    */
   hostToast?: OmgHostToast;
+  /**
+   * Hand the connection display to the host. Pass this and the surface draws
+   * no connection overlay, pill, toast, startup pill or inline Retry. It
+   * reports each change of its connection state here instead, and the host
+   * draws the one message the person sees. Omit it and the surface draws its
+   * own connection UI, as before.
+   */
+  onConnectionChange?: (state: OmgConnectionState) => void;
 }
 
 export declare function OmgSettingsSurface(

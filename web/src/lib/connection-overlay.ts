@@ -79,6 +79,17 @@ function hardLifecycle(input: ConnectionOverlayInput): boolean {
   return input.lifecycle === "failed" || input.lifecycle === "unavailable";
 }
 
+/**
+ * The app is still retrying by itself: a fresh bootstrap error, or a socket
+ * that has been offline for less than FAIL_AFTER_MS. Never true for a computer
+ * the server reports as failed or unavailable. The title and the Retry button
+ * both read this one answer, so a card cannot say "Connecting…" next to Retry.
+ */
+function stillRetrying(input: ConnectionOverlayInput): boolean {
+  if (hardLifecycle(input)) return false;
+  return softError(input) || (input.status === "offline" && input.notLiveMs < FAIL_AFTER_MS);
+}
+
 /** A bootstrap error the app is still retrying by itself. */
 function softError(input: ConnectionOverlayInput): boolean {
   return !!input.error && !hardLifecycle(input) && input.notLiveMs < FAIL_AFTER_MS;
@@ -118,7 +129,7 @@ function detailFor(input: ConnectionOverlayInput, mood: BoxyMood): string | null
 export function connectionOverlayView(input: ConnectionOverlayInput): ConnectionOverlayView {
   const view = baseView(input);
   // A soft error must be looked at again when it settles into a hard one.
-  if ((softError(input) || input.status === "offline" && input.notLiveMs < FAIL_AFTER_MS) && !(view.mode === "hidden" && view.nextChangeMs === null)) {
+  if (stillRetrying(input) && !(view.mode === "hidden" && view.nextChangeMs === null)) {
     const settle = FAIL_AFTER_MS - input.notLiveMs;
     return { ...view, nextChangeMs: Math.min(view.nextChangeMs ?? settle, settle) };
   }
@@ -148,7 +159,7 @@ function baseView(input: ConnectionOverlayInput): ConnectionOverlayView {
     };
   }
 
-  const soft = softError(input) || input.status === "offline" && input.notLiveMs < FAIL_AFTER_MS;
+  const soft = stillRetrying(input);
   // Still retrying: read as connecting, not as a failure.
   const mood = soft ? (input.ready ? "searching" : "booting") : moodFor(input);
   const title = soft

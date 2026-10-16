@@ -50,6 +50,7 @@ import {
 import type { AppSearch } from "./lib/app-search";
 import { isEmbedded, readLocationEmbedFlag } from "./lib/embed";
 import { useBareSurface } from "./lib/bare-surface";
+import { useHostOwnsConnection, useReportHostConnection } from "./lib/host-connection";
 import {
   useEmbeddedHostOptions,
   useModelPlanErrorHandler,
@@ -7794,6 +7795,17 @@ export function App() {
     lifecycle: runtimeLifecycle,
   }, !bare);
 
+  // A host that owns the connection display (OmgAppSurfaceProps.onConnectionChange)
+  // hears every change and draws the only message; this tree then draws none.
+  const hostOwnsConnection = useHostOwnsConnection();
+  useReportHostConnection({
+    status: useWsLive ? wsLiveStream.connection.status : "live",
+    loading,
+    ready: runtimeReady,
+    error,
+    lifecycle: runtimeLifecycle ?? null,
+  });
+
   const retryRuntime = useCallback(() => {
     if (loading) return;
     wsLiveStream.reconnectNow();
@@ -9728,7 +9740,7 @@ export function App() {
 
       {/* The desktop workspace shows this in the rail's brand row instead, so
           the line does not sit unaligned above the layout and push it down. */}
-      {(isMobile && isPrimarySurfaceTab(tab)) || liveDesktopWorkspace ? null : <RuntimeRecovery />}
+      {(isMobile && isPrimarySurfaceTab(tab)) || liveDesktopWorkspace || hostOwnsConnection ? null : <RuntimeRecovery />}
 
       </div>
       )}
@@ -10266,12 +10278,12 @@ export function App() {
         onComplete={completeConnectionAuth}
       />
 
-      {useWsLive && !error ? (
+      {useWsLive && !error && !hostOwnsConnection ? (
         <ConnectionStatusToasts recoveryVisible={!bare} connection={wsLiveStream.connection} onRetry={wsLiveStream.reconnectNow} />
       ) : null}
       {/* The one connection surface for the full app. Bare pages are hosted
           inside someone else's page and keep the toasts above. */}
-      {!bare ? (
+      {!bare && !hostOwnsConnection ? (
         <ConnectionOverlay
           machineSwitcher={!embedded || hostMachines ? <MachineSwitcher variant="nav" /> : null}
         />
@@ -10328,7 +10340,7 @@ export function App() {
       {/* A host that owns the toast stack draws every toast; see host-toast.ts. */}
       {hasHostToast() ? null : <Toaster position={isMobile ? "top-center" : "bottom-center"} />}
     </div>
-    {loading && bare ? <AppStartupStatus /> : null}
+    {loading && bare && !hostOwnsConnection ? <AppStartupStatus /> : null}
     {terminalSid ? (
       <SessionTerminalOverlay
         sessionId={terminalSid}
