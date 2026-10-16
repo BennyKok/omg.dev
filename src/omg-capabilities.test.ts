@@ -170,7 +170,7 @@ describe("omg.dev runtime capabilities", () => {
       "omg_expose_port",
       "omg_build_android / omg_build_status",
       "omg_display_image / omg_display_video / omg_display_file",
-      "omg_generate_image / omg_generate_video / omg_media_job / omg_media_models",
+      "omg_generate_image / omg_generate_video / omg_generate_3d / omg_media_job / omg_media_models",
       "omg_input",
       "omg_list_threads / omg_read_thread / omg_send_thread_message",
       "omg_find_sessions",

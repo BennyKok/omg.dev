@@ -1,6 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { AsyncLocalStorage } from "node:async_hooks";
+import { readFile } from "node:fs/promises";
+import { extname } from "node:path";
 import * as z from "zod/v4";
 import {
   AUTO_AGENT_BACKENDS,
@@ -9,6 +11,7 @@ import {
   thinkingLevelsForAgent,
 } from "../agent-catalog.ts";
 import { localServeBaseUrl } from "../config.ts";
+import { DEFAULT_3D_MODEL, DEFAULT_MAX_CALL_USD, DEFAULT_MAX_DAY_USD, imageInputFor3D } from "../media-generation.ts";
 import {
   OMG_CAPABILITIES,
   OMG_CAPABILITY_VERSION,
@@ -1037,7 +1040,7 @@ export function buildOmgMcpServer(): McpServer {
     return input;
   };
   const MEDIA_COST_NOTE =
-    "Spends the user's omg credits (1 credit = $1). The router quotes the price first; the call is refused above the per-call cap ($1.00 default) or the daily cap ($5.00 default, UTC). The result has model and costUsd: tell the user both in your reply.";
+    `Spends the user's omg credits (1 credit = $1). The router quotes the price first; the call is refused above the per-call cap ($${DEFAULT_MAX_CALL_USD.toFixed(2)} default) or the daily cap ($${DEFAULT_MAX_DAY_USD.toFixed(2)} default, UTC). The result has model and costUsd: tell the user both in your reply.`;
   const MEDIA_MODEL_FIELD = z.string().optional().describe(
     "Leave out to let the router pick the cheapest suitable model. To choose, pass an id from omg_media_models.",
   );
@@ -1106,12 +1109,61 @@ export function buildOmgMcpServer(): McpServer {
       ),
   );
 
+  // The router reads JSON bodies up to 1 MB, so an inline image must stay
+  // well under that once base64 grows it by 4/3.
+  const MAX_INLINE_IMAGE_BYTES = 600_000;
+  const IMAGE_MIME: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp" };
+
+  server.registerTool(
+    "omg_generate_3d",
+    {
+      title: "Generate A 3D Model With omg Credits",
+      description:
+        `Turn one image of an object into a textured 3D model (GLB) and save it to a local file. ${MEDIA_COST_NOTE} Default model ${DEFAULT_3D_MODEL} ($0.30). Others: fal-ai/hyper3d/rodin/v2.5/fast ($0.10), fal-ai/trellis-2 ($0.25 to $0.35), fal-ai/hunyuan3d-v3/image-to-3d ($0.375; generate_type:'LowPoly' $0.45). Add-ons such as PBR cost more. Use a plain background and one object per image. Takes 30 s to 5 min.`,
+      inputSchema: {
+        imageUrl: z.string().optional().describe("Public https URL of the source image."),
+        imagePath: z.string().optional().describe("Absolute path of a local PNG, JPEG, or WebP source image under 600 KB. Use instead of imageUrl."),
+        model: z.string().optional().describe(`3D model id. Default ${DEFAULT_3D_MODEL}.`),
+        input: z.record(z.string(), z.unknown()).optional().describe("Extra provider input fields, for example {face_limit:8000} for Tripo or {generate_type:'LowPoly'} for Hunyuan3D. The source image field is filled for you."),
+        outputPath: z.string().optional().describe("Absolute output file path ending in .glb. Defaults to ~/omg-media/<date>/<jobId>-<n>.glb."),
+        wait: z.boolean().optional().describe("Wait for the model (up to 300 s). Default true. On timeout the result has pending: true; call omg_media_job."),
+      },
+    },
+    async ({ imageUrl, imagePath, model, input, outputPath, wait }) => {
+      let source = imageUrl?.trim() ?? "";
+      if (!source && imagePath) {
+        const mime = IMAGE_MIME[extname(imagePath).toLowerCase()];
+        if (!mime) throw new Error("imagePath must be a .png, .jpg, .jpeg, or .webp file.");
+        const bytes = await readFile(imagePath);
+        if (bytes.byteLength > MAX_INLINE_IMAGE_BYTES) {
+          throw new Error(`The image is ${Math.round(bytes.byteLength / 1000)} KB. Shrink it below 600 KB (for example a 768 px JPEG) or pass a public imageUrl.`);
+        }
+        source = `data:${mime};base64,${bytes.toString("base64")}`;
+      }
+      if (!source) throw new Error("Give imageUrl or imagePath.");
+      const chosen = model?.trim() || DEFAULT_3D_MODEL;
+      return result(
+        await api("/api/media/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            kind: "3d",
+            model: chosen,
+            input: { ...(input ?? {}), ...imageInputFor3D(chosen, source) },
+            outputPath,
+            wait,
+          }),
+        }),
+      );
+    },
+  );
+
   server.registerTool(
     "omg_media_job",
     {
       title: "Check A Media Generation Job",
       description:
-        "Check or wait for an image or video job started by omg_generate_image or omg_generate_video, and download its result when it succeeds. Costs nothing; the job was paid for at submit. Use this after a generate call returned pending: true. Do not generate again.",
+        "Check or wait for an image, video, or 3D job started by omg_generate_image, omg_generate_video, or omg_generate_3d, and download its result when it succeeds. Costs nothing; the job was paid for at submit. Use this after a generate call returned pending: true. Do not generate again.",
       inputSchema: {
         jobId: z.string().min(1).describe("jobId returned by the generate call."),
         outputPath: z.string().optional().describe("Absolute output file path. Defaults to ~/omg-media/<date>/<jobId>-<n>.<ext>."),
@@ -1136,7 +1188,7 @@ export function buildOmgMcpServer(): McpServer {
       inputSchema: {
         all: z.boolean().optional().describe("Return the full model list, not only the top models."),
         q: z.string().optional().describe("Search text matched against model id and name, for example \"flux\" or \"kling\"."),
-        kind: z.enum(["image", "video", "audio"]).optional().describe("Only this output kind."),
+        kind: z.enum(["image", "video", "audio", "3d"]).optional().describe("Only this output kind."),
         limit: z.number().int().min(1).max(500).optional().describe("Most rows from the full list. Default 50."),
       },
     },
