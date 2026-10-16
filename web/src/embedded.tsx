@@ -16,6 +16,7 @@ import {
   type HostPushConfig,
 } from "./lib/push";
 import { BareSurfaceProvider } from "./lib/bare-surface";
+import { HostConnectionProvider, type HostConnectionState } from "./lib/host-connection";
 import { configureHostToast, type OmgHostToast } from "./lib/host-toast";
 import {
   EmbeddedHostOptionsProvider,
@@ -46,6 +47,8 @@ export type {
 export type { PlanLimitLiveAgent } from "./lib/plan-limit-live";
 export type { HostPushConfig } from "./lib/push";
 export type { OmgHostToast } from "./lib/host-toast";
+export type { HostConnectionState as OmgConnectionState } from "./lib/host-connection";
+type OmgConnectionState = HostConnectionState;
 
 /**
  * The notification a host's push worker receives, already decrypted by the
@@ -193,6 +196,14 @@ export interface OmgAppSurfaceProps {
    * Omit it and no switcher is drawn.
    */
   machines?: HostMachines;
+  /**
+   * Hand the connection display to the host. Pass this and the surface draws
+   * no connection overlay, pill, toast, startup pill or inline Retry. It
+   * reports each change of its connection state here instead, and the host
+   * draws the one message the person sees. Omit it and the surface draws its
+   * own connection UI, as before.
+   */
+  onConnectionChange?: (state: OmgConnectionState) => void;
 }
 
 function initialPath(sessionId?: string | null): string {
@@ -257,6 +268,14 @@ export interface OmgSettingsSurfaceProps {
    * explains it is unavailable instead of enrolling into the host's own worker.
    */
   hostedPush?: HostPushConfig;
+  /**
+   * Hand the connection display to the host. Pass this and the surface draws
+   * no connection overlay, pill, toast, startup pill or inline Retry. It
+   * reports each change of its connection state here instead, and the host
+   * draws the one message the person sees. Omit it and the surface draws its
+   * own connection UI, as before.
+   */
+  onConnectionChange?: (state: OmgConnectionState) => void;
 }
 
 const SETTINGS_PAGES: readonly OmgSettingsPage[] = [
@@ -306,6 +325,7 @@ export function OmgSettingsSurface({
   errorSink,
   hostedPush,
   hostToast,
+  onConnectionChange,
 }: OmgSettingsSurfaceProps) {
   const mounted = mountablePage(page);
   // The host owns the header, the back affordance and the account, so this
@@ -357,11 +377,13 @@ export function OmgSettingsSurface({
   return (
     <div className={className} data-lfg-app-surface="" data-lfg-settings-surface={page}>
       <BareSurfaceProvider bare>
-        <RootErrorBoundary>
-          <AppDialogProvider>
-            <RouterProvider router={router} />
-          </AppDialogProvider>
-        </RootErrorBoundary>
+        <HostConnectionProvider onChange={onConnectionChange}>
+          <RootErrorBoundary>
+            <AppDialogProvider>
+              <RouterProvider router={router} />
+            </AppDialogProvider>
+          </RootErrorBoundary>
+        </HostConnectionProvider>
       </BareSurfaceProvider>
     </div>
   );
@@ -400,6 +422,7 @@ export function OmgAppSurface({
   machines,
   hostToast,
   composerGuide,
+  onConnectionChange,
 }: OmgAppSurfaceProps) {
   // A full LFG app is the sole owner of its runtime transport. Install it
   // synchronously so child effects cannot race the host boundary; there is no
@@ -444,11 +467,13 @@ export function OmgAppSurface({
         }}
       >
         <BareSurfaceProvider bare={false}>
-          <RootErrorBoundary>
-            <AppDialogProvider>
-              <RouterProvider router={router} />
-            </AppDialogProvider>
-          </RootErrorBoundary>
+          <HostConnectionProvider onChange={onConnectionChange}>
+            <RootErrorBoundary>
+              <AppDialogProvider>
+                <RouterProvider router={router} />
+              </AppDialogProvider>
+            </RootErrorBoundary>
+          </HostConnectionProvider>
         </BareSurfaceProvider>
       </EmbeddedHostOptionsProvider>
     </div>

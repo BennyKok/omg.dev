@@ -208,4 +208,44 @@ describe("built embed resolves host externals and mounts", () => {
     const surface = win.document.querySelector("[data-lfg-app-surface]");
     expect(surface).not.toBeNull();
   });
+
+  // A host that passes onConnectionChange draws the only connection message.
+  // The surface must report its state and draw no overlay of its own, or one
+  // wait shows two screens on top of each other.
+  async function mountStuckSurface(onConnectionChange?: (state: unknown) => void) {
+    const React = await import("react");
+    const { createRoot } = await import("react-dom/client");
+    const { act } = await import("react");
+    const { OmgAppSurface } = await import("../dist-lib/index.js");
+    const pending = () => new Promise<never>(() => {});
+    const transport = {
+      fetch: pending,
+      request: pending,
+      openSocket: pending,
+      openLiveSocket: pending,
+    };
+    host = win.document.createElement("div") as unknown as HTMLElement;
+    win.document.body.appendChild(host as unknown as Element);
+    const root = createRoot(host);
+    reactRoot = root;
+    await act(async () => {
+      root.render(React.createElement(OmgAppSurface, { transport, connectionOnboarding: false, onConnectionChange }));
+    });
+    // Past the overlay's first-load threshold (STARTUP_SHOW_AFTER_MS).
+    await act(async () => { await new Promise((r) => setTimeout(r, 1_200)); });
+  }
+
+  test("a host that owns the connection display gets reports and no overlay", async () => {
+    const reports: Array<{ ready: boolean; status: string }> = [];
+    await mountStuckSurface((state) => reports.push(state as { ready: boolean; status: string }));
+    expect(win.document.querySelector("[data-connection-overlay]")).toBeNull();
+    expect(win.document.querySelector("#lfg-startup-status")).toBeNull();
+    expect(reports.length).toBeGreaterThan(0);
+    expect(reports.at(-1)?.ready).toBe(false);
+  });
+
+  test("without onConnectionChange the surface still draws its own overlay", async () => {
+    await mountStuckSurface();
+    expect(win.document.querySelector("[data-connection-overlay]")).not.toBeNull();
+  });
 });
