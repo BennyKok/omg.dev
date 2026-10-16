@@ -5,6 +5,28 @@ read off the EAS docs.
 
 ## Current state
 
+### Send all queued messages OTA — 2026-10-16
+
+Send now on any queued card steers every queued message into the running turn
+as one message, in queue order. A row whose delete fails stays queued.
+
+Implementation: `b52df5509`. Since the previous OTA source `1b3bc4146`, the
+only native change is internal to `OmgBrowserLoginModule.swift` (`4e1598cb8`);
+its JS interface and result shape did not change, and `app.json` changed only
+the version. Each run overrode the runtime version. No store build or
+submission was made. Runtime 1.0.17 was not targeted because its review
+(`e9f5ebcf-38fb-4a1d-83ee-bcc459f44a1d`) was pending.
+
+| Runtime | iOS update | Android update | Workflow |
+| --- | --- | --- | --- |
+| 1.0.16 | `01a14439-66ac-7530-9489-dec938062660` | `01a14439-66ac-7a47-b0bf-54a66e866062` | [38886082030](https://github.com/BennyKok/omg.dev/actions/runs/38886082030) |
+| 1.0.15 | `01a1443c-fe54-7c34-b1a4-cfbf4df51e0e` | `01a1443c-fe54-78fc-8308-18a21bf98338` | [38886500185](https://github.com/BennyKok/omg.dev/actions/runs/38886500185) |
+| 1.0.14 | `01a14440-b7a8-78f6-b215-12d8ed91caa7` | `01a14440-b7a8-7469-8f5d-f6a424e1e083` | [38886945778](https://github.com/BennyKok/omg.dev/actions/runs/38886945778) |
+
+The production update endpoint serves all six IDs (read back 2026-10-16).
+Verification: `held-queue-cards` web tests and the mobile type check. Not
+checked on a simulator or a device.
+
 ### OpenCode model marks and agent update results OTA — 2026-10-15
 
 OpenCode model rows show the lab's mark and a short name, grouped by router,
