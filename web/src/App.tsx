@@ -19073,11 +19073,13 @@ function SessionTitleSheet({
           <Button
             variant="ghost"
             size="icon-sm"
-            aria-label="Close session details"
+            aria-label="Back"
             onClick={requestClose}
             className="shrink-0"
           >
-            <ChevronDown />
+            {/* A page you go back from, as on iOS: the session opens over the
+                list, and the way out points to it. */}
+            <ChevronLeft />
           </Button>
           {/* Mobile's full-screen session sheet: same bot-aware identity mark
               as the session card header (see SessionHeaderIdentity), so a
