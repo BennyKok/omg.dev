@@ -350,6 +350,20 @@ describe("first-run envelope", () => {
     expect(ordinary).not.toContain("guided first task");
   });
 
+  // Owner decision 2026-10-16: an app is a web app in the ready project unless
+  // the person asks for one to install. Fails if the web default goes away or
+  // the Expo steps apply to every app again.
+  test("an app is a web app in the ready project by default, and Expo only when an install is asked for", async () => {
+    const { withFirstRunEnvelope } = await import("./omg-capabilities.ts");
+    const wrapped = withFirstRunEnvelope("Build a habit tracker", { seesImages: true })!;
+    const web = wrapped.split("\n").find((line) => line.startsWith("- Build an app as a web app by default"));
+    expect(web).toContain("/home/user/project");
+    expect(web).toContain("port 5173");
+    const expo = wrapped.split("\n").find((line) => line.includes('`template: "expo"`'));
+    expect(expo?.startsWith("- For an app to install on a phone (only when asked")).toBe(true);
+    expect(wrapped.indexOf("- Build an app as a web app by default")).toBeLessThan(wrapped.indexOf(expo!));
+  });
+
   test("a phone app exposes Metro before any code, with the concrete Expo steps", async () => {
     const { withFirstRunEnvelope } = await import("./omg-capabilities.ts");
     const wrapped = withFirstRunEnvelope("Build a mobile app for my family", { seesImages: true })!;
