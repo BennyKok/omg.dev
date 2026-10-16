@@ -312,13 +312,18 @@ export function withFirstRunEnvelope(
     FIRST_RUN_HEADER,
     "This session is a new user's first task on omg.dev. They are watching, and they leave if nothing appears. These rules hold for every request in this session, including a new request typed after the user stops you.",
     "- Within about 5 minutes, show a first visible version. Start or reuse the dev server (in /home/user/project the web server on 5173 is already running), call `omg_expose_port`, and tell the user the preview is ready. Do this before deep work.",
+    // Owner decision 2026-10-16: an app is a web app unless the person asks
+    // for one they install. The ready web project (React, shadcn/ui and the
+    // omg backend, dev server already on 5173) is quicker and more reliable
+    // than an Expo project, and its web link works on every phone.
+    "- Build an app as a web app by default: work in the ready web project in /home/user/project, expose port 5173, and read its AGENTS.md before you change the UI. Make it work well at phone size, because most people open it on a phone. Use the Expo steps below only when the user asks for an app to install on iPhone or Android, or names Expo or a native app.",
     // The Expo steps are spelled out here because the omg-app-builder skill
     // only exists inside a project made by omg_create_project, so an agent
     // that plans first never reads its fast path. Measured 2026-09-27 (Family
     // Feast design build, deepseek-v4-flash): 31 turns and 5 min of code
     // before the first omg_expose_port, then 2 min of cold Metro bundling,
     // preview at 8 min. The A/B runs that exposed first had the card at 27 s.
-    `- For a phone app, do these steps first, before you write any app code, even when the request includes a design to match: 1. \`omg_create_project\` with \`template: "expo"\`. 2. \`omg_expose_port\` with port 8081 and \`expoGo: true\`. 3. From the project directory run \`bash scripts/start-expo-preview.sh <expoGo.proxyUrl> 8081\` with a 240000 ms shell timeout. 4. Present the web preview first: tell the user the app is ready and the card below shows it running, on any device, with no account. Then mention the phone in one sentence: to try it on their own phone, tap \"Your phone\" on the card. If the script prints \`WARNING: Expo CLI is not signed in\`, offer \"Create a free Expo account\" for an iPhone: on that tab they tap \"Create free account\", or \"I have one\" if they already have one; Android does not need it. The user creates the account themself; never sign up for them. Metro reloads on every save, so the preview follows your edits. Then read the omg-app-builder skill in the project and build the screens. Replace the template home screen in \`src/app/index.tsx\`; do not add a second index route or a root \`app/\` folder, because the template screen then stays on \`/\`.`,
+    `- For an app to install on a phone (only when asked, see above), do these steps first, before you write any app code, even when the request includes a design to match: 1. \`omg_create_project\` with \`template: "expo"\`. 2. \`omg_expose_port\` with port 8081 and \`expoGo: true\`. 3. From the project directory run \`bash scripts/start-expo-preview.sh <expoGo.proxyUrl> 8081\` with a 240000 ms shell timeout. 4. Present the web preview first: tell the user the app is ready and the card below shows it running, on any device, with no account. Then mention the phone in one sentence: to try it on their own phone, tap \"Your phone\" on the card. If the script prints \`WARNING: Expo CLI is not signed in\`, offer \"Create a free Expo account\" for an iPhone: on that tab they tap \"Create free account\", or \"I have one\" if they already have one; Android does not need it. The user creates the account themself; never sign up for them. Metro reloads on every save, so the preview follows your edits. Then read the omg-app-builder skill in the project and build the screens. Replace the template home screen in \`src/app/index.tsx\`; do not add a second index route or a root \`app/\` folder, because the template screen then stays on \`/\`.`,
     // A paid game build asks for the expo-game kit (omg.dev control plane,
     // DELIVERY.game). Without these steps the agent started from scratch in
     // the ready web project (Timber Tumble, 2026-10-13), and the kit never loaded.
@@ -342,7 +347,7 @@ export function withFirstRunEnvelope(
     opts.guide
       ? `- This is a guided first task. These rules replace the usual deploy rule and hold for the whole session:\n${opts.guide}`
       : "- After the preview: build in a few larger edits, run one typecheck or build, deploy once with `omg_deploy`, then make the app public with `omg_app_visibility` (`visibility: \"public\"`) so its link opens for anyone, commit, then `omg_ship`.",
-    "- When the user asks for an installable Android app, or the task says to build one, call `omg_build_android` once after the preview works. While it builds (about 3 to 5 minutes), say so and keep polling `omg_build_status`. Then show the APK with `omg_display_file` and give the user `installUrl`.",
+    "- When the user asks for an installable Android app, or the task says to build one, call `omg_build_android` once after the preview works. It needs an Expo project: if the app is a web app so far, first create the Expo project with the steps above and bring the app over. While it builds (about 3 to 5 minutes), say so and keep polling `omg_build_status`. Then show the APK with `omg_display_file` and give the user `installUrl`.",
     ...(opts.seesImages
       ? []
       : [
