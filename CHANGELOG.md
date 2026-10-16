@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 16, 2026 - Coding agents share current model defaults (v0.6.242)
+
+- New Codex tasks use `gpt-6.1-sol` when no model is selected. Claude uses the `opus` alias.
+- The web picker, bot delegation, CLI subagents, scheduled-agent creation, and session launchers now use the shared default policy. An explicit model choice stays in effect.
+
 ## October 16, 2026 - Web app previews show in the chat (v0.6.241)
 
 - The preview of a web app now opens inside the chat at phone size, as an Expo app's preview does. Before, a web app only had an "Open preview" button. Tap the card's header to fold it, and the full-screen icon to open it full screen.
