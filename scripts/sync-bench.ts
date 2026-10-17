@@ -20,8 +20,8 @@
  *   options: --iterations 20  --idle-seconds 10  --json
  *
  * --spawn runs `bun run src/cli.ts serve` with a clean environment (only PATH,
- * an isolated HOME and its own host/port), so it never shares settings or
- * ports with a Computer already running on the machine. Sessions are seeded as
+ * an isolated HOME and data folder, and its own host/port), so it never shares
+ * settings, data or ports with a Computer already running on the machine. Sessions are seeded as
  * Claude Code transcripts in the isolated HOME; no model is called.
  */
 import { mkdirSync, appendFileSync, writeFileSync, rmSync } from "node:fs";
@@ -137,7 +137,9 @@ async function spawnComputer(): Promise<{ url: string; child: ChildProcess; tran
   const port = await freePort();
   const child = spawn("bun", ["run", "src/cli.ts", "serve"], {
     cwd: root,
-    env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: home, OMG_HOST: "127.0.0.1", OMG_PORT: String(port), OMG_REPOS_ROOT: join(base, "repos") },
+    // OMG_DATA_DIR too: the server's data folder defaults to <repo>/data, and
+    // a bench run must not leave a model catalog or database in the checkout.
+    env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: home, OMG_HOST: "127.0.0.1", OMG_PORT: String(port), OMG_REPOS_ROOT: join(base, "repos"), OMG_DATA_DIR: join(base, "data") },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let log = "";
