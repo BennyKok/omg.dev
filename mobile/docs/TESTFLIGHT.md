@@ -5,6 +5,30 @@ read off the EAS docs.
 
 ## Current state
 
+### No connection page over a working screen OTA — 2026-10-17
+
+A socket that drops while the computer still answers no longer covers the
+usable screen after 10 s. It stays silent for 60 s, then the page offers Try
+again. A computer that stops answering keeps the 10 s rule. Same rule as the
+hosted web app (vibes PR #2508).
+
+Implementation: `31521bedc`. Since the previous OTA source `58a858382`, no
+native input changed. Each run overrode the runtime version. No store build or
+submission was made. The 1.0.17 App Store review was complete and the version
+was live (`asc-status`, 2026-10-17). Android 1.0.17 was not targeted.
+
+| Runtime | Platforms | iOS update | Android update | Workflow |
+| --- | --- | --- | --- | --- |
+| 1.0.17 | ios | `01a147aa-f5f4-7858-8917-5911fe1cdd5f` | not published | [38994469314](https://github.com/BennyKok/omg.dev/actions/runs/38994469314) |
+| 1.0.16 | ios, android | `01a147ae-ab44-75aa-87fc-67d9ef461bd9` | `01a147ae-ab44-7455-bb29-af55aa6db67b` | [38994683298](https://github.com/BennyKok/omg.dev/actions/runs/38994683298) |
+| 1.0.15 | ios, android | `01a147b1-ea72-726d-a3e0-d6e585503008` | `01a147b1-ea72-7618-9876-b2afa94671a9` | [38994960308](https://github.com/BennyKok/omg.dev/actions/runs/38994960308) |
+| 1.0.14 | ios, android | `01a147b5-508e-70b0-bd5a-15332243dd81` | `01a147b5-508e-73b8-9672-941efcada228` | [38995167642](https://github.com/BennyKok/omg.dev/actions/runs/38995167642) |
+
+The production update endpoint serves all seven IDs (read back 2026-10-17).
+Verification: 84 native check files pass (one quarantined), the mobile type
+check passes, and the `connection-overlay` simulator plan passes 12/12 on
+iPhone 17 Pro (Release build). A physical phone was not checked.
+
 ### One full-page connection screen OTA — 2026-10-16
 
 The app shows one full page for every connection wait. The pill and the
