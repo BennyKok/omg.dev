@@ -9,6 +9,12 @@ export type RuntimeAvailability = {
   transportLive?: boolean;
   loading: boolean;
   ready: boolean;
+  /**
+   * The screen shows the saved state from the last visit while live data
+   * loads (lib/saved-screen.ts). A new session can be sent now: it waits and
+   * goes out once the runtime is live.
+   */
+  saved?: boolean;
   error: string | null;
   retry: () => void;
 };
@@ -75,4 +81,17 @@ export function shouldReloadRuntime(input: {
 /** A connected runtime with usable bootstrap data has recovered, even if an older probe failed. */
 export function runtimeIsLive(state: Pick<RuntimeAvailability, "ready" | "status">): boolean {
   return state.ready && state.status === "live";
+}
+
+/**
+ * What a new-session send does now. "send" when the runtime is live; "wait"
+ * on the saved screen (it goes out once live, through every normal check);
+ * "none" otherwise. A load error never queues: the person must see it.
+ */
+export function composerSendMode(
+  runtime: Pick<RuntimeAvailability, "loading" | "ready" | "status" | "error" | "saved">,
+): "send" | "wait" | "none" {
+  if (!runtime.loading && runtimeIsLive(runtime) && !runtime.error) return "send";
+  if (runtime.saved && !runtime.ready && !runtime.error) return "wait";
+  return "none";
 }

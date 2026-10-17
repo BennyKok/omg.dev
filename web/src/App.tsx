@@ -29,7 +29,7 @@ import { ComposerPickerFooter } from "./components/composer-picker-footer";
 import { FastModeSettingsSection } from "./components/fast-mode-settings-section";
 import { activeMachine } from "./lib/machines";
 import { useHeaderProfile } from "./lib/header-profile";
-import { RuntimeAvailabilityContext, useRuntimeAvailability, shouldReloadRuntime } from "./lib/runtime-availability";
+import { RuntimeAvailabilityContext, useRuntimeAvailability, shouldReloadRuntime, composerSendMode } from "./lib/runtime-availability";
 import { RuntimeRecovery, RuntimeEmptyState } from "./components/runtime-recovery";
 import { AutoAgentPage, AutoAgentPageInStage } from "./components/auto-agent-page";
 import { Component, createContext, type ComponentProps, forwardRef, memo, Suspense, useCallback, useContext, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
@@ -57,7 +57,7 @@ import {
   type HostSettingsPage,
   type PlanLimitDetail,
 } from "./lib/embedded-host-options";
-import { readSavedScreen, writeSavedScreen } from "./lib/saved-screen";
+import { discardSavedScreen, markSavedScreenDrawn, readSavedScreen, writeSavedScreen } from "./lib/saved-screen";
 import {
   embeddedConnectOptions,
   shouldShowEmbeddedConnectGate,
@@ -5893,9 +5893,33 @@ export function App() {
   // It seeds the first render, so the screen is drawn before live data
   // arrives. It never sets the runtime version, so nothing counts as ready.
   const savedScreenKey = embedded ? savedScreen?.key ?? null : null;
-  const [savedAtStart] = useState(() => (savedScreenKey ? readSavedScreen(savedScreenKey) : null));
-  const startPayload = savedAtStart?.payload as BootstrapPayload | undefined;
-  const [showingSaved, setShowingSaved] = useState(!!savedAtStart);
+  // Everything derived from the copy is computed here, inside one try: a copy
+  // that does not fit this build is discarded and the page starts empty.
+  const [savedStart] = useState(() => {
+    if (!savedScreenKey) return null;
+    const saved = readSavedScreen(savedScreenKey);
+    if (!saved) return null;
+    try {
+      const payload = saved.payload as BootstrapPayload;
+      return {
+        payload,
+        settings: resolveGlobalSettings({ timeZone: payload.auto?.tz, ...payload.settings }),
+        modelCatalog: buildAgentModelCatalog(payload.models ?? undefined),
+      };
+    } catch {
+      discardSavedScreen(savedScreenKey);
+      return null;
+    }
+  });
+  const startPayload = savedStart?.payload;
+  const [showingSaved, setShowingSaved] = useState(!!savedStart);
+  // The first screen from the copy is on the page. A crash before this point
+  // leaves the copy marked, and the next load discards it.
+  useEffect(() => {
+    if (savedStart && savedScreenKey) markSavedScreenDrawn(savedScreenKey);
+    // Once, for the copy this page started from.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // Session deep-links win over filter/identity work so the target card opens
   // as soon as bootstrap returns sessions.
   const prioritizeSession = shouldPrioritizeSession(deepLinkSearch) || !!sessionDeepLinkRef.current;
@@ -6058,7 +6082,7 @@ export function App() {
   const connectGateStarted = useRef(false);
   const [toolConnections, setToolConnections] = useState<ToolConnectOption[] | undefined>();
   const [modelCatalog, setModelCatalog] = useState<AgentModelCatalog>(() =>
-    buildAgentModelCatalog(startPayload?.models ?? undefined),
+    savedStart?.modelCatalog ?? buildAgentModelCatalog(),
   );
   const [setupChecks, setSetupChecks] = useState<SetupCheckGroup[]>([]);
   const [sessions, setSessions] = useState<Session[]>(() => startPayload?.sessions ?? []);
@@ -6429,11 +6453,7 @@ export function App() {
     [bots],
   );
   const [managedComputer, setManagedComputer] = useState(() => !!startPayload?.computer);
-  const [settings, setSettings] = useState<GlobalSettings>(() =>
-    startPayload
-      ? resolveGlobalSettings({ timeZone: startPayload.auto?.tz, ...startPayload.settings })
-      : DEFAULT_GLOBAL_SETTINGS,
-  );
+  const [settings, setSettings] = useState<GlobalSettings>(() => savedStart?.settings ?? DEFAULT_GLOBAL_SETTINGS);
   // Whether the box stores the folder display settings. null until the
   // first bootstrap answers. An older box omits them, and then the folder
   // menu keeps its browser-local copy.
@@ -9443,6 +9463,7 @@ export function App() {
       transportLive: useWsLive && wsLiveStream.connection.status === "live",
       loading,
       ready: runtimeReady,
+      saved: showingSaved && !runtimeReady,
       error,
       retry: retryRuntime,
     }}>
@@ -23330,6 +23351,18 @@ function NewSessionDialog({
   agentRequest?: { kind: AgentKind; accountId?: string; nonce: number } | null;
 }) {
   const runtime = useRuntimeAvailability();
+  // The saved screen is up and the runtime is not live yet (see submit).
+  const sendMode = composerSendMode(runtime);
+  const waitingForComputer = sendMode === "wait";
+  const [sendWhenReady, setSendWhenReady] = useState<{ text?: string; thinking?: ThinkingLevel } | null>(null);
+  useEffect(() => {
+    if (!sendWhenReady || sendMode !== "send") return;
+    const pending = sendWhenReady;
+    setSendWhenReady(null);
+    submit(undefined, pending.text, pending.thinking);
+    // submit is this render's closure, so it reads the live state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sendWhenReady, sendMode]);
   const catalog = useAgentModelCatalog();
   const accessMode = useContext(AgentAccessModeContext);
   // A host's guided tutorial (OmgAppSurfaceProps.composerGuide).
@@ -24055,7 +24088,14 @@ function NewSessionDialog({
   function submit(e?: FormEvent, overrideText?: string, overrideThinking?: ThinkingLevel) {
     e?.preventDefault();
     if (launching) return;
-    if (runtime.loading || !runtime.ready || runtime.status !== "live" || runtime.error) return;
+    if (sendMode !== "send") {
+      // On the saved screen the person can send at once. The send waits and
+      // runs through every check below once the runtime is live.
+      if (waitingForComputer && ((overrideText ?? prompt).trim() || attachments.length)) {
+        setSendWhenReady({ text: overrideText, thinking: overrideThinking });
+      }
+      return;
+    }
     const taskPrompt = (overrideText ?? prompt).trim();
     const files = attachments;
     if (!taskPrompt && !files.length) return;
@@ -24242,6 +24282,11 @@ function NewSessionDialog({
   // show; tapping the agent icon morphs the controls row open. The drawer
   // variant is always expanded.
   const compact = variant === "inline" && !expanded;
+  // Typed on the saved screen and sent: shown as waiting, sent when live.
+  const canQueue = waitingForComputer && !sendWhenReady && (!!prompt.trim() || attachments.length > 0);
+  const waitingNote = waitingForComputer
+    ? sendWhenReady ? "Sends when your computer is ready…" : "Your computer is waking up. You can type now."
+    : "";
   const canSubmit =
     !runtime.loading && runtime.ready && runtime.status === "live" && !runtime.error &&
     (unassigned || !!selectedRepo) &&
@@ -24661,7 +24706,7 @@ function NewSessionDialog({
   const startButton = sheetShape ? (
     <button
       type="submit"
-      disabled={!canSubmit}
+      disabled={!canSubmit && !canQueue}
       aria-label="Start session"
       title="Start session"
       className="flex size-10 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition active:scale-95 disabled:bg-secondary disabled:text-muted-foreground"
@@ -24670,7 +24715,7 @@ function NewSessionDialog({
     </button>
   ) : (
     <ComposerStartButton
-      disabled={!canSubmit}
+      disabled={!canSubmit && !canQueue}
       thinkingLevel={thinkingLevel}
       thinkingLevels={agentSupportsThinking(agent) ? thinkingLevels : []}
       onLaunch={(next) => {
@@ -24845,6 +24890,9 @@ function NewSessionDialog({
           micButton
         )}
       </div>
+      {sheetShape && !error && waitingNote ? (
+        <p role="status" className="mt-1.5 truncate px-3 text-xs text-muted-foreground">{waitingNote}</p>
+      ) : null}
       {sheetShape && error ? (
         <p className="mt-1.5 truncate px-3 text-xs text-destructive">{error}</p>
       ) : null}
@@ -24873,7 +24921,7 @@ function NewSessionDialog({
                 error ? "text-destructive" : "text-muted-foreground",
               )}
             >
-              {error || ""}
+              {error || waitingNote}
             </span>
             {/* Right cluster: resume + photo + send, stacked together. */}
             <div className="flex shrink-0 items-center gap-2">

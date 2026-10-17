@@ -1,12 +1,14 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { clearSavedScreens, readSavedScreen, trimBootstrapForSaving, writeSavedScreen } from "./saved-screen";
+import { clearSavedScreens, discardSavedScreen, markSavedScreenDrawn, readSavedScreen, trimBootstrapForSaving, writeSavedScreen } from "./saved-screen";
 
 // Failures this must catch:
 // - message text, prompts, custom instructions or agent account identities
 //   reach browser storage;
 // - one account's saved screen is read under another account's key;
 // - a copy older than seven days, or a broken one, is drawn;
-// - sign-out leaves a saved screen behind.
+// - sign-out leaves a saved screen behind;
+// - a copy from another app version or format, of the wrong shape, or one
+//   whose last draw crashed, reaches the screen.
 
 class MemoryStorage {
   private items = new Map<string, string>();
@@ -54,18 +56,50 @@ test("keeps titles and projects, and drops text, instructions, accounts and find
   expect(trimmed.settings).toEqual({ timeZone: "Asia/Hong_Kong" });
 });
 
+const read = (key: string, now?: number) => {
+  const saved = readSavedScreen(key, now);
+  if (saved) markSavedScreenDrawn(key);
+  return saved;
+};
+
 test("reads back only under the same key", () => {
   writeSavedScreen("user-a:cloud", bootstrap, 1_000);
-  expect(readSavedScreen("user-a:cloud", 2_000)?.payload.sessions).toEqual([{ id: "s1", title: "Fix login" }]);
-  expect(readSavedScreen("user-b:cloud", 2_000)).toBeNull();
+  expect(read("user-a:cloud", 2_000)?.payload.sessions).toEqual([{ id: "s1", title: "Fix login" }]);
+  expect(read("user-b:cloud", 2_000)).toBeNull();
+});
+
+test("a copy whose last draw never completed is discarded", () => {
+  writeSavedScreen("user-a:cloud", bootstrap);
+  expect(readSavedScreen("user-a:cloud")).not.toBeNull();
+  // The page crashed before markSavedScreenDrawn: the next load draws nothing.
+  expect(readSavedScreen("user-a:cloud")).toBeNull();
+  expect(localStorage.getItem("omg:saved-screen:v1:user-a:cloud")).toBeNull();
+});
+
+test("a copy from another app version or format, or of the wrong shape, is discarded", () => {
+  const key = "omg:saved-screen:v1:user-a:cloud";
+  writeSavedScreen("user-a:cloud", bootstrap);
+  const good = JSON.parse(localStorage.getItem(key)!);
+  for (const bad of [
+    { ...good, app: "0.0.1-other" },
+    { ...good, format: 99 },
+    { ...good, payload: { ...good.payload, sessions: "not a list" } },
+    { ...good, payload: { ...good.payload, sessions: [{ title: "no id" }] } },
+    { ...good, payload: { ...good.payload, auto: { agents: [1, 2] } } },
+  ]) {
+    localStorage.setItem(key, JSON.stringify(bad));
+    expect(readSavedScreen("user-a:cloud")).toBeNull();
+    expect(localStorage.getItem(key)).toBeNull();
+  }
+  discardSavedScreen("user-a:cloud");
 });
 
 test("drops a copy older than seven days, or a broken one", () => {
   writeSavedScreen("user-a:cloud", bootstrap, 0);
-  expect(readSavedScreen("user-a:cloud", 8 * 24 * 60 * 60 * 1000)).toBeNull();
+  expect(read("user-a:cloud", 8 * 24 * 60 * 60 * 1000)).toBeNull();
   expect(localStorage.getItem("omg:saved-screen:v1:user-a:cloud")).toBeNull();
   localStorage.setItem("omg:saved-screen:v1:user-a:cloud", "{not json");
-  expect(readSavedScreen("user-a:cloud")).toBeNull();
+  expect(read("user-a:cloud")).toBeNull();
 });
 
 test("clears every saved screen on sign-out, or all but the kept account", () => {
@@ -73,9 +107,9 @@ test("clears every saved screen on sign-out, or all but the kept account", () =>
   writeSavedScreen("user-b:cloud", bootstrap);
   localStorage.setItem("lfg_theme", "dark");
   clearSavedScreens((key) => key.startsWith("user-a:"));
-  expect(readSavedScreen("user-a:cloud")).not.toBeNull();
-  expect(readSavedScreen("user-b:cloud")).toBeNull();
+  expect(read("user-a:cloud")).not.toBeNull();
+  expect(read("user-b:cloud")).toBeNull();
   clearSavedScreens();
-  expect(readSavedScreen("user-a:cloud")).toBeNull();
+  expect(read("user-a:cloud")).toBeNull();
   expect(localStorage.getItem("lfg_theme")).toBe("dark");
 });
