@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 17, 2026 - The Computer screen draws sooner (v0.6.245)
+
+- Animated labels (agent status, session titles) now show as plain text first and start their letter animation once the page is idle. Measuring them during load forced the browser to lay out the whole page several times before the Computer could be used.
+
 ## October 16, 2026 - A Computer opens with fewer requests (v0.6.244)
 
 - The session list now shows as soon as the Computer's first answer (the bootstrap) arrives. Before, it also waited for the Bots list, and a failed Bots read made the whole page show a load error.
