@@ -23,11 +23,22 @@ const STAMP_GAP_MS = 15 * 60_000;
  *
  * `busy` marks the run at the end of the transcript as live: its label counts
  * up until the agent moves on.
+ *
+ * `shown` is every row key this list has already drawn. OLDER ROWS ARRIVING
+ * MUST NOT TAKE AWAY A ROW THE READER CAN SEE. iOS holds the reading position
+ * with maintainVisibleContentPosition, which anchors to the first row whose
+ * top is on screen. At the top of a loaded page that row is the page's first
+ * time stamp, and a page landing above it used to remove it (the stamp moved
+ * up to the new first row) or rename the run under it (a run cut by the page
+ * seam joined the older half and took that half's key). With the anchor gone
+ * the scroll view kept its offset and the reader was thrown. So a stamp that
+ * was drawn stays, and a joined run keeps the key it was drawn with.
  */
 export function buildTranscriptItems(
   messages: Entry[],
-  options: { busy?: boolean } = {},
+  options: { busy?: boolean; shown?: ReadonlySet<string> } = {},
 ): TranscriptItem[] {
+  const shown = options.shown;
   const items: TranscriptItem[] = [];
   let index = 0;
   let lastStampTs: number | null = null;
@@ -35,7 +46,8 @@ export function buildTranscriptItems(
   /** One stamp per pause: the first row, then any row more than STAMP_GAP_MS after the last stamp. */
   const stamp = (ts: number | null | undefined, key: string) => {
     if (!ts) return;
-    if (lastStampTs !== null && ts - lastStampTs < STAMP_GAP_MS) return;
+    const kept = !!shown?.has(`stamp-${key}`);
+    if (!kept && lastStampTs !== null && ts - lastStampTs < STAMP_GAP_MS) return;
     lastStampTs = ts;
     items.push({ type: "stamp", key: `stamp-${key}`, ts });
   };
@@ -72,7 +84,17 @@ export function buildTranscriptItems(
     }
     if (run.length) {
       const tools = run.filter((entry) => !isThought(entry));
-      const key = `tools-${entryKey(message, index)}`;
+      let key = `tools-${entryKey(message, index)}`;
+      // A run joined across a page seam keeps the key it was already drawn with.
+      if (shown && !shown.has(key)) {
+        for (let at = index + 1; at < end; at += 1) {
+          const drawn = `tools-${entryKey(messages[at], at)}`;
+          if (shown.has(drawn)) {
+            key = drawn;
+            break;
+          }
+        }
+      }
       stamp(message.ts, key);
       items.push({
         type: "tools",
@@ -129,8 +151,9 @@ export function appendTranscriptDraft(
   const last = items.at(-1);
   let start = messages.length;
   while (start > 0 && messages[start - 1].kind === "work") start--;
-  const merges = start < messages.length && last?.type === "tools"
-    && last.key === `tools-${entryKey(messages[start], start)}`;
+  // The trailing work messages ARE the last settled run (its nextTs is null:
+  // nothing follows it). Its key may be an inherited one; see `shown` above.
+  const merges = start < messages.length && last?.type === "tools" && last.nextTs === null;
   if (last?.type === "tools" && last.live) {
     items[items.length - 1] = { ...last, live: false };
   }

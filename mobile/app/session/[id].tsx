@@ -964,7 +964,14 @@ function SessionScreenContent({
 
   // Draft tokens do not regroup settled history or recreate completed rows.
   const settledMessages = useMemo(() => bot ? filterBotChatEntries(messages) : messages, [messages, bot]);
-  const settledItems = useMemo(() => buildTranscriptItems(settledMessages, { busy }), [settledMessages, busy]);
+  // Every row key drawn in this session, so older pages cannot take one away.
+  // See `shown` in transcript-items.ts.
+  const shownKeys = useMemo(() => new Set<string>(), [id]);
+  const settledItems = useMemo(() => {
+    const items = buildTranscriptItems(settledMessages, { busy, shown: shownKeys });
+    for (const item of items) shownKeys.add(item.key);
+    return items;
+  }, [settledMessages, busy, shownKeys]);
   const allItems = useMemo(() => appendTranscriptDraft(
     settledItems, settledMessages, streamText, bot ? "" : streamThought, busy,
   ), [settledItems, settledMessages, streamText, streamThought, bot, busy]);
@@ -1031,6 +1038,17 @@ function SessionScreenContent({
         return;
       }
       if (contentOffset.y < 400 && !loading && !loadingMore && !reachedStart && messages.length) {
+        /**
+         * THE PAGE THE READER ASKED FOR MUST LAND IN VIEW.
+         *
+         * Nothing local is hidden here (that is the branch above), so widening
+         * the window changes nothing on screen now. Without it, a short
+         * opening page left the window anchored on its own first row, and
+         * every older page landed hidden in front of that anchor. That only
+         * ever worked because the page also removed the anchor row (the top
+         * time stamp) and reset the window, which threw the reader.
+         */
+        setHistoryExpanded(true);
         loadMore();
       }
     },
@@ -2192,14 +2210,27 @@ function SessionScreenContent({
          * thumb while the history grows above it.
          */
         maintainVisibleContentPosition={{ minIndexForVisible: 1 }}
+        /**
+         * A FIXED SLOT, NOT A SPINNER THAT COMES AND GOES.
+         *
+         * The spinner used to be the header itself, so a page finishing
+         * removed 44pt above the reader in its own commit, after the rows had
+         * landed. At the top of the list the scroll view cannot shift its
+         * offset past the top to make up for it, and the transcript twitched
+         * up a line for a frame on every page (e2e/history-hold, 2026-10-16).
+         * The slot keeps its height for as long as older history exists; only
+         * the spinner inside it appears and goes. It leaves with the last
+         * page, in the same commit as those rows.
+         */
         ListHeaderComponent={
-          loadingMore ? (
-            <ActivityIndicator
-              accessibilityLabel="Loading earlier messages"
-              color={colors.textMuted}
-              style={{ paddingVertical: space.md }}
-            />
-          ) : undefined
+          reachedStart ? undefined : (
+            // The small spinner (20pt) with space.md above and below, as before.
+            <View style={{ height: 20 + 2 * space.md, justifyContent: "center" }}>
+              {loadingMore ? (
+                <ActivityIndicator accessibilityLabel="Loading earlier messages" color={colors.textMuted} />
+              ) : null}
+            </View>
+          )
         }
         keyboardDismissMode="interactive"
         // A drag is the only thing that means "I am reading somewhere else".
