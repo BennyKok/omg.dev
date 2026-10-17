@@ -6142,6 +6142,7 @@ a{color:#60a5fa}
         });
       }
       if (path === "/api/bootstrap" && req.method === "GET") {
+        const bootstrapStarted = performance.now();
         noteListSessionsClientActivity();
         if (url.searchParams.get("view") === "readiness") {
           return readinessBootstrap(
@@ -6205,7 +6206,8 @@ a{color:#60a5fa}
         };
         // Each part has a deadline; a slow part answers with its last value
         // and is named in `stale` (see bootstrap-parts.ts).
-        const { values: settledParts, stale } = await bootstrapParts.settle(tasks);
+        const partsStarted = performance.now();
+        const { values: settledParts, stale, timings, awaited } = await bootstrapParts.settle(tasks);
         const boot = settledParts as {
           agents?: Awaited<ReturnType<typeof listAgentSummaries>> | null;
           codingAgents?: Awaited<ReturnType<typeof listCodingAgents>> | null;
@@ -6269,7 +6271,20 @@ a{color:#60a5fa}
             // keep Computer schedule rules off a normal lfg serve.
             computer: computerAgentAdmissionContext(),
           },
-          { headers: { "Content-Type": "application/json", "Cache-Control": "no-cache" } },
+          {
+            headers: {
+              "Content-Type": "application/json",
+              "Cache-Control": "no-cache",
+              // Where a slow first answer after a wake spends its time: the
+              // handler before the parts, each part, and the whole handler.
+              // `awaited` parts had no earlier value to fall back on.
+              "Server-Timing": [
+                `total;dur=${Math.round(performance.now() - bootstrapStarted)}`,
+                `before-parts;dur=${Math.round(partsStarted - bootstrapStarted)}`,
+                ...Object.entries(timings).map(([key, ms]) => `${key};dur=${ms}${stale.includes(key) ? ';desc="stale"' : awaited.includes(key) ? ';desc="awaited"' : ""}`),
+              ].join(", "),
+            },
+          },
         );
       }
       {

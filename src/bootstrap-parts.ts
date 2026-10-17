@@ -17,12 +17,16 @@ export interface SettledBootstrap {
   values: Record<string, unknown>;
   /** Parts answered with their last known value because they were slow. */
   stale: string[];
+  /** Milliseconds until each part answered (its value, last value, or null). */
+  timings: Record<string, number>;
+  /** Parts that had no earlier value, so the answer waited for them. */
+  awaited: string[];
 }
 
 export function createBootstrapParts(deadlineMs = 300) {
   const last = new Map<string, unknown>();
 
-  async function settlePart(key: string, task: Promise<unknown>, stale: string[]): Promise<unknown> {
+  async function settlePart(key: string, task: Promise<unknown>, stale: string[], awaited: string[]): Promise<unknown> {
     const tracked = task.then(
       (value) => {
         last.set(key, value);
@@ -30,7 +34,10 @@ export function createBootstrapParts(deadlineMs = 300) {
       },
       () => ({ ok: false as const, value: null }),
     );
-    if (!last.has(key)) return (await tracked).value;
+    if (!last.has(key)) {
+      awaited.push(key);
+      return (await tracked).value;
+    }
     let timer: ReturnType<typeof setTimeout> | undefined;
     const late = new Promise<"late">((resolve) => {
       timer = setTimeout(() => resolve("late"), deadlineMs);
@@ -46,9 +53,16 @@ export function createBootstrapParts(deadlineMs = 300) {
 
   async function settle(parts: BootstrapParts): Promise<SettledBootstrap> {
     const stale: string[] = [];
+    const awaited: string[] = [];
+    const timings: Record<string, number> = {};
+    const started = performance.now();
     const entries = Object.entries(parts);
-    const values = await Promise.all(entries.map(([key, task]) => settlePart(key, task, stale)));
-    return { values: Object.fromEntries(entries.map(([key], i) => [key, values[i]])), stale };
+    const values = await Promise.all(entries.map(async ([key, task]) => {
+      const value = await settlePart(key, task, stale, awaited);
+      timings[key] = Math.round(performance.now() - started);
+      return value;
+    }));
+    return { values: Object.fromEntries(entries.map(([key], i) => [key, values[i]])), stale, timings, awaited };
   }
 
   return { settle };
