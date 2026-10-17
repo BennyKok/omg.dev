@@ -153,6 +153,14 @@ export interface ComposerGuide {
    * accepted, with that session's id.
    */
   onSent?: (event: { surface: ComposerGuideSurface; text: string; sessionId: string | null }) => void;
+  /**
+   * Each composer, while it is mounted, hands the host a function that sets
+   * its draft, so the host's guide can offer "Fill it in" instead of asking
+   * for a paste. The draft then goes through the usual path (onDraft,
+   * accepts); the person still taps Send. Return a cleanup; it runs when the
+   * composer unmounts.
+   */
+  registerFill?: (fill: (text: string) => void, surface: ComposerGuideSurface) => (() => void) | void;
 }
 
 export interface HostedPreviewAuth {

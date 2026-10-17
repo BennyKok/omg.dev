@@ -16972,6 +16972,15 @@ function SessionChatBody({
   useEffect(() => {
     onGuideDraft?.(messageText, "session");
   }, [messageText, onGuideDraft]);
+  // The host's "Fill it in" (composerGuide.registerFill) sets this draft
+  // through setMessageText, declared below; a ref reaches the latest one.
+  const fillSessionDraftRef = useRef<(text: string) => void>(() => {});
+  const registerGuideFill = composerGuide?.registerFill;
+  useEffect(() => {
+    if (!registerGuideFill) return;
+    const cleanup = registerGuideFill((text) => fillSessionDraftRef.current(text), "session");
+    return typeof cleanup === "function" ? cleanup : undefined;
+  }, [registerGuideFill]);
   const [sending, setSending] = useState(false);
   // Counts composer sends, so the open harness prompt can hide on the send
   // that answers it (see SessionPromptPanel).
@@ -17119,6 +17128,7 @@ function SessionChatBody({
     },
     [onTyping, session.project, session.title, sid, stashContext],
   );
+  fillSessionDraftRef.current = setMessageText;
   // Faces and names for whoever is typing. An id with no roster row still
   // renders, as the existing "somebody else" placeholder: the id came from the
   // server, so dropping it would hide a real person rather than admit we
@@ -23488,6 +23498,15 @@ function NewSessionDialog({
   useEffect(() => {
     onGuideDraft?.(prompt, "new-session");
   }, [prompt, onGuideDraft]);
+  // The host's "Fill it in" (composerGuide.registerFill) sets the home draft
+  // through setPrompt, declared below; a ref reaches the latest one.
+  const fillHomeDraftRef = useRef<(text: string) => void>(() => {});
+  const registerHomeFill = composerGuide?.registerFill;
+  useEffect(() => {
+    if (!registerHomeFill) return;
+    const cleanup = registerHomeFill((text) => fillHomeDraftRef.current(text), "new-session");
+    return typeof cleanup === "function" ? cleanup : undefined;
+  }, [registerHomeFill]);
   // A mirror of `prompt` for callbacks that outlive the render that made them.
   // The agent-cap offer is the one that does: it now waits to be answered, so
   // the box can be edited while it sits there, and answering it must send what
@@ -24004,6 +24023,7 @@ function NewSessionDialog({
       project: composerProject,
     });
   }
+  fillHomeDraftRef.current = setPrompt;
 
   function openFolderBrowser(create: boolean) {
     setFolderBrowserCreate(create);
