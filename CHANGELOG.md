@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 17, 2026 - Send while your Computer wakes (v0.6.248)
+
+- On the saved screen you can type and send a new session at once. It shows "Sends when your computer is ready…" and starts as soon as the Computer is live. The chat box says "Your computer is waking up. You can type now." while you wait.
+- A saved screen from an older or newer version of the app, or one that does not match the expected shape, is removed instead of drawn. If the page ever crashes while drawing a saved screen, the next load starts without it.
+
 ## October 17, 2026 - A hosted Computer shows your last screen at once (v0.6.247)
 
 - A host app that embeds omg (`OmgAppSurface`) can pass the new `savedScreen` option with a key for the signed-in account and machine. The app then draws the threads and projects from your last visit at once, while it loads the live data, instead of an empty page. Sending stays off until the live data arrives, and the live data replaces the saved copy.
