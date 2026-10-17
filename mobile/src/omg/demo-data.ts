@@ -410,6 +410,48 @@ function followFeed(emit: (data: string) => void): () => void {
   };
 }
 
+/**
+ * A LARGE SESSION (`EXPO_PUBLIC_OMG_HISTORY_ROWS`, with the performance
+ * fixture), for measuring the real session screen on a long chat.
+ *
+ * Rows are shaped like a working agent's session rather than one-liners: a
+ * user turn every six rows, folded tool runs between replies, and replies of
+ * one to five paragraphs with lists, inline code, a code block every fourth
+ * reply and a table every ninth. A twenty-minute pause every 25 rows gives
+ * the transcript its time stamps. Every row still starts "History message
+ * NNNN." so a plan can tell where it is. Built once per launch.
+ */
+const LARGE_HISTORY_ROWS = Math.max(0, Math.min(5000, Number(process.env.EXPO_PUBLIC_OMG_HISTORY_ROWS) || 0));
+let largeRows: OmgMessage[] | null = null;
+const LARGE_PARA = "I checked the current state of the limiter and the gateway. The change keeps the per-key limits, and it does not touch the config loader. **Verified** with `bun test` and in the dashboard.";
+function largeReply(i: number): string {
+  let text = LARGE_PARA;
+  const points = 1 + ((i * 7) % 5);
+  for (let k = 0; k < points; k += 1) text += `\n\n- Point ${k} about \`limiter-${k}.ts\` and what changed\n- Another detail with a [link](https://omg.dev)`;
+  if (i % 4 === 0) text += "\n\n```ts\nconst window = slidingWindow(" + i + ");\nconsole.log(window.size);\n```";
+  if (i % 9 === 0) text += "\n\n| Check | Result |\n| --- | --- |\n| Types | Pass |\n| Tests | Pass |";
+  return text;
+}
+function largeHistory(t: number): OmgMessage[] {
+  if (largeRows) return largeRows;
+  const total = LARGE_HISTORY_ROWS;
+  let ts = t - total * 2 * MIN - (total / 25) * 20 * MIN;
+  largeRows = Array.from({ length: total }, (_, i) => {
+    ts += i % 25 === 0 ? 20 * MIN : 2 * MIN;
+    const label = `History message ${String(i + 1).padStart(4, "0")}.`;
+    if (i % 6 === 1) return { id: `perf-message-${i + 1}`, role: "user", kind: "text", text: `${label} Check the next sliding-window case.`, ts } as OmgMessage;
+    if (i % 3 === 0) {
+      const steps = [0, 1, 2].map((k) => ({
+        id: `perf-step-${i + 1}-${k}`, role: "assistant", kind: k === 1 ? "thinking" : "tool_use",
+        text: k === 1 ? "(thinking)" : `Bash: {\n  "command": "bun test limiter --shard ${k}",\n  "description": "Run the limiter tests"\n}`, ts: ts + k * 1000,
+      }));
+      return { id: `perf-message-${i + 1}`, role: "assistant", kind: "work", text: "", ts, steps } as unknown as OmgMessage;
+    }
+    return { id: `perf-message-${i + 1}`, role: "assistant", kind: "text", text: `${label} ${largeReply(i)}`, ts } as OmgMessage;
+  });
+  return largeRows;
+}
+
 /** A single session's transcript, for the opened-chat screen. */
 function demoMessages(sessionId: string): OmgMessage[] {
   const t = now();
@@ -426,6 +468,9 @@ function demoMessages(sessionId: string): OmgMessage[] {
     { id: `${sessionId}-prompt`, role: "user", kind: "text", text: chat.lastUserText ?? "", ts: t - 1000 },
     { id: `${sessionId}-reply`, role: "assistant", kind: "text", text: "What would you like your website to do?", ts: t },
   ];
+  if (process.env.EXPO_PUBLIC_OMG_PERFORMANCE_FIXTURE === "1" && sessionId === "demo-rate-limiter" && LARGE_HISTORY_ROWS) {
+    return largeHistory(t);
+  }
   if (process.env.EXPO_PUBLIC_OMG_PERFORMANCE_FIXTURE === "1" && sessionId === "demo-rate-limiter") {
     return Array.from({ length: 100 }, (_, i) => ({
       id: `perf-message-${i + 1}`, role: i % 2 ? "assistant" : "user", kind: "text",

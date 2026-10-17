@@ -1,0 +1,57 @@
+# Scroll a 1,200-row session on the real session screen and let the probe
+# overlay measure it. This flow asserts only that the screen got there; the
+# numbers are the result. Read them after the run with --inspect, or in the
+# screenshot this flow takes last.
+#
+#   EXPO_PUBLIC_OMG_DEMO=1 EXPO_PUBLIC_OMG_PERFORMANCE_FIXTURE=1 \
+#     EXPO_PUBLIC_OMG_HISTORY_ROWS=1200 EXPO_PUBLIC_OMG_SCROLL_PROBE=1 \
+#     OMG_E2E_ENTRY_FILE=scripts/no-project-e2e-entry.tsx \
+#     bun run test:e2e --build --flow long-chat-perf
+#
+# Rows are shaped like a working session (see largeHistory in demo-data.ts).
+# Older pages arrive after 2.5 s, 40 rows at a time, as the fixture's
+# workRows machine answers. Compare builds on one device in one sitting.
+appId: dev.omg.computer
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    when:
+      visible: "Apple.*Account Verification"
+    commands:
+      - tapOn: "Not Now"
+- extendedWaitUntil:
+    visible: "Agree and continue"
+    timeout: 150000
+- tapOn: "Agree and continue"
+- extendedWaitUntil:
+    visible: ".*api-gateway.*"
+    timeout: 150000
+- tapOn: "api-gateway folder"
+- extendedWaitUntil:
+    visible: ".*Refactor the rate limiter to a sliding window.*"
+    timeout: 30000
+- tapOn: ".*Refactor the rate limiter to a sliding window.*"
+- extendedWaitUntil:
+    visible: ".*History message 1200.*"
+    timeout: 60000
+- repeat:
+    times: 40
+    commands:
+      - swipe:
+          start: "50%, 25%"
+          end: "50%, 85%"
+          duration: 250
+      - waitForAnimationToEnd:
+          timeout: 3000
+- repeat:
+    times: 10
+    commands:
+      - swipe:
+          start: "50%, 85%"
+          end: "50%, 25%"
+          duration: 250
+      - waitForAnimationToEnd:
+          timeout: 3000
+- assertVisible: "Perf UI.*"
+- takeScreenshot: long-chat-perf

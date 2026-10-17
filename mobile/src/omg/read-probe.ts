@@ -205,6 +205,11 @@ export class ReadProbe {
     return callback;
   }
 
+  /** Rows the list has mounted right now (each registers its view). */
+  mounted(): number {
+    return this.rows.size;
+  }
+
   reset(): void {
     this.touching = false;
     this.stop();

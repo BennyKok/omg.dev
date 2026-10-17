@@ -164,6 +164,7 @@ import { useOverlapWatch } from "../../src/omg/list-overlap-watch";
 import { followProbe } from "../../src/omg/follow-probe";
 import { FollowProbeView } from "../../src/omg/follow-probe-view";
 import { readProbe } from "../../src/omg/read-probe";
+import { perfProbe } from "../../src/omg/perf-probe";
 import {
   buildTranscriptItems,
   TranscriptRow,
@@ -497,6 +498,9 @@ function SessionScreenContent({
    * finished laying out and scrolling". Both gate the same spinner.
    */
   const [contentReady, setContentReady] = useState(false);
+  useEffect(() => {
+    if (contentReady) perfProbe?.opened();
+  }, [contentReady]);
   /** Set while the reader is away from the bottom and the agent says something. */
   const [unseen, setUnseen] = useState(false);
   const [atBottom, setAtBottom] = useState(true);
@@ -770,6 +774,7 @@ function SessionScreenContent({
   useEffect(() => {
     followProbe?.reset();
     readProbe?.reset();
+    perfProbe?.reset();
   }, [id]);
   /**
    * True from the moment a drag starts until the list has come to rest.
@@ -1016,6 +1021,7 @@ function SessionScreenContent({
       scrollOffset.current = e.nativeEvent.contentOffset.y;
       if (e.nativeEvent.layoutMeasurement.height > 0) viewportHeight.current = e.nativeEvent.layoutMeasurement.height;
       followProbe?.scroll(e.nativeEvent.contentOffset.y, e.nativeEvent.contentSize.height, e.nativeEvent.layoutMeasurement.height);
+      perfProbe?.activity();
       // Layout noise, not a reader. See userMovedRef.
       if (!userMovedRef.current || galleryRestore.current) return;
 
@@ -1145,6 +1151,8 @@ function SessionScreenContent({
     lastContentHeight.current = height;
     followProbe?.content(height);
     readProbe?.content(height);
+    perfProbe?.activity();
+    perfProbe?.grew(delta);
     // A content-size change IS the list still moving. While the opening
     // reveal is waiting for quiet (see `armReveal`), every one of these
     // restarts that wait — this runs BEFORE the at-bottom early return
@@ -2103,6 +2111,7 @@ function SessionScreenContent({
 
   // The reading probe only judges rows whose top is below the bar.
   if (readProbe) readProbe.top = insets.top + BAR_ITEM;
+  perfProbe?.render(data.length);
   const transcriptBottomPadding = Math.max(composerHeight, insets.bottom + 60) + space.lg +
     Math.max(0, keyboardHeight - insets.bottom);
   bottomPaddingRef.current = transcriptBottomPadding;

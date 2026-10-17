@@ -5,16 +5,53 @@
  */
 import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
+import { useFrameCallback, useSharedValue } from "react-native-reanimated";
+import { emptySnapshot, FRAME_BIN_MS, FRAME_BINS, perfLines, perfProbe, type FrameSnapshot } from "./perf-probe";
 import { followVerdict, type FollowProbe } from "./follow-probe";
 import { readTotals, readVerdict, type ReadProbe } from "./read-probe";
 
 export function FollowProbeView({ probe, reader, top }: { probe: FollowProbe; reader: ReadProbe | null; top: number }) {
   const [report, setReport] = useState(() => probe.report());
   const [reading, setReading] = useState(() => reader?.tracker.report() ?? null);
+  const [perf, setPerf] = useState<string[]>([]);
+  // UI-thread frame intervals, only while the list is moving (see perf-probe.ts).
+  const uiActive = useSharedValue(false);
+  const uiFrames = useSharedValue<FrameSnapshot>(emptySnapshot());
+  useFrameCallback(({ timeSincePreviousFrame: dt }) => {
+    "worklet";
+    if (!uiActive.value || dt == null) return;
+    const s = uiFrames.value;
+    const bins = s.bins.slice();
+    bins[Math.min(FRAME_BINS - 1, Math.floor(dt / FRAME_BIN_MS))] += 1;
+    uiFrames.value = {
+      bins,
+      count: s.count + 1,
+      max: Math.max(s.max, dt),
+      over25: s.over25 + (dt > 25 ? 1 : 0),
+      over50: s.over50 + (dt > 50 ? 1 : 0),
+    };
+  });
+  useEffect(() => {
+    if (!perfProbe) return;
+    perfProbe.onActive((active) => {
+      uiActive.value = active;
+    });
+    perfProbe.resetListener = () => {
+      uiFrames.value = emptySnapshot();
+    };
+    return () => {
+      perfProbe?.onActive(null);
+      if (perfProbe) perfProbe.resetListener = null;
+    };
+  }, [uiActive, uiFrames]);
   useEffect(() => {
     const refresh = () => {
       setReport(probe.report());
       setReading(reader?.tracker.report() ?? null);
+      if (perfProbe) {
+        perfProbe.ui.load(uiFrames.value);
+        setPerf(perfLines(perfProbe, reader?.mounted() ?? 0));
+      }
     };
     const off = probe.subscribe(refresh);
     const offReader = reader?.subscribe(refresh);
@@ -56,6 +93,11 @@ export function FollowProbeView({ probe, reader, top }: { probe: FollowProbe; re
           {totalsLine}
         </Text>
       ) : null}
+      {perf.map((line) => (
+        <Text key={`perf-${line.split(":")[0]}`} accessibilityLabel={line} style={{ color: "#b8f5a0", fontSize: 10 }}>
+          {line}
+        </Text>
+      ))}
       {lines.map((line, index) => (
         <Text key={`${index}-${line}`} style={{ color: "#fff", fontSize: 11 }}>
           {line}

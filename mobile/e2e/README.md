@@ -88,6 +88,28 @@ tell a one-frame flash from a measurement taken mid-update. Check the video
 for those. The last step requires a second page and "0 failed loads". Without
 the fix the third step fails with "1 lost rows".
 
+The long-chat flow measures the real session screen on a large chat. With
+`EXPO_PUBLIC_OMG_HISTORY_ROWS=1200`, the performance fixture serves 1,200 rows
+shaped like a working session (`largeHistory` in `src/omg/demo-data.ts`). The
+flow flicks up 40 times through the older pages and then down 10 times.
+
+```bash
+EXPO_PUBLIC_OMG_DEMO=1 EXPO_PUBLIC_OMG_PERFORMANCE_FIXTURE=1 \
+  EXPO_PUBLIC_OMG_HISTORY_ROWS=1200 EXPO_PUBLIC_OMG_SCROLL_PROBE=1 \
+  OMG_E2E_ENTRY_FILE=scripts/no-project-e2e-entry.tsx \
+  OMG_SIM_DEVICE="iPhone Air" OMG_MAESTRO_DRIVER_PORT=7191 \
+  bun run test:e2e --build --flow long-chat-perf
+bun run test:e2e --inspect | grep -o "Perf [^\"]*"
+```
+
+The perf probe (`src/omg/perf-probe.ts`) counts UI-thread and JS-thread
+frames only while the list moves. It also reports the open time, mounted and
+loaded rows, the worst JS frame after the content grew, and how often the
+screen rendered. Read the probe again after a minute with no input: the render
+count must not grow while the chat is idle. Simulator frame counts follow the
+Mac's load, so alternate builds in one sitting, and trust render counts over
+frame counts.
+
 To reproduce a layout bug with real traffic, a probe build can read a real
 `lfg serve` instead of the demo data. Sign-in stays fake. Set
 `EXPO_PUBLIC_OMG_DEMO_BOX_PORT` at build time and reverse-forward the box to
