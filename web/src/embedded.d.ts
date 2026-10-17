@@ -142,6 +142,8 @@ export interface ComposerGuide {
   newSession?: { firstRun?: boolean; guide?: string };
   /** The person sent `text`: from the home composer once the session exists, from a session composer when the send is accepted. */
   onSent?: (event: { surface: ComposerGuideSurface; text: string; sessionId: string | null }) => void;
+  /** Each mounted composer hands the host a function that sets its draft (a guide's "Fill it in"); the person still taps Send. Return a cleanup. */
+  registerFill?: (fill: (text: string) => void, surface: ComposerGuideSurface) => (() => void) | void;
 }
 
 /** A host's own pill in the home composer's starter row (OmgAppSurfaceProps.starterChips). */

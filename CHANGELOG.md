@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 17, 2026 - A guide can fill in the chat box (v0.6.252)
+
+- A host app that embeds omg (`OmgAppSurface`) and runs a guided tutorial (`composerGuide`) can now fill in the chat box for the person. Each chat box hands the host a fill function through the new `composerGuide.registerFill`. The person still taps Send.
+- On a phone this replaces "copy, then paste". In omg.dev's first-app guide, a person on Android copied the first sentence twice and never sent it.
+- Without the option, nothing changes.
+
 ## October 17, 2026 - Startup timing for diagnosis (v0.6.251)
 
 - The Computer's first answer (`/api/bootstrap`) now reports how long each of its parts took, in a standard `Server-Timing` header. Nothing you see changes. It lets us find what still slows the first screen after a Computer wakes.
