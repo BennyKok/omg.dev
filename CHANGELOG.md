@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 17, 2026 - Your sessions show sooner after a wake (v0.6.249)
+
+- The first screen no longer waits for its slowest part. Right after a Computer wakes, the session list could be ready in a fraction of a second while the project list took five. Each part of the first load now has a short limit: a slow part shows its last known value and is corrected a moment later.
+- The app no longer repeats the session, project and schedule reads while the first load is still running.
+- Inside omg.dev, the app no longer checks GitHub for updates on every load. omg.dev updates your Computer itself. Settings still shows the update status when you open it.
+
 ## October 17, 2026 - Send while your Computer wakes (v0.6.248)
 
 - On the saved screen you can type and send a new session at once. It shows "Sends when your computer is ready…" and starts as soon as the Computer is live. The chat box says "Your computer is waking up. You can type now." while you wait.
