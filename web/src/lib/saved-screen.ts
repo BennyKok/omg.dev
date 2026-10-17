@@ -106,7 +106,11 @@ export function validSavedPayload(payload: unknown): payload is Json {
     listOfRecords(payload.codingAgents) &&
     isList(payload.models) &&
     listOfRecords(payload.sessions) &&
-    ((payload.sessions as unknown[] | undefined) ?? []).every((s) => typeof (s as Json).id === "string") &&
+    // A session's key is `sessionId` (a string, or null while it starts).
+    ((payload.sessions as unknown[] | undefined) ?? []).every((s) => {
+      const id = (s as Json).sessionId;
+      return id === null || typeof id === "string";
+    }) &&
     (payload.sessionPins === undefined || (Array.isArray(payload.sessionPins) && payload.sessionPins.every((id) => typeof id === "string"))) &&
     listOfRecords(payload.users) &&
     listOfRecords(payload.repos) &&
