@@ -512,6 +512,7 @@ import {
 import { isProjectTemplate } from "../project-starter.ts";
 import { projectName, reposRoot } from "../projects.ts";
 import { listConfiguredRepos } from "../repo-list.ts";
+import { createBootstrapParts } from "../bootstrap-parts.ts";
 import { runExecCommand, clampExecTimeout, MAX_EXEC_TIMEOUT_MS } from "../exec.ts";
 import {
   cwdIsWithin,
@@ -659,6 +660,8 @@ const REPOS_ROOT = reposRoot();
 const SELF_REPO = PATHS.root;
 const EVLOG_DIR = join(PATHS.data, "evlogs");
 const SERVER_INSTANCE_ID = randomBytes(8).toString("hex");
+/** /api/bootstrap parts with deadlines and their last answers (bootstrap-parts.ts). */
+const bootstrapParts = createBootstrapParts();
 
 // Everything that can start, stop, or rebind one bot's backing session shares a
 // single critical section per bot.
@@ -6200,14 +6203,10 @@ a{color:#60a5fa}
           findings: listFindings("open"),
           onboarding: getOnboarding(),
         };
-        const taskEntries = Object.entries(tasks);
-        const settled = await Promise.allSettled(taskEntries.map(([, task]) => task));
-        const boot = Object.fromEntries(
-          settled.map((entry, index) => [
-            taskEntries[index]![0],
-            entry.status === "fulfilled" ? entry.value : null,
-          ]),
-        ) as {
+        // Each part has a deadline; a slow part answers with its last value
+        // and is named in `stale` (see bootstrap-parts.ts).
+        const { values: settledParts, stale } = await bootstrapParts.settle(tasks);
+        const boot = settledParts as {
           agents?: Awaited<ReturnType<typeof listAgentSummaries>> | null;
           codingAgents?: Awaited<ReturnType<typeof listCodingAgents>> | null;
           models?: ReturnType<typeof listModelCatalog> | null;
@@ -6263,6 +6262,9 @@ a{color:#60a5fa}
             // under a process that never reloaded. Read it, deploy, restart,
             // confirm it changed. Same id /api/install?ready=1 already returns.
             bootId: SERVER_INSTANCE_ID,
+            // Parts answered with their last known value because they were
+            // slow. The client loads the bootstrap once more to correct them.
+            stale,
             // Null on self-hosted. The live rail and admission use this to
             // keep Computer schedule rules off a normal lfg serve.
             computer: computerAgentAdmissionContext(),

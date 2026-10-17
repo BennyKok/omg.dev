@@ -1417,6 +1417,8 @@ type BootstrapPayload = {
   onboarding?: OnboardingState | null;
   /** Set only on a managed Computer. Self-hosted lfg serve leaves this null. */
   computer?: { plan: string; limit: number; scheduleLimit: number } | null;
+  /** Parts the box answered with their last known value because they were slow. */
+  stale?: string[] | null;
 };
 
 type SlashSkillState = {
@@ -6741,6 +6743,18 @@ export function App() {
     setBotQuota((prev) => sameJson(prev, payload.quota ?? null));
   }, [botUnreadIdentity]);
 
+  // True once a live bootstrap has been applied. The refresh poll waits for
+  // it: its reads repeat what the bootstrap returns. During a wake the 5 s
+  // tick fired first and queued sessions, pins, schedules and repos behind
+  // the Computer grant, and they all went out together with the bootstrap.
+  const firstBootstrapDoneRef = useRef(false);
+  // A bootstrap with stale parts (the box answered slow parts with their last
+  // value) is loaded once more to correct them. Three times per page at most,
+  // so a part that is always slow cannot keep reloading.
+  const staleReloadsRef = useRef(0);
+  const staleReloadTimerRef = useRef<number | null>(null);
+  const loadCoreRef = useRef<() => Promise<void>>(async () => {});
+
   // The bootstrap alone draws the Computer. Bots load on their own once it has
   // answered, and only where the Bots surface is switched on (see the effect
   // after runtimeReady), so they never hold the first screen.
@@ -6832,6 +6846,14 @@ export function App() {
     // Live data now fills every view the saved screen drew. Keep it for the
     // next page load.
     setShowingSaved(false);
+    firstBootstrapDoneRef.current = true;
+    if (payload.stale?.length && staleReloadTimerRef.current === null && staleReloadsRef.current < 3) {
+      staleReloadsRef.current += 1;
+      staleReloadTimerRef.current = window.setTimeout(() => {
+        staleReloadTimerRef.current = null;
+        void loadCoreRef.current().catch(() => {});
+      }, 2000);
+    }
     if (savedScreenKey) writeSavedScreen(savedScreenKey, payload);
   }, [botUnreadIdentity, embedded, savedScreenKey]);
 
@@ -6846,6 +6868,7 @@ export function App() {
       loadCoreInFlightRef.current -= 1;
     }
   }, [applyBootstrap]);
+  loadCoreRef.current = loadCore;
 
   // Sessions the user just deleted. The server's list can lag a beat (tmux pane
   // still tearing down), and the 5s poll below would otherwise resurrect a card
@@ -7220,6 +7243,7 @@ export function App() {
     let id: number | null = null;
     let cyclesSinceTick = 0;
     const tick = () => {
+      if (!firstBootstrapDoneRef.current) return;
       refreshSessions().catch(() => {});
       refreshSessionPins().catch(() => {});
       refreshAuto().catch(() => {});
@@ -9447,7 +9471,7 @@ export function App() {
     <CodingAgentAuthContext.Provider value={codingAgentAuthFlow}>
     <AgentModelCatalogContext.Provider value={modelCatalog}>
     <AskProvider>
-    <UpdateProvider settings={settings} onSettingsChange={updateSettings}>
+    <UpdateProvider settings={settings} onSettingsChange={updateSettings} checkOnLoad={!embedded}>
     <TranscriptViewContext.Provider value={transcriptViewPreference}>
     <SettingsWriteContext.Provider value={persistSetting}>
     <ViewPrefsContext.Provider value={viewPrefs}>

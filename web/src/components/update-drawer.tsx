@@ -74,14 +74,23 @@ export function useUpdateStatus(): UpdateContextValue {
 export function UpdateProvider({
   settings,
   onSettingsChange,
+  checkOnLoad = true,
   children,
 }: {
   settings: UpdateSettings;
   onSettingsChange: (patch: Partial<UpdateSettings>) => Promise<void>;
+  /**
+   * Check for an update when the app loads, and poll a release install. Off
+   * inside a host that hides the update button and updates the Computer
+   * itself (omg.dev): the check asked GitHub on every load, and after a wake
+   * it waited on the network while the first screen loaded. The Settings row
+   * still checks when it is opened.
+   */
+  checkOnLoad?: boolean;
   children: ReactNode;
 }) {
   const [info, setInfo] = useState<InstallUpdateInfo | null>(null);
-  const [checking, setChecking] = useState(true);
+  const [checking, setChecking] = useState(checkOnLoad);
   const [error, setError] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
@@ -105,11 +114,12 @@ export function UpdateProvider({
   }, []);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (checkOnLoad) void refresh();
+  }, [refresh, checkOnLoad]);
 
   const channel = info?.install?.channel;
   useEffect(() => {
+    if (!checkOnLoad) return;
     // The auto-updater stages a release in the background. A quiet poll is
     // how the Update button becomes Restart without a reload. Source
     // installs `git fetch` on this endpoint, so they stay on the on-mount check.
@@ -118,7 +128,7 @@ export function UpdateProvider({
       void refresh(false, true);
     }, 30_000);
     return () => clearInterval(timer);
-  }, [channel, refresh]);
+  }, [channel, refresh, checkOnLoad]);
 
   const status = info?.update ?? null;
   const latestId = updateIdentifier(status);
@@ -200,6 +210,7 @@ export function UpdateNavButton() {
 // instead of running it inline.
 export function UpdateSettingsRow() {
   const {
+    info,
     status,
     channel,
     updateCommand,
@@ -211,6 +222,12 @@ export function UpdateSettingsRow() {
     autoUpdateEnabled,
     setAutoUpdateEnabled,
   } = useUpdateStatus();
+  // When the app did not check on load, check once this row is shown.
+  useEffect(() => {
+    if (!info && !checking && !error) void refresh();
+    // Once per mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Both states are actionable: `available` needs a download, `staged` needs
   // only the restart that applies bits already on disk.
