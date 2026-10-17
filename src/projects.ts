@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { sessionNameFromWorktreePath } from "./config.ts";
 
@@ -34,6 +35,28 @@ function worktreeMainPath(absCwd: string): string | null {
   try {
     if (statSync(gitPath).isDirectory()) return absCwd;
     const text = readFileSync(gitPath, "utf8").trim();
+    const rawGitDir = text.match(/^gitdir:\s*(.+)$/i)?.[1]?.trim();
+    if (!rawGitDir) return null;
+    const gitDir = resolve(absCwd, rawGitDir);
+    const marker = "/.git/worktrees/";
+    const idx = gitDir.indexOf(marker);
+    if (idx === -1) return null;
+    return gitDir.slice(0, idx);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * worktreeMainPath without blocking the event loop. Right after a Computer
+ * wakes its disk can be slow, and the synchronous reads of the project list
+ * stopped every LFG request for seconds (4.4 s, 2026-10-17).
+ */
+async function worktreeMainPathAsync(absCwd: string): Promise<string | null> {
+  const gitPath = join(absCwd, ".git");
+  try {
+    if ((await stat(gitPath)).isDirectory()) return absCwd;
+    const text = (await readFile(gitPath, "utf8")).trim();
     const rawGitDir = text.match(/^gitdir:\s*(.+)$/i)?.[1]?.trim();
     if (!rawGitDir) return null;
     const gitDir = resolve(absCwd, rawGitDir);
@@ -112,6 +135,16 @@ export function worktreeOwnerCheckout(cwd: string | null | undefined): string | 
 // Project identity is the top-level repository project, not the full cwd.
 // Nested directories and git worktrees collapse back to their main project so
 // temporary branch/worktree folders do not become separate project filters.
+/** projectName with asynchronous file reads, for request paths (see worktreeMainPathAsync). */
+export async function projectNameAsync(cwd: string): Promise<string> {
+  const absCwd = resolve(cwd);
+  // A session worktree path needs the sync owner scan; it is cached per name
+  // and such paths are not repo-list entries.
+  if (isSessionWorktreePath(absCwd)) return projectName(absCwd);
+  const main = await worktreeMainPathAsync(absCwd);
+  return topFolderName(main ?? absCwd);
+}
+
 export function projectName(cwd: string | null, opts?: { repoRoot?: string | null }): string {
   const projectCwd = opts?.repoRoot || cwd;
   if (!projectCwd) return "-";

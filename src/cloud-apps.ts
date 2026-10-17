@@ -7,6 +7,7 @@
 import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, posix, relative, sep } from "node:path";
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 
 import {
   CloudAppsError,
@@ -109,6 +110,24 @@ export function loadProjectLink(cwd: string): ProjectLink | null {
   } catch {
     return null;
   }
+}
+
+/** loadProjectLink without blocking the event loop, for request paths. */
+export async function loadProjectLinkAsync(cwd: string): Promise<ProjectLink | null> {
+  try {
+    const parsed = JSON.parse(await readFile(projectLinkPath(cwd), "utf8")) as Partial<ProjectLink>;
+    if (!parsed.slug || !parsed.projectId || !parsed.name) return null;
+    return { slug: parsed.slug, projectId: parsed.projectId, name: parsed.name };
+  } catch {
+    return null;
+  }
+}
+
+/** deployLinkFromProject without blocking the event loop. */
+export async function deployLinkFromProjectAsync(cwd: string): Promise<RepoDeployLink | undefined> {
+  const link = await loadProjectLinkAsync(cwd);
+  if (!link) return undefined;
+  return { ...link, url: publicAppUrl(link.slug) };
 }
 
 export function saveProjectLink(cwd: string, link: ProjectLink): void {

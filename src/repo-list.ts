@@ -9,13 +9,13 @@ import { readdir, realpath, stat } from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import { join } from "node:path";
 import { PATHS } from "./config.ts";
-import { projectName, reposRoot } from "./projects.ts";
+import { projectNameAsync, reposRoot } from "./projects.ts";
 import {
   listCustomRepos,
   listHiddenRepos,
   type CustomRepo,
 } from "./repos-store.ts";
-import { deployLinkFromProject, type RepoDeployLink } from "./cloud-apps.ts";
+import { deployLinkFromProjectAsync, type RepoDeployLink } from "./cloud-apps.ts";
 
 export type { RepoDeployLink };
 
@@ -50,11 +50,13 @@ export async function buildRepoList(sources: RepoListSources): Promise<RepoListE
     if (hidden.has(cwd)) return;
     try {
       await stat(join(cwd, ".git"));
-      const project = projectName(cwd);
+      // Asynchronous reads: on a slow disk the synchronous ones stopped every
+      // LFG request, and the bootstrap's part deadline could not fire.
+      const project = await projectNameAsync(cwd);
       // One row per project. A git worktree collapses onto its owning checkout,
       // so without this the same project appears once per worktree.
       if (repos.some((r) => r.project === project)) return;
-      const deploy = deployLinkFromProject(cwd);
+      const deploy = await deployLinkFromProjectAsync(cwd);
       repos.push({
         name,
         cwd,
