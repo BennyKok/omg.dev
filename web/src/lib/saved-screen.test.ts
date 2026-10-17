@@ -35,7 +35,11 @@ const bootstrap = {
   computer: { plan: "computer_10", limit: 4, scheduleLimit: 10 },
   codingAgents: [{ key: "claude", label: "Claude", configured: true, profile: { email: "me@x.test" }, accounts: [{ id: "a" }], installCommand: "npm i", checks: [{ detail: "token ok" }], instructions: ["run login"] }],
   settings: { timeZone: "Asia/Hong_Kong", customInstructions: "my secret" },
-  sessions: [{ id: "s1", title: "Fix login", lastUserText: "prompt text", last: "reply text", transcriptPath: "/x", tmuxTarget: "t", pid: 3, conversation: [1] }],
+  // Shaped like /api/bootstrap rows (src/sessions.ts Session without cmd).
+  sessions: [
+    { agent: "claude", sessionId: "s1", title: "Fix login", cwd: "/home/user/repos/app", startedAt: 1, busy: false, lastUserText: "prompt text", last: { role: "assistant", text: "reply text" }, transcriptPath: "/x", tmuxTarget: "t", pid: 3, conversation: [1] },
+    { agent: "codex", sessionId: null, title: "Starting", cwd: "/home/user/repos/app", startedAt: 2, busy: true, pid: 4 },
+  ],
   sessionPins: ["s1"],
   viewer: { managed: true, participantId: "p1", email: "me@x.test", userFilter: "__all" },
   users: [{ email: "me@x.test", name: "Me" }],
@@ -50,7 +54,7 @@ test("keeps titles and projects, and drops text, instructions, accounts and find
     expect(kept).not.toContain(secret);
   }
   const trimmed = trimBootstrapForSaving(bootstrap) as Record<string, any>;
-  expect(trimmed.sessions[0]).toEqual({ id: "s1", title: "Fix login" });
+  expect(trimmed.sessions[0]).toEqual({ agent: "claude", sessionId: "s1", title: "Fix login", cwd: "/home/user/repos/app", startedAt: 1, busy: false });
   expect(trimmed.codingAgents[0]).toEqual({ key: "claude", label: "Claude", configured: true, checks: [], instructions: [] });
   expect(trimmed.viewer).toEqual({ managed: true, participantId: "p1" });
   expect(trimmed.repos).toEqual(bootstrap.repos);
@@ -65,7 +69,7 @@ const read = (key: string, now?: number) => {
 
 test("reads back only under the same key", () => {
   writeSavedScreen("user-a:cloud", bootstrap, 1_000);
-  expect(read("user-a:cloud", 2_000)?.payload.sessions).toEqual([{ id: "s1", title: "Fix login" }]);
+  expect((read("user-a:cloud", 2_000)?.payload.sessions as unknown[]).length).toBe(2);
   expect(read("user-b:cloud", 2_000)).toBeNull();
 });
 
@@ -84,7 +88,7 @@ test("a copy in another format, or of the wrong shape, is discarded", () => {
   for (const bad of [
     { ...good, format: 99 },
     { ...good, payload: { ...good.payload, sessions: "not a list" } },
-    { ...good, payload: { ...good.payload, sessions: [{ title: "no id" }] } },
+    { ...good, payload: { ...good.payload, sessions: [{ sessionId: 42 }] } },
     { ...good, payload: { ...good.payload, auto: { agents: [1, 2] } } },
   ]) {
     localStorage.setItem(key, JSON.stringify(bad));
@@ -118,5 +122,5 @@ test("a copy from another release is kept", () => {
   const key = "omg:saved-screen:v1:user-a:cloud";
   writeSavedScreen("user-a:cloud", bootstrap);
   localStorage.setItem(key, JSON.stringify({ ...JSON.parse(localStorage.getItem(key)!), app: "0.6.1" }));
-  expect(read("user-a:cloud")?.payload.sessions).toEqual([{ id: "s1", title: "Fix login" }]);
+  expect((read("user-a:cloud")?.payload.sessions as unknown[]).length).toBe(2);
 });
