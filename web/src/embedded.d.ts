@@ -139,6 +139,15 @@ export interface ComposerGuide {
   onSent?: (event: { surface: ComposerGuideSurface; text: string; sessionId: string | null }) => void;
 }
 
+/** A host's own pill in the home composer's starter row (OmgAppSurfaceProps.starterChips). */
+export interface HostStarterChip {
+  id: string;
+  label: string;
+  /** A built-in mark: "tutorial" (a graduation cap). */
+  icon?: "tutorial";
+  onSelect: () => void;
+}
+
 export interface EmbeddedViewer {
   id: string;
   name: string;
@@ -199,6 +208,8 @@ export interface OmgAppSurfaceProps {
    * starts.
    */
   composerGuide?: ComposerGuide;
+  /** The host's own pills, drawn first in the home composer's starter row, for example "Tutorials". */
+  starterChips?: HostStarterChip[];
   /**
    * Open one of the machine's settings pages (the ones OmgSettingsSurface
    * mounts) in the HOST's own navigation.

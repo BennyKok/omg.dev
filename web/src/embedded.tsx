@@ -28,6 +28,7 @@ import {
   type HostSettingsPage,
   type PlanLimitDetail,
   type ComposerGuide,
+  type HostStarterChip,
 } from "./lib/embedded-host-options";
 import { claimSurfaceAttribute } from "./lib/surface-attribute";
 import { createOmgRouter } from "./router";
@@ -36,6 +37,7 @@ import type { AgentKind } from "./lib/coding-agent-options";
 export type {
   ComposerGuide,
   ComposerGuideSurface,
+  HostStarterChip,
   EmbeddedAnalyticsEventHandler,
   EmbeddedViewer,
   HostMachine,
@@ -180,6 +182,8 @@ export interface OmgAppSurfaceProps {
    * starts.
    */
   composerGuide?: ComposerGuide;
+  /** The host's own pills, drawn first in the home composer's starter row. */
+  starterChips?: HostStarterChip[];
   /**
    * Central sink for client errors, in addition to the report that goes through
    * the transport into the user's own lfg instance. A hosted surface should set
@@ -422,6 +426,7 @@ export function OmgAppSurface({
   machines,
   hostToast,
   composerGuide,
+  starterChips,
   onConnectionChange,
 }: OmgAppSurfaceProps) {
   // A full LFG app is the sole owner of its runtime transport. Install it
@@ -464,6 +469,7 @@ export function OmgAppSurface({
           onPlanLimit,
           machines,
           composerGuide,
+          starterChips,
         }}
       >
         <BareSurfaceProvider bare={false}>

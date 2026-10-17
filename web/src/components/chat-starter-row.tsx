@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Globe, Image as ImageIcon, Smartphone, Terminal } from "lucide-react";
+import { GraduationCap, Globe, Image as ImageIcon, Smartphone, Terminal } from "lucide-react";
 import { CHAT_STARTERS, type ChatStarterId } from "../../../packages/protocol/src/chat-starters";
 import { cn } from "@/lib/utils";
+import type { HostStarterChip } from "@/lib/embedded-host-options";
 
 /**
  * The four starter pills an empty no-project composer offers.
@@ -53,11 +54,14 @@ export function ChatStarterRow({
   onStart,
   disabled = false,
   className,
+  hostChips = [],
 }: {
   /** Sends this text as a brand new chat. */
   onStart: (prompt: string) => void;
   disabled?: boolean;
   className?: string;
+  /** An embedding host's own pills, drawn first (OmgAppSurfaceProps.starterChips). */
+  hostChips?: readonly HostStarterChip[];
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
   const [edges, setEdges] = useState({ left: false, right: false });
@@ -96,6 +100,20 @@ export function ChatStarterRow({
         className,
       )}
     >
+      {hostChips.map((chip) => (
+        <button
+          key={`host-${chip.id}`}
+          type="button"
+          data-testid={`chat-starter-host-${chip.id}`}
+          onClick={() => chip.onSelect()}
+          className="flex h-9 shrink-0 snap-start items-center gap-2 rounded-full border border-border bg-card pl-3 pr-3.5 text-[13px] font-medium transition-colors hover:bg-muted"
+        >
+          {chip.icon === "tutorial" ? (
+            <GraduationCap className="size-4 shrink-0 text-violet-500 dark:text-violet-400" aria-hidden="true" />
+          ) : null}
+          <span className="whitespace-nowrap">{chip.label}</span>
+        </button>
+      ))}
       {CHAT_STARTERS.map((starter) => {
         const Icon = STARTER_ICONS[starter.id];
         return (
