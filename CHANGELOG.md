@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 17, 2026 - Startup timing for diagnosis (v0.6.251)
+
+- The Computer's first answer (`/api/bootstrap`) now reports how long each of its parts took, in a standard `Server-Timing` header. Nothing you see changes. It lets us find what still slows the first screen after a Computer wakes.
+
 ## October 17, 2026 - The saved screen shows again (v0.6.250)
 
 - The saved screen from your last visit shows again while your Computer connects. Since v0.6.248 a check rejected every saved copy, so the page waited for live data.
