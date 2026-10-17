@@ -801,6 +801,12 @@ export function createLiveWsSupport(opts: {
     if (tail.draftInterval) clearInterval(tail.draftInterval);
     tail.transcriptUnsub?.();
     sidTails.delete(sid);
+    // The replay ring is only complete while the transcript is followed. From
+    // here on, lines are written that no frame records, so a later resume must
+    // not be told "nothing missed": clear the ring and the resume gets a gap
+    // and a fresh snapshot, which reads the file. The seq keeps counting, so a
+    // client's cursor never matches a new frame by accident.
+    stateForChannel(transcriptChannel(sid)).ring = [];
   };
 
   const hydrateTarget = async (tail: SidTail) => {
