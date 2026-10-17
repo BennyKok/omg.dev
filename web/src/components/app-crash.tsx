@@ -22,7 +22,7 @@
 import { useEffect, useState } from "react";
 import { Check, CircleAlert, Copy, RefreshCw, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { BUILD_ID, isChunkLoadError, reportError } from "@/lib/report-error";
+import { BUILD_ID, STALE_CHUNK_RELOADING, isChunkLoadError, reportError } from "@/lib/report-error";
 import { cn } from "@/lib/utils";
 
 function messageOf(error: unknown): string {
@@ -66,10 +66,23 @@ export function AppCrash({
   // client running a PREVIOUS build asking for a hash the server dropped. Say
   // "update", not "error", and lead with Reload: that is the actual fix.
   const stale = isChunkLoadError(message);
+  // lazyWithReload already started a reload onto the new build and threw only
+  // to stop this render. Nothing broke: say so while the page goes away. An
+  // installed iPhone app showed "Something broke" with this message during
+  // the guided first run.
+  const reloading = message.startsWith(STALE_CHUNK_RELOADING);
   const [reported, setReported] = useState(false);
   const [copied, setCopied] = useState(false);
+  // A reload that has not taken the page away after a few seconds gets a button.
+  const [reloadSlow, setReloadSlow] = useState(false);
+  useEffect(() => {
+    if (!reloading) return;
+    const timer = window.setTimeout(() => setReloadSlow(true), 5_000);
+    return () => window.clearTimeout(timer);
+  }, [reloading]);
 
   useEffect(() => {
+    if (reloading) return;
     // The router's CatchBoundary swallows the throw before any React error
     // boundary sees it, so this effect is the ONLY reporting hook on the
     // router path. reportError dedups by signature, so overlapping reports
@@ -83,7 +96,7 @@ export function AppCrash({
         source: boundary,
       }),
     );
-  }, [message, stack, componentStack, boundary]);
+  }, [message, stack, componentStack, boundary, reloading]);
 
   const details = [
     message,
@@ -111,6 +124,28 @@ export function AppCrash({
   // it the error layout — a small left-aligned icon, a small title, a button
   // crowded under both — made an otherwise empty screen read as cramped and
   // half-broken. Centered column, room to breathe, one obvious CTA.
+  if (reloading) {
+    return (
+      <div
+        className={cn(
+          "flex flex-col items-center justify-center bg-background p-6 text-foreground",
+          variant === "screen" ? "h-full min-h-dvh" : "rounded-xl border border-border/60 py-12",
+          className,
+        )}
+        role="status"
+      >
+        <RefreshCw className="size-6 animate-spin text-muted-foreground" aria-hidden />
+        <p className="mt-4 text-sm text-muted-foreground">Updating omg…</p>
+        {reloadSlow ? (
+          <Button size="lg" variant="brand" className="mt-6" onClick={() => window.location.reload()}>
+            <RefreshCw className="size-4" aria-hidden />
+            Reload
+          </Button>
+        ) : null}
+      </div>
+    );
+  }
+
   if (stale) {
     return (
       <div

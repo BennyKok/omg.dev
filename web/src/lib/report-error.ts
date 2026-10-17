@@ -75,6 +75,13 @@ const RELOAD_LATCH = `lfg:chunk-reload:__report:${BUILD_ID ?? "dev"}`;
 // load, it's a genuine, durable break (not a stale chunk) — return false so it
 // surfaces as a real finding.
 /**
+ * The start of the error lazyWithReload throws while its recovery reload is
+ * under way. The crash screen (app-crash.tsx) shows "Updating" for it in place
+ * of a crash, and reportError skips it.
+ */
+export const STALE_CHUNK_RELOADING = "Reloading to recover stale chunk";
+
+/**
  * True when a message is a browser's way of saying "that chunk is gone", i.e. a
  * stale client rather than a bug. The crash UI words itself differently for
  * these ("New version available", Reload first), so it shares this test instead
@@ -140,7 +147,7 @@ export function reportError(r: Report): boolean {
     }
     // A mid-recovery throw from lazyWithReload (the page is already reloading) —
     // suppress it so the transient state never becomes a finding.
-    if (r.message.startsWith("Reloading to recover stale chunk")) return false;
+    if (r.message.startsWith(STALE_CHUNK_RELOADING)) return false;
     // A stale/failed code-split chunk → recover with a one-time reload instead of
     // escalating a transient, self-healing condition into a phantom auto-fix run.
     if (recoverFromChunkLoadError(r.message)) return false;

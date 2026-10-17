@@ -1,6 +1,6 @@
 import { lazy } from "react";
 import type { ComponentType, LazyExoticComponent } from "react";
-import { BUILD_ID } from "./report-error";
+import { BUILD_ID, STALE_CHUNK_RELOADING } from "./report-error";
 
 // Production SPAs hit a classic failure right after a redeploy: a client still
 // running the PREVIOUS build renders a route that pulls in a code-split chunk
@@ -33,7 +33,7 @@ function recoverFromStaleChunk(latchKey: string): never {
     window.location.reload();
     // reload() doesn't stop synchronous execution; block here so React never
     // gets a resolved-but-undefined module to choke on during the unload.
-    throw new Error(`Reloading to recover stale chunk: ${latchKey}`);
+    throw new Error(`${STALE_CHUNK_RELOADING}: ${latchKey}`);
   }
   // We already reloaded once and it's STILL broken — this is a real bug, not a
   // stale chunk. Throw so the nearest error boundary shows its fallback.
@@ -80,7 +80,7 @@ export function lazyWithReload<T extends ComponentType<any>>(
       // HTML, or a syntax error) — same recovery path.
       if (
         err instanceof Error &&
-        err.message.startsWith("Reloading to recover stale chunk")
+        err.message.startsWith(STALE_CHUNK_RELOADING)
       ) {
         throw err; // already handled by recoverFromStaleChunk — don't double-wrap
       }
