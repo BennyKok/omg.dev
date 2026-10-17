@@ -66,11 +66,11 @@ test('a short drop after the computer was ready draws nothing over the screen in
 test('a long drop takes the full page, and recovery plays its exit and removes it', async () => {
   start();
   ui.flush(() => emit('reconnecting'));
-  now += 11_000;
+  now += 61_000;
   ui.render(<ConnectionOverlay />);
   expect(page()?.getAttribute('data-done')).toBe('false');
   expect(ui.text()).toContain('Reconnecting to your computer');
-  expect(ui.text()).not.toContain('Try again');
+  expect(ui.text()).toContain('Try again');
   ui.flush(() => emit('live'));
   expect(page()?.getAttribute('data-done')).toBe('true');
   await ui.flushAsync(() => new Promise(resolve => setTimeout(resolve, 120)));

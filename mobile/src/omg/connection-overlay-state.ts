@@ -13,9 +13,12 @@ import type { BoxyMood } from "./boxy";
  * - First connect with nothing saved to show: the page at once, one step at
  *   a time. LaunchGate draws it until the first connect, ConnectionOverlay
  *   after; both read this function, so the two look and read the same.
- * - Saved sessions on screen, or a drop after the computer was ready: silent
- *   for QUIET_MS, because the screen behind is usable and most drops come
- *   back within seconds. Then the page.
+ * - Saved sessions on screen, or a computer that stops answering after it
+ *   was ready: silent for QUIET_MS, then the page.
+ * - A socket that drops while the computer still answers leaves a usable
+ *   screen, so it stays silent for SOCKET_GRACE_MS, then the page offers Try
+ *   again. Covering a working screen after 10 s read as one screen sliding
+ *   over another (Benny, 2026-10-17).
  * - After LONG_WAIT_MS the page says the wait is longer than usual. After
  *   GIVE_UP_MS it offers Try again and another computer. No wait is without a
  *   way out.
@@ -72,6 +75,8 @@ export const QUIET_MS = 10_000;
 export const LONG_WAIT_MS = 20_000;
 /** After this, the page offers Try again and another computer. */
 export const GIVE_UP_MS = 60_000;
+/** A socket drop under a computer that still answers stays silent this long. */
+export const SOCKET_GRACE_MS = GIVE_UP_MS;
 /**
  * A failed check stays soft this long. The provider retries it by itself, and
  * one network error or one 502 mid-resume is usually gone within seconds.
@@ -120,6 +125,20 @@ export function nativeOverlayView(input: NativeOverlayInput): NativeOverlayView 
     return input.readiness === "unavailable"
       ? failure("Your computer is not available", "Try again, or choose another computer.", true)
       : failure("Could not reach your computer", "Try again, or choose another computer.", true);
+  }
+  // Only the socket dropped: the computer still answers and the screen is usable.
+  const answering = input.readiness === "ready" || input.readiness === "agent-limit";
+  if (answering && input.everReady && (offline || input.socket === "reconnecting")) {
+    if (ms < SOCKET_GRACE_MS) return { ...HIDDEN, nextChangeMs: SOCKET_GRACE_MS - ms };
+    return {
+      mode: "page",
+      mood: "searching",
+      title: "Reconnecting to your computer",
+      detail: "This is taking longer than it should. You can try again.",
+      canRetry: true,
+      canSwitch: true,
+      nextChangeMs: null,
+    };
   }
   if (offline && input.everReady && ms >= FAIL_AFTER_MS) {
     return failure("Could not reach your computer", "Check your connection, then try again.", true);

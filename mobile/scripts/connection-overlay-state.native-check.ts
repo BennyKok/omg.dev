@@ -4,6 +4,7 @@ import {
   GIVE_UP_MS,
   LONG_WAIT_MS,
   QUIET_MS,
+  SOCKET_GRACE_MS,
   isLive,
   nativeOverlayView,
   type NativeOverlayInput,
@@ -42,9 +43,18 @@ test("a screen with something usable stays quiet, then the full page takes over"
   // Saved sessions on a cold start.
   expect(first(2_000, { hasSaved: true })).toEqual(expect.objectContaining({ mode: "hidden", nextChangeMs: QUIET_MS - 2_000 }));
   expect(first(QUIET_MS, { hasSaved: true })).toMatchObject({ mode: "page", title: "Connecting to your computer" });
-  // A drop after the computer was ready.
-  expect(view({ socket: "reconnecting", notLiveMs: 3_000 }).mode).toBe("hidden");
-  expect(view({ socket: "reconnecting", notLiveMs: QUIET_MS })).toMatchObject({ mode: "page", title: "Reconnecting to your computer", canRetry: false });
+  // The computer stops answering after it was ready.
+  expect(view({ readiness: "connecting", socket: "reconnecting", notLiveMs: 3_000 }).mode).toBe("hidden");
+  expect(view({ readiness: "connecting", socket: "reconnecting", notLiveMs: QUIET_MS })).toMatchObject({ mode: "page", title: "Reconnecting to your computer", canRetry: false });
+});
+
+test("a socket drop while the computer still answers stays silent for a minute, then offers Try again", () => {
+  // The screen behind is usable: covering it after 10 s read as overlapping screens.
+  expect(view({ socket: "reconnecting", notLiveMs: QUIET_MS })).toMatchObject({ mode: "hidden", nextChangeMs: SOCKET_GRACE_MS - QUIET_MS });
+  expect(view({ socket: "offline", notLiveMs: FAIL_AFTER_MS }).mode).toBe("hidden");
+  expect(view({ socket: "reconnecting", notLiveMs: SOCKET_GRACE_MS })).toMatchObject({
+    mode: "page", title: "Reconnecting to your computer", canRetry: true, canSwitch: true,
+  });
 });
 
 test("every wait offers Try again and another computer after the limit", () => {
@@ -63,7 +73,7 @@ test("a failed check stays a wait while the provider retries it, then names the 
     mode: "page", mood: "error", title: "Your computer is not available", canRetry: true, canSwitch: true,
   });
   expect(view({ readiness: "error", socket: "offline", notLiveMs: FAIL_AFTER_MS })).toMatchObject({ title: "Could not reach your computer", canRetry: true });
-  expect(view({ socket: "offline", notLiveMs: FAIL_AFTER_MS })).toMatchObject({ title: "Could not reach your computer", canRetry: true });
+  expect(view({ readiness: "connecting", socket: "offline", notLiveMs: FAIL_AFTER_MS })).toMatchObject({ title: "Could not reach your computer", canRetry: true });
 });
 
 test("revoked access says so at once and offers only another computer", () => {

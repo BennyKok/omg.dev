@@ -30,7 +30,7 @@
     {
       "name": "Brief drop stays silent",
       "goal": "Tap Next stage once.",
-      "done": "The harness shows Stage: Brief drop and the list, with no connection page, pill or card over it.",
+      "done": "The harness shows Stage: Brief drop and the list, with no connection page, pill or card over it. The socket dropped 3 s ago and the computer still answers.",
       "expect": [
         "Stage: Brief drop",
         "Top up user credits system"
@@ -43,16 +43,14 @@
       "timeoutMs": 60000
     },
     {
-      "name": "Long drop takes the full page",
+      "name": "A drop past a minute takes the full page",
       "goal": "Tap Next stage once.",
-      "done": "A full page covers the list: Boxy in the middle and the caption Reconnecting to your computer. There is no Try again button. The list is not visible.",
+      "done": "A full page covers the list: Boxy in the middle, the caption Reconnecting to your computer, and a Try again button. The list is not visible.",
       "expect": [
-        "Reconnecting to your computer"
+        "Reconnecting to your computer",
+        "Try again"
       ],
-      "forbid": [
-        "Try again",
-        "Choose another computer"
-      ],
+      "forbid": [],
       "timeoutMs": 60000
     },
     {
