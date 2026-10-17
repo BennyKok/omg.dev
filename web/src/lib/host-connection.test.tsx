@@ -10,7 +10,7 @@ const { HostConnectionProvider, useHostOwnsConnection, useReportHostConnection }
 let ui: Mounted;
 afterEach(() => ui?.cleanup());
 
-const connecting: HostConnectionState = { status: "connecting", loading: true, ready: false, error: null, lifecycle: "waking" };
+const connecting: HostConnectionState = { status: "connecting", loading: true, ready: false, saved: false, error: null, lifecycle: "waking" };
 let owns: boolean | null = null;
 
 function Probe({ state }: { state: HostConnectionState }) {
@@ -29,11 +29,15 @@ test("a host that passes onConnectionChange hears each change once and owns the 
   ui.render(tree(connecting));
   // A re-render with an equal state (a new object) is not a change.
   ui.render(tree({ ...connecting }));
-  ui.render(tree({ status: "live", loading: false, ready: true, error: null, lifecycle: null }));
+  // Showing the saved screen is a change the host must hear: it decides
+  // whether the connection page covers the surface.
+  ui.render(tree({ ...connecting, saved: true }));
+  ui.render(tree({ status: "live", loading: false, ready: true, saved: false, error: null, lifecycle: null }));
   expect(owns).toBe(true);
   expect(seen).toEqual([
     connecting,
-    { status: "live", loading: false, ready: true, error: null, lifecycle: null },
+    { ...connecting, saved: true },
+    { status: "live", loading: false, ready: true, saved: false, error: null, lifecycle: null },
   ]);
 });
 
