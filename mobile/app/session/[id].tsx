@@ -161,6 +161,9 @@ import { useTheme } from "../../src/omg/theme";
 import { useToast } from "../../src/omg/toast";
 
 import { useOverlapWatch } from "../../src/omg/list-overlap-watch";
+import { followProbe } from "../../src/omg/follow-probe";
+import { FollowProbeView } from "../../src/omg/follow-probe-view";
+import { readProbe } from "../../src/omg/read-probe";
 import {
   buildTranscriptItems,
   TranscriptRow,
@@ -763,6 +766,11 @@ function SessionScreenContent({
    * prepends a page nobody asked for at the moment of opening.
    */
   const userMovedRef = useRef(false);
+  // The scroll-follow fixture judges each opened session from scratch.
+  useEffect(() => {
+    followProbe?.reset();
+    readProbe?.reset();
+  }, [id]);
   /**
    * True from the moment a drag starts until the list has come to rest.
    *
@@ -1000,6 +1008,7 @@ function SessionScreenContent({
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
       scrollOffset.current = e.nativeEvent.contentOffset.y;
       if (e.nativeEvent.layoutMeasurement.height > 0) viewportHeight.current = e.nativeEvent.layoutMeasurement.height;
+      followProbe?.scroll(e.nativeEvent.contentOffset.y, e.nativeEvent.contentSize.height, e.nativeEvent.layoutMeasurement.height);
       // Layout noise, not a reader. See userMovedRef.
       if (!userMovedRef.current || galleryRestore.current) return;
 
@@ -1007,6 +1016,7 @@ function SessionScreenContent({
       const bottom = contentOffset.y + layoutMeasurement.height >= contentSize.height - 48;
       atBottomRef.current = bottom;
       setAtBottom(bottom);
+      followProbe?.bottom(bottom);
       if (bottom) setUnseen(false);
 
       /**
@@ -1115,6 +1125,8 @@ function SessionScreenContent({
   const handleContentSizeChange = useCallback((_width: number, height: number) => {
     const delta = height - lastContentHeight.current;
     lastContentHeight.current = height;
+    followProbe?.content(height);
+    readProbe?.content(height);
     // A content-size change IS the list still moving. While the opening
     // reveal is waiting for quiet (see `armReveal`), every one of these
     // restarts that wait — this runs BEFORE the at-bottom early return
@@ -2071,6 +2083,8 @@ function SessionScreenContent({
     };
   }, []);
 
+  // The reading probe only judges rows whose top is below the bar.
+  if (readProbe) readProbe.top = insets.top + BAR_ITEM;
   const transcriptBottomPadding = Math.max(composerHeight, insets.bottom + 60) + space.lg +
     Math.max(0, keyboardHeight - insets.bottom);
   bottomPaddingRef.current = transcriptBottomPadding;
@@ -2195,15 +2209,21 @@ function SessionScreenContent({
           sendActive.value = false;
           userMovedRef.current = true;
           touchingRef.current = true;
+          followProbe?.dragStart();
+          readProbe?.dragStart();
         }}
         // Released, but possibly still coasting: only the momentum end (or an
         // immediate stop) hands the list back.
         onScrollEndDrag={(e) => {
           if (e.nativeEvent.velocity && Math.abs(e.nativeEvent.velocity.y) > 0.05) return;
           touchingRef.current = false;
+          followProbe?.settle();
+          readProbe?.settle();
         }}
         onMomentumScrollEnd={() => {
           touchingRef.current = false;
+          followProbe?.settle();
+          readProbe?.settle();
         }}
         onScroll={onScroll}
         scrollEventThrottle={16}
@@ -2216,6 +2236,7 @@ function SessionScreenContent({
             !!previous && transcriptSpeaker(previous) !== transcriptSpeaker(item);
           return (
             <View
+              ref={readProbe?.ref(item.key)}
               onLayout={(event) => {
                 const height = event.nativeEvent.layout.height;
                 if (rowHeights.current.get(item.key) === height) return;
@@ -2407,6 +2428,7 @@ function SessionScreenContent({
         }}
       />
 
+      {followProbe ? <FollowProbeView probe={followProbe} reader={readProbe} top={insets.top + BAR_ITEM + space.xs} /> : null}
       {/* Outside the measured composer: hiding Latest must not move the scroll target. */}
         {!atBottom ? (
           <Reanimated.View style={[{ position: "absolute", bottom: composerHeight, left: 0, right: 0, alignItems: "center", paddingBottom: space.xs }, composerLift]}>

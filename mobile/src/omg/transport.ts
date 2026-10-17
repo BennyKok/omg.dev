@@ -172,6 +172,24 @@ export async function getComputerSocketAccess(bindingId: string): Promise<Comput
 }
 
 /**
+ * DIAGNOSIS ONLY: the demo account on top of a REAL `lfg serve`.
+ *
+ * `EXPO_PUBLIC_OMG_DEMO_BOX_PORT` at build time, with the box's port
+ * reverse-forwarded to the simulator Mac's localhost (ATS exempts localhost).
+ * Sign-in stays fake, but every session, transcript and live frame is the
+ * box's own, so a layout bug that needs real traffic can be reproduced on the
+ * simulator. Never set in a shipped build. See e2e/README.md.
+ */
+const DEMO_BOX_PORT = /^\d+$/.test(process.env.EXPO_PUBLIC_OMG_DEMO_BOX_PORT ?? "")
+  ? process.env.EXPO_PUBLIC_OMG_DEMO_BOX_PORT
+  : undefined;
+let demoBox: OmgTransport | null = null;
+function demoBoxTransport(port: string): OmgTransport {
+  demoBox ??= createDirectTransport(`http://localhost:${port}`);
+  return demoBox;
+}
+
+/**
  * The hosted transport for a machine, shared across every screen that talks to
  * it. Cached at module scope on purpose — React context would give each
  * subtree its own copy of the grant cache, which is the thing being shared.
@@ -180,7 +198,7 @@ export function getHostedTransport(bindingId: string): OmgTransport {
   // Demo mode short-circuits the whole grant/mint machinery: the seeded
   // transport answers every path from fixtures, so the real client and
   // readiness probe run unchanged on top of it. See demo-data.ts.
-  if (isDemoMode()) return getDemoTransport();
+  if (isDemoMode()) return DEMO_BOX_PORT ? demoBoxTransport(DEMO_BOX_PORT) : getDemoTransport();
 
   const existing = transports.get(bindingId);
   if (existing) return existing.transport;

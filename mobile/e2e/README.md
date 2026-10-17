@@ -46,6 +46,62 @@ EXPO_PUBLIC_OMG_DEMO=1 OMG_E2E_ENTRY_FILE=scripts/no-project-e2e-entry.tsx \
   bun run test:e2e --build --plan linked-app --record
 ```
 
+The scroll-follow plan checks that a working session's transcript holds
+still at the bottom when no message arrives. It reproduces the 2026-10-16
+iPhone report: the list jumped about 470pt up and glided back every second or
+two, and the "Latest" pill flashed during each glide.
+
+```bash
+EXPO_PUBLIC_OMG_DEMO=1 EXPO_PUBLIC_OMG_FOLLOW_FIXTURE=1 \
+  OMG_E2E_ENTRY_FILE=scripts/no-project-e2e-entry.tsx \
+  OMG_SIM_DEVICE="iPhone Air" OMG_MAESTRO_DRIVER_PORT=7191 \
+  bun run test:e2e --build --plan scroll-follow --record
+```
+
+The fixture seeds a busy session shaped like the reported one
+(`followMessages` in `src/omg/demo-data.ts`). It also turns on the follow
+probe (`src/omg/follow-probe.ts`). The probe draws a line over the transcript
+and counts each upward jump and each "Latest" flash that happens without a
+finger on the list, for 20 seconds after the last drag. The plan expects
+"Follow check passed". The detector itself is covered by
+`scripts/follow-probe.native-check.ts`.
+
+The history-hold plan checks that loading older messages keeps the reader's
+place. It reproduces the 2026-10-16 report: at the top of a loaded page, iOS
+anchored the position to the page's first time stamp, an older page removed
+that row, and the list moved.
+
+```bash
+EXPO_PUBLIC_OMG_DEMO=1 EXPO_PUBLIC_OMG_PERFORMANCE_FIXTURE=1 \
+  EXPO_PUBLIC_OMG_HISTORY_DELAY_MS=6000 EXPO_PUBLIC_OMG_SCROLL_PROBE=1 \
+  OMG_E2E_ENTRY_FILE=scripts/no-project-e2e-entry.tsx \
+  OMG_SIM_DEVICE="iPhone Air" OMG_MAESTRO_DRIVER_PORT=7191 \
+  bun run test:e2e --build --plan history-hold --record
+```
+
+The 6 s page delay makes each older page land after the swipe has come to
+rest. The reading probe (`src/omg/read-probe.ts`) picks the first row on
+screen when the list stops, and measures it every 100 ms. A move of more than
+40pt that lasts, or a lost row, fails the check. A move that the next sample
+undoes is reported as a flicker and does not fail, because one sample cannot
+tell a one-frame flash from a measurement taken mid-update. Check the video
+for those. The last step requires a second page and "0 failed loads". Without
+the fix the third step fails with "1 lost rows".
+
+To reproduce a layout bug with real traffic, a probe build can read a real
+`lfg serve` instead of the demo data. Sign-in stays fake. Set
+`EXPO_PUBLIC_OMG_DEMO_BOX_PORT` at build time and reverse-forward the box to
+the Mac's localhost, which App Transport Security allows:
+
+```bash
+ssh -N -R 127.0.0.1:18766:127.0.0.1:8766 bennykok@bennys-macbook-pro-2 &
+EXPO_PUBLIC_OMG_DEMO=1 EXPO_PUBLIC_OMG_SCROLL_PROBE=1 EXPO_PUBLIC_OMG_DEMO_BOX_PORT=18766 \
+  OMG_E2E_ENTRY_FILE=scripts/no-project-e2e-entry.tsx bun scripts/e2e-build.ts
+```
+
+The forward exposes the box's API on the Mac's localhost. Stop it when the
+run ends. Never set the port in a build that ships.
+
 Each onboarding run signs up a new plus-alias of `OMG_E2E_MAILBOX` (default
 `itechbenny@gmail.com`) and provisions a new hosted Computer. Nothing removes
 them: account deletion finishes in the browser. Expect the accounts to pile up.

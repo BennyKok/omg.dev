@@ -1,0 +1,66 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": true
+  },
+  "steps": [
+    {
+      "name": "Accept fixture data notice",
+      "goal": "Tap Agree and continue on the Your data and AI providers screen for this isolated demo fixture. Wait for Home. Do not tap the root element named omg.",
+      "done": "Home shows the project navigation.",
+      "expect": [
+        "api-gateway folder"
+      ],
+      "timeoutMs": 180000
+    },
+    {
+      "name": "Open the working session",
+      "goal": "On Home, tap the api-gateway folder chip in the project rail. Then open the conversation titled Refactor the rate limiter to a sliding window. Do not type a message.",
+      "done": "The conversation screen is open and shows the newest reply and the idle follow check.",
+      "expect": [
+        "The us region has finished too.",
+        "Follow check idle"
+      ],
+      "timeoutMs": 120000
+    },
+    {
+      "name": "Read back a little",
+      "goal": "Do not tap anything. Wait for the swipe to finish.",
+      "done": "The transcript has moved down to show an earlier reply, and the follow check is waiting.",
+      "expect": [
+        "Follow check waiting"
+      ],
+      "swipe": {
+        "start": "50%,40%",
+        "end": "50%,60%"
+      },
+      "timeoutMs": 30000
+    },
+    {
+      "name": "Return to the bottom",
+      "goal": "If a button labelled Jump to the latest is shown, tap it once. Otherwise do not tap anything.",
+      "done": "The newest message is visible above the composer, and the follow check is watching.",
+      "expect": [
+        "The us region has finished too.",
+        "Follow check watching"
+      ],
+      "swipe": {
+        "start": "50%,45%",
+        "end": "50%,10%"
+      },
+      "timeoutMs": 30000
+    },
+    {
+      "name": "Transcript holds still while the agent works",
+      "goal": "Do not tap or swipe anything. Wait until the follow check line says passed or failed.",
+      "done": "The follow check line has finished watching.",
+      "expect": [
+        "Follow check passed"
+      ],
+      "forbid": [
+        "Follow check failed"
+      ],
+      "timeoutMs": 45000
+    }
+  ]
+}

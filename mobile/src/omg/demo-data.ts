@@ -327,6 +327,89 @@ const demoArtifact: OmgMessage & { sessionId: string } = {
 };
 const demoArtifactHtml = `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{font:18px -apple-system;padding:24px}button{font:inherit;padding:16px;border-radius:12px}</style></head><body><h1>Rate limit dashboard</h1><p>Requests allowed: <span id="count">12</span></p><button onclick="document.getElementById('count').textContent='13'">Add request</button></body></html>`;
 
+/**
+ * SCROLL-FOLLOW FIXTURE (`EXPO_PUBLIC_OMG_FOLLOW_FIXTURE=1`, e2e/scroll-follow).
+ *
+ * The shape of the working session in the 2026-10-16 recording, where the
+ * transcript jumped up and glided back with no new message: short status
+ * replies alternating with folded `work` runs, one longer reply with a bullet
+ * list and a numbered list, and a live run at the end whose single tool call
+ * is still in flight. Nothing arrives while the plan watches, as nothing did
+ * in the recording; only the screen's own timers and polls run.
+ */
+const followFixture = process.env.EXPO_PUBLIC_OMG_FOLLOW_FIXTURE === "1";
+const FOLLOW_REPLIES = [
+  "The limiter tests are running against the sliding log now. I check the burst case first.",
+  "The burst case passes. Two requests across the boundary are throttled as expected. I check the per-key config next.",
+  "The per-key config loads unchanged. I measure the memory cost of the log while the load test runs.",
+  "One job in the load test has finished, and the other is close. Done so far:\n\n" +
+    "- **Burst and boundary:** written, tested and merged into the limiter. The gateway uses it now.\n" +
+    "- **Per-key limits:** code is ready. Each key keeps its old limit until its config reloads.\n\n" +
+    "The remaining jobs run two at a time in the background. They should finish in about ten minutes. When they finish, I will:\n\n" +
+    "1. Shrink the log entries.\n2. Check the limiter for all four regions.\n3. Decide on the eviction rule.\n4. Deploy once.",
+  "That notice is from the old polling loop for the stuck jobs. It stopped after its time limit. I check that it did not overwrite any new file.",
+  "Nothing was overwritten. The log and the eviction rule came from the new jobs, and the two region jobs are running now. I look at the log size in the dashboard.",
+  "The log shrinks to 280 KB and the index to 150 KB. The second region has also finished. I rebuild and look at the limiter in the gateway.",
+  "The old counter is back as a fallback, and the type check passes. I optimize the eu region now. It is large, so it keeps a 1024 entry window. Then I check the other regions.",
+  "The us region has finished too. I rebuild and check us and eu, while the ap region and the last job finish.",
+];
+/** Rounds of FOLLOW_REPLIES: enough rows that the list is many screens tall. */
+const FOLLOW_ROUNDS = 6;
+/** Rows the page fetch returns. The rest arrive on the live socket. */
+const FOLLOW_SEED = 12;
+let followRows: OmgMessage[] | null = null;
+/** Built once per launch, so the page and the live feed agree on ids and times. */
+function followMessages(t: number): OmgMessage[] {
+  if (followRows) return followRows;
+  const rows: OmgMessage[] = [
+    { id: "f-user", role: "user", kind: "text", text: "Switch the rate limiter to a sliding window and load test it in every region.", ts: t - 70 * MIN },
+  ];
+  const step = (id: string, kind: string, text: string, ts: number) => ({ id, role: "assistant", kind, text, ts });
+  const total = FOLLOW_ROUNDS * FOLLOW_REPLIES.length;
+  const span = 60 * MIN;
+  for (let n = 0; n < total; n += 1) {
+    const i = n % FOLLOW_REPLIES.length;
+    const ts = t - span + Math.round((n * span) / total);
+    rows.push({ id: `f-reply-${n}`, role: "assistant", kind: "text", text: FOLLOW_REPLIES[i], ts });
+    const last = n === total - 1;
+    const steps = last
+      ? [step(`f-step-${n}-0`, "tool_use", "Bash: {\n  \"command\": \"bun run load-test --region all\",\n  \"description\": \"Run the load test\"\n}", t - 30_000)]
+      : [
+        step(`f-step-${n}-0`, "tool_use", "Bash: {\n  \"command\": \"bun test limiter\",\n  \"description\": \"Run the limiter tests\"\n}", ts + 2_000),
+        step(`f-step-${n}-1`, "thinking", "(thinking)", ts + 5_000),
+        step(`f-step-${n}-2`, "tool_use", "Read: {\n  \"file_path\": \"/home/user/api-gateway/limiter.ts\"\n}", ts + 7_000),
+      ];
+    rows.push({ id: `f-work-${n}`, role: "assistant", kind: "work", text: "", ts: last ? t - 30_000 : ts + 2_000, steps } as unknown as OmgMessage);
+  }
+  followRows = rows;
+  return rows;
+}
+
+/**
+ * The rest of the session, as live `msg` frames, after the screen subscribes.
+ * On a phone the transcript window keeps its opening anchor and grows with
+ * every arriving row, so a session left open for an hour mounts far more than
+ * the twelve-row opening page. This is how the fixture gets there.
+ */
+const FOLLOW_FEED_GAP_MS = 40;
+function followFeed(emit: (data: string) => void): () => void {
+  const rows = followMessages(now()).slice(FOLLOW_SEED);
+  let index = 0;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const next = () => {
+    if (index >= rows.length) return;
+    timer = setTimeout(() => {
+      emit(JSON.stringify({ t: "msg", sid: "demo-rate-limiter", message: rows[index] }));
+      index += 1;
+      next();
+    }, FOLLOW_FEED_GAP_MS);
+  };
+  next();
+  return () => {
+    if (timer) clearTimeout(timer);
+  };
+}
+
 /** A single session's transcript, for the opened-chat screen. */
 function demoMessages(sessionId: string): OmgMessage[] {
   const t = now();
@@ -351,6 +434,8 @@ function demoMessages(sessionId: string): OmgMessage[] {
       ts: t - (101 - i) * MIN,
     }));
   }
+
+  if (followFixture && sessionId === "demo-rate-limiter") return followMessages(t).slice(0, FOLLOW_SEED);
 
   if (sessionRefFixture && sessionId === SESSION_REF_TARGET) {
     return [
@@ -513,13 +598,58 @@ function demoBootstrap() {
 }
 
 /** A socket that opens and then stays quiet — enough to read as connected. */
-function demoSocket() {
+/**
+ * The status churn a real box sends while agents work: partial rows for the
+ * busy sessions, each with a fresh `lastActivityAt`, at the uneven 0.7-1.6s
+ * cadence measured from a live socket on 2026-10-16. Only the scroll-follow
+ * fixture turns it on; every other demo screen stays static.
+ */
+const FOLLOW_STATUS_GAPS_MS = [1600, 700, 1500, 1100];
+function followStatusChurn(emit: (data: string) => void): () => void {
+  let seq = 0;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const next = () => {
+    timer = setTimeout(() => {
+      seq += 1;
+      const at = now();
+      emit(JSON.stringify({
+        t: "status", kind: "status", key: "*", seq,
+        rows: [
+          { sessionId: "demo-rate-limiter", busy: true, status: "ok", lastActivityAt: at },
+          { sessionId: "demo-token-refresh", busy: true, status: "ok", lastActivityAt: at - 400 },
+        ],
+      }));
+      next();
+    }, FOLLOW_STATUS_GAPS_MS[seq % FOLLOW_STATUS_GAPS_MS.length]);
+  };
+  next();
+  return () => {
+    if (timer) clearTimeout(timer);
+  };
+}
+
+function demoSocket(live = false) {
   const openListeners: Array<() => void> = [];
+  const messageListeners: Array<(event: { data: string }) => void> = [];
+  let stopChurn: (() => void) | null = null;
+  let stopFeed: (() => void) | null = null;
   const socket = {
     binaryType: "arraybuffer" as BinaryType,
     readyState: 1,
-    send() {},
-    close() {},
+    send(data: string) {
+      if (!live || !followFixture || stopFeed) return;
+      const frame = JSON.parse(String(data)) as { t?: string; channels?: Array<{ kind?: string; key?: string }> };
+      if (frame.t !== "subscribe") return;
+      if (!frame.channels?.some((c) => c.kind === "transcript" && c.key === "demo-rate-limiter")) return;
+      stopFeed = followFeed((frameData) => {
+        for (const l of messageListeners) l({ data: frameData });
+      });
+    },
+    close() {
+      stopChurn?.();
+      stopChurn = null;
+      stopFeed?.();
+    },
     addEventListener(type: string, listener: unknown) {
       if (type === "open") {
         openListeners.push(listener as () => void);
@@ -528,8 +658,16 @@ function demoSocket() {
           for (const l of openListeners) l();
         }, 0);
       }
-      // "message" / "close" / "error" are never emitted: the seeded lists are
-      // the whole story, and a static screen wants no live churn on top.
+      if (type === "message") {
+        messageListeners.push(listener as (event: { data: string }) => void);
+        if (live && followFixture && !stopChurn) {
+          stopChurn = followStatusChurn((data) => {
+            for (const l of messageListeners) l({ data });
+          });
+        }
+      }
+      // Otherwise "message" / "close" / "error" are never emitted: the seeded
+      // lists are the whole story, and a static screen wants no live churn.
     },
   };
   return socket as unknown as Awaited<ReturnType<OmgTransport["openSocket"]>>;
@@ -671,6 +809,13 @@ function answer(path: string): unknown | null {
 }
 
 const performanceFixture = process.env.EXPO_PUBLIC_OMG_PERFORMANCE_FIXTURE === "1";
+/**
+ * How long an older page takes. 2.5 s keeps the spinner on screen for the
+ * history-paging recording. e2e/history-hold sets 6 s so the page lands after
+ * the swipe's coast and bounce, on a list at rest, where the reading probe
+ * can judge it.
+ */
+const HISTORY_DELAY_MS = Number(process.env.EXPO_PUBLIC_OMG_HISTORY_DELAY_MS) || 2500;
 
 /**
  * The 100-row history answers the way a real machine does for a client that
@@ -743,7 +888,7 @@ export function getDemoTransport(): OmgTransport {
     async request<T>(path: string, init?: RequestInit): Promise<T> {
       const requestedAt = Date.now();
       await openingDelay(path);
-      if (performanceFixture && path.includes("page=backward")) await new Promise((done) => setTimeout(done, 2500));
+      if (performanceFixture && path.includes("page=backward")) await new Promise((done) => setTimeout(done, HISTORY_DELAY_MS));
       const move = path.match(/^\/api\/sessions\/([^/]+)\/move$/);
       if (move && init?.method === "POST") {
         const id = decodeURIComponent(move[1]);
@@ -782,7 +927,7 @@ export function getDemoTransport(): OmgTransport {
       return demoSocket();
     },
     async openLiveSocket() {
-      return demoSocket();
+      return demoSocket(true);
     },
   };
   return demoTransport;
