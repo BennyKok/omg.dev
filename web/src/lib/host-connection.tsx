@@ -22,6 +22,11 @@ export interface HostConnectionState {
   loading: boolean;
   /** Bootstrap data is usable. */
   ready: boolean;
+  /**
+   * The surface shows its saved screen (the last startup state) while live
+   * data loads. Never true once `ready` is: a saved screen is not live data.
+   */
+  saved: boolean;
   /** Last bootstrap error, while the surface retries it. */
   error: string | null;
   /** Why the runtime is not answering, from the cloud proxy, when it knows. */
@@ -51,19 +56,19 @@ export function useHostOwnsConnection(): boolean {
 
 function sameState(a: HostConnectionState | null, b: HostConnectionState): boolean {
   return !!a && a.status === b.status && a.loading === b.loading && a.ready === b.ready
-    && a.error === b.error && a.lifecycle === b.lifecycle;
+    && a.saved === b.saved && a.error === b.error && a.lifecycle === b.lifecycle;
 }
 
 /** Report each change of connection state to the host, once per change. */
 export function useReportHostConnection(state: HostConnectionState): void {
   const onChange = useContext(HostConnectionContext);
   const last = useRef<HostConnectionState | null>(null);
-  const { status, loading, ready, error, lifecycle } = state;
+  const { status, loading, ready, saved, error, lifecycle } = state;
   useEffect(() => {
     if (!onChange) return;
-    const next = { status, loading, ready, error, lifecycle };
+    const next = { status, loading, ready, saved, error, lifecycle };
     if (sameState(last.current, next)) return;
     last.current = next;
     onChange(next);
-  }, [onChange, status, loading, ready, error, lifecycle]);
+  }, [onChange, status, loading, ready, saved, error, lifecycle]);
 }

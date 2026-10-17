@@ -10,6 +10,12 @@ export interface EmbeddedHostOptions {
   /** The agent used when this browser has no valid saved selection. */
   defaultAgent: AgentKind;
   /**
+   * Draw the last startup state at once while the live one loads (see
+   * lib/saved-screen.ts). `key` must name the account and the machine, so two
+   * accounts in one browser never see each other's screen. Omit to turn off.
+   */
+  savedScreen?: { key: string };
+  /**
    * Whether LFG should own the first-run provider connection gate. A managed
    * host can disable it when it has already selected a credential-free agent
    * and exposes provider connections later in its own Settings surface.

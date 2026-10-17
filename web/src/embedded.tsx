@@ -66,6 +66,7 @@ export interface OmgPushNotification {
 }
 
 export { createGrantTransport } from "@omg-dev/client";
+export { clearSavedScreens } from "./lib/saved-screen";
 export type {
   CreateGrantTransportOptions,
   OmgGrant,
@@ -208,6 +209,12 @@ export interface OmgAppSurfaceProps {
    * own connection UI, as before.
    */
   onConnectionChange?: (state: OmgConnectionState) => void;
+  /**
+   * Draw the last startup state at once while the live one loads. `key` must
+   * name the signed-in account and the machine. Call `clearSavedScreens()` on
+   * sign-out. Omit to turn off.
+   */
+  savedScreen?: { key: string };
 }
 
 function initialPath(sessionId?: string | null): string {
@@ -428,6 +435,7 @@ export function OmgAppSurface({
   composerGuide,
   starterChips,
   onConnectionChange,
+  savedScreen,
 }: OmgAppSurfaceProps) {
   // A full LFG app is the sole owner of its runtime transport. Install it
   // synchronously so child effects cannot race the host boundary; there is no
@@ -470,6 +478,7 @@ export function OmgAppSurface({
           machines,
           composerGuide,
           starterChips,
+          savedScreen,
         }}
       >
         <BareSurfaceProvider bare={false}>

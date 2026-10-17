@@ -57,6 +57,7 @@ import {
   type HostSettingsPage,
   type PlanLimitDetail,
 } from "./lib/embedded-host-options";
+import { readSavedScreen, writeSavedScreen } from "./lib/saved-screen";
 import {
   embeddedConnectOptions,
   shouldShowEmbeddedConnectGate,
@@ -5886,7 +5887,15 @@ export function App() {
     defaultAgent,
     viewer,
     onAnalyticsEvent,
+    savedScreen,
   } = useEmbeddedHostOptions();
+  // The last startup state for this account and machine (lib/saved-screen.ts).
+  // It seeds the first render, so the screen is drawn before live data
+  // arrives. It never sets the runtime version, so nothing counts as ready.
+  const savedScreenKey = embedded ? savedScreen?.key ?? null : null;
+  const [savedAtStart] = useState(() => (savedScreenKey ? readSavedScreen(savedScreenKey) : null));
+  const startPayload = savedAtStart?.payload as BootstrapPayload | undefined;
+  const [showingSaved, setShowingSaved] = useState(!!savedAtStart);
   // Session deep-links win over filter/identity work so the target card opens
   // as soon as bootstrap returns sessions.
   const prioritizeSession = shouldPrioritizeSession(deepLinkSearch) || !!sessionDeepLinkRef.current;
@@ -6014,7 +6023,7 @@ export function App() {
     };
   }, [isMobile, mobileChromeEl]);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
-  const [codingAgents, setCodingAgents] = useState<CodingAgentInfo[]>([]);
+  const [codingAgents, setCodingAgents] = useState<CodingAgentInfo[]>(() => startPayload?.codingAgents ?? []);
   const [codingAgentAuth, setCodingAgentAuth] = useState<CodingAgentAuthSession | null>(null);
   // The provider whose login is being PREPARED — set on click, before the
   // server has answered.
@@ -6049,10 +6058,10 @@ export function App() {
   const connectGateStarted = useRef(false);
   const [toolConnections, setToolConnections] = useState<ToolConnectOption[] | undefined>();
   const [modelCatalog, setModelCatalog] = useState<AgentModelCatalog>(() =>
-    buildAgentModelCatalog(),
+    buildAgentModelCatalog(startPayload?.models ?? undefined),
   );
   const [setupChecks, setSetupChecks] = useState<SetupCheckGroup[]>([]);
-  const [sessions, setSessions] = useState<Session[]>([]);
+  const [sessions, setSessions] = useState<Session[]>(() => startPayload?.sessions ?? []);
   // Read state for the Chat roster. Only a full list payload writes this — see
   // web/src/lib/session-unread.ts.
   const [unreadSessions, setUnreadSessions] = useState<Set<string>>(() => new Set());
@@ -6063,7 +6072,7 @@ export function App() {
     const next = unreadSessionIds(rows);
     setUnreadSessions((prev) => (sameUnreadSessions(prev, next) ? prev : next));
   }, []);
-  const [topPinned, setTopPinned] = useState<string[]>([]);
+  const [topPinned, setTopPinned] = useState<string[]>(() => startPayload?.sessionPins ?? []);
   const topPinnedRef = useRef(topPinned);
   topPinnedRef.current = topPinned;
   const pinMutationRevisionRef = useRef(0);
@@ -6095,12 +6104,14 @@ export function App() {
   // this the new card either waits for the next poll, or appears and then
   // vanishes on the first refresh whose snapshot predates it.
   const seededSessionsRef = useRef(new Map<string, { session: Session; at: number }>());
-  const [users, setUsers] = useState<User[]>([]);
+  const [users, setUsers] = useState<User[]>(() => startPayload?.users ?? []);
   // "Me", as a conversation participant id — resolved server-side (trusted
   // header on a managed Computer, the selected local profile otherwise) and
   // used only to skip drawing a redundant avatar on the viewer's own turns in
   // a shared bot conversation. Never an authorization signal.
-  const [viewerParticipantId, setViewerParticipantId] = useState<string | null>(null);
+  const [viewerParticipantId, setViewerParticipantId] = useState<string | null>(
+    () => startPayload?.viewer?.participantId ?? null,
+  );
   // Server-side first-run state (profiles/steps/completion) + whether the
   // full-screen onboarding flow is showing. See loadCore for the gate.
   const [onboarding, setOnboarding] = useState<OnboardingState | null>(null);
@@ -6118,7 +6129,7 @@ export function App() {
   // is to fire on a connection EDGE, not on new data.
   const computerVersionReportRef = useRef(computerVersionReport);
   computerVersionReportRef.current = computerVersionReport;
-  const [repos, setRepos] = useState<Repo[]>([]);
+  const [repos, setRepos] = useState<Repo[]>(() => startPayload?.repos ?? []);
   const [loading, setLoading] = useState(true);
   // STARTUP failures only — "the app could not load its own state". Every other
   // failure toasts. This surface is persistent by design and has no business
@@ -6409,7 +6420,7 @@ export function App() {
     const t = window.setTimeout(run, 800);
     return () => window.clearTimeout(t);
   }, [loading]);
-  const [autoAgents, setAutoAgents] = useState<AutoAgent[]>([]);
+  const [autoAgents, setAutoAgents] = useState<AutoAgent[]>(() => startPayload?.auto?.agents ?? []);
   const [bots, setBots] = useState<PersistentBot[]>([]);
   const [botQuota, setBotQuota] = useState<PersistentBotQuota | null>(null);
   const [botConversations, setBotConversations] = useState<BotConversationUnread[]>([]);
@@ -6417,15 +6428,23 @@ export function App() {
     () => new Map(bots.map((bot) => [bot.id, bot])),
     [bots],
   );
-  const [managedComputer, setManagedComputer] = useState(false);
-  const [settings, setSettings] = useState<GlobalSettings>(DEFAULT_GLOBAL_SETTINGS);
+  const [managedComputer, setManagedComputer] = useState(() => !!startPayload?.computer);
+  const [settings, setSettings] = useState<GlobalSettings>(() =>
+    startPayload
+      ? resolveGlobalSettings({ timeZone: startPayload.auto?.tz, ...startPayload.settings })
+      : DEFAULT_GLOBAL_SETTINGS,
+  );
   // Whether the box stores the folder display settings. null until the
   // first bootstrap answers. An older box omits them, and then the folder
   // menu keeps its browser-local copy.
-  const [boxOwnsFolderDisplay, setBoxOwnsFolderDisplay] = useState<boolean | null>(null);
+  const [boxOwnsFolderDisplay, setBoxOwnsFolderDisplay] = useState<boolean | null>(() =>
+    startPayload ? Array.isArray(startPayload.settings?.folderOrder) : null,
+  );
   // The phone pill rail follows the same arrangement as the folder menu.
   const folderMenuPrefs = useFolderMenuPrefs();
-  const [schedTz, setSchedTz] = useState<string>(DEFAULT_SCHED_TZ);
+  const [schedTz, setSchedTz] = useState<string>(
+    () => startPayload?.settings?.timeZone ?? startPayload?.auto?.tz ?? DEFAULT_SCHED_TZ,
+  );
   const [findings, setFindings] = useState<AutoFinding[]>([]);
   const [autoTriageBusy, setAutoTriageBusy] = useState(false);
   const [clearFindingsBusy, setClearFindingsBusy] = useState(false);
@@ -6790,7 +6809,11 @@ export function App() {
     // since succeeded, so retire it — a stale "could not load" over a screen
     // full of freshly loaded state is just noise the reader has to disbelieve.
     setError(null);
-  }, [botUnreadIdentity, embedded]);
+    // Live data now fills every view the saved screen drew. Keep it for the
+    // next page load.
+    setShowingSaved(false);
+    if (savedScreenKey) writeSavedScreen(savedScreenKey, payload);
+  }, [botUnreadIdentity, embedded, savedScreenKey]);
 
   // How many bootstraps are in flight. A socket that goes live while one is
   // running must not start another (see shouldReloadRuntime).
@@ -7825,6 +7848,7 @@ export function App() {
     status: useWsLive ? wsLiveStream.connection.status : "live",
     loading,
     ready: runtimeReady,
+    saved: showingSaved && !runtimeReady,
     error,
     lifecycle: runtimeLifecycle ?? null,
   });

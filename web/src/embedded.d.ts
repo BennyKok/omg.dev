@@ -102,6 +102,11 @@ export interface OmgConnectionState {
   loading: boolean;
   /** Bootstrap data is usable. */
   ready: boolean;
+  /**
+   * The surface shows its saved screen (the last startup state) while live
+   * data loads. Never true once `ready` is: a saved screen is not live data.
+   */
+  saved: boolean;
   /** Last bootstrap error, while the surface retries it. */
   error: string | null;
   /** Why the runtime is not answering, from the cloud proxy, when it knows. */
@@ -266,6 +271,12 @@ export interface OmgAppSurfaceProps {
    * own connection UI, as before.
    */
   onConnectionChange?: (state: OmgConnectionState) => void;
+  /**
+   * Draw the last startup state at once while the live one loads. `key` must
+   * name the signed-in account and the machine. Call `clearSavedScreens()` on
+   * sign-out. Omit to turn off.
+   */
+  savedScreen?: { key: string };
 }
 
 /** One machine in a host-supplied list. `local` is the box serving the page. */
@@ -321,6 +332,12 @@ export interface HostedTranscription {
 export interface HostedPreviewAuth {
   getToken(identity: { appId: string; projectId: string; previewUrl: string }): Promise<{ token: string; previewUrl: string } | null>;
 }
+
+/**
+ * Remove saved screens from this browser. With `keep`, only keys it rejects
+ * are removed. Call with no argument on sign-out.
+ */
+export declare function clearSavedScreens(keep?: (key: string) => boolean): void;
 
 export declare function OmgAppSurface(
   props: OmgAppSurfaceProps,
