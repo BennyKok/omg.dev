@@ -52,3 +52,22 @@ test("every starter is disabled while a session is being created", () => {
   ui.query<HTMLButtonElement>('[data-testid="chat-starter-app"]')?.click();
   expect(sent).toEqual([]);
 });
+
+// A host's pill (OmgAppSurfaceProps.starterChips), such as omg.dev's
+// Tutorials entry. Fails if it is not first in the row, or if a tap sends a
+// prompt instead of calling the host.
+test("a host's pill comes first and a tap calls the host, not a prompt", () => {
+  const sent: string[] = [];
+  let opened = 0;
+  ui.render(
+    <ChatStarterRow
+      onStart={(prompt) => sent.push(prompt)}
+      hostChips={[{ id: "tutorials", label: "Tutorials", icon: "tutorial", onSelect: () => opened++ }]}
+    />,
+  );
+  const row = ui.query<HTMLElement>('[data-testid="chat-starter-row"]')!;
+  expect(row.firstElementChild?.getAttribute("data-testid")).toBe("chat-starter-host-tutorials");
+  ui.query<HTMLButtonElement>('[data-testid="chat-starter-host-tutorials"]')?.click();
+  expect(opened).toBe(1);
+  expect(sent).toEqual([]);
+});

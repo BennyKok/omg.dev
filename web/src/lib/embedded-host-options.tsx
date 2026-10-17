@@ -106,6 +106,25 @@ export interface EmbeddedHostOptions {
    * starts. Omit it and the composers behave as usual.
    */
   composerGuide?: ComposerGuide;
+  /**
+   * The host's own pills, drawn first in the home composer's starter row,
+   * for example a "Tutorials" entry. Omit it and the row shows only the
+   * built-in starters.
+   */
+  starterChips?: HostStarterChip[];
+}
+
+/**
+ * A host's own pill in the home composer's starter row, drawn before the
+ * built-in starters (OmgAppSurfaceProps.starterChips). A tap calls `onSelect`;
+ * it does not send a prompt.
+ */
+export interface HostStarterChip {
+  id: string;
+  label: string;
+  /** A built-in mark: "tutorial" (a graduation cap). */
+  icon?: "tutorial";
+  onSelect: () => void;
 }
 
 export type ComposerGuideSurface = "new-session" | "session";

@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 17, 2026 - Hosts can add a pill to the starter row (v0.6.246)
+
+- A host app that embeds omg (`OmgAppSurface`) can pass the new `starterChips` option. Its pills show first in the home chat box's starter row (Website, App, API, Image), in the same style, and a tap calls the host. omg.dev uses it for its Tutorials entry. Without the option, nothing changes.
+
 ## October 17, 2026 - The Computer screen draws sooner (v0.6.245)
 
 - Animated labels (agent status, session titles) now show as plain text first and start their letter animation once the page is idle. Measuring them during load forced the browser to lay out the whole page several times before the Computer could be used.

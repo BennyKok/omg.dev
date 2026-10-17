@@ -23309,7 +23309,7 @@ function NewSessionDialog({
   const catalog = useAgentModelCatalog();
   const accessMode = useContext(AgentAccessModeContext);
   // A host's guided tutorial (OmgAppSurfaceProps.composerGuide).
-  const { composerGuide } = useEmbeddedHostOptions();
+  const { composerGuide, starterChips } = useEmbeddedHostOptions();
   const view = useContext(ViewPrefsContext);
   const { defaultAgent: hostDefaultAgent } = useEmbeddedHostOptions();
   // Box default (Settings > More > View) sits between the browser's saved
@@ -24693,6 +24693,7 @@ function NewSessionDialog({
           // Inline: run the swipe row to the screen edge, not the composer's.
           className={cn("mb-2", variant === "inline" && "-mx-4 scroll-px-4 px-4")}
           disabled={launching}
+          hostChips={starterChips}
           onStart={(starterPrompt) => submit(undefined, starterPrompt)}
         />
       ) : null}
