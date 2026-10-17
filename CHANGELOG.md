@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+
+## October 17, 2026 - A Computer answers sooner right after it wakes (v0.6.253)
+
+- Right after a Computer wakes, reading the project list no longer freezes the rest of the app while the disk catches up. The first screen shows the last known projects at once, and other requests keep answering.
+
 ## October 17, 2026 - A guide can fill in the chat box (v0.6.252)
 
 - A host app that embeds omg (`OmgAppSurface`) and runs a guided tutorial (`composerGuide`) can now fill in the chat box for the person. Each chat box hands the host a fill function through the new `composerGuide.registerFill`. The person still taps Send.
