@@ -25,4 +25,7 @@ test("a part with no earlier value is awaited, and a failed part answers null", 
   const first = await parts.settle({ repos: later(60, ["app"]), findings: Promise.reject(new Error("boom")) });
   expect(first.values).toEqual({ repos: ["app"], findings: null });
   expect(first.stale).toEqual([]);
+  // Reported in Server-Timing: which parts held the answer, and for how long.
+  expect(first.awaited.sort()).toEqual(["findings", "repos"]);
+  expect(first.timings.repos).toBeGreaterThanOrEqual(50);
 });
