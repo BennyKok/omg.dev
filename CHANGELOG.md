@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 17, 2026 - The saved screen shows again (v0.6.250)
+
+- The saved screen from your last visit shows again while your Computer connects. Since v0.6.248 a check rejected every saved copy, so the page waited for live data.
+- A saved screen now survives app updates. It is removed only when the saved format changes, or when it does not match the expected shape, or when it crashed the page.
+
 ## October 17, 2026 - Your sessions show sooner after a wake (v0.6.249)
 
 - The first screen no longer waits for its slowest part. Right after a Computer wakes, the session list could be ready in a fraction of a second while the project list took five. Each part of the first load now has a short limit: a slow part shows its last known value and is corrected a moment later.
