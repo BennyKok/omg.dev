@@ -12,8 +12,21 @@
 // from it, so sending stays off and the host keeps its connection rules.
 //
 // Stored per key under one prefix, so sign-out clears every copy at once.
+//
+// A saved copy must never break the page. It is discarded when:
+// - it was written by another app version or format (a data shape change);
+// - it fails the shape check below;
+// - the last page that drew it crashed before its first draw completed (the
+//   "drawing" marker was still set on the next load);
+// - deriving the first screen from it throws (the app calls discard).
+
+import { FRONTEND_VERSION } from "./version-diagnostics";
 
 const PREFIX = "omg:saved-screen:v1:";
+/** Set while a saved copy is being drawn; see markSavedScreenDrawn. */
+const DRAWING = "#drawing";
+/** Bump when the saved record or payload shape changes. */
+const FORMAT = 1;
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 /** A copy larger than this is not kept. A typical one is about 20 KB. */
 const MAX_CHARS = 256 * 1024;
@@ -21,6 +34,9 @@ const MAX_CHARS = 256 * 1024;
 type Json = Record<string, unknown>;
 
 export interface SavedScreen {
+  format: number;
+  /** The app version that wrote it. Another version never reads it. */
+  app: string | null;
   savedAt: number;
   /** The trimmed bootstrap answer. Same field names as /api/bootstrap. */
   payload: Json;
@@ -76,22 +92,82 @@ function storage(): Storage | null {
   }
 }
 
-/** The saved screen for `key`, or null when there is none or it is too old. */
+const isList = (value: unknown) => value === undefined || Array.isArray(value);
+const listOfRecords = (value: unknown) => isList(value) && ((value as unknown[] | undefined) ?? []).every(isRecord);
+
+/** The shape the first screen reads. Anything else is discarded, not drawn. */
+export function validSavedPayload(payload: unknown): payload is Json {
+  if (!isRecord(payload)) return false;
+  const auto = payload.auto;
+  return (
+    listOfRecords(payload.codingAgents) &&
+    isList(payload.models) &&
+    listOfRecords(payload.sessions) &&
+    ((payload.sessions as unknown[] | undefined) ?? []).every((s) => typeof (s as Json).id === "string") &&
+    (payload.sessionPins === undefined || (Array.isArray(payload.sessionPins) && payload.sessionPins.every((id) => typeof id === "string"))) &&
+    listOfRecords(payload.users) &&
+    listOfRecords(payload.repos) &&
+    (payload.settings === undefined || payload.settings === null || isRecord(payload.settings)) &&
+    (payload.viewer === undefined || payload.viewer === null || isRecord(payload.viewer)) &&
+    (auto === undefined || (isRecord(auto) && listOfRecords(auto.agents)))
+  );
+}
+
+/** Remove the saved screen for `key`. Never throws. */
+export function discardSavedScreen(key: string): void {
+  const store = storage();
+  if (!store || !key) return;
+  try {
+    store.removeItem(PREFIX + key);
+    store.removeItem(PREFIX + key + DRAWING);
+  } catch {
+    // Blocked storage.
+  }
+}
+
+/**
+ * The saved screen for `key`, or null. A copy that is too old, from another
+ * app version or format, of the wrong shape, or whose last draw never
+ * completed is removed and not returned. Marks the copy as being drawn; call
+ * markSavedScreenDrawn once the first screen is on the page.
+ */
 export function readSavedScreen(key: string, now = Date.now()): SavedScreen | null {
   const store = storage();
   if (!store || !key) return null;
   try {
     const raw = store.getItem(PREFIX + key);
     if (!raw) return null;
-    const saved = JSON.parse(raw) as Partial<SavedScreen>;
-    if (typeof saved.savedAt !== "number" || !isRecord(saved.payload)) return null;
-    if (now - saved.savedAt > MAX_AGE_MS || saved.savedAt > now + 60_000) {
-      store.removeItem(PREFIX + key);
+    if (store.getItem(PREFIX + key + DRAWING)) {
+      // The last page that drew this copy never finished its first draw.
+      discardSavedScreen(key);
       return null;
     }
-    return { savedAt: saved.savedAt, payload: saved.payload };
+    const saved = JSON.parse(raw) as Partial<SavedScreen>;
+    const usable =
+      saved.format === FORMAT &&
+      (saved.app ?? null) === FRONTEND_VERSION &&
+      typeof saved.savedAt === "number" &&
+      now - saved.savedAt <= MAX_AGE_MS &&
+      saved.savedAt <= now + 60_000 &&
+      validSavedPayload(saved.payload);
+    if (!usable) {
+      discardSavedScreen(key);
+      return null;
+    }
+    store.setItem(PREFIX + key + DRAWING, "1");
+    return { format: FORMAT, app: FRONTEND_VERSION, savedAt: saved.savedAt!, payload: saved.payload as Json };
   } catch {
+    discardSavedScreen(key);
     return null;
+  }
+}
+
+/** The first screen drawn from the saved copy is on the page. */
+export function markSavedScreenDrawn(key: string): void {
+  try {
+    storage()?.removeItem(PREFIX + key + DRAWING);
+  } catch {
+    // Blocked storage.
   }
 }
 
@@ -100,12 +176,13 @@ export function writeSavedScreen(key: string, payload: unknown, now = Date.now()
   const store = storage();
   if (!store || !key) return;
   try {
-    const raw = JSON.stringify({ savedAt: now, payload: trimBootstrapForSaving(payload) });
+    const raw = JSON.stringify({ format: FORMAT, app: FRONTEND_VERSION, savedAt: now, payload: trimBootstrapForSaving(payload) });
     if (raw.length > MAX_CHARS) {
-      store.removeItem(PREFIX + key);
+      discardSavedScreen(key);
       return;
     }
     store.setItem(PREFIX + key, raw);
+    store.removeItem(PREFIX + key + DRAWING);
   } catch {
     // Full or blocked storage. The next load waits for live data, as before.
   }
