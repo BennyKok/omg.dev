@@ -7,8 +7,9 @@ import { clearSavedScreens, discardSavedScreen, markSavedScreenDrawn, readSavedS
 // - one account's saved screen is read under another account's key;
 // - a copy older than seven days, or a broken one, is drawn;
 // - sign-out leaves a saved screen behind;
-// - a copy from another app version or format, of the wrong shape, or one
-//   whose last draw crashed, reaches the screen.
+// - a copy in another format, of the wrong shape, or one whose last draw
+//   crashed, reaches the screen;
+// - a copy from an earlier release is thrown away (releases ship daily).
 
 class MemoryStorage {
   private items = new Map<string, string>();
@@ -76,12 +77,11 @@ test("a copy whose last draw never completed is discarded", () => {
   expect(localStorage.getItem("omg:saved-screen:v1:user-a:cloud")).toBeNull();
 });
 
-test("a copy from another app version or format, or of the wrong shape, is discarded", () => {
+test("a copy in another format, or of the wrong shape, is discarded", () => {
   const key = "omg:saved-screen:v1:user-a:cloud";
   writeSavedScreen("user-a:cloud", bootstrap);
   const good = JSON.parse(localStorage.getItem(key)!);
   for (const bad of [
-    { ...good, app: "0.0.1-other" },
     { ...good, format: 99 },
     { ...good, payload: { ...good.payload, sessions: "not a list" } },
     { ...good, payload: { ...good.payload, sessions: [{ title: "no id" }] } },
@@ -112,4 +112,11 @@ test("clears every saved screen on sign-out, or all but the kept account", () =>
   clearSavedScreens();
   expect(read("user-a:cloud")).toBeNull();
   expect(localStorage.getItem("lfg_theme")).toBe("dark");
+});
+
+test("a copy from another release is kept", () => {
+  const key = "omg:saved-screen:v1:user-a:cloud";
+  writeSavedScreen("user-a:cloud", bootstrap);
+  localStorage.setItem(key, JSON.stringify({ ...JSON.parse(localStorage.getItem(key)!), app: "0.6.1" }));
+  expect(read("user-a:cloud")?.payload.sessions).toEqual([{ id: "s1", title: "Fix login" }]);
 });

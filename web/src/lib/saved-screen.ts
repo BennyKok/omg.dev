@@ -14,7 +14,10 @@
 // Stored per key under one prefix, so sign-out clears every copy at once.
 //
 // A saved copy must never break the page. It is discarded when:
-// - it was written by another app version or format (a data shape change);
+// - it was written in another format (FORMAT is bumped with any deliberate
+//   change to what is saved). Another app version alone is fine: releases
+//   ship several times a day, and discarding on every one meant the first
+//   load after each release had no saved screen;
 // - it fails the shape check below;
 // - the last page that drew it crashed before its first draw completed (the
 //   "drawing" marker was still set on the next load);
@@ -25,7 +28,7 @@ import { FRONTEND_VERSION } from "./version-diagnostics";
 const PREFIX = "omg:saved-screen:v1:";
 /** Set while a saved copy is being drawn; see markSavedScreenDrawn. */
 const DRAWING = "#drawing";
-/** Bump when the saved record or payload shape changes. */
+/** Bump when the saved record or payload shape changes on purpose. */
 const FORMAT = 1;
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 /** A copy larger than this is not kept. A typical one is about 20 KB. */
@@ -35,7 +38,7 @@ type Json = Record<string, unknown>;
 
 export interface SavedScreen {
   format: number;
-  /** The app version that wrote it. Another version never reads it. */
+  /** The app version that wrote it, for diagnosis. Not a reason to discard. */
   app: string | null;
   savedAt: number;
   /** The trimmed bootstrap answer. Same field names as /api/bootstrap. */
@@ -126,8 +129,8 @@ export function discardSavedScreen(key: string): void {
 }
 
 /**
- * The saved screen for `key`, or null. A copy that is too old, from another
- * app version or format, of the wrong shape, or whose last draw never
+ * The saved screen for `key`, or null. A copy that is too old, in another
+ * format, of the wrong shape, or whose last draw never
  * completed is removed and not returned. Marks the copy as being drawn; call
  * markSavedScreenDrawn once the first screen is on the page.
  */
@@ -145,7 +148,6 @@ export function readSavedScreen(key: string, now = Date.now()): SavedScreen | nu
     const saved = JSON.parse(raw) as Partial<SavedScreen>;
     const usable =
       saved.format === FORMAT &&
-      (saved.app ?? null) === FRONTEND_VERSION &&
       typeof saved.savedAt === "number" &&
       now - saved.savedAt <= MAX_AGE_MS &&
       saved.savedAt <= now + 60_000 &&
@@ -155,7 +157,7 @@ export function readSavedScreen(key: string, now = Date.now()): SavedScreen | nu
       return null;
     }
     store.setItem(PREFIX + key + DRAWING, "1");
-    return { format: FORMAT, app: FRONTEND_VERSION, savedAt: saved.savedAt!, payload: saved.payload as Json };
+    return { format: FORMAT, app: saved.app ?? null, savedAt: saved.savedAt!, payload: saved.payload as Json };
   } catch {
     discardSavedScreen(key);
     return null;
