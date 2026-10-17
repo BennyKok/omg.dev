@@ -69,8 +69,9 @@ The same build, cloned onto a fresh sandbox and run there with
 | Resume after a drop | `resumed`, `replayed: 0`, the missed line never arrives |
 | Idle socket, 10 s | 0 frames |
 
-The sandbox confirms the local results. The title delay is longer there,
-because the 1 s status tick and the 3 s session cache line up less often.
+The sandbox confirms the local results. The title delay is longer there.
+The cause is not measured yet; the 1 s status tick and the 3 s session cache
+are the likely reason.
 
 ### Production, one signed-in Computer page, 60 s
 
