@@ -47,7 +47,7 @@ Our own build on `127.0.0.1`, isolated `HOME`, no network in the path.
 | Reconnect with `resumeFromSeq` | `resumed` in 3 to 14 ms, `replayed: 0` | the line written while away is **never delivered** (see below) |
 | Idle socket, 10 s | 0 frames | fine (server ping every 25 s) |
 
-**Resume loses messages.** When the last subscriber of a transcript leaves,
+**Resume loses messages** (fixed in v0.6.254: the channel's replay ring is cleared when the server stops following a transcript, so a resume gets `gap` and a fresh snapshot; sync-bench now shows the missed line 9 ms after reconnect). When the last subscriber of a transcript leaves,
 the server stops following that transcript. A line written meanwhile is not
 in the replay ring. On reconnect the server replays the ring (empty) and
 answers `resumed`, so the client believes it is current. The missed line

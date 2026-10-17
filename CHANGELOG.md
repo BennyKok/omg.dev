@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 17, 2026 - Messages written during a reconnect are no longer lost (v0.6.254)
+
+- A client that reconnects after a drop now always gets the agent's messages from while it was away. Before, if no other client was watching that session, the reconnect was answered "nothing missed" and those messages appeared only after a reload. This affected a phone back from the background and a laptop waking from sleep.
+- New `scripts/sync-bench.ts` measures how fast a Computer gets a change to a connected client, and `scripts/sync-bench-sandbox.sh` runs it on a fresh cloud sandbox. `docs/sync-audit.md` records the results and the plan for one sync layer.
 
 ## October 17, 2026 - A Computer answers sooner right after it wakes (v0.6.253)
 
