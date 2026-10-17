@@ -56,7 +56,15 @@ import {
 } from "./conversations.ts";
 
 const HOME = process.env.HOME ?? homedir();
-const PROJECTS_DIR = join(HOME, ".claude", "projects");
+const PROJECTS_DIR_DEFAULT = join(HOME, ".claude", "projects");
+let claudeProjectsDirForTests: string | null = null;
+/** Point the Claude Code transcript store at a test directory (null restores it). */
+export function setClaudeProjectsDirForTests(dir: string | null): void {
+  claudeProjectsDirForTests = dir;
+}
+function claudeProjectsDir(): string {
+  return claudeProjectsDirForTests ?? PROJECTS_DIR_DEFAULT;
+}
 const GROK_SESSIONS_DIR = join(HOME, ".grok", "sessions");
 const GROK_ACTIVE_SESSIONS = join(HOME, ".grok", "active_sessions.json");
 // cursor-agent persists a per-turn transcript at
@@ -1041,7 +1049,7 @@ async function scanTranscriptDir(dir: string): Promise<TranscriptDirEntry[]> {
   const now = Date.now();
   const cached = transcriptDirCache.get(dir);
   if (cached && now - cached.at < TRANSCRIPT_SCAN_CACHE_MS) return cached.entries;
-  const abs = join(PROJECTS_DIR, dir);
+  const abs = join(claudeProjectsDir(), dir);
   let files: string[];
   try {
     files = await readdir(abs);
@@ -1076,7 +1084,7 @@ async function scanAllTranscriptDirs(): Promise<void> {
   transcriptAllScanInflight = (async () => {
     let dirs: string[];
     try {
-      dirs = await readdir(PROJECTS_DIR);
+      dirs = await readdir(claudeProjectsDir());
     } catch {
       transcriptAllScanAt = Date.now();
       return;
@@ -3455,7 +3463,7 @@ export async function resolveTranscript(sessionId: string): Promise<string | nul
     if (native) return native;
     if (managed.cwd && managed.agent !== "codex-aisdk" && managed.agent !== "grok") {
       for (const d of candidateDirs(managed.cwd)) {
-        return join(PROJECTS_DIR, d, `${managed.nativeSessionId}.jsonl`);
+        return join(claudeProjectsDir(), d, `${managed.nativeSessionId}.jsonl`);
       }
     }
   }
@@ -3594,13 +3602,13 @@ async function refreshResumableCacheOnce(focusSessionId?: string): Promise<void>
   // the enrich budget is spent on the most recent unindexed files.
   let dirs: string[] = [];
   try {
-    dirs = await readdir(PROJECTS_DIR);
+    dirs = await readdir(claudeProjectsDir());
   } catch {}
   const candidates: { id: string; path: string; mtime: number }[] = [];
   for (const d of dirs) {
     let files: string[];
     try {
-      files = await readdir(join(PROJECTS_DIR, d));
+      files = await readdir(join(claudeProjectsDir(), d));
     } catch {
       continue;
     }
@@ -3608,7 +3616,7 @@ async function refreshResumableCacheOnce(focusSessionId?: string): Promise<void>
       if (!f.endsWith(".jsonl")) continue;
       const id = f.replace(/\.jsonl$/, "");
       if (!UUID.test(id)) continue;
-      const path = join(PROJECTS_DIR, d, f);
+      const path = join(claudeProjectsDir(), d, f);
       let mtime = 0;
       try {
         mtime = statSync(path).mtimeMs;
