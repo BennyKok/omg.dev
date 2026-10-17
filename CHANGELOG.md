@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 17, 2026 - A hosted Computer shows your last screen at once (v0.6.247)
+
+- A host app that embeds omg (`OmgAppSurface`) can pass the new `savedScreen` option with a key for the signed-in account and machine. The app then draws the threads and projects from your last visit at once, while it loads the live data, instead of an empty page. Sending stays off until the live data arrives, and the live data replaces the saved copy.
+- The saved copy stays in your browser for up to 7 days. It keeps titles, projects and people. It never keeps message text, prompts, custom instructions, agent account details or findings. Hosts call the new `clearSavedScreens()` when you sign out.
+- Without the option, nothing changes.
+
 ## October 17, 2026 - Hosts can add a pill to the starter row (v0.6.246)
 
 - A host app that embeds omg (`OmgAppSurface`) can pass the new `starterChips` option. Its pills show first in the home chat box's starter row (Website, App, API, Image), in the same style, and a tap calls the host. omg.dev uses it for its Tutorials entry. Without the option, nothing changes.
