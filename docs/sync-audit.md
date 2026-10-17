@@ -55,6 +55,23 @@ appears only after a full reload. Every client that resumes after a drop is
 affected: a phone back from the background, a laptop waking, a brief network
 loss.
 
+### Computer layer, cloud sandbox (sync-bench on an `omg` template sandbox)
+
+The same build, cloned onto a fresh sandbox and run there with
+`scripts/sync-bench-sandbox.sh` (three runs of 20 samples each, sandbox
+`5da52043f1bf`, deleted afterwards):
+
+| Measure | Result |
+|---|---|
+| First `/api/bootstrap` | 586 to 732 ms (warm: 6 ms) |
+| Title change → status row | p50 2.80 to 2.83 s, p95 2.93 to 2.95 s |
+| Transcript line → delta | p50 0.59 to 0.60 s, p95 0.70 s |
+| Resume after a drop | `resumed`, `replayed: 0`, the missed line never arrives |
+| Idle socket, 10 s | 0 frames |
+
+The sandbox confirms the local results. The title delay is longer there,
+because the 1 s status tick and the 3 s session cache line up less often.
+
 ### Production, one signed-in Computer page, 60 s
 
 157 HTTP requests, not counting static files:
@@ -127,14 +144,16 @@ account.
 | First `/api/bootstrap` | 1.25 to 1.48 s | under 300 ms |
 
 Run it with `bun scripts/sync-bench.ts --spawn` (add `--json` for machine
-output). `--url` points it at a running Computer; the transcript and resume
+output), or on a fresh cloud sandbox with
+`OMG_API_KEY=omg_sk_... scripts/sync-bench-sandbox.sh <branch> [runs]`. `--url` points it at a running Computer; the transcript and resume
 checks then also need `--transcript-dir` and `--session` for a live session
 you own.
 
 ## Not measured yet
 
 - The same bench through the hosted path (browser → `sessions.omgs.app` →
-  cloud Computer), which adds network and proxy time. It needs a sandbox or a
-  cloud Computer and an authenticated client.
+  cloud Computer), which adds network and proxy time. A sandbox port opens
+  only in the owner's signed-in browser, so this needs an authenticated
+  browser client, not an API key.
 - iOS client timings.
 - Multi-client fan-out at scale (many sockets, many sessions).
