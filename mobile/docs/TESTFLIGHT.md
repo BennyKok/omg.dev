@@ -5,6 +5,38 @@ read off the EAS docs.
 
 ## Current state
 
+### Idle chats stop re-rendering OTA — 2026-10-17
+
+The held queue, open questions and website login polls no longer render the
+whole session screen when their answer did not change. On a 1,200-row chat
+(iPhone Air simulator), screen renders per scroll run fell from 425-504 to
+about 20, and an idle chat renders zero times instead of about once a second.
+The update also carries the scroll and performance probes, which are off
+unless a build sets `EXPO_PUBLIC_OMG_SCROLL_PROBE` or
+`EXPO_PUBLIC_OMG_FOLLOW_FIXTURE`.
+
+Implementation: `b421922f0`. Since the previous OTA source `31521bedc`, no
+native input changed. Each run overrode the runtime version. No store build or
+submission was made. The 1.0.17 App Store version was live with its review
+complete (`asc-status`, 2026-10-17). Android 1.0.17 was not targeted. The
+reading-position fix (`2c55ef70d`) already shipped in the previous OTA,
+because `31521bedc` came after it.
+
+| Runtime | Platforms | iOS update | Android update | Workflow |
+| --- | --- | --- | --- | --- |
+| 1.0.17 | ios | `01a1483b-f566-7410-8165-0252f71ab928` | not published | [39004526964](https://github.com/BennyKok/omg.dev/actions/runs/39004526964) |
+| 1.0.16 | ios, android | `01a14842-82fb-7311-ba64-23f1dea693d5` | `01a14842-82fb-7cc4-a97e-c39b150a875b` | [39004710282](https://github.com/BennyKok/omg.dev/actions/runs/39004710282) |
+| 1.0.15 | ios, android | `01a14846-26e2-7760-b2a1-463674b7e16a` | `01a14846-26e2-7146-ba1a-f18e0b32155b` | [39004947122](https://github.com/BennyKok/omg.dev/actions/runs/39004947122) |
+| 1.0.14 | ios, android | `01a1483f-563a-7879-a5f7-ac7a7e320fa6` | `01a1483f-563a-7911-9cd7-01fb998bfdc2` | [39004545271](https://github.com/BennyKok/omg.dev/actions/runs/39004545271) |
+
+The production update endpoint serves all seven IDs (read back 2026-10-17).
+Dispatching the four runtimes at once cancelled two of them: the `mobile-ota`
+concurrency group keeps one pending run and cancels an older pending one.
+Dispatch the next runtime only after the previous run has started.
+Verification: 86 native check files pass (one quarantined), the mobile type
+check passes, and `e2e/long-chat-perf.yaml` on the iPhone Air simulator
+(Release build). A physical phone was not checked.
+
 ### No connection page over a working screen OTA — 2026-10-17
 
 A socket that drops while the computer still answers no longer covers the
