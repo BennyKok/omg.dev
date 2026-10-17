@@ -8,6 +8,7 @@ import { useOmg } from "./provider";
 import { useTheme } from "./theme";
 import { Text } from "./text";
 import type { OmgTransport } from "@omg-dev/client";
+import { keepIfSame } from "./keep-if-same";
 
 function WebsiteIcon({ origin }: { origin: string }) {
   const { colors } = useTheme();
@@ -58,7 +59,8 @@ function useBrowserLoginState({ sessionId, transport, email }: {
     if (!transport || !sessionId || AppState.currentState !== "active") return;
     try {
       const data = await transport.request<BrowserLoginSnapshot>(`/api/browser-login${suffix}`);
-      if (mounted.current) setRequests(data.requests ?? []);
+      // Same answer, same array: a 3 s poll must not render the session screen.
+      if (mounted.current) setRequests((prev) => keepIfSame(prev, data.requests ?? []));
     } catch { /* Older computers do not have this endpoint. */ }
   }, [transport, sessionId, suffix]);
   useEffect(() => {

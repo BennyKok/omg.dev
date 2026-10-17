@@ -161,6 +161,7 @@ import { useTheme } from "../../src/omg/theme";
 import { useToast } from "../../src/omg/toast";
 
 import { useOverlapWatch } from "../../src/omg/list-overlap-watch";
+import { keepIfSame } from "../../src/omg/keep-if-same";
 import { followProbe } from "../../src/omg/follow-probe";
 import { FollowProbeView } from "../../src/omg/follow-probe-view";
 import { readProbe } from "../../src/omg/read-probe";
@@ -394,7 +395,7 @@ function SessionScreenContent({
         `/api/sessions/${encodeURIComponent(id)}/queue`,
       );
       const rows = (Array.isArray(res?.queue) ? res.queue : []).filter((m) => m.status === "held");
-      if (revision === queueRevision.current) setHeld(rows);
+      if (revision === queueRevision.current) setHeld((prev) => keepIfSame(prev, rows));
       return rows;
     } catch {
       return [];
@@ -580,7 +581,7 @@ function SessionScreenContent({
       const rows = (Array.isArray(res?.questions) ? res.questions : [])
         .filter((q) => !!q.sessionId && askAliases.has(q.sessionId) && !settledAsks.current.has(q.id))
         .sort((a, b) => a.createdAt - b.createdAt);
-      setAsks(rows);
+      setAsks((prev) => keepIfSame(prev, rows));
     } catch {
       /* keep what we have */
     }
