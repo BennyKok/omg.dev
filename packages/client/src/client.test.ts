@@ -36,9 +36,9 @@ class FakeSocket implements OmgSocket {
   }
 
   /** The connection closes from the other side. */
-  drop() {
+  drop(code?: number, reason?: string) {
     this.readyState = 3;
-    for (const listener of this.listeners.get("close") ?? []) listener();
+    for (const listener of this.listeners.get("close") ?? []) (listener as (event?: unknown) => void)(code === undefined ? undefined : { code, reason });
   }
 }
 
@@ -672,6 +672,115 @@ test("the connection passes changed frames on and forgets the announcement when 
   expect(live.announcesChanges).toBe(true);
   socket.drop();
   expect(live.announcesChanges).toBe(false);
+  off();
+  live.dispose();
+});
+
+// Reconnect behaviour the web app relied on, now in the shared client so iOS,
+// @omg-dev/react and the web share one implementation. Failures this must
+// catch: retrying in a hidden tab, waiting out a long backoff after the page
+// or network comes back, flashing "reconnecting" while offline, and a socket
+// that a sleeping laptop left OPEN but dead staying in use.
+function fakeEnvironment() {
+  const env = {
+    visible: true,
+    offline: false,
+    visibleListeners: new Set<() => void>(),
+    onlineListeners: new Set<() => void>(),
+    isVisible: () => env.visible,
+    isOffline: () => env.offline,
+    onVisible: (fn: () => void) => { env.visibleListeners.add(fn); return () => env.visibleListeners.delete(fn); },
+    onOnline: (fn: () => void) => { env.onlineListeners.add(fn); return () => env.onlineListeners.delete(fn); },
+    show: () => { env.visible = true; for (const fn of env.visibleListeners) fn(); },
+    online: () => { env.offline = false; for (const fn of env.onlineListeners) fn(); },
+  };
+  return env;
+}
+
+function socketQueue() {
+  const sockets: InboundSocket[] = [];
+  const transport: OmgTransport = {
+    ...inboundTransport(new InboundSocket()),
+    openLiveSocket: async () => { const socket = new InboundSocket(); sockets.push(socket); return socket; },
+  };
+  return { sockets, transport };
+}
+
+const tick = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
+
+test("a hidden page waits to reconnect, and becoming visible or coming online reconnects at once", async () => {
+  const env = fakeEnvironment();
+  const { sockets, transport } = socketQueue();
+  const events: string[] = [];
+  const live = new OmgLiveConnection(transport, { environment: env, onEvent: (event) => events.push(event), timing: { backoffMinMs: 5 } });
+  const off = live.subscribeStatus(() => {});
+  await tick();
+  sockets[0]!.open();
+  env.visible = false;
+  sockets[0]!.drop(1006, "gone");
+  expect(live.state).toMatchObject({ status: "reconnecting", attempt: 1, lastCloseCode: 1006, lastCloseReason: "gone" });
+  await tick(20);
+  expect(sockets).toHaveLength(1);
+  env.show();
+  await tick();
+  expect(sockets).toHaveLength(2);
+  expect(events).toEqual(["open", "reconnect"]);
+
+  sockets[1]!.open();
+  env.offline = true;
+  sockets[1]!.drop(1006);
+  expect(live.state.status).toBe("offline");
+  env.online();
+  await tick();
+  expect(sockets).toHaveLength(3);
+  // A retry that is still in flight keeps the offline label until it succeeds.
+  expect(live.state.status).toBe("offline");
+  sockets[2]!.open();
+  expect(live.state).toMatchObject({ status: "live", attempt: 0 });
+  off();
+  live.dispose();
+});
+
+test("a socket left open but dead is replaced after the visibility probe, a live one is kept", async () => {
+  const env = fakeEnvironment();
+  const { sockets, transport } = socketQueue();
+  const events: string[] = [];
+  const live = new OmgLiveConnection(transport, { environment: env, onEvent: (event) => events.push(event), timing: { visibilityProbeTimeoutMs: 20 } });
+  const off = live.subscribeStatus(() => {});
+  await tick();
+  sockets[0]!.open();
+
+  env.show();
+  const probe = JSON.parse(String(sockets[0]!.sent.at(-1)));
+  expect(probe).toMatchObject({ t: "ping" });
+  sockets[0]!.receive({ t: "pong", id: probe.id });
+  await tick(40);
+  expect(sockets).toHaveLength(1);
+  expect(sockets[0]!.readyState).toBe(1);
+
+  env.show();
+  await tick(40);
+  expect(events).toContain("visibility_probe_timeout");
+  expect(sockets[0]!.readyState).toBe(3);
+  expect(sockets).toHaveLength(2);
+  off();
+  live.dispose();
+});
+
+test("latency is measured only when asked, and a soft reconnect keeps a live socket", async () => {
+  const { sockets, transport } = socketQueue();
+  const live = new OmgLiveConnection(transport, { environment: null, timing: { latencyIntervalMs: 60_000 } });
+  const off = live.subscribeStatus(() => {});
+  await tick();
+  sockets[0]!.open();
+  const ping = JSON.parse(String(sockets[0]!.sent.find((frame) => String(frame).includes('"ping"'))));
+  await tick(5);
+  sockets[0]!.receive({ t: "pong", id: ping.id });
+  expect(live.state.latencyMs).toBeGreaterThan(0);
+  live.reconnectNow({ force: false });
+  await tick();
+  expect(sockets).toHaveLength(1);
+  expect(sockets[0]!.readyState).toBe(1);
   off();
   live.dispose();
 });
