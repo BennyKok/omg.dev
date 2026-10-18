@@ -4,6 +4,7 @@ import {
   OmgClient,
   OmgLiveConnection,
   createGrantTransport,
+  liveCollection,
   createSameOriginTransport,
   type OmgSocket,
   type OmgTransport,
@@ -32,6 +33,12 @@ class FakeSocket implements OmgSocket {
   open() {
     this.readyState = 1;
     for (const listener of this.listeners.get("open") ?? []) listener();
+  }
+
+  /** The connection closes from the other side. */
+  drop() {
+    this.readyState = 3;
+    for (const listener of this.listeners.get("close") ?? []) listener();
   }
 }
 
@@ -586,4 +593,85 @@ test("local socket disposal reuses grants; errors and explicit reconnects refres
   (await transport.openLiveSocket()).close();
   await transport.openLiveSocket();
   expect(grants).toEqual([false, true, true]);
+});
+
+// A list on screen is re-read when the server says it changed, instead of on a
+// timer. Failures this must catch: a list that misses its own change (stays
+// wrong until the slow backstop), a list re-read for every other list's change,
+// a burst of changes costing one read each, a list that keeps polling fast
+// while changes are announced, and one that stops polling against an older
+// server that never announces anything.
+test("a live collection re-reads on its own topic and on reopen, and polls slowly only while changes are announced", async () => {
+  let emit: (topics: string[]) => void = () => {};
+  const source = {
+    announcesChanges: false,
+    subscribeChanges(listener: (topics: never[]) => void) {
+      emit = listener as (topics: string[]) => void;
+      return () => {
+        emit = () => {};
+      };
+    },
+  };
+  let reads = 0;
+  let gate: Promise<void> = Promise.resolve();
+  const collection = liveCollection(source, "auto", async () => {
+    await gate;
+    return ++reads;
+  }, { pollMs: 40, backstopMs: 60_000 });
+  const seen: number[] = [];
+  const settle = () => new Promise((r) => setTimeout(r, 5));
+  const off = collection.subscribe((value) => seen.push(value));
+  await settle();
+  expect(reads).toBe(1);
+
+  source.announcesChanges = true;
+  emit(["pins"]);
+  await settle();
+  expect(reads).toBe(1);
+  emit(["auto"]);
+  await settle();
+  expect(reads).toBe(2);
+  emit([]);
+  await settle();
+  expect(reads).toBe(3);
+
+  let release!: () => void;
+  gate = new Promise((r) => (release = r));
+  for (let i = 0; i < 5; i++) emit(["auto"]);
+  release();
+  await settle();
+  await settle();
+  expect(reads).toBe(5);
+
+  // Announced: no fast polling.
+  await new Promise((r) => setTimeout(r, 150));
+  expect(reads).toBe(5);
+  // An older server: the fast poll is back.
+  source.announcesChanges = false;
+  await new Promise((r) => setTimeout(r, 150));
+  expect(reads).toBeGreaterThan(5);
+
+  off();
+  const stoppedAt = reads;
+  await new Promise((r) => setTimeout(r, 120));
+  expect(reads).toBe(stoppedAt);
+  expect(seen.at(-1)).toBe(collection.peek());
+});
+
+test("the connection passes changed frames on and forgets the announcement when the socket drops", async () => {
+  const socket = new InboundSocket();
+  const live = new OmgLiveConnection(inboundTransport(socket));
+  const frames: unknown[] = [];
+  const off = live.subscribeChanges((topics) => frames.push(topics));
+  await Promise.resolve();
+  socket.open();
+  expect(live.announcesChanges).toBe(false);
+  socket.receive({ t: "changed", topics: [] });
+  socket.receive({ t: "changed", topics: ["ask", "threads"] });
+  expect(frames).toEqual([[], ["ask", "threads"]]);
+  expect(live.announcesChanges).toBe(true);
+  socket.drop();
+  expect(live.announcesChanges).toBe(false);
+  off();
+  live.dispose();
 });
