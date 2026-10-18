@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 18, 2026 - The client package reconnects like the web app (v0.6.261)
+
+- `@omg-dev/client` now pauses reconnect attempts while a page is hidden, reconnects at once when the page or the network comes back, and replaces a connection that a sleeping laptop left open but dead. It keeps the "offline" label steady until a connection succeeds, and spreads retries so clients do not reconnect in step. The connection state also reports the last close reason and, when asked, the ping time. This is the first part of moving the web app onto the shared client.
+
 ## October 18, 2026 - Lists stay current after switching to an older Computer (v0.6.260)
 
 - After the web app reconnected to a Computer on an older version, for example a shared Computer, some lists could take up to 5 minutes to update. The app now checks on every connection whether the Computer announces changes, and keeps its regular checks when it does not.
