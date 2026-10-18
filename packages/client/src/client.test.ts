@@ -784,3 +784,72 @@ test("latency is measured only when asked, and a soft reconnect keeps a live soc
   off();
   live.dispose();
 });
+
+// Queue, typing and passive listening, which the web app needs before it can
+// run on this client. Failures this must catch: a queued message the screen
+// never hears about (dropped frame, or a late listener that misses the queue
+// already sent), a passive watcher that pulls a full backlog snapshot, typing
+// frames lost or sent on every keystroke, and the viewer identity not reaching
+// the socket.
+test("queue frames reach listeners, and a late listener gets the current queue", async () => {
+  const { sockets, transport } = socketQueue();
+  const live = new OmgLiveConnection(transport, { environment: null });
+  const early: unknown[] = [];
+  const off = live.subscribeTranscript("s", (event) => early.push(event));
+  await tick();
+  sockets[0]!.open();
+  const queue = [{ id: "q1", text: "next", status: "queued", createdAt: 5, queuedBehindTurn: true }];
+  sockets[0]!.receive({ t: "delta", kind: "transcript", key: "s", seq: 1, delta: { t: "queue", sid: "s", queue } });
+  expect(early).toEqual([{ type: "queue", queue }]);
+  const late: unknown[] = [];
+  const offLate = live.subscribeTranscript("s", (event) => late.push(event));
+  expect(late).toEqual([{ type: "queue", queue }]);
+  offLate();
+  off();
+  live.dispose();
+});
+
+test("a passive listener holds no subscription but hears what another subscription streams", async () => {
+  const { sockets, transport } = socketQueue();
+  const live = new OmgLiveConnection(transport, { environment: null });
+  const heard: unknown[] = [];
+  const offPassive = live.subscribeTranscript("s", (event) => heard.push(event), { passive: true });
+  const offStatus = live.subscribeStatus(() => {});
+  await tick();
+  sockets[0]!.open();
+  await tick();
+  expect(sockets[0]!.sent.map((frame) => JSON.parse(String(frame)).channels).flat()).toEqual([{ kind: "status", key: "*" }]);
+  const offActive = live.subscribeTranscript("s", () => {});
+  await tick();
+  sockets[0]!.receive({ t: "delta", kind: "transcript", key: "s", seq: 1, delta: { t: "busy", sid: "s", busy: true } });
+  expect(heard).toEqual([{ type: "busy", busy: true }]);
+  offActive();
+  offPassive();
+  offStatus();
+  live.dispose();
+});
+
+test("typing is received as the full set and sent at most every 2.5 s while typing, with the viewer on the socket", async () => {
+  const queries: Array<string | undefined> = [];
+  const sockets: InboundSocket[] = [];
+  const transport: OmgTransport = {
+    ...inboundTransport(new InboundSocket()),
+    openLiveSocket: async (query) => { queries.push(query); const socket = new InboundSocket(); sockets.push(socket); return socket; },
+  };
+  const live = new OmgLiveConnection(transport, { environment: null, socketQuery: () => "user=ada%40example.com" });
+  const heard: unknown[] = [];
+  const off = live.subscribeTranscript("s", (event) => heard.push(event));
+  await tick();
+  sockets[0]!.open();
+  expect(queries).toEqual(["user=ada%40example.com"]);
+  sockets[0]!.receive({ t: "typing", sid: "s", ids: ["p1", "p2"] });
+  expect(heard).toEqual([{ type: "typing", ids: ["p1", "p2"] }]);
+  const typingFrames = () => sockets[0]!.sent.map((frame) => JSON.parse(String(frame))).filter((frame) => frame.t === "typing");
+  live.sendTyping("s", true);
+  live.sendTyping("s", true);
+  live.sendTyping("s", true);
+  live.sendTyping("s", false);
+  expect(typingFrames()).toEqual([{ t: "typing", sid: "s", typing: true }, { t: "typing", sid: "s", typing: false }]);
+  off();
+  live.dispose();
+});
