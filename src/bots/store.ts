@@ -1,3 +1,4 @@
+import { announceChange } from "../change-topics.ts";
 import {
   closeSync,
   fsyncSync,
@@ -129,6 +130,11 @@ export function botConversationId(
 const botsPath = () => join(PATHS.data, "bots", "bots.json");
 
 function writeBots(bots: Bot[]): void {
+  writeBotsFile(bots);
+  announceChange("bots");
+}
+
+function writeBotsFile(bots: Bot[]): void {
   const path = botsPath();
   const dir = dirname(path);
   mkdirSync(dir, { recursive: true });

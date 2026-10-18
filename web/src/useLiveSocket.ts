@@ -102,7 +102,13 @@ type AgentRunEvent =
   | { type: "log"; line: string }
   | { type: "done" | "failed"; status: "done" | "failed"; result?: unknown; error?: string };
 
+/** A list the server says changed (see OmgChangeTopic in @omg-dev/protocol). */
+export type ChangeTopic = "repos" | "pins" | "auto" | "bots" | "ask" | "threads";
+
 type LiveWsMessage =
+  // Re-read these lists. An empty list is sent when the socket opens: the
+  // server supports these frames, and changes made while away were not sent.
+  | { t: "changed"; topics?: ChangeTopic[] }
   // Who is typing in `sid` right now, as the complete set. Carries no channel
   // envelope and no seq on purpose: presence is never replayed on resume.
   | { t: "typing"; sid: string; ids?: string[] }
@@ -393,6 +399,8 @@ export function useLiveSocket(
   opts: {
     enabled?: boolean;
     onStatusRows?: (rows: StatusRow[]) => void;
+    /** The server says these lists changed. Empty: the socket just opened. */
+    onChanged?: (topics: ChangeTopic[]) => void;
     /**
      * Who this browser is, for typing presence. Declared at connect time and
      * never on a frame, so the socket cannot rename itself mid-session. A
@@ -408,6 +416,10 @@ export function useLiveSocket(
   useEffect(() => {
     onStatusRowsRef.current = opts.onStatusRows;
   }, [opts.onStatusRows]);
+  const onChangedRef = useRef(opts.onChanged);
+  useEffect(() => {
+    onChangedRef.current = opts.onChanged;
+  }, [opts.onChanged]);
 
   const ids = useMemo(() => streamIds.filter((id): id is string => !!id), [streamIds]);
   const streamKey = ids.join(",");
@@ -624,6 +636,10 @@ export function useLiveSocket(
     }
     if (payload.t === "status") {
       if (Array.isArray(payload.rows)) onStatusRowsRef.current?.(payload.rows);
+      return;
+    }
+    if (payload.t === "changed") {
+      onChangedRef.current?.(Array.isArray(payload.topics) ? payload.topics : []);
       return;
     }
     if (payload.t === "error") return;

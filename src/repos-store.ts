@@ -12,6 +12,7 @@
 // is what makes unlink mean something for a path we did not pin: the scan still
 // finds it, and listRepos() drops it on the way out.
 
+import { announceChange } from "./change-topics.ts";
 import { mkdir, stat, realpath, rm } from "node:fs/promises";
 import { join, resolve, basename } from "node:path";
 import { homedir } from "node:os";
@@ -108,6 +109,7 @@ export async function addCustomRepo(
   const next = [...existing.filter((r) => r.cwd !== cwd), repo];
   next.sort((a, b) => a.name.localeCompare(b.name));
   await Bun.write(filePath(), JSON.stringify(next, null, 2));
+  announceChange("repos");
   // Adding is the explicit opposite of hiding. Without this, re-adding a folder
   // you had unlinked writes the pin and changes nothing on screen, because the
   // hidden entry still filters it back out — the bug report for that reads
@@ -132,6 +134,7 @@ export async function listHiddenRepos(): Promise<string[]> {
 async function writeHidden(paths: string[]): Promise<void> {
   await ensure();
   await Bun.write(hiddenFilePath(), JSON.stringify([...new Set(paths)].sort(), null, 2));
+  announceChange("repos");
 }
 
 export async function hideRepo(rawCwd: string): Promise<void> {
@@ -365,6 +368,8 @@ export async function cloneRepo(
       `git clone failed: ${errText.trim().split("\n").pop() || `exit ${code}`}`,
     );
   }
+  // A clone under the repos root is listed by the folder scan, with no store write.
+  announceChange("repos");
   return { name, cwd: await canonical(dest) };
 }
 
@@ -382,4 +387,5 @@ export async function removeCustomRepo(rawCwd: string): Promise<void> {
   if (next.length === existing.length) return;
   await ensure();
   await Bun.write(filePath(), JSON.stringify(next, null, 2));
+  announceChange("repos");
 }

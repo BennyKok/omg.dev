@@ -17,6 +17,7 @@
  * clients show that question in the thread.
  */
 
+import { announceChange } from "./change-topics.ts";
 import { appendFileSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { basename, join, sep } from "node:path";
 import { createFileArtifact, createImageArtifact, createVideoArtifact, imageArtifactMessagesSince } from "./artifacts.ts";
@@ -115,6 +116,7 @@ export function appendThreadMessage(
   // A sent message ends its author's typing, before the next poll shows both.
   setTyping(threadId, row.author, false);
   notifyThreadMessage(row);
+  announceChange("threads");
   return row;
 }
 
@@ -474,6 +476,7 @@ export function threadAuthor(threadId: string, identity: string, name?: string |
 export function startThread(input: { identity: string; name?: string | null; title?: string | null }): Conversation {
   const thread = createThreadConversation({ ...input, name: threadDisplayName(input.identity, input.name) });
   rememberPerson(thread.id, threadParticipantId(input.identity), input.identity);
+  announceChange("threads");
   return thread;
 }
 
@@ -874,9 +877,11 @@ export function threadUpdate(
   id: string,
   patch: { title?: string | null; project?: { cwd: string; name: string } | null; archived?: boolean },
 ): Conversation | null {
-  return patchThreadConversation(id, {
+  const updated = patchThreadConversation(id, {
     ...(patch.title !== undefined ? { title: patch.title?.trim() || null } : {}),
     ...(patch.project !== undefined ? { threadProject: patch.project } : {}),
     ...(patch.archived !== undefined ? { archivedAt: patch.archived ? Date.now() : null } : {}),
   });
+  announceChange("threads");
+  return updated;
 }

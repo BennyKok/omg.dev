@@ -29,6 +29,7 @@ import { MessageResponse } from "@/components/ai-elements/message";
 import { cn } from "@/lib/utils";
 import { omgFetch } from "@/lib/omg-client";
 import { closePushNotification } from "@/lib/push";
+import { ANNOUNCED_LIST_BACKSTOP_MS, listChangesAnnounced, onListChange } from "@/lib/change-topics";
 import { KeyRound, MessageCircleQuestion, Send, X } from "lucide-react";
 import { QuestionCard, QuestionChoices } from "./question-card";
 
@@ -129,7 +130,15 @@ export function AskProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     void refresh();
-    const t = setInterval(() => void refresh(), POLL_MS);
+    // A new question is announced on the live socket the moment an agent asks
+    // it. While that holds, the 5 s poll is only a slow backstop.
+    let lastPoll = Date.now();
+    const t = setInterval(() => {
+      if (listChangesAnnounced() && Date.now() - lastPoll < ANNOUNCED_LIST_BACKSTOP_MS) return;
+      lastPoll = Date.now();
+      void refresh();
+    }, POLL_MS);
+    const stopChanges = onListChange("ask", () => void refresh());
     const onVis = () => {
       if (document.visibilityState === "visible") void refresh();
     };
@@ -137,6 +146,7 @@ export function AskProvider({ children }: { children: React.ReactNode }) {
     window.addEventListener("focus", onVis);
     return () => {
       clearInterval(t);
+      stopChanges();
       document.removeEventListener("visibilitychange", onVis);
       window.removeEventListener("focus", onVis);
     };
