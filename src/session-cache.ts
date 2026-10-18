@@ -11,6 +11,13 @@ export type SessionListCache = {
   invalidate(): void;
   get(): Promise<Session[]>;
   noteClientActivity(): void;
+  /**
+   * Called after every invalidate(). Every write that changes what a scan
+   * returns already calls invalidate(), so this is the one "a session changed"
+   * signal. The live status broadcast listens here to push a change at once
+   * instead of waiting for its next poll and the cache TTL.
+   */
+  onInvalidate(listener: () => void): () => void;
 };
 
 /**
@@ -39,6 +46,7 @@ export function createSessionListCache(scan: () => Promise<Session[]>): SessionL
   let cached: { at: number; sessions: Session[] } | null = null;
   let inflight: { epoch: number; promise: Promise<Session[]> } | null = null;
   let recentClientActivityAt = 0;
+  const invalidateListeners = new Set<() => void>();
   let refreshTimer: ReturnType<typeof setInterval> | null = null;
   // Bumped by every mutation that changes what a scan would return. A scan only
   // owns the cache if the world has not moved under it since it started.
@@ -82,6 +90,17 @@ export function createSessionListCache(scan: () => Promise<Session[]>): SessionL
     invalidate() {
       epoch += 1;
       cached = null;
+      for (const listener of invalidateListeners) {
+        try {
+          listener();
+        } catch (error) {
+          console.warn("[session-cache] invalidate listener failed", error);
+        }
+      }
+    },
+    onInvalidate(listener) {
+      invalidateListeners.add(listener);
+      return () => invalidateListeners.delete(listener);
     },
     get() {
       if (cached && Date.now() - cached.at < LIST_SESSIONS_CACHE_TTL_MS)
@@ -101,6 +120,10 @@ const sessionListCache = createSessionListCache(() => listSessions());
 
 export function invalidateListSessionsCache(): void {
   sessionListCache.invalidate();
+}
+
+export function onListSessionsInvalidated(listener: () => void): () => void {
+  return sessionListCache.onInvalidate(listener);
 }
 
 export function noteListSessionsClientActivity(): void {

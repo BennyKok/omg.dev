@@ -11518,6 +11518,7 @@ a{color:#60a5fa}
             title?: string;
           } | null;
           await setSessionTitle(m[1], body?.title ?? "");
+          invalidateListSessionsCache();
           return json({ ok: true });
         }
       }
