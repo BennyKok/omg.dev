@@ -96,6 +96,47 @@ test("a web preview has no Expo Go link", async () => {
   expect(created.data.preview.expoGoUrl).toBeUndefined();
 });
 
+// Inside app.omg.dev the plain web preview host loses its cookie on iOS and
+// the frame loops through /access. Fails if the signed frame host the Cloud
+// returns is dropped, or if an open card is not given a fresh one before the
+// old one expires (it would fall back to the looping URL).
+test("a web preview keeps the Cloud's signed frame host and renews it before it expires", async () => {
+  let expires = 2_000_000;
+  let clock = 1_000;
+  let frameResolves = 0;
+  const service = createProjectPreviewService({
+    session: async id => id === "a" ? { id: "a", owner: "a@example.com" } : null,
+    viewer: req => req.headers.get("x-omg-viewer-email") ?? "",
+    resolve: async port => {
+      frameResolves++;
+      return { url: `https://sandbox-${port}.preview.omgs.app/`, frameUrl: `https://sandbox-${port}-${expires.toString(36)}-0123456789abcdef.preview.omgs.app/` };
+    },
+    listening: async () => true,
+    storePath: join(dir, "frame-previews.json"),
+    now: () => clock,
+  });
+  const post = await service(new Request("http://localhost/api/project-preview?sessionId=a", {
+    method: "POST", headers: { "content-type": "application/json", "x-omg-caller-session-id": "a" },
+    body: JSON.stringify({ port: 5173 }),
+  }));
+  const created = ((await post.json()) as { preview: { url: string; frameUrl?: string; frameUrlExpiresAt?: number; expoGoUrl?: string } }).preview;
+  expect(created.frameUrl).toBe(`https://sandbox-5173-${expires.toString(36)}-0123456789abcdef.preview.omgs.app`);
+  expect(created.frameUrlExpiresAt).toBe(expires * 1000);
+  expect(created.expoGoUrl).toBeUndefined();
+
+  const read = () => service(new Request("http://localhost/api/project-preview?sessionId=a", { headers: { "x-omg-viewer-email": "a@example.com" } }))
+    .then(r => r.json() as Promise<{ preview: { frameUrl?: string; frameUrlExpiresAt?: number } }>);
+  expect((await read()).preview.frameUrl).toBe(created.frameUrl);
+  expect(frameResolves).toBe(1);
+
+  clock = expires * 1000 - 60_000;
+  expires = 3_000_000;
+  const renewed = (await read()).preview;
+  expect(renewed.frameUrlExpiresAt).toBe(expires * 1000);
+  expect(renewed.frameUrl).toContain(`-${expires.toString(36)}-`);
+  expect(frameResolves).toBe(2);
+});
+
 test("a viewer or another agent cannot publish or read the preview", async () => {
   expect((await call("POST", "a", {}, false)).status).toBe(403);
   expect((await call("POST", "a", {}, true, "b@example.com")).status).toBe(200);

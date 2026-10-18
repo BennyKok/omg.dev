@@ -10,6 +10,9 @@ import { PATHS } from "./config.ts";
 const DEFAULT_PREVIEW_PORT = 5173;
 const EXPO_GO_MIN_PORT = 8081;
 const EXPO_GO_MAX_PORT = 8099;
+// Renew the signed frame host this long before it expires, so an open card
+// never falls back to the cookie URL that loops on iOS.
+const FRAME_RENEW_MS = 10 * 60_000;
 const MAX_BODY = 16 * 1024;
 type Session = { id: string; owner: string | null; cwd?: string | null };
 
@@ -64,6 +67,19 @@ export function expoGoHostExpiry(hostname: string): number | undefined {
   return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : undefined;
 }
 
+/** A Cloud-signed frame host and its expiry, or nothing if it is not one. */
+function signedFrame(raw: string | undefined): Pick<ProjectPreview, "frameUrl" | "frameUrlExpiresAt"> {
+  if (!raw) return {};
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "https:" || url.username || url.password) return {};
+    const frameUrlExpiresAt = expoGoHostExpiry(url.hostname);
+    return frameUrlExpiresAt ? { frameUrl: url.href.replace(/\/$/, ""), frameUrlExpiresAt } : {};
+  } catch {
+    return {};
+  }
+}
+
 function readRows(path: string): ProjectPreview[] {
   try {
     const value = JSON.parse(readFileSync(path, "utf8"));
@@ -75,6 +91,7 @@ function readRows(path: string): ProjectPreview[] {
       row.visibility === "owner" && row.temporary === true &&
       typeof row.createdAt === "number" &&
       (row.expoGoUrl === undefined || (typeof row.expoGoUrl === "string" && row.expoGoUrl.startsWith("exps://"))) &&
+      (row.frameUrl === undefined || (typeof row.frameUrl === "string" && row.frameUrl.startsWith("https://"))) &&
       (row.notStartedYet === undefined || row.notStartedYet === true));
   } catch {
     return [];
@@ -109,7 +126,7 @@ export function plainTitle(raw: string): string {
 export function createProjectPreviewService(deps: {
   session(id: string): Promise<Session | null>;
   viewer(req: Request): string;
-  resolve(port: number, options?: { expoGo?: boolean }): Promise<{ url: string; expoGoUrl?: string }>;
+  resolve(port: number, options?: { expoGo?: boolean }): Promise<{ url: string; expoGoUrl?: string; frameUrl?: string }>;
   listening?: (port: number) => Promise<boolean>;
   storePath?: string;
   now?: () => number;
@@ -139,6 +156,18 @@ export function createProjectPreviewService(deps: {
     } catch {
       return { simulator: { state: "error", message: "The simulator did not answer. Try again." } };
     }
+  };
+  // Ask the Cloud again for a signed frame host that is about to expire. On
+  // failure the row keeps its old one, and the card falls back to `url` once it
+  // has expired.
+  const renewFrameUrl = async (preview: ProjectPreview): Promise<ProjectPreview> => {
+    if (preview.frameUrlExpiresAt === undefined || now() < preview.frameUrlExpiresAt - FRAME_RENEW_MS) return preview;
+    const frame = await deps.resolve(preview.port).then(r => signedFrame(r.frameUrl)).catch(() => ({}));
+    if (!("frameUrl" in frame)) return preview;
+    const next = { ...preview, ...frame };
+    rows.set(preview.sessionId, next);
+    saveRows(storePath, [...rows.values()]);
+    return next;
   };
   return async function handle(req: Request): Promise<Response> {
     const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "no-store" } });
@@ -190,8 +219,9 @@ export function createProjectPreviewService(deps: {
       if (req.method === "GET") {
         const stored = rows.get(session.id) ?? null;
         const identity = previewProjectIdentity(session.cwd);
-        const { appId: _oldApp, projectId: _oldProject, ...withoutIdentity } = stored ?? {};
-        const preview = stored ? { ...withoutIdentity, ...(identity ?? {}) } as ProjectPreview : null;
+        const renewed = stored ? await renewFrameUrl(stored) : null;
+        const { appId: _oldApp, projectId: _oldProject, ...withoutIdentity } = renewed ?? {};
+        const preview = renewed ? { ...withoutIdentity, ...(identity ?? {}) } as ProjectPreview : null;
         if (!preview) return json({ preview });
         const expired = preview.expoGoExpiresAt !== undefined && now() >= preview.expoGoExpiresAt;
         const live = !expired && await listening(preview.port);
@@ -228,6 +258,7 @@ export function createProjectPreviewService(deps: {
       if (target.protocol !== "https:" || target.username || target.password) {
         throw new PreviewError(502, "Cloud returned an invalid preview URL");
       }
+      const frame = signedFrame(resolved.frameUrl);
       let expoGo: { proxyUrl: string; url: string } | undefined;
       let expoGoExpiresAt: number | undefined;
       if (expoGoRequested) {
@@ -250,6 +281,7 @@ export function createProjectPreviewService(deps: {
         createdAt: now(),
         ...(expoGo ? { expoGoUrl: expoGo.url } : {}),
         ...(expoGoExpiresAt ? { expoGoExpiresAt } : {}),
+        ...frame,
         ...(listeningNow ? {} : { notStartedYet: true as const }),
       };
       rows.set(session.id, preview);
