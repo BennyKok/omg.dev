@@ -469,6 +469,72 @@ export type OmgConnectionStatus =
 export interface OmgConnectionState {
   status: OmgConnectionStatus;
   attempt: number;
+  /** The last close code and reason, or the open failure as the reason. */
+  lastCloseCode?: number | null;
+  lastCloseReason?: string | null;
+  /** Round trip of the last answered ping, while live. */
+  latencyMs?: number | null;
+}
+
+/**
+ * What the page or app around the connection knows that a socket does not:
+ * whether anyone can see it, and whether the device is online. In a browser
+ * the default reads `document` and `navigator`. Without one (React Native, a
+ * server) the connection retries on its schedule only.
+ */
+export interface OmgLiveEnvironment {
+  isVisible(): boolean;
+  onVisible(listener: () => void): () => void;
+  isOffline(): boolean;
+  onOnline(listener: () => void): () => void;
+}
+
+export interface OmgLiveConnectionOptions {
+  capabilities?: OmgLiveCapabilities;
+  /** Default: the browser's, when there is one. `null`: none. */
+  environment?: OmgLiveEnvironment | null;
+  /**
+   * Diagnostics: `open` {reconnects}, `reconnect` {attempt, backoffMs, code,
+   * reason}, `visibility_probe_timeout` {elapsedMs}. Never throws into the
+   * connection.
+   */
+  onEvent?: (event: string, fields: Record<string, unknown>) => void;
+  timing?: {
+    backoffMinMs?: number;
+    backoffMaxMs?: number;
+    /** Ping this often while live to report `latencyMs`. Default 0: off. */
+    latencyIntervalMs?: number;
+    visibilityProbeTimeoutMs?: number;
+  };
+}
+
+function browserEnvironment(): OmgLiveEnvironment | null {
+  const doc = (globalThis as { document?: Document }).document;
+  const win = (globalThis as { window?: Window }).window;
+  if (!doc || !win || typeof doc.addEventListener !== "function" || typeof win.addEventListener !== "function") return null;
+  return {
+    isVisible: () => doc.visibilityState !== "hidden",
+    onVisible(listener) {
+      const handler = () => {
+        if (doc.visibilityState === "visible") listener();
+      };
+      doc.addEventListener("visibilitychange", handler);
+      return () => doc.removeEventListener("visibilitychange", handler);
+    },
+    isOffline: () => typeof navigator !== "undefined" && navigator.onLine === false,
+    onOnline(listener) {
+      win.addEventListener("online", listener);
+      return () => win.removeEventListener("online", listener);
+    },
+  };
+}
+
+// Consecutive failed attempts after which "reconnecting" becomes "offline".
+const OFFLINE_AFTER_ATTEMPTS = 5;
+
+function probeId(prefix: string): string {
+  const random = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto?.randomUUID?.();
+  return random ?? `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
 type TranscriptListener = (event: OmgTranscriptEvent) => void;
@@ -515,6 +581,19 @@ export class OmgLiveConnection {
     attempt: 0,
   };
   private readonly capabilities: OmgLiveCapabilities;
+  private readonly environment: OmgLiveEnvironment | null;
+  private readonly onEvent: OmgLiveConnectionOptions["onEvent"];
+  private readonly backoffMinMs: number;
+  private readonly backoffMaxMs: number;
+  private readonly latencyIntervalMs: number;
+  private readonly visibilityProbeTimeoutMs: number;
+  private backoffMs: number;
+  /** A retry skipped while hidden, run when the page is visible again. */
+  private pendingReconnect = false;
+  private stopEnvironment: (() => void) | null = null;
+  private latencyTimer: ReturnType<typeof setInterval> | null = null;
+  private latencyProbe: { id: string; startedAt: number } | null = null;
+  private visibilityProbe: { id: string; socket: OmgSocket; timer: ReturnType<typeof setTimeout> } | null = null;
   /** Per session, the drafts in flight by draft id; see OmgDraft. */
   private drafts = new Map<string, Map<string, OmgDraft>>();
 
@@ -526,9 +605,100 @@ export class OmgLiveConnection {
    */
   constructor(
     private readonly transport: OmgTransport,
-    options: { capabilities?: OmgLiveCapabilities } = {},
+    options: OmgLiveConnectionOptions = {},
   ) {
     this.capabilities = options.capabilities ?? {};
+    this.environment = options.environment === undefined ? browserEnvironment() : options.environment;
+    this.onEvent = options.onEvent;
+    this.backoffMinMs = options.timing?.backoffMinMs ?? 250;
+    this.backoffMaxMs = options.timing?.backoffMaxMs ?? 10_000;
+    this.latencyIntervalMs = options.timing?.latencyIntervalMs ?? 0;
+    this.visibilityProbeTimeoutMs = options.timing?.visibilityProbeTimeoutMs ?? 500;
+    this.backoffMs = this.backoffMinMs;
+  }
+
+  private emitEvent(event: string, fields: Record<string, unknown>): void {
+    try {
+      this.onEvent?.(event, fields);
+    } catch {
+      // Diagnostics must never break the connection.
+    }
+  }
+
+  /** Listen to visibility and network once there is something to keep live. */
+  private watchEnvironment(): void {
+    if (this.stopEnvironment || !this.environment) return;
+    const stopVisible = this.environment.onVisible(() => this.onVisible());
+    const stopOnline = this.environment.onOnline(() => {
+      this.pendingReconnect = false;
+      this.resetBackoff();
+      this.ensureConnected();
+    });
+    this.stopEnvironment = () => {
+      stopVisible();
+      stopOnline();
+    };
+  }
+
+  /**
+   * A wake-up signal (page visible, network back) invalidates the retry
+   * schedule: it was wound up against conditions that no longer hold.
+   */
+  private resetBackoff(): void {
+    this.backoffMs = this.backoffMinMs;
+    this.reconnectAttempt = 0;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+  }
+
+  private onVisible(): void {
+    if (this.disposed || !this.hasSubscribers()) return;
+    const socket = this.socket;
+    if (this.pendingReconnect || !socket) {
+      this.pendingReconnect = false;
+      this.resetBackoff();
+      this.ensureConnected();
+      return;
+    }
+    if (socket.readyState !== SOCKET_OPEN) return;
+    // A browser can leave a dead connection OPEN after sleep or a tab switch.
+    // The server answers a live socket in milliseconds, so no answer within
+    // the probe timeout means dead: close it and take the normal reconnect.
+    if (this.visibilityProbe) clearTimeout(this.visibilityProbe.timer);
+    const id = probeId("visible");
+    this.latencyProbe = { id, startedAt: Date.now() };
+    const timer = setTimeout(() => {
+      if (this.visibilityProbe?.id !== id) return;
+      this.visibilityProbe = null;
+      this.emitEvent("visibility_probe_timeout", { elapsedMs: this.visibilityProbeTimeoutMs });
+      if (this.socket === socket) this.dropSocket();
+      try {
+        socket.close(4000, "visibility probe timeout");
+      } catch {}
+      this.resetBackoff();
+      this.ensureConnected();
+    }, this.visibilityProbeTimeoutMs);
+    this.visibilityProbe = { id, socket, timer };
+    this.send({ t: "ping", id });
+  }
+
+  private probeLatency(): void {
+    if (!this.socket || this.socket.readyState !== SOCKET_OPEN) return;
+    const id = probeId("ping");
+    this.latencyProbe = { id, startedAt: Date.now() };
+    this.send({ t: "ping", id });
+  }
+
+  /** Forget the current socket without scheduling anything. */
+  private dropSocket(): void {
+    this.socket = null;
+    this.changesAnnounced = false;
+    this.sentChannels.clear();
+    if (this.latencyTimer) clearInterval(this.latencyTimer);
+    this.latencyTimer = null;
+    this.latencyProbe = null;
+    if (this.visibilityProbe) clearTimeout(this.visibilityProbe.timer);
+    this.visibilityProbe = null;
   }
 
   get state(): OmgConnectionState {
@@ -606,11 +776,15 @@ export class OmgLiveConnection {
     };
   }
 
-  reconnectNow(): void {
-    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-    this.reconnectTimer = null;
-    this.reconnectAttempt = 0;
-    this.closeSocket(false);
+  /**
+   * Retry at once. `force` (the default) also replaces a live socket, which
+   * refreshes a grant route. `force: false` only cuts the wait: a live or
+   * opening socket is kept.
+   */
+  reconnectNow(options: { force?: boolean } = {}): void {
+    this.pendingReconnect = false;
+    this.resetBackoff();
+    if (options.force !== false) this.closeSocket(false);
     this.ensureConnected();
   }
 
@@ -623,6 +797,8 @@ export class OmgLiveConnection {
     this.connectionListeners.clear();
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
+    this.stopEnvironment?.();
+    this.stopEnvironment = null;
     this.closeSocket();
   }
 
@@ -641,8 +817,12 @@ export class OmgLiveConnection {
       return;
     }
     this.connecting = true;
+    this.watchEnvironment();
+    // Once "offline", a silent retry must not flash "reconnecting" and back:
+    // the label stays until a connection succeeds.
     this.publishConnection({
-      status: this.reconnectAttempt ? "reconnecting" : "connecting",
+      ...this.connectionState,
+      status: this.connectionState.status === "offline" ? "offline" : this.reconnectAttempt ? "reconnecting" : "connecting",
       attempt: this.reconnectAttempt,
     });
     void this.transport.openLiveSocket().then(
@@ -656,10 +836,17 @@ export class OmgLiveConnection {
         this.connecting = false;
         socket.addEventListener("open", () => {
           if (this.socket !== socket) return;
+          this.emitEvent("open", { reconnects: this.reconnectAttempt });
           this.reconnectAttempt = 0;
+          this.backoffMs = this.backoffMinMs;
           this.sentChannels.clear();
-          this.publishConnection({ status: "live", attempt: 0 });
+          this.publishConnection({ ...this.connectionState, status: "live", attempt: 0 });
           this.scheduleSubscriptionFlush();
+          if (this.latencyIntervalMs > 0) {
+            this.probeLatency();
+            if (this.latencyTimer) clearInterval(this.latencyTimer);
+            this.latencyTimer = setInterval(() => this.probeLatency(), this.latencyIntervalMs);
+          }
         });
         socket.addEventListener("message", (event) => {
           if (this.socket !== socket || typeof event.data !== "string") return;
@@ -669,32 +856,43 @@ export class OmgLiveConnection {
             // A malformed frame is isolated to that frame.
           }
         });
-        socket.addEventListener("close", () => {
+        socket.addEventListener("close", (event?: { code?: number; reason?: string }) => {
           if (this.socket !== socket) return;
-          this.socket = null;
-          this.changesAnnounced = false;
-          this.sentChannels.clear();
-          this.scheduleReconnect();
+          this.dropSocket();
+          this.scheduleReconnect(typeof event?.code === "number" ? event.code : null, event?.reason || null);
         });
         socket.addEventListener("error", () => {
           if (this.socket === socket) socket.close();
         });
       },
-      () => {
+      (error: unknown) => {
         this.connecting = false;
-        this.scheduleReconnect();
+        this.scheduleReconnect(null, error instanceof Error ? error.message : "socket open failed");
       },
     );
   }
 
-  private scheduleReconnect(): void {
+  private scheduleReconnect(code: number | null, reason: string | null): void {
     if (this.disposed || !this.hasSubscribers() || this.reconnectTimer) return;
     this.reconnectAttempt += 1;
+    this.emitEvent("reconnect", { attempt: this.reconnectAttempt, backoffMs: this.backoffMs, code, reason });
+    const offline = this.environment?.isOffline() === true || this.reconnectAttempt >= OFFLINE_AFTER_ATTEMPTS;
     this.publishConnection({
-      status: this.reconnectAttempt >= 5 ? "offline" : "reconnecting",
+      ...this.connectionState,
+      status: offline || this.connectionState.status === "offline" ? "offline" : "reconnecting",
       attempt: this.reconnectAttempt,
+      lastCloseCode: code,
+      lastCloseReason: reason,
+      latencyMs: null,
     });
-    const delay = Math.min(8_000, 250 * 2 ** Math.min(5, this.reconnectAttempt - 1));
+    // While nobody can see the page, wait; becoming visible reconnects at once.
+    if (this.environment && !this.environment.isVisible()) {
+      this.pendingReconnect = true;
+      return;
+    }
+    // Spread retries (±25%) so many clients do not reconnect in step.
+    const delay = Math.round(this.backoffMs * (0.75 + Math.random() * 0.5));
+    this.backoffMs = Math.min(this.backoffMaxMs, this.backoffMs * 2);
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.ensureConnected();
@@ -703,8 +901,7 @@ export class OmgLiveConnection {
 
   private closeSocket(markDisposed = true): void {
     const socket = this.socket;
-    this.socket = null;
-    this.sentChannels.clear();
+    this.dropSocket();
     if (socket) socket.close(markDisposed ? 1000 : 4000, "client transition");
   }
 
@@ -787,6 +984,18 @@ export class OmgLiveConnection {
     }
     if (message.t === "ping") {
       this.send({ t: "pong", ...(message.id ? { id: message.id } : {}) });
+      return;
+    }
+    if (message.t === "pong") {
+      if (message.id && this.visibilityProbe?.id === message.id) {
+        clearTimeout(this.visibilityProbe.timer);
+        this.visibilityProbe = null;
+      }
+      const probe = this.latencyProbe;
+      if (message.id && probe?.id === message.id) {
+        this.latencyProbe = null;
+        this.publishConnection({ ...this.connectionState, latencyMs: Math.max(1, Date.now() - probe.startedAt) });
+      }
       return;
     }
     if (
@@ -873,10 +1082,10 @@ export class OmgClient {
    */
   constructor(
     readonly transport: OmgTransport,
-    options: { capabilities?: OmgLiveCapabilities } = {},
+    options: OmgLiveConnectionOptions = {},
   ) {
     this.capabilities = options.capabilities ?? {};
-    this.live = new OmgLiveConnection(transport, { capabilities: this.capabilities });
+    this.live = new OmgLiveConnection(transport, { ...options, capabilities: this.capabilities });
   }
 
   peekSessions(): OmgSession[] | null {
