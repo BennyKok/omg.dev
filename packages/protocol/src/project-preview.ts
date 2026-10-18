@@ -15,6 +15,11 @@ export interface ProjectPreview {
   expoGoUrl?: string;
   /** When the Expo Go link stops working, in epoch milliseconds. */
   expoGoExpiresAt?: number;
+  /** Signed, short-lived https host for the same web dev server (Vite ports).
+   * It needs no preview cookie, so an inline frame can load it. */
+  frameUrl?: string;
+  /** When `frameUrl` stops working, in epoch milliseconds. */
+  frameUrlExpiresAt?: number;
   /**
    * True while the preview has never answered on its port. An Expo Go link is
    * created before Metro is running, so a new preview is not "stopped", it has
@@ -178,8 +183,13 @@ export const PREVIEW_LEVEL_LABEL: Record<PreviewLevel, string> = {
  * it is a third-party cookie inside app.omg.dev and inside the app's WebView,
  * so the frame showed "Sign in to continue". The Expo Go host is a signed,
  * short-lived capability URL for the same Metro port, and Metro answers it
- * with the Expo Web page. A plain web preview has no such host and keeps `url`.
+ * with the Expo Web page. A web preview on a Vite port gets the same kind of
+ * signed host (`frameUrl`); without it, iOS Safari dropped the cookie and the
+ * frame bounced through app.omg.dev `/access` until the person left. Only a
+ * preview with neither host, or an expired one, keeps `url`.
  */
-export function inlinePreviewUrl(preview: Pick<ProjectPreview, "url" | "expoGoUrl">): string {
-  return preview.expoGoUrl?.startsWith("exps://") ? `https://${preview.expoGoUrl.slice("exps://".length)}` : preview.url;
+export function inlinePreviewUrl(preview: Pick<ProjectPreview, "url" | "expoGoUrl" | "frameUrl" | "frameUrlExpiresAt">, now = Date.now()): string {
+  if (preview.expoGoUrl?.startsWith("exps://")) return `https://${preview.expoGoUrl.slice("exps://".length)}`;
+  if (preview.frameUrl && (preview.frameUrlExpiresAt === undefined || now < preview.frameUrlExpiresAt)) return preview.frameUrl;
+  return preview.url;
 }
