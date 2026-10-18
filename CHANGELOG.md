@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 18, 2026 - A renamed session shows on other devices at once (v0.6.255)
+
+- A session rename, a new session, and other session changes now reach every open client as soon as they happen. Before, a rename took about 3 seconds to show on another device. On a cloud Computer the sync bench now measures 41 to 55 ms at p95, down from 2.9 s.
+
 ## October 17, 2026 - Messages written during a reconnect are no longer lost (v0.6.254)
 
 - A client that reconnects after a drop now always gets the agent's messages from while it was away. Before, if no other client was watching that session, the reconnect was answered "nothing missed" and those messages appeared only after a reload. This affected a phone back from the background and a laptop waking from sleep.

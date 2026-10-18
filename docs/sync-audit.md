@@ -64,7 +64,7 @@ The same build, cloned onto a fresh sandbox and run there with
 | Measure | Result |
 |---|---|
 | First `/api/bootstrap` | 586 to 732 ms (warm: 6 ms) |
-| Title change → status row | p50 2.80 to 2.83 s, p95 2.93 to 2.95 s |
+| Title change → status row | p50 2.80 to 2.83 s, p95 2.93 to 2.95 s (v0.6.255: p95 41 to 55 ms, published on the session change instead of polled) |
 | Transcript line → delta | p50 0.59 to 0.60 s, p95 0.70 s |
 | Resume after a drop | `resumed`, `replayed: 0`, the missed line never arrives |
 | Idle socket, 10 s | 0 frames |
@@ -139,7 +139,7 @@ account.
 
 | Measure | Now | Target |
 |---|---|---|
-| Title change → status row, p95 | 2.9 s | under 100 ms |
+| Title change → status row, p95 | 2.9 s (v0.6.255: 44 to 73 ms) | under 100 ms |
 | Transcript line → delta, p95 | 0.71 s | under 100 ms |
 | Missed line delivered after resume | never | always, within 100 ms of `resumed` |
 | First `/api/bootstrap` | 1.25 to 1.48 s | under 300 ms |
