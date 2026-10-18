@@ -1,16 +1,24 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { codingAgentVersion } from "./coding-agent-version.ts";
+import { codingAgentVersion, setCodingAgentVersionStoreForTests } from "./coding-agent-version.ts";
 
 let dir: string;
 beforeEach(() => {
   const root = join(homedir(), ".cache", "lfg", "tmp");
   mkdirSync(root, { recursive: true });
   dir = mkdtempSync(join(root, "agent-version-"));
+  setCodingAgentVersionStoreForTests(join(dir, "versions.json"));
 });
-afterEach(() => rmSync(dir, { recursive: true, force: true }));
+afterEach(() => {
+  setCodingAgentVersionStoreForTests(null);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+const probes = (path: string) => existsSync(`${path}.count`) ? readFileSync(`${path}.count`, "utf8").trim().split("\n").length : 0;
+// A new process: the in-memory answers are gone, the stored ones remain.
+const restart = () => setCodingAgentVersionStoreForTests(join(dir, "versions.json"));
 
 function cli(body: string, name = "agent") {
   const path = join(dir, name);
@@ -62,3 +70,39 @@ test("detects an updated install even within the cache period", async () => {
 test("bounds a stalled version probe", async () => {
   expect(await codingAgentVersion(cli("exec sleep 30"))).toBeUndefined();
 }, 5000);
+
+// The first /api/bootstrap after a start waited on every CLI's --version, and
+// one slow CLI (cursor-agent, 1.4 to 1.7 s) set the whole cold bootstrap.
+test("after a restart, an unchanged CLI is answered from disk without running it", async () => {
+  const path = cli("echo probe >> \"$0.count\"; echo '1.2.3'");
+  expect(await codingAgentVersion(path)).toBe("1.2.3");
+  restart();
+  expect(await codingAgentVersion(path)).toBe("1.2.3");
+  expect(probes(path)).toBe(1);
+});
+
+test("after a restart, a CLI whose file changed is asked again", async () => {
+  const path = cli("echo '1.2.3'");
+  expect(await codingAgentVersion(path)).toBe("1.2.3");
+  cli("echo probe >> \"$0.count\"; echo '2.0.0'");
+  restart();
+  expect(await codingAgentVersion(path)).toBe("2.0.0");
+});
+
+test("an old stored answer is served at once and checked again behind the caller", async () => {
+  // A wrapper whose own file stays the same while the install behind it moves.
+  const path = cli("sleep 0.4; cat \"$0.ver\"");
+  writeFileSync(`${path}.ver`, "1.2.3\n");
+  expect(await codingAgentVersion(path)).toBe("1.2.3");
+  writeFileSync(`${path}.ver`, "2.0.0\n");
+  const file = join(dir, "versions.json");
+  const saved = JSON.parse(readFileSync(file, "utf8"));
+  saved[path].probedAt = Date.now() - 10 * 60_000;
+  writeFileSync(file, JSON.stringify(saved));
+  restart();
+  const t0 = Date.now();
+  expect(await codingAgentVersion(path)).toBe("1.2.3");
+  expect(Date.now() - t0).toBeLessThan(200);
+  await new Promise((r) => setTimeout(r, 1_000));
+  expect(await codingAgentVersion(path)).toBe("2.0.0");
+});
