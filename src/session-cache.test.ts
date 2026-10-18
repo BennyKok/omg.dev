@@ -97,4 +97,14 @@ describe("session list cache invalidation", () => {
     await settle();
     expect(scans.length).toBe(2);
   }, 10_000);
+  test("every invalidate tells its listeners, and a removed listener hears nothing", () => {
+    const { cache } = harness();
+    let heard = 0;
+    const stop = cache.onInvalidate(() => { heard += 1; });
+    cache.invalidate();
+    expect(heard).toBe(1);
+    stop();
+    cache.invalidate();
+    expect(heard).toBe(1);
+  });
 });

@@ -11,7 +11,7 @@ import {
   type PendingPrompt,
   type Session,
 } from "./sessions.ts";
-import { listSessionsCached, noteListSessionsClientActivity } from "./session-cache.ts";
+import { listSessionsCached, noteListSessionsClientActivity, onListSessionsInvalidated, type SessionListCache } from "./session-cache.ts";
 import {
   indexedMessageRowPage,
   indexedMessagesAfterRowid,
@@ -452,6 +452,7 @@ type SidTail = {
 // a pointer rather than a mirrored Set — a parallel copy would drift the moment
 // a socket closed on a path that forgot to update it.
 let activeSidTails: Map<string, SidTail> | null = null;
+const STATUS_PUSH_MIN_GAP_MS = 100;
 
 /**
  * True when a live WebSocket is currently subscribed to this session's
@@ -468,8 +469,15 @@ export function createLiveWsSupport(opts: {
   evlog?: Evlog;
   getAgentRun?: (runId: string) => AgentRunSnapshot | null;
   subscribeAgentRun?: (runId: string, cb: (event: AgentRunEvent) => void) => () => void;
+  /** The session list the status channel reads. Defaults to the shared cache. */
+  sessions?: Pick<SessionListCache, "get" | "noteClientActivity" | "onInvalidate">;
 } = {}) {
   const evlog = opts.evlog ?? defaultEvlog;
+  const sessionList = opts.sessions ?? {
+    get: listSessionsCached,
+    noteClientActivity: noteListSessionsClientActivity,
+    onInvalidate: onListSessionsInvalidated,
+  };
   const sockets = new WeakMap<LiveWs, SocketState>();
   const sidTails = new Map<string, SidTail>();
   activeSidTails = sidTails;
@@ -479,6 +487,16 @@ export function createLiveWsSupport(opts: {
   let statusInterval: ReturnType<typeof setInterval> | null = null;
   let lastStatusSigs = new Map<string, string>();
   let statusPublishing = false;
+  // A session write (rename, create, busy change, ...) calls
+  // invalidateListSessionsCache(). Publishing on that signal shows the change
+  // on every client at once; the 1 s loop stays as the safety net for state
+  // nothing announces (a process exiting, a pane going idle). Pushes are at
+  // least STATUS_PUSH_MIN_GAP_MS apart because each one rescans the session
+  // list, and a burst of writes must cost one scan, not one per write.
+  let statusPushTimer: ReturnType<typeof setTimeout> | null = null;
+  let statusPushAgain = false;
+  let lastStatusPushAt = 0;
+  let stopStatusPushes: (() => void) | null = null;
 
   const channelId = (channel: Pick<Channel, "kind" | "key">): string => `${channel.kind}:${channel.key}`;
   const transcriptChannel = (sid: string): Channel => ({ kind: "transcript", key: sid });
@@ -707,11 +725,21 @@ export function createLiveWsSupport(opts: {
     clearInterval(statusInterval);
     statusInterval = null;
     lastStatusSigs = new Map();
+    stopStatusPushes?.();
+    stopStatusPushes = null;
+    if (statusPushTimer) clearTimeout(statusPushTimer);
+    statusPushTimer = null;
+    statusPushAgain = false;
   };
 
   const publishStatus = async () => {
     if (!openSockets.size) return;
-    if (statusPublishing) return;
+    if (statusPublishing) {
+      // A change landed during a scan that may predate it. Publish once more
+      // after this one, or the change waits for the next loop tick.
+      statusPushAgain = true;
+      return;
+    }
     statusPublishing = true;
     const t0 = performance.now();
     try {
@@ -719,8 +747,8 @@ export function createLiveWsSupport(opts: {
       // rebuild the full session list (~180ms) on the event loop every second.
       // Keep the shared cache warm while sockets are open, then read the cached
       // snapshot — a single background refresher owns the real listSessions().
-      noteListSessionsClientActivity();
-      const rows = (await listSessionsCached())
+      sessionList.noteClientActivity();
+      const rows = (await sessionList.get())
         .filter((s) => s.sessionId)
         .map(slimStatus);
       // Only the rows that changed since the last broadcast. A busy fleet
@@ -752,11 +780,26 @@ export function createLiveWsSupport(opts: {
       });
     } finally {
       statusPublishing = false;
+      if (statusPushAgain) {
+        statusPushAgain = false;
+        requestStatusPush();
+      }
     }
+  };
+
+  const requestStatusPush = () => {
+    if (!openSockets.size || statusPushTimer) return;
+    const delay = Math.max(0, lastStatusPushAt + STATUS_PUSH_MIN_GAP_MS - Date.now());
+    statusPushTimer = setTimeout(() => {
+      statusPushTimer = null;
+      lastStatusPushAt = Date.now();
+      void publishStatus();
+    }, delay);
   };
 
   const ensureStatusLoop = () => {
     if (statusInterval) return;
+    stopStatusPushes = sessionList.onInvalidate(requestStatusPush);
     void publishStatus();
     statusInterval = setInterval(() => void publishStatus(), 1000);
   };
@@ -771,8 +814,8 @@ export function createLiveWsSupport(opts: {
    * list sits stale behind a working socket until the 5s REST poll catches it.
    */
   const sendStatusBaseline = async (ws: LiveWs) => {
-    noteListSessionsClientActivity();
-    const rows = (await listSessionsCached()).filter((s) => s.sessionId).map(slimStatus);
+    sessionList.noteClientActivity();
+    const rows = (await sessionList.get()).filter((s) => s.sessionId).map(slimStatus);
     safeSend(ws, stamp(statusChannel(), { t: "status", rows }));
   };
 
@@ -810,7 +853,7 @@ export function createLiveWsSupport(opts: {
   };
 
   const hydrateTarget = async (tail: SidTail) => {
-    const all = await listSessionsCached();
+    const all = await sessionList.get();
     const session = all.find((s) => s.sessionId === tail.sid);
     tail.pane.target = session?.tmuxTarget ?? null;
     tail.pane.agent = session?.agent ?? null;
