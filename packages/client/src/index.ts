@@ -619,8 +619,9 @@ export class OmgLiveConnection {
    * putting them here: a client that declares them once cannot opt in on one
    * transport and miss the other.
    */
+  /** Only `openLiveSocket` is used, so a caller can supply just that. */
   constructor(
-    private readonly transport: OmgTransport,
+    private readonly transport: Pick<OmgTransport, "openLiveSocket">,
     options: OmgLiveConnectionOptions = {},
   ) {
     this.capabilities = options.capabilities ?? {};

@@ -120,7 +120,11 @@ account.
    side can adopt the same definition.
 2. **One client.** `OmgLiveConnection` in `@omg-dev/client` becomes the only
    client: web, iOS, `@omg-dev/react`, and later `@omg-dev/sdk`. The web
-   app's own protocol code in `useLiveSocket.ts` goes away.
+   app's own protocol code in `useLiveSocket.ts` goes away. (Done in
+   v0.6.262: the web hook runs on `OmgLiveConnection` and only folds its
+   events into React state. The client gained the web's reconnect
+   behaviour in v0.6.261, and queue, typing and passive listeners in
+   v0.6.262.)
 3. **Push, do not poll, on the Computer.** Publish a change at the moment it
    happens: a title or status change from the code that makes it, a
    transcript line from a file watch with a slow poll only as a safety net.

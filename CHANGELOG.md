@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 18, 2026 - The web app runs on the shared live client (v0.6.262)
+
+- The web app's live connection now runs on `@omg-dev/client`, the same client the iOS app and `@omg-dev/react` use. Connecting, reconnecting, resuming after a drop, status rows, change announcements, the send queue and typing all come from one implementation. The web app's own copy of that code is gone, about 700 lines.
+- `@omg-dev/client` gained what the web app needed: queued messages (`queue` events, replayed to a late listener), typing (`typing` events and `sendTyping`), passive listeners that do not subscribe a session, and a query for the viewer's identity on each connection.
+- No visible change is intended. In a browser the page reconnected about 2 seconds after its Computer came back, and the ping readout works as before.
+
 ## October 18, 2026 - The client package reconnects like the web app (v0.6.261)
 
 - `@omg-dev/client` now pauses reconnect attempts while a page is hidden, reconnects at once when the page or the network comes back, and replaces a connection that a sleeping laptop left open but dead. It keeps the "offline" label steady until a connection succeeds, and spreads retries so clients do not reconnect in step. The connection state also reports the last close reason and, when asked, the ping time. This is the first part of moving the web app onto the shared client.
