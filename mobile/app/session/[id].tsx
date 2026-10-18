@@ -118,7 +118,6 @@ export type AskQuestion = {
   createdAt: number;
 };
 /** Same cadence as the web's ask center. */
-const ASK_POLL_MS = 5000;
 import { useKeyCommand } from "../../src/omg/key-commands";
 import { useAgentPicker } from "../../src/omg/session-options";
 import { COMPOSER_FADE_HEIGHT, EdgeFade, TOP_FADE_HEIGHT } from "../../src/omg/edge-fade";
@@ -172,6 +171,7 @@ import {
   type Entry,
   type TranscriptItem,  transcriptSpeaker,
 } from "../../src/omg/transcript";
+import { openQuestions } from "../../src/omg/ask-collection";
 
 /** Local id for the optimistic message, so it can be rolled back precisely. */
 let localSeq = 0;
@@ -575,22 +575,26 @@ function SessionScreenContent({
     return set;
   }, [id, sessionInfo?.aliases]);
   const refreshAsks = useCallback(async () => {
+    if (client) await openQuestions<AskQuestion>(client).refresh();
+  }, [client]);
+  // One shared read of the machine's open questions (ask-collection.ts),
+  // re-read when the Computer announces a change. A busy flip reads again at
+  // once, as the poll used to.
+  useEffect(() => {
     if (!client || !id) return;
-    try {
-      const res = await client.transport.request<{ questions?: AskQuestion[] }>("/api/ask?status=open");
-      const rows = (Array.isArray(res?.questions) ? res.questions : [])
+    const questions = openQuestions<AskQuestion>(client);
+    const apply = (all: AskQuestion[]) => {
+      const rows = all
         .filter((q) => !!q.sessionId && askAliases.has(q.sessionId) && !settledAsks.current.has(q.id))
         .sort((a, b) => a.createdAt - b.createdAt);
       setAsks((prev) => keepIfSame(prev, rows));
-    } catch {
-      /* keep what we have */
-    }
-  }, [client, id, askAliases]);
-  useEffect(() => {
-    void refreshAsks();
-    const timer = setInterval(() => void refreshAsks(), ASK_POLL_MS);
-    return () => clearInterval(timer);
-  }, [refreshAsks, busy]);
+    };
+    const cached = questions.peek();
+    if (cached) apply(cached);
+    const off = questions.subscribe(apply);
+    if (cached) void questions.refresh();
+    return off;
+  }, [client, id, askAliases, busy]);
   /**
    * Answer by tapping an option: the machine delivers the reply into the
    * session itself (the pushback path), and the echo arrives as a normal

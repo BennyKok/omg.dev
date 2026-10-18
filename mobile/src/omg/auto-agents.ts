@@ -36,6 +36,7 @@
 import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 
+import { autoCollection, type AutoSnapshot } from "./auto-collection";
 import { useOmg } from "./provider";
 import { DEFAULT_SCHED_TZ } from "./cron";
 
@@ -107,18 +108,10 @@ export type AutoAgentsState = {
 };
 
 /**
- * 30s. A finding is a live fact — dismissed on another device, or graduated
- * into a session from the web — so this cannot be resumable.ts's fetch-once,
- * which would leave a row on screen the server has already closed out. It is
- * slower than the session list's 10s on purpose: these are cron-scheduled
- * writes, nothing here changes faster than a minute, and this pulls the
- * entire roster plus every open finding rather than a delta.
- *
- * Re-fetching is also what keeps each row's relative time honest — the card
- * derives it at render time, so a poll that re-renders is the clock. See
- * auto-agent-card.tsx.
+ * Re-render this often so each row's relative time stays honest. The card
+ * derives "5 min ago" at render time; the network poll used to be the clock.
  */
-const AUTO_POLL_MS = 30_000;
+const CLOCK_MS = 30_000;
 
 export function useAutoAgents(): AutoAgentsState {
   const { client, bindingId } = useOmg();
@@ -127,9 +120,11 @@ export function useAutoAgents(): AutoAgentsState {
   const [tz, setTz] = useState<string>(DEFAULT_SCHED_TZ);
   const [loading, setLoading] = useState(true);
   const [findingsError, setFindingsError] = useState<string | null>(null);
-  const [tick, setTick] = useState(0);
+  const [, setClock] = useState(0);
 
-  const refresh = useCallback(() => setTick((n) => n + 1), []);
+  const refresh = useCallback(() => {
+    if (client) void autoCollection(client).refresh();
+  }, [client]);
 
   // A machine switch invalidates both lists outright: auto agents belong to
   // the box they run on, and showing the previous machine's schedules would
@@ -141,52 +136,31 @@ export function useAutoAgents(): AutoAgentsState {
     setFindingsError(null);
   }, [bindingId]);
 
-  useEffect(() => {
-    if (!client) return;
-    let cancelled = false;
-    setLoading(true);
-    setFindingsError(null);
-
-    // Two independent requests, NOT Promise.all: a rejection there would throw
-    // away a good response alongside the bad one, and the two endpoints can
-    // fail apart (findings is newer than agents).
-    const agentsRead = client.transport
-      .request<{ agents?: AutoAgent[]; tz?: string }>("/api/auto/agents")
-      .then((payload) => {
-        if (cancelled) return;
-        setAgents(payload.agents ?? []);
-        if (payload.tz) setTz(payload.tz);
-      })
-      .catch(() => {
-        if (!cancelled) setAgents([]);
-      });
-
-    const findingsRead = client.transport
-      .request<{ findings?: AutoFinding[] }>("/api/auto/findings?status=open")
-      .then((payload) => {
-        if (!cancelled) setFindings(payload.findings ?? []);
-      })
-      .catch(() => {
-        if (!cancelled) setFindingsError("Could not load findings. Please try again.");
-      });
-
-    void Promise.all([agentsRead, findingsRead]).finally(() => {
-      if (!cancelled) setLoading(false);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [client, tick]);
-
   // Only while the screen is focused, matching the session list: a
-  // backgrounded app has no business talking to the machine.
+  // backgrounded app has no business talking to the machine. Focus also reads
+  // at once, so a screen is never stale on arrival.
   useFocusEffect(
     useCallback(() => {
-      setTick((n) => n + 1);
-      const timer = setInterval(() => setTick((n) => n + 1), AUTO_POLL_MS);
-      return () => clearInterval(timer);
-    }, []),
+      if (!client) return;
+      const collection = autoCollection(client);
+      const apply = (snapshot: AutoSnapshot) => {
+        setAgents(snapshot.agents);
+        setFindings(snapshot.findings);
+        if (snapshot.tz) setTz(snapshot.tz);
+        setFindingsError(snapshot.findingsError);
+        setLoading(false);
+      };
+      const cached = collection.peek();
+      if (cached) apply(cached);
+      else setLoading(true);
+      const off = collection.subscribe(apply);
+      if (cached) void collection.refresh();
+      const clock = setInterval(() => setClock((n) => n + 1), CLOCK_MS);
+      return () => {
+        off();
+        clearInterval(clock);
+      };
+    }, [client]),
   );
 
   // Keep the finding visible until the request succeeds. Screens can show a
@@ -202,11 +176,11 @@ export function useAutoAgents(): AutoAgentsState {
         });
         setFindings((prev) => prev.filter((f) => f.id !== id));
       } catch (error) {
-        setTick((n) => n + 1);
+        refresh();
         throw error;
       }
     },
-    [client],
+    [client, refresh],
   );
 
   const setAgentEnabled = useCallback(
@@ -220,10 +194,10 @@ export function useAutoAgents(): AutoAgentsState {
           body: JSON.stringify({ enabled }),
         });
       } catch {
-        setTick((n) => n + 1);
+        refresh();
       }
     },
-    [client],
+    [client, refresh],
   );
 
   return { agents, findings, tz, loading, findingsError, refresh, setFindingStatus, setAgentEnabled };

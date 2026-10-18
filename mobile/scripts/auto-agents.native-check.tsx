@@ -9,7 +9,9 @@ let readsFail = false;
 let write: () => Promise<unknown>;
 const finding = { id: "f/1", agentId: "watch", title: "Disk pressure" };
 const requests: string[] = [];
-const client = { transport: { request: async (path: string, init?: RequestInit) => {
+// An older Computer: it never announces changes, so the list polls as before.
+const live = { announcesChanges: false, subscribeChanges: () => () => {} };
+const client = { live, transport: { request: async (path: string, init?: RequestInit) => {
   requests.push(path);
   if (init?.method === "POST") return write();
   if (path === "/api/auto/agents") return { agents: [] };

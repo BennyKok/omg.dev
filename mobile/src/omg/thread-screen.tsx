@@ -36,6 +36,7 @@ import {
   type ThreadMessage,
 } from "./threads";
 import type { AskQuestion } from "../../app/session/[id]";
+import { openQuestions } from "./ask-collection";
 
 /**
  * THE THREAD'S TWO PAGES SHARE ONE OWNER. The thread (app/thread/[id]) and a
@@ -53,7 +54,6 @@ export function repliesHref(threadId: string, rootId: string): Href {
 }
 
 const POLL_MS = 3_000;
-const ASK_POLL_MS = 5_000;
 const OMG_ORANGE = "#FF5530";
 const TIME = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
 const ThreadReportContext = createContext<((message: ThreadMessage) => void) | null>(null);
@@ -95,23 +95,22 @@ export function useThreadState(id: string | undefined) {
   );
 
   const taskIds = useMemo(() => (detail?.tasks ?? []).map((task) => task.sessionId), [detail?.tasks]);
-  const refreshAsks = useCallback(async () => {
+  // The machine's open questions, one shared read (ask-collection.ts),
+  // re-read when the Computer announces a change. Only this thread's tasks.
+  useEffect(() => {
     if (!client || !taskIds.length) {
       setAsks([]);
       return;
     }
-    try {
-      const res = await client.transport.request<{ questions?: AskQuestion[] }>("/api/ask?status=open");
-      setAsks((res.questions ?? []).filter((q) => taskIds.some((task) => sameSession(task, q.sessionId))));
-    } catch {
-      /* keep what we have */
-    }
+    const questions = openQuestions<AskQuestion>(client);
+    const apply = (all: AskQuestion[]) =>
+      setAsks(all.filter((q) => taskIds.some((task) => sameSession(task, q.sessionId))));
+    const cached = questions.peek();
+    if (cached) apply(cached);
+    const off = questions.subscribe(apply);
+    if (cached) void questions.refresh();
+    return off;
   }, [client, taskIds]);
-  useEffect(() => {
-    void refreshAsks();
-    const timer = setInterval(() => void refreshAsks(), ASK_POLL_MS);
-    return () => clearInterval(timer);
-  }, [refreshAsks]);
 
   const answer = useCallback(
     async (q: AskQuestion, label: string) => {
