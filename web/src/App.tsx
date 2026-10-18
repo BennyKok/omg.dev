@@ -7833,6 +7833,10 @@ export function App() {
     viewerIdentity: botUnreadIdentity,
   });
   wsLiveRef.current = useWsLive && wsLiveStream.connection.status === "live";
+  // Support is per connection. The next server may be an older Computer that
+  // never announces changes (a shared machine, a rollback), so forget it on
+  // every drop; a current server says so again in the frame it sends on open.
+  if (!wsLiveRef.current) changeFramesRef.current = false;
   setListChangesAnnounced(wsLiveRef.current && changeFramesRef.current);
   const liveStream = useWsLive ? wsLiveStream : sseLiveStream;
 
