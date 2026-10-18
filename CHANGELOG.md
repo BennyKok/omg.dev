@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 18, 2026 - Web previews open inside the app on iPhone (v0.6.256)
+
+- A web app's live preview inside omg.dev now loads a signed, short-lived address, as Expo previews already do. It needs no sign-in cookie. Before, on an iPhone the preview frame lost its cookie and reloaded the sign-in page again and again, and the preview never showed.
+- The address renews itself before it expires, so a preview that stays open keeps working. "Open in new tab" is unchanged.
+- This needs an omg.dev Cloud that returns the signed address. Older Clouds keep the previous behavior.
+
 ## October 18, 2026 - A renamed session shows on other devices at once (v0.6.255)
 
 - A session rename, a new session, and other session changes now reach every open client as soon as they happen. Before, a rename took about 3 seconds to show on another device. On a cloud Computer the sync bench now measures 41 to 55 ms at p95, down from 2.9 s.
