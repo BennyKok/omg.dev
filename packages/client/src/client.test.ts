@@ -725,6 +725,8 @@ test("a hidden page waits to reconnect, and becoming visible or coming online re
   await tick();
   expect(sockets).toHaveLength(2);
   expect(events).toEqual(["open", "reconnect"]);
+  // The attempt counter drives the "offline" label; coming back resets it.
+  expect(live.state.attempt).toBe(0);
 
   sockets[1]!.open();
   env.offline = true;
@@ -850,6 +852,22 @@ test("typing is received as the full set and sent at most every 2.5 s while typi
   live.sendTyping("s", true);
   live.sendTyping("s", false);
   expect(typingFrames()).toEqual([{ t: "typing", sid: "s", typing: true }, { t: "typing", sid: "s", typing: false }]);
+  off();
+  live.dispose();
+});
+
+test("by default a dead socket on a returning page is replaced within a second", async () => {
+  // The server answers a live socket in milliseconds. This timeout was once
+  // 2 s, and every foreground return after a laptop wake waited it out.
+  const env = fakeEnvironment();
+  const { sockets, transport } = socketQueue();
+  const live = new OmgLiveConnection(transport, { environment: env });
+  const off = live.subscribeStatus(() => {});
+  await tick();
+  sockets[0]!.open();
+  env.show();
+  await tick(700);
+  expect(sockets).toHaveLength(2);
   off();
   live.dispose();
 });

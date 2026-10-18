@@ -57,7 +57,8 @@ describe("every transcript reader pages in rows", () => {
   });
 
   test("the client asks through the one page-path owner", () => {
-    for (const source of [APP, LIVE_SOCKET]) {
+    // The live socket hook no longer pages: it folds live events only.
+    for (const source of [APP]) {
       expect(source).not.toContain("/messages?limit=80");
       expect(source).not.toContain("/messages?page=backward");
       expect(source).toContain("transcriptPagePath(sid)");
