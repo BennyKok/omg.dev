@@ -11,6 +11,7 @@ import type {
   OmgLiveCapabilities,
   OmgDraft,
   OmgStatusRow,
+  OmgQueueMessage,
   OmgChangeTopic,
 } from "@omg-dev/protocol";
 
@@ -491,6 +492,12 @@ export interface OmgLiveEnvironment {
 
 export interface OmgLiveConnectionOptions {
   capabilities?: OmgLiveCapabilities;
+  /**
+   * Query for each socket open, read at connect time (for example
+   * `user=<identity>` for typing presence on an unmanaged box). A change
+   * takes effect on the next connection; call reconnectNow() to apply it.
+   */
+  socketQuery?: () => string | undefined;
   /** Default: the browser's, when there is one. `null`: none. */
   environment?: OmgLiveEnvironment | null;
   /**
@@ -528,6 +535,9 @@ function browserEnvironment(): OmgLiveEnvironment | null {
     },
   };
 }
+
+// Comfortably inside the server's 6 s typing lifetime, far above a keystroke rate.
+const TYPING_PING_MS = 2_500;
 
 // Consecutive failed attempts after which "reconnecting" becomes "offline".
 const OFFLINE_AFTER_ATTEMPTS = 5;
@@ -582,6 +592,12 @@ export class OmgLiveConnection {
   };
   private readonly capabilities: OmgLiveCapabilities;
   private readonly environment: OmgLiveEnvironment | null;
+  private readonly socketQuery: OmgLiveConnectionOptions["socketQuery"];
+  /** Listeners that hear a session's events without subscribing it. */
+  private passiveListeners = new Map<string, Set<TranscriptListener>>();
+  /** The last send queue per session, replayed to a new listener. */
+  private queues = new Map<string, OmgQueueMessage[]>();
+  private typingSentAt = new Map<string, number>();
   private readonly onEvent: OmgLiveConnectionOptions["onEvent"];
   private readonly backoffMinMs: number;
   private readonly backoffMaxMs: number;
@@ -609,6 +625,7 @@ export class OmgLiveConnection {
   ) {
     this.capabilities = options.capabilities ?? {};
     this.environment = options.environment === undefined ? browserEnvironment() : options.environment;
+    this.socketQuery = options.socketQuery;
     this.onEvent = options.onEvent;
     this.backoffMinMs = options.timing?.backoffMinMs ?? 250;
     this.backoffMaxMs = options.timing?.backoffMaxMs ?? 10_000;
@@ -753,10 +770,34 @@ export class OmgLiveConnection {
     return this.listeners.size > 0 || this.statusListeners.size > 0 || this.changeListeners.size > 0;
   }
 
-  subscribeTranscript(sessionId: string, listener: TranscriptListener): () => void {
+  /**
+   * Hear a session's events. `passive` listens without holding a
+   * subscription: the listener hears whatever the socket already streams for
+   * the session because something else subscribed it, and nothing when
+   * nothing did. A plain subscription pulls the full backlog snapshot, which
+   * a watcher that only wants to know that something arrived does not need.
+   */
+  subscribeTranscript(
+    sessionId: string,
+    listener: TranscriptListener,
+    options: { passive?: boolean } = {},
+  ): () => void {
+    const queue = this.queues.get(sessionId);
+    if (options.passive) {
+      const passive = this.passiveListeners.get(sessionId) ?? new Set<TranscriptListener>();
+      passive.add(listener);
+      this.passiveListeners.set(sessionId, passive);
+      if (queue) listener({ type: "queue", queue });
+      return () => {
+        const current = this.passiveListeners.get(sessionId);
+        current?.delete(listener);
+        if (current && !current.size) this.passiveListeners.delete(sessionId);
+      };
+    }
     const listeners = this.listeners.get(sessionId) ?? new Set<TranscriptListener>();
     listeners.add(listener);
     this.listeners.set(sessionId, listeners);
+    if (queue) listener({ type: "queue", queue });
     this.ensureConnected();
     this.scheduleSubscriptionFlush();
     return () => {
@@ -793,6 +834,8 @@ export class OmgLiveConnection {
     this.changeListeners.clear();
     this.changesAnnounced = false;
     this.listeners.clear();
+    this.passiveListeners.clear();
+    this.queues.clear();
     this.statusListeners.clear();
     this.connectionListeners.clear();
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
@@ -825,7 +868,7 @@ export class OmgLiveConnection {
       status: this.connectionState.status === "offline" ? "offline" : this.reconnectAttempt ? "reconnecting" : "connecting",
       attempt: this.reconnectAttempt,
     });
-    void this.transport.openLiveSocket().then(
+    void this.transport.openLiveSocket(this.socketQuery?.()).then(
       (socket) => {
         if (this.disposed || !this.hasSubscribers()) {
           socket.close();
@@ -957,10 +1000,22 @@ export class OmgLiveConnection {
     return draft;
   }
 
+  /**
+   * Tell the session's other viewers whether this one is typing. Call it on
+   * every keystroke: a "still typing" frame goes out at most every 2.5 s
+   * (inside the server's typing lifetime), the start and stop edges at once.
+   */
+  sendTyping(sessionId: string, typing: boolean): void {
+    if (!sessionId) return;
+    const now = Date.now();
+    if (typing && now - (this.typingSentAt.get(sessionId) ?? 0) < TYPING_PING_MS) return;
+    this.typingSentAt.set(sessionId, typing ? now : 0);
+    this.send({ t: "typing", sid: sessionId, typing });
+  }
+
   private emit(sessionId: string, event: OmgTranscriptEvent): void {
-    const listeners = this.listeners.get(sessionId);
-    if (!listeners) return;
-    for (const listener of listeners) listener(event);
+    for (const listener of this.listeners.get(sessionId) ?? []) listener(event);
+    for (const listener of this.passiveListeners.get(sessionId) ?? []) listener(event);
   }
 
   private handleMessage(message: OmgLiveMessage): void {
@@ -1062,6 +1117,13 @@ export class OmgLiveConnection {
         type: "prompt",
         prompt: message.prompt ?? null,
       });
+    } else if (message.t === "queue") {
+      const queue = Array.isArray(message.queue) ? message.queue : [];
+      this.queues.set(sessionId, queue);
+      this.emit(sessionId, { type: "queue", queue });
+    } else if (message.t === "typing") {
+      // Replace, never merge: the frame is the current set.
+      this.emit(sessionId, { type: "typing", ids: Array.isArray(message.ids) ? message.ids : [] });
     } else if (message.t === "error") {
       this.emit(sessionId, {
         type: "error",

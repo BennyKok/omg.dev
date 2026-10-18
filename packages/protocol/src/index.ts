@@ -154,6 +154,10 @@ export interface OmgQueueMessage {
   text: string;
   status: "pending" | "sending" | "queued" | "held" | "failed" | "delivered";
   error?: string;
+  createdAt?: number;
+  updatedAt?: number;
+  /** False when the message waits for something other than the running turn. */
+  queuedBehindTurn?: boolean;
 }
 
 export type OmgLiveChannelKind =
@@ -276,6 +280,10 @@ export type OmgTranscriptEvent =
   | { type: "draft"; draft: OmgDraft }
   | { type: "busy"; busy: boolean }
   | { type: "prompt"; prompt: OmgSessionPrompt | null }
+  /** The session's send queue as it stands; replayed to a new listener. */
+  | { type: "queue"; queue: OmgQueueMessage[] }
+  /** Who is typing now, as the complete set of participant ids. */
+  | { type: "typing"; ids: string[] }
   | { type: "error"; error: string };
 
 /** Runtime action: publish a local folder through omg Cloud / Infra. */
