@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 18, 2026 - An agent's new message shows at once (v0.6.257)
+
+- A new message from an agent now reaches every open client as soon as the agent writes it. Before, it took up to 0.7 s from a transcript file, and up to 1 s from omg's own agent runtimes. The local sync bench now measures 8 to 9 ms at p95, down from 700 ms.
+
 ## October 18, 2026 - Web previews open inside the app on iPhone (v0.6.256)
 
 - A web app's live preview inside omg.dev now loads a signed, short-lived address, as Expo previews already do. It needs no sign-in cookie. Before, on an iPhone the preview frame lost its cookie and reloaded the sign-in page again and again, and the preview never showed.
