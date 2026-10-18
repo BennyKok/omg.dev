@@ -314,7 +314,8 @@ import {
   type SimpleSchedule,
 } from "./cron";
 import { evlog } from "./lib/evlog";
-import { liveTransportMode, useLiveSocket, type ConnectionState } from "./useLiveSocket";
+import { liveTransportMode, useLiveSocket, type ChangeTopic, type ConnectionState } from "./useLiveSocket";
+import { emitListChanges, setListChangesAnnounced } from "./lib/change-topics";
 import {
   OmgChatStreamOwnership,
   OmgChatTransport,
@@ -7237,14 +7238,21 @@ export function App() {
   // applyLiveStatusRows). The moment the socket is not live the poll is back
   // to 5 s, which is what the non-socket transports always had.
   const wsLiveRef = useRef(false);
+  // The server announces list changes on the socket (a `changed` frame). With
+  // that, pins, schedules, findings, bots and repos are re-read when they
+  // change, and the cycle below re-reads them only every 5 minutes as a
+  // backstop, for writes made outside the server (the agents CLI).
+  const changeFramesRef = useRef(false);
   const showBotsRef = useRef(settings.showBots);
   showBotsRef.current = settings.showBots;
   useEffect(() => {
     let id: number | null = null;
     let cyclesSinceTick = 0;
-    const tick = () => {
+    let cyclesSinceLists = 0;
+    const tick = (lists = true) => {
       if (!firstBootstrapDoneRef.current) return;
       refreshSessions().catch(() => {});
+      if (!lists) return;
       refreshSessionPins().catch(() => {});
       refreshAuto().catch(() => {});
       if (showBotsRef.current) refreshBots().catch(() => {});
@@ -7257,9 +7265,13 @@ export function App() {
     };
     const cycle = () => {
       cyclesSinceTick += 1;
+      cyclesSinceLists += 1;
       if (wsLiveRef.current && cyclesSinceTick < 6) return;
       cyclesSinceTick = 0;
-      tick();
+      const announced = wsLiveRef.current && changeFramesRef.current;
+      const lists = !announced || cyclesSinceLists >= 60;
+      if (lists) cyclesSinceLists = 0;
+      tick(lists);
     };
     const start = () => {
       if (id === null) id = window.setInterval(cycle, 5000);
@@ -7796,14 +7808,32 @@ export function App() {
   const expandedIds = useExpandedIds(rosterSessions, false);
   const visibleTranscripts = useVisibleTranscriptSids(tab === "live");
   const sseLiveStream = useLiveSessionStream(rosterSessions, useWsLive ? [] : expandedIds);
+  const onListsChanged = useCallback(
+    (topics: ChangeTopic[]) => {
+      changeFramesRef.current = true;
+      setListChangesAnnounced(wsLiveRef.current);
+      emitListChanges(topics);
+      if (!firstBootstrapDoneRef.current) return;
+      // Empty: the socket just opened, and changes made while it was away
+      // were not announced to it.
+      const all = topics.length === 0;
+      if (all || topics.includes("pins")) refreshSessionPins().catch(() => {});
+      if (all || topics.includes("auto")) refreshAuto().catch(() => {});
+      if ((all || topics.includes("bots")) && showBotsRef.current) refreshBots().catch(() => {});
+      if (all || topics.includes("repos")) refreshRepos().catch(() => {});
+    },
+    [refreshSessionPins, refreshAuto, refreshBots, refreshRepos],
+  );
   const wsLiveStream = useLiveSocket(rosterSessions, expandedIds, {
     enabled: useWsLive,
     onStatusRows: applyLiveStatusRows,
+    onChanged: onListsChanged,
     // The same identity every other per-person call already declares. A
     // managed box ignores it in favour of its verified header.
     viewerIdentity: botUnreadIdentity,
   });
   wsLiveRef.current = useWsLive && wsLiveStream.connection.status === "live";
+  setListChangesAnnounced(wsLiveRef.current && changeFramesRef.current);
   const liveStream = useWsLive ? wsLiveStream : sseLiveStream;
 
   // "Somebody ELSE is typing."

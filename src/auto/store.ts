@@ -5,6 +5,7 @@
 // session). Dismissed findings are fed back into the prompt so the agent stops
 // resurfacing the same thing — that's the anti-noise loop.
 
+import { announceChange } from "../change-topics.ts";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -324,6 +325,7 @@ export async function saveAutoAgent(input: {
     ? list.map((a) => (a.id === id ? agent : a))
     : [...list, agent];
   await Bun.write(agentsPath(), JSON.stringify(next, null, 2));
+  announceChange("auto");
   scheduleWakeHooksPush();
   return agent;
 }
@@ -339,6 +341,7 @@ export async function deleteAutoAgent(id: string): Promise<void> {
       2,
     ),
   );
+  announceChange("auto");
   scheduleWakeHooksPush();
 }
 
@@ -348,6 +351,7 @@ export async function deleteAutoAgentsOwnedByBot(botId: string): Promise<number>
   const list = await listAutoAgents();
   const keep = list.filter((a) => !(a.owner.kind === "bot" && a.owner.botId === botId));
   await Bun.write(agentsPath(), JSON.stringify(keep, null, 2));
+  announceChange("auto");
   scheduleWakeHooksPush();
   return list.length - keep.length;
 }
@@ -370,6 +374,7 @@ export async function setLastRun(id: string, ts: number): Promise<void> {
       2,
     ),
   );
+  announceChange("auto");
 }
 
 // ---------- in-flight runs (in-memory; serve process only) ----------
@@ -444,6 +449,7 @@ async function writeFindings(rows: Finding[]): Promise<void> {
     findingsPath(),
     rows.map((r) => JSON.stringify(r)).join("\n") + (rows.length ? "\n" : ""),
   );
+  announceChange("auto");
 }
 
 export async function addFinding(input: {

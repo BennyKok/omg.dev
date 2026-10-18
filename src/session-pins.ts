@@ -1,3 +1,4 @@
+import { announceChange } from "./change-topics.ts";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
@@ -49,6 +50,7 @@ export function setSessionPinned(sessionId: string, pinned: boolean): string[] {
   const database = pinsDb();
   if (!pinned) {
     database.query("DELETE FROM session_pins WHERE session_id = ?").run(sessionId);
+    announceChange("pins");
     return listSessionPins();
   }
   database.transaction(() => {
@@ -64,6 +66,7 @@ export function setSessionPinned(sessionId: string, pinned: boolean): string[] {
       .run(sessionId, next, Date.now());
     evictBeyondLimit(database);
   })();
+  announceChange("pins");
   return listSessionPins();
 }
 
@@ -85,6 +88,7 @@ export function importSessionPins(sessionIds: readonly string[]): string[] {
     }
     evictBeyondLimit(database);
   })();
+  announceChange("pins");
   return listSessionPins();
 }
 

@@ -1,3 +1,5 @@
+import { ANNOUNCED_LIST_BACKSTOP_MS, listChangesAnnounced, onListChange } from "./change-topics";
+import type { ChangeTopic } from "../useLiveSocket";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./omg-client";
 import type { ThreadDetail, ThreadMessage, ThreadSummary } from "../../../packages/protocol/src/threads";
@@ -80,7 +82,7 @@ export function updateThread(
  * same shape as the ask center's list, which is the other list this app keeps
  * without a socket.
  */
-function usePolled<T>(load: () => Promise<T>, everyMs: number, onValue: (value: T) => void) {
+function usePolled<T>(load: () => Promise<T>, everyMs: number, onValue: (value: T) => void, topic?: ChangeTopic) {
   const latest = useRef({ load, onValue });
   latest.current = { load, onValue };
   const run = useCallback(async () => {
@@ -92,9 +94,16 @@ function usePolled<T>(load: () => Promise<T>, everyMs: number, onValue: (value: 
   }, []);
   useEffect(() => {
     void run();
+    // An announced list is re-read when the live socket says it changed, and
+    // polled only as a slow backstop while that holds.
+    let lastPoll = Date.now();
     const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") void run();
+      if (document.visibilityState !== "visible") return;
+      if (topic && listChangesAnnounced() && Date.now() - lastPoll < ANNOUNCED_LIST_BACKSTOP_MS) return;
+      lastPoll = Date.now();
+      void run();
     }, everyMs);
+    const stopChanges = topic ? onListChange(topic, () => void run()) : () => {};
     const wake = () => {
       if (document.visibilityState === "visible") void run();
     };
@@ -102,16 +111,17 @@ function usePolled<T>(load: () => Promise<T>, everyMs: number, onValue: (value: 
     window.addEventListener("focus", wake);
     return () => {
       window.clearInterval(timer);
+      stopChanges();
       document.removeEventListener("visibilitychange", wake);
       window.removeEventListener("focus", wake);
     };
-  }, [run, everyMs]);
+  }, [run, everyMs, topic]);
   return run;
 }
 
 export function useThreads(): { threads: ThreadSummary[]; refresh: () => Promise<void>; archive: (id: string) => void } {
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
-  const refresh = usePolled(listThreads, 10_000, setThreads);
+  const refresh = usePolled(listThreads, 10_000, setThreads, "threads");
   const archive = useCallback(
     (id: string) => {
       setThreads((rows) => rows.filter((row) => row.id !== id));

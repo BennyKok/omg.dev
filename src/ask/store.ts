@@ -6,6 +6,7 @@
 // in the web UI or by talking to the voice agent (which answers on their
 // behalf). Answers wake any blocked long-poll via an in-memory waiter map.
 
+import { announceChange } from "../change-topics.ts";
 import { mkdir } from "node:fs/promises";
 import { statSync } from "node:fs";
 import { join } from "node:path";
@@ -168,6 +169,7 @@ async function writeAll(rows: AskQuestion[]): Promise<void> {
     rows.map((r) => JSON.stringify(r)).join("\n") + (rows.length ? "\n" : ""),
   );
   questionsCache = null;
+  announceChange("ask");
 }
 
 export async function addQuestion(input: {

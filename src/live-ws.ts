@@ -11,6 +11,7 @@ import {
   type PendingPrompt,
   type Session,
 } from "./sessions.ts";
+import { onChangeAnnounced, type ChangeTopic } from "./change-topics.ts";
 import { listSessionsCached, noteListSessionsClientActivity, onListSessionsInvalidated, type SessionListCache } from "./session-cache.ts";
 import {
   armTranscriptIndexWriteWatch,
@@ -456,6 +457,8 @@ type SidTail = {
 // a socket closed on a path that forgot to update it.
 let activeSidTails: Map<string, SidTail> | null = null;
 const STATUS_PUSH_MIN_GAP_MS = 100;
+const CHANGED_FRAME_MIN_DELAY_MS = 50;
+const CHANGED_FRAME_GAP_MS = 1_000;
 
 /**
  * True when a live WebSocket is currently subscribed to this session's
@@ -500,6 +503,13 @@ export function createLiveWsSupport(opts: {
   let statusPushAgain = false;
   let lastStatusPushAt = 0;
   let stopStatusPushes: (() => void) | null = null;
+  // List changes (repos, pins, schedules, bots) for every open socket, sent
+  // as one frame at most CHANGED_FRAME_GAP_MS apart: a bot rotation or a
+  // scheduler pass writes in bursts, and a client re-reads a list per frame.
+  let stopChangeTopics: (() => void) | null = null;
+  let pendingTopics = new Set<ChangeTopic>();
+  let changedTimer: ReturnType<typeof setTimeout> | null = null;
+  let lastChangedAt = 0;
 
   const channelId = (channel: Pick<Channel, "kind" | "key">): string => `${channel.kind}:${channel.key}`;
   const transcriptChannel = (sid: string): Channel => ({ kind: "transcript", key: sid });
@@ -730,6 +740,11 @@ export function createLiveWsSupport(opts: {
     lastStatusSigs = new Map();
     stopStatusPushes?.();
     stopStatusPushes = null;
+    stopChangeTopics?.();
+    stopChangeTopics = null;
+    if (changedTimer) clearTimeout(changedTimer);
+    changedTimer = null;
+    pendingTopics = new Set();
     if (statusPushTimer) clearTimeout(statusPushTimer);
     statusPushTimer = null;
     statusPushAgain = false;
@@ -800,9 +815,27 @@ export function createLiveWsSupport(opts: {
     }, delay);
   };
 
+  const flushChangedTopics = () => {
+    changedTimer = null;
+    if (!pendingTopics.size) return;
+    lastChangedAt = Date.now();
+    const frame = { t: "changed", topics: [...pendingTopics] };
+    pendingTopics = new Set();
+    for (const ws of openSockets) safeSend(ws, frame);
+  };
+
+  const announceToSockets = (topic: ChangeTopic) => {
+    if (!openSockets.size) return;
+    pendingTopics.add(topic);
+    if (changedTimer) return;
+    const delay = Math.max(CHANGED_FRAME_MIN_DELAY_MS, lastChangedAt + CHANGED_FRAME_GAP_MS - Date.now());
+    changedTimer = setTimeout(flushChangedTopics, delay);
+  };
+
   const ensureStatusLoop = () => {
     if (statusInterval) return;
     stopStatusPushes = sessionList.onInvalidate(requestStatusPush);
+    stopChangeTopics = onChangeAnnounced(announceToSockets);
     void publishStatus();
     statusInterval = setInterval(() => void publishStatus(), 1000);
   };
@@ -1341,6 +1374,9 @@ export function createLiveWsSupport(opts: {
       // that never declared the capability rather than guessed at.
       evlog("ws_connect", { rid, workRows: !!data?.workRows, userAgent: data?.userAgent ?? null });
       ensureStatusLoop();
+      // Announces that this server sends list changes. Changes made while
+      // the client was away were not sent to it, so it re-reads them once.
+      safeSend(ws, { t: "changed", topics: [] });
       void sendStatusBaseline(ws);
       state.heartbeat = setInterval(() => {
         if (state.closed) return;

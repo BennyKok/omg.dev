@@ -194,7 +194,22 @@ export interface OmgStatusRow {
   model?: string | null;
 }
 
+/**
+ * A list a client shows changed on the server: `repos` (GET /api/repos),
+ * `pins` (GET /api/session-pins), `auto` (GET /api/auto/agents and
+ * /api/auto/findings), `bots` (GET /api/bots), `ask` (GET /api/ask),
+ * `threads` (GET /api/threads).
+ */
+export type OmgChangeTopic = "repos" | "pins" | "auto" | "bots" | "ask" | "threads";
+
 export type OmgLiveMessage =
+  /**
+   * Re-read these lists. Never replayed on resume. A server sends one with
+   * empty `topics` when a socket opens: that announces support, and a client
+   * should re-read the lists once, because changes made while it was away
+   * were not announced to it.
+   */
+  | { t: "changed"; topics: OmgChangeTopic[] }
   /**
    * Who is typing in `sid` right now, as the COMPLETE set rather than a
    * join/leave event, and never replayed on resume. A client replaces its set
