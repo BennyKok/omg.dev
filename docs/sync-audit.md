@@ -140,7 +140,7 @@ account.
 | Measure | Now | Target |
 |---|---|---|
 | Title change → status row, p95 | 2.9 s (v0.6.255: 44 to 73 ms) | under 100 ms |
-| Transcript line → delta, p95 | 0.71 s | under 100 ms |
+| Transcript line → delta, p95 | 0.71 s (v0.6.257: 8 to 9 ms) | under 100 ms |
 | Missed line delivered after resume | never | always, within 100 ms of `resumed` |
 | First `/api/bootstrap` | 1.25 to 1.48 s | under 300 ms |
 
