@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 18, 2026 - Lists stay current after switching to an older Computer (v0.6.260)
+
+- After the web app reconnected to a Computer on an older version, for example a shared Computer, some lists could take up to 5 minutes to update. The app now checks on every connection whether the Computer announces changes, and keeps its regular checks when it does not.
+
 ## October 18, 2026 - Live lists in the client package (v0.6.259)
 
 - `@omg-dev/client` has a new `liveCollection` helper. It keeps a list current from the Computer's change announcements and polls only as a slow backup. `OmgLiveConnection` now passes those announcements on with `subscribeChanges`. The iOS app and other clients can use it in place of their own timers.
