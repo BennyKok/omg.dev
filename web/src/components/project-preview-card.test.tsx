@@ -62,6 +62,31 @@ test("a web app's preview opens inline at phone size, and full screen from its i
   expect(document.querySelector('[role="dialog"] iframe')?.getAttribute("src")).toBe("https://sandbox-5173.preview.omgs.app");
 });
 
+// Fails if the frame inside app.omg.dev goes back to the cross-site host:
+// iOS Safari drops that host's sign-in cookie, and the frame reloaded
+// app.omg.dev/access in a loop (37 and 116 times for two Meta signups).
+test("inside app.omg.dev a web preview frame uses the same-site preview host", async () => {
+  const happyDOM = (window as unknown as { happyDOM: { setURL(url: string): void } }).happyDOM;
+  happyDOM.setURL("https://app.omg.dev/computers/cloud/sessions/s1");
+  try {
+    globalThis.fetch = (async () => Response.json({ preview: {
+      sessionId: "session-1", title: "Todo web", url: "https://sandbox-5173.preview.omgs.app/",
+      port: 5173, kind: "sandbox-preview", visibility: "owner", temporary: true, createdAt: 1,
+    } })) as typeof fetch;
+    ui.render(<ProjectPreviewCard sessionId="session-1" user="person@example.com" />);
+    await ui.flushAsync();
+    const frame = document.querySelector('[data-testid="project-preview-web"] iframe') as HTMLIFrameElement;
+    expect(frame.getAttribute("src")).toBe("https://sandbox-5173.preview.omg.dev/");
+    // A new tab is first-party, so it keeps the canonical address.
+    expect(document.querySelector('a[aria-label="Open preview in new tab"]')?.getAttribute("href")).toBe("https://sandbox-5173.preview.omgs.app/");
+    const full = document.querySelector('[data-testid="project-preview-fullscreen"]') as HTMLElement;
+    ui.flush(() => full.click());
+    expect(document.querySelector('[role="dialog"] iframe')?.getAttribute("src")).toBe("https://sandbox-5173.preview.omg.dev/");
+  } finally {
+    happyDOM.setURL("http://127.0.0.1:5173/");
+  }
+});
+
 test("a collapsed web preview still opens full screen from its button", async () => {
   window.localStorage.setItem("lfg_preview_card_expanded", "0");
   globalThis.fetch = (async () => Response.json({ preview: {

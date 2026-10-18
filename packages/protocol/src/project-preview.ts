@@ -178,8 +178,36 @@ export const PREVIEW_LEVEL_LABEL: Record<PreviewLevel, string> = {
  * it is a third-party cookie inside app.omg.dev and inside the app's WebView,
  * so the frame showed "Sign in to continue". The Expo Go host is a signed,
  * short-lived capability URL for the same Metro port, and Metro answers it
- * with the Expo Web page. A plain web preview has no such host and keeps `url`.
+ * with the Expo Web page.
+ *
+ * A plain web preview has no such host, so it signs in through app.omg.dev
+ * `/access` and the preview's own access callback cookie. Inside an omg.dev
+ * page the canonical `*.preview.omgs.app` frame is cross-site, and iOS Safari
+ * drops that cookie: the frame bounced between the preview and `/access` until
+ * the person left (37 and 116 reloads for two October 2026 signups). On an
+ * omg.dev page the frame uses the routed `*.preview.omg.dev` alias instead,
+ * which is same-site, as the dashboard's own preview frame already does.
+ * `pageHostname` is the hostname of the page that renders the frame.
  */
-export function inlinePreviewUrl(preview: Pick<ProjectPreview, "url" | "expoGoUrl">): string {
-  return preview.expoGoUrl?.startsWith("exps://") ? `https://${preview.expoGoUrl.slice("exps://".length)}` : preview.url;
+export function inlinePreviewUrl(preview: Pick<ProjectPreview, "url" | "expoGoUrl">, pageHostname = ""): string {
+  if (preview.expoGoUrl?.startsWith("exps://")) return `https://${preview.expoGoUrl.slice("exps://".length)}`;
+  return sameSitePreviewUrl(preview.url, pageHostname);
+}
+
+const CANONICAL_PREVIEW_SUFFIX = ".preview.omgs.app";
+const OMG_DEV_PREVIEW_SUFFIX = ".preview.omg.dev";
+
+/** The preview address that is same-site with an omg.dev page. Other pages,
+ * and any non-preview URL, keep the address unchanged. */
+export function sameSitePreviewUrl(previewUrl: string, pageHostname: string): string {
+  const page = pageHostname.toLowerCase();
+  if (page !== "omg.dev" && !page.endsWith(".omg.dev")) return previewUrl;
+  try {
+    const url = new URL(previewUrl);
+    if (url.protocol !== "https:" || !url.hostname.endsWith(CANONICAL_PREVIEW_SUFFIX)) return previewUrl;
+    url.hostname = url.hostname.slice(0, -CANONICAL_PREVIEW_SUFFIX.length) + OMG_DEV_PREVIEW_SUFFIX;
+    return url.toString();
+  } catch {
+    return previewUrl;
+  }
 }

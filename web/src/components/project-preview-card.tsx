@@ -167,11 +167,11 @@ export function ProjectPreviewCard({ sessionId, user, agentBusy = false }: { ses
         </button>
       </div> : expanded ? <div className="border-t px-3 pb-2" data-testid="project-preview-details">
         {current === "web"
-          ? <PhoneFrame key={frameRevision} src={inlinePreviewUrl(preview)} identity={previewAppIdentity(preview)} title={`${preview.title} web preview`} testId="project-preview-web" />
+          ? <PhoneFrame key={frameRevision} src={inlinePreviewUrl(preview, pageHostname())} identity={previewAppIdentity(preview)} title={`${preview.title} web preview`} testId="project-preview-web" />
           : !expoGoUrl
           ? null
           : current === "simulator" && state?.simulator
-          ? <SimulatorLevel stream={state.simulator} webUrl={inlinePreviewUrl(preview)} identity={previewAppIdentity(preview)} title={preview.title} onStart={() => void simulatorAction("start")} />
+          ? <SimulatorLevel stream={state.simulator} webUrl={inlinePreviewUrl(preview, pageHostname())} identity={previewAppIdentity(preview)} title={preview.title} onStart={() => void simulatorAction("start")} />
           : <DeviceLevel url={expoGoUrl!} phone={phone} android={android} account={expo.account} error={expo.error} connecting={connecting}
               onConnect={(mode) => void connect(mode)} onOpenComputer={reopenSheet} onCancel={() => void expo.cancel()} />}
         {/* The level switcher sits under the preview, with the two small links. */}
@@ -196,7 +196,7 @@ export function ProjectPreviewCard({ sessionId, user, agentBusy = false }: { ses
           <a className="text-muted-foreground" href={preview.url} target="_blank" rel="noreferrer" aria-label="Open preview in new tab"><ExternalLink className="size-4" /></a>
           <button className="text-muted-foreground" onClick={() => setOpen(false)} aria-label="Close preview"><X className="size-5" /></button>
         </div>
-        <FullscreenFrame key={frameRevision} src={inlinePreviewUrl(preview)} identity={previewAppIdentity(preview)} title={preview.title} />
+        <FullscreenFrame key={frameRevision} src={inlinePreviewUrl(preview, pageHostname())} identity={previewAppIdentity(preview)} title={preview.title} />
       </div>,
       document.body,
     )}
@@ -261,6 +261,11 @@ function FreshnessDot({ state }: { state: PreviewFreshness }) {
   </span>;
 }
 
+/** The frame address depends on the page that renders it: inside app.omg.dev
+ * the web preview must use the same-site alias (see inlinePreviewUrl). */
+function pageHostname(): string {
+  return typeof window === "undefined" ? "" : window.location.hostname;
+}
 const FRAME_SANDBOX = "allow-downloads allow-forms allow-modals allow-popups allow-same-origin allow-scripts";
 /** The phone the inline frame imitates: an iPhone 15 in CSS pixels. */
 const PHONE_W = 390;
