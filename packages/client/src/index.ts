@@ -11,9 +11,11 @@ import type {
   OmgLiveCapabilities,
   OmgDraft,
   OmgStatusRow,
+  OmgChangeTopic,
 } from "@omg-dev/protocol";
 
 export type {
+  OmgChangeTopic,
   OmgAiStreamPart,
   OmgLiveChannel,
   OmgLiveMessage,
@@ -472,6 +474,7 @@ export interface OmgConnectionState {
 type TranscriptListener = (event: OmgTranscriptEvent) => void;
 type StatusListener = (rows: OmgStatusRow[]) => void;
 type ConnectionListener = (state: OmgConnectionState) => void;
+type ChangeListener = (topics: OmgChangeTopic[]) => void;
 
 function channelId(channel: OmgLiveChannel): string {
   return `${channel.kind}:${channel.key}`;
@@ -505,6 +508,8 @@ export class OmgLiveConnection {
   private sentChannels = new Set<string>();
   private pendingFlush = false;
   private connectionListeners = new Set<ConnectionListener>();
+  private changeListeners = new Set<ChangeListener>();
+  private changesAnnounced = false;
   private connectionState: OmgConnectionState = {
     status: "connecting",
     attempt: 0,
@@ -551,8 +556,31 @@ export class OmgLiveConnection {
     };
   }
 
+  /**
+   * The server's list changes (`changed` frames). An empty list means the
+   * socket just opened: changes made while it was closed were not sent, so a
+   * listener re-reads what it shows. Keeps the socket open while observed.
+   */
+  subscribeChanges(listener: ChangeListener): () => void {
+    this.changeListeners.add(listener);
+    this.ensureConnected();
+    return () => {
+      this.changeListeners.delete(listener);
+      if (!this.hasSubscribers()) this.closeSocket();
+    };
+  }
+
+  /**
+   * True while the socket is open and its server has said it announces list
+   * changes. While it holds, a list can rely on `changed` frames and poll only
+   * as a slow backstop. An older server never says so.
+   */
+  get announcesChanges(): boolean {
+    return this.changesAnnounced;
+  }
+
   private hasSubscribers(): boolean {
-    return this.listeners.size > 0 || this.statusListeners.size > 0;
+    return this.listeners.size > 0 || this.statusListeners.size > 0 || this.changeListeners.size > 0;
   }
 
   subscribeTranscript(sessionId: string, listener: TranscriptListener): () => void {
@@ -588,6 +616,8 @@ export class OmgLiveConnection {
 
   dispose(): void {
     this.disposed = true;
+    this.changeListeners.clear();
+    this.changesAnnounced = false;
     this.listeners.clear();
     this.statusListeners.clear();
     this.connectionListeners.clear();
@@ -642,6 +672,7 @@ export class OmgLiveConnection {
         socket.addEventListener("close", () => {
           if (this.socket !== socket) return;
           this.socket = null;
+          this.changesAnnounced = false;
           this.sentChannels.clear();
           this.scheduleReconnect();
         });
@@ -736,6 +767,18 @@ export class OmgLiveConnection {
   }
 
   private handleMessage(message: OmgLiveMessage): void {
+    if (message.t === "changed") {
+      this.changesAnnounced = true;
+      const topics = Array.isArray(message.topics) ? message.topics : [];
+      for (const listener of this.changeListeners) {
+        try {
+          listener(topics);
+        } catch {
+          // One listener's failure must not stop the others.
+        }
+      }
+      return;
+    }
     if (message.t === "status") {
       if (Array.isArray(message.rows)) {
         for (const listener of this.statusListeners) listener(message.rows);
@@ -881,4 +924,116 @@ export class OmgClient {
   dispose(): void {
     this.live.dispose();
   }
+}
+
+/** What a live collection needs from the connection. OmgLiveConnection has it. */
+export interface OmgChangeSource {
+  subscribeChanges(listener: (topics: OmgChangeTopic[]) => void): () => void;
+  readonly announcesChanges: boolean;
+}
+
+export interface OmgLiveCollectionOptions {
+  /** How often to re-read when the server does not announce changes. */
+  pollMs: number;
+  /**
+   * How often to re-read while it does, for writes made outside the server.
+   * Default 5 minutes.
+   */
+  backstopMs?: number;
+}
+
+export interface OmgLiveCollection<T> {
+  /** The last value read, or undefined before the first read finishes. */
+  peek(): T | undefined;
+  /** Start on the first listener, stop after the last. */
+  subscribe(listener: (value: T) => void): () => void;
+  /** Read now, for example when a screen comes back into view. */
+  refresh(): Promise<void>;
+}
+
+const DEFAULT_BACKSTOP_MS = 5 * 60_000;
+
+/**
+ * A list a client shows, kept current from the server's change announcements.
+ *
+ * It reads the list once, then re-reads it when the live socket says `topic`
+ * changed or when the socket opens (changes made while it was closed were not
+ * announced). While the server announces changes it polls only every
+ * `backstopMs`; otherwise every `pollMs`, which is how a client talks to an
+ * older server. A read already running absorbs further triggers into one more
+ * read after it, so a burst of changes costs at most two reads.
+ *
+ * A failed read keeps the last value. The caller decides what an error means.
+ */
+export function liveCollection<T>(
+  source: OmgChangeSource,
+  topic: OmgChangeTopic,
+  load: () => Promise<T>,
+  options: OmgLiveCollectionOptions,
+): OmgLiveCollection<T> {
+  const backstopMs = options.backstopMs ?? DEFAULT_BACKSTOP_MS;
+  const listeners = new Set<(value: T) => void>();
+  let value: T | undefined;
+  let reading: Promise<void> | null = null;
+  let readAgain = false;
+  let lastReadAt = 0;
+  let timer: ReturnType<typeof setInterval> | null = null;
+  let stopChanges: (() => void) | null = null;
+
+  const read = (): Promise<void> => {
+    if (reading) {
+      readAgain = true;
+      return reading;
+    }
+    lastReadAt = Date.now();
+    reading = load()
+      .then((next) => {
+        value = next;
+        for (const listener of listeners) listener(next);
+      })
+      .catch(() => {
+        // Keep the last value; the next trigger or poll tries again.
+      })
+      .finally(() => {
+        reading = null;
+        if (readAgain && listeners.size) {
+          readAgain = false;
+          void read();
+        }
+      });
+    return reading;
+  };
+
+  const start = () => {
+    stopChanges = source.subscribeChanges((topics) => {
+      if (topics.length === 0 || topics.includes(topic)) void read();
+    });
+    timer = setInterval(() => {
+      const every = source.announcesChanges ? backstopMs : options.pollMs;
+      if (Date.now() - lastReadAt >= every) void read();
+    }, Math.min(options.pollMs, backstopMs));
+    void read();
+  };
+
+  const stop = () => {
+    stopChanges?.();
+    stopChanges = null;
+    if (timer) clearInterval(timer);
+    timer = null;
+    readAgain = false;
+  };
+
+  return {
+    peek: () => value,
+    subscribe(listener) {
+      listeners.add(listener);
+      if (listeners.size === 1) start();
+      else if (value !== undefined) listener(value);
+      return () => {
+        listeners.delete(listener);
+        if (!listeners.size) stop();
+      };
+    },
+    refresh: read,
+  };
 }
