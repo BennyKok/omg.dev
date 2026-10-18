@@ -4397,11 +4397,11 @@ export async function cmdServe() {
         throw new CloudAccountError("Live sandbox previews are available inside an omg.dev Cloud Computer.", 409);
       }
       const response = await cloudAccount.cloudFetch(`/api/cli/computer/preview?port=${port}${options?.expoGo ? "&expoGo=1" : ""}`);
-      const body = await response.json().catch(() => ({})) as { url?: string; expoGoUrl?: string; error?: string };
+      const body = await response.json().catch(() => ({})) as { url?: string; expoGoUrl?: string; frameUrl?: string; error?: string };
       if (!response.ok || !body.url) {
         throw new CloudAccountError(body.error || `Could not expose port ${port}.`, response.status || 502);
       }
-      return { url: body.url, expoGoUrl: body.expoGoUrl };
+      return { url: body.url, expoGoUrl: body.expoGoUrl, frameUrl: body.frameUrl };
     },
     simulator: simulatorStreamProvider(),
   });
