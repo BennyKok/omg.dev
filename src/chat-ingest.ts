@@ -1,4 +1,4 @@
-import { statSync } from "node:fs";
+import { statSync, watch, type FSWatcher } from "node:fs";
 import { isCursorTurnEndedLine, normalizeLineMessages, type Session, type SessionMsg } from "./sessions.ts";
 import {
   deleteTranscriptIndexForPath,
@@ -46,6 +46,11 @@ class ChatTranscriptTailer {
   private lastMtimeMs = -1;
   private importing: Promise<ChatIngestResult> | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
+  // The file watch publishes an appended line at once; the poll above stays as
+  // the safety net for a missed event, a replaced file, or a filesystem without
+  // change events. sync-bench measured the poll alone at p95 700 ms per line.
+  private watcher: FSWatcher | null = null;
+  private readAgain = false;
   private subscribers = new Set<ChatIngestSubscriber>();
 
   constructor(path: string, sessionId: string) {
@@ -73,22 +78,65 @@ class ChatTranscriptTailer {
 
   start(): void {
     if (this.timer) return;
+    this.watchFile();
     this.timer = setInterval(() => {
+      this.watchFile();
       void this.catchUp("live").catch((err) => this.logError("chat_ingest_live_error", err));
     }, LIVE_POLL_MS);
     (this.timer as { unref?: () => void }).unref?.();
   }
 
   stop(): void {
+    this.unwatchFile();
+    this.readAgain = false;
     if (!this.timer) return;
     clearInterval(this.timer);
     this.timer = null;
+  }
+
+  private watchFile(): void {
+    if (this.watcher) return;
+    try {
+      this.watcher = watch(this.path, { persistent: false }, (event) => {
+        // A rename means the watched inode is no longer this path (rotated or
+        // replaced). Drop the watch; the next poll tick watches the new file.
+        if (event === "rename") this.unwatchFile();
+        this.onFileChange();
+      });
+      this.watcher.on("error", () => this.unwatchFile());
+    } catch {
+      // Not there yet, or no watch support. The poll covers it.
+      this.watcher = null;
+    }
+  }
+
+  private unwatchFile(): void {
+    const watcher = this.watcher;
+    this.watcher = null;
+    try {
+      watcher?.close();
+    } catch {}
+  }
+
+  private onFileChange(): void {
+    if (!this.subscribers.size) return;
+    // A read in progress may have taken its size before this write. Read once
+    // more after it, or the new line waits for the next poll tick.
+    if (this.importing) {
+      this.readAgain = true;
+      return;
+    }
+    void this.catchUp("watch").catch((err) => this.logError("chat_ingest_watch_error", err));
   }
 
   async catchUp(reason = "manual"): Promise<ChatIngestResult> {
     if (this.importing) return this.importing;
     this.importing = this.catchUpOnce(reason).finally(() => {
       this.importing = null;
+      if (this.readAgain) {
+        this.readAgain = false;
+        this.onFileChange();
+      }
     });
     return this.importing;
   }
