@@ -1,4 +1,4 @@
-import { mkdirSync, statSync } from "node:fs";
+import { mkdirSync, statSync, watch, type FSWatcher } from "node:fs";
 import { dirname, join } from "node:path";
 import { Database } from "bun:sqlite";
 import { PATHS } from "./config.ts";
@@ -80,6 +80,52 @@ export type TranscriptIndexCursor = {
 
 function dbPath(): string {
   return join(PATHS.data, "transcript-index.sqlite");
+}
+
+// Every write to the index, from this process or a harness process, appends to
+// the WAL file. Watching it lets a live view read new rows at once instead of
+// on its 1 s poll. The poll stays as the safety net: a checkpoint can replace
+// the file, and some filesystems send no change events.
+const indexWriteListeners = new Set<() => void>();
+let indexWalWatcher: { path: string; watcher: FSWatcher } | null = null;
+
+function closeIndexWalWatch(): void {
+  const current = indexWalWatcher;
+  indexWalWatcher = null;
+  try {
+    current?.watcher.close();
+  } catch {}
+}
+
+/** Watch the index for writes, or re-arm a watch a replaced WAL file dropped. */
+export function armTranscriptIndexWriteWatch(): void {
+  if (!indexWriteListeners.size) return;
+  const path = `${dbPath()}-wal`;
+  if (indexWalWatcher?.path === path) return;
+  closeIndexWalWatch();
+  try {
+    const watcher = watch(path, { persistent: false }, (event) => {
+      if (event === "rename") closeIndexWalWatch();
+      for (const listener of indexWriteListeners) {
+        try {
+          listener();
+        } catch {}
+      }
+    });
+    watcher.on("error", () => closeIndexWalWatch());
+    indexWalWatcher = { path, watcher };
+  } catch {
+    // No WAL file yet, or no watch support. The caller's poll covers it.
+  }
+}
+
+export function onTranscriptIndexWrite(listener: () => void): () => void {
+  indexWriteListeners.add(listener);
+  armTranscriptIndexWriteWatch();
+  return () => {
+    indexWriteListeners.delete(listener);
+    if (!indexWriteListeners.size) closeIndexWalWatch();
+  };
 }
 const INDEX_TEXT_MAX = 12_000;
 const INDEX_CHUNK_BYTES = 1024 * 1024;

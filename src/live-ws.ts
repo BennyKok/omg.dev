@@ -13,9 +13,11 @@ import {
 } from "./sessions.ts";
 import { listSessionsCached, noteListSessionsClientActivity, onListSessionsInvalidated, type SessionListCache } from "./session-cache.ts";
 import {
+  armTranscriptIndexWriteWatch,
   indexedMessageRowPage,
   indexedMessagesAfterRowid,
   isSessionIndexKey,
+  onTranscriptIndexWrite,
   subscribeIndexedArtifactMessages,
 } from "./transcript-index.ts";
 import { countTranscriptRows, foldWorkRows, LiveWorkRows, type ChatRenderMessage } from "./transcript-rows.ts";
@@ -445,6 +447,7 @@ type SidTail = {
   transcriptDbRowid: number | null;
   transcriptDbSessionId: string | null;
   transcriptDbPolling: boolean;
+  transcriptDbAgain: boolean;
 };
 
 // Live view of the active support instance's sid tails, so out-of-band callers
@@ -868,6 +871,9 @@ export function createLiveWsSupport(opts: {
       tail.transcriptSource = "db";
       tail.transcriptDbRowid = snapshotCursor.maxRowid;
       tail.transcriptDbSessionId = sessionId;
+      // A harness writes this session's rows from its own process. Read them
+      // on the write, not on the next 1 s tick.
+      tail.transcriptUnsub = onTranscriptIndexWrite(() => void pollIndexedTranscript(tail, "write"));
       return;
     }
     tail.transcriptSource = "file";
@@ -907,12 +913,18 @@ export function createLiveWsSupport(opts: {
     }
   };
 
-  const pollIndexedTranscript = async (tail: SidTail) => {
-    if (tail.transcriptSource !== "db" || tail.transcriptDbPolling) return;
+  const pollIndexedTranscript = async (tail: SidTail, trigger: "tick" | "write" = "tick") => {
+    if (tail.transcriptSource !== "db") return;
+    if (tail.transcriptDbPolling) {
+      // This read may have run its query before the write. Read once more.
+      tail.transcriptDbAgain = true;
+      return;
+    }
     // jcode history is journal + session.json merged into the lfg:// index on
-    // each resolve. Re-resolve every poll so a rewritten journal still streams
-    // new turns and recovered snapshot history without a file tailer.
-    if (tail.pane.agent === "jcode") {
+    // each resolve. Re-resolve every tick so a rewritten journal still streams
+    // new turns and recovered snapshot history without a file tailer. Not on a
+    // write: the resolve itself writes the index, which would wake it again.
+    if (tail.pane.agent === "jcode" && trigger === "tick") {
       try {
         const refreshed = await resolveTranscript(tail.sid);
         if (refreshed) tail.pane.tp = refreshed;
@@ -956,6 +968,10 @@ export function createLiveWsSupport(opts: {
       });
     } finally {
       tail.transcriptDbPolling = false;
+      if (tail.transcriptDbAgain && sidTails.get(tail.sid) === tail) {
+        tail.transcriptDbAgain = false;
+        void pollIndexedTranscript(tail, "write");
+      }
     }
   };
 
@@ -1034,12 +1050,14 @@ export function createLiveWsSupport(opts: {
       transcriptDbRowid: null,
       transcriptDbSessionId: null,
       transcriptDbPolling: false,
+      transcriptDbAgain: false,
     };
     sidTails.set(sid, tail);
     if (tp) await subscribeTailToTranscript(tail, tp);
     void hydrateTarget(tail).then(() => void pollOne(tail));
     pollQueue(tail);
     tail.pollInterval = setInterval(() => {
+      if (tail.transcriptSource === "db") armTranscriptIndexWriteWatch();
       void ensureTranscriptSubscription(tail).then(() => pollIndexedTranscript(tail));
       void pollOne(tail);
       pollQueue(tail);
