@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 18, 2026 - Fewer background requests, and a faster first load after a restart (v0.6.258)
+
+- With a Computer open, the app no longer re-reads lists that have not changed. Pins, schedules, findings, bots, projects, threads and agent questions now update when the Computer says they changed. A quiet Computer page made 38 requests a minute before and about 10 now.
+- A question from an agent now appears at once. Before, it could take up to 5 seconds.
+- The first load after the Computer restarts no longer waits for every agent CLI to report its version. That wait was up to 2 seconds, mostly for Cursor's CLI. The Computer now keeps those answers on disk.
+
 ## October 18, 2026 - An agent's new message shows at once (v0.6.257)
 
 - A new message from an agent now reaches every open client as soon as the agent writes it. Before, it took up to 0.7 s from a transcript file, and up to 1 s from omg's own agent runtimes. The local sync bench now measures 8 to 9 ms at p95, down from 700 ms.
