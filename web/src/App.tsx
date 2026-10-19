@@ -17724,6 +17724,11 @@ function SessionChatBody({
               onSendNow={steerHeldText}
             />
           ) : null}
+          {/* Host chrome right above this session's bar (the omg.dev guide card).
+              Empty unless a host portals into it; [data-lfg-host-slot]:empty
+              hides it. Tagged by kind, not session id, because only one
+              session composer is on screen at a time. */}
+          <div data-lfg-host-slot="composer-top" data-composer-kind="session" />
           {/* The bar itself (not just the textarea) is the field now: attach, type,
               mic and send all live inside one lfg-gfield pill, matching the
               wrapper pattern NewSessionDialog/ForkSessionDialog already use. That
@@ -24831,6 +24836,9 @@ function NewSessionDialog({
       )}
     >
       {files.fileInput}
+      {/* Host chrome above the new-session composer and its starter row (the
+          omg.dev guide card). Empty unless a host portals into it. */}
+      <div data-lfg-host-slot="composer-top" data-composer-kind="home" className={variant === "inline" ? "mb-2" : undefined} />
       {/* A chat with no folder starts from these four, the way it does on iOS.
           They sit above the field and only while the field is empty: once
           there is anything to send, the person has said what they want and
