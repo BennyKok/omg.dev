@@ -136,6 +136,24 @@ export function saveProjectLink(cwd: string, link: ProjectLink): void {
   writeFileSync(path, `${JSON.stringify(link, null, 2)}\n`, { mode: 0o600 });
 }
 
+/**
+ * After a rename, point every local `.omg/project.json` that named the old
+ * slug at the new one, so env, visibility and status calls keep finding the
+ * app. Deploys go by projectId and would work regardless. Returns the folders
+ * that changed.
+ */
+export function relinkRenamedApp(oldSlug: string, newSlug: string, folders: readonly string[]): string[] {
+  if (!newSlug || oldSlug === newSlug) return [];
+  const changed: string[] = [];
+  for (const folder of new Set(folders)) {
+    const link = loadProjectLink(folder);
+    if (link?.slug !== oldSlug) continue;
+    saveProjectLink(folder, { ...link, slug: newSlug });
+    changed.push(folder);
+  }
+  return changed;
+}
+
 export type LinkAppInput = {
   cwd: string;
   slug: string;
@@ -461,6 +479,7 @@ export const CLOUD_APPS_PATHS = [
   "/api/cloud/apps/deploy",
   "/api/cloud/apps/status",
   "/api/cloud/apps/visibility",
+  "/api/cloud/apps/rename",
   "/api/cloud/apps/identity",
   "/api/cloud/apps/link",
   "/api/cloud/apps/unlink",
@@ -531,6 +550,20 @@ export async function handleCloudAppsRequest(
         return jsonResponse({ error: "visibility is required" }, 400);
       }
       return jsonResponse(await client.setVisibility(body.slug.trim(), body.visibility.trim()));
+    }
+    if (path === "/api/cloud/apps/rename" && req.method === "POST") {
+      const body = await envBody(req);
+      if (typeof body.slug !== "string" || !body.slug.trim()) {
+        return jsonResponse({ error: "slug is required" }, 400);
+      }
+      if (typeof body.newSlug !== "string" || !body.newSlug.trim()) {
+        return jsonResponse({ error: "newSlug is required" }, 400);
+      }
+      const renamed = await client.renameApp(body.slug.trim(), body.newSlug.trim());
+      const folders = (await options.projectFolders?.()) ?? [];
+      const extra = typeof body.cwd === "string" && body.cwd.trim() ? [body.cwd.trim()] : [];
+      const relinked = relinkRenamedApp(body.slug.trim(), renamed.slug, [...extra, ...folders]);
+      return jsonResponse({ ...renamed, relinkedFolders: relinked });
     }
     if (path === "/api/cloud/apps/identity" && req.method === "POST") {
       const body = (await req.json().catch(() => null)) as {
