@@ -4,24 +4,26 @@ import type { ChangeTopic } from "../useLiveSocket";
  * List changes the server announced on the live socket (`changed` frames),
  * for lists kept outside App: the questions inbox and threads.
  *
- * While the socket is live and its server announces changes, a list re-reads
- * when it changes and polls only as a slow backstop, for writes made outside
- * the server. Otherwise it polls as it always did.
+ * While the socket is live, a list re-reads when it changes and otherwise
+ * only on a slow backstop, for writes made outside the server. Every Computer
+ * the app can reach announces changes (LFG 0.6.260+; hosted Computers are
+ * updated before they serve), so there is no fast poll for older servers.
+ * While the socket is down, a list polls as before.
  */
 type Listener = (topics: ChangeTopic[]) => void;
 
 const listeners = new Set<Listener>();
-let announced = false;
+let live = false;
 
-/** The slow backstop poll for an announced list. */
-export const ANNOUNCED_LIST_BACKSTOP_MS = 5 * 60_000;
+/** The slow backstop poll for a list while the socket is live. */
+export const LIVE_LIST_BACKSTOP_MS = 5 * 60_000;
 
-export function setListChangesAnnounced(next: boolean): void {
-  announced = next;
+export function setListsLive(next: boolean): void {
+  live = next;
 }
 
-export function listChangesAnnounced(): boolean {
-  return announced;
+export function listsLive(): boolean {
+  return live;
 }
 
 export function emitListChanges(topics: ChangeTopic[]): void {

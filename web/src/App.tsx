@@ -315,7 +315,7 @@ import {
 } from "./cron";
 import { evlog } from "./lib/evlog";
 import { liveTransportMode, useLiveSocket, type ChangeTopic, type ConnectionState } from "./useLiveSocket";
-import { emitListChanges, setListChangesAnnounced } from "./lib/change-topics";
+import { emitListChanges, setListsLive } from "./lib/change-topics";
 import {
   OmgChatStreamOwnership,
   OmgChatTransport,
@@ -7238,11 +7238,11 @@ export function App() {
   // applyLiveStatusRows). The moment the socket is not live the poll is back
   // to 5 s, which is what the non-socket transports always had.
   const wsLiveRef = useRef(false);
-  // The server announces list changes on the socket (a `changed` frame). With
-  // that, pins, schedules, findings, bots and repos are re-read when they
-  // change, and the cycle below re-reads them only every 5 minutes as a
-  // backstop, for writes made outside the server (the agents CLI).
-  const changeFramesRef = useRef(false);
+  // While the socket is live, pins, schedules, findings, bots and repos are
+  // re-read on `changed` frames, and the cycle below re-reads them only every
+  // 5 minutes as a backstop, for writes made outside the server (the agents
+  // CLI). Every Computer the app reaches announces changes (LFG 0.6.260+;
+  // hosted Computers are updated for it), so there is no faster list poll.
   const showBotsRef = useRef(settings.showBots);
   showBotsRef.current = settings.showBots;
   useEffect(() => {
@@ -7265,11 +7265,12 @@ export function App() {
     };
     const cycle = () => {
       cyclesSinceTick += 1;
-      cyclesSinceLists += 1;
       if (wsLiveRef.current && cyclesSinceTick < 6) return;
       cyclesSinceTick = 0;
-      const announced = wsLiveRef.current && changeFramesRef.current;
-      const lists = !announced || cyclesSinceLists >= 60;
+      cyclesSinceLists += 1;
+      // Live: sessions every 30 s (status rows cannot report a removed
+      // session), lists only on `changed` frames plus a 5 minute backstop.
+      const lists = !wsLiveRef.current || cyclesSinceLists >= 10;
       if (lists) cyclesSinceLists = 0;
       tick(lists);
     };
@@ -7810,8 +7811,6 @@ export function App() {
   const sseLiveStream = useLiveSessionStream(rosterSessions, useWsLive ? [] : expandedIds);
   const onListsChanged = useCallback(
     (topics: ChangeTopic[]) => {
-      changeFramesRef.current = true;
-      setListChangesAnnounced(wsLiveRef.current);
       emitListChanges(topics);
       if (!firstBootstrapDoneRef.current) return;
       // Empty: the socket just opened, and changes made while it was away
@@ -7833,11 +7832,7 @@ export function App() {
     viewerIdentity: botUnreadIdentity,
   });
   wsLiveRef.current = useWsLive && wsLiveStream.connection.status === "live";
-  // Support is per connection. The next server may be an older Computer that
-  // never announces changes (a shared machine, a rollback), so forget it on
-  // every drop; a current server says so again in the frame it sends on open.
-  if (!wsLiveRef.current) changeFramesRef.current = false;
-  setListChangesAnnounced(wsLiveRef.current && changeFramesRef.current);
+  setListsLive(wsLiveRef.current);
   const liveStream = useWsLive ? wsLiveStream : sseLiveStream;
 
   // "Somebody ELSE is typing."

@@ -1,4 +1,4 @@
-import { ANNOUNCED_LIST_BACKSTOP_MS, listChangesAnnounced, onListChange } from "./change-topics";
+import { LIVE_LIST_BACKSTOP_MS, listsLive, onListChange } from "./change-topics";
 import type { ChangeTopic } from "../useLiveSocket";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./omg-client";
@@ -94,12 +94,12 @@ function usePolled<T>(load: () => Promise<T>, everyMs: number, onValue: (value: 
   }, []);
   useEffect(() => {
     void run();
-    // An announced list is re-read when the live socket says it changed, and
-    // polled only as a slow backstop while that holds.
+    // A list is re-read when the live socket says it changed, and polled only
+    // as a slow backstop while the socket is live.
     let lastPoll = Date.now();
     const timer = window.setInterval(() => {
       if (document.visibilityState !== "visible") return;
-      if (topic && listChangesAnnounced() && Date.now() - lastPoll < ANNOUNCED_LIST_BACKSTOP_MS) return;
+      if (topic && listsLive() && Date.now() - lastPoll < LIVE_LIST_BACKSTOP_MS) return;
       lastPoll = Date.now();
       void run();
     }, everyMs);

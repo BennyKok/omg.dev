@@ -1201,14 +1201,11 @@ export class OmgClient {
 /** What a live collection needs from the connection. OmgLiveConnection has it. */
 export interface OmgChangeSource {
   subscribeChanges(listener: (topics: OmgChangeTopic[]) => void): () => void;
-  readonly announcesChanges: boolean;
 }
 
 export interface OmgLiveCollectionOptions {
-  /** How often to re-read when the server does not announce changes. */
-  pollMs: number;
   /**
-   * How often to re-read while it does, for writes made outside the server.
+   * How often to re-read anyway, for writes made outside the server.
    * Default 5 minutes.
    */
   backstopMs?: number;
@@ -1230,10 +1227,11 @@ const DEFAULT_BACKSTOP_MS = 5 * 60_000;
  *
  * It reads the list once, then re-reads it when the live socket says `topic`
  * changed or when the socket opens (changes made while it was closed were not
- * announced). While the server announces changes it polls only every
- * `backstopMs`; otherwise every `pollMs`, which is how a client talks to an
- * older server. A read already running absorbs further triggers into one more
- * read after it, so a burst of changes costs at most two reads.
+ * announced), and every `backstopMs` as a safety net. It does not poll a
+ * server that never announces changes (LFG before 0.6.260): such a server
+ * shows an update prompt instead, and hosted Computers are updated for it. A
+ * read already running absorbs further triggers into one more read after it,
+ * so a burst of changes costs at most two reads.
  *
  * A failed read keeps the last value. The caller decides what an error means.
  */
@@ -1241,7 +1239,7 @@ export function liveCollection<T>(
   source: OmgChangeSource,
   topic: OmgChangeTopic,
   load: () => Promise<T>,
-  options: OmgLiveCollectionOptions,
+  options: OmgLiveCollectionOptions = {},
 ): OmgLiveCollection<T> {
   const backstopMs = options.backstopMs ?? DEFAULT_BACKSTOP_MS;
   const listeners = new Set<(value: T) => void>();
@@ -1281,9 +1279,8 @@ export function liveCollection<T>(
       if (topics.length === 0 || topics.includes(topic)) void read();
     });
     timer = setInterval(() => {
-      const every = source.announcesChanges ? backstopMs : options.pollMs;
-      if (Date.now() - lastReadAt >= every) void read();
-    }, Math.min(options.pollMs, backstopMs));
+      if (Date.now() - lastReadAt >= backstopMs) void read();
+    }, backstopMs);
     void read();
   };
 
