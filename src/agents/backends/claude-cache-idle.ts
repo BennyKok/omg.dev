@@ -67,14 +67,13 @@ export class ClaudeCacheIdle {
     if (age < 0 || age >= this.ttl) return null;
     const canCompact = this.automatic && options.autoCompactEnabled
       && this.ttl === 60 * MINUTE && this.tokens >= 200_000 && !this.attempted;
-    const warningAt = this.ttl === 60 * MINUTE ? 50 * MINUTE : 4 * MINUTE;
-    if (!this.warned && age >= warningAt) {
+    // Warn only when we can perform maintenance ourselves. A cache miss on
+    // an ineligible session does not create a manual task for the person.
+    if (canCompact && !this.warned && age >= 50 * MINUTE) {
       this.warned = true;
       return {
         type: "warn",
-        text: canCompact
-          ? "Cache warning: this conversation's prompt cache is expected to expire soon. If the session stays idle, omg.dev will compact it before expiry. Compaction replaces older context with a summary."
-          : "Cache warning: this conversation's prompt cache is expected to expire soon. Send /compact now to summarize it while the cache is warm. After expiry, the next request may need to process the full history again.",
+        text: "This conversation's prompt cache is expected to expire soon. If the session stays idle, omg.dev will summarize older context automatically. You do not need to take any action.",
       };
     }
     if (canCompact && age >= 54 * MINUTE) {

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { appendCmd, readEntry, wakeHarnessCommandReader } from "../../aisdk-registry.ts";
 import { PATHS } from "../../config.ts";
-import { resetTranscriptIndexConnectionForTests } from "../../transcript-index.ts";
+import { indexedRecentMessages, sessionIndexKey, resetTranscriptIndexConnectionForTests } from "../../transcript-index.ts";
 import { runManagedSdkSession } from "./managed-sdk-session.ts";
 
 const originalData = PATHS.data;
@@ -33,6 +33,41 @@ async function waitFor(check: () => boolean, timeoutMs = 2_000): Promise<void> {
 }
 
 describe("managed SDK startup journaling and first-launch commands", () => {
+  test("a background maintenance notice preserves the active draft and busy state", async () => {
+    let release = () => {};
+    let notify = () => {};
+    const paused = new Promise<void>((resolve) => { release = resolve; });
+    const done = runManagedSdkSession({
+      key: KEY, agent: "copilot", cwd: root, model: "auto", managedName: "maintenance-notice",
+      initialPrompt: "work", exitProcess: () => {},
+      async createRuntime(sink) {
+        notify = () => sink.notice?.("Maintenance could not complete.");
+        return {
+          nativeSessionId: "native-copilot",
+          async runTurn() {
+            await Bun.sleep(170);
+            sink.draft("Answer in progress");
+            await paused;
+            return { text: "Answer complete" };
+          },
+          interrupt() {}, close() {},
+        };
+      },
+    });
+    try {
+      await waitFor(() => readEntry(KEY)?.draftText === "Answer in progress");
+      notify();
+      expect(readEntry(KEY)?.busy).toBe(true);
+      expect(readEntry(KEY)?.draftText).toBe("Answer in progress");
+      const rows = await indexedRecentMessages(sessionIndexKey(KEY), KEY);
+      expect(rows.some((row) => row.text === "Maintenance could not complete.")).toBe(true);
+    } finally {
+      release();
+      appendCmd(KEY, { type: "close" });
+      wakeHarnessCommandReader(readEntry(KEY)!);
+      await done;
+    }
+  });
   test("marks live reasoning drafts so clients do not render them as answer text", async () => {
     let releaseThought = () => {};
     let releaseAnswer = () => {};
