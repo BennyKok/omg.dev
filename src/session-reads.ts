@@ -14,6 +14,7 @@
 // Working and unread stay separate facts. A session can be busy again and still
 // hold a reply you never read; one badge for both would overwrite one of them.
 
+import { announceChange } from "./change-topics.ts";
 import { join } from "node:path";
 import { PATHS } from "./config.ts";
 import { createReadWatermarkStore, readWatermarkUser } from "./read-watermarks.ts";
@@ -97,5 +98,6 @@ export function markSessionRead(
   ensureSessionReadBaseline(key, now);
   const cursor = latestIndexedAssistantRowids([sessionId]).get(sessionId) ?? null;
   const mark = store.mark(key, sessionId, cursor, now);
+  announceChange("sessions");
   return { readThroughRowid: mark.readThroughRowid };
 }

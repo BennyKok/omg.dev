@@ -492,6 +492,7 @@ export function createLiveWsSupport(opts: {
   const openSockets = new Set<LiveWs>();
   let statusInterval: ReturnType<typeof setInterval> | null = null;
   let lastStatusSigs = new Map<string, string>();
+  let lastRosterSigs = new Map<string, string>();
   let statusPublishing = false;
   // A session write (rename, create, busy change, ...) calls
   // invalidateListSessionsCache(). Publishing on that signal shows the change
@@ -738,6 +739,7 @@ export function createLiveWsSupport(opts: {
     clearInterval(statusInterval);
     statusInterval = null;
     lastStatusSigs = new Map();
+    lastRosterSigs = new Map();
     stopStatusPushes?.();
     stopStatusPushes = null;
     stopChangeTopics?.();
@@ -766,9 +768,14 @@ export function createLiveWsSupport(opts: {
       // Keep the shared cache warm while sockets are open, then read the cached
       // snapshot — a single background refresher owns the real listSessions().
       sessionList.noteClientActivity();
-      const rows = (await sessionList.get())
-        .filter((s) => s.sessionId)
-        .map(slimStatus);
+      const sessions = (await sessionList.get()).filter((s) => s.sessionId);
+      const rows = sessions.map(slimStatus);
+      // Fields outside status patches (project, parent, assignment, etc.)
+      // still need a list refresh when they change.
+      const rosterSigs = new Map(sessions.map((s) => {
+        const { title, busy, lastUserText, lastActivityAt, status, statusReason, statusDetail, model, last, ...roster } = s;
+        return [s.sessionId!, JSON.stringify(roster)] as const;
+      }));
       // Only the rows that changed since the last broadcast. A busy fleet
       // changes one or two rows a second (a lastActivityAt, a busy flag), and
       // sending the whole fleet for each of those cost every open tab ~6 KB
@@ -783,7 +790,20 @@ export function createLiveWsSupport(opts: {
         nextSigs.set(row.sessionId!, sig);
         if (lastStatusSigs.get(row.sessionId!) !== sig) changedRows.push(row);
       }
-      const changed = changedRows.length > 0 || nextSigs.size !== lastStatusSigs.size;
+      const membershipChanged = nextSigs.size !== lastStatusSigs.size
+        || [...lastStatusSigs.keys()].some((id) => !nextSigs.has(id));
+      if (membershipChanged || [...rosterSigs].some(([id, sig]) => lastRosterSigs.get(id) !== sig)) {
+        announceToSockets("sessions");
+      }
+      lastRosterSigs = rosterSigs;
+      const changed = changedRows.length > 0 || membershipChanged;
+      if (changed) {
+        const affected = new Set(changedRows.map((row) => row.sessionId));
+        for (const id of lastStatusSigs.keys()) if (!nextSigs.has(id)) affected.add(id);
+        if (listConversations().some((c) => c.kind === "thread" && c.runtimeSessions.some((r) => affected.has(r.sessionId)))) {
+          announceToSockets("threads");
+        }
+      }
       lastStatusSigs = nextSigs;
       if (changedRows.length) {
         const frame = stamp(statusChannel(), { t: "status", rows: changedRows });
@@ -835,7 +855,9 @@ export function createLiveWsSupport(opts: {
   const ensureStatusLoop = () => {
     if (statusInterval) return;
     stopStatusPushes = sessionList.onInvalidate(requestStatusPush);
-    stopChangeTopics = onChangeAnnounced(announceToSockets);
+    stopChangeTopics = onChangeAnnounced(announceToSockets, () => {
+      for (const ws of [...openSockets]) ws.close(1011, "Change notifications unavailable");
+    });
     void publishStatus();
     statusInterval = setInterval(() => void publishStatus(), 1000);
   };

@@ -204,7 +204,7 @@ export interface OmgStatusRow {
  * /api/auto/findings), `bots` (GET /api/bots), `ask` (GET /api/ask),
  * `threads` (GET /api/threads).
  */
-export type OmgChangeTopic = "repos" | "pins" | "auto" | "bots" | "ask" | "threads";
+export type OmgChangeTopic = "repos" | "pins" | "auto" | "bots" | "ask" | "threads" | "sessions";
 
 export type OmgLiveMessage =
   /**

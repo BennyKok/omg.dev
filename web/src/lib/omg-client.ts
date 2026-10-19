@@ -174,6 +174,11 @@ type SharedFetch = { buffered: { body: ArrayBuffer; init: ResponseInit } } | { r
 const sharedApiReads = new Map<string, Promise<unknown>>();
 const sharedFetchReads = new Map<string, Promise<SharedFetch>>();
 
+/** A server invalidation must refresh after reads that may predate it. */
+export async function settlePendingOmgReads(): Promise<void> {
+  await Promise.allSettled([...sharedApiReads.values(), ...sharedFetchReads.values()]);
+}
+
 function isRead(init?: RequestInit): boolean {
   const method = (init?.method ?? "GET").toUpperCase();
   return method === "GET" || method === "HEAD";

@@ -29,7 +29,7 @@ import { MessageResponse } from "@/components/ai-elements/message";
 import { cn } from "@/lib/utils";
 import { omgFetch } from "@/lib/omg-client";
 import { closePushNotification } from "@/lib/push";
-import { LIVE_LIST_BACKSTOP_MS, listsLive, onListChange } from "@/lib/change-topics";
+import { listsLive, onListChange } from "@/lib/change-topics";
 import { KeyRound, MessageCircleQuestion, Send, X } from "lucide-react";
 import { QuestionCard, QuestionChoices } from "./question-card";
 
@@ -131,11 +131,9 @@ export function AskProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     void refresh();
     // A new question is announced on the live socket the moment an agent asks
-    // it. While the socket is live, the 5 s poll is only a slow backstop.
-    let lastPoll = Date.now();
+    // it. Poll only while disconnected.
     const t = setInterval(() => {
-      if (listsLive() && Date.now() - lastPoll < LIVE_LIST_BACKSTOP_MS) return;
-      lastPoll = Date.now();
+      if (listsLive()) return;
       void refresh();
     }, POLL_MS);
     const stopChanges = onListChange("ask", () => void refresh());

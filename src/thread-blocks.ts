@@ -1,3 +1,4 @@
+import { announceChange } from "./change-topics.ts";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { PATHS } from "./config.ts";
@@ -35,5 +36,6 @@ export function setThreadParticipantBlocked(viewer: string, sender: string, bloc
   const temp = `${path()}.${crypto.randomUUID()}.tmp`;
   writeFileSync(temp, JSON.stringify(data), { mode: 0o600 });
   renameSync(temp, path());
+  announceChange("threads");
   return [...next];
 }

@@ -88,7 +88,8 @@ type StatusRow = Pick<
   | "model"
 >;
 /** A list the server says changed (see OmgChangeTopic in @omg-dev/protocol). */
-export type ChangeTopic = "repos" | "pins" | "auto" | "bots" | "ask" | "threads";
+export type { OmgChangeTopic as ChangeTopic } from "@omg-dev/protocol";
+import type { OmgChangeTopic as ChangeTopic } from "@omg-dev/protocol";
 
 export type TranscriptEvent =
   | { type: "message"; message: Message }

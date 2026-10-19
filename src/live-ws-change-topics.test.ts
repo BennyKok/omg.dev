@@ -68,3 +68,22 @@ test("pin, repo and question writes reach an open socket as one changed frame, a
     live.close(ws);
   }
 });
+
+// A CLI process uses the same stores, but does not share the server's memory.
+// Its committed write must invalidate an already open browser without a poll.
+test("a repo write in another process reaches the open socket", async () => {
+  const live = createLiveWsSupport({ evlog: () => {}, sessions: createSessionListCache(async () => []) }) as unknown as {
+    open(ws: unknown): void; close(ws: unknown): void; dataForRequest(id: string | null): unknown;
+  };
+  const frames: Frame[] = [];
+  const ws = { data: live.dataForRequest(null), send(raw: string) { frames.push(JSON.parse(raw)); }, close() {} };
+  live.open(ws);
+  try {
+    const child = Bun.spawn([process.execPath, "--eval", `
+      import { hideRepo } from ${JSON.stringify(join(import.meta.dir, "repos-store.ts"))};
+      await hideRepo(${JSON.stringify(join(home, "external-repo"))});
+    `], { env: { ...process.env, OMG_DATA_DIR: PATHS.data }, stdout: "pipe", stderr: "pipe" });
+    expect(await child.exited).toBe(0);
+    await until(() => frames.some(f => f.t === "changed" && f.topics?.includes("repos")), 2_000);
+  } finally { live.close(ws); }
+});

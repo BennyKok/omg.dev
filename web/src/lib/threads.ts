@@ -1,4 +1,4 @@
-import { LIVE_LIST_BACKSTOP_MS, listsLive, onListChange } from "./change-topics";
+import { listsLive, onListChange } from "./change-topics";
 import type { ChangeTopic } from "../useLiveSocket";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./omg-client";
@@ -78,29 +78,38 @@ export function updateThread(
 }
 
 /**
- * Poll while the tab is visible, and refresh at once when it comes back. The
- * same shape as the ask center's list, which is the other list this app keeps
- * without a socket.
+ * Refresh on changes and on returning to the tab. The timer is used only
+ * while the shared live connection is unavailable.
  */
 function usePolled<T>(load: () => Promise<T>, everyMs: number, onValue: (value: T) => void, topic?: ChangeTopic) {
   const latest = useRef({ load, onValue });
   latest.current = { load, onValue };
-  const run = useCallback(async () => {
-    try {
-      latest.current.onValue(await latest.current.load());
-    } catch {
-      // A machine from before threads answers 404; keep what we have.
-    }
+  const running = useRef<Promise<void> | null>(null);
+  const readAgain = useRef(false);
+  const run = useCallback((): Promise<void> => {
+    readAgain.current = true;
+    if (running.current) return running.current;
+    running.current = Promise.resolve().then(async () => {
+      // A change during an older request must get its own read after it.
+      // Otherwise request sharing can swallow the only invalidation event.
+      do {
+        readAgain.current = false;
+        try {
+          latest.current.onValue(await latest.current.load());
+        } catch {
+          // Keep the last value. Reconnect, focus, or the next change retries.
+        }
+      } while (readAgain.current);
+      running.current = null;
+    });
+    return running.current;
   }, []);
   useEffect(() => {
     void run();
-    // A list is re-read when the live socket says it changed, and polled only
-    // as a slow backstop while the socket is live.
-    let lastPoll = Date.now();
+    // Change announcements keep live lists current. Poll while disconnected.
     const timer = window.setInterval(() => {
       if (document.visibilityState !== "visible") return;
-      if (topic && listsLive() && Date.now() - lastPoll < LIVE_LIST_BACKSTOP_MS) return;
-      lastPoll = Date.now();
+      if (topic && listsLive()) return;
       void run();
     }, everyMs);
     const stopChanges = topic ? onListChange(topic, () => void run()) : () => {};
@@ -141,7 +150,7 @@ export function useThread(
   const load = useCallback(() => (id ? getThread(id, user) : Promise.resolve(null)), [id, user]);
   const refresh = usePolled(load, 3_000, (value) => {
     if (value) setDetail(value);
-  });
+  }, "threads");
   // A different thread loads at once, not on the next tick.
   useEffect(() => {
     void refresh();
