@@ -49,3 +49,35 @@ test("a renamed session reaches an open socket without waiting for the poll or t
     live.close(ws);
   }
 });
+
+// Equal-size replacements and the last deletion cannot be represented by
+// partial status rows. They must tell clients to reload list membership.
+test("session replacement, deletion and reconnect invalidate the roster", async () => {
+  let rows = [{ sessionId: SID, title: "first" } as unknown as Session];
+  const sessions = createSessionListCache(async () => rows);
+  const live = createLiveWsSupport({ sessions, evlog: () => {} }) as unknown as Live;
+  const frames: Array<{t?: string; topics?: string[]}> = [];
+  const ws = { data: live.dataForRequest(null), send(raw: string) { frames.push(JSON.parse(raw)); }, close() {} };
+  const changes = () => frames.filter(f => f.t === "changed" && f.topics?.includes("sessions")).length;
+  live.open(ws);
+  try {
+    await until(() => changes() > 0, 1_000);
+    let before = changes();
+    rows = [{ ...rows[0]!, project: "moved-project" }];
+    sessions.invalidate();
+    await until(() => changes() > before, 1_000);
+    before = changes();
+    rows = [{ sessionId: "55555555-5555-4555-8555-555555555555", title: "replacement" } as unknown as Session];
+    sessions.invalidate();
+    await until(() => changes() > before, 1_000);
+    before = changes();
+    rows = [];
+    sessions.invalidate();
+    await until(() => changes() > before, 1_000);
+    live.close(ws);
+    frames.length = 0;
+    ws.data = live.dataForRequest(null);
+    live.open(ws);
+    expect(frames.some(f => f.t === "changed" && f.topics?.length === 0)).toBe(true);
+  } finally { live.close(ws); }
+});

@@ -7228,31 +7228,15 @@ export function App() {
   // returning runs one immediate refresh so the view is never stale-on-arrival
   // while it waits out the rest of an interval.
   //
-  // While the live socket is up it already pushes every status change the
-  // roster shows (busy, title, last text, model) the second it happens, so
-  // this REST poll is only reconciliation: sessions that appeared or went
-  // away, unread watermarks, pins, schedules, bots. Reconciliation does not
-  // need to run every five seconds — and on a phone each cycle was ~30 KB
-  // plus four state updates. With the socket live the poll runs every 30 s;
-  // a session that appears on the socket first is picked up at once (see
-  // applyLiveStatusRows). The moment the socket is not live the poll is back
-  // to 5 s, which is what the non-socket transports always had.
+  // Live changes own list refreshes. Poll only while disconnected.
   const wsLiveRef = useRef(false);
-  // While the socket is live, pins, schedules, findings, bots and repos are
-  // re-read on `changed` frames, and the cycle below re-reads them only every
-  // 5 minutes as a backstop, for writes made outside the server (the agents
-  // CLI). Every Computer the app reaches announces changes (LFG 0.6.260+;
-  // hosted Computers are updated for it), so there is no faster list poll.
   const showBotsRef = useRef(settings.showBots);
   showBotsRef.current = settings.showBots;
   useEffect(() => {
     let id: number | null = null;
-    let cyclesSinceTick = 0;
-    let cyclesSinceLists = 0;
-    const tick = (lists = true) => {
+    const tick = () => {
       if (!firstBootstrapDoneRef.current) return;
       refreshSessions().catch(() => {});
-      if (!lists) return;
       refreshSessionPins().catch(() => {});
       refreshAuto().catch(() => {});
       if (showBotsRef.current) refreshBots().catch(() => {});
@@ -7264,15 +7248,7 @@ export function App() {
       refreshRepos().catch(() => {});
     };
     const cycle = () => {
-      cyclesSinceTick += 1;
-      if (wsLiveRef.current && cyclesSinceTick < 6) return;
-      cyclesSinceTick = 0;
-      cyclesSinceLists += 1;
-      // Live: sessions every 30 s (status rows cannot report a removed
-      // session), lists only on `changed` frames plus a 5 minute backstop.
-      const lists = !wsLiveRef.current || cyclesSinceLists >= 10;
-      if (lists) cyclesSinceLists = 0;
-      tick(lists);
+      if (!wsLiveRef.current) tick();
     };
     const start = () => {
       if (id === null) id = window.setInterval(cycle, 5000);
@@ -7288,7 +7264,6 @@ export function App() {
         stop();
         return;
       }
-      cyclesSinceTick = 0;
       tick();
       start();
     };
@@ -7810,18 +7785,19 @@ export function App() {
   const visibleTranscripts = useVisibleTranscriptSids(tab === "live");
   const sseLiveStream = useLiveSessionStream(rosterSessions, useWsLive ? [] : expandedIds);
   const onListsChanged = useCallback(
-    (topics: ChangeTopic[]) => {
-      emitListChanges(topics);
+    async (topics: ChangeTopic[]) => {
+      await emitListChanges(topics);
       if (!firstBootstrapDoneRef.current) return;
       // Empty: the socket just opened, and changes made while it was away
       // were not announced to it.
       const all = topics.length === 0;
+      if (all || topics.includes("sessions")) refreshSessions().catch(() => {});
       if (all || topics.includes("pins")) refreshSessionPins().catch(() => {});
       if (all || topics.includes("auto")) refreshAuto().catch(() => {});
       if ((all || topics.includes("bots")) && showBotsRef.current) refreshBots().catch(() => {});
       if (all || topics.includes("repos")) refreshRepos().catch(() => {});
     },
-    [refreshSessionPins, refreshAuto, refreshBots, refreshRepos],
+    [refreshSessions, refreshSessionPins, refreshAuto, refreshBots, refreshRepos],
   );
   const wsLiveStream = useLiveSocket(rosterSessions, expandedIds, {
     enabled: useWsLive,

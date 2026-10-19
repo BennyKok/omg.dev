@@ -195,6 +195,7 @@ export function resolveThreadRef(ref: string): string | null {
  */
 const typingByThread = new Map<string, Map<string, ThreadTyping & { until: number }>>();
 const OMG_TYPING_MAX_MS = 180_000;
+const typingExpiry = new Map<string, ReturnType<typeof setTimeout>>();
 
 function typingKey(author: ThreadAuthor): string {
   return author.kind === "omg" ? "omg" : `human:${author.participantId}`;
@@ -208,13 +209,33 @@ export function setTyping(
   now = Date.now(),
 ): void {
   const rows = typingByThread.get(threadId) ?? new Map<string, ThreadTyping & { until: number }>();
+  const key = typingKey(author);
+  const timerKey = `${threadId}:${key}`;
+  const prior = rows.get(key);
+  clearTimeout(typingExpiry.get(timerKey));
+  typingExpiry.delete(timerKey);
   if (typing) {
     const ttl = author.kind === "omg" ? OMG_TYPING_MAX_MS : THREAD_TYPING_TTL_MS;
-    rows.set(typingKey(author), { author, replyTo, until: now + ttl });
+    const row = { author, replyTo, until: now + ttl };
+    rows.set(key, row);
     typingByThread.set(threadId, rows);
+    // Expiry is a state transition too. Publish it without a client poll.
+    const timer = setTimeout(() => {
+      typingExpiry.delete(timerKey);
+      if (rows.get(key) !== row) return;
+      rows.delete(key);
+      if (!rows.size) typingByThread.delete(threadId);
+      announceChange("threads");
+    }, ttl);
+    timer.unref();
+    typingExpiry.set(timerKey, timer);
   } else {
-    rows.delete(typingKey(author));
+    rows.delete(key);
     if (!rows.size) typingByThread.delete(threadId);
+  }
+  // Heartbeats extend the deadline without refreshing every viewer's list.
+  if (typing ? !prior || prior.replyTo !== replyTo || JSON.stringify(prior.author) !== JSON.stringify(author) : !!prior) {
+    announceChange("threads");
   }
 }
 

@@ -1,22 +1,11 @@
+import { settlePendingOmgReads } from "./omg-client";
 import type { ChangeTopic } from "../useLiveSocket";
 
-/**
- * List changes the server announced on the live socket (`changed` frames),
- * for lists kept outside App: the questions inbox and threads.
- *
- * While the socket is live, a list re-reads when it changes and otherwise
- * only on a slow backstop, for writes made outside the server. Every Computer
- * the app can reach announces changes (LFG 0.6.260+; hosted Computers are
- * updated before they serve), so there is no fast poll for older servers.
- * While the socket is down, a list polls as before.
- */
+/** Shared list invalidations, including a full refresh on reconnect. */
 type Listener = (topics: ChangeTopic[]) => void;
 
 const listeners = new Set<Listener>();
 let live = false;
-
-/** The slow backstop poll for a list while the socket is live. */
-export const LIVE_LIST_BACKSTOP_MS = 5 * 60_000;
 
 export function setListsLive(next: boolean): void {
   live = next;
@@ -26,7 +15,10 @@ export function listsLive(): boolean {
   return live;
 }
 
-export function emitListChanges(topics: ChangeTopic[]): void {
+export async function emitListChanges(topics: ChangeTopic[]): Promise<void> {
+  // Do not join a GET that began before the write this event announces.
+  // Once those reads settle, listeners get a new authoritative response.
+  await settlePendingOmgReads();
   for (const listener of listeners) {
     try {
       listener(topics);

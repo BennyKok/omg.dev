@@ -162,3 +162,28 @@ you own.
   browser client, not an API key.
 - iOS client timings.
 - Multi-client fan-out at scale (many sockets, many sessions).
+
+## Connected web lists (2026-10-19)
+
+The web session roster, pins, schedules/findings, bots, repositories, questions,
+thread list and open thread now refresh on change announcements while the socket
+is live. Their periodic reads remain only while disconnected. Visibility/focus
+and reconnect still refresh the current state.
+
+The server announces `sessions` when roster membership or fields outside the
+status patch change. Read-watermark writes announce it too. Thread typing start,
+stop and expiry announce `threads`; heartbeats that only extend a deadline do
+not. Task status changes invalidate their thread details.
+
+`src/change-topics.ts` owns the change bus. Store writes emit locally and write
+a per-topic filesystem signal for other processes on the same data directory.
+The server watches that directory while clients are connected. Signal files
+contain no list data; existing stores remain authoritative. This covers writes
+through the CLI stores without a browser backstop poll. Direct manual edits
+that bypass the stores do not publish events.
+
+This change concerns the Computer web client's list synchronization. The shared
+client's and iOS client's backstops, server-side process discovery, connection
+heartbeats, and feature-specific progress checks are separate mechanisms.
+Deploy the server and matching web client together; older servers do not emit
+the added roster events.
