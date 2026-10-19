@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 19, 2026 - Hosts can place chrome right above the chat box (v0.6.263)
+
+- A host app that embeds omg (`OmgAppSurface`) can now place its own chrome directly above a chat box: the new `composer-top` slot sits above the new-session composer and its starter row (`data-composer-kind="home"`), and above an open session's message bar, below its preview card (`data-composer-kind="session"`). An empty slot stays hidden. omg.dev's first-app guide uses it, so its card is part of the layout instead of floating over the page.
+- The mobile app recovers an expired session and keeps reconnect content separate.
+
 ## October 18, 2026 - The web app runs on the shared live client (v0.6.262)
 
 - The web app's live connection now runs on `@omg-dev/client`, the same client the iOS app and `@omg-dev/react` use. Connecting, reconnecting, resuming after a drop, status rows, change announcements, the send queue and typing all come from one implementation. The web app's own copy of that code is gone, about 700 lines.
