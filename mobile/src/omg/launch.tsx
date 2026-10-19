@@ -30,7 +30,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { ScrollView, StyleSheet, View } from "react-native";
 import Reanimated, {
   Easing,
   type SharedValue,
@@ -322,21 +322,7 @@ export function LaunchScreen({
   return (
     <Reanimated.View testID={testID} pointerEvents={leaving ? "none" : "auto"} style={[StyleSheet.absoluteFill, backdropStyle]}>
       <LaunchBackdrop />
-      {/**
-       * TWO LAYERS, EACH CENTRED ON THE SCREEN — the lockup and the caption —
-       * rather than one centred column of lockup-above-caption.
-       *
-       * As a column the PAIR was centred, which put the lockup's own centre
-       * above the screen's by half the caption's height plus its gap.
-       * Invisible at rest, and very visible during the exit: a view scales
-       * about its own centre, so the mark rushed out along a line that missed
-       * the middle of the screen and the zoom read as drifting toward the top.
-       * The lockup owns the centre and the caption is offset from it.
-       *
-       * `paddingTop` on a centred box moves its content down by HALF the
-       * padding, because the padding shrinks the box it is centring in. Hence
-       * the doubled offset below — read it as `2 * distance-below-centre`.
-       */}
+      {/* Keep the mark centered. The caption starts below its feet. */}
       <View style={[StyleSheet.absoluteFill, styles.screen]} pointerEvents="none">
         <View
           style={styles.lockup}
@@ -361,13 +347,17 @@ export function LaunchScreen({
       </View>
       <Reanimated.View
         pointerEvents={actions ? "box-none" : "none"}
-        style={[StyleSheet.absoluteFill, styles.screen, styles.caption, captionStyle]}
+        style={[styles.caption, captionStyle]}
       >
-        <ShimmerText text={label} color={tokens.textMuted} />
-        {detail ? (
-          <Text style={[styles.detail, { color: tokens.textMuted }]}>{detail}</Text>
-        ) : null}
-        {actions ? <View style={styles.actions}>{actions}</View> : null}
+        <ScrollView contentContainerStyle={styles.captionContent}>
+          {detail || actions ? (
+            <Text style={[CAPTION_TYPE, styles.label, { color: tokens.textMuted }]}>{label}</Text>
+          ) : <ShimmerText text={label} color={tokens.textMuted} />}
+          {detail ? (
+            <Text style={[styles.detail, { color: tokens.textMuted }]}>{detail}</Text>
+          ) : null}
+          {actions ? <View style={styles.actions}>{actions}</View> : null}
+        </ScrollView>
       </Reanimated.View>
     </Reanimated.View>
   );
@@ -395,9 +385,14 @@ const styles = StyleSheet.create({
     width: 280,
     gap: 10,
   },
+  label: { textAlign: "center" },
+  captionContent: { alignItems: "center", paddingHorizontal: 24, paddingBottom: 40 },
   caption: {
-    // Clear of the lockup's own half-height plus a gap. The TYPE is the tall
-    // half now that the mark is 0.704 of it, so measure off the type.
-    paddingTop: (BOXY_SIZE / 2 + 14) * 2,
+    position: "absolute",
+    top: "50%",
+    marginTop: BOXY_SIZE / 2 + 14,
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
 });

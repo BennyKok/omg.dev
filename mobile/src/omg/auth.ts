@@ -22,6 +22,7 @@
  * OTP flow simply runs again.
  */
 
+import { timeConnection } from "./connection-trace";
 import { AUTH_APP_ID, AUTH_ORIGIN, AUTH_REQUEST_ORIGIN } from "./config";
 
 export class OmgAuthError extends Error {
@@ -247,7 +248,10 @@ async function mintToken(): Promise<string | null> {
   }
   // Not signed in is an ordinary answer here, not a failure to report: the
   // caller turns null into the sign-in screen.
-  if (response.status === 401) return null;
+  if (response.status === 401) {
+    for (const listener of expiredListeners) listener();
+    return null;
+  }
   if (!response.ok) {
     throw new OmgAuthError(`Couldn't authenticate (${response.status})`, response.status);
   }
@@ -275,4 +279,27 @@ export function getAuthToken(): Promise<string | null> {
 export function clearAuthToken(): void {
   cachedToken = null;
   inFlight = null;
+}
+
+/** Only the account auth service can confirm that the session has expired. */
+const expiredListeners = new Set<() => void>();
+export function subscribeSessionExpired(listener: () => void): () => void {
+  expiredListeners.add(listener);
+  return () => { expiredListeners.delete(listener); };
+}
+
+/** Retry a rejected account JWT once; computer grants have their own owner. */
+export async function withAccountToken<T>(
+  request: (token: string) => Promise<T>,
+  rejected: (result: T) => boolean,
+): Promise<T> {
+  const token = await timeConnection("account-token", getAuthToken);
+  if (!token) throw new OmgAuthError("Please sign in again.", 401);
+  const result = await request(token);
+  if (!rejected(result)) return result;
+  // Do not discard a newer token that another request already refreshed.
+  if (cachedToken?.token === token) cachedToken = null;
+  const fresh = await timeConnection("account-token", getAuthToken);
+  if (!fresh) throw new OmgAuthError("Please sign in again.", 401);
+  return request(fresh);
 }

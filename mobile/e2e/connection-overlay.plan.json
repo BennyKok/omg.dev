@@ -45,12 +45,24 @@
     {
       "name": "A drop past a minute takes the full page",
       "goal": "Tap Next stage once.",
-      "done": "A full page covers the list: Boxy in the middle, the caption Reconnecting to your computer, and a Try again button. The list is not visible.",
+      "done": "The reconnect title, explanation, and both recovery buttons are visible below Boxy.",
       "expect": [
         "Reconnecting to your computer",
-        "Try again"
+        "Try again",
+        "This is taking longer than it should. You can try again.",
+        "Choose another computer"
       ],
       "forbid": [],
+      "timeoutMs": 60000
+    },
+    {
+      "name": "Reconnect retry responds",
+      "goal": "Tap Try again once.",
+      "done": "The retry handler confirms the tap.",
+      "expect": [
+        "Retry tapped",
+        "Reconnecting to your computer"
+      ],
       "timeoutMs": 60000
     },
     {

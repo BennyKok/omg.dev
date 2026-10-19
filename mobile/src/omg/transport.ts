@@ -19,9 +19,9 @@ import {
 } from "@omg-dev/client";
 
 import { SESSION_AUTH_PATH, SESSION_ORIGIN } from "./config";
-import { getAuthToken } from "./auth";
+import { withAccountToken } from "./auth";
 import { createGrantOwner } from "./grant-owner";
-import { tracedFetch, timeConnection, readConnectionJson, traceConnectionTransport } from "./connection-trace";
+import { tracedFetch, readConnectionJson, traceConnectionTransport } from "./connection-trace";
 import { getDemoTransport } from "./demo-data";
 import { isDemoMode } from "./demo";
 import {
@@ -42,7 +42,7 @@ export class ComputerGrantError extends Error {
    * check failed (an unshared/unpaired binding, or a share that has since
    * been revoked), and retrying with the same grant will 403 again forever.
    */
-  constructor(message: string, public readonly forbidden = false) {
+  constructor(message: string, public readonly forbidden = false, public readonly expired = false) {
     super(message);
   }
 }
@@ -63,10 +63,19 @@ export class ComputerGrantError extends Error {
  * route.
  */
 export async function mintSessionGrant(bindingId: string): Promise<OmgGrant> {
-  const authToken = await timeConnection("account-token", getAuthToken);
-  if (!authToken) throw new ComputerGrantError("Please sign in again.");
-
-  return requestSessionGrant(bindingId, authToken);
+  return withAccountToken(
+    async (token) => {
+      try { return await requestSessionGrant(bindingId, token); }
+      catch (error) {
+        if (error instanceof ComputerGrantError && error.expired) return error;
+        throw error;
+      }
+    },
+    (result) => result instanceof ComputerGrantError,
+  ).then((result) => {
+    if (result instanceof ComputerGrantError) throw result;
+    return result;
+  });
 }
 
 /** Also used by the simulator with a short-lived, authorized test JWT. */
@@ -89,7 +98,7 @@ export async function requestSessionGrant(bindingId: string, authToken: string):
     );
   }
 
-  if (response.status === 401) throw new ComputerGrantError("Please sign in again.");
+  if (response.status === 401) throw new ComputerGrantError("Please sign in again.", false, true);
   if (response.status === 403) {
     // The one case that is not "try again": the server does not consider this
     // account authorized for this machine, whether that is a binding that was

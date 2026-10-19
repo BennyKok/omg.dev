@@ -27,7 +27,7 @@ import {
 import { AppState, StyleSheet, View } from "react-native";
 
 import { CLOUD_BINDING_ID, CONTROLPLANE_ORIGIN, STORAGE_KEYS } from "./config";
-import { getAuthToken, getSession, signOut as authSignOut, type SignedInUser } from "./auth";
+import { withAccountToken, subscribeSessionExpired, getSession, signOut as authSignOut, type SignedInUser } from "./auth";
 import { DEMO_BINDING, DEMO_USER, isDemoMode } from "./demo";
 import { forgetAllTransports, getHostedTransport } from "./transport";
 import { registerSessionRefResolver } from "./session-ref-link";
@@ -197,13 +197,11 @@ type OmgContextValue = {
 const Context = createContext<OmgContextValue | null>(null);
 
 export async function controlPlane<T>(name: string, body: unknown = {}): Promise<T> {
-  const token = await getAuthToken();
-  if (!token) throw new Error("Please sign in again.");
-  const response = await fetch(`${CONTROLPLANE_ORIGIN}/api/computer/${name}`, {
+  const response = await withAccountToken((token) => fetch(`${CONTROLPLANE_ORIGIN}/api/computer/${name}`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify(body),
-  });
+  }), (response) => response.status === 401);
   const text = await response.text().catch(() => "");
   let data: any = {};
   try {
@@ -591,6 +589,39 @@ export function OmgProvider({ children }: PropsWithChildren) {
     return () => clearTimeout(timer);
   }, [readiness, authStatus, foregrounded, probe]);
 
+  const clearLocalSession = useCallback(async () => {
+    presenceRef.current?.stop();
+    presenceRef.current = null;
+    ++probeToken.current;
+    forgetAllTransports();
+    clearTranscriptCache();
+    const clearingCache = sessionCache.clear();
+    clearPendingSessions();
+    // The presence keys stay on purpose: the server-side lease can outlive a
+    // failed release, and wiping the seq ratchet would restart eventSeq at 1
+    // against it — which the server then silently ignores as stale forever.
+    const clearingBinding = AsyncStorage.multiRemove([STORAGE_KEYS.binding]);
+    setBindingId(null);
+    setReadiness(null);
+    setBindings([]);
+    setSharedComputers([]);
+    setCloud(null);
+    setUser(null);
+    // The redirect to sign-in lives centrally in RootNavigator
+    // (app/_layout.tsx), keyed on this flip to "signed-out" — not here —
+    // so every path to signed-out lands on sign-in, not just this one.
+    // See that file for why a redirect is needed at all (Stack.Protected
+    // changing which screens are registered doesn't navigate anywhere by
+    // itself).
+    setAuthStatus("signed-out");
+    await Promise.all([clearingCache, clearingBinding]);
+  }, []);
+
+  useEffect(() => subscribeSessionExpired(() => {
+    // /token confirmed expiry. RootNavigator owns the redirect to sign-in.
+    void clearLocalSession().catch(() => {});
+  }), [clearLocalSession]);
+
   const signOut = useCallback(async () => {
     // Release the presence lease before the token goes away; a release sent
     // after authSignOut can only fail. stop() is idempotent, so the effect
@@ -617,28 +648,8 @@ export function OmgProvider({ children }: PropsWithChildren) {
     // (Settings' confirmSignOut) is responsible for telling the person it
     // failed and that they should retry.
     await authSignOut();
-    forgetAllTransports();
-    clearTranscriptCache();
-    await sessionCache.clear();
-    clearPendingSessions();
-    // The presence keys stay on purpose: the server-side lease can outlive a
-    // failed release, and wiping the seq ratchet would restart eventSeq at 1
-    // against it — which the server then silently ignores as stale forever.
-    await AsyncStorage.multiRemove([STORAGE_KEYS.binding]);
-    setBindingId(null);
-    setReadiness(null);
-    setBindings([]);
-    setSharedComputers([]);
-    setCloud(null);
-    setUser(null);
-    // The redirect to sign-in lives centrally in RootNavigator
-    // (app/_layout.tsx), keyed on this flip to "signed-out" — not here —
-    // so every path to signed-out lands on sign-in, not just this one.
-    // See that file for why a redirect is needed at all (Stack.Protected
-    // changing which screens are registered doesn't navigate anywhere by
-    // itself).
-    setAuthStatus("signed-out");
-  }, [client]);
+    await clearLocalSession();
+  }, [client, clearLocalSession]);
 
   /**
    * The roster is DERIVED from readiness, never fetched or stored separately.
