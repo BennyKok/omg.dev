@@ -49,6 +49,16 @@ import { PI_AUTH_PROVIDER_IDS } from "../../pi-auth.ts";
 // drops a direct dependency on pi-agent-core.
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
+import { compactionFailureNotice } from "./compaction-notice.ts";
+
+export function piCompactionNotice(event: AgentSessionEvent): string | null {
+  if (event.type !== "compaction_end" || event.reason === "manual") return null;
+  return compactionFailureNotice("Pi", {
+    failed: !event.result && !!event.errorMessage,
+    aborted: event.aborted,
+    willRetry: event.willRetry,
+  });
+}
 
 // Kept local rather than imported from tmux.ts: that module drags in the
 // serve/tmux dependency graph this harness deliberately stays clear of.
@@ -297,6 +307,10 @@ export async function cmdPiSession(argv: string[]): Promise<void> {
 
   client.onEvent((event: AgentSessionEvent) => {
     if (closing) return;
+    const maintenanceNotice = piCompactionNotice(event);
+    if (maintenanceNotice) indexSessionMessagesDirect(key, [{
+      id: crypto.randomUUID(), role: "assistant", kind: "text", text: maintenanceNotice, ts: Date.now(),
+    }]);
     if (event.type === "message_update") {
       const ev = event.assistantMessageEvent;
       if (ev.type === "text_delta" && typeof ev.delta === "string") {

@@ -20,7 +20,10 @@ describe("Claude idle cache maintenance", () => {
   test("warns once, then compacts once before the one-hour cache expires", () => {
     const cache = warm();
     expect(cache.tick(49 * minute, idle)).toBeNull();
-    expect(cache.tick(50 * minute, idle)?.type).toBe("warn");
+    const notice = cache.tick(50 * minute, idle);
+    expect(notice?.type).toBe("warn");
+    expect(notice?.text).toContain("You do not need to take any action.");
+    expect(notice?.text).not.toContain("/compact");
     expect(cache.tick(51 * minute, idle)).toBeNull();
     expect(cache.tick(54 * minute, idle)?.type).toBe("compact");
     expect(cache.tick(55 * minute, idle)).toBeNull();
@@ -40,29 +43,29 @@ describe("Claude idle cache maintenance", () => {
     expect(warm().tick(-1, idle)).toBeNull();
   });
 
-  test("warns without auto-compacting small contexts or disabled sessions", () => {
+  test("does not assign manual maintenance to small contexts or disabled sessions", () => {
     for (const cache of [warm(false), warm()]) {
       const options = { ...idle, autoCompactEnabled: false };
-      expect(cache.tick(50 * minute, options)?.text).toContain("Send /compact");
+      expect(cache.tick(50 * minute, options)).toBeNull();
       expect(cache.tick(54 * minute, options)).toBeNull();
     }
     const cache = warm();
     cache.observeUsage({ ...longUsage, cache_creation_input_tokens: 1000 });
-    expect(cache.tick(50 * minute, idle)?.text).toContain("Send /compact");
+    expect(cache.tick(50 * minute, idle)).toBeNull();
     expect(cache.tick(54 * minute, idle)).toBeNull();
     const disabled = warm(false);
-    expect(disabled.tick(50 * minute, idle)?.text).toContain("Send /compact");
+    expect(disabled.tick(50 * minute, idle)).toBeNull();
     expect(disabled.tick(54 * minute, idle)).toBeNull();
   });
 
-  test("five-minute and mixed caches warn at four minutes without auto-compaction", () => {
+  test("five-minute and mixed caches do not create a manual maintenance task", () => {
     for (const long of [0, 100_000]) {
       const cache = warm();
       cache.observeUsage({ ...longUsage, cache_creation: {
         ephemeral_5m_input_tokens: 100_000, ephemeral_1h_input_tokens: long,
       } });
       expect(cache.tick(3 * minute, idle)).toBeNull();
-      expect(cache.tick(4 * minute, idle)?.text).toContain("Send /compact");
+      expect(cache.tick(4 * minute, idle)).toBeNull();
       expect(cache.tick(4.5 * minute, idle)).toBeNull();
       expect(cache.tick(54 * minute, idle)).toBeNull();
     }

@@ -46,6 +46,8 @@ export type ManagedSdkEventSink = {
    * at turn end (e.g. "codebase.This is the vibes repo").
    */
   commitText(text: string): void;
+  /** Runtime notice that must not replace or clear an in-flight answer draft. */
+  notice?(text: string): void;
   toolStart(id: string, name: string, input?: unknown): void;
   toolEnd(id: string, name: string, output?: unknown, error?: boolean): void;
   ask(question: string, options: ManagedSdkPromptOption[], header?: string): Promise<number | null>;
@@ -145,6 +147,9 @@ export async function runManagedSdkSession(options: ManagedSdkSessionOptions): P
   } catch {}
 
   const sink: ManagedSdkEventSink = {
+    notice(body) {
+      if (!closing && body.trim()) indexSessionMessagesDirect(key, [row("assistant", "text", body)]);
+    },
     draft(next) {
       draft = next;
       publishDraft(next, false, "text");

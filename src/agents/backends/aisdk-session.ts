@@ -622,14 +622,14 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
         }
         if (msg.compact_result === "failed" && idleCompacting) {
           idleCompacting = false;
-          cacheNotice("Idle compaction failed. The conversation was not confirmed compacted. You can retry with /compact.");
+          cacheNotice("Automatic context maintenance failed. No completed compaction was confirmed.");
           setBusy(false);
         }
       } else if (msg.subtype === "compact_boundary") {
         cacheIdle.invalidate();
         if (idleCompacting) {
           idleCompacting = false;
-          cacheNotice("Idle compaction completed. Older context has been replaced with a summary.");
+          console.error(`aisdk-session ${sessionId}: idle compaction completed`);
         }
         refreshUsageSnapshot();
       }
@@ -676,7 +676,7 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
     if (type === "result") {
       if (idleCompacting) {
         idleCompacting = false;
-        cacheNotice("Idle compaction ended without a confirmed summary. You can retry with /compact.");
+        cacheNotice("Automatic context maintenance ended without a confirmed summary.");
       }
       // The CLI's interrupt marker is part of the interrupted turn and arrives
       // before its result. Commit a steering row only after that boundary when
@@ -851,7 +851,7 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
       autoCompactEnabled: contextUsage?.isAutoCompactEnabled === true,
     });
     if (!action) return;
-    cacheNotice(action.text);
+    if (action.type === "warn") cacheNotice(action.text);
     if (action.type === "compact") {
       idleCompacting = true;
       setBusy(true);

@@ -8,6 +8,19 @@ import {
 } from "@github/copilot-sdk";
 import { omgMcpServers } from "../../config.ts";
 import { runManagedSdkSession } from "./managed-sdk-session.ts";
+import { compactionFailureNotice } from "./compaction-notice.ts";
+
+/** Listen for maintenance throughout the session, including between user turns. */
+export function watchCopilotCompaction(
+  session: { on(listener: (event: SessionEvent) => void): () => void },
+  notice: (text: string) => void,
+): () => void {
+  return session.on((event) => {
+    if (event.agentId || event.type !== "session.compaction_complete") return;
+    const message = compactionFailureNotice("Copilot", { failed: !event.data.success });
+    if (message) notice(message);
+  });
+}
 
 function arg(argv: string[], name: string): string | undefined {
   const index = argv.indexOf(name);
@@ -74,6 +87,7 @@ export async function cmdCopilotSdkSession(argv: string[]): Promise<void> {
       };
       const config = {
         model,
+        infiniteSessions: { enabled: true },
         workingDirectory: cwd,
         onPermissionRequest,
         onUserInputRequest,
@@ -83,6 +97,7 @@ export async function cmdCopilotSdkSession(argv: string[]): Promise<void> {
       const session = resume
         ? await client.resumeSession(resume, config)
         : await client.createSession({ ...config, sessionId: key });
+      const stopCompactionWatch = watchCopilotCompaction(session, (text) => sink.notice?.(text));
       return {
         nativeSessionId: session.sessionId,
         async runTurn(prompt) {
@@ -123,6 +138,7 @@ export async function cmdCopilotSdkSession(argv: string[]): Promise<void> {
         },
         interrupt: () => session.abort(),
         async close() {
+          stopCompactionWatch();
           await session.disconnect();
           await client.stop();
         },

@@ -37,11 +37,13 @@ a server expiry notification. Unknown TTLs do not arm a timer. Mixed TTLs use
 the shorter lifetime. A resumed harness waits for a new request with a known
 TTL instead of restoring a possibly stale deadline.
 
-The harness adds a visible transcript warning after 50 minutes for a one-hour
-cache, or four minutes for a five-minute cache. For a one-hour cache with at
-least 200,000 input tokens, it sends `/compact` at 54 minutes if Claude reports
-automatic compaction enabled. The SDK owns the summary and its persistence.
-The harness confirms completion only on `compact_boundary`.
+For a one-hour cache with at least 200,000 input tokens, the harness adds one
+notice after 50 minutes and sends `/compact` at 54 minutes if Claude reports
+automatic compaction enabled. The notice explains that no action is needed.
+Five-minute caches, smaller contexts, and disabled policies do not create
+manual maintenance tasks. The SDK owns the summary and its persistence.
+The harness confirms completion only on `compact_boundary`; routine completion
+is logged without adding another transcript message.
 
 Maintenance waits while the session is busy, has a question open, or has live
 background tasks. It does not run after expiry. A compaction attempt cannot
@@ -49,7 +51,7 @@ arm another attempt until the user sends a new task. Failures produce a notice
 instead of an automatic retry. Interrupts, runtime replacement, and changes
 to effort or fast mode invalidate the timer.
 
-`OMG_CLAUDE_IDLE_COMPACTION=0` disables host idle compaction but keeps warnings.
+`OMG_CLAUDE_IDLE_COMPACTION=0` disables host idle compaction and its notice.
 The harness sets Claude's native `idleCompaction` to false for its subprocess,
 so the host is the only idle-timer owner. This does not disable Claude's
 normal context-limit compaction or change settings files. The terminal's
@@ -58,6 +60,28 @@ normal context-limit compaction or change settings files. The terminal's
 Anthropic documents terminal idle compaction in the
 [Claude Code 2.1.299 changelog](https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md#21299).
 The SDK does not expose a dedicated cache-expiry event in version 0.3.206.
+
+## Automatic context maintenance in other harnesses
+
+Native compaction remains the owner of context-limit maintenance. Codex and
+OpenCode keep their native automatic-compaction defaults. Pi also keeps its
+native settings: its `set_auto_compaction` RPC writes global settings, so the
+host does not use that call as a session-only override. Copilot sessions and
+resumed sessions explicitly enable `infiniteSessions`, leaving thresholds to
+the SDK (background compaction at 80%, blocking at 95%).
+
+Copilot maintenance events are observed for the entire session, including
+between turns. Pi suppresses notices while native retries remain pending or
+when compaction was aborted. Both expose a final maintenance failure without
+assigning a `/compact` task to the user. Routine success stays silent.
+The shared managed-session notice sink preserves an active answer draft and
+does not change the session's busy state.
+
+There is no additional idle-expiry timer for Codex, OpenCode, Pi, Copilot,
+JCode, or ACP agents. Their adapters do not expose a verified expiry deadline.
+Do not infer that deadline from cumulative cached-token counts or copy
+Claude's one-hour policy to another provider. JCode and ACP native behavior
+is unchanged. No Compact-now UI is required for this policy.
 
 ## Queue durability
 
