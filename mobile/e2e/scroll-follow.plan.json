@@ -34,7 +34,8 @@
         "start": "50%,40%",
         "end": "50%,60%"
       },
-      "timeoutMs": 30000
+      "timeoutMs": 30000,
+      "observeOnly": true
     },
     {
       "name": "Return to the bottom",
@@ -60,7 +61,8 @@
       "forbid": [
         "Follow check failed"
       ],
-      "timeoutMs": 45000
+      "timeoutMs": 45000,
+      "observeOnly": true
     }
   ]
 }

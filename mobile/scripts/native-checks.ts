@@ -36,10 +36,7 @@ import { join } from "node:path";
  * deleted. These are checks whose HARNESS is broken, so they never get as far
  * as asserting anything.
  */
-const QUARANTINE: Record<string, string> = {
-  "transcript-body.native-check.tsx":
-    "Harness rot: its react-native and expo-router mocks predate the module graph the component now pulls in, so it dies at import on a missing named export (__DEV__, then router, then TurboModuleRegistry, each revealed by fixing the last). It has never run in CI, so this is not a regression. Fixing it means rebuilding its mocks.",
-};
+const QUARANTINE: Record<string, string> = {};
 
 const files = readdirSync(import.meta.dir)
   .filter((name) => name.includes(".native-check."))

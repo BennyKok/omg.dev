@@ -67,6 +67,8 @@ export type Step = {
   otp?: boolean;
   /** Press and hold the picked element instead of tapping it (context menus). */
   longPress?: boolean;
+  /** After explicit setup gestures, observe without model-selected taps or typing. */
+  observeOnly?: boolean;
   /** Wall-clock ceiling for this step. Default 60s; provisioning gets more. */
   timeoutMs?: number;
   /**
@@ -384,6 +386,12 @@ export async function runPlan(opts: {
         if (Date.now() > ceiling) {
           verdict = { name: step.name, status: "fail", at: Date.now(), looks, detail: `timed out; screen: ${text.join(" | ")}` };
           break;
+        }
+
+        // An idle-render check must not open the keyboard while it observes.
+        if (step.observeOnly) {
+          await Bun.sleep(1000);
+          continue;
         }
 
         // Act.

@@ -18,6 +18,8 @@ decides whether the step is done, whether the screen is a dead end, and what
 to tap next. `expect` and `forbid` are exact strings checked in code: that is
 where a feature proof lives. `selected` names a row that must report
 selected (a lane, a task). `type` types text (`${EMAIL}` is substituted),
+`observeOnly: true` prevents suggested taps and typing after explicit setup
+gestures. Use it for idle checks.
 `otp: true` types the sign-in code the runner reads from Gmail, `focused: true`
 skips the tap. `timeoutMs` is the ceiling per step (default 60s).
 
@@ -241,3 +243,16 @@ EXPO_PUBLIC_OMG_DEMO=1 EXPO_PUBLIC_OMG_SCHEDULE_LOAD_FIXTURE=1 \
 
 This tests the real native screen with synthetic schedules. It does not
 measure the hosted API or relay.
+
+The idle-transcript plan checks formatted production message rows during
+periodic parent updates. It holds still for 20 seconds, rejects height changes
+after the initial layout, and then scrolls through lists, code, and tables:
+
+```bash
+OMG_E2E_ENTRY_FILE=scripts/idle-transcript-e2e-entry.tsx \
+  bun run test:e2e --build --plan idle-transcript --record
+```
+
+This is a renderer fixture, not a live conversation. Run `scroll-follow` as
+well for the full session screen. The fixture detects layout changes, not
+every possible text-paint defect; inspect the recording too.

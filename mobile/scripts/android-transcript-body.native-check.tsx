@@ -23,15 +23,15 @@ let ui: Mounted;
 beforeEach(() => { ui = mount(); renders = 0; });
 afterEach(() => ui.cleanup());
 
-test("only iOS checks and enables experimental native virtualization", () => {
-  expect(virtualTranscriptBodiesSupported).toBe(platform === "ios");
-  if (platform !== "ios") expect(nativeReads).toBe(0);
+test("FlatList alone owns virtualization on every platform", () => {
+  expect(virtualTranscriptBodiesSupported).toBe(false);
+  expect(nativeReads).toBe(0);
 });
 
 test("reply content stays readable through both transcript boundaries", () => {
   ui.render(<VirtualBoundary><TranscriptBody text="Session reply" /></VirtualBoundary>);
   expect(ui.text()).toBe("Session reply");
-  expect(ui.queryAll("[data-virtual-body]").length).toBe(platform === "ios" ? 2 : 0);
+  expect(ui.queryAll("[data-virtual-body]").length).toBe(0);
 });
 
 test("unchanged replies remain memoized without native virtualization", () => {
@@ -47,4 +47,18 @@ test("explicitly disabled virtualization renders the ordinary body", () => {
   ui.render(<VirtualBoundary enabled={false}><TranscriptBody text="Session reply" virtualize={false} /></VirtualBoundary>);
   expect(ui.text()).toBe("Session reply");
   expect(ui.query("[data-virtual-body]")).toBeNull();
+});
+
+test("the production menu path skips idle updates but accepts stream changes", () => {
+  const render = (text: string, streaming = false) => ui.render(
+    <VirtualBoundary><TranscriptBody text={text} streaming={streaming} virtualize={false} inHoldMenu /></VirtualBoundary>
+  );
+  render("First");
+  render("First");
+  expect(renders).toBe(1);
+  render("Next", true);
+  expect(ui.text()).toBe("Next");
+  expect(renders).toBe(2);
+  render("Next", false);
+  expect(renders).toBe(3);
 });

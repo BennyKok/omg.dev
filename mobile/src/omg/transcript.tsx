@@ -762,7 +762,7 @@ export function TranscriptEntry({
   // tint — exactly like the web transcript.
   return (
     <View style={{ alignSelf: "stretch", paddingHorizontal: space.xs }}>
-      {/* The virtual boundary sits OUTSIDE the hold menu; see VirtualBoundary. */}
+      {/* FlatList owns row visibility; the body stays mounted with this menu. */}
       <VirtualBoundary enabled={virtualize}>
         <ReplyTextActions text={replyText}>
           <TranscriptBody text={replyText} streaming={message.streaming} virtualize={false} inHoldMenu />

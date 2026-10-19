@@ -1,43 +1,25 @@
-import { memo, type ComponentType, type ReactNode } from "react";
-import * as RN from "react-native";
+import { memo, type ReactNode } from "react";
 import { Markdown } from "./markdown";
 
-type VirtualBodyProps = { children?: ReactNode };
-
-// RN 0.88's Android VirtualViewModeChangeEvent reuses native maps after the
-// event dispatcher consumes them. Opening or scrolling a transcript then
-// crashes with ObjectAlreadyConsumedException: Map already consumed. Keep
-// Android on ordinary bodies; FlatList still virtualizes the message rows.
-// Older iOS development clients and react-native-web use the same fallback.
-const VirtualView = RN.Platform.OS === "ios" &&
-  (RN.UIManager.hasViewManagerConfig?.("VirtualView") ||
-    RN.UIManager.hasViewManagerConfig?.("VirtualViewExperimental"))
-  ? (RN as unknown as { unstable_VirtualView?: ComponentType<VirtualBodyProps> }).unstable_VirtualView
-  : undefined;
-
-export const virtualTranscriptBodiesSupported = !!VirtualView;
+// FlatList owns the transcript's render window. A second, experimental
+// VirtualView inside each row independently removes and restores its children,
+// including the native menu host and its measured Markdown. Keep those children
+// mounted for the row's lifetime so native visibility events cannot reset them.
+export const virtualTranscriptBodiesSupported = false;
 
 type Props = { text: string; streaming?: boolean; virtualize?: boolean; inHoldMenu?: boolean };
 
-// Keep the row, its entrance animation, disclosures, and modals outside this
-// boundary. VirtualView unmounts children; it must not own durable UI state.
-const VirtualMarkdown = memo(function VirtualMarkdown({ text, streaming, inHoldMenu }: Props) {
-  const content = <Markdown text={text} streaming={streaming} inHoldMenu={inHoldMenu} />;
-  return VirtualView ? <VirtualView>{content}</VirtualView> : content;
+const MemoizedMarkdown = memo(function MemoizedMarkdown({ text, streaming, inHoldMenu }: Props) {
+  return <Markdown text={text} streaming={streaming} inHoldMenu={inHoldMenu} />;
 });
 
-/**
- * The same boundary for callers that put something between it and the
- * markdown. A reply's hold menu hosts its child in SwiftUI (`RNHostView`), so
- * the VirtualView stays outside that host and measures the whole menu row.
- */
-export function VirtualBoundary({ enabled = true, children }: { enabled?: boolean; children: ReactNode }) {
-  return enabled && VirtualView ? <VirtualView>{children}</VirtualView> : <>{children}</>;
+/** Compatibility boundary for existing callers and the transcript benchmark. */
+export function VirtualBoundary({ children }: { enabled?: boolean; children: ReactNode }) {
+  return <>{children}</>;
 }
 
-export function TranscriptBody({ text, streaming, virtualize = true, inHoldMenu }: Props) {
-  // The unmodified path is also used by the native A/B benchmark.
-  return virtualize
-    ? <VirtualMarkdown text={text} streaming={streaming} inHoldMenu={inHoldMenu} />
-    : <Markdown text={text} streaming={streaming} inHoldMenu={inHoldMenu} />;
+export function TranscriptBody({ text, streaming, inHoldMenu }: Props) {
+  // Memoize the real chat path too: its menu caller passes virtualize={false}.
+  // Background parent updates must not rebuild an unchanged attributed string.
+  return <MemoizedMarkdown text={text} streaming={streaming} inHoldMenu={inHoldMenu} />;
 }

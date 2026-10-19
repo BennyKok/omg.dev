@@ -1,0 +1,51 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": true
+  },
+  "steps": [
+    {
+      "name": "Open fixture",
+      "goal": "If Apple Account Verification is visible, tap Not Now. If the Home screen is visible, tap omg to open the installed app.",
+      "done": "The idle transcript fixture is visible.",
+      "expect": [
+        "Reply 1:"
+      ],
+      "timeoutMs": 60000
+    },
+    {
+      "name": "Idle messages keep their layout",
+      "goal": "Do not tap or swipe. Wait for Idle check passed or Idle check failed.",
+      "done": "Twenty seconds of parent updates have finished without any settled message changing height.",
+      "expect": [
+        "Idle check passed: 20 seconds",
+        "Reply 1:",
+        "Stable text",
+        "Readable"
+      ],
+      "forbid": [
+        "Idle check failed"
+      ],
+      "timeoutMs": 60000,
+      "observeOnly": true
+    },
+    {
+      "name": "Scroll through formatted replies",
+      "goal": "Swipe up to read later replies.",
+      "swipe": {
+        "start": "50%,80%",
+        "end": "50%,30%"
+      },
+      "done": "Later reply text, lists and table content are visible.",
+      "expect": [
+        "Stable text",
+        "First item",
+        "Readable"
+      ],
+      "forbid": [
+        "Idle check failed"
+      ],
+      "observeOnly": true
+    }
+  ]
+}
