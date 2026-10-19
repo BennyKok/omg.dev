@@ -166,6 +166,17 @@ export async function cmdApps(argv: string[], dependencies: AppsCliDependencies 
       return 0;
     }
 
+    if (verb === "rename") {
+      const [slug, newSlug] = positional(rest);
+      if (!slug || !newSlug) {
+        err("Usage: omg rename <slug> <new-slug>");
+        return 1;
+      }
+      const renamed = await client.renameApp(slug, newSlug);
+      out(renamed.url ?? renamed.slug);
+      return 0;
+    }
+
     if (verb === "env") {
       const args = positional(rest);
       const sub = args[0];

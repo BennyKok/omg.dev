@@ -29,6 +29,7 @@ Hosted apps (*.omgs.app):
              [--no-wait] [--generate-icon]
   omg apps                         List your apps
   omg visibility <slug> [public|omg-users]
+  omg rename <slug> <new-slug>
                                    Show or set who can open an app
   omg env list|pull|set|rm|import <slug> ...
                                    Manage an app's environment variables
@@ -131,6 +132,7 @@ async function main() {
     case "create":
     case "apps":
     case "visibility":
+    case "rename":
     case "env":
     case "dev":
     case "link": {

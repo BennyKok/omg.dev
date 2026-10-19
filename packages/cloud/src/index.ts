@@ -69,5 +69,6 @@ export {
   type CloudDeployStatus,
   type CloudSourceFile,
   type CloudVisibility,
+  type CloudAppRename,
   type CloudWhoami,
 } from "./apps";

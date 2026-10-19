@@ -68,6 +68,14 @@ export type CloudVisibility = {
   published?: boolean;
 };
 
+/** Result of moving an app to a new address. The old address redirects. */
+export type CloudAppRename = {
+  ok?: boolean;
+  slug: string;
+  previousSlug?: string;
+  url?: string;
+};
+
 export type CloudSourceFile = {
   path: string;
   content: string;
@@ -115,6 +123,7 @@ export interface CloudAppsClient {
   getStatus(slug: string): Promise<CloudDeployStatus>;
   getVisibility(slug: string): Promise<CloudVisibility>;
   setVisibility(slug: string, visibility: string): Promise<{ ok?: boolean; visibility: string }>;
+  renameApp(slug: string, newSlug: string): Promise<CloudAppRename>;
   updateIdentity(input: CloudAppIdentityInput): Promise<CloudAppIdentity>;
   listEnv(slug: string, projectId?: string): Promise<{ slug?: string; vars: CloudEnvSummary[] }>;
   pullEnv(slug: string, projectId?: string): Promise<{ slug?: string; env: Record<string, string> }>;
@@ -207,6 +216,9 @@ export function createCloudAppsClient(options: CloudAppsOptions): CloudAppsClien
         ok?: boolean;
         visibility: string;
       };
+    },
+    async renameApp(slug, newSlug) {
+      return (await post("/api/cli/apps/rename", { slug, newSlug })) as CloudAppRename;
     },
     async updateIdentity(input) {
       return (await post("/api/cli/apps/identity", input)) as CloudAppIdentity;
