@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 19, 2026 - Automatic context maintenance (v0.6.264)
+
+- Eligible managed Claude sessions summarize older context before their reported one-hour prompt cache expires. One advance notice explains the automatic action. Routine completion stays silent.
+- Copilot automatic compaction is enabled explicitly. Pi and Copilot report maintenance failures without asking users to manage compaction.
+- Hosted apps can be renamed with `omg_app_rename`.
+
 ## October 19, 2026 - Hosts can place chrome right above the chat box (v0.6.263)
 
 - A host app that embeds omg (`OmgAppSurface`) can now place its own chrome directly above a chat box: the new `composer-top` slot sits above the new-session composer and its starter row (`data-composer-kind="home"`), and above an open session's message bar, below its preview card (`data-composer-kind="session"`). An empty slot stays hidden. omg.dev's first-app guide uses it, so its card is part of the layout instead of floating over the page.
