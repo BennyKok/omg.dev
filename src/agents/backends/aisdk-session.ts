@@ -54,6 +54,7 @@ import {
   type ClaudeContextUsageSnapshot,
 } from "../../session-token-usage.ts";
 import { extractAttachments, isImageMime, readAsBase64 } from "../../attachment-images.ts";
+import { ClaudeCacheIdle } from "./claude-cache-idle.ts";
 
 function arg(argv: string[], name: string): string | undefined {
   const i = argv.indexOf(name);
@@ -464,6 +465,12 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
   };
   let contextUsage = previousUsage?.context ?? null;
   let usageRefresh = 0;
+  const cacheIdle = new ClaudeCacheIdle(process.env.OMG_CLAUDE_IDLE_COMPACTION !== "0");
+  let idleCompacting = false;
+  let backgroundTasks = 0;
+  const cacheNotice = (text: string) => indexSessionMessagesDirect(sessionId, [{
+    id: crypto.randomUUID(), role: "assistant", kind: "text", text, ts: Date.now(),
+  }]);
 
   const persistUsage = () => {
     writeStoredSessionTokenUsage(sessionId, {
@@ -583,7 +590,9 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
       // Fast is provider-native and independent from effort. Put it in the
       // flag layer so this session has deterministic on/off state without
       // rewriting the user's Claude settings file.
-      settings: { fastMode },
+      // The host owns the idle timer and its visible warning. Disable the
+      // terminal timer so newer CLIs cannot race a second /compact with ours.
+      settings: { ...{ idleCompaction: false }, fastMode },
       // env is a FULL replacement for the subprocess environment when set —
       // without a connected account, inherit process.env so the platform proxy
       // remains available. With a connected account, keep the full environment
@@ -602,6 +611,29 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
     // started and later died — and only the first is explained by missing auth.
     sdkMessagesSeen++;
     const type = msg.type as string;
+    if (type === "system") {
+      if (msg.subtype === "background_tasks_changed") {
+        backgroundTasks = Array.isArray(msg.tasks) ? msg.tasks.length : 0;
+      } else if (msg.subtype === "status") {
+        if (msg.status === "requesting") cacheIdle.requestStarted(Date.now());
+        if (msg.status === "compacting") {
+          cacheIdle.invalidate();
+          setBusy(true);
+        }
+        if (msg.compact_result === "failed" && idleCompacting) {
+          idleCompacting = false;
+          cacheNotice("Idle compaction failed. The conversation was not confirmed compacted. You can retry with /compact.");
+          setBusy(false);
+        }
+      } else if (msg.subtype === "compact_boundary") {
+        cacheIdle.invalidate();
+        if (idleCompacting) {
+          idleCompacting = false;
+          cacheNotice("Idle compaction completed. Older context has been replaced with a summary.");
+        }
+        refreshUsageSnapshot();
+      }
+    }
     if (type === "stream_event") {
       setBusy(true);
       // Only the top-level assistant stream feeds the draft; subagent/tool
@@ -621,6 +653,10 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
       return;
     }
     if (type === "assistant" || type === "user") {
+      if (type === "assistant" && msg.parent_tool_use_id == null) {
+        const message = msg.message as { usage?: Parameters<ClaudeCacheIdle["observeUsage"]>[0] } | undefined;
+        if (message?.usage) cacheIdle.observeUsage(message.usage);
+      }
       setBusy(true);
       const messages = normalizeSdkEnvelope(msg);
       if (messages.length) {
@@ -638,6 +674,10 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
       return;
     }
     if (type === "result") {
+      if (idleCompacting) {
+        idleCompacting = false;
+        cacheNotice("Idle compaction ended without a confirmed summary. You can retry with /compact.");
+      }
       // The CLI's interrupt marker is part of the interrupted turn and arrives
       // before its result. Commit a steering row only after that boundary when
       // the SDK did not already echo the row itself.
@@ -678,6 +718,8 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
   }
 
   function send(text: string, afterInterrupt = false): void {
+    cacheIdle.userActivity();
+    if (/^\/(?:compact|clear|model|effort|fast)\b/.test(text.trim())) cacheIdle.invalidate();
     draft = "";
     publishDraft("", true);
     setBusy(true);
@@ -733,6 +775,7 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
     } else if (cmd.type === "dismiss") {
       askBridge.dismiss();
     } else if (cmd.type === "interrupt") {
+      cacheIdle.invalidate();
       // Stop waiting first: the SDK interrupt aborts the pending tool call,
       // but clear the card now rather than after the round trip.
       askBridge.dismiss();
@@ -746,6 +789,7 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
       // The query launch option accepts `max`, but the SDK's documented live
       // Settings layer currently stops at `xhigh`.
       if (!nextEffort || nextEffort === "max") return;
+      cacheIdle.invalidate();
       // Claude's streaming SDK exposes live flag settings on the same process.
       // effortLevel is the setting behind the interactive `/effort` command;
       // applying it here changes subsequent turns without adding a fake chat
@@ -756,6 +800,7 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
         console.error(`aisdk-session thinking-level change failed: ${error instanceof Error ? error.message : String(error)}`);
       });
     } else if (cmd.type === "set_fast_mode") {
+      cacheIdle.invalidate();
       void q.applyFlagSettings({ fastMode: cmd.enabled }).then(() => {
         fastMode = cmd.enabled;
         patchEntry(sessionId, { fastMode });
@@ -800,6 +845,22 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
     })) restartSilentRuntime();
   }, AISDK_STREAM_WATCHDOG_TICK_MS);
 
+  const cacheTimer = setInterval(() => {
+    const action = cacheIdle.tick(Date.now(), {
+      idle: !busy && !askBridge.waiting && !closing && !restartRequested && backgroundTasks === 0,
+      autoCompactEnabled: contextUsage?.isAutoCompactEnabled === true,
+    });
+    if (!action) return;
+    cacheNotice(action.text);
+    if (action.type === "compact") {
+      idleCompacting = true;
+      setBusy(true);
+      // A host maintenance command, not a new user task. The SDK owns the
+      // actual summary, persistence, and compact-boundary event.
+      input.push("/compact");
+    }
+  }, 15_000);
+
   // First message, if any, kicks off the conversation immediately.
   if (initialPrompt) send(initialPrompt);
 
@@ -832,6 +893,7 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
         break;
       }
       restartRequested = false;
+      if (runtimeGeneration > 0) cacheIdle.invalidate();
       try {
         for await (const msg of q) {
           handleMessage(msg as unknown as Record<string, unknown>);
@@ -870,6 +932,7 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
   } finally {
     clearInterval(poll);
     clearInterval(watchdog);
+    clearInterval(cacheTimer);
     userRows.turnEnded();
     // A transcript row is the only channel the web UI actually reads. Stamp it
     // as an api error so computeStatus turns the session "blocked" with a

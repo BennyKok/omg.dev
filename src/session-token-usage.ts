@@ -65,6 +65,7 @@ export type SessionTokenUsage = {
 };
 
 export type ClaudeContextUsageSnapshot = {
+  isAutoCompactEnabled?: boolean;
   categories: Array<{ name: string; tokens: number; color: string; isDeferred?: boolean }>;
   totalTokens: number;
   maxTokens: number;

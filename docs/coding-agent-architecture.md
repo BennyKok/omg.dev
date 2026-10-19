@@ -28,6 +28,37 @@ It owns provider-specific spawn arguments and defaults.
 `src/coding-agent-adapters.ts` owns identity, driver, transport, recovery, and capability metadata.
 `src/agents/backends/managed-sdk-session.ts` owns the shared queue, prompt, transcript, interrupt, and recovery lifecycle.
 
+## Claude prompt-cache maintenance
+
+The Claude SDK harness owns the idle-cache timer in
+`src/agents/backends/claude-cache-idle.ts`. It uses the SDK `requesting` status
+and per-response cache-write TTL counters. The deadline is an estimate, not
+a server expiry notification. Unknown TTLs do not arm a timer. Mixed TTLs use
+the shorter lifetime. A resumed harness waits for a new request with a known
+TTL instead of restoring a possibly stale deadline.
+
+The harness adds a visible transcript warning after 50 minutes for a one-hour
+cache, or four minutes for a five-minute cache. For a one-hour cache with at
+least 200,000 input tokens, it sends `/compact` at 54 minutes if Claude reports
+automatic compaction enabled. The SDK owns the summary and its persistence.
+The harness confirms completion only on `compact_boundary`.
+
+Maintenance waits while the session is busy, has a question open, or has live
+background tasks. It does not run after expiry. A compaction attempt cannot
+arm another attempt until the user sends a new task. Failures produce a notice
+instead of an automatic retry. Interrupts, runtime replacement, and changes
+to effort or fast mode invalidate the timer.
+
+`OMG_CLAUDE_IDLE_COMPACTION=0` disables host idle compaction but keeps warnings.
+The harness sets Claude's native `idleCompaction` to false for its subprocess,
+so the host is the only idle-timer owner. This does not disable Claude's
+normal context-limit compaction or change settings files. The terminal's
+`idleCompaction` switch does not control the host timer.
+
+Anthropic documents terminal idle compaction in the
+[Claude Code 2.1.299 changelog](https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md#21299).
+The SDK does not expose a dedicated cache-expiry event in version 0.3.206.
+
 ## Queue durability
 
 LFG stores outbound queue rows in `data/lfg.sqlite`.
