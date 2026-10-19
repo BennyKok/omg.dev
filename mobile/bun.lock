@@ -8,8 +8,8 @@
         "@expo/metro-runtime": "~58.0.4",
         "@expo/ui": "~58.0.4",
         "@novnc/novnc": "^1.7.0",
-        "@omg-dev/client": "https://github.com/BennyKok/omg.dev/releases/download/v0.6.259/omg-dev-client-0.6.259.tgz",
-        "@omg-dev/protocol": "0.6.259",
+        "@omg-dev/client": "https://github.com/BennyKok/omg.dev/releases/download/v0.6.265/omg-dev-client-0.6.265.tgz",
+        "@omg-dev/protocol": "0.6.265",
         "@react-native-async-storage/async-storage": "2.2.0",
         "@react-native-google-signin/google-signin": "^16.1.4",
         "@shopify/react-native-skia": "2.11.2",
@@ -359,9 +359,9 @@
 
     "@noxcturnal/noxcturnal-win32-x64-msvc": ["@noxcturnal/noxcturnal-win32-x64-msvc@0.1.1", "", { "os": "win32", "cpu": "x64" }, "sha512-D5ZuKQyxJd/wvf9qcVSCD69spzhoHNbaib/dJGpHXQLomrDBwtzYbPVxUwEBWAaXnTqme6/TEZdl/6sG4tm4wA=="],
 
-    "@omg-dev/client": ["@omg-dev/client@https://github.com/BennyKok/omg.dev/releases/download/v0.6.259/omg-dev-client-0.6.259.tgz", { "dependencies": { "@omg-dev/protocol": "0.6.259" } }, "sha512-otpiKSQY0H/i1jOKt11xkP8cIuvlslqceVFiJif9pHS1gWnY61v9NeDnbv2Me4pbURIUG+vmUlsCKyllXhxEfQ=="],
+    "@omg-dev/client": ["@omg-dev/client@https://github.com/BennyKok/omg.dev/releases/download/v0.6.265/omg-dev-client-0.6.265.tgz", { "dependencies": { "@omg-dev/protocol": "0.6.265" } }, "sha512-Pj6PKaGTv6LyNUW6tojoDcqNFFAOPvT5p9MmENTiGdl6o43uQNXwEqvCWVzoN1wP2f9rGGw10XoVUs1ZbFyvfw=="],
 
-    "@omg-dev/protocol": ["@omg-dev/protocol@0.6.259", "", {}, "sha512-LX2+fVq7TieFmyVFKeqiYTnCnVR3jV6Xhj5KaKEuY9oaTGCQUG5IioErBiHMDLjxfdM3bUOWGka/aPnbzmoYhA=="],
+    "@omg-dev/protocol": ["@omg-dev/protocol@0.6.265", "", {}, "sha512-MpQsgnorCeSyewkeHlp20Uta/RyB14rHcslpgvKnELtfezVTa68duE0dTNF6rNOTWpOutYKK6rhyCspAfuuKvQ=="],
 
     "@oxc-project/types": ["@oxc-project/types@0.141.0", "", {}, "sha512-S4as7z0j0xQkXcJlyY5ehntwK8/wRkQb9Cyqw+J/N2rkWGQGK0SxD6X6DhQTc7qsxVTBxXbxZtBJh3mr3PtIzQ=="],
 

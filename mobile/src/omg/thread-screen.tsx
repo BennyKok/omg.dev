@@ -53,7 +53,7 @@ export function repliesHref(threadId: string, rootId: string): Href {
   return `/thread/${threadId}/replies/${rootId}` as Href;
 }
 
-const POLL_MS = 3_000;
+const BACKSTOP_MS = 5 * 60_000;
 const OMG_ORANGE = "#FF5530";
 const TIME = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
 const ThreadReportContext = createContext<((message: ThreadMessage) => void) | null>(null);
@@ -83,15 +83,24 @@ export function useThreadState(id: string | undefined) {
     }
   }, [client, id]);
 
-  // Only the page in front polls: the thread behind a replies page rests.
+  // Only the page in front listens: the thread behind a replies page rests.
+  // The Computer sends a `changed` frame for "threads" on every thread write,
+  // including each new message and task, so the page re-reads at once. An
+  // empty frame means the socket reopened. The interval is a slow backstop.
   useFocusEffect(
     useCallback(() => {
       void load();
+      const offChanges = client?.live.subscribeChanges((topics) => {
+        if (topics.length === 0 || topics.includes("threads")) void load();
+      });
       const timer = setInterval(() => {
         if (AppState.currentState === "active") void load();
-      }, POLL_MS);
-      return () => clearInterval(timer);
-    }, [load]),
+      }, BACKSTOP_MS);
+      return () => {
+        offChanges?.();
+        clearInterval(timer);
+      };
+    }, [client, load]),
   );
 
   const taskIds = useMemo(() => (detail?.tasks ?? []).map((task) => task.sessionId), [detail?.tasks]);

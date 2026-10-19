@@ -1,12 +1,10 @@
 import { liveCollection, type OmgClient, type OmgLiveCollection } from "@omg-dev/client";
 
 /**
- * 5 s, when the Computer does not announce changes (an older Computer). A
- * current Computer sends a `changed` frame for "ask" the moment an agent asks
- * or a question is answered, so the list is re-read at once and this poll
- * drops to a 5-minute backstop (liveCollection in @omg-dev/client).
+ * The Computer sends a `changed` frame for "ask" the moment an agent asks or a
+ * question is answered, so the list is re-read at once, with a 5-minute
+ * backstop (liveCollection in @omg-dev/client).
  */
-const ASK_POLL_MS = 5_000;
 
 const collections = new WeakMap<OmgClient, OmgLiveCollection<unknown[]>>();
 
@@ -25,7 +23,6 @@ export function openQuestions<T>(client: OmgClient): OmgLiveCollection<T[]> {
         const res = await client.transport.request<{ questions?: unknown[] }>("/api/ask?status=open");
         return Array.isArray(res?.questions) ? res.questions : [];
       },
-      { pollMs: ASK_POLL_MS },
     );
     collections.set(client, collection);
   }

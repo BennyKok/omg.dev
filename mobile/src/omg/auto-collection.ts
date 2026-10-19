@@ -2,18 +2,15 @@ import { liveCollection, type OmgClient, type OmgLiveCollection } from "@omg-dev
 import type { AutoAgent, AutoFinding } from "./auto-agents";
 
 /**
- * 30s, when the Computer does not announce changes (an older Computer). A
- * finding is a live fact: dismissed on another device, or graduated into a
+ * A finding is a live fact: dismissed on another device, or graduated into a
  * session from the web. So this cannot be resumable.ts's fetch-once.
  *
- * A current Computer sends a `changed` frame for "auto" on the live socket the
- * moment a schedule or finding is written. The list is then re-read at once
- * and this poll drops to a 5-minute backstop (liveCollection in
- * @omg-dev/client). Every screen that shows it shares one collection per
- * client, so three screens cost one read.
+ * The Computer sends a `changed` frame for "auto" on the live socket the
+ * moment a schedule or finding is written. The list is then re-read at once,
+ * with a 5-minute backstop (liveCollection in @omg-dev/client). Every screen
+ * that shows it shares one collection per client, so three screens cost one
+ * read.
  */
-const AUTO_POLL_MS = 30_000;
-
 export type AutoSnapshot = {
   agents: AutoAgent[];
   findings: AutoFinding[];
@@ -44,7 +41,6 @@ export function autoCollection(client: OmgClient): OmgLiveCollection<AutoSnapsho
         findingsError: findingsRead.status === "fulfilled" ? null : "Could not load findings. Please try again.",
       };
     },
-    { pollMs: AUTO_POLL_MS },
   );
   collections.set(client, collection);
   return collection;

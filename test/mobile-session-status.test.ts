@@ -59,7 +59,7 @@ test("failed REST keeps the visible fleet and permits a later retry", async () =
 });
 
 
-test("Home polls without status support, slows when live, refreshes unknown rows, and releases observers", () => {
+test("Home polls only while the socket is down, reconciles once a minute when live, refreshes unknown rows, and releases observers", () => {
   type Connection = import("../packages/client/src").OmgConnectionState;
   type Row = import("../packages/protocol/src").OmgStatusRow;
   let connection!: (state: Connection) => void;
@@ -79,10 +79,11 @@ test("Home polls without status support, slows when live, refreshes unknown rows
     connectionChanged: () => {},
   }, { start: (callback) => { tick = callback; return () => releases.push("timer"); } });
   expect(refreshes).toEqual([false]);
-  connection({ status: "live", attempt: 0 });
-  tick(); // A socket alone does not prove status support.
-  expect(refreshes).toEqual([false, true, true]);
-  status([]); // Empty baseline is valid support.
+  tick(); // Socket not live yet: poll.
+  expect(refreshes).toEqual([false, true]);
+  connection({ status: "live", attempt: 0 }); // Reopen: one refresh.
+  expect(refreshes).toHaveLength(3);
+  // Live: no polling, even before the first status frame.
   for (let i = 0; i < 4; i++) tick();
   expect(refreshes).toHaveLength(3);
   tick(); // One minute reconciles removals that status frames cannot express.
@@ -96,7 +97,7 @@ test("Home polls without status support, slows when live, refreshes unknown rows
   expect(releases).toEqual(["timer", "status", "connection"]);
   tick(); status([]); connection({ status: "live", attempt: 0 });
   expect(refreshes).toHaveLength(6);
-  expect(applied).toBe(2);
+  expect(applied).toBe(1);
 });
 
 

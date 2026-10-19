@@ -117,7 +117,6 @@ export function observeSessionStatus(options: {
 }): () => void {
   let stopped = false;
   let settleTimer: ReturnType<typeof setTimeout> | null = null;
-  let receivedStatus = false;
   let connection = options.live.state.status;
   let ticks = 0;
   options.refresh(false);
@@ -125,12 +124,10 @@ export function observeSessionStatus(options: {
     if (stopped) return;
     options.connectionChanged?.(state.status);
     if (state.status === "live" && connection !== "live") options.refresh(true);
-    if (state.status !== "live") receivedStatus = false;
     connection = state.status;
   });
   const offStatus = options.live.subscribeStatus((rows) => {
     if (stopped) return;
-    receivedStatus = true;
     const result = options.apply(rows);
     // A missing row is a hole in the list: refetch immediately.
     if (result.unknown) {
@@ -153,7 +150,9 @@ export function observeSessionStatus(options: {
   const offTimer = timer.start(() => {
     if (stopped) return;
     ticks += 1;
-    if (!receivedStatus || connection !== "live" || ticks % 6 === 0) options.refresh(true);
+    // Live: once a minute, because status rows cannot report a removed
+    // session. Every Computer sends status rows on open (LFG 0.6.260+).
+    if (connection !== "live" || ticks % 6 === 0) options.refresh(true);
   });
   return () => {
     if (stopped) return;

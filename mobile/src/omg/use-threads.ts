@@ -1,36 +1,42 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { AppState } from "react-native";
+import { useCallback, useEffect, useState } from "react";
+import { liveCollection, type OmgClient, type OmgLiveCollection } from "@omg-dev/client";
 import { useOmg } from "./provider";
 import { listThreads, updateThread, type ThreadSummary } from "./threads";
 
-const LIST_POLL_MS = 10_000;
+const collections = new WeakMap<OmgClient, OmgLiveCollection<ThreadSummary[]>>();
 
-/** Home's thread list: loaded on mount, then polled while the app is active. */
+/**
+ * The machine's thread list, one shared read per client. The Computer sends a
+ * `changed` frame for "threads" on every thread write, including each new
+ * message, so the list is re-read at once, with a 5-minute backstop
+ * (liveCollection in @omg-dev/client).
+ */
+export function threadsCollection(client: OmgClient): OmgLiveCollection<ThreadSummary[]> {
+  let collection = collections.get(client);
+  if (!collection) {
+    // A failed read keeps the last value; a machine from before threads
+    // answers 404 and the section stays empty.
+    collection = liveCollection(client.live, "threads", () => listThreads(client));
+    collections.set(client, collection);
+  }
+  return collection;
+}
+
+/** Home's thread list. */
 export function useThreads(): { threads: ThreadSummary[]; refresh: () => Promise<void>; archive: (id: string) => void } {
   const { client, bindingId } = useOmg();
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
-  const alive = useRef(true);
-  const refresh = useCallback(async () => {
-    if (!client) return;
-    try {
-      const rows = await listThreads(client);
-      if (alive.current) setThreads(rows);
-    } catch {
-      // A machine from before threads answers 404; the section stays empty.
-    }
-  }, [client]);
   useEffect(() => {
-    alive.current = true;
     setThreads([]);
-    void refresh();
-    const timer = setInterval(() => {
-      if (AppState.currentState === "active") void refresh();
-    }, LIST_POLL_MS);
-    return () => {
-      alive.current = false;
-      clearInterval(timer);
-    };
-  }, [refresh, bindingId]);
+    if (!client) return;
+    const collection = threadsCollection(client);
+    const cached = collection.peek();
+    if (cached) setThreads(cached);
+    return collection.subscribe(setThreads);
+  }, [client, bindingId]);
+  const refresh = useCallback(async () => {
+    if (client) await threadsCollection(client).refresh();
+  }, [client]);
   const archive = useCallback((id: string) => {
     if (!client) return;
     setThreads((rows) => rows.filter((row) => row.id !== id));
