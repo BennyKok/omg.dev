@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 19, 2026 - Lists update from announcements only (v0.6.265)
+
+- The web app and `@omg-dev/client` no longer poll lists faster for a Computer that does not announce changes. While connected, pins, schedules, findings, bots, repos, questions and threads update when the Computer announces a change, with a check every 5 minutes as a safety net. The session list still refreshes every 30 seconds, because a removed session is not announced.
+- Computers need omg 0.6.260 or newer for live lists. omg.dev updates hosted Computers for you. A self-hosted Computer on an older version shows "Update available" in Settings.
+- `liveCollection` in `@omg-dev/client` no longer takes `pollMs`.
+
 ## October 19, 2026 - Automatic context maintenance (v0.6.264)
 
 - Eligible managed Claude sessions summarize older context before their reported one-hour prompt cache expires. One advance notice explains the automatic action. Routine completion stays silent.
