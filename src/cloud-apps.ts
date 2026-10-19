@@ -480,6 +480,7 @@ export const CLOUD_APPS_PATHS = [
   "/api/cloud/apps/status",
   "/api/cloud/apps/visibility",
   "/api/cloud/apps/rename",
+  "/api/cloud/apps/test-checkout",
   "/api/cloud/apps/identity",
   "/api/cloud/apps/link",
   "/api/cloud/apps/unlink",
@@ -550,6 +551,25 @@ export async function handleCloudAppsRequest(
         return jsonResponse({ error: "visibility is required" }, 400);
       }
       return jsonResponse(await client.setVisibility(body.slug.trim(), body.visibility.trim()));
+    }
+    if (path === "/api/cloud/apps/test-checkout" && req.method === "POST") {
+      const body = await envBody(req);
+      const action = typeof body.action === "string" ? body.action : "";
+      if (action === "complete") {
+        if (typeof body.checkout !== "string" || !body.checkout.trim()) {
+          return jsonResponse({ error: "checkout is required: the checkout URL or id from billing.checkout()" }, 400);
+        }
+        return jsonResponse(await client.completeTestCheckout(body.checkout.trim()));
+      }
+      if (typeof body.slug !== "string" || !body.slug.trim()) {
+        return jsonResponse({ error: "slug is required" }, 400);
+      }
+      const slug = body.slug.trim();
+      if (action === "status") return jsonResponse(await client.getTestMode(slug));
+      if (action === "enable" || action === "disable") {
+        return jsonResponse(await client.setTestMode(slug, action === "enable"));
+      }
+      return jsonResponse({ error: "action must be status, enable, disable or complete" }, 400);
     }
     if (path === "/api/cloud/apps/rename" && req.method === "POST") {
       const body = await envBody(req);

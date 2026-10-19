@@ -1641,6 +1641,33 @@ export function buildOmgMcpServer(): McpServer {
   );
 
   server.registerTool(
+    "omg_app_test_checkout",
+    {
+      title: "Test A Hosted App's Checkout Without Paying",
+      description:
+        "Checkout test mode for a hosted app that uses billing.checkout(). enable: checkout returns an omg test checkout URL instead of the payment provider's, and it works before a billing account is connected. complete: finish that test checkout as the app's owner, with no card and no charge; the purchase lands like a paid one (credit grant, then the subscription), so billing.subscription() shows the paid plan. Real buyers can't pay while test mode is on, so disable it before launch. status reads the current setting.",
+      inputSchema: {
+        action: z.enum(["status", "enable", "disable", "complete"]),
+        slug: z.string().min(1).optional().describe("App slug. Required for status, enable and disable."),
+        checkout: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("For complete: the checkoutUrl or checkoutId that billing.checkout() returned."),
+      },
+    },
+    async ({ action, slug, checkout }) => {
+      return result(
+        await api("/api/cloud/apps/test-checkout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action, slug, checkout }),
+        }),
+      );
+    },
+  );
+
+  server.registerTool(
     "omg_app_rename",
     {
       title: "Change A Hosted App's Address",

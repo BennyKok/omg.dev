@@ -70,5 +70,7 @@ export {
   type CloudSourceFile,
   type CloudVisibility,
   type CloudAppRename,
+  type CloudTestMode,
+  type CloudTestCheckoutResult,
   type CloudWhoami,
 } from "./apps";

@@ -68,6 +68,18 @@ export type CloudVisibility = {
   published?: boolean;
 };
 
+/** Checkout test mode for an app (see omg_app_test_checkout). */
+export type CloudTestMode = { slug: string; testMode: boolean };
+
+/** A completed test checkout: where the buyer would land next. */
+export type CloudTestCheckoutResult = {
+  ok?: boolean;
+  slug: string;
+  plan: string;
+  redirectUrl: string;
+  alreadyCompleted?: boolean;
+};
+
 /** Result of moving an app to a new address. The old address redirects. */
 export type CloudAppRename = {
   ok?: boolean;
@@ -124,6 +136,9 @@ export interface CloudAppsClient {
   getVisibility(slug: string): Promise<CloudVisibility>;
   setVisibility(slug: string, visibility: string): Promise<{ ok?: boolean; visibility: string }>;
   renameApp(slug: string, newSlug: string): Promise<CloudAppRename>;
+  getTestMode(slug: string): Promise<CloudTestMode>;
+  setTestMode(slug: string, enabled: boolean): Promise<CloudTestMode>;
+  completeTestCheckout(checkout: string): Promise<CloudTestCheckoutResult>;
   updateIdentity(input: CloudAppIdentityInput): Promise<CloudAppIdentity>;
   listEnv(slug: string, projectId?: string): Promise<{ slug?: string; vars: CloudEnvSummary[] }>;
   pullEnv(slug: string, projectId?: string): Promise<{ slug?: string; env: Record<string, string> }>;
@@ -219,6 +234,15 @@ export function createCloudAppsClient(options: CloudAppsOptions): CloudAppsClien
     },
     async renameApp(slug, newSlug) {
       return (await post("/api/cli/apps/rename", { slug, newSlug })) as CloudAppRename;
+    },
+    async getTestMode(slug) {
+      return (await get(`/api/cli/apps/test-mode?slug=${encodeURIComponent(slug)}`)) as CloudTestMode;
+    },
+    async setTestMode(slug, enabled) {
+      return (await post("/api/cli/apps/test-mode", { slug, enabled })) as CloudTestMode;
+    },
+    async completeTestCheckout(checkout) {
+      return (await post("/api/cli/apps/test-checkout/complete", { checkout })) as CloudTestCheckoutResult;
     },
     async updateIdentity(input) {
       return (await post("/api/cli/apps/identity", input)) as CloudAppIdentity;
