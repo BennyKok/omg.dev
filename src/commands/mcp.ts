@@ -1641,6 +1641,31 @@ export function buildOmgMcpServer(): McpServer {
   );
 
   server.registerTool(
+    "omg_app_rename",
+    {
+      title: "Change A Hosted App's Address",
+      description:
+        "Move a hosted app to a new address (<newSlug>.omgs.app). Only the app's owner can. Its data, uploaded files, sign-in setting and billing stay with it, and links to the old address redirect to the new one. Local folders linked to the app are updated. Rename only when the user asked for the new address; the app restarts for a few seconds.",
+      inputSchema: {
+        slug: z.string().min(1).describe("Current app slug, for example hello from hello.omgs.app."),
+        newSlug: z
+          .string()
+          .regex(/^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/)
+          .describe("New slug: 3 to 40 lowercase letters, numbers and hyphens, no leading or trailing hyphen."),
+      },
+    },
+    async ({ slug, newSlug }) => {
+      return result(
+        await api("/api/cloud/apps/rename", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ slug, newSlug }),
+        }),
+      );
+    },
+  );
+
+  server.registerTool(
     "omg_app_identity",
     {
       title: "Set A Hosted App's Name, Tagline, Icon And Store Screenshots",

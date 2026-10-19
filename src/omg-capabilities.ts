@@ -6,7 +6,7 @@ import { customInputModalities } from "./custom-models.ts";
 // Bump whenever an agent-facing omg.dev capability or its operating guidance
 // changes. Managed sessions persist the value they launched with, which lets
 // the UI identify long-lived sessions whose MCP/tool catalog predates a ship.
-export const OMG_CAPABILITY_VERSION = "2026-10-15.2";
+export const OMG_CAPABILITY_VERSION = "2026-10-19.1";
 
 export const OMG_CAPABILITIES = [
   {
@@ -32,7 +32,7 @@ export const OMG_CAPABILITIES = [
       "This is how finished work reaches the human — a session that never ships is invisible. Post a headline, a tweet-length result and the strongest evidence. Posting does not close the session. Never ship planning, partial, or blocked work.",
   },
   {
-    tool: "omg_deploy / omg_deploy_status / omg_apps / omg_whoami / omg_app_visibility / omg_app_identity / omg_app_env / omg_link_app / omg_unlink_app",
+    tool: "omg_deploy / omg_deploy_status / omg_apps / omg_whoami / omg_app_visibility / omg_app_rename / omg_app_identity / omg_app_env / omg_link_app / omg_unlink_app",
     useWhen: "A project folder must be published to omg Infra, listed, have its URL visibility changed, or have its name, tagline or icon set.",
     guidance:
       "These verbs inherit the runtime Cloud credential. A local box uses ~/.omg/credentials.json. A Cloud Computer gets the binding token from Infra. Do not ask the user to paste a token. omg_deploy waits at most 45 seconds; when it returns pending: true, call omg_deploy_status with the slug until the build is ready or failed, and do not deploy again. omg_ship is a feed post, not a deploy. After a first deploy, give the app a clear name and a one-line tagline with omg_app_identity; they show on its link preview and sign-in page. Add an icon only when the project has a real one. A first deploy returns storeScreenshotsHint: follow it once the build is ready, so the app's store page and \"ready\" email show the app. When the app needs API keys or internal API URLs, put them in a .env file and call omg_app_env with action import, then deploy again; never print secret values in chat. A deploy from a folder with no .omg/project.json creates a new app. If the folder is the source of an app that already exists (check omg_apps), link it with omg_link_app before you deploy, so the deploy updates that app. Link only when you know it is the same app; otherwise ask the user with omg_ask_user first.",
@@ -116,7 +116,7 @@ export const OMG_MCP_INSTRUCTIONS = [
   "In a task session, publish every verified result with omg_ship; work that is never shipped never reaches the human. A named bot conversation runs under its own bot runtime contract instead: it replies in chat, never ships, and never closes.",
   "Decide autonomously and keep working: do not ask to check in, to confirm the next step, or to approve work already in scope. Use omg_input (or your own AskUserQuestion tool) only for a genuinely irreversible, external, or ambiguous decision, with 2-4 options. Use omg.dev-managed delegation only when delegation is explicitly requested.",
   "Recurring scheduled work belongs to the auto agent tools (omg_list_auto_agents, omg_compose_auto_agent, omg_save_auto_agent, omg_run_auto_agent, omg_list_findings).",
-  "Hosted apps use omg_deploy, omg_deploy_status, omg_apps, omg_whoami, omg_app_visibility, omg_app_identity, omg_app_env, omg_link_app, and omg_unlink_app. Installable Android apps use omg_build_android and omg_build_status. For a live Cloud Computer preview, use omg_expose_port. For Expo Go, prepare the Metro port with expoGo:true and use the returned sandbox proxy URL. The runtime supplies the Cloud credential.",
+  "Hosted apps use omg_deploy, omg_deploy_status, omg_apps, omg_whoami, omg_app_visibility, omg_app_rename, omg_app_identity, omg_app_env, omg_link_app, and omg_unlink_app. Installable Android apps use omg_build_android and omg_build_status. For a live Cloud Computer preview, use omg_expose_port. For Expo Go, prepare the Metro port with expoGo:true and use the returned sandbox proxy URL. The runtime supplies the Cloud credential.",
   `Session ids are returned in short form (${SHORT_SESSION_ID_LENGTH}-char prefix, like a git short sha). Pass them back exactly as given — any unambiguous prefix resolves to the full id.`,
 ].join(" ");
 
