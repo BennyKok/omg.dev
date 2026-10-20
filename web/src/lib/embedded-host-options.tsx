@@ -137,9 +137,9 @@ export type ComposerGuideSurface = "new-session" | "session";
 
 export interface ComposerGuide {
   /** Send stays off, and Enter does nothing, until this returns true for the draft. */
-  accepts?: (draft: string, surface: ComposerGuideSurface) => boolean;
+  accepts?: (draft: string, surface: ComposerGuideSurface, sessionId?: string) => boolean;
   /** Every change to a composer's draft, so the host's guide can show progress. */
-  onDraft?: (draft: string, surface: ComposerGuideSurface) => void;
+  onDraft?: (draft: string, surface: ComposerGuideSurface, sessionId?: string) => void;
   /**
    * Added to the session the home composer starts: `firstRun` wraps it in the
    * first-run rules, and `guide` adds the host's instructions to them. Both
@@ -160,7 +160,8 @@ export interface ComposerGuide {
    * accepts); the person still taps Send. Return a cleanup; it runs when the
    * composer unmounts.
    */
-  registerFill?: (fill: (text: string) => void, surface: ComposerGuideSurface) => (() => void) | void;
+  // sessionId scopes session composers. Fill returns true only for a visible input.
+  registerFill?: (fill: (text: string) => boolean | void, surface: ComposerGuideSurface, sessionId?: string) => (() => void) | void;
 }
 
 export interface HostedPreviewAuth {

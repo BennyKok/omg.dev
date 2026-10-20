@@ -1,3 +1,5 @@
+import type { OmgChatSendCallbacks } from "./lib/omg-chat-transport";
+import { fillVisibleComposer } from "./lib/guide-fill";
 import { AGENT_DEFAULT_MODELS as AGENT_DEFAULT_MODEL } from "../../src/agent-defaults";
 import { browserTranscription, selectTranscriptionTake, type TranscriptionTake } from "./lib/browser-transcription";
 import { BrowserTranscriptionSettings, useBrowserTranscription } from "./components/browser-transcription-settings";
@@ -43,7 +45,6 @@ import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
 import {
   DEFAULT_TAB,
   pathnameToTab,
-  readLocationSessionId,
   shouldNavigateToTab,
   shouldPrioritizeSession,
 } from "./lib/app-search";
@@ -111,6 +112,7 @@ import {
 } from "./lib/project-filter";
 import { ChatStarterRow } from "./components/chat-starter-row";
 import { groupNodesByProject, type ProjectGroup } from "./lib/session-groups";
+import { usePendingSessionLink } from "./lib/session-navigation";
 import { pathnameToSessionId, pathnameToThreadId, sessionToPath, threadToPath } from "./lib/app-search";
 import { NEW_THREAD_ID, ThreadChat, useTypingReport, type ThreadComposerProps } from "./components/threads";
 import { PullToThread } from "./components/pull-to-thread";
@@ -5863,18 +5865,10 @@ export function App() {
   // the live fleet. Its first new message resumes it and replaces this preview
   // with the real live row.
   const [shippedReview, setShippedReview] = useState<Session | null>(null);
-  // Deep link: `/?session=<id>` (the URL the server hands out as
-  // `publicSessionUrl`) focuses that session on load. Read once, at the top of
-  // the component, because several filter effects below have to know a link is
-  // still pending — see the default-profile effect and the resolver near
-  // `liveSessions`. Set to null the moment it's consumed (or given up on) so
-  // later list refreshes never re-steal focus.
+  // Resolve each new URL request once, including host navigation after mount.
+  // Consuming the ref prevents later list refreshes from stealing focus.
   const deepLinkSearch = useSearch({ strict: false });
-  const sessionDeepLinkRef = useRef<string | null | undefined>(undefined);
-  if (sessionDeepLinkRef.current === undefined) {
-    sessionDeepLinkRef.current =
-      deepLinkSearch.session ?? readLocationSessionId();
-  }
+  const sessionDeepLinkRef = usePendingSessionLink(deepLinkSearch.session);
   // Hosted inside omg (or any frame): drop LFG chrome, skip onboarding/picker,
   // default to all sessions. `?embed=1` is the explicit contract; framing alone
   // is enough as a defence-in-depth signal.
@@ -7544,7 +7538,7 @@ export function App() {
     }
     setTab("live");
     setLiveFocus({ sid: target.sessionId ?? sid, n: Date.now() });
-  }, [allLiveSessions, loading, userFilter, projectFilter, identityGateOpen, setTab]);
+  }, [allLiveSessions, loading, userFilter, projectFilter, identityGateOpen, setTab, deepLinkSearch.session]);
 
   // The plan-limit sheet's Open. The chats it lists are mostly the ones Home
   // hides behind a project filter, and the session page renders only a chat
@@ -7598,7 +7592,7 @@ export function App() {
       });
     }, 10000);
     return () => window.clearTimeout(timer);
-  }, [loading, identityGateOpen, openHistoricalSession]);
+  }, [loading, identityGateOpen, openHistoricalSession, deepLinkSearch.session]);
 
   const openShippedSession = useCallback(
     (post: ShipPost) =>
@@ -16975,17 +16969,17 @@ function SessionChatBody({
   );
   const onGuideDraft = composerGuide?.onDraft;
   useEffect(() => {
-    onGuideDraft?.(messageText, "session");
-  }, [messageText, onGuideDraft]);
+    onGuideDraft?.(messageText, "session", sid ?? undefined);
+  }, [messageText, onGuideDraft, sid]);
   // The host's "Fill it in" (composerGuide.registerFill) sets this draft
   // through setMessageText, declared below; a ref reaches the latest one.
   const fillSessionDraftRef = useRef<(text: string) => void>(() => {});
   const registerGuideFill = composerGuide?.registerFill;
   useEffect(() => {
     if (!registerGuideFill) return;
-    const cleanup = registerGuideFill((text) => fillSessionDraftRef.current(text), "session");
+    const cleanup = registerGuideFill((text) => fillVisibleComposer(messageInputRef.current, fillSessionDraftRef.current, text), "session", sid ?? undefined);
     return typeof cleanup === "function" ? cleanup : undefined;
-  }, [registerGuideFill]);
+  }, [registerGuideFill, sid]);
   const [sending, setSending] = useState(false);
   // Counts composer sends, so the open harness prompt can hide on the send
   // that answers it (see SessionPromptPanel).
@@ -17286,7 +17280,7 @@ function SessionChatBody({
     const text = (overrideText ?? messageText).trim();
     const files = attachments;
     if (!sid || (!text && !files.length)) return;
-    if (composerGuide?.accepts && !composerGuide.accepts(text, "session")) return;
+    if (composerGuide?.accepts && !composerGuide.accepts(text, "session", sid ?? undefined)) return;
     const fastCommand = parseFastChatCommand(text);
     if (fastCommand.matched) {
       if (files.length) {
@@ -17325,7 +17319,6 @@ function SessionChatBody({
     // both modes deliver immediately and the bubble is an ordinary send. The
     // busy read can lag the server by a poll; reconcileOmgQueueMessages drops
     // an optimistic bubble the server turned into a held row instead.
-    composerGuide?.onSent?.({ surface: "session", text, sessionId: sid });
     const holdOnServer = mode === "queue" && chatBusy && !bot && !reviewingShipped;
     const queuedBehindTurn = mode === "queue" && chatBusy;
     // Dismiss a real soft keyboard so the newly-sent turn has room to read.
@@ -17393,6 +17386,7 @@ function SessionChatBody({
           }),
         });
         setPromptStashStatus(stashed?.id, "sent");
+        composerGuide?.onSent?.({ surface: "session", text, sessionId: sid });
         setLocalHeld((current) => current.filter((item) => item.id !== localHeldId));
         if (res.msg?.status === "held") {
           const held = res.msg;
@@ -17435,6 +17429,7 @@ function SessionChatBody({
           }),
         });
         setPromptStashStatus(stashed?.id, "sent");
+        composerGuide?.onSent?.({ surface: "session", text, sessionId: sid });
         for (const att of files) {
           if (att.previewUrl) URL.revokeObjectURL(att.previewUrl);
         }
@@ -17460,8 +17455,17 @@ function SessionChatBody({
           },
         },
         mode,
+        {
+          onAccepted: () => {
+            setPromptStashStatus(stashed?.id, "sent");
+            composerGuide?.onSent?.({ surface: "session", text, sessionId: sid });
+          },
+          onRejected: () => {
+            setPromptStashStatus(stashed?.id, "draft");
+            setMessageTextState((current) => current || text);
+          },
+        },
       )
-        .then(() => setPromptStashStatus(stashed?.id, "sent"))
         .catch((err) => {
           setPromptStashStatus(stashed?.id, "draft");
           setMessageTextState((current) => current || text);
@@ -17512,12 +17516,12 @@ function SessionChatBody({
   // mid-word, with the final row then dropped for not extending it. Joining a
   // running turn therefore sends passively and leaves the listener in charge.
   const sendIntoChat = useCallback(
-    (message: Parameters<typeof sendChatMessage>[0], mode: ComposerSendMode) => {
+    (message: Parameters<typeof sendChatMessage>[0], mode: ComposerSendMode, metadata?: OmgChatSendCallbacks) => {
       if (!sid) return Promise.resolve();
       if (chatBusy && !ownedChatStreams.owns(sid)) {
-        return sendChatMessage(message, { body: { mode, passive: true } });
+        return sendChatMessage(message, { body: { mode, passive: true }, metadata });
       }
-      return ownedChatStreams.run(sid, () => sendChatMessage(message, { body: { mode } }));
+      return ownedChatStreams.run(sid, () => sendChatMessage(message, { body: { mode }, metadata }));
     },
     [chatBusy, ownedChatStreams, sendChatMessage, sid],
   );
@@ -17697,9 +17701,9 @@ function SessionChatBody({
           ) : null}
           {/* Host chrome right above this session's bar (the omg.dev guide card).
               Empty unless a host portals into it; [data-lfg-host-slot]:empty
-              hides it. Tagged by kind, not session id, because only one
-              session composer is on screen at a time. */}
-          <div data-lfg-host-slot="composer-top" data-composer-kind="session" />
+              hides it. The session id keeps a guide attached to its own
+              conversation when several composers are mounted. */}
+          <div data-lfg-host-slot="composer-top" data-composer-kind="session" data-composer-sid={sid} />
           {/* The bar itself (not just the textarea) is the field now: attach, type,
               mic and send all live inside one lfg-gfield pill, matching the
               wrapper pattern NewSessionDialog/ForkSessionDialog already use. That
@@ -17864,7 +17868,7 @@ function SessionChatBody({
                 the mic button's own recording state (red, level-reactive) is
                 what carries "gesture in progress" until words land. */}
             {(messageText.trim() || attachments.length || sending) &&
-            (sending || !composerGuide?.accepts || composerGuide.accepts(messageText.trim(), "session")) ? (
+            (sending || !composerGuide?.accepts || composerGuide.accepts(messageText.trim(), "session", sid ?? undefined)) ? (
               <ComposerSendButton
                 className="size-10 shrink-0 md:size-8"
                 sending={sending}
@@ -23514,7 +23518,7 @@ function NewSessionDialog({
   const registerHomeFill = composerGuide?.registerFill;
   useEffect(() => {
     if (!registerHomeFill) return;
-    const cleanup = registerHomeFill((text) => fillHomeDraftRef.current(text), "new-session");
+    const cleanup = registerHomeFill((text) => fillVisibleComposer(fieldRef.current?.querySelector("textarea") ?? null, fillHomeDraftRef.current, text), "new-session");
     return typeof cleanup === "function" ? cleanup : undefined;
   }, [registerHomeFill]);
   // A mirror of `prompt` for callbacks that outlive the render that made them.

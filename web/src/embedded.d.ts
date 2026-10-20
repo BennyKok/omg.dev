@@ -135,15 +135,16 @@ export type ComposerGuideSurface = "new-session" | "session";
 /** A host's guided tutorial over the composers (OmgAppSurfaceProps.composerGuide). */
 export interface ComposerGuide {
   /** Send stays off, and Enter does nothing, until this returns true for the draft. */
-  accepts?: (draft: string, surface: ComposerGuideSurface) => boolean;
+  accepts?: (draft: string, surface: ComposerGuideSurface, sessionId?: string) => boolean;
   /** Every change to a composer's draft, so the host's guide can show progress. */
-  onDraft?: (draft: string, surface: ComposerGuideSurface) => void;
+  onDraft?: (draft: string, surface: ComposerGuideSurface, sessionId?: string) => void;
   /** Added to the session the home composer starts, inside the launch envelope. */
   newSession?: { firstRun?: boolean; guide?: string };
   /** The person sent `text`: from the home composer once the session exists, from a session composer when the send is accepted. */
   onSent?: (event: { surface: ComposerGuideSurface; text: string; sessionId: string | null }) => void;
   /** Each mounted composer hands the host a function that sets its draft (a guide's "Fill it in"); the person still taps Send. Return a cleanup. */
-  registerFill?: (fill: (text: string) => void, surface: ComposerGuideSurface) => (() => void) | void;
+  // sessionId scopes session composers. Fill returns true only for a visible input.
+  registerFill?: (fill: (text: string) => boolean | void, surface: ComposerGuideSurface, sessionId?: string) => (() => void) | void;
 }
 
 /** A host's own pill in the home composer's starter row (OmgAppSurfaceProps.starterChips). */
@@ -169,6 +170,7 @@ export type EmbeddedAnalyticsEventHandler = (
 export interface OmgAppSurfaceProps {
   transport: OmgTransport;
   assetBaseUrl?: string;
+  /** Initial session and subsequent host navigation requests. Clearing it opens Home. */
   sessionId?: string | null;
   className?: string;
   /** The agent used when this browser has no valid saved selection. */

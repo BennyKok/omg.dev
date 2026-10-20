@@ -390,3 +390,28 @@ describe("sending while the assistant is streaming", () => {
     expect(await joining.getReader().read()).toEqual({ done: true, value: undefined });
   });
 });
+
+test("send acknowledgement fires on server acceptance before the agent finishes", async () => {
+  let accepted = 0;
+  let rejected = 0;
+  let ok = false;
+  const transport = new OmgChatTransport({
+    sessionId: nextSid(),
+    fetch: async () => new Response("{}", { status: ok ? 200 : 503 }),
+    subscribeTranscript: () => () => {},
+  });
+  const chat = new Chat<OmgChatMessage>({ id: nextSid(), transport });
+  const metadata = { onAccepted: () => accepted++, onRejected: () => rejected++ };
+  // The SDK catches a failed request. It must not acknowledge it.
+  await chat.sendMessage({ text: "first attempt" }, { metadata });
+  expect(accepted).toBe(0);
+  expect(rejected).toBe(1);
+  ok = true;
+  const pending = chat.sendMessage({ text: "retry" }, { metadata });
+  // Let the request settle while the agent stream remains open.
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(accepted).toBe(1);
+  await chat.stop();
+  await pending;
+  expect(accepted).toBe(1);
+});
