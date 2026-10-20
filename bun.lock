@@ -48,7 +48,7 @@
       "version": "0.1.84",
       "dependencies": {
         "@omg-dev/protocol": "workspace:*",
-        "@omg-dev/sdk": "0.4.54",
+        "@omg-dev/sdk": "0.4.55",
       },
     },
     "packages/cloud": {
@@ -616,11 +616,11 @@
 
     "@omg-dev/protocol": ["@omg-dev/protocol@workspace:packages/protocol"],
 
-    "@omg-dev/pwa": ["@omg-dev/pwa@0.4.54", "", { "peerDependencies": { "react": ">=18", "react-dom": ">=18" } }, "sha512-ikj+3uV+fY2h5TYodECJ5nNTRKCMZ+Ghlo97qUQkcjN5WMCHnTXw6BIKui+m1A0cgwb6oGMOvQsf38TCHjS9OA=="],
+    "@omg-dev/pwa": ["@omg-dev/pwa@0.4.55", "", { "peerDependencies": { "react": ">=18", "react-dom": ">=18" } }, "sha512-RVNDsQYr21CMiGhcpVTQRFmVM4FTsQPj5OlVQ8RQAytxShLOPsMoJpY0+QcmISXXKSQ8HEu+bKi4Cc4L9UkdCQ=="],
 
     "@omg-dev/react": ["@omg-dev/react@workspace:packages/react"],
 
-    "@omg-dev/sdk": ["@omg-dev/sdk@0.4.54", "", { "dependencies": { "@better-auth/passkey": "^1.7.3", "@microsoft/fetch-event-source": "^2.0.1", "@omg-dev/pwa": "0.4.54", "better-auth": "^1.7.3" }, "peerDependencies": { "react": ">=18", "react-dom": ">=18" } }, "sha512-Alwb3vfrrTwM3a77Rrtkk8qHaXYLI1COhZKRs0lM2sDoXDyUkasmAzQjaEXrBMQjgN+DyZmmv3dsgner67nhIg=="],
+    "@omg-dev/sdk": ["@omg-dev/sdk@0.4.55", "", { "dependencies": { "@better-auth/passkey": "^1.7.3", "@microsoft/fetch-event-source": "^2.0.1", "@omg-dev/pwa": "0.4.55", "better-auth": "^1.7.3" }, "peerDependencies": { "react": ">=18", "react-dom": ">=18" } }, "sha512-szxD7Y0hXTyLD/BCXoxDB+8hJYTopHvprQwI12xOshuhpWsRCNQOAZtnR9F6xKxppIeZbEUZlHdlbYhzdSrPVQ=="],
 
     "@openai/codex": ["@openai/codex@0.159.2", "", { "optionalDependencies": { "@openai/codex-darwin-arm64": "npm:@openai/codex@0.159.2-darwin-arm64", "@openai/codex-darwin-x64": "npm:@openai/codex@0.159.2-darwin-x64", "@openai/codex-linux-arm64": "npm:@openai/codex@0.159.2-linux-arm64", "@openai/codex-linux-x64": "npm:@openai/codex@0.159.2-linux-x64", "@openai/codex-win32-arm64": "npm:@openai/codex@0.159.2-win32-arm64", "@openai/codex-win32-x64": "npm:@openai/codex@0.159.2-win32-x64" }, "bin": { "codex": "bin/codex.js" } }, "sha512-SE13C3nZCYoVL569BdegoOl6vwjb7o2sXOo7ivwVzaVoY0cswwi0/6pIE0TyO/C0vIkQh3jslExitET7PBTfIg=="],
 

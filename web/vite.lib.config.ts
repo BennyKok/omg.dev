@@ -31,6 +31,7 @@ const HOST_SHARED_EXTERNALS = [
   "class-variance-authority",
   "@base-ui/react",
   "sonner",
+  "@omg-dev/client",
 ] as const;
 
 function isHostSharedExternal(id: string): boolean {
@@ -200,6 +201,10 @@ export default defineConfig({
       //                                and the host's Toaster draws every
       //                                toast. Inlined, the host paid for a
       //                                second copy on the Computer path.
+      //
+      //   @omg-dev/client            — the host and embed share the Computer
+      //                                client and its Vibes realtime SDK.
+      //                                Both declare the same release version.
       //
       // Deliberately NOT external:
       //   tailwind-merge             — lazy via streamdown, not a host

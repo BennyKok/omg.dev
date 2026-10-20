@@ -28,7 +28,7 @@
   },
   "dependencies": {
     "@omg-dev/protocol": "workspace:*",
-    "@omg-dev/sdk": "0.4.54"
+    "@omg-dev/sdk": "0.4.55"
   },
   "publishConfig": {
     "access": "public"
