@@ -230,3 +230,18 @@ roughly two-second cold load in this run.
 Delivery requires publishing the SDK entry, pinning the Computer dependency
 to that published version, releasing the Computer packages, and updating the
 hosted embed and native package pins. A local package fixture is not delivery.
+
+### Released consumers
+
+Computer 0.6.267 consumes published SDK 0.4.55. Hosted embeds externalize
+`@omg-dev/client` so the host and embed use the same client and SDK instance.
+The hosted workspace also resolves the SDK to its workspace package.
+The hosted Computer build remains inside its unchanged JS budget:
+1,648,782 bytes in the static closure.
+
+The native lockfile pins the same Computer release. Its simulator fixture
+build disables downloaded OTA bundles so a production update cannot replace
+the tested code. `sdk-session-continuity` passes all six steps: project list,
+transcript load, return, cached reopen, return, and a second session without
+text from the first. This uses demo data through the real client and SDK;
+the separate local server benchmark proves network delivery and resume.
