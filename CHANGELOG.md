@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 20, 2026 - Computer sync uses the Vibes SDK (v0.6.266)
+
+- The Computer web and native clients now use the Vibes SDK realtime engine for connections, retries, foreground recovery and shared view refreshes. SDK app subscriptions use the same engine.
+- The web session list, pins, schedules, findings, repositories, questions and threads refresh from change events while connected. The shared view loader has no periodic backstop by default.
+- Existing Computer servers keep their transcript and authentication protocols. Reconnect still recovers messages written while the client was away.
+
 ## October 19, 2026 - Lists update from announcements only (v0.6.265)
 
 - The web app and `@omg-dev/client` no longer poll lists faster for a Computer that does not announce changes. While connected, pins, schedules, findings, bots, repos, questions and threads update when the Computer announces a change, with a check every 5 minutes as a safety net. The session list still refreshes every 30 seconds, because a removed session is not announced.

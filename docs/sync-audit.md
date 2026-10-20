@@ -187,3 +187,46 @@ client's and iOS client's backstops, server-side process discovery, connection
 heartbeats, and feature-specific progress checks are separate mechanisms.
 Deploy the server and matching web client together; older servers do not emit
 the added roster events.
+
+## Computer migration to the Vibes SDK (2026-10-20)
+
+The Computer's `@omg-dev/client` now imports `RealtimeConnection` and
+`liveCollection` from `@omg-dev/sdk/realtime`. The SDK's collection queries use
+that same connection engine. The standalone entry has no React, browser UI,
+or hosted-auth imports. Native and local/self-hosted transports remain valid.
+
+The SDK owns socket lifecycle, retry/backoff, foreground recovery, optional
+heartbeat probes, async-open cancellation and disposal. It also owns view
+loading, change-topic invalidation and trailing reads. `liveCollection` no
+longer schedules periodic reads by default; a caller must explicitly request a
+`backstopMs`. Other feature-specific timers are outside this transport change.
+
+The Computer adapter retains transcript/status channels, resume cursors, draft
+folding, typing and its authenticated transport. The server still speaks the
+existing Computer protocol. SDK database subscriptions retain their collection
+protocol, predicates and auth scoping. No server upgrade is required solely
+for the SDK connection engine. The separate connected-list polling removal
+above still requires its matching server events.
+
+### Same-machine comparison
+
+`bun scripts/sync-bench.ts --spawn --sdk --iterations 20 --idle-seconds 10 --json`
+now exercises the application client as well as the raw wire. The new client
+scenario receives titles and transcript updates through `OmgLiveConnection`,
+closes the connection, writes a message while disconnected, then checks that
+foreground recovery delivers it through the client adapter.
+
+| Client-observed measure | Before SDK | With SDK |
+| --- | ---: | ---: |
+| Title p50 / p95 | 25.2 / 43.9 ms | 24.5 / 33.5 ms |
+| Transcript p50 / p95 | 1.8 / 13.3 ms | 3.5 / 12.0 ms |
+| Message written while away, after reconnect | 11 ms | 8 ms |
+
+These are single local runs with synthetic agent transcripts, not phone or
+production network timings. They show comparable performance, not a claimed
+speedup. Cold bootstrap remains separate: CLI agent discovery dominated the
+roughly two-second cold load in this run.
+
+Delivery requires publishing the SDK entry, pinning the Computer dependency
+to that published version, releasing the Computer packages, and updating the
+hosted embed and native package pins. A local package fixture is not delivery.
