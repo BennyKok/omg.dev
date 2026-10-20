@@ -2,7 +2,7 @@
 
 Read this first. It records what is true now. The nightly librarian agent
 updates it from merged pull requests. Verify a fact in code before you depend
-on it. Last refresh: 2026-10-19.
+on it. Last refresh: 2026-10-20.
 
 ## Active work (last 14 days)
 
@@ -15,23 +15,23 @@ on it. Last refresh: 2026-10-19.
   (#367, #370).
 - **App kits and default agent**: Haiku 5.5 default, web app and game kits,
   UI self-checks, and removal of the badge-moving step (#388–#389, #397).
-- **Plans and mobile**: matching iOS plan display, restyle tokens, starter
-  pills, and Settings plan meters (#361–#363, #366).
+- **Plans and mobile**: matching iOS plan display (#366).
 - **Sessions and OpenCode**: refreshed agent rosters, per-session MCP
   registration, and 90 s tool calls (#365, #371–#372).
 - **Computer**: bounded screenshots and reset of a stuck agent view (#391).
 - **Web and connectors**: owner connector access for scheduled auto agents,
   an “Updating omg” message during a stale chunk reload, and a host slot
-  above the home and session composers (#383, #401, #405).
+  above the home and session composers (#383, #401, #405). Embedded guide
+  navigation, conversation binding, and send acknowledgement are fixed (#409).
 - **Cloud deploy**: deployment sends its session to Cloud and requests store
   screenshots (#395).
 - **Hosted apps**: rename an app address and test its paid flow without
   payment (#406–#407).
 - **Media**: 3D generation and a $25 default daily media cap (#398).
-- **Agent docs**: self-host pricing, current context and archive rules,
+- **Agent docs**: current context and archive rules,
   STATE.md refreshes, hosted web app sign-in, automatic sign-in/sign-out
-  rules, and corrected bot plan status (#359, #374–#377, #380–#381, #387,
-  #390, #394, #396, #399–#400, #404).
+  rules, and corrected bot plan status (#374–#377, #380–#381, #387, #390,
+  #394, #396, #399–#400, #404, #408).
 
 ## Open pull requests
 
