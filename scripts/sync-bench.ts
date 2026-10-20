@@ -29,11 +29,12 @@ import { join, resolve } from "node:path";
 import { createServer } from "node:net";
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { OmgLiveConnection, type OmgSocket } from "../packages/client/src/index";
 
-type Opts = { url?: string; spawn: boolean; iterations: number; idleSeconds: number; json: boolean; transcriptDir?: string; sessionId?: string };
+type Opts = { url?: string; spawn: boolean; iterations: number; idleSeconds: number; json: boolean; sdk: boolean; transcriptDir?: string; sessionId?: string };
 
 function parseArgs(argv: string[]): Opts {
-  const o: Opts = { spawn: false, iterations: 20, idleSeconds: 10, json: false };
+  const o: Opts = { spawn: false, iterations: 20, idleSeconds: 10, json: false, sdk: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = () => argv[++i];
@@ -42,6 +43,7 @@ function parseArgs(argv: string[]): Opts {
     else if (a === "--iterations") o.iterations = Number(next());
     else if (a === "--idle-seconds") o.idleSeconds = Number(next());
     else if (a === "--json") o.json = true;
+    else if (a === "--sdk") o.sdk = true;
     else if (a === "--transcript-dir") o.transcriptDir = next();
     else if (a === "--session") o.sessionId = next();
     else throw new Error(`unknown option ${a}`);
@@ -231,6 +233,68 @@ async function timed<T>(fn: () => Promise<T>): Promise<[number, T]> {
   return [now() - t0, v];
 }
 
+/** Exercise the same SDK-backed adapter used by web and native, not only wire frames. */
+async function benchSdk(url: string, transcript: Transcript, iterations: number) {
+  let socket: WebSocket;
+  let visible = true;
+  let onVisible = () => {};
+  let statusMatch: ((rows: Array<{ sessionId: string | null; title?: string | null }>) => void) | undefined;
+  let transcriptMatch: ((event: unknown) => void) | undefined;
+  const live = new OmgLiveConnection({
+    async openLiveSocket() {
+      socket = new WebSocket(url.replace(/^http/, "ws") + "/api/live/ws");
+      return socket as unknown as OmgSocket;
+    },
+  }, {
+    environment: {
+      isVisible: () => visible, isOffline: () => false,
+      onVisible: listener => { onVisible = listener; return () => { onVisible = () => {}; }; },
+      onOnline: () => () => {},
+    },
+  });
+  const wait = (set: (done: () => void) => void) => new Promise<number>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("SDK client did not receive update")), 10_000);
+    set(() => { clearTimeout(timer); resolve(now()); });
+  });
+  try {
+    const status = wait(done => { statusMatch = () => done(); });
+    live.subscribeStatus(rows => statusMatch?.(rows));
+    const snapshot = wait(done => { transcriptMatch = event => { if ((event as { type: string }).type === "snapshot") done(); }; });
+    live.subscribeTranscript(transcript.sessionId, event => transcriptMatch?.(event));
+    await Promise.all([status, snapshot]);
+    const titles: number[] = [], messages: number[] = [];
+    for (let i = 0; i < iterations; i++) {
+      const marker = `sdk-title-${randomUUID()}`;
+      const seen = wait(done => { statusMatch = rows => { if (rows.some(row => row.sessionId === transcript.sessionId && row.title === marker)) done(); }; });
+      const started = now();
+      const response = await fetch(`${url}/api/sessions/${transcript.sessionId}/title`, {
+        method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: marker }),
+      });
+      if (!response.ok) throw new Error(`SDK benchmark title write failed: ${response.status}`);
+      titles.push((await seen) - started);
+      const text = `sdk-message-${randomUUID()}`;
+      const received = wait(done => { transcriptMatch = event => { if (JSON.stringify(event).includes(text)) done(); }; });
+      const written = now();
+      transcript.append("assistant", text);
+      messages.push((await received) - written);
+      await sleep(75);
+    }
+    visible = false;
+    const closed = new Promise<void>(resolve => socket!.addEventListener("close", () => resolve(), { once: true }));
+    socket!.close();
+    await closed;
+    const marker = `sdk-away-${randomUUID()}`;
+    transcript.append("assistant", marker);
+    await sleep(1500);
+    const received = wait(done => { transcriptMatch = event => { if (JSON.stringify(event).includes(marker)) done(); }; });
+    const started = now();
+    visible = true;
+    onVisible();
+    const resumeMs = (await received) - started;
+    return { titleToStatusMs: stats(titles), transcriptAppendToClientMs: stats(messages), missedLineArrivedMs: Math.round(resumeMs) };
+  } finally { live.dispose(); }
+}
+
 async function main() {
   const o = parseArgs(process.argv.slice(2));
   let url = o.url!;
@@ -255,6 +319,7 @@ async function main() {
     await live.open();
     await live.waitFor((f) => f.t === "status", 15_000).catch(() => 0);
     result.cold = {
+      serverTiming: b1.headers.get("server-timing"),
       bootstrapFirstMs: Math.round(bootstrapFirst), bootstrapWarmMs: Math.round(bootstrapWarm), bootstrapBytes: body.length,
       socketOpenMs: Math.round(live.openedAt), firstStatusMs: Math.round(live.firstStatusAt),
     };
@@ -328,6 +393,10 @@ async function main() {
       await sleep(o.idleSeconds * 1000);
       result.idle = { seconds: o.idleSeconds, frames: again.frames - f0, bytes: again.bytes - b0 };
       await again.close();
+      if (o.sdk) {
+        result.sdkClient = await benchSdk(url, t, o.iterations);
+        log(`SDK client ${JSON.stringify(result.sdkClient)}`);
+      }
     } else {
       await live.close();
     }

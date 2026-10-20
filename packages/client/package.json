@@ -27,7 +27,8 @@
     "build": "rm -rf dist && bun x tsc -p tsconfig.build.json"
   },
   "dependencies": {
-    "@omg-dev/protocol": "workspace:*"
+    "@omg-dev/protocol": "workspace:*",
+    "@omg-dev/sdk": "0.4.54"
   },
   "publishConfig": {
     "access": "public"
