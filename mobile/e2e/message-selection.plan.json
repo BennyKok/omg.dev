@@ -23,14 +23,14 @@
       "name": "Reply hold menu",
       "goal": "Touch and hold the reply text that says Select words across paragraphs.",
       "longPress": true,
-      "done": "The native hold menu offers copying and text selection, like the sent message menu.",
+      "done": "The native action sheet offers copying and text selection without hosting the reply.",
       "expect": [
         "Copy",
-        "Select text"
+        "Select text",
+        "Cancel"
       ],
       "forbid": [
-        "Copy all",
-        "Cancel"
+        "Copy all"
       ]
     },
     {
@@ -95,7 +95,7 @@
       "done": "The selection screen shows the sent prompt.",
       "expect": [
         "Help me copy part of this message.",
-        "第二段也可以选择。",
+        "\u7b2c\u4e8c\u6bb5\u4e5f\u53ef\u4ee5\u9009\u62e9\u3002",
         "Message text",
         "Copy selection",
         "Copy all"

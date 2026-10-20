@@ -1,0 +1,134 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": true
+  },
+  "steps": [
+    {
+      "name": "Dismiss a system alert if present",
+      "goal": "If Apple Account Verification is visible, tap Not Now in that system alert. Otherwise do not tap anything.",
+      "done": "The app data notice is visible.",
+      "expect": [
+        "Agree and continue"
+      ],
+      "timeoutMs": 30000
+    },
+    {
+      "name": "Accept fixture data notice",
+      "goal": "Tap Agree and continue on the fixture data notice. Do not tap Not now. Wait for Home. Do not tap the root element named omg.",
+      "done": "Home shows the project navigation.",
+      "expect": [
+        "api-gateway folder"
+      ],
+      "timeoutMs": 180000
+    },
+    {
+      "name": "Open the working session",
+      "goal": "On Home, tap the api-gateway folder chip in the project rail. Then open the conversation titled Refactor the rate limiter to a sliding window. Do not type a message.",
+      "done": "The conversation screen is open and shows the newest reply and the idle follow check.",
+      "expect": [
+        "the second batch of videos.",
+        "Follow check idle"
+      ],
+      "timeoutMs": 120000
+    },
+    {
+      "name": "Open keyboard with a draft",
+      "goal": "Tap the message composer and type Keyboard draft kept. Leave the keyboard open. Do not send the message.",
+      "done": "The draft Keyboard draft kept is in the message composer.",
+      "type": "Keyboard draft kept",
+      "echo": false,
+      "expect": [
+        "Keyboard draft kept"
+      ],
+      "timeoutMs": 30000
+    },
+    {
+      "name": "Read back a little",
+      "goal": "Do not tap anything. Wait for the swipe to finish.",
+      "done": "The transcript has moved down to show an earlier reply, and the follow check is waiting.",
+      "expect": [
+        "Follow check waiting"
+      ],
+      "swipe": {
+        "start": "50%,30%",
+        "end": "50%,45%"
+      },
+      "timeoutMs": 30000,
+      "observeOnly": true
+    },
+    {
+      "name": "Return to the bottom",
+      "goal": "If a button labelled Jump to the latest is shown, tap it once. Otherwise do not tap anything.",
+      "done": "The newest message is visible above the composer, and the follow check is watching.",
+      "expect": [
+        "the second batch of videos.",
+        "Follow check watching"
+      ],
+      "swipe": {
+        "start": "50%,40%",
+        "end": "50%,20%"
+      },
+      "timeoutMs": 30000
+    },
+    {
+      "name": "Transcript holds still while the agent works",
+      "goal": "Do not tap or swipe anything. Wait until the follow check line says passed or failed.",
+      "done": "The follow check line has finished watching.",
+      "expect": [
+        "Follow check passed"
+      ],
+      "forbid": [
+        "Follow check failed"
+      ],
+      "timeoutMs": 45000,
+      "observeOnly": true
+    },
+    {
+      "name": "Long press the reply",
+      "goal": "Touch and hold the final paragraph beginning If anything goes wrong. Do not tap the message composer.",
+      "done": "The iOS action sheet offers Copy, Select text, and Cancel.",
+      "longPress": true,
+      "expect": [
+        "Copy",
+        "Select text",
+        "Cancel"
+      ],
+      "timeoutMs": 30000
+    },
+    {
+      "name": "Select reply text",
+      "goal": "Tap Select text in the action sheet.",
+      "done": "The selection screen contains the full reply and copy controls.",
+      "expect": [
+        "Message text",
+        "Copy selection",
+        "Copy all",
+        "Everything is live:"
+      ],
+      "timeoutMs": 30000
+    },
+    {
+      "name": "Copy the full reply",
+      "goal": "Tap Copy all.",
+      "done": "The reply was copied.",
+      "expect": [
+        "Copied"
+      ],
+      "timeoutMs": 30000
+    },
+    {
+      "name": "Return with the draft intact",
+      "goal": "Tap Done to return to the conversation.",
+      "done": "The original reply and unsent draft are still visible.",
+      "expect": [
+        "the second batch of videos.",
+        "Keyboard draft kept"
+      ],
+      "forbid": [
+        "Copy all"
+      ],
+      "timeoutMs": 30000
+    }
+  ]
+}

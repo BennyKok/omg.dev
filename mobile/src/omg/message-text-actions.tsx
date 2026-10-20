@@ -1,7 +1,7 @@
 import { type MenuAction } from "@expo/ui/community/menu";
 import { HoldMenu } from "./hold-menu";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { Modal, Pressable, useWindowDimensions, View, type ViewStyle } from "react-native";
+import { Modal, Pressable, View, type ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
 import { Text, TextInput } from "./text";
@@ -11,29 +11,20 @@ import { useBodyText } from "./markdown";
 type Selection = ReturnType<typeof useSelectText>;
 
 /**
- * A reply opens the same native hold menu as the sent bubble: Copy and Select
- * text. No visible button: a control under every reply read as clutter. The
- * reply's markdown is not `selectable` (see TranscriptBody), because the
- * native selection gesture is also a long press and would win.
- *
- * THE CONTENT NEEDS A NUMBER. MenuView hosts its child in SwiftUI
- * (`RNHostView matchContents`), which measures the RN child as a leaf with no
- * width limit, so a percentage or a stretch never reaches the text. The row
- * is measured outside the menu and its width is handed in as a number, the
- * same fix the sent bubble uses. `widthFraction` below 1 makes it a maximum
- * (the bot bubble sizes to its text); 1 fills the row.
+ * A reply's long press opens Copy and Select text in an iOS action sheet.
+ * Its content stays in the React Native layout tree: MenuView's round trip
+ * through SwiftUI matchContents can independently resize an already measured
+ * row while FlatList is following the bottom. The sheet does not host children.
+ * Markdown still leaves the long-press gesture to this wrapper.
  */
 export function ReplyTextActions({ text, children, style, widthFraction = 1, onReport }: {
   text: string; children: ReactNode; style?: ViewStyle; widthFraction?: number; onReport?: () => void;
 }) {
-  const { width: windowWidth } = useWindowDimensions();
-  const [rowWidth, setRowWidth] = useState<number | null>(null);
-  const width = Math.floor((rowWidth ?? windowWidth - 48) * widthFraction);
   const fill = widthFraction >= 1;
   return (
-    <View style={{ alignSelf: "stretch" }} onLayout={event => setRowWidth(event.nativeEvent.layout.width)}>
-      <MessageTextActions text={text} align={fill ? "stretch" : "flex-start"} onReport={onReport}>
-        <View accessibilityHint={onReport ? "Press and hold for message actions and Report content" : "Press and hold for Copy and Select text"} style={[style, fill ? { width } : { maxWidth: width }]}>
+    <View style={{ alignSelf: "stretch" }}>
+      <MessageTextActions text={text} presentation="sheet" align="stretch" onReport={onReport}>
+        <View accessibilityHint={onReport ? "Press and hold for message actions and Report content" : "Press and hold for Copy and Select text"} style={[style, fill ? { alignSelf: "stretch" } : { alignSelf: "flex-start", maxWidth: `${widthFraction * 100}%` }]}>
           {children}
         </View>
       </MessageTextActions>
@@ -42,8 +33,9 @@ export function ReplyTextActions({ text, children, style, widthFraction = 1, onR
 }
 
 /** Native hold menu with text actions and optional reporting. The sent bubble passes its own Copy. */
-export function MessageTextActions({ text, children, onCopy, onReport, align = "stretch" }: {
+export function MessageTextActions({ text, children, onCopy, onReport, align = "stretch", presentation = "context" }: {
   text: string; children: ReactNode; onCopy?: () => void; onReport?: () => void; align?: "stretch" | "flex-start";
+  presentation?: "context" | "sheet";
 }) {
   const { isDark, colors, type } = useTheme();
   const selection = useSelectText();
@@ -60,6 +52,7 @@ export function MessageTextActions({ text, children, onCopy, onReport, align = "
   if (!hasText && !onReport) return <>{children}</>;
   return <>
     <HoldMenu
+      presentation={presentation}
       actions={[
         ...(hasText ? [
           { id: "copy", title: "Copy", image: "doc.on.doc" as const },

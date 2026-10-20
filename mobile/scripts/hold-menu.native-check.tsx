@@ -7,10 +7,12 @@ import { resolve } from 'node:path';
 // Build 84 is the last TestFlight binary whose prebuilt expo-modules-core
 // crashes under MenuView (RNHostView). It must get the action sheet instead.
 mock.module(resolve(import.meta.dir, '../node_modules/react/index.js'), () => React);
+const platform = { OS: "ios" };
 const sheets: { options: string[]; pick: (index: number) => void }[] = [];
 const Pressable = ({ children, onLongPress, testID }: any) => <button data-testid={testID} onClick={onLongPress}>{children}</button>;
 mock.module(resolve(import.meta.dir, '../node_modules/react-native/index.js'), () => ({
   Pressable,
+  Platform: platform,
   ActionSheetIOS: { showActionSheetWithOptions: (config: any, pick: (index: number) => void) => sheets.push({ options: config.options, pick }) },
 }));
 mock.module(import.meta.resolve('expo-constants'), () => ({ default: { platform: { ios: { buildNumber: '84' } } } }));
@@ -36,4 +38,20 @@ test('build 84 opens the actions as an action sheet on long press, with no MenuV
     sheets.at(-1)!.pick(2);
     expect(picked).toEqual(['copy', 'Select text']);
   } finally { ui.cleanup(); }
+});
+
+
+test('Android keeps its native context menu when a reply requests the iOS sheet', () => {
+  const ui = mount();
+  const menusBefore = nativeMenus;
+  const sheetsBefore = sheets.length;
+  platform.OS = "android";
+  try {
+    ui.render(<HoldMenu presentation="sheet" actions={[{ id: "copy", title: "Copy" }]} isDark={false} onAction={() => {}}>
+      <span>Android reply</span>
+    </HoldMenu>);
+    expect(ui.text()).toBe("Android reply");
+    expect(nativeMenus).toBe(menusBefore + 1);
+    expect(sheets).toHaveLength(sheetsBefore);
+  } finally { ui.cleanup(); platform.OS = "ios"; }
 });

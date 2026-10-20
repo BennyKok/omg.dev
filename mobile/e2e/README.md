@@ -256,3 +256,22 @@ OMG_E2E_ENTRY_FILE=scripts/idle-transcript-e2e-entry.tsx \
 This is a renderer fixture, not a live conversation. Run `scroll-follow` as
 well for the full session screen. The fixture detects layout changes, not
 every possible text-paint defect; inspect the recording too.
+
+
+The keyboard-scroll plan checks the full session screen with a long reply
+below a portrait video tile. It types an unsent draft, scrolls back and returns
+to the latest reply, then watches for 20 seconds with the keyboard open. It
+also opens the reply action sheet, selects and copies text, and checks the
+draft after returning to chat.
+
+```bash
+EXPO_PUBLIC_OMG_DEMO=1 EXPO_PUBLIC_OMG_FOLLOW_FIXTURE=1 \
+  EXPO_PUBLIC_OMG_KEYBOARD_FIXTURE=1 \
+  OMG_E2E_ENTRY_FILE=scripts/no-project-e2e-entry.tsx \
+  bun run test:e2e --build --plan keyboard-scroll --record
+```
+
+This uses local fixture data and the production screen. The follow probe
+checks scroll jumps and Latest flashes. The history-load probe is disabled
+for this fixture because no history loads during the watch and the final
+reply starts above the exposed viewport. Use history-hold for page insertion.

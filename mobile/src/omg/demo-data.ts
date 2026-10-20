@@ -338,6 +338,16 @@ const demoArtifactHtml = `<!doctype html><html><head><meta name="viewport" conte
  * in the recording; only the screen's own timers and polls run.
  */
 const followFixture = process.env.EXPO_PUBLIC_OMG_FOLLOW_FIXTURE === "1";
+// A long final reply after portrait media, matching the keyboard-open recording.
+const keyboardFixture = process.env.EXPO_PUBLIC_OMG_KEYBOARD_FIXTURE === "1";
+const KEYBOARD_REPLY = "Everything is live: the new onboarding, the three new lessons as Day 1, and the two ads.\n\n" +
+  "**Lessons:**\n\n- Give AI a small job is free.\n- A calmer Monday and Your first meeting brief are behind the paywall.\n\n" +
+  "I checked them on the live site. Lesson 1 is the only free one and the video loads. The next lesson walks through the quiz on a phone.\n\n" +
+  "**Ads:** Both ads are approved and active. They have not been shown to anyone yet.\n\n" +
+  "Someone who taps an ad now gets the AI quiz and then the new lesson, matching the ad message.\n\n" +
+  "**Two things to check:**\n\n- **Listen to lesson 3 once.** The speech check first heard the name incorrectly, but a second pass heard it correctly. A short listen around the 15-second mark settles it.\n" +
+  "- **Card text in lesson 3** is small on a phone. I will make it bigger in the next batch.\n\n" +
+  "If anything goes wrong, there is a one-command rollback to the old lessons. The monitor reports every 10 minutes. I will send the first real numbers once spend starts, and then we can plan the second batch of videos.";
 const FOLLOW_REPLIES = [
   "The limiter tests are running against the sliding log now. I check the burst case first.",
   "The burst case passes. Two requests across the boundary are throttled as expected. I check the per-key config next.",
@@ -380,6 +390,12 @@ function followMessages(t: number): OmgMessage[] {
         step(`f-step-${n}-2`, "tool_use", "Read: {\n  \"file_path\": \"/home/user/api-gateway/limiter.ts\"\n}", ts + 7_000),
       ];
     rows.push({ id: `f-work-${n}`, role: "assistant", kind: "work", text: "", ts: last ? t - 30_000 : ts + 2_000, steps } as unknown as OmgMessage);
+  }
+  if (keyboardFixture) {
+    rows.push({ id: "keyboard-video", artifactId: "demo-video", role: "assistant", kind: "video",
+      name: "lesson-demo.mp4", caption: "Start small", url: DEMO_VIDEO_PATH,
+      width: 160, height: 284, ts: t - 2000 } as OmgMessage);
+    rows.push({ id: "keyboard-reply", role: "assistant", kind: "text", text: KEYBOARD_REPLY, ts: t - 1000 });
   }
   followRows = rows;
   return rows;
@@ -914,7 +930,7 @@ export function getDemoTransport(): OmgTransport {
           arrayBuffer: async () => (await image()).arrayBuffer(),
         } as unknown as Response;
       }
-      if (videoFixture && path.split("?")[0] === DEMO_VIDEO_PATH && !path.includes("preview=1")) {
+      if ((videoFixture || keyboardFixture) && path.split("?")[0] === DEMO_VIDEO_PATH && !path.includes("preview=1")) {
         return { ok: true, status: 200, async arrayBuffer() { return demoVideoBytes(); } } as unknown as Response;
       }
       const body = answer(path);

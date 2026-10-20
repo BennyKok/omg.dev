@@ -1,7 +1,7 @@
 import MenuView, { type MenuAction } from "@expo/ui/community/menu";
 import Constants from "expo-constants";
 import type { ReactNode } from "react";
-import { ActionSheetIOS, Pressable, type StyleProp, type ViewStyle } from "react-native";
+import { ActionSheetIOS, Platform, Pressable, type StyleProp, type ViewStyle } from "react-native";
 
 /**
  * TestFlight binaries up to build 84 crash in `ExpoViewShadowNode::layout`
@@ -21,15 +21,17 @@ const buildNumber = Number(Constants.platform?.ios?.buildNumber ?? NaN);
 export const NATIVE_HOLD_MENU_SAFE = !(buildNumber > 1 && buildNumber <= LAST_AFFECTED_BUILD);
 
 /** A press-and-hold menu. The native context menu where it is safe, an action sheet where it is not. */
-export function HoldMenu({ actions, onAction, isDark, style, testID, children }: {
+export function HoldMenu({ actions, onAction, isDark, style, testID, presentation = "context", children }: {
   actions: MenuAction[];
   onAction: (id: string) => void;
   isDark: boolean;
   style?: StyleProp<ViewStyle>;
   testID?: string;
+  /** Keep dynamic reply layout in React Native instead of a SwiftUI host. */
+  presentation?: "context" | "sheet";
   children: ReactNode;
 }) {
-  if (NATIVE_HOLD_MENU_SAFE) {
+  if (Platform.OS !== "ios" || (NATIVE_HOLD_MENU_SAFE && presentation !== "sheet")) {
     return (
       <MenuView
         actions={actions}
@@ -58,7 +60,7 @@ export function HoldMenu({ actions, onAction, isDark, style, testID, children }:
     );
   };
   return (
-    <Pressable onLongPress={open} delayLongPress={350} style={style} testID={testID}>
+    <Pressable accessible={false} onLongPress={open} delayLongPress={350} style={style} testID={testID}>
       {children}
     </Pressable>
   );

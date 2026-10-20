@@ -290,7 +290,11 @@ export class ReadProbe {
 }
 
 /** One probe for the one session screen on show. Null unless a probe build. */
-export const readProbe: ReadProbe | null = FOLLOW_PROBE_ENABLED ? new ReadProbe() : null;
+// The keyboard fixture watches bottom-following, not history insertion. Its
+// final reply is taller than the exposed viewport, so there is no row top for
+// this history-load probe to anchor. The follow probe still judges every scroll.
+export const readProbe: ReadProbe | null = FOLLOW_PROBE_ENABLED &&
+  process.env.EXPO_PUBLIC_OMG_KEYBOARD_FIXTURE !== "1" ? new ReadProbe() : null;
 
 /** Every load judged since the screen opened, for the plan's last step. */
 export function readTotals(report: ReadReport): string {
