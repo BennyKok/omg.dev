@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 20, 2026 - One client in hosted Computer (v0.6.267)
+
+- Hosted embeds share their host's Computer client and Vibes realtime SDK. The embed no longer bundles a duplicate client.
+- The client uses SDK 0.4.55, whose realtime types support strict TypeScript consumers.
+
 ## October 20, 2026 - Computer sync uses the Vibes SDK (v0.6.266)
 
 - The Computer web and native clients now use the Vibes SDK realtime engine for connections, retries, foreground recovery and shared view refreshes. SDK app subscriptions use the same engine.
