@@ -40,6 +40,13 @@ Standalone OMG and embedded hosts therefore render one visual component tree;
 only authentication, API origin, and outer product navigation belong to the
 host.
 
+## Session navigation
+
+Pass `sessionId` to open a conversation. Changes to this prop after mount use
+that same session resolver. Clearing the prop returns to Home. The surface
+keeps its router and app mounted, so navigation preserves loaded data and
+unsent drafts. An unchanged prop does not override navigation within the app.
+
 ## Host slots
 
 A host that embeds OMG as its whole surface has chrome of its own to place, and
@@ -124,3 +131,10 @@ the other side.
 
 - [embed-host-protocol.md](./embed-host-protocol.md) — the iframe embed contract
   (`?embed=1`), for hosts that frame OMG rather than importing it.
+
+Guide composer callbacks receive an optional third `sessionId` argument for
+session inputs. A host must match that ID before filling or counting progress.
+`registerFill` callbacks return `true` when a visible input was filled and
+`false` for hidden or detached inputs. The `composer-top` session slot exposes
+`data-composer-sid` for the same identity check. Session `onSent` fires after
+the server accepts the request, before the response stream finishes.

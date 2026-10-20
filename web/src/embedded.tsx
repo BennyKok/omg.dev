@@ -32,6 +32,7 @@ import {
 } from "./lib/embedded-host-options";
 import { claimSurfaceAttribute } from "./lib/surface-attribute";
 import { createOmgRouter } from "./router";
+import { embeddedSessionPath, useHostSessionNavigation } from "./lib/session-navigation";
 import type { AgentKind } from "./lib/coding-agent-options";
 
 export type {
@@ -77,6 +78,7 @@ export type {
 export interface OmgAppSurfaceProps {
   transport: OmgTransport;
   assetBaseUrl?: string;
+  /** Initial session and subsequent host navigation requests. Clearing it opens Home. */
   sessionId?: string | null;
   className?: string;
   /** The agent used when this browser has no valid saved selection. */
@@ -215,12 +217,6 @@ export interface OmgAppSurfaceProps {
    * sign-out. Omit to turn off.
    */
   savedScreen?: { key: string };
-}
-
-function initialPath(sessionId?: string | null): string {
-  const search = new URLSearchParams({ embed: "true" });
-  if (sessionId) search.set("session", sessionId);
-  return `/?${search.toString()}`;
 }
 
 /**
@@ -447,9 +443,11 @@ export function OmgAppSurface({
   configureHostToast(hostToast ?? null);
   const [router] = useState<AnyRouter>(() =>
     createOmgRouter(
-      createMemoryHistory({ initialEntries: [initialPath(sessionId)] }),
+      createMemoryHistory({ initialEntries: [embeddedSessionPath(sessionId)] }),
     ),
   );
+
+  useHostSessionNavigation(router, sessionId);
 
   // Ref-counted: a host can have two surfaces alive at once, and the first one
   // to unmount must not strip the stylesheet's anchor off the other.

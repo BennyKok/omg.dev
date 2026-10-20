@@ -847,6 +847,15 @@ class OmgChunkEmitter {
   }
 }
 
+export type OmgChatSendCallbacks = {
+  onAccepted?: () => void;
+  onRejected?: (error: unknown) => void;
+};
+
+function notifySend(callback: (() => void) | undefined) {
+  try { callback?.(); } catch (error) { console.warn("Chat send callback failed", error); }
+}
+
 export class OmgChatTransport implements ChatTransport<OmgChatMessage> {
   private readonly subscribeTranscript?: OmgTranscriptSubscribe;
   private readonly fetchImpl: (input: string, init?: RequestInit) => Promise<Response>;
@@ -883,6 +892,7 @@ export class OmgChatTransport implements ChatTransport<OmgChatMessage> {
     messages,
     abortSignal,
     body,
+    metadata,
   }: Parameters<ChatTransport<OmgChatMessage>["sendMessages"]>[0]): Promise<ReadableStream<UIMessageChunk>> {
     const text = this.extractLatestUserText(messages);
     if (!text) throw new Error("Cannot send an empty message");
@@ -927,8 +937,14 @@ export class OmgChatTransport implements ChatTransport<OmgChatMessage> {
       // the slot here — otherwise one failed send would leave liveStreams stuck
       // above zero and silently mute every later turn in this session.
       live?.release();
+      const onRejected = (metadata as OmgChatSendCallbacks | undefined)?.onRejected;
+      if (onRejected) notifySend(() => onRejected(error));
       throw error;
     }
+    // A send is accepted at the HTTP response, before the agent's stream
+    // finishes. The AI SDK send promise can also resolve after a caught error,
+    // so it cannot serve as an acknowledgement for guide progression.
+    notifySend((metadata as OmgChatSendCallbacks | undefined)?.onAccepted);
     return live ? live.stream : emptyChunkStream();
   }
 
