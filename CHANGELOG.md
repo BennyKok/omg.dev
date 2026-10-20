@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 20, 2026 - Keep the guide in its conversation (v0.6.268)
+
+- Opening a guided conversation updates the embedded app without resetting drafts.
+- Guide controls target the visible input in the correct conversation.
+- Failed sends restore the draft. The guide advances only after the server accepts a message.
+
 ## October 20, 2026 - One client in hosted Computer (v0.6.267)
 
 - Hosted embeds share their host's Computer client and Vibes realtime SDK. The embed no longer bundles a duplicate client.
