@@ -282,6 +282,11 @@ export async function buildSimulatorApp(): Promise<string> {
       '-sdk iphonesimulator -destination "generic/platform=iOS Simulator" ' +
       "-derivedDataPath build ARCHS=arm64 CODE_SIGNING_ALLOWED=NO build 2>&1 | tee ../xcode-build.log " +
       "| grep -E \"error:|warning: no rule|BUILD (SUCCEEDED|FAILED)\"",
+    // A fixture must execute the embedded test bundle. A downloaded production
+    // OTA can otherwise replace it on launch and invalidate the simulator proof.
+    ...(testEntry ? [
+      '/usr/libexec/PlistBuddy -c "Set :EXUpdatesEnabled false" build/Build/Products/Release-iphonesimulator/omg.app/Expo.plist',
+    ] : []),
     // An absolute path: `simctl install` runs from the home directory.
     'ls -d "$PWD"/build/Build/Products/Release-iphonesimulator/*.app | head -1',
   ].join("\n");

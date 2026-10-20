@@ -8,14 +8,15 @@
     "brace-expansion": "^5.0.11",
     "image-size": "^2.0.3",
     "js-yaml": "^5.4.1",
-    "nanoid": "^3.3.18"
+    "nanoid": "^3.3.18",
+    "@omg-dev/protocol": "https://github.com/BennyKok/omg.dev/releases/download/v0.6.267/omg-dev-protocol-0.6.267.tgz"
   },
   "dependencies": {
     "@expo/metro-runtime": "~58.0.4",
     "@expo/ui": "~58.0.4",
     "@novnc/novnc": "^1.7.0",
-    "@omg-dev/client": "https://github.com/BennyKok/omg.dev/releases/download/v0.6.265/omg-dev-client-0.6.265.tgz",
-    "@omg-dev/protocol": "0.6.265",
+    "@omg-dev/client": "https://github.com/BennyKok/omg.dev/releases/download/v0.6.267/omg-dev-client-0.6.267.tgz",
+    "@omg-dev/protocol": "https://github.com/BennyKok/omg.dev/releases/download/v0.6.267/omg-dev-protocol-0.6.267.tgz",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-google-signin/google-signin": "^16.1.4",
     "@shopify/react-native-skia": "2.11.2",
