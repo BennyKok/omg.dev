@@ -45,7 +45,7 @@ describe("session unread", () => {
       .toBe("Robot Eend, working, read");
     // Blocked outranks working: it is the state a person has to act on.
     expect(sessionRosterRowAriaLabel({ title: "Robot Eend", working: true, unread: true, blocked: true }))
-      .toBe("Robot Eend, paused, unread");
+      .toBe("Robot Eend, waiting for you, unread");
   });
 
   test("the collapsed tooltip carries what the dot cannot say", () => {

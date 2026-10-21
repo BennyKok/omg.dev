@@ -265,6 +265,7 @@ import {
   CodingAgentsContext,
   SessionAgentIcon,
   GALLERY_PAGE,
+  blockedSessionAction,
   pausedProviderErrorDetail,
   projectFaviconSrc,
   resolveSessionHeaderIdentity,
@@ -2176,42 +2177,24 @@ function AgentMark({
 
 function SessionStatusDot({
   busy = false,
-  paused = false,
   variant = "inline",
   className,
 }: {
   /** Optional: avatar placements let AgentMark carry working instead. */
   busy?: boolean;
-  paused?: boolean;
   // "inline": a standalone dot in a header row, showing busy AND idle.
-  // "avatar": pinned to an agent avatar, and drawn for busy or paused sessions.
+  // "avatar": pinned to an agent avatar, and drawn only for busy sessions.
   variant?: "inline" | "avatar";
   className?: string;
 }) {
   // On an avatar, idle is the resting state of nearly every row, so a dot for
   // it was a wall of green marking "nothing is happening" — the rail already
   // groups and counts sessions, which is where you read the shape of the fleet.
-  // Only "working right now" or "paused for input" earns a mark, and it sits
-  // opposite the account number, which owns the bottom-right corner on every
-  // agent icon in the app.
-  if (variant === "avatar" && !busy && !paused) return null;
-  if (paused) {
-    return (
-      <span
-        aria-label="paused"
-        title="Paused"
-        className={cn(
-          "flex shrink-0 items-center justify-center rounded-full bg-warning/15 text-warning",
-          variant === "avatar"
-            ? "absolute -right-0.5 -top-0.5 size-3.5 ring-2 ring-card"
-            : "size-4 ring-1 ring-inset ring-warning/30",
-          className,
-        )}
-      >
-        <Pause className="size-2.5" fill="currentColor" strokeWidth={0} />
-      </span>
-    );
-  }
+  // Only "working right now" earns a mark. A blocked session used to wear an
+  // amber pause badge here, which read as "broken"; the row now names the one
+  // action that unblocks it (blockedSessionAction) in its preview line, and the
+  // session's banner carries the detail.
+  if (variant === "avatar" && !busy) return null;
   // Working is the app's one loading state: the same spinner every pending
   // action already shows. It used to be an amber pulsing dot here and only
   // here, which read as a warning badge rather than "this is running" — the
@@ -15305,6 +15288,7 @@ const RailItem = memo(function RailItem({
   // its own when the session settles; see withSessionUnread in serve.ts.
   const { unread: unreadSessions } = useContext(SessionUnreadContext);
   const title = titleForSession(session);
+  const blockedAction = blockedSessionAction(session);
   const unread = !!session.sessionId && unreadSessions.has(session.sessionId);
   const unreadDot = (
     <span role="status" aria-label={`Unread reply in ${title}`}>
@@ -15411,12 +15395,6 @@ const RailItem = memo(function RailItem({
               className="absolute bottom-0 left-0 ring-2 ring-card"
             />
           ) : null}
-          {/* Blocked keeps the corner badge: it is a state, not a progress,
-              and a solid glyph on a filled pill reads at this size. */}
-          <SessionStatusDot
-            paused={session.status === "blocked"}
-            variant="avatar"
-          />
           {/* A collapsed row shows only the mark, so the dot has to live on it
               instead of in the expanded row's indicator slot — the same place
               a collapsed bot row puts it. The three other corners are taken
@@ -15441,7 +15419,16 @@ const RailItem = memo(function RailItem({
           <Pin aria-label="Pinned to top" className="size-3 shrink-0 text-primary" fill="currentColor" />
         ) : null
       }
-      preview={latest}
+      preview={
+        blockedAction && !busy ? (
+          <>
+            <span className="font-medium text-foreground/90">{blockedAction}</span>
+            {latest ? <> · {latest}</> : null}
+          </>
+        ) : (
+          latest
+        )
+      }
       indicator={
         unread ? (
           unreadDot
@@ -15451,8 +15438,6 @@ const RailItem = memo(function RailItem({
             className="size-4 shrink-0 animate-spin text-warning motion-reduce:animate-none"
             strokeWidth={1.75}
           />
-        ) : plainRow && session.status === "blocked" ? (
-          <SessionStatusDot paused variant="inline" />
         ) : null
       }
       trailingStatic={
@@ -20165,19 +20150,15 @@ const onTouchStart = (e: ReactTouchEvent) => {
              the rail row drops its dot: the creature carries state in its own
              posture, so the dot is the same fact said twice — and "idle" is
              the resting state of a bot you are simply not talking to right
-             now, which is not news. Blocked still shows, because there is no
-             pose for it.
+             now, which is not news. Blocked has no badge here either: the
+             banner under this header names it and offers the fix.
 
              Working is not passed at all any more. This header already draws
              it on the identity mark above (AgentMark, via
              SessionHeaderIdentity), so at narrow widths the same session was
              reporting working twice on one row, in two colours: the amber
              ring around the mark and a blue spinner further along. */
-          <SessionStatusDot
-            paused={session.status === "blocked"}
-            className="lg:hidden"
-            variant={headerBot ? "avatar" : "inline"}
-          />
+          headerBot ? null : <SessionStatusDot className="lg:hidden" />
         )}
         {/* No fork, ship, close or archive in a bot chat: a bot session is not
             closed from the UI, and the gear beside its name is the one entry
