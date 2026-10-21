@@ -4,6 +4,9 @@
 // token on 401.
 import { expect, test } from "bun:test";
 import { buildSearchQuery, callDriveTool, driveAccount, driveLiteral, scopeHint } from "./drive.ts";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 type Call = { method: string; url: URL; body: string; headers: Headers };
 
@@ -118,4 +121,59 @@ test("a 401 refreshes the token once and retries; the account is the Drive user"
 test("a token without the ticked permissions says how to fix it", () => {
   expect(scopeHint("Request had insufficient authentication scopes.")).toContain("tick every permission box");
   expect(scopeHint("File not found")).toBe("File not found");
+});
+
+test("upload_file preserves binary bytes and metadata, and can replay after an OAuth refresh", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "drive-upload-"));
+  try {
+    const path = join(dir, "clip.mp4");
+    const bytes = new Uint8Array([0, 255, 128, 13, 10, 0, 42]);
+    writeFileSync(path, bytes);
+    const calls: { url: URL; method: string; headers: Headers; bytes: Uint8Array }[] = [];
+    let refreshed = false;
+    const result = await callDriveTool(async (force) => {
+      if (force) refreshed = true;
+      return force ? "fresh" : "old";
+    }, "upload_file", { file_path: path, mime_type: "video/mp4", name: "Nokia.mp4", folder_id: "folder-1" }, (async (input, init) => {
+      const url = new URL(String(input));
+      const headers = new Headers(init?.headers);
+      calls.push({ url, method: init!.method!, headers, bytes: new Uint8Array(await new Response(init?.body).arrayBuffer()) });
+      if (init?.method === "POST") return new Response(null, { headers: { location: "https://www.googleapis.com/upload/drive/v3/files?upload_id=one" } });
+      if (headers.get("authorization") === "Bearer old") return Response.json({ error: { message: "expired" } }, { status: 401 });
+      return Response.json({ id: "video-1", name: "Nokia.mp4", mimeType: "video/mp4", size: String(bytes.length), webViewLink: "https://drive.google.com/file/d/video-1/view" });
+    }) as typeof fetch);
+    expect(result.isError).toBe(false);
+    expect(parse(result)).toMatchObject({ created: true, file_id: "video-1", size: bytes.length, link: "https://drive.google.com/file/d/video-1/view" });
+    expect(calls[0]!.url.searchParams.get("uploadType")).toBe("resumable");
+    expect(JSON.parse(new TextDecoder().decode(calls[0]!.bytes))).toEqual({ name: "Nokia.mp4", mimeType: "video/mp4", parents: ["folder-1"] });
+    expect(calls[0]!.headers.get("x-upload-content-length")).toBe(String(bytes.length));
+    expect(calls.slice(1).map(c => c.bytes)).toEqual([bytes, bytes]);
+    expect(refreshed).toBe(true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("upload_file rejects non-files and unsafe upload URLs before sending file data", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "drive-upload-"));
+  try {
+    const path = join(dir, "clip.mp4");
+    writeFileSync(path, "video");
+    let calls = 0;
+    const mock = (async () => {
+      calls++;
+      return new Response(null, { headers: { location: "https://example.com/upload/drive/v3/files" } });
+    }) as unknown as typeof fetch;
+    const token = async () => "secret";
+    for (const file_path of ["relative.mp4", dir, join(dir, "missing.mp4")]) {
+      expect((await callDriveTool(token, "upload_file", { file_path }, mock)).isError).toBe(true);
+    }
+    expect(calls).toBe(0);
+    const result = await callDriveTool(token, "upload_file", { file_path: path }, mock);
+    expect(result.isError).toBe(true);
+    expect(result.content[0]!.text).toBe("Drive returned an invalid upload session");
+    expect(calls).toBe(1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

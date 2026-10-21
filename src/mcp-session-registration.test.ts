@@ -54,7 +54,7 @@ describe("session identity reaches every agent launcher", () => {
     // building the override inline is how the server name got hardcoded to a
     // name config.toml no longer defined, which is a fatal launch error rather
     // than a degraded connection (see codex-mcp-config.ts).
-    const unwired = codex.filter((f) => !/codexOmgMcpConfig\(/.test(f.text)).map((f) => f.name);
+    const unwired = codex.filter((f) => !/codexSessionMcpConfig\(/.test(f.text)).map((f) => f.name);
     expect(unwired).toEqual([]);
   });
 

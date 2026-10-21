@@ -22,6 +22,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { CONNECTORS_MCP_SERVER_NAME, omgMcpServers } from "./config.ts";
 
 /** Mirrors the codex-sdk's own config value type (the SDK is imported dynamically). */
 export type CodexConfigValue =
@@ -97,6 +98,20 @@ export function codexOmgMcpConfig(
   return { config: { mcp_servers } };
 }
 
+/** Register the member's native connectors alongside
+ * the existing stdio omg server. Keep the stdio transport intact: Codex merges
+ * overrides with config.toml, so adding a URL to it would mix transports.
+ */
+export function codexSessionMcpConfig(
+  sessionId: string | undefined = process.env.OMG_SESSION_ID ?? process.env.LFG_SESSION_ID,
+  config: Record<string, unknown> | null = readCodexConfig(codexConfigPath()),
+): { config?: { [key: string]: CodexConfigValue } } {
+  const sid = sessionId?.trim();
+  if (!sid) return {};
+  const connectors = omgMcpServers(sid).mcpServers![CONNECTORS_MCP_SERVER_NAME]!;
+  return withCodexHttpMcpServers(codexOmgMcpConfig(sid, config), { [CONNECTORS_MCP_SERVER_NAME]: connectors });
+}
+
 /**
  * Add HTTP MCP servers to a codex config override. Each is a complete server
  * definition (url + http_headers), so codex accepts it even though
@@ -112,11 +127,8 @@ export function withCodexHttpMcpServers(
   const existing = (config.mcp_servers ?? {}) as { [key: string]: CodexConfigValue };
   const mcp_servers: { [key: string]: CodexConfigValue } = { ...existing };
   for (const [name, server] of Object.entries(servers)) {
-    // Approve without asking: a headless `codex exec` runs with approval
-    // policy "never", so every MCP call that wants approval is refused ("MCP
-    // tool call requires approval, but approval policy is never"). The grant
-    // itself is the approval. The server only lists the slugs on the agent
-    // row and refuses connectors marked requireApproval for these runs.
+    // The endpoint applies member/role grants and connector approval gates.
+    // Codex's separate approval prompt cannot run under policy "never".
     mcp_servers[name] = { url: server.url, http_headers: { ...server.headers }, default_tools_approval_mode: "approve" };
   }
   config.mcp_servers = mcp_servers;

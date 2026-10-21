@@ -34,7 +34,7 @@ import type { SessionMsg } from "../../sessions.ts";
 import { sessionTitleFromPrompt } from "../../omg-capabilities.ts";
 import { indexSessionMessagesDirect, reindexFileHistoryUnderSessionKey } from "../../transcript-index.ts";
 import { makeDraftPublisher } from "./draft.ts";
-import { codexOmgMcpConfig, withCodexHttpMcpServers, type CodexConfigValue } from "../../codex-mcp-config.ts";
+import { codexSessionMcpConfig, withCodexHttpMcpServers, type CodexConfigValue } from "../../codex-mcp-config.ts";
 import {
   withCodexServiceTierConfig,
   type CodexServiceTier,
@@ -134,10 +134,11 @@ export function createStallGate() {
  * The server NAME is discovered from config.toml rather than hardcoded: an
  * `mcp_servers.<name>.env` override for a name that config.toml doesn't define
  * makes codex reject the whole config ("invalid transport"), which fails the
- * launch before the model runs. See ../../codex-mcp-config.ts.
+ * launch before the model runs. Native connectors use a complete, authenticated
+ * HTTP definition for the session. See ../../codex-mcp-config.ts.
  */
 function omgMcpConfig(serviceTier?: CodexServiceTier): { config?: { [key: string]: CodexConfigValue } } {
-  const base = codexOmgMcpConfig();
+  const base = codexSessionMcpConfig();
   const config = withCodexServiceTierConfig(base.config, serviceTier);
   return config ? { config } : {};
 }
