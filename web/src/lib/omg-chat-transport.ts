@@ -175,58 +175,76 @@ export function omgMessagesToUIMessages(messages: OmgMessage[]): OmgChatMessage[
 }
 
 export function omgUIMessagesToMessages(messages: OmgChatMessage[]): OmgMessage[] {
-  const out: OmgMessage[] = [];
-  for (const message of messagesInTranscriptOrder(messages)) {
-    message.parts.forEach((part, index) => {
-      if (part.type === "data-omgMessage") {
-        out.push(part.data);
-        return;
+  return messagesInTranscriptOrder(messages).flatMap(projectOmgMessage);
+}
+
+/** Keep settled rows stable across sends and streaming updates. The SDK and
+ * transcript reducers replace changed messages; unchanged objects are immutable.
+ * Scope the cache to one mounted chat and let removed messages be collected. */
+export function createOmgMessageProjector() {
+  const cache = new WeakMap<OmgChatMessage, OmgMessage[]>();
+  return (messages: OmgChatMessage[]): OmgMessage[] =>
+    messagesInTranscriptOrder(messages).flatMap((message) => {
+      let rows = cache.get(message);
+      if (!rows) {
+        rows = projectOmgMessage(message);
+        cache.set(message, rows);
       }
-      if (part.type === "reasoning") {
-        out.push({
-          id: `${message.id}-reasoning-${index}`,
-          role: "assistant",
-          kind: "thinking",
-          text: part.text,
-          ts: message.metadata?.omgMessage?.ts,
-        });
-        return;
-      }
-      if (part.type === "file") {
-        const top = part.mediaType.split("/")[0];
-        out.push({
-          id: `${message.id}-file-${index}`,
-          role: message.role,
-          kind: top === "video" ? "video" : "image",
-          url: part.url,
-          mimeType: part.mediaType,
-          name: part.filename,
-          ts: message.metadata?.omgMessage?.ts,
-        });
-        return;
-      }
-      if (part.type !== "text") return;
-      const base = message.metadata?.omgMessage;
-      const streaming = message.role === "assistant" && part.state === "streaming";
-      const id =
-        index === 0
-          ? streaming
-            ? `draft-${message.id}`
-            : message.id
-          : `${streaming ? "draft-" : ""}${message.id}-text-${index}`;
-      out.push({
-        ...base,
-        id,
-        role: message.role,
-        kind: "text",
-        text: part.text,
-        html: message.role === "user" ? escapeHtml(part.text).replace(/\n/g, "<br>") : base?.html,
-        pending: base?.pending,
-        queued: base?.queued,
-        catchUp: base?.catchUp,
-      });
+      return rows;
     });
-  }
+}
+
+function projectOmgMessage(message: OmgChatMessage): OmgMessage[] {
+  const out: OmgMessage[] = [];
+  message.parts.forEach((part, index) => {
+    if (part.type === "data-omgMessage") {
+      out.push(part.data);
+      return;
+    }
+    if (part.type === "reasoning") {
+      out.push({
+        id: `${message.id}-reasoning-${index}`,
+        role: "assistant",
+        kind: "thinking",
+        text: part.text,
+        ts: message.metadata?.omgMessage?.ts,
+      });
+      return;
+    }
+    if (part.type === "file") {
+      const top = part.mediaType.split("/")[0];
+      out.push({
+        id: `${message.id}-file-${index}`,
+        role: message.role,
+        kind: top === "video" ? "video" : "image",
+        url: part.url,
+        mimeType: part.mediaType,
+        name: part.filename,
+        ts: message.metadata?.omgMessage?.ts,
+      });
+      return;
+    }
+    if (part.type !== "text") return;
+    const base = message.metadata?.omgMessage;
+    const streaming = message.role === "assistant" && part.state === "streaming";
+    const id =
+      index === 0
+        ? streaming
+          ? `draft-${message.id}`
+          : message.id
+        : `${streaming ? "draft-" : ""}${message.id}-text-${index}`;
+    out.push({
+      ...base,
+      id,
+      role: message.role,
+      kind: "text",
+      text: part.text,
+      html: message.role === "user" ? escapeHtml(part.text).replace(/\n/g, "<br>") : base?.html,
+      pending: base?.pending,
+      queued: base?.queued,
+      catchUp: base?.catchUp,
+    });
+  });
   return out.filter((message) => message.kind !== "text" || !!message.text || message.role !== "assistant");
 }
 

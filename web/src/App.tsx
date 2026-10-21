@@ -326,7 +326,7 @@ import {
   OmgChatTransport,
   appendOmgTranscriptEvent,
   omgMessagesToUIMessages,
-  omgUIMessagesToMessages,
+  createOmgMessageProjector,
   type OmgChatMessage,
   type OmgQueueMessage,
   type OmgTranscriptSubscribe,
@@ -491,7 +491,6 @@ import { useNavigationPrefs, setNavigationPrefs } from "@/lib/navigation-prefs";
 import { subscribeSelectionChange } from "./lib/selection-change";
 import { useProjectListPrefs, setProjectListPrefs, projectListPrefsStore } from "@/lib/project-list-prefs";
 import { folderMenuPrefsStore, useFolderMenuPrefs } from "@/lib/folder-menu-prefs";
-import { useSendMorph } from "@/lib/use-send-morph";
 import { reportError } from "./lib/report-error";
 import {
   buildChatRenderItems,
@@ -17001,9 +17000,6 @@ function SessionChatBody({
   // Counts composer sends, so the open harness prompt can hide on the send
   // that answers it (see SessionPromptPanel).
   const [composerSendSeq, setComposerSendSeq] = useState(0);
-  // Brief one-shot "launch" pulse on the composer as a message is sent, so the
-  // send reads as the turn springing out of the input into the transcript.
-  const [launching, setLaunching] = useState(false);
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
   const [dictationScrollNonce, setDictationScrollNonce] = useState(0);
   const [messageMultiline, setMessageMultiline] = useState(false);
@@ -17053,7 +17049,8 @@ function SessionChatBody({
   // Provided by the lazily-loaded engine wrapping this component.
   const chat = useOmgChat();
   const { messages: uiMessages, setMessages, sendMessage: sendChatMessage, status: chatStatus } = chat;
-  const chatMessages = useMemo(() => omgUIMessagesToMessages(uiMessages), [uiMessages]);
+  const projectMessages = useMemo(createOmgMessageProjector, []);
+  const chatMessages = useMemo(() => projectMessages(uiMessages), [uiMessages, projectMessages]);
   // Busy straight from the transcript subscription: the harness flips it the
   // moment it starts a turn, ahead of the ~1s status-poll row that feeds the
   // `busy` prop, so the working indicator tracks the session even for turns
@@ -17310,9 +17307,6 @@ function SessionChatBody({
           current.map((item) => (item.id === localHeldId ? { ...item, text: outgoingText } : item)),
         );
       }
-      // Pulse the composer so the send visibly launches into the transcript.
-      setLaunching(true);
-      window.setTimeout(() => setLaunching(false), 480);
       if (holdOnServer) {
         const res = await api<{ msg?: OmgQueueMessage }>(`/api/sessions/${sid}/send`, {
           method: "POST",
@@ -17614,7 +17608,6 @@ function SessionChatBody({
             // padding paints over the preview card's rounded top border.
             "before:pointer-events-none before:absolute before:inset-x-0 before:-top-8 before:h-8 before:bg-gradient-to-t before:from-[var(--lfg-pane-bg,var(--background))] before:to-transparent before:content-['']",
             draggingFiles && "bg-primary/8",
-            launching && "lfg-composer-launching",
           )}
         >
           {/* A person composing, not the agent working. Sits above the input
@@ -20562,8 +20555,8 @@ const ChatStream = memo(function ChatStream({
   const programmaticScrollRef = useRef(false);
   const glideRafRef = useRef<number | null>(null);
   const glideSpringRef = useRef(createTranscriptGlideState());
-  const growthKeyRef = useRef<{ len: number; typing: boolean; waiting: string } | null>(null);
   const prevStickRef = useRef(stick);
+  const followedSendRef = useRef({ sid, sequence: composerSendSeq });
   const justSwitchedRef = useRef(true);
 
   const stopGlide = useCallback(() => {
@@ -20995,7 +20988,6 @@ const ChatStream = memo(function ChatStream({
     userDrivenRef.current = false;
     lastUserScrollAtRef.current = Number.NEGATIVE_INFINITY;
     heightCacheRef.current.clear();
-    growthKeyRef.current = null;
     justSwitchedRef.current = true;
     stopGlide();
     lastScrollTopRef.current = 0;
@@ -21055,28 +21047,29 @@ const ChatStream = memo(function ChatStream({
     return () => ro.disconnect();
   }, [sid]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = ref.current;
-    if (!el || !stick) {
+    const sent = followedSendRef.current.sid === sid &&
+      followedSendRef.current.sequence !== composerSendSeq;
+    followedSendRef.current = { sid, sequence: composerSendSeq };
+    // Sending expresses a new intent to see this turn, even while reading
+    // history. Change the mode here; this effect remains the scroll owner.
+    if (sent) {
+      stopGlide();
+      userDrivenRef.current = false;
+      setStick(true);
+    }
+    if (!el || (!stick && !sent)) {
       prevStickRef.current = stick;
       return;
     }
-    const key = { len: items.length, typing: showTypingIndicator, waiting: waitingKey };
-    const prevKey = growthKeyRef.current;
     const switched = justSwitchedRef.current;
     const switching = revealedSid !== sid;
-    // Re-engaging stick (jump-to-latest, or scrolling back within range) is a
-    // fresh intent — the user asked to go to the bottom — and deserves its
-    // own glide even if one happens to be running. An appended item or a
-    // typing-indicator toggle is just "more content arrived": the glide
-    // already re-reads scrollHeight every frame, so it is chasing the growing
-    // transcript correctly on its own and doesn't need a restart. The same
-    // item just growing mid-stream (neither of these) isn't discrete at all.
-    const reengaged = !switched && !prevStickRef.current;
-    const grew = !switched && !!prevKey && (prevKey.len !== key.len || prevKey.typing !== key.typing || prevKey.waiting !== key.waiting);
-    const discrete = reengaged || grew;
-    growthKeyRef.current = key;
-    prevStickRef.current = stick;
+    // New messages are visible before paint. Only a deliberate return to the
+    // live bottom animates; arrivals must not wait below the viewport while
+    // a spring catches up, especially after the composer changes height.
+    const reengaged = !sent && !switched && !prevStickRef.current;
+    prevStickRef.current = stick || sent;
     // Only write when we're not already pinned: a redundant assignment still
     // emits a scroll event, which flips `stick` and re-runs this effect — an
     // self-sustaining loop that React kills with "maximum update depth".
@@ -21117,16 +21110,12 @@ const ChatStream = memo(function ChatStream({
     }
     const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
     const glideAction = transcriptGlideAction({
-      discrete,
       reengaged,
       reducedMotion,
       running: glideRafRef.current != null,
     });
-    // A glide already in flight is already chasing the live target every
-    // frame. Both another discrete arrival and ordinary streamed growth must
-    // leave it alone. Restarting stutters; stopping it snaps. Only a genuine
-    // re-engage preempts it, while ordinary growth with no active glide keeps
-    // the existing instant-follow policy.
+    // A manual jump already in flight keeps chasing the live target. All
+    // other growth follows immediately through this one scroll owner.
     if (glideAction === "start") {
       startGlide(el);
     } else if (glideAction === "snap") {
@@ -21139,7 +21128,7 @@ const ChatStream = memo(function ChatStream({
       // Our write, not theirs: the event this raises must not move the mode.
       userDrivenRef.current = false;
     }
-  }, [visibleMessages, busy, stick, items.length, showTypingIndicator, waitingKey, totalSize, viewportHeight, revealedSid, sid, startGlide, stopGlide, captureAnchor]);
+  }, [visibleMessages, busy, stick, items.length, showTypingIndicator, waitingKey, totalSize, viewportHeight, revealedSid, sid, composerSendSeq, startGlide, stopGlide, captureAnchor]);
 
   // The virtual list sits below the loading-older spinner, so the offsets the
   // virtualizer hands out are shifted by however much chrome is above it.
@@ -22388,11 +22377,6 @@ export const MessageBubble = memo(function MessageBubble({
       ? (conversationParticipantById(conversation, message.author!.participantId) ??
         unknownConversationParticipant(message.author!.participantId))
       : null;
-  // Must run before the early returns below — hooks can't be conditional. The
-  // effect itself no-ops for anything that isn't a just-sent user turn.
-  const sendMorphRef = useSendMorph<HTMLDivElement>(
-    message.role === "user" && !!message.pending,
-  );
   const omgEnvelope = useMemo(
     () => (message.role === "user" ? parseOmgPromptEnvelope(message.text || "") : null),
     [message.role, message.text],
@@ -22603,7 +22587,6 @@ export const MessageBubble = memo(function MessageBubble({
     const failed = !!message.failed;
     return (
       <AiMessage
-        ref={sendMorphRef}
         className={cn("msg", entering && "lfg-msg-in", message.pending && "lfg-user-send")}
         from="user"
       >
@@ -22714,15 +22697,9 @@ export const MessageBubble = memo(function MessageBubble({
   );
   return (
     <AiMessage
-      ref={sendMorphRef}
       className={cn(
         "msg",
         entering && "lfg-msg-in",
-        // A just-sent (optimistic) user turn springs up out of the composer.
-        // useSendMorph measures the real composer position and drives this via
-        // WAAPI; the class is the fallback for reduced-motion and for the case
-        // where the composer can't be found (it only sets the origin + a static
-        // entrance, so the two never double up).
         isUser && message.pending && "lfg-user-send",
       )}
       from="assistant"

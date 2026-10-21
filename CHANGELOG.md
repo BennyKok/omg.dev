@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 21, 2026 - Faster message sending (v0.6.276)
+
+- Sending a message and receiving a reply keep unchanged chat bubbles intact. Long chats do less repeated rendering work.
+- Sending from older history returns to the new turn. Live messages follow the bottom immediately, while scrolling up still preserves your reading position.
+- Sent messages appear in place with a 100 ms fade. The composer stays still, and sending no longer measures a flight path across the screen.
+
 ## October 21, 2026 - Faster chat and navigation (v0.6.275)
 
 - Chat keeps measured row positions while you scroll and replies stream. It no longer recalculates the full history on each render.
