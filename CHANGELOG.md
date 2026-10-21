@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 21, 2026 - Lighter web animations (v0.6.274)
+
+- Bot avatars pause outside the visible area and when the tab is hidden. They follow changes to reduced-motion preferences.
+- Status labels update immediately with a short fade. They no longer measure and animate individual letters.
+- Incoming chat text and tool rows use lighter entrances. The live header no longer animates font size.
+
 ## October 21, 2026 - Mobile web folder settings (v0.6.273)
 
 - Long press a folder pill in mobile web to open Manage folders. Reorder folders, show or hide them, remove them from the list, or add a folder.
