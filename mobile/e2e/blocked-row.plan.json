@@ -1,0 +1,25 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": false
+  },
+  "steps": [
+    {
+      "name": "Home",
+      "goal": "Reach Home. Dismiss Apple Account Verification with Not Now if shown. Accept the AI data notice for this isolated demo fixture if shown. Do not send a message.",
+      "done": "Home is ready.",
+      "expect": [
+        "api-gateway"
+      ]
+    },
+    {
+      "name": "Blocked row names the fix",
+      "goal": "Tap the api-gateway folder chip at the top if it is not already selected. Find the row titled Write integration tests for the webhook retry logic. Do not open it.",
+      "done": "The webhook retry row is visible and its subtitle starts with Sign in to continue, followed by the last message.",
+      "expect": [
+        "Write integration tests for the webhook retry logic",
+        "Sign in to continue"
+      ]
+    }
+  ]
+}

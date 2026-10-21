@@ -284,6 +284,18 @@ function demoSessions(): DemoSession[] {
       busy: i % 3 === 0, lastActivityAt: t - (i + 30) * MIN,
     });
   }
+  // `blocked-row` e2e plan: one row stopped on an expired sign-in, so the
+  // plan can prove the row names the fix ("Sign in to continue") instead of
+  // drawing a pause glyph. Opt-in so the default demo keeps its shape.
+  if (process.env.EXPO_PUBLIC_OMG_BLOCKED_FIXTURE === "1") {
+    const row = sessions.find((session) => session.sessionId === "demo-webhook-retry");
+    if (row) Object.assign(row, {
+      status: "blocked",
+      statusReason: "provider_auth",
+      statusDetail: "Your coding-agent sign-in expired",
+      last: { role: "assistant", text: "Not logged in · Please run /login", ts: t - 4 * HOUR },
+    });
+  }
   if (sessionRefFixture) sessions.push({
     ...sessions[0], sessionId: SESSION_REF_TARGET, tmuxTarget: "omg-demo:session-ref",
     title: "Fix the attribution bug", lastUserText: "Fix the attribution bug.",

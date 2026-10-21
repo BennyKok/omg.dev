@@ -1,3 +1,4 @@
+import { blockedSessionAction } from "../../../packages/protocol/src/session-blocked";
 import { useMemo, useState } from "react";
 import { Platform, View } from "react-native";
 import { usePathname } from "expo-router";
@@ -66,6 +67,7 @@ export function SubagentGroup({ nodes, unreadSessions, onOpen }: {
               timestamp={relativeTime(session.lastActivityAt ?? session.startedAt)}
               agent={session.agent ?? session.agentLabel}
               busy={!!session.busy} blocked={session.status === "blocked"}
+              blockedAction={blockedSessionAction(session)}
               unread={!!session.sessionId && unreadSessions.has(session.sessionId)}
               onPress={() => onOpen(session.sessionId)} />
           ))}

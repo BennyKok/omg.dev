@@ -39,6 +39,18 @@ Use an unused driver port. The plan checks both move directions and retained
 chat history. It does not contact an agent provider. The runtime restart and
 rollback checks are in `src/session-move.test.ts` at the repository root.
 
+The blocked-row plan checks that a blocked session names its fix. The
+fixture marks the webhook retry session as blocked on an expired sign-in, and
+the plan expects "Sign in to continue" in its subtitle instead of a pause
+glyph:
+
+```bash
+EXPO_PUBLIC_OMG_DEMO=1 EXPO_PUBLIC_OMG_BLOCKED_FIXTURE=1 \
+  OMG_E2E_ENTRY_FILE=scripts/no-project-e2e-entry.tsx \
+  OMG_MAESTRO_DRIVER_PORT=7179 \
+  bun run test:e2e --build --plan blocked-row --record
+```
+
 The linked app plan uses the same demo data. Its `api-gateway` project links
 to a demo app, and the plan opens the session menu and the app submenu:
 

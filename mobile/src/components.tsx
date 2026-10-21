@@ -97,7 +97,8 @@ export function withAlpha(hex: string, alpha: number): string {
  *          full-strength green marks "nothing is happening" as if it were
  *          news.
  *
- * Blocked keeps the pause glyph, which the web also draws in warning.
+ * Blocked has no glyph. The row's subtitle names the action that unblocks it
+ * (blockedSessionAction), the same words the web uses.
  */
 export function SessionStatusDot({
   busy,
@@ -873,7 +874,8 @@ export function SectionHeader({
  * problem both changes were trying to solve.
  *
  * Avatar left, one-line title, muted one-line subtitle. Working lights the
- * row background; unread and blocked keep their trailing dot and pause.
+ * row background; unread keeps its trailing dot; blocked leads the subtitle
+ * with the action that clears it.
  */
 /**
  * THE ROW'S GEOMETRY, published because the tree lines have to hit it.
@@ -918,6 +920,7 @@ export function SessionCard({
   agent,
   busy,
   blocked,
+  blockedAction,
   unread,
   ended,
   onPress,
@@ -954,6 +957,12 @@ export function SessionCard({
   agent?: string | null;
   busy?: boolean;
   blocked?: boolean;
+  /**
+   * The one thing that unblocks a blocked session ("Sign in to continue").
+   * It leads the subtitle in the title colour, in place of the pause glyph
+   * that read as "broken". See packages/protocol/src/session-blocked.ts.
+   */
+  blockedAction?: string | null;
   /**
    * This session said something and nobody has looked at it.
    *
@@ -1106,6 +1115,10 @@ export function SessionCard({
                 numberOfLines={1}
                 style={{ ...(compact ? type.caption : type.subhead), color: colors.textMuted }}
               >
+                {blocked && blockedAction ? (
+                  <Text style={{ color: colors.text, fontWeight: "500" }}>{blockedAction}</Text>
+                ) : null}
+                {blocked && blockedAction && subtitle ? " · " : null}
                 {subtitle ?? ""}
               </Text>
             )}
@@ -1129,10 +1142,8 @@ export function SessionCard({
                 {timestamp}
               </Text>
             ) : null}
-            {/* Working uses the row's ambient field. Blocked keeps its pause. */}
-            {blocked ? (
-              <Icon ios="pause.fill" android="pause" size={12} color={colors.warning} />
-            ) : null}
+            {/* Working uses the row's ambient field. Blocked speaks in the
+                subtitle, not with a glyph here. */}
             {/* Keep the trailing slot fixed when a reply is marked read. */}
             <View style={{ width: 8, height: 8 }}>
               {unread ? (

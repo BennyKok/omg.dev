@@ -72,35 +72,7 @@ export function pausedProviderErrorDetail(
   return `${detail} Retry the session or switch models.`;
 }
 
-/**
- * What a blocked session's row says instead of a pause badge.
- *
- * A pause glyph read as "this is broken": the row looked dead with no way out.
- * A blocked session is waiting on one specific thing the person can do, so the
- * row names that thing. The banner inside the session carries the detail and
- * the button.
- */
-export function blockedSessionAction(
-  session: Pick<Session, "status" | "statusReason">,
-): string | null {
-  if (session.status !== "blocked") return null;
-  switch (session.statusReason) {
-    case "provider_auth":
-      return "Sign in to continue";
-    case "model_unavailable":
-      return "Pick a model to continue";
-    case "out_of_credits":
-      return "Add credits to continue";
-    case "provider_error":
-      return "Open to retry";
-    case "interrupted":
-    case "out_of_memory":
-    case "restart_recovered":
-      return "Open to continue";
-    default:
-      return "Waiting for you";
-  }
-}
+export { blockedSessionAction } from "../../../packages/protocol/src/session-blocked";
 
 export function timeAgo(value?: number | null): string {
   if (!value) return "unknown";

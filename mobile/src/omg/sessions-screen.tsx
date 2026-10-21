@@ -1,3 +1,4 @@
+import { blockedSessionAction } from "../../../packages/protocol/src/session-blocked";
 import { useSessionStatus } from "./use-session-status";
 import { recordConnectionTiming } from "./connection-trace";
 import { startPendingSession } from "./pending-session";
@@ -242,6 +243,7 @@ const SessionFamily = memo(function SessionFamily({
           agent={session.agent ?? session.agentLabel}
           busy={!!session.busy}
           blocked={session.status === "blocked"}
+          blockedAction={blockedSessionAction(session)}
           unread={unread}
           onPress={() => onOpen(session.sessionId)}
           onArchive={
