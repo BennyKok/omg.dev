@@ -4,6 +4,7 @@ import { ChevronRight, Plug, Plus, ShieldQuestion, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { omgFetch } from "@/lib/omg-client";
+import { isAuthorizationUrl } from "@/lib/auth-popup";
 
 // The native connector manager: omg's tested connectors (Recommended) and
 // this member's connections, all through omg's own API (/api/connectors...),
@@ -87,16 +88,39 @@ function Logo({ src, alt }: { src?: string | null; alt: string }) {
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   // Through the transport for the same reason as connectors-page.tsx.
-  const res = await omgFetch(path, {
-    credentials: "same-origin",
-    ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
-  });
-  if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(body?.error ?? `request failed (${res.status})`);
+  const signal = AbortSignal.timeout(30_000);
+  try {
+    const res = await omgFetch(path, {
+      credentials: "same-origin",
+      ...init,
+      signal,
+      headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(body?.error ?? `request failed (${res.status})`);
+    }
+    return (await res.json()) as T;
+  } catch (error) {
+    if (signal.aborted) throw new Error("The connector request timed out. Check the connection and try again.");
+    throw error;
   }
-  return (await res.json()) as T;
+}
+
+/** Keep the user informed while the click-reserved window waits for the API. */
+function openSignInPopup(): Window | null {
+  const popup = window.open("", "omg-oauth", "width=520,height=680");
+  if (popup) {
+    try {
+      popup.document.title = "Connecting to your app";
+      const message = popup.document.createElement("p");
+      message.textContent = "Preparing sign-in. This can take up to 30 seconds per request. If it fails, return to Connectors and try again.";
+      popup.document.body.replaceChildren(message);
+    } catch {
+      // A reused named popup may still be on the provider's origin.
+    }
+  }
+  return popup;
 }
 
 /** The code and state from a pasted callback address, or null when it has none. */
@@ -147,7 +171,7 @@ function useConnectorSignIn(onChanged: () => Promise<void>) {
 
   const signIn = async (id: string | Promise<string | null>, reserved?: Window | null) => {
     cleanup.current?.();
-    const popup = reserved === undefined ? window.open("", "omg-oauth", "width=520,height=680") : reserved;
+    const popup = reserved === undefined ? openSignInPopup() : reserved;
     try {
       const connectorId = await id;
       if (connectorId === null) {
@@ -165,7 +189,7 @@ function useConnectorSignIn(onChanged: () => Promise<void>) {
         await onChanged();
         return;
       }
-      if (!res.authorizeUrl) throw new Error("The server did not return a sign-in URL.");
+      if (!isAuthorizationUrl(res.authorizeUrl)) throw new Error("The server did not return a valid sign-in URL.");
       if (res.pasteBack) {
         // The provider returns to a loopback address the browser cannot load
         // (packages/connectors/src/paste-back.ts). The member pastes that URL.
@@ -354,7 +378,7 @@ export function ConnectorsNativePanel() {
     // set to what the endpoint actually requires, so the decision to sign in
     // comes from the saved connector and not from the catalog's claim.
     const wantsPopup = draft.oauth === true || maybeOauth === true;
-    const popup = wantsPopup ? window.open("", "omg-oauth", "width=520,height=680") : null;
+    const popup = wantsPopup ? openSignInPopup() : null;
     const created = api<{ connector: PublicConnector }>("/api/connectors", {
       method: "POST",
       body: JSON.stringify(body),
