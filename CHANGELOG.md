@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 21, 2026 - Load image editing on demand (v0.6.270)
+
+- The Computer loads the image annotation editor only when you open an attachment. This keeps the connector timeout update within the hosted UI size limit.
+
 ## October 21, 2026 - Connector sign-in progress and timeouts (v0.6.269)
 
 - Connector sign-in windows show a progress message while the server prepares sign-in.
