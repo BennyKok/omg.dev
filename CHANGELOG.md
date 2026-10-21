@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 21, 2026 - Mobile web folder settings (v0.6.273)
+
+- Long press a folder pill in mobile web to open Manage folders. Reorder folders, show or hide them, remove them from the list, or add a folder.
+- Taps still select folders. Scrolling cancels the long press.
+
 ## October 21, 2026 - Session chat uses history as soon as it arrives (v0.6.272)
 
 - Opening a web session can show the live history snapshot before the separate HTTP read finishes.
