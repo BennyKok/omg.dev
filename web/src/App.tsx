@@ -15,6 +15,7 @@ import { useComputerResumeMetrics } from "./lib/use-computer-resume-metrics";
 import { LiveHeaderContext } from "./components/live-header-context";
 import { ProjectPillRail, projectPillsFor } from "./components/project-pill-rail";
 import { ProjectFolderMenu } from "./components/project-folder-menu";
+import { SessionReparentProvider, SessionReparentTarget } from "./components/session-reparent";
 import { HostDrawerSlot, SideNavButton, SideNavDrawer, SideNavGlyph, SideNavPanel } from "./components/side-nav";
 import { FindingsPill, FindingsSheet } from "./components/findings-pill";
 import { sideNavRows, type SideNavRow } from "./lib/side-nav-items";
@@ -9492,6 +9493,7 @@ export function App() {
     }}>
     <SendIdentityContext.Provider value={botUnreadIdentity || null}>
     <SessionUnreadContext.Provider value={sessionUnreadValue}>
+    <SessionReparentProvider sessions={sessions} onRefresh={refreshSessions}>
     <BotUnreadContext.Provider value={{ conversations: botConversations, any: hasUnreadBotConversation(botConversations), selectedConversationId: selectedBotConversationId, markRead: (sessionId) => void markBotConversationVisible(sessionId).catch(() => {}) }}>
     <OpenBotContext.Provider value={openBot}>
     <EditBotContext.Provider value={openBotEditor}>
@@ -10444,6 +10446,7 @@ export function App() {
     </EditBotContext.Provider>
     </OpenBotContext.Provider>
     </BotUnreadContext.Provider>
+    </SessionReparentProvider>
     </SessionUnreadContext.Provider>
     </SendIdentityContext.Provider>
     </RuntimeAvailabilityContext.Provider>
@@ -15306,6 +15309,7 @@ const RailItem = memo(function RailItem({
   );
 
   return (
+    <SessionReparentTarget session={session}>
     <RailRow
       railKey={session.sessionId ?? ""}
       collapsed={collapsed}
@@ -15499,8 +15503,11 @@ const RailItem = memo(function RailItem({
         onArchive ? { icon: <Archive className="size-4 text-destructive" />, onCommit: onArchive } : undefined
       }
     />
+    </SessionReparentTarget>
   );
 });
+
+export { RailItem };
 
 /**
  * The bot roster's row, desktop rail and mobile page alike.
@@ -19968,7 +19975,8 @@ const onTouchStart = (e: ReactTouchEvent) => {
                 : "border-transparent lfg-gborder",
         )}
       >
-        <div
+        <SessionReparentTarget
+          session={session}
           ref={headRef}
           className={cn(
             "flex min-w-0 items-center gap-2 px-3",
@@ -20007,7 +20015,6 @@ const onTouchStart = (e: ReactTouchEvent) => {
                 e.stopPropagation();
                 startRename();
               }}
-              onDragStart={(e) => e.preventDefault()}
               onSelect={(e) => e.preventDefault()}
               onContextMenu={(e) => e.preventDefault()}
               title={
@@ -20197,7 +20204,7 @@ const onTouchStart = (e: ReactTouchEvent) => {
             <X className="size-4" />
           </button>
         ) : null}
-      </div>
+      </SessionReparentTarget>
 
       {!collapsedView && (
         <SessionChat

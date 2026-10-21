@@ -364,6 +364,7 @@ import {
   type SessionMsg,
 } from "../sessions.ts";
 import { markSessionRead, sessionUnreadMap } from "../session-reads.ts";
+import { handleSessionReparent } from "../session-reparent.ts";
 import { rankSessionMentions, sessionMentionTerms } from "../session-mentions.ts";
 import { countTranscriptRows, foldWorkRows, LiveWorkRows, type ChatRenderMessage } from "../transcript-rows.ts";
 import {
@@ -10191,61 +10192,18 @@ a{color:#60a5fa}
         }
       }
 
-      // Move an existing session under a different parent (or detach it to a
-      // root). Parentage is derived at read time from three fields on the
-      // managed record, so a reparent is just a patch of those fields — but we
-      // guard it: the child must be lfg-managed (only then is there a record to
-      // patch), the new parent must exist, and the move must not create a cycle
-      // (which would make the tree walk in agent-catalog loop forever).
       if (path === "/api/sessions/reparent" && req.method === "POST") {
-        const body = (await req.json().catch(() => null)) as {
-          sessionId?: string;
-          parentSessionId?: string | null;
-        } | null;
-        const childId = body?.sessionId?.trim();
-        if (!childId) return err(400, "sessionId required");
-        const sessions = await listSessions();
-        const matches = (s: (typeof sessions)[number], id: string) =>
-          s.sessionId === id || s.nativeSessionId === id;
-        const child = sessions.find((s) => matches(s, childId));
-        if (!child) return err(404, "session not found");
-        if (!child.managed || !child.tmuxName)
-          return err(400, "session is not lfg-managed; its parentage cannot be changed");
-
-        const newParentId = body?.parentSessionId?.trim() || null;
-        if (!newParentId) {
-          // Detach to a root: clear the parent fields.
-          patchManaged(child.tmuxName, {
-            parentSessionId: undefined,
-            parentNativeSessionId: undefined,
-            parentAgent: undefined,
-          });
-          return json({ ok: true, sessionId: childId, parentSessionId: null });
-        }
-
-        const parent = sessions.find((s) => matches(s, newParentId));
-        if (!parent) return err(404, "parent session not found");
-        if (matches(parent, childId)) return err(400, "cannot parent a session to itself");
-        // Cycle guard: walk up from the proposed parent; if we reach the child,
-        // the move would form a loop. Bounded by session count as a backstop
-        // against a pre-existing cycle in the data.
-        let cursor: (typeof sessions)[number] | undefined = parent;
-        for (let hops = 0; cursor && hops <= sessions.length; hops++) {
-          if (matches(cursor, childId)) return err(400, "reparent would create a cycle");
-          const up: string | null | undefined =
-            cursor.parentSessionId ?? cursor.parentNativeSessionId;
-          cursor = up ? sessions.find((s) => matches(s, up)) : undefined;
-        }
-
-        patchManaged(child.tmuxName, {
-          parentSessionId: parent.sessionId ?? undefined,
-          parentNativeSessionId: parent.nativeSessionId ?? undefined,
-          parentAgent: parent.agent ?? undefined,
-        });
-        return json({
-          ok: true,
-          sessionId: childId,
-          parentSessionId: parent.sessionId ?? parent.nativeSessionId ?? newParentId,
+        return handleSessionReparent(req, {
+          sessions: await listSessions(),
+          invalidate: invalidateListSessionsCache,
+          notifyParent: async (parent, text) => {
+            const revived = await reviveDeadCommandFileHarness(parent);
+            if (revived instanceof Response) {
+              const result = await revived.json() as { error?: string };
+              return { ok: false, error: result.error || "Could not restart the parent session" };
+            }
+            return sendPromptToLiveSession(parent, text, { mode: "queue" });
+          },
         });
       }
 
