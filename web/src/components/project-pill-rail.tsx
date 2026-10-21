@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { arrangeFolders, type FolderMenuPrefs } from "../lib/folder-menu-prefs";
 import { NO_PROJECT_FILTER, projectFilterLabel } from "../lib/project-filter";
@@ -69,13 +69,22 @@ function arrangedOptions(
 }
 
 /** A scrollable view of the shell's project filter; owns no selection state. */
-export function ProjectPillRail({ projects, value, onChange, touch = false }: {
+export function ProjectPillRail({ projects, value, onChange, onManageFolders, touch = false }: {
   projects: ProjectPill[];
   value: string;
   onChange: (value: string) => void;
+  /** Open the shared folder settings without changing the selected scope. */
+  onManageFolders?: () => void;
   /** Phone layout, as on iOS: swipe to scroll, so no arrows and no divider. */
   touch?: boolean;
 }) {
+  const press = useRef<{ timer: ReturnType<typeof setTimeout>; x: number; y: number; pointerId: number } | null>(null);
+  const suppressClick = useRef(false);
+  const cancelPress = () => {
+    if (press.current) clearTimeout(press.current.timer);
+    press.current = null;
+  };
+  useEffect(() => cancelPress, []);
   const viewport = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const [edges, setEdges] = useState({ left: false, right: false });
@@ -123,7 +132,7 @@ export function ProjectPillRail({ projects, value, onChange, touch = false }: {
       onKeyDown={(event) => { if (event.key === "Tab") event.stopPropagation(); }}
       onWheel={(event) => event.stopPropagation()}>
       <div className="relative min-w-0 flex-1">
-        <div ref={viewport} onScroll={measure}
+        <div ref={viewport} onScroll={() => { cancelPress(); measure(); }}
           className="overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <div ref={content} className="flex w-max items-center gap-2 px-2 py-1">
             {/* No "All" pill. It was the one entry here that named no folder,
@@ -134,8 +143,42 @@ export function ProjectPillRail({ projects, value, onChange, touch = false }: {
             {projects.map((project) => (
               <button key={project.value} type="button" aria-pressed={value === project.value}
                 title={project.label} aria-label={project.icon ? project.label : undefined}
-                onClick={() => onChange(project.value)}
+                onPointerDown={(event) => {
+                  cancelPress();
+                  suppressClick.current = false;
+                  if (!onManageFolders || event.button !== 0 || !event.isPrimary) return;
+                  const { clientX: x, clientY: y, pointerId } = event;
+                  press.current = { x, y, pointerId, timer: setTimeout(() => {
+                    press.current = null;
+                    suppressClick.current = true;
+                    onManageFolders();
+                  }, 500) };
+                }}
+                onPointerMove={(event) => {
+                  const start = press.current;
+                  if (start && (event.pointerId !== start.pointerId || Math.hypot(event.clientX - start.x, event.clientY - start.y) > 10)) cancelPress();
+                }}
+                onPointerUp={cancelPress}
+                onPointerCancel={cancelPress}
+                onPointerLeave={cancelPress}
+                onContextMenu={onManageFolders ? (event) => {
+                  event.preventDefault();
+                  // Touch browsers can emit this before or after our timer.
+                  if (suppressClick.current) return;
+                  cancelPress();
+                  suppressClick.current = true;
+                  onManageFolders();
+                } : undefined}
+                onClick={(event) => {
+                  if (suppressClick.current) {
+                    suppressClick.current = false;
+                    event.preventDefault();
+                    return;
+                  }
+                  onChange(project.value);
+                }}
                 onFocus={(event) => reveal(event.currentTarget)}
+                style={onManageFolders ? { WebkitTouchCallout: "none", userSelect: "none" } : undefined}
                 className={`h-[34px] shrink-0 rounded-full border outline-offset-2 focus-visible:outline-2 focus-visible:outline-primary ${project.icon ? "flex w-[34px] items-center justify-center" : "max-w-[180px] truncate px-3.5 text-[13px] font-semibold"} ${value === project.value ? "border-[var(--border-strong)] bg-card text-foreground" : "border-transparent bg-secondary text-muted-foreground hover:text-foreground"}`}>
                 {project.icon === "plus" ? <Plus className="size-4" /> : project.label}
               </button>

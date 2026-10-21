@@ -20,6 +20,8 @@ import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEven
 import { Popover } from "@base-ui/react/popover";
 import {
   Check,
+  ArrowUp,
+  ArrowDown,
   ChevronDown,
   ChevronLeft,
   Eye,
@@ -302,7 +304,7 @@ function PickRow({
   );
 }
 
-function ManageFolders({
+export function ManageFolders({
   folders,
   labelFor,
   canRemove,
@@ -310,7 +312,9 @@ function ManageFolders({
   onBack,
   onAddFolder,
   onNewFolder,
+  touch = false,
 }: {
+  touch?: boolean;
   folders: { value: string; hidden: boolean }[];
   labelFor: (value: string) => string;
   canRemove?: (project: string) => boolean;
@@ -375,7 +379,7 @@ function ManageFolders({
         <span className="text-[13px] font-semibold">Manage folders</span>
       </div>
       <p className="px-2.5 pb-1.5 text-[11px] leading-snug text-muted-foreground">
-        Drag to reorder. Hide a folder to keep it out of this menu.
+        {touch ? "Use the arrows to reorder. Hide a folder to keep it out of the rail." : "Drag to reorder. Hide a folder to keep it out of this menu."}
       </p>
       <div className="min-h-0 flex-1 overflow-y-auto" onDragEnd={finishDrag}>
         {rows.map((folder, index) => {
@@ -385,7 +389,7 @@ function ManageFolders({
             <div
               key={folder.value}
               data-folder={folder.value}
-              draggable={busy === null}
+              draggable={!touch && busy === null}
               onDragStart={(event) => {
                 event.dataTransfer.effectAllowed = "move";
                 event.dataTransfer.setData("text/plain", folder.value);
@@ -397,11 +401,16 @@ function ManageFolders({
                 finishDrag();
               }}
               className={cn(
-                "group flex h-9 items-center gap-1 rounded-lg pl-0.5 pr-1 text-[13px] hover:bg-muted/60",
+                touch ? "group flex h-11 items-center gap-1 rounded-lg px-1 text-[13px]" : "group flex h-9 items-center gap-1 rounded-lg pl-0.5 pr-1 text-[13px] hover:bg-muted/60",
                 dragging === folder.value && "bg-muted opacity-70",
               )}
             >
-              <button
+              {touch ? (
+                <>
+                  <button type="button" aria-label={`Move ${name} up`} disabled={index === 0} onClick={() => move(folder.value, index - 1)} className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground disabled:opacity-30"><ArrowUp className="size-4" /></button>
+                  <button type="button" aria-label={`Move ${name} down`} disabled={index === order.length - 1} onClick={() => move(folder.value, index + 1)} className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground disabled:opacity-30"><ArrowDown className="size-4" /></button>
+                </>
+              ) : <button
                 type="button"
                 aria-label={`Reorder ${name}`}
                 title="Drag, or use the arrow keys"
@@ -409,7 +418,7 @@ function ManageFolders({
                 className="flex size-7 shrink-0 cursor-grab items-center justify-center rounded-md text-muted-foreground/60 hover:text-foreground focus-visible:bg-muted active:cursor-grabbing"
               >
                 <GripVertical className="size-3.5" />
-              </button>
+              </button>}
               <span className={cn("min-w-0 flex-1 truncate", folder.hidden && "text-muted-foreground line-through decoration-muted-foreground/40")} title={name}>
                 {name}
               </span>
