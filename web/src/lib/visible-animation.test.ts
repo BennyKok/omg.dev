@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { window } from "../test-support/render";
+import "../test-support/render";
 import { observeVisibleAnimation } from "./visible-animation";
 
 // Protect against a long offscreen roster keeping the animation clock alive,
 // and against motion continuing after the person changes their preference.
-const originalObserver = globalThis.IntersectionObserver;
-const originalMatchMedia = window.matchMedia;
-const originalHidden = Object.getOwnPropertyDescriptor(document, "hidden");
+let originalObserver: typeof IntersectionObserver;
+let originalMatchMedia: typeof window.matchMedia;
+let originalHidden: PropertyDescriptor | undefined;
 let hidden = false;
 let reduced = false;
 let visibility: (changes: { target: Element; isIntersecting: boolean }[]) => void;
@@ -17,6 +17,11 @@ let disconnected = 0;
 let disposers: (() => void)[];
 
 beforeEach(() => {
+  // Other suites replace the global browser. Patch the current one, not the
+  // render harness's original window captured when this module was imported.
+  originalObserver = globalThis.IntersectionObserver;
+  originalMatchMedia = window.matchMedia;
+  originalHidden = Object.getOwnPropertyDescriptor(document, "hidden");
   hidden = reduced = false;
   observers = disconnected = 0;
   observed = new Set();
