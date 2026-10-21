@@ -6,20 +6,13 @@ export type TranscriptGlideState = {
 
 export type TranscriptGlideAction = "start" | "continue" | "snap";
 
-/**
- * Decide how transcript growth interacts with the current glide.
- *
- * Once a discrete arrival starts a glide, later streamed text and tool status
- * changes must leave it alive. Its RAF reads the new bottom every frame. A
- * snap is still correct for ordinary streaming when no glide is in flight.
- */
+/** Follow new content immediately. Only an explicit return to latest starts
+ * a glide; subsequent growth lets that user-requested glide finish. */
 export function transcriptGlideAction({
-  discrete,
   reengaged,
   reducedMotion,
   running,
 }: {
-  discrete: boolean;
   reengaged: boolean;
   reducedMotion: boolean;
   running: boolean;
@@ -27,7 +20,7 @@ export function transcriptGlideAction({
   if (reducedMotion) return "snap";
   if (reengaged) return "start";
   if (running) return "continue";
-  return discrete ? "start" : "snap";
+  return "snap";
 }
 
 /**

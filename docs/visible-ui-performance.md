@@ -99,3 +99,60 @@ The runner serves a test document through browser interception and exposes
 ChatStream only in the intercepted development response. The fixture is not
 imported by the production application. The final JSON records operation
 counts, mounted rows, reading movement, scroll distances, and browser errors.
+
+## Sending and reply rendering (v0.6.276)
+
+The real `SessionChat`, composer, transport and AI SDK are exercised by
+`test/browser/check-send-performance.mjs`. All API calls are intercepted.
+The fixture has 1,000 settled text messages. It withholds the send response
+until the optimistic bubble is visible, emits 30 reply updates, and rejects a
+second send to check that the draft returns. It also checks final reply
+uniqueness and reduced motion. Headless tests disable sound through the user
+preference because WebKit on this host has no audio device.
+
+The unchanged message conversion used to allocate new row objects on every
+SDK message-array update. This invalidated `MessageBubble`'s shallow memo.
+A projector scoped to the mounted chat now caches each immutable SDK message
+in a WeakMap. Updated messages still project normally. SDK replacement,
+metadata changes, mixed parts, interruption ordering and finalization are
+covered by tests against the real SDK.
+
+Paired Chromium results use the same fixture and current CSS. The baseline
+switch restores only the old conversion, which isolates the rendering change:
+
+| Operation | Old projection: history bubble renders | Cached projection |
+| --- | ---: | ---: |
+| Type 21 characters | 0 | 0 |
+| Send before server response | 29 | 0 |
+| Receive 30 reply updates | 1,739 | 1 |
+
+WebKit produced the same changed counts. The remaining history render occurs
+at a visible boundary change. These are component render counts, not a claimed
+whole-app percentage or network latency improvement.
+
+A stricter viewport check also reproduced a WebKit send below the visible
+chat while the automatic scroll spring caught up. The single follow owner
+now runs before paint and follows new content immediately. Only an explicit
+jump back to latest glides. Sending from older history changes the existing
+follow mode so the new turn appears; incoming replies still preserve a free
+reader's anchor. The send runner checks both viewport intersection before
+server acknowledgement and return-to-latest after sending from history.
+
+The 320 ms measured send morph and 460 ms composer pulse are removed. A sent
+bubble uses a 100 ms opacity fade with no transform and no geometry reads.
+Reduced-motion users get no entrance animation.
+
+Run with the same environment variables as the chat check:
+
+```sh
+node test/browser/check-send-performance.mjs
+node test/browser/check-send-performance.mjs --baseline-projection
+node test/browser/check-send-performance.mjs --webkit
+```
+
+The authenticated production menu/open-chat trace was also repeated with
+and without the replay recorder. Its repeated JSON serialization and Blob
+sizing remain visible in CPU profiles. Shared-host latency timings varied;
+this run does not establish a controlled whole-app speedup from changing
+analytics. No recorder settings, collection coverage or draft persistence
+were changed.
