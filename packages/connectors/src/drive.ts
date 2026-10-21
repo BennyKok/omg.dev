@@ -11,12 +11,15 @@
 // type (Docs as plain text, Sheets as CSV, Slides as plain text) and for text
 // uploads. A binary file returns its metadata and link, not bytes.
 import type { NativeCallResult, NativeTool, TokenSource } from "./gmail.ts";
+import { openAsBlob } from "node:fs";
+import { stat } from "node:fs/promises";
+import { basename, isAbsolute } from "node:path";
 
 const API = "https://www.googleapis.com/drive/v3";
 const UPLOAD = "https://www.googleapis.com/upload/drive/v3/files";
 const MAX_TEXT_CHARS = 50_000;
 const MAX_RESULTS = 50;
-const FILE_FIELDS = "id,name,mimeType,modifiedTime,size,webViewLink,parents,owners(emailAddress),trashed";
+const FILE_FIELDS = "id,name,mimeType,modifiedTime,size,md5Checksum,webViewLink,parents,owners(emailAddress),trashed";
 
 const str = { type: "string" } as const;
 
@@ -70,6 +73,21 @@ export const DRIVE_TOOLS: NativeTool[] = [
         as_google_doc: { type: "boolean", description: "Convert to a Google Doc (or Sheet for text/csv)." },
       },
       required: ["name", "content"],
+    },
+  },
+  {
+    name: "upload_file",
+    description:
+      "Upload a local file (including a video, image, PDF or archive) from the omg.dev Computer to Google Drive. Use an absolute file_path on the connector host. Streams the file through a resumable upload. Returns the file ID, size and link. Creates a new file; search before retrying an uncertain upload to avoid duplicates.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        file_path: { type: "string", description: "Absolute path to a regular file on the omg.dev Computer." },
+        name: { type: "string", description: "Drive file name. Defaults to the local file name." },
+        mime_type: { type: "string", description: "MIME type, for example video/mp4. Default: application/octet-stream." },
+        folder_id: { type: "string", description: "Parent folder. Default: My Drive root." },
+      },
+      required: ["file_path"],
     },
   },
   {
@@ -138,6 +156,7 @@ type DriveFile = {
   mimeType: string;
   modifiedTime?: string;
   size?: string;
+  md5Checksum?: string;
   webViewLink?: string;
   parents?: string[];
   owners?: { emailAddress?: string }[];
@@ -151,6 +170,7 @@ function view(f: DriveFile) {
     mime_type: f.mimeType,
     modified: f.modifiedTime ?? null,
     size: f.size ? Number(f.size) : null,
+    md5_checksum: f.md5Checksum ?? null,
     link: f.webViewLink ?? null,
     owners: (f.owners ?? []).map((o) => o.emailAddress).filter(Boolean),
     parents: f.parents ?? [],
@@ -266,6 +286,47 @@ export async function callDriveTool(
           fetchImpl,
         )) as DriveFile;
         return text({ created: true, ...view(f) });
+      }
+      case "upload_file": {
+        const path = requireString(args, "file_path");
+        if (!isAbsolute(path)) throw new DriveError("file_path must be an absolute path on the omg.dev Computer");
+        const info = await stat(path);
+        if (!info.isFile()) throw new DriveError("file_path must be a regular file");
+        const source = await openAsBlob(path);
+        const mime = typeof args.mime_type === "string" && args.mime_type.trim()
+          ? args.mime_type.trim() : "application/octet-stream";
+        // Reject invalid header values before creating a remote upload session.
+        if (!/^[\w!#$&^.+-]+\/[\w!#$&^.+-]+$/.test(mime)) throw new DriveError("mime_type must be a MIME type such as video/mp4");
+        const metadata: Record<string, unknown> = {
+          name: typeof args.name === "string" && args.name.trim() ? args.name.trim() : basename(path),
+          mimeType: mime,
+        };
+        if (typeof args.folder_id === "string" && args.folder_id.trim()) metadata.parents = [args.folder_id.trim()];
+        const params = new URLSearchParams({ uploadType: "resumable", supportsAllDrives: "true", fields: FILE_FIELDS });
+        const start = await send(token, `${UPLOAD}?${params}`, {
+          method: "POST",
+          redirect: "error",
+          headers: { "Content-Type": "application/json", "X-Upload-Content-Type": mime, "X-Upload-Content-Length": String(info.size) },
+          body: JSON.stringify(metadata),
+        }, fetchImpl);
+        if (!start.ok) throw await failure(start);
+        const location = start.headers.get("location");
+        if (!location) throw new DriveError("Drive did not return an upload session");
+        const session = new URL(location);
+        // The next request carries both OAuth and local file data. Never send
+        // either to a redirect or a session URL outside Google's upload API.
+        if (session.origin !== new URL(UPLOAD).origin || session.pathname !== new URL(UPLOAD).pathname || session.username || session.password) {
+          throw new DriveError("Drive returned an invalid upload session");
+        }
+        const result = await json(token, session.href, {
+          method: "PUT",
+          redirect: "error",
+          headers: { "Content-Type": mime, "Content-Length": String(info.size) },
+          // Stream a file-backed Blob without loading a video into RAM.
+          // A Blob is replayable if send() refreshes OAuth after a 401.
+          body: source,
+        }, fetchImpl) as DriveFile;
+        return text({ created: true, ...view(result) });
       }
       case "trash_file": {
         const id = requireString(args, "file_id");

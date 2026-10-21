@@ -13,7 +13,8 @@
 // Every codex turn failed before the model ran. The fix discovers the name from
 // the config being overridden; these tests pin that it never invents one.
 import { describe, expect, test } from "bun:test";
-import { codexOmgMcpConfig, omgStdioServerNames } from "./codex-mcp-config.ts";
+import { codexOmgMcpConfig, codexSessionMcpConfig, omgStdioServerNames, withCodexHttpMcpServers } from "./codex-mcp-config.ts";
+import { verifySessionToken } from "./policy/session-token.ts";
 
 const parse = (toml: string) => Bun.TOML.parse(toml) as Record<string, unknown>;
 
@@ -22,6 +23,35 @@ const RENAMED = parse(`
 command = "/home/dev/.bun/bin/bun"
 args = ["/home/dev/omg-serve-main/src/cli.ts", "mcp"]
 `);
+
+describe("codexSessionMcpConfig", () => {
+  test("adds authenticated native connectors without mixing the stdio transport", () => {
+    const result = codexSessionMcpConfig("sess-native", RENAMED);
+    const servers = result.config!.mcp_servers as Record<string, any>;
+    expect(servers.omg).toEqual({ env: { OMG_SESSION_ID: "sess-native", LFG_SESSION_ID: "sess-native" } });
+    expect(servers.connectors.url).toEndWith("/mcp/connectors?session=sess-native");
+    expect(verifySessionToken("sess-native", servers.connectors.http_headers["x-omg-session-token"])).toBe(true);
+    expect(servers.connectors.command).toBeUndefined();
+    expect(servers.connectors.env).toBeUndefined();
+    expect(servers.connectors.default_tools_approval_mode).toBe("approve");
+  });
+
+  test("offers connectors even with no global omg registration; no identity means no override", () => {
+    const servers = codexSessionMcpConfig("sess-native", null).config!.mcp_servers as Record<string, any>;
+    expect(servers.connectors.url).toEndWith("/mcp/connectors?session=sess-native");
+    expect(servers.omg).toBeUndefined();
+    expect(codexSessionMcpConfig("  ", RENAMED)).toEqual({});
+  });
+
+  test("a scheduled run's explicit restricted connector endpoint takes precedence", () => {
+    const result = withCodexHttpMcpServers(codexSessionMcpConfig("sess-native", RENAMED), {
+      connectors: { url: "http://127.0.0.1/mcp/connectors?auto=daily", headers: { "x-omg-session-token": "auto-token" } },
+    });
+    const servers = result.config!.mcp_servers as Record<string, any>;
+    expect(servers.connectors.url).toEndWith("?auto=daily");
+    expect(servers.connectors.http_headers).toEqual({ "x-omg-session-token": "auto-token" });
+  });
+});
 
 describe("omgStdioServerNames", () => {
   test("finds the server under its current name", () => {
