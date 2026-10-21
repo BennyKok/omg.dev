@@ -318,13 +318,13 @@ import {
   type SimpleSchedule,
 } from "./cron";
 import { evlog } from "./lib/evlog";
+import { useSessionHistory } from "./lib/use-session-history";
 import { liveTransportMode, useLiveSocket, type ChangeTopic, type ConnectionState } from "./useLiveSocket";
 import { emitListChanges, setListsLive } from "./lib/change-topics";
 import {
   OmgChatStreamOwnership,
   OmgChatTransport,
   appendOmgTranscriptEvent,
-  mergeHistoryPage,
   omgMessagesToUIMessages,
   omgUIMessagesToMessages,
   type OmgChatMessage,
@@ -343,9 +343,7 @@ import { classifyUserTurn } from "./lib/system-message";
 import { canDriveSession } from "./lib/session-runtime";
 import {
   prefetchTranscripts,
-  readTranscriptCache,
   updateTranscriptCacheMessages,
-  writeTranscriptCache,
 } from "./lib/transcript-cache";
 import {
   PROMPT_STASH_EVENT,
@@ -16980,8 +16978,6 @@ function SessionChatBody({
   // Counts composer sends, so the open harness prompt can hide on the send
   // that answers it (see SessionPromptPanel).
   const [composerSendSeq, setComposerSendSeq] = useState(0);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [nextBefore, setNextBefore] = useState<number | null>(null);
   // Brief one-shot "launch" pulse on the composer as a message is sent, so the
   // send reads as the turn springing out of the input into the transcript.
   const [launching, setLaunching] = useState(false);
@@ -17159,71 +17155,16 @@ function SessionChatBody({
     return () => onTyping(sid, false);
   }, [onTyping, sid]);
 
-  useEffect(() => {
-    if (!sid) {
-      setMessages([]);
-      setNextBefore(null);
-      setHistoryLoading(false);
-      return;
-    }
-    let cancelled = false;
-    // Paint the last-known page for this session synchronously so re-opening a
-    // session is instant instead of a blank pane + spinner while the network
-    // round trip lands. We still refetch below and reconcile — the cached paint
-    // just removes the wait from the critical path.
-    const cached = readTranscriptCache(sid);
-    if (cached) {
-      setMessages(cached.messages);
-      setNextBefore(cached.nextBefore);
-      setHistoryLoading(false);
-    } else {
-      setHistoryLoading(true);
-      setNextBefore(null);
-      setMessages([]);
-    }
-    void api<{ messages: Message[]; nextBefore?: number | null }>(
-      transcriptPagePath(sid),
-      { cache: "no-store" },
-    )
-      .then((page) => {
-        if (cancelled) return;
-        const history = omgMessagesToUIMessages(Array.isArray(page.messages) ? page.messages : []);
-        const historyIds = new Set(history.map((message) => message.id));
-        // Anything the user had already paged in above this window stays put, in
-        // its original order — the fresh page only replaces the tail it covers.
-        const olderKept = cached
-          ? cached.messages.slice(
-              0,
-              Math.max(0, cached.messages.findIndex((message) => historyIds.has(message.id))),
-            )
-          : [];
-        let settled: OmgChatMessage[] = history;
-        setMessages((current) => {
-          const cachedIds = new Set(cached?.messages.map((message) => message.id) ?? []);
-          return (settled = mergeHistoryPage(current, history, olderKept, cachedIds));
-        });
-        // Keep the deeper cursor when we preserved paged-in history above.
-        const settledBefore = olderKept.length
-          ? (cached?.nextBefore ?? null)
-          : (page.nextBefore ?? null);
-        setNextBefore(settledBefore);
-        writeTranscriptCache(sid, settled, settledBefore);
-      })
-      .catch((err) => {
-        if (!cancelled) onError(err instanceof Error ? err.message : String(err));
-      })
-      .finally(() => {
-        if (!cancelled) setHistoryLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [onError, setMessages, sid]);
+  const { loading: historyLoading, applySnapshot, loadOlderMessages } = useSessionHistory(sid, setMessages, onError);
 
   useEffect(() => {
     if (!sid || !onSubscribeTranscript) return;
     setLiveBusy(false); // don't carry a previous session's busy across a switch
     return onSubscribeTranscript(sid, (event) => {
+      if (event.type === "snapshot") {
+        applySnapshot(event);
+        return;
+      }
       if (event.type === "error") {
         onError(event.error);
         return;
@@ -17240,29 +17181,7 @@ function SessionChatBody({
         return next;
       });
     });
-  }, [onError, onSubscribeTranscript, ownedChatStreams, setMessages, sid]);
-
-  const loadOlderMessages = useCallback(async () => {
-    if (!sid || nextBefore == null) return false;
-    const before = nextBefore;
-    const page = await api<{ messages: Message[]; nextBefore: number | null }>(
-      transcriptOlderPagePath(sid, before),
-      { cache: "no-store" },
-    );
-    const older = omgMessagesToUIMessages(Array.isArray(page.messages) ? page.messages : []);
-    setNextBefore(page.nextBefore ?? null);
-    if (!older.length) return (page.nextBefore ?? null) !== null;
-    let settled: OmgChatMessage[] = older;
-    setMessages((current) => {
-      const existing = new Set(current.map((message) => message.id));
-      const prepend = older.filter((message) => !existing.has(message.id));
-      return (settled = prepend.length ? [...prepend, ...current] : current);
-    });
-    // Cache the deeper window too, so scrolling back then leaving and returning
-    // doesn't lose the pages the user already waited for.
-    writeTranscriptCache(sid, settled, page.nextBefore ?? null);
-    return (page.nextBefore ?? null) !== null;
-  }, [nextBefore, setMessages, sid]);
+  }, [applySnapshot, onError, onSubscribeTranscript, ownedChatStreams, setMessages, sid]);
 
   async function sendMessage(
     e?: FormEvent,

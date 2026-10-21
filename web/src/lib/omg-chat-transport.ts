@@ -72,6 +72,7 @@ export type OmgChatDataParts = {
 export type OmgChatMessage = UIMessage<OmgChatMetadata, OmgChatDataParts>;
 
 export type OmgTranscriptEvent =
+  | { type: "snapshot"; messages: OmgMessage[]; nextBefore: number | null }
   | { type: "message"; message: OmgMessage }
   | { type: "ai_part"; part: OmgAiStreamPart }
   | { type: "queue"; queue: OmgQueueMessage[] }
@@ -736,7 +737,7 @@ class OmgChunkEmitter {
       this.handlePart(event.part);
       return;
     }
-    if (event.type === "queue") return;
+    if (event.type === "queue" || event.type === "snapshot") return;
     this.handleMessage(event.message);
   }
 

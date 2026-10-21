@@ -112,3 +112,19 @@ test("a consumer hears its session, and a reconnect resumes from the last frame"
   expect(subscribed(sockets[1]!)).toEqual(expect.arrayContaining([{ kind: "transcript", key: "s1", resumeFromSeq: 7 }]));
   off();
 });
+
+
+test("a full-chat consumer receives the history snapshot and its paging cursor", async () => {
+  const box = await mountHook();
+  const heard: unknown[] = [];
+  let off: () => void = () => {};
+  await ui!.flushAsync(async () => {
+    off = box.hook!.subscribeTranscript("s2", event => heard.push(event));
+    sockets[0]!.open();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    sockets[0]!.receive({ t: "snapshot", kind: "transcript", key: "s2", seq: 1,
+      messages: [{ id: "saved", role: "assistant", kind: "text", text: "Saved answer", ts: 1 }], nextBefore: 42 });
+  });
+  expect(heard).toEqual([{ type: "snapshot", messages: [expect.objectContaining({ id: "saved", text: "Saved answer" })], nextBefore: 42 }]);
+  off();
+});
