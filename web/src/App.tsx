@@ -13,7 +13,7 @@ import { setupOutcome, type SetupResultInfo, type SetupWatchAgent } from "../../
 import { useRuntimeLifecycle } from "./lib/runtime-lifecycle";
 import { useComputerResumeMetrics } from "./lib/use-computer-resume-metrics";
 import { LiveHeaderContext } from "./components/live-header-context";
-import { ProjectPillRail, projectPillsFor } from "./components/project-pill-rail";
+import { MobileProjectFolders } from "./components/mobile-project-folders";
 import { ProjectFolderMenu } from "./components/project-folder-menu";
 import { SessionReparentProvider, SessionReparentTarget } from "./components/session-reparent";
 import { HostDrawerSlot, SideNavButton, SideNavDrawer, SideNavGlyph, SideNavPanel } from "./components/side-nav";
@@ -6443,8 +6443,7 @@ export function App() {
   const [boxOwnsFolderDisplay, setBoxOwnsFolderDisplay] = useState<boolean | null>(() =>
     startPayload ? Array.isArray(startPayload.settings?.folderOrder) : null,
   );
-  // The phone pill rail follows the same arrangement as the folder menu.
-  const folderMenuPrefs = useFolderMenuPrefs();
+  const [mobileFolderBrowser, setMobileFolderBrowser] = useState<"add" | "new" | null>(null);
   const [schedTz, setSchedTz] = useState<string>(
     () => startPayload?.settings?.timeZone ?? startPayload?.auto?.tz ?? DEFAULT_SCHED_TZ,
   );
@@ -9802,14 +9801,20 @@ export function App() {
           composer's folder control: the chosen project is where a new
           session starts. */}
       {isMobile && tab === "live" && projectOptions.length > 0 ? (
-        <ProjectPillRail
-          projects={projectPillsFor(projectOptions, shortProject, {
-            prefs: folderMenuPrefs,
-            selected: projectFilter,
-          })}
+        <MobileProjectFolders
+          projects={projectOptions}
+          shortProject={shortProject}
           value={projectFilter}
           onChange={(next) => setProjectFilter(projectFilterAfterPress(next, projectFilter))}
-          touch
+          canRemove={(project) => repos.some((repo) => repoProject(repo) === project)}
+          onRemove={async (project) => {
+            const repo = repos.find((candidate) => repoProject(candidate) === project);
+            if (repo) {
+              await unlinkRepoFromList(repo, loadCore);
+            }
+          }}
+          onAddFolder={() => setMobileFolderBrowser("add")}
+          onNewFolder={() => setMobileFolderBrowser("new")}
         />
       ) : null}
 
@@ -10326,6 +10331,23 @@ export function App() {
           onSave={saveAutoAgent}
           onDelete={deleteAutoAgent}
           onRunNow={runAutoNow}
+        />
+      ) : null}
+
+      {mobileFolderBrowser !== null ? (
+        <ProjectFolderBrowser
+          open
+          initialPath={repos.find((repo) => repoProject(repo) === projectFilter)?.cwd}
+          startCreating={mobileFolderBrowser === "new"}
+          onOpenChange={(open) => { if (!open) setMobileFolderBrowser(null); }}
+          onSelected={async (repo) => {
+            setProjectFilter(repoProject(repo));
+            await loadCore();
+          }}
+          onUnavailablePath={(path) => {
+            if (repos.find((repo) => repoProject(repo) === projectFilter)?.cwd === path) setProjectFilter("__all");
+          }}
+          onReposChanged={loadCore}
         />
       ) : null}
 

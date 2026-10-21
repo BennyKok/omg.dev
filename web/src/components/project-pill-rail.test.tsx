@@ -92,6 +92,58 @@ test("the phone rail has no scroll arrows", () => {
   expect(ui.query('[aria-label="Scroll projects left"]')).toBeNull();
 });
 
+const pointer = (target: Element, type: string, extra = {}) => target.dispatchEvent(
+  new window.PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 1, isPrimary: true, button: 0, clientX: 20, clientY: 20, ...extra }),
+);
+const hold = () => ui.flushAsync(() => new Promise<void>((resolve) => setTimeout(resolve, 550)));
+
+test("long press opens folder settings once without selecting the folder", async () => {
+  const picked: string[] = [];
+  let opened = 0;
+  ui.render(<ProjectPillRail touch projects={projects} value="__all" onChange={(id) => picked.push(id)} onManageFolders={() => opened++} />);
+  const folder = ui.query('button[title="Friendly name"]') as HTMLButtonElement;
+  ui.flush(() => pointer(folder, "pointerdown"));
+  await hold();
+  ui.flush(() => {
+    pointer(folder, "contextmenu");
+    pointer(folder, "pointerup");
+    folder.click();
+  });
+  expect(opened).toBe(1);
+  expect(picked).toEqual([]);
+  ui.flush(() => {
+    pointer(folder, "pointerdown");
+    pointer(folder, "pointerup");
+    folder.click();
+  });
+  expect(picked).toEqual(["repo-id"]);
+});
+
+test("scrolling, movement, cancellation, and leaving a pill cancel the long press", async () => {
+  let opened = 0;
+  ui.render(<ProjectPillRail touch projects={projects} value="__all" onChange={() => {}} onManageFolders={() => opened++} />);
+  const folder = ui.query('button[title="Friendly name"]')!;
+  for (const cancel of [
+    () => pointer(folder, "pointermove", { clientX: 45 }),
+    () => pointer(folder, "pointercancel"),
+    () => pointer(folder, "pointerout"),
+    () => ui.query(".overflow-x-auto")!.dispatchEvent(new Event("scroll")),
+  ]) {
+    ui.flush(() => { pointer(folder, "pointerdown"); cancel(); });
+    await hold();
+  }
+  expect(opened).toBe(0);
+});
+
+test("unmounting clears a pending long press", async () => {
+  let opened = 0;
+  ui.render(<ProjectPillRail touch projects={projects} value="__all" onChange={() => {}} onManageFolders={() => opened++} />);
+  ui.flush(() => pointer(ui.query('button[title="Friendly name"]')!, "pointerdown"));
+  ui.cleanup();
+  await hold();
+  expect(opened).toBe(0);
+});
+
 test("pills follow the saved folder order, skip hidden folders, and keep the selected one", async () => {
   const { projectPillsFor } = await import("./project-pill-rail");
   const { NO_PROJECT_FILTER } = await import("../lib/project-filter");
