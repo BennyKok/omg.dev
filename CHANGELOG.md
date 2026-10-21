@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 21, 2026 - Blocked sessions show the next step (v0.6.271)
+
+- A blocked session no longer shows a pause badge. The row starts with the action that unblocks it, for example "Sign in to continue" or "Open to continue".
+- Codex sessions can use native connectors. The Google Drive connector can upload files.
+
 ## October 21, 2026 - Load image editing on demand (v0.6.270)
 
 - The Computer loads the image annotation editor only when you open an attachment. This keeps the connector timeout update within the hosted UI size limit.
