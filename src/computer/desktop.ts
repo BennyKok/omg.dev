@@ -655,6 +655,8 @@ async function launchDesktop(next: DesktopState): Promise<DesktopStatus> {
       "-shared",
       "-noxdamage",
       "-repeat",
+      // Start with no key held down. See releaseHeldInput.
+      "-clear_all",
     ],
     { stdio: "ignore", env, detached: false },
   );
@@ -926,4 +928,34 @@ export function desktopConfig(): DesktopConfig | null {
 
 export function rfbPort(): number | null {
   return state?.config.rfbPort ?? null;
+}
+
+/**
+ * Release every key the shared display holds down.
+ *
+ * A viewer can press a key and never send its release: the tab loses focus
+ * during Alt-Tab, the socket drops, or the phone sleeps. x11vnc keeps the key
+ * down for good. A stuck Alt is the worst case: xfwm4 reads every click as
+ * Alt+drag (move window), so no click reaches any app while the screen still
+ * looks normal. Agents act through CDP and never notice.
+ *
+ * `x11vnc -R clear_all` asks the running x11vnc to release all keys and
+ * locks, whoever pressed them. Callers run it when no viewer can be holding a
+ * key on purpose. Resolves false when the desktop is down or the command fails.
+ */
+export function releaseHeldInput(): Promise<boolean> {
+  const display = state?.config.display;
+  if (display === undefined) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const child = spawn("x11vnc", ["-display", `:${display}`, "-R", "clear_all"], { stdio: "ignore" });
+    const timer = setTimeout(() => child.kill("SIGKILL"), 5_000);
+    child.on("error", () => {
+      clearTimeout(timer);
+      resolve(false);
+    });
+    child.on("exit", (code) => {
+      clearTimeout(timer);
+      resolve(code === 0);
+    });
+  });
 }
