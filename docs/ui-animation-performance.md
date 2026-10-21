@@ -53,6 +53,12 @@ show the new text immediately. No animation frame updates React state.
 
 ## Verification
 
+- Release preflight ran the full repository suite: 5,198 passed initially.
+  Missing mobile dependencies and two browser-mock isolation failures were
+  resolved. The affected library suite then passed all 735 tests. Re-running
+  the remaining failed files on both baseline `082b7f11b` and this change
+  produced the same result: 119 passed and 15 existing failures. The full
+  repository suite is therefore not green; no production gate was bypassed.
 - Fourteen focused tests pass. They cover observer sharing and cleanup,
   offscreen and hidden-tab suspension, live reduced motion, immediate text
   updates without geometry reads, animation cancellation, markdown block
