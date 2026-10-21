@@ -92,6 +92,7 @@ export type { OmgChangeTopic as ChangeTopic } from "@omg-dev/protocol";
 import type { OmgChangeTopic as ChangeTopic } from "@omg-dev/protocol";
 
 export type TranscriptEvent =
+  | { type: "snapshot"; messages: Message[]; nextBefore: number | null }
   | { type: "message"; message: Message }
   | { type: "ai_part"; part: AiStreamPart }
   | { type: "queue"; queue: QueueMsg[] }
@@ -327,6 +328,11 @@ function createLiveConnection(viewerIdentity: string): OmgLiveConnection {
 
 /** The consumer-facing event for a client event, or null when consumers do not see it. */
 function consumerEvent(event: OmgTranscriptEvent): TranscriptEvent | null {
+  if (event.type === "snapshot") return {
+    type: "snapshot",
+    messages: collapseThinkingRuns(normalizeMessageList(event.messages as Message[])),
+    nextBefore: event.nextBefore ?? null,
+  };
   if (event.type === "message") return { type: "message", message: normalizeMessageIdentity(event.message as Message) };
   if (event.type === "ai_part") return { type: "ai_part", part: event.part as AiStreamPart };
   if (event.type === "queue") return { type: "queue", queue: event.queue };
