@@ -71,7 +71,7 @@ export function LiveHeaderContext({
 
     // Let the personal welcome breathe. Activity gets a shorter cameo, then
     // yields back to the welcome instead of competing with it equally. The
-    // swap itself is a letter morph (MorphText), so there is no exit/enter
+    // swap itself is a short text fade, so there is no exit/enter
     // choreography to run here: flipping the text is the whole transition.
     const dwellMs = showAmbientStatus ? 2800 : 8000;
     const dwellTimer = window.setTimeout(() => {
@@ -109,7 +109,7 @@ export function LiveHeaderContext({
         <span
           aria-hidden
           className={cn(
-            "absolute inset-0 flex items-center justify-center transition-all duration-300 ease-ios",
+            "absolute inset-0 flex items-center justify-center transition-[opacity,transform] duration-300 ease-ios",
             intro ? "scale-100 opacity-100" : "scale-75 opacity-0",
           )}
         >
@@ -118,7 +118,7 @@ export function LiveHeaderContext({
         <span
           aria-live={questionCount ? "polite" : "off"}
           className={cn(
-            "flex min-w-0 items-center px-1 transition-all duration-300 ease-ios",
+            "flex min-w-0 items-center px-1 transition-[opacity,transform] duration-300 ease-ios",
             intro ? "translate-y-1 opacity-0" : "translate-y-0 opacity-100 delay-150",
           )}
         >
@@ -126,7 +126,7 @@ export function LiveHeaderContext({
             <MorphText
               shimmer={!questionCount && actionInMotion && showAmbientStatus}
               className={cn(
-                "block max-w-full truncate tracking-[-0.01em] transition-[font-size] duration-300 ease-ios",
+                "block max-w-full truncate tracking-[-0.01em]",
                 questionCount
                   ? "text-[14px] font-semibold"
                   : actionInMotion && showAmbientStatus
@@ -142,4 +142,3 @@ export function LiveHeaderContext({
     </div>
   );
 }
-

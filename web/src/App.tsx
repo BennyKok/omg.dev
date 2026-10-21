@@ -1174,18 +1174,17 @@ type AiStreamPart = {
 };
 
 const STREAMING_RESPONSE_ANIMATION = {
-  animation: "blurIn",
-  duration: 160,
+  animation: "fadeIn",
+  duration: 120,
   easing: "ease-out",
   sep: "word",
-  stagger: 10,
+  stagger: 0,
 } as const;
 
 // When the first draft snapshot we receive on a fresh live connection already
 // carries at least this many chars, we're joining an assistant turn that was
-// generated before we opened the transcript — replaying its word-by-word reveal
-// would blur-in the whole wall of text for seconds ("stuck in animation"). Above
-// this threshold the draft renders settled; a turn that starts small and grows
+// generated before we opened the transcript. Above this threshold the draft
+// renders settled; a turn that starts small and grows
 // while we watch stays under it and animates normally.
 const DRAFT_CATCHUP_MIN_CHARS = 160;
 
