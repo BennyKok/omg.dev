@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 21, 2026 - Session chat uses history as soon as it arrives (v0.6.272)
+
+- Opening a web session can show the live history snapshot before the separate HTTP read finishes.
+- Late history responses cannot replace newer messages. Live refreshes keep older pages that you already loaded.
+
 ## October 21, 2026 - Blocked sessions show the next step (v0.6.271)
 
 - A blocked session no longer shows a pause badge. The row starts with the action that unblocks it, for example "Sign in to continue" or "Open to continue".
