@@ -24334,9 +24334,9 @@ function NewSessionDialog({
   const compact = variant === "inline" && !expanded;
   // Typed on the saved screen and sent: shown as waiting, sent when live.
   const canQueue = waitingForComputer && !sendWhenReady && (!!prompt.trim() || attachments.length > 0);
-  const waitingNote = waitingForComputer
-    ? sendWhenReady ? "Sends when your computer is ready…" : "Your computer is waking up. You can type now."
-    : "";
+  // No idle "waking up" line: it appeared and vanished on its own and shifted
+  // the composer. Only a queued send, which the user just caused, gets a note.
+  const waitingNote = waitingForComputer && sendWhenReady ? "Sends when your computer is ready…" : "";
   const canSubmit =
     !runtime.loading && runtime.ready && runtime.status === "live" && !runtime.error &&
     (unassigned || !!selectedRepo) &&
