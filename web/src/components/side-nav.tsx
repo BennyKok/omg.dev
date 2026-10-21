@@ -281,7 +281,7 @@ export function SideNavPanel({
       className={cn(
         // The rail's own surface (--shell-surface on the desktop workspace),
         // so the menu covers the list without a lighter slab of its own.
-        "absolute inset-0 z-30 flex flex-col bg-[var(--shell-surface,var(--background))] transition-[translate,opacity] duration-[380ms] ease-[cubic-bezier(0.25,0.8,0.25,1)] motion-reduce:transition-none",
+        "absolute inset-0 z-30 flex flex-col bg-[var(--shell-surface,var(--background))] transition-[translate,opacity] duration-150 ease-out motion-reduce:transition-none",
         open ? "translate-x-0 opacity-100" : "pointer-events-none -translate-x-full opacity-0",
       )}
     >

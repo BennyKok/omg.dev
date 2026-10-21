@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## October 21, 2026 - Faster chat and navigation (v0.6.275)
+
+- Chat keeps measured row positions while you scroll and replies stream. It no longer recalculates the full history on each render.
+- Your reading position stays steady when messages arrive after a scroll. The live reply stays measured while you read older messages.
+- Sidebar resizing is immediate. Menus and chat entrances use shorter transitions, and selecting a pane uses a brief outline.
+- The phone-install QR image is generated only when you open it. Streaming markdown reuses its plugin configuration.
+
 ## October 21, 2026 - Lighter web animations (v0.6.274)
 
 - Bot avatars pause outside the visible area and when the tab is hidden. They follow changes to reduced-motion preferences.
