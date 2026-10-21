@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 21, 2026 - Connector sign-in progress and timeouts (v0.6.269)
+
+- Connector sign-in windows show a progress message while the server prepares sign-in.
+- Requests stop after 30 seconds and show a retry message. Invalid sign-in addresses are rejected.
+- Sessions can be dragged to a new parent, which receives a notification.
+
 ## October 20, 2026 - Keep the guide in its conversation (v0.6.268)
 
 - Opening a guided conversation updates the embedded app without resetting drafts.

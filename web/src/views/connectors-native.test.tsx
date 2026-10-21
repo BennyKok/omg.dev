@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { mount, type Mounted } from "../test-support/render";
 import { createSameOriginTransport } from "@omg-dev/client";
 import { configureOmgTransport } from "../lib/omg-client";
@@ -10,7 +10,7 @@ const originalOpen = window.open;
 let events: string[];
 let drafts: Record<string, unknown>[];
 let connectors: Record<string, unknown>[];
-let popup: { location: { href: string }; close: () => void };
+let popup: { document: Document; location: { href: string }; close: () => void };
 let closed: boolean;
 let blocked: boolean;
 let createFails: boolean;
@@ -37,7 +37,7 @@ beforeEach(() => {
   withGmail = false;
   (globalThis as { localStorage?: Storage }).localStorage ??= window.localStorage;
   localStorage.clear();
-  popup = { location: { href: "" }, close: () => { closed = true; } };
+  popup = { document: document.implementation.createHTMLDocument(), location: { href: "" }, close: () => { closed = true; } };
   window.open = (() => {
     events.push("popup");
     return blocked ? null : popup;
@@ -370,4 +370,62 @@ test("a pasted address without a code posts nothing and says so", async () => {
   expect(posted).toEqual([]);
   expect(ui.query("form[data-paste-back]")).not.toBeNull();
   expect(ui.text()).toContain("That address has no sign-in code");
+});
+
+for (const stage of ["save", "sign-in"]) test(`${stage} timeout closes the loading popup and permits retry`, async () => {
+  const signals = new Map<AbortSignal, AbortController>();
+  const timeout = spyOn(AbortSignal, "timeout").mockImplementation((ms) => {
+    expect(ms).toBe(30_000);
+    const controller = new AbortController();
+    signals.set(controller.signal, controller);
+    return controller.signal;
+  });
+  const base = globalThis.fetch;
+  let pending: AbortSignal | undefined;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input instanceof Request ? input.url : input);
+    const target = stage === "save" ? "/api/connectors" : "/oauth/start";
+    if (url.endsWith(target) && init?.method === "POST") {
+      pending = init.signal!;
+      return new Promise<Response>((_, reject) => {
+        pending!.addEventListener("abort", () => reject(pending!.reason), { once: true });
+      });
+    }
+    return base(input, init);
+  }) as typeof fetch;
+  configureOmgTransport(createSameOriginTransport());
+  try {
+    await customForm();
+    expect(pending).toBeDefined();
+    expect(popup.document.title).toBe("Connecting to your app");
+    expect(popup.document.body.textContent).toContain("Preparing sign-in");
+    expect(closed).toBe(false);
+    await ui.flushAsync(() => signals.get(pending!)!.abort(new DOMException("Timeout", "TimeoutError")));
+    expect(closed).toBe(true);
+    expect(ui.text()).toContain("The connector request timed out");
+    globalThis.fetch = base;
+    configureOmgTransport(createSameOriginTransport());
+    await ui.flushAsync(() => {
+      if (stage === "save") ui.query("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      else (ui.queryAll("button").find(b => b.textContent === "Connect") as HTMLButtonElement).click();
+    });
+    expect(popup.location.href).toBe("https://example.com/authorize");
+    expect(drafts).toHaveLength(1);
+  } finally {
+    timeout.mockRestore();
+  }
+});
+
+for (const authorizeUrl of ["about:blank", "javascript:alert(1)", "not a URL"]) test(`invalid sign-in URL ${authorizeUrl} closes the popup`, async () => {
+  const base = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.endsWith("/oauth/start")) return Response.json({ authorizeUrl });
+    return base(input, init);
+  }) as typeof fetch;
+  configureOmgTransport(createSameOriginTransport());
+  await customForm();
+  expect(closed).toBe(true);
+  expect(popup.location.href).toBe("");
+  expect(ui.text()).toContain("The server did not return a valid sign-in URL");
 });
