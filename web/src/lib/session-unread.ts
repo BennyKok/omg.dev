@@ -75,7 +75,7 @@ export function sessionRosterRowAriaLabel(input: {
   unread: boolean;
   blocked?: boolean;
 }): string {
-  const activity = input.blocked ? "paused" : input.working ? "working" : "idle";
+  const activity = input.blocked ? "waiting for you" : input.working ? "working" : "idle";
   return `${input.title}, ${activity}, ${input.unread ? "unread" : "read"}`;
 }
 
