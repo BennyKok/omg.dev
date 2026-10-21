@@ -1958,7 +1958,7 @@ export function buildOmgMcpServer(): McpServer {
     {
       title: "Reparent omg.dev Session",
       description:
-        "Move an existing session under a different parent session, or detach it to a root. The child must be omg-managed; the move is rejected if it would create a cycle.",
+        "Move an existing session under a different parent session, or detach it to a root. The child must be omg-managed; the move is rejected if it would create a cycle. The new parent receives a queued notice after the move. Check parentNotified and notificationError for delivery failures.",
       inputSchema: {
         sessionId: z.string().describe("omg.dev session id (or native id) of the child to move."),
         parentSessionId: z
