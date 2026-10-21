@@ -2,22 +2,21 @@
 
 Read this first. It records what is true now. The nightly librarian agent
 updates it from merged pull requests. Verify a fact in code before you depend
-on it. Last refresh: 2026-10-20.
+on it. Last refresh: 2026-10-21.
 
 ## Active work (last 14 days)
 
-- **First run and previews**: web scaffolding, design checks, public first
-  apps, Android template fixes, instruction-chip display, first-task web
+- **First run and previews**: design checks, public first apps, Android
+  template fixes, instruction-chip display, first-task web
   publishing and APK builds, and game first runs from the Expo game kit
-  (#368, #373, #378, #382, #385, #392). Signed Cloud frame hosts now load
+  (#373, #378, #382, #385, #392). Signed Cloud frame hosts now load
   in inline web previews (#403).
 - **Android builds**: committed app icons and tool timeout handling
   (#367, #370).
 - **App kits and default agent**: Haiku 5.5 default, web app and game kits,
   UI self-checks, and removal of the badge-moving step (#388–#389, #397).
-- **Plans and mobile**: matching iOS plan display (#366).
-- **Sessions and OpenCode**: refreshed agent rosters, per-session MCP
-  registration, and 90 s tool calls (#365, #371–#372).
+- **Sessions and OpenCode**: refreshed agent rosters and 90 s tool calls
+  (#371–#372).
 - **Computer**: bounded screenshots and reset of a stuck agent view (#391).
 - **Web and connectors**: owner connector access for scheduled auto agents,
   an “Updating omg” message during a stale chunk reload, and a host slot
@@ -31,13 +30,13 @@ on it. Last refresh: 2026-10-20.
 - **Agent docs**: current context and archive rules,
   STATE.md refreshes, hosted web app sign-in, automatic sign-in/sign-out
   rules, and corrected bot plan status (#374–#377, #380–#381, #387, #390,
-  #394, #396, #399–#400, #404, #408).
+  #394, #396, #399–#400, #404, #408, #410).
 
 ## Open pull requests
 
 - In progress: #360 (close release failure issues after verified success),
   #364 (Deploy to Railyard button), #393 (game sprites move each frame
-  without a React redraw).
+  without a React redraw), #411 (release keys left held by a Computer viewer).
 - Stale (no update for 30+ days): #252 (visual element inspection), #284
   (auto-agent acting tools), #287 (film mode and page navigation).
   Do not build on these without asking the owner.
