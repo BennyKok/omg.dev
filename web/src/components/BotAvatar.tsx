@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef } from "react";
 import { cn } from "@/lib/utils";
+import { observeVisibleAnimation } from "@/lib/visible-animation";
 
 /**
  * The omg.dev mascot, as a bot's avatar.
@@ -240,10 +241,6 @@ function register(tick: Ticker): () => void {
   };
 }
 
-const prefersReducedMotion = () =>
-  typeof window !== "undefined" &&
-  window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
-
 /** Below this, path detail doesn't read — a CSS breathe is the honest trade. */
 const DETAIL_MIN_PX = 26;
 
@@ -275,6 +272,8 @@ export function BotAvatar({
   title?: string;
 }) {
   const gradientId = useId().replace(/:/g, "");
+  const svgRef = useRef<SVGSVGElement>(null);
+  const syncRestPose = useRef<(() => void) | null>(null);
   const pathRef = useRef<SVGPathElement>(null);
   const eyeRef = useRef<SVGGElement>(null);
   const groupRef = useRef<SVGGElement>(null);
@@ -296,13 +295,10 @@ export function BotAvatar({
     const eye = eyeRef.current;
     const group = groupRef.current;
     const pupil = pupilRef.current;
-    if (!path || !eye || !group || !pupil) return;
+    const svg = svgRef.current;
+    if (!path || !eye || !group || !pupil || !svg) return;
 
-    const reduced = prefersReducedMotion();
     const phase = (seed % 10) * 0.7;
-    // Each creature breathes on its own 6-9s period, so a row of them reads as
-    // a shelf of individuals rather than a synchronised icon set.
-    const period = 6 + ((seed % 7) / 7) * 3;
 
     let from = (SHAPES[shapeRef.current] ?? circle).slice();
     let to = from.slice();
@@ -313,51 +309,56 @@ export function BotAvatar({
     let appliedShape: BotShape | null = null;
     const gaze = { ...STATES[stateRef.current].pupil };
 
-    if (reduced) {
-      // Static idle pose: no wobble, no blink, no spring — but still the right
-      // shape and the right pupil position for the current state.
+    let active = false;
+    const rest = () => {
+      if (active) return;
       const spec = STATES[stateRef.current];
       const radii = (SHAPES[shapeRef.current] ?? circle).map(
         (v, i) => v * (spec.radii[i] / R),
       );
       path.setAttribute("d", pathFor(radii));
       eye.setAttribute("transform", `translate(${spec.pupil.x},${spec.pupil.y})`);
+      group.style.transform = `rotate(${spec.tilt}deg)`;
       pupil.style.transform = spec.closed ? EYE_SHUT : EYE_OPEN;
-      return;
-    }
+      last = radii;
+      gaze.x = spec.pupil.x;
+      gaze.y = spec.pupil.y;
+      appliedState = null;
+      appliedShape = null;
+    };
+    syncRestPose.current = rest;
 
     let blinkTimer: ReturnType<typeof setTimeout> | undefined;
+    let blink: Animation | undefined;
     const scheduleBlink = () => {
       blinkTimer = setTimeout(() => {
         if (!STATES[stateRef.current].closed) {
-          pupil.classList.remove("bot-blink");
-          void pupil.getBoundingClientRect();
-          pupil.classList.add("bot-blink");
+          blink?.cancel();
+          blink = pupil.animate?.([
+            { transform: EYE_OPEN, offset: 0 },
+            { transform: EYE_SHUT, offset: 0.45 },
+            { transform: EYE_SHUT, offset: 0.55 },
+            { transform: EYE_OPEN, offset: 1 },
+          ], { duration: 220, easing: "ease-in-out" });
         }
         scheduleBlink();
       }, 2200 + Math.random() * 4200);
     };
-    scheduleBlink();
-
-    const stop = register((tSec, now) => {
+    const tick: Ticker = (tSec, now) => {
       const spec = STATES[stateRef.current];
       const home = SHAPES[shapeRef.current] ?? circle;
       // The state's radii are expressed relative to R, so a state deformation
       // (perk, tight, puddle) is applied as a ratio on top of the bot's own
       // home shape. Identity survives every state change.
-      const target = home.map((v, i) => v * (spec.radii[i] / R));
-
       if (appliedState !== stateRef.current || appliedShape !== shapeRef.current) {
         from = last.slice();
-        to = target;
+        to = home.map((v, i) => v * (spec.radii[i] / R));
         t0 = now;
         dur = spec.dur;
         appliedState = stateRef.current;
         appliedShape = shapeRef.current;
         group.style.transform = `rotate(${spec.tilt}deg)`;
         pupil.style.transform = spec.closed ? EYE_SHUT : EYE_OPEN;
-      } else if (dur === 0) {
-        to = target;
       }
 
       let radii: number[];
@@ -379,20 +380,38 @@ export function BotAvatar({
       gaze.x = lerp(gaze.x, spec.pupil.x, 0.12);
       gaze.y = lerp(gaze.y, spec.pupil.y, 0.12);
       eye.setAttribute("transform", `translate(${gaze.x.toFixed(2)},${gaze.y.toFixed(2)})`);
+    };
+
+    let stop: (() => void) | undefined;
+    const unobserve = observeVisibleAnimation(svg, (visible) => {
+      active = visible;
+      group.style.transition = active ? "transform .5s ease" : "none";
+      stop?.();
+      stop = undefined;
+      if (blinkTimer) clearTimeout(blinkTimer);
+      blink?.cancel();
+      if (active) {
+        stop = register(tick);
+        scheduleBlink();
+      } else {
+        rest();
+      }
     });
 
-    // Breathing period varies per creature via the wobble phase seed above;
-    // the shared loop keeps it to one rAF for the whole roster.
-    void period;
-
     return () => {
-      stop();
+      unobserve();
+      stop?.();
       if (blinkTimer) clearTimeout(blinkTimer);
+      blink?.cancel();
+      syncRestPose.current = null;
     };
   }, [detailed, seed]);
 
+  useEffect(() => { syncRestPose.current?.(); }, [state, shape]);
+
   return (
     <svg
+      ref={svgRef}
       // Tight to the silhouette. With the card gone there is nothing to pad
       // out to, so the creature gets the whole box and keeps the visual weight
       // the plate used to carry. The margin is what the widest pose needs:

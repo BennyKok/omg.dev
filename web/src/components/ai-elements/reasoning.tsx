@@ -83,9 +83,8 @@ export function ReasoningTrigger({ className, isStreaming, children, ...props }:
           {/* No brain glyph. It was the only illustrated icon in the
               transcript, and it sat on the quietest row there. The words say
               what this is, and the duration is the part worth reading. */}
-          {/* One MorphText for both states, so the ticking seconds and the
-              switch from "Thinking…" to "Thought for" morph in place instead
-              of re-rendering. */}
+          {/* Keep the timer and completed label in one place, with a brief
+              fade when the text changes. */}
           <MorphText shimmer={isStreaming}>
             {isStreaming
               ? duration ? `Thinking… ${duration}` : "Thinking…"
