@@ -694,19 +694,25 @@ function demoSocket(live = false) {
   const messageListeners: Array<(event: { data: string }) => void> = [];
   let stopChurn: (() => void) | null = null;
   let stopFeed: (() => void) | null = null;
+  const refresh = (data: string) => {
+    for (const listener of messageListeners) listener({ data });
+  };
   const socket = {
     binaryType: "arraybuffer" as BinaryType,
     readyState: 1,
     send(data: string) {
-      if (!live || !followFixture || stopFeed) return;
+      if (!live) return;
       const frame = JSON.parse(String(data)) as { t?: string; channels?: Array<{ kind?: string; key?: string }> };
       if (frame.t !== "subscribe") return;
       if (!frame.channels?.some((c) => c.kind === "transcript" && c.key === "demo-rate-limiter")) return;
+      if (historyRefreshFixture) historyRefreshListeners.add(refresh);
+      if (!followFixture || stopFeed) return;
       stopFeed = followFeed((frameData) => {
         for (const l of messageListeners) l({ data: frameData });
       });
     },
     close() {
+      historyRefreshListeners.delete(refresh);
       stopChurn?.();
       stopChurn = null;
       stopFeed?.();
@@ -870,6 +876,9 @@ function answer(path: string): unknown | null {
 }
 
 const performanceFixture = process.env.EXPO_PUBLIC_OMG_PERFORMANCE_FIXTURE === "1";
+/** Replay a reconnect snapshot after an older page lands, while the reader rests. */
+const historyRefreshFixture = process.env.EXPO_PUBLIC_OMG_HISTORY_REFRESH_FIXTURE === "1";
+const historyRefreshListeners = new Set<(data: string) => void>();
 /**
  * How long an older page takes. 2.5 s keeps the spinner on screen for the
  * history-paging recording. e2e/history-hold sets 6 s so the page lands after
@@ -982,7 +991,17 @@ export function getDemoTransport(): OmgTransport {
         });
         return { sessionId } as T;
       }
-      return (answer(path) ?? {}) as T;
+      const result = answer(path) ?? {};
+      if (historyRefreshFixture && path.includes("/demo-rate-limiter/messages?page=backward")) {
+        setTimeout(() => {
+          const tail = foldedHistoryPage(demoMessages("demo-rate-limiter"), new URLSearchParams("limit=40"));
+          tail.messages = tail.messages.map((message, index) => index === tail.messages.length - 1
+            ? { ...message, text: `${message.text}\n\nLive refresh received.` } : message);
+          const frame = JSON.stringify({ t: "snapshot", kind: "transcript", key: "demo-rate-limiter", seq: Date.now(), ...tail });
+          for (const listener of historyRefreshListeners) listener(frame);
+        }, 3000);
+      }
+      return result as T;
     },
     async openSocket() {
       return demoSocket();

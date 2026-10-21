@@ -106,7 +106,7 @@ test("a machine that sends no cursor keeps the growing request", async () => {
   } finally { ui.cleanup(); }
 });
 
-test("a live snapshot resets the cursor and a stale older page is dropped", async () => {
+test("an overlapping live snapshot preserves loaded history and the older page cursor", async () => {
   const { client, tails, older } = pagingClient();
   let page!: ReturnType<typeof useTranscriptPage>;
   function Probe() { page = useTranscriptPage(client, "mac", "s", noop); return <div>{page.messages.length}</div>; }
@@ -117,9 +117,32 @@ test("a live snapshot resets the cursor and a stale older page is dropped", asyn
     ui.flush(() => page.loadMore());
     ui.flush(() => page.applySnapshot(range(101, 110), 510));
     await ui.flushAsync(async () => { older[0].resolve({ messages: range(50, 60), nextBefore: 400 }); });
-    expect(page.messages[0].id).toBe("101");
+    expect(page.messages.map(m => m.id)).toEqual([...range(50, 60), ...range(100, 110)].map(m => m.id));
     ui.flush(() => page.loadMore());
-    expect(older[1].path).toContain("before=510");
+    expect(older[1].path).toContain("before=400");
+  } finally { ui.cleanup(); }
+});
+
+test("a reconnect tail keeps the older reply currently on screen and refreshes edited text", async () => {
+  const { client, tails, older } = pagingClient();
+  let page!: ReturnType<typeof useTranscriptPage>;
+  function Probe() {
+    page = useTranscriptPage(client, "mac", "s", noop);
+    return <div>{page.messages.find(m => m.id === "93")?.text}</div>;
+  }
+  const ui = mount();
+  try {
+    ui.render(<Probe />);
+    await ui.flushAsync(async () => { tails[0].resolve({ messages: range(94, 101), nextBefore: 564 }); });
+    ui.flush(() => page.loadMore());
+    await ui.flushAsync(async () => { older[0].resolve({ messages: range(54, 94), nextBefore: 324 }); });
+    expect(ui.text()).toBe("Reply 93");
+    ui.flush(() => page.applySnapshot(range(94, 102).map(m => m.id === "100" ? { ...m, text: "Updated reply" } : m), 564));
+    expect(ui.text()).toBe("Reply 93");
+    expect(page.messages.find(m => m.id === "100")?.text).toBe("Updated reply");
+    expect(page.messages.at(-1)?.id).toBe("101");
+    ui.flush(() => page.loadMore());
+    expect(older[1].path).toContain("before=324");
   } finally { ui.cleanup(); }
 });
 
@@ -134,6 +157,54 @@ test("late responses from a previous session cannot overwrite the newly mounted 
     await ui.flushAsync(async () => { requests[1].resolve({ messages: [{ id: "b", text: "Session B" }] }); });
     await ui.flushAsync(async () => { requests[0].resolve({ messages: [{ id: "a", text: "Session A" }] }); });
     expect(ui.text()).toBe("Session B");
+  } finally { ui.cleanup(); }
+});
+
+test("a disjoint snapshot drops stale history responses even when its cursor matches", async () => {
+  const { client, tails, older } = pagingClient();
+  let page!: ReturnType<typeof useTranscriptPage>;
+  function Probe() { page = useTranscriptPage(client, "mac", "s", noop); return null; }
+  const ui = mount();
+  try {
+    ui.render(<Probe />);
+    await ui.flushAsync(async () => { tails[0].resolve({ messages: range(100, 107), nextBefore: 500 }); });
+    ui.flush(() => page.loadMore());
+    ui.flush(() => page.applySnapshot(range(200, 207), 500));
+    await ui.flushAsync(async () => { older[0].resolve({ messages: range(90, 100), nextBefore: 400 }); });
+    expect(page.messages.map(m => m.id)).toEqual(range(200, 207).map(m => m.id));
+    ui.flush(() => page.loadMore());
+    expect(older[1].path).toContain("before=500");
+  } finally { ui.cleanup(); }
+});
+
+test("a complete snapshot removes deleted rows and keeps confirmed send keys", async () => {
+  const { client, tails } = pagingClient();
+  let page!: ReturnType<typeof useTranscriptPage>;
+  function Probe() { page = useTranscriptPage(client, "mac", "s", noop); return null; }
+  const ui = mount();
+  try {
+    ui.render(<Probe />);
+    await ui.flushAsync(async () => { tails[0].resolve({ messages: range(1, 5), nextBefore: null }); });
+    ui.flush(() => page.setMessages(prev => prev.map(m => m.id === "4" ? { ...m, localKey: "local-send" } : m)));
+    ui.flush(() => page.applySnapshot(range(2, 5), null));
+    expect(page.messages.map(m => m.id)).toEqual(["2", "3", "4"]);
+    expect(page.messages.at(-1)?.localKey).toBe("local-send");
+    expect(page.reachedStart).toBe(true);
+  } finally { ui.cleanup(); }
+});
+
+test("a late opening request cannot roll a live snapshot and its cache back", async () => {
+  const { client, tails } = pagingClient();
+  let page!: ReturnType<typeof useTranscriptPage>;
+  function Probe() { page = useTranscriptPage(client, "mac", "s", noop); return null; }
+  const ui = mount();
+  try {
+    ui.render(<Probe />);
+    ui.flush(() => page.applySnapshot(range(100, 110), 500));
+    await ui.flushAsync(async () => { tails[0].resolve({ messages: range(100, 107), nextBefore: 500 }); });
+    expect(page.messages.at(-1)?.id).toBe("109");
+    const { readTranscriptCache } = await import("../src/omg/transcript-cache");
+    expect(readTranscriptCache(transcriptCacheKey("mac", "s"))?.messages.at(-1)?.id).toBe("109");
   } finally { ui.cleanup(); }
 });
 

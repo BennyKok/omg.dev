@@ -1,0 +1,131 @@
+{
+  "appId": "dev.omg.computer",
+  "launch": {
+    "clearState": true
+  },
+  "steps": [
+    {
+      "name": "Accept fixture data notice",
+      "goal": "Tap Agree and continue on the Your data and AI providers screen for this isolated demo fixture. Wait for Home. Do not tap the root element named omg.",
+      "done": "Home shows the project navigation.",
+      "expect": [
+        "api-gateway folder"
+      ],
+      "timeoutMs": 180000
+    },
+    {
+      "name": "Open the long session",
+      "goal": "On Home, tap the api-gateway folder chip in the project rail. Then open the conversation titled Refactor the rate limiter to a sliding window. Do not type a message.",
+      "done": "The conversation screen is open at its newest message, with the idle reading check line.",
+      "expect": [
+        "History message 100.",
+        "Reading check idle"
+      ],
+      "timeoutMs": 120000
+    },
+    {
+      "name": "Older reply survives a live refresh",
+      "goal": "Do not tap or swipe anything. Wait until the reading check line says passed, failed or empty.",
+      "done": "The older page and the subsequent live refresh have landed. The reading check passes and History message 093 remains visible.",
+      "expect": [
+        "Reading check passed",
+        "History message 093."
+      ],
+      "forbid": [
+        "Reading check failed",
+        "Reading check empty"
+      ],
+      "swipe": {
+        "start": "50%,30%",
+        "end": "50%,85%"
+      },
+      "timeoutMs": 60000,
+      "observeOnly": true
+    },
+    {
+      "name": "Read further up (1 of 4)",
+      "goal": "Do not tap or swipe anything. Wait until the reading check line says passed, failed or empty.",
+      "done": "The reading check line says passed or empty.",
+      "forbid": [
+        "Reading check failed",
+        "Reading check watching"
+      ],
+      "swipe": {
+        "start": "50%,20%",
+        "end": "50%,90%"
+      },
+      "timeoutMs": 60000,
+      "observeOnly": true
+    },
+    {
+      "name": "Read further up (2 of 4)",
+      "goal": "Do not tap or swipe anything. Wait until the reading check line says passed, failed or empty.",
+      "done": "The reading check line says passed or empty.",
+      "forbid": [
+        "Reading check failed",
+        "Reading check watching"
+      ],
+      "swipe": {
+        "start": "50%,20%",
+        "end": "50%,90%"
+      },
+      "timeoutMs": 60000,
+      "observeOnly": true
+    },
+    {
+      "name": "Read further up (3 of 4)",
+      "goal": "Do not tap or swipe anything. Wait until the reading check line says passed, failed or empty.",
+      "done": "The reading check line says passed or empty.",
+      "forbid": [
+        "Reading check failed",
+        "Reading check watching"
+      ],
+      "swipe": {
+        "start": "50%,20%",
+        "end": "50%,90%"
+      },
+      "timeoutMs": 60000,
+      "observeOnly": true
+    },
+    {
+      "name": "Read further up (4 of 4)",
+      "goal": "Do not tap or swipe anything. Wait until the reading check line says passed, failed or empty.",
+      "done": "The reading check line says passed or empty.",
+      "forbid": [
+        "Reading check failed",
+        "Reading check watching"
+      ],
+      "swipe": {
+        "start": "50%,20%",
+        "end": "50%,90%"
+      },
+      "timeoutMs": 60000,
+      "observeOnly": true
+    },
+    {
+      "name": "The second older page is loaded",
+      "goal": "Do not tap or swipe anything.",
+      "done": "Older messages from the second page are loaded, and every load held the reading position.",
+      "expect": [
+        "History message 053.",
+        "0 failed loads"
+      ],
+      "forbid": [
+        "Reading check failed",
+        "Reading totals: 0 held loads",
+        "Reading totals: 1 held loads"
+      ],
+      "timeoutMs": 30000,
+      "observeOnly": true
+    },
+    {
+      "name": "The refreshed reply is available",
+      "goal": "Tap Jump to the latest once. Do not type or send anything.",
+      "done": "The latest reply includes the text added by the live refresh.",
+      "expect": [
+        "Live refresh received."
+      ],
+      "timeoutMs": 30000
+    }
+  ]
+}

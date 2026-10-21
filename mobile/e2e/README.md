@@ -90,6 +90,23 @@ tell a one-frame flash from a measurement taken mid-update. Check the video
 for those. The last step requires a second page and "0 failed loads". Without
 the fix the third step fails with "1 lost rows".
 
+The history-refresh plan also sends a live tail snapshot three seconds after
+each older page arrives. It checks that the visible older reply survives the
+refresh, that a second page still loads from the retained cursor, and that the
+updated latest reply is visible when requested:
+
+```bash
+EXPO_PUBLIC_OMG_DEMO=1 EXPO_PUBLIC_OMG_PERFORMANCE_FIXTURE=1 \
+  EXPO_PUBLIC_OMG_HISTORY_REFRESH_FIXTURE=1 \
+  EXPO_PUBLIC_OMG_HISTORY_DELAY_MS=6000 EXPO_PUBLIC_OMG_SCROLL_PROBE=1 \
+  OMG_E2E_ENTRY_FILE=scripts/no-project-e2e-entry.tsx \
+  bun run test:e2e --build --plan history-refresh --record
+```
+
+This uses the production session screen and SDK with synthetic transport data.
+The final "Live refresh received" assertion proves that the snapshot reached
+the screen. An idle-only test cannot exercise this replacement path.
+
 The long-chat flow measures the real session screen on a large chat. With
 `EXPO_PUBLIC_OMG_HISTORY_ROWS=1200`, the performance fixture serves 1,200 rows
 shaped like a working session (`largeHistory` in `src/omg/demo-data.ts`). The

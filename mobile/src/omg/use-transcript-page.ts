@@ -1,9 +1,9 @@
 import { sessionCache } from "./session-cache-store";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type SetStateAction } from "react";
 import type { Entry } from "./transcript";
 import {
   TRANSCRIPT_PAGE, transcriptCacheKey, readTranscriptCache,
-  writeTranscriptCache, updateTranscriptCacheMessages,
+  writeTranscriptCache,
 } from "./transcript-cache";
 
 type Page = { messages?: Entry[]; nextBefore?: number | null };
@@ -63,21 +63,70 @@ export function keepOpener<T extends { id?: string | null; role?: string | null;
   return settled;
 }
 
+type TranscriptPageState = {
+  messages: Entry[];
+  cursor: number | null | undefined;
+  legacyLimit: number | null;
+  reachedStart: boolean;
+  /** Changes only when a snapshot replaces the loaded history boundary. */
+  boundary: number;
+};
+
+function pageCursor(next: number | null | undefined, count: number, asked: number) {
+  return {
+    cursor: next,
+    legacyLimit: next === undefined ? asked : null,
+    reachedStart: next === undefined ? count < asked : next === null,
+  };
+}
+
+/** A reconnect sends a tail, not a deletion of the older pages on screen. */
+function refreshPage(prev: TranscriptPageState, next: Entry[], nextBefore: number | null | undefined): TranscriptPageState {
+  const first = next[0]?.id;
+  const overlap = first ? prev.messages.findIndex(message => message.id === first) : -1;
+  // Only join at a known row. A disjoint snapshot cannot prove continuity.
+  // A complete history (null cursor) is authoritative, including deletions.
+  const keepHistory = nextBefore != null && prev.legacyLimit === null &&
+    prev.cursor !== undefined && overlap >= 0;
+  const localKeys = new Map(prev.messages.filter(message => message.id && message.localKey)
+    .map(message => [message.id, message.localKey]));
+  const tail = next.map(message => {
+    const localKey = message.id ? localKeys.get(message.id) : undefined;
+    return localKey && !message.localKey ? { ...message, localKey } : message;
+  });
+  return {
+    ...prev,
+    ...(keepHistory ? {} : pageCursor(nextBefore, next.length, TRANSCRIPT_PAGE)),
+    messages: keepHistory ? [...prev.messages.slice(0, overlap), ...tail] : keepOpener(prev.messages, tail),
+    boundary: prev.boundary + (keepHistory ? 0 : 1),
+  };
+}
+
 export function useTranscriptPage(client: Client | null, bindingId: string | null | undefined,
   id: string | null, onError: (error: string | null) => void, initialPrompt?: string) {
   const [scopeEpoch] = useState(() => sessionCache.epoch);
   const cacheKey = id ? transcriptCacheKey(bindingId, id) : null;
   const [initialCache] = useState(() => cacheKey ? readTranscriptCache<Entry>(cacheKey) : null);
-  const [messages, setMessages] = useState<Entry[]>(() => initialCache?.messages
+  // The messages and cursor describe one loaded range and must change together.
+  const [page, setPage] = useState<TranscriptPageState>(() => ({ messages: initialCache?.messages
     // `ts` is not decoration. `buildTranscriptItems` stamps the first row of a
     // transcript and skips any row without a time (`if (!ts) return`), so an
     // optimistic opener with no `ts` drew no stamp — and then the settled row
     // arrived carrying one, pushing the whole conversation down. Local clock
     // is right to the minute the stamp actually prints.
-    ?? (initialPrompt ? [{ id: `local-create-${id}`, role: "user", text: initialPrompt, ts: Date.now() }] : []));
+    ?? (initialPrompt ? [{ id: `local-create-${id}`, role: "user", text: initialPrompt, ts: Date.now() }] : []),
+    cursor: undefined, legacyLimit: null, reachedStart: false, boundary: 0,
+  }));
+  const { messages, cursor, legacyLimit, reachedStart, boundary } = page;
+  const setMessages = useCallback((update: SetStateAction<Entry[]>) => {
+    setPage(prev => {
+      const messages = typeof update === "function" ? update(prev.messages) : update;
+      return messages === prev.messages ? prev : { ...prev, messages };
+    });
+  }, []);
   const [loading, setLoading] = useState(!!id && !initialCache);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [reachedStart, setReachedStart] = useState(false);
+  const snapshotRevision = useRef(0);
   /**
    * WHERE THE NEXT OLDER PAGE STARTS, as the machine reports it.
    *
@@ -91,35 +140,19 @@ export function useTranscriptPage(client: Client | null, bindingId: string | nul
    * `undefined` means not known yet (the tail has not answered). A machine
    * too old to send a cursor keeps the old growing-limit request.
    */
-  const cursor = useRef<number | null | undefined>(undefined);
-  const legacyLimit = useRef<number | null>(null);
   const wantsMore = useRef(false);
-  const [cursorVersion, setCursorVersion] = useState(0);
-
-  const setCursor = useCallback((next: number | null | undefined, count: number, asked: number) => {
-    if (next === undefined) {
-      cursor.current = undefined;
-      legacyLimit.current = asked;
-      setReachedStart(count < asked);
-    } else {
-      cursor.current = next;
-      legacyLimit.current = null;
-      setReachedStart(next === null);
-    }
-    setCursorVersion((v) => v + 1);
-  }, []);
 
   useEffect(() => {
     if (!client || !id) return;
     let cancelled = false;
+    const revision = snapshotRevision.current;
     const cached = cacheKey ? readTranscriptCache<Entry>(cacheKey) : null;
     setLoading(!cached);
     client.getMessages(id, TRANSCRIPT_PAGE).then((res) => {
-      if (cancelled || sessionCache.epoch !== scopeEpoch) return;
+      if (cancelled || sessionCache.epoch !== scopeEpoch || snapshotRevision.current !== revision) return;
       const next = res.messages ?? [];
-      setMessages((prev) => keepOpener(prev, next));
-      setCursor(res.nextBefore, next.length, TRANSCRIPT_PAGE);
-      if (cacheKey) writeTranscriptCache(cacheKey, next, TRANSCRIPT_PAGE);
+      // A live snapshot may beat this initial REST request. Its range wins.
+      setPage(prev => refreshPage(prev, next, res.nextBefore));
       onError(null);
     }).catch((error) => {
       if (!cancelled && !cached) onError(error instanceof Error ? error.message : String(error));
@@ -127,16 +160,18 @@ export function useTranscriptPage(client: Client | null, bindingId: string | nul
       if (!cancelled) setLoading(false);
     });
     return () => { cancelled = true; };
-  }, [client, id, cacheKey, onError, scopeEpoch, setCursor]);
+  }, [client, id, cacheKey, onError, scopeEpoch]);
 
   useEffect(() => {
-    if (cacheKey && sessionCache.epoch === scopeEpoch) updateTranscriptCacheMessages(cacheKey, messages, TRANSCRIPT_PAGE);
-  }, [cacheKey, messages, scopeEpoch]);
+    if (cacheKey && sessionCache.epoch === scopeEpoch && (cursor !== undefined || legacyLimit !== null)) {
+      writeTranscriptCache(cacheKey, messages, TRANSCRIPT_PAGE);
+    }
+  }, [cacheKey, messages, cursor, legacyLimit, scopeEpoch]);
 
   const loadMore = useCallback(() => {
     if (!client || !id || loadingMore || reachedStart) return;
-    const before = cursor.current;
-    const legacy = legacyLimit.current;
+    const before = cursor;
+    const legacy = legacyLimit;
     // A scroll to the top before the tail answers is remembered, not dropped:
     // the reader may already be parked there when the cursor arrives.
     if (before === undefined && legacy === null) { wantsMore.current = true; return; }
@@ -148,36 +183,35 @@ export function useTranscriptPage(client: Client | null, bindingId: string | nul
       : client.getMessages(id, (legacy ?? TRANSCRIPT_PAGE) + TRANSCRIPT_PAGE);
     request.then((res) => {
       if (sessionCache.epoch !== scopeEpoch) return;
-      const page = res.messages ?? [];
-      if (before === undefined) {
-        // Legacy machine: the answer is the whole grown window.
-        setMessages((prev) => keepOpener(prev, page));
-        setCursor(undefined, page.length, (legacy ?? TRANSCRIPT_PAGE) + TRANSCRIPT_PAGE);
-        return;
-      }
-      // A snapshot that reset the cursor meanwhile owns the list now.
-      if (cursor.current !== before) return;
-      setMessages((prev) => prependOlder(page, prev));
-      setCursor(res.nextBefore ?? null, page.length, TRANSCRIPT_PAGE);
+      const older = res.messages ?? [];
+      setPage(prev => {
+        if (prev.boundary !== boundary || prev.cursor !== before) return prev;
+        if (before === undefined) {
+          // Legacy machine: the answer is the whole grown window.
+          return { ...prev, messages: keepOpener(prev.messages, older),
+            ...pageCursor(undefined, older.length, (legacy ?? TRANSCRIPT_PAGE) + TRANSCRIPT_PAGE) };
+        }
+        return { ...prev, messages: prependOlder(older, prev.messages),
+          ...pageCursor(res.nextBefore ?? null, older.length, TRANSCRIPT_PAGE) };
+      });
     }).catch((error) => {
       onError(error instanceof Error ? error.message : String(error));
     }).finally(() => setLoadingMore(false));
-  }, [client, id, loadingMore, reachedStart, scopeEpoch, onError, setCursor]);
+  }, [client, id, loadingMore, reachedStart, scopeEpoch, onError, cursor, legacyLimit, boundary]);
 
   // Run a scroll-to-top that arrived before the cursor did.
   useEffect(() => {
-    if (wantsMore.current && (cursor.current !== undefined || legacyLimit.current !== null)) loadMore();
-  }, [cursorVersion, loadMore]);
+    if (wantsMore.current && (cursor !== undefined || legacyLimit !== null)) loadMore();
+  }, [cursor, legacyLimit, loadMore]);
 
   /**
-   * The live socket's snapshot is a fresh tail with its own cursor. It
-   * replaces the list, so it must replace the cursor too, or the next page
-   * back would start from a point the list no longer reaches and leave a gap.
+   * Refresh the overlapping tail and retain the older loaded range. The cursor
+   * still belongs to its first row. Only a disjoint/full snapshot replaces it.
    */
   const applySnapshot = useCallback((next: Entry[], nextBefore: number | null | undefined) => {
-    setMessages((prev) => keepOpener(prev, next));
-    setCursor(nextBefore, next.length, TRANSCRIPT_PAGE);
-  }, [setCursor]);
+    snapshotRevision.current += 1;
+    setPage(prev => refreshPage(prev, next, nextBefore));
+  }, []);
 
   return { messages, setMessages, applySnapshot, loading, loadingMore, reachedStart, loadMore };
 }
