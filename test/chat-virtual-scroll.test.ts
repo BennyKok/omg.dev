@@ -80,28 +80,12 @@ describe("the virtualizer supplies offsets only", () => {
   });
 });
 
-describe("the tail is never modelled", () => {
-  test("the last rows stay mounted whatever the scroll position is", async () => {
-    const source = await app();
-    expect(source).toContain("const CHAT_TAIL_ROWS = 30;");
-    expect(source).toContain("const tailStart = Math.max(0, items.length - CHAT_TAIL_ROWS);");
-    expect(source).toContain("for (let i = tailStart; i < items.length; i += 1) merged.add(i);");
-    // Measured, not estimated.
-    expect(source).toContain("ref={virtualizer.measureElement}");
-  });
-});
+// Retained-tail behavior is exercised by chat-virtual-range.test.ts and the
+// browser transcript harness. Source matching missed the overlapping-tail bug.
 
 describe("one owner for the scroll correction", () => {
-  test("prepend and re-measure share one anchor and one layout effect", async () => {
-    const source = await app();
-    // Assigned in exactly two places: the pagination path arms it, the layout
-    // effect disarms it.
-    expect(source.match(/preserveScrollRef\.current = \{/g)?.length).toBe(1);
-    expect(source).toContain("anchorKey: anchorRef.current?.key ?? \"\",");
-    expect(source).toContain("const start = index == null ? undefined : virtualizer.measurementsCache[index]?.start;");
-    expect(source).toContain("if (Math.abs(clamped - el.scrollTop) > 0.5) el.scrollTop = clamped;");
-  });
-
+  // Anchor movement and deferred fling corrections are checked in the real
+  // browser harness. The pure momentum decision has transcript-anchor.test.ts.
   test("the anchor is captured from real scroll events only", async () => {
     const source = await app();
     expect(source).toContain("if (!programmaticScrollRef.current) {");

@@ -186,6 +186,15 @@ function railCardInitiallyDismissed() {
   }
 }
 
+let phoneInstallQr: string | undefined;
+
+// The portal mounts this only when the phone popup opens. The destination is
+// static, so neither chat updates nor reopening the popup needs to encode it.
+function PhoneInstallQr() {
+  const src = phoneInstallQr ??= `data:image/svg+xml;utf8,${encodeURIComponent(renderSVG(IOS_APP_STORE_URL, { border: 1 }))}`;
+  return <img src={src} alt="QR code for omg.dev on the App Store" className="mx-auto size-40 rounded-lg bg-white p-1.5" />;
+}
+
 /**
  * THE DESKTOP RAIL'S "GET THE APPS" CARD.
  *
@@ -216,7 +225,6 @@ export function GetAppsRailCard() {
       // Storage can be disabled; dismissing for this render is still enough.
     }
   };
-  const qr = `data:image/svg+xml;utf8,${encodeURIComponent(renderSVG(IOS_APP_STORE_URL, { border: 1 }))}`;
   const rowClass =
     "flex h-9 w-full items-center gap-2.5 rounded-lg px-2 text-left text-[13px] font-medium text-foreground transition-colors hover:bg-muted";
 
@@ -261,7 +269,7 @@ export function GetAppsRailCard() {
                 data-testid="ios-app-popover"
                 className="w-60 rounded-2xl border border-border bg-popover p-3 text-popover-foreground shadow-2xl outline-none"
               >
-                <img src={qr} alt="QR code for omg.dev on the App Store" className="mx-auto size-40 rounded-lg bg-white p-1.5" />
+                <PhoneInstallQr />
                 <p className="mt-2.5 text-center text-[13px] font-semibold">Use omg on your phone</p>
                 <p className="mt-1 text-center text-xs text-muted-foreground">
                   Scan with your iPhone camera to get the app. Then start and follow your sessions from anywhere.

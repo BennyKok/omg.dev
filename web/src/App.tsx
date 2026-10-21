@@ -531,8 +531,10 @@ import {
   pretextMeasurer,
   useChatMarkdownMetrics,
 } from "./lib/markdown-metrics";
-import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
+import { useVirtualizer, type Range } from "@tanstack/react-virtual";
 import { remeasureChatRows } from "./lib/remeasure-chat-rows";
+import { useChatItemKey } from "./lib/chat-item-keys";
+import { chatVirtualRange } from "./lib/chat-virtual-range";
 import {
   parseMessageAttachments,
   type MessageAttachment,
@@ -14089,7 +14091,7 @@ function RailStage({
         // No border-r: the rail sits on the page and the stage beside it is a
         // raised, rounded panel (STAGE_PANEL), so the edge of that panel is
         // the separation. A rule here drew a second line next to it.
-        className="flex h-full min-h-0 shrink-0 flex-col overflow-hidden transition-[width] duration-200 ease-ios"
+        className="flex h-full min-h-0 shrink-0 flex-col overflow-hidden"
         // 320, not 280. The rows carry the roster's 16px title now, and at 280
         // that truncated to about two words — "operation fix om…" — which is
         // not a title, it is a prefix. The type size is the shared thing; the
@@ -14104,7 +14106,7 @@ function RailStage({
             of it rather than replacing it. Same idea as an iOS push. */}
         <div
           className={cn(
-            "flex min-h-0 flex-1 flex-col transition-[translate,opacity] duration-[380ms] ease-[cubic-bezier(0.25,0.8,0.25,1)] motion-reduce:transition-none",
+            "flex min-h-0 flex-1 flex-col transition-[translate,opacity] duration-150 ease-out motion-reduce:transition-none",
             // Closed carries no translate at all, not translate-x-0: any
             // translate value makes this box the containing block for
             // position: fixed descendants, which would break any it grows.
@@ -19548,8 +19550,7 @@ const SessionCard = memo(function SessionCard({
   // True only on the first render after this session was created in-tab — plays
   // the one-shot entrance animation on the card root.
   entering?: boolean;
-  // Incrementing token from RailStage: non-zero + change restarts the slow
-  // primary glow so a rail click points at this pane among several columns.
+  // Incrementing token from RailStage: briefly outline the selected pane.
   focusGlow?: number;
   // Narrow/mobile list preference. Desktop stage pinning is owned by RailStage.
   pinned?: boolean;
@@ -19659,17 +19660,19 @@ const SessionCard = memo(function SessionCard({
       ? plainPreviewText(prosePreviewText(session.last.text))
       : "");
   const sectionRef = useRef<HTMLElement>(null);
-  // Rail selection glow: restart the CSS animation whenever the token bumps.
+  // Mark the selected pane without forcing a layout to restart a large shadow.
   useLayoutEffect(() => {
     if (!focusGlow) return;
     const el = sectionRef.current;
-    if (!el) return;
-    el.classList.remove("lfg-card-focus-glow");
-    // Force reflow so re-selecting the same pane restarts the animation.
-    void el.offsetWidth;
-    el.classList.add("lfg-card-focus-glow");
-    const clear = window.setTimeout(() => el.classList.remove("lfg-card-focus-glow"), 2000);
-    return () => window.clearTimeout(clear);
+    if (!el?.animate || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const animation = el.animate(
+      [
+        { outline: "2px solid var(--primary)", outlineOffset: "-2px" },
+        { outline: "2px solid transparent", outlineOffset: "-2px" },
+      ],
+      { duration: 180, easing: "ease-out" },
+    );
+    return () => animation.cancel();
   }, [focusGlow]);
   // True while voice dictation is recording in this card's composer — glows the
   // card border so it's clear which session is listening.
@@ -20439,22 +20442,16 @@ const ChatStream = memo(function ChatStream({
   );
 
   const rangeExtractor = useCallback(
-    (range: Range) => {
-      const indexes = defaultRangeExtractor(range);
-      const tailStart = Math.max(0, items.length - CHAT_TAIL_ROWS);
-      if (!indexes.length || indexes[indexes.length - 1] >= tailStart) return indexes;
-      const merged = new Set(indexes);
-      for (let i = tailStart; i < items.length; i += 1) merged.add(i);
-      return [...merged].sort((a, b) => a - b);
-    },
-    [items.length],
+    (range: Range) => chatVirtualRange(range, CHAT_TAIL_ROWS),
+    [],
   );
 
+  const getItemKey = useChatItemKey(items);
   const virtualizer = useVirtualizer({
     count: items.length,
     getScrollElement: () => ref.current,
     estimateSize,
-    getItemKey: (index) => items[index]?.key ?? index,
+    getItemKey,
     rangeExtractor,
     overscan: 6,
     scrollMargin,
@@ -20493,11 +20490,28 @@ const ChatStream = memo(function ChatStream({
   // scroll events. This is read-only bookkeeping: it never moves anything.
   const captureAnchor = useCallback(
     (el: HTMLDivElement) => {
+      // ResizeObserver can update the virtualizer's offsets before React has
+      // committed them to the rows. Capture the row the reader can actually
+      // see, otherwise an older model row becomes the anchor and the next
+      // streamed update moves the text even though that text did not change.
+      const viewport = el.getBoundingClientRect();
+      const top = viewport.top + el.clientTop;
+      for (const node of virtualContainerRef.current?.children ?? []) {
+        if (!(node instanceof HTMLElement)) continue;
+        const key = items[Number(node.dataset.index)]?.key;
+        if (!key) continue;
+        const rect = node.getBoundingClientRect();
+        if (rect.bottom <= top || rect.top >= viewport.bottom) continue;
+        anchorRef.current = { key, offset: top - rect.top };
+        return;
+      }
+      // A scrollbar jump can outrun the mounted window. Until its rows commit,
+      // the model is the only available position for that new viewport.
       const row = virtualizer.getVirtualItemForOffset(el.scrollTop);
       if (!row) return;
       anchorRef.current = { key: String(row.key), offset: el.scrollTop - row.start };
     },
-    [virtualizer],
+    [items, virtualizer],
   );
 
   // One-shot entrance for freshly-arrived assistant turns so the draft→final
@@ -21078,6 +21092,24 @@ const ChatStream = memo(function ChatStream({
       userDrivenRef.current = false;
       return;
     }
+    // Some browsers deliver the scroll event after the next streamed render.
+    // Honor an upward offset from a real gesture before writing the live
+    // bottom; otherwise that write erases both the movement and its authorship.
+    if (
+      userDrivenRef.current && el.scrollTop < lastScrollTopRef.current &&
+      nextScrollMode("pinned", {
+        scrollTop: el.scrollTop,
+        scrollHeight: el.scrollHeight,
+        clientHeight: el.clientHeight,
+        previousScrollTop: lastScrollTopRef.current,
+        userDriven: true,
+      }) === "free"
+    ) {
+      lastUserScrollAtRef.current = performance.now();
+      captureAnchor(el);
+      setStick(false);
+      return;
+    }
     justSwitchedRef.current = false;
     if (Math.abs(el.scrollTop - bottom) <= 0.5) {
       stopGlide();
@@ -21107,7 +21139,7 @@ const ChatStream = memo(function ChatStream({
       // Our write, not theirs: the event this raises must not move the mode.
       userDrivenRef.current = false;
     }
-  }, [visibleMessages, busy, stick, items.length, showTypingIndicator, waitingKey, totalSize, viewportHeight, revealedSid, sid, startGlide, stopGlide]);
+  }, [visibleMessages, busy, stick, items.length, showTypingIndicator, waitingKey, totalSize, viewportHeight, revealedSid, sid, startGlide, stopGlide, captureAnchor]);
 
   // The virtual list sits below the loading-older spinner, so the offsets the
   // virtualizer hands out are shifted by however much chrome is above it.
@@ -21156,10 +21188,21 @@ const ChatStream = memo(function ChatStream({
         msSinceUserScroll: performance.now() - lastUserScrollAtRef.current,
       })
     ) {
+      // Absorb the committed shift even if this was the last fling event.
+      // Otherwise the next streamed update pays an old correction as a jump.
+      captureAnchor(el);
       return;
     }
     const index = indexByKey.get(anchor.anchorKey);
-    const start = index == null ? undefined : virtualizer.measurementsCache[index]?.start;
+    const node = index == null
+      ? null
+      : virtualContainerRef.current?.querySelector<HTMLElement>(`[data-index="${index}"]`);
+    // Use the committed row position when it is mounted. ResizeObserver can
+    // move the model ahead of React's transforms; correcting to that pending
+    // position would itself move the text the reader is looking at.
+    const start = node
+      ? el.scrollTop + node.getBoundingClientRect().top - el.getBoundingClientRect().top - el.clientTop
+      : index == null ? undefined : virtualizer.measurementsCache[index]?.start;
     // No anchor row survived the update (it scrolled out of the loaded page).
     // Fall back to the whole-document delta, which is what this effect did
     // before rows had identities.
@@ -21182,7 +21225,7 @@ const ChatStream = memo(function ChatStream({
     // Our write, not theirs: the event this raises must not move the mode.
     userDrivenRef.current = false;
     anchorRef.current = { key: anchor.anchorKey, offset: anchor.anchorOffset };
-  }, [visibleMessages, totalSize, stick, indexByKey, virtualizer]);
+  }, [visibleMessages, totalSize, stick, indexByKey, virtualizer, captureAnchor]);
 
   // A transcript that does not overflow sits at scrollTop 0 *and* at the
   // bottom, so no gesture can ever ask for more of it. The old guard refused
@@ -21275,18 +21318,20 @@ const ChatStream = memo(function ChatStream({
           // scroll event that a distance test reads as "they came back to the
           // bottom" — which is the snap that happens with no new message.
           // lib/transcript-stick carries the measurements and the rule.
-          setStick((prev) =>
-            nextScrollMode(prev ? "pinned" : "free", {
-              scrollTop: el.scrollTop,
-              scrollHeight: el.scrollHeight,
-              clientHeight: el.clientHeight,
-              previousScrollTop,
-              userDriven: userDrivenRef.current,
-            }) === "pinned",
-          );
+          // State updaters can run after another layout or follow write.
+          // Preserve the gesture and geometry from this event, rather than
+          // reading mutable DOM and refs when React processes the update.
+          const input = {
+            scrollTop: el.scrollTop,
+            scrollHeight: el.scrollHeight,
+            clientHeight: el.clientHeight,
+            previousScrollTop,
+            userDriven: userDrivenRef.current,
+          };
+          setStick((prev) => nextScrollMode(prev ? "pinned" : "free", input) === "pinned");
           // Remember where the reader actually is, so a later re-measure or a
           // prepend can put them back on the same row.
-          captureAnchor(el);
+          if (userDrivenRef.current) captureAnchor(el);
         }
         const intent = loadOlderIntent(el);
         if (intent !== "none") void maybeLoadOlder(intent);

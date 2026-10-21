@@ -62,7 +62,7 @@ function useStreamdownPlugins(children: unknown): StreamdownPlugins {
       extraPluginsListeners.delete(notify);
     };
   }, [shouldLoadExtra]);
-  return { cjk, code, ...(extra ?? {}) };
+  return useMemo(() => ({ cjk, code, ...(extra ?? {}) }), [extra]);
 }
 
 /**
