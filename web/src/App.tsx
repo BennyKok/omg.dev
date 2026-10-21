@@ -607,7 +607,9 @@ const ChangelogPage = lazyWithReload("ChangelogPage", () =>
   import("./ChangelogPage"),
 );
 import { Badge } from "@/components/ui/badge";
-import { ImageAnnotator } from "@/components/ImageAnnotator";
+const ImageAnnotator = lazyWithReload("ImageAnnotator", () =>
+  import("@/components/ImageAnnotator").then((module) => ({ default: module.ImageAnnotator })),
+);
 import { SessionDiffBar } from "@/components/SessionDiffView";
 import { LazySessionFilesPanel } from "@/components/session-files/lazy-panel";
 import { Textarea } from "@/components/ui/textarea";
@@ -3024,30 +3026,32 @@ function useComposerAttachments({
     />
   );
 
-  const annotator = (
-    <ImageAnnotator
-      open={!!annotatingId}
-      file={attachments.find((att) => att.id === annotatingId)?.file ?? null}
-      onOpenChange={(next) => {
-        if (!next) setAnnotatingId(null);
-      }}
-      onSave={(file) => {
-        if (annotatingId) {
-          applyAnnotatedAttachment(
-            setAttachments,
-            previewUrls,
-            annotatingId,
-            file,
-            startAttachmentUpload,
-          );
-        }
-        setAnnotatingId(null);
-      }}
-      onRemove={() => {
-        if (annotatingId) removeAttachment(annotatingId);
-      }}
-    />
-  );
+  const annotator = annotatingId ? (
+    <Suspense fallback={null}>
+      <ImageAnnotator
+        open={!!annotatingId}
+        file={attachments.find((att) => att.id === annotatingId)?.file ?? null}
+        onOpenChange={(next) => {
+          if (!next) setAnnotatingId(null);
+        }}
+        onSave={(file) => {
+          if (annotatingId) {
+            applyAnnotatedAttachment(
+              setAttachments,
+              previewUrls,
+              annotatingId,
+              file,
+              startAttachmentUpload,
+            );
+          }
+          setAnnotatingId(null);
+        }}
+        onRemove={() => {
+          if (annotatingId) removeAttachment(annotatingId);
+        }}
+      />
+    </Suspense>
+  ) : null;
 
   const chips = (
     <ComposerAttachmentChips
