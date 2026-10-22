@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 22, 2026 - Toasts above the chat box (v0.6.293)
+
+- On omg.dev on a phone, notices such as an auto agent's reply show above the chat box instead of on top of it.
+
 ## October 22, 2026 - Tidier session rows (v0.6.292)
 
 - On the desktop, a session list for one project keeps its card.
