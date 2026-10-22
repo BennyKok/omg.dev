@@ -10,7 +10,7 @@ A phone-first web game from the omg.dev web game kit (Vite, React, TypeScript). 
 
 ## Run
 
-- `bun run dev`: dev server on port 5173. `?theme=glassNeon` or `?theme=cleanMinimal` previews another theme.
+- `bun run dev`: dev server on port 5174. `?theme=glassNeon` or `?theme=cleanMinimal` previews another theme.
 - `bun run typecheck`, `bun test`: types and the kit's rule tests.
 - `bun run build`: static site in `dist/`. `bun run preview` serves it on port 4173.
 - `bun run check:ui`: opens every screen at 390x844 and 360x640, plays `/play`, fails buttons that are off screen, and saves PNGs in `.omg/ui-check/`.
