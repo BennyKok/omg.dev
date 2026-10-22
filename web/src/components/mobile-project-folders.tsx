@@ -21,8 +21,9 @@ export function MobileProjectFolders({
 
   return <>
     <ProjectPillRail
-      // With view pills, Create is the no-project scope, so its plus pill goes.
-      projects={projectPillsFor(viewPills ? projects.filter((project) => project !== NO_PROJECT_FILTER) : projects, shortProject, { prefs, selected: value })}
+      // With view pills the row is Create, Apps and Chats only: a folder opens
+      // from the Apps page ("On this computer"), and Create is the no-project scope.
+      projects={viewPills ? [] : projectPillsFor(projects, shortProject, { prefs, selected: value })}
       value={value}
       onChange={onChange}
       onManageFolders={() => setOpen(true)}

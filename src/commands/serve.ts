@@ -8902,6 +8902,22 @@ a{color:#60a5fa}
         return json({ repos: await listRepos() });
       }
 
+      // Import a git repository (the Apps page's "From GitHub"): clone it into
+      // the repos root, where the folder scan lists it. Same clone as the
+      // onboarding repo step, without touching onboarding state.
+      if (path === "/api/repos/clone" && req.method === "POST") {
+        const b = (await req.json().catch(() => null)) as { url?: unknown; name?: unknown } | null;
+        const url = typeof b?.url === "string" ? b.url.trim() : "";
+        if (!url) return err(400, "url is required");
+        const name = typeof b?.name === "string" && b.name.trim() ? b.name.trim() : undefined;
+        try {
+          const repo = await cloneRepo(url, REPOS_ROOT, name);
+          return json({ repo, repos: await listRepos() });
+        } catch (e) {
+          return err(400, e instanceof Error ? e.message : "clone failed");
+        }
+      }
+
       if (path === "/api/repos/favicon" && req.method === "GET") {
         const project = url.searchParams.get("project")?.trim();
         if (!project) return err(400, "project is required");

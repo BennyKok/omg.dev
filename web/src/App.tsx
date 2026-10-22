@@ -14,7 +14,7 @@ import { useRuntimeLifecycle } from "./lib/runtime-lifecycle";
 import { useComputerResumeMetrics } from "./lib/use-computer-resume-metrics";
 import { LiveHeaderContext } from "./components/live-header-context";
 import { MobileProjectFolders } from "./components/mobile-project-folders";
-import { AppHeaderCard, AppNoOpenSessions, AppsList, buildAppItems, CreateHome, Spinner, sessionInAppScope, useCloudApps, useScopedApp } from "./components/apps-home";
+import { AppHeaderCard, AppNoOpenSessions, AppsList, buildAppItems, CreateHome, LocalProjectCard, Spinner, sessionInAppScope, useCloudApps, useScopedApp } from "./components/apps-home";
 import { CreateComposerFrame } from "./components/create-composer-frame";
 import { ProjectFolderMenu } from "./components/project-folder-menu";
 import { SessionReparentProvider, SessionReparentTarget } from "./components/session-reparent";
@@ -114,6 +114,7 @@ import {
   sessionMatchesProjectFilter,
 } from "./lib/project-filter";
 import { ChatStarterRow } from "./components/chat-starter-row";
+import { ImportGitHubDialog } from "./components/import-github-dialog";
 import { groupNodesByProject, type ProjectGroup } from "./lib/session-groups";
 import { usePendingSessionLink } from "./lib/session-navigation";
 import { pathnameToSessionId, pathnameToThreadId, sessionToPath, threadToPath } from "./lib/app-search";
@@ -6447,6 +6448,7 @@ export function App() {
     startPayload ? Array.isArray(startPayload.settings?.folderOrder) : null,
   );
   const [mobileFolderBrowser, setMobileFolderBrowser] = useState<"add" | "new" | null>(null);
+  const [importGitHubOpen, setImportGitHubOpen] = useState(false);
   const [schedTz, setSchedTz] = useState<string>(
     () => startPayload?.settings?.timeZone ?? startPayload?.auto?.tz ?? DEFAULT_SCHED_TZ,
   );
@@ -7427,8 +7429,8 @@ export function App() {
   const scopeCloudApps = useCloudApps(hasApps);
   // The last app went away while its list was open: back to Create.
   useEffect(() => {
-    if (!hasApps && homeView === "apps") setHomeView(null);
-  }, [hasApps, homeView]);
+    if (!hasApps && !repos.length && homeView === "apps") setHomeView(null);
+  }, [hasApps, repos.length, homeView]);
   const scopeBuiltBy = useMemo(() => {
     const repo = repos.find((candidate) => candidate.deploy && repoProject(candidate) === projectFilter);
     return repo?.deploy ? scopeCloudApps.get(repo.deploy.slug)?.builtBySessionId ?? null : null;
@@ -9854,9 +9856,9 @@ export function App() {
                 setProjectFilter(NO_PROJECT_FILTER);
               },
             },
-            // Only once there is an app: before the first publish the page
-            // would be empty, and Create is where the first one starts.
-            ...(hasApps
+            // Once there is an app or a project on this Computer: before that
+            // the page would be empty, and Create is where the first one starts.
+            ...(hasApps || repos.length
               ? [{ id: "apps", label: "Apps", icon: "apps" as const, pressed: appsView, onPress: () => setHomeView("apps") }]
               : []),
             {
@@ -9956,6 +9958,8 @@ export function App() {
               onShowApps={() => setHomeView("apps")}
               onFindSessions={(search) => setFindSessions((current) => ({ nonce: (current?.nonce ?? 0) + 1, search }))}
               allSessions={userScopedSessions}
+              onImportFolder={() => setMobileFolderBrowser("add")}
+              onImportGitHub={() => setImportGitHubOpen(true)}
               onOpenApp={(project, change) => {
                 setHomeView(null);
                 setProjectFilter(project);
@@ -10438,6 +10442,11 @@ export function App() {
           onDelete={deleteAutoAgent}
           onRunNow={runAutoNow}
         />
+      ) : null}
+
+      {importGitHubOpen ? (
+        // The clone lists under "On this computer" on the Apps page.
+        <ImportGitHubDialog onClose={() => setImportGitHubOpen(false)} onImported={() => loadCore()} />
       ) : null}
 
       {mobileFolderBrowser !== null ? (
@@ -12230,6 +12239,8 @@ function LiveView({
   onFindSessions,
   allSessions,
   onOpenApp,
+  onImportFolder,
+  onImportGitHub,
   coach = null,
   focus,
   stageComposer,
@@ -12250,6 +12261,9 @@ function LiveView({
   allSessions?: Session[];
   /** Open an app: scope the list and the composer to its folder. `change` also focuses the composer. */
   onOpenApp?: (project: string, change: boolean) => void;
+  /** The Apps page's Import: a folder on this Computer, or a GitHub repository. */
+  onImportFolder?: () => void;
+  onImportGitHub?: () => void;
   shippedReview?: Session | null;
   /** The session `/sessions/<id>` names, or null on the plain list. */
   openSessionId?: string | null;
@@ -12440,10 +12454,15 @@ function LiveView({
   // The Apps view and the scoped app's card (components/apps-home.tsx).
   const cloudApps = useCloudApps(appsView || createView);
   const appItems = useMemo(
-    () => (appsView || createView ? buildAppItems(repos, allSessions ?? sessions, cloudApps, repoProject) : { games: [], apps: [] }),
-    [appsView, createView, repos, allSessions, sessions, cloudApps],
+    () => (appsView ? buildAppItems(repos, allSessions ?? sessions, cloudApps, repoProject) : { games: [], apps: [], local: [] }),
+    [appsView, repos, allSessions, sessions, cloudApps],
   );
   const scopedApp = useScopedApp(projectFilter, repos, allSessions ?? sessions, repoProject);
+  // A project on this Computer opened from the Apps page ("On this computer").
+  const scopedLocalName =
+    isMobile && !scopedApp && !createView && !appsView && projectFilter !== "__all" && projectFilter !== NO_PROJECT_FILTER
+      ? repos.find((repo) => repoProject(repo) === projectFilter)?.name || projectFilter.split("/").pop() || projectFilter
+      : null;
   // Settings > View > "Session details in lists". Off (the default) is compact.
   const { showSessionDetails, showThreads } = useContext(ViewPrefsContext);
   const listStyle = showSessionDetails ? "detailed" : "compact";
@@ -12763,11 +12782,16 @@ function LiveView({
           <AppsList
             games={appItems.games}
             apps={appItems.apps}
+            local={appItems.local}
             onOpenSession={openSessionPage}
             onOpenApp={(item, change) => onOpenApp?.(item.project, change)}
+            onOpenProject={(project) => onOpenApp?.(project, false)}
+            onImportFolder={onImportFolder}
+            onImportGitHub={onImportGitHub}
           />
         ) : <>
         {scopedApp ? <AppHeaderCard item={scopedApp} onCopied={() => toast.success("Link copied")} /> : null}
+        {scopedLocalName ? <LocalProjectCard name={scopedLocalName} onFindSessions={() => onFindSessions?.("")} /> : null}
         {/* Threads are people chats, not work on this app. */}
         {scopedApp || !showThreads ? null : <ThreadRailGroup threads={threads} activeId={openThreadId} collapsed={false} onOpen={(id) => onOpenThread?.(id)} />}
         <SessionGroups
@@ -12784,6 +12808,11 @@ function LiveView({
         {!pinned.length && !botSessions.length && !working.length && !idle.length ? (
           scopedApp ? (
             <AppNoOpenSessions name={scopedApp.name} onFindSessions={() => onFindSessions?.(scopedApp.name)} />
+          ) : scopedLocalName ? (
+            // The card above offers the earlier sessions.
+            <p className="px-6 py-8 text-center text-[13.5px] text-muted-foreground">
+              No session is open in {scopedLocalName}. Type below to start one.
+            </p>
           ) : (
             <RuntimeEmptyState />
           )
