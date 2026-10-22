@@ -3072,11 +3072,27 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
 /* The phone Create page backdrop (CreateBackdrop in apps-home.tsx): soft
    clouds that drift on long loops. Only transform changes, so it stays on the
    compositor. */
+/* The colour fades toward every edge of the screen: a short fade at the top,
+   so it still runs under the header, and longer ones at the sides and the
+   bottom. Two masks, kept where both are opaque. */
+.lfg-create-backdrop {
+  -webkit-mask-image:
+    linear-gradient(to bottom, rgb(0 0 0 / 0.55) 0, black 14%, black 62%, transparent 100%),
+    linear-gradient(to right, transparent 0, black 16%, black 84%, transparent 100%);
+  -webkit-mask-composite: source-in;
+  mask-image:
+    linear-gradient(to bottom, rgb(0 0 0 / 0.55) 0, black 14%, black 62%, transparent 100%),
+    linear-gradient(to right, transparent 0, black 16%, black 84%, transparent 100%);
+  mask-composite: intersect;
+}
+/* Each cloud is blurred once and then only moved, so the blur is not redrawn
+   on every frame of the drift. */
 .lfg-create-cloud {
   position: absolute;
   width: 90vmax;
   height: 70vmax;
   border-radius: 9999px;
+  filter: blur(36px);
   will-change: transform;
 }
 .lfg-create-cloud-a {
