@@ -1,4 +1,4 @@
-import { createNoProjectWorkspace, existingNoProjectWorkspace, NO_PROJECT } from "../no-project-chat.ts";
+import { existingNoProjectWorkspace, NO_PROJECT, noProjectWorkspacePath, prepareNoProjectWorkspace } from "../no-project-chat.ts";
 import { APP_BUILDER_MODEL, validateBuilderPreset } from "../agents/backends/app-builder.ts";
 import { readinessBootstrap } from "../bootstrap-readiness.ts";
 import { mkdir, open, readdir, realpath, stat } from "node:fs/promises";
@@ -14,6 +14,7 @@ import {
   agentLaunchMemoryBudget,
   computerAgentAdmissionContext,
   isScheduleSpawned,
+  recentAdmissionSessions,
 } from "../agent-admission.ts";
 import { PATHS, appVersion, installInfo, localServeBaseUrl } from "../config.ts";
 import { hostDisks } from "../host-disks.ts";
@@ -370,6 +371,7 @@ import { countTranscriptRows, foldWorkRows, LiveWorkRows, type ChatRenderMessage
 import {
   invalidateListSessionsCache,
   listSessionsCached,
+  latestSessionScan,
   noteListSessionsClientActivity,
 } from "../session-cache.ts";
 import { buildSessionUsageReport, findSessionDevServerPids } from "../session-usage.ts";
@@ -523,7 +525,7 @@ import {
   repoForRequestedSessionCwd,
   resolveInputCwd,
 } from "../repo-resolve.ts";
-import { WORKTREE_ROOT, resolveSessionCwd, startWorktreeSweep } from "../worktree.ts";
+import { WORKTREE_ROOT, planSessionCwd, prepareSessionWorktree, startWorktreeSweep } from "../worktree.ts";
 import { ensureDiskBackedTmpdir, startTmpSweep } from "../tmp-reclaim.ts";
 import {
   FolderDeleteError,
@@ -969,6 +971,9 @@ const HOST = process.env.LFG_HOST ?? "127.0.0.1";
 const TAILNET_PORT = tailnetPortFromEnv(process.env.LFG_TAILNET_PORT, PORT);
 const OMG_WEB_ORIGIN = (process.env.OMG_WEB_URL ?? "https://omg.dev").trim();
 const MAX_LFG_SUBAGENT_DEPTH = 4;
+// How old the newest finished session scan may be for admission to count from
+// it (see recentAdmissionSessions). Active clients refresh it every few seconds.
+const RECENT_ADMISSION_SCAN_MAX_AGE_MS = 30_000;
 const agentAdmission = new AgentAdmissionController();
 
 /**
@@ -999,6 +1004,67 @@ function formatMemory(bytes: number): string {
   return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
 }
 
+/**
+ * The second half of POST /api/sessions/new, run after the response.
+ *
+ * The handler has already written the managed row (launchState "launching",
+ * hydrating) and handed it to the client. This creates the folder the row
+ * names and starts the agent in it. The managed record stays the one owner of
+ * the outcome: success clears `hydrating`, failure marks the row failed with
+ * the reason, and either way the session list is told. Nothing is returned,
+ * because nobody is waiting for it.
+ */
+async function hydrateCreatedSession(input: {
+  tmuxName: string;
+  launchId: string;
+  agent: keyof typeof CODING_AGENT_ADAPTERS;
+  /** Creates the worktree or chat folder; null when the folder already exists. */
+  prepare: (() => Promise<void>) | null;
+  launch: () => { ok: boolean; error?: string; nativeSessionId?: string };
+}): Promise<void> {
+  const startedAt = Date.now();
+  const stillWanted = () => listManaged().some((m) => m.tmuxName === input.tmuxName);
+  try {
+    if (input.prepare) await input.prepare();
+    // Closed while its folder was being made: start nothing. An owned
+    // worktree left behind is reclaimed by the worktree sweep.
+    if (!stillWanted()) return;
+    const r = input.launch();
+    if (!r.ok) throw new Error(r.error || "failed to start session");
+    patchManaged(input.tmuxName, {
+      hydrating: undefined,
+      spawnedAt: Date.now(),
+      ...(r.nativeSessionId ? { nativeSessionId: r.nativeSessionId } : {}),
+      ...(CODING_AGENT_ADAPTERS[input.agent].transport === "command-file"
+        ? { launchState: "running" as const }
+        : {}),
+    });
+    traceLog("session_create_hydrated", {
+      sessionId: input.launchId,
+      agent: input.agent,
+      ms: Date.now() - startedAt,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[sessions] ${input.tmuxName} did not start:`, message);
+    patchManaged(input.tmuxName, {
+      hydrating: undefined,
+      launchState: "failed",
+      launchError: message || "failed to start session",
+      launchFailedAt: Date.now(),
+    });
+    traceLog("session_create_failed", {
+      sessionId: input.launchId,
+      agent: input.agent,
+      ms: Date.now() - startedAt,
+      error: message,
+    });
+  } finally {
+    // The spawn (or the failure) changed what the session list contains.
+    invalidateListSessionsCache();
+  }
+}
+
 // Admission gate for activating a NEW agent (create / cold resume / fork).
 // Cloud Computers use the trusted bootstrap plan and cannot be overridden by a
 // dashboard setting. Ordinary LFG installs retain their local setting cap.
@@ -1026,30 +1092,42 @@ async function activationGate(
   if (limit === 0) return { release: () => {} };
   const overLimit = !computer && options?.overLimit === true;
   const exemptFromCount = options?.kind === "bot";
-  const reservation = await agentAdmission.acquire(
-    overLimit || exemptFromCount ? NO_AGENT_LIMIT : limit,
-    async () => {
-      const available = hostAvailableMemory();
-      const sessions = await listSessions().catch(() => []);
-      const pool = admissionPool(sessions, computer !== null, kind);
-      return {
-        sessions: pool,
-        // Always measured, so every launch books its share of memory even on
-        // the count-capped path. Only whether a shortfall REFUSES is
-        // conditional.
-        memory: agentLaunchMemoryBudget(totalmem(), available.bytes),
-        // A self-hosted box trusts its own count-based cap. An override has
-        // just discarded that cap, so the budget becomes the last thing between
-        // "start one more" and an OOM — but only where the reading means what
-        // the budget assumes. Off Linux this is `freemem()`, which ignores
-        // reclaimable cache and would refuse every override on a perfectly
-        // healthy Mac. Better to honour the owner's explicit decision about
-        // their own machine than to block it on a number we know is wrong.
-        enforceMemory: computer !== null || (overLimit && available.trusted),
-      };
-    },
-    computer ? archiveIdleDurableAgentsForMemory : undefined,
-  );
+  const admissionLimit = overLimit || exemptFromCount ? NO_AGENT_LIMIT : limit;
+  // Fast pass first: the newest finished scan plus the records created since
+  // (recentAdmissionSessions). Computed inside inspect, so it runs after the
+  // admission queue and sees every launch admitted ahead of it. Only a refusal,
+  // or no recent scan at all, pays for a full scan; a refusal is never decided
+  // on the approximate count alone.
+  let approximate = false;
+  const inspect = (precise: boolean) => async () => {
+    const available = hostAvailableMemory();
+    const recent = precise
+      ? null
+      : recentAdmissionSessions(latestSessionScan(), listManaged(), Date.now(), RECENT_ADMISSION_SCAN_MAX_AGE_MS);
+    approximate = recent !== null;
+    const sessions = recent ?? await listSessions().catch(() => []);
+    const pool = admissionPool(sessions, computer !== null, kind);
+    return {
+      sessions: pool,
+      // Always measured, so every launch books its share of memory even on
+      // the count-capped path. Only whether a shortfall REFUSES is
+      // conditional.
+      memory: agentLaunchMemoryBudget(totalmem(), available.bytes),
+      // A self-hosted box trusts its own count-based cap. An override has
+      // just discarded that cap, so the budget becomes the last thing between
+      // "start one more" and an OOM — but only where the reading means what
+      // the budget assumes. Off Linux this is `freemem()`, which ignores
+      // reclaimable cache and would refuse every override on a perfectly
+      // healthy Mac. Better to honour the owner's explicit decision about
+      // their own machine than to block it on a number we know is wrong.
+      enforceMemory: computer !== null || (overLimit && available.trusted),
+    };
+  };
+  const reclaim = computer ? archiveIdleDurableAgentsForMemory : undefined;
+  let reservation = await agentAdmission.acquire(admissionLimit, inspect(false), reclaim);
+  // The memory reading is exact on both passes; only the count can be high.
+  if (!reservation.ok && reservation.reason === "limit" && approximate)
+    reservation = await agentAdmission.acquire(admissionLimit, inspect(true), reclaim);
   if (reservation.ok) return reservation;
   // Tagged `plan_limit` ONLY on a hosted Computer. An ordinary LFG install that
   // hits its own maxLiveAgents setting was stopped by a preference it can edit
@@ -1549,8 +1627,25 @@ function postThreadMessage(
   return message;
 }
 
+// The newest repo list any caller built, stamped with when that build began.
+// Building it reads every project on disk; inside a busy server those reads
+// queue behind other file work and one build measured 0.25 to 18 seconds.
+// Session create reads this first and rebuilds only on a miss, so a repo added
+// a moment ago is still found. Nothing else reads it.
+let recentRepoList: { at: number; repos: Awaited<ReturnType<typeof listConfiguredRepos>> } | null = null;
+const RECENT_REPO_LIST_MAX_AGE_MS = 60_000;
+
 async function listRepos() {
-  return listConfiguredRepos({ reposRoot: REPOS_ROOT, selfRepo: SELF_REPO });
+  const at = Date.now();
+  const repos = await listConfiguredRepos({ reposRoot: REPOS_ROOT, selfRepo: SELF_REPO });
+  if (!recentRepoList || recentRepoList.at <= at) recentRepoList = { at, repos };
+  return repos;
+}
+
+function recentRepos() {
+  return recentRepoList && Date.now() - recentRepoList.at < RECENT_REPO_LIST_MAX_AGE_MS
+    ? recentRepoList.repos
+    : null;
 }
 
 type RepoEntry = Awaited<ReturnType<typeof listRepos>>[number];
@@ -9972,8 +10067,7 @@ a{color:#60a5fa}
         // Root sessions keep the historical SELF_REPO default. If a parent is
         // present but its repo is no longer in the picker, fail loudly instead
         // of silently spawning in SELF_REPO.
-        const repos = await listRepos();
-        const repo = requestedCwd
+        const pickRepo = (repos: RepoEntry[]) => requestedCwd
           ? repoForRequestedSessionCwd(repos, requestedCwd, parent)
           : parent
             ? repoForParentSession(repos, parent)
@@ -9981,6 +10075,10 @@ a{color:#60a5fa}
             // like any other project, so fall back to any listed repo rather
             // than 400-ing every root session for a user who hid it.
             : (repos.find((r) => r.cwd === SELF_REPO) ?? repos[0]);
+        // A recent list answers almost every create; only a miss (a project
+        // added a moment ago, or a cwd that is not a project) rebuilds it.
+        const cachedRepos = recentRepos();
+        const repo = (cachedRepos ? pickRepo(cachedRepos) : undefined) ?? pickRepo(await listRepos());
         // Findings from Quick Chat auto agents carry their scratch cwd, which
         // intentionally has no picker entry. Reuse that workspace and keep its
         // artifacts instead of rejecting it or choosing an unrelated repo.
@@ -10049,20 +10147,22 @@ a{color:#60a5fa}
           kind: spawnedBy === "schedule" ? "schedule" : "interactive",
         });
         if (gate instanceof Response) return gate;
+        // The reservation outlives this response when the background start
+        // takes it over; until then this handler owns its release.
+        let releaseGate: (() => void) | null = () => gate.release();
         try {
         const tmuxName = `lfg-${randomBytes(3).toString("hex")}`;
         const isSubagent = spawnedBy === "subagent";
-        const cwdResolved = unassigned
-          ? { ok: true as const, cwd: sourceChatCwd ?? await createNoProjectWorkspace(tmuxName), worktree: undefined }
-          : await resolveSessionCwd(repo!.cwd, tmuxName, {
+        // Decide WHERE the session runs, but create nothing yet. The checkout
+        // and the agent start after the response (hydrateCreatedSession).
+        const planned = unassigned
+          ? { cwd: sourceChatCwd ?? noProjectWorkspacePath(tmuxName), worktree: undefined }
+          : await planSessionCwd(repo!.cwd, tmuxName, {
               worktree: body?.worktree,
               selfRepo: SELF_REPO,
             });
-        if (!cwdResolved.ok) {
-          return err(502, cwdResolved.error);
-        }
-        const cwd = cwdResolved.cwd;
-        const worktree = cwdResolved.worktree;
+        const cwd = planned.cwd;
+        const worktree = planned.worktree;
         let prompt = body?.prompt;
         if (body?.firstRun === true && spawnedBy !== "subagent") {
           const guide = typeof body.guide === "string" ? body.guide.trim().slice(0, 4_000) : "";
@@ -10106,6 +10206,7 @@ a{color:#60a5fa}
               ? launchId
               : undefined,
           launchState: "launching",
+          hydrating: true,
           model: launchModel,
           thinkingLevel,
           serviceTier,
@@ -10132,40 +10233,50 @@ a{color:#60a5fa}
         // Tag the new session before spawn so a concurrent /api/sessions refresh
         // can show the durable row under the right user filter immediately.
         if (assignedUser) assignUser(tmuxName, assignedUser);
-        const r = launchCodingAgentSession({
+        // Answer now; check out the worktree and start the agent behind the
+        // response. `git worktree add` alone measured about 4 seconds on a
+        // loaded box, and the person waited for all of it before seeing their
+        // session. The row above is already listed (managedLaunchRow shows a
+        // hydrating row), and a failure lands on that row instead of a 502.
+        const backgroundRelease = releaseGate;
+        releaseGate = null;
+        void hydrateCreatedSession({
+          tmuxName,
+          launchId,
           agent,
-          name: tmuxName,
-          cwd,
-          prompt,
-          model: launchModel,
-          thinkingLevel,
-          builderPreset,
-          serviceTier,
-          fastMode,
-          sessionId: launchId,
-          omgUser: assignedUser,
-          containInAgentSlice: containment.agentSlice,
-          claudeAccountId,
-          // Restricted roles run their harness in a filesystem sandbox
-          // (src/sandbox/bwrap.ts). Owner and unknown roles get none.
-          sandbox: containment.sandbox,
-          // An allowlist role also gets an egress proxy URL carrying its own
-          // token, so its outbound traffic is held to the role's hosts.
-          egressProxyUrl:
-            containment.egressProxy && egressProxy
-              ? egressProxy.proxyUrlFor(launchId, sessionToken(launchId))
-              : undefined,
-        });
-        if (!r.ok) {
-          // The caller received no committed session. Release the claim so a
-          // corrected retry can create one; normal closes retain their claim.
-          removeManaged(tmuxName, { forgetCreation: true });
-          assignUser(tmuxName, null);
-          return err(502, r.error || "failed to start session");
-        }
-        if (r.nativeSessionId) patchManaged(tmuxName, { nativeSessionId: r.nativeSessionId });
-        if (CODING_AGENT_ADAPTERS[agent].transport === "command-file")
-          patchManaged(tmuxName, { launchState: "running" });
+          prepare: unassigned
+            ? sourceChatCwd ? null : () => prepareNoProjectWorkspace(cwd).then(() => {})
+            : worktree
+              ? async () => {
+                  const prepared = await prepareSessionWorktree(repo!.cwd, tmuxName);
+                  if (!prepared.ok) throw new Error(prepared.error);
+                }
+              : null,
+          launch: () => launchCodingAgentSession({
+            agent,
+            name: tmuxName,
+            cwd,
+            prompt,
+            model: launchModel,
+            thinkingLevel,
+            builderPreset,
+            serviceTier,
+            fastMode,
+            sessionId: launchId,
+            omgUser: assignedUser,
+            containInAgentSlice: containment.agentSlice,
+            claudeAccountId,
+            // Restricted roles run their harness in a filesystem sandbox
+            // (src/sandbox/bwrap.ts). Owner and unknown roles get none.
+            sandbox: containment.sandbox,
+            // An allowlist role also gets an egress proxy URL carrying its own
+            // token, so its outbound traffic is held to the role's hosts.
+            egressProxyUrl:
+              containment.egressProxy && egressProxy
+                ? egressProxy.proxyUrlFor(launchId, sessionToken(launchId))
+                : undefined,
+          }),
+        }).finally(backgroundRelease);
         // Keep creation fast and resilient. The prompt-derived title appears
         // immediately, then managed AI may replace it. A human rename wins the
         // compare-and-swap if it happens before this best-effort call finishes.
@@ -10191,9 +10302,6 @@ a{color:#60a5fa}
             })
             .catch(() => {});
         }
-        // The spawn (and the launchState patch above) changed what the session
-        // list contains, so retire any snapshot taken during it.
-        invalidateListSessionsCache();
         // Hand the caller the session row itself, not just an id. A client that
         // gets only an id has to go re-derive the row from GET /api/sessions,
         // which is a full process+transcript scan — so the create is instant
@@ -10236,7 +10344,7 @@ a{color:#60a5fa}
           archivedSessionCount: gate.reclaimed ?? 0,
         });
         } finally {
-          gate.release();
+          releaseGate?.();
         }
       }
 

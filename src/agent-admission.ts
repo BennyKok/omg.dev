@@ -243,6 +243,54 @@ export function admissionPool<T extends AgentActivity>(
 }
 
 /**
+ * The live agents admission counts, without a fresh session scan.
+ *
+ * A full scan walks the process table and every transcript head. On a loaded
+ * box it took 4 to 12 seconds, and session create waited for it before it
+ * could answer. The newest finished scan is usually only seconds old, so this
+ * takes that scan and adds every managed record created since it started:
+ * those are the only sessions this server can have started that the scan
+ * cannot contain. Launches still in flight hold a reservation of their own.
+ *
+ * The error is in one direction only. A session that ended after the scan
+ * started is still counted, so the result can be high but not low for
+ * anything this server launched. The caller rechecks a refusal against a full
+ * scan, so the over-count can delay a refusal decision but never cause one.
+ * Returns null when there is no scan recent enough to trust.
+ */
+export function recentAdmissionSessions(
+  scan: {
+    startedAt: number;
+    sessions: readonly (AgentActivity & { tmuxName?: string | null })[];
+  } | null,
+  managed: readonly {
+    tmuxName: string;
+    createdAt: number;
+    spawnedBy?: string;
+    persistent?: boolean;
+    launchState?: string;
+  }[],
+  now: number,
+  maxAgeMs: number,
+): AgentActivity[] | null {
+  if (!scan || now - scan.startedAt > maxAgeMs) return null;
+  const listed = new Set(scan.sessions.map((session) => session.tmuxName).filter(Boolean));
+  const created = managed
+    .filter(
+      (record) =>
+        record.createdAt >= scan.startedAt &&
+        record.launchState !== "failed" &&
+        !listed.has(record.tmuxName),
+    )
+    .map((record) => ({
+      spawnedBy: record.spawnedBy ?? null,
+      persistent: record.persistent,
+      launching: true,
+    }));
+  return [...scan.sessions, ...created];
+}
+
+/**
  * The count check, disabled — for a caller that has deliberately overruled its
  * own cap (see activationGate's `overLimit`).
  *

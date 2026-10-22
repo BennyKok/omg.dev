@@ -267,6 +267,28 @@ export async function prepareSessionWorktree(
   return { ok: true, worktree: { repoRoot: absRoot, branch, path: wtPath } };
 }
 
+/**
+ * Where a new session will run, decided without creating anything.
+ *
+ * Session create answers before the checkout exists: `git worktree add` costs
+ * seconds on a loaded box, and the person should see their session at once.
+ * This returns the path prepareSessionWorktree is going to create for a fresh
+ * session name, so the managed record can carry its final cwd from the start.
+ */
+export async function planSessionCwd(
+  repoRoot: string,
+  sessionName: string,
+  opts?: { worktree?: boolean; selfRepo?: string },
+): Promise<{ cwd: string; worktree?: SessionWorktree }> {
+  if (!(await shouldAutoWorktree(repoRoot, opts))) return { cwd: resolve(repoRoot) };
+  const existing = findSessionWorktree(sessionName);
+  const path = existing?.path ?? `${WORKTREE_ROOT}/${sessionName}`;
+  return {
+    cwd: path,
+    worktree: { repoRoot: resolve(repoRoot), branch: `session_${sessionName}`, path },
+  };
+}
+
 export async function resolveSessionCwd(
   repoRoot: string,
   sessionName: string,

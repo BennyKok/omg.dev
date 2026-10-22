@@ -45,6 +45,20 @@ export type ManagedSession = {
   nativeSessionId?: string;
   launchState?: "launching" | "running" | "failed";
   launchError?: string;
+  /**
+   * True from the moment POST /api/sessions/new answers until its background
+   * start (worktree checkout, agent spawn) finishes. The row is listed and
+   * addressable during that window even though no pane or harness exists yet.
+   */
+  hydrating?: boolean;
+  /** When the background start began the agent process. Boot grace counts from here. */
+  spawnedAt?: number;
+  /**
+   * Set only when the background start of a new session failed. Recovery
+   * failures also write launchState "failed" but stay hidden, as before; this
+   * marks the failures the person just caused and must be told about.
+   */
+  launchFailedAt?: number;
   model?: string;
   /** Reasoning effort selected for subsequent turns, when the agent supports it. */
   thinkingLevel?: string;

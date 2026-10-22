@@ -18,6 +18,13 @@ export type SessionListCache = {
    * instead of waiting for its next poll and the cache TTL.
    */
   onInvalidate(listener: () => void): () => void;
+  /**
+   * The newest scan that finished, even one an invalidate() has since retired,
+   * stamped with the moment it STARTED. A reader that can account for what
+   * changed after that moment (session admission adds the managed records
+   * created since) gets a count without paying for a scan of its own.
+   */
+  latest(): { startedAt: number; sessions: Session[] } | null;
 };
 
 /**
@@ -44,6 +51,7 @@ export type SessionListCache = {
  */
 export function createSessionListCache(scan: () => Promise<Session[]>): SessionListCache {
   let cached: { at: number; sessions: Session[] } | null = null;
+  let latest: { startedAt: number; sessions: Session[] } | null = null;
   let inflight: { epoch: number; promise: Promise<Session[]> } | null = null;
   let recentClientActivityAt = 0;
   const invalidateListeners = new Set<() => void>();
@@ -58,6 +66,7 @@ export function createSessionListCache(scan: () => Promise<Session[]>): SessionL
     const promise = scan()
       .then((sessions) => {
         if (scanEpoch === epoch) cached = { at: startedAt, sessions };
+        if (!latest || latest.startedAt <= startedAt) latest = { startedAt, sessions };
         return sessions;
       })
       .finally(() => {
@@ -107,6 +116,9 @@ export function createSessionListCache(scan: () => Promise<Session[]>): SessionL
         return Promise.resolve(cached.sessions);
       return refresh();
     },
+    latest() {
+      return latest;
+    },
     noteClientActivity() {
       recentClientActivityAt = Date.now();
       if (refreshTimer) return;
@@ -128,6 +140,10 @@ export function onListSessionsInvalidated(listener: () => void): () => void {
 
 export function noteListSessionsClientActivity(): void {
   sessionListCache.noteClientActivity();
+}
+
+export function latestSessionScan(): { startedAt: number; sessions: Session[] } | null {
+  return sessionListCache.latest();
 }
 
 export function listSessionsCached(): Promise<Session[]> {

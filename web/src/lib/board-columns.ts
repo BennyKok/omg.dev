@@ -70,6 +70,8 @@ function blockedNote(session: Session): string {
       return "Agent process stopped";
     case "out_of_memory":
       return "Out of memory";
+    case "launch_failed":
+      return "Could not start";
     default:
       return "Blocked";
   }

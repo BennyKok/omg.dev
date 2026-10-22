@@ -945,7 +945,7 @@ export type Session = {
   // Build health (from the backend). "blocked" means the session can't make
   // progress until a human acts; statusReason/statusDetail explain why.
   status?: "ok" | "blocked";
-  statusReason?: "model_unavailable" | "out_of_credits" | "provider_auth" | "provider_error" | "restart_recovered" | "interrupted" | "out_of_memory" | null;
+  statusReason?: "model_unavailable" | "out_of_credits" | "provider_auth" | "provider_error" | "restart_recovered" | "interrupted" | "out_of_memory" | "launch_failed" | null;
   statusDetail?: string | null;
   // Live "working" flag from the list call (backend computes it from the tmux
   // pane / aisdk registry). Lets a collapsed card show working/idle without
@@ -16288,7 +16288,9 @@ function PausedBanner({
           : "Build paused — provider rejected the model"
         : reason === "provider_error"
           ? "Build paused — provider error"
-          : "Build paused";
+          : reason === "launch_failed"
+            ? "This session could not start"
+            : "Build paused";
   const detail =
     reason === "out_of_credits"
       ? "This app's build agent ran out of AI credits. Top up the wallet to resume the build."
@@ -16300,6 +16302,8 @@ function PausedBanner({
           : `${session.statusDetail || "The selected provider rejected the request."} Check the OpenCode provider key or switch models.`
         : reason === "provider_error"
           ? pausedProviderErrorDetail(session)
+        : reason === "launch_failed"
+          ? `${session.statusDetail || "The agent did not start."} Close this session and start a new one.`
       : `${session.statusDetail || "The selected model isn't available."} Switch to a working model to pick the build back up.`;
 
   return (
