@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 22, 2026 - New sessions open at once (v0.6.294)
+
+- A new session appears as soon as you start it. Its folder and its agent get ready in the background.
+- If a new session cannot start, it stays in the list and shows the reason.
+
 ## October 22, 2026 - Toasts above the chat box (v0.6.293)
 
 - On omg.dev on a phone, notices such as an auto agent's reply show above the chat box instead of on top of it.
