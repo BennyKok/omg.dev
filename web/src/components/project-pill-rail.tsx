@@ -29,6 +29,13 @@ export type ProjectPill = {
  *
  * `shortProject` is passed in because it belongs to the shell, not here.
  */
+/** A mask that fades whichever edge still has pills beyond it. */
+function edgeFade(left: boolean, right: boolean): string {
+  const start = left ? "transparent 0, black 1rem" : "black 0";
+  const end = right ? "black calc(100% - 1.5rem), transparent 100%" : "black 100%";
+  return `linear-gradient(to right, ${start}, ${end})`;
+}
+
 export function projectPillsFor(
   projectOptions: readonly string[],
   shortProject: (project: string) => string,
@@ -138,6 +145,12 @@ export function ProjectPillRail({ projects, value, onChange, onManageFolders, to
       onWheel={(event) => event.stopPropagation()}>
       <div className="relative min-w-0 flex-1">
         <div ref={viewport} onScroll={() => { cancelPress(); measure(); }}
+          // The edge with more pills fades out. A mask, not a strip painted in
+          // the page colour, so it also reads over the Create backdrop.
+          style={edges.left || edges.right ? {
+            maskImage: edgeFade(edges.left, edges.right),
+            WebkitMaskImage: edgeFade(edges.left, edges.right),
+          } : undefined}
           className="overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <div ref={content} className="flex w-max items-center gap-2 px-2 py-1">
             {/* No "All" pill. It was the one entry here that named no folder,
@@ -201,8 +214,6 @@ export function ProjectPillRail({ projects, value, onChange, onManageFolders, to
             ))}
           </div>
         </div>
-        {edges.left && <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-0 w-4 bg-linear-to-r from-background to-transparent" />}
-        {edges.right && <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-linear-to-l from-background to-transparent" />}
       </div>
       {!touch && (edges.left || edges.right) && <div className="flex shrink-0 pr-1">
         <button type="button" aria-label="Scroll projects left" disabled={!edges.left} onClick={() => move(-1)} className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted disabled:opacity-30"><ChevronLeft className="size-4" /></button>
