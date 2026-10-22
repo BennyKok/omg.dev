@@ -3,7 +3,8 @@ import { dirname, join } from "node:path";
 
 export const PROJECT_BUILDER_SKILL = ".agents/skills/omg-app-builder/SKILL.md";
 export const PROJECT_GAME_SKILL = ".agents/skills/omg-game-builder/SKILL.md";
-export const PROJECT_TEMPLATES = ["blank", "expo", "expo-game"] as const;
+export const PROJECT_WEB_GAME_SKILL = ".agents/skills/omg-web-game-builder/SKILL.md";
+export const PROJECT_TEMPLATES = ["blank", "expo", "expo-game", "web-game"] as const;
 export type ProjectTemplate = (typeof PROJECT_TEMPLATES)[number];
 
 const PROJECT_INSTRUCTIONS = `# omg.dev project
@@ -23,6 +24,12 @@ function skillSourcePath(name = "omg-app-builder"): string {
  */
 const TEMPLATE_BASE: Partial<Record<ProjectTemplate, Exclude<ProjectTemplate, "blank">>> = {
   "expo-game": "expo",
+};
+
+/** The skill a template installs in the project, beside omg-app-builder. */
+const TEMPLATE_SKILL: Partial<Record<ProjectTemplate, { name: string; path: string }>> = {
+  "expo-game": { name: "omg-game-builder", path: PROJECT_GAME_SKILL },
+  "web-game": { name: "omg-web-game-builder", path: PROJECT_WEB_GAME_SKILL },
 };
 
 function templateSourcePath(template: Exclude<ProjectTemplate, "blank">): string {
@@ -76,8 +83,11 @@ export async function installProjectTemplate(cwd: string, template: ProjectTempl
     const pkg = JSON.parse(await readFile(pkgPath, "utf8")) as { scripts?: Record<string, string> };
     pkg.scripts = { ...pkg.scripts, test: "bun test" };
     await writeFile(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
-    await mkdir(join(cwd, ".agents", "skills", "omg-game-builder"), { recursive: true });
-    await Bun.write(join(cwd, PROJECT_GAME_SKILL), await Bun.file(skillSourcePath("omg-game-builder")).text());
+  }
+  const skill = TEMPLATE_SKILL[template];
+  if (skill) {
+    await mkdir(join(cwd, dirname(skill.path)), { recursive: true });
+    await Bun.write(join(cwd, skill.path), await Bun.file(skillSourcePath(skill.name)).text());
   }
 }
 

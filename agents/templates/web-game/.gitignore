@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.vibes/
+# Written by the omg Vite plugin on each build from schema.ts.
+src/db.generated.ts
+src/db.drizzle.ts
+.env
+.env.*.local
+*.local
+.omg/ui-check/
