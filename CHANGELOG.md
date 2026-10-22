@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 22, 2026 - Create for new accounts (v0.6.284)
+
+- A new account with no sessions now sees the Create page with its tutorials. Before, it saw "No sessions yet" under the Create heading.
+
 ## October 22, 2026 - Faster images on the web (v0.6.283)
 
 - When you open an image on the web, it shows at once in full screen. The full-size image replaces it when it has loaded, so you no longer see an empty frame.
