@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 22, 2026 - Chats stay open while your app publishes (v0.6.299)
+
+- A chat stays open while the agent moves it into a new project, for example when it creates and publishes your app. Before, the phone could go back to the home screen, and you had to open the chat again to see the link.
+- The send button is larger on phones, 44 by 44 pixels, so it is easier to tap.
+
 ## October 22, 2026 - Round glows on Create (v0.6.298)
 
 - The colours on the phone Create page are soft round glows that fill the whole screen. They fade out only at the very top and bottom, and the chat box stays plain.
