@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 
 import { artifactRequestPath } from "../lib/artifact-document";
 import { omgDirectUrl, omgFetch, resolveOmgDirectUrl } from "../lib/omg-client";
@@ -294,7 +294,7 @@ function ArtifactPicture({
   height?: number;
   /** Defer off-screen bytes. Only for images a caller expects below the fold. */
   lazy?: boolean;
-  onClick?: () => void;
+  onClick?: (event: ReactMouseEvent<HTMLImageElement>) => void;
   fallback?: ReactNode;
   className?: string;
 }) {
@@ -387,6 +387,8 @@ function AuthenticatedZoomableImage({
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
+  // The tile that was tapped, for the viewer to grow out of and return to.
+  const [origin, setOrigin] = useState<HTMLElement | null>(null);
   const preview = useArtifactSource(artifactRequestPath(path, { preview: 1 }));
   // Still gated on `open`. A direct URL is only a string, and the lightbox
   // renders no element while closed, so the original is requested on zoom
@@ -405,9 +407,13 @@ function AuthenticatedZoomableImage({
         width={width}
         height={height}
         lazy
-        onClick={() => setOpen(true)}
+        onClick={(event) => {
+          setOrigin(event.currentTarget);
+          setOpen(true);
+        }}
         fallback={fallback}
-        className={className}
+        // Hidden while the viewer is open: the viewer is this picture, moved.
+        className={cn(className, open && "invisible")}
       />
       {fullSrc === null ? null : (
         <ImageLightbox
@@ -417,6 +423,7 @@ function AuthenticatedZoomableImage({
           height={height}
           alt={alt}
           open={open}
+          origin={origin}
           onClose={() => setOpen(false)}
         />
       )}

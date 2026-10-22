@@ -329,6 +329,63 @@ describe("AuthenticatedArtifactImage", () => {
     expect(minted).toBe(2);
   });
 
+  // The viewer grows out of the tapped tile and shrinks back into it, and the
+  // tile is hidden meanwhile because the viewer IS that picture, moved. If the
+  // close motion's end were lost, the tile would stay hidden in the chat; if
+  // the viewer unmounted at once, the motion would never be seen.
+  test("closing the viewer waits for its motion, then shows the tapped picture again", async () => {
+    installTransport({ direct: true });
+    const motions: { onfinish: (() => void) | null }[] = [];
+    const proto = window.HTMLElement.prototype as unknown as Record<string, unknown>;
+    // Put back exactly what was there. Assigning `undefined` to a method
+    // happy-dom never had would leave an own property that other suites see.
+    const saved = ["animate", "getAnimations"].map((key) => [
+      key,
+      Object.getOwnPropertyDescriptor(proto, key),
+    ] as const);
+    proto.animate = () => {
+      const motion = { onfinish: null, oncancel: null, cancel() {} };
+      motions.push(motion);
+      return motion;
+    };
+    proto.getAnimations = () => [];
+    try {
+      render(
+        <AuthenticatedArtifactImage
+          path="/api/artifacts/flight.png"
+          alt="flight"
+          width={800}
+          height={600}
+          zoomable
+        />,
+      );
+      await act(async () => {});
+      const tile = img()!;
+      await act(async () => {
+        tile.dispatchEvent(new window.Event("click", { bubbles: true }));
+      });
+      expect(tile.className).toContain("invisible");
+
+      const close = document.querySelector('button[aria-label="Close"]') as unknown as HTMLElement;
+      await act(async () => {
+        close.click();
+      });
+      // The close motion is running: the viewer is still there.
+      expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+
+      await act(async () => {
+        for (const motion of motions) motion.onfinish?.();
+      });
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      expect(img()?.className).not.toContain("invisible");
+    } finally {
+      for (const [key, descriptor] of saved) {
+        if (descriptor) Object.defineProperty(proto, key, descriptor);
+        else delete proto[key];
+      }
+    }
+  });
+
   test("a direct URL that fails falls back to the caller's placeholder", async () => {
     installTransport({ direct: true });
     render(
