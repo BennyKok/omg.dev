@@ -426,12 +426,14 @@ export function CreateBackdrop({ shown }: { shown: boolean }) {
       // Fades out toward every edge (lfg-create-backdrop in index.css).
       className={cn(
         "lfg-create-backdrop pointer-events-none fixed inset-0 z-0 overflow-hidden transition-opacity duration-500 ease-out motion-reduce:transition-none",
-        shown ? "opacity-75 dark:opacity-70" : "lfg-create-backdrop-idle opacity-0",
+        shown ? "opacity-100 dark:opacity-90" : "lfg-create-backdrop-idle opacity-0",
       )}
     >
       <span className="lfg-create-cloud lfg-create-cloud-a" />
       <span className="lfg-create-cloud lfg-create-cloud-b" />
       <span className="lfg-create-cloud lfg-create-cloud-c" />
+      <span className="lfg-create-cloud lfg-create-cloud-d" />
+      <span className="lfg-create-cloud lfg-create-cloud-e" />
     </div>
   );
 }
