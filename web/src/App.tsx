@@ -12501,8 +12501,12 @@ function LiveView({
   // back to the same input.
   // Keep this return AFTER all hooks so the hook order remains stable as the
   // live list empties and refills.
+  // Create and Apps are pages of their own: a new account with no sessions
+  // still gets the Create heading and the tutorials, not "No sessions yet".
   if (
     !isWide &&
+    !createView &&
+    !appsView &&
     !pinned.length &&
     !botSessions.length &&
     !working.length &&
