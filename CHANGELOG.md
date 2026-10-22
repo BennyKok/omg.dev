@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 22, 2026 - Your projects in Apps (v0.6.286)
+
+- The top row on the phone shows only Create, Apps, and Chats.
+- Apps lists the projects on this computer that you work in, with their sessions. A tap opens the project with its earlier sessions and the chat box.
+- Apps can import a project: a folder that is already on this computer, or a repository from GitHub.
+
 ## October 22, 2026 - Cleaner Create colours (v0.6.285)
 
 - The row of pills at the top fades out at its edge without a dark block over the Create background.
