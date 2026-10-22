@@ -8,10 +8,10 @@
 // live state and app-or-game come from the Cloud app list (/api/cloud/apps),
 // and are left out when the control plane does not send them.
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { CreateTutorials } from "./create-tutorials";
 import { useFolderMenuPrefs } from "../lib/folder-menu-prefs";
-import { Check, ChevronRight, Copy, ExternalLink, Folder, FolderPlus, Gamepad2, Github, History, Plus, Settings2, Smartphone } from "lucide-react";
+import { Check, ChevronRight, Copy, ExternalLink, Folder, FolderPlus, Gamepad2, Github, History, Settings2, Smartphone } from "lucide-react";
 import { consoleAppUrl, sessionAppRepo, type AppLink } from "../../../packages/protocol/src/app-link";
 import { timeAgo } from "../lib/session-ui";
 import type { CloudAppRow, CloudAppVisits } from "../../../packages/cloud/src/apps";
@@ -165,8 +165,7 @@ export function AppsList<S extends SessionLike>({
   /** Projects on this Computer that are not published apps. */
   local: LocalProject<S>[];
   onOpenSession: (sessionId: string) => void;
-  /** `change` asks for the chat box too ("Change something"). */
-  onOpenApp: (item: AppItem<S>, change: boolean) => void;
+  onOpenApp: (item: AppItem<S>) => void;
   onOpenProject: (project: string) => void;
   onImportFolder?: () => void;
   onImportGitHub?: () => void;
@@ -270,7 +269,7 @@ function AppSection<S extends SessionLike>({
   label: string;
   items: AppItem<S>[];
   onOpenSession: (sessionId: string) => void;
-  onOpenApp: (item: AppItem<S>, change: boolean) => void;
+  onOpenApp: (item: AppItem<S>) => void;
 }) {
   if (!items.length) return null;
   return (
@@ -282,7 +281,7 @@ function AppSection<S extends SessionLike>({
         {items.map((item) => (
           <div key={item.project} className="overflow-hidden rounded-2xl border border-border bg-card">
             <div className="flex items-center pr-3">
-              <button type="button" onClick={() => onOpenApp(item, false)} className="flex min-w-0 flex-1 items-center gap-3 py-3 pl-3 pr-2 text-left active:bg-muted/60">
+              <button type="button" onClick={() => onOpenApp(item)} className="flex min-w-0 flex-1 items-center gap-3 py-3 pl-3 pr-2 text-left active:bg-muted/60">
                 <AppIcon item={item} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[15px] font-semibold tracking-[-0.01em]">{item.name}</span>
@@ -310,21 +309,12 @@ function AppSection<S extends SessionLike>({
             {item.sessions.length > SESSIONS_PER_APP ? (
               <button
                 type="button"
-                onClick={() => onOpenApp(item, false)}
+                onClick={() => onOpenApp(item)}
                 className="block w-full border-t border-border py-2.5 pl-[68px] text-left text-[13.5px] text-muted-foreground"
               >
                 {item.sessions.length - SESSIONS_PER_APP} more
               </button>
             ) : null}
-            {/* Only under existing work: on an idle app the card itself opens it. */}
-            {item.sessions.length ? <button
-              type="button"
-              onClick={() => onOpenApp(item, true)}
-              className="flex w-full items-center gap-2 border-t border-border py-2.5 pl-[68px] text-left text-[14px] font-medium text-primary"
-            >
-              <Plus className="size-4" aria-hidden="true" />
-              Change something
-            </button> : null}
           </div>
         ))}
       </div>
@@ -411,7 +401,7 @@ export function AppHeaderCard<S extends SessionLike>({ item, onCopied }: { item:
  * An app page with no open session. The app exists, so this never says "No
  * sessions yet": that read as lost work and led a customer to build the same
  * app a second time. It points back to the earlier sessions, searched by the
- * app's name, and the page's "Change something" button continues the app.
+ * app's name, and the chat box below continues the app.
  */
 /** The first row of a project on this Computer: its name, and its earlier sessions. */
 export function LocalProjectCard({ name, onFindSessions }: { name: string; onFindSessions: () => void }) {
@@ -436,7 +426,7 @@ export function AppNoOpenSessions({ name, onFindSessions }: { name: string; onFi
   return (
     <div className="mx-1 rounded-[20px] border border-border bg-card px-5 py-6 text-center" role="status">
       <p className="text-[15px] font-semibold">Keep building {name}</p>
-      <p className="mt-1 text-[13px] text-muted-foreground">Your work on this app is saved. Open an earlier session, or tap Change something.</p>
+      <p className="mt-1 text-[13px] text-muted-foreground">Your work on this app is saved. Open an earlier session, or type a change below.</p>
       <button type="button" onClick={onFindSessions}
         className="mx-auto mt-4 flex h-9 items-center gap-1.5 rounded-xl bg-secondary px-4 text-[13px] font-medium">
         <History className="size-3.5" aria-hidden="true" />
