@@ -102,14 +102,18 @@ export function AgentSetupSheet({
     observerRef.current?.disconnect();
     observerRef.current = null;
     if (!el) return;
-    const sync = () => {
-      if (!el.isConnected) return;
-      const height = el.getBoundingClientRect().height;
-      if (height > 0) setBodyHeight(height);
-    };
-    sync();
     if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(sync);
+    // No synchronous read here. This ref runs while the sheet commits, and a
+    // getBoundingClientRect() at that point forces a full style and layout
+    // pass of the new sheet before it can move. That pass was the largest
+    // part of the pause between a tap and the sheet sliding up. The observer
+    // reports the first size after the browser's own layout, at no extra cost.
+    const observer = new ResizeObserver((entries) => {
+      if (!el.isConnected) return;
+      const entry = entries[entries.length - 1];
+      const height = entry?.borderBoxSize?.[0]?.blockSize ?? entry?.contentRect.height ?? 0;
+      if (height > 0) setBodyHeight(height);
+    });
     observer.observe(el);
     observerRef.current = observer;
   }, []);

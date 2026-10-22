@@ -7,7 +7,7 @@ const { RuntimeAvailabilityContext } = await import("./lib/runtime-availability"
 let ui: Mounted;
 const spies: ReturnType<typeof spyOn>[] = [];
 afterEach(() => { ui?.cleanup(); for (const spy of spies.splice(0)) spy.mockRestore(); });
-const connection = (status: ConnectionState["status"]): ConnectionState => ({ status, attempt: 1, lastCloseCode: null, lastCloseReason: null, lastMessageAt: null, latencyMs: null });
+const connection = (status: ConnectionState["status"]): ConnectionState => ({ status, attempt: 1, lastCloseCode: null, lastCloseReason: null, lastMessageAt: null });
 
 test("inline connection feedback suppresses reconnect and recovery toasts", () => {
   const loading = spyOn(toast, "loading");
