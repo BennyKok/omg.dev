@@ -39,3 +39,13 @@ test("the session that built an app is listed under it, whatever folder it ran i
   const snake = home.apps.find((item) => item.project === "snake")!;
   expect(snake.sessions.map((s) => s.sessionId)).toEqual(["q1", "a"]);
 });
+
+// The Apps page lists projects on this Computer (lfg, vibes) under "On this
+// computer". Each must keep its own sessions, and a session that built a
+// published app must not be counted under a local folder too.
+test("a folder with no published app is a local project with its own sessions", () => {
+  const home = buildAppItems(repos, sessions, cloud, (repo) => repo.project ?? repo.cwd);
+  const local = Object.fromEntries(home.local.map((item) => [item.project, item.sessions.map((s) => s.sessionId)]));
+  expect(local).toEqual({ notes: ["c"], idle: [] });
+  expect(home.local.map((item) => item.project)).not.toContain("snake");
+});
