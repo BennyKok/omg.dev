@@ -72,8 +72,8 @@ host portals into them:
 
 `tutorials` puts the host's tutorials on the phone Create page, as cards below
 the chat box. The surface draws the cards. The host owns the list, each run's
-progress, and what Start or Continue does. While there are cards, the starter
-row above the chat box hides on Create.
+progress, and what Start or Continue does. The phone shows no starter row, so
+`starterChips` appear only on the desktop chat box.
 
 A surface can keep the props of its first render, so `tutorials` is a small
 store, not a list:

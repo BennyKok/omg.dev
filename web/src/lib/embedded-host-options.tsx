@@ -113,14 +113,13 @@ export interface EmbeddedHostOptions {
    */
   composerGuide?: ComposerGuide;
   /**
-   * The host's own pills, drawn first in the home composer's starter row,
-   * for example a "Tutorials" entry. Omit it and the row shows only the
-   * built-in starters.
+   * The host's own pills, drawn first in the desktop home composer's starter
+   * row, for example a "Tutorials" entry. The phone has no starter row. Omit
+   * it and the row shows only the built-in starters.
    */
   starterChips?: HostStarterChip[];
   /**
-   * The host's tutorials, drawn as cards below the chat box on the phone
-   * Create page. While there are cards, the starter row hides there.
+   * The host's tutorials, drawn as cards on the phone Create page.
    */
   tutorials?: HostTutorials;
 }

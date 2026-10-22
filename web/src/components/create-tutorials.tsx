@@ -1,6 +1,6 @@
 // The host's tutorials on the phone Create page (OmgAppSurfaceProps.tutorials).
 //
-// The surface draws the cards itself, below the chat box. The host owns the
+// The surface draws the cards itself, under the heading. The host owns the
 // list, each run's progress, and what Start or Continue does. It hands them in
 // as a small store, because a kept-alive surface can keep the props of its
 // first render: reading through useSyncExternalStore keeps the cards current

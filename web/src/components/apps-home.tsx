@@ -9,7 +9,6 @@
 // and are left out when the control plane does not send them.
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { CREATE_OFFSET } from "./create-composer-frame";
 import { CreateTutorials } from "./create-tutorials";
 import { Check, Copy, ExternalLink, Gamepad2, History, Plus, Settings2, Smartphone } from "lucide-react";
 import { consoleAppUrl, sessionAppRepo, type AppLink } from "../../../packages/protocol/src/app-link";
@@ -463,31 +462,24 @@ export function useScopedApp<S extends SessionLike, R extends RepoLike>(
  * work on an app is inside the app, and every session is in Chats.
  */
 export function CreateHome() {
-  const below = useRef<HTMLDivElement>(null);
   // While Create shows, the phone header drops its own background so the
   // backdrop runs under it (html.lfg-create-view in index.css).
   useLayoutEffect(() => {
     document.documentElement.classList.add("lfg-create-view");
     return () => document.documentElement.classList.remove("lfg-create-view");
   }, []);
-  useLayoutEffect(() => {
-    const root = document.documentElement;
-    const el = below.current;
-    if (!el) return;
-    const publish = () => root.style.setProperty("--lfg-create-below-h", `${el.offsetHeight}px`);
-    publish();
-    const observer = new ResizeObserver(publish);
-    observer.observe(el);
-    return () => {
-      observer.disconnect();
-      root.style.removeProperty("--lfg-create-below-h");
-    };
-  }, []);
+  // The heading and the tutorials, centred in the space between the header and
+  // the docked chat box.
   return (
-    <div className="px-2">
+    <div
+      className="flex flex-col justify-center px-2 pb-4"
+      // The visible height less the header and the docked chat box: main's own
+      // padding reserves the chat box with the same variable.
+      style={{ minHeight: "calc(var(--lfg-app-height, 100dvh) - var(--lfg-mobile-header-height, 0px) - var(--lfg-inline-composer-height, var(--lfg-composer-clear, 6rem)))" }}
+    >
       <CreateBackdrop />
-      <div aria-hidden="true" style={{ height: `calc(${CREATE_OFFSET} + var(--lfg-create-top-h, 16rem))` }} />
-      <div ref={below} className="relative z-[1]">
+      <div className="relative z-[1]">
+        <h1 className="px-3 pb-2 text-[22px] font-bold leading-tight tracking-[-0.02em]">What do you want to make?</h1>
         <CreateTutorials />
       </div>
     </div>
