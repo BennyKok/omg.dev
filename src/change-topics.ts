@@ -38,27 +38,40 @@ export function createChangeBus(directory: () => string) {
       emit(topic);
     },
     subscribe(listener: (topic: ChangeTopic) => void, onError?: (error: Error) => void) {
+      listeners.add(listener);
+      if (onError) failures.add(onError);
       if (!watcher) {
-        const dir = ensureDirectory();
-        watcher = watch(dir, { persistent: false }, (_event, filename) => {
-          const name = filename?.toString();
-          for (const topic of topics) {
-            if (name && name !== topic) continue;
-            // Own writes have already been delivered synchronously. A racing
-            // external write may be coalesced, but the read sees both writes.
-            try { if (readFileSync(join(dir, topic), "utf8") === writer) continue; } catch {}
-            emit(topic);
-          }
-        });
-        watcher.on("error", (error) => {
+        const fail = (error: Error) => {
           console.warn("[change-topics] watcher failed", error);
           watcher?.close();
           watcher = null;
-          for (const fail of [...failures]) fail(error);
-        });
+          for (const notify of [...failures]) notify(error);
+        };
+        try {
+          const dir = ensureDirectory();
+          watcher = watch(dir, { persistent: false }, (_event, filename) => {
+            const name = filename?.toString();
+            for (const topic of topics) {
+              if (name && name !== topic) continue;
+              // Own writes have already been delivered synchronously. A racing
+              // external write may be coalesced, but the read sees both writes.
+              try { if (readFileSync(join(dir, topic), "utf8") === writer) continue; } catch {}
+              emit(topic);
+            }
+          });
+          watcher.on("error", fail);
+        } catch (error) {
+          // The watch can fail to start, for example with EMFILE when the
+          // user's inotify instances are used up. Throwing here crashed serve
+          // on its first socket and systemd restarted it in a loop. Report it
+          // through the same path as a later watcher error instead. Callers
+          // drop their sockets, and the next subscribe tries again.
+          const failure = error instanceof Error ? error : new Error(String(error));
+          // A later subscribe may have started a watcher by now. Then this
+          // listener already hears changes through it, so there is no failure.
+          queueMicrotask(() => { if (!watcher) fail(failure); });
+        }
       }
-      listeners.add(listener);
-      if (onError) failures.add(onError);
       return () => {
         listeners.delete(listener);
         if (onError) failures.delete(onError);

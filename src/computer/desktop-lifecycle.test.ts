@@ -14,6 +14,12 @@ test("desktop isolates foreign CDP, reuses/adopts/relaunches its browser, serial
     writeFileSync(file, `#!/bin/sh\nexec '${process.execPath}' '${fixture}' '${name}' "$@"\n`);
     chmodSync(file, 0o755);
   }
+  // desktopSessionCommand() wraps startxfce4 in dbus-launch when it finds one.
+  // The real dbus-launch starts a session bus that outlives the fake desktop,
+  // and every run of this test left one behind. 102 had piled up on one host
+  // and held most of the user's inotify instances. Run the session directly.
+  writeFileSync(join(bin, "dbus-launch"), `#!/bin/sh\n[ "$1" = --exit-with-session ] && shift\nexec "$@"\n`);
+  chmodSync(join(bin, "dbus-launch"), 0o755);
   // Keep RFB isolated too. Its owner still requires a configured free port.
   const reserve = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("") });
   const port = reserve.port!;
