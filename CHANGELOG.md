@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 22, 2026 - Faster images on the web (v0.6.283)
+
+- When you open an image on the web, it shows at once in full screen. The full-size image replaces it when it has loaded, so you no longer see an empty frame.
+- Images that you already saw on the web show again at once when you scroll back to them. They no longer load again every few minutes.
+
 ## October 22, 2026 - Chat box at the bottom on Create (v0.6.282)
 
 - On the phone Create page, the chat box stays at the bottom, as on every other page. "What do you want to make?" and the tutorials sit above it.
