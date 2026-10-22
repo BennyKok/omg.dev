@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## October 22, 2026 - Tutorials on Create, and a steadier keyboard (v0.6.281)
+
+- On omg.dev, the tutorial cards on the Create page are drawn by the app itself, so they stay in place when you move between pages.
+- When the keyboard opens on Create, the chat box moves up under the heading. The page no longer jumps out of place.
+- On Create, the soft color background reaches the top of the screen, behind the top bar.
+- The lines between sessions in the Chats list are straight.
+
 ## October 22, 2026 - Web games by default (v0.6.280)
 
 - Games now start from the new web game kit. A game opens from its link on iPhone and Android, with no app store and no Expo Go.
