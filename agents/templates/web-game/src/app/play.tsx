@@ -1,91 +1,88 @@
-// The game screen: loop + input + camera + canvas + HUD + pause. Swap in your
-// own createGame/stepGame/drawGame; keep the wiring.
+// The game screen: loop + input + view + HUD + pause. It is the same for 2D
+// and 3D: the view comes from src/app/view.ts. For your game, change the
+// coin-dash imports, the HUD numbers, FEEDBACK and the finish() line. Keep
+// the rest of the wiring: run.step and run.finish send the tracking events,
+// save the result and handle daily and challenge rounds.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { TouchControls, useTouchScreen } from "../components/controls";
-import { Banner, Hud, HudStat } from "../components/hud";
-import { PauseOverlay } from "../components/screens";
-import { GameCanvas, useCanvas } from "../components/world";
-import { createCamera, followCamera } from "../game/camera";
-import { clamp } from "../game/collision";
-import { createInput, endFrame, releaseAll } from "../game/input";
-import { formatTime } from "../game/progress";
-import { profileStore, useProfile } from "../game/profile-store";
-import { router } from "../game/router";
-import { theme } from "../game/theme";
+import { axisX, axisY, createInput, endFrame, releaseAll, type Input } from "../game/input";
 import { useGameLoop, useLiveValue, usePageHidden } from "../game/use-game-loop";
 import { useKeyboard } from "../game/use-keyboard";
-import { drawGame } from "../games/coin-dash/draw";
-import { createGame, finalScore, GAME_ID, SHIPS, stepGame, UNLOCKS, WORLD } from "../games/coin-dash/logic";
+import { createGame, finalScore, GAME_ID, MAX_LIVES, shareLine, SKINS, stepGame, UNLOCKS, type GameEvent } from "../games/coin-dash/logic";
+import { GameCanvas, useCanvas, useGameView } from "../ui/canvas";
+import { TouchControls, useTouchScreen } from "../ui/controls";
+import { Banner, Hud, HudHearts, HudScore, HudTimer } from "../ui/hud";
+import { IconDash } from "../ui/icons";
+import { useProfile } from "../ui/profile-store";
+import { router } from "../ui/router";
+import { useRun } from "../ui/run";
+import { PauseOverlay } from "../ui/screens";
+import { sound, vibrate } from "../ui/sound";
+import { theme } from "../ui/theme";
+import { GAME } from "./about";
+import { loadView } from "./view";
 
-const GAP = 4; // px between the two split-screen views
+/** Sound and vibration for each game event. */
+const FEEDBACK: Record<GameEvent["type"], () => void> = {
+  coin: () => sound.play("coin"),
+  dash: () => sound.play("dash"),
+  hurt: () => {
+    sound.play("hurt");
+    vibrate(60);
+  },
+};
+
+const moved = (input: Input) =>
+  axisX(input, "p1") !== 0 || axisY(input, "p1") !== 0 || axisX(input, "p2") !== 0 || axisY(input, "p2") !== 0 || input.p1.tapped.a || input.p2.tapped.a;
 
 export default function Play() {
   const profile = useProfile();
-  const players = profile.settings.players;
+  const run = useRun({ gameId: GAME_ID, unlocks: UNLOCKS, launchDay: GAME.launchDay });
+  // Daily and challenge rounds are one player, so the scores compare.
+  const players = run.spec.mode === "free" ? profile.settings.players : 1;
   const input = useMemo(() => createInput(), []);
-  const [round, setRound] = useState(0);
   const [paused, setPaused] = useState(false);
-  const game = useRef(createGame(players));
-  const cams = useRef({ p1: createCamera(WORLD.w / 2, WORLD.h / 2, 1), p2: createCamera(WORLD.w / 2, WORLD.h / 2, 1) });
-  const canvas = useCanvas();
-  const finished = useRef(false);
+  const game = useRef(createGame(players, run.spec.seed));
+  const over = useRef(false);
   const touch = useTouchScreen();
+  const canvas = useCanvas();
+  const color = SKINS[profile.selected[GAME_ID] ?? "default"] ?? SKINS.default;
+  const { view, ready, error } = useGameView(loadView, canvas, { colors: { p1: color, p2: theme.p2 } });
 
   // New round: fresh game state, released keys.
   useEffect(() => {
-    game.current = createGame(players, 7 + round);
-    finished.current = false;
+    game.current = createGame(players, run.spec.seed);
+    over.current = false;
     releaseAll(input);
-  }, [round, players, input]);
+  }, [run.spec, players, input]);
 
   const togglePause = useCallback(() => setPaused((p) => !p), []);
   useKeyboard(input, players, togglePause);
   usePageHidden(() => setPaused(true)); // a phone call or app switch pauses the game
 
-  const split = players === 2;
-  const color = SHIPS[profile.selected[GAME_ID] ?? "default"] ?? SHIPS.default;
-  const colors = { p1: color, p2: theme.p2 };
-
-  /** Each player's part of the canvas, in CSS pixels. */
-  const views = () => {
-    const { width, height } = canvas.size.current;
-    const h = split ? (height - GAP) / 2 : height;
-    return game.current.players.map((_, i) => ({ x: 0, y: i * (h + GAP), w: width, h }));
-  };
-
   useGameLoop(
     (dt) => {
       const g = game.current;
+      run.step(dt, moved(input));
       stepGame(g, input, dt);
-      const vs = views();
-      g.players.forEach((p, i) => {
-        const cam = cams.current[p.id];
-        // Fill the view's longer side with the world, so a tall phone scrolls sideways.
-        cam.zoom = clamp(Math.max(vs[i].w / WORLD.w, vs[i].h / WORLD.h), 0.7, 1.2);
-        followCamera(cam, p, dt, { velocity: { x: p.vx, y: p.vy }, lookAhead: 0.25, world: WORLD, viewW: vs[i].w, viewH: vs[i].h });
-      });
-      if (g.phase === "over" && !finished.current) {
-        finished.current = true;
-        profileStore.finishRun(
-          { gameId: GAME_ID, score: finalScore(g), won: true, stats: [{ label: "Time", value: formatTime(g.time) }, { label: "Players", value: String(players) }] },
-          UNLOCKS,
-        );
-        router.replace("/results");
+      for (const e of g.events.splice(0)) FEEDBACK[e.type]();
+      view.current?.update?.(g, dt);
+      if (g.phase === "over" && !over.current) {
+        over.current = true;
+        const score = finalScore(g);
+        const lives = Math.max(...g.players.map((p) => p.lives));
+        sound.play(lives > 0 ? "win" : "lose");
+        run.finish({
+          score,
+          seconds: g.time,
+          title: lives > 0 ? GAME.resultTitle : "Out of hearts!",
+          stats: [{ label: "Coins", value: String(Math.max(...g.players.map((p) => p.score)) / 10) }],
+          shareLine: shareLine(score, lives, run.spec.mode === "daily" ? `${GAME.name} daily #${run.spec.dayNumber}` : GAME.name),
+        });
       }
       endFrame(input);
     },
-    {
-      paused,
-      draw: () => {
-        const ctx = canvas.context();
-        if (!ctx) return;
-        const g = game.current;
-        const { width, height } = canvas.size.current;
-        ctx.fillStyle = theme.background;
-        ctx.fillRect(0, 0, width, height);
-        views().forEach((view, i) => drawGame(ctx, { game: g, cam: cams.current[g.players[i].id], view, shipColors: colors, time: g.time }));
-      },
-    },
+    // The clock waits while the view loads (3D downloads three.js first).
+    { paused: paused || !ready, draw: (alpha) => view.current?.draw(game.current, alpha) },
   );
 
   // HUD numbers. The screen redraws only when one of them changes.
@@ -94,34 +91,34 @@ export default function Play() {
     return {
       time: Math.ceil(g.timeLeft),
       players: g.players.map((p) => ({ id: p.id, score: p.score, lives: p.lives })),
-      banner: g.time < 1 ? "GO!" : g.players[0].lives <= 0 && !split ? "Out of lives" : null,
+      banner: g.time < 1 ? "GO!" : null,
     };
   });
+  const split = players === 2;
 
   return (
-    <main className="play">
+    <main className="play" data-ready={ready ? "" : undefined}>
       <div className="game-area">
-        <GameCanvas canvas={canvas} label="Coin Dash" />
-        <div className="views">
+        <GameCanvas canvas={canvas} label={GAME.name} />
+        <div className={`views${split ? " split" : ""}`}>
           {hud.players.map((p, i) => (
             <div key={p.id} className="view">
-              <Hud>
-                <HudStat label={split ? p.id.toUpperCase() : "SCORE"} value={p.score} color={split ? theme[p.id] : undefined} />
-                <HudStat label="LIVES" value={"♥".repeat(Math.max(0, p.lives)) || "—"} color={theme.danger} />
-                {i === 0 ? <HudStat label="TIME" value={hud.time} /> : null}
+              <Hud onPause={i === 0 ? togglePause : undefined} tint={split ? theme[p.id] : undefined}>
+                <HudScore value={p.score} label={split ? `Player ${i + 1} score` : "Score"} />
+                <HudHearts lives={p.lives} max={MAX_LIVES} />
+                {i === 0 ? <HudTimer seconds={hud.time} /> : null}
               </Hud>
             </div>
           ))}
         </div>
-        <Banner text={hud.banner} />
-        <button type="button" aria-label="Pause" className="pause-button" onClick={togglePause}>
-          II
-        </button>
+        <Banner text={error ? "This device cannot show the game" : !ready ? "Loading…" : hud.banner} />
+        {touch && profile.settings.touchControls ? (
+          <TouchControls input={input} players={players} kind="stick" buttons={[{ action: "a", label: "Dash", icon: <IconDash size={34} /> }]} />
+        ) : null}
         {paused ? (
-          <PauseOverlay onResume={() => setPaused(false)} onRestart={() => { setRound((r) => r + 1); setPaused(false); }} onQuit={() => router.replace("/")} />
+          <PauseOverlay onResume={() => setPaused(false)} onRestart={() => { run.restart(); setPaused(false); }} onQuit={() => router.replace("/")} />
         ) : null}
       </div>
-      {touch && profile.settings.touchControls ? <TouchControls input={input} players={players} kind="stick" /> : null}
     </main>
   );
 }

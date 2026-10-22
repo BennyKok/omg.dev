@@ -55,7 +55,7 @@ test("web-game installs a standalone Vite game kit with its own skill", async ()
   expect(isProjectTemplate("web-game")).toBe(true);
   // Standalone: none of the Expo base is copied.
   for (const file of ["app.json", "eas.json", "src/lib/keyboard.tsx", PROJECT_GAME_SKILL]) expect(existsSync(join(cwd, file))).toBe(false);
-  for (const file of ["index.html", "vite.config.ts", "schema.ts", "src/main.tsx", "src/game/loop.ts", "src/games/coin-dash/logic.ts", "tests/kit.test.ts", PROJECT_WEB_GAME_SKILL]) {
+  for (const file of ["index.html", "vite.config.ts", "schema.ts", "src/main.tsx", "src/game/loop.ts", "src/ui/screens.tsx", "src/games/coin-dash/logic.ts", "src/games/coin-dash/view-2d.ts", "src/games/coin-dash/view-3d.ts", "tests/kit.test.ts", PROJECT_WEB_GAME_SKILL]) {
     expect(existsSync(join(cwd, file))).toBe(true);
   }
   // Placeholder install icons are copied as images, byte for byte.
@@ -67,7 +67,7 @@ test("web-game installs a standalone Vite game kit with its own skill", async ()
   expect(pkg.scripts.build).toContain("vite build");
   expect(pkg.scripts.test).toBe("bun test");
   expect(pkg.devDependencies["@omg-dev/vite-plugin"]).toBeTruthy();
-  expect(readFileSync(join(cwd, "src/game/profile-store.ts"), "utf8")).toContain("neon-racer:profile");
+  expect(readFileSync(join(cwd, "src/ui/profile-store.ts"), "utf8")).toContain("neon-racer:profile");
   expect(readFileSync(join(cwd, "index.html"), "utf8")).toContain("<title>Neon Racer</title>");
   expect(JSON.parse(readFileSync(join(cwd, ".omg/template.json"), "utf8")).name).toBe("web-game");
 });

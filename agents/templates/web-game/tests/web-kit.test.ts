@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { createProfileStore, type ProfileStorage } from "../src/game/profile-core";
+import { createProfileStore, type ProfileStorage } from "../src/ui/profile-core";
 import { stickFromOffset } from "../src/game/stick";
+import { cappedDpr, splitViewports } from "../src/game/view";
 
 function memoryStorage(): ProfileStorage & { data: Map<string, string> } {
   const data = new Map<string, string>();
@@ -55,5 +56,19 @@ describe("touch stick", () => {
   test("a resting thumb near the centre does not move the player", () => {
     expect(stickFromOffset(3, -2, 50)).toEqual({ x: 0, y: 0, knobX: 3, knobY: -2 });
     expect(stickFromOffset(25, 0, 50).x).toBeCloseTo(0.5, 5);
+  });
+});
+
+describe("views", () => {
+  test("split screen gives each player half the canvas, with a gap, and covers it exactly", () => {
+    const [a, b] = splitViewports({ width: 390, height: 604 }, 2, 4);
+    expect(a).toEqual({ x: 0, y: 0, w: 390, h: 300 });
+    expect(b).toEqual({ x: 0, y: 304, w: 390, h: 300 });
+    expect(splitViewports({ width: 390, height: 600 }, 1)).toEqual([{ x: 0, y: 0, w: 390, h: 600 }]);
+  });
+  test("the pixel ratio is capped for phones", () => {
+    expect(cappedDpr(3, 1.5)).toBe(1.5);
+    expect(cappedDpr(1, 1.5)).toBe(1);
+    expect(cappedDpr(0, 2)).toBe(1);
   });
 });

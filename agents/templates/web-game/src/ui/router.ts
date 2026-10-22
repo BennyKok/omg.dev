@@ -15,7 +15,14 @@ export function routeFromHash(hash: string): string {
   return path.startsWith("/") ? path.replace(/\/+$/, "") || "/" : "/";
 }
 
+/** "#/play?mode=daily" -> { mode: "daily" }. */
+export function paramsFromHash(hash: string): URLSearchParams {
+  const i = hash.indexOf("?");
+  return new URLSearchParams(i < 0 ? "" : hash.slice(i + 1));
+}
+
 const current = () => routeFromHash(location.hash);
+const currentHash = () => location.hash;
 
 if (typeof window !== "undefined") window.addEventListener("hashchange", emit);
 
@@ -38,13 +45,22 @@ export const router = {
   },
 };
 
+const subscribe = (l: () => void) => {
+  listeners.add(l);
+  return () => listeners.delete(l);
+};
+
+/** The screen path, such as "/play". */
 export function useRoute(): string {
-  return useSyncExternalStore(
-    (l) => {
-      listeners.add(l);
-      return () => listeners.delete(l);
-    },
-    current,
-    () => "/",
-  );
+  return useSyncExternalStore(subscribe, current, () => "/");
+}
+
+/** The whole hash with its query ("#/play?mode=daily"). A new value remounts the screen. */
+export function useRouteKey(): string {
+  return useSyncExternalStore(subscribe, currentHash, () => "");
+}
+
+/** Query of the current screen: `useRouteParams().get("mode")`. */
+export function useRouteParams(): URLSearchParams {
+  return paramsFromHash(useRouteKey());
 }

@@ -1,6 +1,6 @@
 // The saved-profile store without React, so `bun test` can run it with a fake
 // storage. Screens use profile-store.ts (`profileStore`, `useProfile`).
-import { emptyProfile, migrateProfile, recordRun, type Profile, type RunResult, type Settings, type Unlock } from "./progress";
+import { emptyProfile, migrateProfile, recordRun, type Profile, type RunResult, type Settings, type Unlock } from "../game/progress";
 
 export type ProfileStorage = Pick<Storage, "getItem" | "setItem">;
 

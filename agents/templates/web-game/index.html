@@ -4,17 +4,18 @@
     <meta charset="UTF-8" />
     <!-- Full screen on phones (viewport-fit=cover + safe-area insets in styles.css), no pinch zoom. -->
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <!-- Keep in step with theme.background in src/game/theme.ts. The install manifest reads it. -->
-    <meta name="theme-color" content="#12172b" />
-    <meta name="color-scheme" content="dark" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <!-- The omg badge on published pages (desktop and embeds): top right, below the pause button, away from the touch controls. -->
-    <meta name="omg-badge" content="top-right; y=60" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <!-- The omg badge on published pages (desktop and embeds): top right, below the HUD, away from the touch controls. -->
+    <meta name="omg-badge" content="top-right; y=76" />
     <link rel="icon" type="image/png" href="/icons/pwa-192x192.png" />
+    <!-- The install name. The build replaces the tab title, and adds the description,
+         Open Graph tags, share image and structured data, from src/app/about.ts. -->
     <title>__OMG_PROJECT_NAME__</title>
+    <!-- game:seo -->
   </head>
   <body>
     <div id="root"></div>
+    <noscript>This game needs JavaScript. Turn it on and reload the page.</noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

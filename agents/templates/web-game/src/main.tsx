@@ -1,8 +1,8 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./app/routes";
-import { installGamePage } from "./game/page";
-import "./styles.css";
+import { installGamePage } from "./ui/page";
+import "./ui/styles.css";
 
 installGamePage();
 
