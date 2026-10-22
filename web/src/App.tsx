@@ -14,6 +14,8 @@ import { useRuntimeLifecycle } from "./lib/runtime-lifecycle";
 import { useComputerResumeMetrics } from "./lib/use-computer-resume-metrics";
 import { LiveHeaderContext } from "./components/live-header-context";
 import { MobileProjectFolders } from "./components/mobile-project-folders";
+import { AppHeaderCard, AppNoOpenSessions, AppsList, buildAppItems, CreateHome, Spinner, sessionInAppScope, useCloudApps, useScopedApp } from "./components/apps-home";
+import { CreateComposerFrame } from "./components/create-composer-frame";
 import { ProjectFolderMenu } from "./components/project-folder-menu";
 import { SessionReparentProvider, SessionReparentTarget } from "./components/session-reparent";
 import { HostDrawerSlot, SideNavButton, SideNavDrawer, SideNavGlyph, SideNavPanel } from "./components/side-nav";
@@ -6478,6 +6480,17 @@ export function App() {
     });
   });
   const [projectFilter, setProjectFilter] = useState(readCachedProjectFilter);
+  // The phone's Create and Apps views (components/apps-home.tsx). A folder pill leaves them.
+  // Create has no state of its own: it is the no-project scope (the rail's
+  // old plus pill), drawn as "What do you want to make?" with its chats below.
+  const [homeView, setHomeView] = useState<"apps" | null>(null);
+  const appsView = homeView === "apps";
+  const createView = isMobile && !appsView && projectFilter === NO_PROJECT_FILTER;
+  // Inside an app the composer waits for "Change something".
+  const [appComposerOpen, setAppComposerOpen] = useState(false);
+  // An app page's "Earlier sessions": the composer opens its history searched.
+  const [findSessions, setFindSessions] = useState<{ nonce: number; search: string } | undefined>();
+  useEffect(() => setAppComposerOpen(false), [projectFilter]);
   // The mobile side navigation. One drawer now answers "where do I go",
   // replacing both the bottom surface bar and the overflow menu.
   const [navOpen, setNavOpen] = useState(false);
@@ -7407,12 +7420,25 @@ export function App() {
     if (resolved !== projectFilter) setProjectFilter(resolved);
   }, [loading, projectFilter, projectOptions]);
 
+  // A folder scope that links to an app also holds the session that built the
+  // app, whatever folder that session ran in (the Cloud app list names it).
+  // An app is a folder linked to a published app (buildAppItems).
+  const hasApps = repos.some((repo) => repo.deploy);
+  const scopeCloudApps = useCloudApps(hasApps);
+  // The last app went away while its list was open: back to Create.
+  useEffect(() => {
+    if (!hasApps && homeView === "apps") setHomeView(null);
+  }, [hasApps, homeView]);
+  const scopeBuiltBy = useMemo(() => {
+    const repo = repos.find((candidate) => candidate.deploy && repoProject(candidate) === projectFilter);
+    return repo?.deploy ? scopeCloudApps.get(repo.deploy.slug)?.builtBySessionId ?? null : null;
+  }, [repos, projectFilter, scopeCloudApps]);
   const liveSessions = useMemo(() => {
     if (projectFilter === "__all") return userScopedSessions;
     return userScopedSessions.filter((session) =>
-      sessionMatchesProjectFilter(session, projectFilter),
+      sessionMatchesProjectFilter(session, projectFilter) || sessionInAppScope(session, projectFilter, scopeBuiltBy),
     );
-  }, [userScopedSessions, projectFilter]);
+  }, [userScopedSessions, projectFilter, scopeBuiltBy]);
   // The Chat roster adds pinned families from every project to the scoped
   // list. The Board, the busy counts and the folder counts stay scoped.
   const rosterSessions = useMemo(
@@ -9255,6 +9281,12 @@ export function App() {
     );
   }
 
+  // The composer's hint names the app when the scope is a published app's folder.
+  const scopedAppRepo = repos.find((repo) => repo.deploy && repoProject(repo) === projectFilter);
+  const scopedAppName = isMobile && !homeView && scopedAppRepo ? scopedAppRepo.deploy?.name || projectFilter : null;
+  // Create centers the composer; Apps and an app waiting for "Change something" hide it.
+  const createComposer = createView;
+  const composerHiddenForApps = isMobile && (appsView || (!!scopedAppName && !appComposerOpen));
   const mobileComposerVisible =
     isMobile &&
     !viewerArtifact &&
@@ -9622,7 +9654,7 @@ export function App() {
             /* No card. The island existed to group the roster filter with the
                overflow menu; the menu moved into the side navigation, so the
                card was left drawing a pill around one avatar. */
-            <NavIsland className="shrink-0">
+            <NavIsland surface={false} className="flex shrink-0 items-center self-center">
               {/* Not on Scheduled. The roster filter scopes sessions, and
                   Schedules reads the unscoped list — it groups by OWNER
                   (Unassigned, then each bot) instead. Carrying the control
@@ -9806,7 +9838,40 @@ export function App() {
           projects={projectOptions}
           shortProject={shortProject}
           value={projectFilter}
-          onChange={(next) => setProjectFilter(projectFilterAfterPress(next, projectFilter))}
+          onChange={(next) => {
+            setHomeView(null);
+            setProjectFilter(projectFilterAfterPress(next, projectFilter));
+          }}
+          viewPills={[
+            {
+              id: "create",
+              label: "Create",
+              icon: "create",
+              pressed: createView,
+              onPress: () => {
+                // A new idea starts with no folder; the agent makes one.
+                setHomeView(null);
+                setProjectFilter(NO_PROJECT_FILTER);
+              },
+            },
+            // Only once there is an app: before the first publish the page
+            // would be empty, and Create is where the first one starts.
+            ...(hasApps
+              ? [{ id: "apps", label: "Apps", icon: "apps" as const, pressed: appsView, onPress: () => setHomeView("apps") }]
+              : []),
+            {
+              // Every session, grouped by folder: the list this page showed
+              // before Create and Apps, and the home of agent-only use.
+              id: "chats",
+              label: "Chats",
+              icon: "chats",
+              pressed: !appsView && projectFilter === "__all",
+              onPress: () => {
+                setHomeView(null);
+                setProjectFilter("__all");
+              },
+            },
+          ]}
           canRemove={(project) => repos.some((repo) => repoProject(repo) === project)}
           onRemove={async (project) => {
             const repo = repos.find((candidate) => repoProject(candidate) === project);
@@ -9849,7 +9914,12 @@ export function App() {
               // gutter for card corners and shadows. The header fade overlays the
               // scroll surface; only the measured chrome height is layout space.
               "absolute inset-x-0 bottom-[var(--lfg-host-bottom-inset)] top-0 px-2 pt-[var(--lfg-mobile-header-height)] [scroll-padding-top:var(--lfg-mobile-header-height)]",
-            liveDesktopWorkspace ? "overflow-hidden pb-3" : `overflow-y-auto ${mainBottomPadding}`,
+            liveDesktopWorkspace ? "overflow-hidden pb-3"
+              // Create is one screen (heading, composer, apps) drawn over a
+              // still page. Scrolling only moved the page under the composer
+              // and showed a scroll bar beside it.
+              : createComposer && tab === "live" ? "overflow-hidden"
+              : `overflow-y-auto ${mainBottomPadding}`,
           ],
         )}
       >
@@ -9886,6 +9956,22 @@ export function App() {
               onToggleTopPin={toggleTopPin}
               users={users}
               userFilter={userFilter}
+              appsView={isMobile && appsView}
+              createView={createView}
+              onShowApps={() => setHomeView("apps")}
+              onFindSessions={(search) => setFindSessions((current) => ({ nonce: (current?.nonce ?? 0) + 1, search }))}
+              allSessions={userScopedSessions}
+              onOpenApp={(project, change) => {
+                setHomeView(null);
+                setProjectFilter(project);
+                if (change) {
+                  // After the filter change resets it.
+                  setTimeout(() => {
+                    setAppComposerOpen(true);
+                    setComposerFocusNonce((n) => n + 1);
+                  }, 0);
+                }
+              }}
               projectFilter={projectFilter}
               projectOptions={projectOptions}
               projectCounts={projectSessionCounts}
@@ -10277,12 +10363,18 @@ export function App() {
             // surface (artifact viewer, pulled-up terminal) so it cannot stack
             // above the content — `mobileComposerVisible` is the single source
             // of truth, shared with the <main> padding that reserves its space.
+            <CreateComposerFrame centered={createComposer} hidden={composerHiddenForApps}>
             <NewSessionDialog
               variant="inline"
               open
+              starters={createComposer}
               expanded={composerExpanded}
               onExpandedChange={setComposerExpanded}
               focusNonce={composerFocusNonce}
+              findSessions={findSessions}
+              placeholder={
+                scopedAppName ? `Change something in ${scopedAppName}…` : createComposer ? "Describe a game or an app…" : undefined
+              }
               agentRequest={agentRequest}
               users={users}
               repos={repos}
@@ -10307,6 +10399,22 @@ export function App() {
                 if (sid) openSessionPage(sid);
               }}
             />
+            </CreateComposerFrame>
+          ) : null}
+          {mobileComposerVisible && scopedAppName && !appComposerOpen && !appsView ? (
+            <div className="fixed inset-x-0 bottom-[var(--lfg-host-bottom-inset,0px)] z-30 px-4 pt-1.5 pb-[max(var(--lfg-device-safe-bottom),0.5rem)]">
+              <button
+                type="button"
+                onClick={() => {
+                  setAppComposerOpen(true);
+                  setComposerFocusNonce((n) => n + 1);
+                }}
+                className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground text-[15px] font-semibold text-background shadow-sm"
+              >
+                <Plus className="size-4" aria-hidden="true" />
+                Change something
+              </button>
+            </div>
           ) : null}
         </>
       ) : null}
@@ -12119,6 +12227,12 @@ function LiveView({
   repos = [],
   onReposChanged,
   hosted = false,
+  appsView = false,
+  createView = false,
+  onShowApps,
+  onFindSessions,
+  allSessions,
+  onOpenApp,
   coach = null,
   focus,
   stageComposer,
@@ -12128,6 +12242,17 @@ function LiveView({
   hostSettingsInMenu = false,
 }: {
   sessions: Session[];
+  /** Phone: list apps and games instead of folders (components/apps-home.tsx). */
+  appsView?: boolean;
+  /** Phone: the Create page; the shell centers the composer over it. */
+  createView?: boolean;
+  onShowApps?: () => void;
+  /** Open the session history searched for this text (an app's name). */
+  onFindSessions?: (search: string) => void;
+  /** Every session, before the project scope. The Apps view groups these. */
+  allSessions?: Session[];
+  /** Open an app: scope the list and the composer to its folder. `change` also focuses the composer. */
+  onOpenApp?: (project: string, change: boolean) => void;
   shippedReview?: Session | null;
   /** The session `/sessions/<id>` names, or null on the plain list. */
   openSessionId?: string | null;
@@ -12314,6 +12439,17 @@ function LiveView({
     (sid: string) => onOpenSessionPage?.(sid),
     [onOpenSessionPage],
   );
+
+  // The Apps view and the scoped app's card (components/apps-home.tsx).
+  const cloudApps = useCloudApps(appsView || createView);
+  const appItems = useMemo(
+    () => (appsView || createView ? buildAppItems(repos, allSessions ?? sessions, cloudApps, repoProject) : { games: [], apps: [] }),
+    [appsView, createView, repos, allSessions, sessions, cloudApps],
+  );
+  const scopedApp = useScopedApp(projectFilter, repos, allSessions ?? sessions, repoProject);
+  // Settings > View > "Session details in lists". Off (the default) is compact.
+  const { showSessionDetails, showThreads } = useContext(ViewPrefsContext);
+  const listStyle = showSessionDetails ? "detailed" : "compact";
 
   // Folder groups follow the box's saved folder order.
   const folderOrder = useFolderMenuPrefs().order;
@@ -12569,6 +12705,9 @@ function LiveView({
         onToggleStagePin={() => {}}
         onOpen={() => openSessionPage(sid)}
       >
+        {listStyle === "compact" ? (
+          <CompactSessionRow session={session} busy={!!busyBySid[sid]} onOpen={() => openSessionPage(sid)} />
+        ) : (
         <RailItem
           session={session}
           users={users}
@@ -12584,6 +12723,7 @@ function LiveView({
           onTogglePin={() => toggleTopPin(sid)}
           onArchive={() => void archiveSession(sid)}
         />
+        )}
       </RailSessionContextMenu>
     );
   };
@@ -12611,7 +12751,19 @@ function LiveView({
       {/* Pull the list down past the top to start a thread, as on iOS. */}
       <PullToThread onStart={() => onOpenThread?.(NEW_THREAD_ID)}>
         {/* Only with threads, and no button: the pull starts one. */}
-        <ThreadRailGroup threads={threads} activeId={openThreadId} collapsed={false} onOpen={(id) => onOpenThread?.(id)} />
+        {createView ? (
+          <CreateHome />
+        ) : appsView ? (
+          <AppsList
+            games={appItems.games}
+            apps={appItems.apps}
+            onOpenSession={openSessionPage}
+            onOpenApp={(item, change) => onOpenApp?.(item.project, change)}
+          />
+        ) : <>
+        {scopedApp ? <AppHeaderCard item={scopedApp} onCopied={() => toast.success("Link copied")} /> : null}
+        {/* Threads are people chats, not work on this app. */}
+        {scopedApp || !showThreads ? null : <ThreadRailGroup threads={threads} activeId={openThreadId} collapsed={false} onOpen={(id) => onOpenThread?.(id)} />}
         <SessionGroups
           groups={projectGroups}
           pinnedNodes={pinnedNodes}
@@ -12619,12 +12771,18 @@ function LiveView({
           projectFilter={projectFilter}
           onProjectChange={onProjectChange}
           renderItem={renderMobileItem}
+          card={listStyle === "compact"}
         />
         {/* Threads alone (or a project chip with nothing in it) used to leave
             the rest of the phone blank above the composer. */}
         {!pinned.length && !botSessions.length && !working.length && !idle.length ? (
-          <RuntimeEmptyState />
+          scopedApp ? (
+            <AppNoOpenSessions name={scopedApp.name} onFindSessions={() => onFindSessions?.(scopedApp.name)} />
+          ) : (
+            <RuntimeEmptyState />
+          )
         ) : null}
+        </>}
       </PullToThread>
     </div>
     {/* Open findings live behind a pill, not at the end of the list. A group
@@ -13758,6 +13916,10 @@ function RailStage({
     };
   }, []);
 
+  // Settings > View > "Session details in lists". The icon-only rail keeps its marks.
+  const railPrefs = useContext(ViewPrefsContext);
+  const compactRail = !railPrefs.showSessionDetails && !railCollapsed;
+  const showThreadsInRail = railPrefs.showThreads;
   const renderRailItem = (session: Session) => {
     const sid = session.sessionId ?? "";
     return (
@@ -13779,6 +13941,16 @@ function RailStage({
             : undefined
         }
       >
+        {compactRail ? (
+          <CompactSessionRow
+            session={session}
+            busy={!!busyBySid[sid]}
+            active={columnIds.includes(sid)}
+            cursored={cursor === sid}
+            dense
+            onOpen={() => activate(sid, false)}
+          />
+        ) : (
         <RailItem
           session={session}
           users={users}
@@ -13794,6 +13966,7 @@ function RailStage({
           onActivate={(shift) => activate(sid, shift)}
           onTogglePin={() => togglePin(sid)}
         />
+        )}
       </RailSessionContextMenu>
     );
   };
@@ -14243,12 +14416,13 @@ function RailStage({
             projectFilter={projectFilter}
             onProjectChange={onProjectChange}
             renderItem={renderRailItem}
+            card={compactRail}
             activeIds={columnIds}
             // Threads, as on the iPad rail: a group like the others, only when
             // there are some, rows drawn exactly like session rows with no
             // agent mark. A thread starts from the + on its header (hover).
             leading={
-              railSurface === "sessions" ? (
+              railSurface === "sessions" && showThreadsInRail ? (
                 <ThreadRailGroup
                   threads={threads}
                   activeId={openThreadId}
@@ -14628,6 +14802,7 @@ export function SessionGroups({
   renderItem,
   headerless = false,
   dense = false,
+  card = false,
   leading,
   trailing,
   activeIds,
@@ -14643,6 +14818,8 @@ export function SessionGroups({
   headerless?: boolean;
   /** Desktop rail: headerless runs keep the rows' own tight gap. */
   dense?: boolean;
+  /** Phone compact rows: each group's rows sit in one card, divided by lines. */
+  card?: boolean;
   /** Above every group. The rail puts New session here. */
   leading?: ReactNode;
   /** Below every group. Auto findings. */
@@ -14680,7 +14857,7 @@ export function SessionGroups({
       subagentChoices,
     );
     return (
-      <div key={id} className="flex flex-col gap-0.5">
+      <div key={id} className={cn("flex flex-col", !card && "gap-0.5")}>
         {renderItem(node.session)}
         <SubagentGroup
           sessions={descendants}
@@ -14690,6 +14867,7 @@ export function SessionGroups({
             descendants.filter((session) => !!session.sessionId && unread.has(session.sessionId)).length
           }
           dense={dense}
+          compact={card}
           renderItem={renderItem}
         />
       </div>
@@ -14706,6 +14884,7 @@ export function SessionGroups({
           collapsed={collapsed}
           foldKey="__pinned"
           sids={collectGroupSids(pinnedNodes)}
+          card={card}
         >
           {pinnedNodes.map((node) => renderNode(node))}
         </RailGroup>
@@ -14723,6 +14902,7 @@ export function SessionGroups({
           collapsed={collapsed}
           foldKey={group.key}
           sids={collectGroupSids(group.nodes)}
+          card={card}
           // The folder title IS the filter. Scoping used to live on the folder
           // button, which made that button mean two things — pick where a new
           // session runs, and narrow the list — and neither was discoverable
@@ -14756,11 +14936,14 @@ function RailGroup({
   onClearFilter,
   foldKey,
   sids,
+  card = false,
   children,
 }: {
   label: string;
   count: number;
   collapsed: boolean;
+  /** Rows in one card (phone compact list). */
+  card?: boolean;
   action?: ReactNode;
   /** Scope the list to this group. The title is the control. */
   onFilter?: () => void;
@@ -14868,7 +15051,10 @@ function RailGroup({
         </div>
       ) : null}
       {collapsed || !folded ? (
-        <div className="flex flex-col gap-0.5">{children}</div>
+        <div className={cn(
+          "flex flex-col",
+          card ? "overflow-hidden rounded-[18px] border border-border bg-card [&>*+*]:border-t [&>*+*]:border-border" : "gap-0.5",
+        )}>{children}</div>
       ) : null}
     </div>
   );
@@ -15252,6 +15438,49 @@ const RailRow = memo(function RailRow({
     </div>
   );
 });
+
+/**
+ * The phone list's compact row: working spinner or done check, title, time.
+ * Many sessions fit on one screen, grouped in a card per folder (the Create
+ * page's Building rows, made the list's default; see useMobileListStyle).
+ */
+function CompactSessionRow({ session, busy, onOpen, active = false, cursored = false, dense = false }: {
+  session: Session;
+  busy: boolean;
+  onOpen: () => void;
+  /** Desktop: open on the stage. */
+  active?: boolean;
+  /** Desktop: the keyboard cursor is here. */
+  cursored?: boolean;
+  /** Desktop rail type scale. */
+  dense?: boolean;
+}) {
+  const { unread: unreadSessions } = useContext(SessionUnreadContext);
+  const title = titleForSession(session);
+  const unread = !!session.sessionId && unreadSessions.has(session.sessionId);
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label={sessionRosterRowAriaLabel({ title, working: busy, unread, blocked: session.status === "blocked" })}
+      aria-current={active || undefined}
+      data-rail-sid={session.sessionId ?? ""}
+      className={cn(
+        "flex w-full items-center text-left outline-none active:bg-muted/60",
+        dense ? "min-h-9 gap-2.5 px-3 py-2 hover:bg-muted/50" : "min-h-11 gap-3 px-3.5 py-2.5",
+        active && "bg-muted",
+        cursored && !active && "bg-muted/60",
+      )}
+    >
+      {busy ? <Spinner /> : <Check className="size-3.5 shrink-0 text-emerald-500" aria-hidden="true" />}
+      <span className={cn("min-w-0 flex-1 truncate", dense ? "text-[13px]" : "text-[14px]", unread ? "font-semibold" : "font-medium")}>{title}</span>
+      {unread ? <span className={UNREAD_DOT_CLASS} aria-hidden="true" /> : null}
+      {session.lastActivityAt ? (
+        <span className="shrink-0 text-[12px] text-muted-foreground">{timeAgo(session.lastActivityAt)}</span>
+      ) : null}
+    </button>
+  );
+}
 
 const RailItem = memo(function RailItem({
   session,
@@ -23309,6 +23538,7 @@ async function unlinkRepoFromList(
 
 function NewSessionDialog({
   open,
+  starters = true,
   repos,
   users,
   defaultUser,
@@ -23332,9 +23562,14 @@ function NewSessionDialog({
   expanded = false,
   onExpandedChange,
   focusNonce = 0,
+  placeholder,
+  findSessions,
   codingAgents,
   agentRequest,
 }: {
+  /** The starter pills above an empty chat box. The phone shows them on
+   *  Create only: Chats lists work, and Create is where new work starts. */
+  starters?: boolean;
   open: boolean;
   repos: Repo[];
   users: User[];
@@ -23362,6 +23597,14 @@ function NewSessionDialog({
   onExpandedChange?: (next: boolean) => void;
   // Inline only: bump to focus the textarea ("new session").
   focusNonce?: number;
+  /** Composer hint when the scope is an app ("Change something in Snake…"). */
+  placeholder?: string;
+  /**
+   * Inline only: open the session history searched for this text, across
+   * every folder. An app's page asks for its own name, which also finds the
+   * sessions in the app's folder (/api/sessions/resumable appFolders).
+   */
+  findSessions?: { nonce: number; search: string };
   codingAgents?: CodingAgentInfo[];
   // Set when a surface outside the composer picks the agent for it (the usage
   // campfire). The nonce lets the same agent be requested more than once.
@@ -23665,10 +23908,17 @@ function NewSessionDialog({
   }, [open, variant, inlineExpanded]);
   // Close the resume sheet and drop the cached list so the next open refetches
   // (and shows the skeleton) instead of flashing a stale roster.
+  const [resumeSearch, setResumeSearch] = useState("");
   const closeResume = useCallback(() => {
     setResumeOpen(false);
     setResumable(null);
+    setResumeSearch("");
   }, []);
+  useEffect(() => {
+    if (!findSessions?.nonce) return;
+    setResumeSearch(findSessions.search);
+    setResumeOpen(true);
+  }, [findSessions?.nonce]);
   // Inline variant: focus the textarea (and pop the soft keyboard) when an
   // external affordance bumps `focusNonce`. The shadcn Textarea isn't a
   // forwardRef, so reach it through the wrapping element.
@@ -24787,10 +25037,10 @@ function NewSessionDialog({
           They sit above the field and only while the field is empty: once
           there is anything to send, the person has said what they want and
           four suggestions are in the way. */}
-      {unassigned && !prompt.trim() && attachments.length === 0 ? (
+      {starters && unassigned && !prompt.trim() && attachments.length === 0 ? (
         <ChatStarterRow
           // Inline: run the swipe row to the screen edge, not the composer's.
-          className={cn("mb-2", variant === "inline" && "-mx-4 scroll-px-4 px-4")}
+          className={cn("lfg-create-starters mb-2", variant === "inline" && "-mx-4 scroll-px-4 px-4")}
           disabled={launching}
           hostChips={starterChips}
           onStart={(starterPrompt) => submit(undefined, starterPrompt)}
@@ -24876,7 +25126,7 @@ function NewSessionDialog({
               e.currentTarget.form?.requestSubmit();
             }
           }}
-          placeholder={attachments.length ? "Add a note for the files…" : "What should we work on?"}
+          placeholder={attachments.length ? "Add a note for the files…" : placeholder ?? "What should we work on?"}
           className={cn(
             "border-0 bg-transparent text-base leading-relaxed shadow-none focus-visible:border-0 focus-visible:ring-0",
             variant === "stage"
@@ -24967,8 +25217,9 @@ function NewSessionDialog({
       {resumeOpen ? (
         <Suspense fallback={null}>
           <ResumeSessionSheet
-            initial={resumable}
-            scopedProject={resumeScope}
+            initial={resumeSearch ? null : resumable}
+            scopedProject={resumeSearch ? "__all" : resumeScope}
+            initialSearch={resumeSearch}
             onRestore={(entry) => setPrompt(entry.text)}
             onPick={(session) => {
               closeResume();
@@ -30677,6 +30928,8 @@ function ViewSettingsSection({
   const agentOption = options.find((option) => option.key === agent);
   const { viewer: roleViewer, roles } = useContext(RoleViewerContext);
   const rows: { key: keyof ViewPrefs & `show${string}`; label: string; hint: string }[] = [
+    { key: "showSessionDetails", label: "Session details in lists", hint: "The agent mark and last message on each session row. Off shows one short line per session." },
+    { key: "showThreads", label: "Threads", hint: "Show your threads above the sessions." },
     { key: "showSidebarAgentIcons", label: "Agent icons in the sidebar", hint: "The harness mark and assignee face on each session row." },
     { key: "showSidebarFavicons", label: "Project favicons in the sidebar", hint: "The project logo on each session row. Off shows the agent mark instead." },
     { key: "showSessionAgentIcons", label: "Agent icons in chat", hint: "The harness mark in a session's header. Off shows nothing there." },
@@ -30822,7 +31075,7 @@ function ViewSettingsSection({
               // value still exists, but this viewer sees "off" whatever it
               // says. Grey it out and say why, rather than showing a live
               // control that appears to do nothing.
-              const overridden = roleViewer.hide.includes(row.key);
+              const overridden = (roleViewer.hide as readonly string[]).includes(row.key);
               return (
                 <div
                   key={row.key}

@@ -2,13 +2,15 @@ import { useState } from "react";
 import { arrangeFolders, useFolderMenuPrefs } from "../lib/folder-menu-prefs";
 import { NO_PROJECT_FILTER, projectFilterLabel } from "../lib/project-filter";
 import { ManageFolders, type ProjectFolderMenuProps } from "./project-folder-menu";
-import { ProjectPillRail, projectPillsFor } from "./project-pill-rail";
+import { ProjectPillRail, projectPillsFor, type ViewPill } from "./project-pill-rail";
 import { Drawer, DrawerContent, DrawerTitle } from "./ui/drawer";
 
 export function MobileProjectFolders({
-  projects, shortProject, value, onChange, canRemove, onRemove, onAddFolder, onNewFolder,
+  projects, shortProject, value, onChange, canRemove, onRemove, onAddFolder, onNewFolder, viewPills,
 }: Pick<ProjectFolderMenuProps, "projects" | "value" | "onChange" | "canRemove" | "onRemove" | "onAddFolder" | "onNewFolder"> & {
   shortProject: (project: string) => string;
+  /** Create and Apps, first in the row. */
+  viewPills?: readonly ViewPill[];
 }) {
   const [open, setOpen] = useState(false);
   const prefs = useFolderMenuPrefs();
@@ -19,10 +21,12 @@ export function MobileProjectFolders({
 
   return <>
     <ProjectPillRail
-      projects={projectPillsFor(projects, shortProject, { prefs, selected: value })}
+      // With view pills, Create is the no-project scope, so its plus pill goes.
+      projects={projectPillsFor(viewPills ? projects.filter((project) => project !== NO_PROJECT_FILTER) : projects, shortProject, { prefs, selected: value })}
       value={value}
       onChange={onChange}
       onManageFolders={() => setOpen(true)}
+      leading={viewPills}
       touch
     />
     <Drawer open={open} onOpenChange={setOpen}>

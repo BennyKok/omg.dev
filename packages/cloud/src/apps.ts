@@ -38,7 +38,18 @@ export type CloudAppRow = {
   sandboxState?: string;
   latestRunId?: string | null;
   dashboardUrl?: string;
+  /** Missing on a control plane older than these fields. */
+  iconUrl?: string | null;
+  isLive?: boolean;
+  appKind?: "app" | "game";
+  /** The Cloud Computer session that last published the app. It belongs to the app whatever folder it ran in. */
+  builtBySessionId?: string | null;
 };
+
+/** An app's visit numbers (control plane analytics.getVisitSummary). */
+export type CloudAppVisits =
+  | { enabled: false }
+  | { enabled: true; days: number; visitors: number; pageviews: number; previousVisitors: number };
 
 export type CloudDeployResult = {
   slug: string;
@@ -134,6 +145,7 @@ export interface CloudAppsClient {
   deploySource(input: CloudDeploySourceInput): Promise<CloudDeployResult>;
   getStatus(slug: string): Promise<CloudDeployStatus>;
   getVisibility(slug: string): Promise<CloudVisibility>;
+  getVisits(slug: string, days?: number): Promise<CloudAppVisits>;
   setVisibility(slug: string, visibility: string): Promise<{ ok?: boolean; visibility: string }>;
   renameApp(slug: string, newSlug: string): Promise<CloudAppRename>;
   getTestMode(slug: string): Promise<CloudTestMode>;
@@ -222,6 +234,9 @@ export function createCloudAppsClient(options: CloudAppsOptions): CloudAppsClien
     },
     async getStatus(slug) {
       return (await get(`/api/cli/apps/status?slug=${encodeURIComponent(slug)}`)) as CloudDeployStatus;
+    },
+    async getVisits(slug, days = 7) {
+      return (await get(`/api/cli/apps/stats?slug=${encodeURIComponent(slug)}&days=${days}`)) as CloudAppVisits;
     },
     async getVisibility(slug) {
       return (await get(`/api/cli/apps/visibility?slug=${encodeURIComponent(slug)}`)) as CloudVisibility;

@@ -54,6 +54,10 @@ export type GlobalSettings = {
   // Off by default. On shows the Fast mode switch in the composer's model
   // picker. Off launches new sessions without fast mode. Set under Advanced.
   showComposerFastMode: boolean;
+  // Off by default: compact session rows. On: agent mark and last message.
+  showSessionDetails: boolean;
+  // Off by default: no Threads group above the session lists.
+  showThreads: boolean;
   // What a plain send (Enter, tap) does while the agent is on a turn: "steer"
   // interrupts the turn, "queue" holds the text as an editable card under the
   // composer until the turn ends. The other mode stays one gesture away.
@@ -96,6 +100,8 @@ export type ViewPrefs = Pick<
   | "showSchedules"
   | "showSessionDiffBar"
   | "showComposerFastMode"
+  | "showSessionDetails"
+  | "showThreads"
   | "composerSendMode"
   | "autoSessionTitles"
 >;
@@ -113,6 +119,8 @@ export const DEFAULT_VIEW_PREFS: ViewPrefs = {
   showSchedules: true,
   showSessionDiffBar: true,
   showComposerFastMode: false,
+  showSessionDetails: false,
+  showThreads: false,
   composerSendMode: "steer",
   autoSessionTitles: "on",
 };

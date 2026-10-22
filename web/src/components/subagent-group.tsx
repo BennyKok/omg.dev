@@ -17,6 +17,7 @@ export function SubagentGroup({
   onToggle,
   unreadCount,
   dense = false,
+  compact = false,
   renderItem,
 }: {
   /** Every descendant, flattened. */
@@ -26,11 +27,50 @@ export function SubagentGroup({
   unreadCount: number;
   /** Desktop rail density. Lines the row up with the parent's title. */
   dense?: boolean;
+  /** Compact session rows: one line of text, no agent marks, and the open
+   *  run uses the same compact rows, set in under the parent's title. */
+  compact?: boolean;
   renderItem: (session: Session) => ReactNode;
 }) {
   const working = sessions.filter((session) => session.busy).length;
   const label = `${sessions.length} subagent${sessions.length === 1 ? "" : "s"}`;
   const spoken = `${label}${working ? `, ${working} working` : ""}${unreadCount ? `, ${unreadCount} unread` : ""}`;
+  if (compact) {
+    // CompactSessionRow's title starts after its padding, status mark and
+    // gap: 14+14+12 on the phone row, 12+14+10 on the dense rail.
+    return (
+      <div className="flex flex-col">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={open}
+          aria-label={spoken}
+          title={open ? "Hide subagent sessions" : "Show subagent sessions"}
+          className={cn(
+            "flex min-h-8 items-center gap-2 pb-2 pr-3.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
+            dense ? "pl-9" : "pl-10",
+          )}
+        >
+          <span className="min-w-0 flex-1 truncate text-[12.5px] text-muted-foreground">
+            {label}
+            {working ? ` · ${working} working` : ""}
+          </span>
+          {unreadCount ? <span className={UNREAD_DOT_CLASS} aria-hidden="true" /> : null}
+          {open ? (
+            <ChevronUp className="size-3.5 shrink-0 text-muted-foreground/70" aria-hidden="true" />
+          ) : (
+            <ChevronDown className="size-3.5 shrink-0 text-muted-foreground/70" aria-hidden="true" />
+          )}
+        </button>
+        {open ? (
+          // Each child's status mark sits under the parent's title.
+          <div className={cn("flex flex-col pb-1", dense ? "pl-6" : "pl-[26px]")}>
+            {sessions.map((session) => renderItem(session))}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
   return (
     // The row's text column starts after its padding, mark and gap: 10+32+10
     // on the dense rail, 16+40+12 on the full row (see RailRow).
