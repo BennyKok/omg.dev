@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { renderSVG } from "uqr";
 import {
-  inlinePreviewUrl, PREVIEW_LEVEL_LABEL, PROJECT_PREVIEW_RESTART_MESSAGE, PROJECT_PREVIEW_SIMULATOR_PATH, previewLevels, simulatorStatusText,
+  inlinePreviewUrl, PREVIEW_LEVEL_LABEL, PROJECT_PREVIEW_BUILD_ANDROID_MESSAGE, PROJECT_PREVIEW_RESTART_MESSAGE, PROJECT_PREVIEW_SIMULATOR_PATH, previewLevels, simulatorStatusText,
   type PreviewLevel, type ProjectPreviewSnapshot, type SimulatorStream,
 } from "../../../packages/protocol/src/project-preview";
 import { expoConnectActive, expoConnectMessage, EXPO_SIGNUP_LABEL, type ExpoAccountSnapshot, type ExpoConnectMode } from "../../../packages/protocol/src/expo-account";
@@ -27,6 +27,9 @@ export function ProjectPreviewCard({ sessionId, user, agentBusy = false }: { ses
   const freshness = usePreviewFreshness(agentBusy);
   const [open, setOpen] = useState(false);
   const [restartAsked, setRestartAsked] = useState(false);
+  // The agent was asked for an installable Android app. Repeated taps do
+  // not send the request again.
+  const [buildAsked, setBuildAsked] = useState(false);
   const phone = usePhone();
   // Open by default on every device: the inline web preview is the first
   // thing a new Expo app shows. A stored choice still wins.
@@ -68,6 +71,7 @@ export function ProjectPreviewCard({ sessionId, user, agentBusy = false }: { ses
   // A new preview row means the agent restarted it; allow another restart ask
   // and start again from the web level.
   useEffect(() => { setRestartAsked(false); setLevelState("web"); }, [preview?.createdAt]);
+  useEffect(() => { setBuildAsked(false); }, [sessionId]);
   const simulatorAction = async (action: "start" | "stop") => {
     try {
       await omgFetch(`${PROJECT_PREVIEW_SIMULATOR_PATH}${suffix}`, {
@@ -91,17 +95,27 @@ export function ProjectPreviewCard({ sessionId, user, agentBusy = false }: { ses
     setLevelState(next);
     if (!expanded) setExpanded(true);
   };
-  const restart = async () => {
-    if (!sessionId || restartAsked) return;
-    setRestartAsked(true);
+  /** Sends one message to the session agent. Returns false when it did not arrive. */
+  const askAgent = async (text: string): Promise<boolean> => {
+    if (!sessionId) return false;
     try {
       const response = await omgFetch(`/api/sessions/${encodeURIComponent(sessionId)}/send`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: PROJECT_PREVIEW_RESTART_MESSAGE }),
+        body: JSON.stringify({ text }),
       });
-      if (!response.ok) setRestartAsked(false);
-    } catch { setRestartAsked(false); }
+      return response.ok;
+    } catch { return false; }
+  };
+  const restart = async () => {
+    if (!sessionId || restartAsked) return;
+    setRestartAsked(true);
+    if (!await askAgent(PROJECT_PREVIEW_RESTART_MESSAGE)) setRestartAsked(false);
+  };
+  const buildApp = async () => {
+    if (!sessionId || buildAsked) return;
+    setBuildAsked(true);
+    if (!await askAgent(PROJECT_PREVIEW_BUILD_ANDROID_MESSAGE)) setBuildAsked(false);
   };
   const openWeb = () => setOpen(true);
   // Android's Expo Go opens a project with no Expo account. Only an iPhone
@@ -120,6 +134,11 @@ export function ProjectPreviewCard({ sessionId, user, agentBusy = false }: { ses
   const closeSheet = () => { setSheet(null); void expo.cancel(); };
   const reopenSheet = () => setSheet({ mode: connectStatus?.state === "signup" ? "signup" : "login", run: connectStatus?.startedAt });
   const deviceAction = current === "device" && expoGoUrl && phone && !stopped;
+  // New customers do not have Expo Go. On Android and on a computer, "Your
+  // phone" leads with an installable Android app and keeps Expo Go as a
+  // smaller second choice. omg_build_android makes no iPhone app, so an
+  // iPhone keeps the Expo Go path.
+  const buildFirst = android || !phone;
   // Every live preview can open inline at phone size, a web app as much as an
   // Expo app (owner decision 2026-10-16: new apps start as web apps).
   const expandable = !stopped;
@@ -152,6 +171,8 @@ export function ProjectPreviewCard({ sessionId, user, agentBusy = false }: { ses
             keeps the action of the level it shows. */}
         {stopped ? null : expanded
           ? current === "web" ? <Button size="icon-sm" variant="ghost" onClick={openWeb} aria-label="Full screen web preview" title="Full screen" data-testid="project-preview-fullscreen"><Maximize2 className="size-4" /></Button> : null
+          : deviceAction && buildFirst
+          ? <BuildAppButton asked={buildAsked} onBuild={() => void buildApp()} />
           : deviceAction && needsConnect
           ? <Button size="sm" disabled={connecting} onClick={() => void connect()} data-testid="project-preview-connect-expo">Connect Expo</Button>
           : deviceAction
@@ -173,6 +194,7 @@ export function ProjectPreviewCard({ sessionId, user, agentBusy = false }: { ses
           : current === "simulator" && state?.simulator
           ? <SimulatorLevel stream={state.simulator} webUrl={inlinePreviewUrl(preview)} identity={previewAppIdentity(preview)} title={preview.title} onStart={() => void simulatorAction("start")} />
           : <DeviceLevel url={expoGoUrl!} phone={phone} android={android} account={expo.account} error={expo.error} connecting={connecting}
+              build={buildFirst ? { asked: buildAsked, onBuild: () => void buildApp() } : null}
               onConnect={(mode) => void connect(mode)} onOpenComputer={reopenSheet} onCancel={() => void expo.cancel()} />}
         {/* The level switcher sits under the preview, with the two small links. */}
         <div className="mt-2 flex items-center gap-2">
@@ -295,6 +317,14 @@ const LEVEL_ICON: Record<PreviewLevel, typeof Globe2> = { web: Globe2, simulator
 
 const DEVICE_INFO = "An iPhone opens the app only when Expo Go and the Computer use the same Expo account. Android needs no account.";
 
+/** The main action for an Android app. Disabled once the agent has the request. */
+function BuildAppButton({ asked, onBuild, className }: { asked: boolean; onBuild(): void; className?: string }) {
+  return <Button size="sm" className={className} disabled={asked} onClick={onBuild} data-testid="project-preview-build-android">
+    {asked ? <Check className="size-4" aria-hidden /> : <Download className="size-4" aria-hidden />}
+    {asked ? "Asked the agent to build it" : "Build Android app"}
+  </Button>;
+}
+
 /** Long explanations live behind a small icon: a tooltip on hover, a line on tap. */
 function InfoTip({ text, store }: { text: string; store: { url: string; name: string } | null }) {
   const [shown, setShown] = useState(false);
@@ -316,8 +346,10 @@ function InfoTip({ text, store }: { text: string; store: { url: string; name: st
  * signed out, the card offers "Create free account" and "I have one". Signed
  * in, three short steps. The rules are in the info tip.
  */
-function DeviceLevel({ url, phone, android, account, error, connecting, onConnect, onOpenComputer, onCancel }: {
+function DeviceLevel({ url, phone, android, account, error, connecting, build, onConnect, onOpenComputer, onCancel }: {
   url: string; phone: boolean; android: boolean; account: ExpoAccountSnapshot | null; error: string | null; connecting: boolean;
+  /** Set on Android and on a computer: the installable app comes first, Expo Go second. */
+  build: { asked: boolean; onBuild(): void } | null;
   onConnect(mode: ExpoConnectMode): void; onOpenComputer(): void; onCancel(): void;
 }) {
   // Android's Expo Go and older Computers (no account check) need no sign-in.
@@ -349,12 +381,26 @@ function DeviceLevel({ url, phone, android, account, error, connecting, onConnec
           : <span className="text-xs font-medium">Scan with Expo Go</span>}
       </div>;
   const qr = phone ? null : `data:image/svg+xml;utf8,${encodeURIComponent(renderSVG(url, { border: 1 }))}`;
-  return <div className="mt-2.5 flex items-center justify-center gap-4 py-2" data-testid="project-preview-device">
-    {qr ? <img className="size-24 shrink-0 rounded-md bg-white p-1" src={qr} alt="QR code that opens this app in Expo Go" data-testid="expo-go-guide" /> : null}
+  const expoGo = <div className={cn("flex items-center justify-center gap-4", build ? "py-1" : "py-2")}>
+    {qr ? <img className={cn("shrink-0 rounded-md bg-white p-1", build ? "size-20" : "size-24")} src={qr} alt="QR code that opens this app in Expo Go" data-testid="expo-go-guide" /> : null}
     <div className="flex flex-col items-center gap-1">
       {action}
       {error ? <p className="text-xs text-destructive" role="alert">{error}</p> : null}
     </div>
+  </div>;
+  if (!build) return <div className="mt-2.5" data-testid="project-preview-device">{expoGo}</div>;
+  return <div className="mt-2.5 flex flex-col items-center gap-2 py-2" data-testid="project-preview-device">
+    <div className="flex flex-col items-center gap-1.5" data-testid="project-preview-install">
+      <BuildAppButton asked={build.asked} onBuild={build.onBuild} />
+      <p className="max-w-64 text-center text-xs text-muted-foreground">{build.asked
+        ? "The agent sends the install link when the build is done."
+        : "Install your app on an Android phone. The agent builds it and sends you the link."}</p>
+    </div>
+    {android
+      // Android: one small link. A person who already has Expo Go can still use it.
+      ? <p className="text-xs text-muted-foreground" data-testid="project-preview-expo-go-option">Have Expo Go?{" "}
+          <a className="font-medium text-primary" href={url} data-testid="project-preview-expo-go">Open in Expo Go</a></p>
+      : <div className="w-full border-t pt-2 text-xs text-muted-foreground" data-testid="project-preview-expo-go-option">{expoGo}</div>}
   </div>;
 }
 

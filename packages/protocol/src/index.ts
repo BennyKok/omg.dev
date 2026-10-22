@@ -1,7 +1,7 @@
 export { APP_BUILDER_PRESET, APP_BUILDER_MODEL, APP_BUILDER_REVIEWER, APP_BUILDER_DESIGN_REVIEWER } from "./builder-presets.js";
 export type { BrowserLoginRequest, BrowserLoginSnapshot, BrowserLoginCookie } from "./browser-login";
 export type { PreviewLevel, ProjectPreview, ProjectPreviewSnapshot, SimulatorStream, SimulatorStreamProvider } from "./project-preview";
-export { inlinePreviewUrl, PREVIEW_LEVEL_LABEL, PROJECT_PREVIEW_RESTART_MESSAGE, PROJECT_PREVIEW_SIMULATOR_PATH, previewLevels, simulatorStatusText } from "./project-preview.js";
+export { inlinePreviewUrl, PREVIEW_LEVEL_LABEL, PROJECT_PREVIEW_BUILD_ANDROID_MESSAGE, PROJECT_PREVIEW_RESTART_MESSAGE, PROJECT_PREVIEW_SIMULATOR_PATH, previewLevels, simulatorStatusText } from "./project-preview.js";
 export type { ExpoAccountSnapshot, ExpoConnectMode, ExpoConnectState, ExpoConnectStatus } from "./expo-account";
 export { EXPO_SIGNUP_LABEL, expoConnectActive, expoConnectMessage } from "./expo-account.js";
 export type { KioskFrame, KioskRect } from "./computer-kiosk";
