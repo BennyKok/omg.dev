@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## October 22, 2026 - Clearer build chats and Android installs (v0.6.277)
+
+- The hosted dashboard hides the omg.dev instructions block in chats. Session previews and list rows show only your request.
+- Messages that omg.dev sends to the agent show as a grey line. They no longer look like messages you sent.
+- On an Android phone or a computer, "Your phone" offers "Build Android app" first. The agent builds your app and sends the install link. Expo Go stays available as a second option.
+- The Computer tab releases keys that a viewer left held down, so clicks reach apps again.
+
 ## October 21, 2026 - Faster message sending (v0.6.276)
 
 - Sending a message and receiving a reply keep unchanged chat bubbles intact. Long chats do less repeated rendering work.
