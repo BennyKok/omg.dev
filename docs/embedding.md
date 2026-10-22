@@ -67,7 +67,27 @@ host portals into them:
 | `rail-footer` | Bottom of the desktop rail | `data-lfg-rail-collapsed="true"` when the rail is at 56px, so the host can stack vertically |
 | `header-actions` | Inside the mobile header island, before the Pages menu | `data-lfg-host-settings="menu"` when the Pages menu is already offering your Settings, so your own control there is redundant. `data-lfg-host-drawer="footer"` when the phone navigation drawer offers a `drawer-footer` slot |
 | `drawer-footer` | Footer of the phone navigation drawer, above Settings | Exists only while the drawer is open. Read `data-lfg-host-drawer="footer"` on `header-actions` to know it is available. A tap inside it closes the drawer |
-| `create-home` | Phone Create page, below the chat box and above Your apps | None. Its height counts when the page centers the chat box, so the whole group stays on screen |
+
+### Tutorials on the Create page
+
+`tutorials` puts the host's tutorials on the phone Create page, as cards below
+the chat box. The surface draws the cards. The host owns the list, each run's
+progress, and what Start or Continue does. While there are cards, the starter
+row above the chat box hides on Create.
+
+A surface can keep the props of its first render, so `tutorials` is a small
+store, not a list:
+
+```ts
+tutorials={{
+  getCards: () => cards,          // same array until the cards change
+  subscribe: (onChange) => unsubscribe,
+  onSelect: (id) => startOrContinue(id),
+  onSeeAll: () => openTutorialsPage(),
+}}
+```
+
+Each card is `{ id, title, imageUrl, detail, status: "start" | "continue", disabled? }`.
 
 Two host callbacks address settings, and they are not interchangeable:
 

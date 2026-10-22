@@ -147,6 +147,36 @@ export interface ComposerGuide {
   registerFill?: (fill: (text: string) => boolean | void, surface: ComposerGuideSurface, sessionId?: string) => (() => void) | void;
 }
 
+/**
+ * A host's tutorials on the phone Create page (OmgAppSurfaceProps.tutorials).
+ * The surface draws the cards; the host owns the list, each run's progress,
+ * and what Start or Continue does. A surface can outlive the props of its
+ * first render, so this is a small store: the surface reads `getCards()` and
+ * redraws on every `subscribe` notice. `getCards()` must return the same array
+ * until the cards change. No cards, no row.
+ */
+export interface HostTutorials {
+  getCards: () => readonly HostTutorialCard[];
+  subscribe: (onChange: () => void) => () => void;
+  /** Start the tutorial, or continue the run that is open. */
+  onSelect: (id: string) => void;
+  /** Opens the host's full list of tutorials. */
+  onSeeAll?: () => void;
+}
+
+export interface HostTutorialCard {
+  id: string;
+  title: string;
+  /** A picture of the finished result, as an absolute URL. */
+  imageUrl: string;
+  /** One short line, for example "6 steps · 10 min". */
+  detail: string;
+  /** "continue" while this tutorial's run is open. */
+  status: "start" | "continue";
+  /** Another run is open, or the host is starting one. */
+  disabled?: boolean;
+}
+
 /** A host's own pill in the home composer's starter row (OmgAppSurfaceProps.starterChips). */
 export interface HostStarterChip {
   id: string;
@@ -219,6 +249,8 @@ export interface OmgAppSurfaceProps {
   composerGuide?: ComposerGuide;
   /** The host's own pills, drawn first in the home composer's starter row, for example "Tutorials". */
   starterChips?: HostStarterChip[];
+  /** The host's tutorials as cards on the phone Create page (see HostTutorials). */
+  tutorials?: HostTutorials;
   /**
    * Open one of the machine's settings pages (the ones OmgSettingsSurface
    * mounts) in the HOST's own navigation.

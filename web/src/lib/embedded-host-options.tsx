@@ -118,6 +118,11 @@ export interface EmbeddedHostOptions {
    * built-in starters.
    */
   starterChips?: HostStarterChip[];
+  /**
+   * The host's tutorials, drawn as cards below the chat box on the phone
+   * Create page. While there are cards, the starter row hides there.
+   */
+  tutorials?: HostTutorials;
 }
 
 /**
@@ -131,6 +136,36 @@ export interface HostStarterChip {
   /** A built-in mark: "tutorial" (a graduation cap). */
   icon?: "tutorial";
   onSelect: () => void;
+}
+
+/**
+ * A host's tutorials on the phone Create page (OmgAppSurfaceProps.tutorials).
+ * The surface draws the cards; the host owns the list, each run's progress,
+ * and what Start or Continue does. A surface can outlive the props of its
+ * first render, so this is a small store: the surface reads `getCards()` and
+ * redraws on every `subscribe` notice. `getCards()` must return the same array
+ * until the cards change. No cards, no row.
+ */
+export interface HostTutorials {
+  getCards: () => readonly HostTutorialCard[];
+  subscribe: (onChange: () => void) => () => void;
+  /** Start the tutorial, or continue the run that is open. */
+  onSelect: (id: string) => void;
+  /** Opens the host's full list of tutorials. */
+  onSeeAll?: () => void;
+}
+
+export interface HostTutorialCard {
+  id: string;
+  title: string;
+  /** A picture of the finished result, as an absolute URL. */
+  imageUrl: string;
+  /** One short line, for example "6 steps · 10 min". */
+  detail: string;
+  /** "continue" while this tutorial's run is open. */
+  status: "start" | "continue";
+  /** Another run is open, or the host is starting one. */
+  disabled?: boolean;
 }
 
 export type ComposerGuideSurface = "new-session" | "session";

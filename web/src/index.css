@@ -3068,13 +3068,6 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
   to { opacity: 1; }
 }
 
-/* The phone Create page: a host that fills its create-home slot (omg.dev puts
-   its tutorials there) replaces the starter pills above the chat box. Without a
-   host the slot stays empty and the pills stay. Unlayered, so it wins over the
-   row's own `flex` utility. */
-:root:has([data-lfg-host-slot="create-home"]:not(:empty)) .lfg-create-starters {
-  display: none;
-}
 
 /* The phone Create page backdrop (CreateBackdrop in apps-home.tsx): soft
    clouds that drift on long loops. Only transform changes, so it stays on the
@@ -3088,13 +3081,13 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
 }
 .lfg-create-cloud-a {
   left: -45vmax;
-  top: 5%;
+  top: -12%;
   background: radial-gradient(closest-side, rgb(167 139 250 / 0.6), transparent);
   animation: lfg-create-drift-a 26s ease-in-out infinite alternate;
 }
 .lfg-create-cloud-b {
   right: -50vmax;
-  top: 0;
+  top: -28%;
   background: radial-gradient(closest-side, rgb(56 189 248 / 0.5), transparent);
   animation: lfg-create-drift-b 32s ease-in-out infinite alternate;
 }
@@ -3115,4 +3108,13 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
 }
 @media (prefers-reduced-motion: reduce) {
   .lfg-create-cloud { animation: none; }
+}
+
+/* The phone Create page: the header is clear, so the Create backdrop runs
+   under it to the top of the screen. Other pages keep the frosted header. */
+@media (max-width: 767px) {
+  html.lfg-create-view .mobile-scroll-header-fade::before,
+  html.lfg-create-view .mobile-scroll-header-fade::after {
+    content: none;
+  }
 }
