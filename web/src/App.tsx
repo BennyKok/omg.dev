@@ -17122,7 +17122,7 @@ function ThreadComposerBar({ testId, placeholder, onSend, autoFocus, onTyping, m
           />
           {text.trim() || files.attachments.length || sending ? (
             <ComposerSendButton
-              className="size-10 shrink-0 md:size-8"
+              className="size-11 shrink-0 md:size-8"
               sending={sending}
               defaultMode="steer"
               onSend={() => void send()}
@@ -18096,7 +18096,7 @@ function SessionChatBody({
             {(messageText.trim() || attachments.length || sending) &&
             (sending || !composerGuide?.accepts || composerGuide.accepts(messageText.trim(), "session", sid ?? undefined)) ? (
               <ComposerSendButton
-                className="size-10 shrink-0 md:size-8"
+                className="size-11 shrink-0 md:size-8"
                 sending={sending}
                 defaultMode={composerSendMode}
                 onSend={() => void sendMessage()}
@@ -25062,14 +25062,16 @@ function NewSessionDialog({
   );
   // Mobile sends with the iOS button: a round arrow, filled when there is
   // something to send. Thinking is set in the agent sheet, so the desktop
-  // Start button's hold-to-choose-thinking is not needed here.
+  // Start button's hold-to-choose-thinking is not needed here. Enter adds a
+  // line on every keyboard (⌘/Ctrl+Enter sends), so on a phone this button
+  // is the way to send: 44 px, the smallest comfortable touch target.
   const startButton = sheetShape ? (
     <button
       type="submit"
       disabled={!canSubmit && !canQueue}
       aria-label="Start session"
       title="Start session"
-      className="flex size-10 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition active:scale-95 disabled:bg-secondary disabled:text-muted-foreground"
+      className="flex size-11 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition active:scale-95 disabled:bg-secondary disabled:text-muted-foreground"
     >
       <ArrowUp className="size-5" strokeWidth={2.5} />
     </button>
