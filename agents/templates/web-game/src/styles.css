@@ -1,0 +1,190 @@
+/* Full-screen game page. Colours come from src/game/theme.ts as CSS variables
+   (--background, --surface, --accent, ...); change them there. */
+
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;              /* no page scroll while playing */
+  overscroll-behavior: none;     /* no pull-to-refresh or rubber band */
+  background: var(--background, #12172b);
+  color: var(--ink, #fff);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;    /* no double-tap zoom */
+}
+
+/* Fixed to the visible screen, so the iOS toolbar and the omg install bar never push the game. */
+#root { position: fixed; inset: 0; display: flex; flex-direction: column; }
+
+button { font: inherit; color: inherit; }
+
+/* ---------- screens ---------- */
+
+.screen {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  justify-content: center;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  user-select: none;
+  -webkit-user-select: none;
+}
+.screen.scroll { overflow-y: auto; overscroll-behavior: contain; }
+.column { width: 100%; max-width: 560px; display: flex; flex-direction: column; }
+.center { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 20px; }
+.title { margin: 0; font-size: 38px; font-weight: 900; text-align: center; letter-spacing: 0.5px; }
+.subtitle { margin: 0; color: var(--muted); font-size: 16px; text-align: center; }
+.score { margin: 0; color: var(--accent); font-size: 72px; font-weight: 900; line-height: 1; }
+.footer { margin: 0; color: var(--muted); font-size: 12px; text-align: center; }
+.stack { width: 100%; max-width: 320px; display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+
+.game-button {
+  min-height: 52px;
+  border-radius: 16px;
+  padding: 12px 16px;
+  font-size: 18px;
+  font-weight: 900;
+  cursor: pointer;
+  background: var(--accent);
+  color: var(--accentInk);
+  border: 2px solid var(--accent);
+  touch-action: manipulation;
+}
+.game-button.ghost { background: transparent; color: var(--ink); border-color: var(--surfaceBorder); }
+.game-button:active { opacity: 0.8; }
+.game-button:disabled { opacity: 0.4; cursor: default; }
+.game-button:focus-visible, .card:focus-visible, .switch:focus-visible, .pause-button:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 20px;
+  background: rgba(10, 13, 28, 0.85);
+}
+
+.stat-row { display: flex; justify-content: space-between; align-items: center; width: 100%; max-width: 320px; }
+.stat-label { color: var(--muted); font-size: 14px; }
+.stat-value { font-size: 16px; font-weight: 800; }
+.unlock-banner { width: 100%; max-width: 320px; background: var(--surface); border: 2px solid var(--accent); border-radius: 14px; padding: 12px; }
+.unlock-title { color: var(--accent); font-size: 16px; font-weight: 900; }
+
+.cards { display: flex; flex-direction: column; gap: 10px; padding: 16px; }
+.card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  background: var(--surface);
+  border: 2px solid var(--surfaceBorder);
+  border-radius: 14px;
+  padding: 14px;
+  cursor: pointer;
+}
+.card.selected { border-color: var(--accent); }
+.card.locked { opacity: 0.55; cursor: default; }
+.card-text { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.card-title { font-size: 16px; font-weight: 800; }
+.swatch { width: 36px; height: 36px; border-radius: 18px; flex: none; }
+
+.switch { width: 52px; height: 30px; border-radius: 15px; border: 0; padding: 3px; background: var(--surfaceBorder); cursor: pointer; display: flex; }
+.switch[aria-checked="true"] { background: var(--accent); justify-content: flex-end; }
+.switch-knob { width: 24px; height: 24px; border-radius: 12px; background: #fff; }
+
+/* ---------- play ---------- */
+
+.play {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.game-area { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+.game-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+.views { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 4px; pointer-events: none; }
+.view { position: relative; flex: 1; }
+
+.hud {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  display: flex;
+  justify-content: flex-start;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 64px 0 12px;      /* room for the pause button on the right */
+  pointer-events: none;
+}
+.hud-stat { background: rgba(18, 23, 43, 0.78); border-radius: 12px; padding: 6px 12px; display: flex; flex-direction: column; align-items: center; min-width: 64px; }
+.hud-label { color: var(--muted); font-size: 11px; font-weight: 800; letter-spacing: 1px; }
+.hud-value { font-size: 22px; font-weight: 900; font-variant-numeric: tabular-nums; }
+.hud-bar { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+.hud-track { height: 10px; border-radius: 5px; background: rgba(255, 255, 255, 0.18); overflow: hidden; }
+.hud-fill { height: 100%; border-radius: 5px; }
+
+.banner { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.banner span { font-size: 56px; font-weight: 900; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6); }
+
+.pause-button {
+  position: absolute;
+  right: 10px;
+  top: 8px;
+  z-index: 5;
+  width: 44px;
+  height: 44px;
+  border-radius: 22px;
+  border: 0;
+  background: rgba(18, 23, 43, 0.8);
+  font-weight: 900;
+  cursor: pointer;
+}
+
+/* ---------- touch controls ---------- */
+
+.touch-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 10px max(14px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
+  touch-action: none;
+}
+.control-side { display: flex; align-items: flex-end; gap: 12px; }
+.control-row { display: flex; align-items: center; gap: 8px; }
+.dpad { display: flex; flex-direction: column; justify-content: space-between; align-items: center; }
+.hold-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--surfaceBorder);
+  font-weight: 900;
+  font-size: 18px;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: pointer;
+}
+.hold-button[data-down] { opacity: 0.7; transform: scale(0.94); }
+.stick-base {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+  border: 2px solid var(--surfaceBorder);
+  touch-action: none;
+}
+.stick-knob { width: 44px; height: 44px; border-radius: 22px; background: var(--accent); pointer-events: none; }
