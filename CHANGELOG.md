@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 22, 2026 - Softer Create colours (v0.6.288)
+
+- The colours on the Create page are blurred and fade out toward the edges of the screen.
+
 ## October 22, 2026 - Chat box on app pages (v0.6.287)
 
 - On the phone, an app page shows the chat box at once. The "Change something" button is gone.
