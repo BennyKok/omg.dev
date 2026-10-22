@@ -77,12 +77,15 @@ type ResumableFacets = {
 export default function ResumeSessionSheet({
   initial,
   scopedProject,
+  initialSearch = "",
   onRestore,
   onPick,
   onClose,
 }: {
   initial: ResumableSession[] | null;
   scopedProject: string;
+  /** Start on Sessions, searched for this text. */
+  initialSearch?: string;
   onRestore: (entry: PromptStashEntry) => void;
   onPick: (session: ResumableSession) => void;
   onClose: () => void;
@@ -91,11 +94,11 @@ export default function ResumeSessionSheet({
   const scoped = scopedProject && scopedProject !== "__all" ? scopedProject : "all";
   const initialStash = readPromptStash();
   const [view, setView] = useState<"stash" | "sessions">(() =>
-    initialStash.some((entry) => entry.status !== "sent") ? "stash" : "sessions",
+    !initialSearch && initialStash.some((entry) => entry.status !== "sent") ? "stash" : "sessions",
   );
   const [stash, setStash] = useState(initialStash);
-  const [search, setSearch] = useState("");
-  const [debounced, setDebounced] = useState("");
+  const [search, setSearch] = useState(initialSearch);
+  const [debounced, setDebounced] = useState(initialSearch.trim());
   const [agent, setAgent] = useState("all");
   const [project, setProject] = useState(scoped);
   // Headless auto-agent runs are the bulk of the catalog and none of them is a
@@ -266,8 +269,10 @@ export default function ResumeSessionSheet({
               ) : null}
             </div>
 
-            <div className="mt-2 flex items-center gap-1.5">
-              <div className="relative min-w-0 flex-1">
+            {/* On a phone the search takes its own line: beside the filters it
+                was too narrow to show what it searched for. */}
+            <div className="mt-2 flex flex-wrap items-center gap-1.5 sm:flex-nowrap">
+              <div className="relative min-w-0 flex-1 basis-full sm:basis-0">
                 <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/70" />
                 <input
                   ref={searchRef}

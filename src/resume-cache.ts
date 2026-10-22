@@ -59,6 +59,10 @@ export type ResumableQuery = {
   agent?: string;
   // Exact project match — omit for all projects.
   project?: string;
+  // Folders that link to a hosted app (`.omg/project.json`). A search term in
+  // an app's name also finds the sessions run in its folder, so a session
+  // titled "Build a quest game" is found by the app it made, "questnest".
+  appFolders?: readonly { cwd: string; name: string }[];
   // Exact cwd match — used to page one folder ahead of everything else.
   cwd?: string;
   // Currently-live session ids to hide (they belong in the live list, not here).
@@ -462,7 +466,10 @@ export function updateCachedSessionTitle(sessionId: string, title: string): bool
 
 // Turn "foo bar" into an AND of case-insensitive substring predicates over the
 // searchable columns, plus the bound params. Empty query -> no predicate.
-function searchClause(search: string | undefined): { sql: string; params: string[] } {
+function searchClause(
+  search: string | undefined,
+  appFolders: readonly { cwd: string; name: string }[] = [],
+): { sql: string; params: string[] } {
   const terms = (search ?? "")
     .trim()
     .toLowerCase()
@@ -474,10 +481,17 @@ function searchClause(search: string | undefined): { sql: string; params: string
   const clauses = terms.map((term) => {
     const like = `%${term.replace(/[%_\\]/g, (ch) => `\\${ch}`)}%`;
     params.push(like, like, like);
+    const folders = appFolders.filter((app) => app.name.toLowerCase().includes(term));
+    const byApp = folders.map((app) => {
+      params.push(app.cwd, `${app.cwd.replace(/[%_\\]/g, (ch) => `\\${ch}`)}/%`);
+      return " OR cwd = ? OR cwd LIKE ? ESCAPE '\\'";
+    });
     return (
       "(LOWER(title) LIKE ? ESCAPE '\\'" +
       " OR LOWER(COALESCE(last_user_text,'')) LIKE ? ESCAPE '\\'" +
-      " OR LOWER(project) LIKE ? ESCAPE '\\')"
+      " OR LOWER(project) LIKE ? ESCAPE '\\'" +
+      byApp.join("") +
+      ")"
     );
   });
   return { sql: clauses.join(" AND "), params };
@@ -494,7 +508,7 @@ export function queryResumableCache(opts: ResumableQuery = {}): ResumableQueryRe
   const limit = Math.max(1, Math.min(200, opts.limit ?? 30));
   const offset = Math.max(0, opts.offset ?? 0);
 
-  const search = searchClause(opts.search);
+  const search = searchClause(opts.search, opts.appFolders);
   const exclude = excludeClause(opts.excludeIds);
 
   // Facets ignore the agent/project selection (so chip counts stay stable while

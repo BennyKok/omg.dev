@@ -550,6 +550,11 @@ export async function handleCloudAppsRequest(
       }
       return jsonResponse(await client.getStatus(slug));
     }
+    if (path === "/api/cloud/apps/stats" && req.method === "GET") {
+      const slug = url.searchParams.get("slug")?.trim() ?? "";
+      if (!slug) return jsonResponse({ error: "slug is required" }, 400);
+      return jsonResponse(await client.getVisits(slug, Number(url.searchParams.get("days")) || 7));
+    }
     if (path === "/api/cloud/apps/visibility" && req.method === "GET") {
       const slug = url.searchParams.get("slug")?.trim() ?? "";
       if (!slug) return jsonResponse({ error: "slug is required" }, 400);
