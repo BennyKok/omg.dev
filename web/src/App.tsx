@@ -23978,9 +23978,14 @@ function NewSessionDialog({
     const bar = inlineBarRef.current;
     if (!bar) return;
     const sync = () => {
+      const rect = bar.getBoundingClientRect();
+      document.documentElement.style.setProperty("--lfg-inline-composer-height", `${Math.ceil(rect.height)}px`);
+      // For an embedding host's toasts: the distance from the bottom of the
+      // screen to the top of this chat box. No stylesheet default, so it
+      // exists only while the box is on screen (docs/embedding.md).
       document.documentElement.style.setProperty(
-        "--lfg-inline-composer-height",
-        `${Math.ceil(bar.getBoundingClientRect().height)}px`,
+        "--lfg-host-toast-clear",
+        `${Math.max(0, Math.ceil(window.innerHeight - rect.top))}px`,
       );
     };
     sync();
@@ -23991,6 +23996,7 @@ function NewSessionDialog({
       ro.disconnect();
       window.removeEventListener("resize", sync);
       document.documentElement.style.removeProperty("--lfg-inline-composer-height");
+      document.documentElement.style.removeProperty("--lfg-host-toast-clear");
     };
   }, [variant]);
   // True while the post-commit swap animation is in flight. Committing a swipe
