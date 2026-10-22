@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 22, 2026 - Smooth page changes (v0.6.291)
+
+- Switching between Create, Apps, and Chats on the phone fades the Create colours in and out. The colours continue where they were.
+
 ## October 22, 2026 - Gentle colour movement (v0.6.290)
 
 - The colours on the Create page move slowly and steadily. With Reduce Motion on, they stay still.
