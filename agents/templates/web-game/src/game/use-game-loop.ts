@@ -6,6 +6,7 @@
 // frame: read HUD numbers with `useLiveValue`, which redraws only when they change.
 import { useEffect, useRef, useState } from "react";
 import { createLoop, type LoopOptions } from "./loop";
+import { testSpeed } from "./test-mode";
 
 export function useGameLoop(
   update: (step: number) => void,
@@ -26,7 +27,8 @@ export function useGameLoop(
     const tick = (now: number) => {
       const dt = last ? (now - last) / 1000 : 0;
       last = now;
-      if (!pausedRef.current) loop.advance(dt, (s) => updateRef.current(s));
+      // testSpeed() is 1 except in check:play's test mode (?test=1), which ends a round quickly.
+      if (!pausedRef.current) for (let i = testSpeed(); i > 0; i--) loop.advance(dt, (s) => updateRef.current(s));
       drawRef.current?.(loop.alpha());
       raf = requestAnimationFrame(tick);
     };

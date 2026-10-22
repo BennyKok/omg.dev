@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <!-- Coin Dash sample art: the coin score badge. Replace it with your game's score item. -->
+  <circle cx="12" cy="12" r="10.5" fill="#E3A834"/>
+  <circle cx="12" cy="11.2" r="9.6" fill="#FFC84A"/>
+  <circle cx="12" cy="11.2" r="7" fill="none" stroke="#E4AA36" stroke-width="1.3"/>
+  <path d="M12 6.6l1.4 2.9 3.2.4-2.3 2.2.6 3.2L12 13.8l-2.9 1.5.6-3.2-2.3-2.2 3.2-.4z" fill="#fff" opacity=".95"/>
+</svg>
