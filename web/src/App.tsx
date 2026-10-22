@@ -14915,7 +14915,8 @@ export function SessionGroups({
       ) : null}
       {groups.map((group) =>
         headerless ? (
-          <div key={group.key} className={cn("flex flex-col", dense ? "gap-0.5" : "gap-2")}>
+          // One project in scope: no folder heading, and the same card.
+          <div key={group.key} className={cn("flex flex-col", card ? COMPACT_CARD_CLASS : dense ? "gap-0.5" : "gap-2")}>
             {group.nodes.map((node) => renderNode(node))}
           </div>
         ) : (
@@ -15077,7 +15078,7 @@ function RailGroup({
       {collapsed || !folded ? (
         <div className={cn(
           "flex flex-col",
-          card ? "overflow-hidden rounded-[18px] border border-border bg-card [&>*]:rounded-none [&>*+*]:border-t [&>*+*]:border-border" : "gap-0.5",
+          card ? COMPACT_CARD_CLASS : "gap-0.5",
         )}>{children}</div>
       ) : null}
     </div>
@@ -15103,6 +15104,10 @@ function RailGroup({
  * conversation) and which swipe actions, if any, make sense for what the row
  * represents.
  */
+/** Compact rows sit in one card, divided by straight lines. */
+const COMPACT_CARD_CLASS =
+  "overflow-hidden rounded-[18px] border border-border bg-card [&>*]:rounded-none [&>*+*]:border-t [&>*+*]:border-border";
+
 /** PullToThread, or the content alone while Threads are hidden. */
 function PullToThreadWhen({ enabled, onStart, children }: { enabled: boolean; onStart: () => void; children: ReactNode }) {
   return enabled ? <PullToThread onStart={onStart}>{children}</PullToThread> : <>{children}</>;
@@ -15505,10 +15510,15 @@ function CompactSessionRow({ session, busy, onOpen, users, userFilter, active = 
       )}
     >
       {busy ? <Spinner /> : <Check className="size-3.5 shrink-0 text-emerald-500" aria-hidden="true" />}
+      {/* Whose session it is, while the list shows everyone's. Every row keeps
+          the slot, so titles line up when a session has no owner. */}
+      {users.length > 1 && userFilter === "__all" ? (
+        <span className="flex size-4 shrink-0 items-center justify-center">
+          <SessionAssigneeAvatar session={session} users={users} userFilter={userFilter} hideWhenRedundant size="xs" />
+        </span>
+      ) : null}
       <span className={cn("min-w-0 flex-1 truncate", dense ? "text-[13px]" : "text-[14px]", unread ? "font-semibold" : "font-medium")}>{title}</span>
       {unread ? <span className={UNREAD_DOT_CLASS} aria-hidden="true" /> : null}
-      {/* Whose session it is, while the list shows everyone's. */}
-      <SessionAssigneeAvatar session={session} users={users} userFilter={userFilter} hideWhenRedundant size="xs" />
       {session.lastActivityAt ? (
         <span className="shrink-0 text-[12px] text-muted-foreground">{timeAgo(session.lastActivityAt)}</span>
       ) : null}
