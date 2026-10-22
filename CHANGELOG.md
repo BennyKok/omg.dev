@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## October 22, 2026 - Chat box at the bottom on Create (v0.6.282)
+
+- On the phone Create page, the chat box stays at the bottom, as on every other page. "What do you want to make?" and the tutorials sit above it.
+- The phone no longer shows the starter row above the chat box.
+- Pulling the session list down starts a thread only when Threads is on in Settings. The list updates live, so it needs no pull to refresh.
+- When the list shows all users, each short session row shows whose session it is.
+
 ## October 22, 2026 - Tutorials on Create, and a steadier keyboard (v0.6.281)
 
 - On omg.dev, the tutorial cards on the Create page are drawn by the app itself, so they stay in place when you move between pages.
