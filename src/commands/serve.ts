@@ -5828,6 +5828,7 @@ a{color:#60a5fa}
         path === "/api/cloud/apps" ||
         path === "/api/cloud/apps/deploy" ||
         path === "/api/cloud/apps/status" ||
+        path === "/api/cloud/apps/stats" ||
         path === "/api/cloud/apps/visibility" ||
         path === "/api/cloud/apps/rename" ||
         path === "/api/cloud/apps/test-checkout" ||
@@ -6093,6 +6094,16 @@ a{color:#60a5fa}
             if (typeof b.showSessionDiffBar !== "boolean")
               return err(400, "showSessionDiffBar must be a boolean");
             patch.showSessionDiffBar = b.showSessionDiffBar;
+          }
+          if (b?.showSessionDetails !== undefined) {
+            if (typeof b.showSessionDetails !== "boolean")
+              return err(400, "showSessionDetails must be a boolean");
+            patch.showSessionDetails = b.showSessionDetails;
+          }
+          if (b?.showThreads !== undefined) {
+            if (typeof b.showThreads !== "boolean")
+              return err(400, "showThreads must be a boolean");
+            patch.showThreads = b.showThreads;
           }
           if (b?.showComposerFastMode !== undefined) {
             if (typeof b.showComposerFastMode !== "boolean")
@@ -9144,10 +9155,16 @@ a{color:#60a5fa}
         // They are the bulk of the catalog on a box with active auto agents
         // and none of them is a conversation a human wants to resume.
         const includeScheduled = url.searchParams.get("includeScheduled") === "1";
+        // A search also finds sessions by the app their folder links to.
+        const appFolders = search
+          ? (await listRepos().catch(() => [])).flatMap((repo) =>
+              repo.deploy ? [{ cwd: repo.cwd, name: `${repo.deploy.name ?? ""} ${repo.deploy.slug}` }] : [])
+          : undefined;
         const { sessions, total, facets, scheduledTotal } = await queryResumable({
           limit,
           offset,
           search,
+          appFolders,
           agent,
           project,
           includeScheduled,

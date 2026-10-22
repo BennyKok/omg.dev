@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { LayoutGrid, MessagesSquare, Sparkles, ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { arrangeFolders, type FolderMenuPrefs } from "../lib/folder-menu-prefs";
 import { NO_PROJECT_FILTER, projectFilterLabel } from "../lib/project-filter";
 
@@ -69,8 +69,12 @@ function arrangedOptions(
 }
 
 /** A scrollable view of the shell's project filter; owns no selection state. */
-export function ProjectPillRail({ projects, value, onChange, onManageFolders, touch = false }: {
+/** A view pill before the folders (Create, Apps). While one is pressed, no folder pill is. */
+export type ViewPill = { id: string; label: string; icon: "create" | "apps" | "chats"; pressed: boolean; onPress: () => void };
+
+export function ProjectPillRail({ projects, value, onChange, onManageFolders, touch = false, leading }: {
   projects: ProjectPill[];
+  leading?: readonly ViewPill[];
   value: string;
   onChange: (value: string) => void;
   /** Open the shared folder settings without changing the selected scope. */
@@ -78,6 +82,7 @@ export function ProjectPillRail({ projects, value, onChange, onManageFolders, to
   /** Phone layout, as on iOS: swipe to scroll, so no arrows and no divider. */
   touch?: boolean;
 }) {
+  const viewPressed = !!leading?.some((pill) => pill.pressed);
   const press = useRef<{ timer: ReturnType<typeof setTimeout>; x: number; y: number; pointerId: number } | null>(null);
   const suppressClick = useRef(false);
   const cancelPress = () => {
@@ -117,7 +122,7 @@ export function ProjectPillRail({ projects, value, onChange, onManageFolders, to
     if (viewport.current) observer.observe(viewport.current);
     if (content.current) observer.observe(content.current);
     return () => observer.disconnect();
-  }, [value, projectKey]);
+  }, [value, projectKey, viewPressed]);
 
   const move = (direction: number) => {
     const el = viewport.current;
@@ -140,8 +145,19 @@ export function ProjectPillRail({ projects, value, onChange, onManageFolders, to
                 folders. Clearing the scope is the selected pill's own job
                 now — press it again — so the row is folders and nothing
                 else. */}
+            {leading?.map((pill) => {
+              const Icon = pill.icon === "create" ? Sparkles : pill.icon === "apps" ? LayoutGrid : MessagesSquare;
+              return (
+                <button key={pill.id} type="button" aria-pressed={pill.pressed} onClick={pill.onPress}
+                  onFocus={(event) => reveal(event.currentTarget)}
+                  className={`flex h-[34px] shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-[13px] font-semibold outline-offset-2 focus-visible:outline-2 focus-visible:outline-primary ${pill.pressed ? "border-[var(--border-strong)] bg-card text-foreground" : "border-transparent bg-secondary text-muted-foreground hover:text-foreground"}`}>
+                  <Icon className="size-3.5" aria-hidden="true" />
+                  {pill.label}
+                </button>
+              );
+            })}
             {projects.map((project) => (
-              <button key={project.value} type="button" aria-pressed={value === project.value}
+              <button key={project.value} type="button" aria-pressed={!viewPressed && value === project.value}
                 title={project.label} aria-label={project.icon ? project.label : undefined}
                 onPointerDown={(event) => {
                   cancelPress();
@@ -179,7 +195,7 @@ export function ProjectPillRail({ projects, value, onChange, onManageFolders, to
                 }}
                 onFocus={(event) => reveal(event.currentTarget)}
                 style={onManageFolders ? { WebkitTouchCallout: "none", userSelect: "none" } : undefined}
-                className={`h-[34px] shrink-0 rounded-full border outline-offset-2 focus-visible:outline-2 focus-visible:outline-primary ${project.icon ? "flex w-[34px] items-center justify-center" : "max-w-[180px] truncate px-3.5 text-[13px] font-semibold"} ${value === project.value ? "border-[var(--border-strong)] bg-card text-foreground" : "border-transparent bg-secondary text-muted-foreground hover:text-foreground"}`}>
+                className={`h-[34px] shrink-0 rounded-full border outline-offset-2 focus-visible:outline-2 focus-visible:outline-primary ${project.icon ? "flex w-[34px] items-center justify-center" : "max-w-[180px] truncate px-3.5 text-[13px] font-semibold"} ${!viewPressed && value === project.value ? "border-[var(--border-strong)] bg-card text-foreground" : "border-transparent bg-secondary text-muted-foreground hover:text-foreground"}`}>
                 {project.icon === "plus" ? <Plus className="size-4" /> : project.label}
               </button>
             ))}

@@ -95,6 +95,12 @@ export type GlobalSettings = {
   // Off hides the Fast pill in the composer; new sessions launch without
   // fast mode.
   showComposerFastMode: boolean;
+  // Off by default: session lists show one compact line per session (status,
+  // title, time). On adds the agent mark and the last message to each row.
+  showSessionDetails: boolean;
+  // Threads above the session lists. Off by default: most people work in
+  // sessions, and a thread stays reachable at its own address.
+  showThreads: boolean;
   // What a plain send (Enter, tap) does while the agent is on a turn. "steer"
   // interrupts the turn with the new text. "queue" holds the text as an
   // editable card until the turn ends. The other mode stays one gesture away
@@ -281,6 +287,8 @@ function sanitize(
   // does not see Fast mode. A box that has saved settings before keeps the
   // value it saved, because every save writes this key.
   const showComposerFastMode = input?.showComposerFastMode === true;
+  const showSessionDetails = input?.showSessionDetails === true;
+  const showThreads = input?.showThreads === true;
   const composerSendMode: ComposerSendMode = input?.composerSendMode === "queue" ? "queue" : "steer";
   // Anything unrecognised, including a value written by a newer build, reads
   // as the default rather than disabling the feature.
@@ -316,6 +324,8 @@ function sanitize(
     showSchedules,
     showSessionDiffBar,
     showComposerFastMode,
+    showSessionDetails,
+    showThreads,
     composerSendMode,
     autoSessionTitles,
     folderOrder,
@@ -440,6 +450,8 @@ export async function setGlobalSettings(patch: Partial<GlobalSettings>): Promise
     write.run("showSchedules", JSON.stringify(next.showSchedules), now);
     write.run("showSessionDiffBar", JSON.stringify(next.showSessionDiffBar), now);
     write.run("showComposerFastMode", JSON.stringify(next.showComposerFastMode), now);
+    write.run("showSessionDetails", JSON.stringify(next.showSessionDetails), now);
+    write.run("showThreads", JSON.stringify(next.showThreads), now);
     write.run("composerSendMode", JSON.stringify(next.composerSendMode), now);
     write.run("autoSessionTitles", JSON.stringify(next.autoSessionTitles), now);
     write.run("folderOrder", JSON.stringify(next.folderOrder), now);

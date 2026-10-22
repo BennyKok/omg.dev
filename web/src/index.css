@@ -3067,3 +3067,52 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
   from { opacity: 0; }
   to { opacity: 1; }
 }
+
+/* The phone Create page: a host that fills its create-home slot (omg.dev puts
+   its tutorials there) replaces the starter pills above the chat box. Without a
+   host the slot stays empty and the pills stay. Unlayered, so it wins over the
+   row's own `flex` utility. */
+:root:has([data-lfg-host-slot="create-home"]:not(:empty)) .lfg-create-starters {
+  display: none;
+}
+
+/* The phone Create page backdrop (CreateBackdrop in apps-home.tsx): soft
+   clouds that drift on long loops. Only transform changes, so it stays on the
+   compositor. */
+.lfg-create-cloud {
+  position: absolute;
+  width: 90vmax;
+  height: 70vmax;
+  border-radius: 9999px;
+  will-change: transform;
+}
+.lfg-create-cloud-a {
+  left: -45vmax;
+  top: 5%;
+  background: radial-gradient(closest-side, rgb(167 139 250 / 0.6), transparent);
+  animation: lfg-create-drift-a 26s ease-in-out infinite alternate;
+}
+.lfg-create-cloud-b {
+  right: -50vmax;
+  top: 0;
+  background: radial-gradient(closest-side, rgb(56 189 248 / 0.5), transparent);
+  animation: lfg-create-drift-b 32s ease-in-out infinite alternate;
+}
+.lfg-create-cloud-c {
+  left: -10vmax;
+  top: 35%;
+  background: radial-gradient(closest-side, rgb(251 146 60 / 0.4), transparent);
+  animation: lfg-create-drift-c 38s ease-in-out infinite alternate;
+}
+@keyframes lfg-create-drift-a {
+  to { transform: translate3d(18vw, 12vh, 0) scale(1.15); }
+}
+@keyframes lfg-create-drift-b {
+  to { transform: translate3d(-22vw, 16vh, 0) scale(0.9); }
+}
+@keyframes lfg-create-drift-c {
+  to { transform: translate3d(14vw, -14vh, 0) scale(1.1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lfg-create-cloud { animation: none; }
+}
