@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { renderSVG } from "uqr";
 import {
-  inlinePreviewUrl, PREVIEW_LEVEL_LABEL, PROJECT_PREVIEW_BUILD_ANDROID_MESSAGE, PROJECT_PREVIEW_RESTART_MESSAGE, PROJECT_PREVIEW_SIMULATOR_PATH, previewLevels, simulatorStatusText,
+  inlinePreviewUrl, PHONE_LEVEL_TEXT, PREVIEW_LEVEL_LABEL, PROJECT_PREVIEW_BUILD_ANDROID_MESSAGE, PROJECT_PREVIEW_RESTART_MESSAGE, PROJECT_PREVIEW_SIMULATOR_PATH, previewLevels, simulatorStatusText,
   type PreviewLevel, type ProjectPreviewSnapshot, type SimulatorStream,
 } from "../../../packages/protocol/src/project-preview";
 import { expoConnectActive, expoConnectMessage, EXPO_SIGNUP_LABEL, type ExpoAccountSnapshot, type ExpoConnectMode } from "../../../packages/protocol/src/expo-account";
@@ -122,7 +122,6 @@ export function ProjectPreviewCard({ sessionId, user, agentBusy = false }: { ses
   // needs the Computer signed in first. Older Computers have no account
   // check, so they keep "Open in Expo Go".
   const android = isAndroid();
-  const needsConnect = !!expoGoUrl && !stopped && !android && expo.account !== null && !expo.account.signedIn;
   const connecting = expoConnectActive(expo.account?.connect);
   const connect = async (mode: ExpoConnectMode = "login") => {
     // The sheet opens on the tap; the Computer takes a moment to open the page.
@@ -133,12 +132,13 @@ export function ProjectPreviewCard({ sessionId, user, agentBusy = false }: { ses
   };
   const closeSheet = () => { setSheet(null); void expo.cancel(); };
   const reopenSheet = () => setSheet({ mode: connectStatus?.state === "signup" ? "signup" : "login", run: connectStatus?.startedAt });
-  const deviceAction = current === "device" && expoGoUrl && phone && !stopped;
-  // New customers do not have Expo Go. On Android and on a computer, "Your
-  // phone" leads with an installable Android app and keeps Expo Go as a
-  // smaller second choice. omg_build_android makes no iPhone app, so an
-  // iPhone keeps the Expo Go path.
-  const buildFirst = android || !phone;
+  // "Your phone" leads with the published web link (owner decision
+  // 2026-10-22): it opens on every phone and can go on the Home Screen. The
+  // Android build and Expo Go are smaller second options. omg_build_android
+  // makes no iPhone app, so an iPhone gets no build option.
+  const publishedUrl = state?.publishedUrl;
+  const platform = phonePlatform();
+  const canBuild = platform !== "ios";
   // Every live preview can open inline at phone size, a web app as much as an
   // Expo app (owner decision 2026-10-16: new apps start as web apps).
   const expandable = !stopped;
@@ -171,12 +171,8 @@ export function ProjectPreviewCard({ sessionId, user, agentBusy = false }: { ses
             keeps the action of the level it shows. */}
         {stopped ? null : expanded
           ? current === "web" ? <Button size="icon-sm" variant="ghost" onClick={openWeb} aria-label="Full screen web preview" title="Full screen" data-testid="project-preview-fullscreen"><Maximize2 className="size-4" /></Button> : null
-          : deviceAction && buildFirst
-          ? <BuildAppButton asked={buildAsked} onBuild={() => void buildApp()} />
-          : deviceAction && needsConnect
-          ? <Button size="sm" disabled={connecting} onClick={() => void connect()} data-testid="project-preview-connect-expo">Connect Expo</Button>
-          : deviceAction
-          ? <Button size="sm" render={<a href={expoGoUrl} />} nativeButton={false} data-testid="project-preview-expo-go">Open in Expo Go</Button>
+          : current === "device" && publishedUrl
+          ? <Button size="sm" render={<a href={publishedUrl} target="_blank" rel="noreferrer" />} nativeButton={false} data-testid="project-preview-open-published">{PHONE_LEVEL_TEXT.openShort}</Button>
           : <Button size="sm" onClick={openWeb}>{expoGoUrl ? "Open web preview" : "Open preview"}</Button>}
       </div>
       {stopped ? <div className="space-y-2 border-t px-3 py-2.5" data-testid="project-preview-stopped">
@@ -193,9 +189,12 @@ export function ProjectPreviewCard({ sessionId, user, agentBusy = false }: { ses
           ? null
           : current === "simulator" && state?.simulator
           ? <SimulatorLevel stream={state.simulator} webUrl={inlinePreviewUrl(preview)} identity={previewAppIdentity(preview)} title={preview.title} onStart={() => void simulatorAction("start")} />
-          : <DeviceLevel url={expoGoUrl!} phone={phone} android={android} account={expo.account} error={expo.error} connecting={connecting}
-              build={buildFirst ? { asked: buildAsked, onBuild: () => void buildApp() } : null}
-              onConnect={(mode) => void connect(mode)} onOpenComputer={reopenSheet} onCancel={() => void expo.cancel()} />}
+          : <PhoneLevel publishedUrl={publishedUrl} phone={phone} platform={platform}
+              build={canBuild ? { asked: buildAsked, onBuild: () => void buildApp() } : null}
+              expoGoOpen={connecting || sheet !== null}>
+              <DeviceLevel url={expoGoUrl!} phone={phone} android={android} account={expo.account} error={expo.error} connecting={connecting}
+              onConnect={(mode) => void connect(mode)} onOpenComputer={reopenSheet} onCancel={() => void expo.cancel()} />
+            </PhoneLevel>}
         {/* The level switcher sits under the preview, with the two small links. */}
         <div className="mt-2 flex items-center gap-2">
           {levels.length > 1 ? <LevelSwitcher levels={levels} value={current} onChange={setLevel} /> : null}
@@ -315,14 +314,64 @@ function LevelSwitcher({ levels, value, onChange }: { levels: PreviewLevel[]; va
 /** Web | Simulator | Your phone. A future "Install" level adds one icon here. */
 const LEVEL_ICON: Record<PreviewLevel, typeof Globe2> = { web: Globe2, simulator: MonitorSmartphone, device: Smartphone };
 
-const DEVICE_INFO = "An iPhone opens the app only when Expo Go and the Computer use the same Expo account. Android needs no account.";
+const DEVICE_INFO = "Your published app opens in the phone browser. In Expo Go, an iPhone opens the app only when Expo Go and the Computer use the same Expo account. Android needs no account.";
 
-/** The main action for an Android app. Disabled once the agent has the request. */
-function BuildAppButton({ asked, onBuild, className }: { asked: boolean; onBuild(): void; className?: string }) {
-  return <Button size="sm" className={className} disabled={asked} onClick={onBuild} data-testid="project-preview-build-android">
-    {asked ? <Check className="size-4" aria-hidden /> : <Download className="size-4" aria-hidden />}
-    {asked ? "Asked the agent to build it" : "Build Android app"}
+/** A second option: ask the agent for an Android app. Disabled once the agent has the request. */
+function BuildAppButton({ asked, onBuild }: { asked: boolean; onBuild(): void }) {
+  return <Button size="xs" variant="ghost" className="text-muted-foreground" disabled={asked} onClick={onBuild} data-testid="project-preview-build-android">
+    {asked ? <Check aria-hidden /> : <Download aria-hidden />}
+    {asked ? PHONE_LEVEL_TEXT.buildAsked : PHONE_LEVEL_TEXT.buildAndroid}
   </Button>;
+}
+
+type PhonePlatform = "ios" | "android" | "other";
+
+/**
+ * Level 3, the app on the person's own phone. The published web link comes
+ * first: a phone opens it, a computer shows its QR code. Before the first
+ * publish, one line says when the link comes. A dev preview QR code is left
+ * out on purpose: its link needs the owner's omg.dev sign-in and stops when
+ * the Computer sleeps. The Android build and Expo Go (`children`) sit below,
+ * small.
+ */
+function PhoneLevel({ publishedUrl, phone, platform, build, expoGoOpen, children }: {
+  publishedUrl?: string; phone: boolean; platform: PhonePlatform;
+  build: { asked: boolean; onBuild(): void } | null;
+  /** Keeps the Expo Go part open while an Expo sign-in runs. */
+  expoGoOpen: boolean;
+  children: React.ReactNode;
+}) {
+  const [showExpoGo, setShowExpoGo] = useState(false);
+  const qr = publishedUrl && !phone ? `data:image/svg+xml;utf8,${encodeURIComponent(renderSVG(publishedUrl, { border: 1 }))}` : null;
+  const expoGoShown = showExpoGo || expoGoOpen;
+  return <div className="mt-2.5 flex flex-col items-center gap-2 py-2" data-testid="project-preview-device">
+    <div className="flex items-center justify-center gap-4" data-testid="project-preview-published">
+      {!publishedUrl
+        ? <p className="max-w-64 text-center text-xs text-muted-foreground" data-testid="project-preview-not-published">{PHONE_LEVEL_TEXT.notPublished}</p>
+        : phone
+        ? <div className="flex flex-col items-center gap-1.5">
+            <Button size="sm" render={<a href={publishedUrl} target="_blank" rel="noreferrer" />} nativeButton={false} data-testid="project-preview-open-published">
+              <ExternalLink className="size-4" aria-hidden />{PHONE_LEVEL_TEXT.open}
+            </Button>
+            <p className="max-w-64 text-center text-xs text-muted-foreground">{PHONE_LEVEL_TEXT.homeScreen[platform]}</p>
+          </div>
+        : <>
+            <img className="size-24 shrink-0 rounded-md bg-white p-1" src={qr!} alt="QR code that opens your app" data-testid="project-preview-published-qr" />
+            <div className="flex max-w-48 flex-col gap-1 text-xs">
+              <span>{PHONE_LEVEL_TEXT.scan}</span>
+              <a className="truncate font-medium text-primary" href={publishedUrl} target="_blank" rel="noreferrer" data-testid="project-preview-open-published">{publishedUrl.replace(/^https:\/\//, "")}</a>
+            </div>
+          </>}
+    </div>
+    <div className="flex flex-wrap items-center justify-center gap-1" data-testid="project-preview-phone-options">
+      {build ? <BuildAppButton asked={build.asked} onBuild={build.onBuild} /> : null}
+      <Button size="xs" variant="ghost" className="text-muted-foreground" aria-expanded={expoGoShown}
+        onClick={() => setShowExpoGo(!showExpoGo)} data-testid="project-preview-expo-go-toggle">
+        <ExpoLogo className="size-3" />{PHONE_LEVEL_TEXT.expoGo}
+      </Button>
+    </div>
+    {expoGoShown ? <div className="w-full border-t pt-1" data-testid="project-preview-expo-go-option">{children}</div> : null}
+  </div>;
 }
 
 /** Long explanations live behind a small icon: a tooltip on hover, a line on tap. */
@@ -341,15 +390,13 @@ function InfoTip({ text, store }: { text: string; store: { url: string; name: st
 }
 
 /**
- * Level 3, Expo Go on the person's own phone. A computer gets the QR code, a
- * phone gets one button. An iPhone needs the Computer's Expo account first:
+ * The Expo Go option of level 3. A computer gets the QR code, a phone gets
+ * one button. An iPhone needs the Computer's Expo account first:
  * signed out, the card offers "Create free account" and "I have one". Signed
  * in, three short steps. The rules are in the info tip.
  */
-function DeviceLevel({ url, phone, android, account, error, connecting, build, onConnect, onOpenComputer, onCancel }: {
+function DeviceLevel({ url, phone, android, account, error, connecting, onConnect, onOpenComputer, onCancel }: {
   url: string; phone: boolean; android: boolean; account: ExpoAccountSnapshot | null; error: string | null; connecting: boolean;
-  /** Set on Android and on a computer: the installable app comes first, Expo Go second. */
-  build: { asked: boolean; onBuild(): void } | null;
   onConnect(mode: ExpoConnectMode): void; onOpenComputer(): void; onCancel(): void;
 }) {
   // Android's Expo Go and older Computers (no account check) need no sign-in.
@@ -381,26 +428,12 @@ function DeviceLevel({ url, phone, android, account, error, connecting, build, o
           : <span className="text-xs font-medium">Scan with Expo Go</span>}
       </div>;
   const qr = phone ? null : `data:image/svg+xml;utf8,${encodeURIComponent(renderSVG(url, { border: 1 }))}`;
-  const expoGo = <div className={cn("flex items-center justify-center gap-4", build ? "py-1" : "py-2")}>
-    {qr ? <img className={cn("shrink-0 rounded-md bg-white p-1", build ? "size-20" : "size-24")} src={qr} alt="QR code that opens this app in Expo Go" data-testid="expo-go-guide" /> : null}
+  return <div className="flex items-center justify-center gap-4 py-1">
+    {qr ? <img className="size-20 shrink-0 rounded-md bg-white p-1" src={qr} alt="QR code that opens this app in Expo Go" data-testid="expo-go-guide" /> : null}
     <div className="flex flex-col items-center gap-1">
       {action}
       {error ? <p className="text-xs text-destructive" role="alert">{error}</p> : null}
     </div>
-  </div>;
-  if (!build) return <div className="mt-2.5" data-testid="project-preview-device">{expoGo}</div>;
-  return <div className="mt-2.5 flex flex-col items-center gap-2 py-2" data-testid="project-preview-device">
-    <div className="flex flex-col items-center gap-1.5" data-testid="project-preview-install">
-      <BuildAppButton asked={build.asked} onBuild={build.onBuild} />
-      <p className="max-w-64 text-center text-xs text-muted-foreground">{build.asked
-        ? "The agent sends the install link when the build is done."
-        : "Install your app on an Android phone. The agent builds it and sends you the link."}</p>
-    </div>
-    {android
-      // Android: one small link. A person who already has Expo Go can still use it.
-      ? <p className="text-xs text-muted-foreground" data-testid="project-preview-expo-go-option">Have Expo Go?{" "}
-          <a className="font-medium text-primary" href={url} data-testid="project-preview-expo-go">Open in Expo Go</a></p>
-      : <div className="w-full border-t pt-2 text-xs text-muted-foreground" data-testid="project-preview-expo-go-option">{expoGo}</div>}
   </div>;
 }
 
@@ -551,6 +584,15 @@ function isAndroid(): boolean {
   try { return /android/i.test(navigator.userAgent); } catch { return false; }
 }
 
+function phonePlatform(): PhonePlatform {
+  try {
+    const agent = navigator.userAgent;
+    if (/android/i.test(agent)) return "android";
+    if (/iphone|ipad|ipod/i.test(agent) || (/macintosh/i.test(agent) && navigator.maxTouchPoints > 1)) return "ios";
+  } catch { /* No navigator: treat as other. */ }
+  return "other";
+}
+
 /**
  * The card's open/closed choice, kept in this browser. One answer for every
  * preview card: a person who closed it once does not want each new app to
@@ -586,11 +628,9 @@ const EXPO_GO_ANY = "https://expo.dev/go";
 
 /** The store for this phone. A computer gets Expo's page, which lists both. */
 function expoGoStore(): { url: string; name: string } {
-  try {
-    const agent = navigator.userAgent;
-    if (/android/i.test(agent)) return { url: EXPO_GO_ANDROID, name: "Google Play" };
-    if (/iphone|ipad|ipod/i.test(agent) || (/macintosh/i.test(agent) && navigator.maxTouchPoints > 1)) return { url: EXPO_GO_IOS, name: "the App Store" };
-  } catch { /* No navigator: use the neutral page. */ }
+  const platform = phonePlatform();
+  if (platform === "android") return { url: EXPO_GO_ANDROID, name: "Google Play" };
+  if (platform === "ios") return { url: EXPO_GO_IOS, name: "the App Store" };
   return { url: EXPO_GO_ANY, name: "expo.dev/go" };
 }
 

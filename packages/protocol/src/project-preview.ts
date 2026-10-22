@@ -44,6 +44,13 @@ export interface ProjectPreviewSnapshot {
    * the "Simulator" level only when this field is present.
    */
   simulator?: SimulatorStream;
+  /**
+   * The app's published web link (`https://<slug>.omgs.app`), present once a
+   * web deploy of the session's linked app (`.omg/project.json`) is ready. It
+   * opens on any phone and can go on the Home Screen, so the "Your phone"
+   * level leads with it. Absent before the first deploy and on older Computers.
+   */
+  publishedUrl?: string;
 }
 
 /**
@@ -178,6 +185,26 @@ export function simulatorStatusText(stream: SimulatorStream): string | null {
 export function previewLevels(snapshot: Pick<ProjectPreviewSnapshot, "simulator">): PreviewLevel[] {
   return snapshot.simulator ? ["web", "simulator", "device"] : ["web", "device"];
 }
+
+/**
+ * Text of the "Your phone" level, shared by the web and native cards. The
+ * level leads with the published web link. The Android build and Expo Go
+ * are smaller second options.
+ */
+export const PHONE_LEVEL_TEXT = {
+  open: "Open your app",
+  openShort: "Open app",
+  scan: "Scan with your phone camera to open your app.",
+  notPublished: "The agent publishes your app when the first screen works. Then its link shows here.",
+  homeScreen: {
+    ios: "To keep it on your iPhone, open it in Safari. Tap Share, then Add to Home Screen.",
+    android: "To keep it on your phone, open the Chrome menu and tap Add to Home screen.",
+    other: "To keep it on your phone, add it to the Home Screen from the browser menu.",
+  },
+  buildAndroid: "Build Android app",
+  buildAsked: "Asked the agent to build the Android app",
+  expoGo: "Use Expo Go",
+} as const;
 
 /** Tab labels, shared by the web and native cards. */
 export const PREVIEW_LEVEL_LABEL: Record<PreviewLevel, string> = {

@@ -56,6 +56,19 @@ export function publicAppUrl(slug: string): string {
   return `https://${slug}.omgs.app`;
 }
 
+/**
+ * True when the app's web deploy is ready on Infra. An app that has only an
+ * Android build, or whose first deploy is still building or failed, is not
+ * published. The Cloud is the owner of this answer.
+ */
+export async function appIsPublished(client: Pick<CloudAppsClient, "getStatus">, slug: string): Promise<boolean> {
+  try {
+    return isDeployDone(await client.getStatus(slug));
+  } catch {
+    return false;
+  }
+}
+
 export function deployLinkFromProject(cwd: string): RepoDeployLink | undefined {
   const link = loadProjectLink(cwd);
   if (!link) return undefined;

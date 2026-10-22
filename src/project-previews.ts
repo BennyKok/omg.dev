@@ -2,7 +2,7 @@ import { createConnection } from "node:net";
 import { dirname } from "node:path";
 import { mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { loadProjectLink } from "./cloud-apps.ts";
+import { loadProjectLink, publicAppUrl } from "./cloud-apps.ts";
 import type { PreviewAppIdentity } from "../packages/protocol/src/preview-auth.ts";
 import type { ProjectPreview, SimulatorStream, SimulatorStreamProvider } from "../packages/protocol/src/project-preview.ts";
 import { PATHS } from "./config.ts";
@@ -14,6 +14,10 @@ const EXPO_GO_MAX_PORT = 8099;
 // never falls back to the cookie URL that loops on iOS.
 const FRAME_RENEW_MS = 10 * 60_000;
 const MAX_BODY = 16 * 1024;
+// A card polls every 3 seconds. Ask the Cloud whether an unpublished app is
+// published at most this often, and wait at most PUBLISHED_WAIT_MS for it.
+const PUBLISHED_RECHECK_MS = 20_000;
+const PUBLISHED_WAIT_MS = 1_500;
 type Session = { id: string; owner: string | null; cwd?: string | null };
 
 // A first-run session can start in its chat directory and create one project
@@ -135,6 +139,11 @@ export function createProjectPreviewService(deps: {
    * the snapshot then has no `simulator` field. See SimulatorStreamProvider.
    */
   simulator?: SimulatorStreamProvider | null;
+  /**
+   * Whether the app with this slug has a ready web deploy. The Cloud owns the
+   * answer; absent (or a local box without Cloud) leaves `publishedUrl` out.
+   */
+  published?: (slug: string) => Promise<boolean>;
 }) {
   const storePath = deps.storePath ?? `${PATHS.data}/project-previews.json`;
   const rows = new Map(readRows(storePath).map((row) => [row.sessionId, row]));
@@ -142,6 +151,27 @@ export function createProjectPreviewService(deps: {
   const listening = deps.listening ?? portIsListening;
   const owns = (owner: string | null, viewer: string) => !owner || owner.toLowerCase() === viewer.toLowerCase();
 
+  // Read-through memory of the Cloud's answer, so a card poll does not call
+  // the Cloud every 3 seconds. A published app stays published: a later
+  // deploy keeps the old version live while it builds.
+  const publishedApps = new Map<string, { published: boolean; checkedAt: number; pending?: Promise<void> }>();
+  const publishedField = async (slug: string | undefined): Promise<{ publishedUrl?: string }> => {
+    if (!slug || !deps.published) return {};
+    let entry = publishedApps.get(slug);
+    if (!entry?.published && !entry?.pending && (!entry || now() - entry.checkedAt >= PUBLISHED_RECHECK_MS)) {
+      const pending = deps.published(slug).catch(() => false).then((published) => {
+        publishedApps.set(slug, { published, checkedAt: now() });
+      });
+      entry = { published: false, checkedAt: entry?.checkedAt ?? 0, pending };
+      publishedApps.set(slug, entry);
+    }
+    if (entry.pending) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([entry.pending, new Promise((resolve) => { timer = setTimeout(resolve, PUBLISHED_WAIT_MS); })]);
+      clearTimeout(timer);
+    }
+    return publishedApps.get(slug)?.published ? { publishedUrl: publicAppUrl(slug) } : {};
+  };
   /** The level-2 slot of a snapshot. A failing provider must not hide the card. */
   const simulatorField = async (preview: ProjectPreview, live: boolean, fromCard: boolean): Promise<{ simulator?: SimulatorStream }> => {
     if (!deps.simulator || deps.simulator.available?.() === false || !preview.expoGoUrl || !live) return {};
@@ -231,10 +261,10 @@ export function createProjectPreviewService(deps: {
           const { notStartedYet: _started, ...started } = preview;
           rows.set(session.id, started);
           saveRows(storePath, [...rows.values()]);
-          return json({ preview: started, live, ...await simulatorField(started, live, !caller) });
+          return json({ preview: started, live, ...await simulatorField(started, live, !caller), ...await publishedField(started.appId) });
         }
         const starting = !live && preview.notStartedYet === true;
-        return json({ preview, live, ...(expired ? { expired: true } : {}), ...(starting ? { starting: true } : {}), ...await simulatorField(preview, live, !caller) });
+        return json({ preview, live, ...(expired ? { expired: true } : {}), ...(starting ? { starting: true } : {}), ...await simulatorField(preview, live, !caller), ...await publishedField(preview.appId) });
       }
       if (req.method !== "POST") throw new PreviewError(405, "Method not allowed");
       if (!caller) throw new PreviewError(403, "Only the session agent can publish a project preview");

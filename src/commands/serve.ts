@@ -4410,6 +4410,10 @@ export async function cmdServe() {
       return { url: body.url, expoGoUrl: body.expoGoUrl, frameUrl: body.frameUrl };
     },
     simulator: simulatorStreamProvider(),
+    published: async (slug) => {
+      const { appIsPublished, createRuntimeAppsClient } = await import("../cloud-apps.ts");
+      return appIsPublished(createRuntimeAppsClient({ getAccessToken: () => cloudAccount.getAccessToken() }), slug);
+    },
   });
   // A Computer has no xdg-open. Tools that open a browser (`expo login
   // --browser`, `gh auth login --web`) get the shim, which opens the page in

@@ -31,3 +31,30 @@ test("stored audience claims cannot override current session metadata or cross o
   const data = await (await handle(req("owner@test"))).json() as { preview: { appId: string; projectId: string } };
   expect(data.preview.appId).toBe("real-app"); expect(data.preview.projectId).toBe("project-real-app");
 });
+// The "Your phone" level leads with the published link. Fails if the link
+// appears before the Cloud says the web deploy is ready (an Android build
+// alone also writes .omg/project.json), or if each 3 s poll calls the Cloud.
+test("the snapshot carries the published link only once the Cloud reports a ready web deploy", async () => {
+  const file = join(dir, "previews.json");
+  writeFileSync(file, JSON.stringify([{ sessionId: "session", title: "Preview", url: "https://test-8081.preview.omgs.app", port: 8081, kind: "sandbox-preview", visibility: "owner", temporary: true, createdAt: 1 }]));
+  link(dir, "real-app");
+  let clock = 0;
+  let ready = false;
+  const asked: string[] = [];
+  const handle = createProjectPreviewService({
+    storePath: file, now: () => clock, session: async () => ({ id: "session", owner: "owner@test", cwd: dir }),
+    viewer: () => "owner@test", listening: async () => true, resolve: async () => ({ url: "https://test-8081.preview.omgs.app" }),
+    published: async (slug) => { asked.push(slug); return ready; },
+  });
+  const read = async () => await (await handle(new Request("https://test/api/project-preview?sessionId=session"))).json() as { publishedUrl?: string };
+  expect((await read()).publishedUrl).toBeUndefined();
+  ready = true;
+  clock += 3_000;
+  expect((await read()).publishedUrl).toBeUndefined();
+  expect(asked).toEqual(["real-app"]);
+  clock += 20_000;
+  expect((await read()).publishedUrl).toBe("https://real-app.omgs.app");
+  clock += 60_000;
+  expect((await read()).publishedUrl).toBe("https://real-app.omgs.app");
+  expect(asked).toEqual(["real-app", "real-app"]);
+});
