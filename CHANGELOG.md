@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 22, 2026 - Tidier session rows (v0.6.292)
+
+- On the desktop, a session list for one project keeps its card.
+- When the list shows all users, each short row shows whose session it is right after its status mark, and the titles line up.
+
 ## October 22, 2026 - Smooth page changes (v0.6.291)
 
 - Switching between Create, Apps, and Chats on the phone fades the Create colours in and out. The colours continue where they were.
