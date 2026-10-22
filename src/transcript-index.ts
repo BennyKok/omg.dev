@@ -1662,6 +1662,54 @@ export async function indexedMessageRowPage(
   return { messages, nextBefore, total };
 }
 
+/**
+ * What a session LIST row needs from the end of a transcript, and no more.
+ *
+ * The list used to read the last 80 full messages of every live session on
+ * every scan, to learn three things: the newest message, the newest timestamp,
+ * and the newest user prompt. That was about 1.5 MB of message text per scan
+ * on a live box, from a 4 GB index the page cache cannot hold, so a cold scan
+ * spent 3.5 s on it. This reads only the small columns of the same window,
+ * then the full text of the newest message and of the user prompts in it.
+ *
+ * `userTexts` is newest first. The caller still decides which prompt to show,
+ * because only it knows which ones are display text.
+ */
+export async function indexedSessionTail(
+  path: string,
+  sessionId: string,
+  window = 80,
+): Promise<{ last: SessionMsg | null; lastActivityAt: number | null; userTexts: string[] }> {
+  init();
+  await importTranscriptForRead(path, sessionId);
+  const d = database();
+  const head = d
+    .query<{ rid: number; ts: number | null; role: string; kind: string }, [string, number]>(`
+        SELECT rowid AS rid, ts, role, kind
+        FROM transcript_messages
+        WHERE path = ?
+        ORDER BY order_seq DESC, rowid DESC
+        LIMIT ?
+      `)
+    .all(path, Math.max(1, window));
+  if (!head.length) return { last: null, lastActivityAt: null, userTexts: [] };
+  let lastActivityAt: number | null = null;
+  for (const row of head) if (row.ts != null) lastActivityAt = Math.max(lastActivityAt ?? 0, row.ts);
+  const userText = d.query<{ text: string }, [number]>(
+    "SELECT text FROM transcript_messages WHERE rowid = ?",
+  );
+  const userTexts: string[] = [];
+  for (const row of head) {
+    if (row.role !== "user" || row.kind !== "text") continue;
+    const text = userText.get(row.rid)?.text;
+    if (text) userTexts.push(text);
+  }
+  // The newest message goes through the same page query as the transcript,
+  // so it carries the same artifact payload and the same orphan filtering.
+  const page = await indexedMessagePage(path, sessionId, { limit: 1 });
+  return { last: page.messages[0] ?? null, lastActivityAt, userTexts };
+}
+
 export async function indexedRecentMessages(
   path: string,
   sessionId: string,
