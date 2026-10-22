@@ -17,22 +17,52 @@ type View = { scale: number; ox: number; oy: number };
 const RESET: View = { scale: 1, ox: 0, oy: 0 };
 
 /**
+ * The box the full image will settle in, from its intrinsic size: as large as
+ * the original allows, inside 92% of the viewport. Reserving it lets a smaller
+ * preview fill the same frame, so nothing moves when the original lands.
+ */
+function lightboxBox(width: number | undefined, height: number | undefined) {
+  if (!width || !height) return undefined;
+  return {
+    aspectRatio: `${width} / ${height}`,
+    width: `min(${width}px, 92vw, calc(92vh * ${width / height}))`,
+  };
+}
+
+/**
  * Full-screen click-to-zoom viewer for a single image. Renders through a portal
  * so it escapes the chat's overflow/stacking context. Zoom is anchored to the
  * cursor (wheel + double-click); drag pans once zoomed in.
+ *
+ * `placeholderSrc` is a smaller copy the page has usually painted already. It
+ * is shown at once, and `src` replaces it only after its bytes have loaded, so
+ * opening an image never shows an empty frame while a large original
+ * downloads.
  */
 export function ImageLightbox({
   src,
+  placeholderSrc,
+  width,
+  height,
   alt,
   open,
   onClose,
 }: {
   src: string;
+  placeholderSrc?: string;
+  /** Intrinsic size of `src`, when known. Keeps the frame still on the swap. */
+  width?: number;
+  height?: number;
   alt?: string;
   open: boolean;
   onClose: () => void;
 }) {
-  const imgRef = useRef<HTMLImageElement>(null);
+  const imgRef = useRef<HTMLDivElement>(null);
+  // The URL whose bytes have finished loading. Compared with `src`, so a new
+  // `src` goes back to the placeholder without an effect.
+  const [loadedSrc, setLoadedSrc] = useState<string | null>(null);
+  const progressive = placeholderSrc !== undefined && placeholderSrc !== src;
+  const fullReady = !progressive || loadedSrc === src;
   const [view, setView] = useState<View>(RESET);
   // Live screen position of every active pointer, keyed by pointerId. One entry
   // = drag-to-pan; two = pinch-zoom. Last pinch distance/midpoint lets us turn
@@ -103,7 +133,7 @@ export function ImageLightbox({
     [],
   );
 
-  function onPointerDown(e: ReactPointerEvent<HTMLImageElement>) {
+  function onPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
     e.currentTarget.setPointerCapture(e.pointerId);
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     moved.current = false;
@@ -118,7 +148,7 @@ export function ImageLightbox({
     }
   }
 
-  function onPointerMove(e: ReactPointerEvent<HTMLImageElement>) {
+  function onPointerMove(e: ReactPointerEvent<HTMLDivElement>) {
     const map = pointers.current;
     const prev = map.get(e.pointerId);
     if (!prev) return;
@@ -165,7 +195,7 @@ export function ImageLightbox({
     }
   }
 
-  function onPointerUp(e: ReactPointerEvent<HTMLImageElement>) {
+  function onPointerUp(e: ReactPointerEvent<HTMLDivElement>) {
     const map = pointers.current;
     map.delete(e.pointerId);
     if (map.size < 2) pinch.current = null;
@@ -176,7 +206,7 @@ export function ImageLightbox({
     }
   }
 
-  function onDoubleClick(e: ReactPointerEvent<HTMLImageElement>) {
+  function onDoubleClick(e: ReactPointerEvent<HTMLDivElement>) {
     if (view.scale > MIN_SCALE) setView(RESET);
     else zoomAt(DOUBLE_CLICK_SCALE, e.clientX, e.clientY);
   }
@@ -184,6 +214,7 @@ export function ImageLightbox({
   if (!open) return null;
 
   const zoomed = view.scale > MIN_SCALE;
+  const box = lightboxBox(width, height);
 
   return createPortal(
     <div
@@ -224,28 +255,48 @@ export function ImageLightbox({
         </LightboxButton>
       </div>
 
-      <img
+      <div
         ref={imgRef}
-        src={src}
-        alt={alt || "Image"}
-        draggable={false}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
         onDoubleClick={onDoubleClick}
         className={cn(
-          "max-h-[92vh] max-w-[92vw] touch-none select-none object-contain",
+          "relative touch-none select-none",
           zoomed ? "cursor-grab active:cursor-grabbing" : "cursor-zoom-out",
         )}
         style={{
+          ...box,
           transform: `translate(${view.ox}px, ${view.oy}px) scale(${view.scale})`,
           transformOrigin: "0 0",
           transition: gesturing ? "none" : "transform 120ms ease-out",
           touchAction: "none",
           willChange: "transform",
         }}
-      />
+      >
+        <img
+          // The placeholder until the original has loaded. Swapping `src` on
+          // one element keeps the picture painted through the change.
+          src={fullReady ? src : placeholderSrc}
+          alt={alt || "Image"}
+          draggable={false}
+          className={cn(
+            "block object-contain",
+            box ? "h-full w-full" : "max-h-[92vh] max-w-[92vw]",
+          )}
+        />
+        {fullReady ? null : (
+          // Downloads the original out of sight. It is never painted itself.
+          <img
+            src={src}
+            alt=""
+            aria-hidden
+            className="hidden"
+            onLoad={() => setLoadedSrc(src)}
+          />
+        )}
+      </div>
     </div>,
     document.body,
   );
@@ -312,7 +363,13 @@ export function ZoomableImage({
         onClick={() => setOpen(true)}
         className={cn("cursor-zoom-in", className)}
       />
-      <ImageLightbox src={src} alt={alt} open={open} onClose={() => setOpen(false)} />
+      <ImageLightbox
+        src={src}
+        placeholderSrc={previewSrc}
+        alt={alt}
+        open={open}
+        onClose={() => setOpen(false)}
+      />
     </>
   );
 }

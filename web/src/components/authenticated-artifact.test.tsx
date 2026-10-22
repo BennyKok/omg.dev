@@ -237,6 +237,98 @@ describe("AuthenticatedArtifactImage", () => {
     expect(fetched).toEqual([]);
   });
 
+  // Opening an image used to put the original straight into the viewer, which
+  // stayed empty until a multi-megabyte file had downloaded. The viewer must
+  // show the preview that is already painted, and swap only once the original
+  // has loaded.
+  test("the viewer shows the preview at once and swaps in the original once it loads", async () => {
+    installTransport({ direct: true });
+    render(
+      <AuthenticatedArtifactImage
+        path="/api/artifacts/open.png"
+        alt="open"
+        width={3000}
+        height={2000}
+        zoomable
+      />,
+    );
+    await act(async () => {});
+    await act(async () => {
+      img()?.dispatchEvent(new window.Event("click", { bubbles: true }));
+    });
+
+    const dialog = () => document.querySelector('[role="dialog"]')!;
+    const shown = () => dialog().querySelector("img:not([aria-hidden])");
+    const loader = () => dialog().querySelector("img[aria-hidden]");
+    expect(shown()?.getAttribute("src")).toBe("/api/artifacts/open.png?preview=1");
+    expect(loader()?.getAttribute("src")).toBe("/api/artifacts/open.png");
+
+    await act(async () => {
+      loader()?.dispatchEvent(new window.Event("load"));
+    });
+    expect(shown()?.getAttribute("src")).toBe("/api/artifacts/open.png");
+    expect(loader()).toBeNull();
+  });
+
+  // On the hosted web the URL carries a grant that rotates every ten minutes,
+  // and the browser cache is keyed by the whole URL. Re-signing on each mount
+  // gave every row a skeleton frame, and after a rotation a URL the cache had
+  // never seen, so every picture downloaded again. A remount must reuse the
+  // URL that already painted; only a failed load may sign a new one.
+  test("a remount on the hosted web reuses the signed URL, and renews it only on failure", async () => {
+    let minted = 0;
+    configureOmgTransport({
+      async fetch() {
+        throw new Error("fetch is not used for a signed image");
+      },
+      async request() {
+        throw new Error("unused");
+      },
+      async openSocket() {
+        throw new Error("unused");
+      },
+      async openLiveSocket() {
+        throw new Error("unused");
+      },
+      resolveAssetUrl: async (path: string) =>
+        `https://sessions.example${path}&__omg_grant=g${++minted}`,
+    });
+    const media = (
+      <AuthenticatedArtifactImage path="/api/artifacts/signed.png" alt="signed" zoomable />
+    );
+    const signed = (grant: string) =>
+      `https://sessions.example/api/artifacts/signed.png?preview=1&__omg_grant=${grant}`;
+
+    render(media);
+    await act(async () => {});
+    expect(img()?.getAttribute("src")).toBe(signed("g1"));
+    await act(async () => {
+      img()?.dispatchEvent(new window.Event("load"));
+    });
+
+    // The row scrolls away and back, after the grant has rotated.
+    act(() => root.unmount());
+    root = createRoot(host);
+    render(media);
+    // Synchronously: no skeleton frame while a signature resolves.
+    expect(img()?.getAttribute("src")).toBe(signed("g1"));
+    expect(img()?.className).not.toContain("animate-pulse");
+    await act(async () => {});
+    expect(minted).toBe(1);
+
+    // The cached bytes are gone and the old grant is refused: sign once more.
+    await act(async () => {
+      img()?.dispatchEvent(new window.Event("error"));
+    });
+    expect(img()?.getAttribute("src")).toBe(signed("g2"));
+    // A fresh URL that also fails is a missing file, not an expired grant.
+    await act(async () => {
+      img()?.dispatchEvent(new window.Event("error"));
+    });
+    expect(img()).toBeNull();
+    expect(minted).toBe(2);
+  });
+
   test("a direct URL that fails falls back to the caller's placeholder", async () => {
     installTransport({ direct: true });
     render(
