@@ -449,6 +449,7 @@ import {
   startDesktop,
   stopDesktop,
   rfbPort as computerRfbPort,
+  releaseHeldInput as releaseComputerHeldInput,
 } from "../computer/desktop.ts";
 import {
   browserClick,
@@ -4288,6 +4289,10 @@ const sttTakes = new WeakMap<object, SttStreamTake>();
 // and STT sockets.
 type ComputerSocketData = { computer: true };
 const computerBridges = new WeakMap<object, RfbBridge>();
+// Open Computer viewers. When none, or only a newly opened one, is connected,
+// no viewer can be holding a key on purpose. Any key still down is stuck, so
+// it is released (see releaseHeldInput).
+let computerViewers = 0;
 
 type AppSocketData =
   | TermSocketData
@@ -4478,9 +4483,15 @@ export async function cmdServe() {
           }
           const bridge = new RfbBridge(ws as unknown as ServerWebSocket<unknown>, {
             port,
-            onClose: () => computerBridges.delete(ws),
+            onClose: () => {
+              computerBridges.delete(ws);
+              computerViewers = Math.max(0, computerViewers - 1);
+              if (computerViewers === 0) void releaseComputerHeldInput();
+            },
           });
           computerBridges.set(ws, bridge);
+          computerViewers += 1;
+          if (computerViewers === 1) void releaseComputerHeldInput();
           void bridge.open();
           return;
         }
