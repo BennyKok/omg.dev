@@ -19,9 +19,8 @@ describe("shipped session review flow", () => {
   // bespoke read-only viewer. `sheet.sid` became `openSessionId` when the
   // mobile session view moved to its own URL; the rule is unchanged.
   test("desktop and mobile use the normal session surfaces", () => {
-    expect(app).toContain(
-      "shippedReview?.sessionId === openSessionId ? shippedReview : null",
-    );
+    // The phone page resolving a shipped review is covered by behaviour in
+    // web/src/lib/open-session.test.tsx.
     expect(app).toContain(
       "return { sid: sourceSid, session: shippedReview };",
     );
