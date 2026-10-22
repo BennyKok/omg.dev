@@ -10,7 +10,7 @@ import { cn } from "../lib/utils";
 
 /** Space above the heading that centres heading, composer and app row in the screen. */
 export const CREATE_OFFSET =
-  "max(0px, (100dvh - var(--lfg-mobile-header-height, 0px) - var(--lfg-create-top-h, 16rem) - var(--lfg-create-below-h, 0px)) / 2 - 2rem)";
+  "max(0px, (var(--lfg-app-height, 100dvh) - var(--lfg-mobile-header-height, 0px) - var(--lfg-create-top-h, 16rem) - var(--lfg-create-below-h, 0px)) / 2 - 2rem)";
 
 export function CreateComposerFrame({
   centered,

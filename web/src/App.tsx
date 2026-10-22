@@ -114,6 +114,7 @@ import {
   sessionMatchesProjectFilter,
 } from "./lib/project-filter";
 import { ChatStarterRow } from "./components/chat-starter-row";
+import { useHostTutorialCards } from "./components/create-tutorials";
 import { groupNodesByProject, type ProjectGroup } from "./lib/session-groups";
 import { usePendingSessionLink } from "./lib/session-navigation";
 import { pathnameToSessionId, pathnameToThreadId, sessionToPath, threadToPath } from "./lib/app-search";
@@ -7422,6 +7423,8 @@ export function App() {
 
   // A folder scope that links to an app also holds the session that built the
   // app, whatever folder that session ran in (the Cloud app list names it).
+  // The host's tutorial cards take the starter row's place on the phone Create page.
+  const { cards: hostTutorialCards } = useHostTutorialCards();
   // An app is a folder linked to a published app (buildAppItems).
   const hasApps = repos.some((repo) => repo.deploy);
   const scopeCloudApps = useCloudApps(hasApps);
@@ -10367,7 +10370,8 @@ export function App() {
             <NewSessionDialog
               variant="inline"
               open
-              starters={createComposer}
+              // The host's tutorial cards take the starter row's place on Create.
+              starters={createComposer && !hostTutorialCards.length}
               expanded={composerExpanded}
               onExpandedChange={setComposerExpanded}
               focusNonce={composerFocusNonce}
@@ -15053,7 +15057,7 @@ function RailGroup({
       {collapsed || !folded ? (
         <div className={cn(
           "flex flex-col",
-          card ? "overflow-hidden rounded-[18px] border border-border bg-card [&>*+*]:border-t [&>*+*]:border-border" : "gap-0.5",
+          card ? "overflow-hidden rounded-[18px] border border-border bg-card [&>*]:rounded-none [&>*+*]:border-t [&>*+*]:border-border" : "gap-0.5",
         )}>{children}</div>
       ) : null}
     </div>
@@ -25040,7 +25044,7 @@ function NewSessionDialog({
       {starters && unassigned && !prompt.trim() && attachments.length === 0 ? (
         <ChatStarterRow
           // Inline: run the swipe row to the screen edge, not the composer's.
-          className={cn("lfg-create-starters mb-2", variant === "inline" && "-mx-4 scroll-px-4 px-4")}
+          className={cn("mb-2", variant === "inline" && "-mx-4 scroll-px-4 px-4")}
           disabled={launching}
           hostChips={starterChips}
           onStart={(starterPrompt) => submit(undefined, starterPrompt)}

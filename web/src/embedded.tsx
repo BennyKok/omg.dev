@@ -29,6 +29,7 @@ import {
   type PlanLimitDetail,
   type ComposerGuide,
   type HostStarterChip,
+  type HostTutorials,
 } from "./lib/embedded-host-options";
 import { claimSurfaceAttribute } from "./lib/surface-attribute";
 import { createOmgRouter } from "./router";
@@ -39,6 +40,8 @@ export type {
   ComposerGuide,
   ComposerGuideSurface,
   HostStarterChip,
+  HostTutorialCard,
+  HostTutorials,
   EmbeddedAnalyticsEventHandler,
   EmbeddedViewer,
   HostMachine,
@@ -187,6 +190,8 @@ export interface OmgAppSurfaceProps {
   composerGuide?: ComposerGuide;
   /** The host's own pills, drawn first in the home composer's starter row. */
   starterChips?: HostStarterChip[];
+  /** The host's tutorials as cards on the phone Create page (see HostTutorials). */
+  tutorials?: HostTutorials;
   /**
    * Central sink for client errors, in addition to the report that goes through
    * the transport into the user's own lfg instance. A hosted surface should set
@@ -430,6 +435,7 @@ export function OmgAppSurface({
   hostToast,
   composerGuide,
   starterChips,
+  tutorials,
   onConnectionChange,
   savedScreen,
 }: OmgAppSurfaceProps) {
@@ -476,6 +482,7 @@ export function OmgAppSurface({
           machines,
           composerGuide,
           starterChips,
+          tutorials,
           savedScreen,
         }}
       >

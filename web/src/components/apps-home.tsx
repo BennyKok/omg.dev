@@ -10,6 +10,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { CREATE_OFFSET } from "./create-composer-frame";
+import { CreateTutorials } from "./create-tutorials";
 import { Check, Copy, ExternalLink, Gamepad2, History, Plus, Settings2, Smartphone } from "lucide-react";
 import { consoleAppUrl, sessionAppRepo, type AppLink } from "../../../packages/protocol/src/app-link";
 import { timeAgo } from "../lib/session-ui";
@@ -463,6 +464,12 @@ export function useScopedApp<S extends SessionLike, R extends RepoLike>(
  */
 export function CreateHome() {
   const below = useRef<HTMLDivElement>(null);
+  // While Create shows, the phone header drops its own background so the
+  // backdrop runs under it (html.lfg-create-view in index.css).
+  useLayoutEffect(() => {
+    document.documentElement.classList.add("lfg-create-view");
+    return () => document.documentElement.classList.remove("lfg-create-view");
+  }, []);
   useLayoutEffect(() => {
     const root = document.documentElement;
     const el = below.current;
@@ -481,10 +488,7 @@ export function CreateHome() {
       <CreateBackdrop />
       <div aria-hidden="true" style={{ height: `calc(${CREATE_OFFSET} + var(--lfg-create-top-h, 16rem))` }} />
       <div ref={below} className="relative z-[1]">
-        {/* The host's own Create content (omg.dev puts its tutorials here, and
-            the starter pills hide: see .lfg-create-starters in index.css).
-            Empty, and hidden by [data-lfg-host-slot]:empty, without a host. */}
-        <div data-lfg-host-slot="create-home" className="pt-3 pb-4" />
+        <CreateTutorials />
       </div>
     </div>
   );
@@ -501,8 +505,8 @@ function CreateBackdrop() {
       aria-hidden="true"
       className="pointer-events-none fixed inset-0 z-0 overflow-hidden opacity-75 dark:opacity-45"
       style={{
-        maskImage: "linear-gradient(to bottom, transparent 0, black 22%, black 78%, transparent 100%)",
-        WebkitMaskImage: "linear-gradient(to bottom, transparent 0, black 22%, black 78%, transparent 100%)",
+        maskImage: "linear-gradient(to bottom, black 0, black 70%, transparent 100%)",
+        WebkitMaskImage: "linear-gradient(to bottom, black 0, black 70%, transparent 100%)",
       }}
     >
       <span className="lfg-create-cloud lfg-create-cloud-a" />
