@@ -9,6 +9,7 @@ import {
   reconcileQueueMessages,
 } from "./lib/queue-reconcile";
 import { windowLiveMessages } from "./lib/transcript-paging";
+import { promptPreviewText } from "./lib/transcript-status";
 
 // The live socket is OmgLiveConnection from @omg-dev/client, the same client
 // iOS and @omg-dev/react use: connect, reconnect, resume cursors, status,
@@ -164,7 +165,7 @@ function seedMessageForSession(session: Session): Message | null {
   const last = session.last;
   const lastIsProse =
     last?.kind === "text" && (last.role === "assistant" || last.role === "user") && !!last.text;
-  const text = normText(lastIsProse ? last.text : session.lastUserText || "");
+  const text = normText(promptPreviewText(lastIsProse ? last.text : session.lastUserText || ""));
   if (!sid || !text) return null;
   const role = lastIsProse && last.role === "assistant" ? "assistant" : "user";
   const ts = (lastIsProse ? last.ts : null) ?? session.lastActivityAt ?? session.startedAt ?? Date.now();

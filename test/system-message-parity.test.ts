@@ -36,6 +36,7 @@ const samples = [
   "[This conversation continues after a runtime restart. Earlier history is preserved and searchable.]",
   "[This conversation continues in a fresh context window. Earlier history is preserved and searchable.]",
   "[Scheduled routine: Morning check]\n\nLook at CI.",
+  "[omg builder] The app is not published yet, so the person who paid for it has no link to open.",
 ];
 
 describe("web and iOS classify the same machine-written turns", () => {

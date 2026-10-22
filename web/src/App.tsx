@@ -547,6 +547,7 @@ import {
 import {
   isMachineryPreviewText,
   isRequestInterruptedMessage,
+  promptPreviewText,
   prosePreviewText,
 } from "./lib/transcript-status";
 import { voiceErrorMessage, type VoiceSttResponse } from "./lib/voice-errors";
@@ -3293,7 +3294,7 @@ function seedMessageForSession(session: Session): Message | null {
   const last = session.last;
   const lastIsProse =
     last?.kind === "text" && (last.role === "assistant" || last.role === "user") && !!last.text;
-  const text = normText(lastIsProse ? last.text : session.lastUserText || "");
+  const text = normText(promptPreviewText(lastIsProse ? last.text : session.lastUserText || ""));
   if (!sid || !text) return null;
   const role = lastIsProse && last.role === "assistant" ? "assistant" : "user";
   const ts = (lastIsProse ? last.ts : null) ?? session.lastActivityAt ?? session.startedAt ?? Date.now();
@@ -14038,7 +14039,7 @@ function RailStage({
           (!selectedBotConversationForRail ||
             selectedBotConversationForRail === row.conversationId ||
             selectedBotConversationForRail === row.sessionId);
-        const rawPreview = session?.last?.text || session?.lastUserText || row.lastMessagePreview || bot.lastMessagePreview || "";
+        const rawPreview = promptPreviewText(session?.last?.text || session?.lastUserText || row.lastMessagePreview || bot.lastMessagePreview || "");
         // A background task's report is machinery, not conversation: it is
         // hidden inside the chat, so it must not surface as the roster preview
         // either — the row would read `[subagent complete] …`.
@@ -22159,7 +22160,21 @@ function UserBubble({
 // LFG's launch contract travels inside the first user turn because several
 // agent CLIs have no separate system-prompt channel. Keep it available for
 // inspection without making the user read through it to find their own task.
-function OmgInstructionsBlock({
+//
+// Only on a local lfg. On the hosted omg.dev surface (app.omg.dev, or any
+// host that frames or mounts this app) the reader is a customer, and the
+// contract is internal agent text: a paying customer opened it four times on
+// 2026-10-21. The owner can still read it in the local lfg UI on the machine.
+function OmgInstructionsBlock(props: {
+  instructions: string;
+  version: string | null;
+  align?: "end" | "center";
+}) {
+  if (readLocationEmbedFlag() || isHostedSurface()) return null;
+  return <OmgInstructionsDisclosure {...props} />;
+}
+
+function OmgInstructionsDisclosure({
   instructions,
   version,
   align = "end",
@@ -31609,7 +31624,7 @@ function BotsView({
         const item = row.bot;
         const session = row.session;
         const working = !!(session?.sessionId && busyBySid[session.sessionId]);
-        const rawPreview = session?.last?.text || session?.lastUserText || row.lastMessagePreview || item.lastMessagePreview || "";
+        const rawPreview = promptPreviewText(session?.last?.text || session?.lastUserText || row.lastMessagePreview || item.lastMessagePreview || "");
         // See the rail roster: a `[subagent …]` report is not preview material.
         const preview = plainPreviewText(botRosterPreview(rawPreview, working));
         const stopped = !working && isCodingAgentStoppedText(rawPreview);

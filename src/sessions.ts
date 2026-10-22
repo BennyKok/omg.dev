@@ -3041,7 +3041,7 @@ export async function listSessions(): Promise<Session[]> {
       last = recent[recent.length - 1] ?? null;
       for (let i = recent.length - 1; i >= 0; i--) {
         if (recent[i].role === "user" && recent[i].kind === "text") {
-          lastUser = recent[i].text;
+          lastUser = promptDisplayText(recent[i].text);
           break;
         }
       }
@@ -3872,7 +3872,7 @@ async function refreshResumableCacheOnce(focusSessionId?: string): Promise<void>
       project: m.project ?? projectName(m.cwd, { repoRoot: m.repoRoot }),
       title: overrides[m.sessionId] || m.title || (m.cwd ? basename(m.cwd) : "—"),
       lastActivityAt,
-      lastUserText: lastUser?.text.trim().replace(/\s+/g, " ").slice(0, 140) || null,
+      lastUserText: (lastUser ? promptDisplayText(lastUser.text) : "").slice(0, 140) || null,
       agent,
       path: sessionIndexKey(m.sessionId),
       mtimeMs: lastActivityAt,

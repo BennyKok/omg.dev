@@ -1,3 +1,4 @@
+import { parseOmgPromptEnvelope } from "./omg-prompt-envelope";
 import { classifySystemMessage } from "./system-message";
 
 type TranscriptStatusMessage = {
@@ -32,7 +33,7 @@ export function isRequestInterruptedMessage(message: TranscriptStatusMessage): b
 export function isMachineryPreviewText(text?: string): boolean {
   const value = (text ?? "").trim();
   if (!value) return false;
-  const system = classifySystemMessage(value);
+  const system = classifySystemMessage(promptPreviewText(value));
   if (system) return system.kind !== "routine";
   return (
     /^\[Request interrupted by user(?: for tool use)?\]/i.test(value) ||
@@ -41,11 +42,25 @@ export function isMachineryPreviewText(text?: string): boolean {
 }
 
 /**
+ * The text a preview may show for one turn: the person's task alone.
+ *
+ * A managed session's first user turn carries omg.dev's launch envelope (the
+ * runtime contract, standing instructions, first-run rules) ahead of the
+ * task. The transcript folds that into its own block. Every one-line preview
+ * (card header, rail row, bot row) must read through this, or a customer sees
+ * "=== omg.dev RUNTIME CONTRACT ..." where their own request belongs.
+ */
+export function promptPreviewText(text?: string): string {
+  const value = text ?? "";
+  return parseOmgPromptEnvelope(value)?.task ?? value;
+}
+
+/**
  * Keep prose for a one-line session description and remove fenced code.
  * An unclosed fence removes the rest of the message because it is still code.
  */
 export function prosePreviewText(text?: string): string {
-  const lines = (text ?? "").split(/\r?\n/);
+  const lines = promptPreviewText(text).split(/\r?\n/);
   const prose: string[] = [];
   let fence: "```" | "~~~" | null = null;
   for (const line of lines) {
