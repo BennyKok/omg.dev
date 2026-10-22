@@ -628,11 +628,8 @@ function CreateBackdrop() {
   return (
     <div
       aria-hidden="true"
-      className="pointer-events-none fixed inset-0 z-0 overflow-hidden opacity-75 dark:opacity-70"
-      style={{
-        maskImage: "linear-gradient(to bottom, black 0, black 70%, transparent 100%)",
-        WebkitMaskImage: "linear-gradient(to bottom, black 0, black 70%, transparent 100%)",
-      }}
+      // Fades out toward every edge (lfg-create-backdrop in index.css).
+      className="lfg-create-backdrop pointer-events-none fixed inset-0 z-0 overflow-hidden opacity-75 dark:opacity-70"
     >
       <span className="lfg-create-cloud lfg-create-cloud-a" />
       <span className="lfg-create-cloud lfg-create-cloud-b" />
