@@ -4,7 +4,7 @@ import { router } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Reanimated, { cancelAnimation, Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withRepeat, withSequence, withTiming } from "react-native-reanimated";
 import {
-  inlinePreviewUrl, PREVIEW_LEVEL_LABEL, PROJECT_PREVIEW_RESTART_MESSAGE, PROJECT_PREVIEW_SIMULATOR_PATH, previewLevels, simulatorStatusText,
+  inlinePreviewUrl, PREVIEW_LEVEL_LABEL, PROJECT_PREVIEW_BUILD_ANDROID_MESSAGE, PROJECT_PREVIEW_RESTART_MESSAGE, PROJECT_PREVIEW_SIMULATOR_PATH, previewLevels, simulatorStatusText,
   type PreviewLevel, type ProjectPreview, type ProjectPreviewSnapshot, type SimulatorStream,
 } from "../../../packages/protocol/src/project-preview";
 import { EXPO_SIGNUP_LABEL, expoConnectActive, expoConnectMessage, type ExpoAccountSnapshot, type ExpoConnectMode } from "../../../packages/protocol/src/expo-account";
@@ -168,6 +168,10 @@ export function ProjectPreviewPanel({ sessionId, transport, email, onOpenCompute
   const [live, setLive] = useState<boolean | undefined>(undefined);
   const [expired, setExpired] = useState(false);
   const [restartAsked, setRestartAsked] = useState(false);
+  // The agent was asked for an installable Android app. Repeated taps do
+  // not send the request again.
+  const [buildAsked, setBuildAsked] = useState(false);
+  useEffect(() => { setBuildAsked(false); }, [sessionId]);
   const mounted = useRef(true);
   const suffix = `?sessionId=${encodeURIComponent(sessionId ?? "")}&user=${encodeURIComponent(email ?? "")}`;
   const refresh = useCallback(async () => {
@@ -259,6 +263,21 @@ export function ProjectPreviewPanel({ sessionId, transport, email, onOpenCompute
       });
     } catch { setRestartAsked(false); }
   };
+  // New customers do not have Expo Go. On Android, "Your phone" leads with an
+  // installable app and keeps Expo Go as a smaller second choice.
+  // omg_build_android makes no iPhone app, so iOS keeps the Expo Go path.
+  const buildFirst = Platform.OS === "android";
+  const buildApp = async () => {
+    if (!transport || !sessionId || buildAsked) return;
+    setBuildAsked(true);
+    try {
+      await transport.request(`/api/sessions/${encodeURIComponent(sessionId)}/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: PROJECT_PREVIEW_BUILD_ANDROID_MESSAGE }),
+      });
+    } catch { if (mounted.current) setBuildAsked(false); }
+  };
   const openExpoGo = async () => {
     // Opening an unregistered scheme rejects, so a failure means Expo Go is
     // not installed. canOpenURL would need a native scheme allowlist.
@@ -274,6 +293,8 @@ export function ProjectPreviewPanel({ sessionId, transport, email, onOpenCompute
   const primary = stopped || (expoGoUrl && guide) ? null
     : onPhoneLevel && needsConnect
       ? connecting ? null : { id: "project-preview-connect-expo", label: "Connect Expo", disabled: connectBusy, onPress: () => void postAccount("connect", "login") }
+      : onPhoneLevel && buildFirst
+        ? { id: "project-preview-build-android", label: buildAsked ? "Asked the agent to build it" : "Build Android app", disabled: buildAsked, onPress: () => void buildApp() }
       : onPhoneLevel
         ? { id: "project-preview-expo-go", label: "Open in Expo Go", disabled: false, onPress: () => void openExpoGo() }
         : { id: "project-preview-open", label: expoGoUrl ? "Web preview" : "Open preview", disabled: false, onPress: openWebPreview };
@@ -331,6 +352,7 @@ export function ProjectPreviewPanel({ sessionId, transport, email, onOpenCompute
         : current === "simulator" && simulator
         ? <SimulatorLevel stream={simulator} webUrl={inlinePreviewUrl(preview)} identity={previewAppIdentity(preview)} ownerEmail={email} onStart={() => void simulatorAction("start")} />
         : <DeviceLevel account={expoAccount} connecting={connecting} busy={connectBusy} error={connectError}
+            build={buildFirst ? { asked: buildAsked, onBuild: () => void buildApp() } : null}
             onOpen={() => void openExpoGo()} onConnect={(mode) => void postAccount("connect", mode)}
             onOpenComputer={() => setSheet({ mode: account?.connect?.state === "signup" ? "signup" : "login", run: account?.connect?.startedAt })}
             onCancel={() => void postAccount("cancel")} />}
@@ -469,8 +491,10 @@ const EXPO_LOGO = require("../../assets/brand/expo-logo.png");
  * line and two buttons, "Create free account" and "I have one". Signed in:
  * three short steps. The account rule is behind the info icon.
  */
-function DeviceLevel({ account, connecting, busy, error, onOpen, onConnect, onOpenComputer, onCancel }: {
+function DeviceLevel({ account, connecting, busy, error, build, onOpen, onConnect, onOpenComputer, onCancel }: {
   account: ExpoAccountSnapshot | null; connecting: boolean; busy: boolean; error: string | null;
+  /** Set on Android: the installable app comes first, Expo Go second. */
+  build: { asked: boolean; onBuild(): void } | null;
   onOpen(): void; onConnect(mode: ExpoConnectMode): void; onOpenComputer(): void; onCancel(): void;
 }) {
   const { colors } = useTheme();
@@ -483,6 +507,21 @@ function DeviceLevel({ account, connecting, busy, error, onOpen, onConnect, onOp
       {icon ? <Icon ios="iphone" android="smartphone" size={15} color={busy ? colors.mutedForeground : colors.primaryForeground} /> : null}
       <Text style={{ color: busy ? colors.mutedForeground : primary ? colors.primaryForeground : colors.foreground, fontWeight: "600", fontSize: 15 }}>{label}</Text>
     </Pressable>;
+  if (build) {
+    return <View testID="project-preview-device" style={{ alignItems: "center", gap: 8, paddingVertical: 10 }}>
+      <Pressable accessibilityRole="button" testID="project-preview-build-android" disabled={build.asked} onPress={build.onBuild}
+        style={{ flexDirection: "row", alignItems: "center", gap: 6, minHeight: 40, paddingHorizontal: 16, borderRadius: 999, backgroundColor: build.asked ? colors.muted : colors.primary }}>
+        <Icon ios={build.asked ? "checkmark" : "arrow.down.circle"} android={build.asked ? "check" : "download"} size={15} color={build.asked ? colors.mutedForeground : colors.primaryForeground} />
+        <Text style={{ color: build.asked ? colors.mutedForeground : colors.primaryForeground, fontWeight: "600", fontSize: 15 }}>{build.asked ? "Asked the agent to build it" : "Build Android app"}</Text>
+      </Pressable>
+      <Text style={{ color: colors.mutedForeground, fontSize: 13, textAlign: "center" }}>{build.asked
+        ? "The agent sends the install link when the build is done."
+        : "Install your app on an Android phone. The agent builds it and sends you the link."}</Text>
+      <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>Have Expo Go?{" "}
+        <Text testID="project-preview-expo-go" accessibilityRole="link" onPress={onOpen} style={{ color: colors.primary, fontSize: 13, fontWeight: "600" }}>Open in Expo Go</Text>
+      </Text>
+    </View>;
+  }
   if (account?.signedIn) {
     return <View testID="project-preview-device" style={{ paddingVertical: 6 }}>
       <View testID="project-preview-expo-steps" style={{ gap: 2 }}>
