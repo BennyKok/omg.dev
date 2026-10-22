@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
-// UI self-check: build the game, open every screen at phone size, and play it.
+// UI self-check: build the game, open every screen at two phone sizes
+// (390x844 and the small 360x640), and play it.
 //
 //   bun run check:ui             build dist when it is stale, then check
 //   bun run check:ui --rebuild   always rebuild dist first
@@ -10,7 +11,10 @@
 // console errors, failed requests, and any button that another element covers.
 // On /play it also holds movement keys for about a second and checks that the
 // canvas changes, so a game that does not run fails the check.
-// Exit code 1: build failure, blank page, error text, or a canvas that does not draw.
+// It also fails a button that is not fully on screen (partly outside the
+// edge), the most common phone layout bug.
+// Exit code 1: build failure, blank page, error text, a canvas that does not
+// draw, or a button that is off screen.
 // Uses Bun.WebView; falls back to headless Chrome over CDP. Stops everything
 // it started when it ends.
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
@@ -21,7 +25,8 @@ const root = join(fileURLToPath(new URL(".", import.meta.url)), "..");
 const args = new Set(process.argv.slice(2));
 const dist = join(root, "dist");
 const outDir = join(root, ".omg", "ui-check");
-const WIDTH = 390, HEIGHT = 844;
+const SIZES = [{ width: 390, height: 844 }, { width: 360, height: 640 }];
+let WIDTH = 390, HEIGHT = 844;
 const cleanups = [];
 const say = (s = "") => console.log(s);
 
@@ -96,14 +101,22 @@ const name=(e)=>((e.getAttribute('aria-label')||e.innerText||e.tagName)+'').trim
 const out=[];
 for(const e of document.querySelectorAll(sel)){const r=e.getBoundingClientRect(),c=getComputedStyle(e);
 if(r.width<4||r.height<4||c.visibility==='hidden'||c.display==='none'||e.disabled)continue;
-const x=r.left+r.width/2,y=r.top+r.height/2;if(x<0||y<0||x>=innerWidth||y>=innerHeight){out.push({label:name(e),by:'the screen edge',at:{x:Math.round(x),y:Math.round(y)}});continue}
+const x=r.left+r.width/2,y=r.top+r.height/2;
+if(!e.closest('.screen.scroll')&&(r.left<-1||r.top<-1||r.right>innerWidth+1||r.bottom>innerHeight+1)){out.push({label:name(e),by:'the screen edge',off:true,at:{x:Math.round(x),y:Math.round(y)}});continue}
+if(x<0||y<0||x>=innerWidth||y>=innerHeight)continue;
 const t=document.elementFromPoint(x,y);if(t&&t!==e&&!e.contains(t)&&!t.contains(e))out.push({label:name(e),by:name(t),at:{x:Math.round(x),y:Math.round(y)}})}
 return out})()`;
 
 const PAGE_STATE = `(()=>({text:document.body?document.body.innerText:'',canvas:document.querySelectorAll('canvas').length,errors:(window.__uiCheck||{console:[],failed:[]})}))()`;
 const ERROR_TEXT = /something went wrong|unhandled (runtime )?error|application error|uncaught (error|exception)|cannot read propert|is not a function|is not defined|minified react error/i;
-// A cheap fingerprint of the canvas pixels.
-const CANVAS_HASH = `(()=>{const c=document.querySelector('canvas');if(!c)return null;const d=c.toDataURL();let h=0;for(let i=0;i<d.length;i+=7)h=(h*31+d.charCodeAt(i))|0;return h+':'+d.length})()`;
+// The canvas area below the HUD row, in CSS pixels (works for 2D and WebGL canvases).
+const CANVAS_RECT = `(()=>{const c=document.querySelector('canvas');if(!c)return null;const r=c.getBoundingClientRect();return {x:r.left,y:r.top+70,width:r.width,height:Math.max(1,r.height-70),scale:1}})()`;
+async function canvasHash(browser) {
+  const clip = await browser.evaluate(CANVAS_RECT);
+  if (!clip) return null;
+  const shot = await browser.cdp("Page.captureScreenshot", { format: "png", clip });
+  return String(Bun.hash(shot.data));
+}
 
 async function openChrome() {
   const candidates = [process.env.CHROME_PATH, "google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome"].filter(Boolean);
@@ -163,12 +176,13 @@ async function key(browser, type, k) {
 
 /** Hold movement keys and confirm the canvas draws new frames. */
 async function playCheck(browser) {
-  const before = await browser.evaluate(CANVAS_HASH);
+  await Bun.sleep(1500); // a 3D view may still be loading three.js
+  const before = await canvasHash(browser);
   if (before === null) return { ok: false, line: "no <canvas> on /play" };
   for (const k of ["d", "s"]) await key(browser, "keyDown", k);
   await Bun.sleep(1200);
   for (const k of ["d", "s"]) await key(browser, "keyUp", k);
-  const after = await browser.evaluate(CANVAS_HASH);
+  const after = await canvasHash(browser);
   return before === after
     ? { ok: false, line: "the canvas did not change in 1.2 s with keys held: the loop or the drawing does not run" }
     : { ok: true, line: "the canvas changed while D and S were held" };
@@ -193,10 +207,12 @@ async function checkRoute(browser, base, route, n) {
       if (!r.play.ok) r.fail = r.play.line;
     }
     const shot = await browser.cdp("Page.captureScreenshot", { format: "png" });
-    const file = join(outDir, `${route.replace(/^\/+|\/+$/g, "").replace(/[^A-Za-z0-9._-]+/g, "_") || "index"}.png`);
+    const file = join(outDir, `${route.replace(/^\/+|\/+$/g, "").replace(/[^A-Za-z0-9._-]+/g, "_") || "index"}-${WIDTH}x${HEIGHT}.png`);
     await Bun.write(file, Buffer.from(shot.data, "base64"));
     r.png = relative(root, file);
     r.covered = await browser.evaluate(PROBE);
+    const off = r.covered.filter((c) => c.off);
+    if (off.length && !r.fail) r.fail = `${off.length} button(s) not fully on screen: ${off.map((c) => `"${c.label}"`).join(", ")}`;
     const after = await browser.evaluate(PAGE_STATE);
     r.console = [...new Set(after.errors.console.filter((t) => !/download the react devtools/i.test(t)))];
     r.failed = [...new Set(after.errors.failed)];
@@ -207,7 +223,7 @@ async function checkRoute(browser, base, route, n) {
 }
 
 async function main() {
-  say(`check:ui  ${WIDTH}x${HEIGHT} (touch)`);
+  say(`check:ui  ${SIZES.map((z) => `${z.width}x${z.height}`).join(" and ")} (touch)`);
   const distState = await ensureDist();
   const routes = readRoutes();
   say(`dist: ${distState}; screens: ${routes.join(" ")}`);
@@ -215,17 +231,22 @@ async function main() {
   mkdirSync(outDir, { recursive: true });
   for (const f of readdirSync(outDir)) if (f.endsWith(".png")) rmSync(join(outDir, f));
   const browser = await openBrowser();
-  await browser.cdp("Emulation.setDeviceMetricsOverride", { width: WIDTH, height: HEIGHT, deviceScaleFactor: 2, mobile: true });
   await browser.cdp("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 }).catch(() => {});
   await browser.cdp("Page.addScriptToEvaluateOnNewDocument", { source: RECORDER });
   say(`browser: ${browser.name}`);
   say();
   const results = [];
-  for (const [i, route] of routes.entries()) {
-    const r = await checkRoute(browser, base, route, i);
+  let n = 0;
+  for (const size of SIZES) for (const route of routes) {
+    if (WIDTH !== size.width || HEIGHT !== size.height || n === 0) {
+      ({ width: WIDTH, height: HEIGHT } = size);
+      await browser.cdp("Emulation.setDeviceMetricsOverride", { width: WIDTH, height: HEIGHT, deviceScaleFactor: 2, mobile: true });
+    }
+    const r = await checkRoute(browser, base, route, n++);
+    r.route = `${route} @${WIDTH}x${HEIGHT}`;
     results.push(r);
     const warn = r.console.length || r.failed.length || r.covered.length;
-    say(`${r.fail ? "FAIL" : warn ? "WARN" : "OK  "} ${route}${r.fail ? `  ${r.fail}` : ""}${r.png ? `  ${r.png}` : ""}`);
+    say(`${r.fail ? "FAIL" : warn ? "WARN" : "OK  "} ${r.route}${r.fail ? `  ${r.fail}` : ""}${r.png ? `  ${r.png}` : ""}`);
     if (r.play?.ok) say(`     play: ${r.play.line}`);
     for (const c of r.console.slice(0, 5)) say(`     console error: ${c}`);
     for (const f of r.failed.slice(0, 5)) say(`     failed request: ${f}`);
