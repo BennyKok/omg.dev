@@ -8751,7 +8751,7 @@ a{color:#60a5fa}
           (b.parent !== undefined && typeof b.parent !== "string") ||
           (b.template !== undefined && !isProjectTemplate(b.template))
         ) {
-          return err(400, "name is required; parent must be a string and template must be blank, expo or expo-game when provided");
+          return err(400, "name is required; parent must be a string and template must be blank, expo, expo-game or web-game when provided");
         }
         try {
           const repo = await createProjectFolder(b.parent, b.name, b.template ?? "blank");
