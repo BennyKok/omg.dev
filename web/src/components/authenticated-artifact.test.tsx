@@ -337,8 +337,12 @@ describe("AuthenticatedArtifactImage", () => {
     installTransport({ direct: true });
     const motions: { onfinish: (() => void) | null }[] = [];
     const proto = window.HTMLElement.prototype as unknown as Record<string, unknown>;
-    const originalAnimate = proto.animate;
-    const originalGetAnimations = proto.getAnimations;
+    // Put back exactly what was there. Assigning `undefined` to a method
+    // happy-dom never had would leave an own property that other suites see.
+    const saved = ["animate", "getAnimations"].map((key) => [
+      key,
+      Object.getOwnPropertyDescriptor(proto, key),
+    ] as const);
     proto.animate = () => {
       const motion = { onfinish: null, oncancel: null, cancel() {} };
       motions.push(motion);
@@ -375,8 +379,10 @@ describe("AuthenticatedArtifactImage", () => {
       expect(document.querySelector('[role="dialog"]')).toBeNull();
       expect(img()?.className).not.toContain("invisible");
     } finally {
-      proto.animate = originalAnimate;
-      proto.getAnimations = originalGetAnimations;
+      for (const [key, descriptor] of saved) {
+        if (descriptor) Object.defineProperty(proto, key, descriptor);
+        else delete proto[key];
+      }
     }
   });
 
