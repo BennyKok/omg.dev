@@ -14,7 +14,7 @@ import { useRuntimeLifecycle } from "./lib/runtime-lifecycle";
 import { useComputerResumeMetrics } from "./lib/use-computer-resume-metrics";
 import { LiveHeaderContext } from "./components/live-header-context";
 import { MobileProjectFolders } from "./components/mobile-project-folders";
-import { AppHeaderCard, AppNoOpenSessions, AppsList, buildAppItems, CreateHome, LocalProjectCard, Spinner, sessionInAppScope, useCloudApps, useScopedApp } from "./components/apps-home";
+import { AppHeaderCard, AppNoOpenSessions, buildAppItems, CreateHome, LocalProjectCard, Spinner, sessionInAppScope, useCloudApps, useScopedApp } from "./components/apps-home";
 import { CreateComposerFrame } from "./components/create-composer-frame";
 import { ProjectFolderMenu } from "./components/project-folder-menu";
 import { SessionReparentProvider, SessionReparentTarget } from "./components/session-reparent";
@@ -114,7 +114,6 @@ import {
   sessionMatchesProjectFilter,
 } from "./lib/project-filter";
 import { ChatStarterRow } from "./components/chat-starter-row";
-import { ImportGitHubDialog } from "./components/import-github-dialog";
 import { groupNodesByProject, type ProjectGroup } from "./lib/session-groups";
 import { usePendingSessionLink } from "./lib/session-navigation";
 import { pathnameToSessionId, pathnameToThreadId, sessionToPath, threadToPath } from "./lib/app-search";
@@ -288,6 +287,12 @@ import {
 // own anonymous wording ("Importing a module script failed.") — no chunk name,
 // no stack, no recovery. See lazy-with-reload.ts.
 const OmgChatEngine = lazyWithReload("OmgChatEngine", () => import("./lib/chat-engine"));
+// The Apps page and its GitHub import load when they open, outside the hosted
+// Computer surface's first load (vibes budgets that closure).
+const AppsList = lazyWithReload("AppsList", () => import("./components/apps-list"));
+const ImportGitHubDialog = lazyWithReload("ImportGitHubDialog", () =>
+  import("./components/import-github-dialog").then((mod) => ({ default: mod.ImportGitHubDialog })),
+);
 
 /** Warm the chat chunk once the app is idle, so opening a session never waits on it. */
 export function prefetchChatEngine(): void {
@@ -10421,7 +10426,9 @@ export function App() {
 
       {importGitHubOpen ? (
         // The clone lists under "On this computer" on the Apps page.
-        <ImportGitHubDialog onClose={() => setImportGitHubOpen(false)} onImported={() => loadCore()} />
+        <Suspense fallback={null}>
+          <ImportGitHubDialog onClose={() => setImportGitHubOpen(false)} onImported={() => loadCore()} />
+        </Suspense>
       ) : null}
 
       {mobileFolderBrowser !== null ? (
@@ -12754,16 +12761,18 @@ function LiveView({
         {createView ? (
           <CreateHome />
         ) : appsView ? (
+          <Suspense fallback={null}>
           <AppsList
             games={appItems.games}
             apps={appItems.apps}
             local={appItems.local}
             onOpenSession={openSessionPage}
-            onOpenApp={(item) => onOpenApp?.(item.project)}
-            onOpenProject={(project) => onOpenApp?.(project)}
+            onOpenApp={(item: { project: string }) => onOpenApp?.(item.project)}
+            onOpenProject={(project: string) => onOpenApp?.(project)}
             onImportFolder={onImportFolder}
             onImportGitHub={onImportGitHub}
           />
+          </Suspense>
         ) : <>
         {scopedApp ? <AppHeaderCard item={scopedApp} onCopied={() => toast.success("Link copied")} /> : null}
         {scopedLocalName ? <LocalProjectCard name={scopedLocalName} onFindSessions={() => onFindSessions?.("")} /> : null}
