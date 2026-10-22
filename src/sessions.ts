@@ -38,6 +38,7 @@ import {
 import {
   deleteTranscriptIndexForPath,
   indexedRecentMessages,
+  indexedSessionTail,
   indexSessionMessagesDirect,
   searchTranscriptIndex,
   sessionHasIndexedMessages,
@@ -2654,7 +2655,12 @@ export async function listSessions(): Promise<Session[]> {
         !p.cmd.match(new RegExp(`(?:resume|fork)\\s+(${UUID.source})`)) &&
         !!codexPromptFromCmd(p.cmd),
     ) ||
-    managedSessions.some((m) => m.agent === "codex" && !!m.sessionId && !m.nativeSessionId);
+    // Only a record with a live pane can still bind a rollout. A dead record
+    // (one launching row was 83 days old on a live box) used to force this
+    // query of codex's state database on every scan, with no codex running.
+    managedSessions.some(
+      (m) => m.agent === "codex" && !!m.sessionId && !m.nativeSessionId && tmux.hasSession(m.tmuxName),
+    );
   profile?.count("codexThreads_skipped", needsCodexThreads ? 0 : 1);
   const codex = needsCodexThreads
     ? await profileAsync(profile, "codexThreads_ms", () =>
@@ -3118,23 +3124,18 @@ export async function listSessions(): Promise<Session[]> {
     let last: SessionMsg | null = null;
     let lastActivityAt: number | null = null;
     let lastUser: string | null = null;
-    const recent = await profileAsync(profile, "directTranscriptTailMeta_ms", () =>
-      indexedRecentMessages(transcriptPath, sessionId, 80).catch(() => [] as SessionMsg[]),
+    const tail = await profileAsync(profile, "directTranscriptTailMeta_ms", () =>
+      indexedSessionTail(transcriptPath, sessionId, 80).catch(() => null),
     );
-    if (recent.length) {
-      last = recent[recent.length - 1] ?? null;
-      lastActivityAt = recent.reduce<number | null>(
-        (max, msg) => (msg.ts == null ? max : Math.max(max ?? 0, msg.ts)),
-        null,
-      );
-      for (let i = recent.length - 1; i >= 0; i--) {
-        const msg = recent[i];
-        if (msg.role === "user" && msg.kind === "text" && msg.text.trim()) {
-          const t = promptDisplayText(msg.text);
-          if (t && !t.startsWith("<")) {
-            lastUser = t.length > 140 ? t.slice(0, 139) + "…" : t;
-            break;
-          }
+    if (tail) {
+      last = tail.last;
+      lastActivityAt = tail.lastActivityAt;
+      for (const text of tail.userTexts) {
+        if (!text.trim()) continue;
+        const t = promptDisplayText(text);
+        if (t && !t.startsWith("<")) {
+          lastUser = t.length > 140 ? t.slice(0, 139) + "…" : t;
+          break;
         }
       }
     }

@@ -187,3 +187,36 @@ describe("planSessionCwd", () => {
     expect(await planSessionCwd(dir, "lfg-plan02")).toEqual({ cwd: dir });
   });
 });
+
+describe("indexedSessionTail", () => {
+  test("returns the newest message, newest time, and user prompts newest first", async () => {
+    const { indexSessionMessagesDirect, indexedRecentMessages, indexedSessionTail, sessionIndexKey } =
+      await import("./transcript-index.ts");
+    const id = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    indexSessionMessagesDirect(id, [
+      { id: "u1", role: "user", kind: "text", text: "first prompt", ts: 1_000 },
+      { id: "a1", role: "assistant", kind: "text", text: "reply one", ts: 2_000 },
+      { id: "u2", role: "user", kind: "text", text: "second prompt", ts: 3_000 },
+      { id: "t1", role: "assistant", kind: "tool_use", text: "Bash <json>{}</json>", ts: 5_000 },
+      { id: "a2", role: "assistant", kind: "text", text: "reply two", ts: 4_000 },
+    ]);
+    const key = sessionIndexKey(id);
+    const tail = await indexedSessionTail(key, id, 80);
+    const recent = await indexedRecentMessages(key, id, 80);
+    // Same newest message as the full read it replaces.
+    expect(tail.last).toEqual(recent[recent.length - 1]!);
+    expect(tail.last?.text).toBe("reply two");
+    expect(tail.lastActivityAt).toBe(5_000);
+    expect(tail.userTexts).toEqual(["second prompt", "first prompt"]);
+    // The window bounds what it looks at.
+    expect((await indexedSessionTail(key, id, 2)).userTexts).toEqual([]);
+  });
+
+  test("an empty transcript has nothing to show", async () => {
+    const { indexedSessionTail, sessionIndexKey } = await import("./transcript-index.ts");
+    const id = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+    expect(await indexedSessionTail(sessionIndexKey(id), id)).toEqual({
+      last: null, lastActivityAt: null, userTexts: [],
+    });
+  });
+});
