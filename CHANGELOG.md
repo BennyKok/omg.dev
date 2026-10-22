@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## October 22, 2026 - Web games by default (v0.6.280)
+
+- Games now start from the new web game kit. A game opens from its link on iPhone and Android, with no app store and no Expo Go.
+- The kit has one game UI for 2D and 3D games: menu, score, lives, timer, pause, results and unlocks. Its default style is Soft candy, with Glass neon and Clean minimal as other choices.
+- Every game gets a daily challenge with a streak, friend challenge links, sharing, sound with a mute button, and a page that search engines can read.
+- Ask for an app to install on iPhone or Android, or name Expo, to get a native Expo game.
+
 ## October 22, 2026 - Create, Apps, and Chats on the phone (v0.6.279)
 
 - The phone home has three pills: Create, Apps, and Chats. Create is where you start something new. Apps lists your published apps. Chats lists every session.
