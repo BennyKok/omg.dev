@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { OmgLiveConnection, type OmgTranscriptEvent } from "@omg-dev/client";
 import type { MessageAuthorRef } from "../../src/conversation-contract";
 import { evlog } from "./lib/evlog";
@@ -298,8 +298,48 @@ export type ConnectionState = {
   lastCloseCode: number | null;
   lastCloseReason: string | null;
   lastMessageAt: number | null;
-  latencyMs: number | null;
 };
+
+/**
+ * The measured round trip, kept outside ConnectionState on purpose.
+ *
+ * The socket measures it every 5 s. When it was a field of ConnectionState,
+ * every measurement made a new state object, and App, which holds that state,
+ * rendered the whole shell again every 5 s for one number in the More page.
+ * A tap that landed on that render felt slow. Only the ping readout subscribes
+ * to this now.
+ */
+export type LatencySource = {
+  get: () => number | null;
+  subscribe: (listener: () => void) => () => void;
+};
+
+export function createLatencySource(): LatencySource & { set: (value: number | null) => void } {
+  let value: number | null = null;
+  const listeners = new Set<() => void>();
+  return {
+    get: () => value,
+    set: (next) => {
+      if (next === value) return;
+      value = next;
+      for (const listener of listeners) listener();
+    },
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
+}
+
+const NO_LATENCY: LatencySource = { get: () => null, subscribe: () => () => {} };
+
+/** The current round trip in ms, or null before the first measurement. */
+export function useLatencyMs(source: LatencySource | null | undefined): number | null {
+  const from = source ?? NO_LATENCY;
+  return useSyncExternalStore(from.subscribe, from.get, from.get);
+}
 
 const INITIAL_CONNECTION_STATE: ConnectionState = {
   status: "connecting",
@@ -307,7 +347,6 @@ const INITIAL_CONNECTION_STATE: ConnectionState = {
   lastCloseCode: null,
   lastCloseReason: null,
   lastMessageAt: null,
-  latencyMs: null,
 };
 
 /** The web's socket: OmgLiveConnection over the current Computer transport. */
@@ -391,6 +430,7 @@ export function useLiveSocket(
   // Participant ids typing per session, replaced wholesale by each frame.
   const [typingBySid, setTypingBySid] = useState<Record<string, string[]>>({});
   const [connection, setConnection] = useState<ConnectionState>(INITIAL_CONNECTION_STATE);
+  const [latency] = useState(createLatencySource);
   const [live, setLive] = useState<OmgLiveConnection | null>(null);
 
   const thinkTimerRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -416,14 +456,20 @@ export function useLiveSocket(
         firstMsgRef.current = new Set();
         draftSeenRef.current = new Set();
       }
-      setConnection((prev) => ({
-        ...prev,
-        status: state.status,
-        attempt: state.attempt,
-        lastCloseCode: state.lastCloseCode ?? prev.lastCloseCode,
-        lastCloseReason: state.lastCloseReason ?? prev.lastCloseReason,
-        latencyMs: state.latencyMs ?? null,
-      }));
+      latency.set(state.status === "live" ? state.latencyMs ?? null : null);
+      setConnection((prev) => {
+        const lastCloseCode = state.lastCloseCode ?? prev.lastCloseCode;
+        const lastCloseReason = state.lastCloseReason ?? prev.lastCloseReason;
+        // A latency-only notification changes nothing here. Keep the same
+        // object so App does not render again.
+        if (
+          prev.status === state.status &&
+          prev.attempt === state.attempt &&
+          prev.lastCloseCode === lastCloseCode &&
+          prev.lastCloseReason === lastCloseReason
+        ) return prev;
+        return { ...prev, status: state.status, attempt: state.attempt, lastCloseCode, lastCloseReason };
+      });
     });
     // Status rows and change announcements keep the socket open for as long
     // as the app runs, transcripts or not.
@@ -642,6 +688,7 @@ export function useLiveSocket(
     busyBySid: mergedBusy,
     promptsBySid,
     connection,
+    latency: latency as LatencySource,
     reconnectNow,
     subscribeTranscript,
   };

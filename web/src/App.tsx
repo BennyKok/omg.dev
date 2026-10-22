@@ -19,6 +19,7 @@ import { CreateComposerFrame } from "./components/create-composer-frame";
 import { ProjectFolderMenu } from "./components/project-folder-menu";
 import { SessionReparentProvider, SessionReparentTarget } from "./components/session-reparent";
 import { HostDrawerSlot, SideNavButton, SideNavDrawer, SideNavGlyph, SideNavPanel } from "./components/side-nav";
+import { setSideNavOpen, useSideNavOpen } from "./lib/side-nav-open";
 import { FindingsPill, FindingsSheet } from "./components/findings-pill";
 import { sideNavRows, type SideNavRow } from "./lib/side-nav-items";
 import { settledParagraphs } from "./lib/paragraph-stream";
@@ -327,7 +328,7 @@ import {
 } from "./cron";
 import { evlog } from "./lib/evlog";
 import { useSessionHistory } from "./lib/use-session-history";
-import { liveTransportMode, useLiveSocket, type ChangeTopic, type ConnectionState } from "./useLiveSocket";
+import { liveTransportMode, useLatencyMs, useLiveSocket, type ChangeTopic, type ConnectionState, type LatencySource } from "./useLiveSocket";
 import { emitListChanges, setListsLive } from "./lib/change-topics";
 import {
   OmgChatStreamOwnership,
@@ -5808,6 +5809,15 @@ function useResourceWarnings(): void {
   }, []);
 }
 
+/**
+ * The phone drawer, subscribed to its own open state. Only this component
+ * renders when the drawer opens or closes; App does not.
+ */
+function AppSideNavDrawer(props: Omit<ComponentProps<typeof SideNavDrawer>, "open" | "onOpenChange">) {
+  const open = useSideNavOpen();
+  return <SideNavDrawer {...props} open={open} onOpenChange={setSideNavOpen} />;
+}
+
 export function App() {
   const appDialog = useAppDialog();
   useResourceWarnings();
@@ -6039,7 +6049,16 @@ export function App() {
       root.style.removeProperty("--lfg-mobile-composer-fade-opacity");
     };
   }, [isMobile, mobileChromeEl]);
-  const [keyboardOpen, setKeyboardOpen] = useState(false);
+  const [keyboardOpen, setKeyboardOpenState] = useState(false);
+  // The viewport sync below runs on every pointerdown, scroll and resize. A
+  // setState with an unchanged value can still render App once before React
+  // bails out, and App is large, so every tap paid for it. Compare first.
+  const keyboardOpenRef = useRef(false);
+  const setKeyboardOpen = useCallback((open: boolean) => {
+    if (keyboardOpenRef.current === open) return;
+    keyboardOpenRef.current = open;
+    setKeyboardOpenState(open);
+  }, []);
   const [codingAgents, setCodingAgents] = useState<CodingAgentInfo[]>(() => startPayload?.codingAgents ?? []);
   const [codingAgentAuth, setCodingAgentAuth] = useState<CodingAgentAuthSession | null>(null);
   // The provider whose login is being PREPARED — set on click, before the
@@ -6498,8 +6517,10 @@ export function App() {
   const [findSessions, setFindSessions] = useState<{ nonce: number; search: string } | undefined>();
   // The mobile side navigation. One drawer now answers "where do I go",
   // replacing both the bottom surface bar and the overflow menu.
-  const [navOpen, setNavOpen] = useState(false);
-  const closeNav = useCallback(() => setNavOpen(false), []);
+  // The drawer owns its open state (lib/side-nav-open), so a tap on the menu
+  // button does not render App again. See AppSideNavDrawer.
+  const setNavOpen = setSideNavOpen;
+  const closeNav = useCallback(() => setSideNavOpen(false), []);
   // Read straight from the stored choice rather than through MachineSwitcher,
   // which owns the list. The button only needs the current name for its label.
   const navMachineName = activeMachine().name;
@@ -10261,6 +10282,7 @@ export function App() {
           <MoreView
             // Same source the Settings root used before Ping moved here.
             connection={useWsLive ? wsLiveStream.connection : null}
+            latency={useWsLive ? wsLiveStream.latency : null}
             dark={dark}
             toggleTheme={toggleTheme}
             user={userFilter !== "__all" && userFilter !== "__unassigned" ? userFilter : null}
@@ -10307,9 +10329,7 @@ export function App() {
       </main>
 
       {isMobile ? (
-        <SideNavDrawer
-          open={navOpen}
-          onOpenChange={setNavOpen}
+        <AppSideNavDrawer
           rows={sideNavRows({
             tab,
             hiddenPages,
@@ -30726,6 +30746,7 @@ function MoreView({
   extTabs,
   onOpenExt,
   connection,
+  latency,
   settings,
   onSettingsChange,
 }: {
@@ -30742,11 +30763,13 @@ function MoreView({
   extTabs: ExtensionNavTab[];
   onOpenExt: (id: string) => void;
   connection: ConnectionState | null;
+  latency?: LatencySource | null;
   settings: GlobalSettings;
   onSettingsChange: (patch: Partial<GlobalSettings>) => Promise<void>;
 }) {
   const uiFeedback = useUiFeedbackPrefs();
   const navigationPrefs = useNavigationPrefs();
+  const latencyMs = useLatencyMs(latency);
 
   return (
     <div className="mx-auto max-w-xl space-y-8 pb-10" data-lfg-page-column>
@@ -30939,11 +30962,11 @@ function MoreView({
             "size-1.5 rounded-full",
             connection?.status !== "live"
               ? "bg-muted-foreground/40"
-              : connection.latencyMs == null
+              : latencyMs == null
                 ? "animate-pulse bg-primary"
-                : connection.latencyMs <= 150
+                : latencyMs <= 150
                   ? "bg-success"
-                  : connection.latencyMs <= 300
+                  : latencyMs <= 300
                     ? "bg-warning"
                     : "bg-destructive",
           )}
@@ -30952,9 +30975,9 @@ function MoreView({
           {connection == null
             ? "Connection unavailable"
             : connection.status === "live"
-              ? connection.latencyMs == null
+              ? latencyMs == null
                 ? "Measuring ping…"
-                : `Ping ${connection.latencyMs} ms`
+                : `Ping ${latencyMs} ms`
               : "Reconnecting…"}
         </span>
       </p>
