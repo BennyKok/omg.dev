@@ -138,9 +138,9 @@ button { -webkit-touch-callout: none; }
 
 .tagline { margin: 10px 0 0; color: var(--muted); font-size: 16px; font-weight: 700; text-align: center; }
 .hero-art, .hero-image { display: block; height: 100%; max-height: 210px; width: 100%; object-fit: contain; }
-.hero-runner { animation: bob 1.4s ease-in-out infinite; }
-.hero-coin.a { animation: bob 2s ease-in-out infinite; }
-.hero-coin.b { animation: bob 2.4s ease-in-out infinite 0.3s; }
+.hero-shape.b { animation: bob 1.4s ease-in-out infinite; }
+.hero-shape.a { animation: bob 2s ease-in-out infinite; }
+.hero-shape.c { animation: bob 2.4s ease-in-out infinite 0.3s; }
 
 /* ---------- menu ---------- */
 
@@ -521,7 +521,7 @@ button { -webkit-touch-callout: none; }
 }
 .game-area { position: relative; flex: 1; min-height: 0; overflow: hidden; }
 .game-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
-.views { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 4px; pointer-events: none; }
+.views { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; gap: 4px; pointer-events: none; }
 .view { position: relative; flex: 1; }
 
 .hud { position: absolute; top: 0; left: 0; right: 0; display: flex; justify-content: center; padding: calc(var(--safe-top) + 10px) calc(var(--safe-right) + 10px) 0 calc(var(--safe-left) + 10px); }
@@ -544,6 +544,7 @@ button { -webkit-touch-callout: none; }
 [data-material="minimal"] .hud-strip { box-shadow: inset 0 0 0 1px var(--line), var(--shadow); }
 .hud-stat { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .hud-icon { display: inline-flex; flex: none; }
+.hud-icon-image { width: 30px; height: 30px; object-fit: contain; }
 .hud-label { color: var(--muted); font-size: 12px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; }
 .hud-value { display: inline-block; font-family: var(--fontDisplay); font-weight: 900; font-size: 22px; font-variant-numeric: tabular-nums; animation: pop 0.3s var(--spring); }
 .hud-stat.hearts { gap: 2px; }
@@ -594,6 +595,21 @@ button { -webkit-touch-callout: none; }
   padding: 0 calc(var(--safe-right) + 16px) calc(var(--safe-bottom) + 18px) calc(var(--safe-left) + 16px);
   pointer-events: none;
   touch-action: none;
+}
+/* Drag anywhere ("drag" controls): under the HUD and the buttons, over the canvas. */
+.drag-field { position: absolute; inset: 0; z-index: 1; touch-action: none; overscroll-behavior: none; cursor: grab; }
+.drag-field:active { cursor: grabbing; }
+.drag-ring {
+  position: absolute;
+  left: -28px;
+  top: -28px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 3px solid color-mix(in srgb, var(--accent) 70%, white);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  pointer-events: none;
+  opacity: 0.8;
 }
 .control-side { display: flex; align-items: flex-end; gap: 14px; pointer-events: none; }
 .control-side > * { pointer-events: auto; }
@@ -693,7 +709,7 @@ button { -webkit-touch-callout: none; }
   .hud-value { font-size: 19px; }
   .hud-stat { gap: 5px; }
   .hud-stat.hearts svg { width: 21px; height: 21px; }
-  .hud-icon svg { width: 25px; height: 25px; }
+  .hud-icon svg, .hud-icon-image { width: 25px; height: 25px; }
   .button-row .game-button { font-size: 17px; gap: 6px; }
 }
 @media (max-height: 700px) {

@@ -6,7 +6,7 @@ import { customInputModalities } from "./custom-models.ts";
 // Bump whenever an agent-facing omg.dev capability or its operating guidance
 // changes. Managed sessions persist the value they launched with, which lets
 // the UI identify long-lived sessions whose MCP/tool catalog predates a ship.
-export const OMG_CAPABILITY_VERSION = "2026-10-22.1";
+export const OMG_CAPABILITY_VERSION = "2026-10-22.2";
 
 export const OMG_CAPABILITIES = [
   {
@@ -331,7 +331,7 @@ export function withFirstRunEnvelope(
     // The kit runs on 5174 because the ready web project already holds 5173.
     // Without explicit steps the agent started from scratch in the ready web
     // project (Timber Tumble, 2026-10-13), and the kit never loaded.
-    `- For a game, build a web game by default, and do these steps first, before you write any game code: 1. \`omg_create_project\` with \`template: "web-game"\`. 2. In the project directory run \`bun install\`, then start \`bun run dev\` in the background (port 5174). 3. \`omg_expose_port\` with port 5174, without \`expoGo\`. 4. Tell the user the preview is ready in the card below. Then read the omg-web-game-builder skill in the project and replace the sample game with the user's game as that skill says. Use \`template: "expo-game"\` with the phone app steps above, and the omg-game-builder skill, only when the user asks for a game to install on iPhone or Android, or names Expo or a native app.`,
+    `- For a game, build a web game by default, and do these steps first, before you write any game code: 1. \`omg_create_project\` with \`template: "web-game"\`. 2. In the project directory run \`bun install\`, then start \`bun run dev\` in the background (port 5174). 3. \`omg_expose_port\` with port 5174, without \`expoGo\`. 4. Tell the user the preview is ready in the card below. These four steps are step 1 of the omg-web-game-builder skill. Then read that skill in the project and replace the sample game with the user's game as it says, from its step 2. Use \`template: "expo-game"\` with the phone app steps above, and the omg-game-builder skill, only when the user asks for a game to install on iPhone or Android, or names Expo or a native app.`,
     "- Before that first preview: no test suites, no self-test loops, and no reading files one by one to learn the template. One quick check that the page loads is enough.",
     // A paid design is the spec. Trial builds (2026-10-08) shipped the first
     // preview, built from the words alone, and stopped: "Adorn By Deonte"

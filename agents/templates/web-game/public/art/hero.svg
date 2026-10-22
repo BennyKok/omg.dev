@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 150">
+  <!-- Coin Dash sample art: the runner between two coins. Replace it with your game's hero. -->
+  <style>
+    .bob { animation: bob 1.4s ease-in-out infinite; }
+    .a { animation: bob 2s ease-in-out infinite; }
+    .b { animation: bob 2.4s ease-in-out infinite .3s; }
+    @keyframes bob { 50% { transform: translateY(-6px); } }
+    @media (prefers-reduced-motion: reduce) { .bob, .a, .b { animation: none; } }
+  </style>
+  <defs>
+    <g id="coin">
+      <circle cy="2.6" r="22" fill="#E3A834"/>
+      <circle r="22" fill="#FFC84A"/>
+      <circle r="15.4" fill="none" stroke="#E4AA36" stroke-width="2.2"/>
+      <path transform="scale(1.83)" d="M0-6.2l1.8 3.7 4 .6-2.9 2.8.7 4-3.6-1.9-3.6 1.9.7-4-2.9-2.8 4-.6z" fill="#fff"/>
+    </g>
+  </defs>
+  <ellipse cx="120" cy="136" rx="70" ry="9" fill="#34304C" opacity=".10"/>
+  <g class="a"><use href="#coin" transform="translate(40 78)"/></g>
+  <g class="b"><use href="#coin" transform="translate(200 60) scale(.77)"/></g>
+  <g class="bob">
+    <ellipse cx="120" cy="84" rx="44" ry="46" fill="#FF776D"/>
+    <ellipse cx="120" cy="92" rx="44" ry="38" fill="#000" opacity=".08"/>
+    <ellipse cx="106" cy="58" rx="12" ry="8" fill="#fff" opacity=".4" transform="rotate(-25 106 58)"/>
+    <ellipse cx="132" cy="74" rx="22" ry="19" fill="#fff"/>
+    <ellipse cx="125" cy="74" rx="4.5" ry="7" fill="#2a2440"/>
+    <ellipse cx="140" cy="74" rx="4.5" ry="7" fill="#2a2440"/>
+    <ellipse cx="96" cy="128" rx="13" ry="8" fill="#FF776D"/>
+    <ellipse cx="142" cy="128" rx="13" ry="8" fill="#FF776D"/>
+  </g>
+</svg>

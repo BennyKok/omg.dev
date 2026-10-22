@@ -7,6 +7,7 @@
 // the game never disagree.
 //
 // No React, no DOM and no asset imports in this file: vite.config.ts reads it.
+import type { ControlKind } from "../game/input";
 
 export type Faq = { q: string; a: string };
 
@@ -30,6 +31,20 @@ export const GAME = {
   orientation: "portrait" as "portrait" | "any",
   /** Big heading when a round ends. */
   resultTitle: "Time's up!",
+  /**
+   * The touch control, and the words for it. play.tsx passes `kind` to
+   * <TouchControls>. The menu shows `touchHint` on a phone and `keysHint` on
+   * a computer. Both, and howToPlay, must describe this same control: say
+   * "drag" for "drag", "stick" for "stick", "buttons" or "tap" for the rest.
+   * check:ui fails a menu hint that names another control. `axes` limits a
+   * "drag" to "x" (left and right, such as a paddle) or "y".
+   */
+  controls: {
+    kind: "stick" as ControlKind,
+    axes: "xy" as "x" | "y" | "xy",
+    touchHint: "Drag the stick to move. Tap Dash to dash.",
+    keysHint: "Arrows or WASD to move. Space to dash.",
+  },
   howToPlay: [
     "Tap Play.",
     "Drag the stick, or use the arrow keys or WASD, to move your runner.",

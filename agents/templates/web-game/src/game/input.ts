@@ -1,5 +1,5 @@
-// Input state for one or two players. Keyboard, d-pad, buttons and the
-// joystick all write here; game rules only read here. That is what makes the
+// Input state for one or two players. Keyboard, d-pad, buttons, the
+// joystick and the drag field all write here; game rules only read here. That is what makes the
 // same game work with a keyboard on the web and with touch controls on a phone.
 //
 // No React and no DOM in this file.
@@ -7,12 +7,25 @@
 export type PlayerId = "p1" | "p2";
 export type Action = "left" | "right" | "up" | "down" | "a" | "b";
 
+/**
+ * How the player moves on a touch screen. `TouchControls` draws it, and the
+ * menu hint and How to play text must name the same control.
+ *   "drag":    drag anywhere on the play field (paddle, catch, runner, slingshot)
+ *   "stick":   a joystick, bottom left (top-down, twin-stick, free movement)
+ *   "dpad":    four arrow keys (grid moves: maze, snake, sokoban)
+ *   "steer":   two big left and right keys (racing, lane switch)
+ *   "buttons": only the action buttons (one-tap: flappy, jump, tap timing)
+ */
+export type ControlKind = "drag" | "stick" | "dpad" | "steer" | "buttons";
+
 export type PlayerInput = {
   held: Record<Action, boolean>;
   /** Joystick vector, each part from -1 to 1. */
   stick: { x: number; y: number };
   /** Actions pressed since the last `endFrame`. Use for jump or fire. */
   tapped: Record<Action, boolean>;
+  /** The finger on the drag field ("drag" controls, absolute mode), 0..1 across and down the play field. Null when no finger is down. */
+  drag: { x: number; y: number } | null;
 };
 
 export type Input = Record<PlayerId, PlayerInput>;
@@ -21,7 +34,7 @@ const ACTIONS: Action[] = ["left", "right", "up", "down", "a", "b"];
 
 function blankPlayer(): PlayerInput {
   const flags = () => Object.fromEntries(ACTIONS.map((a) => [a, false])) as Record<Action, boolean>;
-  return { held: flags(), stick: { x: 0, y: 0 }, tapped: flags() };
+  return { held: flags(), stick: { x: 0, y: 0 }, tapped: flags(), drag: null };
 }
 
 export function createInput(): Input {
@@ -39,6 +52,28 @@ export function setStick(input: Input, player: PlayerId, x: number, y: number): 
   const k = len > 1 ? 1 / len : 1;
   input[player].stick.x = x * k;
   input[player].stick.y = y * k;
+}
+
+/** Where the finger is on the play field, 0..1, or null. Written by the drag field in absolute mode. */
+export function setDragTarget(input: Input, player: PlayerId, at: { x: number; y: number } | null): void {
+  input[player].drag = at ? { x: Math.min(1, Math.max(0, at.x)), y: Math.min(1, Math.max(0, at.y)) } : null;
+}
+
+/**
+ * The finger position on the play field (0..1 across and down), or null.
+ * For a paddle or a basket that sits under the finger:
+ *   const t = dragTarget(input, "p1");
+ *   if (t) basket.x = approach(basket.x, t.x * WORLD.w, SPEED * 3 * dt);
+ *   else basket.x += axisX(input, "p1") * SPEED * dt;   // keyboard
+ */
+export function dragTarget(input: Input, player: PlayerId): { x: number; y: number } | null {
+  return input[player].drag;
+}
+
+/** Move `current` toward `target` by at most `maxStep`. */
+export function approach(current: number, target: number, maxStep: number): number {
+  const d = target - current;
+  return Math.abs(d) <= maxStep ? target : current + Math.sign(d) * maxStep;
 }
 
 /** Held, or pressed and released within one frame. A very quick tap still moves one step. */
@@ -76,6 +111,7 @@ export function releaseAll(input: Input): void {
     }
     p.stick.x = 0;
     p.stick.y = 0;
+    p.drag = null;
   }
 }
 
