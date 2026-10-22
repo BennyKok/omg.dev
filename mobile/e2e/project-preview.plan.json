@@ -27,10 +27,11 @@
     },
     {
       "name": "Expo Go card, Expo signed in",
-      "goal": "Find the card for 'My todo app'. Only inspect it and do not tap anything.",
-      "done": "The todo app card shows three short steps: get Expo Go, sign in as the Expo account with a tick, and open in Expo Go.",
+      "goal": "Find the card for 'My todo app'. Tap its 'Use Expo Go' option once. Do not tap anything else.",
+      "done": "The todo app card first says the agent publishes the app when the first screen works. Below 'Use Expo Go' it shows three short steps: get Expo Go, sign in as the Expo account with a tick, and open in Expo Go.",
       "expect": [
         "My todo app",
+        "The agent publishes your app when the first screen works. Then its link shows here.",
         "Get Expo Go",
         "Sign in as expo-e2e-test",
         "Open in Expo Go"
@@ -38,7 +39,7 @@
     },
     {
       "name": "Expo not signed in",
-      "goal": "Find the card for 'My connect app'. Only inspect it and do not tap anything.",
+      "goal": "Find the card for 'My connect app'. Tap its 'Use Expo Go' option once. Do not tap anything else.",
       "done": "The 'My connect app' card shows the Expo mark, one line 'Preview on your iPhone', and two buttons: 'Create free account' and 'I have one'.",
       "expect": [
         "My connect app",

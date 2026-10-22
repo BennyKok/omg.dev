@@ -24,6 +24,11 @@ function pickLevel(level: "web" | "simulator" | "device") {
   const tab = document.querySelector(`[data-testid="project-preview-level-${level}"]`) as HTMLElement;
   ui.flush(() => tab.click());
 }
+/** Open the Expo Go option of the Your phone level, as a person taps it. */
+function openExpoGo() {
+  ui.flush(() => (document.querySelector('[data-testid="project-preview-expo-go-toggle"]') as HTMLElement).click());
+}
+const PUBLISHED = "https://todo-app.omgs.app";
 /** Wait for a lazily loaded part (the sign-in sheet chunk) to render. */
 async function waitFor(selector: string) {
   for (let i = 0; i < 100 && !document.querySelector(selector); i++) {
@@ -111,24 +116,42 @@ test("an Expo preview opens on the web level, inline at phone size, with icon ta
   expect(document.querySelector('[role="dialog"] iframe')?.getAttribute("src")).toBe("https://cap-token.preview.omgs.app");
 });
 
-test("Your phone on a computer leads with the Android app and keeps the Expo Go QR code second", async () => {
+// Owner decision 2026-10-22: "Your phone" leads with the published web link.
+// Fails if Expo Go or the dev preview comes back as the first thing before a
+// publish, or if the second options disappear.
+test("Your phone on a computer before a publish says the link comes later and keeps the second options small", async () => {
   globalThis.fetch = (async () => Response.json({ preview: EXPO_PREVIEW, live: true })) as typeof fetch;
   ui.render(<ProjectPreviewCard sessionId="session-1" user="person@example.com" />);
   await ui.flushAsync();
   pickLevel("device");
   expect(document.querySelector('[data-testid="project-preview-card"]')?.getAttribute("data-level")).toBe("device");
   expect(document.querySelector('[data-testid="project-preview-web"]')).toBeNull();
-  const build = document.querySelector('[data-testid="project-preview-build-android"]');
-  expect(build).not.toBeNull();
+  expect(document.querySelector('[data-testid="project-preview-not-published"]')).not.toBeNull();
+  expect(document.querySelector('[data-testid="project-preview-open-published"]')).toBeNull();
+  // Expo Go waits behind its option. A computer can ask for the Android app.
+  expect(document.querySelector('[data-testid="expo-go-guide"]')).toBeNull();
+  expect(document.querySelector('[data-testid="project-preview-build-android"]')).not.toBeNull();
+  openExpoGo();
   const qr = document.querySelector('[data-testid="project-preview-expo-go-option"] img[data-testid="expo-go-guide"]');
   expect(qr?.getAttribute("src")).toStartWith("data:image/svg+xml");
-  expect(qr?.getAttribute("alt")).toBe("QR code that opens this app in Expo Go");
-  expect(build!.compareDocumentPosition(qr!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   const info = document.querySelector('[data-testid="project-preview-info"]') as HTMLElement;
   expect(info.getAttribute("aria-label")).toContain("same Expo account");
   ui.flush(() => info.click());
   // A computer cannot know the phone, so the store link is Expo's page for both.
   expect(document.querySelector('[role="note"] a')?.getAttribute("href")).toBe("https://expo.dev/go");
+});
+
+test("Your phone on a computer shows the published link as a QR code first", async () => {
+  globalThis.fetch = (async () => Response.json({ preview: EXPO_PREVIEW, live: true, publishedUrl: PUBLISHED })) as typeof fetch;
+  ui.render(<ProjectPreviewCard sessionId="session-1" user="person@example.com" />);
+  await ui.flushAsync();
+  pickLevel("device");
+  const qr = document.querySelector('[data-testid="project-preview-published-qr"]');
+  expect(qr?.getAttribute("src")).toStartWith("data:image/svg+xml");
+  expect(document.querySelector('[data-testid="project-preview-open-published"]')?.getAttribute("href")).toBe(PUBLISHED);
+  expect(document.querySelector('[data-testid="project-preview-not-published"]')).toBeNull();
+  const options = document.querySelector('[data-testid="project-preview-phone-options"]')!;
+  expect(qr!.compareDocumentPosition(options) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
 
 test("the Simulator level appears only when the Computer sends its state", async () => {
@@ -254,28 +277,38 @@ test("an expired Expo Go link says so and offers the restart", async () => {
   expect(ui.queryAll("button").some((node) => node.textContent === "Restart preview")).toBe(true);
 });
 
-test("on a phone the card opens on the web level, and Your phone is one Open in Expo Go button", async () => {
+test("on an iPhone the published link is the main action, with Expo Go second and no Android build", async () => {
   setPhone(true);
-  globalThis.fetch = (async () => Response.json({ preview: EXPO_PREVIEW })) as typeof fetch;
-  ui.render(<ProjectPreviewCard sessionId="session-1" />);
-  await ui.flushAsync();
-  const card = document.querySelector('[data-testid="project-preview-card"]');
-  expect(card?.getAttribute("data-expanded")).toBe("true");
-  expect(document.querySelector('[data-testid="project-preview-web"] iframe')).not.toBeNull();
-  expect(document.querySelector('[data-testid="project-preview-expo-go"]')).toBeNull();
-  pickLevel("device");
-  expect(ui.queryAll('[data-testid="project-preview-expo-go"]')).toHaveLength(1);
-  expect(document.querySelector('[data-testid="project-preview-expo-go"]')?.getAttribute("href")).toBe("exps://cap-token.preview.omgs.app");
-  // A phone cannot scan its own screen: no QR code.
-  expect(document.querySelector('[data-testid="expo-go-guide"]')).toBeNull();
-  expect(document.querySelector('[data-testid="project-preview-device"]')?.textContent).toBe("Open in Expo Go");
+  const agent = Object.getOwnPropertyDescriptor(window.navigator, "userAgent");
+  Object.defineProperty(window.navigator, "userAgent", { value: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)", configurable: true });
+  try {
+    globalThis.fetch = (async () => Response.json({ preview: EXPO_PREVIEW, live: true, publishedUrl: PUBLISHED })) as typeof fetch;
+    ui.render(<ProjectPreviewCard sessionId="session-1" />);
+    await ui.flushAsync();
+    const card = document.querySelector('[data-testid="project-preview-card"]');
+    expect(card?.getAttribute("data-expanded")).toBe("true");
+    expect(document.querySelector('[data-testid="project-preview-web"] iframe')).not.toBeNull();
+    pickLevel("device");
+    const open = document.querySelector('[data-testid="project-preview-open-published"]');
+    expect(open?.getAttribute("href")).toBe(PUBLISHED);
+    // A phone cannot scan its own screen: no QR code.
+    expect(document.querySelector('[data-testid="project-preview-published-qr"]')).toBeNull();
+    expect(document.querySelector('[data-testid="project-preview-build-android"]')).toBeNull();
+    openExpoGo();
+    const expoGo = document.querySelector('[data-testid="project-preview-expo-go"]');
+    expect(expoGo?.getAttribute("href")).toBe("exps://cap-token.preview.omgs.app");
+    expect(open!.compareDocumentPosition(expoGo!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
-  const toggle = document.querySelector('[data-testid="project-preview-toggle"]') as HTMLElement;
-  ui.flush(() => toggle.click());
-  expect(card?.getAttribute("data-expanded")).toBe("false");
-  expect(window.localStorage.getItem("lfg_preview_card_expanded")).toBe("0");
-  // Closed on the phone level, the one-line card keeps Open in Expo Go.
-  expect(document.querySelector('[data-testid="project-preview-expo-go"]')).not.toBeNull();
+    ui.flush(() => (document.querySelector('[data-testid="project-preview-toggle"]') as HTMLElement).click());
+    expect(card?.getAttribute("data-expanded")).toBe("false");
+    expect(window.localStorage.getItem("lfg_preview_card_expanded")).toBe("0");
+    // Closed on the phone level, the one-line card leads with the published link.
+    expect(document.querySelector('[data-testid="project-preview-open-published"]')?.getAttribute("href")).toBe(PUBLISHED);
+    expect(document.querySelector('[data-testid="project-preview-expo-go"]')).toBeNull();
+  } finally {
+    if (agent) Object.defineProperty(window.navigator, "userAgent", agent);
+    else delete (window.navigator as { userAgent?: string }).userAgent;
+  }
 });
 
 test("the info tip links the store for this phone", async () => {
@@ -342,6 +375,7 @@ test("a phone signed out of Expo offers Create free account and I have one, not 
   ui.render(<ProjectPreviewCard sessionId="session-1" user="person@example.com" />);
   await ui.flushAsync();
   pickLevel("device");
+  openExpoGo();
   expect(document.querySelector('[data-testid="project-preview-expo-go"]')).toBeNull();
   const signedOut = document.querySelector('[data-testid="project-preview-expo-signed-out"]');
   expect(signedOut?.textContent).toBe("Preview on your iPhoneCreate free accountI have one");
@@ -373,6 +407,7 @@ test("I have one goes straight to the Expo login", async () => {
   ui.render(<ProjectPreviewCard sessionId="session-1" user="person@example.com" />);
   await ui.flushAsync();
   pickLevel("device");
+  openExpoGo();
   ui.flush(() => (document.querySelector('[data-testid="project-preview-connect-expo"]') as HTMLElement).click());
   await ui.flushAsync();
   expect(posts).toEqual(["POST /api/expo-account/connect login"]);
@@ -393,6 +428,7 @@ test("the sheet keeps the full Computer view as a fallback, and comes back after
   ui.render(<ProjectPreviewCard sessionId="session-1" user="person@example.com" />);
   await ui.flushAsync();
   pickLevel("device");
+  openExpoGo();
   ui.flush(() => (document.querySelector('[data-testid="project-preview-connect-expo"]') as HTMLElement).click());
   await waitFor('[data-testid="expo-signin-sheet-full-computer"]');
   ui.flush(() => (document.querySelector('[data-testid="expo-signin-sheet-full-computer"]') as HTMLElement).click());
@@ -410,6 +446,7 @@ test("a signed-in Computer shows three short steps and ticks only the Computer a
   ui.render(<ProjectPreviewCard sessionId="session-1" user="person@example.com" />);
   await ui.flushAsync();
   pickLevel("device");
+  openExpoGo();
   const steps = document.querySelectorAll('[data-testid="project-preview-expo-steps"] li');
   expect([...steps].map((li) => li.textContent)).toEqual(["Get Expo GoApp Store", "Sign in as expo-e2e-test", "Open in Expo Go"]);
   expect(document.querySelectorAll('[data-testid="project-preview-expo-computer-ok"]')).toHaveLength(1);
@@ -423,6 +460,7 @@ test("a computer gets I have one in the card, and the sheet closes itself once s
   ui.render(<ProjectPreviewCard sessionId="session-1" user="person@example.com" />);
   await ui.flushAsync();
   pickLevel("device");
+  openExpoGo();
   const connect = document.querySelector('[data-testid="project-preview-connect-expo"]') as HTMLElement;
   ui.flush(() => connect.click());
   expect(await waitFor('[data-testid="expo-signin-sheet"]')).not.toBeNull();
@@ -444,7 +482,9 @@ test("a computer gets I have one in the card, and the sheet closes itself once s
 
 // New customers do not have Expo Go (2026-10-22). Fails if Android goes back
 // to Expo Go first, or if repeated taps send the build request more than once.
-test("an Android phone leads with one build request and keeps Expo Go as a second link", async () => {
+// Fails if the Android build request is sent more than once, or if Expo Go
+// leads again on Android.
+test("an Android phone sends one build request and keeps Expo Go as a second option", async () => {
   setPhone(true);
   const agent = Object.getOwnPropertyDescriptor(window.navigator, "userAgent");
   Object.defineProperty(window.navigator, "userAgent", { value: "Mozilla/5.0 (Linux; Android 14; Pixel 8)", configurable: true });
@@ -460,14 +500,8 @@ test("an Android phone leads with one build request and keeps Expo Go as a secon
     ui.render(<ProjectPreviewCard sessionId="session-1" user="person@example.com" />);
     await ui.flushAsync();
     pickLevel("device");
+    expect(document.querySelector('[data-testid="project-preview-expo-go"]')).toBeNull();
     const build = document.querySelector('[data-testid="project-preview-build-android"]') as HTMLButtonElement;
-    const expoGo = document.querySelector('[data-testid="project-preview-expo-go"]');
-    // Expo Go stays available, after the build action. Android needs no Expo sign-in.
-    expect(expoGo?.getAttribute("href")).toBe("exps://cap-token.preview.omgs.app");
-    expect(build.compareDocumentPosition(expoGo!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(document.querySelector('[data-testid="project-preview-connect-expo"]')).toBeNull();
-    expect(document.querySelector('[data-testid="project-preview-expo-signed-out"]')).toBeNull();
-
     ui.flush(() => build.click());
     ui.flush(() => build.click());
     await ui.flushAsync();
@@ -476,13 +510,16 @@ test("an Android phone leads with one build request and keeps Expo Go as a secon
     expect(sent[0]!.text).toContain("omg_build_android");
     expect((document.querySelector('[data-testid="project-preview-build-android"]') as HTMLButtonElement).disabled).toBe(true);
 
-    // Closed on the phone level, the one-line card keeps the build action.
+    // Expo Go is still there, and Android needs no Expo sign-in.
+    openExpoGo();
+    expect(document.querySelector('[data-testid="project-preview-expo-go"]')?.getAttribute("href")).toBe("exps://cap-token.preview.omgs.app");
+    expect(document.querySelector('[data-testid="project-preview-connect-expo"]')).toBeNull();
+    expect(document.querySelector('[data-testid="project-preview-expo-signed-out"]')).toBeNull();
+
+    // Closed with no published link, the one-line card does not lead with Expo Go.
     ui.flush(() => (document.querySelector('[data-testid="project-preview-toggle"]') as HTMLElement).click());
-    expect(document.querySelector('[data-testid="project-preview-build-android"]')).not.toBeNull();
     expect(document.querySelector('[data-testid="project-preview-expo-go"]')).toBeNull();
-    ui.flush(() => (document.querySelector('[data-testid="project-preview-build-android"]') as HTMLElement).click());
-    await ui.flushAsync();
-    expect(sent).toHaveLength(1);
+    expect(document.querySelector('[data-testid="project-preview-connect-expo"]')).toBeNull();
   } finally {
     if (agent) Object.defineProperty(window.navigator, "userAgent", agent);
     else delete (window.navigator as { userAgent?: string }).userAgent;
