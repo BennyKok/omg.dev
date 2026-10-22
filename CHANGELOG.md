@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 22, 2026 - Open your published app from "Your phone" (v0.6.278)
+
+- "Your phone" now offers "Open your app" when your app is published. On a phone, it opens the published link and shows how to add it to the Home Screen. On a computer, it shows a QR code of the link.
+- Before the first publish, "Your phone" says that the link shows there when the agent publishes the app.
+- "Build Android app" and "Use Expo Go" stay available as smaller options. iPhone does not show the Android option.
+
 ## October 22, 2026 - Clearer build chats and Android installs (v0.6.277)
 
 - The hosted dashboard hides the omg.dev instructions block in chats. Session previews and list rows show only your request.
