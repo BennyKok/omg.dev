@@ -6488,11 +6488,8 @@ export function App() {
   const [homeView, setHomeView] = useState<"apps" | null>(null);
   const appsView = homeView === "apps";
   const createView = isMobile && !appsView && projectFilter === NO_PROJECT_FILTER;
-  // Inside an app the composer waits for "Change something".
-  const [appComposerOpen, setAppComposerOpen] = useState(false);
   // An app page's "Earlier sessions": the composer opens its history searched.
   const [findSessions, setFindSessions] = useState<{ nonce: number; search: string } | undefined>();
-  useEffect(() => setAppComposerOpen(false), [projectFilter]);
   // The mobile side navigation. One drawer now answers "where do I go",
   // replacing both the bottom surface bar and the overflow menu.
   const [navOpen, setNavOpen] = useState(false);
@@ -9286,9 +9283,9 @@ export function App() {
   // The composer's hint names the app when the scope is a published app's folder.
   const scopedAppRepo = repos.find((repo) => repo.deploy && repoProject(repo) === projectFilter);
   const scopedAppName = isMobile && !homeView && scopedAppRepo ? scopedAppRepo.deploy?.name || projectFilter : null;
-  // Create centers the composer; Apps and an app waiting for "Change something" hide it.
+  // Apps hides the composer; an app page shows it, ready for the next change.
   const createComposer = createView;
-  const composerHiddenForApps = isMobile && (appsView || (!!scopedAppName && !appComposerOpen));
+  const composerHiddenForApps = isMobile && appsView;
   const mobileComposerVisible =
     isMobile &&
     !viewerArtifact &&
@@ -9960,16 +9957,9 @@ export function App() {
               allSessions={userScopedSessions}
               onImportFolder={() => setMobileFolderBrowser("add")}
               onImportGitHub={() => setImportGitHubOpen(true)}
-              onOpenApp={(project, change) => {
+              onOpenApp={(project) => {
                 setHomeView(null);
                 setProjectFilter(project);
-                if (change) {
-                  // After the filter change resets it.
-                  setTimeout(() => {
-                    setAppComposerOpen(true);
-                    setComposerFocusNonce((n) => n + 1);
-                  }, 0);
-                }
               }}
               projectFilter={projectFilter}
               projectOptions={projectOptions}
@@ -10401,21 +10391,6 @@ export function App() {
               }}
             />
             </CreateComposerFrame>
-          ) : null}
-          {mobileComposerVisible && scopedAppName && !appComposerOpen && !appsView ? (
-            <div className="fixed inset-x-0 bottom-[var(--lfg-host-bottom-inset,0px)] z-30 px-4 pt-1.5 pb-[max(var(--lfg-device-safe-bottom),0.5rem)]">
-              <button
-                type="button"
-                onClick={() => {
-                  setAppComposerOpen(true);
-                  setComposerFocusNonce((n) => n + 1);
-                }}
-                className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground text-[15px] font-semibold text-background shadow-sm"
-              >
-                <Plus className="size-4" aria-hidden="true" />
-                Change something
-              </button>
-            </div>
           ) : null}
         </>
       ) : null}
@@ -12260,7 +12235,7 @@ function LiveView({
   /** Every session, before the project scope. The Apps view groups these. */
   allSessions?: Session[];
   /** Open an app: scope the list and the composer to its folder. `change` also focuses the composer. */
-  onOpenApp?: (project: string, change: boolean) => void;
+  onOpenApp?: (project: string) => void;
   /** The Apps page's Import: a folder on this Computer, or a GitHub repository. */
   onImportFolder?: () => void;
   onImportGitHub?: () => void;
@@ -12784,8 +12759,8 @@ function LiveView({
             apps={appItems.apps}
             local={appItems.local}
             onOpenSession={openSessionPage}
-            onOpenApp={(item, change) => onOpenApp?.(item.project, change)}
-            onOpenProject={(project) => onOpenApp?.(project, false)}
+            onOpenApp={(item) => onOpenApp?.(item.project)}
+            onOpenProject={(project) => onOpenApp?.(project)}
             onImportFolder={onImportFolder}
             onImportGitHub={onImportGitHub}
           />
