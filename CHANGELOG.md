@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 22, 2026 - Faster first load (v0.6.289)
+
+- The Apps page and GitHub import load when you open them, so the first screen loads less code.
+
 ## October 22, 2026 - Softer Create colours (v0.6.288)
 
 - The colours on the Create page are blurred and fade out toward the edges of the screen.
