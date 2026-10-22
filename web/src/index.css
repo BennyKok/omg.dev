@@ -3073,45 +3073,37 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
    clouds that drift a short way on 14 to 20 second loops, so the page is
    always gently moving and never jumps. Only transform changes, so it stays on the
    compositor. */
-/* The colour fades toward every edge of the screen: a short fade at the top,
-   so it still runs under the header, and longer ones at the sides and the
-   bottom. Two masks, kept where both are opaque. */
+/* The colour runs under the header at the top and fades out toward the
+   bottom. The sides need no fade: each cloud already falls off to nothing. */
 .lfg-create-backdrop {
-  -webkit-mask-image:
-    linear-gradient(to bottom, rgb(0 0 0 / 0.55) 0, black 14%, black 62%, transparent 100%),
-    linear-gradient(to right, transparent 0, black 16%, black 84%, transparent 100%);
-  -webkit-mask-composite: source-in;
-  mask-image:
-    linear-gradient(to bottom, rgb(0 0 0 / 0.55) 0, black 14%, black 62%, transparent 100%),
-    linear-gradient(to right, transparent 0, black 16%, black 84%, transparent 100%);
-  mask-composite: intersect;
+  -webkit-mask-image: linear-gradient(to bottom, black 0, black 60%, transparent 100%);
+  mask-image: linear-gradient(to bottom, black 0, black 60%, transparent 100%);
 }
-/* Each cloud is blurred once and then only moved, so the blur is not redrawn
-   on every frame of the drift. */
+/* Soft by its own gradient (a long falloff, eased with a middle stop), not
+   by a blur filter: a blur on a moving layer can leave edges in Safari. */
 .lfg-create-cloud {
   position: absolute;
   width: 90vmax;
   height: 70vmax;
   border-radius: 9999px;
-  filter: blur(36px);
   will-change: transform;
 }
 .lfg-create-cloud-a {
   left: -45vmax;
   top: -12%;
-  background: radial-gradient(closest-side, rgb(167 139 250 / 0.6), transparent);
+  background: radial-gradient(closest-side, rgb(167 139 250 / 0.6) 0%, rgb(167 139 250 / 0.27) 45%, transparent 100%);
   animation: lfg-create-drift-a 14s ease-in-out infinite alternate;
 }
 .lfg-create-cloud-b {
   right: -50vmax;
   top: -28%;
-  background: radial-gradient(closest-side, rgb(56 189 248 / 0.5), transparent);
+  background: radial-gradient(closest-side, rgb(56 189 248 / 0.5) 0%, rgb(56 189 248 / 0.225) 45%, transparent 100%);
   animation: lfg-create-drift-b 17s ease-in-out infinite alternate;
 }
 .lfg-create-cloud-c {
   left: -10vmax;
   top: 35%;
-  background: radial-gradient(closest-side, rgb(251 146 60 / 0.4), transparent);
+  background: radial-gradient(closest-side, rgb(251 146 60 / 0.4) 0%, rgb(251 146 60 / 0.18) 45%, transparent 100%);
   animation: lfg-create-drift-c 20s ease-in-out infinite alternate;
 }
 @keyframes lfg-create-drift-a {
