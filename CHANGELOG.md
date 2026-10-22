@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 22, 2026 - Cleaner Create colours (v0.6.285)
+
+- The row of pills at the top fades out at its edge without a dark block over the Create background.
+- In dark mode, the Create background colours are stronger.
+
 ## October 22, 2026 - Create for new accounts (v0.6.284)
 
 - A new account with no sessions now sees the Create page with its tutorials. Before, it saw "No sessions yet" under the Create heading.
