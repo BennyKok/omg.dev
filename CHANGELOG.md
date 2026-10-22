@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 22, 2026 - Round glows on Create (v0.6.298)
+
+- The colours on the phone Create page are soft round glows that fill the whole screen. They fade out only at the very top and bottom, and the chat box stays plain.
+
 ## October 22, 2026 - Images grow into full screen on the web (v0.6.297)
 
 - When you tap an image in a chat on the web, it grows from its place to full screen. When you close it, it shrinks back to the same place.
