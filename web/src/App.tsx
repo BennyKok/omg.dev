@@ -114,7 +114,6 @@ import {
   sessionMatchesProjectFilter,
 } from "./lib/project-filter";
 import { ChatStarterRow } from "./components/chat-starter-row";
-import { useHostTutorialCards } from "./components/create-tutorials";
 import { groupNodesByProject, type ProjectGroup } from "./lib/session-groups";
 import { usePendingSessionLink } from "./lib/session-navigation";
 import { pathnameToSessionId, pathnameToThreadId, sessionToPath, threadToPath } from "./lib/app-search";
@@ -7423,8 +7422,6 @@ export function App() {
 
   // A folder scope that links to an app also holds the session that built the
   // app, whatever folder that session ran in (the Cloud app list names it).
-  // The host's tutorial cards take the starter row's place on the phone Create page.
-  const { cards: hostTutorialCards } = useHostTutorialCards();
   // An app is a folder linked to a published app (buildAppItems).
   const hasApps = repos.some((repo) => repo.deploy);
   const scopeCloudApps = useCloudApps(hasApps);
@@ -9917,12 +9914,7 @@ export function App() {
               // gutter for card corners and shadows. The header fade overlays the
               // scroll surface; only the measured chrome height is layout space.
               "absolute inset-x-0 bottom-[var(--lfg-host-bottom-inset)] top-0 px-2 pt-[var(--lfg-mobile-header-height)] [scroll-padding-top:var(--lfg-mobile-header-height)]",
-            liveDesktopWorkspace ? "overflow-hidden pb-3"
-              // Create is one screen (heading, composer, apps) drawn over a
-              // still page. Scrolling only moved the page under the composer
-              // and showed a scroll bar beside it.
-              : createComposer && tab === "live" ? "overflow-hidden"
-              : `overflow-y-auto ${mainBottomPadding}`,
+            liveDesktopWorkspace ? "overflow-hidden pb-3" : `overflow-y-auto ${mainBottomPadding}`,
           ],
         )}
       >
@@ -10366,12 +10358,13 @@ export function App() {
             // surface (artifact viewer, pulled-up terminal) so it cannot stack
             // above the content — `mobileComposerVisible` is the single source
             // of truth, shared with the <main> padding that reserves its space.
-            <CreateComposerFrame centered={createComposer} hidden={composerHiddenForApps}>
+            <CreateComposerFrame create={createComposer} hidden={composerHiddenForApps}>
             <NewSessionDialog
               variant="inline"
               open
-              // The host's tutorial cards take the starter row's place on Create.
-              starters={createComposer && !hostTutorialCards.length}
+              // The phone shows no starter row: Create offers the host's
+              // tutorial cards below the chat box, and Chats lists work.
+              starters={false}
               expanded={composerExpanded}
               onExpandedChange={setComposerExpanded}
               focusNonce={composerFocusNonce}
@@ -12522,9 +12515,13 @@ function LiveView({
     return (
       <div className="flex flex-col gap-5">
         {coach}
-        <PullToThread onStart={() => onOpenThread?.(NEW_THREAD_ID)}>
+        {showThreads ? (
+          <PullToThread onStart={() => onOpenThread?.(NEW_THREAD_ID)}>
+            <RuntimeEmptyState />
+          </PullToThread>
+        ) : (
           <RuntimeEmptyState />
-        </PullToThread>
+        )}
       </div>
     );
   }
@@ -12710,7 +12707,7 @@ function LiveView({
         onOpen={() => openSessionPage(sid)}
       >
         {listStyle === "compact" ? (
-          <CompactSessionRow session={session} busy={!!busyBySid[sid]} onOpen={() => openSessionPage(sid)} />
+          <CompactSessionRow session={session} busy={!!busyBySid[sid]} users={users} userFilter={userFilter} onOpen={() => openSessionPage(sid)} />
         ) : (
         <RailItem
           session={session}
@@ -12744,7 +12741,7 @@ function LiveView({
 
   return (
     <>
-    <div className="flex flex-col gap-2 pb-[calc(var(--lfg-composer-clear)+3.5rem)]">
+    <div className={cn("flex flex-col gap-2", !createView && "pb-[calc(var(--lfg-composer-clear)+3.5rem)]")}>
       {coach}
       {/* The same list the rail renders, at the same density, grouped the same
           way (SessionGroups). It used to be a grid of cards split by Working
@@ -12752,9 +12749,10 @@ function LiveView({
           depending on the window — and a card that carried a whole transcript
           could not be scanned, only read. The row is the unit now; the
           transcript lives on the session's own page. */}
-      {/* Pull the list down past the top to start a thread, as on iOS. */}
-      <PullToThread onStart={() => onOpenThread?.(NEW_THREAD_ID)}>
-        {/* Only with threads, and no button: the pull starts one. */}
+      {/* Pull the list down past the top to start a thread, as on iOS. Only
+          with Threads on in Settings: otherwise the list has no pull at all,
+          and it updates live, so it needs no pull to refresh either. */}
+      <PullToThreadWhen enabled={showThreads} onStart={() => onOpenThread?.(NEW_THREAD_ID)}>
         {createView ? (
           <CreateHome />
         ) : appsView ? (
@@ -12787,7 +12785,7 @@ function LiveView({
           )
         ) : null}
         </>}
-      </PullToThread>
+      </PullToThreadWhen>
     </div>
     {/* Open findings live behind a pill, not at the end of the list. A group
         of them there put more work under a list that is already about work,
@@ -13949,6 +13947,8 @@ function RailStage({
           <CompactSessionRow
             session={session}
             busy={!!busyBySid[sid]}
+            users={users}
+            userFilter={userFilter}
             active={columnIds.includes(sid)}
             cursored={cursor === sid}
             dense
@@ -15083,6 +15083,11 @@ function RailGroup({
  * conversation) and which swipe actions, if any, make sense for what the row
  * represents.
  */
+/** PullToThread, or the content alone while Threads are hidden. */
+function PullToThreadWhen({ enabled, onStart, children }: { enabled: boolean; onStart: () => void; children: ReactNode }) {
+  return enabled ? <PullToThread onStart={onStart}>{children}</PullToThread> : <>{children}</>;
+}
+
 /**
  * Threads in the session list, as on the iPad rail: a group like Pinned or a
  * folder, drawn only when there are threads. Each shortcut is a compact,
@@ -15448,9 +15453,12 @@ const RailRow = memo(function RailRow({
  * Many sessions fit on one screen, grouped in a card per folder (the Create
  * page's Building rows, made the list's default; see useMobileListStyle).
  */
-function CompactSessionRow({ session, busy, onOpen, active = false, cursored = false, dense = false }: {
+function CompactSessionRow({ session, busy, onOpen, users, userFilter, active = false, cursored = false, dense = false }: {
   session: Session;
   busy: boolean;
+  /** With "All users", each row shows whose session it is. */
+  users: User[];
+  userFilter: string;
   onOpen: () => void;
   /** Desktop: open on the stage. */
   active?: boolean;
@@ -15479,6 +15487,8 @@ function CompactSessionRow({ session, busy, onOpen, active = false, cursored = f
       {busy ? <Spinner /> : <Check className="size-3.5 shrink-0 text-emerald-500" aria-hidden="true" />}
       <span className={cn("min-w-0 flex-1 truncate", dense ? "text-[13px]" : "text-[14px]", unread ? "font-semibold" : "font-medium")}>{title}</span>
       {unread ? <span className={UNREAD_DOT_CLASS} aria-hidden="true" /> : null}
+      {/* Whose session it is, while the list shows everyone's. */}
+      <SessionAssigneeAvatar session={session} users={users} userFilter={userFilter} hideWhenRedundant size="xs" />
       {session.lastActivityAt ? (
         <span className="shrink-0 text-[12px] text-muted-foreground">{timeAgo(session.lastActivityAt)}</span>
       ) : null}
@@ -23571,8 +23581,8 @@ function NewSessionDialog({
   codingAgents,
   agentRequest,
 }: {
-  /** The starter pills above an empty chat box. The phone shows them on
-   *  Create only: Chats lists work, and Create is where new work starts. */
+  /** The starter pills above an empty chat box. Desktop only: the phone
+   *  starts new work from Create, which has the host's tutorial cards. */
   starters?: boolean;
   open: boolean;
   repos: Repo[];
