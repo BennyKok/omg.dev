@@ -387,12 +387,6 @@ export function useScopedApp<S extends SessionLike, R extends RepoLike>(
  * work on an app is inside the app, and every session is in Chats.
  */
 export function CreateHome() {
-  // While Create shows, the phone header drops its own background so the
-  // backdrop runs under it (html.lfg-create-view in index.css).
-  useLayoutEffect(() => {
-    document.documentElement.classList.add("lfg-create-view");
-    return () => document.documentElement.classList.remove("lfg-create-view");
-  }, []);
   // The heading and the tutorials, centred in the space between the header and
   // the docked chat box.
   return (
@@ -402,7 +396,6 @@ export function CreateHome() {
       // padding reserves the chat box with the same variable.
       style={{ minHeight: "calc(var(--lfg-app-height, 100dvh) - var(--lfg-mobile-header-height, 0px) - var(--lfg-inline-composer-height, var(--lfg-composer-clear, 6rem)))" }}
     >
-      <CreateBackdrop />
       <div className="relative z-[1]">
         <h1 className="px-3 pb-2 text-[22px] font-bold leading-tight tracking-[-0.02em]">What do you want to make?</h1>
         <CreateTutorials />
@@ -415,13 +408,26 @@ export function CreateHome() {
  * Decoration only: three soft color clouds that drift slowly behind the Create
  * page. Gradients moved by transform, so the browser only composites them.
  * Still for people who ask for reduced motion.
+ *
+ * The phone shell keeps it mounted on every live page and fades it in and out
+ * with Create, so switching pages is a cross-fade and the drift carries on
+ * where it was. While hidden, the clouds stop moving.
  */
-function CreateBackdrop() {
+export function CreateBackdrop({ shown }: { shown: boolean }) {
+  // While Create shows, the phone header drops its own background so the
+  // backdrop runs under it (html.lfg-create-view in index.css), with the same fade.
+  useLayoutEffect(() => {
+    document.documentElement.classList.toggle("lfg-create-view", shown);
+  }, [shown]);
+  useLayoutEffect(() => () => document.documentElement.classList.remove("lfg-create-view"), []);
   return (
     <div
       aria-hidden="true"
       // Fades out toward every edge (lfg-create-backdrop in index.css).
-      className="lfg-create-backdrop pointer-events-none fixed inset-0 z-0 overflow-hidden opacity-75 dark:opacity-70"
+      className={cn(
+        "lfg-create-backdrop pointer-events-none fixed inset-0 z-0 overflow-hidden transition-opacity duration-500 ease-out motion-reduce:transition-none",
+        shown ? "opacity-75 dark:opacity-70" : "lfg-create-backdrop-idle opacity-0",
+      )}
     >
       <span className="lfg-create-cloud lfg-create-cloud-a" />
       <span className="lfg-create-cloud lfg-create-cloud-b" />

@@ -14,7 +14,7 @@ import { useRuntimeLifecycle } from "./lib/runtime-lifecycle";
 import { useComputerResumeMetrics } from "./lib/use-computer-resume-metrics";
 import { LiveHeaderContext } from "./components/live-header-context";
 import { MobileProjectFolders } from "./components/mobile-project-folders";
-import { AppHeaderCard, AppNoOpenSessions, buildAppItems, CreateHome, LocalProjectCard, Spinner, sessionInAppScope, useCloudApps, useScopedApp } from "./components/apps-home";
+import { AppHeaderCard, AppNoOpenSessions, buildAppItems, CreateBackdrop, CreateHome, LocalProjectCard, Spinner, sessionInAppScope, useCloudApps, useScopedApp } from "./components/apps-home";
 import { CreateComposerFrame } from "./components/create-composer-frame";
 import { ProjectFolderMenu } from "./components/project-folder-menu";
 import { SessionReparentProvider, SessionReparentTarget } from "./components/session-reparent";
@@ -9922,6 +9922,9 @@ export function App() {
           ],
         )}
       >
+        {/* The Create colour, kept on every live phone page and faded in with
+            Create, so switching pages cross-fades and the drift carries on. */}
+        {isMobile && !bare && tab === "live" ? <CreateBackdrop shown={createView} /> : null}
         {/* A host-mounted page has no header, no nav and no composer of its
             own — so while /api/bootstrap is in flight the mount painted the
             real page with empty values: "Unavailable" ping, "0 working", "—"

@@ -3128,10 +3128,24 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
 }
 
 /* The phone Create page: the header is clear, so the Create backdrop runs
-   under it to the top of the screen. Other pages keep the frosted header. */
+   under it to the top of the screen. Other pages keep the frosted header. The
+   header's background fades with the backdrop (CreateBackdrop), so switching
+   pages is a cross-fade. */
 @media (max-width: 767px) {
+  .mobile-scroll-header-fade::before {
+    transition: opacity 500ms ease-out;
+  }
   html.lfg-create-view .mobile-scroll-header-fade::before,
   html.lfg-create-view .mobile-scroll-header-fade::after {
-    content: none;
+    opacity: 0;
   }
+}
+@media (max-width: 767px) and (prefers-reduced-motion: reduce) {
+  .mobile-scroll-header-fade::before {
+    transition: none;
+  }
+}
+/* Hidden on other pages: the clouds hold still instead of drifting unseen. */
+.lfg-create-backdrop-idle .lfg-create-cloud {
+  animation-play-state: paused;
 }
