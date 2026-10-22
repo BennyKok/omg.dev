@@ -3069,51 +3069,70 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
 }
 
 
-/* The phone Create page backdrop (CreateBackdrop in apps-home.tsx): soft
-   clouds that drift a short way on 14 to 20 second loops, so the page is
-   always gently moving and never jumps. Only transform changes, so it stays on the
-   compositor. */
-/* The colour runs under the header at the top and fades out toward the
-   bottom. The sides need no fade: each cloud already falls off to nothing. */
+/* The phone Create page backdrop (CreateBackdrop in apps-home.tsx): five
+   round glows that fill the whole screen, with short fades only at the very
+   top and the very bottom. Each glow drifts a short way on a 14 to 22 second
+   loop. Only transform changes, so it stays on the compositor. The chat box
+   is solid on top of it. */
 .lfg-create-backdrop {
-  -webkit-mask-image: linear-gradient(to bottom, black 0, black 60%, transparent 100%);
-  mask-image: linear-gradient(to bottom, black 0, black 60%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, black 9%, black 88%, transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, black 9%, black 88%, transparent 100%);
 }
-/* Soft by its own gradient (a long falloff, eased with a middle stop), not
-   by a blur filter: a blur on a moving layer can leave edges in Safari. */
+/* Round and soft by their own gradient (a long falloff with a middle stop),
+   not by a blur filter: a blur on a moving layer can leave edges in Safari. */
 .lfg-create-cloud {
   position: absolute;
-  width: 90vmax;
-  height: 70vmax;
+  aspect-ratio: 1;
   border-radius: 9999px;
+  opacity: 0.75;
   will-change: transform;
 }
 .lfg-create-cloud-a {
-  left: -45vmax;
-  top: -12%;
-  background: radial-gradient(closest-side, rgb(167 139 250 / 0.6) 0%, rgb(167 139 250 / 0.27) 45%, transparent 100%);
+  width: 130vw;
+  left: -35vw;
+  top: 4%;
+  background: radial-gradient(circle closest-side, rgb(167 139 250 / 0.55), rgb(167 139 250 / 0.22) 50%, transparent 100%);
   animation: lfg-create-drift-a 14s ease-in-out infinite alternate;
 }
 .lfg-create-cloud-b {
-  right: -50vmax;
-  top: -28%;
-  background: radial-gradient(closest-side, rgb(56 189 248 / 0.5) 0%, rgb(56 189 248 / 0.225) 45%, transparent 100%);
+  width: 125vw;
+  right: -30vw;
+  top: 0;
+  background: radial-gradient(circle closest-side, rgb(56 189 248 / 0.5), rgb(56 189 248 / 0.2) 50%, transparent 100%);
   animation: lfg-create-drift-b 17s ease-in-out infinite alternate;
 }
 .lfg-create-cloud-c {
-  left: -10vmax;
-  top: 35%;
-  background: radial-gradient(closest-side, rgb(251 146 60 / 0.4) 0%, rgb(251 146 60 / 0.18) 45%, transparent 100%);
+  width: 130vw;
+  right: -30vw;
+  top: 38%;
+  background: radial-gradient(circle closest-side, rgb(251 146 60 / 0.42), rgb(251 146 60 / 0.16) 50%, transparent 100%);
   animation: lfg-create-drift-c 20s ease-in-out infinite alternate;
 }
+.lfg-create-cloud-d {
+  width: 130vw;
+  left: -35vw;
+  top: 50%;
+  background: radial-gradient(circle closest-side, rgb(244 114 182 / 0.38), rgb(244 114 182 / 0.14) 50%, transparent 100%);
+  animation: lfg-create-drift-d 18s ease-in-out infinite alternate;
+}
+.lfg-create-cloud-e {
+  width: 125vw;
+  left: 10vw;
+  top: 74%;
+  background: radial-gradient(circle closest-side, rgb(56 189 248 / 0.38), rgb(56 189 248 / 0.14) 50%, transparent 100%);
+  animation: lfg-create-drift-a 22s ease-in-out infinite alternate;
+}
 @keyframes lfg-create-drift-a {
-  to { transform: translate3d(8vw, 5vh, 0) scale(1.06); }
+  to { transform: translate3d(8%, 5%, 0) scale(1.06); }
 }
 @keyframes lfg-create-drift-b {
-  to { transform: translate3d(-9vw, 6vh, 0) scale(0.95); }
+  to { transform: translate3d(-9%, 6%, 0) scale(0.95); }
 }
 @keyframes lfg-create-drift-c {
-  to { transform: translate3d(6vw, -6vh, 0) scale(1.05); }
+  to { transform: translate3d(6%, -6%, 0) scale(1.05); }
+}
+@keyframes lfg-create-drift-d {
+  to { transform: translate3d(-5%, -4%, 0) scale(1.08); }
 }
 @media (prefers-reduced-motion: reduce) {
   .lfg-create-cloud { animation: none; }
