@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 22, 2026 - Images grow into full screen on the web (v0.6.297)
+
+- When you tap an image in a chat on the web, it grows from its place to full screen. When you close it, it shrinks back to the same place.
+- If you turned on reduced motion, the image fades in and out.
+
 ## October 22, 2026 - Smoother Create colours (v0.6.296)
 
 - The colours on the Create page spread across the whole screen and fade out toward the bottom, with no edges on the sides.
