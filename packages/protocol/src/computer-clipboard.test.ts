@@ -68,6 +68,26 @@ test("Mac paste focuses the editable fallback and sends no premature remote key"
   expect(key.defaultPrevented).toBe(false);
 });
 
+test("a shortcut paste hands focus back to the screen, a keyboard-menu paste does not", () => {
+  let restored = 0;
+  const t = setup({ readText: undefined, restoreFocus: () => { restored++; } });
+  const paste = () => {
+    const event = new w.Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "clipboardData", { value: { getData: () => "secret" } });
+    t.field.dispatchEvent(event);
+  };
+  t.field.dispatchEvent(new w.KeyboardEvent("keydown", { key: "v", metaKey: true, bubbles: true, cancelable: true }));
+  paste();
+  t.field.dispatchEvent(new w.KeyboardEvent("keyup", { key: "v", bubbles: true }));
+  t.field.dispatchEvent(new w.KeyboardEvent("keyup", { key: "Meta", bubbles: true }));
+  expect(t.stream.pasted).toEqual(["secret"]);
+  expect(restored).toBe(1);
+  // The soft keyboard's own Paste menu keeps the keyboard up.
+  paste();
+  t.field.dispatchEvent(new w.KeyboardEvent("keyup", { key: "a", bubbles: true }));
+  expect(restored).toBe(1);
+});
+
 test("OS paste is consumed once without changing the keyboard pad", () => {
   const t = setup(); t.field.value = "\n".repeat(64);
   const event = new w.Event("paste", { bubbles: true, cancelable: true });

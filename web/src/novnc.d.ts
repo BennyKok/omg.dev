@@ -24,7 +24,7 @@ declare module "@novnc/novnc" {
     background: string;
     focusOnClick: boolean;
     disconnect(): void;
-    focus(): void;
+    focus(options?: FocusOptions): void;
     blur(): void;
   }
 }

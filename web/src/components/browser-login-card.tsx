@@ -1,9 +1,8 @@
-import { lazy, Suspense, useEffect, useState } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useState } from "react";
 import { X } from "lucide-react";
+import { ComputerChatEmbed } from "./computer-chat-embed";
 import { latestBrowserLoginRequest, type BrowserLoginSnapshot } from "../../../packages/protocol/src/browser-login";
 import { omgFetch } from "../lib/omg-client";
-const Computer = lazy(() => import("../views/computer-page").then(m => ({ default: m.ComputerPage })));
 
 function WebsiteIcon({ origin }: { origin: string }) {
   const [failed, setFailed] = useState(false);
@@ -18,9 +17,13 @@ function WebsiteIcon({ origin }: { origin: string }) {
 /**
  * One row, matching the iOS card: the site, then the verb, then the dismissal.
  * The reason is already in the agent's message above, so the card does not
- * repeat it. On the web, "Log in" opens the shared Computer.
+ * repeat it. On the web, the shared Computer shows live under the card so you
+ * can sign in right there; "Log in" opens it full screen.
+ *
+ * `showScreen` is false when a newer Computer run in the same chat already
+ * shows the screen, so the transcript never holds two connections to it.
  */
-export function BrowserLoginCard({ sessionId, user }: { sessionId: string | null; user?: string | null }) {
+export function BrowserLoginCard({ sessionId, user, showScreen = true }: { sessionId: string | null; user?: string | null; showScreen?: boolean }) {
   const [state, setState] = useState<BrowserLoginSnapshot | null>(null);
   const [showComputer, setShowComputer] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -70,8 +73,9 @@ export function BrowserLoginCard({ sessionId, user }: { sessionId: string | null
       </div>
       {error && <p role="alert" className="mt-1 text-destructive">{error}</p>}
     </div>
-    {showComputer && createPortal(<div className="fixed inset-0 z-[100] bg-background" role="dialog" aria-label="Computer login">
-      <Suspense fallback={<p>Opening Computer…</p>}><Computer active onClose={() => setShowComputer(false)} /></Suspense>
-    </div>, document.body)}
+    {!status && (showScreen || showComputer) ? <div className="mb-2">
+      <ComputerChatEmbed label={`Sign in to ${new URL(request.origin).hostname} on the Computer`}
+        expanded={showComputer} onExpandedChange={setShowComputer} />
+    </div> : null}
   </>;
 }

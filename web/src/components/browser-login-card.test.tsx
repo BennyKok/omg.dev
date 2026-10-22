@@ -32,13 +32,27 @@ test("Log in opens the Computer", async () => {
   await ui.flushAsync();
   const button = ui.queryAll("button").find(b => b.textContent === "Log in") as HTMLElement;
   await ui.flushAsync(() => button.click());
-  expect(document.querySelector('[aria-label="Computer login"]')).not.toBeNull();
+  expect(document.querySelector('[role="dialog"][aria-label="Computer"]')).not.toBeNull();
+});
+test("a pending request shows the live Computer in the chat, once", async () => {
+  globalThis.fetch = ((url: any) => String(url).includes("/api/browser-login")
+    ? Promise.resolve(Response.json({ requests: [request], iosAvailable: false, desktopAvailable: true }))
+    : new Promise<Response>(() => {})) as typeof fetch;
+  ui.render(<BrowserLoginCard sessionId="session-1" />);
+  await ui.flushAsync();
+  expect(ui.queryAll('[aria-label="Hide the Computer"]')).toHaveLength(1);
+  // A newer Computer run in the same chat owns the screen instead.
+  ui.render(<BrowserLoginCard sessionId="session-1" showScreen={false} />);
+  await ui.flushAsync();
+  expect(ui.queryAll('[aria-label="Hide the Computer"]')).toHaveLength(0);
 });
 test("cancel removes the request after the server accepts it", async () => {
   const calls: string[] = [];
-  globalThis.fetch = (async (url: any) => {
+  globalThis.fetch = ((url: any) => {
     calls.push(String(url));
-    return Response.json({ requests: [request], iosAvailable: true, desktopAvailable: true });
+    return String(url).includes("/api/browser-login")
+      ? Promise.resolve(Response.json({ requests: [request], iosAvailable: true, desktopAvailable: true }))
+      : new Promise<Response>(() => {});
   }) as typeof fetch;
   ui.render(<BrowserLoginCard sessionId="session-1" />);
   await ui.flushAsync();
@@ -65,9 +79,9 @@ test("a newer pending request replaces an older failure even when the response i
   const newer = { ...request, id: "req-new", reason: "Use the new request", createdAt: 20 };
   const olderFailure = { ...request, id: "req-old", reason: "Old failed request", status: "failed", createdAt: 10,
     message: "Could not transfer the login." };
-  globalThis.fetch = (async () => Response.json({
-    requests: [newer, olderFailure], iosAvailable: true, desktopAvailable: true,
-  })) as typeof fetch;
+  globalThis.fetch = ((url: any) => String(url).includes("/api/browser-login")
+    ? Promise.resolve(Response.json({ requests: [newer, olderFailure], iosAvailable: true, desktopAvailable: true }))
+    : new Promise<Response>(() => {})) as typeof fetch;
   ui.render(<BrowserLoginCard sessionId="session-1" />);
   await ui.flushAsync();
   expect(ui.text()).toContain("Log in");

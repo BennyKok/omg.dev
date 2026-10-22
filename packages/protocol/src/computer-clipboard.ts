@@ -8,6 +8,10 @@ export interface ClipboardRfb extends EventTarget {
 export interface ComputerClipboardOptions {
   notice(message: string): void;
   focusKeyboard(): void;
+  /** Give keyboard focus back to the screen after a shortcut paste used the
+   * editable fallback, so the next shortcut (select all, arrows) still reaches
+   * the Computer instead of the hidden field. */
+  restoreFocus?(): void;
   takeControl?(): void;
   readText?(): Promise<string>;
   writeText?(text: Promise<string>): Promise<void>;
@@ -36,6 +40,8 @@ export function attachComputerClipboard(rfb: ClipboardRfb, root: HTMLElement, op
   let remote: string | null = null;
   let disposed = false;
   let devicePastePending = false;
+  // A Ctrl/Cmd+V borrowed the editable fallback for its paste event.
+  let restoreAfterPaste = false;
   const pending = new Set<(text: string | null) => void>();
   const control = () => { rfb.viewOnly = false; options.takeControl?.(); };
   const shortcut = (key: "c" | "x" | "v", shift = false) => {
@@ -163,13 +169,22 @@ export function attachComputerClipboard(rfb: ClipboardRfb, root: HTMLElement, op
       // Let the OS deliver its paste event to a real editable field, even
       // when readText is denied. Do not send Ctrl+V before the text arrives.
       options.focusKeyboard();
+      restoreAfterPaste = !!options.restoreFocus;
       return;
     }
     e.preventDefault();
     if (key === "v") void pasteFromDevice();
     else void copy(key === "x", e.shiftKey);
   };
+  // The paste event has fired by the time the shortcut's keys come back up,
+  // whether or not the clipboard held text, so this is where focus returns.
+  const keyup = () => {
+    if (!restoreAfterPaste) return;
+    restoreAfterPaste = false;
+    options.restoreFocus?.();
+  };
   root.addEventListener("paste", pasted, true);
+  root.addEventListener("keyup", keyup, true);
   root.addEventListener("copy", copied, true);
   root.addEventListener("cut", copied, true);
   root.addEventListener("keydown", keydown, true);
@@ -184,6 +199,7 @@ export function attachComputerClipboard(rfb: ClipboardRfb, root: HTMLElement, op
       root.removeEventListener("copy", copied, true);
       root.removeEventListener("cut", copied, true);
       root.removeEventListener("keydown", keydown, true);
+      root.removeEventListener("keyup", keyup, true);
     },
   };
 }
