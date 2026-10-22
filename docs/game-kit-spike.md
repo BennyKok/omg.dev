@@ -26,6 +26,8 @@ The only working game build in the benchmark (Opus, Micro Circuit Racers) used t
 
 Limits: thousands of sprites, particle storms and pixel effects need Skia or GL. The skill tells the builder to use fewer objects or the 3D path.
 
+Update 2026-10-14: a React redraw of the whole scene on every frame was the main cost (60 objects ran at 28 fps on a 4x slower CPU). Moving objects now follow their game object every frame without React (`Sprite of`, `Live of`, `src/game/live.ts`), and React redraws at 30 Hz. The same scene runs at 58 fps. On web the kit writes the CSS transform directly; on native it uses a Reanimated shared value.
+
 ## 3D notes
 
 - Pick the entry by file name: `scene.web.tsx` imports `@react-three/fiber`; `scene.tsx` imports `@react-three/fiber/native`.

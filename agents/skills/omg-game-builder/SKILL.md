@@ -24,7 +24,7 @@ Create the project with `omg_create_project` and `template: "expo-game"`. Follow
 
 1. `src/game/theme.ts`: colours from the design.
 2. `src/games/<your-game>/logic.ts`: copy `coin-dash/logic.ts`. Pure rules: `createGame()`, `stepGame(game, input, dt)`, `finalScore()`, `UNLOCKS`. No React, no drawing, no `Date.now()`. Read input only through `axisX/axisY/wasTapped(input, "p1" | "p2", ...)`. Use `seeded()` for randomness.
-3. `src/games/<your-game>/game-view.tsx`: copy `coin-dash/game-view.tsx`. Draw with `World` and `Sprite` (coloured shapes, emoji `label`, or `react-native-svg`). Use world units; the camera converts.
+3. `src/games/<your-game>/game-view.tsx`: copy `coin-dash/game-view.tsx`. Draw with `World` and `Sprite` (coloured shapes or emoji `label`). For your own art (`react-native-svg`, images), wrap it in `<Live of={obj} w={..} h={..}>`. Pass every moving game object as `of={obj}`, never as `x={obj.x} y={obj.y}`. Use world units; the camera converts.
 4. `src/app/play.tsx`: change the imports from coin-dash to your game. Set `kind` on `TouchControls` (`dpad`, `stick`, `steer`) and its `buttons` (`{ action: "a", label: "JUMP" }`). Keep the loop, keyboard, pause and finish wiring as it is.
 5. `src/app/index.tsx`, `results.tsx`, `unlocks.tsx`: titles, text, and the `UNLOCKS` import.
 Do not write automated tests unless the user asks. Verify with the self-check instead (see Finish).
@@ -33,7 +33,8 @@ Do not edit `src/game/loop.ts`, `input.ts`, `collision.ts`, `camera.ts`, `progre
 
 ## Kit API (use these names)
 
-- `createLoop({ step })` and `useGameLoop(update, { paused })`: update runs at a fixed 1/60 s step.
+- `createLoop({ step })` and `useGameLoop(update, { paused, renderHz })`: update runs at a fixed 1/60 s step. Moving objects follow every frame; React redraws the screen `renderHz` times a second (default 30) for the HUD, new or removed objects and colour changes.
+- `World`, `Sprite of={obj}`, `Live of={obj}`: `obj` is the game object itself with `x`, `y` and optional `angle` (radians). The kit moves its view every frame without a React render.
 - `createInput()`, `axisX/axisY`, `wasTapped`, `endFrame`, `setAction`, `setStick`. `useKeyboard(input, players, onEscape)`: P1 = WASD + Space/E; in two-player mode P2 = arrows + Enter.
 - `TouchControls players={1|2} kind="dpad|stick|steer" buttons={[...]}`: two-player mode splits P1 left and P2 right. For split screen, render two `GameView`s, one camera each (see `play.tsx`).
 - `circlesOverlap`, `rectsOverlap`, `circleRectOverlap`, `pushCircleOutOfRect`, `keepCircleInside`, `angleDiff`, `seeded`, `clamp`, `lerp`.
@@ -47,7 +48,13 @@ Do not edit `src/game/loop.ts`, `input.ts`, `collision.ts`, `camera.ts`, `progre
 - `Alert.alert` with buttons does nothing on web. Use `PauseOverlay` or an in-screen modal.
 - Keep progress in `profileStore`, not component state: a reload must keep best scores and unlocks.
 - Do not use `setInterval` or `Date.now()` for game time. Count the loop `dt`.
-- Do not put per-frame state in React `useState`. Keep it in the game object (a ref); the hook redraws each frame.
+- Do not put per-frame state in React `useState`. Keep it in the game object (a ref).
+- Do not write your own `requestAnimationFrame` or `setTick` loop. A React redraw of the whole scene every frame drops a mid-range phone to under 30 fps. Use `useGameLoop` and `of={obj}`.
+- Do not replace a game object with a copy each step (`{ ...p, x }`). Mutate it: `of` follows the object it was given.
+
+## Performance budget
+
+Measured on the kit with a 4x slower CPU (about a mid-range Android phone): 60 moving objects hold about 58 fps; 300 hold about 26 fps. Keep a scene under about 100 moving objects. For particle effects, many bullets or large crowds, draw them as one shape (an SVG path or one `Live` group) or use the 3D path below. Objects that do not move (walls, tiles, a board) cost nothing per frame.
 
 ## 3D games
 

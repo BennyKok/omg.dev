@@ -8,8 +8,8 @@ A game built from the omg.dev Expo game kit. It runs on Expo Web, Expo Go, and d
 
 ## Kit map
 
-- `src/game/`: the engine parts. Loop (`loop.ts`), input (`input.ts`), collision (`collision.ts`), camera (`camera.ts`), saved profile (`progress.ts`, `profile-store.ts`), theme (`theme.ts`). Hooks: `use-game-loop.ts`, `use-keyboard.ts`.
-- `src/components/`: `controls.tsx` (d-pad, steer, joystick, buttons, two-player bar), `hud.tsx`, `screens.tsx` (menu, pause, results, unlocks), `world.tsx` (camera-aware sprites).
+- `src/game/`: the engine parts. Loop (`loop.ts`), live drawing (`live.ts`), input (`input.ts`), collision (`collision.ts`), camera (`camera.ts`), saved profile (`progress.ts`, `profile-store.ts`), theme (`theme.ts`). Hooks: `use-game-loop.ts`, `use-keyboard.ts`.
+- `src/components/`: `controls.tsx` (d-pad, steer, joystick, buttons, two-player bar), `hud.tsx`, `screens.tsx` (menu, pause, results, unlocks), `world.tsx` (camera-aware `World`, `Sprite` and `Live`; pass moving objects as `of={obj}`).
 - `src/games/coin-dash/`: the sample game. Replace it with your game.
 - `src/app/`: `index` (menu), `play`, `results`, `unlocks`.
 
