@@ -115,7 +115,6 @@ describe("the transcript renders a user turn the way the web does", () => {
   test("an omg.dev launch envelope is detected and stripped to its task", () => {
     expect(userMessage).toContain("parseOmgPromptEnvelope(message.text");
     expect(userMessage).toContain("envelope?.task ?? message.text");
-    expect(userMessage).toContain("<OmgInstructionsChip");
   });
 
   test("an attachment with no caption draws no empty bubble", () => {

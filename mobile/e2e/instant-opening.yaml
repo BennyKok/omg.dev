@@ -35,9 +35,10 @@ appId: dev.omg.computer
 - assertVisible: "Dictate a message"
 - assertNotVisible: "Starting conversation.*"
 - assertNotVisible: "New conversation"
-# The opener already carries the instructions chip and the working row, so
-# neither pops in (and pushes the bubble down) when the machine's row lands.
-- assertVisible: "omg.dev instructions.*"
+# The opener already carries the working row, so it does not pop in (and push
+# the bubble down) when the machine's row lands. The omg.dev launch
+# instructions are internal agent text and never show on the phone.
+- assertNotVisible: "omg.dev instructions.*"
 - assertVisible: "Working.*"
 - assertNotVisible: "No messages yet.*"
 # Start ends typing: the Home composer's keyboard must not ride along onto
@@ -53,5 +54,5 @@ appId: dev.omg.computer
     visible: "Your new conversation is ready\\..*"
     timeout: 240000
 - assertVisible: "Dictate a message"
-- assertVisible: "omg.dev instructions.*"
+- assertNotVisible: "omg.dev instructions.*"
 - assertNotVisible: "No messages yet.*"

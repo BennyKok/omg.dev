@@ -31,7 +31,8 @@ export type SystemMessageKind =
   | "browser-login"
   | "fork"
   | "rotation"
-  | "routine";
+  | "routine"
+  | "builder";
 
 export type SystemMessage = {
   kind: SystemMessageKind;
@@ -79,6 +80,11 @@ const BROWSER_LOGIN = /^\s*\[Browser login ([^\]]+)\]\s*/i;
 const BROWSER_LOGIN_ORIGIN = /\bfor (https?:\/\/[^\s,]+)/i;
 const ROTATION = /^\s*\[This conversation continues ([^\]]*)\]/i;
 const ROUTINE = /^\s*\[Scheduled routine: ([^\]]*)\]/i;
+// A follow-up the hosted omg.dev control plane sends into a session as a user
+// turn, for example FINISH_PROMPT in vibes control-plane/lib/first-run-design.ts
+// ("[omg builder] The app is not published yet, ..."). It is written for the
+// agent. Drawn as a sent bubble, the customer reads it as their own words.
+const BUILDER = /^\s*\[omg builder\]\s*/i;
 // The fork route's opener. Continue uses the same prompt (it differs only in
 // archiving the source), so the label cannot say which one it was.
 const FORK_OPENER = /^\s*You are starting a fresh agent session from an existing (?:lfg|omg\.dev) session\./i;
@@ -177,6 +183,15 @@ export function classifySystemMessage(text: string | null | undefined): SystemMe
     };
   }
 
+  m = value.match(BUILDER);
+  if (m) {
+    return {
+      kind: "builder",
+      label: "Message from omg.dev to the agent",
+      body: afterHeader(value, m[0].length),
+    };
+  }
+
   m = value.match(ROUTINE);
   if (m) {
     return {
@@ -209,10 +224,11 @@ export function classifySystemMessage(text: string | null | undefined): SystemMe
  * lines of it is the point of the row. A browser-login notice carries
  * instructions to the MODEL — verify the page, imported cookies alone do not
  * prove authentication — so previewing it puts the sentence the label exists
- * to replace straight back on screen. The sheet still holds all of it.
+ * to replace straight back on screen. The sheet still holds all of it. An
+ * omg.dev builder follow-up is the same case: its body talks to the agent.
  */
 export function systemMessageHasPreview(system: SystemMessage): boolean {
-  return system.kind !== "browser-login";
+  return system.kind !== "browser-login" && system.kind !== "builder";
 }
 
 /** Collapse a body to one run of prose for the two-line preview under the label. */

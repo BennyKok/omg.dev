@@ -14,6 +14,7 @@ import {
   Clock3,
   CornerDownRight,
   GitFork,
+  Info,
   LockKeyholeOpen,
   MessagesSquare,
   RotateCw,
@@ -37,6 +38,7 @@ const SYSTEM_ICONS: Record<SystemMessageKind, LucideIcon> = {
   fork: GitFork,
   rotation: RotateCw,
   routine: Clock3,
+  builder: Info,
 };
 
 export function SystemMessageLine({
