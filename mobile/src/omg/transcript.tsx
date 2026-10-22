@@ -1532,68 +1532,6 @@ function FallbackEntry({ message }: { message: Entry }) {
   );
 }
 
-/**
- * omg.dev's launch contract travels inside the first user turn — several
- * agent CLIs have no separate system-prompt channel for it — so without this,
- * opening a session's first message meant reading past the whole runtime
- * contract to find the one line the user actually typed. Web solves it with
- * an inline disclosure; the phone already has an idiom for "auxiliary text
- * that isn't the conversation" (`ToolRun`'s pill -> sheet), so this reuses
- * that instead of an inline expand fighting the list's layout animation.
- */
-function OmgInstructionsChip({ instructions, version }: { instructions: string | null; version: string | null }) {
-  const { colors, type, space, radius } = useTheme();
-  const [open, setOpen] = useState(false);
-  const symbol: Symbols = { ios: "scroll", android: "description" };
-
-  return (
-    <>
-      <Pressable
-        // No instructions yet: the opener of a conversation still being
-        // created. The chip holds its place so the bubble does not jump down
-        // when the machine's copy of the row arrives, but has nothing to open.
-        disabled={instructions === null}
-        onPress={() => {
-          void Haptics.selectionAsync();
-          setOpen(true);
-        }}
-        accessibilityRole="button"
-        accessibilityLabel={`omg.dev instructions${version ? `, version ${version}` : ""}. Open`}
-        style={({ pressed }) => ({
-          alignSelf: "flex-end",
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 5,
-          minHeight: 26,
-          paddingHorizontal: space.sm,
-          paddingVertical: 3,
-          borderRadius: radius.pill,
-          borderWidth: 1,
-          borderColor: colors.border,
-          backgroundColor: pressed ? colors.cardPressed : colors.card,
-        })}
-      >
-        <Icon ios={symbol.ios} android={symbol.android} size={12} color={colors.textMuted} />
-        <Text style={{ ...type.caption, fontWeight: "500", color: colors.text }}>
-          omg.dev instructions
-        </Text>
-        {version ? (
-          <Text style={{ ...type.caption, fontFamily: MONO, color: colors.textMuted }}>
-            {version}
-          </Text>
-        ) : null}
-        <Icon ios="chevron.right" android="chevron_right" size={10} color={colors.textMuted} />
-      </Pressable>
-
-      <ToolSheet visible={open && instructions !== null} title="omg.dev instructions" symbol={symbol} onClose={() => setOpen(false)}>
-        <Text selectable style={{ fontFamily: MONO, fontSize: 13, lineHeight: 19, color: colors.text }}>
-          {instructions}
-        </Text>
-      </ToolSheet>
-    </>
-  );
-}
-
 /** A glyph per family of machine-written turn; see system-message.ts. */
 const SYSTEM_SYMBOLS: Record<SystemMessageKind, Symbols> = {
   "background-task": { ios: "arrow.turn.down.right", android: "subdirectory_arrow_right" },
@@ -1605,6 +1543,7 @@ const SYSTEM_SYMBOLS: Record<SystemMessageKind, Symbols> = {
   fork: { ios: "arrow.triangle.branch", android: "call_split" },
   rotation: { ios: "arrow.clockwise", android: "refresh" },
   routine: { ios: "clock", android: "schedule" },
+  builder: { ios: "info.circle", android: "info" },
 };
 
 /**
@@ -1700,6 +1639,12 @@ export function UserMessage({ message, firstOfRun, lastOfRun }: { message: Entry
     [],
   );
 
+  // The phone only reaches a Computer through the hosted omg.dev origin, so
+  // its reader is a customer and the envelope (runtime contract, standing
+  // instructions, first-run rules) is never shown here. The local lfg web UI
+  // keeps the inspect chip for the owner. A paying customer opened the chip
+  // four times on 2026-10-21 and read the runtime contract.
+  //
   // When this turn carries the omg.dev launch envelope, everything below —
   // copy, attachment-splitting, the bubble itself — works from the user's
   // actual task text, not the full contract. The raw `message.text` still
@@ -1762,15 +1707,10 @@ export function UserMessage({ message, firstOfRun, lastOfRun }: { message: Entry
   const text = userMessageText(messageBody);
   const isLong = text.length > LONG_MESSAGE_CHARS;
 
-  // Not something the person typed: see SystemLine. The launch chip stays,
-  // because a fork's opener rides inside the omg.dev envelope and the
-  // contract is still one tap away.
+  // Not something the person typed: see SystemLine.
   if (system) {
     return (
       <View style={{ alignSelf: "stretch", gap: space.xs }}>
-        {envelope ? (
-          <OmgInstructionsChip instructions={envelope.instructions} version={envelope.version} />
-        ) : null}
         <SystemLine system={system} raw={rawText} />
       </View>
     );
@@ -1785,13 +1725,6 @@ export function UserMessage({ message, firstOfRun, lastOfRun }: { message: Entry
         setRowWidth((prev) => (prev === next ? prev : next));
       }}
     >
-      {envelope ? (
-        <OmgInstructionsChip instructions={envelope.instructions} version={envelope.version} />
-      ) : String(message.id ?? "").startsWith("local-create-") ? (
-        // Every managed launch wraps its first prompt in the envelope
-        // (tmux.ts launchEnvelope), so the chip is known to be coming.
-        <OmgInstructionsChip instructions={null} version={null} />
-      ) : null}
       {attachments.length ? (
         <UserAttachments attachments={attachments} pending={message.pending} otherAuthor={!!sender} />
       ) : null}

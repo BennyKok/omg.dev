@@ -11,6 +11,7 @@
  * whether it is fit to show.
  */
 
+import { parseOmgPromptEnvelope } from "./omg-prompt-envelope";
 import { classifySystemMessage } from "./system-message";
 
 type PreviewSession = {
@@ -41,6 +42,16 @@ export function isMachineryPreviewText(text?: string | null): boolean {
     /^\[Request interrupted by user(?: for tool use)?\]/i.test(value) ||
     /^\[Image:/i.test(value)
   );
+}
+
+/**
+ * The person's task without omg.dev's launch envelope. A managed session's
+ * first turn opens with the runtime contract, and a row must show the request,
+ * never "=== omg.dev RUNTIME CONTRACT ...". Matches promptPreviewText() in
+ * web/src/lib/transcript-status.ts.
+ */
+function promptText(text: string): string {
+  return parseOmgPromptEnvelope(text)?.task ?? text;
 }
 
 /** Collapse whitespace so a multi-line turn cannot blow out a one-line row. */
@@ -78,12 +89,12 @@ function proseOnly(text: string): string {
  * two it has rather than pretending to the same reach.
  */
 export function sessionPreview(session: PreviewSession): string {
-  const latest = session.last?.text?.trim();
+  const latest = promptText(session.last?.text?.trim() ?? "");
   if (session.last?.kind === "text" && latest && !isMachineryPreviewText(latest)) {
     const prose = proseOnly(latest);
     if (prose) return prose;
   }
-  const user = session.lastUserText?.trim();
+  const user = promptText(session.lastUserText?.trim() ?? "");
   if (user && !isMachineryPreviewText(user)) return proseOnly(user);
   return "";
 }
