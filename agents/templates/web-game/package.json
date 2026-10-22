@@ -9,7 +9,8 @@
     "preview": "bun --bun vite preview --host 0.0.0.0 --port 4173",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "check:ui": "bun scripts/check-ui.mjs"
+    "check:ui": "bun scripts/check-ui.mjs",
+    "check:play": "bun scripts/check-play.mjs"
   },
   "omg": {
     "clientBuild": "prebuilt"
