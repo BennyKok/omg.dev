@@ -4,7 +4,7 @@ import { router } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Reanimated, { cancelAnimation, Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withRepeat, withSequence, withTiming } from "react-native-reanimated";
 import {
-  inlinePreviewUrl, PREVIEW_LEVEL_LABEL, PROJECT_PREVIEW_BUILD_ANDROID_MESSAGE, PROJECT_PREVIEW_RESTART_MESSAGE, PROJECT_PREVIEW_SIMULATOR_PATH, previewLevels, simulatorStatusText,
+  inlinePreviewUrl, PHONE_LEVEL_TEXT, PREVIEW_LEVEL_LABEL, PROJECT_PREVIEW_BUILD_ANDROID_MESSAGE, PROJECT_PREVIEW_RESTART_MESSAGE, PROJECT_PREVIEW_SIMULATOR_PATH, previewLevels, simulatorStatusText,
   type PreviewLevel, type ProjectPreview, type ProjectPreviewSnapshot, type SimulatorStream,
 } from "../../../packages/protocol/src/project-preview";
 import { EXPO_SIGNUP_LABEL, expoConnectActive, expoConnectMessage, type ExpoAccountSnapshot, type ExpoConnectMode } from "../../../packages/protocol/src/expo-account";
@@ -172,6 +172,8 @@ export function ProjectPreviewPanel({ sessionId, transport, email, onOpenCompute
   // not send the request again.
   const [buildAsked, setBuildAsked] = useState(false);
   useEffect(() => { setBuildAsked(false); }, [sessionId]);
+  // The app's published web link, from the Computer's snapshot.
+  const [publishedUrl, setPublishedUrl] = useState<string | undefined>(undefined);
   const mounted = useRef(true);
   const suffix = `?sessionId=${encodeURIComponent(sessionId ?? "")}&user=${encodeURIComponent(email ?? "")}`;
   const refresh = useCallback(async () => {
@@ -185,6 +187,7 @@ export function ProjectPreviewPanel({ sessionId, transport, email, onOpenCompute
       setLive(data.live);
       setExpired(data.expired === true);
       setSimulator(data.simulator);
+      setPublishedUrl(data.publishedUrl);
       // Only an iPhone needs the Computer's Expo account; Android's Expo Go
       // opens the project without one. Older Computers have no check.
       if (Platform.OS === "ios" && data.preview?.expoGoUrl) {
@@ -251,7 +254,6 @@ export function ProjectPreviewPanel({ sessionId, transport, email, onOpenCompute
   // today's "Open in Expo Go".
   const expoAccount = expoGoUrl && !stopped ? account : null;
   const connecting = expoConnectActive(expoAccount?.connect);
-  const needsConnect = !!expoAccount && !expoAccount.signedIn;
   const restart = async () => {
     if (!transport || !sessionId || restartAsked) return;
     setRestartAsked(true);
@@ -263,10 +265,12 @@ export function ProjectPreviewPanel({ sessionId, transport, email, onOpenCompute
       });
     } catch { setRestartAsked(false); }
   };
-  // New customers do not have Expo Go. On Android, "Your phone" leads with an
-  // installable app and keeps Expo Go as a smaller second choice.
-  // omg_build_android makes no iPhone app, so iOS keeps the Expo Go path.
-  const buildFirst = Platform.OS === "android";
+  // "Your phone" leads with the published web link (owner decision
+  // 2026-10-22). The Android build and Expo Go are smaller second options.
+  // omg_build_android makes no iPhone app, so only Android offers it.
+  const canBuild = Platform.OS === "android";
+  // The phone browser, so the person can add the app to the Home Screen.
+  const openPublished = () => { if (publishedUrl) void Linking.openURL(publishedUrl).catch(() => {}); };
   const buildApp = async () => {
     if (!transport || !sessionId || buildAsked) return;
     setBuildAsked(true);
@@ -291,13 +295,9 @@ export function ProjectPreviewPanel({ sessionId, transport, email, onOpenCompute
   };
   // Expanded, the level itself holds its action; the one-line card keeps it.
   const primary = stopped || (expoGoUrl && guide) ? null
-    : onPhoneLevel && needsConnect
-      ? connecting ? null : { id: "project-preview-connect-expo", label: "Connect Expo", disabled: connectBusy, onPress: () => void postAccount("connect", "login") }
-      : onPhoneLevel && buildFirst
-        ? { id: "project-preview-build-android", label: buildAsked ? "Asked the agent to build it" : "Build Android app", disabled: buildAsked, onPress: () => void buildApp() }
-      : onPhoneLevel
-        ? { id: "project-preview-expo-go", label: "Open in Expo Go", disabled: false, onPress: () => void openExpoGo() }
-        : { id: "project-preview-open", label: expoGoUrl ? "Web preview" : "Open preview", disabled: false, onPress: openWebPreview };
+    : onPhoneLevel && publishedUrl
+      ? { id: "project-preview-open-published", label: PHONE_LEVEL_TEXT.openShort, disabled: false, onPress: openPublished }
+      : { id: "project-preview-open", label: expoGoUrl ? "Web preview" : "Open preview", disabled: false, onPress: openWebPreview };
   return <>
   <Modal visible={fullscreen && !stopped} animationType="slide" onRequestClose={() => setFullscreen(false)}>
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -351,11 +351,14 @@ export function ProjectPreviewPanel({ sessionId, transport, email, onOpenCompute
         ? <PhoneFrame key={frameRevision} uri={inlinePreviewUrl(preview)} identity={previewAppIdentity(preview)} ownerEmail={email} testID="project-preview-web" onFallback={() => void openInAppPage(preview.url)} />
         : current === "simulator" && simulator
         ? <SimulatorLevel stream={simulator} webUrl={inlinePreviewUrl(preview)} identity={previewAppIdentity(preview)} ownerEmail={email} onStart={() => void simulatorAction("start")} />
-        : <DeviceLevel account={expoAccount} connecting={connecting} busy={connectBusy} error={connectError}
-            build={buildFirst ? { asked: buildAsked, onBuild: () => void buildApp() } : null}
+        : <PhoneLevel publishedUrl={publishedUrl} onOpenPublished={openPublished}
+            build={canBuild ? { asked: buildAsked, onBuild: () => void buildApp() } : null}
+            expoGoOpen={connecting || sheet !== null}>
+          <DeviceLevel account={expoAccount} connecting={connecting} busy={connectBusy} error={connectError}
             onOpen={() => void openExpoGo()} onConnect={(mode) => void postAccount("connect", mode)}
             onOpenComputer={() => setSheet({ mode: account?.connect?.state === "signup" ? "signup" : "login", run: account?.connect?.startedAt })}
-            onCancel={() => void postAccount("cancel")} />}
+            onCancel={() => void postAccount("cancel")} />
+        </PhoneLevel>}
       {/* The level switcher sits under the preview, as icons. */}
       <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
         <View accessibilityRole="tablist" testID="project-preview-levels" style={{ flexDirection: "row", backgroundColor: colors.muted, borderRadius: 10, padding: 2 }}>
@@ -481,20 +484,61 @@ function LevelIcon({ level, color }: { level: PreviewLevel; color: string }) {
   if (level === "simulator") return <Icon ios="ipad.and.iphone" android="devices" size={16} color={color} />;
   return <Icon ios="iphone" android="smartphone" size={16} color={color} />;
 }
-const DEVICE_INFO = "An iPhone opens the app only when Expo Go and the Computer use the same Expo account. Android needs no account.";
+const DEVICE_INFO = "Your published app opens in the phone browser. In Expo Go, an iPhone opens the app only when Expo Go and the Computer use the same Expo account. Android needs no account.";
 const PRIVATE_INFO = "Private to you. The link is temporary.";
 
 const EXPO_LOGO = require("../../assets/brand/expo-logo.png");
 
 /**
- * Level 3 on the phone that runs Expo Go. Signed out: the Expo mark, one
+ * Level 3, the app on this phone. The published web link comes first, with a
+ * Home Screen hint. Before the first publish, one line says when the link
+ * comes. A dev preview link is left out on purpose: it needs the owner's
+ * omg.dev sign-in and stops when the Computer sleeps. The Android build and
+ * Expo Go (`children`) sit below, small.
+ */
+function PhoneLevel({ publishedUrl, onOpenPublished, build, expoGoOpen, children }: {
+  publishedUrl?: string; onOpenPublished(): void;
+  build: { asked: boolean; onBuild(): void } | null;
+  /** Keeps the Expo Go part open while an Expo sign-in runs. */
+  expoGoOpen: boolean;
+  children: React.ReactNode;
+}) {
+  const { colors } = useTheme();
+  const [showExpoGo, setShowExpoGo] = useState(false);
+  const expoGoShown = showExpoGo || expoGoOpen;
+  const hint = Platform.OS === "ios" ? PHONE_LEVEL_TEXT.homeScreen.ios : Platform.OS === "android" ? PHONE_LEVEL_TEXT.homeScreen.android : PHONE_LEVEL_TEXT.homeScreen.other;
+  const option = (id: string, label: string, onPress: () => void, disabled = false, expanded?: boolean) =>
+    <Pressable key={id} accessibilityRole="button" testID={id} disabled={disabled} onPress={onPress}
+      accessibilityState={expanded === undefined ? { disabled } : { disabled, expanded }}
+      style={{ minHeight: 36, paddingHorizontal: 10, justifyContent: "center" }}>
+      <Text style={{ color: colors.mutedForeground, fontSize: 13, fontWeight: "600" }}>{label}</Text>
+    </Pressable>;
+  return <View testID="project-preview-device" style={{ alignItems: "center", gap: 6, paddingVertical: 10 }}>
+    {publishedUrl
+      ? <>
+          <Pressable accessibilityRole="link" testID="project-preview-open-published" onPress={onOpenPublished}
+            style={{ flexDirection: "row", alignItems: "center", gap: 6, minHeight: 40, paddingHorizontal: 16, borderRadius: 999, backgroundColor: colors.primary }}>
+            <Icon ios="arrow.up.forward.app" android="open_in_new" size={15} color={colors.primaryForeground} />
+            <Text style={{ color: colors.primaryForeground, fontWeight: "600", fontSize: 15 }}>{PHONE_LEVEL_TEXT.open}</Text>
+          </Pressable>
+          <Text style={{ color: colors.mutedForeground, fontSize: 13, textAlign: "center" }}>{hint}</Text>
+        </>
+      : <Text testID="project-preview-not-published" style={{ color: colors.mutedForeground, fontSize: 14, textAlign: "center" }}>{PHONE_LEVEL_TEXT.notPublished}</Text>}
+    <View testID="project-preview-phone-options" style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center" }}>
+      {build ? option("project-preview-build-android", build.asked ? PHONE_LEVEL_TEXT.buildAsked : PHONE_LEVEL_TEXT.buildAndroid, build.onBuild, build.asked) : null}
+      {option("project-preview-expo-go-toggle", PHONE_LEVEL_TEXT.expoGo, () => setShowExpoGo(!showExpoGo), false, expoGoShown)}
+    </View>
+    {expoGoShown ? <View testID="project-preview-expo-go-option" style={{ alignSelf: "stretch", borderTopWidth: 1, borderColor: colors.border }}>{children}</View> : null}
+  </View>;
+}
+
+/**
+ * The Expo Go option of level 3. Signed out: the Expo mark, one
  * line and two buttons, "Create free account" and "I have one". Signed in:
  * three short steps. The account rule is behind the info icon.
  */
-function DeviceLevel({ account, connecting, busy, error, build, onOpen, onConnect, onOpenComputer, onCancel }: {
+function DeviceLevel({ account, connecting, busy, error, onOpen, onConnect, onOpenComputer, onCancel }: {
   account: ExpoAccountSnapshot | null; connecting: boolean; busy: boolean; error: string | null;
-  /** Set on Android: the installable app comes first, Expo Go second. */
-  build: { asked: boolean; onBuild(): void } | null;
   onOpen(): void; onConnect(mode: ExpoConnectMode): void; onOpenComputer(): void; onCancel(): void;
 }) {
   const { colors } = useTheme();
@@ -507,23 +551,8 @@ function DeviceLevel({ account, connecting, busy, error, build, onOpen, onConnec
       {icon ? <Icon ios="iphone" android="smartphone" size={15} color={busy ? colors.mutedForeground : colors.primaryForeground} /> : null}
       <Text style={{ color: busy ? colors.mutedForeground : primary ? colors.primaryForeground : colors.foreground, fontWeight: "600", fontSize: 15 }}>{label}</Text>
     </Pressable>;
-  if (build) {
-    return <View testID="project-preview-device" style={{ alignItems: "center", gap: 8, paddingVertical: 10 }}>
-      <Pressable accessibilityRole="button" testID="project-preview-build-android" disabled={build.asked} onPress={build.onBuild}
-        style={{ flexDirection: "row", alignItems: "center", gap: 6, minHeight: 40, paddingHorizontal: 16, borderRadius: 999, backgroundColor: build.asked ? colors.muted : colors.primary }}>
-        <Icon ios={build.asked ? "checkmark" : "arrow.down.circle"} android={build.asked ? "check" : "download"} size={15} color={build.asked ? colors.mutedForeground : colors.primaryForeground} />
-        <Text style={{ color: build.asked ? colors.mutedForeground : colors.primaryForeground, fontWeight: "600", fontSize: 15 }}>{build.asked ? "Asked the agent to build it" : "Build Android app"}</Text>
-      </Pressable>
-      <Text style={{ color: colors.mutedForeground, fontSize: 13, textAlign: "center" }}>{build.asked
-        ? "The agent sends the install link when the build is done."
-        : "Install your app on an Android phone. The agent builds it and sends you the link."}</Text>
-      <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>Have Expo Go?{" "}
-        <Text testID="project-preview-expo-go" accessibilityRole="link" onPress={onOpen} style={{ color: colors.primary, fontSize: 13, fontWeight: "600" }}>Open in Expo Go</Text>
-      </Text>
-    </View>;
-  }
   if (account?.signedIn) {
-    return <View testID="project-preview-device" style={{ paddingVertical: 6 }}>
+    return <View testID="project-preview-expo-go-part" style={{ paddingVertical: 6 }}>
       <View testID="project-preview-expo-steps" style={{ gap: 2 }}>
         <StepRow ios="arrow.down.circle" android="download">
           <Text style={{ color: colors.foreground, fontSize: 14 }}>Get Expo Go </Text>
@@ -542,7 +571,7 @@ function DeviceLevel({ account, connecting, busy, error, build, onOpen, onConnec
       {error ? <Text testID="project-preview-expo-connect-error" style={{ color: colors.destructive, fontSize: 13 }}>{error}</Text> : null}
     </View>;
   }
-  return <View testID="project-preview-device" style={{ alignItems: "center", gap: 8, paddingVertical: 10 }}>
+  return <View testID="project-preview-expo-go-part" style={{ alignItems: "center", gap: 8, paddingVertical: 10 }}>
     {connecting
       ? pill("project-preview-open-sheet", "Show Expo page", onOpenComputer)
       : signedOut
