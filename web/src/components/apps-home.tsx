@@ -495,7 +495,7 @@ function CreateBackdrop() {
   return (
     <div
       aria-hidden="true"
-      className="pointer-events-none fixed inset-0 z-0 overflow-hidden opacity-75 dark:opacity-45"
+      className="pointer-events-none fixed inset-0 z-0 overflow-hidden opacity-75 dark:opacity-70"
       style={{
         maskImage: "linear-gradient(to bottom, black 0, black 70%, transparent 100%)",
         WebkitMaskImage: "linear-gradient(to bottom, black 0, black 70%, transparent 100%)",
