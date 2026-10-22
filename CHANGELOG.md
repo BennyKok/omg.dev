@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 22, 2026 - Chat box on app pages (v0.6.287)
+
+- On the phone, an app page shows the chat box at once. The "Change something" button is gone.
+
 ## October 22, 2026 - Your projects in Apps (v0.6.286)
 
 - The top row on the phone shows only Create, Apps, and Chats.
