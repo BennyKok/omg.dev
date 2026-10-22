@@ -37,6 +37,7 @@ import { activeMachine } from "./lib/machines";
 import { useHeaderProfile } from "./lib/header-profile";
 import { RuntimeAvailabilityContext, useRuntimeAvailability, shouldReloadRuntime, composerSendMode } from "./lib/runtime-availability";
 import { RuntimeRecovery, RuntimeEmptyState } from "./components/runtime-recovery";
+import { useOpenSession } from "./lib/open-session";
 import { AutoAgentPage, AutoAgentPageInStage } from "./components/auto-agent-page";
 import { Component, createContext, type ComponentProps, forwardRef, memo, Suspense, useCallback, useContext, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
@@ -6896,6 +6897,11 @@ export function App() {
   // the server stops returning it, then drop the tombstone.
   const [removedSids, setRemovedSids] = useState<Set<string>>(() => new Set());
 
+  // The open page waits out a short absence before it closes (see
+  // lib/open-session.ts). Removing the session here is the person's own
+  // decision, so its page closes at once.
+  const openSessionIdRef = useRef(openSessionId);
+  openSessionIdRef.current = openSessionId;
   const removeSession = useCallback((sid: string) => {
     setRemovedSids((prev) => {
       if (prev.has(sid)) return prev;
@@ -6904,7 +6910,8 @@ export function App() {
       return next;
     });
     setSessions((prev) => prev.filter((s) => s.sessionId !== sid));
-  }, []);
+    if (openSessionIdRef.current === sid) closeSessionPage();
+  }, [closeSessionPage]);
 
   // Undo for the above. The optimistic archive drops the card before the
   // server has answered; when the server refuses, the tombstone has to go or
@@ -9975,7 +9982,7 @@ export function App() {
               onCloseSessionPage={closeSessionPage}
               sessions={rosterSessions}
               shippedReview={shippedReview}
-              liveSessionIds={liveStatusIds}
+              liveSessions={allLiveSessions}
               topPinned={topPinned}
               onToggleTopPin={toggleTopPin}
               users={users}
@@ -12192,7 +12199,7 @@ function LiveView({
   onCloseSessionPage,
   sessions = [],
   shippedReview,
-  liveSessionIds,
+  liveSessions,
   topPinned,
   onToggleTopPin,
   users,
@@ -12282,7 +12289,9 @@ function LiveView({
   onOpenThread?: (id: string) => void;
   onOpenSessionPage?: (sid: string) => void;
   onCloseSessionPage?: () => void;
-  liveSessionIds: string[];
+  /** Every live session, before the user and project filters. The open
+   *  session page is looked up here by id (see lib/open-session.ts). */
+  liveSessions: Session[];
   topPinned: string[];
   onToggleTopPin: (sid: string) => void;
   users: User[];
@@ -12357,28 +12366,15 @@ function LiveView({
   // component's.
   // Open findings live behind the Updates pill on a phone, not in the list.
   const [findingsOpen, setFindingsOpen] = useState(false);
-  useEffect(() => {
-    // The open session ended and is no longer listed: leave its page instead
-    // of holding a URL that names nothing.
-    //
-    // Only once a list has actually arrived. An empty `liveSessionIds` is the
-    // boot state as well as the "nothing is running" state, and treating the
-    // first as the second bounced every cold deep link straight back to the
-    // list before its own session had a chance to load.
-    if (!sessionsSeenRef.current) return;
-    if (
-      openSessionId &&
-      !liveSessionIds.includes(openSessionId) &&
-      shippedReview?.sessionId !== openSessionId
-    ) {
-      onCloseSessionPage?.();
-    }
-  }, [liveSessionIds, shippedReview?.sessionId, openSessionId, onCloseSessionPage]);
-
-  // Flipped the first time the fleet list is non-empty, which is the only
-  // signal here that separates "still loading" from "nothing is running".
-  const sessionsSeenRef = useRef(false);
-  if (liveSessionIds.length) sessionsSeenRef.current = true;
+  // The open session, by id. Its page stays open while its project, folder or
+  // title changes, and closes only once the session has really gone.
+  const openSession = useOpenSession({
+    openSessionId,
+    liveSessions,
+    shippedReview,
+    onRefresh,
+    onClose: onCloseSessionPage,
+  });
 
   const toggleTopPin = onToggleTopPin;
 
@@ -12539,7 +12535,10 @@ function LiveView({
     !findings.length &&
     !shippedReview &&
     !threads.length &&
-    !openThreadId
+    !openThreadId &&
+    // An open session page is drawn below, even when the list it was opened
+    // from is now empty (it moved into another project).
+    !openSession
   ) {
     return (
       <div className="flex flex-col gap-5">
@@ -12763,10 +12762,7 @@ function LiveView({
     shippedReview?.sessionId && !screenOrder.includes(shippedReview.sessionId)
       ? [...screenOrder, shippedReview.sessionId]
       : screenOrder;
-  const sheetSession = openSessionId
-    ? sessions.find((s) => s.sessionId === openSessionId) ??
-      (shippedReview?.sessionId === openSessionId ? shippedReview : null)
-    : null;
+  const sheetSession = openSession;
 
   return (
     <>
@@ -17126,7 +17122,7 @@ function ThreadComposerBar({ testId, placeholder, onSend, autoFocus, onTyping, m
           />
           {text.trim() || files.attachments.length || sending ? (
             <ComposerSendButton
-              className="size-10 shrink-0 md:size-8"
+              className="size-11 shrink-0 md:size-8"
               sending={sending}
               defaultMode="steer"
               onSend={() => void send()}
@@ -18100,7 +18096,7 @@ function SessionChatBody({
             {(messageText.trim() || attachments.length || sending) &&
             (sending || !composerGuide?.accepts || composerGuide.accepts(messageText.trim(), "session", sid ?? undefined)) ? (
               <ComposerSendButton
-                className="size-10 shrink-0 md:size-8"
+                className="size-11 shrink-0 md:size-8"
                 sending={sending}
                 defaultMode={composerSendMode}
                 onSend={() => void sendMessage()}
@@ -25066,14 +25062,16 @@ function NewSessionDialog({
   );
   // Mobile sends with the iOS button: a round arrow, filled when there is
   // something to send. Thinking is set in the agent sheet, so the desktop
-  // Start button's hold-to-choose-thinking is not needed here.
+  // Start button's hold-to-choose-thinking is not needed here. Enter adds a
+  // line on every keyboard (⌘/Ctrl+Enter sends), so on a phone this button
+  // is the way to send: 44 px, the smallest comfortable touch target.
   const startButton = sheetShape ? (
     <button
       type="submit"
       disabled={!canSubmit && !canQueue}
       aria-label="Start session"
       title="Start session"
-      className="flex size-10 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition active:scale-95 disabled:bg-secondary disabled:text-muted-foreground"
+      className="flex size-11 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition active:scale-95 disabled:bg-secondary disabled:text-muted-foreground"
     >
       <ArrowUp className="size-5" strokeWidth={2.5} />
     </button>
