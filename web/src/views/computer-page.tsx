@@ -19,6 +19,7 @@ import {
   ClipboardPaste,
   Keyboard,
   Loader2,
+  Maximize2,
   MousePointer2,
   Power,
   RotateCcw,
@@ -49,13 +50,30 @@ interface ComputerStatus {
 
 type Phase = "idle" | "starting" | "connecting" | "live" | "stopping";
 
-export function ComputerPage({ active, onClose }: { active: boolean; onClose?: () => void }) {
+/**
+ * `page` is the full-bleed Computer tab. `inline` is the same live screen
+ * sitting in a chat transcript: it fits the chat column, never starts a stopped
+ * desktop by itself, lets the transcript scroll past it, and on a touch screen
+ * opens the full screen (`onExpand`) instead of trapping the finger.
+ */
+export function ComputerPage({
+  active,
+  onClose,
+  variant = "page",
+  onExpand,
+}: {
+  active: boolean;
+  onClose?: () => void;
+  variant?: "page" | "inline";
+  onExpand?: () => void;
+}) {
+  const inline = variant === "inline";
   const [status, setStatus] = useState<ComputerStatus | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
-  // Read-only is the safe default for a shared screen: opening the tab should
-  // not let a stray click land on whatever the agent is doing mid-task.
-  const [viewOnly, setViewOnly] = useState(true);
+  // You open the Computer to use it, so it opens in control. Watch-only is one
+  // tap away for when you want to keep your hands off while the agent works.
+  const [viewOnly, setViewOnly] = useState(false);
   // One-line feedback for clipboard actions, cleared on its own.
   const [notice, setNotice] = useState<string | null>(null);
   // Relative (trackpad) pointing for FINGERS ONLY -- never a decision the
@@ -130,11 +148,18 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
       // pointer impossible to aim.
       rfb.showDotCursor = true;
       rfb.viewOnly = viewOnly;
-      rfb.addEventListener("connect", () => setPhase("live"));
+      rfb.addEventListener("connect", () => {
+        setPhase("live");
+        // The tab is the computer: keys go to it straight away, so a shortcut
+        // works without a first click. An inline screen leaves focus where it
+        // is, because the person is still reading or typing in the chat.
+        if (!inline) rfb.focus({ preventScroll: true });
+      });
       const clipboard = attachComputerClipboard(rfb, rootRef.current!, {
         notice: setNotice,
         readRemoteText: readRemoteClipboard, setRemoteText: setRemoteClipboard,
         focusKeyboard: () => keyboardRef.current?.focus({ preventScroll: true }),
+        restoreFocus: () => rfbRef.current?.focus({ preventScroll: true }),
         takeControl: () => setViewOnly(false),
       });
       clipboardRef.current = clipboard;
@@ -149,7 +174,7 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
       setPhase("idle");
       setError(e instanceof Error ? e.message : "could not open the screen");
     }
-  }, [viewOnly]);
+  }, [viewOnly, inline]);
 
   // Keep the live connection's input mode in sync with the toggle.
   useEffect(() => {
@@ -162,6 +187,9 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
   // better than a button does. Guarded on `starting` so the status poll cannot
   // fire a second start while the first is still coming up.
   useEffect(() => {
+    // Inline, the screen is a window onto a desktop the agent was using. An
+    // old transcript scrolling past must not boot a stopped one.
+    if (inline) return;
     if (!active || !status || status.running) return;
     if (!status.deps.ok || phase === "starting" || error) return;
     void start();
@@ -178,6 +206,19 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
   }, [active, status?.running, connect, disconnect]);
 
   useEffect(() => disconnect, [disconnect]);
+
+  // In a transcript the wheel belongs to the chat until you click into the
+  // screen. noVNC takes every wheel event on its canvas, so without this the
+  // chat would stop scrolling the moment the pointer crossed the screen.
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!inline || !root) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!root.contains(document.activeElement)) e.stopPropagation();
+    };
+    root.addEventListener("wheel", onWheel, { capture: true });
+    return () => root.removeEventListener("wheel", onWheel, { capture: true });
+  }, [inline]);
 
 
   // noVNC translates ordinary DOM mouse events on its canvas into remote
@@ -318,13 +359,24 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
 
   const deps = status?.deps;
   const running = !!status?.running;
+  // A finger on a chat-sized desktop cannot sign in to anything, and the
+  // trackpad surface would swallow the chat's own scrolling. Tap opens the
+  // full screen instead.
+  const tapToExpand = inline && trackpad && !!onExpand;
 
   return (
     // Full bleed: the screen is the page. No title, no chrome, no padding --
     // every pixel spent on framing is a pixel not spent on the desktop.
     <div
       ref={rootRef}
-      className="relative h-full min-h-0 w-full overflow-hidden bg-[#0b0b0d]"
+      className={
+        inline
+          ? "relative w-full overflow-hidden rounded-2xl border border-border bg-[#0b0b0d]"
+          : "relative h-full min-h-0 w-full overflow-hidden bg-[#0b0b0d]"
+      }
+      // Inline, the frame takes the desktop's own shape so nothing is
+      // letterboxed in the chat column.
+      style={inline ? { aspectRatio: `${status?.width ?? 16} / ${status?.height ?? 10}` } : undefined}
       // Correct the mode from what actually touched the screen. The media
       // query cannot distinguish an iPad from an iPad with a trackpad, so a
       // real mouse event switches to absolute pointing and a finger switches
@@ -371,7 +423,18 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
           here: React's touch props are passive, and preventDefault is the whole
           point. No onDoubleClick either -- the browser synthesizes dblclick
           from taps, and reacting to it is what made a tap-then-drag stall. */}
-      {running && !viewOnly && trackpad ? (
+      {tapToExpand && running ? (
+        <button
+          type="button"
+          className="absolute inset-0 z-[6] flex items-end justify-center pb-4"
+          onClick={onExpand}
+          aria-label="Open the Computer full screen"
+        >
+          <span className="rounded-full bg-card/90 px-3 py-1.5 text-xs font-medium shadow-lg backdrop-blur">
+            Tap to use the Computer
+          </span>
+        </button>
+      ) : running && !viewOnly && trackpad ? (
         <div
           ref={overlayRef}
           className="absolute inset-0 z-[6] touch-none select-none"
@@ -436,8 +499,18 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
           header band. Stop is gone on purpose: leaving the page is how you
           stop watching, and the desktop deliberately keeps running so an
           agent's work survives you closing the tab. */}
-      <div className="absolute right-3 top-3 z-10 flex items-center gap-2">
-        {running ? (
+      <div
+        className={
+          inline
+            ? "absolute right-2 top-2 z-10 flex items-center gap-1.5"
+            : // On the hosted page the host's own island floats in this corner
+              // while the Computer has the screen. It declares its width in
+              // --lfg-host-top-inset (the same reservation the app header
+              // honours), so the controls sit in one row to its left.
+              "absolute right-[calc(0.75rem+var(--lfg-host-top-inset,0px))] top-[calc(0.75rem+env(safe-area-inset-top))] z-10 flex items-center gap-2"
+        }
+      >
+        {running && !tapToExpand ? (
           <>
             <Button
               variant={viewOnly ? "secondary" : "default"}
@@ -496,6 +569,18 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
             >
               <RotateCcw className="size-3.5" />
             </Button>
+            {onExpand ? (
+              <Button
+                variant="secondary"
+                size="icon-sm"
+                className="shadow-lg"
+                onClick={onExpand}
+                aria-label="Open the Computer full screen"
+                title="Full screen"
+              >
+                <Maximize2 className="size-3.5" />
+              </Button>
+            ) : null}
           </>
         ) : null}
         {onClose ? (

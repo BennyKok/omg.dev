@@ -489,6 +489,7 @@ import {
 } from "lucide-react";
 import { toast } from "@/lib/notify";
 import { BrowserLoginCard } from "@/components/browser-login-card";
+import { ComputerChatEmbed, isComputerScreenCall } from "@/components/computer-chat-embed";
 import { isBrowserLoginCall } from "../../packages/protocol/src/browser-login";
 import { ProjectPreviewCard } from "@/components/project-preview-card";
 import { haptic } from "@/lib/haptics";
@@ -20617,6 +20618,17 @@ const ChatStream = memo(function ChatStream({
     () => items.findLastIndex((item) => item.type === "tools" && item.items.some((step) => step.kind === "tool_use" && isBrowserLoginCall(step.text))),
     [items],
   );
+  // The run holding the latest Computer call (a screenshot, a click, a page
+  // open) carries the live screen, so you can see what the agent sees and take
+  // over. One screen per transcript: whichever of this and the login card is
+  // newer shows it.
+  const computerRowIndex = useMemo(
+    () => items.findLastIndex((item) => item.type === "tools" && item.items.some((step) => step.kind === "tool_use" && isComputerScreenCall(step.text))),
+    [items],
+  );
+  // A login card with no visible call closes the stream, so it counts as newest
+  // only when there is no Computer run to show instead.
+  const loginShowsScreen = loginRowIndex >= 0 ? loginRowIndex >= computerRowIndex : computerRowIndex < 0;
   // Only the active tail can stand in for the typing dots (see typing-dots):
   // old reasoning or an old tool run must not make a newly-busy session look
   // idle. The tail here is the live turn's, not the pinned queue's.
@@ -21656,7 +21668,8 @@ const ChatStream = memo(function ChatStream({
                         sid={sid}
                       />
                       {/* The login card sits under the run that asked for it. */}
-                      {index === loginRowIndex ? <div className="mt-2"><BrowserLoginCard sessionId={sid} user={loginUser} /></div> : null}
+                      {index === loginRowIndex ? <div className="mt-2"><BrowserLoginCard sessionId={sid} user={loginUser} showScreen={loginShowsScreen} /></div> : null}
+                      {index === computerRowIndex && !loginShowsScreen ? <div className="mt-2"><ComputerChatEmbed label="The Computer, live" /></div> : null}
                     </>
                   ) : (
                     <MessageBubble
@@ -21677,7 +21690,7 @@ const ChatStream = memo(function ChatStream({
           <TypingIndicator visible={showTypingIndicator} bot={bot} />
           {/* No visible login call (an older page, or a view that hides tool
               runs): the card closes the stream instead. */}
-          {loginRowIndex < 0 ? <BrowserLoginCard sessionId={sid} user={loginUser} /> : null}
+          {loginRowIndex < 0 ? <BrowserLoginCard sessionId={sid} user={loginUser} showScreen={loginShowsScreen} /> : null}
           {/* What the agent is waiting on you for: a question is a turn in the
               conversation, so it arrives where the newest turn arrives and
               scrolls with it, as on iOS. The composer stays a composer. */}
