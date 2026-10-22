@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from "react";
 import { createPortal } from "react-dom";
 import { Minus, Plus, RotateCcw, X } from "lucide-react";
@@ -30,6 +30,36 @@ function lightboxBox(width: number | undefined, height: number | undefined) {
 }
 
 /**
+ * The open/close motion. A critically damped curve: it settles without
+ * overshoot, because nothing was flicked. Both directions use the same curve
+ * and nearly the same time, so the image returns along the path it came.
+ */
+const OPEN_MS = 340;
+const CLOSE_MS = 280;
+const SETTLE = "cubic-bezier(0.22, 1, 0.36, 1)";
+
+function prefersReducedMotion() {
+  return typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+}
+
+/**
+ * The transform that lays `stage` (measured with no transform) exactly over
+ * `target`. Returns null when the target is not on screen, so the caller can
+ * fall back to a fade rather than fly to a row that has scrolled away.
+ */
+function transformOnto(stage: DOMRect, target: DOMRect | null): string | null {
+  if (!target || !stage.width || !stage.height || !target.width || !target.height) return null;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  if (target.bottom <= 0 || target.top >= vh || target.right <= 0 || target.left >= vw) return null;
+  const sx = target.width / stage.width;
+  const sy = target.height / stage.height;
+  const dx = target.left - stage.left;
+  const dy = target.top - stage.top;
+  return `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`;
+}
+
+/**
  * Full-screen click-to-zoom viewer for a single image. Renders through a portal
  * so it escapes the chat's overflow/stacking context. Zoom is anchored to the
  * cursor (wheel + double-click); drag pans once zoomed in.
@@ -47,6 +77,7 @@ export function ImageLightbox({
   alt,
   open,
   onClose,
+  origin,
 }: {
   src: string;
   placeholderSrc?: string;
@@ -56,8 +87,19 @@ export function ImageLightbox({
   alt?: string;
   open: boolean;
   onClose: () => void;
+  /** The picture that was tapped. The viewer grows out of it on open and
+   *  shrinks back into it on close. Without it the viewer fades. */
+  origin?: HTMLElement | null;
 }) {
   const imgRef = useRef<HTMLDivElement>(null);
+  // `stage` carries the open/close motion. It is separate from `imgRef`, which
+  // carries zoom and pan, so the two transforms never fight.
+  const stageRef = useRef<HTMLDivElement>(null);
+  const backdropRef = useRef<HTMLDivElement>(null);
+  const controlsRef = useRef<HTMLDivElement>(null);
+  const closing = useRef(false);
+  const originRef = useRef(origin);
+  originRef.current = origin;
   // The URL whose bytes have finished loading. Compared with `src`, so a new
   // `src` goes back to the placeholder without an effect.
   const [loadedSrc, setLoadedSrc] = useState<string | null>(null);
@@ -79,11 +121,72 @@ export function ImageLightbox({
     if (open) setView(RESET);
   }, [open, src]);
 
+  // Grow out of the tapped picture. Measured before the first paint, so the
+  // full-size frame is never seen before the motion starts.
+  useLayoutEffect(() => {
+    if (!open) return;
+    closing.current = false;
+    const stage = stageRef.current;
+    const backdrop = backdropRef.current;
+    if (!stage || !backdrop || typeof stage.animate !== "function") return;
+    const timing = { duration: OPEN_MS, easing: SETTLE };
+    const from = prefersReducedMotion()
+      ? null
+      : transformOnto(stage.getBoundingClientRect(), originRef.current?.getBoundingClientRect() ?? null);
+    if (from) {
+      stage.animate([{ transform: from }, { transform: "none" }], timing);
+    } else {
+      stage.animate([{ opacity: 0 }, { opacity: 1 }], { ...timing, duration: 200 });
+    }
+    backdrop.animate([{ opacity: 0 }, { opacity: 1 }], timing);
+    controlsRef.current?.animate([{ opacity: 0 }, { opacity: 1 }], timing);
+  }, [open]);
+
+  /**
+   * Shrink back into the picture, then tell the caller. Starts from where the
+   * image is on screen right now, so closing during the opening motion turns
+   * around in place instead of jumping to the end first.
+   */
+  const requestClose = useCallback(() => {
+    const stage = stageRef.current;
+    const backdrop = backdropRef.current;
+    if (closing.current) return;
+    if (!stage || !backdrop || typeof stage.animate !== "function") {
+      onClose();
+      return;
+    }
+    closing.current = true;
+    setView(RESET);
+    const liveTransform = getComputedStyle(stage).transform;
+    const liveOpacity = getComputedStyle(backdrop).opacity;
+    for (const el of [stage, backdrop, controlsRef.current]) {
+      el?.getAnimations().forEach((animation) => animation.cancel());
+    }
+    const timing = { duration: CLOSE_MS, easing: SETTLE, fill: "forwards" as const };
+    const to = prefersReducedMotion()
+      ? null
+      : transformOnto(stage.getBoundingClientRect(), originRef.current?.getBoundingClientRect() ?? null);
+    const start = liveTransform && liveTransform !== "none" ? liveTransform : "none";
+    const motion = to
+      ? stage.animate([{ transform: start }, { transform: to }], timing)
+      : stage.animate(
+          [
+            { transform: start, opacity: 1 },
+            { transform: "scale(0.94)", opacity: 0 },
+          ],
+          { ...timing, duration: 200 },
+        );
+    backdrop.animate([{ opacity: liveOpacity }, { opacity: 0 }], timing);
+    controlsRef.current?.animate([{ opacity: 1 }, { opacity: 0 }], { ...timing, duration: 150 });
+    motion.onfinish = () => onClose();
+    motion.oncancel = () => onClose();
+  }, [onClose]);
+
   // Escape to close; lock body scroll while open.
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") requestClose();
     };
     window.addEventListener("keydown", onKey);
     const prevOverflow = document.body.style.overflow;
@@ -92,7 +195,7 @@ export function ImageLightbox({
       window.removeEventListener("keydown", onKey);
       document.body.style.overflow = prevOverflow;
     };
-  }, [open, onClose]);
+  }, [open, requestClose]);
 
   // Zoom toward a screen point (cx, cy), keeping the content under it fixed.
   const zoomAt = useCallback((nextScale: number, cx: number, cy: number) => {
@@ -202,7 +305,7 @@ export function ImageLightbox({
     if (map.size === 0) {
       setGesturing(false);
       // A clean tap (no pan/pinch) while not zoomed dismisses the viewer.
-      if (!moved.current && view.scale <= MIN_SCALE) onClose();
+      if (!moved.current && view.scale <= MIN_SCALE) requestClose();
     }
   }
 
@@ -218,18 +321,20 @@ export function ImageLightbox({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm"
+      className="fixed inset-0 z-[200] flex items-center justify-center"
       onWheel={onWheel}
       onPointerDown={(e) => {
         // Click on the backdrop (not the image) closes.
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget || e.target === backdropRef.current) requestClose();
       }}
       role="dialog"
       aria-modal="true"
       aria-label={alt || "Image viewer"}
     >
+      {/* Its own layer, so it can fade while the image moves. */}
+      <div ref={backdropRef} aria-hidden className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
       {/* Controls */}
-      <div className="absolute right-3 top-3 z-10 flex items-center gap-1.5">
+      <div ref={controlsRef} className="absolute right-3 top-3 z-10 flex items-center gap-1.5">
         <LightboxButton
           label="Zoom out"
           onClick={() => zoomAt(view.scale / 1.5, window.innerWidth / 2, window.innerHeight / 2)}
@@ -250,11 +355,12 @@ export function ImageLightbox({
         <LightboxButton label="Reset zoom" onClick={() => setView(RESET)} disabled={!zoomed}>
           <RotateCcw className="size-4" />
         </LightboxButton>
-        <LightboxButton label="Close" onClick={onClose}>
+        <LightboxButton label="Close" onClick={requestClose}>
           <X className="size-4" />
         </LightboxButton>
       </div>
 
+      <div ref={stageRef} className="relative" style={{ transformOrigin: "0 0", willChange: "transform" }}>
       <div
         ref={imgRef}
         onPointerDown={onPointerDown}
@@ -296,6 +402,7 @@ export function ImageLightbox({
             onLoad={() => setLoadedSrc(src)}
           />
         )}
+      </div>
       </div>
     </div>,
     document.body,
@@ -345,6 +452,7 @@ export function ZoomableImage({
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [origin, setOrigin] = useState<HTMLElement | null>(null);
   // Authenticated artifact images are already local blob URLs. Querying those
   // produces a different, invalid object URL; only server paths support the
   // generated-preview flag.
@@ -360,14 +468,19 @@ export function ZoomableImage({
         alt={alt}
         loading="lazy"
         decoding="async"
-        onClick={() => setOpen(true)}
-        className={cn("cursor-zoom-in", className)}
+        onClick={(event) => {
+          setOrigin(event.currentTarget);
+          setOpen(true);
+        }}
+        // Hidden while the viewer is open: the viewer is this picture, moved.
+        className={cn("cursor-zoom-in", open && "invisible", className)}
       />
       <ImageLightbox
         src={src}
         placeholderSrc={previewSrc}
         alt={alt}
         open={open}
+        origin={origin}
         onClose={() => setOpen(false)}
       />
     </>
