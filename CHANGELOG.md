@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 22, 2026 - Smoother Create colours (v0.6.296)
+
+- The colours on the Create page spread across the whole screen and fade out toward the bottom, with no edges on the sides.
+
 ## October 22, 2026 - The Computer in your chat (v0.6.295)
 
 - When an agent asks you to sign in to a website, or uses the Computer, the live Computer screen shows in the chat. You can click and type there to sign in.
