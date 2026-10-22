@@ -137,6 +137,15 @@ export const PROJECT_PREVIEW_SIMULATOR_PATH = "/api/project-preview/simulator";
 export const PROJECT_PREVIEW_RESTART_MESSAGE =
   "The preview stopped. Restart it: start the development server again and expose it with omg_expose_port. For an Expo app, request a new Expo Go link.";
 
+/**
+ * Message a preview card sends to ask the session agent for an installable
+ * Android app. The "Your phone" level leads with it on Android and on a
+ * computer: a new customer has no Expo Go. omg_build_android makes no iPhone
+ * app, so an iPhone keeps Expo Go.
+ */
+export const PROJECT_PREVIEW_BUILD_ANDROID_MESSAGE =
+  "Build an installable Android app of this project with omg_build_android, and tell me while it builds. When the build is done, send me the Android install link.";
+
 const SIMULATOR_PHASE_TEXT: Record<NonNullable<SimulatorStream["phase"]>, string> = {
   allocating: "Finding a free iPhone simulator…",
   booting: "Starting the iPhone simulator…",
