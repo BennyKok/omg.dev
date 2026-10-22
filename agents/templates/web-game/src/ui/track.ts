@@ -8,6 +8,7 @@
 // To use another tool (Google Analytics, the Meta pixel), add it in `send`
 // below. Keep the event names: ads and dashboards depend on them.
 import type { RunMode } from "../game/progress";
+import { TEST_MODE } from "../game/test-mode";
 
 export type TrackEvents = {
   /** The page loaded. Sent once per page load by the kit. */
@@ -45,6 +46,7 @@ function analyticsScript(): HTMLScriptElement | null {
 }
 
 function send(name: string, data: Record<string, unknown>): void {
+  if (TEST_MODE) return; // check:play (?test=1) is not a player
   const u = umami();
   if (u) {
     try {

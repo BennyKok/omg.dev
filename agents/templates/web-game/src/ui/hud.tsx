@@ -3,12 +3,12 @@
 // the numbers; these only show them.
 //
 //   <Hud onPause={pause}>
-//     <HudScore value={score} />
+//     <HudScore value={score} icon={ART.scoreIcon} />
 //     <HudHearts lives={2} max={3} />
 //     <HudTimer seconds={32} />
 //   </Hud>
 import type { ReactNode } from "react";
-import { Coin, Heart, IconPause, Timer } from "./icons";
+import { Heart, IconPause, Star, Timer } from "./icons";
 
 /** The strip at the top of the game. Pass `onPause` to put the pause button at its end. */
 export function Hud({ children, onPause, tint }: { children: ReactNode; onPause?: () => void; tint?: string }) {
@@ -33,8 +33,16 @@ export function HudStat({ icon, value, label, color }: { icon?: ReactNode; value
   );
 }
 
-export const HudScore = ({ value, label = "Score" }: { value: number; label?: string }) => (
-  <HudStat icon={<Coin size={30} />} value={value.toLocaleString("en-US")} label={label} />
+/**
+ * The score with its icon: an image URL (ART.scoreIcon, your game's score
+ * item), any element, or a plain star that belongs to no game.
+ */
+export const HudScore = ({ value, label = "Score", icon }: { value: number; label?: string; icon?: string | ReactNode }) => (
+  <HudStat
+    icon={typeof icon === "string" ? <img className="hud-icon-image" src={icon} alt="" width={30} height={30} draggable={false} /> : icon ?? <Star size={30} />}
+    value={value.toLocaleString("en-US")}
+    label={label}
+  />
 );
 
 export function HudHearts({ lives, max }: { lives: number; max: number }) {

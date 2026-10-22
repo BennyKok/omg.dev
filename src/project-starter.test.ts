@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { installProjectTemplate, isProjectTemplate, PROJECT_GAME_SKILL, PROJECT_WEB_GAME_SKILL } from "./project-starter";
@@ -70,4 +70,19 @@ test("web-game installs a standalone Vite game kit with its own skill", async ()
   expect(readFileSync(join(cwd, "src/ui/profile-store.ts"), "utf8")).toContain("neon-racer:profile");
   expect(readFileSync(join(cwd, "index.html"), "utf8")).toContain("<title>Neon Racer</title>");
   expect(JSON.parse(readFileSync(join(cwd, ".omg/template.json"), "utf8")).name).toBe("web-game");
+});
+
+test("check:play recognises every installed piece of the web-game sample art", async () => {
+  // check:play fails a game that still shows the kit's sample art by hashing
+  // what the page loads against scripts/sample-assets.json. If a template
+  // file changes, or the copy changes its bytes, that list goes stale and the
+  // Coin Dash icons and hero reach a published game again.
+  const cwd = scratch();
+  await installProjectTemplate(cwd, "web-game", "Fruit Catcher");
+  const listed = JSON.parse(readFileSync(join(cwd, "scripts/sample-assets.json"), "utf8")) as Record<string, string>;
+  const installed = ["public/og.png", ...["public/icons", "public/art"].flatMap((d) => readdirSync(join(cwd, d)).map((f) => `${d}/${f}`))].sort();
+  const hashes = Object.fromEntries(installed.map((f) => [new Bun.CryptoHasher("sha256").update(readFileSync(join(cwd, f))).digest("hex"), f]));
+  expect(hashes).toEqual(listed);
+  const pkg = JSON.parse(readFileSync(join(cwd, "package.json"), "utf8"));
+  expect(pkg.scripts["check:play"]).toContain("check-play.mjs");
 });

@@ -47,7 +47,7 @@ export default function Home() {
           right={<SoundButton />}
         />
       }
-      footer={best === undefined ? (touch ? "Drag the stick to move." : "Arrows or WASD to move. Space to dash.") : `Best score: ${best.toLocaleString("en-US")}`}
+      footer={best === undefined ? (touch ? GAME.controls.touchHint : GAME.controls.keysHint) : `Best score: ${best.toLocaleString("en-US")}`}
     >
       {challenge ? (
         <GameButton label="Accept challenge" size="lg" icon={<IconPlay />} onPress={() => startRun("challenge")} />
