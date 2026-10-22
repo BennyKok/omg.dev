@@ -386,14 +386,18 @@ describe("first-run envelope", () => {
     expect(phone).toBeGreaterThan(web);
   });
 
-  test("a game first run starts from the expo-game kit and its skill", async () => {
+  test("a game first run starts from the web game kit, with Expo only on request", async () => {
     const { withFirstRunEnvelope } = await import("./omg-capabilities.ts");
     const wrapped = withFirstRunEnvelope("Build a block puzzle game.", { seesImages: true })!;
-    const rule = wrapped.split("\n").find((line) => line.startsWith("- For a game"));
-    expect(rule).toContain('`template: "expo-game"`');
-    expect(rule).toContain("omg-game-builder");
-    // It follows the phone app steps it refers to.
-    expect(wrapped.indexOf("- For a game")).toBeGreaterThan(wrapped.indexOf("- For a phone app"));
+    const rule = wrapped.split("\n").find((line) => line.startsWith("- For a game"))!;
+    // The kit and its skill load before any game code, on the port the kit serves.
+    expect(rule).toContain('`template: "web-game"`');
+    expect(rule).toContain("omg-web-game-builder");
+    expect(rule).toContain("port 5174");
+    // A native game stays possible, but only when the user asks for one.
+    const native = rule.indexOf('`template: "expo-game"`');
+    expect(native).toBeGreaterThan(rule.indexOf('`template: "web-game"`'));
+    expect(rule.slice(native)).toContain("only when the user asks for a game to install");
   });
 
   test("the final message of a phone app carries the Expo account offer", async () => {
