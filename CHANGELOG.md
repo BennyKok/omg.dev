@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 22, 2026 - Gentle colour movement (v0.6.290)
+
+- The colours on the Create page move slowly and steadily. With Reduce Motion on, they stay still.
+
 ## October 22, 2026 - Faster first load (v0.6.289)
 
 - The Apps page and GitHub import load when you open them, so the first screen loads less code.
