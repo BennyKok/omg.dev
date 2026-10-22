@@ -68,6 +68,17 @@ host portals into them:
 | `header-actions` | Inside the mobile header island, before the Pages menu | `data-lfg-host-settings="menu"` when the Pages menu is already offering your Settings, so your own control there is redundant. `data-lfg-host-drawer="footer"` when the phone navigation drawer offers a `drawer-footer` slot |
 | `drawer-footer` | Footer of the phone navigation drawer, above Settings | Exists only while the drawer is open. Read `data-lfg-host-drawer="footer"` on `header-actions` to know it is available. A tap inside it closes the drawer |
 
+### Keeping host toasts above the phone chat box
+
+While the phone chat box is on screen, the surface sets `--lfg-host-toast-clear`
+on `<html>`: the distance in pixels from the bottom of the screen to the top of
+the chat box. It is removed when the chat box goes, and it has no stylesheet
+default. A host that draws its own toasts keeps them at least this far up:
+
+```css
+bottom: max(var(--your-toast-offset), calc(var(--lfg-host-toast-clear, 0px) + 0.5rem));
+```
+
 ### Tutorials on the Create page
 
 `tutorials` puts the host's tutorials on the phone Create page, as cards below
