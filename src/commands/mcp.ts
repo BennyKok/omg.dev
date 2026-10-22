@@ -1855,7 +1855,7 @@ export function buildOmgMcpServer(): McpServer {
       inputSchema: {
         name: z.string().min(1).describe("Short project folder name"),
         parent: z.string().optional().describe("Existing parent folder; omit to use the configured projects directory"),
-        template: z.enum(["blank", "expo", "expo-game", "web-game"]).optional().describe("Starter template. Use expo for Expo or universal mobile apps, expo-game for games (real-time, arcade, racing, puzzle, 3D; adds the game kit and the omg-game-builder skill); omit for blank. web-game is a Vite web game kit with the omg-web-game-builder skill."),
+        template: z.enum(["blank", "expo", "expo-game", "web-game"]).optional().describe("Starter template. Use web-game for games (2D or 3D browser games for phones: arcade, racing, puzzle, kids, word; adds the web game kit and the omg-web-game-builder skill). Use expo for an app the user wants to install on iPhone or Android, and expo-game only for a game the user wants to install as a native app. Omit for blank."),
       },
     },
     async ({ name, parent, template }) => result(await api("/api/projects/create-folder", {

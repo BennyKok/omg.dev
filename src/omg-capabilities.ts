@@ -6,7 +6,7 @@ import { customInputModalities } from "./custom-models.ts";
 // Bump whenever an agent-facing omg.dev capability or its operating guidance
 // changes. Managed sessions persist the value they launched with, which lets
 // the UI identify long-lived sessions whose MCP/tool catalog predates a ship.
-export const OMG_CAPABILITY_VERSION = "2026-10-19.2";
+export const OMG_CAPABILITY_VERSION = "2026-10-22.1";
 
 export const OMG_CAPABILITIES = [
   {
@@ -324,10 +324,14 @@ export function withFirstRunEnvelope(
     // before the first omg_expose_port, then 2 min of cold Metro bundling,
     // preview at 8 min. The A/B runs that exposed first had the card at 27 s.
     `- For an app to install on a phone (only when asked, see above), do these steps first, before you write any app code, even when the request includes a design to match: 1. \`omg_create_project\` with \`template: "expo"\`. 2. \`omg_expose_port\` with port 8081 and \`expoGo: true\`. 3. From the project directory run \`bash scripts/start-expo-preview.sh <expoGo.proxyUrl> 8081\` with a 240000 ms shell timeout. 4. Present the web preview first: tell the user the app is ready and the card below shows it running, on any device, with no account. Then mention the phone in one sentence: to try it on their own phone, tap \"Your phone\" on the card. If the script prints \`WARNING: Expo CLI is not signed in\`, offer \"Create a free Expo account\" for an iPhone: on that tab they tap \"Create free account\", or \"I have one\" if they already have one; Android does not need it. The user creates the account themself; never sign up for them. Metro reloads on every save, so the preview follows your edits. Then read the omg-app-builder skill in the project and build the screens. Replace the template home screen in \`src/app/index.tsx\`; do not add a second index route or a root \`app/\` folder, because the template screen then stays on \`/\`.`,
-    // A paid game build asks for the expo-game kit (omg.dev control plane,
-    // DELIVERY.game). Without these steps the agent started from scratch in
-    // the ready web project (Timber Tumble, 2026-10-13), and the kit never loaded.
-    `- For a game, do the same steps with \`template: "expo-game"\` in step 1. In step 4, read the omg-game-builder skill in the project instead of omg-app-builder, and replace the sample game with the user's game as that skill says.`,
+    // Owner decision 2026-10-22: a game is a web game unless the person asks
+    // for one they install. The web-game kit (Vite, canvas 2D or three.js,
+    // shared game UI, daily and friend challenges) loads in about a third of
+    // the expo-game web export's size, and its link works on every phone.
+    // The kit runs on 5174 because the ready web project already holds 5173.
+    // Without explicit steps the agent started from scratch in the ready web
+    // project (Timber Tumble, 2026-10-13), and the kit never loaded.
+    `- For a game, build a web game by default, and do these steps first, before you write any game code: 1. \`omg_create_project\` with \`template: "web-game"\`. 2. In the project directory run \`bun install\`, then start \`bun run dev\` in the background (port 5174). 3. \`omg_expose_port\` with port 5174, without \`expoGo\`. 4. Tell the user the preview is ready in the card below. Then read the omg-web-game-builder skill in the project and replace the sample game with the user's game as that skill says. Use \`template: "expo-game"\` with the phone app steps above, and the omg-game-builder skill, only when the user asks for a game to install on iPhone or Android, or names Expo or a native app.`,
     "- Before that first preview: no test suites, no self-test loops, and no reading files one by one to learn the template. One quick check that the page loads is enough.",
     // A paid design is the spec. Trial builds (2026-10-08) shipped the first
     // preview, built from the words alone, and stopped: "Adorn By Deonte"
