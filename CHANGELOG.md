@@ -2,6 +2,16 @@
 
 Recent product updates and deployment notes.
 
+## October 22, 2026 - Create, Apps, and Chats on the phone (v0.6.279)
+
+- The phone home has three pills: Create, Apps, and Chats. Create is where you start something new. Apps lists your published apps. Chats lists every session.
+- Create shows "What do you want to make?" with the chat box in the middle of the screen and soft moving color behind it. On omg.dev, the tutorials show under the chat box.
+- Apps shows each app with its icon, its address, and a button that opens it. The Apps pill shows after your first app is published.
+- An app's page shows its visitors and page views for the last 7 days. It lists the session that built the app, also when that session ran in a different folder. When no session is open, it offers your earlier sessions.
+- Session search finds a session by the name of the app it built.
+- Session lists use one short line for each session. To see the agent mark and the last message again, turn on "Session details in lists" in Settings. Subagents fold into one line and open as short rows.
+- Threads are hidden from the session lists. To show them, turn on "Threads" in Settings.
+
 ## October 22, 2026 - Open your published app from "Your phone" (v0.6.278)
 
 - "Your phone" now offers "Open your app" when your app is published. On a phone, it opens the published link and shows how to add it to the Home Screen. On a computer, it shows a QR code of the link.
