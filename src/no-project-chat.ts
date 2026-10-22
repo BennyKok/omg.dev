@@ -53,13 +53,25 @@ export async function existingNoProjectWorkspace(
   }
 }
 
+/** Where createNoProjectWorkspace puts a conversation's folder, without creating it. */
+export function noProjectWorkspacePath(name: string, root = noProjectChatsRoot()): string {
+  if (!/^[a-zA-Z0-9-]+$/.test(name)) throw new Error("Invalid chat workspace name");
+  return join(root, name);
+}
+
 /** One workspace per conversation, outside repository instruction ancestry. */
 export async function createNoProjectWorkspace(
   name: string,
   root = noProjectChatsRoot(),
 ): Promise<string> {
-  if (!/^[a-zA-Z0-9-]+$/.test(name)) throw new Error("Invalid chat workspace name");
-  const cwd = join(root, name);
+  return prepareNoProjectWorkspace(noProjectWorkspacePath(name, root));
+}
+
+/**
+ * Fill the folder noProjectWorkspacePath named. Session create names the path
+ * before it answers and fills it afterwards, so both halves use one path.
+ */
+export async function prepareNoProjectWorkspace(cwd: string): Promise<string> {
   await mkdir(cwd, { recursive: true });
   // Do not overwrite user edits when an idempotent request is retried.
   for (const file of ["AGENTS.md", "CLAUDE.md"]) {

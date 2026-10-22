@@ -18,6 +18,7 @@ export type OmgSessionStatusReason =
   | "provider_error"
   | "interrupted"
   | "out_of_memory"
+  | "launch_failed"
   | null;
 
 export interface OmgSession {

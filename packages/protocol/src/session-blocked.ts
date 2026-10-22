@@ -23,6 +23,8 @@ export function blockedSessionAction(session: {
       return "Add credits to continue";
     case "provider_error":
       return "Open to retry";
+    case "launch_failed":
+      return "Could not start";
     case "interrupted":
     case "out_of_memory":
     case "restart_recovered":

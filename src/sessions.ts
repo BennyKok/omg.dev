@@ -95,6 +95,10 @@ const PROFILE_LIST_SESSIONS = process.env.LFG_PROFILE_LIST_SESSIONS === "1";
 // has registered itself. Generous enough for a cold opencode server boot on a
 // loaded box, short enough that a harness which died on startup drops out fast.
 const MANAGED_BOOT_GRACE_MS = 30_000;
+// Longest a session may sit in its background start (worktree checkout plus
+// agent spawn) before the row says it did not start. Only a server that died
+// mid-start leaves a row this old; a live start finishes or fails long before.
+const MANAGED_HYDRATION_MAX_MS = 5 * 60_000;
 const DIRECT_INDEX_MANAGED_AGENTS = new Set<ManagedSession["agent"]>([
   "aisdk",
   "codex-aisdk",
@@ -461,7 +465,7 @@ export type Session = {
   // session reads as an explained pause, not a silent stall. See computeStatus.
   status: "ok" | "blocked";
   // Machine-readable reason when status === "blocked"; null when ok.
-  statusReason: "model_unavailable" | "out_of_credits" | "provider_auth" | "provider_error" | "restart_recovered" | "interrupted" | "out_of_memory" | null;
+  statusReason: "model_unavailable" | "out_of_credits" | "provider_auth" | "provider_error" | "restart_recovered" | "interrupted" | "out_of_memory" | "launch_failed" | null;
   // Human-readable one-liner for the banner (e.g. the dead model id), or null.
   statusDetail: string | null;
   // Whether the session is actively working RIGHT NOW: for a tmux session, its
@@ -601,7 +605,18 @@ export function managedLaunchRow(
   const directEntry = candidateEntry && isPidAlive(candidateEntry.harnessPid)
     ? candidateEntry
     : null;
-  if (!commandFile && !tmux.hasSession(m.tmuxName)) return null;
+  // POST /api/sessions/new answers before the worktree and the agent exist, so
+  // a row in its background start has no pane or harness yet. It is still a
+  // session the person just created, and it stays listed. A start that failed
+  // (or never finished because the server died) stays listed too, with the
+  // reason, instead of vanishing.
+  const now = Date.now();
+  const hydrating = m.hydrating === true && m.launchState === "launching";
+  const startFailed =
+    (m.launchState === "failed" && m.launchFailedAt !== undefined) ||
+    (hydrating && now - m.createdAt > MANAGED_HYDRATION_MAX_MS);
+  const awaitingStart = hydrating && !startFailed;
+  if (!commandFile && !awaitingStart && !startFailed && !tmux.hasSession(m.tmuxName)) return null;
   // A command-file harness registers itself (data/aisdk/<key>.json) only once
   // its process is actually up — bun start plus, for opencode, booting a local
   // server, which is seconds. But serve flips launchState to "running" the
@@ -611,7 +626,8 @@ export function managedLaunchRow(
   // whole boot. That is the main reason a new session took seconds to appear.
   // Keep showing it through a bounded boot window, then let it go so a harness
   // that died on startup does not linger forever.
-  const booting = commandFile && !directEntry && Date.now() - m.createdAt < MANAGED_BOOT_GRACE_MS;
+  const booting = commandFile && !directEntry && !startFailed &&
+    now - Math.max(m.createdAt, m.spawnedAt ?? 0) < MANAGED_BOOT_GRACE_MS;
   // A harness that died still belongs in the list IF it managed to say why.
   // Dropping it was the second half of the "stuck on thinking dots" report: a
   // session whose agent could not start showed the spinner for the boot grace
@@ -619,10 +635,12 @@ export function managedLaunchRow(
   // written to its transcript was never rendered and the user was left with a
   // vanished session and no explanation at all. Anything with indexed messages
   // has something to show; only a genuinely empty dead session is dropped.
-  const explained = commandFile && !directEntry && !booting && sessionHasIndexedMessages(sessionId);
-  if (commandFile && m.launchState !== "launching" && !directEntry && !booting && !explained)
+  const explained = commandFile && !directEntry && !booting && !startFailed && sessionHasIndexedMessages(sessionId);
+  if (commandFile && m.launchState !== "launching" && !directEntry && !booting && !explained && !startFailed)
     return null;
-  const pid = commandFile ? (directEntry?.harnessPid ?? 0) : (tmux.panePid(m.tmuxName) ?? 0);
+  const pid = commandFile
+    ? (directEntry?.harnessPid ?? 0)
+    : awaitingStart || startFailed ? 0 : (tmux.panePid(m.tmuxName) ?? 0);
   if (pid && isClosing(pid)) return null;
   const oomUnit =
     explained && candidateEntry && managedContainment(m).agentSlice &&
@@ -698,7 +716,7 @@ export function managedLaunchRow(
     // present an agent that cannot take a message yet as ready.
     // A harness that has already died is NOT launching, whatever the record
     // says — claiming otherwise is what rendered the endless thinking dots.
-    launching: !explained && (m.launchState === "launching" || booting),
+    launching: !explained && !startFailed && (m.launchState === "launching" || booting),
     startedAt: m.createdAt,
     transcriptPath,
     lastActivityAt: m.createdAt,
@@ -730,7 +748,13 @@ export function managedLaunchRow(
     // Continue relaunches it (relaunchDeadCommandFileHarness).
     // When the harness ran in its own unit and the journal says the kernel
     // OOM-killed it, say so and name the unit, so nobody has to dig for it.
-    ...(explained && candidateEntry && oomUnit
+    ...(startFailed
+      ? {
+          status: "blocked" as const,
+          statusReason: "launch_failed" as const,
+          statusDetail: m.launchError || "The session did not finish starting.",
+        }
+      : explained && candidateEntry && oomUnit
       ? {
           status: "blocked" as const,
           statusReason: "out_of_memory" as const,

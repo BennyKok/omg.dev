@@ -9,10 +9,10 @@ process.env.OMG_DATA_DIR = join(root, "data");
 process.env.LFG_REPOS_ROOT = join(root, "projects");
 process.env.LFG_WORKTREE_ROOT = join(root, "worktrees");
 const workspace = await import("../../src/no-project-chat");
-const makeWorkspace = workspace.createNoProjectWorkspace;
+const workspacePath = workspace.noProjectWorkspacePath;
 mock.module("../../src/no-project-chat", () => ({
   ...workspace,
-  createNoProjectWorkspace: (name: string) => makeWorkspace(name, join(root, "chats")),
+  noProjectWorkspacePath: (name: string) => workspacePath(name, join(root, "chats")),
 }));
 const provider = await import("../../src/coding-agent-provider");
 const launches: any[] = [];
@@ -39,6 +39,19 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: handler });
 const post = (path: string, body: unknown, key?: string) => fetch(`${server.url}${path.slice(1)}`, {
   method: "POST", headers: { "Content-Type": "application/json", ...(key ? { "Idempotency-Key": key } : {}) }, body: JSON.stringify(body),
 });
+// Create answers before the folder and the agent exist; both follow in the
+// background (hydrateCreatedSession). Wait for that, bounded.
+const until = async (ready: () => boolean | Promise<boolean>, what: string) => {
+  for (let i = 0; i < 200; i++) {
+    if (await ready()) return;
+    await Bun.sleep(25);
+  }
+  throw new Error(`timed out waiting for ${what}`);
+};
+const hydrated = async (sessionId: string) => {
+  const { listManaged } = await import("../../src/managed");
+  await until(() => listManaged().some(row => row.sessionId === sessionId && !row.hydrating), `${sessionId} to start`);
+};
 try {
   const bad = await post("/api/sessions/new-unassigned", { cwd: "/some/repo", agent: "codex" });
   assert.equal(bad.status, 400);
@@ -50,6 +63,8 @@ try {
   assert.equal(response.status, 200, JSON.stringify(result));
   assert.equal(result.session.project, "");
   assert.equal(result.session.title, "My website");
+  assert.equal(result.session.launching, true);
+  await hydrated(result.sessionId);
   assert.equal(launches.length, 1);
   assert.equal(launches[0].prompt, "Help me create a website.");
   assert.ok(result.cwd.startsWith(join(root, "chats") + "/"));
@@ -137,6 +152,7 @@ try {
     }
     const future = await (await post("/api/sessions/new", { cwd: body.repo.cwd, prompt: "Improve this website", agent: "codex" })).json() as any;
     assert.ok(future.sessionId, JSON.stringify(future));
+    await hydrated(future.sessionId);
     assert.notEqual(future.session.project, "");
     assert.equal(loadProjectLink(future.cwd)?.projectId, "project-fixture");
     assert.equal(await readFile(join(future.cwd, "index.html"), "utf8"), "<h1>Demo site</h1>");
