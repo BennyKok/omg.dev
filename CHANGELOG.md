@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## October 22, 2026 - The Computer in your chat (v0.6.295)
+
+- When an agent asks you to sign in to a website, or uses the Computer, the live Computer screen shows in the chat. You can click and type there to sign in.
+- The Computer opens ready to use. You do not need to press Take control first.
+- Copy and paste with Ctrl or Cmd+C and V work on the Computer. After a paste, the next shortcut also goes to the Computer.
+- On omg.dev, the Computer buttons no longer sit under the Computer and Settings buttons in the top corner.
+
 ## October 22, 2026 - New sessions open at once (v0.6.294)
 
 - A new session appears as soon as you start it. Its folder and its agent get ready in the background.
