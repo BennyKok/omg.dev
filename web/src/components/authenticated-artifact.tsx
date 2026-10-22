@@ -24,7 +24,32 @@ type ArtifactLoad<T> =
  * cache instead — the server marks artifact bytes `immutable` for a year — so
  * the second mount costs nothing and paints at once.
  */
-type ArtifactSource = { status: "direct"; value: string } | ArtifactLoad<string>;
+type ArtifactSource =
+  | {
+      status: "direct";
+      value: string;
+      /** Present when `value` came from `rememberedArtifactUrls` and may carry
+       *  an expired grant: forget it and sign a fresh URL. One try per mount. */
+      renew?: () => void;
+    }
+  | ArtifactLoad<string>;
+
+/**
+ * Signed URLs this page has already resolved, by artifact path.
+ *
+ * A hosted transport puts a short-lived grant in the query string, and the
+ * browser's HTTP cache is keyed by the WHOLE URL. Re-signing on every mount
+ * therefore did two bad things. Each mount showed the skeleton for a frame
+ * while the signature resolved. And every time the grant rotated (ten
+ * minutes), every picture got a URL the cache had never seen and downloaded
+ * again, behind a skeleton. Reusing the first URL keeps the cache key stable,
+ * so the bytes come from the `immutable` cached response even after that
+ * grant has expired. If the cache entry is gone, the request fails, and
+ * `renew` signs a fresh URL once.
+ *
+ * Strings only, a few per artifact the page has shown.
+ */
+const rememberedArtifactUrls = new Map<string, string>();
 
 /** @param path `null` defers the fetch entirely (used to load full-size bytes only on zoom). */
 function useArtifactBlobUrl(path: string | null): ArtifactLoad<string> {
@@ -73,8 +98,23 @@ function useArtifactBlobUrl(path: string | null): ArtifactLoad<string> {
  * `assetUrl` returns null there. A current host can resolve a signed artifact
  * URL asynchronously. An older host has no resolver and keeps the blob path.
  */
-function useArtifactSource(path: string | null, generation = 0): ArtifactSource {
+function useArtifactSource(
+  path: string | null,
+  generation = 0,
+  { remember = true }: { remember?: boolean } = {},
+): ArtifactSource {
   const direct = path === null ? null : omgDirectUrl(path);
+  // The path whose remembered URL failed on this mount. Keyed by path, so a
+  // virtualized row reused for another artifact starts from the memory again.
+  const [renewedPath, setRenewedPath] = useState<string | null>(null);
+  const renewed = path !== null && renewedPath === path;
+  const remembered =
+    remember && direct === null && path !== null && generation === 0 && !renewed
+      ? rememberedArtifactUrls.get(path) ?? null
+      : null;
+  // A renewal asks the transport again, so it has to look like a new
+  // generation to the resolution below.
+  const resolveGeneration = generation * 2 + (renewed ? 1 : 0);
   type Resolution =
     | { path: string | null; generation: number; status: "loading"; value: null }
     | { path: string; generation: number; status: "direct"; value: string }
@@ -87,29 +127,44 @@ function useArtifactSource(path: string | null, generation = 0): ArtifactSource 
   });
 
   useEffect(() => {
-    if (path === null || direct !== null) return;
+    if (path === null || direct !== null || remembered !== null) return;
     let active = true;
     void resolveOmgDirectUrl(path).then((value) => {
       if (!active) return;
+      if (value !== null && remember) rememberedArtifactUrls.set(path, value);
       setResolution(
         value === null
-          ? { path, generation, status: "blob", value: null }
-          : { path, generation, status: "direct", value },
+          ? { path, generation: resolveGeneration, status: "blob", value: null }
+          : { path, generation: resolveGeneration, status: "direct", value },
       );
     });
     return () => {
       active = false;
     };
-  }, [direct, path, generation]);
+  }, [direct, path, resolveGeneration, remembered, remember]);
 
   // Do not expose the previous path while a virtualized row is reused, nor
   // the previous (expired) URL while a renewal resolves.
   const current =
-    resolution.path === path && resolution.generation === generation ? resolution : null;
+    resolution.path === path && resolution.generation === resolveGeneration
+      ? resolution
+      : null;
   const blob = useArtifactBlobUrl(
-    direct === null && current?.status === "blob" ? path : null,
+    direct === null && remembered === null && current?.status === "blob" ? path : null,
   );
   if (direct !== null) return { status: "direct", value: direct };
+  if (remembered !== null && path !== null) {
+    return {
+      status: "direct",
+      value: remembered,
+      renew: () => {
+        if (rememberedArtifactUrls.get(path) === remembered) {
+          rememberedArtifactUrls.delete(path);
+        }
+        setRenewedPath(path);
+      },
+    };
+  }
   if (current?.status === "direct") {
     return { status: "direct", value: current.value };
   }
@@ -284,7 +339,16 @@ function ArtifactPicture({
               setPainted(true);
             }
       }
-      onError={direct === null ? undefined : () => setDirectFailed(true)}
+      onError={
+        direct === null
+          ? undefined
+          : () => {
+              // A remembered signed URL whose cached bytes are gone: sign a
+              // fresh one before calling the picture lost.
+              if (source.status === "direct" && source.renew) source.renew();
+              else setDirectFailed(true);
+            }
+      }
       className={cn(
         onClick && "cursor-zoom-in",
         className,
@@ -328,8 +392,9 @@ function AuthenticatedZoomableImage({
   // renders no element while closed, so the original is requested on zoom
   // either way.
   const full = useArtifactSource(open ? path : null);
-  // Falls back to the preview until the original arrives, so opening the
-  // lightbox never shows an empty frame.
+  // The lightbox opens on the preview that is already on screen, and swaps
+  // in the original only once its bytes have arrived, so opening it never
+  // shows an empty frame.
   const fullSrc = full.value ?? preview.value;
 
   return (
@@ -347,6 +412,9 @@ function AuthenticatedZoomableImage({
       {fullSrc === null ? null : (
         <ImageLightbox
           src={fullSrc}
+          placeholderSrc={preview.value ?? undefined}
+          width={width}
+          height={height}
           alt={alt}
           open={open}
           onClose={() => setOpen(false)}
@@ -493,7 +561,9 @@ export function AuthenticatedArtifactVideo({
   const failures = useRef(0);
   const resumeAt = useRef<number | null>(null);
   const renewable = requested && omgDirectUrl(path) === null;
-  const source = useArtifactSource(requested ? path : null, generation);
+  // Not remembered: the player streams ranges that are mostly not cached, so
+  // an old grant would only fail and cost a renewal.
+  const source = useArtifactSource(requested ? path : null, generation, { remember: false });
   // The full-page viewer plays at once, so it never needs the still.
   const poster = useArtifactSource(autoPlay ? null : artifactRequestPath(path, { preview: 1 }));
   const direct = source.status === "direct" ? source.value : null;
