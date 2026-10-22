@@ -3070,7 +3070,8 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
 
 
 /* The phone Create page backdrop (CreateBackdrop in apps-home.tsx): soft
-   clouds that drift on long loops. Only transform changes, so it stays on the
+   clouds that drift a short way on 14 to 20 second loops, so the page is
+   always gently moving and never jumps. Only transform changes, so it stays on the
    compositor. */
 /* The colour fades toward every edge of the screen: a short fade at the top,
    so it still runs under the header, and longer ones at the sides and the
@@ -3099,28 +3100,28 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
   left: -45vmax;
   top: -12%;
   background: radial-gradient(closest-side, rgb(167 139 250 / 0.6), transparent);
-  animation: lfg-create-drift-a 26s ease-in-out infinite alternate;
+  animation: lfg-create-drift-a 14s ease-in-out infinite alternate;
 }
 .lfg-create-cloud-b {
   right: -50vmax;
   top: -28%;
   background: radial-gradient(closest-side, rgb(56 189 248 / 0.5), transparent);
-  animation: lfg-create-drift-b 32s ease-in-out infinite alternate;
+  animation: lfg-create-drift-b 17s ease-in-out infinite alternate;
 }
 .lfg-create-cloud-c {
   left: -10vmax;
   top: 35%;
   background: radial-gradient(closest-side, rgb(251 146 60 / 0.4), transparent);
-  animation: lfg-create-drift-c 38s ease-in-out infinite alternate;
+  animation: lfg-create-drift-c 20s ease-in-out infinite alternate;
 }
 @keyframes lfg-create-drift-a {
-  to { transform: translate3d(18vw, 12vh, 0) scale(1.15); }
+  to { transform: translate3d(8vw, 5vh, 0) scale(1.06); }
 }
 @keyframes lfg-create-drift-b {
-  to { transform: translate3d(-22vw, 16vh, 0) scale(0.9); }
+  to { transform: translate3d(-9vw, 6vh, 0) scale(0.95); }
 }
 @keyframes lfg-create-drift-c {
-  to { transform: translate3d(14vw, -14vh, 0) scale(1.1); }
+  to { transform: translate3d(6vw, -6vh, 0) scale(1.05); }
 }
 @media (prefers-reduced-motion: reduce) {
   .lfg-create-cloud { animation: none; }
