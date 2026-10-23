@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 23, 2026 - Plain icons in the home chat box (v0.6.305)
+
+- In the home chat box, the plus, microphone and Stash buttons show as plain icons, the same as in a session chat. The icons are a little larger.
+- OpenCode moves to version 1.19.4, which fixes a security problem in how it reads compressed web pages.
+
 ## October 23, 2026 - The agent picker opens faster (v0.6.304)
 
 - On phones, the agent picker starts to move at once and is fully open in about half the time. Swipe down to close it.
