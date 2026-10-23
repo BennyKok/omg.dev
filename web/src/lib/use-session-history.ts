@@ -5,6 +5,7 @@ import {
   type OmgChatMessage, type OmgMessage,
 } from "./omg-chat-transport";
 import { readTranscriptCache, writeTranscriptCache } from "./transcript-cache";
+import { launchMessageRows, settleLaunchMessage } from "./launch-message";
 import { transcriptOlderPagePath, transcriptPagePath } from "./transcript-paging";
 
 type Page = { messages: OmgMessage[]; nextBefore?: number | null };
@@ -34,7 +35,7 @@ export function useSessionHistory(
     // The ref also records accepted ranges before React flushes the updater.
     range.current = { messages: [...olderKept, ...history], nextBefore: before };
     setMessages(current => {
-      const settled = mergeHistoryPage(current, history, olderKept, previousIds);
+      const settled = settleLaunchMessage(sid, mergeHistoryPage(current, history, olderKept, previousIds));
       writeTranscriptCache(sid, settled, before);
       return settled;
     });
@@ -47,9 +48,12 @@ export function useSessionHistory(
     scope.current = requestScope;
     const cached = sid ? readTranscriptCache(sid) : null;
     range.current = cached;
-    setMessages(cached?.messages ?? []);
+    // A session created from this page draws your first message at once
+    // (lib/launch-message.ts), before the agent has written it.
+    const launch = cached ? [] : launchMessageRows(sid);
+    setMessages(cached?.messages ?? launch);
     setNextBefore(cached?.nextBefore ?? null);
-    setLoading(!!sid && !cached);
+    setLoading(!!sid && !cached && !launch.length);
     if (!sid) return;
     let cancelled = false;
     const current = () => !cancelled && scope.current === requestScope && requestScope.revision === 0;

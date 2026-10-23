@@ -78,6 +78,7 @@ import {
 } from "./lib/hosted-coach";
 import { HostedCoachCard } from "./components/hosted-coach-card";
 import { emitSessionCreatedToHost } from "./lib/embed-host-signal";
+import { recordLaunchMessage, settleLaunchMessage } from "./lib/launch-message";
 import { filtersToShowSession, liveAgentsControl, planLimitLiveAgents, registerLiveAgents } from "./lib/plan-limit-live";
 import { isAuthorizationUrl } from "./lib/auth-popup";
 import { OmgBrandMark, omgBrandToneClass } from "./components/omg-brand-mark";
@@ -17541,9 +17542,9 @@ function SessionChatBody({
       if (event.type === "busy") setLiveBusy(event.busy);
       if (event.type === "queue") setHeldQueue(heldQueueRows(event.queue));
       setMessages((current) => {
-        const next = appendOmgTranscriptEvent(current, event, {
+        const next = settleLaunchMessage(sid, appendOmgTranscriptEvent(current, event, {
           streamActive: ownedChatStreams.owns(sid),
-        });
+        }));
         // Keep the cached page current so the next re-open paints the newest
         // state rather than a stale snapshot.
         if (next !== current) updateTranscriptCacheMessages(sid, next);
@@ -24639,9 +24640,11 @@ function NewSessionDialog({
             ...(guideLaunch?.guide ? { guide: guideLaunch.guide } : {}),
           }),
         });
-      const settle = async (res: CreateResult) => {
+      const settle = async (res: CreateResult, sentPrompt: string) => {
         const sid = res?.sessionId;
         if (sid) {
+          // Drawn in the session at once, before the agent has written it.
+          recordLaunchMessage(sid, sentPrompt);
           markCreatedSid(sid);
           markCollapsedSid(sid);
         }
@@ -24682,7 +24685,7 @@ function NewSessionDialog({
                     : composedPrompt;
                 const retried = await postCreate(outgoing, true);
                 setPromptState("");
-                await settle(retried);
+                await settle(retried, outgoing);
               } catch (retryError) {
                 const message =
                   retryError instanceof Error ? retryError.message : String(retryError);
@@ -24692,7 +24695,7 @@ function NewSessionDialog({
           });
           return;
         }
-        await settle(res);
+        await settle(res, composedPrompt);
       } catch (err) {
         setPromptStashStatus(stashed?.id, "draft");
         setPromptState((current) => current || taskPrompt);

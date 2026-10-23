@@ -7,6 +7,7 @@ const { configureOmgTransport } = await import("./omg-client");
 const { useSessionHistory } = await import("./use-session-history");
 const { clearTranscriptCache, readTranscriptCache, writeTranscriptCache } = await import("./transcript-cache");
 const { omgMessagesToUIMessages } = await import("./omg-chat-transport");
+const { recordLaunchMessage } = await import("./launch-message");
 
 type Page = { messages: OmgMessage[]; nextBefore: number | null };
 const requests: { path: string; resolve: (page: Page) => void; reject: (error: Error) => void }[] = [];
@@ -127,4 +128,22 @@ test("a live refresh during an older-page read does not stop pagination", async 
     expect(await older!).toBe(true);
   });
   expect(ui.queryAll("p").map(el => el.textContent)).toEqual(["older", "tail", "new"]);
+});
+
+test("a session created here shows its first message at once, then the agent's own turn replaces it", async () => {
+  const sid = `history-${++session}`;
+  recordLaunchMessage(sid, "Make a snake game");
+  ui = mount();
+  ui.render(<Probe sid={sid} />);
+  // Drawn before any read answers, and not as a loading transcript.
+  expect(ui.text()).toContain("ReadyMake a snake game");
+  // The agent has not written it yet: the first page is empty, and the bubble stays.
+  await ui.flushAsync(() => { requests[0]!.resolve({ messages: [], nextBefore: null }); });
+  expect(ui.text()).toContain("Make a snake game");
+  // Its own turn lands: one copy, the real one.
+  ui.flush(() => history.applySnapshot({
+    messages: [{ id: "u1", role: "user", kind: "text", text: "Make a snake game (sent)", ts: 2 }],
+    nextBefore: null,
+  }));
+  expect(ui.queryAll("p").map((p) => p.textContent)).toEqual(["Make a snake game (sent)"]);
 });
