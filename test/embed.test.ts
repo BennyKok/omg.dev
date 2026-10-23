@@ -204,9 +204,9 @@ describe("host bottom inset contract", () => {
     // repos, one hand-maintained number: it drifted ~1rem and the islands
     // overlapped on a phone. One island cannot overlap itself.
     expect(app).toContain('data-lfg-host-slot="header-actions"');
-    // Both embedded mobile headers carry it. The tablet header carries the
-    // third slot added in v0.2.14, so host controls stay docked at every width.
-    expect(app.match(/data-lfg-host-slot="header-actions"/g)?.length).toBe(3);
+    // One builder makes the slot for every page (the phone Live header, the
+    // shared page header, and the Computer), so no branch can ship without it.
+    expect(app.match(/data-lfg-host-slot="header-actions"/g)?.length).toBe(1);
     // Backward compatibility is the whole design: an older host that still
     // floats its own island must see no change. The slot is inert until the
     // host portals into it, and :empty is what makes that continuous.
@@ -215,15 +215,6 @@ describe("host bottom inset contract", () => {
     // slot: an old host floating over a zeroed inset is the same overlap
     // again, from the other side. Zeroing belongs to whoever fills the slot.
     expect(app).toContain('pr-[calc(0.75rem+var(--lfg-host-top-inset))]');
-    // Right corner, not appended to the back button. Docking is a layout fix
-    // and must not relocate the host's controls: the first cut of this put
-    // Computer and Settings beside "Live" on the LEFT, which moved a button
-    // across the screen as a side effect. justify-between + a slot that is a
-    // SIBLING of the back island, never a child of it, is what keeps the
-    // corner the corner.
-    expect(app).toMatch(
-      /<header className="z-40 flex shrink-0 items-center justify-between gap-2 pb-3 pl-3 pr-\[calc\(0\.75rem\+var\(--lfg-host-top-inset\)\)\][\s\S]*?<\/NavIsland>\s*\{\/\*[\s\S]*?\*\/\}\s*<span\s*\n\s*data-lfg-host-slot="header-actions"/,
-    );
   });
 
   test("embedded Pages menu carries the host's Settings so the island needn't", () => {
@@ -256,7 +247,7 @@ describe("host bottom inset contract", () => {
     // Switcher first, overflow last: the host's Computer control is what people
     // reach for, and a "⋮" sitting ahead of it reads as the main event.
     expect(app).toMatch(
-      /data-lfg-host-slot="header-actions"[\s\S]*?<PagesMenu\s*\n\s*tab=\{tab\}/,
+      /\{hostActionsSlot\("flex items-center gap-1\.5 empty:hidden"\)\}[\s\S]*?\{isMobile \? null : pageNavigation\}/,
     );
   });
 
@@ -306,7 +297,9 @@ describe("mobile overlay scroll contract", () => {
   test("hosted surfaces keep LFG page navigation", () => {
     const app = require("node:fs").readFileSync("web/src/App.tsx", "utf8") as string;
 
-    expect(app).toContain("embedded && isMobile");
+    // Hosted phone pages use the same header as standalone ones: the drawer
+    // top left, then the back pill.
+    expect(app).toContain("{isMobile ? pageNavigation : null}");
     expect(app).toContain('tab === "notifications"');
     expect(app).toContain('value="artifacts"');
     expect(app).toContain("projects={projectOptions}");

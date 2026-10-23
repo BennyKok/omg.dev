@@ -9473,6 +9473,42 @@ export function App() {
   // route home at all -- see test/pages-nav.test.ts.
   const chromelessSurface = liveDesktopWorkspace || tab === "computer";
 
+  // The page navigation control, the same one on every page that has no rail:
+  // the drawer button on a phone, the Pages menu between the phone and rail
+  // breakpoints. Each header used to pick its own, so a phone found the drawer
+  // top left on Live, top right on secondary pages, and not at all on the
+  // Computer, while the host floated its own Settings gear wherever we had none.
+  const online = useWsLive ? wsLiveStream.connection.status === "live" : true;
+  // Pages whose header carries the project and user scope controls.
+  const headerScopeFilters =
+    tab === "live" || tab === "bots" || tab === "notifications" || tab === "artifacts" || tab === "board";
+  const pageNavigation = isMobile ? (
+    <SideNavButton onOpen={() => setNavOpen(true)} machineName={navMachineName} online={online} />
+  ) : (
+    <PagesMenu
+      tab={tab}
+      hiddenPages={hiddenPages}
+      onOpenTab={setTab}
+      extraTabs={extNavTabs}
+      showSettings={!embedded}
+      onOpenHostSettings={embedded && hostSettingsInMenu ? onOpenHostSettings : undefined}
+    />
+  );
+  // Where a host docks its own header actions. Every page offers one, and every
+  // one carries `data-lfg-host-settings="menu"` when our navigation (the drawer
+  // or the Pages menu) carries the host's Settings, so the host never draws a
+  // second Settings control. A page without the slot made the host float its
+  // gear over our page; a slot without the flag made it dock one.
+  const hostActionsSlot = (className: string) =>
+    embedded ? (
+      <span
+        data-lfg-host-slot="header-actions"
+        data-lfg-host-drawer={isMobile ? "footer" : undefined}
+        data-lfg-host-settings={hostSettingsInMenu ? "menu" : undefined}
+        className={className}
+      />
+    ) : null;
+
   // An auto-agent report or finding. On the desktop workspace it opens in
   // the stage beside the rail, the same two panes Schedules uses. Elsewhere
   // it is the full-screen page.
@@ -9621,11 +9657,7 @@ export function App() {
               be. The chip moved inside the drawer as its first row, and its
               status dot moved onto this button, so the one thing the chip
               told you at a glance still does. */}
-          <SideNavButton
-            onOpen={() => setNavOpen(true)}
-            machineName={navMachineName}
-            online={useWsLive ? wsLiveStream.connection.status === "live" : true}
-          />
+          {pageNavigation}
           <LiveHeaderContext
             intro={showHeaderBrandIntro && !error}
             brand={<ProductBrand compact hosted={embedded} />}
@@ -9677,19 +9709,9 @@ export function App() {
                     maintain. Same trade the desktop rail-footer slot already
                     made. Collapses to nothing while unfilled, so an older host
                     that still floats keeps working exactly as before. */}
-                <span
-                  data-lfg-host-slot="header-actions"
-                  data-lfg-host-drawer={embedded && isMobile ? "footer" : undefined}
-                  /* Tells the host its own Settings control is redundant here:
-                     our menu is carrying one that calls back into it. A flag
-                     on the slot, not an assumed version — a host that docks
-                     into an older build must keep its gear, or the surface
-                     ends up with no way to settings at all. */
-                  data-lfg-host-settings={hostSettingsInMenu ? "menu" : undefined}
-                  // Out of the flex run while unfilled, so its gap does not
-                  // push the avatar off the corner.
-                  className="flex items-center gap-1.5 empty:hidden"
-                />
+                {/* Out of the flex run while unfilled, so its gap does not
+                    push the avatar off the corner. */}
+                {hostActionsSlot("flex items-center gap-1.5 empty:hidden")}
 
               </div>
             </NavIsland>
@@ -9714,46 +9736,25 @@ export function App() {
             </NavIsland>
           )}
         </header>
-      ) : embedded && isMobile ? (
-        /* Secondary pages sit below Live in the mobile hierarchy. The host
-           keeps its own right-side island; LFG supplies the page-level back
-           action in the space where the Live welcome normally sits. */
-        <header className="z-40 flex shrink-0 items-center justify-between gap-2 pb-3 pl-3 pr-[calc(0.75rem+var(--lfg-host-top-inset))] pt-[calc(0.5rem+env(safe-area-inset-top))]">
-          <NavIsland className="shrink-0">
-            <button
-              type="button"
-              onClick={() => setTab("live")}
-              aria-label="Back to Live"
-              className="glass-island flex h-11 items-center gap-1 rounded-full pl-2 pr-3 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground active:scale-[0.96]"
-            >
-              <ChevronLeft className="size-[18px]" />
-              <span>Live</span>
-            </button>
-          </NavIsland>
-          {/* The secondary pages carry the slot too. Without it the host's
-              chrome would fall back to floating the moment you left Live, so
-              its actions would jump corner-to-corner between tabs, and the
-              reservation it collapses would have to come back mid-navigation.
-
-              Its own island on the RIGHT, not appended to the back button:
-              the host's chrome has always lived in that corner, and the first
-              version of this docked it beside "Live" on the left, which moved
-              somebody's Computer button across the screen as a side effect of
-              a layout fix. justify-between keeps the two apart; the slot
-              collapses to nothing when unfilled, so an unhosted or older-host
-              header is still just the back button. */}
-          <span
-            data-lfg-host-slot="header-actions"
-            data-lfg-host-drawer={embedded && isMobile ? "footer" : undefined}
-            className="glass-island flex h-11 shrink-0 items-center gap-1.5 rounded-full px-2"
-          />
-        </header>
       ) : chromelessSurface ? null : (
       /* Embedded used to be suppressed here too, which left Shipped and
          Artifacts with no chrome at all — no way back to Live except browser
          history. The host owns identity/settings chrome, not LFG's page
          navigation, so the individual chrome below is gated instead. */
-      <header className="relative z-40 flex shrink-0 items-center justify-between gap-2 px-2 pb-3 pt-[calc(0.5rem+env(safe-area-inset-top))] md:px-3 md:pb-1">
+      <header
+        className={cn(
+          "relative z-40 flex shrink-0 items-center justify-between gap-2 px-2 pb-3 pt-[calc(0.5rem+env(safe-area-inset-top))] md:px-3 md:pb-1",
+          // A host that does not hand us its Settings may still float its own
+          // control in this corner. It declares that width, and we keep clear.
+          // Hosted Live pads its left edge 0.75rem, so the drawer button stays
+          // in one spot as you move between pages.
+          embedded && "pl-3 pr-[calc(0.75rem+var(--lfg-host-top-inset))] md:pr-[calc(0.75rem+var(--lfg-host-top-inset))]",
+        )}
+      >
+        <div className="flex min-w-0 items-center gap-2">
+        {/* A phone opens the drawer from the top-left corner on every page,
+            the same spot as on Live, and the back pill follows it. */}
+        {isMobile ? pageNavigation : null}
         <NavIsland className="shrink-0">
           <div className="glass-island flex h-11 items-center rounded-full px-1.5">
             {shouldShowMobileBackToLive(isMobile, tab) ? (
@@ -9796,29 +9797,17 @@ export function App() {
             )}
           </div>
         </NavIsland>
+        </div>
 
+        {/* A phone page with no scope filter has nothing for the right
+            island, so it draws no empty pill: only the host slot, which takes
+            no space while unfilled. */}
+        {isMobile && !headerScopeFilters ? hostActionsSlot("flex items-center gap-1.5 empty:hidden") : (
         <NavIsland className="shrink-0">
           <div className="glass-island flex h-11 items-center gap-1.5 rounded-full px-2">
-            {/* This header covers the band between the mobile and desktop-rail
-                breakpoints (roughly 768-1023px: tablet portrait, split view, a
-                resized embedded window) — the one layout that used to render
-                with no `header-actions` slot at all. The mobile headers above
-                and the desktop rail-footer slot each got one when the host
-                docking contract was added; this one was missed, so a host
-                mounted at exactly this width had nothing to portal its
-                Computer/Settings switcher into and fell back to floating its
-                own chrome over ours. Same slot, same host-settings flag, same
-                spot in the island as the mobile-live header: host actions
-                first, our overflow menu last. */}
-            {embedded ? (
-              <span
-                data-lfg-host-slot="header-actions"
-                data-lfg-host-drawer={embedded && isMobile ? "footer" : undefined}
-                data-lfg-host-settings={hostSettingsInMenu ? "menu" : undefined}
-                className="flex items-center gap-1.5"
-              />
-            ) : null}
-            {tab === "live" || tab === "bots" || tab === "notifications" || tab === "artifacts" || tab === "board" ? (
+            {/* Host actions first, our own controls after them. */}
+            {hostActionsSlot("flex items-center gap-1.5 empty:hidden")}
+            {headerScopeFilters ? (
               // Page destinations live in PagesMenu. Desktop also keeps its
               // project scope control here; mobile project scope lives in the
               // Live composer and never impersonates a page destination.
@@ -9847,29 +9836,13 @@ export function App() {
                 />
               </>
             )}
-            {/* On a phone the drawer is the whole page axis, so this header
-                offers it too rather than a second, smaller list beside it.
-                The tablet band has no drawer and keeps the menu, which is
-                also what the rail shows, so the page axis has one shape at
-                every width that has one. */}
-            {isMobile ? (
-              <SideNavButton
-                onOpen={() => setNavOpen(true)}
-                machineName={navMachineName}
-                online={useWsLive ? wsLiveStream.connection.status === "live" : true}
-              />
-            ) : (
-              <PagesMenu
-                tab={tab}
-                hiddenPages={hiddenPages}
-                onOpenTab={setTab}
-                extraTabs={extNavTabs}
-                showSettings={!embedded}
-                onOpenHostSettings={embedded && hostSettingsInMenu ? onOpenHostSettings : undefined}
-              />
-            )}
+            {/* The tablet band has no drawer and keeps the Pages menu here,
+                which is also what the rail shows. A phone's drawer button is
+                top left, above. */}
+            {isMobile ? null : pageNavigation}
           </div>
         </NavIsland>
+        )}
       </header>
       )}
 
@@ -10278,7 +10251,18 @@ export function App() {
           <Suspense
             fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>}
           >
-            <ComputerPage active onClose={() => setTab("live")} />
+            <ComputerPage
+              active
+              onClose={() => setTab("live")}
+              // The Computer has no header, so it takes the same navigation
+              // control (and host slot) as every other page.
+              navigation={
+                <>
+                  {pageNavigation}
+                  {hostActionsSlot("flex items-center gap-1.5 empty:hidden")}
+                </>
+              }
+            />
           </Suspense>
         ) : null}
         {tab === "board" && !boardInWorkspace ? (

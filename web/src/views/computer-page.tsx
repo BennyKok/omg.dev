@@ -9,9 +9,10 @@
 // The pixels arrive as RFB over a websocket (see src/computer/rfb-bridge.ts),
 // rendered by noVNC. This page is lazily loaded -- noVNC is not on the path to
 // first paint, and most sessions never open the Computer at all.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type React from "react";
 import { readRemoteClipboard, setRemoteClipboard } from "@/lib/computer-clipboard-transport";
+import { cn } from "@/lib/utils";
 import RFB from "@novnc/novnc";
 import { attachComputerClipboard, clipboardButtonHandlers, type ComputerClipboard } from "../../../packages/protocol/src/computer-clipboard";
 import {
@@ -61,11 +62,19 @@ export function ComputerPage({
   onClose,
   variant = "page",
   onExpand,
+  navigation,
 }: {
   active: boolean;
   onClose?: () => void;
   variant?: "page" | "inline";
   onExpand?: () => void;
+  /**
+   * The app's page navigation, drawn in the top-left corner of the full page.
+   * The Computer has no header, and every other page has this control in the
+   * same corner, so the shell passes the same control in here. Not drawn
+   * inline, where the chat around the embed already has its navigation.
+   */
+  navigation?: ReactNode;
 }) {
   const inline = variant === "inline";
   const [status, setStatus] = useState<ComputerStatus | null>(null);
@@ -495,6 +504,14 @@ export function ComputerPage({
         }}
       />
 
+      {!inline && navigation ? (
+        // A pill of its own: the control sits over the remote screen, which
+        // can be any colour, so it carries its own background.
+        <div className="absolute left-3 top-[calc(0.75rem+env(safe-area-inset-top))] z-10 flex items-center gap-1.5 rounded-full bg-background/85 p-0.5 shadow-lg backdrop-blur-xl">
+          {navigation}
+        </div>
+      ) : null}
+
       {/* Controls float over the screen, top right, rather than occupying a
           header band. Stop is gone on purpose: leaving the page is how you
           stop watching, and the desktop deliberately keeps running so an
@@ -507,7 +524,12 @@ export function ComputerPage({
               // while the Computer has the screen. It declares its width in
               // --lfg-host-top-inset (the same reservation the app header
               // honours), so the controls sit in one row to its left.
-              "absolute right-[calc(0.75rem+var(--lfg-host-top-inset,0px))] top-[calc(0.75rem+env(safe-area-inset-top))] z-10 flex items-center gap-2"
+              cn(
+                "absolute right-[calc(0.75rem+var(--lfg-host-top-inset,0px))] top-[calc(0.75rem+env(safe-area-inset-top))] z-10 flex items-center gap-2",
+                // Clear of the navigation in the other corner. A phone is too
+                // narrow for the whole row beside it, so the row wraps.
+                navigation && "left-16 flex-wrap justify-end",
+              )
         }
       >
         {running && !tapToExpand ? (
