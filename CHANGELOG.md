@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## October 23, 2026 - Your sessions first, and smoother pages (v0.6.314)
+
+- On omg.dev, the chat list shows your own sessions from the first frame. Before, it showed every session on the Computer for a moment and then dropped to yours.
+- The Apps page is one list. The app you worked on last is at the top, and apps you have not opened here follow, newest first. Games are no longer a separate group.
+- Create, Apps and Chats slide in from the side of their button when you switch between them.
+- The model list opens already grouped by credit use. Before, it opened as one list and then moved into its groups.
+
 ## October 23, 2026 - New desktop home and a steady chat box (v0.6.313)
 
 - The desktop home now looks like the Create page on the phone. It asks "What do you want to make?" over the same soft colour, and the Website, App, API and Image row is gone.
