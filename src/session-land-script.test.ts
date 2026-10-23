@@ -43,7 +43,7 @@ describe("serialized session landing script", () => {
       "#!/bin/sh\n" +
         "printf '%s\\n' \"$PWD\" >> \"$LFG_TEST_BUN_LOG\"\n" +
         "case \"$PWD\" in\n" +
-        "  */web) mkdir -p dist; printf '<!doctype html><html></html>\\n' > dist/index.html ;;\n" +
+        "  */web) out=\"${LFG_WEB_OUT_DIR:-dist}\"; mkdir -p \"$out\"; printf '<!doctype html><html></html>\\n' > \"$out/index.html\" ;;\n" +
         "esac\n",
     );
     chmodSync(fakeBun, 0o755);
@@ -71,6 +71,8 @@ describe("serialized session landing script", () => {
     const env = {
       ...process.env,
       LFG_LAND_SKIP_RESTART: "1",
+      // A test must not start real systemd scopes.
+      LFG_LAND_BUILD_SCOPE: "0",
       LFG_TEST_BUN_LOG: bunLog,
       PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
     };
