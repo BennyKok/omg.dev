@@ -40,7 +40,7 @@ import {
   type ImageArtifactMessage,
 } from "./artifacts.ts";
 import { listQueue, reconcileQueued } from "./sendq.ts";
-import { listConversations } from "./conversations.ts";
+import { listConversationsShared } from "./conversations.ts";
 import { traceLog } from "./trace-log.ts";
 
 /**
@@ -618,7 +618,7 @@ export function createLiveWsSupport(opts: {
    */
   const conversationKeys = (): Map<string, string> => {
     const map = new Map<string, string>();
-    for (const conversation of listConversations()) {
+    for (const conversation of listConversationsShared()) {
       for (const runtime of conversation.runtimeSessions) map.set(runtime.sessionId, conversation.id);
     }
     return map;
@@ -800,7 +800,7 @@ export function createLiveWsSupport(opts: {
       if (changed) {
         const affected = new Set(changedRows.map((row) => row.sessionId));
         for (const id of lastStatusSigs.keys()) if (!nextSigs.has(id)) affected.add(id);
-        if (listConversations().some((c) => c.kind === "thread" && c.runtimeSessions.some((r) => affected.has(r.sessionId)))) {
+        if (listConversationsShared().some((c) => c.kind === "thread" && c.runtimeSessions.some((r) => affected.has(r.sessionId)))) {
           announceToSockets("threads");
         }
       }
