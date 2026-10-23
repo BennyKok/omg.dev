@@ -34,6 +34,9 @@ jobs:
       # them separate means a read token can never publish, and the publish
       # token is never written into the default registry config.
       NPM_PUBLISH_TOKEN: ${{ secrets.NPM_PUBLISH_TOKEN }}
+      # Fine-grained token with Actions: write on BennyKok/vibes. It only
+      # starts that repository's "Update LFG app" workflow (see the last step).
+      VIBES_DISPATCH_TOKEN: ${{ secrets.VIBES_DISPATCH_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -214,6 +217,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: bash scripts/verify-release-assets.sh "$RELEASE_TAG"
+
+      # omg.dev picks up a new release through vibes' update-lfg-app.yml, which
+      # otherwise runs only on its hourly schedule. Start it now that every
+      # asset is verified, so a release reaches app.omg.dev without that wait.
+      # The bot resolves the newest complete release itself, so a dispatch
+      # that races a later tag is harmless. A failed dispatch does not fail the
+      # release: the schedule still picks the version up.
+      - name: Start the omg.dev pin update
+        if: ${{ env.VIBES_DISPATCH_TOKEN != '' && startsWith(inputs.tag || github.ref_name, 'v') }}
+        env:
+          GH_TOKEN: ${{ env.VIBES_DISPATCH_TOKEN }}
+        run: |
+          gh workflow run update-lfg-app.yml --repo BennyKok/vibes --ref main \
+            || echo "::warning::Could not start BennyKok/vibes update-lfg-app.yml. The hourly schedule will pick up this release."
 
       # A failed tag build emails only the pusher, and v0.1.360 showed that
       # is not enough — it sat broken until someone read `gh run list` for
