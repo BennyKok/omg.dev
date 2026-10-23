@@ -230,6 +230,7 @@ function upsertArtifactRow(d: Database, artifact: ImageArtifact): void {
 function deleteArtifactRow(d: Database, artifactId: string): void {
   d.query("DELETE FROM artifacts WHERE id = ?").run(artifactId);
   d.query("DELETE FROM transcript_messages WHERE message_id = ?").run(`artifact-${artifactId}`);
+  forgetUnreadCursors();
 }
 
 /** Mirror one durable artifact into the joined artifacts table + ordered transcript row. */
@@ -274,6 +275,7 @@ export function indexArtifactMessage(path: string, sessionId: string, artifact: 
       }
       pageTotalCache.delete(existing.path);
       pageTotalCache.delete(path);
+      forgetUnreadCursors([existing.session_id, sessionId]);
       return 0;
     }
 
@@ -419,6 +421,7 @@ function database(busyTimeoutMs = TRANSCRIPT_BUSY_TIMEOUT_MS): Database {
     db = null;
     initialized = false;
   }
+  forgetUnreadCursors();
   mkdirSync(dirname(path), { recursive: true });
   db = new Database(path, { create: true });
   dbOpenedPath = path;
@@ -446,6 +449,7 @@ export function resetTranscriptIndexConnectionForTests(): void {
   db = null;
   dbOpenedPath = null;
   initialized = false;
+  forgetUnreadCursors();
   directNextOffset.clear();
   pageTotalCache.clear();
   enqueued.clear();
@@ -907,6 +911,7 @@ export function deleteTranscriptIndexForPath(path: string): void {
     d.query("DELETE FROM transcript_messages WHERE path = ?").run(path);
     d.query("DELETE FROM transcript_index_cursors WHERE path = ?").run(path);
   }).immediate();
+  forgetUnreadCursors();
 }
 
 export function indexTranscriptMessages(
@@ -1113,27 +1118,66 @@ export function latestIndexedAssistantCursor(sessionId: string): {
   messageId: string;
   ts: number | null;
 } | null {
-  init();
+  const rowid = latestIndexedAssistantRowids([sessionId]).get(sessionId);
+  if (rowid == null) return null;
   const row = database()
-    .query<{ rowid: number; id: string; message_id: string | null; ts: number | null }, [string]>(
-      `SELECT rowid, id, message_id, ts
-         FROM transcript_messages
-        WHERE session_id = ?
-          AND (role = 'assistant' OR (role = 'user' AND text LIKE '[Peer message from %'))
-        ORDER BY rowid DESC
-        LIMIT 1`,
+    .query<{ id: string; message_id: string | null; ts: number | null }, [number]>(
+      "SELECT id, message_id, ts FROM transcript_messages WHERE rowid = ?",
     )
-    .get(sessionId);
-  return row ? { rowid: row.rowid, messageId: row.message_id ?? row.id, ts: row.ts } : null;
+    .get(rowid);
+  return row ? { rowid, messageId: row.message_id ?? row.id, ts: row.ts } : null;
+}
+
+// What counts as unread activity. One definition for the cold per-session read
+// and for the incremental catch-up, so the two can never disagree.
+const UNREAD_ACTIVITY_WHERE =
+  "(role = 'assistant' OR (role = 'user' AND text LIKE '[Peer message from %'))";
+// Past this many new rows since the last read, rebuilding the requested
+// sessions cold is cheaper than walking every new row.
+const UNREAD_CATCH_UP_MAX_ROWS = 10_000;
+
+/**
+ * Newest unread-activity rowid per session, as of `unreadCursorsThrough`.
+ *
+ * The roster asks for this on every list call. Answered from SQLite alone it
+ * walked every row of every listed session through transcript_messages_session_ts
+ * and read each row from the table to test its role, plus the whole overflow
+ * chain of every user-role tool result for the LIKE. On the live index that was
+ * about 11,600 pages (45 MB) per call for 151 sessions, scattered across a 4 GB
+ * file, so it held a large share of the page cache and took about 0.9 s cold
+ * and 50 ms warm on the synchronous event loop.
+ *
+ * Rowids only grow, so the newest activity of a session can only move to a row
+ * inserted after the last look. Each call therefore reads the rows past
+ * `unreadCursorsThrough` by rowid range (the hot end of the table, a few pages)
+ * and computes a session from scratch only the first time it is asked about.
+ * `null` records "no activity yet", which is just as cacheable.
+ *
+ * Any statement in this module that moves rows between sessions, rewrites a
+ * row's role or text, or deletes rows calls forgetUnreadCursors, because the
+ * catch-up only sees inserts. Inserts from agent processes are seen through the
+ * rowid range. A delete or a cross-session move done by ANOTHER process is not
+ * seen until this process reopens the index; agent processes only append, so
+ * the worst case is a stale unread flag on an artifact row moved by one.
+ */
+const unreadCursors = new Map<string, number | null>();
+let unreadCursorsThrough: number | null = null;
+
+function forgetUnreadCursors(sessionIds?: Array<string | null | undefined>): void {
+  if (!sessionIds) {
+    unreadCursors.clear();
+    unreadCursorsThrough = null;
+    return;
+  }
+  for (const id of sessionIds) if (id) unreadCursors.delete(id);
 }
 
 /**
  * The same cursor as `latestIndexedAssistantCursor`, for a whole roster at once.
  *
- * The session roster asks this question about every row it renders, which is one
- * statement per row when each asks alone. Sessions with no assistant output are
- * absent from the result rather than mapped to null: a caller comparing against
- * a watermark treats "no cursor" and "no entry" the same way.
+ * Sessions with no assistant output are absent from the result rather than
+ * mapped to null: a caller comparing against a watermark treats "no cursor" and
+ * "no entry" the same way.
  */
 export function latestIndexedAssistantRowids(sessionIds: string[]): Map<string, number> {
   const out = new Map<string, number>();
@@ -1141,20 +1185,63 @@ export function latestIndexedAssistantRowids(sessionIds: string[]): Map<string, 
   if (!ids.length) return out;
   init();
   const d = database();
-  // SQLite's default parameter ceiling is 999, so ask in chunks rather than
-  // building one statement that a long roster would silently push over it.
-  for (let i = 0; i < ids.length; i += 500) {
-    const chunk = ids.slice(i, i + 500);
-    const rows = d
-      .query<{ session_id: string; rowid: number }, string[]>(
-        `SELECT session_id, MAX(rowid) AS rowid
-           FROM transcript_messages
-          WHERE session_id IN (${chunk.map(() => "?").join(",")})
-            AND (role = 'assistant' OR (role = 'user' AND text LIKE '[Peer message from %'))
-          GROUP BY session_id`,
-      )
-      .all(...chunk);
-    for (const row of rows) out.set(row.session_id, row.rowid);
+  // One read transaction, so the high-water mark, the catch-up and the cold
+  // reads all see the same snapshot. A row committed by another process in
+  // between is then either below `high` and counted, or above it and left for
+  // the next call.
+  const refresh = d.transaction(() => {
+    const high =
+      d.query<{ rowid: number | null }, []>("SELECT MAX(rowid) AS rowid FROM transcript_messages").get()?.rowid ?? 0;
+    const through = unreadCursorsThrough;
+    if (through == null || high < through || high - through > UNREAD_CATCH_UP_MAX_ROWS) {
+      // First use, a shrunk table, or a gap too wide to walk: start over.
+      unreadCursors.clear();
+    } else if (high > through) {
+      // NOT INDEXED keeps this a rowid range read. Left to itself the planner
+      // walks transcript_messages_session_ts for the GROUP BY instead, which is
+      // a full index scan (4.2 s on the live index for 2,000 new rows).
+      const fresh = d
+        .query<{ session_id: string; rowid: number }, [number, number]>(
+          `SELECT session_id, MAX(rowid) AS rowid
+             FROM transcript_messages NOT INDEXED
+            WHERE rowid > ? AND rowid <= ? AND ${UNREAD_ACTIVITY_WHERE}
+            GROUP BY session_id`,
+        )
+        .all(through, high);
+      // Every row in the range is newer than anything already cached, so it
+      // is the session's newest activity whether or not it was cached before.
+      for (const row of fresh) unreadCursors.set(row.session_id, row.rowid);
+    }
+    unreadCursorsThrough = high;
+    const cold = ids.filter((id) => !unreadCursors.has(id));
+    // SQLite's default parameter ceiling is 999, so ask in chunks rather than
+    // building one statement that a long roster would silently push over it.
+    for (let i = 0; i < cold.length; i += 500) {
+      const chunk = cold.slice(i, i + 500);
+      const rows = d
+        .query<{ session_id: string; rowid: number }, (string | number)[]>(
+          `SELECT session_id, MAX(rowid) AS rowid
+             FROM transcript_messages
+            WHERE session_id IN (${chunk.map(() => "?").join(",")})
+              AND rowid <= ?
+              AND ${UNREAD_ACTIVITY_WHERE}
+            GROUP BY session_id`,
+        )
+        .all(...chunk, high);
+      for (const id of chunk) unreadCursors.set(id, null);
+      for (const row of rows) unreadCursors.set(row.session_id, row.rowid);
+    }
+  });
+  try {
+    refresh();
+  } catch (err) {
+    // A half-applied catch-up must not be trusted on the next call.
+    forgetUnreadCursors();
+    throw err;
+  }
+  for (const id of ids) {
+    const rowid = unreadCursors.get(id);
+    if (rowid != null) out.set(id, rowid);
   }
   return out;
 }
@@ -1272,6 +1359,7 @@ async function indexTranscriptOnce(path: string, sessionId: string): Promise<{
       d.query("UPDATE transcript_messages SET session_id = ? WHERE path = ?").run(sessionId, path);
       d.query("UPDATE transcript_index_cursors SET session_id = ? WHERE path = ?").run(sessionId, path);
     }).immediate();
+    forgetUnreadCursors([existingCursor.session_id, sessionId]);
   }
 
   if (st.size < cursor) {
@@ -1279,6 +1367,7 @@ async function indexTranscriptOnce(path: string, sessionId: string): Promise<{
       d.query("DELETE FROM transcript_messages WHERE path = ?").run(path);
       d.query("DELETE FROM transcript_index_cursors WHERE path = ?").run(path);
     }).immediate();
+    forgetUnreadCursors([sessionId]);
     cursor = 0;
   }
 
