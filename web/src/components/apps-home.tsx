@@ -397,7 +397,7 @@ export function CreateHome() {
       style={{ minHeight: "calc(var(--lfg-app-height, 100dvh) - var(--lfg-mobile-header-height, 0px) - var(--lfg-inline-composer-height, var(--lfg-composer-clear, 6rem)))" }}
     >
       <div className="relative z-[1]">
-        <h1 className="px-3 pb-2 text-[22px] font-bold leading-tight tracking-[-0.02em]">What do you want to make?</h1>
+        <h1 className="px-1 pb-2 text-[22px] font-bold leading-tight tracking-[-0.02em]">What do you want to make?</h1>
         <CreateTutorials />
       </div>
     </div>
