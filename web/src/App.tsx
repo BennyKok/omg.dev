@@ -293,7 +293,12 @@ import {
 const OmgChatEngine = lazyWithReload("OmgChatEngine", () => import("./lib/chat-engine"));
 // The Apps page and its GitHub import load when they open, outside the hosted
 // Computer surface's first load (vibes budgets that closure).
-const loadAppsList = () => import("./components/apps-list");
+// Once the preload below has the module, the page renders it directly. A lazy
+// component suspends on its first render even when the module is already
+// loaded, and React holds a Suspense reveal for about 300 ms, so the Apps page
+// appeared only after its slide had finished.
+let appsListModule: typeof import("./components/apps-list") | null = null;
+const loadAppsList = () => import("./components/apps-list").then((mod) => (appsListModule = mod));
 const AppsList = lazyWithReload("AppsList", loadAppsList);
 const ImportGitHubDialog = lazyWithReload("ImportGitHubDialog", () =>
   import("./components/import-github-dialog").then((mod) => ({ default: mod.ImportGitHubDialog })),
@@ -12822,7 +12827,7 @@ function LiveView({
           <CreateHome />
         ) : appsView ? (
           <Suspense fallback={null}>
-          <AppsList
+          <AppsListPage
             apps={appItems.all}
             local={appItems.local}
             onOpenSession={openSessionPage}
@@ -27162,6 +27167,12 @@ function AgentModelRow<K extends AgentKind>({
       />
     </div>
   );
+}
+
+/** The Apps page: the preloaded module when it is there, else the lazy one. */
+function AppsListPage(props: ComponentProps<typeof AppsList>) {
+  const Loaded = appsListModule?.default;
+  return Loaded ? <Loaded {...props} /> : <AppsList {...props} />;
 }
 
 // ---------- auto agents: pages + manage view ----------
