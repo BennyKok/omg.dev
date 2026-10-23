@@ -2,6 +2,16 @@
 
 Recent product updates and deployment notes.
 
+## October 23, 2026 - Less background work on your computer (v0.6.301)
+
+- The phone app and the omg.dev website get session, finding and question updates when they change. The computer no longer reads every list every 4 seconds to look for changes.
+- The session list does less work for each chat to show which chats have new replies.
+- Old sessions that ended more than 30 days ago move to an archive file. You can still find and open them.
+- Old session worktrees are removed after 3 days when all their work is on main. A worktree with unsaved or unmerged work stays.
+- Starting a subagent is faster.
+- An update can no longer leave the web page broken when its build runs out of memory. The old page stays until the new one is complete.
+- The side menu on phones opens more smoothly.
+
 ## October 23, 2026 - A cleaner Create page (v0.6.300)
 
 - On the Create page, the background behind the chat box no longer shows a line across it.
