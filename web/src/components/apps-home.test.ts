@@ -49,3 +49,19 @@ test("a folder with no published app is a local project with its own sessions", 
   expect(local).toEqual({ notes: ["c"], idle: [] });
   expect(home.local.map((item) => item.project)).not.toContain("snake");
 });
+
+test("one list: recent work first, then the newest app, whatever its kind", () => {
+  const three: R[] = [
+    { cwd: "/r/old", project: "old", deploy: { slug: "old-1", url: "https://old-1.omgs.app" } },
+    { cwd: "/r/new", project: "new", deploy: { slug: "new-1", url: "https://new-1.omgs.app" } },
+    { cwd: "/r/busy", project: "busy", deploy: { slug: "busy-1", url: "https://busy-1.omgs.app" } },
+  ];
+  // The Cloud sends the newest app first.
+  const order = new Map([
+    ["new-1", { slug: "new-1", name: "New", appKind: "game" as const }],
+    ["busy-1", { slug: "busy-1", name: "Busy" }],
+    ["old-1", { slug: "old-1", name: "Old" }],
+  ]);
+  const home = buildAppItems(three, [{ sessionId: "s", cwd: "/r/busy", lastActivityAt: 4 }], order, (repo) => repo.project ?? repo.cwd);
+  expect(home.all.map((item) => item.project)).toEqual(["busy", "new", "old"]);
+});

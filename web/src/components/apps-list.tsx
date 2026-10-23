@@ -30,7 +30,6 @@ function useProjectSessionCounts(enabled: boolean): ReadonlyMap<string, number> 
 }
 
 export default function AppsList<S extends SessionLike>({
-  games,
   apps,
   local,
   onOpenSession,
@@ -39,7 +38,7 @@ export default function AppsList<S extends SessionLike>({
   onImportFolder,
   onImportGitHub,
 }: {
-  games: AppItem<S>[];
+  /** Apps and games in one list, most recent activity first, then newest. */
   apps: AppItem<S>[];
   /** Projects on this Computer that are not published apps. */
   local: LocalProject<S>[];
@@ -49,7 +48,7 @@ export default function AppsList<S extends SessionLike>({
   onImportFolder?: () => void;
   onImportGitHub?: () => void;
 }) {
-  const nothing = !games.length && !apps.length && !local.length;
+  const nothing = !apps.length && !local.length;
   // The projects in use: live sessions now, or past sessions in the history
   // (the resumable list's per-project counts). The rest of the scanned
   // folders wait behind one row. A folder hidden in the folder menu stays hidden.
@@ -70,7 +69,7 @@ export default function AppsList<S extends SessionLike>({
           <p className="mt-1 text-[13px] text-muted-foreground">Make one on Create, or import a project.</p>
         </div>
       ) : null}
-      <AppSection label="Games" items={games} onOpenSession={onOpenSession} onOpenApp={onOpenApp} />
+      {/* One list, not Games then Apps: the one worked on last is on top. */}
       <AppSection label="Apps" items={apps} onOpenSession={onOpenSession} onOpenApp={onOpenApp} />
       {local.length ? (
         <section className="mb-3">

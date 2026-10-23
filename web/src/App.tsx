@@ -5,7 +5,7 @@ import { browserTranscription, selectTranscriptionTake, type TranscriptionTake }
 import { BrowserTranscriptionSettings, useBrowserTranscription } from "./components/browser-transcription-settings";
 import { replayCloudTranscription } from "./lib/transcription-cloud-replay";
 import { MODEL_USAGE_GROUPS } from "../../packages/protocol/src/model-pricing";
-import { useModelPrices, modelUsageLevel } from "./lib/use-model-prices";
+import { useModelPrices, usePrefetchModelPrices, modelUsageLevel } from "./lib/use-model-prices";
 import { OMG_DEFAULT_MODEL, OMG_MODELS } from "../../src/omg-models";
 import { modelLabProvider, modelListHasRoutes, omgModelLabel, omgModelSearchText, parseOmgModel, parseRoutedModel, setServerModelLabels } from "../../packages/protocol/src/omg-model-display";
 import { ModelProviderIcon, modelProviderIconKey } from "./lib/model-provider-icons";
@@ -198,8 +198,8 @@ import {
   isSubagentUpdateText,
 } from "./lib/bot-transcript";
 import {
+  firstFrameUserFilter,
   hostedStartUserFilter,
-  initialUserFilter,
   reconcileUserFilter,
   sessionMatchesUserFilter,
   userFilterUpdatesStandaloneIdentity,
@@ -293,7 +293,8 @@ import {
 const OmgChatEngine = lazyWithReload("OmgChatEngine", () => import("./lib/chat-engine"));
 // The Apps page and its GitHub import load when they open, outside the hosted
 // Computer surface's first load (vibes budgets that closure).
-const AppsList = lazyWithReload("AppsList", () => import("./components/apps-list"));
+const loadAppsList = () => import("./components/apps-list");
+const AppsList = lazyWithReload("AppsList", loadAppsList);
 const ImportGitHubDialog = lazyWithReload("ImportGitHubDialog", () =>
   import("./components/import-github-dialog").then((mod) => ({ default: mod.ImportGitHubDialog })),
 );
@@ -6514,7 +6515,9 @@ export function App() {
     // "unset" and falling through to lfg_user made "Everyone" non-sticky: the
     // next load re-applied the profile and hid every unassigned session. That
     // looked like a project-filter failure when Settings still showed live>0.
-    return initialUserFilter({
+    // A saved screen's own viewer filter comes first (firstFrameUserFilter).
+    return firstFrameUserFilter({
+      savedScreen: startPayload,
       savedFilter: localStorage.getItem("lfg_v2_user_filter"),
       standaloneProfile: localStorage.getItem("lfg_user"),
       hosted: readLocationEmbedFlag() || isHostedSurface(),
@@ -6831,6 +6834,28 @@ export function App() {
       resolveGlobalSettings({ timeZone: payload.auto?.tz, ...payload.settings }),
     );
     setBoxOwnsFolderDisplay(Array.isArray(payload.settings?.folderOrder));
+    setViewerParticipantId(payload.viewer?.participantId ?? null);
+    setUsers(payload.users ?? []);
+    // Before the sessions and before any await below: the list must draw
+    // under the viewer's filter on its first frame, not under "All" first.
+    // A managed box remembers the owner filter per viewer, because the host's
+    // localStorage copy is shared by every machine and can be reset. Apply it
+    // once per machine, so a later refresh does not undo a change made since.
+    const generation = omgTransportGeneration();
+    if (
+      hostedSurfaceRef.current &&
+      payload.viewer?.managed &&
+      hostedFilterAppliedRef.current !== generation
+    ) {
+      hostedFilterAppliedRef.current = generation;
+      const start = hostedStartUserFilter({
+        saved: payload.viewer.userFilter,
+        viewerEmail: payload.viewer.email,
+        users: payload.users ?? [],
+      });
+      // A session deep link opens on "__all" so the target is not hidden.
+      if (start && !sessionDeepLinkRef.current) setUserFilter(start);
+    }
     // Guard sessions to [] — it feeds `allLiveSessions`/`liveSessions` which
     // call `.filter()` unconditionally on render, so a malformed/empty payload
     // must degrade to an empty live view rather than crash.
@@ -6851,26 +6876,6 @@ export function App() {
     } catch {
       // Keep legacy state for the next load. An older server can still serve
       // the upgraded web app briefly during a rolling restart.
-    }
-    setViewerParticipantId(payload.viewer?.participantId ?? null);
-    setUsers(payload.users ?? []);
-    // A managed box remembers the owner filter per viewer, because the host's
-    // localStorage copy is shared by every machine and can be reset. Apply it
-    // once per machine, so a later refresh does not undo a change made since.
-    const generation = omgTransportGeneration();
-    if (
-      hostedSurfaceRef.current &&
-      payload.viewer?.managed &&
-      hostedFilterAppliedRef.current !== generation
-    ) {
-      hostedFilterAppliedRef.current = generation;
-      const start = hostedStartUserFilter({
-        saved: payload.viewer.userFilter,
-        viewerEmail: payload.viewer.email,
-        users: payload.users ?? [],
-      });
-      // A session deep link opens on "__all" so the target is not hidden.
-      if (start && !sessionDeepLinkRef.current) setUserFilter(start);
     }
     setRepos(payload.repos ?? []);
     setAutoAgents(payload.auto?.agents ?? []);
@@ -12472,7 +12477,7 @@ function LiveView({
   // The Apps view and the scoped app's card (components/apps-home.tsx).
   const cloudApps = useCloudApps(appsView || createView);
   const appItems = useMemo(
-    () => (appsView ? buildAppItems(repos, allSessions ?? sessions, cloudApps, repoProject) : { games: [], apps: [], local: [] }),
+    () => (appsView ? buildAppItems(repos, allSessions ?? sessions, cloudApps, repoProject) : { all: [], games: [], apps: [], local: [] }),
     [appsView, repos, allSessions, sessions, cloudApps],
   );
   const scopedApp = useScopedApp(projectFilter, repos, allSessions ?? sessions, repoProject);
@@ -12773,6 +12778,19 @@ function LiveView({
     );
   };
 
+  // The pill order, so a switch knows which side the next page comes from.
+  // No motion on the first draw: only a switch animates.
+  const homePage = createView ? 0 : appsView ? 1 : 2;
+  // The Apps page is its own chunk. Load it while the phone home is up, so
+  // the page is there when its slide starts instead of popping in after.
+  useEffect(() => {
+    if (!isMobile) return;
+    const idle = window.requestIdleCallback ?? ((run: () => void) => window.setTimeout(run, 1500));
+    idle(() => void loadAppsList().catch(() => {}));
+  }, [isMobile]);
+  const [homePageMove, setHomePageMove] = useState({ page: homePage, dir: 0 });
+  if (homePageMove.page !== homePage) setHomePageMove({ page: homePage, dir: homePage > homePageMove.page ? 1 : -1 });
+
   // Sheet navigation follows the same on-screen order.
   const sheetOrder =
     shippedReview?.sessionId && !screenOrder.includes(shippedReview.sessionId)
@@ -12794,13 +12812,18 @@ function LiveView({
           with Threads on in Settings: otherwise the list has no pull at all,
           and it updates live, so it needs no pull to refresh either. */}
       <PullToThreadWhen enabled={showThreads} onStart={() => onOpenThread?.(NEW_THREAD_ID)}>
+        {/* Create, Apps and Chats slide in from the side of their pill. */}
+        <div
+          key={homePage}
+          className={homePageMove.dir ? "lfg-page-enter" : undefined}
+          style={homePageMove.dir ? ({ "--lfg-page-dir": homePageMove.dir } as CSSProperties) : undefined}
+        >
         {createView ? (
           <CreateHome />
         ) : appsView ? (
           <Suspense fallback={null}>
           <AppsList
-            games={appItems.games}
-            apps={appItems.apps}
+            apps={appItems.all}
             local={appItems.local}
             onOpenSession={openSessionPage}
             onOpenApp={(item: { project: string }) => onOpenApp?.(item.project)}
@@ -12838,6 +12861,7 @@ function LiveView({
           )
         ) : null}
         </>}
+        </div>
       </PullToThreadWhen>
     </div>
     {/* Open findings live behind a pill, not at the end of the list. A group
@@ -24321,6 +24345,11 @@ function NewSessionDialog({
   }, [open, defaultUser, users]);
 
   const models = catalog.models[agent] ?? AGENT_MODELS[agent];
+  // The combined agent and model pill opens its list from here: load the
+  // prices with the composer so that list opens already grouped. Any agent
+  // counts, because switching agents inside the open picker shows its list.
+  const catalogModels = useMemo(() => Object.values(catalog.models).flat(), [catalog.models]);
+  usePrefetchModelPrices(catalogModels);
   const thinkingLevels = useAgentThinkingLevels(agent, model);
   // Hidden by the box (or the viewer's role) means off. A saved "on" in
   // localStorage must not launch fast mode through a pill nobody can see.
@@ -26463,6 +26492,8 @@ function ModelPicker({
   width?: string;
   onMobileLayerOpenChange?: (open: boolean) => void;
 }) {
+  // Prices load with the pill, so the list opens already grouped.
+  usePrefetchModelPrices(models);
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
   const [mobileMounted, setMobileMounted] = useState(false);
@@ -26648,6 +26679,8 @@ export function routedModelGroups(
   return groups;
 }
 
+const PRICE_WAIT_MS = 1500;
+
 // Filter box + option list shared by the model pill and the combined
 // agent/model pill. Owns the query, so closing the popover (which unmounts
 // this) is what clears it. Exported for the render test.
@@ -26680,6 +26713,16 @@ export function ModelOptionList({
   const [query, setQuery] = useState("");
   const hasManagedModels = models.some((model) => model.startsWith("omg/"));
   const { prices, loading: pricesLoading } = useModelPrices(hasManagedModels);
+  // Placeholder rows hold the list's shape while the prices load, so it draws
+  // grouped in one step. A slow price service must not block a pick, so after
+  // PRICE_WAIT_MS the plain list shows and regroups when the prices land.
+  const [priceWaitOver, setPriceWaitOver] = useState(false);
+  useEffect(() => {
+    if (!pricesLoading) return;
+    const timer = setTimeout(() => setPriceWaitOver(true), PRICE_WAIT_MS);
+    return () => clearTimeout(timer);
+  }, [pricesLoading]);
+  const pricesPending = hasManagedModels && pricesLoading && !priceWaitOver;
   const { onPlanLimit } = useEmbeddedHostOptions();
   const chooseModel = (item: string) => {
     if (prices[item]?.available === false) {
@@ -26792,14 +26835,24 @@ export function ModelOptionList({
           />
         </div>
       ) : null}
-      {hasManagedModels && pricesLoading ? <div aria-label="Loading credit usage" className="mx-3 h-3 w-24 animate-pulse rounded bg-muted" /> : null}
       <div
         className={cn(
           "overflow-y-auto pr-1",
           fill ? "min-h-0 flex-1" : large ? "max-h-[52dvh]" : "max-h-72",
         )}
       >
-        {filtered.length ? (
+        {pricesPending && filtered.length ? (
+          // Rows the size of the real ones until the prices arrive, so the
+          // list draws grouped in one step instead of flat and then regrouped.
+          <div aria-label="Loading credit usage" aria-busy="true">
+            {filtered.slice(0, 8).map((item) => (
+              <div key={item} className={cn("flex items-center gap-3 px-3", large ? "h-12" : "h-10")}>
+                <span className="size-4 shrink-0" />
+                <span className="h-3 w-40 max-w-full animate-pulse rounded bg-muted" />
+              </div>
+            ))}
+          </div>
+        ) : filtered.length ? (
           groups.map((group) => (
             <div key={group.level} role={group.label ? "group" : undefined} aria-label={group.label || undefined} className="mb-2 last:mb-0">
               {group.label ? (
@@ -26885,6 +26938,8 @@ export function AgentModelPicker<K extends AgentKind>({
   /** Optional controls fixed below the scrollable model list. */
   footer?: ReactNode;
 }) {
+  // Prices load with the pill, so the list opens already grouped.
+  usePrefetchModelPrices(models);
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   // Nothing to choose: the pill would open an empty popover.

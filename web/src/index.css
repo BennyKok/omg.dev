@@ -3217,6 +3217,27 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
 .lfg-create-backdrop-contained .lfg-create-cloud-d { width: 80%; left: -15%; top: 40%; }
 .lfg-create-backdrop-contained .lfg-create-cloud-e { width: 70%; left: 20%; top: 55%; }
 
+/* Switching Create, Apps and Chats: the new page slides in a short way from
+   the side of its pill and fades up. Transform and opacity only, so it stays
+   on the compositor; `both` ends on transform: none, which leaves no
+   containing block behind for fixed children. */
+@keyframes lfg-page-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(calc(var(--lfg-page-dir, 0) * 28px), 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.lfg-page-enter {
+  animation: lfg-page-enter 280ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .lfg-page-enter { animation: none; }
+}
+
 /* Hidden on other pages: the clouds hold still instead of drifting unseen. */
 .lfg-create-backdrop-idle .lfg-create-cloud {
   animation-play-state: paused;

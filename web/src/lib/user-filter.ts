@@ -98,3 +98,34 @@ export function hostedStartUserFilter({
   }
   return viewerEmail ? find(viewerEmail) : null;
 }
+
+/**
+ * The filter for the first frame. A hosted page that starts from its saved
+ * screen draws that screen's sessions at once, so it starts on the filter the
+ * bootstrap will apply (the viewer's own, kept by a managed box) rather than
+ * on "All" and dropping to it a moment later.
+ */
+export function firstFrameUserFilter({
+  savedScreen,
+  savedFilter,
+  standaloneProfile,
+  hosted,
+}: {
+  savedScreen:
+    | { viewer?: { managed?: boolean; userFilter?: string | null; email?: string | null } | null; users?: readonly { email: string }[] | null }
+    | null
+    | undefined;
+  savedFilter: string | null;
+  standaloneProfile: string | null;
+  hosted: boolean;
+}): string {
+  if (hosted && savedScreen?.viewer?.managed) {
+    const start = hostedStartUserFilter({
+      saved: savedScreen.viewer.userFilter,
+      viewerEmail: savedScreen.viewer.email,
+      users: savedScreen.users ?? [],
+    });
+    if (start) return start;
+  }
+  return initialUserFilter({ savedFilter, standaloneProfile, hosted });
+}
