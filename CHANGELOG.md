@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## October 23, 2026 - One way around on a phone (v0.6.309)
+
+- On a phone, every page has one menu button in the top-left corner. Settings is in that menu.
+- omg.dev no longer puts its own Settings button in the top-right corner of a page or over the Computer screen.
+- Notifications, Artifacts and Board no longer show a "Live" back button. Use the menu button to go to another page.
+- The globe that filters by person shows only on the home page.
+
 ## October 23, 2026 - Less work when nothing happens (v0.6.308)
 
 - The computer uses about half as much CPU when it is idle. It no longer reads the full list of conversations again on each session list update, and scheduled agents check their times with less work.
