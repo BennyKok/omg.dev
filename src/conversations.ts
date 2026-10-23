@@ -5,6 +5,7 @@ import {
   openSync,
   readFileSync,
   renameSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -101,6 +102,31 @@ function readStore(): Conversation[] {
     return [];
   }
 }
+
+// One parsed copy shared by readers that do not change it, kept until the file
+// changes. The store is several MB on a busy box, and migrateLegacyConversations
+// parsed it on every session list (every ~2.5 s): 17% of the server's CPU in a
+// profile on 2026-10-23. writeStore replaces the file by rename, so the inode,
+// size or mtime changes on every write, from this process or another one.
+let snapshot: { key: string; rows: Conversation[] } | null = null;
+
+function readStoreSnapshot(): readonly Conversation[] {
+  let key: string;
+  try {
+    const path = storePath();
+    const s = statSync(path);
+    key = `${path}:${s.ino}:${s.size}:${s.mtimeMs}`;
+  } catch {
+    return [];
+  }
+  if (snapshot?.key === key) return snapshot.rows;
+  const rows = readStore();
+  snapshot = { key, rows };
+  return rows;
+}
+
+/** Thrown inside a read-only migration pass that found something to write. */
+const NEEDS_WRITE = Symbol("conversations-needs-write");
 
 function writeStore(conversations: Conversation[]): void {
   const path = storePath();
@@ -308,16 +334,38 @@ export function migrateLegacyConversations(input: {
   roster?: readonly RosterUser[];
   now?: number;
 }): Conversation[] {
+  // Almost every call finds nothing to add. Check against the shared copy and
+  // touch the disk only when a change is due; then redo it on a private copy,
+  // because the change is made in place.
+  try {
+    return migrateLegacyConversationsInto(input, readStoreSnapshot() as Conversation[], true);
+  } catch (error) {
+    if (error !== NEEDS_WRITE) throw error;
+  }
+  return migrateLegacyConversationsInto(input, readStore(), false);
+}
+
+function migrateLegacyConversationsInto(input: {
+  sessions: readonly LegacySession[];
+  bots: readonly LegacyBot[];
+  roster?: readonly RosterUser[];
+  now?: number;
+}, rows: Conversation[], readOnly: boolean): Conversation[] {
   const now = input.now ?? Date.now();
   const roster = input.roster ?? [];
-  const rows = readStore();
   const byId = new Map(rows.map((row) => [row.id, row]));
   const sessionToConversation = new Map<string, string>();
   let changed = false;
+  // Called before every in-place change. A read-only pass stops here.
+  const willChange = () => {
+    if (readOnly) throw NEEDS_WRITE;
+    changed = true;
+  };
 
   const ensure = (conversation: Conversation): Conversation => {
     const existing = byId.get(conversation.id);
     if (existing) return existing;
+    willChange();
     rows.push(conversation);
     byId.set(conversation.id, conversation);
     changed = true;
@@ -355,6 +403,7 @@ export function migrateLegacyConversations(input: {
     });
     for (const participant of participants) {
       if (conversation.participants.some((row) => row.id === participant.id)) continue;
+      willChange();
       conversation.participants.push(participant);
       conversation.updatedAt = now;
       changed = true;
@@ -363,6 +412,7 @@ export function migrateLegacyConversations(input: {
       const sessionId = session.sessionId!;
       sessionToConversation.set(sessionId, conversation.id);
       if (!conversation.runtimeSessions.some((entry) => entry.sessionId === sessionId)) {
+        willChange();
         conversation.runtimeSessions.push({
           sessionId,
           participantId: botParticipantId(bot.id),
@@ -386,6 +436,7 @@ export function migrateLegacyConversations(input: {
     sessionToConversation.set(sessionId, conversationId!);
     if (conversation.runtimeSessions.some((entry) => entry.sessionId === sessionId)) continue;
     const botId = session.botId ? botParticipantId(session.botId) : null;
+    willChange();
     conversation.runtimeSessions.push({
       sessionId,
       participantId: conversation.participants.some((row) => row.id === botId) ? botId : null,
@@ -411,6 +462,7 @@ export function migrateLegacyConversations(input: {
       legacy: { source: "regular_session", sessionId },
     });
     if (human && !conversation.participants.some((row) => row.id === human.id)) {
+      willChange();
       conversation.participants.push(human);
       conversation.updatedAt = now;
       changed = true;
@@ -428,6 +480,7 @@ export function migrateLegacyConversations(input: {
     sessionToConversation.set(sessionId, conversation.id);
     if (conversation.runtimeSessions.some((entry) => entry.sessionId === sessionId)) continue;
     const parentAttachment = conversation.runtimeSessions.find((entry) => entry.sessionId === parentId);
+    willChange();
     conversation.runtimeSessions.push({
       sessionId,
       participantId: parentAttachment?.participantId,
