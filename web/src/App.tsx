@@ -543,6 +543,7 @@ import {
 } from "./lib/markdown-metrics";
 import { useVirtualizer, type Range } from "@tanstack/react-virtual";
 import { remeasureChatRows } from "./lib/remeasure-chat-rows";
+import { chatRowHeightKey, chatRowHeights } from "./lib/row-height-cache";
 import { useChatItemKey } from "./lib/chat-item-keys";
 import { chatVirtualRange } from "./lib/chat-virtual-range";
 import {
@@ -20696,7 +20697,6 @@ const ChatStream = memo(function ChatStream({
   const virtualContainerRef = useRef<HTMLDivElement>(null);
   const [scrollMargin, setScrollMargin] = useState(0);
   const metrics = useChatMarkdownMetrics(ref, items.length);
-  const heightCacheRef = useRef(new Map<string, number>());
   useEffect(() => {
     // Warm the lazily-loaded block splitter; until it resolves every row falls
     // back to a flat estimate.
@@ -20722,19 +20722,25 @@ const ChatStream = memo(function ChatStream({
       if (!rowContext) {
         return estimateUnprobedRowHeight(item, speakerChanged);
       }
-      const text = item.type === "tools" ? "" : (item.message.text ?? "");
-      const key = `${item.key}|${metrics.version}|${HEIGHT_MODEL_VERSION}|${speakerChanged ? 1 : 0}|${text.length}`;
-      const cache = heightCacheRef.current;
-      const cached = cache.get(key);
+      // Shared across mounts: the stage remounts this view on every session
+      // switch, and a per-mount cache made each return estimate every row
+      // again. A work row keeps its first step's id while it grows, so its
+      // step count stands in for the text length.
+      const key = chatRowHeightKey({
+        rowKey: `${sid ?? ""}:${item.key}`,
+        metricsVersion: metrics.version,
+        modelVersion: HEIGHT_MODEL_VERSION,
+        width: metrics.mediaWidth,
+        speakerChanged,
+        textLength: item.type === "tools" ? item.items.length : (item.message.text ?? "").length,
+      });
+      const cached = chatRowHeights.get(key);
       if (cached != null) return cached;
-      // A streaming row mints a new key per token. Cap the cache rather than
-      // let one long session grow it without bound.
-      if (cache.size > 8000) cache.clear();
       const height = estimateRowHeight(item, { ...rowContext, speakerChanged });
-      cache.set(key, height);
+      chatRowHeights.set(key, height);
       return height;
     },
-    [items, speakers, rowContext, metrics.version],
+    [items, speakers, rowContext, metrics.version, metrics.mediaWidth, sid],
   );
 
   const rangeExtractor = useCallback(
@@ -20763,12 +20769,21 @@ const ChatStream = memo(function ChatStream({
   // authoritative while unmounted rows switch to the harvested CSS model.
   // Keyboard CSS-variable updates also invalidate metrics. Restore DOM sizes
   // even during scrolling, when TanStack's measureElement skips its sync read.
-  const measuredMetricsVersionRef = useRef(0);
+  // A transcript that mounts with a seeded snapshot already estimated every
+  // row against it, so only a LATER version change needs the remeasure. The
+  // one exception is the first sample correcting a seed taken at another
+  // width, for example a second stage column.
+  const measuredMetricsVersionRef = useRef(metrics.version);
+  const seededWidthRef = useRef<number | null>(metrics.version ? metrics.mediaWidth : null);
   useLayoutEffect(() => {
-    if (!rowContext || metrics.version === measuredMetricsVersionRef.current) return;
+    if (!rowContext) return;
+    const seededWidth = seededWidthRef.current;
+    const seedCorrected = seededWidth !== null && seededWidth !== metrics.mediaWidth;
+    if (metrics.version === measuredMetricsVersionRef.current && !seedCorrected) return;
     measuredMetricsVersionRef.current = metrics.version;
+    seededWidthRef.current = null;
     remeasureChatRows(virtualizer, virtualContainerRef.current);
-  }, [metrics.version, rowContext, virtualizer]);
+  }, [metrics.version, metrics.mediaWidth, rowContext, virtualizer]);
 
   const virtualRows = virtualizer.getVirtualItems();
   const totalSize = virtualizer.getTotalSize();
@@ -21290,7 +21305,6 @@ const ChatStream = memo(function ChatStream({
     // Our write, not theirs: the event this raises must not move the mode.
     userDrivenRef.current = false;
     lastUserScrollAtRef.current = Number.NEGATIVE_INFINITY;
-    heightCacheRef.current.clear();
     justSwitchedRef.current = true;
     stopGlide();
     lastScrollTopRef.current = 0;

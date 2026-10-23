@@ -662,6 +662,23 @@ export type ChatMetrics = {
 const EMPTY_METRICS: ChatMetrics = { assistant: null, user: null, mediaWidth: 0, version: 0 };
 
 /**
+ * The last snapshot any transcript published. A session switch mounts a new
+ * transcript, and starting it from EMPTY_METRICS rendered every row with flat
+ * estimates first, then probed, then estimated and remeasured every row a
+ * second time. Starting from the last snapshot skips that pass. The first
+ * sample still runs and replaces it if this view is a different width.
+ */
+let lastChatMetrics: ChatMetrics | null = null;
+
+function initialChatMetrics(): ChatMetrics {
+  return lastChatMetrics && lastChatMetrics.version === metricsVersion ? lastChatMetrics : EMPTY_METRICS;
+}
+
+export function resetChatMetricsSeedForTests(): void {
+  lastChatMetrics = null;
+}
+
+/**
  * Sample the two markdown row shapes out of a live transcript and keep them
  * current. Nothing here writes to the DOM except the probe, which is removed
  * synchronously in the same call.
@@ -675,7 +692,7 @@ export function useChatMarkdownMetrics(
   scrollRef: RefObject<HTMLElement | null>,
   revision: unknown,
 ): ChatMetrics {
-  const [metrics, setMetrics] = useState<ChatMetrics>(EMPTY_METRICS);
+  const [metrics, setMetrics] = useState<ChatMetrics>(initialChatMetrics);
   const metricsRef = useRef(metrics);
   metricsRef.current = metrics;
 
@@ -715,6 +732,7 @@ export function useChatMarkdownMetrics(
       ) {
         return;
       }
+      if (next.assistant) lastChatMetrics = next;
       setMetrics(next);
     };
 

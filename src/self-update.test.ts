@@ -18,6 +18,7 @@ import {
   restartCommand,
   SelfUpdateInProgressError,
   sourceUpdateStatus,
+  resetSourceFetchCacheForTests,
   withSelfUpdate,
 } from "./self-update.ts";
 
@@ -50,6 +51,7 @@ function fixture() {
 afterEach(() => {
   globalThis.fetch = realFetch;
   resetSelfUpdateLockForTests();
+  resetSourceFetchCacheForTests();
   for (const path of cleanup.splice(0)) rmSync(path, { recursive: true, force: true });
 });
 
@@ -74,6 +76,29 @@ describe("source update status", () => {
     const status = await sourceUpdateStatus(checkout);
     expect(status.state).toBe("available");
     expect(status.commitsBehind).toBe(1);
+  });
+
+  test("a passive check reuses a recent fetch and a manual check fetches again", async () => {
+    const { root, remote, checkout } = fixture();
+    const [first, second] = await Promise.all([
+      sourceUpdateStatus(checkout, "cached"),
+      sourceUpdateStatus(checkout, "cached"),
+    ]);
+    expect([first.state, second.state]).toEqual(["up-to-date", "up-to-date"]);
+
+    const publisher = join(root, "publisher");
+    Bun.spawnSync(["git", "clone", "-b", "main", remote, publisher]);
+    git(publisher, "config", "user.email", "test@example.com");
+    git(publisher, "config", "user.name", "Test User");
+    writeFileSync(join(publisher, "version.txt"), "two\n");
+    git(publisher, "commit", "-am", "update");
+    git(publisher, "push", "origin", "main");
+
+    // Within five minutes of the last fetch: no network round trip.
+    expect((await sourceUpdateStatus(checkout, "cached")).state).toBe("up-to-date");
+    const fresh = await sourceUpdateStatus(checkout, true);
+    expect(fresh.state).toBe("available");
+    expect(fresh.commitsBehind).toBe(1);
   });
 
   test("blocks local changes and non-main branches", async () => {

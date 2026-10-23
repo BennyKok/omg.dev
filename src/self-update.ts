@@ -683,7 +683,40 @@ export function restartCommand(
   return restartCapability(platform, home, procRoot).command;
 }
 
-export async function sourceUpdateStatus(root: string, fetch = true): Promise<SourceUpdateStatus> {
+/**
+ * When each checkout last fetched origin/main, and the fetch in flight.
+ *
+ * The update drawer checks status on every page load. An unconditional
+ * `git fetch` made `/api/install` the slowest request of the load, at 1 to 2
+ * seconds, and it ran once per tab. The local checks below stay live; only the
+ * network round trip is shared.
+ */
+const sourceFetchState = new Map<string, { at: number; inflight?: Promise<{ ok: boolean; stderr: string }> }>();
+const SOURCE_FETCH_MAX_AGE_MS = 5 * 60_000;
+
+export function resetSourceFetchCacheForTests(): void {
+  sourceFetchState.clear();
+}
+
+async function fetchOriginMain(root: string, mode: true | "cached"): Promise<{ ok: boolean; stderr: string }> {
+  const state = sourceFetchState.get(root);
+  if (state?.inflight) return state.inflight;
+  if (mode === "cached" && state && Date.now() - state.at < SOURCE_FETCH_MAX_AGE_MS) return { ok: true, stderr: "" };
+  const inflight = run(["git", "fetch", "--quiet", "origin", "main"], root).then(result => {
+    // A failed fetch is not cached, so the next check retries it.
+    if (result.ok) sourceFetchState.set(root, { at: Date.now() });
+    else sourceFetchState.delete(root);
+    return result;
+  });
+  sourceFetchState.set(root, { at: state?.at ?? 0, inflight });
+  return inflight;
+}
+
+/**
+ * `fetch`: true fetches origin/main now, false never fetches, and "cached"
+ * reuses a fetch from the last five minutes. Use "cached" for passive checks.
+ */
+export async function sourceUpdateStatus(root: string, fetch: boolean | "cached" = true): Promise<SourceUpdateStatus> {
   const inside = await run(["git", "rev-parse", "--is-inside-work-tree"], root);
   if (!inside.ok || inside.stdout !== "true") return blocked("This install is not a Git checkout.");
 
@@ -698,7 +731,7 @@ export async function sourceUpdateStatus(root: string, fetch = true): Promise<So
   if (dirty.stdout) return blocked("The omg.dev checkout has local changes. Commit or stash them first.");
 
   if (fetch) {
-    const fetched = await run(["git", "fetch", "--quiet", "origin", "main"], root);
+    const fetched = await fetchOriginMain(root, fetch);
     if (!fetched.ok) return blocked(fetched.stderr || "Could not fetch origin/main.");
   }
 
