@@ -149,3 +149,27 @@ export function latestSessionScan(): { startedAt: number; sessions: Session[] } 
 export function listSessionsCached(): Promise<Session[]> {
   return sessionListCache.get();
 }
+
+/**
+ * One listed session, for a caller that reads only its stable fields (cwd,
+ * tmuxTarget, agent, tmuxName, botId, transcript).
+ *
+ * The cached list is at most a few seconds old and is invalidated by every
+ * registry write, so a session it holds has the same stable fields as a fresh
+ * scan. A full listSessions() costs 0.1 s idle and several seconds on a loaded
+ * box, and per-session routes used to run one per request. A miss still pays
+ * for a fresh scan, so a session created a moment ago is found.
+ *
+ * Not for a decision that reads live state (busy, admission, liveness before a
+ * close or resume): a cached row can be seconds behind on those.
+ */
+export async function findListedSession(
+  match: (session: Session) => boolean,
+  source: { cached: () => Promise<Session[]>; fresh: () => Promise<Session[]> } = {
+    cached: listSessionsCached,
+    fresh: listSessions,
+  },
+): Promise<Session | undefined> {
+  const cached = (await source.cached().catch(() => [] as Session[])).find(match);
+  return cached ?? (await source.fresh()).find(match);
+}
