@@ -146,6 +146,9 @@
       },
     },
   },
+  "patchedDependencies": {
+    "streamdown@2.6.0": "patches/streamdown@2.6.0.patch",
+  },
   "overrides": {
     "@hono/node-server": "^2.0.5",
     "body-parser": "^2.3.0",
