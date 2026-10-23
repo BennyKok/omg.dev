@@ -19,7 +19,7 @@ import { CreateComposerFrame } from "./components/create-composer-frame";
 import { ProjectFolderMenu } from "./components/project-folder-menu";
 import { SessionReparentProvider, SessionReparentTarget } from "./components/session-reparent";
 import { HostDrawerSlot, SideNavButton, SideNavDrawer, SideNavGlyph, SideNavPanel } from "./components/side-nav";
-import { setSideNavOpen, useSideNavOpen } from "./lib/side-nav-open";
+import { createSideNavOpenStore, useSideNavOpen, type SideNavOpenStore } from "./lib/side-nav-open";
 import { FindingsPill, FindingsSheet } from "./components/findings-pill";
 import { sideNavRows, type SideNavRow } from "./lib/side-nav-items";
 import { settledParagraphs } from "./lib/paragraph-stream";
@@ -5833,9 +5833,12 @@ function useResourceWarnings(): void {
  * The phone drawer, subscribed to its own open state. Only this component
  * renders when the drawer opens or closes; App does not.
  */
-function AppSideNavDrawer(props: Omit<ComponentProps<typeof SideNavDrawer>, "open" | "onOpenChange">) {
-  const open = useSideNavOpen();
-  return <SideNavDrawer {...props} open={open} onOpenChange={setSideNavOpen} />;
+function AppSideNavDrawer({
+  store,
+  ...props
+}: Omit<ComponentProps<typeof SideNavDrawer>, "open" | "onOpenChange"> & { store: SideNavOpenStore }) {
+  const open = useSideNavOpen(store);
+  return <SideNavDrawer {...props} open={open} onOpenChange={store.set} />;
 }
 
 export function App() {
@@ -6540,9 +6543,11 @@ export function App() {
   // The mobile side navigation. One drawer now answers "where do I go",
   // replacing both the bottom surface bar and the overflow menu.
   // The drawer owns its open state (lib/side-nav-open), so a tap on the menu
-  // button does not render App again. See AppSideNavDrawer.
-  const setNavOpen = setSideNavOpen;
-  const closeNav = useCallback(() => setSideNavOpen(false), []);
+  // button does not render App again. See AppSideNavDrawer. The store is this
+  // App's own: a second surface in the same page has its own drawer.
+  const [sideNavOpen] = useState(createSideNavOpenStore);
+  const setNavOpen = sideNavOpen.set;
+  const closeNav = useCallback(() => sideNavOpen.set(false), [sideNavOpen]);
   // Read straight from the stored choice rather than through MachineSwitcher,
   // which owns the list. The button only needs the current name for its label.
   const navMachineName = activeMachine().name;
@@ -10363,6 +10368,7 @@ export function App() {
 
       {isMobile ? (
         <AppSideNavDrawer
+          store={sideNavOpen}
           rows={sideNavRows({
             tab,
             hiddenPages,
