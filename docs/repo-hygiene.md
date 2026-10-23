@@ -47,14 +47,29 @@ how prod breaks — see the avatar saga at the bottom.
 worktrees, and a background sweeper reclaims them every 15 minutes.
 
 The sweeper only deletes worktrees **it provisioned itself**, tracked by a
-marker in `~/lfg-worktrees/.lfg-owned/`. Anything else you put in that
-directory — a hand-made worktree, a release checkout, a full clone — is
-reported as `unmanaged` and left alone permanently.
+marker in `~/lfg-worktrees/.lfg-owned/`, or checked out on `session_<name>` at
+`~/lfg-worktrees/<name>` (the exact shape it creates). Anything else you put in
+that directory — a hand-made worktree, a release checkout, a full clone — is
+reported as `unowned` and left alone permanently.
 
-It also refuses to delete an owned worktree that has uncommitted changes
-(`git status --porcelain` non-empty), even when every liveness signal says the
-session is gone. Ignored files don't count, so a clean-but-built worktree is
-still reclaimable.
+It removes an owned worktree only when removing it loses nothing:
+
+- No live signal: tmux pane, managed registry row, or a process cwd inside it.
+- Idle for 3 days (`LFG_WORKTREE_RETENTION_MS`), by the newest of the
+  directory, its Git index, HEAD and reflog, and the transcript activity.
+- Clean: `git status --porcelain` is empty. Ignored files do not count, so a
+  clean but built worktree is still reclaimable.
+- Landed: HEAD is an ancestor of `origin/main`, or every file the branch
+  changed is identical in `origin/main` (squash), or `git cherry` matches every
+  commit (rebase).
+
+It removes at most 5 per pass (`LFG_WORKTREE_SWEEP_MAX_REMOVALS`). To see what
+it would do and why it keeps the rest, run the dry run. It uses the same
+decision code and changes no worktree:
+
+```bash
+bun run scripts/worktree-reclaim-report.ts [--retention-days N] [--list-kept] [--json]
+```
 
 Both guards exist because the sweeper previously treated every directory in
 that root as its own and removed it with `git worktree remove --force`. That

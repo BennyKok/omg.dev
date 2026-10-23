@@ -10,11 +10,11 @@
 //
 // Two rules are locked in here:
 //   1. The sweeper may only delete worktrees the sweeper itself provisioned.
-//   2. Uncommitted work no longer earns a worktree a permanent stay (policy,
-//      2026-08-23): it earns a WIP commit under refs/wip/<name> instead, taken
-//      before removal, and it is reclaimed like anything else past its
-//      retention window. This file proves that snapshot actually reconstructs
-//      the untracked file — a diff would have missed it entirely.
+//   2. Uncommitted work keeps a worktree (policy, 2026-10-23). The 2026-08-23
+//      policy captured it to refs/wip/<name> and removed it anyway; the sweep
+//      now removes only worktrees with nothing to lose, and the capture stays
+//      as a guard for the clean ones. The untracked file below is the case a
+//      careless "is it dirty" check would miss.
 //
 // All the git assertions run INSIDE the probe subprocess, before its runner
 // tears the fixture down, rather than from this file afterward: the runner's
@@ -184,37 +184,22 @@ describe("worktree sweep ownership", () => {
     expect(stillExists["handmade-release"]).toBe(true);
   });
 
-  test("captures a dirty worktree's exact contents before reclaiming it", () => {
+  test("keeps a dirty worktree, untracked file and all", () => {
     const { sweep, stillExists, captureChecks } = probe;
-    // The worktree itself is gone — dirty no longer means "kept forever".
-    expect(sweep.removed).toContain("lfg-dirty");
-    expect(sweep.captureFailed).not.toContain("lfg-dirty");
-    expect(stillExists["lfg-dirty"]).toBe(false);
-    expect(stillExists["dirty-file"]).toBe(false);
-
-    // A real commit survives under refs/wip/<name>, in the shared common git
-    // dir (not the worktree that just disappeared) — and it is what got
-    // reported for anyone restoring it.
-    const capture = sweep.captures["lfg-dirty"];
-    expect(capture).toBeTruthy();
-    expect(capture.hadChanges).toBe(true);
-
-    const check = captureChecks["lfg-dirty"];
-    expect(check.refExists).toBe(true);
-    // Not just a ref that exists, but the ACTUAL content: the untracked file
-    // (never `git add`ed — exactly what a diff would miss) and the
-    // tracked-file edit are both in the captured tree.
-    expect(check.untracked).toBe("hours of it\n");
-    expect(check.tracked).toBe("hi, but edited\n");
-    // And the documented restore command (`git worktree add <path> <ref>`)
-    // actually works end to end.
-    expect(check.restoreWorks).toBe(true);
+    expect(sweep.removed).not.toContain("lfg-dirty");
+    expect(sweep.failed).not.toContain("lfg-dirty");
+    expect(sweep.dirty).toContain("lfg-dirty");
+    expect(stillExists["lfg-dirty"]).toBe(true);
+    expect(stillExists["dirty-file"]).toBe(true);
+    // Nothing was captured because nothing was about to be removed.
+    expect(sweep.captures["lfg-dirty"]).toBeUndefined();
+    expect(captureChecks["lfg-dirty"].refExists).toBe(false);
   });
 
   test("still reclaims an owned worktree with nothing left to lose", () => {
     const { sweep, stillExists, captureChecks } = probe;
-    // Proves the capture above comes from the new dirty-handling rather than
-    // the sweeper having stopped removing anything at all.
+    // Proves the dirty keep above comes from the dirty check rather than the
+    // sweeper having stopped removing anything at all.
     expect(sweep.removed).toContain("lfg-clean");
     expect(stillExists["lfg-clean"]).toBe(false);
 
