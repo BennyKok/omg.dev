@@ -181,6 +181,8 @@ import {
   hasUnreadBotConversation,
   type BotConversationUnread,
   botConversationActivityKey,
+  botActivityIsNews,
+  type BotActivityMark,
 } from "./lib/bot-unread";
 import { resolveRosterUser } from "./lib/roster-user";
 import {
@@ -6780,6 +6782,12 @@ export function App() {
   // tick fired first and queued sessions, pins, schedules and repos behind
   // the Computer grant, and they all went out together with the bootstrap.
   const firstBootstrapDoneRef = useRef(false);
+  // Sessions the socket reported before the first list arrived. The socket
+  // opens while the bootstrap is in flight, so every early status row named a
+  // session the empty list did not have, and each page load read the session
+  // list a second time right behind the bootstrap. The bootstrap answers for
+  // them; only one it does not list is a session created since.
+  const statusSidsBeforeListRef = useRef<Set<string>>(new Set());
   // A bootstrap with stale parts (the box answered slow parts with their last
   // value) is loaded once more to correct them. Three times per page at most,
   // so a part that is always slow cannot keep reloading.
@@ -6879,6 +6887,15 @@ export function App() {
     // next page load.
     setShowingSaved(false);
     firstBootstrapDoneRef.current = true;
+    const earlySids = statusSidsBeforeListRef.current;
+    statusSidsBeforeListRef.current = new Set();
+    if (earlySids.size) {
+      const listed = new Set((payload.sessions ?? []).map((session) => session.sessionId));
+      if ([...earlySids].some((sid) => !listed.has(sid))) {
+        unknownSidRefreshAtRef.current = Date.now();
+        void refreshSessionsRef.current().catch(() => {});
+      }
+    }
     if (payload.stale?.length && staleReloadTimerRef.current === null && staleReloadsRef.current < 3) {
       staleReloadsRef.current += 1;
       staleReloadTimerRef.current = window.setTimeout(() => {
@@ -7725,7 +7742,9 @@ export function App() {
       // Throttled: one list read per 5 s at most, so a socket that keeps
       // reporting a session the list refuses to return (filtered out, mid-
       // shutdown) costs no more than the old poll did.
-      if (rows.some((row) => row.sessionId && !prev.some((s) => s.sessionId === row.sessionId))) {
+      if (!firstBootstrapDoneRef.current) {
+        for (const row of rows) if (row.sessionId) statusSidsBeforeListRef.current.add(row.sessionId);
+      } else if (rows.some((row) => row.sessionId && !prev.some((s) => s.sessionId === row.sessionId))) {
         const now = Date.now();
         if (now - unknownSidRefreshAtRef.current >= 5000) {
           unknownSidRefreshAtRef.current = now;
@@ -7836,8 +7855,13 @@ export function App() {
   const sseLiveStream = useLiveSessionStream(rosterSessions, useWsLive ? [] : expandedIds);
   const onListsChanged = useCallback(
     async (topics: ChangeTopic[]) => {
+      // Read before the wait. emitListChanges waits for reads in flight, and
+      // the first bootstrap is one: it finished during that wait, the check
+      // then passed, and the page read every list again right behind it.
+      // A bootstrap still in flight answers for the lists itself.
+      const listsLoaded = firstBootstrapDoneRef.current;
       await emitListChanges(topics);
-      if (!firstBootstrapDoneRef.current) return;
+      if (!listsLoaded) return;
       // Empty: the socket just opened, and changes made while it was away
       // were not announced to it.
       const all = topics.length === 0;
@@ -8091,17 +8115,15 @@ export function App() {
     () => botConversationActivityKey(botConversationSids, sessions),
     [botConversationSids, sessions],
   );
-  const botActivitySeenRef = useRef<string | null>(null);
+  const botActivitySeenRef = useRef<BotActivityMark | null>(null);
   useEffect(() => {
     if (!useWsLive) return;
-    if (botActivitySeenRef.current === null || botActivitySeenRef.current === botActivityKey) {
-      botActivitySeenRef.current = botActivityKey;
-      return;
-    }
-    botActivitySeenRef.current = botActivityKey;
-    if (!settings.showBots) return;
+    const next = { sids: botConversationSidKey, key: botActivityKey };
+    const news = botActivityIsNews(botActivitySeenRef.current, next);
+    botActivitySeenRef.current = next;
+    if (!news || !settings.showBots) return;
     void refreshBots().catch(() => {});
-  }, [botActivityKey, refreshBots, useWsLive, settings.showBots]);
+  }, [botActivityKey, botConversationSidKey, refreshBots, useWsLive, settings.showBots]);
   function toggleTheme() {
     setThemePreference(!document.documentElement.classList.contains("dark"));
   }
