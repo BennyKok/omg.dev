@@ -129,3 +129,34 @@ test("locked model clicks and keyboard selection open upgrade without changing t
   ui.flush(() => (ui.query("button") as HTMLButtonElement).click());
   expect(selected).toBe(Object.keys(baseline)[0]!);
 });
+
+test("the list draws grouped in one step: no flat list before the groups", async () => {
+  let answer: (r: Response) => void = () => {};
+  respond(() => new Promise<Response>((resolve) => { answer = resolve; }));
+  ui = mount();
+  ui.render(<ModelOptionList value={models[0]!} models={models} onChoose={() => {}} />);
+  // While the prices load, placeholders hold the place of the model rows.
+  expect(ui.query('[aria-label="Loading credit usage"]')).not.toBeNull();
+  expect(ui.text()).not.toContain("Opus");
+  answer(Response.json({ models: { ...baseline, [models[1]!]: { inputPricePerMillion: 4_000_000, outputPricePerMillion: 20_000_000 } } }));
+  await ui.flushAsync();
+  expect(ui.query('[aria-label="Loading credit usage"]')).toBeNull();
+  expect(ui.query('[aria-label="Uses credits much faster"]')).not.toBeNull();
+});
+
+test("a list opened after the prefetch is grouped on its first frame", async () => {
+  const { prefetchModelPrices } = await import("./lib/use-model-prices");
+  let calls = 0;
+  respond(async () => { calls++; return Response.json({ models: { ...baseline, [models[1]!]: { inputPricePerMillion: 4_000_000, outputPricePerMillion: 20_000_000 } } }); });
+  prefetchModelPrices();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  ui = mount();
+  ui.render(<ModelOptionList value={models[0]!} models={models} onChoose={() => {}} />);
+  expect(ui.query('[aria-label="Loading credit usage"]')).toBeNull();
+  expect(ui.query('[aria-label="Uses credits much faster"]')).not.toBeNull();
+  // Opening it again reads no prices: the cache answers.
+  ui.render(null);
+  ui.render(<ModelOptionList value={models[0]!} models={models} onChoose={() => {}} />);
+  await ui.flushAsync();
+  expect(calls).toBe(1);
+});

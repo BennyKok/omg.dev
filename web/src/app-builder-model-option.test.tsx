@@ -7,10 +7,12 @@ let ui: Mounted;
 beforeEach(() => { ui = mount(); });
 afterEach(() => ui.cleanup());
 
-test("the workflow is a model-list item with its own selection callback", () => {
+test("the workflow is a model-list item with its own selection callback", async () => {
   let builds = 0; const models: string[] = [];
   ui.render(<ModelOptionList value={APP_BUILDER_MODEL} models={OMG_MODELS}
     builderChoice={{ selected: true, onChoose: () => { builds++; } }} onChoose={m => models.push(m)} />);
+  // The model rows draw once the price read settles (here it fails: no server).
+  await ui.flushAsync();
   const row = ui.queryAll("button").find(x => x.textContent?.includes("App Builder"))!;
   expect(row.getAttribute("aria-pressed")).toBe("true");
   expect(row.textContent).toContain("Haiku · Apex code review · Luna design review");
