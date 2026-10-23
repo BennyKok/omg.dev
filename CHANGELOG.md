@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 23, 2026 - New desktop home and a steady chat box (v0.6.313)
+
+- The desktop home now looks like the Create page on the phone. It asks "What do you want to make?" over the same soft colour, and the Website, App, API and Image row is gone.
+- The chat box stays open at its full size. Before, it folded to one row when you left it and opened again when you tapped it, so the box moved while the keyboard moved.
+- In the iOS app, a thought that streams after you stop a run shows in its own group. Before, it could join the run above it.
+
 ## October 23, 2026 - Faster session switches, part 2 (v0.6.312)
 
 - Going back to a session is faster again. omg.dev keeps the formatted text of each finished message, so it does not read the Markdown again when the session opens. On a test machine this made a return to a session take about 150 ms, down from about 250 ms.
