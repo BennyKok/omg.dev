@@ -9479,9 +9479,12 @@ export function App() {
   // top left on Live, top right on secondary pages, and not at all on the
   // Computer, while the host floated its own Settings gear wherever we had none.
   const online = useWsLive ? wsLiveStream.connection.status === "live" : true;
-  // Pages whose header carries the project and user scope controls.
+  // Pages whose shared header carries the project and user scope controls.
+  // Not on a phone: there the roster globe belongs to the home header only,
+  // and other pages keep their top-right corner empty.
   const headerScopeFilters =
-    tab === "live" || tab === "bots" || tab === "notifications" || tab === "artifacts" || tab === "board";
+    !isMobile &&
+    (tab === "live" || tab === "bots" || tab === "notifications" || tab === "artifacts" || tab === "board");
   const pageNavigation = isMobile ? (
     <SideNavButton onOpen={() => setNavOpen(true)} machineName={navMachineName} online={online} />
   ) : (
@@ -9751,7 +9754,9 @@ export function App() {
           embedded && "pl-3 pr-[calc(0.75rem+var(--lfg-host-top-inset))] md:pr-[calc(0.75rem+var(--lfg-host-top-inset))]",
         )}
       >
-        <div className="flex min-w-0 items-center gap-2">
+        {/* min-h-11: the height of Live's header islands, so the drawer button
+            sits at the same height on a page with no pills around it. */}
+        <div className="flex min-h-11 min-w-0 items-center gap-2">
         {/* A phone opens the drawer from the top-left corner on every page,
             the same spot as on Live. */}
         {isMobile ? pageNavigation : null}
@@ -9795,26 +9800,23 @@ export function App() {
         )}
         </div>
 
-        {/* A phone page with no scope filter has nothing for the right
-            island, so it draws no empty pill: only the host slot, which takes
-            no space while unfilled. */}
-        {isMobile && !headerScopeFilters ? hostActionsSlot("flex items-center gap-1.5 empty:hidden") : (
+        {/* A phone page has nothing for the right island (the roster globe
+            is on the home header only), so it draws no empty pill: only the
+            host slot, which takes no space while unfilled. */}
+        {isMobile ? hostActionsSlot("flex items-center gap-1.5 empty:hidden") : (
         <NavIsland className="shrink-0">
           <div className="glass-island flex h-11 items-center gap-1.5 rounded-full px-2">
             {/* Host actions first, our own controls after them. */}
             {hostActionsSlot("flex items-center gap-1.5 empty:hidden")}
             {headerScopeFilters ? (
-              // Page destinations live in PagesMenu. Desktop also keeps its
-              // project scope control here; mobile project scope lives in the
-              // Live composer and never impersonates a page destination.
+              // Page destinations live in PagesMenu. Mobile project scope lives
+              // in the Live composer and never impersonates a page destination.
               <>
-                {!isMobile ? (
-                  <ProjectFilterMenu
-                    value={projectFilter}
-                    projects={projectOptions}
-                    onChange={changeProjectFilter}
-                  />
-                ) : null}
+                <ProjectFilterMenu
+                  value={projectFilter}
+                  projects={projectOptions}
+                  onChange={changeProjectFilter}
+                />
                 <UserFilterMenu
                   value={userFilter}
                   users={users}
