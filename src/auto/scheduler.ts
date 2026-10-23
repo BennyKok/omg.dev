@@ -31,10 +31,14 @@ const DOW: Record<string, number> = {
   Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
 };
 
-// Wall-clock fields of `d` in timezone `tz`.
-function zonedParts(d: Date, tz: string) {
-  const parts = Object.fromEntries(
-    new Intl.DateTimeFormat("en-US", {
+// One formatter per timezone. Building an Intl.DateTimeFormat is the costly
+// part, and mostRecentDue calls this up to 1,500 times per agent per tick:
+// 8% of the server's CPU in a profile on 2026-10-23.
+const zonedFormatters = new Map<string, Intl.DateTimeFormat>();
+function zonedFormatter(tz: string): Intl.DateTimeFormat {
+  let formatter = zonedFormatters.get(tz);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-US", {
       timeZone: tz,
       hourCycle: "h23",
       minute: "2-digit",
@@ -42,7 +46,16 @@ function zonedParts(d: Date, tz: string) {
       day: "2-digit",
       month: "2-digit",
       weekday: "short",
-    })
+    });
+    zonedFormatters.set(tz, formatter);
+  }
+  return formatter;
+}
+
+// Wall-clock fields of `d` in timezone `tz`.
+function zonedParts(d: Date, tz: string) {
+  const parts = Object.fromEntries(
+    zonedFormatter(tz)
       .formatToParts(d)
       .map((p) => [p.type, p.value]),
   );

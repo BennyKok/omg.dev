@@ -494,7 +494,7 @@ export function updateHtmlArtifactRefresh(input: {
 
 export function updateHtmlArtifactRefreshStatus(input: {
   id: string;
-  patch: Partial<Pick<ArtifactRefreshConfig, "status" | "lastStartedAt" | "lastSuccessAt" | "lastError">>;
+  patch: Partial<Pick<ArtifactRefreshConfig, "enabled" | "status" | "lastStartedAt" | "lastSuccessAt" | "lastError">>;
 }): ImageArtifact | null {
   const index = readIndexForUpdate();
   const artifact = index[input.id];

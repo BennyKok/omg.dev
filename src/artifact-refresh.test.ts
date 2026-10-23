@@ -165,6 +165,36 @@ describe("script-backed HTML artifact refresh", () => {
     expect(readFileSync(after.filePath, "utf8")).toBe(FIRST_HTML);
   });
 
+  test("a script that no longer exists turns the schedule off instead of retrying", async () => {
+    const executable = script("gone.sh", "#!/bin/sh\nprintf '%s' '<!doctype html><html><body>x</body></html>'\n");
+    const before = create({ scriptPath: executable, intervalMs: 10_000, configuredAt: 0 });
+    rmSync(executable);
+    const refreshes = manager();
+
+    const result = await refreshes.refreshNow(before.id, SESSION);
+
+    expect(result.ok).toBe(false);
+    const after = getImageArtifact(before.id)!;
+    expect(after.refresh?.enabled).toBe(false);
+    expect(after.refresh?.status).toBe("error");
+    expect(after.refresh?.lastError).toContain("no longer exists");
+    expect(readFileSync(after.filePath, "utf8")).toBe(FIRST_HTML);
+    // A later tick does not pick it up again.
+    const startedAt = after.refresh?.lastStartedAt;
+    await refreshes.tick(Date.now() + 60_000);
+    expect(getImageArtifact(before.id)!.refresh?.lastStartedAt).toBe(startedAt);
+  });
+
+  test("a script that cannot run for another reason keeps its schedule", async () => {
+    const executable = script("noexec.sh", "#!/bin/sh\n");
+    const before = create({ scriptPath: executable });
+    chmodSync(executable, 0o644);
+
+    await manager().refreshNow(before.id, SESSION);
+
+    expect(getImageArtifact(before.id)!.refresh?.enabled).toBe(true);
+  });
+
   test("a non-zero exit records stderr and preserves last-good output", async () => {
     const executable = script("exit-failure.sh", "#!/bin/sh\necho 'upstream unavailable' >&2\nexit 7\n");
     const before = create({ scriptPath: executable });
