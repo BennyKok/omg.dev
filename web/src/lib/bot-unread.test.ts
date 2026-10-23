@@ -7,6 +7,7 @@ import {
   botUnreadActionForTranscript,
   hasUnreadBotConversation,
   botConversationActivityKey,
+  botActivityIsNews,
 } from "./bot-unread";
 
 describe("bot conversation unread presentation", () => {
@@ -187,5 +188,21 @@ describe("botConversationActivityKey", () => {
     expect(arrival).not.toBe(before);
     // A bot without a session yet is represented, not dropped.
     expect(before).toContain("bot-b:-");
+  });
+});
+
+describe("botActivityIsNews", () => {
+  test("the first roster read is not activity", () => {
+    // Before the roster loads there are no watched conversations. Loading it
+    // changes the key, but only because the set changed.
+    const empty = { sids: "", key: "" };
+    const loaded = { sids: "bot-a", key: "bot-a:100" };
+    expect(botActivityIsNews(null, empty)).toBe(false);
+    expect(botActivityIsNews(empty, loaded)).toBe(false);
+  });
+  test("a move in a watched conversation is activity", () => {
+    const seen = { sids: "bot-a", key: "bot-a:100" };
+    expect(botActivityIsNews(seen, { sids: "bot-a", key: "bot-a:101" })).toBe(true);
+    expect(botActivityIsNews(seen, { sids: "bot-a", key: "bot-a:100" })).toBe(false);
   });
 });

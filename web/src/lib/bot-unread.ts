@@ -188,3 +188,18 @@ export function botConversationActivityKey(
     })
     .join("|");
 }
+
+/** The watched conversations and their activity key, as last seen. */
+export type BotActivityMark = { sids: string; key: string };
+
+/**
+ * True when `next` shows activity in the same conversations `prev` watched.
+ *
+ * A different set of conversations comes from a roster read that has just
+ * answered, so it is not news. Counting it refetched the roster once on every
+ * page load: the key went from "" to the loaded conversations the moment the
+ * first roster arrived.
+ */
+export function botActivityIsNews(prev: BotActivityMark | null, next: BotActivityMark): boolean {
+  return !!prev && prev.sids === next.sids && prev.key !== next.key;
+}
