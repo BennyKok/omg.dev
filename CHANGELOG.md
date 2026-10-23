@@ -2,13 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## October 23, 2026 - Your first message shows at once (v0.6.316)
+
+- When you start a session, your first message shows in the chat at once. Before, the chat opened empty and the message appeared only after the agent had started.
+
 ## October 23, 2026 - Phone menu keeps all its rows (v0.6.315)
 
 - On omg.dev on a phone, the menu keeps the computer picker, Tutorials and Settings after you visit Settings. Before, a second, emptier menu opened on top of the real one when you came back.
-
-## October 23, 2026 - Your first message shows at once (v0.6.315)
-
-- When you start a session, your first message shows in the chat at once. Before, the chat opened empty and the message appeared only after the agent had started.
 
 ## October 23, 2026 - Your sessions first, and smoother pages (v0.6.314)
 
