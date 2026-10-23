@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 23, 2026 - Faster start after an update (v0.6.306)
+
+- The project list loads faster, mostly right after the computer restarts. Requests at the same time now share one read of your projects.
+- A window that you do not use stops its animations after 2 minutes. They start again when you click, type or move the pointer. This saves a lot of CPU on computers without a graphics card.
+
 ## October 23, 2026 - Plain icons in the home chat box (v0.6.305)
 
 - In the home chat box, the plus, microphone and Stash buttons show as plain icons, the same as in a session chat. The icons are a little larger.
@@ -13,11 +18,6 @@ Recent product updates and deployment notes.
 - When the side menu or the agent picker is open, a screen reader reads only that panel, not the page under it.
 - The web page does less work when your sessions change, so taps stay quick on a busy computer.
 - In the chat box, the plus and microphone buttons show as plain icons, and the bar is a little larger.
-
-## October 23, 2026 - Faster start after an update (v0.6.304)
-
-- The project list loads faster, mostly right after the computer restarts. Requests at the same time now share one read of your projects.
-- A window that you do not use stops its animations after 2 minutes. They start again when you click, type or move the pointer. This saves a lot of CPU on computers without a graphics card.
 
 ## October 23, 2026 - An old search index is removed (v0.6.303)
 
