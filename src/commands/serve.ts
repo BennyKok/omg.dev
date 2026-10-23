@@ -371,6 +371,7 @@ import { countTranscriptRows, foldWorkRows, LiveWorkRows, type ChatRenderMessage
 import {
   invalidateListSessionsCache,
   listSessionsCached,
+  findListedSession,
   latestSessionScan,
   noteListSessionsClientActivity,
 } from "../session-cache.ts";
@@ -1797,8 +1798,7 @@ function dirExists(path: string | null | undefined): path is string {
 }
 
 async function artifactOwnerCwd(sessionId: string): Promise<string | null> {
-  const sessions = await listSessions().catch(() => []);
-  const session = sessions.find((row) => sessionMatchesId(row, sessionId));
+  const session = await findListedSession((row) => sessionMatchesId(row, sessionId)).catch(() => undefined);
   if (dirExists(session?.cwd)) return session.cwd;
   const managed = listManagedWithArchive().find((row) => sessionMatchesId(row, sessionId));
   if (dirExists(managed?.cwd)) return managed.cwd;
@@ -2844,6 +2844,7 @@ type ParentableSession = {
 function sessionMatchesId(session: ParentableSession, id: string): boolean {
   return session.sessionId === id || session.nativeSessionId === id;
 }
+
 
 /**
  * How an inbound /send reaches its target.
@@ -4043,7 +4044,9 @@ export function resolveCallerBotId(
 async function callerBotId(req: Request): Promise<string | null> {
   const sid = req.headers.get("x-omg-caller-session-id")?.trim() || null;
   if (!sid) return null;
-  return resolveCallerBotId(await listSessions(), sid);
+  // A session's bot never changes, so the cached row answers this.
+  const row = await findListedSession((s) => s.sessionId === sid || s.nativeSessionId === sid);
+  return resolveCallerBotId(row ? [row] : [], sid);
 }
 
 /**
@@ -4482,7 +4485,7 @@ export async function cmdServe() {
   const connectManager = createConnectManager();
   const browserLogin = createBrowserLoginService({
     session: async (id) => {
-      const row = (await listSessions()).find(s => s.sessionId === id || s.nativeSessionId === id);
+      const row = await findListedSession((s) => sessionMatchesId(s, id));
       return row?.sessionId ? { id: row.sessionId, owner: row.assignedUser ?? null } : null;
     },
     viewer: req => botViewerFromRequest(req, new URL(req.url).searchParams.get("user")).identity,
@@ -9255,7 +9258,7 @@ a{color:#60a5fa}
         const m = path.match(/^\/api\/sessions\/([0-9a-fA-F-]{36})\/user$/);
         if (m && req.method === "POST") {
           const body = (await req.json().catch(() => null)) as { user?: string | null } | null;
-          const sess = (await listSessions()).find((s) => s.sessionId === m[1]);
+          const sess = await findListedSession((s) => s.sessionId === m[1]);
           const user = body?.user ?? null;
           if (user && !rosterEmails().includes(user)) return err(400, "unknown user");
           if (sess) {
@@ -11642,7 +11645,7 @@ a{color:#60a5fa}
           if (!msg) return err(404, "queued message not found");
           if (msg.status !== "failed")
             return err(409, "only a failed message can be debugged");
-          const sess = (await listSessions()).find((s) => s.sessionId === m[1]);
+          const sess = await findListedSession((s) => s.sessionId === m[1]);
           const result = await dispatchSendFixAgent({
             failSessionId: m[1],
             failTarget: sess?.tmuxTarget ?? null,
@@ -11710,7 +11713,7 @@ a{color:#60a5fa}
           } | null;
           if (typeof body?.index !== "number")
             return err(400, "missing option index");
-          const sess = (await listSessions()).find((s) => s.sessionId === m[1]);
+          const sess = await findListedSession((s) => s.sessionId === m[1]);
           if (!sess) return err(404, "session not found");
           // Headless harnesses (OpenCode) surface questions on the registry and
           // accept answers via the command file — no tmux pane involved.
@@ -11730,7 +11733,7 @@ a{color:#60a5fa}
       {
         const m = path.match(/^\/api\/sessions\/([0-9a-fA-F-]{36})\/dismiss$/);
         if (m && req.method === "POST") {
-          const sess = (await listSessions()).find((s) => s.sessionId === m[1]);
+          const sess = await findListedSession((s) => s.sessionId === m[1]);
           if (!sess) return err(404, "session not found");
           if (!sess.tmuxTarget) {
             const entry = findAisdkEntryByAnyId(m[1]);
@@ -11749,7 +11752,7 @@ a{color:#60a5fa}
       {
         const m = path.match(/^\/api\/sessions\/([0-9a-fA-F-]{36})\/interrupt$/);
         if (m && req.method === "POST") {
-          const sess = (await listSessions()).find((s) => s.sessionId === m[1]);
+          const sess = await findListedSession((s) => s.sessionId === m[1]);
           if (!sess) return err(404, "session not found");
           // A single Escape stops the current turn. This doubles as "steer":
           // any message already sitting in Claude's own queue gets processed as
@@ -11766,7 +11769,7 @@ a{color:#60a5fa}
       {
         const m = path.match(/^\/api\/sessions\/([0-9a-fA-F-]{36})\/diff-stat$/);
         if (m && req.method === "GET") {
-          const sess = (await listSessions()).find((s) => s.sessionId === m[1]);
+          const sess = await findListedSession((s) => s.sessionId === m[1]);
           if (!sess) return err(404, "session not found");
           return json({ stat: computeSessionDiffStat(sess.cwd) });
         }
@@ -11775,7 +11778,7 @@ a{color:#60a5fa}
       {
         const m = path.match(/^\/api\/sessions\/([0-9a-fA-F-]{36})\/diff$/);
         if (m && req.method === "GET") {
-          const sess = (await listSessions()).find((s) => s.sessionId === m[1]);
+          const sess = await findListedSession((s) => s.sessionId === m[1]);
           if (!sess) return err(404, "session not found");
           // ?summary=1 → fast file-list overview (no patch bodies); the viewer
           // then lazy-loads each file via /diff-file.
@@ -11787,7 +11790,7 @@ a{color:#60a5fa}
       {
         const m = path.match(/^\/api\/sessions\/([0-9a-fA-F-]{36})\/diff-file$/);
         if (m && req.method === "GET") {
-          const sess = (await listSessions()).find((s) => s.sessionId === m[1]);
+          const sess = await findListedSession((s) => s.sessionId === m[1]);
           if (!sess) return err(404, "session not found");
           const p = url.searchParams.get("path");
           if (!p) return err(400, "missing path");
@@ -11804,7 +11807,7 @@ a{color:#60a5fa}
       {
         const m = path.match(/^\/api\/sessions\/([0-9a-fA-F-]{36})\/tree$/);
         if (m && req.method === "GET") {
-          const sess = (await listSessions()).find((s) => s.sessionId === m[1]);
+          const sess = await findListedSession((s) => s.sessionId === m[1]);
           if (!sess) return err(404, "session not found");
           const tree = listSessionTree(sess.cwd, url.searchParams.get("root"));
           if (!tree.ok) return err(403, tree.error ?? "cannot list that directory");
@@ -11818,7 +11821,7 @@ a{color:#60a5fa}
       {
         const m = path.match(/^\/api\/sessions\/([0-9a-fA-F-]{36})\/file$/);
         if (m && req.method === "GET") {
-          const sess = (await listSessions()).find((s) => s.sessionId === m[1]);
+          const sess = await findListedSession((s) => s.sessionId === m[1]);
           if (!sess) return err(404, "session not found");
           const p = url.searchParams.get("path");
           if (!p) return err(400, "missing path");
@@ -11890,7 +11893,9 @@ a{color:#60a5fa}
             const publish = async () => {
               if (closed) return;
               const t0 = performance.now();
-              const rows = (await listSessions())
+              // The cached list, like the WS status loop. A fresh scan here ran
+              // every 2 s for each open stream.
+              const rows = (await listSessionsCached())
                 .filter((s) => s.sessionId && (!wanted.size || wanted.has(s.sessionId)))
                 .map(slim);
               const sig = JSON.stringify(rows);
@@ -12101,7 +12106,7 @@ a{color:#60a5fa}
             const hydrateTargets = async () => {
               if (closed || !panes.length) return;
               const listT0 = performance.now();
-              const all = await listSessions();
+              const all = await listSessionsCached();
               evlog("live_stream_list_sessions", {
                 rid,
                 sessionCount: all.length,
@@ -12249,9 +12254,7 @@ a{color:#60a5fa}
       {
         const m = path.match(/^\/api\/sessions\/([0-9a-fA-F-]{36})\/stream$/);
         if (m) {
-          const session = (await listSessions()).find(
-            (s) => s.sessionId === m[1] || s.nativeSessionId === m[1],
-          );
+          const session = await findListedSession((s) => sessionMatchesId(s, m[1]));
           const sid = session?.sessionId ?? m[1];
           const tp = await resolveTranscript(m[1]);
           if (!tp) return err(404, "session transcript not found");
