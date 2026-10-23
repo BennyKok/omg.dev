@@ -32,7 +32,8 @@ describe("mobile secondary page hierarchy", () => {
   });
 
   test("secondary mobile pages provide an explicit return to Live", () => {
-    expect(app.match(/aria-label="Back to Live"/g)?.length).toBeGreaterThanOrEqual(2);
+    // One shared page header, hosted or not, carries the back button.
+    expect(app.match(/aria-label="Back to Live"/g)?.length).toBe(1);
     for (const tab of ["notifications", "artifacts", "board"]) {
       expect(shouldShowMobileBackToLive(true, tab)).toBe(true);
     }

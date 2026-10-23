@@ -40,15 +40,12 @@ describe("settings rendering", () => {
       return app.slice(tagStart, tagEnd);
     }
 
-    const secondaryHeader = headerTagAfter("Secondary pages sit below Live in the mobile hierarchy");
-    expect(secondaryHeader).toContain("pb-3");
-    expect(secondaryHeader).toContain("pl-3");
-    expect(secondaryHeader).toContain("pr-[calc(0.75rem+var(--lfg-host-top-inset))]");
-    expect(secondaryHeader).toContain("pt-[calc(0.5rem+env(safe-area-inset-top))]");
-
+    // Hosted and standalone phones share one secondary-page header now. It
+    // keeps the hosted padding the separate hosted header used to carry.
     const pageHeader = headerTagAfter("Embedded used to be suppressed here too");
     expect(pageHeader).toContain("pb-3");
     expect(pageHeader).toContain("pt-[calc(0.5rem+env(safe-area-inset-top))]");
     expect(pageHeader).toContain("md:pb-1");
+    expect(pageHeader).toContain('embedded && "pl-3 pr-[calc(0.75rem+var(--lfg-host-top-inset))]');
   });
 });
