@@ -664,6 +664,8 @@ import { cn } from "@/lib/utils";
 import { deepActiveElement, isTypingTarget } from "@/lib/active-element";
 import { useExtensionNavTabs } from "./lib/extensions";
 import type { ExtensionNavTab } from "./lib/extensions";
+import { NO_ITEMS, sameEntries } from "./lib/same-entries";
+import { useSkipSameState } from "./lib/use-skip-same-state";
 import {
   pushPermission,
   pushUnavailableReason,
@@ -5120,11 +5122,11 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
     }
     return map;
   }, [sessions]);
-  const [messagesBySid, setMessagesBySid] = useState<Record<string, Message[]>>({});
-  const [busyBySid, setBusyBySid] = useState<Record<string, boolean>>({});
-  const [promptsBySid, setPromptsBySid] = useState<Record<string, SessionPrompt | null>>({});
-  const [loadingBySid, setLoadingBySid] = useState<Record<string, boolean>>({});
-  const [nextBeforeBySid, setNextBeforeBySid] = useState<Record<string, number | null>>({});
+  const [messagesBySid, setMessagesBySid] = useSkipSameState<Record<string, Message[]>>({});
+  const [busyBySid, setBusyBySid] = useSkipSameState<Record<string, boolean>>({});
+  const [promptsBySid, setPromptsBySid] = useSkipSameState<Record<string, SessionPrompt | null>>({});
+  const [loadingBySid, setLoadingBySid] = useSkipSameState<Record<string, boolean>>({});
+  const [nextBeforeBySid, setNextBeforeBySid] = useSkipSameState<Record<string, number | null>>({});
   const seenRef = useRef<Record<string, Set<string>>>({});
   const messagesRef = useRef(messagesBySid);
   const nextBeforeRef = useRef(nextBeforeBySid);
@@ -5155,25 +5157,30 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
       // re-entered chats history-less.
       for (const sid of new Set([...live, ...active])) {
         const current = prev[sid];
-        next[sid] = current?.length ? current : seedBySid[sid] ? [seedBySid[sid]] : [];
+        // The shared empty array, so a session with nothing to show is not a
+        // fresh `[]` (and so a change) on every list update.
+        next[sid] = current?.length ? current : seedBySid[sid] ? [seedBySid[sid]] : NO_ITEMS;
       }
-      return next;
+      return sameEntries(prev, next);
     });
     setBusyBySid((prev) =>
-      Object.fromEntries(Object.entries(prev).filter(([sid]) => active.has(sid))),
+      sameEntries(prev, Object.fromEntries(Object.entries(prev).filter(([sid]) => active.has(sid)))),
     );
     setPromptsBySid((prev) =>
-      Object.fromEntries(Object.entries(prev).filter(([sid]) => active.has(sid))),
+      sameEntries(prev, Object.fromEntries(Object.entries(prev).filter(([sid]) => active.has(sid)))),
     );
     setNextBeforeBySid((prev) =>
-      Object.fromEntries(Object.entries(prev).filter(([sid]) => live.has(sid) || active.has(sid))),
+      sameEntries(
+        prev,
+        Object.fromEntries(Object.entries(prev).filter(([sid]) => live.has(sid) || active.has(sid))),
+      ),
     );
     setLoadingBySid((prev) => {
       const next = Object.fromEntries(Object.entries(prev).filter(([sid]) => live.has(sid)));
       for (const sid of active) {
         if (!(messagesRef.current[sid]?.some((message) => !message.seed))) next[sid] = true;
       }
-      return next;
+      return sameEntries(prev, next);
     });
 
     if (!ids.length) return;
@@ -6101,7 +6108,7 @@ export function App() {
     savedStart?.modelCatalog ?? buildAgentModelCatalog(),
   );
   const [setupChecks, setSetupChecks] = useState<SetupCheckGroup[]>([]);
-  const [sessions, setSessions] = useState<Session[]>(() => startPayload?.sessions ?? []);
+  const [sessions, setSessions] = useSkipSameState<Session[]>(() => startPayload?.sessions ?? []);
   // Read state for the Chat roster. Only a full list payload writes this — see
   // web/src/lib/session-unread.ts.
   const [unreadSessions, setUnreadSessions] = useState<Set<string>>(() => new Set());
