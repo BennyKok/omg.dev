@@ -14,11 +14,25 @@ test("desktop isolates foreign CDP, reuses/adopts/relaunches its browser, serial
     writeFileSync(file, `#!/bin/sh\nexec '${process.execPath}' '${fixture}' '${name}' "$@"\n`);
     chmodSync(file, 0o755);
   }
+  // The real dbus-launch daemonizes a bus that outlives the fake session, so
+  // every run used to leave a dbus-launch and a dbus-daemon behind. Run the
+  // session command directly instead, in the same process.
+  const dbus = join(bin, "dbus-launch");
+  writeFileSync(dbus, `#!/bin/sh\n[ "$1" = --exit-with-session ] && shift\nexec "$@"\n`);
+  chmodSync(dbus, 0o755);
   // Keep RFB isolated too. Its owner still requires a configured free port.
   const reserve = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("") });
   const port = reserve.port!;
   reserve.stop(true);
-  const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH}`, OMG_COMPUTER_RFB_PORT: String(port), OMG_COMPUTER_TZ: "Asia/Hong_Kong" };
+  // Keep the X display isolated as well. The default is :99, the shared
+  // desktop. A session started there outlives the test.
+  const freeDisplay = () => {
+    for (let n = 900 + Math.floor(Math.random() * 50); n < 1000; n++) {
+      if (!existsSync(`/tmp/.X11-unix/X${n}`) && !existsSync(`/tmp/.X${n}-lock`)) return n;
+    }
+    throw new Error("no free X display number for the test");
+  };
+  const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH}`, OMG_COMPUTER_RFB_PORT: String(port), OMG_COMPUTER_DISPLAY: String(freeDisplay()), OMG_COMPUTER_TZ: "Asia/Hong_Kong" };
   delete env.OMG_COMPUTER_CDP_PORT;
   delete env.XDG_CONFIG_HOME;
   const proc = Bun.spawn([process.execPath, fixture, "scenario"], { env, stdout: "pipe", stderr: "pipe" });
