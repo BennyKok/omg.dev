@@ -30,7 +30,7 @@ import {
   createThreadConversation,
   ensureConversationHuman,
   getConversation,
-  listConversations,
+  listConversationsShared,
   patchThreadConversation,
   threadForTaskSession,
   type Conversation,
@@ -390,7 +390,7 @@ export function summarizeThread(conversation: Conversation, viewer?: string): Th
 }
 
 export function listThreads(viewer?: string): ThreadSummary[] {
-  return listConversations()
+  return listConversationsShared()
     .filter((row) => isThread(row) && !row.archivedAt)
     .map((row) => summarizeThread(row, viewer))
     .sort((a, b) => b.updatedAt - a.updatedAt);

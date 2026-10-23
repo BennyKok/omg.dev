@@ -161,6 +161,15 @@ export function listConversations(): Conversation[] {
   return readStore();
 }
 
+/**
+ * The same list for callers that only read it: one parsed copy shared until
+ * the file changes. Do not change what it returns; use listConversations()
+ * for a private copy.
+ */
+export function listConversationsShared(): readonly Conversation[] {
+  return readStoreSnapshot();
+}
+
 export function getConversation(id: string): Conversation | null {
   return readStore().find((row) => row.id === id) ?? null;
 }
@@ -239,7 +248,8 @@ export function patchThreadConversation(
 
 /** The thread a task session was started from, if any. */
 export function threadForTaskSession(sessionId: string): Conversation | null {
-  return readStore().find((row) =>
+  // Runs on every completed turn of every session; callers only read it.
+  return readStoreSnapshot().find((row) =>
     row.kind === "thread" &&
     row.runtimeSessions.some((entry) => entry.kind === "execution" && entry.sessionId === sessionId),
   ) ?? null;
