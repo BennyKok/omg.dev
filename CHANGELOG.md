@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 23, 2026 - OpenCode sessions clean up after themselves (v0.6.307)
+
+- When an OpenCode session stops, its OpenCode server now stops too. Before, a session that was stopped or that failed could leave its server running and using about 250 MB of memory.
+- The computer finds and stops OpenCode servers that were left behind.
+- The project list is read from disk less often.
+
 ## October 23, 2026 - Faster start after an update (v0.6.306)
 
 - The project list loads faster, mostly right after the computer restarts. Requests at the same time now share one read of your projects.
