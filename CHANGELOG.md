@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 23, 2026 - Less work when nothing happens (v0.6.308)
+
+- The computer uses about half as much CPU when it is idle. It no longer reads the full list of conversations again on each session list update, and scheduled agents check their times with less work.
+- A live page that refreshes from a script stops its schedule when the script no longer exists, and it shows why. Before, it tried again forever. To start it again, set up the refresh again.
+
 ## October 23, 2026 - OpenCode sessions clean up after themselves (v0.6.307)
 
 - When an OpenCode session stops, its OpenCode server now stops too. Before, a session that was stopped or that failed could leave its server running and using about 250 MB of memory.
