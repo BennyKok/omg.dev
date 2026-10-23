@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 23, 2026 - Faster session switches (v0.6.310)
+
+- Going back to a session you opened before is faster. omg.dev keeps the size of each message row when you leave a session, so it does not calculate every row again when you come back.
+- A new session view starts from the last text measurements. Before, it showed each row once with a rough size, then measured all rows again.
+- A Git install no longer contacts GitHub each time you load the page to check for updates. It checks at most once every 5 minutes. "Check for updates" still checks immediately. This made each page load about 1.5 seconds lighter.
+
 ## October 23, 2026 - One way around on a phone (v0.6.309)
 
 - On a phone, every page has one menu button in the top-left corner. Settings is in that menu.

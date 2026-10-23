@@ -9139,10 +9139,11 @@ a{color:#60a5fa}
           }
           // A manual "Check" click forces a fresh lookup that bypasses the
           // 5-minute release-tag cache; the passive on-load check stays cached.
-          // Source installs always `git fetch`, so they're never stale.
+          // Source installs reuse a `git fetch` from the last five minutes
+          // the same way; a manual check fetches again.
           const force = url.searchParams.get("refresh") === "1";
           const update = install.channel === "source"
-            ? await sourceUpdateStatus(PATHS.root)
+            ? await sourceUpdateStatus(PATHS.root, force ? true : "cached")
             : install.channel === "release"
               ? await releaseUpdateStatus(PATHS.root, install, force)
               : null;
