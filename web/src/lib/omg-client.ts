@@ -127,6 +127,10 @@ export function configureOmgTransport(
   // A different Computer: the old one's sleep says nothing about this one.
   if (transport !== omgTransport) pausedGate.reset();
   if (transport !== omgTransport) omgTransportGenerationCounter += 1;
+  // The old Computer's reads can no longer be joined (the key carries the
+  // generation), and an invalidation from this one must not wait for them.
+  // A read the old box never answered held every list refresh back.
+  if (transport !== omgTransport) endSharedReads();
   omgTransport = transport;
   omgAssetBaseUrl = options.assetBaseUrl?.replace(/\/+$/, "") ?? "";
   omgErrorSinkConfig = options.errorSink ?? null;
