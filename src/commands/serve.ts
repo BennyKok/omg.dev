@@ -518,7 +518,8 @@ import {
 } from "../repos-store.ts";
 import { isProjectTemplate } from "../project-starter.ts";
 import { projectName, reposRoot } from "../projects.ts";
-import { listConfiguredRepos } from "../repo-list.ts";
+import { createRepoListCache, listConfiguredRepos, repoListFingerprint } from "../repo-list.ts";
+import { onChangeAnnounced } from "../change-topics.ts";
 import { createBootstrapParts } from "../bootstrap-parts.ts";
 import { runExecCommand, clampExecTimeout, MAX_EXEC_TIMEOUT_MS } from "../exec.ts";
 import {
@@ -1638,9 +1639,29 @@ function postThreadMessage(
 let recentRepoList: { at: number; repos: Awaited<ReturnType<typeof listConfiguredRepos>> } | null = null;
 const RECENT_REPO_LIST_MAX_AGE_MS = 60_000;
 
+// Shared by every request; see createRepoListCache for why and what it sees.
+const repoListCache = createRepoListCache({
+  build: () => listConfiguredRepos({ reposRoot: REPOS_ROOT, selfRepo: SELF_REPO }),
+  fingerprint: () => repoListFingerprint([
+    REPOS_ROOT,
+    join(PATHS.data, "custom-repos.json"),
+    join(PATHS.data, "hidden-repos.json"),
+  ]),
+  maxAgeMs: 15_000,
+});
+// Every repo store write announces "repos", in this process or another one.
+// Subscribed on first use, so importing this module starts no watcher.
+let repoListWatched = false;
+
 async function listRepos() {
+  if (!repoListWatched) {
+    repoListWatched = true;
+    onChangeAnnounced((topic) => {
+      if (topic === "repos") repoListCache.invalidate();
+    });
+  }
   const at = Date.now();
-  const repos = await listConfiguredRepos({ reposRoot: REPOS_ROOT, selfRepo: SELF_REPO });
+  const repos = await repoListCache.get();
   if (!recentRepoList || recentRepoList.at <= at) recentRepoList = { at, repos };
   return repos;
 }

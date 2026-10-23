@@ -114,3 +114,68 @@ export async function listConfiguredRepos(input?: {
     hidden: await listHiddenRepos(),
   });
 }
+
+/**
+ * One shared, short-lived copy of the project list.
+ *
+ * Every GET /api/repos and every bootstrap rebuilt the list from disk, and
+ * concurrent requests did not share a build. After a service restart every
+ * open app reconnects at once, so about six full scans ran together and each
+ * took 3 to 9 seconds (trace log, 2026-10-23). In steady state the list was
+ * rebuilt about 470 times an hour at 130 to 150 ms each.
+ *
+ * A cached list is reused only while the fingerprint (the repos root folder
+ * and the pin and hidden files) is unchanged and it is younger than
+ * `maxAgeMs`. Adding, cloning, pinning, hiding or removing a project changes
+ * the fingerprint, so a write is seen at once. Changes the fingerprint cannot
+ * see, such as a deploy link written inside a project, show within `maxAgeMs`.
+ * Requests that arrive while a build runs with the same fingerprint share it.
+ */
+export function createRepoListCache<T>(options: {
+  build: () => Promise<T>;
+  fingerprint: () => Promise<string>;
+  maxAgeMs: number;
+  now?: () => number;
+}) {
+  const now = options.now ?? Date.now;
+  let entry: { fingerprint: string; at: number; value: T } | null = null;
+  let inflight: { fingerprint: string; promise: Promise<T> } | null = null;
+  // A build that started before invalidate() must not refill the cache.
+  let generation = 0;
+  return {
+    async get(): Promise<T> {
+      const fingerprint = await options.fingerprint();
+      if (entry && entry.fingerprint === fingerprint && now() - entry.at < options.maxAgeMs) return entry.value;
+      if (inflight && inflight.fingerprint === fingerprint) return inflight.promise;
+      const at = now();
+      const started = generation;
+      const promise = options.build().then((value) => {
+        if (started === generation && (!entry || entry.at <= at)) entry = { fingerprint, at, value };
+        return value;
+      });
+      const mine = { fingerprint, promise };
+      inflight = mine;
+      const clear = () => { if (inflight === mine) inflight = null; };
+      promise.then(clear, clear);
+      return promise;
+    },
+    invalidate() {
+      generation++;
+      entry = null;
+      inflight = null;
+    },
+  };
+}
+
+/** The repo list fingerprint: what changes when a project is added or removed. */
+export async function repoListFingerprint(paths: string[]): Promise<string> {
+  const parts = await Promise.all(paths.map(async (path) => {
+    try {
+      const s = await stat(path);
+      return `${s.mtimeMs}:${s.size}:${s.ino}`;
+    } catch {
+      return "-";
+    }
+  }));
+  return parts.join("|");
+}

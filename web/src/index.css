@@ -3213,3 +3213,11 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
 .lfg-create-backdrop-idle .lfg-create-cloud {
   animation-play-state: paused;
 }
+
+/* An unfocused window with no input for a while stops its endless loops.
+   See web/src/lib/idle-motion.ts for the rule and the measurement. */
+:root[data-motion="paused"] *,
+:root[data-motion="paused"] *::before,
+:root[data-motion="paused"] *::after {
+  animation-play-state: paused !important;
+}
