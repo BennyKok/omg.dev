@@ -24880,9 +24880,10 @@ function NewSessionDialog({
       }}
       title="Open Stash and recent sessions"
       aria-label="Open Stash and recent sessions"
-      className="flex size-8 shrink-0 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-sm transition hover:text-foreground"
+      // A bare glyph like the plus and mic beside it, as in the session bar.
+      className="flex size-9 shrink-0 items-center justify-center rounded-full text-foreground/70 transition hover:text-foreground"
     >
-      <Archive className="size-4" />
+      <Archive className="size-5" />
     </button>
   );
 
@@ -25047,6 +25048,7 @@ function NewSessionDialog({
     <MicButton
       minimal
       className={cn("size-9 shrink-0", !sheetShape && "absolute bottom-1 right-1")}
+      iconClassName="size-5"
       silenceMs={2500}
       baseText={prompt}
       onText={(text, base) => {
@@ -25064,17 +25066,22 @@ function NewSessionDialog({
       onCancel={(base) => setPrompt(base)}
     />
   );
+  // The same bare plus as the session composer: no chip at rest, the drop
+  // highlight still tints it while files are dragged over the form.
   const attachButton = (
     <Button
-      size="icon-sm"
+      size="icon"
       type="button"
-      variant={draggingFiles ? "brand-soft" : sheetShape ? "ghost" : "outline"}
-      className={cn("size-8 rounded-full", !sheetShape && "shadow-sm")}
+      variant={draggingFiles ? "brand-soft" : "ghost"}
+      className={cn(
+        "size-9 shrink-0 rounded-full",
+        !draggingFiles && "text-foreground/70 hover:bg-transparent hover:text-foreground dark:hover:bg-transparent",
+      )}
       onClick={files.openFilePicker}
       aria-label="Attach files"
       title="Attach files"
     >
-      <Plus className="size-4" />
+      <Plus className="size-6 md:size-5" />
     </Button>
   );
   // Mobile sends with the iOS button: a round arrow, filled when there is
