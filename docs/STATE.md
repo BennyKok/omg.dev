@@ -2,41 +2,41 @@
 
 Read this first. It records what is true now. The nightly librarian agent
 updates it from merged pull requests. Verify a fact in code before you depend
-on it. Last refresh: 2026-10-21.
+on it. Last refresh: 2026-10-23.
 
 ## Active work (last 14 days)
 
-- **First run and previews**: design checks, public first apps, Android
-  template fixes, instruction-chip display, first-task web
-  publishing and APK builds, and game first runs from the Expo game kit
-  (#373, #378, #382, #385, #392). Signed Cloud frame hosts now load
-  in inline web previews (#403).
-- **Android builds**: committed app icons and tool timeout handling
-  (#367, #370).
-- **App kits and default agent**: Haiku 5.5 default, web app and game kits,
-  UI self-checks, and removal of the badge-moving step (#388–#389, #397).
-- **Sessions and OpenCode**: refreshed agent rosters and 90 s tool calls
-  (#371–#372).
-- **Computer**: bounded screenshots and reset of a stuck agent view (#391).
-- **Web and connectors**: owner connector access for scheduled auto agents,
-  an “Updating omg” message during a stale chunk reload, and a host slot
-  above the home and session composers (#383, #401, #405). Embedded guide
-  navigation, conversation binding, and send acknowledgement are fixed (#409).
-- **Cloud deploy**: deployment sends its session to Cloud and requests store
-  screenshots (#395).
-- **Hosted apps**: rename an app address and test its paid flow without
-  payment (#406–#407).
+- **Home and navigation**: Create, Apps, and Chats on phones, local projects
+  on Apps, tutorials, direct app chat boxes, on-demand Apps and GitHub import,
+  compact cards, owner faces, stable project moves, and shared page navigation
+  (#419, #423–#425, #427, #429, #431, #434, #440, #445).
+- **Web presentation**: Create colour, masked pills, dock and heading fixes,
+  full-screen chat images, and phone toast clearance
+  (#426, #430, #432–#433, #435, #437–#439, #441).
+- **Previews and transcripts**: Android and web links lead the phone preview;
+  signed frames and image URLs load; launch text and builder instructions stay
+  out of customer messages (#382, #403, #413–#415, #421).
+- **App and game kits**: Haiku 5.5 default, web-safe app kit, game self-checks,
+  web games by default, drag controls, and preview-first checks
+  (#378, #385, #388–#389, #392, #397, #418, #422, #428).
+- **Computer**: bounded screenshots, stuck-view reset, and release of keys
+  left held by a viewer (#391, #411).
+- **Embedding and connectors**: scheduled agents use owner connectors;
+  stale-chunk reload message, composer-top host slot, guide navigation,
+  conversation binding, and send acknowledgement (#383, #401, #405, #409).
+- **Cloud and apps**: deploy sends its session and requests store screenshots;
+  hosted app rename and paid-flow checkout testing (#395, #406–#407).
 - **Media**: 3D generation and a $25 default daily media cap (#398).
-- **Agent docs**: current context and archive rules,
-  STATE.md refreshes, hosted web app sign-in, automatic sign-in/sign-out
-  rules, and corrected bot plan status (#374–#377, #380–#381, #387, #390,
-  #394, #396, #399–#400, #404, #408, #410).
+- **Release and agent docs**: verified releases start the omg.dev pin update;
+  the pin tool is `omg_pin`; sign-in rules and bot plan status are current
+  (#377, #380, #442–#444). Nightly context refreshes: #381, #387, #390, #394,
+  #396, #399–#400, #404, #408, #410, #412.
 
 ## Open pull requests
 
 - In progress: #360 (close release failure issues after verified success),
-  #364 (Deploy to Railyard button), #393 (game sprites move each frame
-  without a React redraw), #411 (release keys left held by a Computer viewer).
+  #393 (game sprites move each frame without a React redraw),
+  #417 (survive memory and inotify exhaustion from agent commands).
 - Stale (no update for 30+ days): #252 (visual element inspection), #284
   (auto-agent acting tools), #287 (film mode and page navigation).
   Do not build on these without asking the owner.
