@@ -14,6 +14,11 @@ Recent product updates and deployment notes.
 - The web page does less work when your sessions change, so taps stay quick on a busy computer.
 - In the chat box, the plus and microphone buttons show as plain icons, and the bar is a little larger.
 
+## October 23, 2026 - Faster start after an update (v0.6.304)
+
+- The project list loads faster, mostly right after the computer restarts. Requests at the same time now share one read of your projects.
+- A window that you do not use stops its animations after 2 minutes. They start again when you click, type or move the pointer. This saves a lot of CPU on computers without a graphics card.
+
 ## October 23, 2026 - An old search index is removed (v0.6.303)
 
 - The computer removes an old search index that it no longer uses. On some computers this index was more than 1 GB. New messages now use that space before the file gets larger.
