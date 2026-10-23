@@ -139,10 +139,14 @@ describe("ChatStream wiring", () => {
 
   test("every programmatic write disclaims authorship", () => {
     // One clear per write site, so no write can be read back as a gesture.
-    const writes = APP.match(/lastScrollTopRef\.current = /g)?.length ?? 0;
-    const clears = APP.match(/userDrivenRef\.current = false/g)?.length ?? 0;
+    // A clear may also stand alone (a send changes the mode without a write),
+    // so pair each write with a clear close by instead of counting both.
+    const lines = APP.split("\n");
+    const unpaired = lines.flatMap((line, at) => /lastScrollTopRef\.current = /.test(line) &&
+      !lines.slice(Math.max(0, at - 5), at + 5).some(near => near.includes("userDrivenRef.current = false"))
+      ? [line.trim()] : []);
     // Every write site except the onScroll baseline read clears the flag.
-    expect(clears).toBe(writes - 1);
+    expect(unpaired).toHaveLength(1);
   });
 
   test("the old distance-only rule is gone", () => {

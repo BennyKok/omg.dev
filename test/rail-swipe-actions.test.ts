@@ -25,7 +25,10 @@ function railRowBody(): string {
 function railItemBody(): string {
   const start = APP.indexOf("const RailItem = memo(function RailItem({");
   expect(start).toBeGreaterThan(-1);
-  const end = APP.indexOf("\nconst SEV_DOT", start);
+  // The body ends at the next top-level declaration, whatever it is.
+  const next = /\n(?:export )?(?:const|function|type|class) /g;
+  next.lastIndex = start + 1;
+  const end = next.exec(APP)?.index ?? -1;
   expect(end).toBeGreaterThan(start);
   return APP.slice(start, end);
 }

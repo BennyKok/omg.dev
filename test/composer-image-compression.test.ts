@@ -34,7 +34,8 @@ describe("composer image compression", () => {
   test("an annotated screenshot is compressed on the same terms", async () => {
     const hook = hookSource(await app());
     const annotator = hook.slice(
-      hook.indexOf("const annotator = ("),
+      // The annotator now mounts only while a file is being drawn on.
+      hook.indexOf("const annotator = "),
       hook.indexOf("const chips = ("),
     );
 

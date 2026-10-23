@@ -15,7 +15,10 @@ beforeEach(() => {
 });
 afterEach(() => { ui.cleanup(); globalThis.fetch = originalFetch; configureOmgTransport(createSameOriginTransport()); });
 test("a pending request is one row: the site and Log in, without the reason", async () => {
-  globalThis.fetch = (async () => Response.json({ requests: [request], iosAvailable: true, desktopAvailable: true })) as typeof fetch;
+  // Only the login endpoint answers; the Computer page's own requests stay pending.
+  globalThis.fetch = ((url: any) => String(url).includes("/api/browser-login")
+    ? Promise.resolve(Response.json({ requests: [request], iosAvailable: true, desktopAvailable: true }))
+    : new Promise<Response>(() => {})) as typeof fetch;
   ui.render(<BrowserLoginCard sessionId="session-1" user="user@example.com" />);
   await ui.flushAsync();
   expect(ui.text()).toContain("example.com");

@@ -37,7 +37,8 @@ describe("thinking level menu", () => {
 
   test("all composer surfaces use the shared labeled menu", async () => {
     const source = await app();
-    expect(source.match(/<ThinkingLevelPill/g)?.length).toBe(3);
+    // New session, fork, the auto-agent picker and the finding footer (0d0e1eebb).
+    expect(source.match(/<ThinkingLevelPill/g)?.length).toBe(4);
     expect(source).not.toContain('aria-label="Thinking level"');
   });
 
@@ -64,8 +65,11 @@ describe("thinking level menu", () => {
     // No trailing "(" — AgentModelRow is generic, so its signature opens with "<".
     const autoPicker = region(source, "function AgentModelRow", "// ---------- auto agents");
 
-    // New-session composer, fork dialog, and finding/auto-agent picker.
-    expect(source.match(/\simmersive\s*\/>/g)?.length).toBe(3);
+    // New-session composer, fork dialog, auto-agent picker and finding footer:
+    // every ThinkingLevelPill passes `immersive`.
+    const pills = source.split("<ThinkingLevelPill").slice(1).map((rest) => rest.slice(0, rest.indexOf("/>")));
+    expect(pills).toHaveLength(4);
+    for (const pill of pills) expect(pill).toMatch(/\simmersive\s/);
     expect(forkDialog).toContain("immersive");
     expect(autoPicker).toContain("immersive");
     expect(control).toContain("THINKING_HOLD_MS");
