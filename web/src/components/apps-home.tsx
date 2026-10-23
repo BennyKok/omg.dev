@@ -413,19 +413,24 @@ export function CreateHome() {
  * with Create, so switching pages is a cross-fade and the drift carries on
  * where it was. While hidden, the clouds stop moving.
  */
-export function CreateBackdrop({ shown }: { shown: boolean }) {
+export function CreateBackdrop({ shown, contained = false }: { shown: boolean; contained?: boolean }) {
   // While Create shows, the phone header drops its own background so the
   // backdrop runs under it (html.lfg-create-view in index.css), with the same fade.
+  // A contained backdrop (the desktop home pane) leaves the header alone.
   useLayoutEffect(() => {
-    document.documentElement.classList.toggle("lfg-create-view", shown);
-  }, [shown]);
-  useLayoutEffect(() => () => document.documentElement.classList.remove("lfg-create-view"), []);
+    if (!contained) document.documentElement.classList.toggle("lfg-create-view", shown);
+  }, [shown, contained]);
+  useLayoutEffect(() => () => {
+    if (!contained) document.documentElement.classList.remove("lfg-create-view");
+  }, [contained]);
   return (
     <div
       aria-hidden="true"
       // Fades out toward every edge (lfg-create-backdrop in index.css).
+      // Contained: fills its positioned parent and sizes the glows to it.
       className={cn(
-        "lfg-create-backdrop pointer-events-none fixed inset-0 z-0 overflow-hidden transition-opacity duration-500 ease-out motion-reduce:transition-none",
+        "lfg-create-backdrop pointer-events-none inset-0 z-0 overflow-hidden transition-opacity duration-500 ease-out motion-reduce:transition-none",
+        contained ? "lfg-create-backdrop-contained absolute rounded-[inherit]" : "fixed",
         shown ? "opacity-100 dark:opacity-90" : "lfg-create-backdrop-idle opacity-0",
       )}
     >

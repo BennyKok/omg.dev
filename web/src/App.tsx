@@ -10110,6 +10110,9 @@ export function App() {
                 <NewSessionDialog
                   variant="stage"
                   open
+                  // The desktop home matches the phone Create page: a heading
+                  // and the chat box, with no starter row above it.
+                  starters={false}
                   users={users}
                   repos={repos}
                   scopedProject={projectFilter}
@@ -17835,7 +17838,10 @@ function SessionChatBody({
     [sid, onError],
   );
 
-  const composerExpanded = composerFocused || !!messageText.trim() || attachments.length > 0;
+  // Always in the expanded shape. Folding to one row on blur and opening again
+  // on focus moved the bar while the keyboard animated, and that read as a
+  // glitch, so the shape no longer follows focus or content.
+  const composerExpanded = true;
   // One element, placed in whichever slot the bar's shape gives it: before
   // the field at rest, at the head of the control row when expanded.
   // No chip behind it: a bare glyph, as in the iOS Messages bar. The drop
@@ -23903,13 +23909,11 @@ function NewSessionDialog({
   const [agentIconDir, setAgentIconDir] = useState<1 | -1>(1);
   const [agentIconNonce, setAgentIconNonce] = useState(0);
   // The desktop stage wears the mobile composer too: one card, the agent mark
-  // that opens the agent sheet, and the actions inside the field. The stage
-  // has room, so it is always in the expanded shape.
+  // that opens the agent sheet, and the actions inside the field. Both stay in
+  // the expanded shape: folding to one row on blur moved the bar while the
+  // keyboard animated, and that read as a glitch.
   const sheetShape = variant === "inline" || variant === "stage";
-  const inlineExpanded =
-    variant === "stage" ||
-    (variant === "inline" &&
-      (composerFocused || !!prompt.trim() || attachments.length > 0 || pendingUploads.length > 0));
+  const inlineExpanded = sheetShape;
 
   // Own the agent-icon gesture end-to-end with pointer events (one code path
   // for mouse-drag, touch and pen) plus wheel/trackpad. Base UI's trigger opens
@@ -25251,7 +25255,11 @@ function NewSessionDialog({
               e.currentTarget.form?.requestSubmit();
             }
           }}
-          placeholder={attachments.length ? "Add a note for the files…" : placeholder ?? "What should we work on?"}
+          placeholder={
+            attachments.length
+              ? "Add a note for the files…"
+              : placeholder ?? (variant === "stage" && unassigned ? "Describe a game or an app…" : "What should we work on?")
+          }
           className={cn(
             "border-0 bg-transparent text-base leading-relaxed shadow-none focus-visible:border-0 focus-visible:ring-0",
             variant === "stage"
@@ -25413,17 +25421,13 @@ function NewSessionDialog({
 
   // Desktop stage: the same composer the drawer shows, sitting flat in the
   // empty pane instead of sliding over it. Escape closes it the way it closes
-  // the sheet. Greets the session owner by roster name, falling back to the
-  // local part of the email, then to a plain "there".
-  const stageOwner = users.find((item) => item.email === user);
-  const stageGreetingName =
-    stageOwner?.name?.trim() || (user ? user.split("@")[0] : "") || "there";
+  // the sheet.
   if (variant === "stage") {
     return (
       <div
         // overflow-visible on purpose: see the form's stage branch. The
         // suggest menus need to escape upward past the greeting.
-        className="flex h-full min-h-0 flex-1 flex-col items-center justify-center overflow-visible p-4"
+        className="relative flex h-full min-h-0 flex-1 flex-col items-center justify-center overflow-visible rounded-[inherit] p-4"
         data-testid="new-session-stage"
         onKeyDown={(e) => {
           if (e.key === "Escape" && !e.defaultPrevented) {
@@ -25435,11 +25439,13 @@ function NewSessionDialog({
         {/* Flat on the stage background: no card, no border, no shadow. This
             is the page's content, not a dialog over it, so it gets no dialog
             chrome. The field's own outline is the only frame. */}
-        <section aria-label="New session" className="w-full max-w-xl">
-          {/* A greeting, not a dialog title. No close control: Esc, or
+        {/* The phone Create page's colour, kept inside this pane. */}
+        <CreateBackdrop shown contained />
+        <section aria-label="New session" className="relative z-[1] w-full max-w-xl">
+          {/* The phone Create page's heading. No close control: Esc, or
               opening any session from the rail, leaves this surface. */}
-          <h2 className="px-3 pb-2 text-lg font-semibold">
-            Hello {stageGreetingName}!
+          <h2 className="px-3 pb-3 text-[26px] font-bold leading-tight tracking-[-0.02em]">
+            What do you want to make?
           </h2>
           {formBody}
         </section>

@@ -3209,6 +3209,14 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
     transition: none;
   }
 }
+/* The desktop home pane: the same glows, sized to the pane instead of the
+   screen, so a wide window does not blow them up past the pane. */
+.lfg-create-backdrop-contained .lfg-create-cloud-a { width: 80%; left: -15%; top: 0; }
+.lfg-create-backdrop-contained .lfg-create-cloud-b { width: 75%; right: -12%; left: auto; top: -10%; }
+.lfg-create-backdrop-contained .lfg-create-cloud-c { width: 80%; right: -15%; left: auto; top: 30%; }
+.lfg-create-backdrop-contained .lfg-create-cloud-d { width: 80%; left: -15%; top: 40%; }
+.lfg-create-backdrop-contained .lfg-create-cloud-e { width: 70%; left: 20%; top: 55%; }
+
 /* Hidden on other pages: the clouds hold still instead of drifting unseen. */
 .lfg-create-backdrop-idle .lfg-create-cloud {
   animation-play-state: paused;
