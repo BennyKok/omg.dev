@@ -256,10 +256,18 @@ export class ArtifactRefreshManager {
     try {
       validated = validateScript(config.scriptPath, config.scopeRoot);
     } catch (error) {
-      const message = cleanError(error);
+      // A script or folder that no longer exists (usually a removed worktree)
+      // cannot come back by retrying. Four such schedules on one box failed
+      // every 1 to 60 minutes for months, and each failure rewrote the whole
+      // artifact index (6 MB). Turn the schedule off and say why; configuring
+      // the refresh again turns it back on.
+      const missing = (error as NodeJS.ErrnoException)?.code === "ENOENT";
+      const message = missing
+        ? `Refresh turned off: the script no longer exists (${config.scriptPath}).`
+        : cleanError(error);
       artifact = this.updateRefreshStatus({
         id,
-        patch: { status: "error", lastStartedAt: Date.now(), lastError: message },
+        patch: { status: "error", lastStartedAt: Date.now(), lastError: message, ...(missing ? { enabled: false } : {}) },
       }) ?? artifact;
       return { ok: false, started: false, artifact, error: message };
     }

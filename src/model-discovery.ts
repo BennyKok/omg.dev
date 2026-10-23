@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { museFetchInit } from "./muse-proxy.ts";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -543,12 +543,29 @@ async function discoverProvider(key: ProviderKey): Promise<DiscoveredModelProvid
   }
 }
 
+// The model list asks for this once per model (thinking levels, raw models),
+// so it was read and parsed dozens of times per request: 3.6% of the server's
+// CPU in a profile on 2026-10-23. Keep the parsed copy until the file changes.
+// Callers only read it.
+let parsedCache: { key: string; value: ModelDiscoveryCache | null } | null = null;
+
 function readCacheFile(): ModelDiscoveryCache | null {
+  let key: string;
   try {
-    return JSON.parse(readFileSync(CACHE_PATH, "utf8")) as ModelDiscoveryCache;
+    const s = statSync(CACHE_PATH);
+    key = `${s.ino}:${s.size}:${s.mtimeMs}`;
   } catch {
     return null;
   }
+  if (parsedCache?.key === key) return parsedCache.value;
+  let value: ModelDiscoveryCache | null;
+  try {
+    value = JSON.parse(readFileSync(CACHE_PATH, "utf8")) as ModelDiscoveryCache;
+  } catch {
+    value = null;
+  }
+  parsedCache = { key, value };
+  return value;
 }
 
 async function writeCache(cache: ModelDiscoveryCache): Promise<void> {
@@ -636,9 +653,13 @@ export async function refreshModelCatalog(input: {
   return cache;
 }
 
+// One formatter per timezone; see the same cache in src/auto/scheduler.ts.
+const zonedFormatters = new Map<string, Intl.DateTimeFormat>();
+
 function zonedParts(d: Date, tz: string) {
-  const parts = Object.fromEntries(
-    new Intl.DateTimeFormat("en-US", {
+  let formatter = zonedFormatters.get(tz);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-US", {
       timeZone: tz,
       hourCycle: "h23",
       minute: "2-digit",
@@ -646,7 +667,11 @@ function zonedParts(d: Date, tz: string) {
       day: "2-digit",
       month: "2-digit",
       weekday: "short",
-    })
+    });
+    zonedFormatters.set(tz, formatter);
+  }
+  const parts = Object.fromEntries(
+    formatter
       .formatToParts(d)
       .map((p) => [p.type, p.value]),
   );
