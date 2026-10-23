@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { WORKTREE_ROOT, worktreeRoots } from "./config.ts";
 import { MAIN_REF } from "./agents/collectors/git-fresh.ts";
-import { listManaged } from "./managed.ts";
+import { listManagedWithArchive } from "./managed.ts";
 import { deleteMergedSessionBranch } from "./project-maintenance.ts";
 import { lastActivityAtForCwd } from "./resume-cache.ts";
 import { tmuxHasSession } from "./tmux.ts";
@@ -521,7 +521,9 @@ export async function sweepStaleWorktrees(opts?: {
   const now = opts?.now ?? Date.now();
   const retentionMs = opts?.retentionMs ?? worktreeRetentionMs();
   const managed = new Set<string>();
-  for (const m of listManaged()) {
+  // Retired rows protect their worktree exactly as they did while live, so
+  // registry retirement never makes a resumable session's tree reclaimable.
+  for (const m of listManagedWithArchive()) {
     managed.add(m.tmuxName);
     managed.add(basename(m.cwd));
   }

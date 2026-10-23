@@ -19,6 +19,7 @@ import {
 import {
   addManaged,
   listManaged,
+  listManagedWithArchive,
   managedContainment,
   patchManaged,
   removeManaged,
@@ -301,8 +302,9 @@ function attachedAsDelegated(ids: Set<string>): boolean {
 // so there is nothing for relaunchDeadCommandFileHarness to relaunch and a new
 // owner row is written. It must still start with the containment the session
 // first had. In order:
-//   1. the newest owner row for any of the ids (managedContainment: its stored
-//      containment, else the subagent/bot default for legacy rows);
+//   1. the newest owner row for any of the ids, live or retired
+//      (managedContainment: its stored containment, else the subagent/bot
+//      default for legacy rows);
 //   2. the durable record kept after close (session-containment-record.ts);
 //   3. legacy, no record: a delegated or bot session defaults to the slice;
 //   4. otherwise the session was never known to this box as contained.
@@ -311,7 +313,7 @@ export function coldResumeContainment(
   ids: Array<string | null | undefined>,
   agent: string,
   omgSessionId: string,
-  rows: ManagedSession[] = listManaged(),
+  rows: ManagedSession[] = listManagedWithArchive(),
 ): ColdResumeContainment | { error: string } {
   const wanted = new Set(ids.filter((id): id is string => !!id));
   const prior = rows

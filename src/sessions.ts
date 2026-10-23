@@ -4,7 +4,16 @@ import { readFile, readdir, readlink } from "node:fs/promises";
 import { statSync, readFileSync, writeFileSync, renameSync } from "node:fs";
 import { join, basename } from "node:path";
 import { panePidForSession, tmuxHasSession, tmuxTargetForPid, capturePane, isBusy, isJcodeBusy } from "./tmux";
-import { isManagedName, listManaged, managedContainment, patchManaged, type ManagedSession } from "./managed";
+import {
+  findManagedById,
+  isManagedName,
+  listArchivedManaged,
+  listManaged,
+  listManagedWithArchive,
+  managedContainment,
+  patchManaged,
+  type ManagedSession,
+} from "./managed";
 import { agentUnitName, agentUnitOomKilled } from "./agent-unit-oom.ts";
 import { sessionExitReasons } from "./session-containment-record.ts";
 import {
@@ -3432,9 +3441,8 @@ function tmuxSessionFromAgentCgroup(pid: number): string | null {
 
 export async function resolveTranscript(sessionId: string): Promise<string | null> {
   if (!UUID.test(sessionId)) return null;
-  const managed = listManaged().find(
-    (m) => m.sessionId === sessionId || m.nativeSessionId === sessionId,
-  );
+  // A retired row still maps the lfg id to its native transcript id.
+  const managed = findManagedById(sessionId);
   // Command-file Grok/Cursor/Copilot/JCode (and the older SDK agents) index
   // directly. Do this before the native-file branches: those agents still have
   // managed.agent === "cursor"/"jcode"/… on new rows, and hunting ~/.cursor or
@@ -3492,7 +3500,7 @@ export async function resolveTranscript(sessionId: string): Promise<string | nul
       }
     }
   }
-  const managedGrok = listManaged().find((m) => m.agent === "grok" && m.sessionId === sessionId);
+  const managedGrok = listManagedWithArchive().find((m) => m.agent === "grok" && m.sessionId === sessionId);
   if (managedGrok) {
     if (managedGrok.nativeSessionId) {
       const byNative = await findGrokTranscriptById(managedGrok.nativeSessionId);
@@ -3523,8 +3531,7 @@ export async function cwdForTranscript(path: string): Promise<string | null> {
     const sessionId = path.slice("lfg://session/".length);
     const entry = findAisdkEntryByAnyId(sessionId);
     if (entry?.cwd) return entry.cwd;
-    const managed = listManaged().find((m) => m.sessionId === sessionId || m.nativeSessionId === sessionId);
-    return managed?.cwd ?? null;
+    return findManagedById(sessionId)?.cwd ?? null;
   }
   if (path.endsWith(".journal.jsonl")) {
     try {
@@ -3614,7 +3621,8 @@ async function refreshResumableCacheOnce(focusSessionId?: string): Promise<void>
   const managedSessions = listManaged();
   const managedByCwd = new Map(managedSessions.map((m) => [m.cwd, m]));
   const managedById = new Map<string, ManagedSession>();
-  for (const managed of managedSessions) {
+  // Retired rows still title and place their history rows. Live rows win.
+  for (const managed of [...listArchivedManaged(), ...managedSessions]) {
     if (managed.sessionId) managedById.set(managed.sessionId, managed);
     if (managed.nativeSessionId) managedById.set(managed.nativeSessionId, managed);
   }
