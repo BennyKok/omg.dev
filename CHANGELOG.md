@@ -6,6 +6,10 @@ Recent product updates and deployment notes.
 
 - On omg.dev on a phone, the menu keeps the computer picker, Tutorials and Settings after you visit Settings. Before, a second, emptier menu opened on top of the real one when you came back.
 
+## October 23, 2026 - Your first message shows at once (v0.6.315)
+
+- When you start a session, your first message shows in the chat at once. Before, the chat opened empty and the message appeared only after the agent had started.
+
 ## October 23, 2026 - Your sessions first, and smoother pages (v0.6.314)
 
 - On omg.dev, the chat list shows your own sessions from the first frame. Before, it showed every session on the Computer for a moment and then dropped to yours.
