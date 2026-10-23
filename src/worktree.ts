@@ -6,7 +6,9 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
+  readFileSync,
   readlinkSync,
+  realpathSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -344,6 +346,13 @@ export type WorktreeRemoval =
  * out of the snapshot — this preserves work, not the disk hog we're trying to
  * reclaim.
  */
+const CAPTURE_IDENTITY = {
+  GIT_AUTHOR_NAME: "omg.dev worktree sweep",
+  GIT_AUTHOR_EMAIL: "worktree-sweep@omg.dev.invalid",
+  GIT_COMMITTER_NAME: "omg.dev worktree sweep",
+  GIT_COMMITTER_EMAIL: "worktree-sweep@omg.dev.invalid",
+};
+
 async function captureWorktreeSnapshot(
   repoRoot: string,
   wtPath: string,
@@ -376,8 +385,14 @@ async function captureWorktreeSnapshot(
       `expired. Contains tracked modifications, staged changes, and untracked\n` +
       `files exactly as they stood at removal; gitignored paths are excluded.\n\n` +
       `Restore with:\n  git -C ${repoRoot} worktree add <path> ${refName}\n`;
+    // The snapshot is machine-authored, so it carries a fixed identity rather
+    // than whatever the repo has configured. A repo with no user.email (a
+    // bare `git init` project, and this box has no global identity) made
+    // commit-tree fail with "Author identity unknown" on every pass, so its
+    // worktrees sat in capture-failed forever: 19 of them on 2026-10-23.
     const commitTree = await git(wtPath, ["commit-tree", treeSha, "-p", headSha, "-m", message], {
       timeoutMs: 10_000,
+      env: CAPTURE_IDENTITY,
     });
     if (!commitTree.ok) return { ok: false, error: commitTree.err.trim() || "commit-tree failed" };
     const commitSha = commitTree.out.trim();
@@ -436,20 +451,72 @@ export async function removeSessionWorktree(
   return { ok: true, capture: captured.capture };
 }
 
+/**
+ * Why the sweeper kept or removed one directory. A dry run reports exactly
+ * these, from the same code path a real pass uses, so the preview cannot drift
+ * from what the timer will do.
+ */
+export type WorktreeKeepReason =
+  /** No ownership marker and not on this name's `session_<name>` branch. */
+  | "unowned"
+  /** `.git` is a directory: a main checkout or a full clone, never a session worktree. */
+  | "main-checkout"
+  /** Resolves (through a symlink) to somewhere outside the worktree root. */
+  | "outside-root"
+  /** `.git` points at worktree metadata that no longer exists. */
+  | "unregistered"
+  /** `git worktree lock` was set by someone on purpose. */
+  | "locked"
+  | "current-process"
+  | "tmux"
+  | "managed"
+  | "in-use"
+  | "young"
+  | "within-retention"
+  /** Uncommitted, staged, or untracked (non-ignored) files. */
+  | "dirty"
+  /** The checked-out commit has work that is not on the upstream main. */
+  | "unmerged"
+  /** Git could not answer one of the questions above. Unknown keeps. */
+  | "git-error"
+  /** Eligible, but this pass already reached its removal limit. */
+  | "deferred"
+  | "capture-failed"
+  | "remove-failed";
+
+export type WorktreeDecision = {
+  name: string;
+  path: string;
+  /** `remove` in a dry run means "a real pass would remove this". */
+  action: "remove" | "keep";
+  reason: WorktreeKeepReason | "removable";
+  /** Newest activity signal used for the retention clock, epoch ms. */
+  lastActivityMs?: number;
+  repoRoot?: string;
+};
+
 export type WorktreeSweepResult = {
   scanned: number;
-  /** Successfully captured (see `captures`) and removed. */
+  dryRun: boolean;
+  /** Successfully captured (see `captures`) and removed. Empty in a dry run. */
   removed: string[];
+  /** Dry run only: what a real pass would remove, before the per-pass limit. */
+  removable: string[];
+  /** Held by a live signal: tmux, the managed registry, a process cwd, or this process. */
   kept: number;
   skippedYoung: number;
   /** `git worktree remove` itself failed after a successful capture. */
   failed: string[];
   /** Directories the sweeper did not provision, so may not delete. */
   unmanaged: string[];
-  /** Removed worktrees whose capture found real uncommitted content (see `captures`). */
+  /** Past retention but holding uncommitted or untracked work. Kept. */
   dirty: string[];
+  /** Past retention but the branch has commits not on upstream main. Kept. */
+  unmerged: string[];
   /** Held back because the worktree is still inside its retention window. */
   recentlyActive: string[];
+  /** Eligible but over this pass's removal limit; the next pass takes them. */
+  deferred: string[];
   /**
    * Past retention and otherwise reclaimable, but the pre-removal capture
    * failed — kept rather than risk removing something that was never
@@ -458,6 +525,8 @@ export type WorktreeSweepResult = {
   captureFailed: string[];
   /** name -> where its pre-removal snapshot landed, for anyone restoring one. */
   captures: Record<string, WorktreeCapture>;
+  /** One entry per scanned directory. */
+  decisions: WorktreeDecision[];
 };
 
 /**
@@ -500,134 +569,361 @@ function worktreesInUse(): Set<string> {
   return inUse;
 }
 
-// One retention window for every owned worktree (2026-08-23 policy). Age no
-// longer decides between "keep forever" and "reclaim" on its own — dirty
-// worktrees do not get a special never-reap tier, because captureWorktreeSnapshot
-// preserves their content before removal either way. Age only decides WHEN a
-// worktree becomes eligible; three signals still decide whether it ever does,
-// and none of them bend for age:
-//   - a live tmux pane
-//   - a live process whose cwd is inside the worktree
-//   - still present in the session/managed registry
-// Those are exactly the guards that all failed at once and let the sweeper
-// destroy a live session's tree (incident: lfg-35973c, 2026-08-23). Capture
-// makes a wrong reclaim recoverable; it does not make these three optional.
+
+type GitPointer =
+  | { kind: "missing" }
+  | { kind: "checkout" }
+  | { kind: "linked"; gitdir: string; registered: boolean };
+
+/** Read `<wt>/.git` without spawning git. A directory means a real checkout. */
+function readGitPointer(wtPath: string): GitPointer {
+  const dotGit = join(wtPath, ".git");
+  let st: ReturnType<typeof statSync>;
+  try {
+    st = statSync(dotGit);
+  } catch {
+    return { kind: "missing" };
+  }
+  if (st.isDirectory()) return { kind: "checkout" };
+  try {
+    const raw = readFileSync(dotGit, "utf8").trim();
+    const match = raw.match(/^gitdir:\s*(.+)$/m);
+    if (!match) return { kind: "missing" };
+    const gitdir = resolve(wtPath, match[1]!.trim());
+    return { kind: "linked", gitdir, registered: existsSync(join(gitdir, "HEAD")) };
+  } catch {
+    return { kind: "missing" };
+  }
+}
+
+function mtimeOr(path: string, fallback: number): number {
+  try {
+    return statSync(path).mtimeMs;
+  } catch {
+    return fallback;
+  }
+}
+
+function realOrNull(path: string): string | null {
+  try {
+    return realpathSync(path);
+  } catch {
+    return null;
+  }
+}
+
+function isInside(child: string, parent: string): boolean {
+  return child === parent || child.startsWith(`${parent}/`);
+}
+
+/**
+ * The ref that counts as "landed". origin/main is the landing target; a repo
+ * with no remote (a local `git init` project) lands on its local main. A stale
+ * origin/main can only make a merged branch look unmerged, which keeps it.
+ */
+async function upstreamMainRef(wtPath: string): Promise<string | null> {
+  for (const ref of [MAIN_REF, "refs/remotes/origin/HEAD", "refs/heads/main", "refs/heads/master"]) {
+    const r = await git(wtPath, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
+    if (r.ok) return ref;
+  }
+  return null;
+}
+
+function nulList(out: string): string[] {
+  return out.split("\0").filter(Boolean);
+}
+
+/**
+ * Whether everything the worktree's HEAD carries is already on upstream main.
+ *
+ * Read-only on purpose (no merge-tree, which writes objects), so a dry run can
+ * call it against real repositories. Three ways a branch counts as landed:
+ *   1. HEAD is an ancestor of main: never diverged, or merged/fast-forwarded.
+ *   2. Every path the branch changed since the merge base is byte-identical
+ *      in main. This is how a squash landing looks, and it is exactly the
+ *      "nothing to lose" condition for those files.
+ *   3. `git cherry` finds a patch-equivalent commit on main for every branch
+ *      commit. This is how a rebase landing looks when main has since edited
+ *      the same files again.
+ * Anything else, including a git error, is "not landed", which keeps it.
+ */
+export async function worktreeLandedOnMain(
+  wtPath: string,
+): Promise<"landed" | "not-landed" | "error"> {
+  const target = await upstreamMainRef(wtPath);
+  if (!target) return "error";
+  const head = await git(wtPath, ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"]);
+  if (!head.ok) return "error";
+  if ((await git(wtPath, ["merge-base", "--is-ancestor", "HEAD", target])).ok) return "landed";
+
+  const base = await git(wtPath, ["merge-base", target, "HEAD"]);
+  if (!base.ok) return "not-landed"; // unrelated histories
+  const changed = await git(wtPath, ["diff", "--name-only", "--no-renames", "-z", base.out.trim(), "HEAD"]);
+  if (!changed.ok) return "error";
+  const changedPaths = nulList(changed.out);
+  if (changedPaths.length === 0) return "landed";
+  const differs = await git(wtPath, ["diff", "--name-only", "--no-renames", "-z", target, "HEAD"]);
+  if (!differs.ok) return "error";
+  const differing = new Set(nulList(differs.out));
+  if (!changedPaths.some((p) => differing.has(p))) return "landed";
+
+  const cherry = await git(wtPath, ["cherry", target, "HEAD"], { timeoutMs: 30_000 });
+  if (!cherry.ok) return "error";
+  const lines = cherry.out.split("\n").filter(Boolean);
+  if (lines.length > 0 && lines.every((l) => l.startsWith("-"))) return "landed";
+  return "not-landed";
+}
+
+/**
+ * Uncommitted, staged, or untracked work. Ignored files (node_modules, build
+ * output, data caches) do not count. `--no-optional-locks` stops status from
+ * rewriting the index, so checking does not reset the idle clock either.
+ */
+async function worktreeIsDirty(wtPath: string): Promise<boolean | null> {
+  const r = await git(wtPath, ["--no-optional-locks", "status", "--porcelain", "--untracked-files=normal"], {
+    timeoutMs: 30_000,
+  });
+  if (!r.ok) return null;
+  return r.out.trim().length > 0;
+}
+
+function readSessionBranch(gitdir: string): string | null {
+  try {
+    const head = readFileSync(join(gitdir, "HEAD"), "utf8").trim();
+    return head.startsWith("ref: refs/heads/") ? head.slice("ref: refs/heads/".length) : null;
+  } catch {
+    return null;
+  }
+}
+
+// What may be removed (2026-10-23 policy). A worktree is removed only when
+// removing it loses nothing. Every one of these must hold:
+//   - the sweeper owns it: an ownership marker, or it is checked out on
+//     `session_<name>` at `<root>/<name>`, the exact shape
+//     prepareSessionWorktree creates (pre-marker session worktrees)
+//   - it is a linked worktree, not a main checkout or clone, and it resolves
+//     inside the worktree root
+//   - no live signal: a tmux pane, a managed registry row (any state, so
+//     launching and hydrating rows count), a process cwd inside it, or this
+//     process's own cwd. Age never outvotes these (incident lfg-35973c,
+//     2026-08-23).
+//   - idle past the retention window, by the NEWEST of the directory mtime,
+//     the worktree's git index, HEAD and reflog, and the resume cache's
+//     transcript activity
+//   - clean: no tracked, staged, or untracked changes (ignored files aside)
+//   - landed: HEAD has nothing that upstream main lacks (worktreeLandedOnMain)
+// Dirty or unlanded worktrees are kept and reported. The 2026-08-23 policy
+// captured and removed those too; it is narrowed because a capture ref is a
+// recovery path, not a reason to delete work. The capture still runs before
+// every removal as a guard against a file written between the check and the
+// removal.
+//
+// A resumed session does not need its old worktree: resolveResumeCwd in
+// serve.ts falls back to the project checkout when the directory is gone, and
+// a landed branch holds nothing that checkout lacks.
 export async function sweepStaleWorktrees(opts?: {
   minAgeMs?: number;
   now?: number;
   retentionMs?: number;
+  /** Decide everything, remove nothing. */
+  dryRun?: boolean;
+  /** Most removals in one pass, so a backlog never saturates disk IO. */
+  maxRemovals?: number;
 }): Promise<WorktreeSweepResult> {
   const minAgeMs = opts?.minAgeMs ?? worktreeSweepMinAgeMs();
   const now = opts?.now ?? Date.now();
   const retentionMs = opts?.retentionMs ?? worktreeRetentionMs();
+  const dryRun = opts?.dryRun === true;
+  const maxRemovals = opts?.maxRemovals ?? worktreeSweepMaxRemovals();
   const managed = new Set<string>();
   // Retired rows protect their worktree exactly as they did while live, so
   // registry retirement never makes a resumable session's tree reclaimable.
   for (const m of listManagedWithArchive()) {
     managed.add(m.tmuxName);
-    managed.add(basename(m.cwd));
+    if (m.cwd) managed.add(basename(m.cwd));
   }
   const inUse = worktreesInUse();
+  const ownCwd = realOrNull(process.cwd());
   const result: WorktreeSweepResult = {
     scanned: 0,
+    dryRun,
     removed: [],
+    removable: [],
     kept: 0,
     skippedYoung: 0,
     failed: [],
     unmanaged: [],
     dirty: [],
+    unmerged: [],
     recentlyActive: [],
+    deferred: [],
     captureFailed: [],
     captures: {},
+    decisions: [],
   };
 
   const roots = worktreeRoots().filter((root) => existsSync(root));
   if (roots.length === 0) return result;
+  const touchedRepos = new Set<string>();
+  let removals = 0;
 
   for (const root of roots) {
-  for (const name of readdirSync(root)) {
-    // Dotfiles are bookkeeping (the ownership markers live here), never
-    // worktrees.
-    if (name.startsWith(".")) continue;
-    const wtPath = `${root}/${name}`;
-    let dirStat: ReturnType<typeof statSync>;
-    try {
-      dirStat = statSync(wtPath);
-      if (!dirStat.isDirectory()) continue;
-    } catch {
-      continue;
-    }
-    result.scanned++;
-
-    // The sweeper may only delete what the sweeper created. Everything else in
-    // this directory belongs to a human. (Directories that look like worktrees
-    // but are not registered with any repo are a separate, non-code-owned
-    // category — see scripts/worktree-reclaim-report.ts.)
-    if (!isWorktreeOwned(name, root)) {
-      result.unmanaged.push(name);
-      continue;
-    }
-
-    // HARD BLOCKS. Unconditional — age must never outvote these three, because
-    // these are exactly the checks that all missed at once on 2026-08-23 and
-    // destroyed a live session's worktree.
-    if (tmuxHasSession(name) || managed.has(name) || inUse.has(name)) {
-      result.kept++;
-      continue;
-    }
-
-    // Tiny creation-race guard, unrelated to retention policy: a worktree is
-    // created a moment before tmux new-session (or the managed row) returns,
-    // so a worktree younger than this cannot yet have any of the three hard
-    // blocks above set even though a session is actively starting in it.
-    if (now - dirStat.mtimeMs < minAgeMs) {
-      result.skippedYoung++;
-      continue;
-    }
-
-    // Retention clock. The resume-cache's last_activity_at is a real
-    // transcript-derived timestamp and a far better clock than the worktree
-    // directory's own mtime (which only moves when something touches the
-    // worktree root directly, not when a session edits a file three levels
-    // deep) — use it whenever this cwd has an entry, and fall back to
-    // directory mtime only when it does not. Either way, "not sure" resolves
-    // to "more recent", never less: that only ever makes the sweeper wait
-    // longer, which is the safe direction.
-    let referenceMs = dirStat.mtimeMs;
-    let recentSignal = false;
-    try {
-      const cached = lastActivityAtForCwd(wtPath);
-      if (cached !== null) {
-        referenceMs = cached;
-        recentSignal = true;
+    const realRoot = realOrNull(root) ?? root;
+    for (const name of readdirSync(root)) {
+      // Dotfiles are bookkeeping (the ownership markers live here), never
+      // worktrees.
+      if (name.startsWith(".")) continue;
+      const wtPath = `${root}/${name}`;
+      let dirStat: ReturnType<typeof statSync>;
+      try {
+        dirStat = statSync(wtPath);
+        if (!dirStat.isDirectory()) continue;
+      } catch {
+        continue;
       }
-    } catch {
-      // An unreadable cache must never widen what the sweeper reclaims.
-    }
-    if (now - referenceMs < retentionMs) {
-      if (recentSignal) result.recentlyActive.push(name);
-      continue;
-    }
+      result.scanned++;
+      const decide = (
+        action: WorktreeDecision["action"],
+        reason: WorktreeDecision["reason"],
+        extra?: Partial<WorktreeDecision>,
+      ) => {
+        result.decisions.push({ name, path: wtPath, action, reason, ...extra });
+      };
 
-    // Past the retention window. Capture first, unconditionally — dirty or
-    // clean gets the same treatment now, per the 2026-08-23 policy: nothing is
-    // lost when the window expires, so age alone is enough to reclaim.
-    const removal = await removeSessionWorktree(null, name, root);
-    if (removal.ok) {
-      result.removed.push(name);
-      if (removal.capture) {
-        result.captures[name] = removal.capture;
-        if (removal.capture.hadChanges) result.dirty.push(name);
+      const real = realOrNull(wtPath);
+      if (!real || !isInside(real, realRoot) || real === realRoot) {
+        decide("keep", "outside-root");
+        continue;
       }
-    } else if (removal.stage === "capture") {
-      // Never reclaim on the assumption a capture worked. Keep it and surface
-      // it — this needs a human, not a retry loop, since the same failure
-      // (permissions, a git object-store problem) will likely recur.
-      result.captureFailed.push(name);
-    } else {
-      result.failed.push(name);
+      if (ownCwd && isInside(ownCwd, real)) {
+        result.kept++;
+        decide("keep", "current-process");
+        continue;
+      }
+
+      const pointer = readGitPointer(wtPath);
+      if (pointer.kind === "checkout") {
+        decide("keep", "main-checkout");
+        continue;
+      }
+      // The sweeper may only delete what the sweeper created. Everything else
+      // in this directory belongs to a human.
+      const onSessionBranch =
+        pointer.kind === "linked" && readSessionBranch(pointer.gitdir) === `session_${name}`;
+      if (!isWorktreeOwned(name, root) && !onSessionBranch) {
+        result.unmanaged.push(name);
+        decide("keep", "unowned");
+        continue;
+      }
+      if (pointer.kind !== "linked" || !pointer.registered) {
+        decide("keep", "unregistered");
+        continue;
+      }
+      if (existsSync(join(pointer.gitdir, "locked"))) {
+        decide("keep", "locked");
+        continue;
+      }
+
+      // HARD BLOCKS. Unconditional — age must never outvote these, because
+      // these are exactly the checks that all missed at once on 2026-08-23 and
+      // destroyed a live session's worktree.
+      const live = managed.has(name)
+        ? "managed"
+        : inUse.has(name)
+          ? "in-use"
+          : tmuxHasSession(name)
+            ? "tmux"
+            : null;
+      if (live) {
+        result.kept++;
+        decide("keep", live);
+        continue;
+      }
+
+      // Tiny creation-race guard, unrelated to retention policy: a worktree is
+      // created a moment before tmux new-session (or the managed row) returns.
+      if (now - dirStat.mtimeMs < minAgeMs) {
+        result.skippedYoung++;
+        decide("keep", "young");
+        continue;
+      }
+
+      // Retention clock: the newest signal wins. The resume cache records
+      // transcript activity; the index, HEAD and reflog move on every
+      // add/commit/checkout three directories deep, which the worktree's own
+      // directory mtime does not. "Not sure" only ever reads as more recent.
+      let lastActivityMs = Math.max(
+        dirStat.mtimeMs,
+        mtimeOr(join(pointer.gitdir, "index"), 0),
+        mtimeOr(join(pointer.gitdir, "HEAD"), 0),
+        mtimeOr(join(pointer.gitdir, "logs", "HEAD"), 0),
+      );
+      let cacheReadable = true;
+      try {
+        const cached = lastActivityAtForCwd(wtPath);
+        if (cached !== null) lastActivityMs = Math.max(lastActivityMs, cached);
+      } catch {
+        cacheReadable = false; // must never widen what the sweeper reclaims
+      }
+      if (!cacheReadable || now - lastActivityMs < retentionMs) {
+        result.recentlyActive.push(name);
+        decide("keep", "within-retention", { lastActivityMs });
+        continue;
+      }
+
+      const repoRoot = (await repoRootFromWorktree(wtPath)) ?? undefined;
+      const facts = { lastActivityMs, repoRoot };
+      const dirty = await worktreeIsDirty(wtPath);
+      if (dirty === null) {
+        decide("keep", "git-error", facts);
+        continue;
+      }
+      if (dirty) {
+        result.dirty.push(name);
+        decide("keep", "dirty", facts);
+        continue;
+      }
+      const landed = await worktreeLandedOnMain(wtPath);
+      if (landed !== "landed") {
+        if (landed === "not-landed") result.unmerged.push(name);
+        decide("keep", landed === "not-landed" ? "unmerged" : "git-error", facts);
+        continue;
+      }
+
+      if (dryRun) {
+        result.removable.push(name);
+        decide("remove", "removable", facts);
+        continue;
+      }
+      if (removals >= maxRemovals) {
+        result.deferred.push(name);
+        decide("keep", "deferred", facts);
+        continue;
+      }
+      removals++;
+      const removal = await removeSessionWorktree(repoRoot ?? null, name, root);
+      if (repoRoot) touchedRepos.add(repoRoot);
+      if (removal.ok) {
+        result.removed.push(name);
+        if (removal.capture) result.captures[name] = removal.capture;
+        decide("remove", "removable", facts);
+      } else if (removal.stage === "capture") {
+        // Never reclaim on the assumption a capture worked. Keep it and surface
+        // it — this needs a human, not a retry loop.
+        result.captureFailed.push(name);
+        decide("keep", "capture-failed", facts);
+      } else {
+        result.failed.push(name);
+        decide("keep", "remove-failed", facts);
+      }
     }
   }
+
+  // `worktree remove` already drops its own metadata. Prune clears entries
+  // whose directory vanished some other way, so `git worktree list` and the
+  // branch-in-use checks stay truthful. Git leaves locked entries alone.
+  for (const repo of touchedRepos) {
+    await git(repo, ["worktree", "prune"], { timeoutMs: 30_000 }).catch(() => undefined);
   }
 
   return result;
@@ -646,18 +942,26 @@ function worktreeSweepMinAgeMs(): number {
   return Number.isFinite(n) && n >= 0 ? n : 2 * 60_000;
 }
 
-// How long a worktree may sit past its last known activity before the sweeper
-// captures and reclaims it. One window for every worktree, dirty or clean —
-// captureWorktreeSnapshot is what makes that safe, not the length of the
-// window. Seven days: the data behind this default (2026-08-23) showed 77 of
-// 80 worktrees already over 2 days idle, so most reasonable windows reclaim
-// most of the current backlog; seven gives a generous margin for someone who
-// stepped away for a few days and still means to come back, while a captured
-// worktree costs kilobytes to keep around if the window turns out to be
-// wrong in either direction.
-function worktreeRetentionMs(): number {
+// A removal deletes a whole tree (node_modules included), so a backlog of a
+// hundred eligible worktrees must not all go in one pass on a busy box. Five
+// per 15-minute pass still clears 480 a day.
+export function worktreeSweepMaxRemovals(): number {
+  const raw = process.env.LFG_WORKTREE_SWEEP_MAX_REMOVALS;
+  const n = raw ? parseInt(raw, 10) : 5;
+  return Number.isFinite(n) && n >= 0 ? n : 5;
+}
+
+// How long a worktree must sit idle before it is eligible. Three days, from a
+// dry run on 2026-10-23 (392 directories, 31 GB, disk 81% full): at seven days
+// the sweep could remove 17 worktrees holding 456 KB, because sessions here
+// turn over in a day or two and a week-old worktree is rare. At three days it
+// could remove 154 holding 5.2 GB. The window no longer guards work, the clean
+// and landed checks do, so it only decides how long a finished worktree stays
+// warm for a resume. Past it, resume falls back to the project checkout
+// (resolveResumeCwd in serve.ts). LFG_WORKTREE_RETENTION_MS overrides it.
+export function worktreeRetentionMs(): number {
   const raw = process.env.LFG_WORKTREE_RETENTION_MS;
-  const fallback = 7 * 24 * 60 * 60_000;
+  const fallback = 3 * 24 * 60 * 60_000;
   const n = raw ? parseInt(raw, 10) : fallback;
   return Number.isFinite(n) && n >= 0 ? n : fallback;
 }
@@ -676,15 +980,20 @@ export function startWorktreeSweep(onLog: (s: string) => void = () => {}): void 
     try {
       const r = await sweepStaleWorktrees();
       if (r.removed.length || r.failed.length || r.captureFailed.length) {
+        const capturedChanges = Object.entries(r.captures)
+          .filter(([, c]) => c.hadChanges)
+          .map(([name]) => name);
         onLog(
           `[worktree-sweep] scanned=${r.scanned} removed=${r.removed.length}` +
             (r.removed.length ? ` [${r.removed.join(", ")}]` : "") +
-            (r.dirty.length ? ` captured-uncommitted=[${r.dirty.join(", ")}]` : "") +
+            (capturedChanges.length ? ` captured-uncommitted=[${capturedChanges.join(", ")}]` : "") +
             (r.failed.length ? ` failed=[${r.failed.join(", ")}]` : "") +
             (r.captureFailed.length
               ? ` capture-failed=[${r.captureFailed.join(", ")}] (kept, needs a human look)`
               : "") +
-            (r.recentlyActive.length ? ` within-retention=${r.recentlyActive.length}` : ""),
+            (r.deferred.length ? ` deferred=${r.deferred.length}` : "") +
+            ` kept-dirty=${r.dirty.length} kept-unmerged=${r.unmerged.length}` +
+            ` within-retention=${r.recentlyActive.length}`,
         );
       }
     } catch (e) {
@@ -706,6 +1015,6 @@ export function startWorktreeSweep(onLog: (s: string) => void = () => {}): void 
   const startupDelayMs = Math.min(intervalMs, 5 * 60_000);
   setTimeout(run, startupDelayMs);
   onLog(
-    `[worktree-sweep] started (every ${Math.round(intervalMs / 60_000)}m, min-age ${Math.round(worktreeSweepMinAgeMs() / 1000)}s, retention ${Math.round(worktreeRetentionMs() / 86_400_000)}d)`,
+    `[worktree-sweep] started (every ${Math.round(intervalMs / 60_000)}m, min-age ${Math.round(worktreeSweepMinAgeMs() / 1000)}s, retention ${Math.round(worktreeRetentionMs() / 86_400_000)}d, max ${worktreeSweepMaxRemovals()} removals per pass)`,
   );
 }

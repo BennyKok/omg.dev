@@ -60,7 +60,7 @@ function runProbe(
   writeFileSync(
     scriptPath,
     `
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 const root = process.env.LFG_WORKTREE_ROOT;
 mkdirSync(root, { recursive: true });
@@ -104,6 +104,14 @@ upsertResumableRows([{
   path: null,
   mtimeMs: now,
 }]);
+
+// The retention clock takes the NEWEST of the transcript activity and the
+// worktree's own git files, so a quiet session needs quiet files too.
+const quietAt = new Date(now - Number(process.env.PROBE_LAST_ACTIVITY_AGO_MS));
+const gitdir = Bun.spawnSync(["git", "-C", path, "rev-parse", "--absolute-git-dir"]).stdout.toString().trim();
+for (const p of [join(gitdir, "index"), join(gitdir, "HEAD"), join(gitdir, "logs", "HEAD"), path]) {
+  try { utimesSync(p, quietAt, quietAt); } catch {}
+}
 
 const { sweepStaleWorktrees } = await import(${JSON.stringify(join(REPO, "src/worktree.ts"))});
 const sweep = await sweepStaleWorktrees({ minAgeMs: 0, now, retentionMs: 24 * 60 * 60_000 });
