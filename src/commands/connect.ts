@@ -6,6 +6,12 @@ import { join } from "node:path";
 import { PATHS, localServeBaseUrl, localServeHost } from "../config.ts";
 import { CONNECT_AUTH_REJECTED_EXIT_CODE } from "../connect-manager.ts";
 import {
+  coalescedRunner,
+  openLocalChangeFeed,
+  type CoalescedRunner,
+  type LocalStatusRow,
+} from "../connect-local-feed.ts";
+import {
   BOX_CAPS,
   CAP_BINARY,
   CAP_HTTP_STREAM,
@@ -664,6 +670,10 @@ function eventsEnabled(): boolean {
 }
 
 const EVENTS_POLL_MS = Number(process.env.LFG_CONNECT_EVENTS_INTERVAL_MS ?? 4_000);
+/** Re-read each list this often even while the local live socket is up. */
+const LIVE_BACKSTOP_MS = 60_000;
+/** Bursts of live frames collapse into at most one read per list per second. */
+const LIVE_READ_MIN_GAP_MS = 1_000;
 const MIN_REPORTABLE_DURATION_MS = Number(process.env.LFG_CONNECT_EVENTS_MIN_DURATION_MS ?? 60_000);
 
 /** The subset of src/sessions.ts's `Session` this client reads off GET /api/sessions. */
@@ -995,7 +1005,7 @@ async function pollShipEvents(
     try {
       ws.send(JSON.stringify(frame));
     } catch {
-      // best-effort — see pollSessionEvents.
+      // best-effort — see publishSessionEvents.
     }
   }
 }
@@ -1151,7 +1161,7 @@ async function pollAutoFindingEvents(
     try {
       ws.send(JSON.stringify(frame));
     } catch {
-      // best-effort — see pollSessionEvents.
+      // best-effort — see publishSessionEvents.
     }
   }
 }
@@ -1178,25 +1188,75 @@ async function pollAskEvents(
     try {
       ws.send(JSON.stringify(frame));
     } catch {
-      // best-effort — see pollSessionEvents.
+      // best-effort — see publishSessionEvents.
     }
   }
 }
 
+type SessionEventState = {
+  seen: Map<string, SeenSession>;
+  fleetSignature: string | null;
+  fleetSentAt: number;
+  /** The last full list, patched in place by live status rows. */
+  rows: Map<string, SessionLite> | null;
+};
+
+async function fetchLocalSessions(): Promise<SessionLite[] | null> {
+  try {
+    const response = await fetch(`http://${LOCAL_HOST}:${LOCAL_PORT}/api/sessions`);
+    if (!response.ok) return null;
+    const body = (await response.json()) as { sessions?: SessionLite[] };
+    return body.sessions ?? [];
+  } catch {
+    return null; // local serve unreachable this time — the next read retries.
+  }
+}
+
 async function pollSessionEvents(
-  state: { seen: Map<string, SeenSession>; fleetSignature: string | null; fleetSentAt: number },
+  state: SessionEventState,
   getSocket: () => WebSocket | null,
   includeLifecycleEvents: boolean,
 ): Promise<void> {
-  let sessions: SessionLite[];
-  try {
-    const response = await fetch(`http://${LOCAL_HOST}:${LOCAL_PORT}/api/sessions`);
-    if (!response.ok) return;
-    const body = (await response.json()) as { sessions?: SessionLite[] };
-    sessions = body.sessions ?? [];
-  } catch {
-    return; // local serve unreachable this tick — try again next tick.
+  const sessions = await fetchLocalSessions();
+  if (!sessions) return;
+  state.rows = new Map(sessions.filter((s) => s.sessionId).map((s) => [s.sessionId!, s]));
+  publishSessionEvents(state, sessions, getSocket, includeLifecycleEvents);
+}
+
+/**
+ * Patch the held list with live status rows and publish what that moved.
+ * Returns false when a row names a session the held list lacks (or there is
+ * no list yet), so the caller re-reads the full list.
+ */
+export function applyLocalStatusRows(
+  state: SessionEventState,
+  rows: LocalStatusRow[],
+  getSocket: () => WebSocket | null,
+  includeLifecycleEvents: boolean,
+): boolean {
+  if (!state.rows) return false;
+  let complete = true;
+  for (const row of rows) {
+    if (!row.sessionId) continue;
+    const held = state.rows.get(row.sessionId);
+    if (!held) {
+      complete = false;
+      continue;
+    }
+    if (row.busy !== undefined) held.busy = row.busy;
+    if (row.status !== undefined) held.status = row.status;
+    if (row.title !== undefined) held.title = row.title;
   }
+  publishSessionEvents(state, [...state.rows.values()], getSocket, includeLifecycleEvents);
+  return complete;
+}
+
+function publishSessionEvents(
+  state: SessionEventState,
+  sessions: SessionLite[],
+  getSocket: () => WebSocket | null,
+  includeLifecycleEvents: boolean,
+): void {
   const ts = Date.now();
   const events: Array<SessionEventFrame | FleetStatusEventFrame> = includeLifecycleEvents
     ? diffSessionEvents(state.seen, sessions, ts)
@@ -1206,7 +1266,7 @@ async function pollSessionEvents(
   if (nextFleetSignature !== state.fleetSignature || ts - state.fleetSentAt >= 60_000) events.push(fleet);
   if (!events.length) return;
   const ws = getSocket();
-  if (!ws || ws.readyState !== WebSocket.OPEN) return; // no live relay connection right now — drop this tick's events.
+  if (!ws || ws.readyState !== WebSocket.OPEN) return; // no live relay connection right now — drop these events.
   for (const frame of events) {
     try {
       ws.send(JSON.stringify(frame));
@@ -1334,47 +1394,79 @@ async function runConnectLoop(explicitComputerUrl?: string): Promise<void> {
     await writeCredentials(creds);
   }
 
-  // Session-events watcher lives for the whole process, independent of any
-  // one relay connection: it always polls local serve, and only SENDS a
-  // frame when `currentWs` happens to be open at the moment a transition is
-  // detected (see pollSessionEvents — otherwise it just drops that tick's
-  // events, same "best-effort, poller elsewhere is the fallback" posture as
-  // everything else in this file).
+  // Session, ship, finding and ask watchers live for the whole process,
+  // independent of any one relay connection. They read local serve and only
+  // SEND a frame when `currentWs` happens to be open at that moment (see
+  // publishSessionEvents — otherwise that read's events are dropped, the same
+  // "best-effort, poller elsewhere is the fallback" posture as everything else
+  // in this file).
+  //
+  // They read when local serve says something changed, over one local live
+  // socket (src/connect-local-feed.ts), not on a fixed 4 s timer. The timer
+  // below is now only the fallback: the old fixed poll while that socket is
+  // down, and a LIVE_BACKSTOP_MS re-read while it is up.
   let currentWs: WebSocket | null = null;
   const includeLifecycleEvents = eventsEnabled();
-  const sessionState = {
+  const sessionState: SessionEventState = {
     seen: new Map<string, SeenSession>(),
-    fleetSignature: null as string | null,
+    fleetSignature: null,
     fleetSentAt: 0,
+    rows: null,
   };
-  const timer = setInterval(
-    () => void pollSessionEvents(sessionState, () => currentWs, includeLifecycleEvents),
-    EVENTS_POLL_MS,
+  const getRelaySocket = () => currentWs;
+  const sessionsRead = coalescedRunner(
+    () => pollSessionEvents(sessionState, getRelaySocket, includeLifecycleEvents),
+    LIVE_READ_MIN_GAP_MS,
   );
-  timer.unref?.();
+  const runners: CoalescedRunner[] = [sessionsRead];
+  let shipsRead: CoalescedRunner | null = null;
+  let findingsRead: CoalescedRunner | null = null;
+  let asksRead: CoalescedRunner | null = null;
   if (includeLifecycleEvents) {
     console.log(
-      `lfg connect: forwarding session lifecycle, shipped-post, auto-finding and ask-user events to the relay every ${EVENTS_POLL_MS}ms (LFG_CONNECT_EVENTS=1) — session titles, ship titles/summaries, finding titles/reasoning and question text will be sent to the relay.`,
+      `lfg connect: forwarding session lifecycle, shipped-post, auto-finding and ask-user events to the relay when local serve announces a change (LFG_CONNECT_EVENTS=1) — session titles, ship titles/summaries, finding titles/reasoning and question text will be sent to the relay.`,
     );
-    // Shipped-post watcher — same opt-in, same cadence, same best-effort
-    // posture. A ship (lfg_ship / POST /api/shipped) is an explicit verified
-    // result, so it's forwarded as its own `ship.posted` frame with the summary.
+    // Shipped-post watcher. A ship (lfg_ship / POST /api/shipped) is an
+    // explicit verified result, so it's forwarded as its own `ship.posted`
+    // frame with the summary. Ships have no change topic; an agent posts one
+    // from a working session, so they are read when session status moves,
+    // at most once per EVENTS_POLL_MS.
     const shipState = { seenShips: new Map<string, number>(), seeded: false };
-    const shipTimer = setInterval(() => void pollShipEvents(shipState, () => currentWs), EVENTS_POLL_MS);
-    shipTimer.unref?.();
+    shipsRead = coalescedRunner(() => pollShipEvents(shipState, getRelaySocket), EVENTS_POLL_MS);
     // Auto-agent findings — headless agents produce these on their own
     // schedule, so without this watcher their output never leaves the box's
-    // web UI.
+    // web UI. Read on the "auto" topic.
     const findingState = { seenFindings: new Set<string>(), seeded: false };
-    const findingTimer = setInterval(() => void pollAutoFindingEvents(findingState, () => currentWs), EVENTS_POLL_MS);
-    findingTimer.unref?.();
+    findingsRead = coalescedRunner(() => pollAutoFindingEvents(findingState, getRelaySocket), LIVE_READ_MIN_GAP_MS);
     // Open ask-user questions — the outbound half of the human-in-the-loop
     // path; the answer comes back as an ordinary relayed
     // POST /api/ask/<id>/answer over the request plane (see the doc block).
+    // Read on the "ask" topic.
     const askState = { seenAsks: new Set<string>(), seeded: false };
-    const askTimer = setInterval(() => void pollAskEvents(askState, () => currentWs), EVENTS_POLL_MS);
-    askTimer.unref?.();
+    asksRead = coalescedRunner(() => pollAskEvents(askState, getRelaySocket), LIVE_READ_MIN_GAP_MS);
+    runners.push(shipsRead, findingsRead, asksRead);
   }
+  const localFeed = openLocalChangeFeed(`ws://${LOCAL_HOST}:${LOCAL_PORT}/api/live/ws`, {
+    onChanged(topics) {
+      const all = topics.length === 0;
+      if (all || topics.includes("sessions")) sessionsRead.request();
+      if (all || topics.includes("auto")) findingsRead?.request();
+      if (all || topics.includes("ask")) asksRead?.request();
+      if (all) shipsRead?.request();
+    },
+    onStatus(rows) {
+      if (!applyLocalStatusRows(sessionState, rows, getRelaySocket, includeLifecycleEvents)) sessionsRead.request();
+      shipsRead?.request();
+    },
+  });
+  const fallback = setInterval(() => {
+    const live = localFeed.isLive();
+    const now = Date.now();
+    for (const runner of runners) {
+      if (!live || now - runner.lastRunAt() >= LIVE_BACKSTOP_MS) runner.request();
+    }
+  }, EVENTS_POLL_MS);
+  fallback.unref?.();
 
   let backoffMs = RECONNECT_MIN_MS;
   let previousRelay: string | undefined;

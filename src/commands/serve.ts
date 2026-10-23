@@ -10056,10 +10056,14 @@ a{color:#60a5fa}
         const requestedCwd = body?.cwd?.trim() || undefined;
         const parentId = body?.parentSessionId?.trim() || undefined;
         const spawnedBy = body?.spawnedBy?.trim() || (parentId ? "subagent" : undefined);
-        const liveRows = parentId ? await listSessions() : [];
-        const parent = parentId
-          ? liveRows.find((s) => s.sessionId === parentId || s.nativeSessionId === parentId)
-          : undefined;
+        // The parent and its ancestors already exist (the parent is the caller),
+        // so the cached list (at most a few seconds old) has them. A full scan
+        // here cost every subagent create 3–12 s on a loaded box. Only a parent
+        // the cache has not seen yet, e.g. one created a moment ago, pays for it.
+        const isParent = (s: Session) => s.sessionId === parentId || s.nativeSessionId === parentId;
+        let liveRows = parentId ? await listSessionsCached().catch(() => [] as Session[]) : [];
+        if (parentId && !liveRows.some(isParent)) liveRows = await listSessions();
+        const parent = parentId ? liveRows.find(isParent) : undefined;
         if (parentId && !parent) return err(404, "parent session not found");
         // Always spawn in a trusted folder — claude shows a blocking "trust this
         // folder?" dialog for any untrusted cwd, which hangs session startup.
