@@ -4405,13 +4405,16 @@ export const MicButton = forwardRef<
     baseText?: string;
     silenceMs?: number;
     className?: string;
+    // Size of the glyph. Kept apart from className so a caller can grow the
+    // icon without overriding the recording colours on the button itself.
+    iconClassName?: string;
     minimal?: boolean;
     // Fires true while actively recording (tap or hold), false otherwise — lets a
     // parent reflect "listening" in its own chrome (e.g. glow the session border).
     onRecordingChange?: (recording: boolean) => void;
   }
 >(function MicButton(
-  { onText, onAutoSubmit, onInterim, onCancel, baseText, silenceMs, className, minimal = false, onRecordingChange },
+  { onText, onAutoSubmit, onInterim, onCancel, baseText, silenceMs, className, iconClassName = "size-4", minimal = false, onRecordingChange },
   ref,
 ) {
   const { state, toggle, start, stop, cancel, supported, level, provider } = useDictation({
@@ -4678,13 +4681,13 @@ export const MicButton = forwardRef<
         )}
       >
         {cancelArmed ? (
-          <X className="size-4" />
+          <X className={iconClassName} />
         ) : state === "transcribing" || state === "starting" ? (
           // "starting" spins too, so the tap visibly registers while the browser
           // is prompting for / opening the mic instead of looking like a dead tap.
-          <Loader2 className="size-4 animate-spin" />
+          <Loader2 className={cn(iconClassName, "animate-spin")} />
         ) : (
-          <Mic className="size-4" />
+          <Mic className={iconClassName} />
         )}
       </button>
     </>
@@ -17825,18 +17828,23 @@ function SessionChatBody({
   const composerExpanded = composerFocused || !!messageText.trim() || attachments.length > 0;
   // One element, placed in whichever slot the bar's shape gives it: before
   // the field at rest, at the head of the control row when expanded.
+  // No chip behind it: a bare glyph, as in the iOS Messages bar. The drop
+  // highlight still tints it while files are dragged over the composer.
   const attachButton = (
     <Button
       size="icon"
       type="button"
-      variant={draggingFiles ? "brand-soft" : "tint"}
-      className="size-10 shrink-0 rounded-full md:size-8"
+      variant={draggingFiles ? "brand-soft" : "ghost"}
+      className={cn(
+        "size-10 shrink-0 rounded-full md:size-9",
+        !draggingFiles && "text-foreground/70 hover:bg-transparent hover:text-foreground dark:hover:bg-transparent",
+      )}
       onClick={files.openFilePicker}
       aria-label="Attach files"
       title="Attach files"
       disabled={sending}
     >
-      <Plus className="size-4" />
+      <Plus className="size-6 md:size-5" />
     </Button>
   );
 
@@ -18053,7 +18061,7 @@ function SessionChatBody({
                 // min-h-10 is the floor: it matches the 40px touch control
                 // beside it, so the bar cannot get shorter without the row
                 // becoming a button taller than the field it sits in.
-                "min-h-10 resize-none border-0 bg-transparent px-1 py-2 text-base leading-5 shadow-none placeholder:text-muted-foreground focus-visible:border-0 focus-visible:ring-0 md:min-h-8 md:py-1.5 md:text-sm",
+                "min-h-10 resize-none border-0 bg-transparent px-1 py-2 text-base leading-5 shadow-none placeholder:text-muted-foreground focus-visible:border-0 focus-visible:ring-0 md:min-h-9 md:py-2 md:text-[15px]",
               )}
             />
             {/* The control row exists in both shapes, so the mic never
@@ -18069,7 +18077,9 @@ function SessionChatBody({
             {composerExpanded ? attachButton : null}
             {composerExpanded ? <span className="flex-1" /> : null}
             <MicButton
-              className="size-10 shrink-0 rounded-full bg-foreground/[0.06] text-foreground/70 hover:bg-foreground/[0.12] hover:text-foreground md:size-8"
+              minimal
+              className="size-10 shrink-0 rounded-full md:size-9"
+              iconClassName="size-5"
               baseText={messageText}
               onRecordingChange={onDictatingChange}
               onText={setDictatedMessageText}
@@ -18096,7 +18106,7 @@ function SessionChatBody({
             {(messageText.trim() || attachments.length || sending) &&
             (sending || !composerGuide?.accepts || composerGuide.accepts(messageText.trim(), "session", sid ?? undefined)) ? (
               <ComposerSendButton
-                className="size-11 shrink-0 md:size-8"
+                className="size-11 shrink-0 md:size-9"
                 sending={sending}
                 defaultMode={composerSendMode}
                 onSend={() => void sendMessage()}
