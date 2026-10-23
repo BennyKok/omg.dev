@@ -359,3 +359,38 @@ describe("the bootstrap viewer identity", () => {
     expect(viewerConversationParticipantId("also-not-an-email")).toBeNull();
   });
 });
+
+describe("migrateLegacyConversations on a store with nothing to add", () => {
+  const sessions = [{ sessionId: "conversation-1", botId: scout.id, assignedUser: scout.owner, startedAt: 100 }];
+
+  test("does not rewrite the store and reuses one parsed copy", () => {
+    const { statSync } = require("node:fs") as typeof import("node:fs");
+    const first = migrateLegacyConversations({ now: 1_000, bots: [scout], sessions });
+    const file = join(root, "conversations", "conversations.json");
+    const before = statSync(file);
+    const second = migrateLegacyConversations({ now: 2_000, bots: [scout], sessions });
+    const third = migrateLegacyConversations({ now: 3_000, bots: [scout], sessions });
+    expect(second).toEqual(first);
+    // Same array: the file did not change, so it was not parsed again.
+    expect(third).toBe(second);
+    const after = statSync(file);
+    expect([after.ino, after.mtimeMs]).toEqual([before.ino, before.mtimeMs]);
+  });
+
+  test("a change that is due is still written, and the shared copy is not touched", () => {
+    migrateLegacyConversations({ now: 1_000, bots: [scout], sessions });
+    // The second call has nothing to add, so it returns the shared copy.
+    const shared = migrateLegacyConversations({ now: 1_500, bots: [scout], sessions });
+    expect(migrateLegacyConversations({ now: 1_600, bots: [scout], sessions })).toBe(shared);
+    const sharedRuntimes = shared[0]!.runtimeSessions.length;
+    const next = migrateLegacyConversations({
+      now: 2_000,
+      bots: [scout],
+      sessions: [...sessions, { sessionId: "conversation-2", startedAt: 300 }],
+    });
+    expect(next.map((row) => row.id).sort()).toEqual(["conversation-1", "conversation-2"]);
+    expect(shared).toHaveLength(1);
+    expect(shared[0]!.runtimeSessions).toHaveLength(sharedRuntimes);
+    expect(listConversations().map((row) => row.id).sort()).toEqual(["conversation-1", "conversation-2"]);
+  });
+});
