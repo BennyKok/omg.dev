@@ -531,6 +531,7 @@ import {
 } from "../repo-resolve.ts";
 import { WORKTREE_ROOT, planSessionCwd, prepareSessionWorktree, startWorktreeSweep } from "../worktree.ts";
 import { ensureDiskBackedTmpdir, startTmpSweep } from "../tmp-reclaim.ts";
+import { startOrphanAgentServerSweep } from "../orphan-agent-servers.ts";
 import {
   FolderDeleteError,
   deleteFolder,
@@ -1647,7 +1648,11 @@ const repoListCache = createRepoListCache({
     join(PATHS.data, "custom-repos.json"),
     join(PATHS.data, "hidden-repos.json"),
   ]),
-  maxAgeMs: 15_000,
+  // Writes clear the cache at once (fingerprint + "repos" announcement), so
+  // the age bound only covers changes neither can see, such as a deploy link
+  // written inside a project. 15 s matched a 15 s poller exactly and missed
+  // on almost every call.
+  maxAgeMs: 60_000,
 });
 // Every repo store write announces "repos", in this process or another one.
 // Subscribed on first use, so importing this module starts no watcher.
@@ -12591,6 +12596,7 @@ a{color:#60a5fa}
   startModelDiscoveryScheduler((l) => console.log(l));
   startWorktreeSweep((l) => console.log(l));
   startTmpSweep((l) => console.log(l));
+  startOrphanAgentServerSweep((l) => console.log(l));
   startBotCompactionSweep();
   startProjectMoveSweep();
   // Watch the fleet for busy -> idle transitions and fan "completed" events out
