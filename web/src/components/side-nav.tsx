@@ -15,8 +15,18 @@
  * most. So the panel slides over a dimmed page instead, keeping the iOS
  * timings and dim.
  */
-import { type ReactNode, useEffect, useRef } from "react";
-import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
+import {
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
 import {
   Bell,
   Bot,
@@ -90,10 +100,10 @@ export function SideNavButton({
  * An empty node a host can portal its own drawer rows into, such as an Upgrade
  * row. It sits in the drawer footer, above our Settings row.
  *
- * The drawer only mounts while it is open, so a host cannot find this node
- * while it is closed. The mobile `header-actions` slots therefore carry
- * `data-lfg-host-drawer="footer"`, which tells the host that this slot will be
- * there when the drawer opens.
+ * The drawer mounts when the browser is first idle, or on the first open, so
+ * a host cannot count on this node existing before then. The mobile
+ * `header-actions` slots therefore carry `data-lfg-host-drawer="footer"`,
+ * which tells the host that this slot will be there when the drawer opens.
  *
  * A tap on anything the host puts here closes the drawer, the same as a tap on
  * one of our rows. The listener is native because the host renders into this
@@ -111,6 +121,27 @@ export function HostDrawerSlot({ onClose }: { onClose: () => void }) {
   return <div ref={ref} data-lfg-host-slot="drawer-footer" className="flex flex-col" />;
 }
 
+/** How far a release must have dragged the panel, as a share of its width, to close it. */
+const SWIPE_CLOSE_SHARE = 0.35;
+/** A flick this fast (px per ms, leftward) closes regardless of distance. */
+const SWIPE_CLOSE_VELOCITY = 0.4;
+/** Movement before a touch is read as a horizontal drag or a vertical scroll. */
+const SWIPE_SLOP = 8;
+
+/**
+ * THE PHONE DRAWER.
+ *
+ * It is mounted before it is needed (when the browser is idle, or on the first
+ * open) and then stays mounted, so opening it changes one attribute and CSS
+ * slides the panel on the compositor. The curve starts fast, the way iOS does,
+ * so the panel is visibly moving on the first frame after the tap.
+ *
+ * It used to be a react-aria Sheet. That mounted the whole panel on every tap,
+ * then entered with a smooth scroll whose duration and easing belong to the
+ * browser: a slow start of about 300 ms, after the mount work had finished.
+ * The swipe-to-close the Sheet got from scrolling is a pointer gesture here,
+ * and the panel follows the finger.
+ */
 export function SideNavDrawer({
   open,
   onOpenChange,
@@ -129,28 +160,245 @@ export function SideNavDrawer({
   brand?: ReactNode;
   footer?: ReactNode;
 }) {
-  return (
-    <Drawer presentation="sheet" layer={180}
+  const [mounted, setMounted] = useState(open);
+  if (open && !mounted) setMounted(true);
+  // Mount ahead of the first tap, while nothing else is happening.
+  useEffect(() => {
+    if (mounted) return;
+    const idle = (window as Window & { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number })
+      .requestIdleCallback;
+    const cancelIdle = (window as Window & { cancelIdleCallback?: (id: number) => void }).cancelIdleCallback;
+    if (idle) {
+      const id = idle(() => setMounted(true), { timeout: 3000 });
+      return () => cancelIdle?.(id);
+    }
+    const id = window.setTimeout(() => setMounted(true), 1500);
+    return () => window.clearTimeout(id);
+  }, [mounted]);
+  if (!mounted || typeof document === "undefined") return null;
+  return createPortal(
+    <SideNavDrawerSurface
       open={open}
       onOpenChange={onOpenChange}
-      direction="left"
+      rows={rows}
+      onNavigate={onNavigate}
+      machineSwitcher={machineSwitcher}
+      brand={brand}
+      footer={footer}
+    />,
+    document.body,
+  );
+}
+
+function SideNavDrawerSurface({
+  open,
+  onOpenChange,
+  rows,
+  onNavigate,
+  machineSwitcher,
+  brand,
+  footer,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  rows: SideNavRow[];
+  onNavigate: (key: string) => void;
+  machineSwitcher?: ReactNode;
+  brand?: ReactNode;
+  footer?: ReactNode;
+}) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLElement>(null);
+  const backdropRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  const onOpenChangeRef = useRef(onOpenChange);
+  onOpenChangeRef.current = onOpenChange;
+  const close = useCallback(() => onOpenChangeRef.current(false), []);
+
+  // A surface that mounts already open would paint open with no slide. Lay it
+  // out closed once, then arm it, so even the cold first open animates.
+  const [armed, setArmed] = useState(false);
+  useLayoutEffect(() => {
+    rootRef.current?.getBoundingClientRect();
+    setArmed(true);
+  }, []);
+  const shown = open && armed;
+
+  // The machine list is read when its switcher mounts. Remount it after each
+  // close, off screen, so the next open shows fresh machines without paying
+  // for that read during the tap.
+  const [machineGeneration, setMachineGeneration] = useState(0);
+  const wasOpen = useRef(open);
+  useEffect(() => {
+    if (wasOpen.current && !open) {
+      const id = window.setTimeout(() => setMachineGeneration((n) => n + 1), 400);
+      wasOpen.current = open;
+      return () => window.clearTimeout(id);
+    }
+    wasOpen.current = open;
+  }, [open]);
+
+  // Hidden from focus and assistive tech while closed; focus moves in on open
+  // and returns to whatever had it on close.
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    root.inert = !open;
+    if (!open) return;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const panel = panelRef.current;
+    (panel?.querySelector<HTMLElement>('[aria-current="page"]') ?? panel)?.focus({ preventScroll: true });
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !event.defaultPrevented) {
+        event.preventDefault();
+        close();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      if (previous?.isConnected && panel?.contains(document.activeElement)) previous.focus({ preventScroll: true });
+    };
+  }, [open, close]);
+
+  // Keep Tab inside the panel while it is open.
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.key !== "Tab") return;
+    const panel = panelRef.current;
+    if (!panel) return;
+    const focusable = [...panel.querySelectorAll<HTMLElement>(
+      'a[href],button:not([disabled]),input:not([disabled]),select,textarea,[tabindex]:not([tabindex="-1"])',
+    )];
+    if (focusable.length === 0) return;
+    const first = focusable[0]!;
+    const last = focusable[focusable.length - 1]!;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
+  // Swipe left to close. The panel follows the finger with no transition and
+  // no React render; release either closes or springs back.
+  const drag = useRef<{
+    id: number;
+    x: number;
+    y: number;
+    t: number;
+    dx: number;
+    mode: "pending" | "drag" | "scroll";
+    width: number;
+  } | null>(null);
+  const suppressClick = useRef(false);
+  const endDrag = (commit: boolean) => {
+    const state = drag.current;
+    drag.current = null;
+    const root = rootRef.current;
+    const panel = panelRef.current;
+    const backdrop = backdropRef.current;
+    if (!state || state.mode !== "drag" || !root || !panel || !backdrop) return;
+    suppressClick.current = true;
+    window.setTimeout(() => {
+      suppressClick.current = false;
+    }, 0);
+    // Re-enable the transition and drop the inline position in one style
+    // change, so the panel animates from where the finger left it.
+    root.removeAttribute("data-dragging");
+    panel.style.transform = "";
+    backdrop.style.opacity = "";
+    if (!commit) return;
+    const elapsed = Math.max(1, performance.now() - state.t);
+    if (-state.dx > state.width * SWIPE_CLOSE_SHARE || state.dx / elapsed < -SWIPE_CLOSE_VELOCITY) close();
+  };
+  const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!open || !event.isPrimary || (event.pointerType === "mouse" && event.button !== 0)) return;
+    drag.current = {
+      id: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      t: performance.now(),
+      dx: 0,
+      mode: "pending",
+      width: panelRef.current?.offsetWidth || 1,
+    };
+  };
+  const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const state = drag.current;
+    if (!state || state.id !== event.pointerId || state.mode === "scroll") return;
+    const dx = event.clientX - state.x;
+    const dy = event.clientY - state.y;
+    if (state.mode === "pending") {
+      if (Math.abs(dx) < SWIPE_SLOP && Math.abs(dy) < SWIPE_SLOP) return;
+      if (Math.abs(dy) >= Math.abs(dx) || dx > 0) {
+        state.mode = "scroll";
+        return;
+      }
+      state.mode = "drag";
+      // Measure velocity from the start of the drag, not from the touch.
+      state.t = performance.now();
+      state.x = event.clientX;
+      rootRef.current?.setAttribute("data-dragging", "true");
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      } catch {
+        // A synthetic or already-released pointer cannot be captured.
+      }
+      return;
+    }
+    const offset = Math.min(0, event.clientX - state.x);
+    state.dx = offset;
+    if (panelRef.current) panelRef.current.style.transform = `translate3d(${offset}px,0,0)`;
+    if (backdropRef.current) backdropRef.current.style.opacity = String(Math.max(0, 1 + offset / state.width));
+  };
+
+  return (
+    <div
+      ref={rootRef}
+      className="lfg-side-nav fixed inset-0 z-[180]"
+      data-open={shown ? "true" : "false"}
+      aria-hidden={!open}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={() => endDrag(true)}
+      onPointerCancel={() => endDrag(false)}
+      onClickCapture={(event) => {
+        if (!suppressClick.current) return;
+        suppressClick.current = false;
+        event.preventDefault();
+        event.stopPropagation();
+      }}
     >
-      <DrawerContent unstyled expandOnFocus={false} overlayClassName="fixed inset-0 z-[179] bg-black/[0.28]"
-          data-slot="side-nav"
-          aria-describedby={undefined}
-          className="h-[100dvh] z-[180] flex w-[min(20rem,72vw)] select-none flex-col border-r border-border bg-background text-foreground shadow-2xl outline-none"
-        >
-          <DrawerTitle className="sr-only">Navigation</DrawerTitle>
-          <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-3 pb-[max(var(--lfg-safe-bottom),1rem)] pt-[calc(0.75rem+env(safe-area-inset-top))]">
-            {brand ? <div className="px-1 pb-4 pt-1">{brand}</div> : null}
-            {/* The machine, first. It is the thing every other row is scoped
-                to, so it reads as the heading for them. */}
-            {machineSwitcher ? <div className="pb-3">{machineSwitcher}</div> : null}
-            <SideNavRows rows={rows} onNavigate={onNavigate} onClose={() => onOpenChange(false)} />
-            {footer ? <div className="mt-2 border-t border-border pt-2">{footer}</div> : null}
-          </div>
-        </DrawerContent>
-    </Drawer>
+      <div
+        ref={backdropRef}
+        data-slot="drawer-overlay"
+        aria-hidden="true"
+        className="lfg-side-nav-backdrop absolute inset-0 z-[179] bg-black/[0.28]"
+        onClick={close}
+      />
+      <section
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        data-slot="side-nav"
+        onKeyDown={onKeyDown}
+        className="lfg-side-nav-panel absolute inset-y-0 left-0 z-[180] flex h-[100dvh] w-[min(20rem,72vw)] select-none flex-col border-r border-border bg-background text-foreground shadow-2xl outline-none"
+      >
+        <h2 id={titleId} className="sr-only">Navigation</h2>
+        <div className="flex min-h-0 flex-1 touch-pan-y flex-col gap-1 overflow-y-auto overscroll-contain px-3 pb-[max(var(--lfg-safe-bottom),1rem)] pt-[calc(0.75rem+env(safe-area-inset-top))]">
+          {brand ? <div className="px-1 pb-4 pt-1">{brand}</div> : null}
+          {/* The machine, first. It is the thing every other row is scoped
+              to, so it reads as the heading for them. */}
+          {machineSwitcher ? <div key={machineGeneration} className="pb-3">{machineSwitcher}</div> : null}
+          <SideNavRows rows={rows} onNavigate={onNavigate} onClose={close} />
+          {footer ? <div className="mt-2 border-t border-border pt-2">{footer}</div> : null}
+        </div>
+      </section>
+    </div>
   );
 }
 

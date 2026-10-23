@@ -179,3 +179,58 @@ test("a current rail row dismisses a host page without adding app history", () =
   expect(selected).toBe(2);
   expect(navigated).toEqual(["auto"]);
 });
+
+function renderDrawer(open: boolean, onOpenChange: (next: boolean) => void) {
+  ui.render(
+    <SideNavDrawer open={open} onOpenChange={onOpenChange} rows={sideNavRows({ tab: "live" })} onNavigate={() => {}} />,
+  );
+}
+const drawerRoot = () => document.querySelector(".lfg-side-nav") as (HTMLElement & { inert?: boolean }) | null;
+
+test("the drawer stays mounted when closed, hidden from focus and assistive tech", () => {
+  renderDrawer(true, () => {});
+  expect(drawerRoot()?.getAttribute("data-open")).toBe("true");
+  renderDrawer(false, () => {});
+  const root = drawerRoot()!;
+  expect(root).not.toBeNull();
+  expect(root.getAttribute("data-open")).toBe("false");
+  expect(root.getAttribute("aria-hidden")).toBe("true");
+  expect(root.inert).toBe(true);
+});
+
+test("Escape and a tap on the dimmed page close the drawer", () => {
+  const changes: boolean[] = [];
+  renderDrawer(true, (next) => changes.push(next));
+  ui.flush(() => document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+  ui.flush(() => (document.querySelector('[data-slot="drawer-overlay"]') as HTMLElement).click());
+  expect(changes).toEqual([false, false]);
+});
+
+function swipe(dxs: number[], dy = 0) {
+  const target = document.querySelector('[data-slot="side-nav"]') as HTMLElement;
+  const fire = (type: string, x: number, y: number) =>
+    target.dispatchEvent(
+      new window.PointerEvent(type, { bubbles: true, clientX: x, clientY: y, pointerId: 1, isPrimary: true, pointerType: "touch" }),
+    );
+  ui.flush(() => {
+    fire("pointerdown", 200, 300);
+    for (const dx of dxs) fire("pointermove", 200 + dx, 300 + dy);
+    fire("pointerup", 200 + dxs[dxs.length - 1]!, 300 + dy);
+  });
+}
+
+test("a swipe to the left closes the drawer", () => {
+  const changes: boolean[] = [];
+  renderDrawer(true, (next) => changes.push(next));
+  swipe([-12, -60, -160]);
+  expect(changes).toEqual([false]);
+});
+
+test("a vertical scroll or a twitch does not close the drawer", () => {
+  const changes: boolean[] = [];
+  renderDrawer(true, (next) => changes.push(next));
+  swipe([-3, -5]);
+  swipe([-10, -20], 120);
+  swipe([30, 90]);
+  expect(changes).toEqual([]);
+});
