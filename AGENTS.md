@@ -254,8 +254,8 @@ For a release:
    `git log --oneline $(git describe --tags --abbrev=0)..origin/main`.
 2. Add a user-facing entry at the top of `CHANGELOG.md`.
 3. Run `scripts/tag-release.sh`. Pass `minor` or `major` only when needed.
-4. Start the omg.dev pin update: `omg-ops lfg_pin vX.Y.Z --dryRun false`
-   (MCP tool `ops_lfg_pin`, from the vibes repository). Run it in the
+4. Start the omg.dev pin update: `omg-ops omg_pin vX.Y.Z --dryRun false`
+   (MCP tool `ops_omg_pin`, from the vibes repository). Run it in the
    background. It waits for the release workflow and then starts omg.dev's
    `update-lfg-app.yml`, so the release does not wait for its hourly run.
 
