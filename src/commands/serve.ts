@@ -434,6 +434,8 @@ import {
   addManaged,
   getManagedSessionCreation,
   listManaged,
+  listManagedWithArchive,
+  retireDeadManaged,
   patchManaged,
   replaceManagedTitle,
   removeManaged,
@@ -1798,7 +1800,7 @@ async function artifactOwnerCwd(sessionId: string): Promise<string | null> {
   const sessions = await listSessions().catch(() => []);
   const session = sessions.find((row) => sessionMatchesId(row, sessionId));
   if (dirExists(session?.cwd)) return session.cwd;
-  const managed = listManaged().find((row) => sessionMatchesId(row, sessionId));
+  const managed = listManagedWithArchive().find((row) => sessionMatchesId(row, sessionId));
   if (dirExists(managed?.cwd)) return managed.cwd;
   const transcript = await resolveTranscript(sessionId).catch(() => null);
   if (!transcript) return null;
@@ -2805,6 +2807,30 @@ function startProjectMoveSweep(): void {
       .catch((error) => console.error(`[project-move] ${error instanceof Error ? error.message : String(error)}`))
       .finally(() => { projectMoveRunning = false; });
   }, PROJECT_MOVE_SWEEP_MS);
+  timer.unref?.();
+}
+
+const MANAGED_RETIREMENT_SWEEP_MS = 6 * 60 * 60_000;
+
+/**
+ * Move dead old rows out of the live managed registry (retireDeadManaged in
+ * src/managed.ts owns the rule). Runs once after boot recovery has adopted or
+ * relaunched what it can, then every few hours.
+ */
+function retireDeadManagedOnce(): void {
+  try {
+    const retired = retireDeadManaged({ probes: { hasIndexedMessages: sessionHasIndexedMessages } });
+    if (!retired.length) return;
+    console.log(`[managed-retire] retired=${retired.length} [${retired.map((row) => row.tmuxName).join(", ")}]`);
+    invalidateListSessionsCache();
+  } catch (error) {
+    console.error(`[managed-retire] ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function startManagedRetirementSweep(): void {
+  retireDeadManagedOnce();
+  const timer = setInterval(retireDeadManagedOnce, MANAGED_RETIREMENT_SWEEP_MS);
   timer.unref?.();
 }
 
@@ -9551,7 +9577,7 @@ a{color:#60a5fa}
         // instead of falling through to the claude harness, which cannot find
         // the lfg UUID and dies with "No conversation found with session ID".
         {
-          const prior = listManaged().find(
+          const prior = listManagedWithArchive().find(
             (row) =>
               row.agent === "jcode" &&
               (row.sessionId === sessionId || row.nativeSessionId === sessionId),
@@ -10379,7 +10405,7 @@ a{color:#60a5fa}
           const titles = await readTitleOverrides();
           // Same as the shipped feed: index once, look up per row.
           const managedBySession = new Map<string, ManagedSession>();
-          for (const session of listManaged()) {
+          for (const session of listManagedWithArchive()) {
             if (session.sessionId) managedBySession.set(session.sessionId, session);
             if (session.nativeSessionId) managedBySession.set(session.nativeSessionId, session);
           }
@@ -10868,7 +10894,7 @@ a{color:#60a5fa}
           // may be keyed by either the LFG or the native session id, so both
           // point at the same record.
           const managedBySession = new Map<string, ManagedSession>();
-          for (const session of listManaged()) {
+          for (const session of listManagedWithArchive()) {
             if (session.sessionId) managedBySession.set(session.sessionId, session);
             if (session.nativeSessionId) managedBySession.set(session.nativeSessionId, session);
           }
@@ -12471,6 +12497,8 @@ a{color:#60a5fa}
     console.log(`[session-recovery] adopted=${recovered.adopted} recovered=${recovered.recovered} recoveredTmux=${recovered.recoveredTmux} failed=${recovered.failed} skippedLegacy=${recovered.skippedLegacy}`);
     invalidateListSessionsCache();
   }
+  // After recovery, so a row it just adopted or relaunched is seen as live.
+  startManagedRetirementSweep();
   // Held rows are released through the same path a composer send takes, minus
   // `hold`: the session is idle when this runs, and a second held row must
   // not be re-held behind the first one's turn.

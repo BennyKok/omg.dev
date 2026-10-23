@@ -3,6 +3,7 @@
 // session with that name, while command-file SDK agents are direct processes.
 // The file survives a server restart so lfg can reconnect to either lifecycle.
 import {
+  appendFileSync,
   closeSync,
   fsyncSync,
   mkdirSync,
@@ -22,6 +23,8 @@ import { recordSessionContainment } from "./session-containment-record.ts";
 import type { CodexServiceTier } from "./service-tier.ts";
 import type { SandboxMode } from "./sandbox/bwrap.ts";
 import { roleEgress, roleSandbox } from "./policy/roles.ts";
+import { findEntryByAnyId as findHarnessEntryByAnyId } from "./aisdk-registry.ts";
+import { usesCommandFileRuntime } from "./coding-agent-adapters.ts";
 
 function registryPath(): string {
   return `${PATHS.data}/managed-sessions.json`;
@@ -29,6 +32,13 @@ function registryPath(): string {
 
 function lockPath(): string {
   return `${registryPath()}.lock`;
+}
+
+// Retired rows. Append-only JSON lines, one { archivedAt, session } object per
+// line. Kept apart from the live registry so the hot session scan never walks
+// them, and so an older binary that rewrites the registry cannot drop them.
+function archivePath(): string {
+  return `${PATHS.data}/managed-sessions.archive.jsonl`;
 }
 
 export type ManagedSession = {
@@ -502,10 +512,237 @@ export function isManagedName(target: string | null): boolean {
   return name in readAll().sessions;
 }
 
+// --- Retirement -------------------------------------------------------------
+//
+// Nothing closes a session that a reboot or a crash killed, so its row used to
+// stay forever, and every session list scan walked it (158 rows, 2 alive, on
+// one box). Retirement moves a dead old row to the archive file. The lookups
+// that a dead session still needs (transcript resolution, resume, feeds, the
+// worktree sweeper) read the archive through findManagedById and
+// listManagedWithArchive. The live scan reads listManaged and never sees it.
+
+/** A row must be this long past its last launch event before it can retire. */
+export const MANAGED_RETIRE_AFTER_MS = 30 * 24 * 60 * 60_000;
+
+type ArchivedManaged = { archivedAt: number; session: ManagedSession };
+
+type ArchiveView = {
+  /** Newest archived copy per tmuxName. */
+  byName: Map<string, ManagedSession>;
+  /** Newest archived copy per sessionId and nativeSessionId. */
+  byId: Map<string, ManagedSession>;
+};
+
+let archiveMemory: ArchiveView | null = null;
+let archiveMemoryPath: string | null = null;
+let archiveFingerprint = "";
+
+function readArchive(): ArchiveView {
+  const path = archivePath();
+  const current = fingerprint(path);
+  if (archiveMemory && archiveMemoryPath === path && archiveFingerprint === current) return archiveMemory;
+  const view: ArchiveView = { byName: new Map(), byId: new Map() };
+  let text = "";
+  try {
+    text = readFileSync(path, "utf8");
+  } catch {}
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    let parsed: ArchivedManaged;
+    try {
+      parsed = JSON.parse(line) as ArchivedManaged;
+    } catch {
+      // A torn final line from a crash mid-append. Earlier lines are intact.
+      continue;
+    }
+    const row = parsed?.session;
+    if (!row || typeof row !== "object" || typeof row.tmuxName !== "string") continue;
+    // Later lines are newer, so they win.
+    view.byName.set(row.tmuxName, row);
+    if (row.sessionId) view.byId.set(row.sessionId, row);
+    if (row.nativeSessionId) view.byId.set(row.nativeSessionId, row);
+  }
+  archiveMemory = view;
+  archiveMemoryPath = path;
+  archiveFingerprint = current;
+  return view;
+}
+
+function appendArchive(rows: ManagedSession[], archivedAt: number): void {
+  if (!rows.length) return;
+  const path = archivePath();
+  mkdirSync(dirname(path), { recursive: true });
+  const body = rows
+    .map((session) => JSON.stringify({ archivedAt, session } satisfies ArchivedManaged))
+    .join("\n") + "\n";
+  appendFileSync(path, body, { mode: 0o600 });
+  const fd = openSync(path, "r");
+  try {
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/** Retired rows, newest copy per runtime name. Not for the live scan. */
+export function listArchivedManaged(): ManagedSession[] {
+  return [...readArchive().byName.values()].map((row) => ({ ...row }));
+}
+
+/**
+ * Live rows plus the retired rows whose runtime name has no live row. For
+ * readers that describe history (feeds, galleries, the worktree sweeper).
+ * Never for the live session scan.
+ */
+export function listManagedWithArchive(): ManagedSession[] {
+  const live = readAll().sessions;
+  const out = Object.values(live).map((row) => ({ ...row }));
+  for (const row of readArchive().byName.values()) {
+    if (!(row.tmuxName in live)) out.push({ ...row });
+  }
+  return out;
+}
+
+/** The row for a session id: the live row first, else its retired copy. */
+export function findManagedById(id: string | null | undefined): ManagedSession | undefined {
+  if (!id) return undefined;
+  const live = Object.values(readAll().sessions).find(
+    (row) => row.sessionId === id || row.nativeSessionId === id,
+  );
+  if (live) return { ...live };
+  const archived = readArchive().byId.get(id);
+  return archived ? { ...archived } : undefined;
+}
+
+export type ManagedRetirementProbes = {
+  /** A tmux session under the row's runtime name exists. */
+  hasTmuxSession?: (tmuxName: string) => boolean;
+  /**
+   * A command-file harness entry (data/aisdk) exists for the row. Boot
+   * recovery relaunches from that entry and needs its owner row, so a row
+   * with an entry is never retired, whether the harness is alive or not.
+   */
+  hasHarnessEntry?: (row: ManagedSession) => boolean;
+  /**
+   * The session has messages in the direct transcript index. A dead
+   * command-file row with messages stays in the live list (managedLaunchRow
+   * "explained"), and the resume picker catalogs direct-index sessions from
+   * their row (refreshResumableCacheOnce). Either way the row stays.
+   */
+  hasIndexedMessages: (sessionId: string) => boolean;
+};
+
+/** The newest launch event on the row. Retirement age counts from here. */
+export function managedLastLaunchEventAt(row: ManagedSession): number {
+  return Math.max(row.createdAt ?? 0, row.spawnedAt ?? 0, row.interruptedAt ?? 0, row.launchFailedAt ?? 0);
+}
+
+/**
+ * The part of the retirement rule that needs no probe. A row that fails this
+ * check is kept. A row that passes it still needs the probes in
+ * retireDeadManaged before it retires.
+ */
+export function managedRetirementCandidate(
+  row: ManagedSession,
+  now: number,
+  maxAgeMs = MANAGED_RETIRE_AFTER_MS,
+): boolean {
+  if (now - managedLastLaunchEventAt(row) < maxAgeMs) return false;
+  // Listed while its background start runs, and after that start failed.
+  if (row.hydrating) return false;
+  // A start failure the person caused stays listed with its reason.
+  if (row.launchState === "failed" && row.launchFailedAt !== undefined) return false;
+  // managedLaunchRow lists every command-file row that says "launching".
+  if (row.launchState === "launching" && usesCommandFileRuntime(row.agent, row.runtime)) return false;
+  // Bots own their runtime row and replace it themselves.
+  if (row.botId || row.persistent) return false;
+  // The project move sweep still has work for this row.
+  if (row.pendingProjectMove) return false;
+  return true;
+}
+
+/**
+ * Move dead old rows from the live registry to the archive. Returns the rows
+ * it retired. A row retires only when all of these hold:
+ *   - managedRetirementCandidate: old enough, not hydrating, not a listed
+ *     start failure or command-file launch, not a bot, no pending move;
+ *   - no tmux session under its runtime name;
+ *   - no command-file harness entry (boot recovery owns those);
+ *   - no messages in the direct transcript index under either id;
+ *   - no row that stays names it as a parent.
+ * The archive line is fsynced before the registry drops the row. A crash in
+ * between leaves a duplicate (the live row wins), not a lost row.
+ */
+export function retireDeadManaged(opts: {
+  now?: number;
+  maxAgeMs?: number;
+  probes: ManagedRetirementProbes;
+}): ManagedSession[] {
+  const now = opts.now ?? Date.now();
+  const maxAgeMs = opts.maxAgeMs ?? MANAGED_RETIRE_AFTER_MS;
+  const hasTmuxSession = opts.probes.hasTmuxSession ?? tmuxHasSession;
+  const hasHarnessEntry = opts.probes.hasHarnessEntry ?? ((row: ManagedSession) =>
+    [row.sessionId, row.nativeSessionId].some((id) => !!id && !!findHarnessEntryByAnyId(id)));
+  // Probe outside the lock. The probes shell out or query a database, and a
+  // first pass over a long-grown registry would hold the lock long enough for
+  // a concurrent create to give up with "registry is busy". Only candidates
+  // reach the probes.
+  const dead = new Map<string, string>();
+  for (const row of Object.values(readAll(true).sessions)) {
+    if (!managedRetirementCandidate(row, now, maxAgeMs)) continue;
+    if (hasTmuxSession(row.tmuxName)) continue;
+    if (hasHarnessEntry(row)) continue;
+    if ([row.sessionId, row.nativeSessionId].some((id) => !!id && opts.probes.hasIndexedMessages(id))) continue;
+    dead.set(row.tmuxName, JSON.stringify(row));
+  }
+  if (!dead.size) return [];
+  return withRegistryLock(() => {
+    const current = readAll(true);
+    const rows = Object.values(current.sessions);
+    // A row that changed since it was probed (a resume, a patch) stays.
+    const retire = new Set<string>(
+      rows.filter((row) => dead.get(row.tmuxName) === JSON.stringify(row)).map((row) => row.tmuxName),
+    );
+    // A kept child keeps its parent, so the session tree stays whole. Repeat
+    // until stable, because a kept parent keeps its own parent too.
+    for (let changed = true; changed && retire.size > 0;) {
+      changed = false;
+      const keptParents = new Set<string>();
+      for (const row of rows) {
+        if (retire.has(row.tmuxName)) continue;
+        if (row.parentSessionId) keptParents.add(row.parentSessionId);
+        if (row.parentNativeSessionId) keptParents.add(row.parentNativeSessionId);
+      }
+      for (const row of rows) {
+        if (!retire.has(row.tmuxName)) continue;
+        if (
+          (row.sessionId && keptParents.has(row.sessionId)) ||
+          (row.nativeSessionId && keptParents.has(row.nativeSessionId))
+        ) {
+          retire.delete(row.tmuxName);
+          changed = true;
+        }
+      }
+    }
+    if (!retire.size) return [];
+    const retired = rows.filter((row) => retire.has(row.tmuxName));
+    appendArchive(retired, now);
+    const sessions = { ...current.sessions };
+    for (const name of retire) delete sessions[name];
+    writeAll({ version: 2, sessions, creationClaims: { ...current.creationClaims } });
+    // Same as removeManaged: keep the launch containment for a later resume.
+    for (const row of retired) keepContainmentRecord(row, { onlyIfMissing: true });
+    return retired.map((row) => ({ ...row }));
+  });
+}
+
 export function resetManagedRegistryForTests(): void {
   memory = null;
   memoryPath = null;
   memoryFingerprint = "";
+  archiveMemory = null;
+  archiveMemoryPath = null;
+  archiveFingerprint = "";
   try {
     rmSync(lockPath(), { force: true });
   } catch {}

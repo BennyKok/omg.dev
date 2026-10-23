@@ -16,13 +16,14 @@
 //      early if the bug comes back; surviving the window still in
 //      "fix-landed" is the actual evidence, not the landing by itself.
 
-import { listManaged, type ManagedSession } from "../managed.ts";
+import { listManagedWithArchive, type ManagedSession } from "../managed.ts";
 import { collectShipProvenance } from "../ship-provenance.ts";
 import { listFindings, markFixLanded, promoteLandedFixes, type Finding } from "./store.ts";
 
 function findManagedSession(sessionId: string | undefined): ManagedSession | undefined {
   if (!sessionId) return undefined;
-  return listManaged().find((m) => m.sessionId === sessionId);
+  // A finding can outlive the retirement of its session row.
+  return listManagedWithArchive().find((m) => m.sessionId === sessionId);
 }
 
 export type FixLandingReconcileResult = {
