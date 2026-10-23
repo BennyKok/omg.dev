@@ -12,7 +12,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type React from "react";
 import { readRemoteClipboard, setRemoteClipboard } from "@/lib/computer-clipboard-transport";
-import { cn } from "@/lib/utils";
 import RFB from "@novnc/novnc";
 import { attachComputerClipboard, clipboardButtonHandlers, type ComputerClipboard } from "../../../packages/protocol/src/computer-clipboard";
 import {
@@ -69,10 +68,9 @@ export function ComputerPage({
   variant?: "page" | "inline";
   onExpand?: () => void;
   /**
-   * The app's page navigation, drawn in the top-left corner of the full page.
-   * The Computer has no header, and every other page has this control in the
-   * same corner, so the shell passes the same control in here. Not drawn
-   * inline, where the chat around the embed already has its navigation.
+   * Shell chrome for the top-left corner of the full page: today, the host's
+   * header slot, so a host sees that the app's drawer carries its Settings and
+   * draws no control of its own over the screen. Not drawn inline.
    */
   navigation?: ReactNode;
 }) {
@@ -504,10 +502,10 @@ export function ComputerPage({
         }}
       />
 
+      {/* Host chrome the shell passes in, such as the host's header slot.
+          It takes no space while empty. */}
       {!inline && navigation ? (
-        // A pill of its own: the control sits over the remote screen, which
-        // can be any colour, so it carries its own background.
-        <div className="absolute left-3 top-[calc(0.75rem+env(safe-area-inset-top))] z-10 flex items-center gap-1.5 rounded-full bg-background/85 p-0.5 shadow-lg backdrop-blur-xl">
+        <div className="absolute left-3 top-[calc(0.75rem+env(safe-area-inset-top))] z-10 flex items-center gap-1.5 empty:hidden">
           {navigation}
         </div>
       ) : null}
@@ -524,12 +522,7 @@ export function ComputerPage({
               // while the Computer has the screen. It declares its width in
               // --lfg-host-top-inset (the same reservation the app header
               // honours), so the controls sit in one row to its left.
-              cn(
-                "absolute right-[calc(0.75rem+var(--lfg-host-top-inset,0px))] top-[calc(0.75rem+env(safe-area-inset-top))] z-10 flex items-center gap-2",
-                // Clear of the navigation in the other corner. A phone is too
-                // narrow for the whole row beside it, so the row wraps.
-                navigation && "left-16 flex-wrap justify-end",
-              )
+              "absolute right-[calc(0.75rem+var(--lfg-host-top-inset,0px))] top-[calc(0.75rem+env(safe-area-inset-top))] z-10 flex items-center gap-2"
         }
       >
         {running && !tapToExpand ? (

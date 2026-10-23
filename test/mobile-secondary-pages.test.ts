@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { shouldShowMobileBackToLive } from "../web/src/lib/mobile-bots-nav";
+import { isMobileDrawerPeerPage } from "../web/src/lib/mobile-bots-nav";
 
 const app = readFileSync("web/src/App.tsx", "utf8");
 
@@ -31,15 +31,16 @@ describe("mobile secondary page hierarchy", () => {
     );
   });
 
-  test("secondary mobile pages provide an explicit return to Live", () => {
-    // One shared page header, hosted or not, carries the back button.
-    expect(app.match(/aria-label="Back to Live"/g)?.length).toBe(1);
+  test("drawer peer pages carry no back pill on a phone", () => {
+    // The drawer button is the way back to Live; a "‹ Live" pill beside it
+    // was a second control for the same move.
+    expect(app).not.toContain('aria-label="Back to Live"');
     for (const tab of ["notifications", "artifacts", "board"]) {
-      expect(shouldShowMobileBackToLive(true, tab)).toBe(true);
+      expect(isMobileDrawerPeerPage(true, tab)).toBe(true);
     }
-    expect(shouldShowMobileBackToLive(false, "notifications")).toBe(false);
+    expect(isMobileDrawerPeerPage(false, "notifications")).toBe(false);
     for (const tab of ["live", "bots", "auto", "settings"]) {
-      expect(shouldShowMobileBackToLive(true, tab)).toBe(false);
+      expect(isMobileDrawerPeerPage(true, tab)).toBe(false);
     }
   });
 });

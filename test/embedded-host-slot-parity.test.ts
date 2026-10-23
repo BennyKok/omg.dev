@@ -14,7 +14,8 @@
 // chrome branch uses it:
 //   1. phone Live header (Live, Bots and Scheduled share it)
 //   2. shared page header (phone secondary pages and the tablet band)
-//   3. the Computer, which has no header
+//   3. the Computer, which has no header (slot only; its close control
+//      is the way out)
 //   4. desktop rail footer (its own `rail-footer` slot)
 
 import { describe, expect, test } from "bun:test";
@@ -62,11 +63,12 @@ describe("embedded host slot on every page", () => {
     expect(APP).not.toContain(") : embedded && isMobile ? (");
   });
 
-  test("the Computer page gets the same navigation and slot", () => {
+  test("the Computer page carries the slot but no navigation button", () => {
+    // Its close control is the way out; the slot is only there so the host
+    // floats no Settings over the screen.
     const body = sliceBetween("<ComputerPage", "/>\n          </Suspense>");
-    expect(body).toContain("navigation={");
-    expect(body).toContain("{pageNavigation}");
-    expect(body).toContain("hostActionsSlot(");
+    expect(body).toContain("navigation={hostActionsSlot(");
+    expect(body).not.toContain("pageNavigation");
   });
 
   test("the desktop rail footer offers its own host slot", () => {

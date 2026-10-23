@@ -127,7 +127,7 @@ import {
   BOT_ROSTER_ROW_CLASS,
   isPrimarySurfaceTab,
   shouldShowBotsInSessionList,
-  shouldShowMobileBackToLive,
+  isMobileDrawerPeerPage,
   shouldShowInlineBotsSurfaceToggle,
 } from "./lib/mobile-bots-nav";
 import { botChatSessionId, botDetachedSession, botStageSession, findBotMainSession } from "./lib/bot-session";
@@ -9753,21 +9753,16 @@ export function App() {
       >
         <div className="flex min-w-0 items-center gap-2">
         {/* A phone opens the drawer from the top-left corner on every page,
-            the same spot as on Live, and the back pill follows it. */}
+            the same spot as on Live. */}
         {isMobile ? pageNavigation : null}
+        {/* The pages the drawer lists side by side with Live (Notifications,
+            Artifacts, Board) get no back pill on a phone: the drawer button
+            beside it already goes to Live, so it was a second control for the
+            same move. */}
+        {isMobileDrawerPeerPage(isMobile, tab) ? null : (
         <NavIsland className="shrink-0">
           <div className="glass-island flex h-11 items-center rounded-full px-1.5">
-            {shouldShowMobileBackToLive(isMobile, tab) ? (
-              <button
-                type="button"
-                onClick={() => setTab("live")}
-                aria-label="Back to Live"
-                className="flex h-8 items-center gap-1 rounded-full pl-1.5 pr-3 text-[13px] font-medium tracking-[-0.01em] text-muted-foreground transition-colors duration-200 ease-out hover:text-foreground active:scale-[0.96]"
-              >
-                <ChevronLeft className="size-[18px]" />
-                <span>Live</span>
-              </button>
-            ) : isPrimarySurfaceTab(tab) || tab === "notifications" || tab === "artifacts" || tab === "board" ? (
+            {isPrimarySurfaceTab(tab) || tab === "notifications" || tab === "artifacts" || tab === "board" ? (
               <button
                 type="button"
                 onClick={() => setTab("live")}
@@ -9797,6 +9792,7 @@ export function App() {
             )}
           </div>
         </NavIsland>
+        )}
         </div>
 
         {/* A phone page with no scope filter has nothing for the right
@@ -10256,12 +10252,10 @@ export function App() {
               onClose={() => setTab("live")}
               // The Computer has no header, so it takes the same navigation
               // control (and host slot) as every other page.
-              navigation={
-                <>
-                  {pageNavigation}
-                  {hostActionsSlot("flex items-center gap-1.5 empty:hidden")}
-                </>
-              }
+              // No navigation button: the close control already leaves the
+              // Computer. Only the host slot, so the host knows our drawer
+              // carries its Settings and floats nothing over the screen.
+              navigation={hostActionsSlot("flex items-center gap-1.5 empty:hidden")}
             />
           </Suspense>
         ) : null}

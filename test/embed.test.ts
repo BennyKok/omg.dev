@@ -359,9 +359,6 @@ describe("mobile overlay scroll contract", () => {
       expect(island[1]).not.toContain("backdrop-blur");
     }
     expect(app).toContain("glass-island flex h-11 items-center rounded-full px-1.5");
-    expect(app).toContain(
-      'aria-label="Back to Live"',
-    );
   });
 
   test("composer pages reserve chrome while the fade overlays content", () => {
