@@ -605,7 +605,9 @@ function init(busyTimeoutMs = TRANSCRIPT_BUSY_TIMEOUT_MS) {
       // explicitly instead of inferring a person from a role or display text.
       d.exec(`ALTER TABLE transcript_messages ADD COLUMN author_json TEXT NOT NULL DEFAULT '{"kind":"legacy","participantId":"legacy:unknown","verified":false}'`);
     }
-    d.exec("PRAGMA user_version = 12");
+    // No version bump here. Setting 12 at this point made the fts drop below
+    // see "already at 12" on every install that was at 11, so the mirror was
+    // never dropped, and the v6..v11 steps then rewound a fresh database.
   }
   if (version < 6) {
     const columns = d.query<{ name: string }, []>("PRAGMA table_info(transcript_messages)").all();
@@ -711,7 +713,7 @@ function init(busyTimeoutMs = TRANSCRIPT_BUSY_TIMEOUT_MS) {
     for (const artifact of listAllArtifacts()) upsertArtifactRow(d, artifact);
     d.exec("PRAGMA user_version = 11");
   }
-  if (version < 12) {
+  {
     // Drop the fts5 mirror. Every search is scoped to one session and sessions
     // are small, so the mirror bought nothing a scan of the base table does not
     // already give through transcript_messages_session_ts, while costing a
@@ -721,14 +723,22 @@ function init(busyTimeoutMs = TRANSCRIPT_BUSY_TIMEOUT_MS) {
     //
     // DROP does not reclaim file space on its own; the freed pages are reused
     // for new rows. Run VACUUM out of band to shrink the file.
-    d.transaction(() => {
-      // Re-read under the write lock: another process may have dropped it
-      // already while this one held a stale `version` from outside.
-      const current = d.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version ?? 0;
-      if (current >= 12) return;
-      d.exec("DROP TABLE IF EXISTS transcript_messages_fts");
-      d.exec("PRAGMA user_version = 12");
-    }).immediate();
+    //
+    // This keys on the table, not on user_version: an earlier build stamped 12
+    // before this step ran, so installs exist at 12 that still hold the mirror.
+    // The check is one sqlite_master read, so it is cheap on every open.
+    const hasMirror = () => d.query<{ one: number }, []>(
+      "SELECT 1 AS one FROM sqlite_master WHERE name = 'transcript_messages_fts'",
+    ).get() != null;
+    const current = () => d.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version ?? 0;
+    if (hasMirror() || current() < 12) {
+      d.transaction(() => {
+        // Re-read under the write lock: another process may have dropped it
+        // already.
+        if (hasMirror()) d.exec("DROP TABLE IF EXISTS transcript_messages_fts");
+        if (current() < 12) d.exec("PRAGMA user_version = 12");
+      }).immediate();
+    }
   }
   d.exec(`CREATE UNIQUE INDEX IF NOT EXISTS transcript_artifact_message_unique
     ON transcript_messages(message_id)
