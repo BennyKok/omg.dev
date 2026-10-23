@@ -694,6 +694,14 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
     throw e;
   }
   const serverUrl = server.url;
+  // The server is a separate `opencode serve` process. Only the graceful
+  // `close` command used to stop it, so a harness that was signalled, crashed
+  // or exited on an error left it running with no owner (about 250 MB each,
+  // found alive a day later). Close it on every exit this process can see;
+  // a SIGKILL is covered by the orphan sweep in serve (orphan-agent-servers.ts).
+  process.once("exit", () => {
+    try { server.close(); } catch {}
+  });
   const client = createOpencodeClient({ baseUrl: serverUrl });
 
   let parentUuid: string | null = null;
@@ -1416,6 +1424,12 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
     } else if (cmd.type === "close") {
       shutdown();
     }
+  }
+
+  // A stop signal (terminateHarnessProcess sends SIGTERM) takes the same path
+  // as the `close` command, so the server and the registry entry go with it.
+  for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
+    process.once(signal, () => shutdown());
   }
 
   // Tail the command file by byte offset — same polling approach as the other
