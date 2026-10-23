@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## October 23, 2026 - The agent picker opens faster (v0.6.304)
+
+- On phones, the agent picker starts to move at once and is fully open in about half the time. Swipe down to close it.
+- When the side menu or the agent picker is open, a screen reader reads only that panel, not the page under it.
+- The web page does less work when your sessions change, so taps stay quick on a busy computer.
+- In the chat box, the plus and microphone buttons show as plain icons, and the bar is a little larger.
+
 ## October 23, 2026 - An old search index is removed (v0.6.303)
 
 - The computer removes an old search index that it no longer uses. On some computers this index was more than 1 GB. New messages now use that space before the file gets larger.
