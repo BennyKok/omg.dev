@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { buildRefinePrompt, refineAutoPrompt } from "../src/auto/enhance.ts";
 
-const APP = readFileSync(new URL("../web/src/App.tsx", import.meta.url), "utf8");
 const SERVE = readFileSync(new URL("../src/commands/serve.ts", import.meta.url), "utf8");
 
 const agent = {
@@ -70,27 +69,16 @@ describe("buildRefinePrompt", () => {
   });
 });
 
-describe("the feedback button's wiring", () => {
-  test("the URL the sheet posts to is one the server actually routes", () => {
-    // A drifted path here 404s silently behind a toast that says "Couldn't
-    // update the agent" — indistinguishable from a model failure.
-    const client = APP.match(/`\/api\/auto\/agents\/\$\{[^}]+\}\/refine`/);
-    expect(client).not.toBeNull();
+// The finding sheet's Feedback button was dropped in 0d0e1eebb (the footer now
+// uses the composer's agent and thinking pills), so only the server side of
+// the refine path is left to pin here.
+describe("the refine route", () => {
+  test("the server routes refine and requires feedback", () => {
     const route = SERVE.match(
       /path\.match\(\/\^\\\/api\\\/auto\\\/agents\\\/\(\[a-z0-9_-\]\+\)\\\/refine\$\/\)/,
     );
     expect(route).not.toBeNull();
     expect(SERVE).toContain('if (!feedback) return err(400, "feedback is required")');
-  });
-
-  test("the finding is sent along so the rewrite has the example in hand", () => {
-    expect(APP).toContain("JSON.stringify({ feedback: feedbackText, findingId: f.id })");
-  });
-
-  test("the feedback CTA is instrumented like every other path on the sheet", () => {
-    // The sheet's whole CTA mix is measured; an unlogged button reads as dead.
-    expect(APP).toContain('logFindingAction(finding.id, "feedback"');
-    expect(SERVE).toContain('b?.path !== "feedback"');
   });
 });
 

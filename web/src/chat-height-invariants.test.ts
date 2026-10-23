@@ -88,10 +88,12 @@ test("a keyboard show or hide re-pins a transcript that was following", () => {
   expect(APP.slice(obsEnd, obsEnd + "}, [sid]);".length)).toBe("}, [sid]);");
 
   const follow = APP.indexOf("const switching = revealedSid !== sid;", obsEnd);
-  const deps = APP.indexOf("stopGlide]);", follow);
+  // The follow effect's dependency list is the first one after its body.
+  const depsMatch = /\n  \}, \[([^\]]*)\]\);/.exec(APP.slice(follow));
   expect(follow).toBeGreaterThan(obsEnd);
-  expect(APP.slice(follow, deps)).toContain("el.scrollTop = bottom;");
-  expect(APP.slice(deps - 220, deps)).toContain("viewportHeight");
+  expect(depsMatch).not.toBeNull();
+  expect(APP.slice(follow, follow + depsMatch!.index)).toContain("el.scrollTop = bottom;");
+  expect(depsMatch![1].split(",").map(d => d.trim())).toContain("viewportHeight");
 });
 
 test("only the pane's height re-pins, so re-wrapping text cannot drag a reader down", () => {
