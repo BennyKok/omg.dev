@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 23, 2026 - Faster session switches, part 2 (v0.6.311)
+
+- Going back to a session is faster again. omg.dev keeps the formatted text of each finished message, so it does not read the Markdown again when the session opens. On a test machine this made a return to a session take about 150 ms, down from about 250 ms.
+- A page load sends fewer requests. The session list and the bot list no longer load twice right after the first screen.
+- On a hosted Computer, a switch to another Computer no longer holds back list updates. Before, a request that the previous Computer did not answer could stop new sessions and messages from showing.
+
 ## October 23, 2026 - Faster session switches (v0.6.310)
 
 - Going back to a session you opened before is faster. omg.dev keeps the size of each message row when you leave a session, so it does not calculate every row again when you come back.
