@@ -1,6 +1,6 @@
 // The phone's home composer on the Create view. The composer stays docked at
 // the bottom, as on every other page, so an open keyboard never moves it. On
-// Create the dock is clear (no bar background, shadow or fade), so the page's
+// Create the dock is clear (no bar background, blur, shadow or fade), so the page's
 // backdrop shows behind it. The heading and the tutorials are the page's
 // (CreateHome in apps-home.tsx).
 
@@ -23,7 +23,7 @@ export function CreateComposerFrame({
     <div
       className={cn(
         hidden ? "hidden" : "contents",
-        create && "[&>*]:!bg-transparent [&>*]:!shadow-none [&>*]:before:!hidden",
+        create && "[&>*]:!bg-transparent [&>*]:!shadow-none [&>*]:!backdrop-blur-none [&>*]:before:!hidden",
       )}
     >
       {children}
