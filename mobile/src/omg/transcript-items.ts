@@ -153,7 +153,11 @@ export function appendTranscriptDraft(
   while (start > 0 && messages[start - 1].kind === "work") start--;
   // The trailing work messages ARE the last settled run (its nextTs is null:
   // nothing follows it). Its key may be an inherited one; see `shown` above.
-  const merges = start < messages.length && last?.type === "tools" && last.nextTs === null;
+  // A trailing run whose rows were all withdrawn drew nothing, so the last
+  // settled run is an earlier one (an interrupt row between them draws
+  // nothing either) and the draft opens its own run.
+  const drawn = messages.slice(start).some((message) => message.steps?.length);
+  const merges = drawn && last?.type === "tools" && last.nextTs === null;
   if (last?.type === "tools" && last.live) {
     items[items.length - 1] = { ...last, live: false };
   }
