@@ -6,8 +6,8 @@
  * Presentational only. The composer owns the selection and passes it in, the
  * same way HomeComposer feeds the iOS sheet from useAgentPicker.
  */
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { SlidePanel } from "@/components/ui/slide-panel";
 import { ChevronLeft, ChevronRight, Gauge, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -68,9 +68,17 @@ export function AgentSetupSheet({
   usageDetails?: ReactNode;
 }) {
   const [page, setPage] = useState<SetupSheetPage>(initialPage);
-  useEffect(() => {
-    if (open) setPage(initialPage);
-  }, [open, initialPage]);
+  // The sheet stays mounted between opens. It goes back to its first page
+  // once it has slid away, so the next open shows that page from the first
+  // frame instead of morphing to it from the page it was closed on.
+  const [openedAt, setOpenedAt] = useState<string | null>(open ? initialPage : null);
+  const openKey = open ? initialPage : null;
+  if (openKey !== openedAt) {
+    setOpenedAt(openKey);
+    if (openKey !== null) setPage(openKey);
+  }
+  const initialPageRef = useRef(initialPage);
+  initialPageRef.current = initialPage;
   const back = () => setPage("root");
 
   // Which way the next page arrives. Every sub-page is reached from root and
@@ -118,19 +126,28 @@ export function AgentSetupSheet({
     observerRef.current = observer;
   }, []);
   useEffect(() => {
-    if (!open) setBodyHeight(null);
+    if (open) return;
+    const id = window.setTimeout(() => {
+      setPage(initialPageRef.current);
+      setBodyHeight(null);
+    }, 300);
+    return () => window.clearTimeout(id);
   }, [open]);
+  const titleId = useId();
   useEffect(() => () => observerRef.current?.disconnect(), []);
   const heading =
     page === "usage" ? "Usage" : page === "models" ? "Models" : page === "profiles" ? "Claude profile" : title;
 
   return (
-    <Drawer presentation="sheet" layer={180} open={open} onOpenChange={onOpenChange}>
-      <DrawerContent unstyled expandOnFocus={false} overlayClassName="fixed inset-0 z-[179] bg-black/60"
-          data-slot="agent-setup-sheet"
-          aria-describedby={undefined}
-          className="z-[180] flex max-h-[90dvh] select-none flex-col bg-transparent px-2 pb-[max(var(--lfg-safe-bottom),0.5rem)] outline-none"
-        >
+    <SlidePanel
+      open={open}
+      onOpenChange={onOpenChange}
+      edge="bottom"
+      labelledBy={titleId}
+      slot="agent-setup-sheet"
+      backdropClassName="bg-black/60"
+      className="inset-x-0 flex max-h-[90dvh] select-none flex-col px-2 pb-[max(var(--lfg-safe-bottom),0.5rem)]"
+    >
           <div className="mx-auto flex min-h-0 w-full max-w-[414px] flex-col rounded-[2rem] border border-border bg-popover px-3 pb-3 text-popover-foreground shadow-2xl">
           <div className="mx-auto mb-1 mt-2.5 h-1.5 w-10 shrink-0 rounded-full bg-muted-foreground/30" />
           <div className="flex min-h-11 items-center gap-2">
@@ -144,9 +161,9 @@ export function AgentSetupSheet({
                 <ChevronLeft className="size-5" />
               </button>
             ) : null}
-            <DrawerTitle className="min-w-0 flex-1 truncate text-[17px] font-semibold">
+            <h2 id={titleId} className="min-w-0 flex-1 truncate text-[17px] font-semibold">
               {heading}
-            </DrawerTitle>
+            </h2>
             {page === "root" && usageRing ? (
               <button
                 type="button"
@@ -249,8 +266,7 @@ export function AgentSetupSheet({
           </div>
           </div>
           </div>
-        </DrawerContent>
-    </Drawer>
+    </SlidePanel>
   );
 }
 

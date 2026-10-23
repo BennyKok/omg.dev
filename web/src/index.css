@@ -3068,46 +3068,55 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
   to { opacity: 1; }
 }
 
-/* The phone side navigation (components/side-nav.tsx). Opening flips
-   data-open; only transform and opacity change, so the slide runs on the
-   compositor. The open curve starts fast so the panel moves on the first frame
-   after the tap. Closed, the panel is visibility:hidden once it has left, so
-   its shadow is not painted off screen. */
-.lfg-side-nav {
+/* The phone slide panels (components/ui/slide-panel.tsx): the side
+   navigation and the agent setup sheet. Opening flips data-open; only
+   transform and opacity change, so the slide runs on the compositor. The open
+   curve starts fast so the panel moves on the first frame after the tap.
+   Closed, the panel is visibility:hidden once it has left, so its shadow is
+   not painted off screen. */
+.lfg-slide {
   pointer-events: none;
 }
-.lfg-side-nav[data-open="true"] {
+.lfg-slide[data-open="true"] {
   pointer-events: auto;
 }
-.lfg-side-nav-panel {
-  transform: translate3d(calc(-100% - 24px), 0, 0);
+.lfg-slide-panel {
   visibility: hidden;
   will-change: transform;
   transition: transform 200ms cubic-bezier(0.32, 0.72, 0, 1), visibility 0s linear 200ms;
 }
-.lfg-side-nav[data-open="true"] .lfg-side-nav-panel {
+.lfg-slide[data-edge="left"] .lfg-slide-panel {
+  transform: translate3d(calc(-100% - 24px), 0, 0);
+}
+.lfg-slide[data-edge="bottom"] .lfg-slide-panel {
+  /* Sit on the soft keyboard, not under it (published by App from
+     visualViewport). */
+  bottom: var(--lfg-keyboard-height, 0px);
+  transform: translate3d(0, calc(100% + 24px + var(--lfg-keyboard-height, 0px)), 0);
+}
+.lfg-slide[data-open="true"] .lfg-slide-panel {
   transform: translate3d(0, 0, 0);
   visibility: visible;
   transition: transform 260ms cubic-bezier(0.32, 0.72, 0, 1), visibility 0s;
 }
-.lfg-side-nav-backdrop {
+.lfg-slide-backdrop {
   opacity: 0;
   touch-action: none;
   transition: opacity 200ms ease-out;
 }
-.lfg-side-nav[data-open="true"] .lfg-side-nav-backdrop {
+.lfg-slide[data-open="true"] .lfg-slide-backdrop {
   opacity: 1;
   transition-duration: 260ms;
 }
-.lfg-side-nav[data-dragging="true"] .lfg-side-nav-panel,
-.lfg-side-nav[data-dragging="true"] .lfg-side-nav-backdrop {
+.lfg-slide[data-dragging="true"] .lfg-slide-panel,
+.lfg-slide[data-dragging="true"] .lfg-slide-backdrop {
   transition: none;
 }
 @media (prefers-reduced-motion: reduce) {
-  .lfg-side-nav-panel,
-  .lfg-side-nav[data-open="true"] .lfg-side-nav-panel,
-  .lfg-side-nav-backdrop,
-  .lfg-side-nav[data-open="true"] .lfg-side-nav-backdrop {
+  .lfg-slide-panel,
+  .lfg-slide[data-open="true"] .lfg-slide-panel,
+  .lfg-slide-backdrop,
+  .lfg-slide[data-open="true"] .lfg-slide-backdrop {
     transition: none;
   }
 }

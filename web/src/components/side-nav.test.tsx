@@ -185,7 +185,7 @@ function renderDrawer(open: boolean, onOpenChange: (next: boolean) => void) {
     <SideNavDrawer open={open} onOpenChange={onOpenChange} rows={sideNavRows({ tab: "live" })} onNavigate={() => {}} />,
   );
 }
-const drawerRoot = () => document.querySelector(".lfg-side-nav") as (HTMLElement & { inert?: boolean }) | null;
+const drawerRoot = () => document.querySelector('[data-slot="side-nav"]')?.closest("[data-open]") as (HTMLElement & { inert?: boolean }) | null;
 
 test("the drawer stays mounted when closed, hidden from focus and assistive tech", () => {
   renderDrawer(true, () => {});
@@ -202,7 +202,11 @@ test("Escape and a tap on the dimmed page close the drawer", () => {
   const changes: boolean[] = [];
   renderDrawer(true, (next) => changes.push(next));
   ui.flush(() => document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
-  ui.flush(() => (document.querySelector('[data-slot="drawer-overlay"]') as HTMLElement).click());
+  ui.flush(() => {
+    const backdrop = document.querySelector('[data-slot="drawer-overlay"]') as HTMLElement;
+    backdrop.dispatchEvent(new window.PointerEvent("pointerdown", { bubbles: true, pointerId: 2, isPrimary: true }));
+    backdrop.click();
+  });
   expect(changes).toEqual([false, false]);
 });
 

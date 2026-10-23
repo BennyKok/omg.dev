@@ -10,6 +10,8 @@ import {
 } from "./lib/queue-reconcile";
 import { windowLiveMessages } from "./lib/transcript-paging";
 import { promptPreviewText } from "./lib/transcript-status";
+import { NO_ITEMS, sameEntries } from "./lib/same-entries";
+import { useSkipSameState } from "./lib/use-skip-same-state";
 
 // The live socket is OmgLiveConnection from @omg-dev/client, the same client
 // iOS and @omg-dev/react use: connect, reconnect, resume cursors, status,
@@ -424,12 +426,12 @@ export function useLiveSocket(
     return map;
   }, [sessions]);
 
-  const [messagesBySid, setMessagesBySid] = useState<Record<string, Message[]>>({});
-  const [busyBySid, setBusyBySid] = useState<Record<string, boolean>>({});
-  const [promptsBySid, setPromptsBySid] = useState<Record<string, SessionPrompt | null>>({});
+  const [messagesBySid, setMessagesBySid] = useSkipSameState<Record<string, Message[]>>({});
+  const [busyBySid, setBusyBySid] = useSkipSameState<Record<string, boolean>>({});
+  const [promptsBySid, setPromptsBySid] = useSkipSameState<Record<string, SessionPrompt | null>>({});
   // Participant ids typing per session, replaced wholesale by each frame.
-  const [typingBySid, setTypingBySid] = useState<Record<string, string[]>>({});
-  const [connection, setConnection] = useState<ConnectionState>(INITIAL_CONNECTION_STATE);
+  const [typingBySid, setTypingBySid] = useSkipSameState<Record<string, string[]>>({});
+  const [connection, setConnection] = useSkipSameState<ConnectionState>(INITIAL_CONNECTION_STATE);
   const [latency] = useState(createLatencySource);
   const [live, setLive] = useState<OmgLiveConnection | null>(null);
 
@@ -637,16 +639,18 @@ export function useLiveSocket(
       // snapshot, but while subscribed the server never re-sends one.
       for (const sid of new Set([...liveSids, ...active])) {
         const current = prev[sid];
-        next[sid] = current?.length ? current : seedBySid[sid] ? [seedBySid[sid]] : [];
+        // The shared empty list, so a session with nothing to show is not a
+        // fresh `[]` (and so a change) on every list update.
+        next[sid] = current?.length ? current : seedBySid[sid] ? [seedBySid[sid]] : NO_ITEMS;
       }
-      return next;
+      return sameEntries(prev, next);
     });
-    setBusyBySid((prev) => Object.fromEntries(Object.entries(prev).filter(([sid]) => active.has(sid))));
-    setPromptsBySid((prev) => Object.fromEntries(Object.entries(prev).filter(([sid]) => active.has(sid))));
+    setBusyBySid((prev) => sameEntries(prev, Object.fromEntries(Object.entries(prev).filter(([sid]) => active.has(sid)))));
+    setPromptsBySid((prev) => sameEntries(prev, Object.fromEntries(Object.entries(prev).filter(([sid]) => active.has(sid)))));
     // Presence has no resume cursor: leaving a session ends the subscription
     // that feeds it, so a retained set would freeze. Re-entering resubscribes
     // and the server sends the current set again.
-    setTypingBySid((prev) => Object.fromEntries(Object.entries(prev).filter(([sid]) => active.has(sid))));
+    setTypingBySid((prev) => sameEntries(prev, Object.fromEntries(Object.entries(prev).filter(([sid]) => active.has(sid)))));
     syncFolds(active);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [streamKey, listBusy, seedBySid, syncFolds]);
