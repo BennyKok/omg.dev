@@ -59,6 +59,29 @@ describe("release bundle manifest", () => {
     });
   });
 
+  test("drops patches of bundled web packages, which the bundle never installs", () => {
+    const source = {
+      name: "lfg",
+      dependencies: { zod: "^4.0.0" },
+      patchedDependencies: { "streamdown@2.6.0": "patches/streamdown@2.6.0.patch" },
+    };
+    expect(prepareReleaseManifest(source)).toEqual({ name: "lfg", dependencies: { zod: "^4.0.0" } });
+  });
+
+  test("refuses to drop the patch of a runtime dependency", () => {
+    const source = {
+      name: "lfg",
+      dependencies: { "@scope/runtime-lib": "^1.0.0" },
+      patchedDependencies: { "@scope/runtime-lib@1.2.3": "patches/runtime-lib.patch" },
+    };
+    expect(() => prepareReleaseManifest(source)).toThrow("is patched and is a runtime dependency");
+  });
+
+  test("the real manifest stages cleanly", () => {
+    const manifest = JSON.parse(read("package.json"));
+    expect(prepareReleaseManifest(manifest).patchedDependencies).toBeUndefined();
+  });
+
   test("the release packer prepares the staged manifest", () => {
     const releaseScript = readFileSync(
       new URL("../scripts/release.sh", import.meta.url),
