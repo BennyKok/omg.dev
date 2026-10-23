@@ -37,9 +37,13 @@ const PRECOMPRESS_SKIP_EXTENSIONS = new Set([
 // the hashed entry chunk.
 function stampServiceWorkerVersion(): Plugin {
   let version = "dev";
+  let outDir = path.resolve(__dirname, "dist");
   return {
     name: "lfg-sw-version",
     apply: "build",
+    configResolved(config) {
+      outDir = path.resolve(config.root, config.build.outDir);
+    },
     writeBundle(_options, bundle) {
       const entry = Object.values(bundle).find(
         (chunk) => chunk.type === "chunk" && chunk.isEntry,
@@ -48,7 +52,7 @@ function stampServiceWorkerVersion(): Plugin {
       version = createHash("sha256").update(basis).digest("hex").slice(0, 12);
     },
     closeBundle() {
-      const swPath = path.resolve(__dirname, "dist/sw.js");
+      const swPath = path.join(outDir, "sw.js");
       if (!fs.existsSync(swPath)) return;
       const src = fs.readFileSync(swPath, "utf8");
       fs.writeFileSync(swPath, src.replaceAll("__VERSION__", version));
@@ -66,11 +70,15 @@ function precompressAssets(): Plugin {
       return [full];
     });
 
+  let outDir = path.resolve(__dirname, "dist");
   return {
     name: "lfg-precompress-assets",
     apply: "build",
+    configResolved(config) {
+      outDir = path.resolve(config.root, config.build.outDir);
+    },
     closeBundle() {
-      const assetsDir = path.resolve(__dirname, "dist/assets");
+      const assetsDir = path.join(outDir, "assets");
       if (!fs.existsSync(assetsDir)) return;
       for (const file of walk(assetsDir)) {
         const src = fs.readFileSync(file);
@@ -90,6 +98,10 @@ function precompressAssets(): Plugin {
 // In dev the Vite server proxies them through so the SPA stays single-origin.
 const API_TARGET = process.env.LFG_API_TARGET ?? "http://localhost:8766";
 const BUILD_SOURCEMAP = process.env.LFG_WEB_SOURCEMAP === "0" ? false : "hidden";
+// scripts/land-build.sh builds into a staging directory and renames it over
+// web/dist only after the build succeeds, so a killed build never empties the
+// bundle the live server reads. The plugins above follow this setting.
+const BUILD_OUT_DIR = process.env.LFG_WEB_OUT_DIR || "dist";
 
 // The version Settings shows as "Frontend". Read from the ROOT package.json,
 // never from web/package.json: scripts/pack-packages.sh rewrites every
@@ -125,6 +137,7 @@ export default defineConfig({
     esbuildOptions: { target: "es2022" },
   },
   build: {
+    outDir: BUILD_OUT_DIR,
     target: "es2022",
     sourcemap: BUILD_SOURCEMAP,
     rollupOptions: {
