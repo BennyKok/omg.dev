@@ -12,6 +12,7 @@ import { configureOmgTransport } from "./lib/omg-client";
 import { activeMachine, isLocalMachine, machineTransport } from "./lib/machines";
 import { registerExtension } from "./lib/extensions";
 import { installErrorReporting } from "./lib/report-error";
+import { installIdleMotionPause } from "./lib/idle-motion";
 import { AppDialogProvider } from "@/components/ui/app-dialog";
 import {
   applyTheme,
@@ -57,6 +58,7 @@ window.lfg = { React, ReactDOM, jsxRuntime: JsxRuntime, registerExtension };
 }
 
 applyTheme();
+installIdleMotionPause();
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
   // Continue following the OS until the user makes an explicit selection.
   if (getThemePreference() !== null) return;
