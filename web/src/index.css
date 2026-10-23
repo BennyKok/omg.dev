@@ -3068,6 +3068,50 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
   to { opacity: 1; }
 }
 
+/* The phone side navigation (components/side-nav.tsx). Opening flips
+   data-open; only transform and opacity change, so the slide runs on the
+   compositor. The open curve starts fast so the panel moves on the first frame
+   after the tap. Closed, the panel is visibility:hidden once it has left, so
+   its shadow is not painted off screen. */
+.lfg-side-nav {
+  pointer-events: none;
+}
+.lfg-side-nav[data-open="true"] {
+  pointer-events: auto;
+}
+.lfg-side-nav-panel {
+  transform: translate3d(calc(-100% - 24px), 0, 0);
+  visibility: hidden;
+  will-change: transform;
+  transition: transform 200ms cubic-bezier(0.32, 0.72, 0, 1), visibility 0s linear 200ms;
+}
+.lfg-side-nav[data-open="true"] .lfg-side-nav-panel {
+  transform: translate3d(0, 0, 0);
+  visibility: visible;
+  transition: transform 260ms cubic-bezier(0.32, 0.72, 0, 1), visibility 0s;
+}
+.lfg-side-nav-backdrop {
+  opacity: 0;
+  touch-action: none;
+  transition: opacity 200ms ease-out;
+}
+.lfg-side-nav[data-open="true"] .lfg-side-nav-backdrop {
+  opacity: 1;
+  transition-duration: 260ms;
+}
+.lfg-side-nav[data-dragging="true"] .lfg-side-nav-panel,
+.lfg-side-nav[data-dragging="true"] .lfg-side-nav-backdrop {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .lfg-side-nav-panel,
+  .lfg-side-nav[data-open="true"] .lfg-side-nav-panel,
+  .lfg-side-nav-backdrop,
+  .lfg-side-nav[data-open="true"] .lfg-side-nav-backdrop {
+    transition: none;
+  }
+}
+
 
 /* The phone Create page backdrop (CreateBackdrop in apps-home.tsx): five
    round glows that fill the whole screen, with short fades only at the very
