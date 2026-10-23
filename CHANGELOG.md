@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 23, 2026 - A cleaner Create page (v0.6.300)
+
+- On the Create page, the background behind the chat box no longer shows a line across it.
+- The heading on the Create page starts at the same edge as the tutorials.
+
 ## October 22, 2026 - Chats stay open while your app publishes (v0.6.299)
 
 - A chat stays open while the agent moves it into a new project, for example when it creates and publishes your app. Before, the phone could go back to the home screen, and you had to open the chat again to see the link.
