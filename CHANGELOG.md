@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 23, 2026 - Faster session panels (v0.6.302)
+
+- The changes, files and diff panels of a session open faster. Answering a question, stopping a turn and opening a chat stream are faster too. These actions no longer scan every session first.
+
 ## October 23, 2026 - Less background work on your computer (v0.6.301)
 
 - The computer sends session, finding and question updates to omg.dev when they change. Before, it read every list every 4 seconds to look for changes.
