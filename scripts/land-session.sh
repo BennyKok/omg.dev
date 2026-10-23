@@ -15,29 +15,11 @@ say() {
   printf '==> %s\n' "$*"
 }
 
-# A web build that emits index.html but loses its asset chunks still leaves a
-# checkout that looks deployable: the service starts, `/` answers 200, and the
-# marker below would certify the revision as live while every visitor gets a
-# blank page. That has happened (an interrupted/concurrent `vite build` left
-# web/dist/assets empty), so refuse to certify a dist whose own entry document
-# points at files that are not on disk.
-assert_web_bundle_complete() {
-  local dist="$MAIN_ROOT/web/dist"
-  local index="$dist/index.html"
-  [ -f "$index" ] || die "web build produced no $index"
-
-  local missing=0 ref
-  while IFS= read -r ref; do
-    [ -n "$ref" ] || continue
-    [ -f "$dist/$ref" ] || {
-      printf '[x] missing build output: web/dist/%s\n' "$ref" >&2
-      missing=1
-    }
-  done < <(grep -oE '(src|href)="/[^"?#]+"' "$index" | sed -E 's/^[a-z]+="\/(.*)"$/\1/' | sort -u)
-
-  [ "$missing" = "0" ] \
-    || die "web/dist is incomplete; rerun the web build (a concurrent or interrupted build can empty web/dist/assets)"
-}
+# The build helpers (bundle check, staged web build, memory scope) live in
+# land-build.sh so they can be tested without a landing.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=land-build.sh
+. "$SCRIPT_DIR/land-build.sh"
 
 # Starting is not serving. Ask the restarted service for the exact entry chunk
 # the document loads, so a half-written dist or a stale service can never be
@@ -165,20 +147,17 @@ say "Syncing and building the local main checkout"
 git -C "$MAIN_ROOT" fetch --quiet origin main
 git -C "$MAIN_ROOT" merge --ff-only origin/main
 if [ "${LFG_LAND_SKIP_BUILD:-0}" != "1" ]; then
-  (cd "$MAIN_ROOT" && bun install --frozen-lockfile)
-  (cd "$MAIN_ROOT/web" && bun install --frozen-lockfile)
-  # The web workspace resolves @omg-dev/* through each package's generated
-  # dist entrypoint. Rebuild those entrypoints first so a transport/protocol
-  # source change cannot make the web build consume stale declarations.
-  (cd "$MAIN_ROOT" && bun run --cwd packages/protocol build)
-  (cd "$MAIN_ROOT" && bun run --cwd packages/client build)
-  (cd "$MAIN_ROOT" && bun run --cwd packages/react build)
-  (cd "$MAIN_ROOT/web" && bun run build)
+  # Still under the landing lock. The build runs in its own memory scope so
+  # lfg.service's MemoryMax cannot OOM-kill it, and land-build.sh swaps the web
+  # bundle in only after it succeeds. A failure stops here: no restart and no
+  # deployed-head marker, and the old web/dist keeps serving.
+  run_in_build_scope bash "$SCRIPT_DIR/land-build.sh" "$MAIN_ROOT" \
+    || die "build failed (exit $?); the service was not restarted and web/dist was left unchanged"
 fi
 
 # Checked even when the build is skipped: reusing an existing web/dist is
 # exactly the case where the on-disk bundle can already be gutted.
-assert_web_bundle_complete
+assert_web_bundle_complete "$MAIN_ROOT/web/dist"
 
 deployed_head="$(git -C "$MAIN_ROOT" rev-parse HEAD)"
 if [ "${LFG_LAND_SKIP_RESTART:-0}" != "1" ]; then

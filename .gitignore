@@ -2,6 +2,9 @@ node_modules/
 web/node_modules/
 web/dist/
 web/dist-lib/
+# Staging and swap directories from scripts/land-build.sh.
+web/.dist-next.*/
+web/dist.old.*/
 data/
 .env
 .env.*
