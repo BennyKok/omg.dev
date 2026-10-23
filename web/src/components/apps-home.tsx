@@ -52,7 +52,7 @@ export function buildAppItems<S extends SessionLike, R extends RepoLike>(
   sessions: readonly S[],
   cloud: ReadonlyMap<string, CloudAppRow>,
   projectOf: (repo: R) => string,
-): { games: AppItem<S>[]; apps: AppItem<S>[]; local: LocalProject<S>[] } {
+): { all: AppItem<S>[]; games: AppItem<S>[]; apps: AppItem<S>[]; local: LocalProject<S>[] } {
   const items = new Map<R, AppItem<S>>();
   const localItems = new Map<R, LocalProject<S>>();
   for (const repo of repos) {
@@ -100,9 +100,13 @@ export function buildAppItems<S extends SessionLike, R extends RepoLike>(
   local.sort((a, b) => b.lastActivityAt - a.lastActivityAt || a.name.localeCompare(b.name));
   const all = [...items.values()];
   for (const item of all) item.sessions.sort((a, b) => (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0));
-  // Apps with recent work first, then the rest by name.
-  all.sort((a, b) => b.lastActivityAt - a.lastActivityAt || a.name.localeCompare(b.name));
-  return { games: all.filter((item) => item.kind === "game"), apps: all.filter((item) => item.kind === "app"), local };
+  // Recent work first. Apps with no work here follow newest first: the Cloud
+  // lists them by when they joined the account, newest first, and that order
+  // is the only creation time it sends. Then the rest by name.
+  const cloudOrder = new Map([...cloud.keys()].map((slug, index) => [slug, index]));
+  const created = (item: AppItem<S>) => cloudOrder.get(item.link.slug) ?? Number.MAX_SAFE_INTEGER;
+  all.sort((a, b) => b.lastActivityAt - a.lastActivityAt || created(a) - created(b) || a.name.localeCompare(b.name));
+  return { all, games: all.filter((item) => item.kind === "game"), apps: all.filter((item) => item.kind === "app"), local };
 }
 
 let cloudAppsRequest: Promise<Map<string, CloudAppRow>> | null = null;

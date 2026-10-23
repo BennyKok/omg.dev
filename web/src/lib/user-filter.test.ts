@@ -5,6 +5,7 @@ import {
   sessionMatchesUserFilter,
   userFilterUpdatesStandaloneIdentity,
 } from "./user-filter";
+import { firstFrameUserFilter } from "./user-filter";
 
 const benny = { assignedUser: "itechbenny@gmail.com" };
 const angel = { assignedUser: "lyyluiyanyan@gmail.com" };
@@ -134,5 +135,36 @@ describe("hostedStartUserFilter", () => {
 
   test("an unshared machine (no roster) keeps the current filter", () => {
     expect(hostedStartUserFilter({ saved: null, viewerEmail: "itechbenny@gmail.com", users: [] })).toBeNull();
+  });
+});
+
+describe("firstFrameUserFilter", () => {
+  const users = [{ email: "ada@example.com" }, { email: "bo@example.com" }];
+  test("a hosted saved screen starts on the viewer's own filter, not All", () => {
+    expect(firstFrameUserFilter({
+      savedScreen: { viewer: { managed: true, userFilter: null, email: "Ada@example.com" }, users },
+      savedFilter: "__all",
+      standaloneProfile: null,
+      hosted: true,
+    })).toBe("ada@example.com");
+  });
+  test("the viewer's kept choice wins, including All", () => {
+    const start = (userFilter: string) => firstFrameUserFilter({
+      savedScreen: { viewer: { managed: true, userFilter, email: "ada@example.com" }, users },
+      savedFilter: null,
+      standaloneProfile: null,
+      hosted: true,
+    });
+    expect(start("bo@example.com")).toBe("bo@example.com");
+    expect(start("__all")).toBe("__all");
+  });
+  test("no saved screen, or not hosted: the stored filter as before", () => {
+    expect(firstFrameUserFilter({ savedScreen: null, savedFilter: null, standaloneProfile: null, hosted: true })).toBe("__all");
+    expect(firstFrameUserFilter({
+      savedScreen: { viewer: { managed: true, email: "ada@example.com" }, users },
+      savedFilter: "bo@example.com",
+      standaloneProfile: null,
+      hosted: false,
+    })).toBe("bo@example.com");
   });
 });
