@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 23, 2026 - An old search index is removed (v0.6.303)
+
+- The computer removes an old search index that it no longer uses. On some computers this index was more than 1 GB. New messages now use that space before the file gets larger.
+
 ## October 23, 2026 - Faster session panels (v0.6.302)
 
 - The changes, files and diff panels of a session open faster. Answering a question, stopping a turn and opening a chat stream are faster too. These actions no longer scan every session first.
