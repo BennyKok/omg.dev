@@ -12673,6 +12673,22 @@ function LiveView({
     ];
   };
 
+  // These hooks stay above the wide early return. A window that crosses the
+  // wide breakpoint must call the same hooks in both layouts (React #310).
+  //
+  // The pill order, so a switch knows which side the next page comes from.
+  // No motion on the first draw: only a switch animates.
+  const homePage = createView ? 0 : appsView ? 1 : 2;
+  // The Apps page is its own chunk. Load it while the phone home is up, so
+  // the page is there when its slide starts instead of popping in after.
+  useEffect(() => {
+    if (!isMobile) return;
+    const idle = window.requestIdleCallback ?? ((run: () => void) => window.setTimeout(run, 1500));
+    idle(() => void loadAppsList().catch(() => {}));
+  }, [isMobile]);
+  const [homePageMove, setHomePageMove] = useState({ page: homePage, dir: 0 });
+  if (homePageMove.page !== homePage) setHomePageMove({ page: homePage, dir: homePage > homePageMove.page ? 1 : -1 });
+
   if (isWide) {
     return (
       <RailStage
@@ -12782,19 +12798,6 @@ function LiveView({
       </RailSessionContextMenu>
     );
   };
-
-  // The pill order, so a switch knows which side the next page comes from.
-  // No motion on the first draw: only a switch animates.
-  const homePage = createView ? 0 : appsView ? 1 : 2;
-  // The Apps page is its own chunk. Load it while the phone home is up, so
-  // the page is there when its slide starts instead of popping in after.
-  useEffect(() => {
-    if (!isMobile) return;
-    const idle = window.requestIdleCallback ?? ((run: () => void) => window.setTimeout(run, 1500));
-    idle(() => void loadAppsList().catch(() => {}));
-  }, [isMobile]);
-  const [homePageMove, setHomePageMove] = useState({ page: homePage, dir: 0 });
-  if (homePageMove.page !== homePage) setHomePageMove({ page: homePage, dir: homePage > homePageMove.page ? 1 : -1 });
 
   // Sheet navigation follows the same on-screen order.
   const sheetOrder =
