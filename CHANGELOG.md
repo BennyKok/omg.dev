@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 24, 2026 - Questions show on every screen (v0.6.324)
+
+- A question from the agent now shows on every screen that has the chat open. Before, a second tab or your phone (while the chat was also open somewhere else) could miss a question that was already asked, so there was nothing to answer.
+- On a phone, the chat list no longer breaks with "Something broke" when it becomes empty or stops being empty, for example after a filter or an archive.
+
 ## October 24, 2026 - Drag sessions on phones and in compact lists (v0.6.323)
 
 - In the compact session list, you can now drag a session onto another session to move it under that session. Before, only the detailed list allowed this.
