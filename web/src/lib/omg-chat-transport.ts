@@ -416,11 +416,17 @@ function upsertOmgUIMessage(current: OmgChatMessage[], incoming: OmgChatMessage)
         isLocalReply(message) &&
         sameReply(textFromUIParts(message), text),
     );
-    if (confirmed < 0) confirmed = current.findLastIndex(isStreamingAssistantText);
-    next = current.filter(
-      (message, index) => index === confirmed || !isStreamingAssistantText(message),
+    // The server's live draft stands for whatever reply is being written, so
+    // the finished row takes it over even when the texts differ. This
+    // browser's own copy of an earlier reply is not this one: it stays, done,
+    // and the next history page settles it. Dropping it here made an
+    // interrupted answer vanish when the steered reply landed, and come back
+    // when the history reloaded.
+    if (confirmed < 0) confirmed = current.findLastIndex((message) => isStreamingAssistantText(message) && isServerDraft(message));
+    next = finishStreamingCopies(
+      current.filter((message, index) => index === confirmed || !(isStreamingAssistantText(message) && isServerDraft(message))),
     );
-    if (confirmed >= 0) confirmed = next.indexOf(current[confirmed]!);
+    if (confirmed >= 0) confirmed = next.findIndex((message) => message.id === current[confirmed]!.id);
   }
   // The server's row goes where the server's clock puts it (an interrupted
   // turn is ordered by the server, not by when this browser drew it). Moving
@@ -442,6 +448,25 @@ function upsertOmgUIMessage(current: OmgChatMessage[], incoming: OmgChatMessage)
   if (insertAt >= 0) out.splice(insertAt, 0, incoming);
   else out.push(incoming);
   return out;
+}
+
+/** A reply drawn from the server's live draft (updateDraftText), not by this browser's own stream. */
+function isServerDraft(message: OmgChatMessage): boolean {
+  return !!message.metadata?.omgMessage?.draftOf;
+}
+
+/** This browser's own streamed replies, marked finished. Returns `messages` when none was streaming. */
+function finishStreamingCopies(messages: OmgChatMessage[]): OmgChatMessage[] {
+  let changed = false;
+  const out = messages.map((message) => {
+    if (!isStreamingAssistantText(message) || isServerDraft(message)) return message;
+    changed = true;
+    return {
+      ...message,
+      parts: message.parts.map((part) => (part.type === "text" ? { ...part, state: "done" as const } : part)),
+    };
+  });
+  return changed ? out : messages;
 }
 
 function isStreamingAssistantText(message: OmgChatMessage): boolean {
@@ -582,18 +607,41 @@ export function reconcileOmgQueueMessages(
   let next = current.filter(
     (message) => !message.id.startsWith(QUEUE_MESSAGE_ID_PREFIX) || visibleIds.has(message.id),
   );
-  // A send the server held (queue mode, agent busy) is not in the chain: the
-  // composer shows it as a card. The client may have painted an optimistic
-  // bubble before it learned the server's busy state; that bubble goes.
-  const heldTexts = new Set(
-    queue.filter((item) => item.status === "held").map((item) => normText(item.text)),
-  );
-  if (heldTexts.size) {
-    next = next.filter((message) => {
-      if (message.id.startsWith(QUEUE_MESSAGE_ID_PREFIX) || message.role !== "user") return true;
-      const meta = message.metadata?.omgMessage;
-      return !(meta?.pending && !meta.failed && heldTexts.has(normText(meta.text)));
-    });
+  // A send the server held (queue mode, agent busy) is drawn ONCE. A send the
+  // composer knew was waiting is a card under the composer and never had a
+  // bubble. A send this page already drew as a bubble, because it thought the
+  // agent was done while the server was still finishing the turn, stays that
+  // bubble and turns into a waiting one, bound to the held row (`queueId`) so
+  // the composer does not also show it as a card. It used to be dropped here
+  // and reappear as a card, then as a bubble again when it was sent: one
+  // message drawn in three places in a second.
+  const held = queue
+    .filter((item) => item.status === "held")
+    .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
+  if (held.length) {
+    const bound = new Set(
+      next.map((message) => message.metadata?.omgMessage?.queueId).filter((id): id is string => !!id),
+    );
+    for (const item of held) {
+      if (bound.has(item.id)) continue;
+      const text = normText(item.text);
+      const index = next.findIndex((message) => {
+        if (message.id.startsWith(QUEUE_MESSAGE_ID_PREFIX) || !isPendingUserRow(message)) return false;
+        const meta = message.metadata!.omgMessage!;
+        return !meta.queueId && normText(meta.text) === text;
+      });
+      if (index < 0) continue;
+      const bubble = next[index]!;
+      next = [...next];
+      next[index] = {
+        ...bubble,
+        metadata: {
+          ...bubble.metadata,
+          omgMessage: { ...bubble.metadata!.omgMessage!, queued: true, queueId: item.id },
+        },
+      };
+      bound.add(item.id);
+    }
   }
   const matched = matchedQueueRowIds(queue, next.map(omgQueueReconcileRow));
   const claimedOptimistic = new Set<number>();
@@ -828,17 +876,17 @@ function applyOmgTranscriptEvent(
     });
   }
   if (event.type === "busy" && !event.busy) {
-    // Turn ended: any assistant message still marked streaming is a stale
-    // draft. The server never emits an explicit end for drafts (it just stops
-    // sending deltas — heavy on claude, rare on codex), and the finalized row
-    // for the same text is already indexed/upserted, so a leftover streaming
-    // bubble would sit there animating forever.
-    const next = current.filter(
-      (message) =>
-        message.role !== "assistant" ||
-        !message.parts.some((part) => part.type === "text" && part.state === "streaming"),
+    // Turn ended. A live draft still marked streaming is stale: the server
+    // never ends a draft explicitly, and its finished row is already here. A
+    // reply this browser streamed itself is kept, finished, until the history
+    // page settles it into its server row (mergeHistoryPage).
+    const drafts = current.filter(
+      (message) => !(isStreamingAssistantText(message) && isServerDraft(message)),
     );
-    return next.length === current.length ? current : next;
+    const settled = finishStreamingCopies(drafts);
+    return settled.length === current.length && settled.every((message, index) => message === current[index])
+      ? current
+      : settled;
   }
   return current;
 }
