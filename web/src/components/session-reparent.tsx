@@ -358,7 +358,8 @@ export function SessionReparentTarget({ session, children, className, ref, touch
     {/* Inset from the row's edges, so a rounded list card that clips its
         rows (overflow-hidden) never cuts the ring's corners. */}
     {highlighted ? <span data-session-drop-ring="" aria-hidden="true" className="pointer-events-none absolute inset-1 z-10 rounded-[12px] bg-primary/10 ring-2 ring-primary" /> : null}
-    {highlighted && !context?.touchDragging ? <span className="pointer-events-none absolute inset-x-1 -top-2 z-20 truncate rounded bg-primary px-1.5 py-0.5 text-center text-[10px] font-medium text-primary-foreground">
+    {/* Inside the row, centred: a list card clips anything above its first row. */}
+    {highlighted && !context?.touchDragging ? <span className="pointer-events-none absolute left-1/2 top-1/2 z-20 max-w-[calc(100%-1.5rem)] -translate-x-1/2 -translate-y-1/2 truncate rounded-full bg-primary px-2 py-0.5 text-center text-[11px] font-medium text-primary-foreground shadow-sm">
       Move under {session.title || id}
     </span> : null}
   </div>;

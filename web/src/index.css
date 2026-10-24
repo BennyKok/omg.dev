@@ -1313,14 +1313,17 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
     opacity: 0;
   }
 
+  /* Rings concentric with the bubble's 26px corners (.user-bubble.markdown):
+     the sharp ring on its border box, the soft ring 2px out, the halo 5px out.
+     A ring with a tighter radius than the bubble pokes past its corners. */
   .user-bubble-organic {
     inset: -14px;
     --organic-halo-inset: 9px;
     --organic-soft-inset: 12px;
     --organic-sharp-inset: 14px;
-    --organic-halo-radius: 27px;
-    --organic-soft-radius: 24px;
-    --organic-sharp-radius: 22px;
+    --organic-halo-radius: 31px;
+    --organic-soft-radius: 28px;
+    --organic-sharp-radius: 26px;
   }
 
   .lfg-organic-activity-wash {
