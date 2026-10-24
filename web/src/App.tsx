@@ -24848,6 +24848,16 @@ function NewSessionDialog({
     />
   );
 
+  // The composer carries no Stash button. Stash and recent sessions open with
+  // the upward swipe on a phone and from a project's "find sessions" card.
+  // The omg agent on a level (Auto, Max, Balanced, Fast) shows the level menu
+  // here, so a level change is one tap. A specific model chosen in the full
+  // picker hides it.
+  const levelMenu =
+    agent === "omg" && view.showComposerModels && !builderChoice?.selected && showOmgLevelMenu(model, models) ? (
+      <OmgLevelMenu value={model} onChange={chooseModel} />
+    ) : null;
+
   const modelControls = (
     <>
       {
@@ -24869,6 +24879,7 @@ function NewSessionDialog({
           builderChoice={builderChoice}
           showModels={view.showComposerModels}
           showAgents={view.showComposerAgents}
+          hideModelLabel={!!levelMenu}
           footer={<>
             {/* The stage keeps Thinking and Fast inside the picker. */}
             {
@@ -24929,15 +24940,6 @@ function NewSessionDialog({
     </div>
   );
 
-  // The composer carries no Stash button. Stash and recent sessions open with
-  // the upward swipe on a phone and from a project's "find sessions" card.
-  // The omg agent on a level (Auto, Max, Balanced, Fast) shows the level menu
-  // here, so a level change is one tap. A specific model chosen in the full
-  // picker hides it.
-  const levelMenu =
-    agent === "omg" && view.showComposerModels && !builderChoice?.selected && showOmgLevelMenu(model, models) ? (
-      <OmgLevelMenu value={model} onChange={chooseModel} />
-    ) : null;
 
   // Inline composer: the agent icon opens the agent sheet, the web copy of the
   // iOS AgentSetupSheet. A vertical swipe on the icon still steps through the
@@ -26946,6 +26948,7 @@ export function AgentModelPicker<K extends AgentKind>({
   builderChoice,
   showModels = true,
   showAgents = true,
+  hideModelLabel = false,
   side = "bottom",
   footer,
 }: {
@@ -26972,6 +26975,9 @@ export function AgentModelPicker<K extends AgentKind>({
   showModels?: boolean;
   /** Off: no agent strip; the pill is a model picker with the agent's icon. */
   showAgents?: boolean;
+  /** The pill shows the agent's icon only, because a control beside it
+   *  already names the model (the composer's omg level menu). */
+  hideModelLabel?: boolean;
   /** "top" for a pill in a footer, where there is no prompt above it to cover. */
   side?: "top" | "bottom";
   /** Optional controls fixed below the scrollable model list. */
@@ -26997,7 +27003,10 @@ export function AgentModelPicker<K extends AgentKind>({
       title={`${agentLabel} · ${builderChoice?.selected ? "App Builder" : model || "model"}`}
       aria-haspopup="dialog"
       aria-expanded={open}
-      className="inline-flex h-8 min-w-0 cursor-pointer items-center gap-1.5 rounded-full bg-muted pl-1 pr-2.5 text-foreground transition active:scale-[0.98]"
+      className={cn(
+        "inline-flex h-8 min-w-0 cursor-pointer items-center gap-1.5 rounded-full bg-muted pl-1 text-foreground transition active:scale-[0.98]",
+        hideModelLabel ? "pr-2" : "pr-2.5",
+      )}
     >
       <span className="relative flex size-6 shrink-0 items-center justify-center rounded-full bg-background shadow-sm">
         {hostedModel ? (
@@ -27019,9 +27028,11 @@ export function AgentModelPicker<K extends AgentKind>({
           </span>
         ) : null}
       </span>
-      <span className="max-w-32 truncate text-xs font-medium">
-        {showModels ? modelLabel || "model" : agentLabel}
-      </span>
+      {hideModelLabel ? null : (
+        <span className="max-w-32 truncate text-xs font-medium">
+          {showModels ? modelLabel || "model" : agentLabel}
+        </span>
+      )}
       <ChevronDown className="size-3 shrink-0 text-muted-foreground/70" />
     </button>
   );
