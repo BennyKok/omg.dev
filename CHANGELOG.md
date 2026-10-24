@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 24, 2026 - Auto agent alerts look right on phones (v0.6.328)
+
+- The alert that an auto agent found something now shows as a full card on omg.dev: the icon, the agent name, the finding and View, with room around them and centred on the screen. Before, on a phone it lost its padding, so the icon and View touched the edges and the name was cut short.
+
 ## October 24, 2026 - Tutorials on the desktop home (v0.6.327)
 
 - On omg.dev on a computer, the home screen shows the tutorials under "What do you want to make?", as the phone does. Three cards fit side by side, and the arrow opens the full list.
