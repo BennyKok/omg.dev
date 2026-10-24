@@ -1,5 +1,12 @@
 import { expect, test } from "bun:test";
-import { EmptyOpencodeReply, opencodeTurnHasProgress, recoverOpencodeTurn } from "./opencode-turn-recovery";
+import {
+  EmptyOpencodeReply,
+  OPENCODE_MODEL_NOT_IN_PLAN_MESSAGE,
+  OPENCODE_RECOVERY_MESSAGE,
+  opencodeTurnFailureMessage,
+  opencodeTurnHasProgress,
+  recoverOpencodeTurn,
+} from "./opencode-turn-recovery";
 
 function setup(errors: Error[], progress = false) {
   const calls: string[] = [];
@@ -78,4 +85,16 @@ test("old turns and user text do not block recovery; current reasoning does", ()
   expect(opencodeTurnHasProgress(history, 100)).toBe(false);
   history.push({ info: { role: "assistant", time: { created: 101 } }, parts: [{ type: "reasoning", text: "thinking" }] });
   expect(opencodeTurnHasProgress(history, 100)).toBe(true);
+});
+
+// A customer out of credit was told to "send your message again" three times,
+// then cancelled. The error text is what OpenCode 1.19.4 reports for the hosted
+// router's 402 (reproduced against a local server, 2026-10-24).
+test("an out-of-credit turn is not retried; plan refusals get their own message", async () => {
+  const error = new Error("Payment Required: Out of credits — upgrade your plan to keep building.");
+  const { options, calls } = setup([error]);
+  await expect(recoverOpencodeTurn(options)).rejects.toThrow("Out of credits");
+  expect(calls.filter(x => x === "request")).toHaveLength(1);
+  expect(opencodeTurnFailureMessage(new Error("Payment Required: Upgrade your plan to use this model."))).toBe(OPENCODE_MODEL_NOT_IN_PLAN_MESSAGE);
+  expect(opencodeTurnFailureMessage(new Error("fetch failed"))).toBe(OPENCODE_RECOVERY_MESSAGE);
 });

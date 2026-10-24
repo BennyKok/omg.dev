@@ -1,3 +1,4 @@
+import { OPENCODE_OUT_OF_CREDIT_MESSAGE, opencodeTurnFailureMessage } from "./opencode-turn-recovery.ts";
 import { describe, expect, test } from "bun:test";
 import {
   isAbortedReply,
@@ -309,6 +310,24 @@ describe("opencode session.error handling", () => {
     expect(sessionErrorText({ error: { name: "MessageOutputLengthError", data: {} } })).toBe(
       "MessageOutputLengthError",
     );
+  });
+
+  // The hosted router's 402 when a customer is out of credit, exactly as
+  // OpenCode 1.19.4 reports it (reproduced against a local server,
+  // 2026-10-24). It must reach the chat as the out-of-credit message.
+  test("an out-of-credit router reply becomes the out-of-credit message", () => {
+    const text = sessionErrorText({
+      sessionID: "ses_1",
+      error: {
+        name: "APIError",
+        data: {
+          message: "Payment Required: Out of credits — upgrade your plan to keep building.",
+          statusCode: 402,
+          isRetryable: false,
+        },
+      },
+    });
+    expect(opencodeTurnFailureMessage(new Error(text ?? ""))).toBe(OPENCODE_OUT_OF_CREDIT_MESSAGE);
   });
 
   test("ignores an event carrying no error", () => {
