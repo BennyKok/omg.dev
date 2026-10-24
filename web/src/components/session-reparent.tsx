@@ -306,7 +306,6 @@ export function SessionReparentTarget({ session, children, className, ref, touch
     className={cn(
       "relative min-w-0",
       !!id && context?.dragging === id && "opacity-50",
-      highlighted && "rounded-lg ring-2 ring-inset ring-primary bg-primary/10",
       className,
     )}
     onDragStart={(event) => {
@@ -356,6 +355,9 @@ export function SessionReparentTarget({ session, children, className, ref, touch
     }}
   >
     {children}
+    {/* Inset from the row's edges, so a rounded list card that clips its
+        rows (overflow-hidden) never cuts the ring's corners. */}
+    {highlighted ? <span data-session-drop-ring="" aria-hidden="true" className="pointer-events-none absolute inset-1 z-10 rounded-[12px] bg-primary/10 ring-2 ring-primary" /> : null}
     {highlighted && !context?.touchDragging ? <span className="pointer-events-none absolute inset-x-1 -top-2 z-20 truncate rounded bg-primary px-1.5 py-0.5 text-center text-[10px] font-medium text-primary-foreground">
       Move under {session.title || id}
     </span> : null}
