@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
 import { handleOmgModelPrices } from "./omg-model-pricing.ts";
 import { modelCreditSampleMicros, type OmgModelPrices } from "../packages/protocol/src/model-pricing.ts";
+import { applyOmgRouterFixture } from "./fixtures/omg-agent-catalog.ts";
+
+applyOmgRouterFixture();
 
 const request = () => new Request("http://127.0.0.1/api/omg/model-prices");
 

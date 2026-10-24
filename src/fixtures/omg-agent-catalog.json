@@ -1,0 +1,190 @@
+{
+  "models": [
+    {
+      "id": "omg/auto",
+      "label": "Auto",
+      "imageInput": true
+    },
+    {
+      "id": "omg/max",
+      "label": "Max",
+      "imageInput": true
+    },
+    {
+      "id": "omg/balanced",
+      "label": "Balanced",
+      "imageInput": true
+    },
+    {
+      "id": "omg/fast",
+      "label": "Fast",
+      "imageInput": true
+    },
+    {
+      "id": "omg/build",
+      "label": "Build",
+      "imageInput": true
+    },
+    {
+      "id": "anthropic/claude-opus-5.5",
+      "label": "Claude Opus 5.5",
+      "imageInput": true,
+      "thinkingLevels": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    {
+      "id": "apex",
+      "label": "Apex"
+    },
+    {
+      "id": "deepseek/deepseek-v4-flash-0731",
+      "label": "DeepSeek V4 Flash 0731",
+      "thinkingLevels": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    {
+      "id": "deepseek/deepseek-v4-pro",
+      "label": "DeepSeek V4 Pro",
+      "thinkingLevels": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    {
+      "id": "z-ai/glm-5.3-flash",
+      "label": "GLM 5.3 Flash",
+      "imageInput": true,
+      "thinkingLevels": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    {
+      "id": "z-ai/glm-5.3",
+      "label": "GLM 5.3",
+      "thinkingLevels": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    {
+      "id": "minimax/minimax-m3",
+      "label": "MiniMax M3",
+      "imageInput": true
+    },
+    {
+      "id": "moonshotai/kimi-k3.1-pro",
+      "label": "Kimi K3.1 Pro",
+      "imageInput": true,
+      "thinkingLevels": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    {
+      "id": "x-ai/grok-4.7",
+      "label": "Grok 4.7",
+      "imageInput": true,
+      "thinkingLevels": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    {
+      "id": "anthropic/claude-fable-5.1",
+      "label": "Claude Fable 5.1",
+      "imageInput": true,
+      "thinkingLevels": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    {
+      "id": "anthropic/claude-sonnet-5.5",
+      "label": "Claude Sonnet 5.5",
+      "imageInput": true,
+      "thinkingLevels": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    {
+      "id": "anthropic/claude-haiku-5.5",
+      "label": "Claude Haiku 5.5",
+      "imageInput": true,
+      "thinkingLevels": [
+        "off",
+        "low",
+        "medium",
+        "high"
+      ],
+      "defaultThinkingLevel": "off"
+    },
+    {
+      "id": "openai/gpt-6.1-sol",
+      "label": "GPT-6.1 Sol",
+      "imageInput": true,
+      "thinkingLevels": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    {
+      "id": "openai/gpt-6-astra",
+      "label": "GPT-6 Astra",
+      "imageInput": true,
+      "thinkingLevels": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    {
+      "id": "openai/gpt-6-luna",
+      "label": "GPT-6 Luna",
+      "imageInput": true,
+      "thinkingLevels": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    {
+      "id": "z-ai/glm-5.2",
+      "label": "GLM 5.2",
+      "deprecated": true
+    },
+    {
+      "id": "openai/gpt-5.6-sol",
+      "label": "GPT-5.6 Sol",
+      "deprecated": true,
+      "imageInput": true
+    },
+    {
+      "id": "openai/gpt-5.6-terra",
+      "label": "GPT-5.6 Terra",
+      "deprecated": true,
+      "imageInput": true
+    },
+    {
+      "id": "openai/gpt-5.6-luna",
+      "label": "GPT-5.6 Luna",
+      "deprecated": true,
+      "imageInput": true
+    }
+  ]
+}
