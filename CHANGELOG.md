@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 24, 2026 - The omg model list stays current (v0.6.331)
+
+- The omg agent model list now comes from omg.dev. A new model, such as Kimi K3.1 Pro, shows up within about 10 minutes, with no update to install.
+- The list shows only the newest version of each model family. If you already chose an older model, your sessions keep using it.
+
 ## October 24, 2026 - Choose the omg level from the chat box (v0.6.330)
 
 - With the omg agent on Auto, Max, Balanced or Fast, the chat box shows the level beside the agent icon. Tap it to change the level. You no longer open the full model list for this.
