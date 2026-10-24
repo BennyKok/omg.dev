@@ -13,7 +13,10 @@ describe("omg model display", () => {
   test("every hosted id gets a provider and a short name", () => {
     const labels = OMG_MODELS.map((id) => [id, parseOmgModel(id)!.provider, omgModelLabel(id)]);
     expect(labels).toEqual([
-      ["omg/anthropic/claude-haiku-5.5", "anthropic", "Claude Haiku 5.5"],
+      ["omg/omg/auto", "omg", "Auto"],
+      ["omg/omg/max", "omg", "Max"],
+      ["omg/omg/balanced", "omg", "Balanced"],
+      ["omg/omg/fast", "omg", "Fast"],
       ["omg/anthropic/claude-opus-5.5", "anthropic", "Claude Opus 5.5"],
       ["omg/apex", "callstack", "Apex"],
       ["omg/deepseek/deepseek-v4-flash-0731", "deepseek", "DeepSeek V4 Flash"],
@@ -24,6 +27,7 @@ describe("omg model display", () => {
       ["omg/x-ai/grok-4.7", "x-ai", "Grok 4.7"],
       ["omg/anthropic/claude-fable-5.1", "anthropic", "Claude Fable 5.1"],
       ["omg/anthropic/claude-sonnet-5.5", "anthropic", "Claude Sonnet 5.5"],
+      ["omg/anthropic/claude-haiku-5.5", "anthropic", "Claude Haiku 5.5"],
       ["omg/openai/gpt-6.1-sol", "openai", "GPT-6.1 Sol"],
       ["omg/openai/gpt-6-astra", "openai", "GPT-6 Astra"],
       ["omg/openai/gpt-6-luna", "openai", "GPT-6 Luna"],

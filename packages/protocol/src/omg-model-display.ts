@@ -20,6 +20,7 @@ export type OmgModelInfo = {
 };
 
 const PROVIDER_LABELS: Record<string, string> = {
+  omg: "omg",
   callstack: "Callstack",
   deepseek: "DeepSeek",
   "z-ai": "Z.ai",

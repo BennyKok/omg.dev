@@ -13,12 +13,40 @@ export const OMG_CHEAPEST_MODEL = "omg/deepseek/deepseek-v4-flash-0731";
  * "omg/openai/gpt-6-luna" to revert. The hosted default lives in vibes
  * control-plane/lib/omg-agent-models.ts and must move with this one.
  */
-export const OMG_DEFAULT_MODEL = "omg/anthropic/claude-haiku-5.5";
+/**
+ * Router aliases the hosted platform resolves per person (vibes
+ * apps/infra/internal/proxy/model_alias.go). "Auto" lets the platform choose;
+ * Max, Balanced and Fast are the manual levels. Their concrete models can be
+ * re-pointed on the router, for one person, a plan or everyone, without an
+ * lfg release. The "omg/" prefix is the provider; the router id is "omg/auto".
+ */
+export const OMG_AUTO_MODEL = "omg/omg/auto";
+export const OMG_LEVEL_MODELS: readonly string[] = [
+  OMG_AUTO_MODEL,
+  "omg/omg/max",
+  "omg/omg/balanced",
+  "omg/omg/fast",
+];
+
+export function isOmgLevelModel(model: string | null | undefined): boolean {
+  return !!model && OMG_LEVEL_MODELS.includes(model);
+}
+
+/**
+ * The fixed model credit use is compared against. It must be a concrete
+ * model: an alias can be re-pointed, and every comparison would move with it.
+ */
+export const OMG_PRICE_BASELINE_MODEL = "omg/anthropic/claude-haiku-5.5";
+
+// Auto since 2026-10-24 (user decision): the platform picks the model. Before
+// that it was claude-haiku-5.5, which is also Auto's router default. Set it
+// back to OMG_PRICE_BASELINE_MODEL to revert.
+export const OMG_DEFAULT_MODEL = OMG_AUTO_MODEL;
 
 // Shared by the runtime and dashboard. Order is the hosted router picker
 // order, and the first entry is the default.
 export const OMG_MODELS: string[] = [
-  OMG_DEFAULT_MODEL,
+  ...OMG_LEVEL_MODELS,
   ...[
     "omg/anthropic/claude-opus-5.5",
     "omg/apex",
@@ -34,7 +62,7 @@ export const OMG_MODELS: string[] = [
     "omg/openai/gpt-6.1-sol",
     "omg/openai/gpt-6-astra",
     "omg/openai/gpt-6-luna",
-  ].filter((model) => model !== OMG_DEFAULT_MODEL),
+  ].filter((model) => !OMG_LEVEL_MODELS.includes(model)),
 ];
 
 /**
@@ -55,6 +83,13 @@ const TEXT = ["text"] as const;
 const TEXT_IMAGE = ["text", "image"] as const;
 
 export const OMG_INPUT_MODALITIES_BY_MODEL: Record<string, readonly ("text" | "image")[]> = {
+  // Router aliases: declared as image-capable so OpenCode sends images. When
+  // an alias points at a text-only model, the router describes the image as
+  // text first (maybeConvertOpenAIImageInput).
+  "omg/omg/auto": TEXT_IMAGE,
+  "omg/omg/max": TEXT_IMAGE,
+  "omg/omg/balanced": TEXT_IMAGE,
+  "omg/omg/fast": TEXT_IMAGE,
   // Callstack Apex direct gateway, text-only until vision support is verified.
   "omg/apex": TEXT,
   "omg/deepseek/deepseek-v4-flash-0731": TEXT,

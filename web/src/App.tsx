@@ -6,7 +6,7 @@ import { BrowserTranscriptionSettings, useBrowserTranscription } from "./compone
 import { replayCloudTranscription } from "./lib/transcription-cloud-replay";
 import { MODEL_USAGE_GROUPS } from "../../packages/protocol/src/model-pricing";
 import { useModelPrices, usePrefetchModelPrices, modelUsageLevel } from "./lib/use-model-prices";
-import { OMG_DEFAULT_MODEL, OMG_MODELS } from "../../src/omg-models";
+import { OMG_MODELS, OMG_PRICE_BASELINE_MODEL, isOmgLevelModel } from "../../src/omg-models";
 import { modelLabProvider, modelListHasRoutes, omgModelLabel, omgModelSearchText, parseOmgModel, parseRoutedModel, setServerModelLabels } from "../../packages/protocol/src/omg-model-display";
 import { ModelProviderIcon, modelProviderIconKey } from "./lib/model-provider-icons";
 import { setupOutcome, type SetupResultInfo, type SetupWatchAgent } from "../../packages/protocol/src/coding-agent-setup-outcome";
@@ -26717,16 +26717,28 @@ export function ModelOptionList({
     // and "deepseek v4" both find omg/deepseek/deepseek-v4-flash-0731.
     return models.filter((item) => omgModelSearchText(item).includes(q));
   }, [models, query]);
-  const routeGroups = routedModelGroups(filtered, models);
-  const groups = routeGroups
+  // Hosted omg lists lead with Auto and the three levels. The full list opens
+  // on request, on a search, or when the current choice is a specific model.
+  const levelItems = filtered.filter(isOmgLevelModel);
+  const hasLevels = models.some(isOmgLevelModel);
+  const [showAllModels, setShowAllModels] = useState(() => !!value && !isOmgLevelModel(value));
+  const allOpen = !hasLevels || showAllModels || query.trim() !== "";
+  const restItems = hasLevels ? filtered.filter((item) => !isOmgLevelModel(item)) : filtered;
+  const routeGroups = routedModelGroups(restItems, models);
+  const restGroups = !allOpen
+    ? []
+    : routeGroups
     ? routeGroups
     : hasManagedModels && !pricesLoading
     ? MODEL_USAGE_GROUPS.map(({ level, label }) => ({
         level,
         label,
-        items: filtered.filter((item) => (modelUsageLevel(prices[item], prices[OMG_DEFAULT_MODEL])?.bars ?? 0) === level),
+        items: restItems.filter((item) => (modelUsageLevel(prices[item], prices[OMG_PRICE_BASELINE_MODEL])?.bars ?? 0) === level),
       })).filter((group) => group.items.length > 0)
-    : [{ level: -1, label: "", items: filtered }];
+    : [{ level: -1, label: "", items: restItems }];
+  const groups = levelItems.length
+    ? [{ level: 100, label: "", items: levelItems }, ...restGroups.map((group) => ({ ...group, label: group.label || "All models" }))]
+    : restGroups;
   const displayedModels = groups.flatMap((group) => group.items);
   // Keep names in one column when only some rows have a lab mark.
   const anyMarked = models.some((item) => !!modelMarkProvider(item));
@@ -26740,7 +26752,7 @@ export function ModelOptionList({
     const routed = hosted ? null : parseRoutedModel(item);
     const markProvider = modelMarkProvider(item);
     const price = prices[item];
-    const usage = modelUsageLevel(price, prices[OMG_DEFAULT_MODEL]);
+    const usage = modelUsageLevel(price, prices[OMG_PRICE_BASELINE_MODEL]);
     const priceHint = usage
       ? usage.bars === 1 ? "" : "Uses credits faster. This model can reach your credit limit sooner. Usage varies by task."
       : "Credit usage unavailable";
@@ -26846,6 +26858,19 @@ export function ModelOptionList({
           <div className="px-3 py-8 text-center text-sm text-muted-foreground">
             No matching models
           </div>
+        ) : null}
+        {hasLevels && !allOpen && filtered.length ? (
+          <button
+            type="button"
+            onClick={() => setShowAllModels(true)}
+            className={cn(
+              "flex w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-muted-foreground outline-none transition-colors hover:bg-muted focus-visible:bg-muted",
+              large ? "h-12" : "h-10",
+            )}
+          >
+            <ChevronDown className="size-4 shrink-0" />
+            <span className="min-w-0 flex-1 truncate">All models</span>
+          </button>
         ) : null}
         {showBuilder ? (
           <div role="group" aria-label="Workflows" className="mt-2 border-t border-border pt-2">
