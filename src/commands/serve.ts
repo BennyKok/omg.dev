@@ -10009,6 +10009,12 @@ a{color:#60a5fa}
           overLimit?: boolean;
           /** A new user's first task: wrap it in the first-run rules (withFirstRunEnvelope). */
           firstRun?: boolean;
+          /**
+           * The person started something new from the composer (a no-project
+           * session). Only picks the Auto build model; unlike firstRun it adds
+           * no first-run rules to the prompt.
+           */
+          newApp?: boolean;
           /** A host's guided first task: its instructions join the first-run rules (needs firstRun). */
           guide?: string;
           /** Role the session runs as at the MCP endpoints. Missing = owner. */
@@ -10259,7 +10265,7 @@ a{color:#60a5fa}
         const autoBuild = planAutoBuildLaunch({
           agent,
           model: resolvedModel ?? opencodeDefault ?? defaultModelForAgent(agent),
-          firstRun: body?.firstRun === true,
+          firstRun: body?.firstRun === true || body?.newApp === true,
           spawnedBy,
         });
         const launchModel = autoBuild.model;
