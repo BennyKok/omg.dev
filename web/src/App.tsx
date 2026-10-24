@@ -17,7 +17,7 @@ import { MobileProjectFolders } from "./components/mobile-project-folders";
 import { AppHeaderCard, AppNoOpenSessions, buildAppItems, CreateBackdrop, CreateHome, LocalProjectCard, Spinner, sessionInAppScope, useCloudApps, useScopedApp } from "./components/apps-home";
 import { CreateComposerFrame } from "./components/create-composer-frame";
 import { ProjectFolderMenu } from "./components/project-folder-menu";
-import { SessionReparentProvider, SessionReparentTarget } from "./components/session-reparent";
+import { SessionReparentProvider, SessionReparentTarget, useSessionDragMenuGuard } from "./components/session-reparent";
 import { HostDrawerSlot, SideNavButton, SideNavDrawer, SideNavGlyph, SideNavPanel } from "./components/side-nav";
 import { createSideNavOpenStore, useSideNavOpen, type SideNavOpenStore } from "./lib/side-nav-open";
 import { FindingsPill, FindingsSheet } from "./components/findings-pill";
@@ -15576,7 +15576,7 @@ function CompactSessionRow({ session, busy, onOpen, users, userFilter, active = 
   const title = titleForSession(session);
   const unread = !!session.sessionId && unreadSessions.has(session.sessionId);
   return (
-    <SessionReparentTarget session={session}>
+    <SessionReparentTarget session={session} touch>
     <button
       type="button"
       onClick={onOpen}
@@ -15675,7 +15675,7 @@ const RailItem = memo(function RailItem({
   );
 
   return (
-    <SessionReparentTarget session={session}>
+    <SessionReparentTarget session={session} touch>
     <RailRow
       railKey={session.sessionId ?? ""}
       collapsed={collapsed}
@@ -18809,6 +18809,14 @@ function RailSessionContextMenu({
   const transcriptView = useContext(TranscriptViewContext);
   const { unread: unreadSessions, markRead } = useContext(SessionUnreadContext);
   const unread = !!sid && unreadSessions.has(sid);
+  // A long press then a finger move lifts the row to a new parent (see
+  // SessionReparentTarget). The drag owns that press: the menu stays shut
+  // while it runs, and closes if it opened before the finger moved.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const dragGuard = useSessionDragMenuGuard();
+  useEffect(() => {
+    if (dragGuard.touchDragging) setMenuOpen(false);
+  }, [dragGuard.touchDragging]);
 
   return (
     <>
@@ -18821,7 +18829,7 @@ function RailSessionContextMenu({
           onCreated={onRefresh}
         />
       ) : null}
-      <ContextMenu>
+      <ContextMenu open={menuOpen} onOpenChange={(open) => setMenuOpen(open && !dragGuard.blocked())}>
         <ContextMenuTrigger className="block min-w-0 rounded-xl">
           {children}
         </ContextMenuTrigger>
