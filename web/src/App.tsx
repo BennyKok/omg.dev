@@ -24276,7 +24276,9 @@ function NewSessionDialog({
           ? model
           : undefined
         : session.agent === "opencode" || session.agent === "omg"
-          ? (catalog.models[session.agent] ?? AGENT_MODELS[session.agent]).includes(model)
+          // An omg session keeps an older-generation model: the picker hides
+          // it, but the server still runs it and checks the id at launch.
+          ? (catalog.models[session.agent] ?? AGENT_MODELS[session.agent]).includes(model) || (session.agent === "omg" && model.startsWith("omg/"))
             ? model
             : defaultModelFor(session.agent)
         : session.agent === "codex"

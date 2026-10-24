@@ -1,4 +1,4 @@
-import { defaultModelForAgent, modelsForAgent } from "./agent-catalog.ts";
+import { defaultModelForAgent, isAllowedModelForAgent } from "./agent-catalog.ts";
 import type { ResumableBackend } from "./resume-cache.ts";
 
 export function resolveResumeModel(
@@ -14,8 +14,7 @@ export function resolveResumeModel(
   if (backend === "cursor" && storedModel && /^[A-Za-z0-9_.:/-]{1,120}$/.test(storedModel)) {
     return storedModel;
   }
-  const allowed = modelsForAgent(backend);
-  if (storedModel && allowed.includes(storedModel)) return storedModel;
-  if (requestedModel && allowed.includes(requestedModel)) return requestedModel;
+  if (storedModel && isAllowedModelForAgent(backend, storedModel)) return storedModel;
+  if (requestedModel && isAllowedModelForAgent(backend, requestedModel)) return requestedModel;
   return defaultModelForAgent(backend);
 }

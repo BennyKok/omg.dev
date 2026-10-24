@@ -1,5 +1,5 @@
 import { AGENT_DEFAULT_MODELS } from "./agent-defaults.ts";
-import { OMG_MODELS, OMG_THINKING_LEVELS_BY_MODEL, OMG_THINKING_OFF, omgThinkingLevels } from "./omg-models.ts";
+import { isOmgRunnableModel, OMG_MODELS, omgCatalogFromRouter, OMG_THINKING_LEVELS_BY_MODEL, OMG_THINKING_OFF, omgThinkingLevels } from "./omg-models.ts";
 export { OMG_MODELS } from "./omg-models.ts";
 import { customModelIds, customModelLabels } from "./custom-models.ts";
 
@@ -7,6 +7,7 @@ import type { Agent } from "./agents/registry.ts";
 import type { AutoAgent } from "./auto/store.ts";
 import type { CodingAgentInfo, CodingAgentKind } from "./coding-agents.ts";
 import { readModelDiscoveryCacheSync } from "./model-discovery.ts";
+import { ensureOmgCatalogLoaded } from "./omg-model-catalog.ts";
 import { PI_AUTH_PROVIDER_IDS } from "./pi-auth.ts";
 import type { Session } from "./sessions.ts";
 
@@ -610,7 +611,10 @@ function curateModels(
 
 export function rawModelsForAgent(agent: CodingAgentKind): string[] {
   // Hosted models first, then the owner's own endpoints (src/custom-models.ts).
-  if (agent === "omg") return [...OMG_MODELS, ...customModelIds()];
+  if (agent === "omg") {
+    ensureOmgCatalogLoaded();
+    return [...OMG_MODELS, ...customModelIds()];
+  }
   const fallback = MODEL_OPTIONS[agent]?.models;
   const provider = readModelDiscoveryCacheSync()?.providers?.[agent];
   // A successful harness query is authoritative. Unioning it with the static
@@ -624,6 +628,22 @@ export function modelsForAgent(
   connectedProviderIds: readonly string[] = [],
 ): string[] {
   return curateModels(agent, rawModelsForAgent(agent), connectedProviderIds);
+}
+
+/**
+ * True when a session may run this model. The picker list (modelsForAgent)
+ * shows only the latest generation; an omg session may also run an older
+ * generation the router still lists, because a saved choice must keep
+ * working. Before the router first answers, only the aliases are known, so
+ * any omg/<vendor>/<model> id passes and the router decides.
+ */
+export function isAllowedModelForAgent(agent: CodingAgentKind, model: string): boolean {
+  if (agent === "omg") {
+    ensureOmgCatalogLoaded();
+    if (isOmgRunnableModel(model) || customModelIds().includes(model)) return true;
+    return !omgCatalogFromRouter() && /^omg\/[^/]+\/.+/.test(model);
+  }
+  return modelsForAgent(agent).includes(model);
 }
 
 export function resolveModelForAgent(

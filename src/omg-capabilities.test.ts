@@ -12,6 +12,9 @@ import {
   stripOmgRuntimeContract,
   withOmgRuntimeContract,
 } from "./omg-capabilities.ts";
+import { applyOmgRouterFixture } from "./fixtures/omg-agent-catalog.ts";
+
+applyOmgRouterFixture();
 
 describe("omg.dev runtime capabilities", () => {
   test("injects the product workflow into a normal root task", () => {
