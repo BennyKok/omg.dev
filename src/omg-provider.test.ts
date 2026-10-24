@@ -3,7 +3,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, wri
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { ensureOmgProvider, hasHostedOmgAiProxy, hasOmgProviderAccess, isHostedOmgSandbox, OMG_SIGN_IN_REQUIRED } from "./omg-provider.ts";
-import { OMG_INPUT_MODALITIES_BY_MODEL, OMG_MODELS, omgInputModalities, omgModelOptions, omgThinkingLevels, omgVariantOptions } from "./omg-models.ts";
+import { OMG_INPUT_MODALITIES_BY_MODEL, OMG_RUNNABLE_MODELS, omgInputModalities, omgModelOptions, omgThinkingLevels, omgVariantOptions } from "./omg-models.ts";
+import { applyOmgRouterFixture } from "./fixtures/omg-agent-catalog.ts";
+
+applyOmgRouterFixture();
 
 const modalities = (model: string) => {
   const input = omgInputModalities(model);
@@ -55,7 +58,7 @@ test("hosted proxy environment writes the guest provider without credentials", (
 test("hosted proxy environment leaves a complete guest config alone", () => {
   const opts = { ...options(), env: { OMG_AI_URL: "http://169.254.0.1:9090" } };
   const guest = join(home, ".config/opencode/opencode.jsonc");
-  const models = Object.fromEntries(OMG_MODELS.map((model) => {
+  const models = Object.fromEntries(OMG_RUNNABLE_MODELS.map((model) => {
     const levels = omgThinkingLevels(model);
     return [model.slice(4), { ...(levels ? { variants: Object.fromEntries(levels.map((l) => [l, omgVariantOptions(model, l)])) } : {}), ...(omgModelOptions(model) ? { options: omgModelOptions(model) } : {}), ...modalities(model) }];
   }));
@@ -79,7 +82,7 @@ test("hosted guest config that names omg without thinking variants gets them, op
 });
 
 test("every hosted model declares its input modalities", () => {
-  expect(Object.keys(OMG_INPUT_MODALITIES_BY_MODEL).sort()).toEqual([...OMG_MODELS].sort());
+  expect(Object.keys(OMG_INPUT_MODALITIES_BY_MODEL).sort()).toEqual([...OMG_RUNNABLE_MODELS].sort());
 });
 
 test("hosted guest config without modalities gets image input only on image models, so OpenCode sends images", () => {
@@ -87,7 +90,7 @@ test("hosted guest config without modalities gets image input only on image mode
   // design and glm-5.3-flash answered that it saw no image.
   const opts = { ...options(), env: { OMG_AI_URL: "http://169.254.0.1:9090" } };
   const guest = join(home, ".config/opencode/opencode.jsonc");
-  const models = Object.fromEntries(OMG_MODELS.map((model) => {
+  const models = Object.fromEntries(OMG_RUNNABLE_MODELS.map((model) => {
     const levels = omgThinkingLevels(model);
     return [model.slice(4), levels ? { variants: Object.fromEntries(levels.map((l) => [l, omgVariantOptions(model, l)])) } : {}];
   }));
@@ -130,7 +133,7 @@ for (const kind of ["api-key", "oauth", "jwt"]) {
       npm: "@ai-sdk/openai-compatible",
       name: "omg",
       options: { baseURL: "https://api.example.test/api/cli/llm/v1", apiKey: `test-${kind}-token` },
-      models: Object.fromEntries(OMG_MODELS.map((model) => {
+      models: Object.fromEntries(OMG_RUNNABLE_MODELS.map((model) => {
         const id = model.slice(4);
         const levels = omgThinkingLevels(model);
         return [id, {
@@ -219,7 +222,7 @@ test("Haiku 5.5 defaults to reasoning off and a chosen level turns it on", () =>
 test("a stale Haiku entry from an older config is rewritten without losing user config", () => {
   const opts = { ...options(), env: { OMG_AI_URL: "http://169.254.0.1:9090" } };
   const guest = join(home, ".config/opencode/opencode.jsonc");
-  const models: Record<string, any> = Object.fromEntries(OMG_MODELS.map((model) => {
+  const models: Record<string, any> = Object.fromEntries(OMG_RUNNABLE_MODELS.map((model) => {
     const levels = omgThinkingLevels(model);
     const old = levels ? { variants: Object.fromEntries(levels.filter((l) => l !== "off").map((l) => [l, { reasoningEffort: l }])) } : {};
     return [model.slice(4), { ...old, ...modalities(model) }];

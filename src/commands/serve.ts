@@ -602,6 +602,7 @@ import {
   AUTO_AGENT_BACKENDS,
   type AutoAgentBackend,
   defaultModelForAgent,
+  isAllowedModelForAgent,
   listModelCatalog,
   modelsForAgent,
   resolveModelForAgent,
@@ -613,6 +614,7 @@ import {
   refreshModelCatalog,
   startModelDiscoveryScheduler,
 } from "../model-discovery.ts";
+import { refreshOmgModelCatalog, startOmgModelCatalogRefresh } from "../omg-model-catalog.ts";
 import {
   BOT_SCHEDULE_LIMIT,
   CUSTOM_INSTRUCTIONS_MAX_LENGTH,
@@ -3280,9 +3282,8 @@ function validateBotAgent(
   const agent = resolveActiveSessionAgent(agentValue || "aisdk");
   if (!agent) return { error: `unknown coding agent "${agentValue ?? ""}"` };
   if ((agent === "aisdk" || agent === "omg" || agent === "grok" || agent === "pi" || agent === "copilot") && model) {
-    const allowed = modelsForAgent(agent);
-    if (!allowed.includes(model))
-      return { error: `unknown model "${model}" (expected one of ${allowed.join(", ")})` };
+    if (!isAllowedModelForAgent(agent, model))
+      return { error: `unknown model "${model}" (expected one of ${modelsForAgent(agent).join(", ")})` };
   }
   if (agent === "codex-aisdk" && model && !/^[A-Za-z0-9_.:-]{1,80}$/.test(model))
     return { error: "invalid codex model name" };
@@ -4165,12 +4166,11 @@ export function resolveAutoAgentRuntime(
   }
   const model = b.model?.trim() || undefined;
   if ((autoBackend === "aisdk" || autoBackend === "omg") && model) {
-    const allowed = modelsForAgent(autoBackend);
-    if (!allowed.includes(model))
+    if (!isAllowedModelForAgent(autoBackend, model))
       return {
         ok: false,
         status: 400,
-        error: `unknown model "${model}" (expected one of ${allowed.join(", ")})`,
+        error: `unknown model "${model}" (expected one of ${modelsForAgent(autoBackend).join(", ")})`,
       };
   }
   if (autoBackend === "codex-aisdk" && model && !/^[A-Za-z0-9_.:-]{1,80}$/.test(model))
@@ -4554,6 +4554,9 @@ export async function cmdServe() {
     localName: () => getGlobalSettingsSync().machineName,
     renameLocal: async (machineName) => { await setGlobalSettings({ machineName }); },
   });
+  // The router owns the omg agent model list; keep it current without a release.
+  const omgCatalogSource = { signedIn: () => cloudAccount.status().signedIn, fetch: cloudAccount.cloudFetch };
+  startOmgModelCatalogRefresh(omgCatalogSource, (fields) => evlog("omg_model_catalog", fields));
   const handleIosSetup = iosSetupRoutes({ root: join(PATHS.data, "ios-testing"), runtimeRoot: PATHS.root });
   const projectPreview = createProjectPreviewService({
     session: async (id) => {
@@ -5915,7 +5918,10 @@ a{color:#60a5fa}
       if (path === "/api/coding-agents" && req.method === "GET") {
         const refresh = url.searchParams.get("refreshModels") === "1";
         if (refresh) {
-          await refreshModelCatalog({ reason: "manual", onLog: (line) => console.log(line) });
+          await Promise.all([
+            refreshModelCatalog({ reason: "manual", onLog: (line) => console.log(line) }),
+            refreshOmgModelCatalog(omgCatalogSource, (fields) => evlog("omg_model_catalog", { ...fields, reason: "manual" })),
+          ]);
         }
         // An explicit refresh is the user asking for ground truth, so it pays
         // the full probe; the ordinary Settings read takes the cache.
@@ -7825,7 +7831,7 @@ a{color:#60a5fa}
           const model = typeof b?.model === "string" ? b.model.trim() || undefined : undefined;
           if (model) {
             const allowed = modelsForAgent(agent);
-            if (allowed.length && !allowed.includes(model))
+            if (allowed.length && !isAllowedModelForAgent(agent, model))
               return err(400, `unknown model "${model}" (expected one of ${allowed.join(", ")})`);
           }
           const thinkingLevel = typeof b?.thinkingLevel === "string" ? b.thinkingLevel.trim() || undefined : undefined;
@@ -7878,7 +7884,7 @@ a{color:#60a5fa}
             b.model === undefined ? current.model : typeof b.model === "string" ? b.model.trim() || undefined : undefined;
           if (model) {
             const allowed = modelsForAgent(agent);
-            if (allowed.length && !allowed.includes(model))
+            if (allowed.length && !isAllowedModelForAgent(agent, model))
               return err(400, `unknown model "${model}" (expected one of ${allowed.join(", ")})`);
           }
           const thinkingLevel =
@@ -10071,9 +10077,8 @@ a{color:#60a5fa}
             ? opencodeDefault
             : requestedModel;
         if ((agent === "aisdk" || agent === "omg") && model) {
-          const allowed = modelsForAgent(agent);
-          if (!allowed.includes(model))
-            return err(400, `unknown model "${model}" (expected one of ${allowed.join(", ")})`);
+          if (!isAllowedModelForAgent(agent, model))
+            return err(400, `unknown model "${model}" (expected one of ${modelsForAgent(agent).join(", ")})`);
         }
         if (agent === "grok" && model) {
           const allowed = modelsForAgent("grok");

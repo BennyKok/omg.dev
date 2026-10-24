@@ -1,5 +1,5 @@
 import type { OmgModelPrice, OmgModelPrices } from "../packages/protocol/src/model-pricing.ts";
-import { OMG_MODELS } from "./omg-models.ts";
+import { OMG_RUNNABLE_MODELS } from "./omg-models.ts";
 
 export type ModelPricingSource = {
   signedIn(): boolean;
@@ -34,7 +34,7 @@ export async function handleOmgModelPrices(
     for (const row of rows) {
       if (!row || typeof row !== "object") continue;
       const id = typeof row.id === "string" ? `omg/${row.id}` : "";
-      if (!OMG_MODELS.includes(id)) continue;
+      if (!OMG_RUNNABLE_MODELS.includes(id)) continue;
       if (!validRate(row.inputPricePerMillion) || !validRate(row.outputPricePerMillion)) continue;
       const price: OmgModelPrice = {
         inputPricePerMillion: row.inputPricePerMillion,

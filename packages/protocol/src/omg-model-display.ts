@@ -34,6 +34,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   meta: "Meta",
   mistral: "Mistral",
   moonshot: "Moonshot",
+  moonshotai: "Moonshot",
 };
 
 /** Tokens whose brand casing is not "first letter up". */

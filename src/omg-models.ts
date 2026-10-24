@@ -49,116 +49,117 @@ export const OMG_PRICE_BASELINE_MODEL = "omg/anthropic/claude-haiku-5.5";
 // back to OMG_PRICE_BASELINE_MODEL to revert.
 export const OMG_DEFAULT_MODEL = OMG_AUTO_MODEL;
 
-// Shared by the runtime and dashboard. Order is the hosted router picker
-// order, and the first entry is the default.
-export const OMG_MODELS: string[] = [
-  ...OMG_LEVEL_MODELS,
-  OMG_BUILD_MODEL,
-  ...[
-    "omg/anthropic/claude-opus-5.5",
-    "omg/apex",
-    OMG_CHEAPEST_MODEL,
-    "omg/deepseek/deepseek-v4-pro",
-    "omg/z-ai/glm-5.3-flash",
-    "omg/z-ai/glm-5.3",
-    "omg/minimax/minimax-m3",
-    "omg/x-ai/grok-4.7",
-    "omg/anthropic/claude-fable-5.1",
-    "omg/anthropic/claude-sonnet-5.5",
-    "omg/anthropic/claude-haiku-5.5",
-    "omg/openai/gpt-6.1-sol",
-    "omg/openai/gpt-6-astra",
-    "omg/openai/gpt-6-luna",
-  ].filter((model) => !OMG_LEVEL_MODELS.includes(model)),
-];
-
 /**
- * Input modalities of each hosted model, keyed like OMG_MODELS.
- *
- * This is the one owner of "can this omg model see an image". OpenCode's
- * openai-compatible provider sends an image part only when the model entry
- * declares image input, and drops it otherwise. ensureOmgProvider writes these
- * into the guest config and modelSeesImages reads them, so the agent's rules
- * and the provider agree.
- *
- * Source: `architecture.input_modalities` for the router id in
- * https://openrouter.ai/api/v1/models (the router forwards to OpenRouter
- * unchanged), read 2026-09-30. Only text and image are listed, because those
- * are the parts OpenCode sends.
+ * One row of the omg agent list, as the router serves it from
+ * GET /api/cli/llm/v1/models?agent=omg (vibes
+ * apps/infra/internal/proxy/omg_agent_models.go). The router owns the list:
+ * which models exist, their order, image input, thinking levels, and which
+ * rows are an older generation. `id` is the router id, without "omg/".
  */
+export type OmgCatalogEntry = {
+  id: string;
+  label: string;
+  /** Older generation: hidden from the picker, still runs when saved. */
+  deprecated?: boolean;
+  imageInput?: boolean;
+  thinkingLevels?: string[];
+  defaultThinkingLevel?: string;
+};
+
+/** The level name that stands for "reasoning off" in the picker and in variants. */
+export const OMG_THINKING_OFF = "off";
+
 const TEXT = ["text"] as const;
 const TEXT_IMAGE = ["text", "image"] as const;
 
-export const OMG_INPUT_MODALITIES_BY_MODEL: Record<string, readonly ("text" | "image")[]> = {
-  // Router aliases: declared as image-capable so OpenCode sends images. When
-  // an alias points at a text-only model, the router describes the image as
-  // text first (maybeConvertOpenAIImageInput).
-  "omg/omg/auto": TEXT_IMAGE,
-  "omg/omg/max": TEXT_IMAGE,
-  "omg/omg/balanced": TEXT_IMAGE,
-  "omg/omg/fast": TEXT_IMAGE,
-  "omg/omg/build": TEXT_IMAGE,
-  // Callstack Apex direct gateway, text-only until vision support is verified.
-  "omg/apex": TEXT,
-  "omg/deepseek/deepseek-v4-flash-0731": TEXT,
-  "omg/deepseek/deepseek-v4-pro": TEXT,
-  "omg/z-ai/glm-5.3-flash": TEXT_IMAGE,
-  "omg/z-ai/glm-5.3": TEXT,
-  "omg/minimax/minimax-m3": TEXT_IMAGE,
-  "omg/x-ai/grok-4.7": TEXT_IMAGE,
-  "omg/anthropic/claude-fable-5.1": TEXT_IMAGE,
-  "omg/anthropic/claude-opus-5.5": TEXT_IMAGE,
-  "omg/anthropic/claude-sonnet-5.5": TEXT_IMAGE,
-  "omg/anthropic/claude-haiku-5.5": TEXT_IMAGE,
-  "omg/openai/gpt-6.1-sol": TEXT_IMAGE,
-  "omg/openai/gpt-6-astra": TEXT_IMAGE,
-  // Read 2026-09-30: input_modalities ["file","image","text"].
-  "omg/openai/gpt-6-luna": TEXT_IMAGE,
-};
+/**
+ * Picker models, in router order: the latest generation only. The array is
+ * updated in place by applyOmgCatalog, so importers keep a live reference.
+ * Before the first router answer it holds only the aliases, which the router
+ * always resolves.
+ */
+export const OMG_MODELS: string[] = [];
+
+/** Every model the omg agent can run, including older generations. */
+export const OMG_RUNNABLE_MODELS: string[] = [];
+
+/**
+ * Input modalities of each runnable model. OpenCode's openai-compatible
+ * provider sends an image part only when the model entry declares image
+ * input. ensureOmgProvider writes these into the guest config and
+ * modelSeesImages reads them. Only text and image are listed, because those
+ * are the parts OpenCode sends.
+ */
+export const OMG_INPUT_MODALITIES_BY_MODEL: Record<string, readonly ("text" | "image")[]> = {};
+
+/** Thinking levels the router honours per model. No entry = no selector. */
+export const OMG_THINKING_LEVELS_BY_MODEL: Record<string, readonly string[]> = {};
+
+const DEFAULT_THINKING_LEVEL_BY_MODEL: Record<string, string> = {};
+
+let catalogFromRouter = false;
+
+function replace<T>(target: T[], next: T[]): void {
+  target.splice(0, target.length, ...next);
+}
+
+function replaceRecord<T>(target: Record<string, T>, next: Record<string, T>): void {
+  for (const key of Object.keys(target)) delete target[key];
+  Object.assign(target, next);
+}
+
+/**
+ * Replace the omg model list. `fromRouter` is false for the built-in alias
+ * list and true for a router answer (live or cached on disk).
+ */
+export function applyOmgCatalog(entries: readonly OmgCatalogEntry[], fromRouter = true): void {
+  const modalities: Record<string, readonly ("text" | "image")[]> = {};
+  const levels: Record<string, readonly string[]> = {};
+  const defaults: Record<string, string> = {};
+  const runnable: string[] = [];
+  const visible: string[] = [];
+  for (const entry of entries) {
+    const model = `omg/${entry.id}`;
+    if (runnable.includes(model)) continue;
+    runnable.push(model);
+    if (!entry.deprecated) visible.push(model);
+    modalities[model] = entry.imageInput ? TEXT_IMAGE : TEXT;
+    if (entry.thinkingLevels?.length) levels[model] = [...entry.thinkingLevels];
+    if (entry.defaultThinkingLevel) defaults[model] = entry.defaultThinkingLevel;
+  }
+  replace(OMG_RUNNABLE_MODELS, runnable);
+  replace(OMG_MODELS, visible);
+  replaceRecord(OMG_INPUT_MODALITIES_BY_MODEL, modalities);
+  replaceRecord(OMG_THINKING_LEVELS_BY_MODEL, levels);
+  replaceRecord(DEFAULT_THINKING_LEVEL_BY_MODEL, defaults);
+  catalogFromRouter = fromRouter;
+}
+
+/** True once a router answer (live or cached) has replaced the alias list. */
+export function omgCatalogFromRouter(): boolean {
+  return catalogFromRouter;
+}
+
+/** True when the omg agent can run this model, including an older generation. */
+export function isOmgRunnableModel(model: string): boolean {
+  return OMG_RUNNABLE_MODELS.includes(model);
+}
+
+/** The alias list used before the router answers. */
+export const OMG_ALIAS_CATALOG: readonly OmgCatalogEntry[] = [...OMG_LEVEL_MODELS, OMG_BUILD_MODEL].map((model) => ({
+  id: model.slice("omg/".length),
+  label: model.slice("omg/omg/".length),
+  // When an alias points at a text-only model, the router describes the
+  // image as text first (maybeConvertOpenAIImageInput).
+  imageInput: true,
+}));
+
+applyOmgCatalog(OMG_ALIAS_CATALOG, false);
 
 /** Input modalities for one hosted model, or null when it is not in the catalog. */
 export function omgInputModalities(model: string): readonly ("text" | "image")[] | null {
   return OMG_INPUT_MODALITIES_BY_MODEL[model] ?? null;
 }
-
-/**
- * Thinking levels the hosted router honours per model.
- *
- * The omg agent runs through OpenCode's openai-compatible provider, and the
- * router forwards `/openai/v1/chat/completions` to OpenRouter with the body
- * unchanged (vibes apps/infra/internal/proxy/llm.go, the openrouter branch),
- * so a level reaches OpenRouter as `reasoning_effort`. Models with no supported
- * effort parameter get no selector. MiniMax M3 only takes the `reasoning`
- * object, so it has no effort selector.
- */
-const OMG_EFFORT_LEVELS = ["low", "medium", "high"] as const;
-
-// Claude Haiku 5.5 runs with reasoning OFF unless the user picks a level.
-// Measured 2026-10-13 through the router and OpenRouter: with no `reasoning`
-// field it spends the whole output budget on reasoning and writes no code, and
-// inside an OpenCode agent loop `reasoning_effort: "minimal"` still escalated.
-// Only the `reasoning: { enabled: false }` object held it at 0 reasoning tokens.
-const OMG_REASONING_OFF_MODELS: readonly string[] = ["omg/anthropic/claude-haiku-5.5"];
-/** The level name that stands for "reasoning off" in the picker and in variants. */
-export const OMG_THINKING_OFF = "off";
-
-export const OMG_THINKING_LEVELS_BY_MODEL: Record<string, readonly string[]> = Object.fromEntries(
-  [
-    "omg/deepseek/deepseek-v4-flash-0731",
-    "omg/deepseek/deepseek-v4-pro",
-    "omg/z-ai/glm-5.3-flash",
-    "omg/z-ai/glm-5.3",
-    "omg/x-ai/grok-4.7",
-    "omg/anthropic/claude-fable-5.1",
-    "omg/anthropic/claude-opus-5.5",
-    "omg/anthropic/claude-sonnet-5.5",
-    "omg/anthropic/claude-haiku-5.5",
-    "omg/openai/gpt-6.1-sol",
-    "omg/openai/gpt-6-astra",
-    // reasoning_effort listed 2026-09-30.
-    "omg/openai/gpt-6-luna",
-  ].map((model) => [model, OMG_REASONING_OFF_MODELS.includes(model) ? [OMG_THINKING_OFF, ...OMG_EFFORT_LEVELS] : OMG_EFFORT_LEVELS]),
-);
 
 /** Levels for one hosted model, or null when the router has no control for it. */
 export function omgThinkingLevels(model: string): readonly string[] | null {
@@ -167,7 +168,16 @@ export function omgThinkingLevels(model: string): readonly string[] | null {
 
 /** The level a new session starts at when the model has its own default, else null. */
 export function omgDefaultThinkingLevel(model: string): string | null {
-  return OMG_REASONING_OFF_MODELS.includes(model) ? OMG_THINKING_OFF : null;
+  return DEFAULT_THINKING_LEVEL_BY_MODEL[model] ?? null;
+}
+
+/**
+ * A model that starts with reasoning off. Claude Haiku 5.5 is one: with no
+ * `reasoning` field it spends the output budget on reasoning, and only
+ * `reasoning: { enabled: false }` holds it at zero (measured 2026-10-13).
+ */
+function reasoningOffByDefault(model: string): boolean {
+  return omgDefaultThinkingLevel(model) === OMG_THINKING_OFF;
 }
 
 /**
@@ -176,7 +186,7 @@ export function omgDefaultThinkingLevel(model: string): string | null {
  * `reasoning: { enabled: false }`.
  */
 export function omgModelOptions(model: string): Record<string, unknown> | undefined {
-  return OMG_REASONING_OFF_MODELS.includes(model) ? { reasoning: { enabled: false } } : undefined;
+  return reasoningOffByDefault(model) ? { reasoning: { enabled: false } } : undefined;
 }
 
 /**
@@ -186,7 +196,7 @@ export function omgModelOptions(model: string): Record<string, unknown> | undefi
  * `reasoning_effort`.
  */
 export function omgVariantOptions(model: string, level: string): Record<string, unknown> {
-  if (!OMG_REASONING_OFF_MODELS.includes(model)) return { reasoningEffort: level };
+  if (!reasoningOffByDefault(model)) return { reasoningEffort: level };
   return level === OMG_THINKING_OFF
     ? { reasoning: { enabled: false } }
     : { reasoning: { enabled: true, effort: level } };

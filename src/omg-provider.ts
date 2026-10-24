@@ -3,7 +3,8 @@ import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { cloudApiBaseUrl, loadCloudCredentials } from "./cloud-account.ts";
-import { OMG_MODELS, omgInputModalities, omgModelOptions, omgThinkingLevels, omgVariantOptions } from "./omg-models.ts";
+import { ensureOmgCatalogLoaded } from "./omg-model-catalog.ts";
+import { OMG_RUNNABLE_MODELS, omgInputModalities, omgModelOptions, omgThinkingLevels, omgVariantOptions } from "./omg-models.ts";
 
 const GUEST_PROXY = "http://169.254.0.1:9090";
 export const OMG_SIGN_IN_REQUIRED = "Sign in with `omg login` to use the omg agent.";
@@ -79,7 +80,7 @@ function omgInputConfig(model: string): { attachment: boolean; modalities: { inp
  * `modalities`, OpenCode drops every image sent to an image-capable model.
  */
 function missingOmgVariants(provider: { models?: Record<string, { variants?: unknown; options?: { reasoning?: unknown }; attachment?: unknown; modalities?: { input?: unknown } }> }): boolean {
-  return OMG_MODELS.some((model) => {
+  return OMG_RUNNABLE_MODELS.some((model) => {
     const entry = provider.models?.[model.slice("omg/".length)];
     const input = omgInputModalities(model);
     if (input && JSON.stringify(entry?.modalities?.input) !== JSON.stringify(input)) return true;
@@ -124,6 +125,7 @@ export function writeOpenCodeConfig(path: string, next: Config): void {
 }
 
 export function ensureOmgProvider(options: OmgProviderOptions = {}): void {
+  ensureOmgCatalogLoaded();
   const env = options.env ?? process.env;
   const hosted = hasHostedOmgAiProxy(options);
   if (!hosted && isHostedOmgSandbox(options)) return;
@@ -157,7 +159,7 @@ export function ensureOmgProvider(options: OmgProviderOptions = {}): void {
       options: hosted && current.provider?.omg ? { ...previous.options } : { ...previous.options, baseURL, apiKey },
       models: {
         ...previous.models,
-        ...Object.fromEntries(OMG_MODELS.map((model) => {
+        ...Object.fromEntries(OMG_RUNNABLE_MODELS.map((model) => {
           const id = model.slice("omg/".length);
           // A thinking level travels as an OpenCode variant; the
           // openai-compatible provider sends it as `reasoning_effort`, or as
