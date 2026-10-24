@@ -364,6 +364,7 @@ import { withoutCompactionNoise } from "./lib/compaction-rows";
 import { PresenceDock } from "./components/presence-dock";
 import { CreateTutorials } from "./components/create-tutorials";
 import { FindingToastCard } from "./components/finding-toast-card";
+import { OmgLevelMenu, showOmgLevelMenu } from "./components/omg-level-menu";
 import { SystemMessageLine } from "./components/system-message-line";
 import { classifyUserTurn } from "./lib/system-message";
 import { canDriveSession } from "./lib/session-runtime";
@@ -24949,6 +24950,15 @@ function NewSessionDialog({
     </button>
   );
 
+  // The omg agent on a level (Auto, Max, Balanced, Fast) shows the level menu
+  // in the Stash button's place, so a level change is one tap. A specific
+  // model chosen in the full picker hides it and the Stash button returns.
+  const levelMenu =
+    agent === "omg" && view.showComposerModels && !builderChoice?.selected && showOmgLevelMenu(model, models) ? (
+      <OmgLevelMenu value={model} onChange={chooseModel} />
+    ) : null;
+  const resumeSlot = levelMenu ?? resumeButton;
+
   // Inline composer: the agent icon opens the agent sheet, the web copy of the
   // iOS AgentSetupSheet. A vertical swipe on the icon still steps through the
   // agents without opening anything.
@@ -25336,7 +25346,7 @@ function NewSessionDialog({
             {attachButton}
             {/* The project rail under the mobile header chooses the folder,
                 as on iOS, so the composer carries no folder button. */}
-            {inlineExpanded ? resumeButton : null}
+            {inlineExpanded ? resumeSlot : null}
             {/* Desktop home uses the same folder menu as the session rail. */}
             {variant === "stage" ? folderPicker("chip") : null}
             {inlineExpanded ? <span className="flex-1" /> : null}
@@ -25382,7 +25392,7 @@ function NewSessionDialog({
             </span>
             {/* Right cluster: resume + photo + send, stacked together. */}
             <div className="flex shrink-0 items-center gap-2">
-              {resumeButton}
+              {resumeSlot}
               {attachButton}
               {startButton}
             </div>
@@ -26834,7 +26844,9 @@ export function ModelOptionList({
             provider={markProvider}
             className={cn("size-4 shrink-0", selected ? "text-foreground" : "text-muted-foreground")}
           />
-        ) : anyMarked ? (
+        ) : anyMarked && !isOmgLevelModel(item) ? (
+          // Auto and the levels are a group of their own with no marks, so
+          // they keep no gap for one.
           <span aria-hidden className="size-4 shrink-0" />
         ) : null}
         <span className={cn("min-w-0 flex-1 truncate", locked && "text-muted-foreground")}>{omgModelLabel(item)}</span>
