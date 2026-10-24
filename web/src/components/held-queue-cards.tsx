@@ -141,37 +141,48 @@ export function HeldQueueCards({
         // the field rather than a panel sitting on top of it. The 1rem inset
         // on each side is what keeps it narrower on a phone, where max-w-2xl
         // never applies and w-full made it exactly as wide as the bar.
-        "relative z-0 mx-auto -mb-3 flex w-[calc(100%-2rem)] max-w-2xl flex-col rounded-t-2xl border border-b-0 border-border bg-muted/70 pb-3",
+        "relative z-0 mx-auto -mb-3 flex w-[calc(100%-2rem)] max-w-2xl flex-col rounded-t-2xl border border-b-0 border-border bg-muted/70 pb-3 pt-0.5",
       )}
     >
-      <button
-        type="button"
-        onClick={() => setExpanded((open) => !open)}
-        aria-expanded={expanded}
-        aria-label={expanded ? "Show only the next queued message" : "Show all queued messages"}
-        className="user-queued-label flex w-full items-center gap-1 px-3 pb-1 pt-2 text-left"
-      >
-        <Clock3 className="size-3" aria-hidden="true" />
-        <span className="flex-1">
-          {items.length === 1 ? "1 queued" : `${items.length} queued`}
-          {busy ? "" : " · sending"}
-        </span>
-        {items.length > 1 ? (
-          <ChevronDown
-            className={cn("size-3.5 transition-transform duration-150", expanded && "rotate-180")}
-            aria-hidden="true"
-          />
-        ) : null}
-      </button>
+      {/* No header line: the count is the +N chip, and the state is the
+          clock (or a spinner while the queue is being sent) in the first
+          row's number slot. Spoken for screen readers here. */}
+      <span className="sr-only" role="status">
+        {items.length === 1 ? "1 queued" : `${items.length} queued`}
+        {busy ? "" : ", sending"}
+      </span>
       {shown.map((item, index) => {
         const editing = editingId === item.id;
         const local = item.id.startsWith(LOCAL_HELD_ID_PREFIX);
         return (
           <div
             key={item.renderKey ?? item.id}
-            className="flex items-start gap-2 border-t border-foreground/[0.08] px-3 py-1.5 text-sm text-foreground/85"
+            className={cn(
+              "flex items-start gap-2 px-3 py-1.5 text-sm text-foreground/85",
+              index > 0 && "border-t border-foreground/[0.08]",
+            )}
           >
-            <span className="mt-0.5 w-4 shrink-0 text-xs text-muted-foreground tabular-nums">{index + 1}</span>
+            {expanded ? (
+              <span className="mt-0.5 w-4 shrink-0 text-xs text-muted-foreground tabular-nums">{index + 1}</span>
+            ) : (
+              // Collapsed, the number slot says what this row is: queued
+              // (a clock), or on its way (a spinner). With more behind it,
+              // it also opens the list, like the +N chip.
+              <button
+                type="button"
+                disabled={items.length < 2}
+                onClick={() => setExpanded(true)}
+                aria-expanded={items.length > 1 ? false : undefined}
+                aria-label={items.length > 1 ? "Show all queued messages" : busy ? "Queued" : "Sending"}
+                className="mt-0.5 flex h-5 w-4 shrink-0 items-start justify-center text-muted-foreground disabled:cursor-default"
+              >
+                {busy ? (
+                  <Clock3 className="mt-[3px] size-3.5" aria-hidden="true" />
+                ) : (
+                  <Loader2 className="mt-[3px] size-3.5 animate-spin" aria-hidden="true" />
+                )}
+              </button>
+            )}
             {editing ? (
               <textarea
                 autoFocus
@@ -207,6 +218,17 @@ export function HeldQueueCards({
                 {item.text}
               </button>
             )}
+            {expanded && index === 0 && items.length > 1 ? (
+              <button
+                type="button"
+                onClick={() => setExpanded(false)}
+                aria-expanded={true}
+                aria-label="Show only the next queued message"
+                className="shrink-0 rounded-full p-1 text-muted-foreground hover:text-foreground"
+              >
+                <ChevronDown className="size-3.5 rotate-180" aria-hidden="true" />
+              </button>
+            ) : null}
             {!expanded && hidden > 0 && index === 0 ? (
               <button
                 type="button"

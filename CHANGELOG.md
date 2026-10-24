@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 24, 2026 - A smaller queued-message card (v0.6.325)
+
+- A queued message now takes one line above the chat box. The "1 queued" header is gone: a clock in front of the message shows it is waiting, and it turns into a spinner while the queue is being sent.
+- With more than one queued message, tap the clock or "+N" to see them all, numbered 1, 2, 3. Tap the arrow on the first row to fold them again.
+
 ## October 24, 2026 - Questions show on every screen (v0.6.324)
 
 - A question from the agent now shows on every screen that has the chat open. Before, a second tab or your phone (while the chat was also open somewhere else) could miss a question that was already asked, so there was nothing to answer.
