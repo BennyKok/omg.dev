@@ -24,7 +24,8 @@ test("hosted picker leads with Auto and the levels, the full list one tap away",
     ui.flush(() => balanced.click());
     expect(chosen).toBe("omg/omg/balanced");
     openAllModels(ui);
-    expect(labels().length).toBe(OMG_MODELS.length);
+    // Everything except the build model, which nobody picks.
+    expect(labels().length).toBe(OMG_MODELS.length - 1);
   } finally {
     ui.cleanup();
   }
@@ -60,9 +61,11 @@ describe("ModelOptionList", () => {
     expect(text).toContain("GPT-6.1 Sol");
     expect(text).not.toContain("omg/deepseek/deepseek-v4-flash-0731");
     const rows = ui.queryAll("button");
-    expect(rows.length).toBe(OMG_MODELS.length);
+    // The build model is not offered.
+    expect(rows.length).toBe(OMG_MODELS.length - 1);
+    expect(rows.some((row) => row.title.includes("omg/omg/build"))).toBe(false);
     // Auto and the levels are omg's own choices and carry no lab mark.
-    expect(ui.queryAll("button svg[role='img'], button img").length).toBe(OMG_MODELS.length - OMG_LEVEL_MODELS.length);
+    expect(ui.queryAll("button svg[role='img'], button img").length).toBe(OMG_MODELS.length - OMG_LEVEL_MODELS.length - 1);
     const apex = rows.find((row) => row.textContent?.includes("Apex")) as HTMLButtonElement;
     expect(apex.title.split("\n")[0]).toBe("Callstack · omg/apex");
     ui.flush(() => apex.click());
