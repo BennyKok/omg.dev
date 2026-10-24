@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 24, 2026 - New apps from Create get the build model (v0.6.329)
+
+- On Auto, a new app you start from Create (with no project) is built on omg's build model. Your next message moves the session to Auto's everyday model.
+
 ## October 24, 2026 - Auto agent alerts look right on phones (v0.6.328)
 
 - The alert that an auto agent found something now shows as a full card on omg.dev: the icon, the agent name, the finding and View, with room around them and centred on the screen. Before, on a phone it lost its padding, so the icon and View touched the edges and the name was cut short.
