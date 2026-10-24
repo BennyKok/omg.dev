@@ -9,6 +9,7 @@
 import { useSyncExternalStore } from "react";
 import { ChevronRight } from "lucide-react";
 import { useEmbeddedHostOptions, type HostTutorialCard, type HostTutorials } from "@/lib/embedded-host-options";
+import { cn } from "@/lib/utils";
 
 const NO_CARDS: readonly HostTutorialCard[] = [];
 const noSubscribe = () => () => {};
@@ -21,9 +22,20 @@ export function useHostTutorialCards(): { tutorials: HostTutorials | undefined; 
   return { tutorials, cards };
 }
 
-export function CreateTutorials() {
-  const { tutorials, cards } = useHostTutorialCards();
-  if (!tutorials || !cards.length) return null;
+/** How many cards the desktop grid shows; "See all" opens the rest. */
+const GRID_CARDS = 3;
+
+/**
+ * `row`: one swipeable row that runs to the screen's edges (the phone).
+ * `grid`: the first three side by side inside the column (the desktop home),
+ * where an edge-to-edge row was cut off at the column's edge and a mouse
+ * cannot swipe it.
+ */
+export function CreateTutorials({ layout = "row" }: { layout?: "row" | "grid" } = {}) {
+  const { tutorials, cards: allCards } = useHostTutorialCards();
+  if (!tutorials || !allCards.length) return null;
+  const grid = layout === "grid";
+  const cards = grid ? allCards.slice(0, GRID_CARDS) : allCards;
   return (
     <section data-testid="create-tutorials" className="pt-3 pb-4">
       <div className="flex items-center justify-between px-1 pb-2">
@@ -41,7 +53,13 @@ export function CreateTutorials() {
       </div>
       {/* One swipeable row. Each card is a little under half the width, so the
           next one peeks in once there are more than two. */}
-      <div className="-mx-4 flex snap-x snap-mandatory scroll-px-4 gap-2.5 overflow-x-auto overscroll-x-contain px-4 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div
+        className={
+          grid
+            ? "grid grid-cols-3 gap-3"
+            : "-mx-4 flex snap-x snap-mandatory scroll-px-4 gap-2.5 overflow-x-auto overscroll-x-contain px-4 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        }
+      >
         {cards.map((card) => {
           const running = card.status === "continue";
           return (
@@ -51,7 +69,12 @@ export function CreateTutorials() {
               data-testid={`create-tutorial-${card.id}`}
               disabled={card.disabled}
               onClick={() => tutorials.onSelect(card.id)}
-              className="flex w-[46%] min-w-[164px] max-w-[210px] shrink-0 snap-start flex-col overflow-hidden rounded-2xl border border-border bg-card/90 text-left shadow-sm backdrop-blur-sm disabled:opacity-60"
+              className={cn(
+                "flex flex-col overflow-hidden rounded-2xl border border-border bg-card/90 text-left shadow-sm backdrop-blur-sm disabled:opacity-60",
+                grid
+                  ? "min-w-0 transition-transform hover:-translate-y-0.5 hover:shadow-md"
+                  : "w-[46%] min-w-[164px] max-w-[210px] shrink-0 snap-start",
+              )}
             >
               <span className="relative block h-[112px] bg-gradient-to-b from-primary/10 to-transparent">
                 <img

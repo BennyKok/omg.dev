@@ -76,3 +76,17 @@ test("no host, or a host with no cards, draws nothing", () => {
   ui.flush(() => host.set([snake("start")]));
   expect(ui.query('[data-testid="create-tutorials"]')).not.toBeNull();
 });
+
+test("the desktop grid shows the first three cards, and each still reaches the host", () => {
+  const card = (id: string): HostTutorialCard => ({ ...snake("start"), id, title: id });
+  const host = store(["a", "b", "c", "d"].map(card));
+  ui.render(
+    <EmbeddedHostOptionsProvider value={{ tutorials: host.tutorials }}>
+      <CreateTutorials layout="grid" />
+    </EmbeddedHostOptionsProvider>,
+  );
+  const shown = ui.queryAll('[data-testid^="create-tutorial-"]').map((el) => el.getAttribute("data-testid"));
+  expect(shown).toEqual(["create-tutorial-a", "create-tutorial-b", "create-tutorial-c"]);
+  ui.flush(() => ui.query<HTMLButtonElement>('[data-testid="create-tutorial-c"]')!.click());
+  expect(host.selected).toEqual(["c"]);
+});
