@@ -6,6 +6,23 @@ export function useBrowserTranscription() {
   useEffect(() => { if (state.mode !== "cloud" && state.status === "idle") browserTranscription.prepare(); }, [state.mode, state.status]);
   return state;
 }
+/**
+ * The dictation mode for this browser, for a host that renders its own
+ * settings row. It reads and writes the same store the composer reads at the
+ * start of every take, so a change applies to the next recording.
+ */
+export function useTranscriptionMode(service: BrowserTranscription = browserTranscription) {
+  const state = useSyncExternalStore(service.subscribe, service.getSnapshot);
+  useEffect(() => { if (state.mode !== "cloud" && state.status === "idle") service.prepare(); }, [service, state.mode, state.status]);
+  return {
+    mode: state.mode,
+    status: state.status,
+    progress: state.progress,
+    localSupported: localLanguageSupported(state.language),
+    setMode: (mode: TranscriptionMode) => service.configure({ mode }),
+    retry: () => service.prepare(),
+  };
+}
 export function BrowserTranscriptionSettings({ service = browserTranscription }: { service?: BrowserTranscription }) {
   const state = useSyncExternalStore(service.subscribe, service.getSnapshot);
   useEffect(() => { if (state.mode !== "cloud" && state.status === "idle") service.prepare(); }, [service, state.mode, state.status]);
