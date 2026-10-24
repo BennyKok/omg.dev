@@ -24630,6 +24630,10 @@ function NewSessionDialog({
             // plus its own instructions, inside the launch envelope.
             ...(guideLaunch?.firstRun ? { firstRun: true } : {}),
             ...(guideLaunch?.guide ? { guide: guideLaunch.guide } : {}),
+            // A no-project session from this composer starts something new
+            // (Create). On Auto, lfg builds it on the build model
+            // (src/auto-build-model.ts). No other effect.
+            ...(unassigned ? { newApp: true } : {}),
           }),
         });
       const settle = async (res: CreateResult, sentPrompt: string) => {
@@ -26906,7 +26910,7 @@ export function ModelOptionList({
             No matching models
           </div>
         ) : null}
-        {hasLevels && !allOpen && filtered.length ? (
+        {hasLevels && !allOpen && filtered.length && !pricesPending ? (
           <button
             type="button"
             onClick={() => setShowAllModels(true)}
