@@ -21997,13 +21997,30 @@ function useOrganicActivityPresence(active: boolean) {
 function OrganicActivityEffect({
   active,
   className,
+  layers,
 }: {
   active: boolean;
   className: string;
+  /**
+   * "wash" is the colour fill and belongs inside its card, clipped by it.
+   * "edge" is the three rings around the card. They reach past its border, so
+   * they render as a sibling outside any card that clips its contents.
+   */
+  layers: "wash" | "edge";
 }) {
   const filterId = `lfg-organic-activity-${useId().replace(/:/g, "")}`;
   const presence = useOrganicActivityPresence(active);
   if (!presence.present) return null;
+  const state = presence.exiting ? "is-exiting" : "is-active";
+  if (layers === "edge") {
+    return (
+      <span className={cn("lfg-organic-activity", className, state)} aria-hidden="true">
+        <span className="lfg-organic-activity-edge lfg-organic-activity-edge--halo" />
+        <span className="lfg-organic-activity-edge lfg-organic-activity-edge--soft" />
+        <span className="lfg-organic-activity-edge lfg-organic-activity-edge--sharp" />
+      </span>
+    );
+  }
 
   return (
     <>
@@ -22040,20 +22057,13 @@ function OrganicActivityEffect({
         </defs>
       </svg>
       <span
-        className={cn(
-          "lfg-organic-activity",
-          className,
-          presence.exiting ? "is-exiting" : "is-active",
-        )}
+        className={cn("lfg-organic-activity", className, state)}
         aria-hidden="true"
       >
         <span
           className="lfg-organic-activity-wash"
           style={{ filter: `url(#${filterId}) blur(5px)` }}
         />
-        <span className="lfg-organic-activity-edge lfg-organic-activity-edge--halo" />
-        <span className="lfg-organic-activity-edge lfg-organic-activity-edge--soft" />
-        <span className="lfg-organic-activity-edge lfg-organic-activity-edge--sharp" />
       </span>
     </>
   );
@@ -22479,7 +22489,11 @@ function UserBubble({
     return () => ro.disconnect();
   }, [html, expanded]);
 
+  const inFlight = !!pending && !queued;
   return (
+    // The bubble clips its contents (overflow: hidden), so the in-flight
+    // rings sit beside it in this wrapper rather than inside it.
+    <div className="relative w-fit min-w-0 max-w-full">
     <MessageContent
       className={cn(
         // MessageContent's own base classes include text-sm; since it and
@@ -22502,7 +22516,7 @@ function UserBubble({
     >
       {/* The organic shimmer means "in flight". A queued turn is deliberately
           still — nothing is happening to it until the current turn ends. */}
-      <OrganicActivityEffect active={!!pending && !queued} className="user-bubble-organic" />
+      <OrganicActivityEffect active={inFlight} className="user-bubble-organic" layers="wash" />
       <div
         ref={bodyRef}
         className={cn(
@@ -22522,6 +22536,8 @@ function UserBubble({
         </button>
       )}
     </MessageContent>
+    <OrganicActivityEffect active={inFlight} className="user-bubble-organic" layers="edge" />
+    </div>
   );
 }
 
