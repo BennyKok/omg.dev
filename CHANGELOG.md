@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 24, 2026 - Tutorials on the desktop home (v0.6.327)
+
+- On omg.dev on a computer, the home screen shows the tutorials under "What do you want to make?", as the phone does. Three cards fit side by side, and the arrow opens the full list.
+
 ## October 24, 2026 - Auto builds your new app with the strongest model (v0.6.326)
 
 - On Auto, the first build of a new app runs on omg's build model. When you send your next message, the session moves to Auto's everyday model, so later changes use less credit.

@@ -362,6 +362,7 @@ import { closesKeyboardAfterSendHere } from "./lib/keyboard-after-send";
 import { createHeldRelease } from "./lib/held-release";
 import { withoutCompactionNoise } from "./lib/compaction-rows";
 import { PresenceDock } from "./components/presence-dock";
+import { CreateTutorials } from "./components/create-tutorials";
 import { SystemMessageLine } from "./components/system-message-line";
 import { classifyUserTurn } from "./lib/system-message";
 import { canDriveSession } from "./lib/session-runtime";
@@ -25501,6 +25502,11 @@ function NewSessionDialog({
             What do you want to make?
           </h2>
           {formBody}
+          {/* The host's tutorials, as on the phone Create page. Nothing
+              without a host that lists any. */}
+          <div className="mt-5 px-1">
+            <CreateTutorials layout="grid" />
+          </div>
         </section>
       </div>
     );
