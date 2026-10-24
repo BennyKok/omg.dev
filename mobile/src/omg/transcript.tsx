@@ -1544,6 +1544,7 @@ const SYSTEM_SYMBOLS: Record<SystemMessageKind, Symbols> = {
   rotation: { ios: "arrow.clockwise", android: "refresh" },
   routine: { ios: "clock", android: "schedule" },
   builder: { ios: "info.circle", android: "info" },
+  compaction: { ios: "arrow.down.right.and.arrow.up.left", android: "compress" },
 };
 
 /**

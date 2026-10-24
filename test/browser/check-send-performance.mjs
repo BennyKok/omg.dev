@@ -183,8 +183,7 @@ try {
     .first()
     .evaluate((el) => getComputedStyle(el).animationName);
   assert.equal(reduced, "none");
-  assert.equal(motion.duration, "0.1s");
-  assert.equal(motion.transform, "none");
+  assert.equal(motion.duration, "0.26s");
   if (!baseline) {
     assert(sending.history <= 1, "Sending repainted unchanged history");
     assert(streaming.history <= 2, "Streaming repainted unchanged history");

@@ -11,7 +11,8 @@ describe("Claude steering row persistence", () => {
     const committed: SessionMsg[] = [];
     const rows = new AisdkUserRowCommitter((messages) => committed.push(...messages));
 
-    rows.send("steer now", true);
+    rows.interrupted(true);
+    rows.send("steer now");
     rows.sdk([row("partial", "assistant", "partial answer")]);
     rows.sdk([row("marker", "user", "[Request interrupted by user]")]);
     rows.turnEnded();
@@ -27,7 +28,8 @@ describe("Claude steering row persistence", () => {
     const committed: SessionMsg[] = [];
     const rows = new AisdkUserRowCommitter((messages) => committed.push(...messages));
 
-    rows.send("steer now", true);
+    rows.interrupted(true);
+    rows.send("steer now");
     rows.sdk([row("marker", "user", "[Request interrupted by user]")]);
     rows.sdk([row("echo", "user", "steer now")]);
     rows.turnEnded();
@@ -39,7 +41,7 @@ describe("Claude steering row persistence", () => {
     const committed: SessionMsg[] = [];
     const rows = new AisdkUserRowCommitter((messages) => committed.push(...messages));
 
-    rows.send("ordinary", false);
+    rows.send("ordinary");
 
     expect(committed.map((message) => message.text)).toEqual(["ordinary"]);
   });
@@ -49,7 +51,8 @@ describe("Claude steering row persistence", () => {
     let clock = 1_000;
     const rows = new AisdkUserRowCommitter((messages) => committed.push(...messages), () => clock);
 
-    rows.send("steer now", true); // typed at 1000
+    rows.interrupted(true);
+    rows.send("steer now"); // typed at 1000
     const partial = { ...row("partial", "assistant", "partial answer"), ts: 1_113 };
     const marker = { ...row("marker", "user", "[Request interrupted by user]"), ts: 1_116 };
     clock = 1_100;
@@ -63,5 +66,41 @@ describe("Claude steering row persistence", () => {
     expect(steer.ts).toBe(1_117);
     expect(steer.ts).toBeGreaterThan(marker.ts!);
     expect(committed.map((message) => message.ts)).toEqual([...committed.map((message) => message.ts)].sort((a, b) => a! - b!));
+  });
+
+  test("an interrupt after the turn ended does not hold the next send", () => {
+    // A steer races the end of the turn it meant to stop. Nothing is left to
+    // interrupt, so its text starts the next turn and is written first: it
+    // used to wait for that turn to end and land below its own answer.
+    const committed: SessionMsg[] = [];
+    const rows = new AisdkUserRowCommitter((messages) => committed.push(...messages));
+
+    rows.interrupted(false);
+    rows.send("stop, say ok");
+    rows.sdk([row("answer", "assistant", "ok")]);
+    rows.turnEnded();
+
+    expect(committed.map((message) => message.text)).toEqual(["stop, say ok", "ok"]);
+  });
+
+  test("an answer to an open question is never held behind an interrupt", () => {
+    const committed: SessionMsg[] = [];
+    const rows = new AisdkUserRowCommitter((messages) => committed.push(...messages));
+
+    rows.interrupted(true);
+    rows.send("option two", true);
+
+    expect(committed.map((message) => message.text)).toEqual(["option two"]);
+  });
+
+  test("the interrupt closes with its turn", () => {
+    const committed: SessionMsg[] = [];
+    const rows = new AisdkUserRowCommitter((messages) => committed.push(...messages));
+
+    rows.interrupted(true);
+    rows.turnEnded();
+    rows.send("next turn");
+
+    expect(committed.map((message) => message.text)).toEqual(["next turn"]);
   });
 });

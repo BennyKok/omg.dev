@@ -6,6 +6,7 @@ import {
   OmgChatStreamOwnership,
   OmgChatTransport,
   appendOmgTranscriptEvent,
+  omgRowKey,
   type OmgChatMessage,
   type OmgTranscriptEvent,
 } from "../web/src/lib/omg-chat-transport.ts";
@@ -63,8 +64,11 @@ describe("OmgChatTransport", () => {
     // transcript listener must not append the durable form alongside it.
     expect(appendOmgTranscriptEvent(streamed, event, { streamActive: true })).toBe(streamed);
 
-    // Externally-driven turns have no useChat stream and still land normally.
-    expect(appendOmgTranscriptEvent(streamed, event)).toHaveLength(2);
+    // Without a live stream the durable row lands, and it takes over the copy
+    // already drawn for it: one row, drawn under the same key, not two.
+    const landed = appendOmgTranscriptEvent(streamed, event);
+    expect(landed.map((message) => message.id)).toEqual(["durable-transcript-message"]);
+    expect(omgRowKey(landed[0]!)).toBe("sdk-generated-message");
   });
 
   test("routes feature sockets through the host-configured transport", async () => {

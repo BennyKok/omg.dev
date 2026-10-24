@@ -6,8 +6,10 @@
 
 import type { HapticInput } from "web-haptics";
 import { haptic } from "./haptics"; // self-gates on the haptics preference
-import { playSfx, type SfxName } from "./sfx";
+import { playSfx, warmSfxOnFirstGesture, type SfxName } from "./sfx";
 import { getUiFeedbackPrefs } from "./ui-feedback-prefs";
+
+warmSfxOnFirstGesture(() => getUiFeedbackPrefs().sound);
 
 function fire(sfx: SfxName | null, hap: HapticInput | null) {
   if (sfx && getUiFeedbackPrefs().sound) playSfx(sfx);

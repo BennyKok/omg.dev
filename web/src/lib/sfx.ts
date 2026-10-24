@@ -39,6 +39,27 @@ function getCtx(): AudioContext | null {
   return ctx;
 }
 
+/**
+ * Build the shared context ahead of the first sound. Creating an AudioContext
+ * costs tens of milliseconds, and the first sound is usually the send blip,
+ * where it ran inside the keypress before the sent message could paint. It is
+ * built in idle time after the first gesture anywhere (a context made before
+ * any gesture starts suspended and Chrome warns about it), so by the time a
+ * message is sent only the blip itself is left to do.
+ */
+export function warmSfxOnFirstGesture(enabled: () => boolean): void {
+  if (typeof window === "undefined" || ctx) return;
+  const events = ["pointerdown", "keydown"] as const;
+  const warm = () => {
+    for (const type of events) window.removeEventListener(type, warm, true);
+    const idle = window.requestIdleCallback ?? ((fn: () => void) => window.setTimeout(fn, 1));
+    idle(() => {
+      if (enabled()) getCtx();
+    });
+  };
+  for (const type of events) window.addEventListener(type, warm, { capture: true, passive: true });
+}
+
 type Voice = {
   freq: number;
   toFreq?: number;

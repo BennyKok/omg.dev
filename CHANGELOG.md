@@ -2,6 +2,17 @@
 
 Recent product updates and deployment notes.
 
+## October 24, 2026 - Steady chat while you send (v0.6.317)
+
+- A message you send keeps its place from the moment you press send. Before, the chat drew it again when the server confirmed it, and the reply again when it finished, so the messages above moved a little each time.
+- A reply no longer shows twice after a turn ends.
+- A message you send while the agent is answering stays below that answer. Before, it could jump above the answer for a moment, or stay above it after the agent finished.
+- The three dots no longer open and close their own line, so a turn starting or ending does not move the chat.
+- Queued messages and attached files open and close smoothly above the chat box instead of in one jump.
+- While you dictate, the chat box only grows. Before, it moved up and down as the words were corrected.
+- A sent message rises into place from the chat box.
+- A compacted conversation shows as one line, "Conversation compacted". Tap it to read the summary. The warning before it and the "Compacted" echo are gone.
+
 ## October 23, 2026 - Your first message shows at once (v0.6.316)
 
 - When you start a session, your first message shows in the chat at once. Before, the chat opened empty and the message appeared only after the agent had started.

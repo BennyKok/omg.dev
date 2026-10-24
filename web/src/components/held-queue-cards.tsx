@@ -1,5 +1,6 @@
 // The held sends under the composer. See HeldQueueCards.
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
+import { PresenceDock } from "./presence-dock";
 import { ArrowUp, Check, ChevronDown, Clock3, Loader2, X } from "lucide-react";
 import { api } from "../lib/omg-client";
 import { cn } from "../lib/utils";
@@ -167,7 +168,7 @@ export function HeldQueueCards({
         const local = item.id.startsWith(LOCAL_HELD_ID_PREFIX);
         return (
           <div
-            key={item.id}
+            key={item.renderKey ?? item.id}
             className="flex items-start gap-2 border-t border-foreground/[0.08] px-3 py-1.5 text-sm text-foreground/85"
           >
             <span className="mt-0.5 w-4 shrink-0 text-xs text-muted-foreground tabular-nums">{index + 1}</span>
@@ -257,4 +258,15 @@ export function HeldQueueCards({
       })}
     </div>
   );
+}
+
+/** The held cards' room above the composer: see PresenceDock. */
+export function HeldQueueDock({
+  items,
+  children,
+}: {
+  items: OmgQueueMessage[];
+  children: (items: OmgQueueMessage[]) => ReactNode;
+}) {
+  return <PresenceDock items={items}>{(shown) => children(shown as OmgQueueMessage[])}</PresenceDock>;
 }
