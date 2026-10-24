@@ -62,6 +62,7 @@ export const OMG_MODELS: string[] = [
     "omg/z-ai/glm-5.3-flash",
     "omg/z-ai/glm-5.3",
     "omg/minimax/minimax-m3",
+    "omg/moonshotai/kimi-k3.1-pro",
     "omg/x-ai/grok-4.7",
     "omg/anthropic/claude-fable-5.1",
     "omg/anthropic/claude-sonnet-5.5",
@@ -105,6 +106,8 @@ export const OMG_INPUT_MODALITIES_BY_MODEL: Record<string, readonly ("text" | "i
   "omg/z-ai/glm-5.3-flash": TEXT_IMAGE,
   "omg/z-ai/glm-5.3": TEXT,
   "omg/minimax/minimax-m3": TEXT_IMAGE,
+  // Read 2026-10-24: input_modalities ["text","image","video"].
+  "omg/moonshotai/kimi-k3.1-pro": TEXT_IMAGE,
   "omg/x-ai/grok-4.7": TEXT_IMAGE,
   "omg/anthropic/claude-fable-5.1": TEXT_IMAGE,
   "omg/anthropic/claude-opus-5.5": TEXT_IMAGE,
@@ -148,6 +151,8 @@ export const OMG_THINKING_LEVELS_BY_MODEL: Record<string, readonly string[]> = O
     "omg/deepseek/deepseek-v4-pro",
     "omg/z-ai/glm-5.3-flash",
     "omg/z-ai/glm-5.3",
+    // reasoning_effort listed on both Moonshot endpoints 2026-10-24.
+    "omg/moonshotai/kimi-k3.1-pro",
     "omg/x-ai/grok-4.7",
     "omg/anthropic/claude-fable-5.1",
     "omg/anthropic/claude-opus-5.5",

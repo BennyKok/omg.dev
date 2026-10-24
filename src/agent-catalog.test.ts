@@ -360,6 +360,7 @@ test("omg agent lists the routed models in hosted picker order, default first", 
       "omg/z-ai/glm-5.3-flash",
       "omg/z-ai/glm-5.3",
       "omg/minimax/minimax-m3",
+      "omg/moonshotai/kimi-k3.1-pro",
       "omg/x-ai/grok-4.7",
       "omg/anthropic/claude-fable-5.1",
       "omg/anthropic/claude-sonnet-5.5",
@@ -391,7 +392,7 @@ test("omg thinking levels follow the model: effort where OpenRouter honours it, 
   expect(thinkingLevelsForAgent("omg")).toEqual(["low", "medium", "high"]);
   const item = listModelCatalog().find((entry) => entry.key === "omg")!;
   expect(item.thinkingLevels).toEqual(["low", "medium", "high"]);
-  expect(Object.keys(item.thinkingLevelsByModel ?? {})).toHaveLength(12);
+  expect(Object.keys(item.thinkingLevelsByModel ?? {})).toHaveLength(13);
   expect(item.thinkingLevelsByModel?.["omg/anthropic/claude-haiku-5.5"]).toEqual(["off", "low", "medium", "high"]);
 });
 

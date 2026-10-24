@@ -25,6 +25,7 @@ describe("omg model display", () => {
       ["omg/z-ai/glm-5.3-flash", "z-ai", "GLM 5.3 Flash"],
       ["omg/z-ai/glm-5.3", "z-ai", "GLM 5.3"],
       ["omg/minimax/minimax-m3", "minimax", "MiniMax M3"],
+      ["omg/moonshotai/kimi-k3.1-pro", "moonshotai", "Kimi K3.1 Pro"],
       ["omg/x-ai/grok-4.7", "x-ai", "Grok 4.7"],
       ["omg/anthropic/claude-fable-5.1", "anthropic", "Claude Fable 5.1"],
       ["omg/anthropic/claude-sonnet-5.5", "anthropic", "Claude Sonnet 5.5"],
