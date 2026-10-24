@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## October 24, 2026 - Drag sessions on phones and in compact lists (v0.6.323)
+
+- In the compact session list, you can now drag a session onto another session to move it under that session. Before, only the detailed list allowed this.
+- On a phone, press and hold a session for a moment, then drag it onto another session. A label shows where it will go. If you hold still, the session menu opens as before. If you then move your finger, the menu closes and the drag starts. A quick swipe still scrolls the list.
+- The blue ring and the "Move under" label on the target session are no longer cut off at the corners of the list card.
+- The glow around a message that is being sent is no longer cut off at the edge of the message.
+
 ## October 24, 2026 - Phone keyboard closes when you send (v0.6.322)
 
 - On a phone, the keyboard closes as soon as you send a message, so the reply has room. Before, it stayed open.
