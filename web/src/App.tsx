@@ -732,6 +732,7 @@ import {
 } from "./lib/usage";
 import {
   AGENT_CATALOG,
+  availableAgentsFirst,
   configuredAgentOptions,
   displayedAgentOption,
   knownAgentKind,
@@ -1741,8 +1742,9 @@ function configuredLaunchOptions(
 }
 
 /**
- * What the agent STRIP renders: everything launchable, plus the discoverable
- * agents this box has no account for, greyed out in their catalog position.
+ * What the agent STRIP renders: everything launchable, then the discoverable
+ * agents this box has no account for, greyed out after them (see
+ * availableAgentsFirst).
  *
  * Separate from configuredLaunchOptions on purpose. That function answers "what
  * can this box run", and a locked entry must never leak into an answer to that
@@ -1750,25 +1752,15 @@ function configuredLaunchOptions(
  * auto-select-a-valid-agent effect, every one of which would happily pick an
  * agent that cannot start. This one answers the narrower "what does the picker
  * DRAW", and only the picker calls it.
- *
- * Walking the catalog rather than concatenating keeps the fixed positions the
- * strip depends on — including Claude's per-account fan-out, which occupies
- * Claude's one slot with several entries.
  */
 function agentPickerOptions(
   codingAgents?: CodingAgentInfo[],
   accessMode: AgentAccessMode = "configured",
 ): AgentLaunchOption[] {
-  const launchable = configuredLaunchOptions(codingAgents, accessMode);
-  const locked = new Set(
-    lockedAgentOptions(AGENT_CATALOG, codingAgents, accessMode).map((option) => option.key),
+  return availableAgentsFirst<AgentLaunchOption>(
+    configuredLaunchOptions(codingAgents, accessMode),
+    lockedAgentOptions(AGENT_CATALOG, codingAgents, accessMode),
   );
-  if (!locked.size) return launchable;
-  return AGENT_CATALOG.flatMap((entry) => {
-    const live = launchable.filter((option) => option.key === entry.key);
-    if (live.length) return live;
-    return locked.has(entry.key) ? [{ ...entry, locked: true }] : [];
-  });
 }
 
 /**

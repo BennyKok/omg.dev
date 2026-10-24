@@ -257,3 +257,32 @@ export function lockedAgentOptions<T extends { key: string }>(
       discoverable.has(option.key) && !launchable.has(option.key) && !hidden.has(option.key),
   );
 }
+
+/**
+ * The order the agent strip draws: every launchable agent first, then the
+ * greyed-out ones, each group in catalog order.
+ *
+ * Locked tiles used to sit in their catalog slots. On a fresh hosted Computer
+ * that put four agents nobody could use (claude, codex, grok, cursor) ahead of
+ * the two that worked, so the first thing the strip said was "no".
+ *
+ * Positions still never move when you PICK an agent: the sort key is whether
+ * an agent can launch, and selecting one does not change that. An agent only
+ * changes group when it is connected or disconnected.
+ *
+ * `launchable` must already be in catalog order — configuredAgentOptions
+ * filters the catalog, so it is — and may carry several entries per key
+ * (Claude's per-account fan-out), which stay together.
+ */
+export function availableAgentsFirst<T extends { key: string }>(
+  launchable: readonly T[],
+  locked: readonly T[],
+): (T & { locked?: boolean })[] {
+  const live = new Set(launchable.map((option) => option.key));
+  return [
+    ...launchable,
+    ...locked
+      .filter((option) => !live.has(option.key))
+      .map((option) => ({ ...option, locked: true })),
+  ];
+}
