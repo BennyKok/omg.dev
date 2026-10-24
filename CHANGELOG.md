@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 24, 2026 - Phone keyboard closes when you send (v0.6.322)
+
+- On a phone, the keyboard closes as soon as you send a message, so the reply has room. Before, it stayed open.
+- On an iPad or a computer, the chat box keeps focus after you send, so you can type the next message at once. A send that waits for the server no longer hides the iPad's keyboard bar.
+
 ## October 24, 2026 - Queued messages stay put (v0.6.321)
 
 - When you tap "Send now" on a queued message, the card goes away once. Before, it could disappear, come back for a moment, and disappear again.
