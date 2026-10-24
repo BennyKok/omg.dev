@@ -23,8 +23,6 @@ import { createSideNavOpenStore, useSideNavOpen, type SideNavOpenStore } from ".
 import { FindingsPill, FindingsSheet } from "./components/findings-pill";
 import { sideNavRows, type SideNavRow } from "./lib/side-nav-items";
 import { settledParagraphs } from "./lib/paragraph-stream";
-import { AppBuilderOption, type BuilderChoice } from "./components/app-builder-option";
-import { APP_BUILDER_MODEL, APP_BUILDER_PRESET } from "../../packages/protocol/src/builder-presets";
 import {
   AgentSetupSheet,
   type SetupAgentTile,
@@ -23855,7 +23853,6 @@ function NewSessionDialog({
     () => savedThinkingLevel(),
   );
   const [fastMode, setFastModeState] = useState(() => readFastMode(localStorage, agent));
-  const [builderPreset, setBuilderPreset] = useState("");
   // Default the owner to the active profile, falling back to the first known user
   // — never empty when a roster exists. An unowned session lands unassigned, and
   // the live view's auto-default filter (which flips to a specific user) then
@@ -24625,7 +24622,6 @@ function NewSessionDialog({
             agent: launchAgent,
             model: launchModel,
             thinkingLevel: thinkingLevels.length ? launchThinkingLevel : undefined,
-            builderPreset: launchAgent === "omg" ? builderPreset || undefined : undefined,
             fastMode: launchFastMode,
             claudeAccountId: launchClaudeAccountId,
             overLimit: overLimit || undefined,
@@ -24797,22 +24793,11 @@ function NewSessionDialog({
     }
     desiredAgentRef.current = key;
     setAgent(key);
-    setBuilderPreset("");
     if (key === "aisdk") setClaudeAccountId(option?.accountId ?? "");
     setModel(preferredModelFor(key));
   };
 
-  const chooseBuilder = () => {
-    if (!selectedRepo) return;
-    setBuilderPreset(APP_BUILDER_PRESET);
-    setModel(APP_BUILDER_MODEL);
-    changeComposerThinkingLevel("low");
-  };
-  const chooseModel = (next: string) => {
-    setBuilderPreset("");
-    setModel(next);
-  };
-  const builderChoice = agent === "omg" ? { selected: builderPreset === APP_BUILDER_PRESET, disabled: !selectedRepo, onChoose: chooseBuilder } : undefined;
+  const chooseModel = (next: string) => setModel(next);
 
   // One folder dropdown for every desktop composer shape: a chip on the home
   // stage, a pill in the drawer's controls row.
@@ -24856,10 +24841,24 @@ function NewSessionDialog({
   // here, so a level change is one tap. A specific model chosen in the full
   // picker hides it.
   const levelMenu =
-    agent === "omg" && view.showComposerModels && !builderChoice?.selected && showOmgLevelMenu(model, models) ? (
+    agent === "omg" && view.showComposerModels && showOmgLevelMenu(model, models) ? (
       <OmgLevelMenu value={model} onChange={chooseModel} />
     ) : null;
 
+  const pickerThinking =
+    agentSupportsThinking(agent) && thinkingLevels.length > 0
+      ? {
+          options: thinkingLevels.map((level) => ({
+            id: level,
+            label: thinkingLevelLabel(level),
+            selected: level === thinkingLevel,
+          })),
+          onPick: (level: string) => changeComposerThinkingLevel(level as ThinkingLevel),
+        }
+      : null;
+  const pickerFast = fastModeAvailable
+    ? { enabled: fastModeEnabled, onToggle: () => setFastMode(!fastModeEnabled) }
+    : null;
   const modelControls = (
     <>
       {
@@ -24878,35 +24877,14 @@ function NewSessionDialog({
           model={model}
           models={models}
           onModelChange={chooseModel}
-          builderChoice={builderChoice}
           showModels={view.showComposerModels}
           showAgents={view.showComposerAgents}
           hideModelLabel={!!levelMenu}
-          footer={<>
-            {/* The stage keeps Thinking and Fast inside the picker. */}
-            {
-            variant === "stage" ? (
-              <ComposerPickerFooter
-                thinking={
-                  agentSupportsThinking(agent) && thinkingLevels.length > 0
-                    ? {
-                        options: thinkingLevels.map((level) => ({
-                          id: level,
-                          label: thinkingLevelLabel(level),
-                          selected: level === thinkingLevel,
-                        })),
-                        onPick: (level) => changeComposerThinkingLevel(level as ThinkingLevel),
-                      }
-                    : null
-                }
-                fast={
-                  fastModeAvailable
-                    ? { enabled: fastModeEnabled, onToggle: () => setFastMode(!fastModeEnabled) }
-                    : null
-                }
-              />
-            ) : null}
-          </>}
+          // The stage keeps Thinking and Fast inside the picker. With neither
+          // available there is no footer, so no divider under the list.
+          footer={variant === "stage" && (pickerThinking || pickerFast) ? (
+            <ComposerPickerFooter thinking={pickerThinking} fast={pickerFast} />
+          ) : undefined}
         />
       }
 
@@ -25037,7 +25015,6 @@ function NewSessionDialog({
           if (key === agent) return;
           desiredAgentRef.current = key;
           setAgent(key);
-          setBuilderPreset("");
           if (key === "aisdk") setClaudeAccountId("");
           setModel(preferredModelFor(key));
         }}
@@ -25047,14 +25024,13 @@ function NewSessionDialog({
         }}
         profiles={setupProfiles}
         onSelectProfile={(id) => setClaudeAccountId(id)}
-        modelLabel={view.showComposerModels ? builderChoice?.selected ? "App Builder" : omgModelLabel(model) || model || null : null}
+        modelLabel={view.showComposerModels ? omgModelLabel(model) || model || null : null}
         renderModels={
           view.showComposerModels
             ? (done) => (
                 <ModelOptionList
                   value={model}
                   models={models}
-                  builderChoice={builderChoice ? { ...builderChoice, onChoose: () => { chooseBuilder(); done(); } } : undefined}
                   onChoose={(next) => {
                     chooseModel(next);
                     done();
@@ -26702,7 +26678,6 @@ export function ModelOptionList({
   value,
   models: allModels,
   onChoose,
-  builderChoice,
   onEscape,
   inputRef,
   large = false,
@@ -26711,7 +26686,6 @@ export function ModelOptionList({
   value: string;
   models: string[];
   onChoose: (model: string) => void;
-  builderChoice?: BuilderChoice;
   onEscape?: () => void;
   inputRef?: { current: HTMLInputElement | null };
   large?: boolean;
@@ -26749,12 +26723,6 @@ export function ModelOptionList({
     }
     onChoose(item);
   };
-  const showBuilder = !!builderChoice && "app builder haiku apex code review luna design review".includes(query.trim().toLowerCase());
-  const chooseBuilder = () => {
-    if (builderChoice?.disabled) return;
-    if (prices[APP_BUILDER_MODEL]?.available === false) { chooseModel(APP_BUILDER_MODEL); return; }
-    builderChoice?.onChoose();
-  };
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return models;
@@ -26788,7 +26756,7 @@ export function ModelOptionList({
   // Keep names in one column when only some rows have a lab mark.
   const anyMarked = models.some((item) => !!modelMarkProvider(item));
   const renderModel = (item: string) => {
-    const selected = !builderChoice?.selected && value === item;
+    const selected = value === item;
     const locked = prices[item]?.available === false;
     // A hosted omg id, or a routed id such as OpenCode's opencode-go/glm-5.3,
     // reads as the lab's mark plus the short model name; the full id stays in
@@ -26822,7 +26790,6 @@ export function ModelOptionList({
             : cn("text-foreground focus-visible:bg-muted", !large && "hover:bg-muted"),
         )}
       >
-        <Check className={cn("size-4 shrink-0 text-primary", selected ? "opacity-100" : "opacity-0")} />
         {markProvider ? (
           <ModelProviderIcon
             provider={markProvider}
@@ -26835,6 +26802,7 @@ export function ModelOptionList({
         ) : null}
         <span className={cn("min-w-0 flex-1 truncate", locked && "text-muted-foreground")}>{omgModelLabel(item)}</span>
         {locked ? <Lock className="size-4 shrink-0 text-muted-foreground" aria-label="Upgrade required" /> : null}
+        {selected ? <Check className="size-4 shrink-0 text-primary" aria-hidden="true" /> : null}
       </button>
     );
   };
@@ -26857,7 +26825,6 @@ export function ModelOptionList({
               if (event.key === "Escape") onEscape?.();
               if (event.key === "Enter") {
                 if (displayedModels[0]) chooseModel(displayedModels[0]);
-                else if (showBuilder) chooseBuilder();
               }
             }}
             placeholder="Filter models"
@@ -26877,7 +26844,6 @@ export function ModelOptionList({
           <div aria-label="Loading credit usage" aria-busy="true">
             {filtered.slice(0, 8).map((item) => (
               <div key={item} className={cn("flex items-center gap-3 px-3", large ? "h-12" : "h-10")}>
-                <span className="size-4 shrink-0" />
                 <span className="h-3 w-40 max-w-full animate-pulse rounded bg-muted" />
               </div>
             ))}
@@ -26901,11 +26867,11 @@ export function ModelOptionList({
               {group.items.map(renderModel)}
             </div>
           ))
-        ) : !showBuilder ? (
+        ) : (
           <div className="px-3 py-8 text-center text-sm text-muted-foreground">
             No matching models
           </div>
-        ) : null}
+        )}
         {hasLevels && !allOpen && filtered.length && !pricesPending ? (
           <button
             type="button"
@@ -26918,12 +26884,6 @@ export function ModelOptionList({
             <ChevronDown className="size-4 shrink-0" />
             <span className="min-w-0 flex-1 truncate">All models</span>
           </button>
-        ) : null}
-        {showBuilder ? (
-          <div role="group" aria-label="Workflows" className="mt-2 border-t border-border pt-2">
-            <div className="px-3 pb-1 pt-2 text-[11px] font-medium text-muted-foreground">Workflows</div>
-            <AppBuilderOption selected={!!builderChoice?.selected} disabled={builderChoice?.disabled} onChoose={chooseBuilder} locked={prices[APP_BUILDER_MODEL]?.available === false} />
-          </div>
         ) : null}
       </div>
     </div>
@@ -26947,7 +26907,6 @@ export function AgentModelPicker<K extends AgentKind>({
   model,
   models,
   onModelChange,
-  builderChoice,
   showModels = true,
   showAgents = true,
   hideModelLabel = false,
@@ -26971,7 +26930,6 @@ export function AgentModelPicker<K extends AgentKind>({
   model: string;
   models: string[];
   onModelChange: (value: string) => void;
-  builderChoice?: BuilderChoice;
   /** Off: the pill names the agent and the popover lists agents only. The
    *  model then comes from the box default (see ViewPrefs). */
   showModels?: boolean;
@@ -26993,7 +26951,7 @@ export function AgentModelPicker<K extends AgentKind>({
   if (!showAgents && !showModels && !footer) return null;
   // A hosted omg model makes the pill wear the lab's mark, with a small omg
   // mark in the corner so the agent is still readable at a glance.
-  const modelLabel = builderChoice?.selected ? "App Builder" : omgModelLabel(model);
+  const modelLabel = omgModelLabel(model);
   // Routed ids (OpenCode's opencode-go/glm-5.3) wear their lab's mark the
   // same way, with this agent's icon in the corner.
   const markProvider = showModels && model ? modelMarkProvider(model) : null;
@@ -27002,7 +26960,7 @@ export function AgentModelPicker<K extends AgentKind>({
     <button
       type="button"
       aria-label={`Agent ${agentLabel}, model ${modelLabel || "not set"}. Change agent or model`}
-      title={`${agentLabel} · ${builderChoice?.selected ? "App Builder" : model || "model"}`}
+      title={`${agentLabel} · ${model || "model"}`}
       aria-haspopup="dialog"
       aria-expanded={open}
       className={cn(
@@ -27082,7 +27040,6 @@ export function AgentModelPicker<K extends AgentKind>({
               <ModelOptionList
                 value={model}
                 models={models}
-                builderChoice={builderChoice ? { ...builderChoice, onChoose: () => { builderChoice.onChoose(); setOpen(false); } } : undefined}
                 onChoose={(next) => {
                   onModelChange(next);
                   setOpen(false);
