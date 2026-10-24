@@ -436,6 +436,8 @@ type SidTail = {
   sockets: Set<LiveWs>;
   pane: LivePane;
   lastSig: string;
+  /** The open question last published for this session, for a socket that joins later. */
+  lastPrompt: unknown;
   lastBusy: string;
   lastQ: string;
   lastMessageAt: number;
@@ -1049,6 +1051,7 @@ export function createLiveWsSupport(opts: {
       const sig = prompt ? JSON.stringify(prompt) : "";
       if (sig !== tail.lastSig) {
         tail.lastSig = sig;
+        tail.lastPrompt = prompt;
         publishSid(tail.sid, "prompt", { prompt });
       }
       const busy = isAisdkEntryBusy(entry);
@@ -1067,6 +1070,7 @@ export function createLiveWsSupport(opts: {
     const sig = prompt ? JSON.stringify(prompt) : "";
     if (sig !== tail.lastSig) {
       tail.lastSig = sig;
+      tail.lastPrompt = prompt ?? null;
       publishSid(tail.sid, "prompt", { prompt: prompt ?? null });
     }
     const busy = pane ? (tail.pane.agent === "jcode" ? isJcodeBusy(pane) : isBusy(pane)) : false;
@@ -1093,6 +1097,7 @@ export function createLiveWsSupport(opts: {
       sockets: new Set(),
       pane: { sid, tp, target: null, agent: null },
       lastSig: " ",
+      lastPrompt: null,
       lastBusy: "?",
       lastQ: "[]",
       lastMessageAt: Date.now(),
@@ -1244,8 +1249,21 @@ export function createLiveWsSupport(opts: {
     const tail = await ensureSidTail(sid, tp);
     tail.sockets.add(state.ws);
     safeSend(state.ws, { t: "queue", sid, queue: listQueue(sid) });
-    void pollOne(tail);
+    // The same holds for an open question and for busy: they are published
+    // only when they change, per session, so a socket that joins a session
+    // someone else is already watching (a second tab, the phone while the
+    // laptop is open, a resubscribe) never heard of a question asked before
+    // it came. The card was simply missing until the next change. Poll first,
+    // then hand this socket the current state.
+    await pollOne(tail).catch(() => {});
+    if (state.subscribed.has(id) && tail.sockets.has(state.ws)) sendCurrentTailState(state, tail);
     pollQueue(tail);
+  };
+
+  /** What a session is doing right now, for one socket: its open question and busy. */
+  const sendCurrentTailState = (state: SocketState, tail: SidTail) => {
+    if (tail.lastSig !== " ") safeSend(state.ws, { t: "prompt", sid: tail.sid, prompt: tail.lastPrompt ?? null });
+    if (tail.lastBusy === "0" || tail.lastBusy === "1") safeSend(state.ws, { t: "busy", sid: tail.sid, busy: tail.lastBusy === "1" });
   };
 
   const unsubscribeTranscript = (state: SocketState, sid: string) => {
