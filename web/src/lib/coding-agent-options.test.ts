@@ -106,3 +106,57 @@ describe("reconcileSelectedAgent", () => {
     expect(reconcileSelectedAgent([{ key: "omg" }], "omg", "cursor", "devin")).toBe(null);
   });
 });
+
+describe("availableAgentsFirst", () => {
+  const roster = (connected: string[]) =>
+    ["aisdk", "codex-aisdk", "grok", "cursor", "omg", "opencode"].map((key) => ({
+      key,
+      visible: true,
+      status: { configured: true, accountConnected: connected.includes(key) },
+    }));
+
+  test("puts usable agents ahead of greyed ones on a fresh hosted Computer", async () => {
+    const { AGENT_CATALOG, availableAgentsFirst, configuredAgentOptions, lockedAgentOptions } =
+      await import("./coding-agent-options");
+    const agents = roster([]);
+    const strip = availableAgentsFirst(
+      configuredAgentOptions(AGENT_CATALOG, agents, "connected-or-hosted"),
+      lockedAgentOptions(AGENT_CATALOG, agents, "connected-or-hosted"),
+    );
+    expect(strip.map((option) => [option.key, !!option.locked])).toEqual([
+      ["omg", false],
+      ["opencode", false],
+      ["aisdk", true],
+      ["codex-aisdk", true],
+      ["grok", true],
+      ["cursor", true],
+    ]);
+  });
+
+  test("a connected agent joins the usable group in catalog order", async () => {
+    const { AGENT_CATALOG, availableAgentsFirst, configuredAgentOptions, lockedAgentOptions } =
+      await import("./coding-agent-options");
+    const agents = roster(["codex-aisdk"]);
+    const strip = availableAgentsFirst(
+      configuredAgentOptions(AGENT_CATALOG, agents, "connected-or-hosted"),
+      lockedAgentOptions(AGENT_CATALOG, agents, "connected-or-hosted"),
+    );
+    expect(strip.map((option) => option.key)).toEqual([
+      "codex-aisdk", "omg", "opencode", "aisdk", "grok", "cursor",
+    ]);
+  });
+
+  test("keeps several entries for one agent together and never locks a live key", async () => {
+    const { availableAgentsFirst } = await import("./coding-agent-options");
+    const strip = availableAgentsFirst(
+      [{ key: "aisdk", id: "auto" }, { key: "aisdk", id: "a1" }, { key: "omg", id: "omg" }],
+      [{ key: "aisdk", id: "x" }, { key: "grok", id: "grok" }],
+    );
+    expect(strip.map((option) => [option.id, !!option.locked])).toEqual([
+      ["auto", false],
+      ["a1", false],
+      ["omg", false],
+      ["grok", true],
+    ]);
+  });
+});
