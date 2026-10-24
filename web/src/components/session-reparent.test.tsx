@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mount, type Mounted } from "../test-support/render";
 import type { Session } from "../App";
-const { SessionReparentProvider, SessionReparentTarget, SESSION_DRAG_TYPE } = await import("./session-reparent");
+const { SessionReparentProvider, SessionReparentTarget, SESSION_DRAG_TYPE, TOUCH_ARM_MS, useSessionDragMenuGuard } = await import("./session-reparent");
 const { getSubagentGroupChoices, resetSubagentGroupChoices } = await import("../lib/subagent-group-open");
 const { toast } = await import("sonner");
 const { RailItem, CompactSessionRow } = await import("../App");
@@ -186,4 +186,84 @@ test("moving under a nested parent opens the root's group", async () => {
   drag(row("parent"), "drop", data);
   await ui.flushAsync();
   expect(getSubagentGroupChoices().get("root")).toBe(true);
+});
+
+// Touch drag: phones send no HTML5 drag events for a finger.
+function place(id: string, top: number) {
+  row(id).getBoundingClientRect = () => ({ left: 0, right: 300, top, bottom: top + 40, width: 300, height: 40, x: 0, y: top, toJSON() {} }) as DOMRect;
+}
+function finger(target: Element, type: string, x: number, y: number) {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  const touches = type === "touchend" || type === "touchcancel" ? [] : [{ clientX: x, clientY: y }];
+  Object.defineProperty(event, "touches", { value: touches });
+  ui.flush(() => target.dispatchEvent(event));
+  return event;
+}
+const hold = () => new Promise((resolve) => setTimeout(resolve, TOUCH_ARM_MS + 40));
+
+function touchList(onOpen: () => void, request: typeof import("../lib/omg-client").api, onGuard?: (guard: ReturnType<typeof useSessionDragMenuGuard>) => void) {
+  function Guard() { onGuard?.(useSessionDragMenuGuard()); return null; }
+  ui.render(<SessionReparentProvider sessions={[child, parent]} onRefresh={async () => {}} request={request}>
+    <Guard />
+    {[child, parent].map((session) => <CompactSessionRow key={session.sessionId} session={session} users={[]} userFilter="__all"
+      busy={false} onOpen={onOpen} />)}
+  </SessionReparentProvider>);
+  place("child", 0);
+  place("parent", 100);
+}
+
+test("a long press then a finger move lifts a compact row onto a new parent", async () => {
+  let moved: unknown = null;
+  let opened = 0;
+  touchList(() => { opened++; }, async <T,>(_path: string, init?: RequestInit) => { moved = JSON.parse(String(init?.body)); return { parentNotified: true } as T; });
+  const start = row("child").querySelector("button")!;
+  finger(start, "touchstart", 20, 20);
+  await hold();
+  expect(finger(start, "touchmove", 20, 60).defaultPrevented).toBe(true);
+  expect(document.querySelector("[data-session-drag-ghost]")?.textContent).toBe("Child");
+  expect(document.querySelector("[data-session-drag-ghost-target]")).toBeNull();
+  expect(row("child").getAttribute("data-session-dragging")).toBe("true");
+  finger(start, "touchmove", 20, 120);
+  expect(row("parent").getAttribute("data-session-drop-target")).toBe("true");
+  expect(document.querySelector("[data-session-drag-ghost-target]")?.textContent).toBe("Move under Parent");
+  expect(finger(start, "touchend", 0, 0).defaultPrevented).toBe(true);
+  await ui.flushAsync();
+  expect(moved).toEqual({ sessionId: "child", parentSessionId: "parent" });
+  expect(opened).toBe(0);
+  expect(document.querySelector("[data-session-drag-ghost]")).toBeNull();
+});
+
+test("a quick swipe stays a scroll, and a drop off any parent moves nothing", async () => {
+  let writes = 0;
+  touchList(() => {}, async <T,>() => { writes++; return {} as T; });
+  const start = row("child").querySelector("button")!;
+  finger(start, "touchstart", 20, 20);
+  expect(finger(start, "touchmove", 20, 60).defaultPrevented).toBe(false);
+  await hold();
+  expect(finger(start, "touchmove", 20, 120).defaultPrevented).toBe(false);
+  expect(document.querySelector("[data-session-drag-ghost]")).toBeNull();
+  finger(start, "touchend", 0, 0);
+
+  finger(start, "touchstart", 20, 20);
+  await hold();
+  finger(start, "touchmove", 20, 70);
+  expect(ui.query("[data-session-drop-target]")).toBeNull();
+  finger(start, "touchend", 0, 0);
+  await ui.flushAsync();
+  expect(writes).toBe(0);
+});
+
+test("the row menu stays shut during a touch drag and just after the drop", async () => {
+  let guard!: ReturnType<typeof useSessionDragMenuGuard>;
+  touchList(() => {}, async <T,>() => ({}) as T, (next) => { guard = next; });
+  const start = row("child").querySelector("button")!;
+  finger(start, "touchstart", 20, 20);
+  await hold();
+  expect(guard.blocked()).toBe(false);
+  finger(start, "touchmove", 20, 60);
+  expect(guard.touchDragging).toBe(true);
+  expect(guard.blocked()).toBe(true);
+  finger(start, "touchend", 0, 0);
+  expect(guard.touchDragging).toBe(false);
+  expect(guard.blocked()).toBe(true);
 });
