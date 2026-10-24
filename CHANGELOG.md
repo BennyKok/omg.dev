@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 24, 2026 - Auto builds your new app with the strongest model (v0.6.326)
+
+- On Auto, the first build of a new app runs on omg's build model. When you send your next message, the session moves to Auto's everyday model, so later changes use less credit.
+- Messages that omg sends for you, such as a reminder to publish, do not end the build.
+- A model you choose by hand now stays after the session restarts.
+
 ## October 24, 2026 - A smaller queued-message card (v0.6.325)
 
 - A queued message now takes one line above the chat box. The "1 queued" header is gone: a clock in front of the message shows it is waiting, and it turns into a spinner while the queue is being sent.
