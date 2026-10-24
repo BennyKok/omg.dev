@@ -70,6 +70,12 @@ export type ManagedSession = {
    */
   launchFailedAt?: number;
   model?: string;
+  /**
+   * Set while an Auto new-app session is still on its build model: the model
+   * to move to when the person sends their second message
+   * (src/auto-build-model.ts). Cleared by that switch or a manual change.
+   */
+  autoNextModel?: string;
   /** Reasoning effort selected for subsequent turns, when the agent supports it. */
   thinkingLevel?: string;
   builderPreset?: string;

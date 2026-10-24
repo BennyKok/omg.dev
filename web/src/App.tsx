@@ -6,7 +6,7 @@ import { BrowserTranscriptionSettings, useBrowserTranscription } from "./compone
 import { replayCloudTranscription } from "./lib/transcription-cloud-replay";
 import { MODEL_USAGE_GROUPS } from "../../packages/protocol/src/model-pricing";
 import { useModelPrices, usePrefetchModelPrices, modelUsageLevel } from "./lib/use-model-prices";
-import { OMG_MODELS, OMG_PRICE_BASELINE_MODEL, isOmgLevelModel } from "../../src/omg-models";
+import { OMG_BUILD_MODEL, OMG_MODELS, OMG_PRICE_BASELINE_MODEL, isOmgLevelModel } from "../../src/omg-models";
 import { modelLabProvider, modelListHasRoutes, omgModelLabel, omgModelSearchText, parseOmgModel, parseRoutedModel, setServerModelLabels } from "../../packages/protocol/src/omg-model-display";
 import { ModelProviderIcon, modelProviderIconKey } from "./lib/model-provider-icons";
 import { setupOutcome, type SetupResultInfo, type SetupWatchAgent } from "../../packages/protocol/src/coding-agent-setup-outcome";
@@ -26710,7 +26710,7 @@ const PRICE_WAIT_MS = 1500;
 // this) is what clears it. Exported for the render test.
 export function ModelOptionList({
   value,
-  models,
+  models: allModels,
   onChoose,
   builderChoice,
   onEscape,
@@ -26735,6 +26735,8 @@ export function ModelOptionList({
   fill?: boolean;
 }) {
   const [query, setQuery] = useState("");
+  // The build model runs an Auto new-app build on its own; nobody picks it.
+  const models = useMemo(() => allModels.filter((model) => model !== OMG_BUILD_MODEL), [allModels]);
   const hasManagedModels = models.some((model) => model.startsWith("omg/"));
   const { prices, loading: pricesLoading } = useModelPrices(hasManagedModels);
   // Placeholder rows hold the list's shape while the prices load, so it draws

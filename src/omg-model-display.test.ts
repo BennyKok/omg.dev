@@ -17,6 +17,7 @@ describe("omg model display", () => {
       ["omg/omg/max", "omg", "Max"],
       ["omg/omg/balanced", "omg", "Balanced"],
       ["omg/omg/fast", "omg", "Fast"],
+      ["omg/omg/build", "omg", "Build"],
       ["omg/anthropic/claude-opus-5.5", "anthropic", "Claude Opus 5.5"],
       ["omg/apex", "callstack", "Apex"],
       ["omg/deepseek/deepseek-v4-flash-0731", "deepseek", "DeepSeek V4 Flash"],
