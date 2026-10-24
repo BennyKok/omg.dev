@@ -15576,6 +15576,7 @@ function CompactSessionRow({ session, busy, onOpen, users, userFilter, active = 
   const title = titleForSession(session);
   const unread = !!session.sessionId && unreadSessions.has(session.sessionId);
   return (
+    <SessionReparentTarget session={session}>
     <button
       type="button"
       onClick={onOpen}
@@ -15603,8 +15604,11 @@ function CompactSessionRow({ session, busy, onOpen, users, userFilter, active = 
         <span className="shrink-0 text-[12px] text-muted-foreground">{timeAgo(session.lastActivityAt)}</span>
       ) : null}
     </button>
+    </SessionReparentTarget>
   );
 }
+
+export { CompactSessionRow };
 
 const RailItem = memo(function RailItem({
   session,

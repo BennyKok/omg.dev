@@ -4,7 +4,7 @@ import type { Session } from "../App";
 const { SessionReparentProvider, SessionReparentTarget, SESSION_DRAG_TYPE } = await import("./session-reparent");
 const { getSubagentGroupChoices, resetSubagentGroupChoices } = await import("../lib/subagent-group-open");
 const { toast } = await import("sonner");
-const { RailItem } = await import("../App");
+const { RailItem, CompactSessionRow } = await import("../App");
 
 let ui: Mounted;
 const child: Session = { sessionId: "child", title: "Child", managed: true, tmuxName: "child" };
@@ -41,6 +41,25 @@ test("the app's actual rail rows support reparenting without opening the session
   const data = transfer();
   drag(row("child"), "dragstart", data);
   drag(row("parent"), "dragover", data);
+  drag(row("parent"), "drop", data);
+  await ui.flushAsync();
+  expect(moved).toBe(1);
+  expect(opened).toBe(0);
+});
+
+test("compact list rows support reparenting without opening the session", async () => {
+  let moved = 0;
+  let opened = 0;
+  ui.render(<SessionReparentProvider sessions={[child, parent]} onRefresh={async () => {}}
+    request={async <T,>() => { moved++; return { parentNotified: true } as T; }}>
+    {[child, parent].map((session) => <CompactSessionRow key={session.sessionId} session={session} users={[]} userFilter="__all"
+      busy={false} dense onOpen={() => { opened++; }} />)}
+  </SessionReparentProvider>);
+  expect(row("child").getAttribute("draggable")).toBe("true");
+  const data = transfer();
+  drag(row("child").querySelector("button")!, "dragstart", data);
+  expect(drag(row("parent"), "dragover", data).defaultPrevented).toBe(true);
+  expect(ui.text()).toContain("Move under Parent");
   drag(row("parent"), "drop", data);
   await ui.flushAsync();
   expect(moved).toBe(1);
