@@ -39,3 +39,53 @@ export function autoBuildSwitch(
   if (!record?.autoNextModel || !fromPerson || isMachineMessage(text)) return null;
   return record.autoNextModel;
 }
+
+export type AutoRouteDeps = {
+  /** True on a hosted Computer (the guest LLM proxy is present). */
+  hosted: boolean;
+  /** The guest proxy origin, for example http://169.254.0.1:9090. */
+  baseUrl?: string;
+  fetch?: typeof fetch;
+  timeoutMs?: number;
+};
+
+/**
+ * On a hosted Computer, ask the router whether this new Auto session starts a
+ * new project (vibes apps/infra/internal/proxy/route.go: a cheap judge reads
+ * the first message). The router answers with an alias: omg/build for a new
+ * project, omg/auto for anything else. Any failure, or a self-hosted box,
+ * keeps the local guess from planAutoBuildLaunch.
+ */
+export async function routeAutoLaunch(
+  input: Parameters<typeof planAutoBuildLaunch>[0] & { message?: string; project?: string; noProject: boolean },
+  deps: AutoRouteDeps,
+): Promise<{ model: string | undefined; autoNextModel?: string; routeId?: string; routeSource?: string }> {
+  const guess = planAutoBuildLaunch(input);
+  const omgAgent = input.agent === "omg" || input.agent === "opencode";
+  const message = input.message?.trim() ?? "";
+  if (!deps.hosted || !deps.baseUrl || !omgAgent || input.spawnedBy === "subagent" || input.model !== OMG_AUTO_MODEL || !message) {
+    return guess;
+  }
+  try {
+    const res = await (deps.fetch ?? fetch)(`${deps.baseUrl.replace(/\/+$/, "").replace(/\/v1$/, "")}/v1/omg/route`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: message.slice(0, 4000),
+        project: input.project,
+        noProject: input.noProject,
+        newApp: input.firstRun,
+      }),
+      signal: AbortSignal.timeout(deps.timeoutMs ?? 2_500),
+    });
+    if (!res.ok) return { ...guess, routeSource: `http_${res.status}` };
+    const answer = (await res.json()) as { alias?: string; routeId?: string; source?: string };
+    if (answer.alias === "omg/build") {
+      return { model: OMG_BUILD_MODEL, autoNextModel: OMG_AUTO_MODEL, routeId: answer.routeId, routeSource: answer.source };
+    }
+    if (answer.alias === "omg/auto") return { model: OMG_AUTO_MODEL, routeId: answer.routeId, routeSource: answer.source };
+    return guess;
+  } catch {
+    return { ...guess, routeSource: "unreachable" };
+  }
+}
