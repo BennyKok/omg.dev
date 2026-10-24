@@ -24929,35 +24929,15 @@ function NewSessionDialog({
     </div>
   );
 
-  // Stash + recent-session recovery. This stays visible in the inline mobile
-  // composer too; the upward-swipe shortcut remains, but recovery should not
-  // depend on discovering a hidden gesture.
-  const resumeButton = (
-    <button
-      type="button"
-      onClick={() => {
-        setResumeOpen(true);
-        // Only the drawer has to get out of the way (it is a modal sheet). The
-        // inline and stage composers stay put and host the sheet themselves.
-        if (variant === "drawer") onClose();
-      }}
-      title="Open Stash and recent sessions"
-      aria-label="Open Stash and recent sessions"
-      // A bare glyph like the plus and mic beside it, as in the session bar.
-      className="flex size-9 shrink-0 items-center justify-center rounded-full text-foreground/70 transition hover:text-foreground"
-    >
-      <Archive className="size-5" />
-    </button>
-  );
-
+  // The composer carries no Stash button. Stash and recent sessions open with
+  // the upward swipe on a phone and from a project's "find sessions" card.
   // The omg agent on a level (Auto, Max, Balanced, Fast) shows the level menu
-  // in the Stash button's place, so a level change is one tap. A specific
-  // model chosen in the full picker hides it and the Stash button returns.
+  // here, so a level change is one tap. A specific model chosen in the full
+  // picker hides it.
   const levelMenu =
     agent === "omg" && view.showComposerModels && !builderChoice?.selected && showOmgLevelMenu(model, models) ? (
       <OmgLevelMenu value={model} onChange={chooseModel} />
     ) : null;
-  const resumeSlot = levelMenu ?? resumeButton;
 
   // Inline composer: the agent icon opens the agent sheet, the web copy of the
   // iOS AgentSetupSheet. A vertical swipe on the icon still steps through the
@@ -25346,7 +25326,7 @@ function NewSessionDialog({
             {attachButton}
             {/* The project rail under the mobile header chooses the folder,
                 as on iOS, so the composer carries no folder button. */}
-            {inlineExpanded ? resumeSlot : null}
+            {inlineExpanded ? levelMenu : null}
             {/* Desktop home uses the same folder menu as the session rail. */}
             {variant === "stage" ? folderPicker("chip") : null}
             {inlineExpanded ? <span className="flex-1" /> : null}
@@ -25390,9 +25370,9 @@ function NewSessionDialog({
             >
               {error || waitingNote}
             </span>
-            {/* Right cluster: resume + photo + send, stacked together. */}
+            {/* Right cluster: level + photo + send, stacked together. */}
             <div className="flex shrink-0 items-center gap-2">
-              {resumeSlot}
+              {levelMenu}
               {attachButton}
               {startButton}
             </div>
