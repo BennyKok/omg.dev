@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 24, 2026 - Auto knows when you start a new project (v0.6.332)
+
+- On Auto, omg reads your first message to tell a new project from a question or a change. A new project is built on omg's build model. A question or a change starts on Auto's everyday model, so it uses less credit.
+
 ## October 24, 2026 - The omg model list stays current (v0.6.331)
 
 - The omg agent model list now comes from omg.dev. A new model, such as Kimi K3.1 Pro, shows up within about 10 minutes, with no update to install.
