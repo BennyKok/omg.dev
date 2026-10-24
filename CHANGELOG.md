@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## October 24, 2026 - Choose the omg level from the chat box (v0.6.330)
+
+- With the omg agent on Auto, Max, Balanced or Fast, the chat box shows the level beside the agent icon. Tap it to change the level. You no longer open the full model list for this.
+- If you choose a specific model in the full list, the level control hides.
+- The Stash button is no longer in the chat box. On a phone, swipe up on the chat box to open Stash and recent sessions.
+- In the model list, Auto, Max, Balanced and Fast now line up with "All models".
+
 ## October 24, 2026 - New apps from Create get the build model (v0.6.329)
 
 - On Auto, a new app you start from Create (with no project) is built on omg's build model. Your next message moves the session to Auto's everyday model.
