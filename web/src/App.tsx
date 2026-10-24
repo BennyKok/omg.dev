@@ -356,7 +356,10 @@ import {
   reconcileQueueMessages,
   retryQueuedMessage,
 } from "./lib/queue-reconcile";
-import { HeldQueueCards, LOCAL_HELD_ID_PREFIX } from "./components/held-queue-cards";
+import { HeldQueueCards, HeldQueueDock, LOCAL_HELD_ID_PREFIX } from "./components/held-queue-cards";
+import { heldFieldHeight } from "./lib/held-field-height";
+import { withoutCompactionNoise } from "./lib/compaction-rows";
+import { PresenceDock } from "./components/presence-dock";
 import { SystemMessageLine } from "./components/system-message-line";
 import { classifyUserTurn } from "./lib/system-message";
 import { canDriveSession } from "./lib/session-runtime";
@@ -1145,6 +1148,8 @@ type AutoFinding = {
 
 type Message = {
   id?: string;
+  /** Client-only row identity, kept from send (or draft) to the server row. */
+  renderKey?: string;
   role?: string;
   kind?: string;
   text?: string;
@@ -2168,20 +2173,14 @@ function AgentMark({
       <SessionAgentIcon
         session={session}
         showAccountNumber={showAccountNumber}
+        // The mark shrinks inside the spinner by transform, not by size: its
+        // box keeps one size, so starting or ending a turn moves nothing
+        // around it (the header title, the account badge).
         className={cn(
           rounding,
-          "transition-all duration-300 ease-ios",
-          busy
-            ? compact
-              ? "size-3"
-              : large
-                ? "size-7"
-                : "size-4"
-            : compact
-              ? "size-4"
-              : large
-                ? "size-9"
-                : "size-6",
+          "transition-transform duration-300 ease-ios",
+          compact ? "size-4" : large ? "size-9" : "size-6",
+          busy && (compact ? "scale-75" : large ? "scale-[0.78]" : "scale-[0.67]"),
         )}
         size={busy || compact ? "sm" : "md"}
       />
@@ -2613,10 +2612,13 @@ function ComposerAttachmentChips({
   onRemove: (id: string) => void;
   onToggleHd?: (id: string, hd: boolean) => void;
 }) {
-  if (!items.length) return null;
+  // The row opens and closes (PresenceDock): attaching a file, or sending it
+  // away, used to change the composer's height in one frame.
   return (
+    <PresenceDock items={items}>
+      {(shown) => (
     <div className={cn("lfg-attachment-scroll flex gap-2 overflow-x-auto pb-0.5", className)}>
-      {items.map(({ att, locked }) =>
+      {shown.map(({ att, locked }) =>
         // An image says what it is by being visible. The row that carried its
         // filename, its byte count and three buttons said all of that again in
         // words, and took four times the space to do it. Images are a tile you
@@ -2761,6 +2763,8 @@ function ComposerAttachmentChips({
         ),
       )}
     </div>
+      )}
+    </PresenceDock>
   );
 }
 
@@ -4416,9 +4420,13 @@ export const MicButton = forwardRef<
     // Fires true while actively recording (tap or hold), false otherwise — lets a
     // parent reflect "listening" in its own chrome (e.g. glow the session border).
     onRecordingChange?: (recording: boolean) => void;
+    // True from the first interim word until the final transcript has landed
+    // (recording, then transcribing). The composer holds its height for that
+    // whole span: see SkillTextarea's holdHeight.
+    onActiveChange?: (active: boolean) => void;
   }
 >(function MicButton(
-  { onText, onAutoSubmit, onInterim, onCancel, baseText, silenceMs, className, iconClassName = "size-4", minimal = false, onRecordingChange },
+  { onText, onAutoSubmit, onInterim, onCancel, baseText, silenceMs, className, iconClassName = "size-4", minimal = false, onRecordingChange, onActiveChange },
   ref,
 ) {
   const { state, toggle, start, stop, cancel, supported, level, provider } = useDictation({
@@ -4613,6 +4621,11 @@ export const MicButton = forwardRef<
     onRecordingChange?.(state === "recording");
     return () => onRecordingChange?.(false);
   }, [state, onRecordingChange]);
+  const dictationActive = state !== "idle";
+  useEffect(() => {
+    onActiveChange?.(dictationActive);
+    return () => onActiveChange?.(false);
+  }, [dictationActive, onActiveChange]);
 
   // Belt-and-suspenders: if recording ends any other way (silence auto-stop,
   // Escape) while a cancel-drag happened to be armed, drop the preview so a
@@ -16700,6 +16713,14 @@ type SkillTextareaProps = Omit<
   plainMentions?: readonly Omit<PlainMention, "plain">[];
   /** Offer this box's bots after `@`. Off in a thread, where bots are not members. */
   mentionBots?: boolean;
+  /**
+   * Grow only. Dictation rewrites its interim words as it hears more, so the
+   * text gets shorter and longer again, and a field sized to its text moved
+   * the whole composer (anchored at the bottom) up and down while you spoke.
+   * While this is set the field keeps the tallest height it reached; it
+   * settles once, to the final text, when this clears.
+   */
+  holdHeight?: boolean;
 };
 
 function SkillTextarea({
@@ -16714,9 +16735,13 @@ function SkillTextarea({
   mentionScope,
   plainMentions,
   mentionBots = true,
+  holdHeight = false,
   ...props
 }: SkillTextareaProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
+  const holdRef = useRef(holdHeight);
+  holdRef.current = holdHeight;
+  const heldHeightRef = useRef(0);
   const fieldRef = useRef<HTMLTextAreaElement | null>(null);
   const followedScrollNonceRef = useRef(scrollToEndNonce);
   const multilineRef = useRef(false);
@@ -16814,7 +16839,9 @@ function SkillTextarea({
       box.style.height = `${lockedHeight}px`;
     }
     el.style.height = "0px";
-    el.style.height = `${el.scrollHeight}px`;
+    const { height, held } = heldFieldHeight(el.scrollHeight, heldHeightRef.current, holdRef.current);
+    heldHeightRef.current = held;
+    el.style.height = `${height}px`;
     if (box && lockedHeight > 0) {
       box.style.height = previousHeight;
       box.style.boxSizing = previousBoxSizing;
@@ -16823,7 +16850,7 @@ function SkillTextarea({
       const style = window.getComputedStyle(el);
       const lineHeight = Number.parseFloat(style.lineHeight);
       const padding = Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom);
-      const contentHeight = el.scrollHeight - padding;
+      const contentHeight = height - padding;
       const multiline = Number.isFinite(lineHeight) && contentHeight > lineHeight * 1.5;
       if (multilineRef.current !== multiline) {
         multilineRef.current = multiline;
@@ -16851,7 +16878,7 @@ function SkillTextarea({
       field.scrollTop = field.scrollHeight;
       followedScrollNonceRef.current = scrollToEndNonce;
     }
-  }, [value, resizeField, scrollToEndNonce]);
+  }, [value, resizeField, scrollToEndNonce, holdHeight]);
 
   // `sync` only runs on change/click/keyup, so a programmatic edit — most
   // importantly sendMessage clearing the draft — can leave a picker open over
@@ -17344,6 +17371,7 @@ function SessionChatBody({
   const [composerSendSeq, setComposerSendSeq] = useState(0);
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
   const [dictationScrollNonce, setDictationScrollNonce] = useState(0);
+  const [dictationHold, setDictationHold] = useState(false);
   const [messageMultiline, setMessageMultiline] = useState(false);
   // The bar morphs like the new-session composer (and iOS HomeComposer): one
   // row at rest, then the field on its own line with the controls under it
@@ -17419,8 +17447,11 @@ function SessionChatBody({
   // held when the card was painted (`knownIds`), so the two never show at
   // once. Matching is one server row per local card.
   const [localHeld, setLocalHeld] = useState<(OmgQueueMessage & { knownIds: string[] })[]>([]);
+  // The server row that claims a local card keeps drawing under that card's
+  // key, after the local card itself is gone, so the card is updated in place
+  // (spinner to buttons) instead of replaced.
+  const heldCardKeys = useRef(new Map<string, string>());
   const heldCards = useMemo(() => {
-    if (!localHeld.length) return heldQueue;
     const claimed = new Set<string>();
     const unanswered = localHeld.filter((local) => {
       const match = heldQueue.find(
@@ -17428,13 +17459,22 @@ function SessionChatBody({
       );
       if (!match) return true;
       claimed.add(match.id);
+      if (!heldCardKeys.current.has(match.id)) heldCardKeys.current.set(match.id, local.id);
       return false;
     });
-    return unanswered.length ? [...heldQueue, ...unanswered] : heldQueue;
+    const keys = heldCardKeys.current;
+    const rows = keys.size
+      ? heldQueue.map((row) => {
+          const renderKey = keys.get(row.id);
+          return renderKey && row.renderKey !== renderKey ? { ...row, renderKey } : row;
+        })
+      : heldQueue;
+    return unanswered.length ? [...rows, ...unanswered] : rows;
   }, [heldQueue, localHeld]);
   useEffect(() => {
     setHeldQueue([]);
     setLocalHeld([]);
+    heldCardKeys.current.clear();
     if (!sid) return;
     let cancelled = false;
     void api<{ queue: OmgQueueMessage[] }>(`/api/sessions/${encodeURIComponent(sid)}/queue`, {
@@ -17664,6 +17704,9 @@ function SessionChatBody({
         setLocalHeld((current) => current.filter((item) => item.id !== localHeldId));
         if (res.msg?.status === "held") {
           const held = res.msg;
+          // The card keeps its row when its server row takes over (heldCards),
+          // even when this answer lands before the queue frame does.
+          if (localHeldId) heldCardKeys.current.set(held.id, localHeldId);
           setHeldQueue((current) =>
             current.some((item) => item.id === held.id) ? current : [...current, held],
           );
@@ -17970,15 +18013,19 @@ function SessionChatBody({
           {/* Held sends rise out of the bar as a narrow island docked to its
               top edge: the next one to go is always visible, the rest fold
               behind a count until tapped. */}
-          {sid && heldCards.length ? (
-            <HeldQueueCards
-              sessionId={sid}
-              items={heldCards}
-              busy={chatBusy}
-              onChange={setHeldQueue}
-              onError={onError}
-              onSendNow={steerHeldText}
-            />
+          {sid ? (
+            <HeldQueueDock items={heldCards}>
+              {(items) => (
+                <HeldQueueCards
+                  sessionId={sid}
+                  items={items}
+                  busy={chatBusy}
+                  onChange={setHeldQueue}
+                  onError={onError}
+                  onSendNow={steerHeldText}
+                />
+              )}
+            </HeldQueueDock>
           ) : null}
           {/* Host chrome right above this session's bar (the omg.dev guide card).
               Empty unless a host portals into it; [data-lfg-host-slot]:empty
@@ -18056,6 +18103,7 @@ function SessionChatBody({
               onValueChange={setMessageText}
               onMultilineChange={setMessageMultiline}
               scrollToEndNonce={dictationScrollNonce}
+              holdHeight={dictationHold}
               onPaste={files.onPasteFiles}
               onKeyDown={(e) => {
                 // Esc is the inverse of the rail's Enter ("focus into the
@@ -18129,6 +18177,7 @@ function SessionChatBody({
               iconClassName="size-5"
               baseText={messageText}
               onRecordingChange={onDictatingChange}
+              onActiveChange={setDictationHold}
               onText={setDictatedMessageText}
               onInterim={setDictatedMessageText}
               onAutoSubmit={(text, base) => {
@@ -20652,7 +20701,8 @@ const ChatStream = memo(function ChatStream({
   const lastUserScrollAtRef = useRef(Number.NEGATIVE_INFINITY);
   const transcriptMessages = useMemo(
     () => {
-      const filtered = messages.filter(
+      // A compaction is one row: see lib/compaction-rows.
+      const filtered = withoutCompactionNoise(messages).filter(
         (message) =>
           !message.seed &&
           (!bot ||
@@ -20884,21 +20934,20 @@ const ChatStream = memo(function ChatStream({
     [items, virtualizer],
   );
 
-  // One-shot entrance for freshly-arrived assistant turns so the draft→final
-  // swap (and non-streaming arrivals) fade in instead of popping. Ref-based —
-  // not module-level like the card entrance — because the board can mount one
-  // ChatStream per column and a shared set would clobber across columns. The
-  // backlog is seeded silently on session switch so opening a busy session
-  // doesn't replay entrances for its whole history; `entering` markers expire
-  // so re-renders (scroll, delta streams, collapse/expand) never replay them.
+  // One-shot entrance for a reply that arrives whole (not streamed) while the
+  // session is live. Keyed by ROW, not message id: a reply keeps its row from
+  // draft to final (see omgRowKey), so a draft's key is marked seen and its
+  // finished text never plays an entrance over words already on screen.
+  // Ref-based — not module-level like the card entrance — because the board
+  // can mount one ChatStream per column. The backlog is seeded silently on
+  // session switch, and `entering` markers expire so re-renders never replay.
   const seenIdsRef = useRef<Set<string>>(new Set());
   const enteringIdsRef = useRef<Map<string, number>>(new Map());
   const seededSidRef = useRef<string | null>(null);
+  const replyRowKey = (m: Message) => (m.role === "assistant" && m.kind === "text" ? m.renderKey ?? m.id : undefined);
   if (seededSidRef.current !== sid) {
     seededSidRef.current = sid;
-    seenIdsRef.current = new Set(
-      visibleMessages.filter((m) => m.id && isFinalAssistantText(m)).map((m) => m.id as string),
-    );
+    seenIdsRef.current = new Set(visibleMessages.map(replyRowKey).filter((key): key is string => !!key));
     enteringIdsRef.current = new Map();
   } else {
     const now = Date.now();
@@ -20906,11 +20955,12 @@ const ChatStream = memo(function ChatStream({
       if (expiry <= now) enteringIdsRef.current.delete(id);
     }
     for (const m of visibleMessages) {
-      if (!m.id || !isFinalAssistantText(m) || seenIdsRef.current.has(m.id)) continue;
-      seenIdsRef.current.add(m.id);
+      const key = replyRowKey(m);
+      if (!key || seenIdsRef.current.has(key)) continue;
+      seenIdsRef.current.add(key);
       // Only animate turns that land while the session is live; a settled
       // transcript stays put.
-      if (busy) enteringIdsRef.current.set(m.id, now + 500);
+      if (busy && isFinalAssistantText(m)) enteringIdsRef.current.set(key, now + 500);
     }
   }
 
@@ -21707,7 +21757,8 @@ const ChatStream = memo(function ChatStream({
         "chat-stream lfg-transcript-session chat-stream-fade min-h-0 flex-1 overflow-y-auto bg-[var(--lfg-pane-bg,var(--background))] px-3 pt-3",
         // Only reserve room for the floating "files changed / Review" bar
         // while it's actually shown, so it never overlaps the last message.
-        diffBarVisible ? "pb-16" : "pb-3",
+        // The dots' reserved line is the rest of the room under the last turn.
+        diffBarVisible ? "pb-16" : bot ? "pb-3" : "pb-1",
       )}
     >
       {visibleMessages.length || busy ? (
@@ -21745,6 +21796,9 @@ const ChatStream = memo(function ChatStream({
                 <div
                   key={item.key}
                   data-index={index}
+                  // The row's identity (omgRowKey). One message keeps one key
+                  // from send to server row; a frame recorder reads it here.
+                  data-row-key={item.key}
                   // The find bar's landed row. Styled from CSS through this
                   // attribute rather than a class on the row, because the row
                   // is DOM-measured: the outline it draws must not be able to
@@ -21778,7 +21832,7 @@ const ChatStream = memo(function ChatStream({
                     <MessageBubble
                       message={item.message}
                       live={busy && index === items.length - 1}
-                      entering={!!item.message.id && enteringIdsRef.current.has(item.message.id)}
+                      entering={enteringIdsRef.current.has(item.message.renderKey ?? item.message.id ?? "")}
                       onRetryQueued={onRetryQueued}
                       bot={bot}
                       conversation={conversation}
@@ -22360,9 +22414,13 @@ const ToolGroup = memo(function ToolGroup({
  * its space only while there is something happening, so it is drawn bigger.
  */
 function TypingIndicator({ visible = true, bot }: { visible?: boolean; bot?: PersistentBot }) {
+  // The dots keep their line whether or not they show. Opening and closing
+  // the line moved every message above it twice per turn (once when the turn
+  // started, once when it ended). The bot creature is too tall to reserve, so
+  // it still opens its own line.
   return (
     <div
-      className={cn("typing-indicator-slot", visible && "is-visible")}
+      className={cn("typing-indicator-slot", !bot && "is-reserved", visible && "is-visible")}
       aria-hidden={!visible}
     >
       {bot ? (
@@ -23887,6 +23945,7 @@ function NewSessionDialog({
   const promptRef = useRef(prompt);
   promptRef.current = prompt;
   const [dictationScrollNonce, setDictationScrollNonce] = useState(0);
+  const [dictationHold, setDictationHold] = useState(false);
   const [promptMultiline, setPromptMultiline] = useState(false);
   const [pendingUploads, setPendingUploads] = useState<ComposerAttachment[]>([]);
   const [pendingCreates, setPendingCreates] = useState(0);
@@ -25109,6 +25168,7 @@ function NewSessionDialog({
       iconClassName="size-5"
       silenceMs={2500}
       baseText={prompt}
+      onActiveChange={setDictationHold}
       onText={(text, base) => {
         setPrompt(base.trim() ? `${base.trimEnd()} ${text}` : text);
         setDictationScrollNonce((nonce) => nonce + 1);
@@ -25286,6 +25346,7 @@ function NewSessionDialog({
           mentionScope={{ cwd: selectedRepo }}
           onMultilineChange={variant === "inline" ? setPromptMultiline : undefined}
           scrollToEndNonce={dictationScrollNonce}
+          holdHeight={dictationHold}
           onPaste={files.onPasteFiles}
           onKeyDown={(e) => {
             if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {

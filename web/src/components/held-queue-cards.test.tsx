@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mount, window, type Mounted } from "../test-support/render";
 import type { OmgQueueMessage } from "../lib/omg-chat-transport";
 
-const { HeldQueueCards, LOCAL_HELD_ID_PREFIX } = await import("./held-queue-cards");
+const { HeldQueueCards, HeldQueueDock, LOCAL_HELD_ID_PREFIX } = await import("./held-queue-cards");
 
 let ui: Mounted;
 beforeEach(() => {
@@ -204,3 +204,60 @@ describe("HeldQueueCards", () => {
     ]);
   });
 });
+
+describe("the held card keeps its row", () => {
+  const draw = (items: OmgQueueMessage[]) =>
+    ui.render(
+      <HeldQueueCards sessionId="s1" items={items} busy onChange={() => {}} onError={() => {}} onSendNow={async () => {}} />,
+    );
+
+  test("the server row takes over the card painted before it, in place", () => {
+    const localId = `${LOCAL_HELD_ID_PREFIX}abc`;
+    draw([{ id: localId, text: "after that", status: "held" }]);
+    const painted = ui.query('[aria-label="Queueing"]')?.closest("div");
+    expect(painted).toBeTruthy();
+
+    draw([{ id: "srv1", text: "after that", status: "held", renderKey: localId }]);
+    // Same element: it now carries the card's controls instead of a spinner.
+    expect(ui.query('[aria-label="Queueing"]')).toBeNull();
+    expect(ui.query('[aria-label="Send now, into the current turn"]')?.closest("div")).toBe(painted!);
+  });
+});
+
+describe("the held dock", () => {
+  const dock = (items: OmgQueueMessage[]) =>
+    ui.render(
+      <HeldQueueDock items={items}>
+        {(shown) => <ul>{shown.map((item) => <li key={item.id}>{item.text}</li>)}</ul>}
+      </HeldQueueDock>,
+    );
+
+  test("draws nothing while there is nothing held", () => {
+    dock([]);
+    expect(ui.query(".lfg-dock")).toBeNull();
+  });
+
+  test("folds the last cards away before it leaves", async () => {
+    dock(held);
+    expect(ui.query(".lfg-dock")?.getAttribute("data-state")).toBe("open");
+
+    dock([]);
+    // Still drawn, closing, with the text it had, so the room shrinks rather
+    // than vanishing in one frame.
+    expect(ui.query(".lfg-dock")?.getAttribute("data-state")).toBe("closed");
+    expect(ui.text()).toContain("first thing");
+
+    await ui.flushAsync(() => new Promise((resolve) => window.setTimeout(resolve, 260)));
+    expect(ui.query(".lfg-dock")).toBeNull();
+  });
+
+  test("opens again if a card comes back while it is closing", () => {
+    dock(held);
+    dock([]);
+    dock([held[1]!]);
+    expect(ui.query(".lfg-dock")?.getAttribute("data-state")).toBe("open");
+    expect(ui.text()).toContain("second thing");
+    expect(ui.text()).not.toContain("first thing");
+  });
+});
+

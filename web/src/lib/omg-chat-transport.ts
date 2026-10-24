@@ -39,6 +39,8 @@ export type OmgMessage = {
   queueId?: string;
   seed?: boolean;
   catchUp?: boolean;
+  /** A live draft: the server's draft id it is drawing, for one turn. */
+  draftOf?: string;
 };
 
 export type OmgAiStreamPart = {
@@ -59,10 +61,18 @@ export type OmgQueueMessage = {
   createdAt?: number;
   updatedAt?: number;
   queuedBehindTurn?: boolean;
+  /** Client-only: the key of the card that drew this row before the server had it. */
+  renderKey?: string;
 };
 
 export type OmgChatMetadata = {
   omgMessage?: OmgMessage;
+  /**
+   * A reply this browser's own stream assembled: the server time its first
+   * part was written. It has no server row yet, and so no `ts`, but a message
+   * sent while it streams must still be ordered after it.
+   */
+  startedAt?: number;
 };
 
 export type OmgChatDataParts = {
@@ -135,7 +145,7 @@ function normText(value?: string) {
 }
 
 function messageTs(message: OmgChatMessage) {
-  return message.metadata?.omgMessage?.ts ?? 0;
+  return message.metadata?.omgMessage?.ts ?? message.metadata?.startedAt ?? 0;
 }
 
 function textFromUIParts(message: OmgChatMessage) {
@@ -227,15 +237,13 @@ function projectOmgMessage(message: OmgChatMessage): OmgMessage[] {
     if (part.type !== "text") return;
     const base = message.metadata?.omgMessage;
     const streaming = message.role === "assistant" && part.state === "streaming";
-    const id =
-      index === 0
-        ? streaming
-          ? `draft-${message.id}`
-          : message.id
-        : `${streaming ? "draft-" : ""}${message.id}-text-${index}`;
+    const key = textPartRowKey(message, index);
     out.push({
       ...base,
-      id,
+      // `draft-` marks a reply still being written (see isLiveReply); the
+      // row's identity is the key, which stays the same when it finishes.
+      id: streaming ? `draft-${key}` : index === 0 ? message.id : key,
+      renderKey: key,
       role: message.role,
       kind: "text",
       text: part.text,
@@ -246,6 +254,57 @@ function projectOmgMessage(message: OmgChatMessage): OmgMessage[] {
     });
   });
   return out.filter((message) => message.kind !== "text" || !!message.text || message.role !== "assistant");
+}
+
+// ---- Row identity ---------------------------------------------------------
+//
+// One message passes through several ids on its way to the transcript: the AI
+// SDK's id for your send, a queue id while the server holds it, the draft id
+// while a reply streams, and finally the server's row id. React keys rows by
+// identity, so each change of id unmounted the bubble and mounted a new one:
+// the height was estimated again, the scroll anchor moved and the entrance
+// played again. That is the stutter between "sending", "sent" and "answered".
+//
+// The row key is the identity of the FIRST row that drew the message. Every
+// write that confirms a local row with a server row hands the key over
+// (adoptRowKey), so a message keeps one row from the moment you send it.
+
+/** The key a message's row is drawn under. */
+export function omgRowKey(message: OmgChatMessage): string {
+  return message.metadata?.omgMessage?.renderKey ?? message.id;
+}
+
+function textPartRowKey(message: OmgChatMessage, index: number): string {
+  return index === 0 ? omgRowKey(message) : `${message.id}-text-${index}`;
+}
+
+/** `incoming` drawn in the row `key` already owns. */
+function adoptRowKey(incoming: OmgChatMessage, key: string): OmgChatMessage {
+  const base = incoming.metadata?.omgMessage;
+  if (!base || key === incoming.id || base.renderKey === key) return incoming;
+  return { ...incoming, metadata: { ...incoming.metadata, omgMessage: { ...base, renderKey: key } } };
+}
+
+/**
+ * A reply drawn before the server has a row for it: the live draft, or the
+ * copy the AI SDK assembled from this browser's own stream (it has no server
+ * metadata at all). Streaming or finished.
+ */
+function isLocalReply(message: OmgChatMessage): boolean {
+  if (message.role !== "assistant" || !message.parts.some((part) => part.type === "text")) return false;
+  const meta = message.metadata?.omgMessage;
+  return !meta || !!meta.draftOf;
+}
+
+function isPendingUserRow(message: OmgChatMessage): boolean {
+  const meta = message.metadata?.omgMessage;
+  return message.role === "user" && !!meta?.pending && !meta.failed && meta.kind === "text";
+}
+
+function sameReply(local: string, server: string): boolean {
+  const a = normText(local);
+  const b = normText(server);
+  return !!a && (a === b || b.startsWith(a));
 }
 
 function messagesInTranscriptOrder(messages: OmgChatMessage[]): OmgChatMessage[] {
@@ -267,17 +326,23 @@ function messagesInTranscriptOrder(messages: OmgChatMessage[]): OmgChatMessage[]
         : latest,
     -1,
   );
-  if (markerIndex < 0 && pendingIndex < 0) return messages;
+  if (markerIndex < 0 && pendingIndex < 0 && !messages.some(isLocalReply)) return messages;
 
-  let next = [...messages];
   if (markerIndex >= 0) {
+    const next = [...messages];
     const markerMessage = messages[markerIndex]!;
     const markerTs = messageTs(markerMessage);
+    // Only the answer the marker interrupted moves above it: one that started
+    // before the marker was written. A reply drawn by this browser carries
+    // its start time (startedAt); one without any time is the interrupted one
+    // by elimination. An older marker, from an earlier steer still in the
+    // history, used to pull every later streaming reply up to itself, far
+    // above the prompt it answered, until the turn ended.
     const assistantIndex = messages.findIndex(
       (message, index) =>
         index > markerIndex &&
         message.role === "assistant" &&
-        (isStreamingAssistantText(message) || messageTs(message) <= markerTs),
+        (messageTs(message) <= markerTs || (isStreamingAssistantText(message) && !messageTs(message))),
     );
     if (assistantIndex >= 0) {
       const [assistant] = next.splice(assistantIndex, 1);
@@ -288,56 +353,81 @@ function messagesInTranscriptOrder(messages: OmgChatMessage[]): OmgChatMessage[]
       ? next.findIndex((message) => message.id === pendingMessage.id)
       : -1;
     const markerPosition = next.findIndex((message) => message.id === markerMessage.id);
-    if (pending >= 0 && pending < markerPosition) {
+    const pendingMoves = pending >= 0 && pending < markerPosition;
+    if (pendingMoves) {
       const [message] = next.splice(pending, 1);
       const movedMarker = next.findIndex((candidate) => candidate.id === markerMessage.id);
       next.splice(movedMarker + 1, 0, message!);
     }
-    return next;
+    if (assistantIndex >= 0 || pendingMoves) return next;
   }
 
-  const assistantIndex = messages.findIndex(
-    (message, index) => index > pendingIndex && isStreamingAssistantText(message),
-  );
+  // Before the marker lands, a message sent while the reply ran goes after
+  // the reply: the pending bubble, and also its confirmed row, which is
+  // stamped after the reply started. Ordering the confirmed row by the pending
+  // flag alone flipped it above the reply for the moment between the server
+  // confirming it and writing the marker (or the reply finishing). Streaming
+  // or finished: a reply with no server row yet sits at the array tail where
+  // AbstractChat wrote it, whatever was sent while it ran.
+  const assistantIndex = messages.findLastIndex(isLocalReply);
   if (assistantIndex < 0) return messages;
+  const startedAt = messageTs(messages[assistantIndex]!);
+  const steerIndex = messages.findIndex(
+    (message, index) =>
+      index < assistantIndex &&
+      message.role === "user" &&
+      !message.metadata?.omgMessage?.queued &&
+      (index === pendingIndex || (startedAt > 0 && messageTs(message) > startedAt)),
+  );
+  if (steerIndex < 0) return messages;
+  const next = [...messages];
   const [assistant] = next.splice(assistantIndex, 1);
-  next.splice(pendingIndex, 0, assistant!);
+  next.splice(steerIndex, 0, assistant!);
   return next;
 }
 
 function upsertOmgUIMessage(current: OmgChatMessage[], incoming: OmgChatMessage): OmgChatMessage[] {
   const byIdIndex = current.findIndex((message) => message.id === incoming.id);
   if (byIdIndex >= 0) {
-    if (current[byIdIndex] === incoming) return current;
+    const previous = current[byIdIndex]!;
+    incoming = adoptRowKey(incoming, omgRowKey(previous));
+    if (previous === incoming) return current;
     const next = [...current];
     next[byIdIndex] = incoming;
     return next;
   }
 
-  let next = current;
+  // The local row this server row confirms takes it over in place: your send
+  // for a user turn, the live draft (or this browser's own streamed copy) for
+  // a reply. Any other leftover draft is stale.
   const incomingLfg = incoming.metadata?.omgMessage;
+  let confirmed = -1;
+  let next = current;
   if (incomingLfg?.role === "user" && incomingLfg.kind === "text") {
     const incomingText = normText(incomingLfg.text);
-    const pendingIndex = current.findIndex((message) => {
-      const lfg = message.metadata?.omgMessage;
-      return (
-        message.role === "user" &&
-        !!lfg?.pending &&
-        lfg.kind === "text" &&
-        normText(lfg.text) === incomingText
-      );
-    });
-    if (pendingIndex >= 0) {
-      incoming = withStableUserRenderKey(incoming, current[pendingIndex]);
-      next = current.filter((_, index) => index !== pendingIndex);
-    }
+    confirmed = current.findIndex(
+      (message) => isPendingUserRow(message) && normText(message.metadata?.omgMessage?.text) === incomingText,
+    );
   }
-
   if (incomingLfg?.role === "assistant" && incomingLfg.kind === "text") {
-    next = current.filter((message) => {
-      if (message.role !== "assistant") return true;
-      return !message.parts.some((part) => part.type === "text" && part.state === "streaming");
-    });
+    const text = incomingLfg.text ?? "";
+    confirmed = current.findLastIndex(
+      (message) =>
+        isLocalReply(message) &&
+        sameReply(textFromUIParts(message), text),
+    );
+    if (confirmed < 0) confirmed = current.findLastIndex(isStreamingAssistantText);
+    next = current.filter(
+      (message, index) => index === confirmed || !isStreamingAssistantText(message),
+    );
+    if (confirmed >= 0) confirmed = next.indexOf(current[confirmed]!);
+  }
+  // The server's row goes where the server's clock puts it (an interrupted
+  // turn is ordered by the server, not by when this browser drew it). Moving
+  // a row keeps its key, so React moves the element instead of replacing it.
+  if (confirmed >= 0) {
+    incoming = adoptRowKey(incoming, omgRowKey(next[confirmed]!));
+    next = next.filter((_, index) => index !== confirmed);
   }
 
   const ts = messageTs(incoming);
@@ -392,6 +482,12 @@ export function mergeHistoryPage(
   olderKept: OmgChatMessage[],
   cachedIds: Set<string>,
 ): OmgChatMessage[] {
+  const currentById = new Map(current.map((message) => [message.id, message]));
+  // A row already on screen keeps its key when the page re-sends it.
+  const page = history.map((message) => {
+    const drawn = currentById.get(message.id);
+    return drawn ? adoptRowKey(message, omgRowKey(drawn)) : message;
+  });
   const historyIds = new Set(history.map((message) => message.id));
   const keptIds = new Set(olderKept.map((message) => message.id));
   // Messages that landed live while this fetch was in flight and aren't in
@@ -404,8 +500,56 @@ export function mergeHistoryPage(
       !keptIds.has(message.id) &&
       !isStreamingAssistantText(message),
   );
-  const trailing = liveOnly.filter((message) => !cachedIds.has(message.id));
-  return [...olderKept, ...history, ...trailing];
+  // A local row the page confirms is replaced by the page's row, which takes
+  // its key. Only rows the reader has not seen yet can confirm one, one each,
+  // so a repeated identical message keeps its own row.
+  const claimed = new Set<number>();
+  const confirm = (matches: (row: OmgChatMessage) => boolean) => {
+    const index = page.findIndex(
+      (row, at) => !claimed.has(at) && !currentById.has(row.id) && matches(row),
+    );
+    if (index >= 0) claimed.add(index);
+    return index;
+  };
+  const trailing: OmgChatMessage[] = [];
+  for (const message of liveOnly) {
+    if (isPendingUserRow(message)) {
+      const text = normText(message.metadata?.omgMessage?.text);
+      const index = confirm(
+        (row) => row.role === "user" && row.metadata?.omgMessage?.kind === "text" && normText(row.metadata.omgMessage.text) === text,
+      );
+      if (index >= 0) {
+        page[index] = adoptRowKey(page[index]!, omgRowKey(message));
+        continue;
+      }
+    }
+    if (isLocalReply(message)) {
+      // Every row this reply drew must be on the page: its text parts as
+      // assistant text rows, anything else (work, files) under its own id.
+      const adopted: Array<[number, string]> = [];
+      const settled = message.parts.every((part, at) => {
+        if (part.type === "data-omgMessage") return historyIds.has(part.data.id ?? "");
+        if (part.type !== "text") return true;
+        const index = confirm(
+          (row) =>
+            row.role === "assistant" &&
+            row.metadata?.omgMessage?.kind === "text" &&
+            sameReply(part.text, row.metadata.omgMessage.text ?? ""),
+        );
+        if (index < 0) return false;
+        adopted.push([index, textPartRowKey(message, at)]);
+        return true;
+      });
+      if (settled && adopted.length) {
+        for (const [index, key] of adopted) page[index] = adoptRowKey(page[index]!, key);
+        continue;
+      }
+      for (const [index] of adopted) claimed.delete(index);
+    }
+    // A row from an earlier page that this page no longer has was removed.
+    if (!cachedIds.has(message.id)) trailing.push(message);
+  }
+  return [...olderKept, ...page, ...trailing];
 }
 
 function omgQueueReconcileRow(message: OmgChatMessage): QueueReconcileMessage {
@@ -530,10 +674,14 @@ function updateDraftText(current: OmgChatMessage[], part: OmgAiStreamPart): OmgC
   // The AI SDK chat stream accepts answer text. Reasoning is delivered later
   // as a typed transcript row and renders in the collapsed Thought control.
   if (part.kind === "thinking") return current;
+  // The server names a session's draft the same for every turn, so the row is
+  // named per turn: a finished reply keeps its draft's key (adoptRowKey), and
+  // the next turn's draft must not draw under that key too.
   const existingIndex = current.findIndex(
     (message) =>
       message.role === "assistant" &&
-      message.parts.some((item) => item.type === "text" && message.id === part.id),
+      (message.metadata?.omgMessage?.draftOf ?? message.id) === part.id &&
+      isStreamingAssistantText(message),
   );
   if (part.type === "text-end") {
     if (existingIndex < 0) return current;
@@ -558,7 +706,8 @@ function updateDraftText(current: OmgChatMessage[], part: OmgAiStreamPart): OmgC
       metadata: {
         omgMessage: {
           ...(existing.metadata?.omgMessage ?? {}),
-          id: part.id,
+          id: existing.id,
+          draftOf: part.id,
           role: "assistant",
           kind: "text",
           ts: part.ts ?? existing.metadata?.omgMessage?.ts ?? Date.now(),
@@ -579,14 +728,16 @@ function updateDraftText(current: OmgChatMessage[], part: OmgAiStreamPart): OmgC
     return next;
   }
   if (!incoming) return current;
+  const id = `${part.id}:${part.ts ?? Date.now()}`;
   return [
     ...current,
     {
-      id: part.id,
+      id,
       role: "assistant",
       metadata: {
         omgMessage: {
-          id: part.id,
+          id,
+          draftOf: part.id,
           role: "assistant",
           kind: "text",
           text: incoming,
@@ -640,23 +791,6 @@ function withStreamingTurnLast(messages: OmgChatMessage[]): OmgChatMessage[] {
   if (streamingIndex < 0 || streamingIndex === deduped.length - 1) return deduped;
   const streaming = deduped[streamingIndex]!;
   return [...deduped.slice(0, streamingIndex), ...deduped.slice(streamingIndex + 1), streaming];
-}
-
-function withStableUserRenderKey(
-  incoming: OmgChatMessage,
-  previous: OmgChatMessage,
-): OmgChatMessage {
-  const base = incoming.metadata?.omgMessage;
-  if (!base) return incoming;
-  const renderKey = previous.metadata?.omgMessage?.renderKey ?? previous.id;
-  if (!renderKey || base.renderKey === renderKey) return incoming;
-  return {
-    ...incoming,
-    metadata: {
-      ...incoming.metadata,
-      omgMessage: { ...base, renderKey },
-    },
-  };
 }
 
 export function appendOmgTranscriptEvent(
@@ -723,6 +857,7 @@ class OmgChunkEmitter {
   private textById: Record<string, string> = {};
   private closed = false;
   private sawContent = false;
+  private stamped = false;
   private createdAt = Date.now();
   private finishTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -792,6 +927,7 @@ class OmgChunkEmitter {
       if (!incoming.startsWith(current)) return;
       delta = incoming.slice(current.length);
     }
+    this.stampStart(part.ts);
     if (part.type === "text-start" && !this.activeTextIds.has(part.id)) this.startText(part.id);
     if (!incoming || !delta) return;
     if (!this.activeTextIds.has(part.id)) this.startText(part.id);
@@ -801,6 +937,7 @@ class OmgChunkEmitter {
 
   private handleMessage(message: OmgMessage) {
     if (message.role === "user" && message.kind === "text") return;
+    this.stampStart(message.ts);
     this.sawContent = true;
     this.clearFinishTimer();
     if (message.role === "assistant" && message.kind === "text") {
@@ -824,6 +961,14 @@ class OmgChunkEmitter {
       return;
     }
     this.enqueue({ type: "data-omgMessage", id: message.id, data: message });
+  }
+
+  // Stamp the reply this stream assembles with the server time it started,
+  // once (see OmgChatMetadata.startedAt).
+  private stampStart(ts: number | undefined) {
+    if (this.stamped) return;
+    this.stamped = true;
+    this.enqueue({ type: "message-metadata", messageMetadata: { startedAt: ts ?? Date.now() } });
   }
 
   private startText(id: string) {

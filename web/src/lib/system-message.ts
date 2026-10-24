@@ -24,7 +24,8 @@ export type SystemMessageKind =
   | "fork"
   | "rotation"
   | "routine"
-  | "builder";
+  | "builder"
+  | "compaction";
 
 export type SystemMessage = {
   kind: SystemMessageKind;
@@ -80,6 +81,12 @@ const FORK_OPENER = /^\s*You are starting a fresh agent session from an existing
 const FORK_TITLE = /^Source title:\s*(.*)$/im;
 const FORK_ID = /^Source session id:\s*(\S+)$/im;
 const FORK_EXTRA = /^User's extra prompt:\s*\n?/im;
+
+// The summary Claude writes into the conversation when it compacts its
+// context, automatically or on /compact. It is the agent's memory of the
+// earlier turns, written to the model; drawn as a sent bubble it was a
+// screen-long message in the person's own column.
+const COMPACTION = /^\s*This session is being continued from a previous conversation that ran out of context\.\s*/i;
 
 const SUBAGENT_LABEL: Record<string, string> = {
   progress: "Background task reported in",
@@ -189,6 +196,11 @@ export function classifySystemMessage(text: string | null | undefined): SystemMe
     };
   }
 
+  m = value.match(COMPACTION);
+  if (m) {
+    return { kind: "compaction", label: "Conversation compacted", body: afterHeader(value, m[0].length) };
+  }
+
   if (FORK_OPENER.test(value)) {
     const title = value.match(FORK_TITLE)?.[1]?.trim();
     const id = shortId(value.match(FORK_ID)?.[1] ?? "");
@@ -216,7 +228,7 @@ export function classifySystemMessage(text: string | null | undefined): SystemMe
  * omg.dev builder follow-up is the same case: its body talks to the agent.
  */
 export function systemMessageHasPreview(system: SystemMessage): boolean {
-  return system.kind !== "browser-login" && system.kind !== "builder";
+  return system.kind !== "browser-login" && system.kind !== "builder" && system.kind !== "compaction";
 }
 
 /** Collapse a body to one run of prose for the two-line preview under the label. */

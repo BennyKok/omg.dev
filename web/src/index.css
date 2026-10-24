@@ -2076,6 +2076,20 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
     transform: translateY(0);
   }
 
+  /* A session chat keeps the dots' line open: only the dots fade, so a turn
+     starting or ending never moves the messages above them. Hidden dots do
+     not animate. */
+  .typing-indicator-slot.is-reserved {
+    grid-template-rows: 1fr;
+    transition:
+      opacity 0.16s ease,
+      transform 0.22s var(--ease-ios);
+  }
+
+  .typing-indicator-slot:not(.is-visible) .typing-indicator > span {
+    animation-play-state: paused;
+  }
+
   .typing-indicator-slot > .typing-indicator,
   .typing-indicator-slot > .typing-mascot {
     min-height: 0;
@@ -2601,12 +2615,44 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
 
   /* A sent message appears in place. No composer measurement or travel is
      needed before it can paint, including while the viewport is resizing. */
+  /* A list that comes and goes in a composer (PresenceDock: held sends,
+     attached files) opens and closes instead of appearing at full height in
+     one frame. The held card tucks 12px under the bar; that part is clipped
+     here, behind the bar. */
+  .lfg-dock {
+    display: grid;
+    grid-template-rows: 1fr;
+    transition: grid-template-rows 220ms var(--ease-ios), opacity 160ms ease;
+  }
+  @starting-style {
+    .lfg-dock {
+      grid-template-rows: 0fr;
+      opacity: 0;
+    }
+  }
+  .lfg-dock[data-state="closed"] {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+  .lfg-dock > div {
+    min-height: 0;
+    overflow: hidden;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .lfg-dock { transition: none; }
+  }
+
+  /* A sent message rises into place from the composer. Transform and
+     opacity only, so it runs on the compositor and never changes the row's
+     measured height. It starts visible: the text is readable on the first
+     frame, and the motion only says where it came from. */
   @keyframes lfg-user-send {
-    from { opacity: 0.7; }
-    to { opacity: 1; }
+    from { opacity: 0.55; transform: translateY(14px) scale(0.97); }
+    to { opacity: 1; transform: none; }
   }
   .lfg-user-send {
-    animation: lfg-user-send 100ms ease-out;
+    transform-origin: bottom right;
+    animation: lfg-user-send 260ms cubic-bezier(0.32, 0.72, 0, 1);
   }
   @media (prefers-reduced-motion: reduce) {
     .lfg-user-send { animation: none; }

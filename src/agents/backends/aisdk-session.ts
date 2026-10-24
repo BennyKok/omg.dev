@@ -117,6 +117,8 @@ function userTextMessage(text: string, ts = Date.now()): SessionMsg {
 export class AisdkUserRowCommitter {
   private deferred: SessionMsg[] = [];
   private latestTs = 0;
+  /** An interrupt landed on a running turn, and that turn has not ended yet. */
+  private interruptOpen = false;
 
   constructor(
     private readonly commit: (messages: SessionMsg[]) => void,
@@ -130,9 +132,21 @@ export class AisdkUserRowCommitter {
     this.commit(messages);
   }
 
-  send(text: string, afterInterrupt: boolean): void {
+  /**
+   * An interrupt arrived. Only a running turn has an interrupted answer and a
+   * marker still to write. An interrupt that lands after the turn already
+   * ended (a steer racing the turn's own end) interrupts nothing: deferring
+   * the send then held its row through the whole NEXT turn, which the send
+   * itself starts, and wrote it after its own answer.
+   */
+  interrupted(turnRunning: boolean): void {
+    if (turnRunning) this.interruptOpen = true;
+  }
+
+  /** `answersQuestion`: the text answers an open question and never waits. */
+  send(text: string, answersQuestion = false): void {
     const row = userTextMessage(text, this.now());
-    if (afterInterrupt) this.deferred.push(row);
+    if (this.interruptOpen && !answersQuestion) this.deferred.push(row);
     else this.commitRows([row]);
   }
 
@@ -148,6 +162,7 @@ export class AisdkUserRowCommitter {
   }
 
   turnEnded(): void {
+    this.interruptOpen = false;
     if (!this.deferred.length) return;
     const at = Math.max(this.now(), this.latestTs + 1);
     const rows = this.deferred.map((row, index) => ({ ...row, ts: Math.max(row.ts ?? 0, at + index) }));
@@ -482,7 +497,6 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
   };
 
   let q: ReturnType<typeof query>;
-  let interruptedTurnOpen = false;
   const userRows = new AisdkUserRowCommitter((messages) => {
     indexSessionMessagesDirect(sessionId, messages);
   });
@@ -682,7 +696,6 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
       // before its result. Commit a steering row only after that boundary when
       // the SDK did not already echo the row itself.
       userRows.turnEnded();
-      interruptedTurnOpen = false;
       const result = msg as {
         usage?: Record<string, unknown>;
         total_cost_usd?: number;
@@ -717,13 +730,13 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
     }
   }
 
-  function send(text: string, afterInterrupt = false): void {
+  function send(text: string): void {
     cacheIdle.userActivity();
     if (/^\/(?:compact|clear|model|effort|fast)\b/.test(text.trim())) cacheIdle.invalidate();
     draft = "";
     publishDraft("", true);
     setBusy(true);
-    userRows.send(text, afterInterrupt);
+    userRows.send(text);
     input.push(text);
   }
 
@@ -765,11 +778,11 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
       // behind a question nobody else will answer. Record it in the transcript
       // like any reply.
       if (askBridge.waiting) {
-        userRows.send(cmd.text, false);
+        userRows.send(cmd.text, true);
         askBridge.answerText(cmd.text);
         return;
       }
-      send(cmd.text, interruptedTurnOpen);
+      send(cmd.text);
     } else if (cmd.type === "answer") {
       askBridge.answerIndex(cmd.index);
     } else if (cmd.type === "dismiss") {
@@ -779,9 +792,8 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
       // Stop waiting first: the SDK interrupt aborts the pending tool call,
       // but clear the card now rather than after the round trip.
       askBridge.dismiss();
-      interruptedTurnOpen = true;
+      userRows.interrupted(busy);
       void q.interrupt().catch(() => {
-        interruptedTurnOpen = false;
         userRows.turnEnded();
       });
     } else if (cmd.type === "set_thinking_level") {

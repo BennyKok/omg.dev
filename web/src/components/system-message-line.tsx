@@ -13,6 +13,7 @@ import {
   CircleHelp,
   Clock3,
   CornerDownRight,
+  FoldVertical,
   GitFork,
   Info,
   LockKeyholeOpen,
@@ -39,6 +40,7 @@ const SYSTEM_ICONS: Record<SystemMessageKind, LucideIcon> = {
   rotation: RotateCw,
   routine: Clock3,
   builder: Info,
+  compaction: FoldVertical,
 };
 
 export function SystemMessageLine({
@@ -53,8 +55,13 @@ export function SystemMessageLine({
   const preview = systemMessageHasPreview(system) ? systemMessagePreview(system.body) : "";
   const body = system.body || raw;
 
+  // A compaction is a boundary in the conversation, not a message: what is
+  // above it the agent now holds only as the summary behind this line.
+  const divider = system.kind === "compaction";
   return (
     <div className="flex w-full min-w-0 flex-col items-center">
+      <div className={cn("flex w-full min-w-0 items-center justify-center", divider && "gap-2")}>
+      {divider ? <span aria-hidden="true" className="h-px min-w-6 flex-1 bg-border" /> : null}
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
@@ -79,6 +86,8 @@ export function SystemMessageLine({
           </span>
         ) : null}
       </button>
+      {divider ? <span aria-hidden="true" className="h-px min-w-6 flex-1 bg-border" /> : null}
+      </div>
       {open ? (
         <pre className="mt-0.5 max-h-72 w-[min(42rem,92%)] overflow-auto whitespace-pre-wrap rounded-xl border border-border/70 bg-muted/30 p-3 text-left font-mono text-[11px] leading-relaxed text-muted-foreground">
           {body}
