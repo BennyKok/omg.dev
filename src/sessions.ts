@@ -64,6 +64,7 @@ import {
   type Conversation,
   type MessageAuthorRef,
 } from "./conversations.ts";
+import { OPENCODE_OUT_OF_CREDIT_MESSAGE } from "./agents/backends/opencode-turn-recovery.ts";
 
 const HOME = process.env.HOME ?? homedir();
 const PROJECTS_DIR_DEFAULT = join(HOME, ".claude", "projects");
@@ -500,7 +501,8 @@ export type Session = {
 // that (and the out-of-credits 400) so the UI can explain the pause instead of
 // showing a spinner forever. `liveModel` is the raw model string off the last
 // assistant line ("<synthetic>" for these synthetic errors).
-function computeStatus(
+/** @internal exported for unit tests */
+export function computeStatus(
   last: SessionMsg | null,
   liveModel: string | null,
 ): { status: "ok" | "blocked"; statusReason: Session["statusReason"]; statusDetail: string | null } {
@@ -541,7 +543,12 @@ function computeStatus(
     // NOT loose words like "billing" or "credits", which show up constantly in
     // normal dev/product chat ("add a billing page", "credit pack checkout")
     // and would mislabel healthy sessions as paused.
-    if (/credit balance is too low|"type":\s*"(credit_balance_too_low|billing_error)"/i.test(text)) {
+    // The omg router's refusal, as the OpenCode backend writes it
+    // (opencodeTurnFailureMessage).
+    if (
+      text.trim() === OPENCODE_OUT_OF_CREDIT_MESSAGE ||
+      /credit balance is too low|"type":\s*"(credit_balance_too_low|billing_error)"/i.test(text)
+    ) {
       return { status: "blocked", statusReason: "out_of_credits", statusDetail: "Out of API credits" };
     }
     if (/opencode turn failed/i.test(text)) {
