@@ -1,4 +1,4 @@
-import { EmptyOpencodeReply, OPENCODE_RECOVERY_MESSAGE, opencodeTurnHasProgress, recoverOpencodeTurn } from "./opencode-turn-recovery.ts";
+import { EmptyOpencodeReply, opencodeTurnFailureMessage, opencodeTurnHasProgress, recoverOpencodeTurn } from "./opencode-turn-recovery.ts";
 import { ensureOmgProvider } from "../../omg-provider.ts";
 import { customModelToolFilter, ensureCustomProviders, isCustomModel, refreshCustomModelContexts } from "../../custom-models.ts";
 import { APP_BUILDER_PRESET, BUILDER_MAX_STEPS, builderAgentConfig, createStepBound, builderReviewPacket, captureBuilderDesign, reviewBuilderDesign, reviewBuilderCode, runAppBuilder, validateBuilderPreset } from "./app-builder.ts";
@@ -1273,9 +1273,9 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
       });
       if (content?.length) writeAssistant(content);
       return !!content?.length && !turnInterrupted && !closing;
-    } catch {
+    } catch (error) {
       if (!closing && !turnInterrupted) {
-        writeAssistant([{ type: "text", text: OPENCODE_RECOVERY_MESSAGE }], true);
+        writeAssistant([{ type: "text", text: opencodeTurnFailureMessage(error) }], true);
       }
       return false;
     } finally {
