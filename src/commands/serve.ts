@@ -444,7 +444,7 @@ import {
   type ManagedSession,
 } from "../managed.ts";
 import { recordSessionExitReason } from "../session-containment-record.ts";
-import { autoBuildSwitch, planAutoBuildLaunch } from "../auto-build-model.ts";
+import { autoBuildSwitch, routeAutoLaunch } from "../auto-build-model.ts";
 import { coldResumeContainment, type ColdResumeContainment, commandFileHarnessIsDead, reconcileCommandFileSessions, relaunchDeadCommandFileHarness, setRecoveryEgressProxy } from "../session-recovery.ts";
 import { resolveResumeModel } from "../resume-model.ts";
 import { PtyBridge, termSessionName } from "../pty.ts";
@@ -10261,13 +10261,24 @@ a{color:#60a5fa}
         // native transcript id. This keeps provider-specific ids out of serve.
         const launchId = crypto.randomUUID();
         const createdAt = Date.now();
-        // Auto on a new app: build on the build model, then Auto for changes.
-        const autoBuild = planAutoBuildLaunch({
-          agent,
-          model: resolvedModel ?? opencodeDefault ?? defaultModelForAgent(agent),
-          firstRun: body?.firstRun === true || body?.newApp === true,
-          spawnedBy,
-        });
+        // Auto on a new project: build on the build model, then Auto for
+        // changes. On a hosted Computer the router's judge decides whether
+        // this first message starts a new project; else the local guess.
+        const autoBuild = await routeAutoLaunch(
+          {
+            agent,
+            model: resolvedModel ?? opencodeDefault ?? defaultModelForAgent(agent),
+            firstRun: body?.firstRun === true || body?.newApp === true,
+            spawnedBy,
+            message: body?.prompt,
+            project: unassigned ? undefined : repo?.project,
+            noProject: !!unassigned,
+          },
+          { hosted: hasHostedOmgAiProxy(), baseUrl: process.env.OMG_AI_URL },
+        );
+        if (autoBuild.routeId || autoBuild.routeSource) {
+          traceLog("session_auto_route", { launchId, model: autoBuild.model, routeId: autoBuild.routeId, source: autoBuild.routeSource });
+        }
         const launchModel = autoBuild.model;
         const requestedTitle = body?.title?.trim().slice(0, 200);
         const fallbackTitle = body?.prompt?.slice(0, 72);
