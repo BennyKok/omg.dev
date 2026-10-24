@@ -715,11 +715,24 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
     --y: translateY(-40%);
   }
 
-  .lfg-finding-toast {
+  /* The finding toast draws its own card (see the toast.custom in App.tsx).
+     A custom toast gets no chrome from the toaster that shows it: on its own
+     page LFG's toaster added padding and a background, but inside omg.dev the
+     host's toaster draws it, and there the content ran edge to edge, with the
+     icon on the left border and View on the right one. So the slot is bare
+     here, in both toasters, and the card inside carries the look. */
+  [data-sonner-toast].lfg-finding-toast {
     width: var(--lfg-toast-max, min(27rem, calc(100vw - 2rem))) !important;
-    /* Match .cn-toast chrome so the custom shell stacks cleanly with styled
-       toasts (same padding/radius already come from toastOptions.classNames). */
-    overflow: hidden;
+    max-width: calc(100vw - 2rem) !important;
+    padding: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    overflow: visible;
+    /* Centred in either toaster, the same way .cn-toast is. */
+    left: 0 !important;
+    right: 0 !important;
+    margin-inline: auto !important;
   }
 
   /* Wide report tables scroll inside their own region instead of forcing the

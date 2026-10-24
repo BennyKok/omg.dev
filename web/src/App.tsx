@@ -363,6 +363,7 @@ import { createHeldRelease } from "./lib/held-release";
 import { withoutCompactionNoise } from "./lib/compaction-rows";
 import { PresenceDock } from "./components/presence-dock";
 import { CreateTutorials } from "./components/create-tutorials";
+import { FindingToastCard } from "./components/finding-toast-card";
 import { SystemMessageLine } from "./components/system-message-line";
 import { classifyUserTurn } from "./lib/system-message";
 import { canDriveSession } from "./lib/session-runtime";
@@ -7052,31 +7053,16 @@ export function App() {
       // keep this row close to .cn-toast height so stacked peeks match.
       toast.custom(
         (id) => (
-          <button
-            type="button"
-            onClick={() => {
+          <FindingToastCard
+            agentName={name}
+            title={f.title}
+            onOpen={() => {
               setTab("live");
               setOpenFinding(f);
               showToastedFinding(f.id);
               toast.dismiss(id);
             }}
-            className="pointer-events-auto flex w-full min-w-0 items-center gap-2.5 text-left"
-          >
-            <span className="grid size-7 shrink-0 place-items-center rounded-full bg-primary/12 text-primary">
-              <Sparkles className="size-3.5" />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-[13px] font-medium leading-snug">
-                {name} responded
-              </span>
-              <span className="block truncate text-[12px] leading-snug text-muted-foreground">
-                {f.title}
-              </span>
-            </span>
-            <span className="shrink-0 rounded-lg bg-primary px-2.5 py-1 text-[12px] font-medium text-white">
-              View
-            </span>
-          </button>
+          />
         ),
         {
           duration: 6500,
