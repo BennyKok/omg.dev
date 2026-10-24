@@ -1,9 +1,41 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mount, type Mounted } from "./test-support/render";
 import { useState } from "react";
-import { OMG_MODELS } from "../../src/omg-models";
+import { OMG_LEVEL_MODELS, OMG_MODELS } from "../../src/omg-models";
 
 const { ModelOptionList } = await import("./App");
+
+function openAllModels(ui: Mounted) {
+  const more = ui.queryAll("button").find((row) => row.textContent === "All models") as HTMLButtonElement;
+  ui.flush(() => more.click());
+}
+
+// A hosted person sees Auto and three levels, so they do not have to choose
+// among 14 models. The full list must stay one tap away, and a person who
+// already chose a specific model must see that choice without the tap.
+test("hosted picker leads with Auto and the levels, the full list one tap away", () => {
+  const ui = mount();
+  try {
+    let chosen: string | null = null;
+    ui.render(<ModelOptionList value={OMG_MODELS[0]!} models={OMG_MODELS} onChoose={(m) => { chosen = m; }} />);
+    const labels = () => ui.queryAll("button").map((row) => row.textContent);
+    expect(labels()).toEqual(["Auto", "Max", "Balanced", "Fast", "All models"]);
+    const balanced = ui.queryAll("button").find((row) => row.textContent === "Balanced") as HTMLButtonElement;
+    ui.flush(() => balanced.click());
+    expect(chosen).toBe("omg/omg/balanced");
+    openAllModels(ui);
+    expect(labels().length).toBe(OMG_MODELS.length);
+  } finally {
+    ui.cleanup();
+  }
+  const pinned = mount();
+  try {
+    pinned.render(<ModelOptionList value="omg/anthropic/claude-opus-5.5" models={OMG_MODELS} onChoose={() => {}} />);
+    expect(pinned.queryAll("button").map((row) => row.textContent)).toContain("Claude Opus 5.5");
+  } finally {
+    pinned.cleanup();
+  }
+});
 
 // The hosted omg picker used to list raw router ids
 // ("omg/deepseek/deepseek-v4-flash-0731"), which truncated on a phone-width
@@ -21,6 +53,7 @@ describe("ModelOptionList", () => {
     ui.render(
       <ModelOptionList value={OMG_MODELS[0]!} models={OMG_MODELS} onChoose={(m) => { chosen = m; }} />,
     );
+    openAllModels(ui);
     const text = ui.text();
     expect(text).toContain("DeepSeek V4 Flash");
     expect(text).toContain("GLM 5.3 Flash");
@@ -28,7 +61,8 @@ describe("ModelOptionList", () => {
     expect(text).not.toContain("omg/deepseek/deepseek-v4-flash-0731");
     const rows = ui.queryAll("button");
     expect(rows.length).toBe(OMG_MODELS.length);
-    expect(ui.queryAll("button svg[role='img'], button img").length).toBe(OMG_MODELS.length);
+    // Auto and the levels are omg's own choices and carry no lab mark.
+    expect(ui.queryAll("button svg[role='img'], button img").length).toBe(OMG_MODELS.length - OMG_LEVEL_MODELS.length);
     const apex = rows.find((row) => row.textContent?.includes("Apex")) as HTMLButtonElement;
     expect(apex.title.split("\n")[0]).toBe("Callstack · omg/apex");
     ui.flush(() => apex.click());
@@ -233,6 +267,7 @@ test("managed picker offers Haiku 5.5 and excludes retired choices", () => {
   let chosen: string | null = null;
   try {
     ui.render(<ModelOptionList value={OMG_MODELS[0]!} models={OMG_MODELS} onChoose={(model) => { chosen = model; }} />);
+    openAllModels(ui);
     const haiku = ui.queryAll("button").find((row) => row.title.split("\n")[0]!.endsWith("omg/anthropic/claude-haiku-5.5")) as HTMLButtonElement;
     expect(haiku).toBeDefined();
     ui.flush(() => haiku.click());
