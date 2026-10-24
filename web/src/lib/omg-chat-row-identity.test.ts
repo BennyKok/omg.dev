@@ -179,3 +179,68 @@ describe("a message sent while a reply runs stays after it", () => {
   });
 });
 
+
+describe("a message the server holds stays where it was drawn", () => {
+  test("a bubble already drawn becomes a waiting bubble, not a card", () => {
+    const state = [sdkSend("sdk-u2", "after that, say done", 200)];
+    const next = appendOmgTranscriptEvent(state, {
+      type: "queue",
+      queue: [{ id: "q1", text: "after that, say done", status: "held", createdAt: 201 }],
+    });
+    expect(next.map((message) => message.id)).toEqual(["sdk-u2"]);
+    const meta = next[0]!.metadata!.omgMessage!;
+    expect(meta.queued).toBe(true);
+    // Bound to the held row, so the composer does not draw it as a card too.
+    expect(meta.queueId).toBe("q1");
+    expect(omgRowKey(next[0]!)).toBe("sdk-u2");
+  });
+
+  test("when the server sends it, the same bubble carries on", () => {
+    let state = appendOmgTranscriptEvent([sdkSend("sdk-u2", "say done", 200)], {
+      type: "queue",
+      queue: [{ id: "q1", text: "say done", status: "held", createdAt: 201 }],
+    });
+    state = appendOmgTranscriptEvent(state, {
+      type: "queue",
+      queue: [{ id: "q1", text: "say done", status: "sending", createdAt: 201 }],
+    });
+    expect(keys(state)).toEqual(["sdk-u2"]);
+    state = appendOmgTranscriptEvent(state, {
+      type: "message",
+      message: { id: "srv-u2", role: "user", kind: "text", text: "say done", ts: 300 },
+    });
+    expect(state.map((message) => message.id)).toEqual(["srv-u2"]);
+    expect(keys(state)).toEqual(["sdk-u2"]);
+  });
+});
+
+describe("an interrupted reply does not vanish", () => {
+  test("a different finished reply leaves this browser's copy in place, finished", () => {
+    const state = [
+      server("srv-u1", "user", "list vegetables", 100),
+      sdkReply("sdk-r1", "Carrot. Carrots are", { streaming: true, startedAt: 110 }),
+      server("srv-u2", "user", "say done", 150),
+    ];
+    const next = appendOmgTranscriptEvent(state, {
+      type: "message",
+      message: { id: "srv-r2", role: "assistant", kind: "text", text: "done", ts: 160 },
+    });
+    expect(texts(next)).toEqual(["list vegetables", "Carrot. Carrots are", "say done", "done"]);
+    expect(omgUIMessagesToMessages(next)[1]!.id).toBe("sdk-r1");
+  });
+
+  test("the end of the turn finishes this browser's copy and drops a stale live draft", () => {
+    const draft: OmgChatMessage = {
+      id: "draft-s1:5",
+      role: "assistant",
+      metadata: { omgMessage: { id: "draft-s1:5", draftOf: "draft-s1", role: "assistant", kind: "text", text: "stale", ts: 5 } },
+      parts: [{ type: "text", text: "stale", state: "streaming" }],
+    };
+    const next = appendOmgTranscriptEvent([sdkReply("sdk-r1", "Carrot.", { streaming: true, startedAt: 1 }), draft], {
+      type: "busy",
+      busy: false,
+    });
+    expect(next.map((message) => message.id)).toEqual(["sdk-r1"]);
+    expect(next[0]!.parts[0]).toMatchObject({ state: "done", text: "Carrot." });
+  });
+});

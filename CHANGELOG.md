@@ -13,6 +13,12 @@ Recent product updates and deployment notes.
 - The session also shows as paused for credit, with the "out of credits" banner.
 - If your plan does not include the model you picked, the chat says so and asks you to choose another model or upgrade.
 
+## October 24, 2026 - Queued messages stay put (v0.6.319)
+
+- When you tap "Send now" on a queued message, the card goes away once. Before, it could disappear, come back for a moment, and disappear again.
+- A message you sent just as the agent was finishing stays in the chat as a waiting message. Before, it could jump out of the chat into a queued card and back.
+- An answer you interrupt stays on screen when the new reply arrives. Before, it could vanish until the chat reloaded.
+
 ## October 24, 2026 - Swipe right to go back (v0.6.318)
 
 - On a phone, swipe right anywhere on a chat to go back to the page under it. The chat follows your finger. Let go past a third of the screen, or flick, and it closes. Let go sooner and it springs back.

@@ -358,6 +358,7 @@ import {
 } from "./lib/queue-reconcile";
 import { HeldQueueCards, HeldQueueDock, LOCAL_HELD_ID_PREFIX } from "./components/held-queue-cards";
 import { heldFieldHeight } from "./lib/held-field-height";
+import { createHeldRelease } from "./lib/held-release";
 import { withoutCompactionNoise } from "./lib/compaction-rows";
 import { PresenceDock } from "./components/presence-dock";
 import { SystemMessageLine } from "./components/system-message-line";
@@ -17438,6 +17439,20 @@ function SessionChatBody({
   // frames, and the optimistic updates in the card actions bridge the second
   // until the next frame.
   const [heldQueue, setHeldQueue] = useState<OmgQueueMessage[]>([]);
+  // Cards this page let go of, kept hidden until the server agrees, so a
+  // frame sent before the delete landed cannot draw them again (lib/held-release).
+  const [heldRelease] = useState(createHeldRelease);
+  /** The server's held rows, as a frame or a fetch: what the cards draw. */
+  const showServerHeld = useCallback(
+    (queue: OmgQueueMessage[]) => setHeldQueue(heldRelease.frame(heldQueueRows(queue))),
+    [heldRelease],
+  );
+  /** A change the cards made themselves (send now, remove, edit, or a failure's re-read). */
+  const changeHeldQueue = useCallback(
+    (update: (current: OmgQueueMessage[]) => OmgQueueMessage[]) =>
+      setHeldQueue((current) => heldRelease.change(current, update(current)) as OmgQueueMessage[]),
+    [heldRelease],
+  );
   // Queue-mode sends the composer has painted as cards before the server
   // answered. Kept apart from heldQueue because every queue frame replaces
   // that list wholesale, and a frame that predates the send would erase the
@@ -17464,31 +17479,38 @@ function SessionChatBody({
       return false;
     });
     const keys = heldCardKeys.current;
+    // A held row this chat already shows as a waiting bubble is not a card too
+    // (reconcileOmgQueueMessages binds the bubble to it by queueId).
+    const shownAsBubble = new Set(
+      uiMessages.map((message) => message.metadata?.omgMessage?.queueId).filter((id): id is string => !!id),
+    );
+    const waiting = shownAsBubble.size ? heldQueue.filter((row) => !shownAsBubble.has(row.id)) : heldQueue;
     const rows = keys.size
-      ? heldQueue.map((row) => {
+      ? waiting.map((row) => {
           const renderKey = keys.get(row.id);
           return renderKey && row.renderKey !== renderKey ? { ...row, renderKey } : row;
         })
-      : heldQueue;
+      : waiting;
     return unanswered.length ? [...rows, ...unanswered] : rows;
-  }, [heldQueue, localHeld]);
+  }, [heldQueue, localHeld, uiMessages]);
   useEffect(() => {
     setHeldQueue([]);
     setLocalHeld([]);
     heldCardKeys.current.clear();
+    heldRelease.clear();
     if (!sid) return;
     let cancelled = false;
     void api<{ queue: OmgQueueMessage[] }>(`/api/sessions/${encodeURIComponent(sid)}/queue`, {
       cache: "no-store",
     })
       .then((res) => {
-        if (!cancelled) setHeldQueue(heldQueueRows(Array.isArray(res.queue) ? res.queue : []));
+        if (!cancelled) showServerHeld(Array.isArray(res.queue) ? res.queue : []);
       })
       .catch(() => null);
     return () => {
       cancelled = true;
     };
-  }, [sid]);
+  }, [sid, heldRelease, showServerHeld]);
   // Without live queue frames (the SSE transport) the cards would outlive
   // their release. Poll only while there is something held.
   useEffect(() => {
@@ -17497,11 +17519,11 @@ function SessionChatBody({
       void api<{ queue: OmgQueueMessage[] }>(`/api/sessions/${encodeURIComponent(sid)}/queue`, {
         cache: "no-store",
       })
-        .then((res) => setHeldQueue(heldQueueRows(Array.isArray(res.queue) ? res.queue : [])))
+        .then((res) => showServerHeld(Array.isArray(res.queue) ? res.queue : []))
         .catch(() => null);
     }, 2000);
     return () => window.clearInterval(timer);
-  }, [sid, onSubscribeTranscript, heldQueue.length]);
+  }, [sid, onSubscribeTranscript, heldQueue.length, showServerHeld]);
   const setMessageText = useCallback(
     (text: string) => {
       setMessageTextState(text);
@@ -17573,7 +17595,7 @@ function SessionChatBody({
         return;
       }
       if (event.type === "busy") setLiveBusy(event.busy);
-      if (event.type === "queue") setHeldQueue(heldQueueRows(event.queue));
+      if (event.type === "queue") showServerHeld(event.queue);
       setMessages((current) => {
         const next = settleLaunchMessage(sid, appendOmgTranscriptEvent(current, event, {
           streamActive: ownedChatStreams.owns(sid),
@@ -17584,7 +17606,7 @@ function SessionChatBody({
         return next;
       });
     });
-  }, [applySnapshot, onError, onSubscribeTranscript, ownedChatStreams, setMessages, sid]);
+  }, [applySnapshot, onError, onSubscribeTranscript, ownedChatStreams, setMessages, showServerHeld, sid]);
 
   async function sendMessage(
     e?: FormEvent,
@@ -18021,7 +18043,7 @@ function SessionChatBody({
                   sessionId={sid}
                   items={items}
                   busy={chatBusy}
-                  onChange={setHeldQueue}
+                  onChange={changeHeldQueue}
                   onError={onError}
                   onSendNow={steerHeldText}
                 />
