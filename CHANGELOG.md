@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 24, 2026 - Swipe right to go back (v0.6.318)
+
+- On a phone, swipe right anywhere on a chat to go back to the page under it. The chat follows your finger. Let go past a third of the screen, or flick, and it closes. Let go sooner and it springs back.
+- Swiping left or right on a chat no longer switches to another session, and swiping up from the chat box no longer closes the chat. The "Swipe between chats" setting is gone.
+
 ## October 24, 2026 - Steady chat while you send (v0.6.317)
 
 - A message you send keeps its place from the moment you press send. Before, the chat drew it again when the server confirmed it, and the reply again when it finished, so the messages above moved a little each time.
