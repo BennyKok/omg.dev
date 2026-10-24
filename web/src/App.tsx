@@ -434,7 +434,6 @@ import type {
 import {
   Activity,
   Archive,
-  ArrowLeftRight,
   ArrowDown,
   ArrowUp,
   Bot,
@@ -510,7 +509,7 @@ import { haptic } from "@/lib/haptics";
 import { feedback } from "@/lib/feedback";
 import { type AutoAgentRefine } from "@/lib/auto-refine";
 import { useUiFeedbackPrefs, setUiFeedbackPrefs } from "@/lib/ui-feedback-prefs";
-import { useNavigationPrefs, setNavigationPrefs } from "@/lib/navigation-prefs";
+import { swipeBackCommits, swipeBackFinishMs, swipeBackIntent, swipeBackOffset, type SwipeBackIntent } from "@/lib/swipe-back";
 import { subscribeSelectionChange } from "./lib/selection-change";
 import { useProjectListPrefs, setProjectListPrefs, projectListPrefsStore } from "@/lib/project-list-prefs";
 import { folderMenuPrefsStore, useFolderMenuPrefs } from "@/lib/folder-menu-prefs";
@@ -11985,24 +11984,26 @@ function hasHorizontalScrollAncestor(target: EventTarget | null): boolean {
   return false;
 }
 
-function blocksSessionSwipe(target: EventTarget | null): boolean {
+/**
+ * Whether a drag starting on `target` belongs to that element rather than to
+ * the chat's swipe back: something being edited or selected, code and tables
+ * a person reads across, and anything that scrolls sideways. Buttons and
+ * links are not here: a drag is not a tap, and most of a transcript is rows
+ * you can tap, so excluding them made the gesture start only some of the time.
+ */
+function blocksSwipeBack(target: EventTarget | null): boolean {
   const el = target instanceof Element ? target : null;
   if (!el) return false;
   if (hasHorizontalScrollAncestor(target)) return true;
   return !!el.closest(
     [
-      "a[href]",
-      "button",
       "input",
       "textarea",
       "select",
-      "summary",
       "table",
       "pre",
       "code",
       "[contenteditable='true']",
-      "[role='button']",
-      "[role='link']",
       "[data-no-composer-swipe]",
     ].join(","),
   );
@@ -19081,7 +19082,6 @@ function SessionTitleSheet({
   onTogglePin?: (sid: string) => void;
   onClose: () => void;
 }) {
-  const navigationPrefs = useNavigationPrefs();
   const [error, setError] = useState<string | null>(null);
   const [renamingInline, setRenamingInline] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -19194,94 +19194,6 @@ function SessionTitleSheet({
     );
   }, [sid]);
 
-  // Swipe the session body or composer left/right to switch sessions. Horizontal
-  // drags move the whole transcript with the finger; releasing past the threshold
-  // commits to prev/next (rubber-banding at the ends). Vertical intent is
-  // released back to the scroller untouched, and we only preventDefault once a
-  // horizontal swipe is committed, so scrolling and controls behave normally.
-  // Native non-passive listeners (React's are passive) so preventDefault holds.
-  useEffect(() => {
-    if (!navigationPrefs.swipeBetweenChats) return;
-    const body = bodyRef.current;
-    if (!body) return;
-    const SWIPE_COMMIT = 60; // px of travel needed to flip sessions
-    const st = { active: false, decided: false, horizontal: false, x0: 0, y0: 0, dx: 0 };
-    const setTx = (px: number) => {
-      body.style.transition = "none";
-      body.style.transform = px ? `translateX(${px}px)` : "";
-    };
-    const release = (animate: boolean) => {
-      if (animate) {
-        body.style.transition = "transform 180ms cubic-bezier(0.22,1,0.36,1)";
-        body.style.transform = "";
-      } else {
-        setTx(0);
-      }
-    };
-    const onStart = (e: TouchEvent) => {
-      if (closingRef.current || e.touches.length !== 1) return;
-      const target = e.target instanceof Element ? e.target : null;
-      const startedInComposer = !!target?.closest("form");
-      if (startedInComposer) {
-        if (composerIsEditing(e.target)) return;
-      } else if (blocksSessionSwipe(e.target)) {
-        return;
-      }
-      const t = e.touches[0];
-      st.active = true;
-      st.decided = false;
-      st.horizontal = false;
-      st.x0 = t.clientX;
-      st.y0 = t.clientY;
-      st.dx = 0;
-    };
-    const onMove = (e: TouchEvent) => {
-      if (!st.active) return;
-      const t = e.touches[0];
-      const dx = t.clientX - st.x0;
-      const dy = t.clientY - st.y0;
-      if (!st.decided) {
-        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
-        st.decided = true;
-        st.horizontal = Math.abs(dx) > Math.abs(dy);
-        if (!st.horizontal) {
-          st.active = false; // vertical → let the textarea / scroller have it
-          return;
-        }
-      }
-      if (!st.horizontal) return;
-      e.preventDefault(); // suppress browser scroll + textarea caret scrub
-      st.dx = dx;
-      // Resist when there's nowhere to go in that direction.
-      const blocked = dx > 0 ? !prevSid : !nextSid;
-      setTx(dx * (blocked ? 0.18 : 0.5));
-    };
-    const onEnd = () => {
-      if (!st.active) return;
-      const { horizontal, dx } = st;
-      st.active = false;
-      if (!horizontal) return;
-      const target = dx > SWIPE_COMMIT ? prevSid : dx < -SWIPE_COMMIT ? nextSid : null;
-      if (target) {
-        // The crossfade effect (on sid change) starts at opacity 0, so it both
-        // resets the drag transform and fades the new session in — no spring-back
-        // needed, and no transform "snap" is visible.
-        go(target);
-      } else {
-        release(true); // nothing committed → ease back to rest
-      }
-    };
-    body.addEventListener("touchstart", onStart, { passive: true });
-    body.addEventListener("touchmove", onMove, { passive: false });
-    body.addEventListener("touchend", onEnd, { passive: true });
-    body.addEventListener("touchcancel", onEnd, { passive: true });
-    return () => {
-      body.removeEventListener("touchstart", onStart);
-      body.removeEventListener("touchmove", onMove);
-      body.removeEventListener("touchend", onEnd);
-      body.removeEventListener("touchcancel", onEnd);
-    };
-  }, [go, navigationPrefs.swipeBetweenChats, prevSid, nextSid]);
 
   // Enter: a plain page push from the right edge, the way the iOS and Android
   // apps open a session. Only `transform` animates, so the compositor runs it
@@ -19335,117 +19247,106 @@ function SessionTitleSheet({
     });
   }, [onClose]);
 
-  // Full-details-only gesture: swipe up from the session composer to dismiss
-  // the zoomed-in sheet. This deliberately starts only from the input bar area,
-  // leaving transcript scroll and header touches alone.
+  // Swipe right anywhere on the chat to go back to the page under it
+  // (lib/swipe-back). The page follows the finger and the page below shows
+  // through; a release past a third of the width, or a flick, finishes the
+  // close at the speed of a full one, anything less springs back. This is the
+  // only gesture on the chat: the sideways swipe that switched sessions and
+  // the swipe up from the composer that closed the chat are gone, so a
+  // direction cannot mean two things. A drag that starts in a field being
+  // edited, in code, a table or a sideways scroller belongs to that element.
   useEffect(() => {
     const panel = panelRef.current;
     if (!panel) return;
-    const DISMISS_Y = 88;
-    const VELOCITY = 0.45; // px/ms
-    const st = { active: false, decided: false, dismissing: false, x0: 0, y0: 0, y: 0, t0: 0 };
-    const setY = (y: number, animate = false) => {
-      panel.style.transition = animate
-        ? "transform 180ms cubic-bezier(0.22,1,0.36,1), opacity 180ms ease"
-        : "none";
-      panel.style.transform = y ? `translate3d(0, ${y}px, 0)` : "";
-      panel.style.opacity = y ? `${1 - Math.min(0.16, Math.abs(y) / 1200)}` : "";
+    const st = { active: false, intent: "pending" as SwipeBackIntent, x0: 0, y0: 0, dx: 0, lastX: 0, lastT: 0, velocity: 0 };
+    const place = (dx: number) => {
+      panel.style.transition = "none";
+      panel.style.transform = dx ? `translate3d(${dx}px, 0, 0)` : "";
+      const backdrop = backdropRef.current;
+      if (backdrop) {
+        backdrop.style.transition = "none";
+        backdrop.style.opacity = dx ? `${1 - Math.min(1, dx / Math.max(1, panel.clientWidth))}` : "";
+      }
     };
-    const finishDismiss = () => {
+    const springBack = () => {
+      panel.style.transition = `transform 240ms ${SHEET_EASE}`;
+      panel.style.transform = "";
+      const backdrop = backdropRef.current;
+      if (backdrop) {
+        backdrop.style.transition = `opacity 240ms ${SHEET_EASE}`;
+        backdrop.style.opacity = "";
+      }
+      window.setTimeout(() => {
+        if (closingRef.current) return;
+        panel.style.transition = "";
+        if (backdropRef.current) backdropRef.current.style.transition = "";
+      }, 260);
+    };
+    const finishBack = (dx: number) => {
       if (closingRef.current) return;
       closingRef.current = true;
       haptic("selection");
-      const backdrop = backdropRef.current;
-      const body = bodyRef.current;
+      const ms = swipeBackFinishMs(dx, panel.clientWidth, SHEET_MS * 0.85);
       let done = false;
       const finish = () => {
         if (done) return;
         done = true;
         onClose();
       };
-      panel.getAnimations().forEach((animation) => animation.cancel());
-      panel.style.transition =
-        "transform 300ms cubic-bezier(0.32,0.72,0,1), opacity 220ms ease-out";
-      panel.style.transform = "translate3d(0, -105%, 0)";
-      panel.style.opacity = "0.92";
-      const onTransitionEnd = (event: TransitionEvent) => {
-        if (event.propertyName !== "transform") return;
-        panel.removeEventListener("transitionend", onTransitionEnd);
-        finish();
-      };
-      panel.addEventListener("transitionend", onTransitionEnd);
-      window.setTimeout(finish, 340);
+      panel.style.transition = `transform ${ms}ms ${SHEET_EASE}`;
+      panel.style.transform = "translate3d(100%, 0, 0)";
+      const backdrop = backdropRef.current;
       if (backdrop) {
-        backdrop.style.transition = "opacity 240ms ease-out";
+        backdrop.style.transition = `opacity ${ms}ms ${SHEET_EASE}`;
         backdrop.style.opacity = "0";
       }
-      if (body) {
-        body.style.transition = "transform 260ms cubic-bezier(0.32,0.72,0,1), opacity 180ms ease-out";
-        body.style.transform = "translate3d(0, -18px, 0)";
-        body.style.opacity = "0";
-      }
+      panel.addEventListener("transitionend", (event) => {
+        if (event.propertyName === "transform") finish();
+      });
+      window.setTimeout(finish, ms + 80);
     };
     const onStart = (event: TouchEvent) => {
       if (closingRef.current || event.touches.length !== 1) return;
-      const target = event.target as HTMLElement | null;
-      if (!target?.closest("form")) return;
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest("form") ? composerIsEditing(event.target) : blocksSwipeBack(event.target)) return;
       const touch = event.touches[0];
       st.active = true;
-      st.decided = false;
-      st.dismissing = false;
+      st.intent = "pending";
       st.x0 = touch.clientX;
       st.y0 = touch.clientY;
-      st.y = 0;
-      st.t0 = performance.now();
-      panel.getAnimations().forEach((animation) => {
-        if (animation.playState !== "finished") animation.cancel();
-      });
-      setY(0);
+      st.dx = 0;
+      st.lastX = touch.clientX;
+      st.lastT = performance.now();
+      st.velocity = 0;
     };
     const onMove = (event: TouchEvent) => {
       if (!st.active) return;
       const touch = event.touches[0];
       const dx = touch.clientX - st.x0;
-      const dy = touch.clientY - st.y0;
-      if (!st.decided) {
-        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
-        st.decided = true;
-        st.dismissing = dy < 0 && Math.abs(dy) > Math.abs(dx) * 1.2;
-        if (!st.dismissing) {
-          st.active = false;
+      if (st.intent === "pending") {
+        st.intent = swipeBackIntent(dx, touch.clientY - st.y0);
+        if (st.intent === "none") {
+          st.active = false; // the transcript, or the field, has this touch
           return;
         }
+        if (st.intent === "pending") return;
+        // The page is under the finger now: drop the entrance if it is still running.
+        panel.getAnimations().forEach((animation) => animation.cancel());
       }
-      if (!st.dismissing) return;
       event.preventDefault();
-      st.y = -Math.min(Math.abs(dy), window.innerHeight * 0.6);
-      setY(st.y);
-      const backdrop = backdropRef.current;
-      if (backdrop) backdrop.style.opacity = `${1 - Math.min(0.35, Math.abs(st.y) / 520)}`;
+      const now = performance.now();
+      if (now > st.lastT) st.velocity = (touch.clientX - st.lastX) / (now - st.lastT);
+      st.lastX = touch.clientX;
+      st.lastT = now;
+      st.dx = swipeBackOffset(dx);
+      place(st.dx);
     };
     const onEnd = () => {
       if (!st.active) return;
       st.active = false;
-      const dt = Math.max(1, performance.now() - st.t0);
-      const velocity = st.y / dt;
-      if (st.dismissing && (st.y <= -DISMISS_Y || velocity <= -VELOCITY)) {
-        finishDismiss();
-        return;
-      }
-      setY(0, true);
-      const backdrop = backdropRef.current;
-      if (backdrop) {
-        backdrop.style.transition = "opacity 180ms ease";
-        backdrop.style.opacity = "";
-        window.setTimeout(() => {
-          backdrop.style.transition = "";
-        }, 200);
-      }
-      window.setTimeout(() => {
-        panel.style.transition = "";
-        panel.style.transform = "";
-        panel.style.opacity = "";
-      }, 200);
+      if (st.intent !== "back") return;
+      if (swipeBackCommits(st.dx, panel.clientWidth, st.velocity)) finishBack(st.dx);
+      else springBack();
     };
     panel.addEventListener("touchstart", onStart, { passive: true });
     panel.addEventListener("touchmove", onMove, { passive: false });
@@ -30943,7 +30844,6 @@ function MoreView({
   onSettingsChange: (patch: Partial<GlobalSettings>) => Promise<void>;
 }) {
   const uiFeedback = useUiFeedbackPrefs();
-  const navigationPrefs = useNavigationPrefs();
   const latencyMs = useLatencyMs(latency);
 
   return (
@@ -31075,19 +30975,6 @@ function MoreView({
               checked={uiFeedback.sound}
               onCheckedChange={(v) => setUiFeedbackPrefs({ sound: v })}
               aria-label="Toggle UI sound effects"
-            />
-          </div>
-          <div className="flex items-center justify-between gap-4 px-4 py-2.5">
-            <div className="flex items-center gap-3">
-              <span className="flex size-7 items-center justify-center rounded-[7px] bg-primary text-white">
-                <ArrowLeftRight className="size-4" />
-              </span>
-              <span className="text-sm font-medium">Swipe between chats</span>
-            </div>
-            <Switch
-              checked={navigationPrefs.swipeBetweenChats}
-              onCheckedChange={(v) => setNavigationPrefs({ swipeBetweenChats: v })}
-              aria-label="Toggle swipe between chats"
             />
           </div>
         </div>
