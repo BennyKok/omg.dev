@@ -2,10 +2,14 @@
 
 Read this first. It records what is true now. The nightly librarian agent
 updates it from merged pull requests. Verify a fact in code before you depend
-on it. Last refresh: 2026-10-23.
+on it. Last refresh: 2026-10-24.
 
 ## Active work (last 14 days)
 
+- **Hosted models and routing**: Auto, Max, Balanced, and Fast lead the picker;
+  models come from the router. Auto routes new projects to omg/build, then
+  uses Auto on the next message; no-project chats use the same routing
+  (#448, #450, #452–#454). Credit refusals show "out of AI credit" (#449).
 - **Home and navigation**: Create, Apps, and Chats on phones, local projects
   on Apps, tutorials, direct app chat boxes, on-demand Apps and GitHub import,
   compact cards, owner faces, stable project moves, and shared page navigation
@@ -18,7 +22,7 @@ on it. Last refresh: 2026-10-23.
   out of customer messages (#382, #403, #413–#415, #421).
 - **App and game kits**: Haiku 5.5 default, web-safe app kit, game self-checks,
   web games by default, drag controls, and preview-first checks
-  (#378, #385, #388–#389, #392, #397, #418, #422, #428).
+  (#385, #388–#389, #392, #397, #418, #422, #428).
 - **Computer**: bounded screenshots, stuck-view reset, and release of keys
   left held by a viewer (#391, #411).
 - **Embedding and connectors**: scheduled agents use owner connectors;
@@ -28,9 +32,8 @@ on it. Last refresh: 2026-10-23.
   hosted app rename and paid-flow checkout testing (#395, #406–#407).
 - **Media**: 3D generation and a $25 default daily media cap (#398).
 - **Release and agent docs**: verified releases start the omg.dev pin update;
-  the pin tool is `omg_pin`; sign-in rules and bot plan status are current
-  (#377, #380, #442–#444). Nightly context refreshes: #381, #387, #390, #394,
-  #396, #399–#400, #404, #408, #410, #412.
+  the pin tool is `omg_pin` (#442–#444). Nightly context refreshes:
+  #387, #390, #394, #396, #399–#400, #404, #408, #410, #412, #447.
 
 ## Open pull requests
 
