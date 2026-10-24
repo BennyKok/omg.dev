@@ -13,12 +13,14 @@ function openAllModels(ui: Mounted) {
 // A hosted person sees Auto and three levels, so they do not have to choose
 // among 14 models. The full list must stay one tap away, and a person who
 // already chose a specific model must see that choice without the tap.
-test("hosted picker leads with Auto and the levels, the full list one tap away", () => {
+test("hosted picker leads with Auto and the levels, the full list one tap away", async () => {
   const ui = mount();
   try {
     let chosen: string | null = null;
     ui.render(<ModelOptionList value={OMG_MODELS[0]!} models={OMG_MODELS} onChoose={(m) => { chosen = m; }} />);
     const labels = () => ui.queryAll("button").map((row) => row.textContent);
+    // Rows are placeholders until the credit prices settle (or their wait ends).
+    for (let i = 0; i < 50 && labels().length < 5; i++) await ui.flushAsync(() => new Promise((r) => setTimeout(r, 50)));
     expect(labels()).toEqual(["Auto", "Max", "Balanced", "Fast", "All models"]);
     const balanced = ui.queryAll("button").find((row) => row.textContent === "Balanced") as HTMLButtonElement;
     ui.flush(() => balanced.click());

@@ -5,7 +5,8 @@ import { OMG_AUTO_MODEL, OMG_BUILD_MODEL } from "./omg-models.ts";
  * Auto: the first build of a new app runs on the build model, later changes
  * run on Auto (Benny, 2026-10-24).
  *
- * A new-app session (firstRun) that asks for Auto launches on OMG_BUILD_MODEL
+ * A new-app session (firstRun, or newApp from the composer's no-project
+ * Create path) that asks for Auto launches on OMG_BUILD_MODEL
  * and remembers OMG_AUTO_MODEL as the model to move to. The build is
  * everything the agent does for the first message. When the person sends
  * their second message, the session moves to Auto before that message runs.
