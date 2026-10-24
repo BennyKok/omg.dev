@@ -375,6 +375,30 @@ export interface HostedPreviewAuth {
  */
 export declare function clearSavedScreens(keep?: (key: string) => boolean): void;
 
+/** Where this browser transcribes dictation. "auto" uses the on-device model when it is ready and the cloud otherwise. */
+export type OmgTranscriptionMode = "auto" | "cloud" | "local";
+
+export interface OmgTranscriptionModeState {
+  mode: OmgTranscriptionMode;
+  /** State of the on-device model. "idle" before it starts to load. */
+  status: "idle" | "downloading" | "loading" | "ready" | "error";
+  /** Download progress of the on-device model, 0 to 100. */
+  progress: number;
+  /** False when the selected language can only be transcribed in the cloud. */
+  localSupported: boolean;
+  /** Saves the mode in this browser. The next recording uses it. */
+  setMode(mode: OmgTranscriptionMode): void;
+  /** Loads the on-device model again after an error. */
+  retry(): void;
+}
+
+/**
+ * The dictation mode the surface's composer uses in this browser. A host that
+ * owns its settings page renders the control with this hook, because the
+ * surface's own control lives on the device page that hosts do not mount.
+ */
+export declare function useOmgTranscriptionMode(): OmgTranscriptionModeState;
+
 export declare function OmgAppSurface(
   props: OmgAppSurfaceProps,
 ): JSX.Element;

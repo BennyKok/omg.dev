@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { mount, type Mounted } from "../test-support/render";
-const { BrowserTranscriptionSettings } = await import("./browser-transcription-settings");
-const { BrowserTranscription } = await import("../lib/browser-transcription");
+const { BrowserTranscriptionSettings, useTranscriptionMode } = await import("./browser-transcription-settings");
+const { BrowserTranscription, selectTranscriptionTake } = await import("../lib/browser-transcription");
 let ui: Mounted;
 afterEach(() => ui?.cleanup());
 
@@ -21,5 +21,23 @@ test("renders download progress, ready state, and a working Cloud override", () 
   ui.flush(() => { select.value = "cloud"; select.dispatchEvent(new Event("change", { bubbles: true })); });
   expect(ui.text()).toContain("Cloud transcription");
   expect(service.getSnapshot().mode).toBe("cloud");
+  expect(JSON.parse(window.localStorage.getItem("omg-browser-transcription-v1")!).mode).toBe("cloud");
+});
+
+test("a host that selects Cloud through useTranscriptionMode sends the next take to the cloud", () => {
+  window.localStorage.clear();
+  let emit: (data: unknown) => void = () => {};
+  const worker = { onmessage: null as any, onerror: null, postMessage() {}, terminate() {} };
+  const service = new BrowserTranscription(() => { emit = (data) => worker.onmessage?.({ data }); return worker as unknown as Worker; });
+  let api: ReturnType<typeof useTranscriptionMode> | null = null;
+  function HostRow() { api = useTranscriptionMode(service); return <span>{api!.mode}:{api!.status}</span>; }
+  ui = mount();
+  ui.render(<HostRow />);
+  ui.flush(() => emit({ type: "ready" }));
+  // Default Auto with a ready model: dictation stays on the device.
+  expect(selectTranscriptionTake(service.getSnapshot()).provider).toBe("local");
+  ui.flush(() => api!.setMode("cloud"));
+  expect(ui.text()).toContain("cloud:");
+  expect(selectTranscriptionTake(service.getSnapshot()).provider).toBe("cloud");
   expect(JSON.parse(window.localStorage.getItem("omg-browser-transcription-v1")!).mode).toBe("cloud");
 });

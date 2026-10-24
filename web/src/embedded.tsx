@@ -71,6 +71,7 @@ export interface OmgPushNotification {
 
 export { createGrantTransport } from "@omg-dev/client";
 export { clearSavedScreens } from "./lib/saved-screen";
+export { useTranscriptionMode as useOmgTranscriptionMode } from "./components/browser-transcription-settings";
 export type {
   CreateGrantTransportOptions,
   OmgGrant,
