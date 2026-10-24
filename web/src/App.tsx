@@ -358,6 +358,7 @@ import {
 } from "./lib/queue-reconcile";
 import { HeldQueueCards, HeldQueueDock, LOCAL_HELD_ID_PREFIX } from "./components/held-queue-cards";
 import { heldFieldHeight } from "./lib/held-field-height";
+import { closesKeyboardAfterSendHere } from "./lib/keyboard-after-send";
 import { createHeldRelease } from "./lib/held-release";
 import { withoutCompactionNoise } from "./lib/compaction-rows";
 import { PresenceDock } from "./components/presence-dock";
@@ -17661,13 +17662,9 @@ function SessionChatBody({
     // an optimistic bubble the server turned into a held row instead.
     const holdOnServer = mode === "queue" && chatBusy && !bot && !reviewingShipped;
     const queuedBehindTurn = mode === "queue" && chatBusy;
-    // Dismiss a real soft keyboard so the newly-sent turn has room to read.
-    // Keep focus when iPadOS only shows its compact hardware-keyboard helper:
-    // blurring that field hides the helper, and WebKit restoring focus after
-    // submit shows it again, producing two visualViewport layout shifts.
-    if (document.documentElement.classList.contains("lfg-keyboard-open")) {
-      messageInputRef.current?.blur();
-    }
+    // A phone closes its keyboard so the new turn has room; a tablet or a
+    // computer keeps the field focused (lib/keyboard-after-send).
+    if (closesKeyboardAfterSendHere()) messageInputRef.current?.blur();
     const stashed = stagePromptSend({
       contextKey: stashContext,
       source: "session",
@@ -18162,7 +18159,9 @@ function SessionChatBody({
                       ? "Reply to the question"
                       : "Message"
               }
-              disabled={sending}
+              // Read-only, not disabled, while a send is in flight: a disabled field
+              // loses focus, which hid an iPad's keyboard bar after a queued send.
+              readOnly={sending}
               rows={1}
               className={cn(
                 // Height and follow-scroll are owned by ComposerTextarea. Chrome
