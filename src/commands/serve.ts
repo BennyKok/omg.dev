@@ -437,12 +437,14 @@ import {
   listManaged,
   listManagedWithArchive,
   retireDeadManaged,
+  findManagedById,
   patchManaged,
   replaceManagedTitle,
   removeManaged,
   type ManagedSession,
 } from "../managed.ts";
 import { recordSessionExitReason } from "../session-containment-record.ts";
+import { autoBuildSwitch, planAutoBuildLaunch } from "../auto-build-model.ts";
 import { coldResumeContainment, type ColdResumeContainment, commandFileHarnessIsDead, reconcileCommandFileSessions, relaunchDeadCommandFileHarness, setRecoveryEgressProxy } from "../session-recovery.ts";
 import { resolveResumeModel } from "../resume-model.ts";
 import { PtyBridge, termSessionName } from "../pty.ts";
@@ -3197,7 +3199,10 @@ function sendPromptToLiveSession(
   // the harness now (where it either merged into the running turn or vanished
   // into the TUI's own queue). The held-row release path and agent-to-agent
   // updates deliver right away.
-  opts: { mode?: "steer" | "queue"; hold?: boolean } = {},
+  // `fromPerson`: the person sent this (composer, resume, held-row release),
+  // not an agent update or an internal notice. Only such a message ends an
+  // Auto new-app build (src/auto-build-model.ts).
+  opts: { mode?: "steer" | "queue"; hold?: boolean; fromPerson?: boolean } = {},
 ): { ok: boolean; msg?: unknown; error?: string } {
   const prompt = text.trim();
   if (!prompt) return { ok: true };
@@ -3224,6 +3229,14 @@ function sendPromptToLiveSession(
     const key = findAisdkEntryByAnyId(sid)?.sessionId ?? sid;
     patchAisdkEntry(key, { recoveredAt: null });
     if (session.tmuxName) patchManaged(session.tmuxName, { interruptedAt: undefined });
+    // The person's second message ends an Auto build: queued before the send,
+    // the switch applies to this message's turn.
+    const autoNext = autoBuildSwitch(findManagedById(sid), prompt, !!opts.fromPerson);
+    if (autoNext) {
+      appendAisdkCmd(key, { type: "set_model", model: autoNext });
+      if (session.tmuxName) patchManaged(session.tmuxName, { model: autoNext, autoNextModel: undefined });
+      traceLog("session_auto_build_switch", { sessionId: sid, key, model: autoNext });
+    }
     appendAisdkCmd(key, { type: "send", text: prompt });
     traceLog("session_send_aisdk_cmd", { sessionId: sid, key, chars: prompt.length });
     return {
@@ -9447,7 +9460,7 @@ a{color:#60a5fa}
             // Resuming a session that is already live is a follow-up, not a
             // steering action. Queue it so a status/check click does not abort
             // the active turn or any Claude sidechain Explore agents.
-            ? sendPromptToLiveSession(live, prompt, { mode: "queue" })
+            ? sendPromptToLiveSession(live, prompt, { mode: "queue", fromPerson: true })
             : { ok: true as const, msg: undefined };
           if (!sent.ok) return err(409, sent.error || "couldn't send resume prompt");
           return json({
@@ -9477,7 +9490,7 @@ a{color:#60a5fa}
             if (body?.user && listedDead.tmuxName) assignUser(listedDead.tmuxName, body.user);
             const prompt = body?.prompt?.trim() ?? "";
             const sent = prompt
-              ? sendPromptToLiveSession(listedDead, prompt, { mode: "queue" })
+              ? sendPromptToLiveSession(listedDead, prompt, { mode: "queue", fromPerson: true })
               : { ok: true as const, msg: undefined };
             if (!sent.ok) return err(409, sent.error || "couldn't send resume prompt");
             return json({
@@ -10242,7 +10255,14 @@ a{color:#60a5fa}
         // native transcript id. This keeps provider-specific ids out of serve.
         const launchId = crypto.randomUUID();
         const createdAt = Date.now();
-        const launchModel = resolvedModel ?? opencodeDefault ?? defaultModelForAgent(agent);
+        // Auto on a new app: build on the build model, then Auto for changes.
+        const autoBuild = planAutoBuildLaunch({
+          agent,
+          model: resolvedModel ?? opencodeDefault ?? defaultModelForAgent(agent),
+          firstRun: body?.firstRun === true,
+          spawnedBy,
+        });
+        const launchModel = autoBuild.model;
         const requestedTitle = body?.title?.trim().slice(0, 200);
         const fallbackTitle = body?.prompt?.slice(0, 72);
         const resolvedRole = requestedRole || roleForUser(assignedUser).id;
@@ -10268,6 +10288,7 @@ a{color:#60a5fa}
           launchState: "launching",
           hydrating: true,
           model: launchModel,
+          autoNextModel: autoBuild.autoNextModel,
           thinkingLevel,
           serviceTier,
           fastMode,
@@ -11220,6 +11241,7 @@ a{color:#60a5fa}
             const sent = sendPromptToLiveSession(sess, text, {
               mode,
               hold: mode === "queue" && !body?.fromSessionId,
+              fromPerson: !body?.fromSessionId,
             });
             if (!sent.ok) return err(409, sent.error || "couldn't send message");
             sentMsg = sent.msg;
@@ -11337,6 +11359,9 @@ a{color:#60a5fa}
               return err(409, `${model} is disabled because the configured provider returns 403`);
             const key = findAisdkEntryByAnyId(m[1])?.sessionId ?? m[1];
             appendAisdkCmd(key, { type: "set_model", model });
+            // Saved on the row so a relaunch keeps it; a manual choice also
+            // ends a pending Auto build switch.
+            if (sess.tmuxName) patchManaged(sess.tmuxName, { model, autoNextModel: undefined });
             return json({ ok: true, model });
           }
           if (sess.agent !== "claude")
@@ -12537,7 +12562,8 @@ a{color:#60a5fa}
       (s) => s.sessionId === sessionId || s.nativeSessionId === sessionId,
     );
     if (!sess) return { ok: false, error: "session not found" };
-    const sent = sendPromptToLiveSession(sess, text, { mode: "queue" });
+    // Held rows come only from a person's composer sends.
+    const sent = sendPromptToLiveSession(sess, text, { mode: "queue", fromPerson: true });
     return sent.ok ? { ok: true } : { ok: false, error: sent.error };
   });
   const resumedQueueMessages = resumePersistedQueues();

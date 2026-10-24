@@ -28,6 +28,12 @@ export const OMG_LEVEL_MODELS: readonly string[] = [
   "omg/omg/fast",
 ];
 
+/**
+ * The first build of a new app on Auto (src/auto-build-model.ts). Listed so
+ * the session can launch on it; the picker does not offer it.
+ */
+export const OMG_BUILD_MODEL = "omg/omg/build";
+
 export function isOmgLevelModel(model: string | null | undefined): boolean {
   return !!model && OMG_LEVEL_MODELS.includes(model);
 }
@@ -47,6 +53,7 @@ export const OMG_DEFAULT_MODEL = OMG_AUTO_MODEL;
 // order, and the first entry is the default.
 export const OMG_MODELS: string[] = [
   ...OMG_LEVEL_MODELS,
+  OMG_BUILD_MODEL,
   ...[
     "omg/anthropic/claude-opus-5.5",
     "omg/apex",
@@ -90,6 +97,7 @@ export const OMG_INPUT_MODALITIES_BY_MODEL: Record<string, readonly ("text" | "i
   "omg/omg/max": TEXT_IMAGE,
   "omg/omg/balanced": TEXT_IMAGE,
   "omg/omg/fast": TEXT_IMAGE,
+  "omg/omg/build": TEXT_IMAGE,
   // Callstack Apex direct gateway, text-only until vision support is verified.
   "omg/apex": TEXT,
   "omg/deepseek/deepseek-v4-flash-0731": TEXT,
