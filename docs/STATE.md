@@ -2,7 +2,7 @@
 
 Read this first. It records what is true now. The nightly librarian agent
 updates it from merged pull requests. Verify a fact in code before you depend
-on it. Last refresh: 2026-10-24.
+on it. Last refresh: 2026-10-25.
 
 ## Active work (last 14 days)
 
@@ -33,7 +33,7 @@ on it. Last refresh: 2026-10-24.
 - **Media**: 3D generation and a $25 default daily media cap (#398).
 - **Release and agent docs**: verified releases start the omg.dev pin update;
   the pin tool is `omg_pin` (#442–#444). Nightly context refreshes:
-  #387, #390, #394, #396, #399–#400, #404, #408, #410, #412, #447.
+  #387, #390, #394, #396, #399–#400, #404, #408, #410, #412, #447, #455.
 
 ## Open pull requests
 
