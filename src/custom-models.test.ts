@@ -6,8 +6,10 @@ import {
   customInputModalities,
   customModelIds,
   customModelContext,
+  customModelStatus,
   customModelToolFilter,
   refreshCustomModelContexts,
+  resetCustomModelStatusCache,
   ensureCustomProviders,
   findCustomModel,
   parseCustomModels,
@@ -186,4 +188,41 @@ test("context comes from the server when the file has none", async () => {
   // A server that stops answering keeps its last value.
   await refreshCustomModelContexts({ home, fetcher: fakeFetch({}) });
   expect(customModelContext("custom-vllm/gemma", { home })).toBe(131072);
+});
+
+test("customModelStatus probes each server without its key and marks stopped ones offline", async () => {
+  resetCustomModelStatusCache();
+  writeModels([
+    { id: "keyed", baseURL: "http://keyed/v1", apiKey: "secret", models: [{ id: "a" }, { id: "b" }] },
+    { id: "stopped", baseURL: "http://stopped/v1", models: [{ id: "c" }] },
+    { id: "loading", baseURL: "http://loading/v1", models: [{ id: "d" }] },
+    { id: "gone", baseURL: "http://gone/v1", models: [{ id: "e" }] },
+  ]);
+  const seen: { url: string; auth: string | null }[] = [];
+  const fetcher = (async (url: string, init?: RequestInit) => {
+    seen.push({ url, auth: new Headers(init?.headers).get("authorization") });
+    if (url.startsWith("http://keyed/")) return new Response("unauthorized", { status: 401 });
+    if (url.startsWith("http://stopped/")) return new Response("modal-http: invalid function call", { status: 404 });
+    if (url.startsWith("http://loading/")) return new Response("loading", { status: 503 });
+    throw new TypeError("fetch failed");
+  }) as typeof fetch;
+  const status = await customModelStatus({ home, fetcher, now: 1_000 });
+  expect(status).toEqual({
+    "custom-keyed/a": { online: true },
+    "custom-keyed/b": { online: true },
+    "custom-stopped/c": { online: false },
+    "custom-loading/d": { online: false },
+    "custom-gone/e": { online: false },
+  });
+  // The key would wake a scale-to-zero host, so the probe never sends it.
+  expect(seen.every((call) => call.auth === null)).toBe(true);
+  expect(seen.map((call) => call.url).sort()).toEqual([
+    "http://gone/v1/models", "http://keyed/v1/models", "http://loading/v1/models", "http://stopped/v1/models",
+  ]);
+  // Inside 15 s the cached answer is reused; after it, the servers are asked again.
+  await customModelStatus({ home, fetcher, now: 10_000 });
+  expect(seen.length).toBe(4);
+  await customModelStatus({ home, fetcher, now: 20_000 });
+  expect(seen.length).toBe(8);
+  resetCustomModelStatusCache();
 });

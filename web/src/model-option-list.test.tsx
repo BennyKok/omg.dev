@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mount, type Mounted } from "./test-support/render";
 import { useState } from "react";
 import { OMG_LEVEL_MODELS, OMG_MODELS } from "../../src/omg-models";
+import { createSameOriginTransport } from "@omg-dev/client";
+import { configureOmgTransport } from "./lib/omg-client";
 
 const { ModelOptionList } = await import("./App");
 
@@ -283,4 +285,44 @@ test("managed picker offers Haiku 5.5 and excludes retired choices", () => {
   } finally {
     ui.cleanup();
   }
+});
+
+// A custom model whose server is stopped reads "Offline" and cannot be picked.
+describe("ModelOptionList custom model status", () => {
+  let ui: Mounted;
+  beforeEach(() => { ui = mount(); });
+  afterEach(() => { ui.cleanup(); configureOmgTransport(createSameOriginTransport()); });
+
+  test("offline rows are marked and refuse a pick; online rows still choose", async () => {
+    const asked: string[] = [];
+    configureOmgTransport(createSameOriginTransport({ fetch: (async (input: RequestInfo | URL) => {
+      asked.push(String(input));
+      return Response.json({ models: { "custom-modal/ds": { online: false }, "custom-pc/gemma": { online: true } } });
+    }) as typeof globalThis.fetch }));
+    let chosen = "";
+    ui.render(<ModelOptionList value="custom-pc/gemma" models={["custom-pc/gemma", "custom-modal/ds"]} onChoose={(m) => { chosen = m; }} />);
+    await ui.flushAsync();
+    expect(asked.some((url) => url.includes("/api/custom-models/status"))).toBe(true);
+    const rows = ui.queryAll("button") as HTMLButtonElement[];
+    const offline = rows.find((row) => row.textContent?.includes("Offline"))!;
+    expect(offline).toBeDefined();
+    expect(offline.getAttribute("aria-disabled")).toBe("true");
+    expect(rows.filter((row) => row.textContent?.includes("Offline")).length).toBe(1);
+    ui.flush(() => offline.click());
+    expect(chosen).toBe("");
+    const online = rows.find((row) => row !== offline)!;
+    ui.flush(() => online.click());
+    expect(chosen).toBe("custom-pc/gemma");
+  });
+
+  test("hosted-only lists never ask for custom status", async () => {
+    const asked: string[] = [];
+    configureOmgTransport(createSameOriginTransport({ fetch: (async (input: RequestInfo | URL) => {
+      asked.push(String(input));
+      return Response.json({ models: {} });
+    }) as typeof globalThis.fetch }));
+    ui.render(<ModelOptionList value="gpt-5.6" models={["gpt-5.6", "gpt-5.6-mini"]} onChoose={() => {}} />);
+    await ui.flushAsync();
+    expect(asked.some((url) => url.includes("/api/custom-models/status"))).toBe(false);
+  });
 });
