@@ -82,6 +82,19 @@ export type CloudVisibility = {
 /** Checkout test mode for an app (see omg_app_test_checkout). */
 export type CloudTestMode = { slug: string; testMode: boolean };
 
+/**
+ * Whether omg.dev takes an app's payments (Apple Pay, Google Pay, card), and
+ * the seller terms the owner accepts to turn it on (see omg_app_payments).
+ */
+export type CloudAppPayments = {
+  slug: string;
+  enabled: boolean;
+  blocked: boolean;
+  acceptedTermsVersion: string | null;
+  terms: { version: string; points: string[] };
+  domainError?: string;
+};
+
 /** A completed test checkout: where the buyer would land next. */
 export type CloudTestCheckoutResult = {
   ok?: boolean;
@@ -151,6 +164,9 @@ export interface CloudAppsClient {
   getTestMode(slug: string): Promise<CloudTestMode>;
   setTestMode(slug: string, enabled: boolean): Promise<CloudTestMode>;
   completeTestCheckout(checkout: string): Promise<CloudTestCheckoutResult>;
+  getPayments(slug: string): Promise<CloudAppPayments>;
+  enablePayments(slug: string, acceptTermsVersion: string): Promise<CloudAppPayments>;
+  disablePayments(slug: string): Promise<CloudAppPayments>;
   updateIdentity(input: CloudAppIdentityInput): Promise<CloudAppIdentity>;
   listEnv(slug: string, projectId?: string): Promise<{ slug?: string; vars: CloudEnvSummary[] }>;
   pullEnv(slug: string, projectId?: string): Promise<{ slug?: string; env: Record<string, string> }>;
@@ -258,6 +274,15 @@ export function createCloudAppsClient(options: CloudAppsOptions): CloudAppsClien
     },
     async completeTestCheckout(checkout) {
       return (await post("/api/cli/apps/test-checkout/complete", { checkout })) as CloudTestCheckoutResult;
+    },
+    async getPayments(slug) {
+      return (await get(`/api/cli/apps/payments?slug=${encodeURIComponent(slug)}`)) as CloudAppPayments;
+    },
+    async enablePayments(slug, acceptTermsVersion) {
+      return (await post("/api/cli/apps/payments", { slug, action: "enable", acceptTermsVersion })) as CloudAppPayments;
+    },
+    async disablePayments(slug) {
+      return (await post("/api/cli/apps/payments", { slug, action: "disable" })) as CloudAppPayments;
     },
     async updateIdentity(input) {
       return (await post("/api/cli/apps/identity", input)) as CloudAppIdentity;
