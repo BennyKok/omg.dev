@@ -335,3 +335,61 @@ export function customModelToolFilter(model: string, options: { home?: string } 
     ...Object.fromEntries(LITE_OMG_TOOLS.map((tool) => [`omg_${tool}`, true])),
   };
 }
+
+/**
+ * Whether each custom model's server answers, for the picker. Keyed by picker id.
+ *
+ * The probe is `GET <baseURL>/models` WITHOUT the key, so it never wakes a
+ * scale-to-zero GPU host: Modal's proxy auth turns away an unkeyed request at
+ * its edge with a 401 and starts nothing. Any answer counts as online (401
+ * included), except 404 and 5xx: a stopped Modal app answers 404
+ * ("modal-http: invalid function call"), a reverse proxy whose backend is down
+ * answers 502 to 504, and llama.cpp answers 503 while it loads. No answer
+ * within 3 s is offline too.
+ */
+export type CustomModelStatus = Record<string, { online: boolean }>;
+
+const STATUS_TTL_MS = 15_000;
+let statusCache: { key: string; at: number; status: CustomModelStatus } | null = null;
+let statusInFlight: { key: string; promise: Promise<CustomModelStatus> } | null = null;
+
+async function providerOnline(provider: CustomProvider, fetcher: typeof fetch): Promise<boolean> {
+  try {
+    const response = await fetcher(`${provider.baseURL}/models`, { signal: AbortSignal.timeout(3000) });
+    await response.body?.cancel().catch(() => {});
+    return response.status !== 404 && response.status < 500;
+  } catch {
+    return false;
+  }
+}
+
+/** Never throws. Answers from a 15 s cache; concurrent callers share one probe. */
+export async function customModelStatus(
+  options: { home?: string; fetcher?: typeof fetch; now?: number } = {},
+): Promise<CustomModelStatus> {
+  const providers = loadCustomModels(options);
+  if (!providers.length) return {};
+  const key = JSON.stringify(providers.map((provider) => [provider.id, provider.baseURL, provider.models.map((model) => model.id)]));
+  const now = options.now ?? Date.now();
+  if (statusCache?.key === key && now - statusCache.at < STATUS_TTL_MS) return statusCache.status;
+  if (statusInFlight?.key === key) return statusInFlight.promise;
+  const fetcher = options.fetcher ?? fetch;
+  const promise = Promise.all(providers.map(async (provider) => {
+    const online = await providerOnline(provider, fetcher);
+    return provider.models.map((model) => [customModelId(provider.id, model.id), { online }] as const);
+  })).then((rows) => {
+    const status: CustomModelStatus = Object.fromEntries(rows.flat());
+    statusCache = { key, at: options.now ?? Date.now(), status };
+    return status;
+  }).finally(() => {
+    if (statusInFlight?.promise === promise) statusInFlight = null;
+  });
+  statusInFlight = { key, promise };
+  return promise;
+}
+
+/** Test seam: forget the cached probe. */
+export function resetCustomModelStatusCache(): void {
+  statusCache = null;
+  statusInFlight = null;
+}

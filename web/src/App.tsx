@@ -6,6 +6,7 @@ import { BrowserTranscriptionSettings, useBrowserTranscription } from "./compone
 import { replayCloudTranscription } from "./lib/transcription-cloud-replay";
 import { MODEL_USAGE_GROUPS } from "../../packages/protocol/src/model-pricing";
 import { useModelPrices, usePrefetchModelPrices, modelUsageLevel } from "./lib/use-model-prices";
+import { useCustomModelStatus } from "./lib/use-custom-model-status";
 import { OMG_BUILD_MODEL, OMG_MODELS, OMG_PRICE_BASELINE_MODEL, isOmgLevelModel } from "../../src/omg-models";
 import { modelLabProvider, modelListHasRoutes, omgModelLabel, omgModelSearchText, parseOmgModel, parseRoutedModel, setServerModelLabels } from "../../packages/protocol/src/omg-model-display";
 import { ModelProviderIcon, modelProviderIconKey } from "./lib/model-provider-icons";
@@ -26779,7 +26780,12 @@ export function ModelOptionList({
   }, [pricesLoading]);
   const pricesPending = hasManagedModels && pricesLoading && !priceWaitOver;
   const { onPlanLimit } = useEmbeddedHostOptions();
+  const customStatus = useCustomModelStatus(models.some((model) => model.startsWith("custom-")));
   const chooseModel = (item: string) => {
+    if (customStatus[item]?.online === false && item !== value) {
+      toast.error(`${omgModelLabel(item)} is offline. Start its server, then pick it again.`);
+      return;
+    }
     if (prices[item]?.available === false) {
       const message = `Upgrade your plan to use ${omgModelLabel(item)}.`;
       if (onPlanLimit) onPlanLimit({ message, action: "select-model" });
@@ -26823,6 +26829,8 @@ export function ModelOptionList({
   const renderModel = (item: string) => {
     const selected = value === item;
     const locked = prices[item]?.available === false;
+    // A custom model whose server did not answer (see useCustomModelStatus).
+    const offline = customStatus[item]?.online === false;
     // A hosted omg id, or a routed id such as OpenCode's opencode-go/glm-5.3,
     // reads as the lab's mark plus the short model name; the full id stays in
     // the tooltip. Bare ids (Claude, Codex) are already short.
@@ -26839,9 +26847,11 @@ export function ModelOptionList({
         key={item}
         type="button"
         onClick={() => chooseModel(item)}
-        aria-disabled={locked || undefined}
+        aria-disabled={locked || (offline && !selected) || undefined}
         title={
-          hosted
+          offline
+            ? `Offline: the server for ${item} did not answer.`
+            : hosted
             ? `${hosted.providerLabel} · ${item}${priceHint ? `\n${priceHint}` : ""}`
             : routed
               ? `${routed.providerLabel ? `${routed.providerLabel} via ` : ""}${routed.routeLabel} · ${item}`
@@ -26865,7 +26875,13 @@ export function ModelOptionList({
           // they keep no gap for one.
           <span aria-hidden className="size-4 shrink-0" />
         ) : null}
-        <span className={cn("min-w-0 flex-1 truncate", locked && "text-muted-foreground")}>{omgModelLabel(item)}</span>
+        <span className={cn("min-w-0 flex-1 truncate", (locked || offline) && "text-muted-foreground")}>{omgModelLabel(item)}</span>
+        {offline ? (
+          <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+            <span aria-hidden className="size-1.5 rounded-full bg-muted-foreground/60" />
+            Offline
+          </span>
+        ) : null}
         {locked ? <Lock className="size-4 shrink-0 text-muted-foreground" aria-label="Upgrade required" /> : null}
         {selected ? <Check className="size-4 shrink-0 text-primary" aria-hidden="true" /> : null}
       </button>

@@ -5905,6 +5905,13 @@ a{color:#60a5fa}
         }
       }
 
+      // Whether each ~/.omg/models.json server answers, so the picker can
+      // mark a stopped one as offline (src/custom-models.ts).
+      if (path === "/api/custom-models/status" && req.method === "GET") {
+        const { customModelStatus } = await import("../custom-models.ts");
+        return json({ models: await customModelStatus() });
+      }
+
       if (path === "/api/omg/model-prices") {
         const { handleOmgModelPrices } = await import("../omg-model-pricing.ts");
         return handleOmgModelPrices(req, {
