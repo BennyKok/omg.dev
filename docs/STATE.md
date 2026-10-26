@@ -2,7 +2,7 @@
 
 Read this first. It records what is true now. The nightly librarian agent
 updates it from merged pull requests. Verify a fact in code before you depend
-on it. Last refresh: 2026-10-25.
+on it. Last refresh: 2026-10-26.
 
 ## Active work (last 14 days)
 
@@ -29,11 +29,12 @@ on it. Last refresh: 2026-10-25.
   stale-chunk reload message, composer-top host slot, guide navigation,
   conversation binding, and send acknowledgement (#383, #401, #405, #409).
 - **Cloud and apps**: deploy sends its session and requests store screenshots;
-  hosted app rename and paid-flow checkout testing (#395, #406–#407).
+  hosted app rename, paid-flow checkout testing, and owner payment setup from
+  a session (#395, #406–#407, #457).
 - **Media**: 3D generation and a $25 default daily media cap (#398).
 - **Release and agent docs**: verified releases start the omg.dev pin update;
   the pin tool is `omg_pin` (#442–#444). Nightly context refreshes:
-  #387, #390, #394, #396, #399–#400, #404, #408, #410, #412, #447, #455.
+  #387, #390, #394, #396, #399–#400, #404, #408, #410, #412, #447, #455–#456.
 
 ## Open pull requests
 
