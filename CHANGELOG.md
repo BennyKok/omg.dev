@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 26, 2026 - Turn on app payments from the chat (v0.6.334)
+
+- An agent can now turn on Apple Pay, Google Pay and card payments for your hosted app. It shows you omg.dev's seller terms in the chat and turns payments on only after you accept them. Only the app owner can accept.
+
 ## October 26, 2026 - Stopped model servers show as offline (v0.6.333)
 
 - In the model list, a model from your own server (`~/.omg/models.json`) shows "Offline" when its server does not answer, and you cannot pick it. Start the server and it becomes available again. The check never wakes a server that scales to zero.
