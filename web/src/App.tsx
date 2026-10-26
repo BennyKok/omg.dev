@@ -118,6 +118,7 @@ import { ChatStarterRow } from "./components/chat-starter-row";
 import { groupNodesByProject, type ProjectGroup } from "./lib/session-groups";
 import { usePendingSessionLink } from "./lib/session-navigation";
 import { pathnameToSessionId, pathnameToThreadId, sessionToPath, threadToPath } from "./lib/app-search";
+import { INITIAL_SHORTCUT_BAR_STATE, composerFieldForTap, shortcutBarStep } from "./lib/shortcut-bar";
 import { NEW_THREAD_ID, ThreadChat, useTypingReport, type ThreadComposerProps } from "./components/threads";
 import { PullToThread } from "./components/pull-to-thread";
 import { useThreads } from "./lib/threads";
@@ -6627,6 +6628,7 @@ export function App() {
       document.documentElement.style.removeProperty("--lfg-keyboard-height");
       document.documentElement.style.removeProperty("--lfg-visual-offset-top");
       document.documentElement.style.removeProperty("--lfg-visual-height");
+      document.documentElement.style.removeProperty("--lfg-shortcut-bar-reserve");
       setKeyboardOpen(false);
     };
     if (!vv) {
@@ -6649,6 +6651,14 @@ export function App() {
     };
     let disposed = false;
     let staleRetries = 0;
+    // The iPad hardware-keyboard shortcut bar, carried across samples. See
+    // shortcut-bar.ts. While it is up the session composer lifts itself by
+    // the bar's height with a relative `top` (animated in CSS) and slides
+    // back down after blur. A relative offset leaves layout alone, so the
+    // transcript keeps its height and only the input box moves. Not a
+    // transform, which would make a containing block for fixed children.
+    let bar = INITIAL_SHORTCUT_BAR_STATE;
+    let publishedReserve = -1;
     const timers = new Set<number>();
     const later = (fn: () => void, ms: number) => {
       const id = window.setTimeout(() => {
@@ -6680,6 +6690,22 @@ export function App() {
       // keep the shell at the layout viewport and re-sample until WebKit
       // settles, instead of squeezing the app into part of the screen.
       const stale = shrunk && !open;
+      // The shortcut bar floats over the page. Keep the shell at its resting
+      // height so focusing or blurring a field does not resize the app.
+      // Terminal keeps fitting to the visible band, as before.
+      const barStep = shortcutBarStep(bar, {
+        layoutHeight,
+        visualCoverPx: kb,
+        focused: keyboardCapableFocus(),
+        terminal: terminalSurface,
+      });
+      bar = barStep;
+      const { lifted } = barStep;
+      const reserve = lifted ? barStep.reserve : 0;
+      if (reserve !== publishedReserve) {
+        publishedReserve = reserve;
+        document.documentElement.style.setProperty("--lfg-shortcut-bar-reserve", `${reserve}px`);
+      }
       if (stale) {
         if (staleRetries < 10) {
           staleRetries += 1;
@@ -6689,7 +6715,9 @@ export function App() {
         staleRetries = 0;
       }
       const el = rootRef.current;
-      const visualHeight = Math.ceil(stale ? layoutHeight : measured);
+      const visualHeight = Math.ceil(
+        stale ? layoutHeight : barStep.active || lifted ? Math.max(layoutHeight, barStep.restHeight) : measured,
+      );
       const rawVisualTopPx = Math.max(
         0,
         Math.round(
@@ -6704,13 +6732,19 @@ export function App() {
       );
       // A stale foreground-return measurement takes its scroll offset with it —
       // don't translate the shell by it.
-      const visualTopPx = stale ? 0 : open || terminalSurface ? rawVisualTopPx : 0;
+      // While the bar is up Safari scrolls the page by the bar's height, even
+      // when the focused field is already clear of it. Translate the shell
+      // back by the same amount so nothing appears to move. (Pinning the
+      // shell with position: fixed does not help: it moves with that scroll.)
+      const visualTopPx = stale ? 0 : open || terminalSurface || lifted ? rawVisualTopPx : 0;
       const measuredHeight = `${visualHeight}px`;
       const offsetTop = `${visualTopPx}px`;
       document.documentElement.style.setProperty("--lfg-app-height", measuredHeight);
       document.documentElement.style.setProperty("--lfg-visual-height", measuredHeight);
       document.documentElement.style.setProperty("--lfg-visual-offset-top", offsetTop);
-      if (!open && rawVisualTopPx > 0) {
+      // While the bar is up the scroll is Safari's, and the shell follows it
+      // (see visualTopPx). Undoing it only starts a tug of war with Safari.
+      if (!open && !barStep.active && !lifted && rawVisualTopPx > 0) {
         requestAnimationFrame(() => window.scrollTo(0, 0));
       }
       // A bare mount is a block in the HOST's document, not a viewport-owning
@@ -6729,11 +6763,11 @@ export function App() {
         } else {
           el.style.height = "";
         }
-        // Only a terminal surface gets translated for keyboard offset. A
-        // translateY(0) still creates a containing block that would reparent
-        // fixed nav chrome.
+        // Only a terminal surface, or the shell under the shortcut bar, gets
+        // translated. A translateY(0) still creates a containing block that
+        // would reparent fixed nav chrome, so it is cleared at 0.
         el.style.transform =
-          terminalSurface && visualTopPx ? `translateY(${visualTopPx}px)` : "";
+          (terminalSurface || lifted) && visualTopPx ? `translateY(${visualTopPx}px)` : "";
       }
       // Publish the live keyboard height + a flag on <html> so toasts and the
       // dictation pill (portaled to <body>, outside rootRef) can hike up to sit
@@ -6771,6 +6805,32 @@ export function App() {
     window.addEventListener("resize", resync, { passive: true });
     window.addEventListener("orientationchange", resync, { passive: true });
     window.addEventListener("pointerdown", sync, { passive: true, capture: true });
+    // Focus changes move the lift before the bar does; see shortcut-bar.ts.
+    document.addEventListener("focusin", sync, true);
+    document.addEventListener("focusout", sync, true);
+    // Once the bar is known, a tap on the session composer focuses its field
+    // without scroll. Left to the tap, Safari scrolls the page by the bar's
+    // height and the shell can only follow a frame or two late. A drag is
+    // not a tap and is left alone.
+    let tapStart: { x: number; y: number } | null = null;
+    const onTouchStart = (e: TouchEvent) => {
+      const t = e.touches.length === 1 ? e.touches[0] : null;
+      tapStart = t ? { x: t.clientX, y: t.clientY } : null;
+    };
+    const onTouchEnd = (e: TouchEvent) => {
+      const start = tapStart;
+      tapStart = null;
+      if (!start || bar.reserve === 0 || terminalSurface) return;
+      const t = e.changedTouches[0];
+      if (!t || Math.hypot(t.clientX - start.x, t.clientY - start.y) > 10) return;
+      const field = composerFieldForTap(e.target);
+      if (!field) return;
+      e.preventDefault();
+      field.focus({ preventScroll: true });
+      field.setSelectionRange(field.value.length, field.value.length);
+    };
+    document.addEventListener("touchstart", onTouchStart, { capture: true, passive: true });
+    document.addEventListener("touchend", onTouchEnd, { capture: true, passive: false });
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       disposed = true;
@@ -6783,6 +6843,10 @@ export function App() {
       window.removeEventListener("resize", resync);
       window.removeEventListener("orientationchange", resync);
       window.removeEventListener("pointerdown", sync, { capture: true } as EventListenerOptions);
+      document.removeEventListener("focusin", sync, true);
+      document.removeEventListener("focusout", sync, true);
+      document.removeEventListener("touchstart", onTouchStart, true);
+      document.removeEventListener("touchend", onTouchEnd, true);
       document.removeEventListener("visibilitychange", onVisible);
       clear();
     };
@@ -17994,6 +18058,7 @@ function SessionChatBody({
         bot || canDriveSession(session) || reviewingShipped ? (
         <form
           onSubmit={sendMessage}
+          data-lfg-bar-lift=""
           {...files.dropZoneProps}
           className={cn(
             // Sit on the same surface as the chat (no card/border seam) and let
@@ -18010,7 +18075,7 @@ function SessionChatBody({
             // md: the side pad centres a 48rem field, the transcript's reading
             // column (max-w-3xl), and never drops under 0.5rem in a narrow
             // pane. Padding percentages resolve against the form's width.
-            "relative overflow-x-clip bg-[var(--lfg-pane-bg,var(--background))] px-4 pb-[calc(0.5rem+var(--lfg-safe-bottom))] pt-1.5 transition-colors md:px-[max(0.5rem,calc((100%-48rem)/2))]",
+            "relative overflow-x-clip bg-[var(--lfg-pane-bg,var(--background))] px-4 pb-[calc(0.5rem+var(--lfg-safe-bottom))] pt-1.5 transition-[color,background-color,top] duration-[250ms] ease-out top-[calc(-1*var(--lfg-shortcut-bar-reserve,0px))] md:px-[max(0.5rem,calc((100%-48rem)/2))]",
             // Keep the fade above the form. Extending it into the 6px top
             // padding paints over the preview card's rounded top border.
             "before:pointer-events-none before:absolute before:inset-x-0 before:-top-8 before:h-8 before:bg-gradient-to-t before:from-[var(--lfg-pane-bg,var(--background))] before:to-transparent before:content-['']",
