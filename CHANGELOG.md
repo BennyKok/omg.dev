@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 26, 2026 - Stopped model servers show as offline (v0.6.333)
+
+- In the model list, a model from your own server (`~/.omg/models.json`) shows "Offline" when its server does not answer, and you cannot pick it. Start the server and it becomes available again. The check never wakes a server that scales to zero.
+- The model list no longer shows the App Builder row, and selected models have their checkmark on the right.
+- On iPad with a hardware keyboard, the layout no longer jumps when you tap into a text field.
+
 ## October 24, 2026 - Auto knows when you start a new project (v0.6.332)
 
 - On Auto, omg reads your first message to tell a new project from a question or a change. A new project is built on omg's build model. A question or a change starts on Auto's everyday model, so it uses less credit.
