@@ -1668,6 +1668,33 @@ export function buildOmgMcpServer(): McpServer {
   );
 
   server.registerTool(
+    "omg_app_payments",
+    {
+      title: "Take Payments In A Hosted App",
+      description:
+        "Turn on Apple Pay, Google Pay and card payments for a hosted app, with omg.dev as the seller. The app then charges through billing.walletCheckout() and billing.checkout() with no payment account of its own. status: whether payments are on, and the current seller terms. enable: only the app's owner can turn payments on. Before you call enable, show the owner every point of terms.points from status, ask them to accept with your ask-user tool, and call enable only after they explicitly accept in this conversation. Pass terms.version as acceptTermsVersion. Never accept the terms on the owner's behalf. disable: turn payments off.",
+      inputSchema: {
+        action: z.enum(["status", "enable", "disable"]),
+        slug: z.string().min(1).describe("App slug, for example hello from hello.omgs.app."),
+        acceptTermsVersion: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("For enable: terms.version from status, which the owner accepted in this conversation."),
+      },
+    },
+    async ({ action, slug, acceptTermsVersion }) => {
+      return result(
+        await api("/api/cloud/apps/payments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action, slug, acceptTermsVersion }),
+        }),
+      );
+    },
+  );
+
+  server.registerTool(
     "omg_app_rename",
     {
       title: "Change A Hosted App's Address",

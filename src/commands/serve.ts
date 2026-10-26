@@ -6008,6 +6008,7 @@ a{color:#60a5fa}
         path === "/api/cloud/apps/visibility" ||
         path === "/api/cloud/apps/rename" ||
         path === "/api/cloud/apps/test-checkout" ||
+        path === "/api/cloud/apps/payments" ||
         path === "/api/cloud/apps/identity" ||
         path === "/api/cloud/apps/link" ||
         path === "/api/cloud/apps/unlink" ||

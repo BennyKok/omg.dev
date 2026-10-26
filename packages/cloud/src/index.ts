@@ -71,6 +71,7 @@ export {
   type CloudVisibility,
   type CloudAppRename,
   type CloudTestMode,
+  type CloudAppPayments,
   type CloudTestCheckoutResult,
   type CloudWhoami,
 } from "./apps";

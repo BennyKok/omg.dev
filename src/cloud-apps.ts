@@ -494,6 +494,7 @@ export const CLOUD_APPS_PATHS = [
   "/api/cloud/apps/visibility",
   "/api/cloud/apps/rename",
   "/api/cloud/apps/test-checkout",
+  "/api/cloud/apps/payments",
   "/api/cloud/apps/identity",
   "/api/cloud/apps/link",
   "/api/cloud/apps/unlink",
@@ -588,6 +589,25 @@ export async function handleCloudAppsRequest(
         return jsonResponse(await client.setTestMode(slug, action === "enable"));
       }
       return jsonResponse({ error: "action must be status, enable, disable or complete" }, 400);
+    }
+    if (path === "/api/cloud/apps/payments" && req.method === "POST") {
+      const body = await envBody(req);
+      const action = typeof body.action === "string" ? body.action : "";
+      if (typeof body.slug !== "string" || !body.slug.trim()) {
+        return jsonResponse({ error: "slug is required" }, 400);
+      }
+      const slug = body.slug.trim();
+      if (action === "status") return jsonResponse(await client.getPayments(slug));
+      if (action === "disable") return jsonResponse(await client.disablePayments(slug));
+      if (action === "enable") {
+        // The version the owner accepted. Cloud refuses any other version, so
+        // terms that changed since status was read are never accepted.
+        if (typeof body.acceptTermsVersion !== "string" || !body.acceptTermsVersion.trim()) {
+          return jsonResponse({ error: "acceptTermsVersion is required: terms.version from status, after the owner accepts" }, 400);
+        }
+        return jsonResponse(await client.enablePayments(slug, body.acceptTermsVersion.trim()));
+      }
+      return jsonResponse({ error: "action must be status, enable or disable" }, 400);
     }
     if (path === "/api/cloud/apps/rename" && req.method === "POST") {
       const body = await envBody(req);
