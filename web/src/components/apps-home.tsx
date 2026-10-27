@@ -11,7 +11,7 @@
 import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { CreateTutorials } from "./create-tutorials";
 import { useFolderMenuPrefs } from "../lib/folder-menu-prefs";
-import { Check, ChevronRight, Copy, ExternalLink, Folder, FolderPlus, Gamepad2, Github, History, Settings2, Smartphone } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Copy, ExternalLink, Folder, FolderPlus, Gamepad2, Github, History, Settings2, Smartphone } from "lucide-react";
 import { consoleAppUrl, sessionAppRepo, type AppLink } from "../../../packages/protocol/src/app-link";
 import { timeAgo } from "../lib/session-ui";
 import type { CloudAppRow, CloudAppVisits } from "../../../packages/cloud/src/apps";
@@ -199,6 +199,20 @@ export function AppHeaderCard<S extends SessionLike>({ item, onCopied }: { item:
  * app a second time. It points back to the earlier sessions, searched by the
  * app's name, and the chat box below continues the app.
  */
+/** "‹ Apps / name" above an app or folder page: where it sits, and the way back. */
+export function ScopeCrumb({ name, onBack }: { name: string; onBack: () => void }) {
+  return (
+    <nav aria-label="Breadcrumb" className="mx-1 flex min-w-0 items-center gap-1.5 px-1 pb-1 text-[14px] text-muted-foreground">
+      <button type="button" onClick={onBack} className="-ml-1 flex shrink-0 items-center rounded-full py-1 pr-1.5 pl-0.5 active:bg-muted/60">
+        <ChevronLeft className="size-4" aria-hidden="true" />
+        Apps
+      </button>
+      <span aria-hidden="true">/</span>
+      <span className="min-w-0 truncate font-semibold text-foreground" aria-current="page">{name}</span>
+    </nav>
+  );
+}
+
 /** The first row of a project on this Computer: its name, and its earlier sessions. */
 export function LocalProjectCard({ name, onFindSessions }: { name: string; onFindSessions: () => void }) {
   return (

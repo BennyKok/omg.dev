@@ -3,7 +3,8 @@
 // page adds nothing to the hosted Computer surface's first load.
 
 import { useEffect, useState } from "react";
-import { Check, ChevronRight, ExternalLink, Folder, FolderPlus, Github } from "lucide-react";
+import { ChevronRight, ExternalLink, Folder, FolderPlus, Github } from "lucide-react";
+import { cn } from "../lib/utils";
 import { timeAgo } from "../lib/session-ui";
 import { omgFetch } from "../lib/omg-client";
 import { useFolderMenuPrefs } from "../lib/folder-menu-prefs";
@@ -29,10 +30,20 @@ function useProjectSessionCounts(enabled: boolean): ReadonlyMap<string, number> 
   return counts;
 }
 
+type Filter = "all" | "published" | "folders";
+const FILTERS: { id: Filter; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "published", label: "Published" },
+  { id: "folders", label: "Folders" },
+];
+
+type Entry<S extends SessionLike> =
+  | { type: "app"; item: AppItem<S>; lastActivityAt: number }
+  | { type: "folder"; item: LocalProject<S>; lastActivityAt: number };
+
 export default function AppsList<S extends SessionLike>({
   apps,
   local,
-  onOpenSession,
   onOpenApp,
   onOpenProject,
   onImportFolder,
@@ -42,14 +53,16 @@ export default function AppsList<S extends SessionLike>({
   apps: AppItem<S>[];
   /** Projects on this Computer that are not published apps. */
   local: LocalProject<S>[];
-  onOpenSession: (sessionId: string) => void;
+  /** Kept for callers; a row opens its app or folder page, which lists its sessions. */
+  onOpenSession?: (sessionId: string) => void;
   onOpenApp: (item: AppItem<S>) => void;
   onOpenProject: (project: string) => void;
   onImportFolder?: () => void;
   onImportGitHub?: () => void;
 }) {
   const nothing = !apps.length && !local.length;
-  // The projects in use: live sessions now, or past sessions in the history
+  const [filter, setFilter] = useState<Filter>("all");
+  // The folders in use: live sessions now, or past sessions in the history
   // (the resumable list's per-project counts). The rest of the scanned
   // folders wait behind one row. A folder hidden in the folder menu stays hidden.
   const [allLocal, setAllLocal] = useState(false);
@@ -60,7 +73,15 @@ export default function AppsList<S extends SessionLike>({
     .filter((item) => !hiddenFolders.has(item.project) && used(item) > 0)
     .sort((a, b) => b.lastActivityAt - a.lastActivityAt || used(b) - used(a));
   const shownLocal = allLocal || !activeLocal.length ? local : activeLocal.slice(0, LOCAL_SHOWN);
-  const hiddenLocal = local.length - shownLocal.length;
+  const hiddenLocal = filter === "published" ? 0 : local.length - shownLocal.length;
+  // One list: a published app is a folder with a publish link, so apps and
+  // folders sort together by the last work on them. On a tie, apps keep their
+  // own order (newest first) ahead of folders.
+  const entries: Entry<S>[] = [
+    ...(filter === "folders" ? [] : apps.map((item) => ({ type: "app" as const, item, lastActivityAt: item.lastActivityAt }))),
+    ...(filter === "published" ? [] : shownLocal.map((item) => ({ type: "folder" as const, item, lastActivityAt: item.lastActivityAt }))),
+  ];
+  entries.sort((a, b) => b.lastActivityAt - a.lastActivityAt);
   return (
     <div className="flex flex-col gap-1 px-1">
       {nothing ? (
@@ -69,38 +90,40 @@ export default function AppsList<S extends SessionLike>({
           <p className="mt-1 text-[13px] text-muted-foreground">Make one on Create, or import a project.</p>
         </div>
       ) : null}
-      {/* One list, not Games then Apps: the one worked on last is on top. */}
-      <AppSection label="Apps" items={apps} onOpenSession={onOpenSession} onOpenApp={onOpenApp} />
-      {local.length ? (
+      {apps.length && local.length ? (
+        <div role="group" aria-label="Show" className="flex gap-1.5 px-0.5 pt-1">
+          {FILTERS.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              aria-pressed={filter === option.id}
+              onClick={() => setFilter(option.id)}
+              className={cn(
+                "h-8 rounded-full border px-3 text-[13px] font-medium",
+                filter === option.id ? "border-transparent bg-foreground text-background" : "border-border bg-card text-muted-foreground",
+              )}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {entries.length || hiddenLocal > 0 ? (
         <section className="mb-3">
           <div className="px-1.5 pt-2 pb-2 font-mono text-[11px] font-medium uppercase tracking-[0.1em] text-muted-foreground">
-            On this computer · {local.length}
+            Projects · {(filter === "folders" ? 0 : apps.length) + (filter === "published" ? 0 : local.length)}
           </div>
           <div className="overflow-hidden rounded-2xl border border-border bg-card [&>*+*]:border-t [&>*+*]:border-border">
-            {shownLocal.map((item) => (
-              <button
-                key={item.project}
-                type="button"
-                onClick={() => onOpenProject(item.project)}
-                className="flex w-full items-center gap-3 px-3 py-2.5 text-left active:bg-muted/60"
-              >
-                <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-                  <Folder className="size-[18px]" aria-hidden="true" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[15px] font-semibold tracking-[-0.01em]">{item.name}</span>
-                  <span className="block truncate text-[12.5px] text-muted-foreground">
-                    {used(item) ? `${used(item).toLocaleString()} session${used(item) === 1 ? "" : "s"}` : "No sessions"}
-                    {item.lastActivityAt ? ` · ${timeAgo(item.lastActivityAt)}` : ""}
-                  </span>
-                </span>
-                {item.sessions.some(isWorking) ? <Spinner /> : null}
-                <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-              </button>
-            ))}
+            {entries.map((entry) =>
+              entry.type === "app" ? (
+                <AppRow key={`app:${entry.item.project}`} item={entry.item} onOpen={onOpenApp} />
+              ) : (
+                <FolderRow key={`folder:${entry.item.project}`} item={entry.item} sessions={used(entry.item)} onOpen={onOpenProject} />
+              ),
+            )}
             {hiddenLocal > 0 ? (
               <button type="button" onClick={() => setAllLocal(true)} className="block w-full py-2.5 text-center text-[13.5px] font-medium text-primary active:bg-muted/60">
-                Show {hiddenLocal} more
+                Show {hiddenLocal} more folder{hiddenLocal === 1 ? "" : "s"}
               </button>
             ) : null}
           </div>
@@ -108,6 +131,58 @@ export default function AppsList<S extends SessionLike>({
       ) : null}
       {onImportFolder || onImportGitHub ? <ImportProject onFolder={onImportFolder} onGitHub={onImportGitHub} /> : null}
     </div>
+  );
+}
+
+function AppRow<S extends SessionLike>({ item, onOpen }: { item: AppItem<S>; onOpen: (item: AppItem<S>) => void }) {
+  return (
+    <div className="flex items-center pr-2">
+      <button type="button" onClick={() => onOpen(item)} className="flex min-w-0 flex-1 items-center gap-3 py-2.5 pl-3 pr-2 text-left active:bg-muted/60">
+        <AppIcon item={item} />
+        <span className="min-w-0 flex-1">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate text-[15px] font-semibold tracking-[-0.01em]">{item.name}</span>
+            {item.kind === "game" ? <span className="shrink-0 rounded-md bg-muted px-1.5 py-px text-[11px] font-medium text-muted-foreground">Game</span> : null}
+          </span>
+          <span className="block truncate text-[12.5px] text-muted-foreground">
+            <LiveDot live={item.isLive} />
+            {hostOf(item.link.url)}
+            {item.lastActivityAt ? ` · ${timeAgo(item.lastActivityAt)}` : ""}
+          </span>
+        </span>
+        {item.sessions.some(isWorking) ? <Spinner /> : null}
+      </button>
+      {/* The published app itself, one tap from the list. */}
+      <a
+        href={item.link.url}
+        target="_blank"
+        rel="noreferrer"
+        aria-label={`Open ${item.name}`}
+        title={`Open ${hostOf(item.link.url)}`}
+        className="flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted active:bg-muted"
+      >
+        <ExternalLink className="size-[18px]" aria-hidden="true" />
+      </a>
+    </div>
+  );
+}
+
+function FolderRow<S extends SessionLike>({ item, sessions, onOpen }: { item: LocalProject<S>; sessions: number; onOpen: (project: string) => void }) {
+  return (
+    <button type="button" onClick={() => onOpen(item.project)} className="flex w-full items-center gap-3 px-3 py-2.5 text-left active:bg-muted/60">
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+        <Folder className="size-[18px]" aria-hidden="true" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[15px] font-semibold tracking-[-0.01em]">{item.name}</span>
+        <span className="block truncate text-[12.5px] text-muted-foreground">
+          On this computer · {sessions ? `${sessions.toLocaleString()} session${sessions === 1 ? "" : "s"}` : "No sessions"}
+          {item.lastActivityAt ? ` · ${timeAgo(item.lastActivityAt)}` : ""}
+        </span>
+      </span>
+      {item.sessions.some(isWorking) ? <Spinner /> : null}
+      <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+    </button>
   );
 }
 
@@ -134,85 +209,5 @@ function ImportProject({ onFolder, onGitHub }: { onFolder?: () => void; onGitHub
   );
 }
 
-const SESSIONS_PER_APP = 2;
-/** Projects on this Computer shown before "Show more". */
+/** Folders in use shown before "Show more". */
 const LOCAL_SHOWN = 8;
-
-function AppSection<S extends SessionLike>({
-  label,
-  items,
-  onOpenSession,
-  onOpenApp,
-}: {
-  label: string;
-  items: AppItem<S>[];
-  onOpenSession: (sessionId: string) => void;
-  onOpenApp: (item: AppItem<S>) => void;
-}) {
-  if (!items.length) return null;
-  return (
-    <section className="mb-3">
-      <div className="px-1.5 pt-2 pb-2 font-mono text-[11px] font-medium uppercase tracking-[0.1em] text-muted-foreground">
-        {label} · {items.length}
-      </div>
-      <div className="flex flex-col gap-2">
-        {items.map((item) => (
-          <div key={item.project} className="overflow-hidden rounded-2xl border border-border bg-card">
-            <div className="flex items-center pr-3">
-              <button type="button" onClick={() => onOpenApp(item)} className="flex min-w-0 flex-1 items-center gap-3 py-3 pl-3 pr-2 text-left active:bg-muted/60">
-                <AppIcon item={item} />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[15px] font-semibold tracking-[-0.01em]">{item.name}</span>
-                  <span className="block truncate text-[12.5px] text-muted-foreground">
-                    <LiveDot live={item.isLive} />
-                    {hostOf(item.link.url)}
-                  </span>
-                </span>
-              </button>
-              {/* The published app itself, one tap from the list. */}
-              <a
-                href={item.link.url}
-                target="_blank"
-                rel="noreferrer"
-                aria-label={`Open ${item.name}`}
-                title={`Open ${hostOf(item.link.url)}`}
-                className="flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted active:bg-muted"
-              >
-                <ExternalLink className="size-[18px]" aria-hidden="true" />
-              </a>
-            </div>
-            {item.sessions.slice(0, SESSIONS_PER_APP).map((session) => (
-              <SessionLine key={session.sessionId ?? ""} session={session} onOpen={onOpenSession} />
-            ))}
-            {item.sessions.length > SESSIONS_PER_APP ? (
-              <button
-                type="button"
-                onClick={() => onOpenApp(item)}
-                className="block w-full border-t border-border py-2.5 pl-[68px] text-left text-[13.5px] text-muted-foreground"
-              >
-                {item.sessions.length - SESSIONS_PER_APP} more
-              </button>
-            ) : null}
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function SessionLine({ session, onOpen }: { session: SessionLike; onOpen: (sessionId: string) => void }) {
-  const s = session as SessionLike & { title?: string | null; lastUserText?: string | null };
-  const title = s.title?.trim() || s.lastUserText?.trim() || "Untitled session";
-  return (
-    <button
-      type="button"
-      onClick={() => session.sessionId && onOpen(session.sessionId)}
-      className="flex w-full items-center gap-2.5 border-t border-border py-2.5 pr-3 pl-[68px] text-left text-[14px] active:bg-muted/60"
-    >
-      {isWorking(session) ? <Spinner /> : <Check className="size-3.5 shrink-0 text-emerald-500" aria-hidden="true" />}
-      <span className="min-w-0 flex-1 truncate">{title}</span>
-      {session.lastActivityAt ? <span className="shrink-0 text-[12px] text-muted-foreground">{timeAgo(session.lastActivityAt)}</span> : null}
-    </button>
-  );
-}
-
