@@ -81,6 +81,7 @@ export const CLAUDE_MODELS: string[] = sortClaudeModelsByRelease([
 export const CODEX_MODELS: string[] = [
   "gpt-6.1-sol",
   "gpt-6-astra",
+  "gpt-6.1-terra",
   "gpt-6-sol",
   "gpt-6-luna",
   "gpt-5.6-sol",
@@ -99,6 +100,7 @@ export const AISDK_MODELS: string[] = [...CLAUDE_MODELS];
 export const CODEX_AISDK_MODELS: string[] = [
   "gpt-6.1-sol",
   "gpt-6-astra",
+  "gpt-6.1-terra",
   "gpt-6-sol",
   "gpt-6-luna",
   "gpt-5.6-sol",

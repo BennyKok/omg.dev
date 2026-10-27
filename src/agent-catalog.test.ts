@@ -19,7 +19,7 @@ import { applyOmgRouterFixture } from "./fixtures/omg-agent-catalog.ts";
 applyOmgRouterFixture();
 
 test("offers the current Codex models", () => {
-  for (const id of ["gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna"]) {
+  for (const id of ["gpt-6.1-sol", "gpt-6-astra", "gpt-6.1-terra", "gpt-6-sol", "gpt-6-luna"]) {
     expect(CODEX_MODELS).toContain(id);
     expect(CODEX_AISDK_MODELS).toContain(id);
   }

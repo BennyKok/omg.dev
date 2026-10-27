@@ -1472,6 +1472,7 @@ const CLAUDE_MODELS = ["claude-opus-5-5", "opus", "claude-fable-5-1", "fable", "
 const CODEX_MODELS = [
   "gpt-6.1-sol",
   "gpt-6-astra",
+  "gpt-6.1-terra",
   "gpt-6-sol",
   "gpt-6-luna",
   "gpt-5.6-sol",
@@ -1488,6 +1489,7 @@ const AISDK_MODELS = CLAUDE_MODELS;
 const CODEX_AISDK_MODELS = [
   "gpt-6.1-sol",
   "gpt-6-astra",
+  "gpt-6.1-terra",
   "gpt-6-sol",
   "gpt-6-luna",
   "gpt-5.6-sol",
