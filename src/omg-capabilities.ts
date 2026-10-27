@@ -6,7 +6,7 @@ import { customInputModalities } from "./custom-models.ts";
 // Bump whenever an agent-facing omg.dev capability or its operating guidance
 // changes. Managed sessions persist the value they launched with, which lets
 // the UI identify long-lived sessions whose MCP/tool catalog predates a ship.
-export const OMG_CAPABILITY_VERSION = "2026-10-26.1";
+export const OMG_CAPABILITY_VERSION = "2026-10-27.1";
 
 export const OMG_CAPABILITIES = [
   {

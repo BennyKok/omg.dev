@@ -277,6 +277,28 @@ test("omg_app_identity passes the screenshot links in order, and [] clears them"
   ]);
 });
 
+// Fails if the owner's choice to hide their name is dropped on the way to
+// Cloud. false must be sent as false, since leaving it out means "no change".
+test("omg_app_identity passes showCreator false and true to Cloud", async () => {
+  const sent: any[] = [];
+  for (const showCreator of [false, true]) {
+    const req = identityRequest({ slug: "hi", showCreator });
+    const response = await handleCloudAppsRequest(req, new URL(req.url), {
+      getAccessToken: async () => "tok",
+      controlPlaneUrl: "https://backend.example",
+      fetch: async (_input, init) => {
+        sent.push(JSON.parse(String(init?.body)));
+        return json({ ok: true, slug: "hi", name: "Hi", tagline: null, iconUrl: null, screenshots: [], showCreator });
+      },
+    });
+    expect(response?.status).toBe(200);
+  }
+  expect(sent).toEqual([
+    { slug: "hi", showCreator: false },
+    { slug: "hi", showCreator: true },
+  ]);
+});
+
 function envRequest(path: string, body: unknown) {
   return new Request(`http://127.0.0.1${path}`, {
     method: "POST",

@@ -140,6 +140,8 @@ export type CloudAppIdentityInput = {
   icon?: { contentType: string; dataBase64: string };
   /** Store page screenshot links (https), in order. Replaces the whole set; [] clears it. */
   screenshotUrls?: string[];
+  /** false keeps the owner's name off the app's install bar, link card and store page. Owner only. */
+  showCreator?: boolean;
 };
 
 export type CloudAppIdentity = {
@@ -150,6 +152,8 @@ export type CloudAppIdentity = {
   iconUrl: string | null;
   /** Store page screenshots, in order. Missing from older servers. */
   screenshots?: string[];
+  /** Whether the owner's name shows on the app. Missing from older servers. */
+  showCreator?: boolean;
 };
 
 export interface CloudAppsClient {
