@@ -1,8 +1,9 @@
-// omg_app_identity over MCP: the store screenshots field.
+// omg_app_identity over MCP: the store screenshots and show-creator fields.
 //
 // Fails if the agent cannot pass its screenshots (the store page keeps showing
 // design mockups), if the order is lost, or if more than 5 or non-https
-// links reach Cloud.
+// links reach Cloud. Also fails if the owner's "hide my name" choice
+// (showCreator: false) never reaches Cloud.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { serveOmgMcpRequest } from "../src/mcp-http.ts";
 
@@ -64,4 +65,18 @@ test("six links, an http link or a file path are refused before any request", as
     expect(out.isError).toBe(true);
   }
   expect(calls).toEqual([]);
+});
+
+test("showCreator false and true reach the identity route as booleans", async () => {
+  const { tools } = await rpc("tools/list", {});
+  const tool = tools.find((t: { name: string }) => t.name === "omg_app_identity");
+  expect(tool.inputSchema.properties.showCreator.type).toBe("boolean");
+  for (const showCreator of [false, true]) {
+    const out = await rpc("tools/call", { name: "omg_app_identity", arguments: { slug: "hi", showCreator } });
+    expect(out.isError).not.toBe(true);
+  }
+  expect(calls.map((c) => c.body)).toEqual([
+    { slug: "hi", showCreator: false },
+    { slug: "hi", showCreator: true },
+  ]);
 });

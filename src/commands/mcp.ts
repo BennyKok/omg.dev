@@ -1737,14 +1737,18 @@ export function buildOmgMcpServer(): McpServer {
           .describe(
             "Store page screenshots, in order: 1 to 5 https links to portrait phone screenshots (about 390x844) of the live app's main screens. Publish the images with the app first under /omg-store/ (for example /omg-store/1.png), which stays public even when the app needs sign-in. Replaces the whole set; [] clears it.",
           ),
+        showCreator: z
+          .boolean()
+          .optional()
+          .describe("false hides your name on the app's install bar, link card and store page; they read 'Made with omg'. Owner only."),
       },
     },
-    async ({ slug, name, tagline, iconPath, screenshotUrls }) =>
+    async ({ slug, name, tagline, iconPath, screenshotUrls, showCreator }) =>
       result(
         await api("/api/cloud/apps/identity", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ slug, name, tagline, iconPath, screenshotUrls }),
+          body: JSON.stringify({ slug, name, tagline, iconPath, screenshotUrls, showCreator }),
         }),
       ),
   );

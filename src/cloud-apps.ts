@@ -630,6 +630,7 @@ export async function handleCloudAppsRequest(
         tagline?: unknown;
         iconPath?: unknown;
         screenshotUrls?: unknown;
+        showCreator?: unknown;
       } | null;
       if (typeof body?.slug !== "string" || !body.slug.trim()) {
         return jsonResponse({ error: "slug is required" }, 400);
@@ -644,6 +645,7 @@ export async function handleCloudAppsRequest(
         ...(icon ? { icon } : {}),
         // Cloud owns the link rules (https, length, count); pass the list as is.
         ...(body.screenshotUrls !== undefined ? { screenshotUrls: body.screenshotUrls as string[] } : {}),
+        ...(typeof body.showCreator === "boolean" ? { showCreator: body.showCreator } : {}),
       }));
     }
     if (path === "/api/cloud/apps/deploy" && req.method === "POST") {
