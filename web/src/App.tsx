@@ -15,7 +15,7 @@ import { useRuntimeLifecycle } from "./lib/runtime-lifecycle";
 import { useComputerResumeMetrics } from "./lib/use-computer-resume-metrics";
 import { LiveHeaderContext } from "./components/live-header-context";
 import { MobileProjectFolders } from "./components/mobile-project-folders";
-import { AppHeaderCard, AppNoOpenSessions, buildAppItems, CreateBackdrop, CreateHome, LocalProjectCard, Spinner, sessionInAppScope, useCloudApps, useScopedApp } from "./components/apps-home";
+import { AppHeaderCard, AppNoOpenSessions, buildAppItems, CreateBackdrop, CreateHome, LocalProjectCard, ScopeCrumb, Spinner, sessionInAppScope, useCloudApps, useScopedApp } from "./components/apps-home";
 import { CreateComposerFrame } from "./components/create-composer-frame";
 import { ProjectFolderMenu } from "./components/project-folder-menu";
 import { SessionReparentProvider, SessionReparentTarget, useSessionDragMenuGuard } from "./components/session-reparent";
@@ -9423,6 +9423,10 @@ export function App() {
   // The composer's hint names the app when the scope is a published app's folder.
   const scopedAppRepo = repos.find((repo) => repo.deploy && repoProject(repo) === projectFilter);
   const scopedAppName = isMobile && !homeView && scopedAppRepo ? scopedAppRepo.deploy?.name || projectFilter : null;
+  // A folder opened from Apps: the hint names it, so a new chat's place is clear.
+  const scopedFolderRepo = scopedAppRepo ? undefined : repos.find((repo) => repoProject(repo) === projectFilter);
+  const scopedFolderName =
+    isMobile && !homeView && scopedFolderRepo ? scopedFolderRepo.name || projectFilter.split("/").pop() || projectFilter : null;
   // Apps hides the composer; an app page shows it, ready for the next change.
   const createComposer = createView;
   const composerHiddenForApps = isMobile && appsView;
@@ -9967,7 +9971,15 @@ export function App() {
             // Once there is an app or a project on this Computer: before that
             // the page would be empty, and Create is where the first one starts.
             ...(hasApps || repos.length
-              ? [{ id: "apps", label: "Apps", icon: "apps" as const, pressed: appsView, onPress: () => setHomeView("apps") }]
+              ? [{
+                  id: "apps",
+                  label: "Apps",
+                  icon: "apps" as const,
+                  // An app or a folder page sits under Apps, so Apps stays
+                  // pressed there and a press goes back to the list.
+                  pressed: appsView || (!homeView && projectFilter !== "__all" && projectFilter !== NO_PROJECT_FILTER),
+                  onPress: () => setHomeView("apps"),
+                }]
               : []),
             {
               // Every session, grouped by folder: the list this page showed
@@ -10490,7 +10502,13 @@ export function App() {
               focusNonce={composerFocusNonce}
               findSessions={findSessions}
               placeholder={
-                scopedAppName ? `Change something in ${scopedAppName}…` : createComposer ? "Describe a game or an app…" : undefined
+                scopedAppName
+                  ? `Change something in ${scopedAppName}…`
+                  : scopedFolderName
+                    ? `What should we work on in ${scopedFolderName}?`
+                    : createComposer
+                      ? "Describe a game or an app…"
+                      : undefined
               }
               agentRequest={agentRequest}
               users={users}
@@ -12911,6 +12929,9 @@ function LiveView({
           />
           </Suspense>
         ) : <>
+        {(scopedApp || scopedLocalName) && onShowApps ? (
+          <ScopeCrumb name={scopedApp?.name ?? scopedLocalName ?? ""} onBack={onShowApps} />
+        ) : null}
         {scopedApp ? <AppHeaderCard item={scopedApp} onCopied={() => toast.success("Link copied")} /> : null}
         {scopedLocalName ? <LocalProjectCard name={scopedLocalName} onFindSessions={() => onFindSessions?.("")} /> : null}
         {/* Threads are people chats, not work on this app. */}
@@ -12923,6 +12944,8 @@ function LiveView({
           onProjectChange={onProjectChange}
           renderItem={renderMobileItem}
           card={listStyle === "compact"}
+          // The card and the crumb above already name the app or folder.
+          headerless={!!(scopedApp || scopedLocalName)}
         />
         {/* Threads alone (or a project chip with nothing in it) used to leave
             the rest of the phone blank above the composer. */}
