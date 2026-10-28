@@ -6256,7 +6256,7 @@ export function App() {
         if (next) setRoleViewer(next);
       })
       .catch(() => {});
-    void fetch("/api/roles", { credentials: "same-origin", signal: controller.signal })
+    void omgFetch("/api/roles", { signal: controller.signal })
       .then(async (res) => (res.ok ? ((await res.json()) as { roles: { id: string; name: string }[] }) : null))
       .then((payload) => {
         if (payload) setRoleOptions(payload.roles.map((r) => ({ id: r.id, name: r.name })));
@@ -6770,6 +6770,11 @@ export function App() {
         // would reparent fixed nav chrome, so it is cleared at 0.
         el.style.transform =
           (terminalSurface || lifted) && visualTopPx ? `translateY(${visualTopPx}px)` : "";
+      } else if (el) {
+        // Not ours to size (a bare mount). Cleared here rather than in the
+        // effect's cleanup, which no longer resets anything between runs.
+        el.style.height = "";
+        el.style.transform = "";
       }
       // Publish the live keyboard height + a flag on <html> so toasts and the
       // dictation pill (portaled to <body>, outside rootRef) can hike up to sit
@@ -6850,9 +6855,30 @@ export function App() {
       document.removeEventListener("touchstart", onTouchStart, true);
       document.removeEventListener("touchend", onTouchEnd, true);
       document.removeEventListener("visibilitychange", onVisible);
-      clear();
+      // No clear() here. This cleanup also runs on every dependency change
+      // (`loading` turning false, each tab switch), and the next run's sync()
+      // writes every value again at once. Removing the <html> vars in between
+      // cost two full-document style recalcs per change (about 60 ms each on
+      // app.omg.dev, measured 2026-10-28) and briefly unsized the shell. The
+      // vars are cleared once, on unmount, by the effect below.
     };
   }, [bare, isMobile, loading, tab, terminalSurface]);
+  useEffect(
+    () => () => {
+      const el = rootRef.current;
+      if (el) {
+        el.style.height = "";
+        el.style.transform = "";
+      }
+      document.documentElement.style.removeProperty("--lfg-app-height");
+      document.documentElement.classList.remove("lfg-keyboard-open");
+      document.documentElement.style.removeProperty("--lfg-keyboard-height");
+      document.documentElement.style.removeProperty("--lfg-visual-offset-top");
+      document.documentElement.style.removeProperty("--lfg-visual-height");
+      document.documentElement.style.removeProperty("--lfg-shortcut-bar-reserve");
+    },
+    [],
+  );
 
   const refreshBots = useCallback(async () => {
     const payload = await api<{ bots: PersistentBot[]; conversations?: BotConversationUnread[]; quota?: PersistentBotQuota }>(
