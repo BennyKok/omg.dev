@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { brotliCompressSync, constants as zlibConstants, gzipSync } from "node:zlib";
 import { defineConfig, type Plugin } from "vite";
-import { reactPlugin } from "./vite.react";
+import { reactPlugin } from "./vite.react.ts";
 import tailwindcss from "@tailwindcss/vite";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -127,20 +127,20 @@ export default defineConfig({
   // while still writing web/dist/assets/*.js.map for server-side / agent use.
   // noVNC (the Computer's RFB client) ships top-level await for one optional
   // WebCodecs feature probe, and Vite's default `modules` target predates it —
-  // esbuild fails the dep scan with "Top-level await is not available". es2022
+  // the dependency pre-bundle fails with "Top-level await is not available". es2022
   // is the first target that allows it.
   //
   // This raises the browser floor to roughly Chrome 89 / Safari 15 / Firefox 89
   // (all 2021). Nothing here targeted anything older deliberately: the previous
   // floor was Vite's default rather than a stated support policy.
   optimizeDeps: {
-    esbuildOptions: { target: "es2022" },
+    rolldownOptions: { transform: { target: "es2022" } },
   },
   build: {
     outDir: BUILD_OUT_DIR,
     target: "es2022",
     sourcemap: BUILD_SOURCEMAP,
-    rollupOptions: {
+    rolldownOptions: {
       output: {
         // Pin React + ReactDOM into their own chunk. They change only on a React
         // upgrade, so the hash stays stable across app deploys — returning users

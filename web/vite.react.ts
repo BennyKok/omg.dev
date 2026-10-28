@@ -1,11 +1,17 @@
-import react from "@vitejs/plugin-react";
+import babel from "@rolldown/plugin-babel";
+import react, { reactCompilerPreset } from "@vitejs/plugin-react";
 
-// The React plugin for every LFG web build: the app (vite.config.ts) and the
+// The React plugins for every LFG web build: the app (vite.config.ts) and the
 // prebuilt embed (vite.lib.config.ts) that app.omg.dev renders.
 //
 // React Compiler 1.0 memoizes a component at build time, so its render no
 // longer re-renders children whose inputs did not change. Before it, one
 // keystroke in the home composer re-rendered about 45 components.
+//
+// plugin-react 6 no longer runs Babel itself. The compiler runs through
+// @rolldown/plugin-babel with plugin-react's `reactCompilerPreset`, which is the
+// same babel-plugin-react-compiler as before. (plugin-react's `compiler` option
+// is a Rust port that its docs still call experimental.)
 //
 // Annotation mode: only a component or hook whose body starts with
 // "use memo" is compiled. Compiling every component gave the same render
@@ -23,9 +29,10 @@ import react from "@vitejs/plugin-react";
 // `target: "19"` emits `react/compiler-runtime`, which React 19 ships. The
 // embed keeps React external, so the host's React provides it.
 export function reactPlugin() {
-  return react({
-    babel: {
-      plugins: [["babel-plugin-react-compiler", { target: "19", compilationMode: "annotation", panicThreshold: "all_errors" }]],
-    },
-  });
+  return [
+    react(),
+    babel({
+      presets: [reactCompilerPreset({ target: "19", compilationMode: "annotation", panicThreshold: "all_errors" })],
+    }),
+  ];
 }

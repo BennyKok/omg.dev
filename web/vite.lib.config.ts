@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import { defineConfig, type Plugin } from "vite";
-import { reactPlugin } from "./vite.react";
+import { reactPlugin } from "./vite.react.ts";
 import tailwindcss from "@tailwindcss/vite";
 import prefixSelector from "postcss-prefix-selector";
 
@@ -157,7 +157,7 @@ export default defineConfig({
       fileName: "index",
       cssFileName: "styles",
     },
-    rollupOptions: {
+    rolldownOptions: {
       // Host-shared libraries. React was already external; the rest are
       // libraries app.omg.dev (BennyKok/vibes apps/web) also ships on the
       // eager path. Leaving them inlined duplicates tens to hundreds of KB
