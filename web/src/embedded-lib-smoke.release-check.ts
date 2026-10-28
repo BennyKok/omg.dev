@@ -17,7 +17,7 @@
 // registers.
 
 import { afterEach, beforeAll, describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Window } from "happy-dom";
 import { assertTestBuilds, EMBED_TEST_BUILDS } from "../../scripts/test-builds";
@@ -178,6 +178,19 @@ describe("built embed resolves host externals and mounts", () => {
     expect(all).toContain('from "sonner"');
     expect(all).not.toContain("isViewTransitionTypesSupported");
     expect(all).not.toContain("isThemeGetter");
+  });
+
+  test("no chunk requires a host-shared package CommonJS-style", () => {
+    // A bundled CommonJS module that calls require("react") keeps that call,
+    // because React is external. Bun has require, so the mount tests below
+    // pass; a host's browser bundle throws "Calling `require` for "react"" on
+    // first load. v0.6.341 shipped that through use-sync-external-store/shim
+    // (vite.lib.config.ts now aliases it to React's own hook).
+    const callsRequire = /(?<![\w$.])(?!import\b)[\w$]+\(\s*"(react|react-dom|@tanstack\/react-router|cnfast|class-variance-authority|@base-ui\/react|sonner|@omg-dev\/client)(\/[^"]*)?"\s*\)/;
+    const offenders = readdirSync(DIST)
+      .filter((name) => name.endsWith(".js"))
+      .filter((name) => callsRequire.test(readFileSync(join(DIST, name), "utf8")));
+    expect(offenders).toEqual([]);
   });
 
   test("OmgAppSurface mounts a memory-router tree against a mock transport", async () => {
