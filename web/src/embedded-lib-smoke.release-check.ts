@@ -30,13 +30,13 @@ const MANIFEST = join(WEB, "package.json");
 assertTestBuilds(REPO, EMBED_TEST_BUILDS);
 
 const EXPECTED_PEERS = {
-  "@base-ui/react": "^1.6.0",
-  "@tanstack/react-router": "^1.170.18",
+  "@base-ui/react": "^1.9.0",
+  "@tanstack/react-router": "^1.170.46",
   "class-variance-authority": "^0.7.1",
   cnfast: "0.0.8",
-  react: "^19.2.4",
-  "react-dom": "^19.2.4",
-  sonner: "^2.0.7",
+  react: "^19.3.1",
+  "react-dom": "^19.3.1",
+  sonner: "^2.0.8",
 } as const;
 
 const win = new Window({ url: "https://app.omg.dev/" });

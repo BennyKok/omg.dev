@@ -37,7 +37,6 @@ import {
   Check,
   Clock,
   Download,
-  Github,
   Laptop,
   Layers,
   Palette,
@@ -48,6 +47,7 @@ import {
   Smartphone,
   Sparkles,
 } from "lucide-react";
+import { Github } from "./icons/github";
 import type { LucideIcon } from "lucide-react";
 import { Button } from "./ui/button";
 import { BrandIcon } from "../lib/brand-icons";
