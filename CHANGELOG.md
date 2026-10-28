@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 28, 2026 - Snapshot workspaces on trial (v0.6.344)
+
+- Snapshot workspaces are on a one-week trial on one machine. The setting under Settings > Advanced is hidden everywhere else, and new sessions use normal workspaces.
+
 ## October 28, 2026 - The Computer stays connected (v0.6.343)
 
 - The live Computer in a chat no longer reconnects when you open it full screen, close full screen, or hide and show it. Every view of the screen now shares one connection.
