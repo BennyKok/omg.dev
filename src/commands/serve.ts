@@ -532,7 +532,7 @@ import {
   resolveInputCwd,
 } from "../repo-resolve.ts";
 import { WORKTREE_ROOT, planSessionCwd, prepareSessionWorktree, startWorktreeSweep } from "../worktree.ts";
-import { ensureSnapforkMountedForPath, remountSnapforks, snapforkStatus } from "../snapfork.ts";
+import { ensureSnapforkMountedForPath, remountSnapforks, snapforkPreview, snapforkStatus } from "../snapfork.ts";
 import { ensureDiskBackedTmpdir, startTmpSweep } from "../tmp-reclaim.ts";
 import { startOrphanAgentServerSweep } from "../orphan-agent-servers.ts";
 import {
@@ -6114,6 +6114,9 @@ a{color:#60a5fa}
         }
       }
       if (path === "/api/snapfork" && req.method === "GET") {
+        // Outside the preview the endpoint is absent, which the Settings
+        // section reads as "hide the switch" (the same as an older box).
+        if (!snapforkPreview() && !process.env.LFG_SNAPFORK) return err(404, "not found");
         return json(snapforkStatus());
       }
 

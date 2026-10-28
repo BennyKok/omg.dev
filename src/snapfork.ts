@@ -119,7 +119,18 @@ export function snapforkEnabled(): boolean {
   // and bases that outlived the test (2026-10-28). A test that wants a fork
   // sets LFG_SNAPFORK=1.
   if (process.env.NODE_ENV === "test") return false;
+  if (!snapforkPreview()) return false;
   return readSetting() && snapforkSupport().supported;
+}
+
+/**
+ * Snapshot workspaces are on trial (2026-10-28): only a box started with
+ * LFG_SNAPFORK_PREVIEW=1 shows the switch and honours the stored setting.
+ * Everywhere else the switch is hidden and a stored `true` does nothing, so
+ * no other install can opt in until the trial is reviewed.
+ */
+export function snapforkPreview(): boolean {
+  return process.env.LFG_SNAPFORK_PREVIEW === "1";
 }
 
 function readSetting(): boolean {
