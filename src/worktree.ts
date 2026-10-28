@@ -270,7 +270,15 @@ export async function prepareSessionWorktree(
   // instead of writing a full one. Any outcome other than a working fork or a
   // checked-out fallback drops through to the normal path below.
   if (snapforkEnabled()) {
+    const startedAt = performance.now();
     const fork = await createSnapfork({ repo: absRoot, name: sessionName, branch, ref: base.ref, wtPath });
+    // One line per create, for the trial review: `journalctl --user -u lfg | grep '\[snapfork\]'`.
+    console.log(
+      `[snapfork] create ${sessionName} repo=${basename(absRoot)} outcome=${fork.kind}` +
+        ` ms=${Math.round(performance.now() - startedAt)}` +
+        (fork.kind === "plain" ? ` reason=${JSON.stringify(fork.reason.slice(0, 200))}` : "") +
+        (fork.kind === "error" ? ` error=${JSON.stringify(fork.error.slice(0, 200))}` : ""),
+    );
     if (fork.kind === "snapfork" || fork.kind === "plain") {
       markWorktreeOwned(sessionName, WORKTREE_ROOT);
       return { ok: true, worktree: { repoRoot: absRoot, branch, path: wtPath } };

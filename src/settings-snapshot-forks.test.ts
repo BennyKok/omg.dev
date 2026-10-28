@@ -9,6 +9,7 @@ import { snapforkEnabled, snapforkStatus, snapforkSupport } from "./snapfork.ts"
 const originalData = PATHS.data;
 const originalEnv = process.env.LFG_SNAPFORK;
 const originalNodeEnv = process.env.NODE_ENV;
+const originalPreview = process.env.LFG_SNAPFORK_PREVIEW;
 let testData = "";
 
 beforeAll(async () => {
@@ -22,6 +23,8 @@ afterEach(() => {
   else process.env.LFG_SNAPFORK = originalEnv;
   if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
   else process.env.NODE_ENV = originalNodeEnv;
+  if (originalPreview === undefined) delete process.env.LFG_SNAPFORK_PREVIEW;
+  else process.env.LFG_SNAPFORK_PREVIEW = originalPreview;
 });
 
 afterAll(async () => {
@@ -45,8 +48,18 @@ describe("snapshotForks", () => {
     await settings.setGlobalSettings({ snapshotForks: false });
   });
 
+  test("outside the preview a stored opt-in does nothing", async () => {
+    delete process.env.LFG_SNAPFORK;
+    delete process.env.LFG_SNAPFORK_PREVIEW;
+    process.env.NODE_ENV = "production";
+    await settings.setGlobalSettings({ snapshotForks: true });
+    expect(snapforkEnabled()).toBe(false);
+    await settings.setGlobalSettings({ snapshotForks: false });
+  });
+
   test("persists the opt-in; it takes effect only where the box supports it", async () => {
     delete process.env.LFG_SNAPFORK;
+    process.env.LFG_SNAPFORK_PREVIEW = "1";
     process.env.NODE_ENV = "production";
     await settings.setGlobalSettings({ snapshotForks: true });
     settings.resetSettingsDbConnectionForTests();
