@@ -3,6 +3,7 @@
 // The user is the browser's own pick (lfg_user); there is no auth, so the
 // answer decides layout, not access. The owner may preview any role; the
 // preview is remembered per browser under `lfg_role_preview`.
+import { omgFetch } from "./omg-client";
 
 export const VIEW_TOGGLE_KEYS = [
   "showSidebarAgentIcons",
@@ -56,7 +57,10 @@ export async function fetchViewer(
   if (user) params.set("user", user);
   if (previewRole) params.set("role", previewRole);
   const query = params.toString();
-  const res = await fetch(`/api/me${query ? `?${query}` : ""}`, { credentials: "same-origin", signal });
+  // Through the omg transport, like every other read of this box. A relative
+  // fetch reached the host page on app.omg.dev, not the computer: it got the
+  // dashboard's HTML (143 KB, on every load) and the role never applied.
+  const res = await omgFetch(`/api/me${query ? `?${query}` : ""}`, { signal });
   if (!res.ok) return null;
   const payload = (await res.json()) as Partial<Viewer>;
   return {
