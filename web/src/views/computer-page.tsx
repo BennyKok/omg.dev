@@ -9,10 +9,9 @@
 // The pixels arrive as RFB over a websocket (see src/computer/rfb-bridge.ts),
 // rendered by noVNC. This page is lazily loaded -- noVNC is not on the path to
 // first paint, and most sessions never open the Computer at all.
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import type React from "react";
 import { readRemoteClipboard, setRemoteClipboard } from "@/lib/computer-clipboard-transport";
-import RFB from "@novnc/novnc";
 import { attachComputerClipboard, clipboardButtonHandlers, type ComputerClipboard } from "../../../packages/protocol/src/computer-clipboard";
 import {
   ClipboardCopy,
@@ -26,9 +25,9 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { omgFetch, openOmgSocket } from "@/lib/omg-client";
+import { omgFetch } from "@/lib/omg-client";
 import { computerStartErrorMessage } from "@/lib/computer-start-error";
-import { RfbChannel } from "@/lib/rfb-channel";
+import { computerConnection } from "@/lib/computer-connection-instance";
 import { dispatchComputerMouse } from "@/lib/computer-pointer";
 
 interface DepReport {
@@ -76,11 +75,9 @@ export function ComputerPage({
 }) {
   const inline = variant === "inline";
   const [status, setStatus] = useState<ComputerStatus | null>(null);
-  const [phase, setPhase] = useState<Phase>("idle");
-  const [error, setError] = useState<string | null>(null);
-  // You open the Computer to use it, so it opens in control. Watch-only is one
-  // tap away for when you want to keep your hands off while the agent works.
-  const [viewOnly, setViewOnly] = useState(false);
+  // Only starting the desktop is this view's own. Connecting is shared.
+  const [startPhase, setStartPhase] = useState<"starting" | null>(null);
+  const [startError, setStartError] = useState<string | null>(null);
   // One-line feedback for clipboard actions, cleared on its own.
   const [notice, setNotice] = useState<string | null>(null);
   // Relative (trackpad) pointing for FINGERS ONLY -- never a decision the
@@ -102,7 +99,6 @@ export function ComputerPage({
   const rootRef = useRef<HTMLDivElement | null>(null);
   const clipboardRef = useRef<ComputerClipboard | null>(null);
   const screenRef = useRef<HTMLDivElement | null>(null);
-  const rfbRef = useRef<RFB | null>(null);
   const keyboardRef = useRef<HTMLTextAreaElement | null>(null);
   // The virtual cursor, in client coordinates. noVNC reads clientX/clientY off
   // real mouse events, so we keep a position here and synthesize events at it.
@@ -128,65 +124,52 @@ export function ComputerPage({
     return () => clearInterval(t);
   }, [active, refresh]);
 
-  // Tear the RFB connection down whenever we leave the tab. The desktop keeps
-  // running on the box, so coming back reattaches to the same screen with the
-  // same windows open rather than restarting anything.
-  const disconnect = useCallback(() => {
-    try {
-      clipboardRef.current?.dispose();
-      clipboardRef.current = null;
-      rfbRef.current?.disconnect();
-    } catch {}
-    rfbRef.current = null;
+  // The connection is shared by every view of the screen and outlives this
+  // one (see lib/computer-connection.ts). While on screen, this view holds it
+  // and shows the picture; leaving lets go, and the connection closes only if
+  // no view picks it up again within the grace period. So opening full screen,
+  // scrolling the chat, or a remount does not reconnect.
+  const connection = useSyncExternalStore(computerConnection.subscribe, computerConnection.getSnapshot);
+  const rfb = connection.rfb;
+  const phase: Phase = startPhase ?? connection.phase;
+  const error = startError ?? connection.error;
+  const viewOnly = connection.viewOnly;
+  const setViewOnly = useCallback((next: boolean | ((current: boolean) => boolean)) => {
+    const current = computerConnection.getSnapshot().viewOnly;
+    computerConnection.setViewOnly(typeof next === "function" ? next(current) : next);
   }, []);
+  const disconnect = computerConnection.disconnect;
+  const connect = computerConnection.connect;
 
-  const connect = useCallback(async () => {
-    if (rfbRef.current || !screenRef.current) return;
-    setPhase("connecting");
-    setError(null);
-    try {
-      const socket = await openOmgSocket("/api/computer");
-      const rfb = new RFB(screenRef.current, new RfbChannel(socket) as unknown as object, {
-        shared: true,
-      });
-      rfb.scaleViewport = true;
-      rfb.background = "#0b0b0d";
-      // Without this the remote cursor can be invisible, which makes a relative
-      // pointer impossible to aim.
-      rfb.showDotCursor = true;
-      rfb.viewOnly = viewOnly;
-      rfb.addEventListener("connect", () => {
-        setPhase("live");
-        // The tab is the computer: keys go to it straight away, so a shortcut
-        // works without a first click. An inline screen leaves focus where it
-        // is, because the person is still reading or typing in the chat.
-        if (!inline) rfb.focus({ preventScroll: true });
-      });
-      const clipboard = attachComputerClipboard(rfb, rootRef.current!, {
-        notice: setNotice,
-        readRemoteText: readRemoteClipboard, setRemoteText: setRemoteClipboard,
-        focusKeyboard: () => keyboardRef.current?.focus({ preventScroll: true }),
-        restoreFocus: () => rfbRef.current?.focus({ preventScroll: true }),
-        takeControl: () => setViewOnly(false),
-      });
-      clipboardRef.current = clipboard;
-      rfb.addEventListener("disconnect", () => {
-        clipboard.dispose();
-        if (clipboardRef.current === clipboard) clipboardRef.current = null;
-        rfbRef.current = null;
-        setPhase("idle");
-      });
-      rfbRef.current = rfb;
-    } catch (e) {
-      setPhase("idle");
-      setError(e instanceof Error ? e.message : "could not open the screen");
-    }
-  }, [viewOnly, inline]);
+  useLayoutEffect(() => {
+    const slot = screenRef.current;
+    if (!active || !slot) return;
+    return computerConnection.hold(slot);
+  }, [active]);
 
-  // Keep the live connection's input mode in sync with the toggle.
+  // Clipboard and focus belong to the view, not the connection.
   useEffect(() => {
-    if (rfbRef.current) rfbRef.current.viewOnly = viewOnly;
-  }, [viewOnly]);
+    if (!active || !rfb || !rootRef.current) return;
+    const clipboard = attachComputerClipboard(rfb, rootRef.current, {
+      notice: setNotice,
+      readRemoteText: readRemoteClipboard, setRemoteText: setRemoteClipboard,
+      focusKeyboard: () => keyboardRef.current?.focus({ preventScroll: true }),
+      restoreFocus: () => computerConnection.getSnapshot().rfb?.focus({ preventScroll: true }),
+      takeControl: () => setViewOnly(false),
+    });
+    clipboardRef.current = clipboard;
+    return () => {
+      clipboard.dispose();
+      if (clipboardRef.current === clipboard) clipboardRef.current = null;
+    };
+  }, [active, rfb, setViewOnly]);
+
+  // The tab is the computer: keys go to it straight away, so a shortcut works
+  // without a first click. An inline screen leaves focus where it is, because
+  // the person is still reading or typing in the chat.
+  useEffect(() => {
+    if (active && !inline && rfb && connection.phase === "live") rfb.focus({ preventScroll: true });
+  }, [active, inline, rfb, connection.phase]);
 
   // Opening the Computer means you want the computer. Pressing Start on an
   // empty black page is a step with no decision in it -- the only reason it
@@ -203,16 +186,11 @@ export function ComputerPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, status?.running, status?.deps.ok, phase, error]);
 
-  // Connect once the desktop is up and this tab is on screen.
+  // Connect once the desktop is up and this view is on screen. A connection
+  // another view (or this one, a moment ago) left open is reused as is.
   useEffect(() => {
-    if (!active) {
-      disconnect();
-      return;
-    }
-    if (status?.running && !rfbRef.current) void connect();
-  }, [active, status?.running, connect, disconnect]);
-
-  useEffect(() => disconnect, [disconnect]);
+    if (active && status?.running) void computerConnection.connect();
+  }, [active, status?.running]);
 
   // In a transcript the wheel belongs to the chat until you click into the
   // screen. noVNC takes every wheel event on its canvas, so without this the
@@ -351,15 +329,16 @@ export function ComputerPage({
   const copyToDevice = () => clipboardRef.current?.copy();
 
   const start = async () => {
-    setPhase("starting");
-    setError(null);
+    setStartPhase("starting");
+    setStartError(null);
     try {
       const res = await omgFetch("/api/computer/start", { method: "POST" });
       if (!res.ok) throw new Error(computerStartErrorMessage(await res.text()));
       setStatus((await res.json()) as ComputerStatus);
     } catch (e) {
-      setError(e instanceof Error ? e.message : computerStartErrorMessage(""));
-      setPhase("idle");
+      setStartError(e instanceof Error ? e.message : computerStartErrorMessage(""));
+    } finally {
+      setStartPhase(null);
     }
   };
 
@@ -467,8 +446,7 @@ export function ComputerPage({
         // real paste, not one key per character. This is also the fallback
         // when the browser refuses navigator.clipboard.readText.
         onChange={(e) => {
-          const rfb = rfbRef.current;
-          const text = e.target.value;
+                    const text = e.target.value;
           e.target.value = "";
           if (!rfb) return;
           for (const ch of text) {
@@ -481,8 +459,7 @@ export function ComputerPage({
           }
         }}
         onKeyDown={(e) => {
-          const rfb = rfbRef.current;
-          if (!rfb) return;
+                    if (!rfb) return;
           // Keys that produce no character still have to reach the desktop.
           const named: Record<string, number> = {
             Enter: 0xff0d,
