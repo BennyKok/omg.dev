@@ -3,7 +3,7 @@
     "Accepted dependency advisories. Enforced by scripts/audit.ts (`bun run audit`), which",
     "fails CI on any high/critical advisory NOT listed here, on any entry past its reviewBy",
     "date, on any entry no longer present in the graph, and on any `no-fix-available` entry",
-    "that upstream has since fixed — including a fix published under a renamed package.",
+    "that upstream has since fixed \u2014 including a fix published under a renamed package.",
     "",
     "This replaced a bare `bun audit --ignore=GHSA-...` flag, which had no exit condition and",
     "spent two months suppressing an advisory that had already been fixed upstream.",
@@ -24,30 +24,6 @@
     "defaultReviewDays": 90
   },
   "accepted": [
-    {
-      "ghsa": "GHSA-vfj7-8cjw-p6xm",
-      "package": "braces",
-      "root": ".",
-      "severity": "high",
-      "title": "braces vulnerable to stack-exhaustion denial of service through deeply nested patterns",
-      "vulnerableVersions": "<=3.0.3",
-      "justification": "no-fix-available",
-      "reason": "GitHub advisory reports no patched upstream version as of 2026-10-06. This vulnerability is already present on main. Accept only to release the independently verified per-session MCP tool fix after all fixable audit findings have been upgraded. Exploitability is not established as absent. Deeply nested input patterns can terminate a process.",
-      "acceptedOn": "2026-10-06",
-      "reviewBy": "2026-11-05"
-    },
-    {
-      "ghsa": "GHSA-vfj7-8cjw-p6xm",
-      "package": "braces",
-      "root": "mobile",
-      "severity": "high",
-      "title": "braces vulnerable to stack-exhaustion denial of service through deeply nested patterns",
-      "vulnerableVersions": "<=3.0.3",
-      "justification": "no-fix-available",
-      "reason": "GitHub advisory reports no patched upstream version as of 2026-10-06. This vulnerability is already present on main. Accept only to release the independently verified per-session MCP tool fix after all fixable audit findings have been upgraded. Exploitability is not established as absent. Deeply nested input patterns can terminate a process.",
-      "acceptedOn": "2026-10-06",
-      "reviewBy": "2026-11-05"
-    },
     {
       "ghsa": "GHSA-ch52-4w7c-c8xp",
       "package": "http-cache-semantics",
@@ -71,6 +47,18 @@
       "reason": "GitHub advisory reports no patched upstream version as of 2026-10-06. This vulnerability is already present on main. Accept only to release the independently verified per-session MCP tool fix after all fixable audit findings have been upgraded. Exploitability is not established as absent. Malformed RSA signatures may pass verification.",
       "acceptedOn": "2026-10-06",
       "reviewBy": "2026-11-05"
+    },
+    {
+      "ghsa": "GHSA-mrhx-c7xc-m3w5",
+      "package": "zod",
+      "root": "mobile",
+      "severity": "high",
+      "title": "Zod can exhaust memory while validating oversized constrained collections",
+      "vulnerableVersions": "<4.6.6",
+      "justification": "not-exploitable",
+      "reason": "Only @expo/cli@58.0.4 (via expo@58.0.0-preview.4) pulls zod 3.25.76, and zod has no fixed 3.x release. The CLI uses it at build time to validate this repo's own app config, never untrusted input, so the oversized-collection memory exhaustion is not reachable. Forcing zod 4 into the Expo CLI could break mobile builds, which cannot be tested on this server. The root lockfile is upgraded to zod 4.6.7. Drop this entry when Expo moves to zod >= 4.6.6.",
+      "acceptedOn": "2026-10-28",
+      "reviewBy": "2026-11-27"
     }
   ]
 }

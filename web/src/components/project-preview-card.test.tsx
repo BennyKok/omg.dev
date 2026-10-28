@@ -38,6 +38,24 @@ async function waitFor(selector: string) {
   return document.querySelector(selector);
 }
 const originalFetch = globalThis.fetch;
+// happy-dom 21 no longer loads iframe pages unless a test opts in, so
+// `contentWindow` is null. Loading them would fetch the real preview URLs.
+// Each frame gets a stand-in window instead: the renewal handshake only needs
+// a stable identity for `event.source` and a `postMessage` to reply on.
+const frameWindows = new WeakMap<HTMLIFrameElement, { postMessage: typeof window.postMessage }>();
+const contentWindowDescriptor = Object.getOwnPropertyDescriptor(window.HTMLIFrameElement.prototype, "contentWindow");
+Object.defineProperty(window.HTMLIFrameElement.prototype, "contentWindow", {
+  configurable: true,
+  get(this: HTMLIFrameElement) {
+    const real = contentWindowDescriptor?.get?.call(this);
+    if (real) return real;
+    if (!this.isConnected) return null;
+    let stub = frameWindows.get(this);
+    if (!stub) frameWindows.set(this, (stub = { postMessage: (() => {}) as typeof window.postMessage }));
+    return stub;
+  },
+});
+
 beforeEach(() => {
   configureOmgTransport(createSameOriginTransport({ fetch: ((...args: Parameters<typeof fetch>) => globalThis.fetch(...args)) as typeof fetch }));
   ui = mount();
