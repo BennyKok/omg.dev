@@ -39,6 +39,9 @@ import type { AgentKind } from "./lib/coding-agent-options";
 export type {
   ComposerGuide,
   ComposerGuideSurface,
+  HostGuideCard,
+  HostGuideCardStore,
+  HostGuideMood,
   HostStarterChip,
   HostTutorialCard,
   HostTutorials,

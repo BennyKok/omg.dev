@@ -1,5 +1,6 @@
 import type { OmgChatSendCallbacks } from "./lib/omg-chat-transport";
 import { fillVisibleComposer } from "./lib/guide-fill";
+import { GuideComposerSlot, useGuideCardKey, useGuideFocus, useGuideRunning, useHomeGuideActive } from "./components/tutorial-guide";
 import { attempt, attemptAsync, errorMessage } from "./lib/attempt";
 import { useLatestCallback, useLatestRef } from "./lib/use-latest-ref";
 import { shareUnchanged } from "./lib/share-unchanged";
@@ -4677,6 +4678,7 @@ export const MicButton = forwardRef<
         onPointerCancel={onPointerCancel}
         onClick={onClick}
         onContextMenu={(e) => e.preventDefault()}
+        data-lfg-mic=""
         aria-label={`${accessibleLabel} · ${provider === "local" ? "On-device" : "Cloud"}`}
         aria-busy={busy}
         title={
@@ -4828,6 +4830,7 @@ export function ComposerSendButton({
       onPointerCancel={onPointerCancel}
       onClick={onClick}
       onContextMenu={(e) => e.preventDefault()}
+      data-lfg-send=""
       aria-label={label.aria}
       title={label.title}
       className={cn(
@@ -9299,7 +9302,11 @@ export function App() {
     autoAgentCount: autoAgents.length,
   };
   const hostedCoach = hostedCoachSteps(hostedCoachInput);
+  // A host's tutorial run is its own guide: two checklists at once was how a
+  // beginner got "Put an agent on a schedule" drawn over their first tutorial.
+  const guideRunning = useGuideRunning();
   const hostedCoachOpen =
+    !guideRunning &&
     !hostedCoachDismissed &&
     shouldShowHostedCoach({
       embedded,
@@ -14053,7 +14060,7 @@ function RailStage({
         // Let the column mount/render before grabbing its input.
         window.setTimeout(() => {
           const el = document.querySelector(
-            `[data-composer-sid="${sid}"]`,
+            `textarea[data-composer-sid="${sid}"]`,
           ) as HTMLElement | null;
           el?.focus();
         }, 60);
@@ -17500,9 +17507,10 @@ function SessionChatBody({
   // Read when dictation starts, not on every keystroke (see useDictation).
   const messageTextRef = useLatestRef(messageText);
   const onGuideDraft = composerGuide?.onDraft;
+  const guideCardKey = useGuideCardKey();
   useEffect(() => {
     onGuideDraft?.(messageText, "session", sid ?? undefined);
-  }, [messageText, onGuideDraft, sid]);
+  }, [messageText, onGuideDraft, sid, guideCardKey]);
   // The host's "Fill it in" (composerGuide.registerFill) sets this draft
   // through setMessageText, declared below; a ref reaches the latest one.
   const fillSessionDraftRef = useRef<(text: string) => void>(() => {});
@@ -17512,6 +17520,8 @@ function SessionChatBody({
     const cleanup = registerGuideFill((text) => fillVisibleComposer(messageInputRef.current, fillSessionDraftRef.current, text), "session", sid ?? undefined);
     return typeof cleanup === "function" ? cleanup : undefined;
   }, [registerGuideFill, sid]);
+  // The guide card's ring target in this bar (index.css [data-lfg-guide-focus]).
+  const guideFocus = useGuideFocus("session", sid);
   const [sending, setSending] = useState(false);
   // Counts composer sends, so the open harness prompt can hide on the send
   // that answers it (see SessionPromptPanel).
@@ -18203,6 +18213,11 @@ function SessionChatBody({
         <form
           onSubmit={sendLatest}
           data-lfg-bar-lift=""
+          // Which chat box this is, for a host that waits for it to show
+          // (omg.dev opens a tutorial's chat and checks it is on screen).
+          data-composer-kind="session"
+          data-composer-sid={sid}
+          data-lfg-guide-focus={guideFocus}
           {...files.dropZoneProps}
           className={cn(
             // Sit on the same surface as the chat (no card/border seam) and let
@@ -18242,6 +18257,13 @@ function SessionChatBody({
               hides it. The session id keeps a guide attached to its own
               conversation when several composers are mounted. */}
           <div data-lfg-host-slot="composer-top" data-composer-kind="session" data-composer-sid={sid} />
+          {/* The host's tutorial guide (composerGuide.card), in the flow right
+              above the field: the transcript shrinks; nothing is covered. */}
+          <GuideComposerSlot
+            surface="session"
+            sessionId={sid}
+            fill={(text) => fillVisibleComposer(messageInputRef.current, fillSessionDraftRef.current, text)}
+          />
           {/* The bar itself (not just the textarea) is the field now: attach, type,
               mic and send all live inside one lfg-gfield pill, matching the
               wrapper pattern NewSessionDialog/ForkSessionDialog already use. That
@@ -24066,9 +24088,10 @@ function NewSessionDialog({
     () => readPromptDraft("new-session")?.text ?? "",
   );
   const onGuideDraft = composerGuide?.onDraft;
+  const homeGuideCardKey = useGuideCardKey();
   useEffect(() => {
     onGuideDraft?.(prompt, "new-session");
-  }, [prompt, onGuideDraft]);
+  }, [prompt, onGuideDraft, homeGuideCardKey]);
   // The host's "Fill it in" (composerGuide.registerFill) sets the home draft
   // through setPrompt, declared below; a ref reaches the latest one.
   const fillHomeDraftRef = useRef<(text: string) => void>(() => {});
@@ -24078,6 +24101,9 @@ function NewSessionDialog({
     const cleanup = registerHomeFill((text) => fillVisibleComposer(fieldRef.current?.querySelector("textarea") ?? null, fillHomeDraftRef.current, text), "new-session");
     return typeof cleanup === "function" ? cleanup : undefined;
   }, [registerHomeFill]);
+  const homeGuideFocus = useGuideFocus("new-session");
+  // While the guide's card sits in this composer, the tutorial cards under it step aside.
+  const homeGuideActive = useHomeGuideActive();
   // A mirror of `prompt` for callbacks that outlive the render that made them.
   // The agent-cap offer is the one that does: it now waits to be answered, so
   // the box can be edited while it sits there, and answering it must send what
@@ -25363,6 +25389,8 @@ function NewSessionDialog({
       onSubmit={submitLatest}
       {...files.dropZoneProps}
       aria-busy={launching}
+      data-composer-kind="home"
+      data-lfg-guide-focus={homeGuideFocus}
       className={cn(
         // Inline home: original device home-indicator pad when standalone.
         // Embed cancels --lfg-device-safe-bottom to 0 (host owns that zone) and
@@ -25389,6 +25417,12 @@ function NewSessionDialog({
       {/* Host chrome above the new-session composer and its starter row (the
           omg.dev guide card). Empty unless a host portals into it. */}
       <div data-lfg-host-slot="composer-top" data-composer-kind="home" className={variant === "inline" ? "mb-2" : undefined} />
+      {/* The host's tutorial guide (composerGuide.card), or a row back to the
+          run's chat. In the flow above the field, never over the page. */}
+      <GuideComposerSlot
+        surface="new-session"
+        fill={(text) => fillVisibleComposer(fieldRef.current?.querySelector("textarea") ?? null, fillHomeDraftRef.current, text)}
+      />
       {/* A chat with no folder starts from these four, the way it does on iOS.
           They sit above the field and only while the field is empty: once
           there is anything to send, the person has said what they want and
@@ -25684,7 +25718,7 @@ function NewSessionDialog({
           {/* The host's tutorials, as on the phone Create page. Nothing
               without a host that lists any. */}
           <div className="mt-5 px-1">
-            <CreateTutorials layout="grid" />
+            {homeGuideActive ? null : <CreateTutorials layout="grid" />}
           </div>
         </section>
       </div>
