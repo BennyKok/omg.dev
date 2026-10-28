@@ -24,7 +24,8 @@
 //   - The `.snapfork` directory starts with a dot, so the worktree sweeper
 //     skips it as bookkeeping.
 //
-// Enable with LFG_SNAPFORK=1. LFG_FUSE_OVERLAYFS overrides the binary path.
+// Opt in under Settings > Advanced (the snapshotForks setting). LFG_SNAPFORK=1
+// or 0 overrides the setting. LFG_FUSE_OVERLAYFS overrides the binary path.
 
 import { createHash } from "node:crypto";
 import {
@@ -40,6 +41,7 @@ import {
 } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { WORKTREE_ROOT } from "./config.ts";
+import { getGlobalSettingsSync } from "./settings.ts";
 
 type RunResult = { ok: boolean; out: string; err: string };
 
@@ -95,9 +97,68 @@ function fusermountBinary(): string | null {
   return which("fusermount3") ?? which("fusermount");
 }
 
+/** Why this box can or cannot run snapshot forks. Shown under Settings > Advanced. */
+export function snapforkSupport(): { supported: true } | { supported: false; reason: string } {
+  if (process.platform !== "linux") return { supported: false, reason: "Snapshot workspaces need Linux." };
+  if (!existsSync("/dev/fuse")) return { supported: false, reason: "This machine has no /dev/fuse." };
+  if (!overlayBinary()) {
+    return { supported: false, reason: "Install fuse-overlayfs (for example: sudo apt install fuse-overlayfs)." };
+  }
+  if (!fusermountBinary()) return { supported: false, reason: "Install fuse3 (fusermount3)." };
+  return { supported: true };
+}
+
+/** Whether the next session worktree may be a snapshot fork. */
 export function snapforkEnabled(): boolean {
-  if (process.env.LFG_SNAPFORK !== "1") return false;
-  return !!overlayBinary() && !!fusermountBinary() && existsSync("/dev/fuse");
+  // The environment wins in both directions, for operators and tests.
+  if (process.env.LFG_SNAPFORK === "0") return false;
+  const wanted = process.env.LFG_SNAPFORK === "1" || readSetting();
+  return wanted && snapforkSupport().supported;
+}
+
+function readSetting(): boolean {
+  try {
+    return getGlobalSettingsSync().snapshotForks === true;
+  } catch {
+    return false; // an unreadable settings store must never turn this on
+  }
+}
+
+export type SnapforkStatus = {
+  supported: boolean;
+  reason?: string;
+  /** The effective state for the next session, after the environment override. */
+  enabled: boolean;
+  /** Set when LFG_SNAPFORK fixes the state and the switch has no effect. */
+  envOverride?: "on" | "off";
+  forks: number;
+  bases: number;
+};
+
+export function snapforkStatus(root: string = WORKTREE_ROOT): SnapforkStatus {
+  const support = snapforkSupport();
+  const count = (dir: string, filter: (e: string) => boolean) => {
+    try {
+      return readdirSync(dir).filter(filter).length;
+    } catch {
+      return 0;
+    }
+  };
+  let bases = 0;
+  try {
+    for (const key of readdirSync(`${snapforkRoot(root)}/bases`)) {
+      bases += count(`${snapforkRoot(root)}/bases/${key}`, (e) => e.endsWith(".ready"));
+    }
+  } catch {}
+  const env = process.env.LFG_SNAPFORK;
+  return {
+    supported: support.supported,
+    ...(support.supported ? {} : { reason: support.reason }),
+    enabled: snapforkEnabled(),
+    ...(env === "1" ? { envOverride: "on" as const } : env === "0" ? { envOverride: "off" as const } : {}),
+    forks: count(`${snapforkRoot(root)}/layers`, () => true),
+    bases,
+  };
 }
 
 const BASE_MAX_AGE_MS = (() => {

@@ -72,6 +72,9 @@ export type GlobalSettings = {
   folderOrder: string[];
   hiddenFolders: string[];
   showProjectPaths: boolean;
+  // Off by default. On makes new session worktrees snapshot workspaces when
+  // the box supports them. Set under Advanced.
+  snapshotForks: boolean;
 };
 
 export type ComposerSendMode = "steer" | "queue";
@@ -151,6 +154,7 @@ export const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
   folderOrder: [],
   hiddenFolders: [],
   showProjectPaths: false,
+  snapshotForks: false,
   ...DEFAULT_VIEW_PREFS,
 };
 

@@ -35,6 +35,7 @@ import {
 } from "./components/agent-setup-sheet";
 import { ComposerPickerFooter } from "./components/composer-picker-footer";
 import { FastModeSettingsSection } from "./components/fast-mode-settings-section";
+import { SnapshotWorkspacesSettingsSection } from "./components/snapshot-workspaces-settings-section";
 import { activeMachine } from "./lib/machines";
 import { useHeaderProfile } from "./lib/header-profile";
 import { RuntimeAvailabilityContext, useRuntimeAvailability, shouldReloadRuntime, composerSendMode } from "./lib/runtime-availability";
@@ -31038,6 +31039,8 @@ function SettingsView({
         />
 
         <FastModeSettingsSection settings={settings} onChange={onSettingsChange} />
+
+        <SnapshotWorkspacesSettingsSection settings={settings} onChange={onSettingsChange} />
       </AdvancedSettingsGroup>
 
       <CustomInstructionsRow

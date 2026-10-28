@@ -127,6 +127,10 @@ export type GlobalSettings = {
   hiddenFolders: string[];
   // Show each folder's full path under its name in the project picker.
   showProjectPaths: boolean;
+  // Off by default. On makes new session worktrees snapshot forks of a
+  // shared base checkout (src/snapfork.ts) when the box supports them.
+  // LFG_SNAPFORK=1 or 0 in the environment overrides this either way.
+  snapshotForks: boolean;
 };
 
 export type ComposerSendMode = "steer" | "queue";
@@ -299,6 +303,9 @@ function sanitize(
   const hiddenFolders = sanitizeFolderKeys(input?.hiddenFolders) ?? [];
   // Missing means off: the folder name is usually enough to pick from.
   const showProjectPaths = input?.showProjectPaths === true;
+  // Opt-in. A box without FUSE keeps the stored choice; snapforkEnabled()
+  // checks support at create time, so the switch never breaks a create.
+  const snapshotForks = input?.snapshotForks === true;
   return {
     machineName: typeof input?.machineName === "string" ? input.machineName.trim().replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 80) : "",
     timeZone,
@@ -331,6 +338,7 @@ function sanitize(
     folderOrder,
     hiddenFolders,
     showProjectPaths,
+    snapshotForks,
   };
 }
 
@@ -457,6 +465,7 @@ export async function setGlobalSettings(patch: Partial<GlobalSettings>): Promise
     write.run("folderOrder", JSON.stringify(next.folderOrder), now);
     write.run("hiddenFolders", JSON.stringify(next.hiddenFolders), now);
     write.run("showProjectPaths", JSON.stringify(next.showProjectPaths), now);
+    write.run("snapshotForks", JSON.stringify(next.snapshotForks), now);
   })();
   return next;
 }

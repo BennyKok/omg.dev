@@ -532,7 +532,7 @@ import {
   resolveInputCwd,
 } from "../repo-resolve.ts";
 import { WORKTREE_ROOT, planSessionCwd, prepareSessionWorktree, startWorktreeSweep } from "../worktree.ts";
-import { ensureSnapforkMountedForPath, remountSnapforks } from "../snapfork.ts";
+import { ensureSnapforkMountedForPath, remountSnapforks, snapforkStatus } from "../snapfork.ts";
 import { ensureDiskBackedTmpdir, startTmpSweep } from "../tmp-reclaim.ts";
 import { startOrphanAgentServerSweep } from "../orphan-agent-servers.ts";
 import {
@@ -6113,6 +6113,10 @@ a{color:#60a5fa}
           return json({ sessionIds: visibleSessionPins(liveIds) });
         }
       }
+      if (path === "/api/snapfork" && req.method === "GET") {
+        return json(snapforkStatus());
+      }
+
       if (path === "/api/settings") {
         if (req.method === "GET") {
           const settings = await getGlobalSettings();
@@ -6315,6 +6319,11 @@ a{color:#60a5fa}
             if (typeof b.showProjectPaths !== "boolean")
               return err(400, "showProjectPaths must be a boolean");
             patch.showProjectPaths = b.showProjectPaths;
+          }
+          if (b?.snapshotForks !== undefined) {
+            if (typeof b.snapshotForks !== "boolean")
+              return err(400, "snapshotForks must be a boolean");
+            patch.snapshotForks = b.snapshotForks;
           }
           if (b?.customInstructions !== undefined) {
             if (
