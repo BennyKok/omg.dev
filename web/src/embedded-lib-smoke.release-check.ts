@@ -17,7 +17,7 @@
 // registers.
 
 import { afterEach, beforeAll, describe, expect, test } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Window } from "happy-dom";
 import { assertTestBuilds, EMBED_TEST_BUILDS } from "../../scripts/test-builds";
@@ -155,17 +155,29 @@ describe("built embed resolves host externals and mounts", () => {
     host = null;
   });
 
-  test("eager chunk imports the shared libs instead of inlining them", () => {
-    const embedded = readdirSync(DIST).find((name) => name.startsWith("embedded-") && name.endsWith(".js"));
-    expect(embedded).toBeTruthy();
-    const code = readFileSync(join(DIST, embedded!), "utf8");
-    expect(code).toContain('from "@tanstack/react-router"');
-    expect(code).toContain('from "cnfast"');
-    expect(code).toContain('from "class-variance-authority"');
+  test("eager chunks import the shared libs instead of inlining them", () => {
+    // Everything index.js loads before first paint: its static imports,
+    // transitively. Rollup (Vite 7) put that code in one `embedded-*.js`
+    // chunk; Rolldown (Vite 8) splits it into shared chunks named after their
+    // modules, so the check follows the import graph rather than a file name.
+    const eager = new Map<string, string>();
+    const pending = ["index.js"];
+    while (pending.length) {
+      const name = pending.pop()!;
+      if (eager.has(name)) continue;
+      const code = readFileSync(join(DIST, name), "utf8");
+      eager.set(name, code);
+      for (const match of code.matchAll(/(?:\bfrom\s*|\bimport\s*)"\.\/([^"]+\.js)"/g)) pending.push(match[1]);
+    }
+    expect(eager.size).toBeGreaterThan(1);
+    const all = [...eager.values()].join("\n");
+    expect(all).toContain('from "@tanstack/react-router"');
+    expect(all).toContain('from "cnfast"');
+    expect(all).toContain('from "class-variance-authority"');
     // One Sonner per document: the host's Toaster draws the surface's toasts.
-    expect(code).toContain('from "sonner"');
-    expect(code).not.toContain("isViewTransitionTypesSupported");
-    expect(code).not.toContain("isThemeGetter");
+    expect(all).toContain('from "sonner"');
+    expect(all).not.toContain("isViewTransitionTypesSupported");
+    expect(all).not.toContain("isThemeGetter");
   });
 
   test("OmgAppSurface mounts a memory-router tree against a mock transport", async () => {
