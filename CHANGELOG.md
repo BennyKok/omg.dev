@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 28, 2026 - Faster typing and scrolling (v0.6.337)
+
+- Typing in the home box or in a session no longer redraws the rest of the page on each key. The page does about one sixth of the work it did before for each key.
+- Scrolling a long session redraws the session only when new messages come into view.
+- The session list and the open session do less work while you wait.
+
 ## October 28, 2026 - Start something new, or learn a skill (v0.6.336)
 
 - The Create page shows two sections from omg.dev: "Start something new", with tutorials that build an app or game step by step, and "Learn a skill", with skills to add to the app you published last.
