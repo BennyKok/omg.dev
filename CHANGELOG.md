@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 28, 2026 - Snapshot workspaces (v0.6.340)
+
+- New setting under Settings > Advanced: Snapshot workspaces. It is off by default. When it is on, a new session starts from a shared copy of the project instead of a full checkout. Sessions start faster and use far less disk.
+- The setting needs Linux with FUSE and `fuse-overlayfs`. If your machine does not support it, the setting tells you why.
+- Tests no longer create snapshot workspaces by accident.
+
 ## October 28, 2026 - Smoother swipe back, lighter page loads (v0.6.339)
 
 - Swiping right to leave a chat on a phone no longer stops halfway when a session updates during the swipe. It always finishes closing or springs back.
