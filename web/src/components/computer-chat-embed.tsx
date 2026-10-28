@@ -8,8 +8,8 @@ const Computer = lazy(() => import("../views/computer-page").then(m => ({ defaul
  * The live Computer screen, in the chat. One owner for both places it shows:
  * under a website login request and under the agent's latest Computer run.
  *
- * Inline and full screen are never mounted together, so a transcript holds at
- * most one connection to the desktop.
+ * Inline and full screen share one connection (lib/computer-connection.ts):
+ * switching between them moves the picture and does not reconnect.
  */
 export function ComputerChatEmbed({ label, expanded: expandedProp, onExpandedChange }: {
   label: string;
