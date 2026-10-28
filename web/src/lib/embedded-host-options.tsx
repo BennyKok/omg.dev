@@ -152,6 +152,12 @@ export interface HostTutorials {
   onSelect: (id: string) => void;
   /** Opens the host's full list of tutorials. */
   onSeeAll?: () => void;
+  /**
+   * The name of the app the host's skill cards (`kind: "skill"`) go into,
+   * shown as "Add it to <name>". Read on every `subscribe` notice, like the
+   * cards. Absent or null: the skill section has no app line.
+   */
+  getSkillTarget?: () => string | null;
 }
 
 export interface HostTutorialCard {
@@ -165,6 +171,14 @@ export interface HostTutorialCard {
   status: "start" | "continue";
   /** Another run is open, or the host is starting one. */
   disabled?: boolean;
+  /**
+   * "template" (the default): something new to build, drawn as a picture
+   * card in "Start something new". "skill": something to add to an app the
+   * person has, drawn as a row in "Learn a skill" with `iconUrl`.
+   */
+  kind?: "template" | "skill";
+  /** A skill's square mark, as an absolute URL. Without it the row shows `imageUrl`. */
+  iconUrl?: string;
 }
 
 export type ComposerGuideSurface = "new-session" | "session";
