@@ -2509,6 +2509,35 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
         color-mix(in oklab, var(--foreground) 26%, transparent)
       ) border-box;
   }
+  /* A host tutorial's "do this next" ring (components/tutorial-guide.tsx).
+     A box-shadow on the composer's own element: it follows the element
+     through every layout change and never covers anything, where a measured
+     overlay ring drifted onto other chrome. */
+  form[data-lfg-guide-focus="composer"] .lfg-gfield,
+  form[data-lfg-guide-focus="mic"] [data-lfg-mic],
+  form[data-lfg-guide-focus="send"] [data-lfg-send],
+  form[data-lfg-guide-focus="send"] button[type="submit"] {
+    box-shadow:
+      0 0 0 2px var(--primary),
+      0 0 0 6px color-mix(in oklab, var(--primary) 22%, transparent);
+    animation: lfg-guide-ring 1.6s ease-in-out infinite;
+  }
+  @keyframes lfg-guide-ring {
+    50% {
+      box-shadow:
+        0 0 0 2px var(--primary),
+        0 0 0 9px color-mix(in oklab, var(--primary) 8%, transparent);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    form[data-lfg-guide-focus] .lfg-gfield,
+    form[data-lfg-guide-focus] [data-lfg-mic],
+    form[data-lfg-guide-focus] [data-lfg-send],
+    form[data-lfg-guide-focus] button[type="submit"] {
+      animation: none;
+    }
+  }
+
 
   /* Server status indicator: glass gradient border + green gradient fill,
      with smooth fade/scale on appearance and color crossfade between states. */
@@ -3253,17 +3282,22 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
   .lfg-create-cloud { animation: none; }
 }
 
-/* The phone Create page: the header is clear, so the Create backdrop runs
-   under it to the top of the screen. Other pages keep the frosted header. The
-   header's background fades with the backdrop (CreateBackdrop), so switching
-   pages is a cross-fade. */
+/* The phone Create page: the header is clear at the top, so the Create
+   backdrop runs under it to the top of the screen. Once the page scrolls, the
+   frosted background comes back (the same scroll value as other pages), or
+   the tutorial cards ran under "Welcome" and the Create pills. Other pages
+   keep the frosted header. The header's background fades with the backdrop
+   (CreateBackdrop), so switching pages is a cross-fade. */
 @media (max-width: 767px) {
   .mobile-scroll-header-fade::before {
     transition: opacity 500ms ease-out;
   }
   html.lfg-create-view .mobile-scroll-header-fade::before,
   html.lfg-create-view .mobile-scroll-header-fade::after {
-    opacity: 0;
+    opacity: var(--lfg-mobile-header-fade-opacity, 0);
+  }
+  html.lfg-create-view .mobile-scroll-header-fade::before {
+    transition: opacity 120ms linear;
   }
 }
 @media (max-width: 767px) and (prefers-reduced-motion: reduce) {

@@ -1,5 +1,5 @@
 import type { OmgTransport } from "@omg-dev/client";
-import type { JSX } from "react";
+import type { JSX, ReactNode } from "react";
 
 export { createGrantTransport } from "@omg-dev/client";
 export type {
@@ -145,6 +145,43 @@ export interface ComposerGuide {
   /** Each mounted composer hands the host a function that sets its draft (a guide's "Fill it in"); the person still taps Send. Return a cleanup. */
   // sessionId scopes session composers. Fill returns true only for a visible input.
   registerFill?: (fill: (text: string) => boolean | void, surface: ComposerGuideSurface, sessionId?: string) => (() => void) | void;
+  /** The guide's card. The surface draws it inside the composer it belongs to, in the page flow; the host draws no guide chrome of its own. */
+  card?: HostGuideCardStore;
+}
+
+/** The guide card's content (ComposerGuide.card). `getCard()` returns the same object until it changes. */
+export interface HostGuideCardStore {
+  getCard: () => HostGuideCard | null;
+  subscribe: (onChange: () => void) => () => void;
+  /** An `actions` id, the offer's `actionId`, or the surface's own: "fill", "stop" (confirmed), "resume", "hide", "show". */
+  onAction: (id: string) => void;
+  /** Draws the guide's mascot at `size` px. Without it the card shows none. */
+  renderAvatar?: (mood: HostGuideMood, size: number) => ReactNode;
+}
+
+export type HostGuideMood = "awake" | "happy" | "working";
+
+export interface HostGuideCard {
+  /** Changes with each step. */
+  key: string;
+  /** The composer this card belongs to. Any other composer shows a one-line resume row. */
+  surface: ComposerGuideSurface;
+  sessionId?: string | null;
+  /** The run's name for the resume row. */
+  title: string;
+  mood: HostGuideMood;
+  step?: { number: number; count: number };
+  text: string;
+  sentence?: { text: string; voice?: boolean };
+  ready?: boolean;
+  hint?: string;
+  focus?: "composer" | "mic" | "send";
+  badge?: string;
+  offer?: { title: string; subtitle?: string; iconUrl?: string; actionId: string; label: string };
+  actions?: { id: string; label: string; href?: string; primary?: boolean }[];
+  stoppable?: boolean;
+  /** The person hid the guide ("hide"); the surface draws one row with "Show". The host decides, because hidden also frees Send. */
+  collapsed?: boolean;
 }
 
 /**

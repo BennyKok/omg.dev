@@ -10,6 +10,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { CreateTutorials, useHostTutorialCards } from "./create-tutorials";
+import { useHomeGuideActive } from "./tutorial-guide";
 import { useFolderMenuPrefs } from "../lib/folder-menu-prefs";
 import { Check, ChevronLeft, ChevronRight, Copy, ExternalLink, Folder, FolderPlus, Gamepad2, Github, History, Settings2, Smartphone } from "lucide-react";
 import { consoleAppUrl, sessionAppRepo, type AppLink } from "../../../packages/protocol/src/app-link";
@@ -409,6 +410,11 @@ export function CreateHome() {
   // the docked chat box. A host's tutorials bring their own section titles
   // ("Start something new", "Learn a skill"), so the heading steps aside.
   const { cards } = useHostTutorialCards();
+  // A tutorial's first step is in the docked chat box (its guide card). The
+  // cards step aside, so the page under the guide is empty instead of
+  // half-covered by it.
+  const guideActive = useHomeGuideActive();
+  if (guideActive) return null;
   return (
     <div
       className="flex flex-col justify-center px-2 pb-4"
