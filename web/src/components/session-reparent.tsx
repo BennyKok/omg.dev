@@ -5,6 +5,8 @@ import type { Session } from "../App";
 import { api } from "../lib/omg-client";
 import { setSubagentGroupOpen } from "../lib/subagent-group-open";
 import { cn } from "../lib/utils";
+import { attemptAsync } from "@/lib/attempt";
+import { useLatestRef } from "@/lib/use-latest-ref";
 
 export const SESSION_DRAG_TYPE = "application/x-omg-session";
 const sessionId = (session: Session) => session.sessionId || session.nativeSessionId || "";
@@ -73,6 +75,7 @@ export function SessionReparentProvider({ sessions, onRefresh, request = api, ch
   request?: typeof api;
   children: ReactNode;
 }) {
+  "use memo";
   const [dragging, setDragging] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [touch, setTouch] = useState<TouchDrag | null>(null);
@@ -80,15 +83,14 @@ export function SessionReparentProvider({ sessions, onRefresh, request = api, ch
   const touchRef = useRef<TouchDrag | null>(null);
   const scroller = useRef<HTMLElement | null>(null);
   const menuQuietUntil = useRef(0);
-  const sessionsRef = useRef(sessions);
-  sessionsRef.current = sessions;
+  const sessionsRef = useLatestRef(sessions);
 
   const move = async (childId: string, parent: Session) => {
     if (inFlight.current) return;
     inFlight.current = true;
     setPending(true);
     setDragging(null);
-    try {
+    await attemptAsync(async () => {
       const result = await request<ReparentResult>("/api/sessions/reparent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -110,17 +112,15 @@ export function SessionReparentProvider({ sessions, onRefresh, request = api, ch
       } else if (result.changed !== false) {
         toast.success(result.parentNotified ? "Session moved. Parent session notified." : "Session moved.");
       }
-      try {
-        await onRefresh();
-      } catch {
+      await attemptAsync(onRefresh, () => {
         toast.warning("Session moved. Refresh the session list to see the change.");
-      }
-    } catch (error) {
+      });
+    }, (error) => {
       toast.error(error instanceof Error ? error.message : "Could not move the session");
-    } finally {
+    }, () => {
       inFlight.current = false;
       setPending(false);
-    }
+    });
   };
 
   // The row under a point. Rects, not elementFromPoint: an open row menu's
@@ -220,6 +220,7 @@ export function SessionReparentTarget({ session, children, className, ref, touch
   /** Also lift the row with a long press and a finger move (phone lists). */
   touch?: boolean;
 }) {
+  "use memo";
   const context = useContext(ReparentContext);
   const [hovered, setHovered] = useState(false);
   useEffect(() => setHovered(false), [context?.dragging]);
@@ -231,8 +232,7 @@ export function SessionReparentTarget({ session, children, className, ref, touch
 
   const element = useRef<HTMLDivElement | null>(null);
   const gesture = useRef<{ x: number; y: number; armed: boolean; dragging: boolean; timer: ReturnType<typeof setTimeout> } | null>(null);
-  const live = useRef({ context, draggable, id, title: session.title || id });
-  live.current = { context, draggable, id, title: session.title || id };
+  const live = useLatestRef({ context, draggable, id, title: session.title || id });
   useEffect(() => {
     const node = element.current;
     if (!touch || !node) return;

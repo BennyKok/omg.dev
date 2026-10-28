@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import { defineConfig, type Plugin } from "vite";
-import react from "@vitejs/plugin-react";
+import { reactPlugin } from "./vite.react";
 import tailwindcss from "@tailwindcss/vite";
 import prefixSelector from "postcss-prefix-selector";
 
@@ -115,7 +115,7 @@ function moduleReportPlugin(): Plugin {
 
 export default defineConfig({
   plugins: [
-    react(),
+    reactPlugin(),
     tailwindcss(),
     ...(process.env.ANALYZE === "1" ? [moduleReportPlugin()] : []),
   ],

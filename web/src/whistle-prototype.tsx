@@ -13,7 +13,7 @@ function Prototype() {
     <section className="space-y-3 rounded-2xl border border-border bg-card p-4">
       <label htmlFor="prototype-transcript" className="text-sm font-medium">Your message</label>
       <textarea id="prototype-transcript" className="min-h-40 w-full rounded-lg border border-border bg-background p-3 text-sm" placeholder="Tap the mic and speak…" value={text} onChange={(event) => setText(event.target.value)} />
-      <div className="flex items-center gap-3"><MicButton className="size-10" baseText={text} onText={(transcript, base) => setText([base, transcript].filter(Boolean).join(" "))} onInterim={(transcript, base) => setText([base, transcript].filter(Boolean).join(" "))} onCancel={setText} /><p className="text-xs text-muted-foreground">Tap to record. Tap again to transcribe.</p></div>
+      <div className="flex items-center gap-3"><MicButton className="size-10" baseText={() => text} onText={(transcript, base) => setText([base, transcript].filter(Boolean).join(" "))} onInterim={(transcript, base) => setText([base, transcript].filter(Boolean).join(" "))} onCancel={setText} /><p className="text-xs text-muted-foreground">Tap to record. Tap again to transcribe.</p></div>
     </section>
     <p className="text-xs text-muted-foreground">Cloud uses the existing omg.dev transcription service. Local works without sending audio to that service. English, German, French, Spanish, Italian, Dutch and Polish are supported locally.</p>
     <Toaster />

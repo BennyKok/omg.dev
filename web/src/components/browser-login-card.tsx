@@ -3,6 +3,7 @@ import { X } from "lucide-react";
 import { ComputerChatEmbed } from "./computer-chat-embed";
 import { latestBrowserLoginRequest, type BrowserLoginSnapshot } from "../../../packages/protocol/src/browser-login";
 import { omgFetch } from "../lib/omg-client";
+import { attemptAsync } from "@/lib/attempt";
 
 function WebsiteIcon({ origin }: { origin: string }) {
   const [failed, setFailed] = useState(false);
@@ -51,13 +52,12 @@ export function BrowserLoginCard({ sessionId, user, showScreen = true }: { sessi
     : request.status === "importing" ? { text: "Transferring…", className: "text-muted-foreground" }
     : request.status === "in_progress" ? { text: "Open on a device", className: "text-muted-foreground" }
     : null;
-  const cancel = async () => {
-    try {
+  const cancel = () =>
+    attemptAsync(async () => {
       const res = await omgFetch(`/api/browser-login/${request.id}/cancel${suffix}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
       if (!res.ok) throw new Error();
       setState(null);
-    } catch { setError("Could not cancel. Try again."); }
-  };
+    }, () => setError("Could not cancel. Try again."));
   return <>
     <div className="mb-2 rounded-2xl border bg-card py-2 pl-3 pr-2 text-sm" role="status">
       <div className="flex items-center gap-2.5">

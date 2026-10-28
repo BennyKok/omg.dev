@@ -20,6 +20,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import { Loader2, X } from "lucide-react";
 import { api } from "@/lib/omg-client";
 import { cn } from "@/lib/utils";
+import { attemptAsync, errorMessage } from "@/lib/attempt";
 
 export type QuestionChoice = { label: string; description?: string | null; selected?: boolean };
 
@@ -181,6 +182,7 @@ export function SessionPromptPanel({
   onError: (error: string | null) => void;
   composerSendSeq?: number;
 }) {
+  "use memo";
   const sig = promptSignature(prompt);
   // The signature of the prompt answered locally and not yet cleared upstream.
   const [answeredSig, setAnsweredSig] = useState<string | null>(null);
@@ -212,17 +214,19 @@ export function SessionPromptPanel({
     const answered = sig;
     setAnsweredSig(answered);
     onError(null);
-    try {
-      await api(`/api/sessions/${sid}/${path}`, {
-        method: "POST",
-        ...(body === undefined
-          ? {}
-          : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
-      });
-    } catch (e) {
-      onError(e instanceof Error ? e.message : String(e));
-      setAnsweredSig((current) => (current === answered ? null : current));
-    }
+    await attemptAsync(
+      () =>
+        api(`/api/sessions/${sid}/${path}`, {
+          method: "POST",
+          ...(body === undefined
+            ? {}
+            : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+        }),
+      (e) => {
+        onError(errorMessage(e));
+        setAnsweredSig((current) => (current === answered ? null : current));
+      },
+    );
   };
 
   return (

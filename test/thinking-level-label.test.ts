@@ -303,7 +303,7 @@ describe("thinking level menu", () => {
     );
     expect(source).toContain("const launchThinkingLevel: ThinkingLevel = overrideThinking ?? thinkingLevel");
     expect(source).toContain("agentSupportsThinking(agent)");
-    expect(source).toContain("submit(undefined, undefined, next)");
+    expect(source).toContain("submitLatest(undefined, undefined, next)");
     // A press that opened the scrubber owns its trailing click even when the
     // scrub was abandoned — cancelling must not fall through to "start anyway".
     expect(source).toContain("if (!gestureOpenedRef.current) return");

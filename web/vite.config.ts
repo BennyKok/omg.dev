@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { brotliCompressSync, constants as zlibConstants, gzipSync } from "node:zlib";
 import { defineConfig, type Plugin } from "vite";
-import react from "@vitejs/plugin-react";
+import { reactPlugin } from "./vite.react";
 import tailwindcss from "@tailwindcss/vite";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -117,7 +117,7 @@ const ROOT_VERSION: string = JSON.parse(
 ).version;
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), stampServiceWorkerVersion(), precompressAssets()],
+  plugins: [reactPlugin(), tailwindcss(), stampServiceWorkerVersion(), precompressAssets()],
   define: {
     __OMG_FRONTEND_VERSION__: JSON.stringify(ROOT_VERSION),
   },
