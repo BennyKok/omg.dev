@@ -76,6 +76,8 @@ out.headIsMain = git(s2, "rev-parse", "HEAD").out === c2;
 out.status = git(s2, "status", "--porcelain").out;
 out.aTxt = readFileSync(s2 + "/a.txt", "utf8");
 out.goneExists = existsSync(s2 + "/gone.txt");
+// A seeded index must agree with the files even when git re-reads every one.
+out.reallyClean = git(s2, "update-index", "--really-refresh").ok && git(s2, "status", "--porcelain").out === "";
 out.gitdirIsOwn = git(s2, "rev-parse", "--git-dir").out.endsWith("/worktrees/s2");
 
 // 3. Work in the fork. The shared base never changes.
@@ -147,6 +149,7 @@ console.log("PROBE" + JSON.stringify(out));
       expect(out.aTxt).toBe("two\n");
       expect(out.goneExists).toBe(false);
       expect(out.gitdirIsOwn).toBe(true);
+      expect(out.reallyClean).toBe(true);
 
       expect(out.baseClean).toBe(true);
       expect(out.baseHasWork).toBe(false);
