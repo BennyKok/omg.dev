@@ -2,6 +2,15 @@
 
 Recent product updates and deployment notes.
 
+## October 28, 2026 - Smoother swipe back, lighter page loads (v0.6.339)
+
+- Swiping right to leave a chat on a phone no longer stops halfway when a session updates during the swipe. It always finishes closing or springs back.
+- Opening the app and switching tabs no longer forces the whole page to restyle twice. This was most noticeable on omg.dev.
+- On omg.dev, the role a profile views as now comes from your computer, so role settings apply there too.
+- Built with Vite 8 and React 19.3. Builds are about 2.6 times faster.
+- Dependency security fixes: body-parser, DOMPurify, undici, Vite and Zod.
+- Session worktrees can use snapshot forks when `LFG_SNAPFORK=1` is set.
+
 ## October 28, 2026 - A quieter session list (v0.6.338)
 
 - When a session updates, only its own row in the session list redraws. Before, every row redrew on each update.
