@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 28, 2026 - The Computer stays connected (v0.6.343)
+
+- The live Computer in a chat no longer reconnects when you open it full screen, close full screen, or hide and show it. Every view of the screen now shares one connection.
+- The connection closes 30 seconds after nothing shows the Computer, so a quick switch back picks up the same stream.
+
 ## October 28, 2026 - A tutorial guide that never covers the page (v0.6.342)
 
 - omg.dev's tutorial guide now sits inside the chat box it belongs to. It moves the chat up instead of covering the reply, the preview or the tutorial cards.
