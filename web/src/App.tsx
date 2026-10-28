@@ -2,6 +2,7 @@ import type { OmgChatSendCallbacks } from "./lib/omg-chat-transport";
 import { fillVisibleComposer } from "./lib/guide-fill";
 import { attempt, attemptAsync, errorMessage } from "./lib/attempt";
 import { useLatestCallback, useLatestRef } from "./lib/use-latest-ref";
+import { shareUnchanged } from "./lib/share-unchanged";
 import { AGENT_DEFAULT_MODELS as AGENT_DEFAULT_MODEL } from "../../src/agent-defaults";
 import { browserTranscription, selectTranscriptionTake, type TranscriptionTake } from "./lib/browser-transcription";
 import { BrowserTranscriptionSettings, useBrowserTranscription } from "./components/browser-transcription-settings";
@@ -7193,7 +7194,7 @@ export function App() {
       }
       sessionList.push(entry.session);
     }
-    setSessions((prev) => sameJson(prev, sessionList));
+    setSessions((prev) => shareUnchanged(prev, sessionList, (s) => s.sessionId ?? undefined));
     // From the server's payload, not from `sessionList`: the seeded and renamed
     // rows spliced in above were built by this client and carry no watermark.
     applyUnreadSessions(payload.sessions ?? []);
@@ -13067,6 +13068,97 @@ function LiveView({
 const STAGE_PANEL =
   "overflow-hidden rounded-2xl bg-[var(--stage-surface)] ring-1 ring-foreground/[0.07] [--lfg-pane-bg:var(--stage-surface)] [--lfg-field-fill:var(--stage-field)]";
 
+// One session row in the desktop rail. Memoized, and given stable handlers by
+// RailStage, so a live status update re-renders only the rows whose session or
+// flags changed rather than every row.
+const RailSessionEntry = memo(function RailSessionEntry({
+  session,
+  busy,
+  users,
+  userFilter,
+  messages,
+  compact,
+  collapsed,
+  active,
+  cursored,
+  stagePinned,
+  topPinned,
+  canCloseColumn,
+  onRefresh,
+  onRemove,
+  onToggleTopPin,
+  togglePin,
+  activate,
+  closeColumn,
+}: {
+  session: Session;
+  busy: boolean;
+  users: User[];
+  userFilter: string;
+  /** Read only when the row shows its latest line (not compact). */
+  messages: Message[];
+  compact: boolean;
+  collapsed: boolean;
+  active: boolean;
+  cursored: boolean;
+  stagePinned: boolean;
+  topPinned: boolean;
+  canCloseColumn: boolean;
+  onRefresh: () => Promise<void>;
+  onRemove: (sid: string) => void;
+  onToggleTopPin: (sid: string) => void;
+  togglePin: (sid: string) => void;
+  activate: (sid: string, shift: boolean) => void;
+  closeColumn: (sid: string) => void;
+}) {
+  "use memo";
+  const sid = session.sessionId ?? "";
+  return (
+    <RailSessionContextMenu
+      session={session}
+      busy={busy}
+      users={users}
+      onRefresh={onRefresh}
+      onRemove={onRemove}
+      topPinned={topPinned}
+      onToggleTopPin={onToggleTopPin}
+      stagePinned={stagePinned}
+      onToggleStagePin={() => togglePin(sid)}
+      onOpen={() => activate(sid, false)}
+      onCloseColumn={canCloseColumn ? () => closeColumn(sid) : undefined}
+    >
+      {compact ? (
+        <CompactSessionRow
+          session={session}
+          busy={busy}
+          users={users}
+          userFilter={userFilter}
+          active={active}
+          cursored={cursored}
+          dense
+          onOpen={() => activate(sid, false)}
+        />
+      ) : (
+        <RailItem
+          session={session}
+          users={users}
+          userFilter={userFilter}
+          busy={busy}
+          latest={latestLine(messages)}
+          active={active}
+          cursored={cursored}
+          pinned={stagePinned}
+          topPinned={topPinned}
+          collapsed={collapsed}
+          dense
+          onActivate={(shift) => activate(sid, shift)}
+          onTogglePin={() => togglePin(sid)}
+        />
+      )}
+    </RailSessionContextMenu>
+  );
+});
+
 function RailStage({
   sessions = [],
   shippedReview,
@@ -14052,56 +14144,38 @@ function RailStage({
   const railPrefs = useContext(ViewPrefsContext);
   const compactRail = !railPrefs.showSessionDetails && !railCollapsed;
   const showThreadsInRail = railPrefs.showThreads;
+  // Stable handlers for the rows: a row is memoized, so a handler that changed
+  // identity on each render would re-render every row on each status update.
+  const rowActivate = useLatestCallback(activate);
+  const rowTogglePin = useLatestCallback(togglePin);
+  const rowCloseColumn = useLatestCallback(closeColumn);
+  const rowRefresh = useLatestCallback(onRefresh);
+  const rowRemove = useLatestCallback(onRemove);
+  const rowToggleTopPin = useLatestCallback(onToggleTopPin);
   const renderRailItem = (session: Session) => {
     const sid = session.sessionId ?? "";
     return (
-      <RailSessionContextMenu
+      <RailSessionEntry
         key={sid}
         session={session}
         busy={!!busyBySid[sid]}
         users={users}
-        onRefresh={onRefresh}
-        onRemove={onRemove}
-        topPinned={topPinnedSet.has(sid)}
-        onToggleTopPin={onToggleTopPin}
+        userFilter={userFilter}
+        messages={compactRail ? EMPTY_MESSAGES : messagesBySid[sid] ?? EMPTY_MESSAGES}
+        compact={compactRail}
+        collapsed={railCollapsed}
+        active={columnIds.includes(sid)}
+        cursored={cursor === sid}
         stagePinned={validPinned.includes(sid)}
-        onToggleStagePin={() => togglePin(sid)}
-        onOpen={() => activate(sid, false)}
-        onCloseColumn={
-          columnIds.includes(sid) && columnIds.length > 1
-            ? () => closeColumn(sid)
-            : undefined
-        }
-      >
-        {compactRail ? (
-          <CompactSessionRow
-            session={session}
-            busy={!!busyBySid[sid]}
-            users={users}
-            userFilter={userFilter}
-            active={columnIds.includes(sid)}
-            cursored={cursor === sid}
-            dense
-            onOpen={() => activate(sid, false)}
-          />
-        ) : (
-        <RailItem
-          session={session}
-          users={users}
-          userFilter={userFilter}
-          busy={!!busyBySid[sid]}
-          latest={latestLine(messagesBySid[sid] ?? EMPTY_MESSAGES)}
-          active={columnIds.includes(sid)}
-          cursored={cursor === sid}
-          pinned={validPinned.includes(sid)}
-          topPinned={topPinnedSet.has(sid)}
-          collapsed={railCollapsed}
-          dense
-          onActivate={(shift) => activate(sid, shift)}
-          onTogglePin={() => togglePin(sid)}
-        />
-        )}
-      </RailSessionContextMenu>
+        topPinned={topPinnedSet.has(sid)}
+        canCloseColumn={columnIds.includes(sid) && columnIds.length > 1}
+        onRefresh={rowRefresh}
+        onRemove={rowRemove}
+        onToggleTopPin={rowToggleTopPin}
+        togglePin={rowTogglePin}
+        activate={rowActivate}
+        closeColumn={rowCloseColumn}
+      />
     );
   };
   // Nest children in the DOM (same model as the mobile session tree) so
@@ -27012,7 +27086,7 @@ export function ModelOptionList({
  * chosen agent under it. Picking an agent keeps the popover open (the model
  * list changes with it); picking a model closes it.
  */
-export function AgentModelPicker<K extends AgentKind>({
+function AgentModelPickerInner<K extends AgentKind>({
   options,
   agent,
   agentLabel,
@@ -27176,6 +27250,9 @@ export function AgentModelPicker<K extends AgentKind>({
     </Popover.Root>
   );
 }
+// Memoized: the composers re-render on every keystroke, and the picker's
+// inputs (agent, model, options) do not change while someone types.
+export const AgentModelPicker = memo(AgentModelPickerInner) as typeof AgentModelPickerInner;
 
 /**
  * Agent + model + thinking row for the auto-agent sheets and the finding sheet.

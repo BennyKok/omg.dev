@@ -50,6 +50,7 @@ function scrollParent(element: HTMLElement): HTMLElement {
 }
 
 type TouchDrag = { id: string; title: string; x: number; y: number; over: string | null };
+const NO_SESSIONS: readonly Session[] = [];
 const titleOf = (session: Session | undefined, id: string) => session?.title || id;
 type ReparentResult = { changed?: boolean; parentNotified?: boolean; notificationError?: string };
 const ReparentContext = createContext<{
@@ -105,7 +106,7 @@ export function SessionReparentProvider({ sessions, onRefresh, request = api, ch
         opened.add(ancestorId);
         setSubagentGroupOpen(ancestorId, true);
         const up: string | null | undefined = ancestor.parentSessionId || ancestor.parentNativeSessionId;
-        ancestor = up ? sessions.find((item) => matches(item, up)) : undefined;
+        ancestor = up ? sessionsRef.current.find((item) => matches(item, up)) : undefined;
       }
       if (result.parentNotified === false) {
         toast.warning(`Session moved. Parent notice failed: ${result.notificationError || "Could not send the notice"}`);
@@ -180,8 +181,11 @@ export function SessionReparentProvider({ sessions, onRefresh, request = api, ch
     return () => cancelAnimationFrame(frame);
   }, [touchActive]);
 
+  // The list is published only during a drag, the one time a row reads it
+  // (canReparent is false with nothing dragged). The list is a new array on
+  // every status update, so publishing it always would re-render every row.
   return <ReparentContext.Provider value={{
-    sessions, dragging, pending, touchDragging: !!touch, touchOver: touch?.over ?? null, setDragging, move,
+    sessions: dragging ? sessions : NO_SESSIONS, dragging, pending, touchDragging: !!touch, touchOver: touch?.over ?? null, setDragging, move,
     touchStart, touchMove, touchEnd, menuBlocked: () => Date.now() < menuQuietUntil.current,
   }}>
     {children}
