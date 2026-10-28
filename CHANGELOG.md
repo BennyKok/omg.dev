@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 28, 2026 - Publishes v0.6.339 and v0.6.340 (v0.6.341)
+
+- This release publishes the changes listed under v0.6.339 and v0.6.340 below. Neither of those releases published: a release check still assumed the build layout from before Vite 8.
+
 ## October 28, 2026 - Snapshot workspaces (v0.6.340)
 
 - New setting under Settings > Advanced: Snapshot workspaces. It is off by default. When it is on, a new session starts from a shared copy of the project instead of a full checkout. Sessions start faster and use far less disk.
