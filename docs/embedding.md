@@ -100,6 +100,40 @@ tutorials={{
 
 Each card is `{ id, title, imageUrl, detail, status: "start" | "continue", disabled? }`.
 
+### The tutorial guide card
+
+`composerGuide.card` hands the surface the guide's card. The surface draws it
+(`web/src/components/tutorial-guide.tsx`); the host draws no guide chrome of
+its own. The card is a block at the top of the composer it names, in the page
+flow, so the chat above it gets shorter and nothing is drawn over the chat, the
+preview card or the Create page. There is no floating fallback:
+
+- the composer the card names (`surface`, and `sessionId` for a session) shows
+  the card;
+- the home composer, while the card names a session, shows one row back to it
+  ("resume");
+- every other composer shows nothing.
+
+While the home composer holds the card, the Create page hides its tutorial
+cards, and the getting-started list stays hidden while any card is open. What
+to act on next (`focus`: the field, the mic or Send) is ringed in CSS on the
+composer's own element (`[data-lfg-guide-focus]` in `index.css`).
+
+```ts
+composerGuide={{
+  accepts, onDraft, onSent, newSession,
+  card: {
+    getCard: () => card,            // same object until it changes
+    subscribe: (onChange) => unsubscribe,
+    onAction: (id) => {},           // an action id, or "fill" | "stop" | "resume" | "hide" | "show"
+    renderAvatar: (mood, size) => <Mascot mood={mood} size={size} />,
+  },
+}}
+```
+
+The host owns `collapsed`, because a hidden guide also frees Send. The surface
+asks the person to confirm before it sends `"stop"`.
+
 Two host callbacks address settings, and they are not interchangeable:
 
 - `onOpenSettingsPage(page)` — the **machine's** settings pages, for deep links

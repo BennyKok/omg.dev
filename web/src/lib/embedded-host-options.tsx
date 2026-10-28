@@ -210,6 +210,65 @@ export interface ComposerGuide {
    */
   // sessionId scopes session composers. Fill returns true only for a visible input.
   registerFill?: (fill: (text: string) => boolean | void, surface: ComposerGuideSurface, sessionId?: string) => (() => void) | void;
+  /**
+   * The guide's card, drawn by the surface (components/tutorial-guide.tsx).
+   * The host hands in what the card says; the surface lays it out inside the
+   * composer it belongs to, in the page flow, so it never covers the chat,
+   * the preview or the tutorial cards. With a card, the host draws no guide
+   * chrome of its own. A small store, like `tutorials`: a kept-alive surface
+   * can keep the props of its first render.
+   */
+  card?: HostGuideCardStore;
+}
+
+/** The guide card's content (ComposerGuide.card). `getCard()` returns the same object until it changes. */
+export interface HostGuideCardStore {
+  getCard: () => HostGuideCard | null;
+  subscribe: (onChange: () => void) => () => void;
+  /**
+   * The person tapped one of the card's actions: an `actions` id, the
+   * offer's `actionId`, or one of the surface's own: "fill" (the sentence
+   * went into the composer), "stop" (confirmed), "resume" (the run's chat
+   * was opened from the home composer), "hide" and "show".
+   */
+  onAction: (id: string) => void;
+  /** Draws the guide's mascot at `size` px. Without it the card shows none. */
+  renderAvatar?: (mood: HostGuideMood, size: number) => ReactNode;
+}
+
+export type HostGuideMood = "awake" | "happy" | "working";
+
+export interface HostGuideCard {
+  /** Changes with each step, so the surface resets per-step state (a hidden card shows again). */
+  key: string;
+  /** The composer this card belongs to. Any other composer shows a one-line "resume" row instead. */
+  surface: ComposerGuideSurface;
+  sessionId?: string | null;
+  /** The run's name for the resume row, for example "Build a to-do app". */
+  title: string;
+  mood: HostGuideMood;
+  /** For example 2 of 6. Drawn as a short progress row. */
+  step?: { number: number; count: number };
+  /** What the guide says now, one or two short sentences. */
+  text: string;
+  /** The sentence to type or say. The surface offers "Fill it in" for it. */
+  sentence?: { text: string; voice?: boolean };
+  /** The draft is accepted: the card says to tap Send and rings it. */
+  ready?: boolean;
+  /** One quiet line under the sentence, for example how to phrase it in your own words. */
+  hint?: string;
+  /** What to ring in the composer: the field, the mic, or Send. */
+  focus?: "composer" | "mic" | "send";
+  /** A finished-run badge, for example "To-do app builder". */
+  badge?: string;
+  /** The next tutorial, one tap away. */
+  offer?: { title: string; subtitle?: string; iconUrl?: string; actionId: string; label: string };
+  /** Buttons under the text. `href` opens a link in a new tab. */
+  actions?: { id: string; label: string; href?: string; primary?: boolean }[];
+  /** The person may stop the run; the surface asks to confirm first. */
+  stoppable?: boolean;
+  /** The person hid the guide ("hide"); the surface draws one row with "Show". The host decides, because hidden also frees Send. */
+  collapsed?: boolean;
 }
 
 export interface HostedPreviewAuth {
