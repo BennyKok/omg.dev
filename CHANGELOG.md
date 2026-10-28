@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 28, 2026 - A quieter session list (v0.6.338)
+
+- When a session updates, only its own row in the session list redraws. Before, every row redrew on each update.
+- The model picker next to the message box no longer redraws while you type.
+
 ## October 28, 2026 - Faster typing and scrolling (v0.6.337)
 
 - Typing in the home box or in a session no longer redraws the rest of the page on each key. The page does about one sixth of the work it did before for each key.
