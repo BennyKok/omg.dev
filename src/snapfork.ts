@@ -386,14 +386,26 @@ export async function createSnapfork(opts: {
     return fallback(e instanceof Error ? e.message : String(e));
   }
 
-  const steps: string[][] = [
-    ["read-tree", base.sha],
-    // read-tree leaves no stat data, so refresh before the two-tree merge or
-    // it refuses every file as "not uptodate".
-    ["update-index", "-q", "--refresh"],
-    ["read-tree", "-m", "-u", base.sha, "HEAD"],
-    ["update-index", "-q", "--refresh"],
-  ];
+  // Seed the session index from the base's. Files seen through the mount
+  // report the base's own inode, size, mtime and ctime, so the base's stat
+  // data is valid in the fork and git never has to re-read a file. Without
+  // this, a refresh hashed every file through FUSE: 7.2 s of a 7.7 s create on
+  // a 270 MB repository. The seeded index must describe exactly the base
+  // tree; anything else falls back to the slow, always-correct path.
+  const seeded = await seedIndexFromBase(base.path, base.sha, wtPath);
+  const steps: string[][] = seeded
+    ? [
+        ["read-tree", "-m", "-u", base.sha, "HEAD"],
+        ["update-index", "-q", "--refresh"],
+      ]
+    : [
+        ["read-tree", base.sha],
+        // read-tree leaves no stat data, so refresh before the two-tree merge
+        // or it refuses every file as "not uptodate".
+        ["update-index", "-q", "--refresh"],
+        ["read-tree", "-m", "-u", base.sha, "HEAD"],
+        ["update-index", "-q", "--refresh"],
+      ];
   for (const args of steps) {
     const r = await git(wtPath, args, 300_000);
     // update-index --refresh exits 1 when files differ, which is fine here;
@@ -415,6 +427,29 @@ export async function createSnapfork(opts: {
     if (!install.ok) return fallback(`bun install: ${install.err.trim().slice(-300)}`);
   }
   return { kind: "snapfork", baseSha: base.sha };
+}
+
+async function seedIndexFromBase(basePath: string, baseSha: string, wtPath: string): Promise<boolean> {
+  const [baseIndex, sessionIndex, baseTree] = await Promise.all([
+    git(basePath, ["rev-parse", "--path-format=absolute", "--git-path", "index"]),
+    git(wtPath, ["rev-parse", "--path-format=absolute", "--git-path", "index"]),
+    git(basePath, ["rev-parse", `${baseSha}^{tree}`]),
+  ]);
+  if (!baseIndex.ok || !sessionIndex.ok || !baseTree.ok) return false;
+  // Refresh the base's own index first. It runs on the real filesystem, so it
+  // is cheap, and it clears "racily clean" entries written in the same second
+  // as their files, which git would otherwise re-hash in every fork. It
+  // changes only the index in the base's git directory, never a base file.
+  await git(basePath, ["update-index", "-q", "--refresh"]);
+  try {
+    copyFileSync(baseIndex.out.trim(), sessionIndex.out.trim());
+  } catch {
+    return false;
+  }
+  const tree = await git(wtPath, ["write-tree"]);
+  if (tree.ok && tree.out.trim() === baseTree.out.trim()) return true;
+  rmSync(sessionIndex.out.trim(), { force: true });
+  return false;
 }
 
 /**
