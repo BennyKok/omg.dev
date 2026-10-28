@@ -2,6 +2,14 @@
 
 Recent product updates and deployment notes.
 
+## October 28, 2026 - One Apps list, and a way back from every app (v0.6.335)
+
+- The Apps page shows your apps and your folders in one list. The one you worked on most recently is at the top.
+- Use All, Published and Folders at the top of the list to see only the rows you want.
+- A published app shows its icon, a green dot when it is live, and its web address. A game has a small "Game" tag.
+- Inside a folder or an app, an "‹ Apps" link above the page takes you back to the list, and the Apps button stays selected.
+- An agent can now hide your name from the install bar of your hosted app.
+
 ## October 26, 2026 - Turn on app payments from the chat (v0.6.334)
 
 - An agent can now turn on Apple Pay, Google Pay and card payments for your hosted app. It shows you omg.dev's seller terms in the chat and turns payments on only after you accept them. Only the app owner can accept.
