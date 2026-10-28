@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 28, 2026 - Start something new, or learn a skill (v0.6.336)
+
+- The Create page shows two sections from omg.dev: "Start something new", with tutorials that build an app or game step by step, and "Learn a skill", with skills to add to the app you published last.
+- When these sections show, the page no longer shows "What do you want to make?" above them.
+
 ## October 28, 2026 - One Apps list, and a way back from every app (v0.6.335)
 
 - The Apps page shows your apps and your folders in one list. The one you worked on most recently is at the top.
