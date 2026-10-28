@@ -112,6 +112,25 @@ out.layerGone = !existsSync(root + "/.snapfork/layers/s2");
 out.stillRegistered = git(origin, "worktree", "list").out.includes("/s2");
 
 await wt.removeSessionWorktree(origin, "s1", root);
+
+// 6. A throwaway repository is deleted while a fork of it is mounted (the
+// shape a test suite left behind). The orphan fork and its base are swept.
+const temp = origin + "-temp";
+mkdirSync(temp, { recursive: true });
+git(temp, "init", "-q", "-b", "main");
+git(temp, "config", "user.email", "probe@example.com");
+git(temp, "config", "user.name", "probe");
+writeFileSync(temp + "/t.txt", "t\\n");
+git(temp, "add", "-A"); git(temp, "commit", "-qm", "t");
+const tempBase = await sf.buildBase(temp, git(temp, "rev-parse", "HEAD").out, root);
+const orphan = await wt.prepareSessionWorktree(temp, "orphan1");
+out.orphanWasFork = orphan.ok && sf.isSnapfork("orphan1", root);
+Bun.spawnSync(["rm", "-rf", temp]);
+out.orphansSwept = (await sf.sweepOrphanForks(root)).includes("orphan1");
+out.orphanUnmounted = !sf.isMounted(root + "/orphan1") && !existsSync(root + "/orphan1");
+out.goneBaseSwept = (await sf.sweepUnusedBases(root, { minAgeMs: 0 })).includes(tempBase.path);
+out.liveBaseKept = existsSync(base.path);
+
 console.log("PROBE" + JSON.stringify(out));
 `,
     );
@@ -165,8 +184,15 @@ console.log("PROBE" + JSON.stringify(out));
       expect(out.dirGone).toBe(true);
       expect(out.layerGone).toBe(true);
       expect(out.stillRegistered).toBe(false);
+
+      expect(out.orphanWasFork).toBe(true);
+      expect(out.orphansSwept).toBe(true);
+      expect(out.orphanUnmounted).toBe(true);
+      expect(out.goneBaseSwept).toBe(true);
+      expect(out.liveBaseKept).toBe(true);
     } finally {
       Bun.spawnSync(["fusermount3", "-u", join(worktreeRoot, "s2")]);
+      Bun.spawnSync(["fusermount3", "-u", join(worktreeRoot, "orphan1")]);
       rmSync(root, { recursive: true, force: true });
     }
   }, 60_000);
