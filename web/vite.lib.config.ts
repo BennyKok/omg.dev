@@ -216,9 +216,16 @@ export default defineConfig({
     },
   },
   resolve: {
-    alias: {
-      "@": path.resolve(dirname, "./src"),
-    },
+    alias: [
+      // swr and react-aria import this CommonJS shim. Bundled, its
+      // require("react") survives (React is external) and throws in the
+      // host's browser. React's own hook replaces it (see the module).
+      {
+        find: /^use-sync-external-store\/shim(\/index(\.js)?)?$/,
+        replacement: path.resolve(dirname, "./src/lib/use-sync-external-store-shim.ts"),
+      },
+      { find: "@", replacement: path.resolve(dirname, "./src") },
+    ],
     dedupe: ["react", "react-dom"],
   },
 });
