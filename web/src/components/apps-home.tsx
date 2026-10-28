@@ -9,7 +9,7 @@
 // and are left out when the control plane does not send them.
 
 import { useEffect, useLayoutEffect, useMemo, useState } from "react";
-import { CreateTutorials } from "./create-tutorials";
+import { CreateTutorials, useHostTutorialCards } from "./create-tutorials";
 import { useFolderMenuPrefs } from "../lib/folder-menu-prefs";
 import { Check, ChevronLeft, ChevronRight, Copy, ExternalLink, Folder, FolderPlus, Gamepad2, Github, History, Settings2, Smartphone } from "lucide-react";
 import { consoleAppUrl, sessionAppRepo, type AppLink } from "../../../packages/protocol/src/app-link";
@@ -406,7 +406,9 @@ export function useScopedApp<S extends SessionLike, R extends RepoLike>(
  */
 export function CreateHome() {
   // The heading and the tutorials, centred in the space between the header and
-  // the docked chat box.
+  // the docked chat box. A host's tutorials bring their own section titles
+  // ("Start something new", "Learn a skill"), so the heading steps aside.
+  const { cards } = useHostTutorialCards();
   return (
     <div
       className="flex flex-col justify-center px-2 pb-4"
@@ -415,7 +417,9 @@ export function CreateHome() {
       style={{ minHeight: "calc(var(--lfg-app-height, 100dvh) - var(--lfg-mobile-header-height, 0px) - var(--lfg-inline-composer-height, var(--lfg-composer-clear, 6rem)))" }}
     >
       <div className="relative z-[1]">
-        <h1 className="px-1 pb-2 text-[22px] font-bold leading-tight tracking-[-0.02em]">What do you want to make?</h1>
+        {cards.length ? null : (
+          <h1 className="px-1 pb-2 text-[22px] font-bold leading-tight tracking-[-0.02em]">What do you want to make?</h1>
+        )}
         <CreateTutorials />
       </div>
     </div>
