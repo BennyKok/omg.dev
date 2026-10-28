@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 28, 2026 - React 19.3 and the latest shared UI libraries (v0.6.345)
+
+- The web app now uses React 19.3.1, @base-ui/react 1.9, TanStack Router 1.170.46, lucide-react 1.63 and sonner 2.0.8. omg.dev declares the same versions, so the app it embeds still shares one copy of each.
+- lucide-react 1.0 dropped brand icons, so the GitHub icon is now drawn from the same glyph inside the app. It looks the same.
+- Streamdown stays on 2.6. Streamdown 2.7 changes how a reply splits into blocks and breaks the parse cache that keeps long chats smooth.
+
 ## October 28, 2026 - Snapshot workspaces on trial (v0.6.344)
 
 - Snapshot workspaces are on a one-week trial on one machine. The setting under Settings > Advanced is hidden everywhere else, and new sessions use normal workspaces.

@@ -3,7 +3,8 @@
 // page adds nothing to the hosted Computer surface's first load.
 
 import { useEffect, useState } from "react";
-import { ChevronRight, ExternalLink, Folder, FolderPlus, Github } from "lucide-react";
+import { ChevronRight, ExternalLink, Folder, FolderPlus } from "lucide-react";
+import { Github } from "./icons/github";
 import { cn } from "../lib/utils";
 import { timeAgo } from "../lib/session-ui";
 import { omgFetch } from "../lib/omg-client";
