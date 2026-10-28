@@ -532,6 +532,7 @@ import {
   resolveInputCwd,
 } from "../repo-resolve.ts";
 import { WORKTREE_ROOT, planSessionCwd, prepareSessionWorktree, startWorktreeSweep } from "../worktree.ts";
+import { ensureSnapforkMountedForPath, remountSnapforks } from "../snapfork.ts";
 import { ensureDiskBackedTmpdir, startTmpSweep } from "../tmp-reclaim.ts";
 import { startOrphanAgentServerSweep } from "../orphan-agent-servers.ts";
 import {
@@ -1843,6 +1844,9 @@ async function resolveResumeCwd(
   transcriptCwd: string | null,
   project: string | null | undefined,
 ): Promise<string> {
+  // A snapshot fork's mountpoint exists even when its FUSE daemon is gone, so
+  // dirExists alone would resume the agent in an empty directory.
+  await ensureSnapforkMountedForPath(transcriptCwd).catch(() => undefined);
   const repos = await listRepos().catch(() => []);
   const repo = project ? repos.find((r) => r.project === project) : undefined;
   if (repo && (!dirExists(transcriptCwd) || projectName(transcriptCwd) !== project)) return repo.cwd;
@@ -12651,6 +12655,7 @@ a{color:#60a5fa}
     process.once(signal, handler);
   }
   startModelDiscoveryScheduler((l) => console.log(l));
+  void remountSnapforks(undefined, (l) => console.log(l)).catch(() => undefined);
   startWorktreeSweep((l) => console.log(l));
   startTmpSweep((l) => console.log(l));
   startOrphanAgentServerSweep((l) => console.log(l));

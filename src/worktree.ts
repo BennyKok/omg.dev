@@ -22,6 +22,14 @@ import { listManagedWithArchive } from "./managed.ts";
 import { deleteMergedSessionBranch } from "./project-maintenance.ts";
 import { lastActivityAtForCwd } from "./resume-cache.ts";
 import { tmuxHasSession } from "./tmux.ts";
+import {
+  createSnapfork,
+  ensureSnapforkMounted,
+  isSnapfork,
+  removeSnapforkLayer,
+  snapforkEnabled,
+  sweepUnusedBases,
+} from "./snapfork.ts";
 
 // Persistent, env-overridable. Never default to /tmp: it is cleared on reboot
 // (systemd-tmpfiles), which silently destroys every live session's worktree —
@@ -241,6 +249,9 @@ export async function prepareSessionWorktree(
     // instead of leaking forever. Reuse the directory it already lives in so
     // moving WORKTREE_ROOT does not clone a second copy.
     markWorktreeOwned(sessionName, existing.root);
+    // A fork's FUSE daemon does not survive a reboot. Mount it again before
+    // anyone runs in the directory, or they would see an empty checkout.
+    if (isSnapfork(sessionName, existing.root)) await ensureSnapforkMounted(sessionName, existing.root);
     return { ok: true, worktree: { repoRoot: absRoot, branch, path: existing.path } };
   }
 
@@ -253,6 +264,17 @@ export async function prepareSessionWorktree(
   // that still assumes origin/main exists.
   const base = await worktreeBaseRef(absRoot);
   if (!base.ok) return base;
+
+  // Opt-in (LFG_SNAPFORK=1): mount the session over a shared base checkout
+  // instead of writing a full one. Any outcome other than a working fork or a
+  // checked-out fallback drops through to the normal path below.
+  if (snapforkEnabled()) {
+    const fork = await createSnapfork({ repo: absRoot, name: sessionName, branch, ref: base.ref, wtPath });
+    if (fork.kind === "snapfork" || fork.kind === "plain") {
+      markWorktreeOwned(sessionName, WORKTREE_ROOT);
+      return { ok: true, worktree: { repoRoot: absRoot, branch, path: wtPath } };
+    }
+  }
 
   const add = await git(absRoot, ["worktree", "add", "-b", branch, wtPath, base.ref]);
   if (!add.ok) {
@@ -443,8 +465,17 @@ export async function removeSessionWorktree(
   const captured = await captureWorktreeSnapshot(repo, wtPath, sessionName);
   if (!captured.ok) return { ok: false, stage: "capture", error: captured.error };
 
-  const removed = (await git(repo, ["worktree", "remove", "--force", wtPath])).ok;
-  if (!removed) return { ok: false, stage: "remove", error: "git worktree remove failed" };
+  if (isSnapfork(sessionName, ownerRoot)) {
+    // `git worktree remove` would delete every file through the mount, one
+    // whiteout at a time. Unmount and drop the layer instead; the capture
+    // above already holds the work.
+    const layer = await removeSnapforkLayer(sessionName, ownerRoot);
+    if (!layer.ok) return { ok: false, stage: "remove", error: layer.error };
+    await git(repo, ["worktree", "prune"], { timeoutMs: 30_000 });
+  } else {
+    const removed = (await git(repo, ["worktree", "remove", "--force", wtPath])).ok;
+    if (!removed) return { ok: false, stage: "remove", error: "git worktree remove failed" };
+  }
 
   clearWorktreeOwned(sessionName, ownerRoot);
   await deleteMergedSessionBranch(repo, `session_${sessionName}`).catch(() => false);
@@ -801,6 +832,9 @@ export async function sweepStaleWorktrees(opts?: {
         continue;
       }
 
+      // An unmounted fork shows only its bare mountpoint. Mount it so the
+      // checks below see the real files, exactly as for a normal worktree.
+      if (isSnapfork(name, root)) await ensureSnapforkMounted(name, root);
       const pointer = readGitPointer(wtPath);
       if (pointer.kind === "checkout") {
         decide("keep", "main-checkout");
@@ -924,6 +958,10 @@ export async function sweepStaleWorktrees(opts?: {
   // branch-in-use checks stay truthful. Git leaves locked entries alone.
   for (const repo of touchedRepos) {
     await git(repo, ["worktree", "prune"], { timeoutMs: 30_000 }).catch(() => undefined);
+  }
+
+  if (!dryRun) {
+    for (const root of roots) await sweepUnusedBases(root).catch(() => []);
   }
 
   return result;
