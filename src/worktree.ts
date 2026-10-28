@@ -28,6 +28,7 @@ import {
   isSnapfork,
   removeSnapforkLayer,
   snapforkEnabled,
+  sweepOrphanForks,
   sweepUnusedBases,
 } from "./snapfork.ts";
 
@@ -961,7 +962,10 @@ export async function sweepStaleWorktrees(opts?: {
   }
 
   if (!dryRun) {
-    for (const root of roots) await sweepUnusedBases(root).catch(() => []);
+    for (const root of roots) {
+      await sweepOrphanForks(root).catch(() => []);
+      await sweepUnusedBases(root).catch(() => []);
+    }
   }
 
   return result;

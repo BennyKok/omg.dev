@@ -112,8 +112,14 @@ export function snapforkSupport(): { supported: true } | { supported: false; rea
 export function snapforkEnabled(): boolean {
   // The environment wins in both directions, for operators and tests.
   if (process.env.LFG_SNAPFORK === "0") return false;
-  const wanted = process.env.LFG_SNAPFORK === "1" || readSetting();
-  return wanted && snapforkSupport().supported;
+  if (process.env.LFG_SNAPFORK === "1") return snapforkSupport().supported;
+  // Under `bun test`, never follow the box's stored setting. Some suites call
+  // prepareSessionWorktree against the real WORKTREE_ROOT and settings store;
+  // once an owner opted in, their throwaway repositories became real forks
+  // and bases that outlived the test (2026-10-28). A test that wants a fork
+  // sets LFG_SNAPFORK=1.
+  if (process.env.NODE_ENV === "test") return false;
+  return readSetting() && snapforkSupport().supported;
 }
 
 function readSetting(): boolean {
@@ -544,6 +550,31 @@ export async function removeSnapforkLayer(
 }
 
 /**
+ * Unmount and drop forks whose source repository no longer exists, when
+ * nothing was written in them. With the repository gone the fork is not a
+ * worktree any more (its gitdir is gone too), so the normal sweep keeps it as
+ * "unregistered" forever, mount included. A fork with files in its layer is
+ * left for a human: that is work, even without a repository to commit it to.
+ */
+export async function sweepOrphanForks(root: string = WORKTREE_ROOT): Promise<string[]> {
+  const layers = `${snapforkRoot(root)}/layers`;
+  if (!existsSync(layers)) return [];
+  const removed: string[] = [];
+  for (const name of readdirSync(layers)) {
+    const meta = readMeta(name, root);
+    if (!meta || existsSync(meta.repo)) continue;
+    let upper: string[] = [];
+    try {
+      upper = readdirSync(`${layerDir(name, root)}/upper`);
+    } catch {}
+    if (upper.some((e) => e !== ".git")) continue;
+    const r = await removeSnapforkLayer(name, root);
+    if (r.ok) removed.push(name);
+  }
+  return removed;
+}
+
+/**
  * Remove bases no fork uses. The newest ready base of each repository stays,
  * so the next session can start from it.
  */
@@ -577,7 +608,11 @@ export async function sweepUnusedBases(
     const newest = [...readyTimes.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
     for (const sha of entries) {
       const path = `${dir}/${sha}`;
-      if (sha === newest || used.has(resolve(path))) continue;
+      if (used.has(resolve(path))) continue;
+      // A base whose source repository is gone can never serve a fork, so
+      // the "keep the newest" rule does not protect it.
+      const repoGone = !(await git(path, ["rev-parse", "--git-common-dir"])).ok;
+      if (sha === newest && !repoGone) continue;
       const age = now - (readyTimes.get(sha) ?? statSync(path).mtimeMs);
       if (age < minAgeMs) continue;
       const repo = await git(path, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);

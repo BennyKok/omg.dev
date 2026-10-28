@@ -8,6 +8,7 @@ import { snapforkEnabled, snapforkStatus, snapforkSupport } from "./snapfork.ts"
 
 const originalData = PATHS.data;
 const originalEnv = process.env.LFG_SNAPFORK;
+const originalNodeEnv = process.env.NODE_ENV;
 let testData = "";
 
 beforeAll(async () => {
@@ -19,6 +20,8 @@ beforeAll(async () => {
 afterEach(() => {
   if (originalEnv === undefined) delete process.env.LFG_SNAPFORK;
   else process.env.LFG_SNAPFORK = originalEnv;
+  if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+  else process.env.NODE_ENV = originalNodeEnv;
 });
 
 afterAll(async () => {
@@ -34,8 +37,17 @@ describe("snapshotForks", () => {
     expect(snapforkEnabled()).toBe(false);
   });
 
+  test("under bun test the stored opt-in is ignored, so suites never make real forks", async () => {
+    delete process.env.LFG_SNAPFORK;
+    process.env.NODE_ENV = "test";
+    await settings.setGlobalSettings({ snapshotForks: true });
+    expect(snapforkEnabled()).toBe(false);
+    await settings.setGlobalSettings({ snapshotForks: false });
+  });
+
   test("persists the opt-in; it takes effect only where the box supports it", async () => {
     delete process.env.LFG_SNAPFORK;
+    process.env.NODE_ENV = "production";
     await settings.setGlobalSettings({ snapshotForks: true });
     settings.resetSettingsDbConnectionForTests();
     expect(settings.getGlobalSettingsSync().snapshotForks).toBe(true);
