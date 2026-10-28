@@ -2,7 +2,10 @@
 // the props of its first render, so the cards must follow the host's store:
 // a tutorial the person starts elsewhere must show as in progress here, and a
 // tap must reach the host with that tutorial's id. The first version portaled
-// host markup into the page and dropped the cards after page changes.
+// host markup into the page and dropped the cards after page changes. The
+// section test fails if a skill is drawn as a template (or the other way
+// round), if the skills lose the app they go into, or if a skill tap does not
+// reach the host.
 
 import { beforeEach, afterEach, expect, test } from "bun:test";
 import { mount, type Mounted } from "../test-support/render";
@@ -89,4 +92,33 @@ test("the desktop grid shows the first three cards, and each still reaches the h
   expect(shown).toEqual(["create-tutorial-a", "create-tutorial-b", "create-tutorial-c"]);
   ui.flush(() => ui.query<HTMLButtonElement>('[data-testid="create-tutorial-c"]')!.click());
   expect(host.selected).toEqual(["c"]);
+});
+
+test("templates and skills draw in their own sections, and the skills name the host's app", () => {
+  const host = store([
+    snake("start"),
+    { id: "save-data", kind: "skill", title: "Save your data", imageUrl: "https://example.test/s.svg", iconUrl: "https://example.test/s.svg", detail: "Still there", status: "start" },
+  ]);
+  let target: string | null = "Pocket Budget";
+  const tutorials: HostTutorials = { ...host.tutorials, getSkillTarget: () => target };
+  ui.render(
+    <EmbeddedHostOptionsProvider value={{ tutorials }}>
+      <CreateTutorials />
+    </EmbeddedHostOptionsProvider>,
+  );
+  expect(ui.query('[data-testid="create-tutorial-snake"]')).not.toBeNull();
+  expect(ui.query('[data-testid="create-tutorial-save-data"]')).toBeNull();
+  const skill = ui.query<HTMLButtonElement>('[data-testid="create-skill-save-data"]');
+  expect(skill).not.toBeNull();
+  expect(ui.query('[data-testid="create-tutorials"]')!.textContent).toContain("Add it to Pocket Budget");
+
+  target = "Dice Hub";
+  ui.flush(() => host.set([snake("start"), { id: "ai-summary", kind: "skill", title: "Add AI", imageUrl: "https://example.test/a.svg", detail: "", status: "continue" }]));
+  expect(ui.query('[data-testid="create-tutorials"]')!.textContent).toContain("Add it to Dice Hub");
+  ui.flush(() => ui.query<HTMLButtonElement>('[data-testid="create-skill-ai-summary"]')!.click());
+  expect(host.selected).toEqual(["ai-summary"]);
+
+  // Skills alone: no empty template section.
+  ui.flush(() => host.set([{ id: "ai-summary", kind: "skill", title: "Add AI", imageUrl: "https://example.test/a.svg", detail: "", status: "start" }]));
+  expect(ui.query('[data-testid="create-tutorials"]')!.textContent).not.toContain("Start something new");
 });
