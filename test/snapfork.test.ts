@@ -91,6 +91,15 @@ out.unmountedSeesFiles = existsSync(s2 + "/a.txt");
 const again = await wt.prepareSessionWorktree(origin, "s2");
 out.remountOk = again.ok && sf.isMounted(s2) && existsSync(s2 + "/work.txt");
 
+// 4b. A daemon that dies leaves a dead mount; it is repaired on next use.
+const daemon = Bun.spawnSync(["pgrep", "-d", " ", "-f", "upperdir=" + root + "/.snapfork/layers/s2/upper"], { stdout: "pipe" }).stdout.toString().trim().split(" ")[0];
+if (daemon) process.kill(Number(daemon), "SIGKILL");
+await Bun.sleep(200);
+let dead = false; try { readdirSync(s2); } catch { dead = true; }
+out.deadDetected = dead;
+const healed = await wt.prepareSessionWorktree(origin, "s2");
+out.healedOk = healed.ok && existsSync(s2 + "/work.txt");
+
 // 5. Removal captures the work, then drops the layer and the registration.
 const removal = await wt.removeSessionWorktree(origin, "s2", root);
 out.removalOk = removal.ok;
@@ -144,6 +153,8 @@ console.log("PROBE" + JSON.stringify(out));
 
       expect(out.unmountedSeesFiles).toBe(false);
       expect(out.remountOk).toBe(true);
+      expect(out.deadDetected).toBe(true);
+      expect(out.healedOk).toBe(true);
 
       expect(out.removalOk).toBe(true);
       expect(out.captureHasWork).toBe(true);

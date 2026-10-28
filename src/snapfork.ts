@@ -170,10 +170,21 @@ async function mountLayer(name: string, root: string, meta: LayerMeta): Promise<
   if (isMounted(mnt)) return { ok: true, out: "", err: "" };
   // fuse-overlayfs forks into the background and chdirs to "/", so the
   // sweeper's /proc/<pid>/cwd scan never mistakes the daemon for a user.
-  return run(
-    [bin, "-o", `lowerdir=${meta.base},upperdir=${dir}/upper,workdir=${dir}/work`, mnt],
-    { cwd: "/", timeoutMs: 30_000 },
-  );
+  const mountCmd = [bin, "-o", `lowerdir=${meta.base},upperdir=${dir}/upper,workdir=${dir}/work`, mnt];
+  // Give the daemon its own systemd scope. Started from serve it would sit in
+  // lfg.service's cgroup, where a memory kill could pick it and leave every
+  // process in the fork with "Transport endpoint is not connected".
+  const systemdRun = process.platform === "linux" && process.env.LFG_SNAPFORK_SCOPE !== "0"
+    ? which("systemd-run")
+    : null;
+  if (systemdRun) {
+    const scoped = await run(
+      [systemdRun, "--user", "--scope", "--quiet", "--collect", `--unit=lfg-snapfork-${name}-${Date.now()}`, "--slice=lfg.slice", ...mountCmd],
+      { cwd: "/", timeoutMs: 30_000 },
+    );
+    if (scoped.ok || isMounted(mnt)) return scoped.ok ? scoped : { ok: true, out: "", err: "" };
+  }
+  return run(mountCmd, { cwd: "/", timeoutMs: 30_000 });
 }
 
 /** Mount a fork whose daemon is gone (after a reboot). No-op when mounted. */
@@ -183,7 +194,19 @@ export async function ensureSnapforkMounted(
 ): Promise<boolean> {
   const meta = readMeta(name, root);
   if (!meta) return false;
-  if (isMounted(`${root}/${name}`)) return true;
+  const mnt = `${root}/${name}`;
+  if (isMounted(mnt)) {
+    try {
+      statSync(mnt);
+      return true;
+    } catch {
+      // The daemon died and left a dead mount (ENOTCONN). Detach it, then
+      // mount again over the same upper layer; no work is lost.
+      const fm = fusermountBinary();
+      if (fm) await run([fm, "-uz", mnt], { timeoutMs: 30_000 });
+      if (isMounted(mnt)) return false;
+    }
+  }
   if (!existsSync(meta.base)) return false;
   return (await mountLayer(name, root, meta)).ok;
 }
