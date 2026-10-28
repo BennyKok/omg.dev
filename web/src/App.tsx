@@ -1,5 +1,7 @@
 import type { OmgChatSendCallbacks } from "./lib/omg-chat-transport";
 import { fillVisibleComposer } from "./lib/guide-fill";
+import { attempt, attemptAsync, errorMessage } from "./lib/attempt";
+import { useLatestCallback, useLatestRef } from "./lib/use-latest-ref";
 import { AGENT_DEFAULT_MODELS as AGENT_DEFAULT_MODEL } from "../../src/agent-defaults";
 import { browserTranscription, selectTranscriptionTake, type TranscriptionTake } from "./lib/browser-transcription";
 import { BrowserTranscriptionSettings, useBrowserTranscription } from "./components/browser-transcription-settings";
@@ -38,7 +40,7 @@ import { RuntimeAvailabilityContext, useRuntimeAvailability, shouldReloadRuntime
 import { RuntimeRecovery, RuntimeEmptyState } from "./components/runtime-recovery";
 import { useOpenSession } from "./lib/open-session";
 import { AutoAgentPage, AutoAgentPageInStage } from "./components/auto-agent-page";
-import { Component, createContext, type ComponentProps, forwardRef, memo, Suspense, useCallback, useContext, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Component, createContext, type ComponentProps, forwardRef, memo, Suspense, useCallback, useContext, useEffect, useEffectEvent, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import type {
   Conversation as ProductConversation,
@@ -3540,7 +3542,9 @@ function useDictation(opts: {
   // what it looked like before dictation started — wiping out any garbled
   // interim transcript that streamed in via onInterim.
   onCancel?: (base: string) => void;
-  baseText?: string;
+  // Reads the input text when recording begins. A getter, not the text: the
+  // text changes on every keystroke and is only needed at that one moment.
+  baseText?: () => string;
   silenceMs?: number;
 }) {
   const browserState = useBrowserTranscription();
@@ -3639,20 +3643,15 @@ function useDictation(opts: {
 
   // Keep the callbacks in refs so the VAD interval / stop always see the latest
   // handlers without needing to tear down and recreate the audio session.
-  const onTextRef = useRef(opts.onText);
-  const onAutoSubmitRef = useRef(opts.onAutoSubmit);
-  const onInterimRef = useRef(opts.onInterim);
-  const onCancelRef = useRef(opts.onCancel);
-  const baseTextRef = useRef(opts.baseText ?? "");
+  const onTextRef = useLatestRef(opts.onText);
+  const onAutoSubmitRef = useLatestRef(opts.onAutoSubmit);
+  const onInterimRef = useLatestRef(opts.onInterim);
+  const onCancelRef = useLatestRef(opts.onCancel);
+  const baseTextRef = useLatestRef(opts.baseText);
   // Base text snapshotted at record-start, shared by interim + final so the
   // final transcript cleanly replaces the live partial without double-appending.
   const capturedBaseRef = useRef("");
   const silenceMs = opts.silenceMs ?? 2500;
-  onTextRef.current = opts.onText;
-  onAutoSubmitRef.current = opts.onAutoSubmit;
-  onInterimRef.current = opts.onInterim;
-  onCancelRef.current = opts.onCancel;
-  baseTextRef.current = opts.baseText ?? "";
 
   const supported =
     typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia;
@@ -3864,7 +3863,7 @@ function useDictation(opts: {
     setProvider(take.provider);
     startingRef.current = true;
     pendingStopRef.current = null;
-    capturedBaseRef.current = baseTextRef.current;
+    capturedBaseRef.current = baseTextRef.current?.() ?? "";
     // Immediate feedback: the tap registered, we're opening the mic.
     setState("starting");
 
@@ -4414,7 +4413,8 @@ export const MicButton = forwardRef<
     // field to `base` (the text from before dictation started) so a garbled
     // partial transcript doesn't linger after the user backs out.
     onCancel?: (base: string) => void;
-    baseText?: string;
+    /** Reads the input text when recording begins. See useDictation. */
+    baseText?: () => string;
     silenceMs?: number;
     className?: string;
     // Size of the glyph. Kept apart from className so a caller can grow the
@@ -12470,6 +12470,7 @@ function LiveView({
   /** Desktop only. See RailStage. */
   hostSettingsInMenu?: boolean;
 }) {
+  "use memo";
   const isWide = useIsWide();
   const isMobile = useIsMobile();
   // Which session is open is the URL's answer (`/sessions/<id>`), not this
@@ -12496,12 +12497,9 @@ function LiveView({
 
   const ownBusyOrFresh = (session: Session) =>
     !!busyBySid[session.sessionId ?? ""] || recentlyCreatedSids.has(session.sessionId ?? "");
-  const tree = useMemo(
-    () => buildSessionTree(sessions, ownBusyOrFresh),
-    // busyBySid changes frequently; include it so a parent follows a working child.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sessions, busyBySid],
-  );
+  // React Compiler memoizes this on sessions and busyBySid, so a parent
+  // follows a working child. recentlyCreatedSids is module state.
+  const tree = buildSessionTree(sessions, ownBusyOrFresh);
 
   // Pinned session families always lead the narrow/mobile layout. A pin on a
   // delegated child lifts its whole family so parent/child nesting stays intact.
@@ -12529,20 +12527,20 @@ function LiveView({
       if (!sid) return;
       haptic("selection");
       onRemove(sid);
-      try {
-        await closeSessionRequest(sid, "mobile_swipe_archive");
-      } catch (e) {
-        // A session that already ended answers 404, and the swipe still did
-        // what the person wanted, so that one stays silent. Anything else
-        // means the session is still live: put the row back rather than
-        // leaving it tombstoned until reload.
-        if (!isMissingSessionError(e)) {
-          restoreSession(sid);
-          toast.error(e instanceof Error ? e.message : "Couldn't archive session");
-        }
-      } finally {
-        await onRefresh().catch(() => {});
-      }
+      await attemptAsync(
+        () => closeSessionRequest(sid, "mobile_swipe_archive"),
+        (e) => {
+          // A session that already ended answers 404, and the swipe still did
+          // what the person wanted, so that one stays silent. Anything else
+          // means the session is still live: put the row back rather than
+          // leaving it tombstoned until reload.
+          if (!isMissingSessionError(e)) {
+            restoreSession(sid);
+            toast.error(e instanceof Error ? e.message : "Couldn't archive session");
+          }
+        },
+        () => onRefresh().catch(() => {}),
+      );
     },
     [onRemove, onRefresh, restoreSession],
   );
@@ -12565,10 +12563,10 @@ function LiveView({
 
   // The Apps view and the scoped app's card (components/apps-home.tsx).
   const cloudApps = useCloudApps(appsView || createView);
-  const appItems = useMemo(
-    () => (appsView ? buildAppItems(repos, allSessions ?? sessions, cloudApps, repoProject) : { all: [], games: [], apps: [], local: [] }),
-    [appsView, repos, allSessions, sessions, cloudApps],
-  );
+  // Memoized by React Compiler on its inputs.
+  const appItems = appsView
+    ? buildAppItems(repos, allSessions ?? sessions, cloudApps, repoProject)
+    : { all: [], games: [], apps: [], local: [] };
   const scopedApp = useScopedApp(projectFilter, repos, allSessions ?? sessions, repoProject);
   // A project on this Computer opened from the Apps page ("On this computer").
   const scopedLocalName =
@@ -12583,16 +12581,12 @@ function LiveView({
   const folderOrder = useFolderMenuPrefs().order;
   // Same grouping the rail uses, from the same helper, so the two lists cannot
   // drift apart again.
-  const projectGroups = useMemo(
-    () =>
-      groupNodesByProject(
-        tree.roots.filter((item) => !nodeContainsPin(item) && !nodeIsBot(item)),
-        (node) => tree.flatten([node]).length,
-        shortProject,
-        folderOrder,
-      ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tree, topPinned, folderOrder],
+  // Memoized by React Compiler on tree, topPinned and folderOrder.
+  const projectGroups = groupNodesByProject(
+    tree.roots.filter((item) => !nodeContainsPin(item) && !nodeIsBot(item)),
+    (node) => tree.flatten([node]).length,
+    shortProject,
+    folderOrder,
   );
 
   const pinnedNodes = tree.roots.filter(
@@ -13216,6 +13210,7 @@ function RailStage({
    */
   hostSettingsInMenu?: boolean;
 }) {
+  "use memo";
   // A host that supplies its own machine list gets the switcher too.
   const { machines: hostMachines, onNavigate: onHostNavigate } = useEmbeddedHostOptions();
   const appDialog = useAppDialog();
@@ -13239,28 +13234,31 @@ function RailStage({
   const layoutKey = encodeURIComponent(layoutScope);
   const pinnedStorageKey = `lfg_stage_pinned:${layoutKey}`;
   const railCollapsedStorageKey = `lfg_rail_collapsed:${layoutKey}`;
-  const readPinned = useCallback((): string[] => {
-    try {
-      const raw =
-        localStorage.getItem(pinnedStorageKey) ??
-        (layoutScope === "__all" ? localStorage.getItem("lfg_stage_pinned") : null);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
-    } catch {
-      return [];
-    }
-  }, [layoutScope, pinnedStorageKey]);
-  const readRailCollapsed = useCallback((): boolean => {
-    try {
-      const raw =
-        localStorage.getItem(railCollapsedStorageKey) ??
-        (layoutScope === "__all" ? localStorage.getItem("lfg_rail_collapsed") : null);
-      return raw === "1";
-    } catch {
-      return false;
-    }
-  }, [layoutScope, railCollapsedStorageKey]);
+  const readPinned = useCallback(
+    (): string[] =>
+      attempt(
+        () => {
+          const raw =
+            localStorage.getItem(pinnedStorageKey) ??
+            (layoutScope === "__all" ? localStorage.getItem("lfg_stage_pinned") : null);
+          if (!raw) return [];
+          const parsed = JSON.parse(raw);
+          return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+        },
+        () => [],
+      ),
+    [layoutScope, pinnedStorageKey],
+  );
+  const readRailCollapsed = useCallback(
+    (): boolean =>
+      attempt(
+        () =>
+          (localStorage.getItem(railCollapsedStorageKey) ??
+            (layoutScope === "__all" ? localStorage.getItem("lfg_rail_collapsed") : null)) === "1",
+        () => false,
+      ),
+    [layoutScope, railCollapsedStorageKey],
+  );
   const [pinned, setPinned] = useState<string[]>(readPinned);
   const [preview, setPreview] = useState<string | null>(null);
   const [railCollapsed, setRailCollapsed] = useState<boolean>(readRailCollapsed);
@@ -13348,18 +13346,11 @@ function RailStage({
 
   // Persist the pinned set so each project workspace survives reloads.
   useEffect(() => {
-    try {
-      localStorage.setItem(pinnedStorageKey, JSON.stringify(pinned));
-    } catch {
-      /* private mode / quota — non-fatal */
-    }
+    // Private mode / quota — non-fatal.
+    attempt(() => localStorage.setItem(pinnedStorageKey, JSON.stringify(pinned)), () => {});
   }, [pinned, pinnedStorageKey]);
   useEffect(() => {
-    try {
-      localStorage.setItem(railCollapsedStorageKey, railCollapsed ? "1" : "0");
-    } catch {
-      /* non-fatal */
-    }
+    attempt(() => localStorage.setItem(railCollapsedStorageKey, railCollapsed ? "1" : "0"), () => {});
   }, [railCollapsed, railCollapsedStorageKey]);
 
   // Desktop trackpad / mouse gesture: a two-finger horizontal swipe (macOS
@@ -13374,8 +13365,7 @@ function RailStage({
   // preventDefault and keep Chrome/Safari from treating the swipe as history
   // back/forward navigation. Handler context lives in a ref so the listener
   // attaches once instead of re-attaching every render.
-  const railSwipeCtx = useRef({ projectFilter, projectOptions, onProjectChange });
-  railSwipeCtx.current = { projectFilter, projectOptions, onProjectChange };
+  const railSwipeCtx = useLatestRef({ projectFilter, projectOptions, onProjectChange });
   const workspaceRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const COMMIT = 60; // accumulated horizontal px before we switch
@@ -13435,8 +13425,7 @@ function RailStage({
     // True when the event target (or an ancestor) can actually scroll
     // horizontally, or handles wheel itself — those keep their native gesture.
     const yieldsToTarget = (start: EventTarget | null): boolean => {
-      let el = start instanceof Element ? start : null;
-      for (; el && el !== document.body; el = el.parentElement) {
+      for (let el = start instanceof Element ? start : null; el && el !== document.body; el = el.parentElement) {
         if (!(el instanceof HTMLElement)) continue;
         if (el.closest(".xterm, .live-pane, input, textarea, select, [contenteditable='true']")) {
           return true;
@@ -13543,11 +13532,10 @@ function RailStage({
   // so direct-opened / previewed / pinned sessions actually start their SSE.
   useEffect(() => {
     if (!columnIds.length) return;
-    try {
+    // Private mode / quota — non-fatal.
+    attempt(() => {
       for (const sid of columnIds) localStorage.setItem(`lfg-collapsed:${sid}`, "0");
-    } catch {
-      /* private mode / quota */
-    }
+    }, () => {});
     window.dispatchEvent(new Event("lfg-collapse-change"));
   }, [columnIds]);
 
@@ -13568,47 +13556,41 @@ function RailStage({
   // bot". An empty stage is now the new-session composer by design, and a
   // session opens only when the person (or a focus/deep link) picks one.
 
-  const openSession = useCallback(
-    (sid: string) => {
-      // From Schedules, picking a session in the rail goes back to Chat: the
-      // stage is showing the schedule list, and a preview set underneath it
-      // would be an open session nobody can see.
-      if (railSurface === "auto" || railSurface === "page") onOpenSessions();
-      // A report in the stage gives way to the session picked beside it.
-      onCloseStageSheet?.();
-      // A session picked while a thread fills the stage replaces the thread.
-      if (openThreadId) onCloseThread?.();
-      // Board mode shows one session beside the board, pinned or not.
-      if (railSurface !== "board" && validPinned.includes(sid)) return; // already a persistent column
-      setPreview(sid);
-    },
-    [validPinned, railSurface, onOpenSessions, openThreadId, onCloseThread, onCloseStageSheet],
-  );
+  const openSession = (sid: string) => {
+    // From Schedules, picking a session in the rail goes back to Chat: the
+    // stage is showing the schedule list, and a preview set underneath it
+    // would be an open session nobody can see.
+    if (railSurface === "auto" || railSurface === "page") onOpenSessions();
+    // A report in the stage gives way to the session picked beside it.
+    onCloseStageSheet?.();
+    // A session picked while a thread fills the stage replaces the thread.
+    if (openThreadId) onCloseThread?.();
+    // Board mode shows one session beside the board, pinned or not.
+    if (railSurface !== "board" && validPinned.includes(sid)) return; // already a persistent column
+    setPreview(sid);
+  };
   // Arriving on the Board shows the board alone; whatever Live was previewing
   // is not what you came to look at.
   useEffect(() => {
     if (railSurface === "board") setPreview(null);
   }, [railSurface]);
-  const togglePin = useCallback(
-    (sid: string) => {
-      if (shippedReview?.sessionId === sid) return;
-      if (validPinned.includes(sid)) {
-        setPinned((prev) => prev.filter((x) => x !== sid));
-        return;
-      }
-      if (validPinned.length >= MAX_COLUMNS) {
-        toast.error(`${MAX_COLUMNS} columns max — unpin one first`);
-        return;
-      }
-      setPinned([...validPinned, sid]);
-      setPreview((p) => (p === sid ? null : p));
-    },
-    [validPinned, shippedReview?.sessionId],
-  );
-  const closeColumn = useCallback((sid: string) => {
+  const togglePin = (sid: string) => {
+    if (shippedReview?.sessionId === sid) return;
+    if (validPinned.includes(sid)) {
+      setPinned((prev) => prev.filter((x) => x !== sid));
+      return;
+    }
+    if (validPinned.length >= MAX_COLUMNS) {
+      toast.error(`${MAX_COLUMNS} columns max — unpin one first`);
+      return;
+    }
+    setPinned([...validPinned, sid]);
+    setPreview((p) => (p === sid ? null : p));
+  };
+  const closeColumn = (sid: string) => {
     setPinned((prev) => prev.filter((x) => x !== sid));
     setPreview((p) => (p === sid ? null : p));
-  }, []);
+  };
 
   /**
    * A bot's chat IS its backing session, so the rail does not need a second
@@ -13687,18 +13669,14 @@ function RailStage({
   // so the rail reorganised itself whenever the filter changed.
   // Folder groups follow the box's saved folder order, as the pills do.
   const folderOrder = useFolderMenuPrefs().order;
-  const projectRailGroups = useMemo(
-    () =>
-      groupNodesByProject(
-        railTree.roots.filter(
-          (item) => !railNodeContainsTopPin(item) && !railNodeIsBot(item),
-        ),
-        (node) => railTree.flatten([node]).length,
-        shortProject,
-        folderOrder,
-      ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [railTree, topPinned, folderOrder],
+  // Memoized by React Compiler on railTree, topPinned and folderOrder.
+  const projectRailGroups = groupNodesByProject(
+    railTree.roots.filter(
+      (item) => !railNodeContainsTopPin(item) && !railNodeIsBot(item),
+    ),
+    (node) => railTree.flatten([node]).length,
+    shortProject,
+    folderOrder,
   );
 
   // A folded group takes its rows out of the DOM, so they must leave the
@@ -13773,29 +13751,26 @@ function RailStage({
 
   // Pin the contiguous range anchor→sid as the stage set (capped at 4). This is
   // what shift-click / shift-arrow do: select multiple sessions to tile at once.
-  const selectTo = useCallback(
-    (sid: string) => {
-      const a = anchorRef.current ? orderedSids.indexOf(anchorRef.current) : -1;
-      const b = orderedSids.indexOf(sid);
-      if (a < 0 || b < 0) {
-        anchorRef.current = sid;
-        setCursor(sid);
-        setPreview(sid);
-        return;
-      }
-      const [lo, hi] = a < b ? [a, b] : [b, a];
-      let range = orderedSids.slice(lo, hi + 1);
-      if (range.length > MAX_COLUMNS) {
-        toast.error(`${MAX_COLUMNS} panes max — selection trimmed`);
-        // Keep the panes nearest the just-clicked end.
-        range = b >= a ? range.slice(range.length - MAX_COLUMNS) : range.slice(0, MAX_COLUMNS);
-      }
-      setPinned(range);
-      setPreview(null);
+  const selectTo = (sid: string) => {
+    const a = anchorRef.current ? orderedSids.indexOf(anchorRef.current) : -1;
+    const b = orderedSids.indexOf(sid);
+    if (a < 0 || b < 0) {
+      anchorRef.current = sid;
       setCursor(sid);
-    },
-    [orderedSids],
-  );
+      setPreview(sid);
+      return;
+    }
+    const [lo, hi] = a < b ? [a, b] : [b, a];
+    let range = orderedSids.slice(lo, hi + 1);
+    if (range.length > MAX_COLUMNS) {
+      toast.error(`${MAX_COLUMNS} panes max — selection trimmed`);
+      // Keep the panes nearest the just-clicked end.
+      range = b >= a ? range.slice(range.length - MAX_COLUMNS) : range.slice(0, MAX_COLUMNS);
+    }
+    setPinned(range);
+    setPreview(null);
+    setCursor(sid);
+  };
 
   // A plain click/Enter: set the anchor here and preview it. Shift extends the
   // range from the anchor and tiles the selection. Always pulse the stage pane
@@ -13824,12 +13799,11 @@ function RailStage({
       if (!sid) return;
       const sess = bySid.get(sid);
       if (!sess || !canDriveSession(sess)) return;
-      try {
+      // Best-effort: a failed interrupt shouldn't surface as a hard error.
+      await attemptAsync(async () => {
         await api(`/api/sessions/${sid}/interrupt`, { method: "POST" });
         await onRefresh();
-      } catch {
-        // Best-effort: a failed interrupt shouldn't surface as a hard error.
-      }
+      }, () => {});
     },
     [bySid, onRefresh],
   );
@@ -13852,18 +13826,18 @@ function RailStage({
       // ended, so the outcome is the one they asked for; anything else puts
       // the row back.
       onRemove(sid);
-      try {
-        await closeSessionRequest(sid, "live_keyboard_shift_e");
-      } catch (e) {
-        if (!isMissingSessionError(e)) {
-          restoreSession(sid);
-          toast.error(e instanceof Error ? e.message : "Couldn't archive session");
-        }
-      } finally {
-        // Outside the try — an onRefresh rejection here would escape the
-        // handler entirely rather than being reported by the catch above.
-        await onRefresh().catch(() => {});
-      }
+      await attemptAsync(
+        () => closeSessionRequest(sid, "live_keyboard_shift_e"),
+        (e) => {
+          if (!isMissingSessionError(e)) {
+            restoreSession(sid);
+            toast.error(e instanceof Error ? e.message : "Couldn't archive session");
+          }
+        },
+        // After the catch, so an onRefresh rejection here is swallowed rather
+        // than reported as a failed archive.
+        () => onRefresh().catch(() => {}),
+      );
     },
     [appDialog, bySid, closeColumn, onRemove, onRefresh, restoreSession],
   );
@@ -13872,7 +13846,7 @@ function RailStage({
 
   // Latest values for the global key handler, so it binds once but never reads
   // stale state.
-  const kb = useRef({
+  const kb = useLatestRef({
     openTerminal,
     orderedSids,
     cursor,
@@ -13894,28 +13868,6 @@ function RailStage({
     onNew: startNew,
     onOpenSettings,
   });
-  kb.current = {
-    openTerminal,
-    orderedSids,
-    cursor,
-    preview,
-    columnIds,
-    activate,
-    pulseStage,
-    selectTo,
-    togglePin,
-    closeColumn,
-    closeSession,
-    setCursor,
-    setPreview,
-    setRailCollapsed,
-    setShowHelp,
-    showHelp,
-    busyBySid,
-    interruptSid,
-    onNew: startNew,
-    onOpenSettings,
-  };
   useEffect(() => {
     // A host can keep two app surfaces alive in one document. Without an owner,
     // both handled the same keystroke: one shift+E raised an archive dialog in
@@ -16808,6 +16760,13 @@ type SkillTextareaProps = Omit<
   holdHeight?: boolean;
 };
 
+// Hands a DOM node to a caller's ref. At module scope because React Compiler
+// skips a component that writes to one of its props, and a ref prop is one.
+function assignRef<T>(ref: React.Ref<T> | undefined, node: T | null) {
+  if (typeof ref === "function") ref(node);
+  else if (ref) (ref as React.MutableRefObject<T | null>).current = node;
+}
+
 function SkillTextarea({
   value,
   onValueChange,
@@ -16823,9 +16782,9 @@ function SkillTextarea({
   holdHeight = false,
   ...props
 }: SkillTextareaProps) {
+  "use memo";
   const wrapRef = useRef<HTMLDivElement>(null);
-  const holdRef = useRef(holdHeight);
-  holdRef.current = holdHeight;
+  const holdRef = useLatestRef(holdHeight);
   const heldHeightRef = useRef(0);
   const fieldRef = useRef<HTMLTextAreaElement | null>(null);
   const followedScrollNonceRef = useRef(scrollToEndNonce);
@@ -16911,7 +16870,9 @@ function SkillTextarea({
   // solve, so the measurement is contained here instead: the field's own
   // wrapper is pinned to the height it already has, the collapse happens
   // inside that fixed box, and nothing above the composer moves.
-  const resizeField = useCallback((el: HTMLTextAreaElement | null = fieldRef.current) => {
+  // No default parameter: the compiler cannot reorder a ref read into one.
+  const resizeField = useCallback((target?: HTMLTextAreaElement | null) => {
+    const el = target === undefined ? fieldRef.current : target;
     if (!el) return;
     const box = el.parentElement;
     const lockedHeight = box ? box.getBoundingClientRect().height : 0;
@@ -16942,15 +16903,12 @@ function SkillTextarea({
         onMultilineChange(multiline);
       }
     }
-  }, [onMultilineChange]);
+  }, [onMultilineChange, holdRef]);
 
   const setFieldRef = useCallback(
     (node: HTMLTextAreaElement | null) => {
       fieldRef.current = node;
-      if (typeof textareaRef === "function") textareaRef(node);
-      else if (textareaRef) {
-        (textareaRef as React.MutableRefObject<HTMLTextAreaElement | null>).current = node;
-      }
+      assignRef(textareaRef, node);
       resizeField(node);
     },
     [textareaRef, resizeField],
@@ -17273,7 +17231,7 @@ function ThreadComposerBar({ testId, placeholder, onSend, autoFocus, onTyping, m
           />
           <MicButton
             className="size-10 shrink-0 rounded-full bg-foreground/[0.06] text-foreground/70 hover:bg-foreground/[0.12] hover:text-foreground md:size-8"
-            baseText={text}
+            baseText={() => text}
             onText={setText}
             onInterim={setText}
             onAutoSubmit={(said, base) => void send(base.trim() ? `${base.trimEnd()} ${said}` : said)}
@@ -17422,6 +17380,7 @@ function SessionChatBody({
   onDictatingChange,
   beforeComposer,
 }: SessionChatProps) {
+  "use memo";
   const sid = session.sessionId;
   const reviewingShipped = !!session.shippedReview;
   // A host's guided tutorial (OmgAppSurfaceProps.composerGuide): Send waits
@@ -17437,6 +17396,8 @@ function SessionChatBody({
   const [messageText, setMessageTextState] = useState(
     () => readPromptDraft(stashContext)?.text ?? "",
   );
+  // Read when dictation starts, not on every keystroke (see useDictation).
+  const messageTextRef = useLatestRef(messageText);
   const onGuideDraft = composerGuide?.onDraft;
   useEffect(() => {
     onGuideDraft?.(messageText, "session", sid ?? undefined);
@@ -17504,7 +17465,7 @@ function SessionChatBody({
   // Provided by the lazily-loaded engine wrapping this component.
   const chat = useOmgChat();
   const { messages: uiMessages, setMessages, sendMessage: sendChatMessage, status: chatStatus } = chat;
-  const projectMessages = useMemo(createOmgMessageProjector, []);
+  const projectMessages = useMemo(() => createOmgMessageProjector(), []);
   const chatMessages = useMemo(() => projectMessages(uiMessages), [uiMessages, projectMessages]);
   // Busy straight from the transcript subscription: the harness flips it the
   // moment it starts a turn, ahead of the ~1s status-poll row that feeds the
@@ -17549,8 +17510,9 @@ function SessionChatBody({
   // The server row that claims a local card keeps drawing under that card's
   // key, after the local card itself is gone, so the card is updated in place
   // (spinner to buttons) instead of replaced.
-  const heldCardKeys = useRef(new Map<string, string>());
-  const heldCards = useMemo(() => {
+  // One map for the life of this component, filled while held cards render.
+  const [heldCardKeys] = useState(() => new Map<string, string>());
+  const heldCards = (() => {
     const claimed = new Set<string>();
     const unanswered = localHeld.filter((local) => {
       const match = heldQueue.find(
@@ -17558,10 +17520,10 @@ function SessionChatBody({
       );
       if (!match) return true;
       claimed.add(match.id);
-      if (!heldCardKeys.current.has(match.id)) heldCardKeys.current.set(match.id, local.id);
+      if (!heldCardKeys.has(match.id)) heldCardKeys.set(match.id, local.id);
       return false;
     });
-    const keys = heldCardKeys.current;
+    const keys = heldCardKeys;
     // A held row this chat already shows as a waiting bubble is not a card too
     // (reconcileOmgQueueMessages binds the bubble to it by queueId).
     const shownAsBubble = new Set(
@@ -17575,11 +17537,11 @@ function SessionChatBody({
         })
       : waiting;
     return unanswered.length ? [...rows, ...unanswered] : rows;
-  }, [heldQueue, localHeld, uiMessages]);
+  })();
   useEffect(() => {
     setHeldQueue([]);
     setLocalHeld([]);
-    heldCardKeys.current.clear();
+    heldCardKeys.clear();
     heldRelease.clear();
     if (!sid) return;
     let cancelled = false;
@@ -17627,7 +17589,9 @@ function SessionChatBody({
     },
     [onTyping, session.project, session.title, sid, stashContext],
   );
-  fillSessionDraftRef.current = setMessageText;
+  useLayoutEffect(() => {
+    fillSessionDraftRef.current = setMessageText;
+  });
   // Faces and names for whoever is typing. An id with no roster row still
   // renders, as the existing "somebody else" placeholder: the id came from the
   // server, so dropping it would hide a real person rather than admit we
@@ -17718,22 +17682,23 @@ function SessionChatBody({
       const enabled = fastCommand.enabled ?? !currentFast;
       setSending(true);
       onError(null);
-      try {
-        const result = await api<{ fastMode: boolean }>(`/api/sessions/${sid}/fast-mode`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ enabled }),
-        });
-        setMessageTextState("");
-        toast.success(`Fast mode ${result.fastMode ? "on" : "off"}`, {
-          description: "Thinking effort was not changed.",
-        });
-        await onRefresh();
-      } catch (err) {
-        onError(err instanceof Error ? err.message : String(err));
-      } finally {
-        setSending(false);
-      }
+      // attemptAsync, not try/finally: see lib/attempt.ts.
+      await attemptAsync(
+        async () => {
+          const result = await api<{ fastMode: boolean }>(`/api/sessions/${sid}/fast-mode`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ enabled }),
+          });
+          setMessageTextState("");
+          toast.success(`Fast mode ${result.fastMode ? "on" : "off"}`, {
+            description: "Thinking effort was not changed.",
+          });
+          await onRefresh();
+        },
+        (err) => onError(errorMessage(err)),
+        () => setSending(false),
+      );
       return;
     }
     // A queued send while the agent is busy never enters the message chain
@@ -17779,7 +17744,7 @@ function SessionChatBody({
         { id: localHeldId, text, status: "held", createdAt: Date.now(), knownIds },
       ]);
     }
-    try {
+    await attemptAsync(async () => {
       // Uploads started when the files were attached; this normally resolves
       // immediately and only actually waits for bytes still in flight.
       const uploaded = files.length ? await Promise.all(files.map(resolveUpload)) : [];
@@ -17808,7 +17773,7 @@ function SessionChatBody({
           const held = res.msg;
           // The card keeps its row when its server row takes over (heldCards),
           // even when this answer lands before the queue frame does.
-          if (localHeldId) heldCardKeys.current.set(held.id, localHeldId);
+          if (localHeldId) heldCardKeys.set(held.id, localHeldId);
           setHeldQueue((current) =>
             current.some((item) => item.id === held.id) ? current : [...current, held],
           );
@@ -17905,14 +17870,12 @@ function SessionChatBody({
       void onRefresh().catch((err) => {
         onError(err instanceof Error ? err.message : String(err));
       });
-    } catch (err) {
+    }, (err) => {
       if (localHeldId) setLocalHeld((current) => current.filter((item) => item.id !== localHeldId));
       setPromptStashStatus(stashed?.id, "draft");
-      onError(err instanceof Error ? err.message : String(err));
+      onError(errorMessage(err));
       setMessageTextState((current) => current || text);
-    } finally {
-      setSending(false);
-    }
+    }, () => setSending(false));
   }
 
   async function interrupt() {
@@ -18040,6 +18003,62 @@ function SessionChatBody({
     </Button>
   );
 
+  // Built apart from the form, so each child keeps its own memo slot and a
+  // keystroke re-renders only what reads the draft.
+  const sendLatest = useLatestCallback(sendMessage);
+  const typingIndicator = <HumanTypingIndicator participants={typingParticipants} />;
+  const previewCard = <ProjectPreviewCard sessionId={sid} user={session.assignedUser} agentBusy={chatBusy} />;
+  const heldDock = sid ? (
+    <HeldQueueDock items={heldCards}>
+      {(items) => (
+        <HeldQueueCards
+          sessionId={sid}
+          items={items}
+          busy={chatBusy}
+          onChange={changeHeldQueue}
+          onError={onError}
+          onSendNow={steerHeldText}
+        />
+      )}
+    </HeldQueueDock>
+  ) : null;
+  const attachmentChips = (
+    <ComposerAttachmentChips
+      className="mb-2 px-1 pt-1"
+      items={attachments.map((att) => ({ att }))}
+      disabled={sending}
+      onAnnotate={files.setAnnotatingId}
+      onRemove={removeAttachment}
+      onToggleHd={files.setAttachmentHd}
+    />
+  );
+  const micButton = (
+    <MicButton
+      minimal
+      className="size-10 shrink-0 rounded-full md:size-9"
+      iconClassName="size-5"
+      baseText={() => messageTextRef.current}
+      onRecordingChange={onDictatingChange}
+      onActiveChange={setDictationHold}
+      onText={setDictatedMessageText}
+      onInterim={setDictatedMessageText}
+      onAutoSubmit={(text, base) => {
+        const combined = base.trim() ? `${base.trimEnd()} ${text}` : text;
+        void sendLatest(undefined, combined);
+      }}
+      onCancel={(base) => setMessageText(base)}
+    />
+  );
+  const sendButton = (
+    <ComposerSendButton
+      className="size-11 shrink-0 md:size-9"
+      sending={sending}
+      defaultMode={composerSendMode}
+      onSend={() => void sendLatest()}
+      onQueue={() => void sendLatest(undefined, undefined, alternateSendMode)}
+    />
+  );
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <PausedBanner session={session} onRefresh={onRefresh} />
@@ -18081,7 +18100,7 @@ function SessionChatBody({
              somebody restarted something for it. */
         bot || canDriveSession(session) || reviewingShipped ? (
         <form
-          onSubmit={sendMessage}
+          onSubmit={sendLatest}
           data-lfg-bar-lift=""
           {...files.dropZoneProps}
           className={cn(
@@ -18109,27 +18128,14 @@ function SessionChatBody({
           {/* A person composing, not the agent working. Sits above the input
               rather than in ChatStream's TypingIndicator slot so the two can
               never be mistaken for each other. */}
-          <HumanTypingIndicator participants={typingParticipants} />
-          <ProjectPreviewCard sessionId={sid} user={session.assignedUser} agentBusy={chatBusy} />
+          {typingIndicator}
+          {previewCard}
           {files.fileInput}
 
           {/* Held sends rise out of the bar as a narrow island docked to its
               top edge: the next one to go is always visible, the rest fold
               behind a count until tapped. */}
-          {sid ? (
-            <HeldQueueDock items={heldCards}>
-              {(items) => (
-                <HeldQueueCards
-                  sessionId={sid}
-                  items={items}
-                  busy={chatBusy}
-                  onChange={changeHeldQueue}
-                  onError={onError}
-                  onSendNow={steerHeldText}
-                />
-              )}
-            </HeldQueueDock>
-          ) : null}
+          {heldDock}
           {/* Host chrome right above this session's bar (the omg.dev guide card).
               Empty unless a host portals into it; [data-lfg-host-slot]:empty
               hides it. The session id keeps a guide attached to its own
@@ -18177,14 +18183,7 @@ function SessionChatBody({
                 target on its own on mobile, so no padding trick is needed to
                 keep the tap area honest; md:size-8 is mouse-precision, not
                 touch, so it can go smaller. */}
-            <ComposerAttachmentChips
-              className="mb-2 px-1 pt-1"
-              items={attachments.map((att) => ({ att }))}
-              disabled={sending}
-              onAnnotate={files.setAnnotatingId}
-              onRemove={removeAttachment}
-              onToggleHd={files.setAttachmentHd}
-            />
+            {attachmentChips}
             {/* The morphing row: one line at rest, the field over its
                 controls while focused or filled. */}
             <div
@@ -18276,21 +18275,7 @@ function SessionChatBody({
             >
             {composerExpanded ? attachButton : null}
             {composerExpanded ? <span className="flex-1" /> : null}
-            <MicButton
-              minimal
-              className="size-10 shrink-0 rounded-full md:size-9"
-              iconClassName="size-5"
-              baseText={messageText}
-              onRecordingChange={onDictatingChange}
-              onActiveChange={setDictationHold}
-              onText={setDictatedMessageText}
-              onInterim={setDictatedMessageText}
-              onAutoSubmit={(text, base) => {
-                const combined = base.trim() ? `${base.trimEnd()} ${text}` : text;
-                void sendMessage(undefined, combined);
-              }}
-              onCancel={(base) => setMessageText(base)}
-            />
+            {micButton}
             {/* No Stop button here. It sat between the mic and send for the
                 whole of every turn, one more circle in a bar that should be
                 about what you type. Stop lives in the session's menu (the
@@ -18306,13 +18291,7 @@ function SessionChatBody({
                 what carries "gesture in progress" until words land. */}
             {(messageText.trim() || attachments.length || sending) &&
             (sending || !composerGuide?.accepts || composerGuide.accepts(messageText.trim(), "session", sid ?? undefined)) ? (
-              <ComposerSendButton
-                className="size-11 shrink-0 md:size-9"
-                sending={sending}
-                defaultMode={composerSendMode}
-                onSend={() => void sendMessage()}
-                onQueue={() => void sendMessage(undefined, undefined, alternateSendMode)}
-              />
+              sendButton
             ) : null}
             </div>
             </div>
@@ -19823,7 +19802,7 @@ function ForkSessionDialog({
               minimal
               className="absolute bottom-1 right-1 size-9 shrink-0"
               silenceMs={2500}
-              baseText={prompt}
+              baseText={() => prompt}
               onText={(text, base) => setPrompt(base.trim() ? `${base.trimEnd()} ${text}` : text)}
               onInterim={(text, base) => setPrompt(base.trim() ? `${base.trimEnd()} ${text}` : text)}
               onAutoSubmit={(text, base) => {
@@ -19974,6 +19953,7 @@ const SessionCard = memo(function SessionCard({
   /** Project folders, for the app the session's project links to. */
   repos?: readonly Repo[];
 }) {
+  "use memo";
   const appDialog = useAppDialog();
   const catalog = useAgentModelCatalog();
   const isMobile = useIsMobile();
@@ -20123,6 +20103,15 @@ const SessionCard = memo(function SessionCard({
     el.style.transform = [tx, ty].filter(Boolean).join(" ") || "";
   };
 
+  function closeSwipe() {
+    const el = sectionRef.current;
+    if (el) el.style.transition = "";
+    setSwipeOpen(false);
+    setSwipeIntent(null);
+    openRef.current = "none";
+    setTransform(0, 0);
+  }
+
   async function archiveSession() {
     if (!sid) return;
     onRemove(sid); // drop the card now; the tombstone survives the next poll
@@ -20131,19 +20120,19 @@ const SessionCard = memo(function SessionCard({
     // session that already ended 404s with "session not found", which used to
     // surface as an unhandledrejection even though the swipe did what the user
     // wanted — the card is gone and the refresh below reconciles the truth.
-    try {
-      await closeSessionRequest(sid, "mobile_swipe_archive");
-    } catch (err) {
-      // 404 is "already gone", which is what the swipe asked for. Any other
-      // refusal means the session is still live, so put the card back — the
-      // tombstone set by onRemove has no expiry of its own.
-      if (!isMissingSessionError(err)) {
-        restoreSession(sid);
-        toast.error(err instanceof Error ? err.message : "Couldn't archive session");
-      }
-    } finally {
-      await onRefresh().catch(() => {});
-    }
+    await attemptAsync(
+      () => closeSessionRequest(sid, "mobile_swipe_archive"),
+      (err) => {
+        // 404 is "already gone", which is what the swipe asked for. Any other
+        // refusal means the session is still live, so put the card back — the
+        // tombstone set by onRemove has no expiry of its own.
+        if (!isMissingSessionError(err)) {
+          restoreSession(sid);
+          toast.error(err instanceof Error ? err.message : "Couldn't archive session");
+        }
+      },
+      () => onRefresh().catch(() => {}),
+    );
   }
 
   async function commitArchive() {
@@ -20171,15 +20160,6 @@ const SessionCard = memo(function SessionCard({
       el.style.opacity = "0";
     }
     window.setTimeout(() => void archiveSession(), 280);
-  }
-
-  function closeSwipe() {
-    const el = sectionRef.current;
-    if (el) el.style.transition = "";
-    setSwipeOpen(false);
-    setSwipeIntent(null);
-    openRef.current = "none";
-    setTransform(0, 0);
   }
 
 const onTouchStart = (e: ReactTouchEvent) => {
@@ -20880,6 +20860,13 @@ const ChatStream = memo(function ChatStream({
     overscan: 6,
     scrollMargin,
     scrollToFn: noVirtualizerScroll,
+    // Scrolling alone does not change a row's offset, only which rows are
+    // mounted. With direct updates the virtualizer writes row offsets and the
+    // container height itself, and re-renders this component only when the
+    // mounted range or the scrolling flag changes. Before, every scroll event
+    // re-rendered the whole transcript frame.
+    directDomUpdates: true,
+    directDomUpdatesMode: "transform",
   });
   // Not an option, an instance field: the library reads it directly.
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = () => false;
@@ -20909,6 +20896,13 @@ const ChatStream = memo(function ChatStream({
 
   const virtualRows = virtualizer.getVirtualItems();
   const totalSize = virtualizer.getTotalSize();
+  const attachVirtualContainer = useCallback(
+    (node: HTMLDivElement | null) => {
+      virtualContainerRef.current = node;
+      virtualizer.containerRef(node);
+    },
+    [virtualizer],
+  );
   const indexByKey = useMemo(() => {
     const map = new Map<string, number>();
     items.forEach((item, index) => map.set(item.key, index));
@@ -21675,14 +21669,15 @@ const ChatStream = memo(function ChatStream({
       setStick(false);
     }
     setLoadingOlder(true);
-    try {
-      const more = await onLoadOlderMessages(sid);
-      setHasOlder(more);
-    } catch {
-      preserveScrollRef.current = null;
-    } finally {
-      setLoadingOlder(false);
-    }
+    await attemptAsync(
+      async () => {
+        setHasOlder(await onLoadOlderMessages(sid));
+      },
+      () => {
+        preserveScrollRef.current = null;
+      },
+      () => setLoadingOlder(false),
+    );
   }, [sid, loadingOlder, hasOlder, onLoadOlderMessages, captureAnchor]);
 
   // Nothing scrolls an underfilled transcript, so the backfill needs its own
@@ -21791,7 +21786,7 @@ const ChatStream = memo(function ChatStream({
               the DOM measurement of a row includes exactly what the model
               predicts for it. */}
           <div
-            ref={virtualContainerRef}
+            ref={attachVirtualContainer}
             className="relative w-full"
             style={{ height: `${totalSize}px` }}
           >
@@ -21826,7 +21821,9 @@ const ChatStream = memo(function ChatStream({
                     top: 0,
                     left: 0,
                     width: "100%",
-                    transform: `translateY(${virtualRow.start - scrollMargin}px)`,
+                    // The same string the virtualizer writes on scroll (see
+                    // directDomUpdates), so React and it never disagree.
+                    transform: `translate3d(0, ${virtualRow.start - scrollMargin}px, 0)`,
                   }}
                 >
                   {item.type === "tools" ? (
@@ -22175,6 +22172,7 @@ const ToolGroup = memo(function ToolGroup({
   endTs?: number | null;
   sid?: string | null;
 }) {
+  "use memo";
   // What the run did ("Thought · 2 Bash") is the detail; what the row SAYS is
   // how long it took. A live run counts up once a second.
   const summary = toolGroupLabel(items);
@@ -22192,8 +22190,7 @@ const ToolGroup = memo(function ToolGroup({
   // above is built from the tool NAMES, which are, so the counter still ticks
   // up live during a run without any of this having resolved.
   const toolArgs = useDeferredToolArgs(sid, items, open);
-  const openRef = useRef(open);
-  openRef.current = open;
+  const openRef = useLatestRef(open);
   const hoverOpenTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hoverCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -23844,19 +23841,12 @@ function NewSessionDialog({
   // campfire). The nonce lets the same agent be requested more than once.
   agentRequest?: { kind: AgentKind; accountId?: string; nonce: number } | null;
 }) {
+  "use memo";
   const runtime = useRuntimeAvailability();
   // The saved screen is up and the runtime is not live yet (see submit).
   const sendMode = composerSendMode(runtime);
   const waitingForComputer = sendMode === "wait";
   const [sendWhenReady, setSendWhenReady] = useState<{ text?: string; thinking?: ThinkingLevel } | null>(null);
-  useEffect(() => {
-    if (!sendWhenReady || sendMode !== "send") return;
-    const pending = sendWhenReady;
-    setSendWhenReady(null);
-    submit(undefined, pending.text, pending.thinking);
-    // submit is this render's closure, so it reads the live state.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sendWhenReady, sendMode]);
   const catalog = useAgentModelCatalog();
   const accessMode = useContext(AgentAccessModeContext);
   // A host's guided tutorial (OmgAppSurfaceProps.composerGuide).
@@ -23928,15 +23918,19 @@ function NewSessionDialog({
   // this composer has already mounted on its defaults. Adopt it once, and only
   // while nobody has picked anything here: a local choice, saved or just
   // tapped, always outranks what another device remembered.
+  // Select an agent and the model it starts on. An effect event, so the
+  // effects below re-run only on their own inputs, not on every model setting.
+  const selectAgent = useEffectEvent((kind: AgentKind) => {
+    setAgent(kind);
+    setModel(preferredModelFor(kind));
+  });
   useEffect(() => {
     if (desiredAgentRef.current) return;
     if (!view.showComposerAgents) return;
     const remembered = knownAgentKind(view.lastAgent);
     if (!remembered) return;
     desiredAgentRef.current = remembered;
-    setAgent(remembered);
-    setModel(preferredModelFor(remembered));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    selectAgent(remembered);
   }, [view.lastAgent, view.showComposerAgents]);
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(
     () => savedThinkingLevel(),
@@ -23970,8 +23964,7 @@ function NewSessionDialog({
   // The agent-cap offer is the one that does: it now waits to be answered, so
   // the box can be edited while it sits there, and answering it must send what
   // the person can currently see rather than what they typed a minute ago.
-  const promptRef = useRef(prompt);
-  promptRef.current = prompt;
+  const promptRef = useLatestRef(prompt);
   const [dictationScrollNonce, setDictationScrollNonce] = useState(0);
   const [dictationHold, setDictationHold] = useState(false);
   const [promptMultiline, setPromptMultiline] = useState(false);
@@ -24196,8 +24189,7 @@ function NewSessionDialog({
   // Same stability trick as the page-level swipe: onProjectSwipe is recreated
   // on every live-session update, so the listeners read it via ref instead of
   // re-attaching (a mid-drag re-attach resets gesture state and kills the swipe).
-  const composerSwipeCtx = useRef({ onProjectSwipe, pendingCreates });
-  composerSwipeCtx.current = { onProjectSwipe, pendingCreates };
+  const composerSwipeCtx = useLatestRef({ onProjectSwipe, pendingCreates });
   useEffect(() => {
     if (variant !== "inline" || !onProjectSwipe) return;
     const shell = inlineShellRef.current;
@@ -24377,7 +24369,7 @@ function NewSessionDialog({
     onClose();
     // A cold resume starts a process, so it clears the same cap a create does —
     // and gets the same way through it.
-    const resume = (overLimit: boolean) =>
+    const requestResume = (overLimit: boolean) =>
       toast.promise(
         api("/api/sessions/resume", {
           method: "POST",
@@ -24419,7 +24411,7 @@ function NewSessionDialog({
                 action: {
                   label: "Start anyway",
                   onClick: () => {
-                    resume(true);
+                    requestResume(true);
                   },
                 },
               };
@@ -24428,7 +24420,7 @@ function NewSessionDialog({
           },
         },
       );
-    resume(false);
+    requestResume(false);
   }
 
   // Each time the dialog opens, default the owner to the selected profile (the
@@ -24501,7 +24493,9 @@ function NewSessionDialog({
       project: composerProject,
     });
   }
-  fillHomeDraftRef.current = setPrompt;
+  useLayoutEffect(() => {
+    fillHomeDraftRef.current = setPrompt;
+  });
 
   function openFolderBrowser(create: boolean) {
     setFolderBrowserCreate(create);
@@ -24570,9 +24564,7 @@ function NewSessionDialog({
       defaultAgent,
     ) as AgentKind | null;
     if (!next) return;
-    setAgent(next);
-    setModel(preferredModelFor(next));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    selectAgent(next);
   }, [agent, defaultAgent, visibleAgentOptions]);
 
   useEffect(() => {
@@ -24593,16 +24585,10 @@ function NewSessionDialog({
     if (appliedAgentNonce.current === agentRequest.nonce) return;
     appliedAgentNonce.current = agentRequest.nonce;
     desiredAgentRef.current = agentRequest.kind;
-    setAgent(agentRequest.kind);
+    selectAgent(agentRequest.kind);
     if (agentRequest.kind === "aisdk") setClaudeAccountId(agentRequest.accountId ?? "");
-    setModel(preferredModelFor(agentRequest.kind));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentRequest]);
 
-  // Keep this component alive while the resume picker is open. On desktop its
-  // owning dialog closes first, otherwise the dialog's modal backdrop and focus
-  // trap sit above the full-screen picker and dismissing the dialog unmounts it.
-  if (!open && !resumeOpen) return null;
 
   // overrideThinking comes from a hold-to-scrub release on Start: the level was
   // chosen and launched in the same gesture, so it can't be read back off state
@@ -24742,14 +24728,12 @@ function NewSessionDialog({
         composerGuide?.onSent?.({ surface: "new-session", text: taskPrompt, sessionId: sid ?? null });
         await onCreated({ launchId: sid, sessionId: sid, session: res?.session ?? null });
       };
-      try {
+      // attemptAsync, not try/finally: see lib/attempt.ts.
+      await attemptAsync(async () => {
         // Started at attach time; usually already resolved by now.
         const uploaded = files.length ? await Promise.all(files.map(resolveUpload)) : [];
         const composedPrompt = composeAttachmentMessage(taskPrompt, uploaded);
-        let res: CreateResult;
-        try {
-          res = await postCreate(composedPrompt, false);
-        } catch (err) {
+        const created = await attemptAsync<{ res: CreateResult }, null>(async () => ({ res: await postCreate(composedPrompt, false) }), (err) => {
           if (!isAgentLimitError(err)) throw err;
           // The local cap, which its owner can overrule. Put the task back in
           // the box first so the offer is genuinely optional — declining it
@@ -24757,8 +24741,8 @@ function NewSessionDialog({
           setPromptStashStatus(stashed?.id, "draft");
           setPromptState((current) => current || taskPrompt);
           toastAgentLimit(err, "create", () => {
-            void (async () => {
-              try {
+            void attemptAsync(
+              async () => {
                 // Send what is in the box now. The offer waits, so the prompt
                 // it was raised for can have been rewritten since — sending the
                 // original would both ignore that edit and then clear it.
@@ -24770,27 +24754,28 @@ function NewSessionDialog({
                 const retried = await postCreate(outgoing, true);
                 setPromptState("");
                 await settle(retried, outgoing);
-              } catch (retryError) {
-                const message =
-                  retryError instanceof Error ? retryError.message : String(retryError);
-                toast.error(message || "Couldn't create session");
-              }
-            })();
+              },
+              (retryError) => {
+                toast.error(errorMessage(retryError) || "Couldn't create session");
+              },
+            );
           });
-          return;
-        }
-        await settle(res, composedPrompt);
-      } catch (err) {
+          return null;
+        });
+        // null: the agent-cap offer is showing, and it sends on its own.
+        if (!created) return;
+        await settle(created.res, composedPrompt);
+      }, (err) => {
         setPromptStashStatus(stashed?.id, "draft");
         setPromptState((current) => current || taskPrompt);
         // A plan ceiling the host can sell past is not an error to show — it's
         // an upgrade prompt to open. The prompt is already restored above, so
         // whoever comes back from checkout finds their task still typed.
         if (handlePlanLimit(err, "start-session")) return;
-        const message = err instanceof Error ? err.message : String(err);
+        const message = errorMessage(err);
         setError(message);
         toast.error(message || "Couldn't create session");
-      } finally {
+      }, () => {
         for (const att of files) {
           if (att.previewUrl) URL.revokeObjectURL(att.previewUrl);
         }
@@ -24801,9 +24786,26 @@ function NewSessionDialog({
         setPendingUploads((current) => current.filter((att) => !uploadIds.has(att.id)));
         for (const id of uploadIds) forgetUpload(id);
         setPendingCreates((n) => Math.max(0, n - 1));
-      }
+      });
     })();
   }
+
+  // One identity for every render, so the Start button, the mic and the
+  // starters do not re-render on each keystroke of the draft.
+  const submitLatest = useLatestCallback(submit);
+
+  // A send queued on the saved screen runs once the runtime is live.
+  // An effect event reads the live state when it runs, so a queued send uses
+  // what the composer holds now, not what it held when the send was queued.
+  const sendQueued = useEffectEvent((text?: string, thinking?: ThinkingLevel) => {
+    submit(undefined, text, thinking);
+  });
+  useEffect(() => {
+    if (!sendWhenReady || sendMode !== "send") return;
+    const pending = sendWhenReady;
+    setSendWhenReady(null);
+    sendQueued(pending.text, pending.thinking);
+  }, [sendWhenReady, sendMode]);
 
   // Inline composer resting state: only the agent icon + prompt + mic + Start
   // show; tapping the agent icon morphs the controls row open. The drawer
@@ -24854,7 +24856,9 @@ function NewSessionDialog({
     setModel(preferredModelFor(nextKey));
     feedback.swipe();
   };
-  cycleAgentRef.current = cycleAgent;
+  useLayoutEffect(() => {
+    cycleAgentRef.current = cycleAgent;
+  });
 
   const onAgentLocked = () => {
     // The whole point of drawing an agent we can't run: this is the one
@@ -24923,6 +24927,9 @@ function NewSessionDialog({
       onNewFolder={() => openFolderBrowser(true)}
     />
   );
+  // Built here, not at the use site, so each keeps its own memo slot.
+  const folderPill = folderPicker("pill");
+  const folderChip = folderPicker("chip");
 
   // The composer carries no Stash button. Stash and recent sessions open with
   // the upward swipe on a phone and from a project's "find sessions" card.
@@ -24997,7 +25004,7 @@ function NewSessionDialog({
       ) : null}
 
 
-      {variant !== "stage" && !projectScoped ? folderPicker("pill") : null}
+      {variant !== "stage" && !projectScoped ? folderPill : null}
     </>
   );
 
@@ -25171,7 +25178,7 @@ function NewSessionDialog({
       className={cn("size-9 shrink-0", !sheetShape && "absolute bottom-1 right-1")}
       iconClassName="size-5"
       silenceMs={2500}
-      baseText={prompt}
+      baseText={() => promptRef.current}
       onActiveChange={setDictationHold}
       onText={(text, base) => {
         setPrompt(base.trim() ? `${base.trimEnd()} ${text}` : text);
@@ -25183,7 +25190,7 @@ function NewSessionDialog({
       }}
       onAutoSubmit={(text, base) => {
         const combined = base.trim() ? `${base.trimEnd()} ${text}` : text;
-        void submit(undefined, combined);
+        void submitLatest(undefined, combined);
       }}
       onCancel={(base) => setPrompt(base)}
     />
@@ -25228,14 +25235,14 @@ function NewSessionDialog({
       thinkingLevels={agentSupportsThinking(agent) ? thinkingLevels : []}
       onLaunch={(next) => {
         changeComposerThinkingLevel(next);
-        submit(undefined, undefined, next);
+        submitLatest(undefined, undefined, next);
       }}
     />
   );
   const formBody = (
     <>
     <form
-      onSubmit={submit}
+      onSubmit={submitLatest}
       {...files.dropZoneProps}
       aria-busy={launching}
       className={cn(
@@ -25274,7 +25281,7 @@ function NewSessionDialog({
           className={cn("mb-2", variant === "inline" && "-mx-4 scroll-px-4 px-4")}
           disabled={launching}
           hostChips={starterChips}
-          onStart={(starterPrompt) => submit(undefined, starterPrompt)}
+          onStart={(starterPrompt) => submitLatest(undefined, starterPrompt)}
         />
       ) : null}
       <div
@@ -25397,7 +25404,7 @@ function NewSessionDialog({
                 as on iOS, so the composer carries no folder button. */}
             {inlineExpanded ? levelMenu : null}
             {/* Desktop home uses the same folder menu as the session rail. */}
-            {variant === "stage" ? folderPicker("chip") : null}
+            {variant === "stage" ? folderChip : null}
             {inlineExpanded ? <span className="flex-1" /> : null}
             {micButton}
             {inlineExpanded ? startButton : null}
@@ -25488,6 +25495,11 @@ function NewSessionDialog({
   // of the app shell. The App root is pinned to visualViewport.height, so this
   // participates in layout and moves above the soft keyboard instead of relying
   // on fixed-position keyboard offsets (which vary across iOS PWA/Safari modes).
+  // Keep this component alive while the resume picker is open. On desktop its
+  // owning dialog closes first, otherwise the dialog's modal backdrop and focus
+  // trap sit above the full-screen picker and dismissing the dialog unmounts it.
+  if (!open && !resumeOpen) return null;
+
   if (variant === "inline") {
     return (
       <div
@@ -27566,7 +27578,7 @@ function FindingDetail({
               minimal
               className="size-9 shrink-0"
               silenceMs={2500}
-              baseText={text}
+              baseText={() => text}
               onText={(spoken, base) => setText(base.trim() ? `${base.trimEnd()} ${spoken}` : spoken)}
               onInterim={(spoken, base) =>
                 setText(base.trim() ? `${base.trimEnd()} ${spoken}` : spoken)

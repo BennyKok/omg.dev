@@ -96,7 +96,7 @@ describe("one owner for the scroll correction", () => {
 describe("chrome stays outside the virtual window", () => {
   test("the older-messages spinner and the typing indicator are not virtual rows", async () => {
     const source = await app();
-    const start = source.indexOf("<div\n            ref={virtualContainerRef}");
+    const start = source.indexOf("<div\n            ref={attachVirtualContainer}");
     const end = source.indexOf("<TypingIndicator visible={showTypingIndicator}");
     expect(start).toBeGreaterThan(0);
     expect(end).toBeGreaterThan(start);

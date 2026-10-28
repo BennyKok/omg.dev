@@ -94,6 +94,6 @@ describe("the session row's swipe actions (RailItem)", () => {
     expect(body.indexOf("onRemove(sid);")).toBeLessThan(
       body.indexOf("closeSessionRequest"),
     );
-    expect(body).toContain("await onRefresh().catch(() => {});");
+    expect(body).toContain("() => onRefresh().catch(() => {})");
   });
 });

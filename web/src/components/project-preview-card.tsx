@@ -13,11 +13,13 @@ import { expoConnectActive, expoConnectMessage, EXPO_SIGNUP_LABEL, type ExpoAcco
 import { omgFetch } from "../lib/omg-client";
 import { useEmbeddedHostOptions } from "../lib/embedded-host-options";
 import { authenticatedPreviewUrl, previewAppIdentity, previewAuthRequest, renewPreviewAuth, type PreviewAppIdentity } from "../../../packages/protocol/src/preview-auth";
+import { attemptAsync } from "@/lib/attempt";
 const Computer = lazy(() => import("../views/computer-page").then(m => ({ default: m.ComputerPage })));
 // noVNC stays out of the card's chunk until a sign-in sheet opens.
 const ExpoSigninSheet = lazy(() => import("./expo-signin-sheet"));
 
 export function ProjectPreviewCard({ sessionId, user, agentBusy = false }: { sessionId: string | null; user?: string | null; agentBusy?: boolean }) {
+  "use memo";
   const [state, setState] = useState<ProjectPreviewSnapshot | null>(null);
   // Metro's hot reload does not always reach the framed page (a new tab in
   // an Expo Router layout needs a full reload), and the card kept showing 3
@@ -42,12 +44,12 @@ export function ProjectPreviewCard({ sessionId, user, agentBusy = false }: { ses
     if (!sessionId) return;
     let live = true;
     setState(null);
-    const refresh = async () => {
-      try {
+    // Older Computers do not have live preview cards.
+    const refresh = () =>
+      attemptAsync(async () => {
         const response = await omgFetch(`/api/project-preview${suffix}`);
         if (response.ok && live) setState(await response.json());
-      } catch { /* Older Computers do not have live preview cards. */ }
-    };
+      }, () => {});
     void refresh();
     // Only while visible: the simulator provider frees an unwatched simulator.
     const timer = setInterval(() => { if (!document.hidden) void refresh(); }, 3_000);
