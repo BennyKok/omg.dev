@@ -19446,6 +19446,14 @@ function SessionTitleSheet({
   // the swipe up from the composer that closed the chat are gone, so a
   // direction cannot mean two things. A drag that starts in a field being
   // edited, in code, a table or a sideways scroller belongs to that element.
+  //
+  // The listeners must outlive re-renders. They were attached in an effect
+  // keyed on `onClose`, which the parent passes as a new arrow on every render,
+  // and the chat re-renders on every live session update. One landing mid-drag
+  // re-attached fresh listeners with fresh state, so the release found "no
+  // drag" and the page stayed wherever the finger left it, neither closing
+  // nor springing back. `closeFromSwipe` is stable, so this effect runs once.
+  const closeFromSwipe = useLatestCallback(onClose);
   useEffect(() => {
     const panel = panelRef.current;
     if (!panel) return;
@@ -19482,7 +19490,7 @@ function SessionTitleSheet({
       const finish = () => {
         if (done) return;
         done = true;
-        onClose();
+        closeFromSwipe();
       };
       panel.style.transition = `transform ${ms}ms ${SHEET_EASE}`;
       panel.style.transform = "translate3d(100%, 0, 0)";
@@ -19539,17 +19547,26 @@ function SessionTitleSheet({
       if (swipeBackCommits(st.dx, panel.clientWidth, st.velocity)) finishBack(st.dx);
       else springBack();
     };
+    // The system took the touch (iOS's own edge gesture, a call, a scroll
+    // takeover). That is not the person letting go, so it never closes.
+    const onCancel = () => {
+      if (!st.active) return;
+      st.active = false;
+      if (st.intent === "back") springBack();
+    };
     panel.addEventListener("touchstart", onStart, { passive: true });
     panel.addEventListener("touchmove", onMove, { passive: false });
     panel.addEventListener("touchend", onEnd, { passive: true });
-    panel.addEventListener("touchcancel", onEnd, { passive: true });
+    panel.addEventListener("touchcancel", onCancel, { passive: true });
     return () => {
       panel.removeEventListener("touchstart", onStart);
       panel.removeEventListener("touchmove", onMove);
       panel.removeEventListener("touchend", onEnd);
-      panel.removeEventListener("touchcancel", onEnd);
+      panel.removeEventListener("touchcancel", onCancel);
+      // Never leave the page mid-drag with nothing listening for the release.
+      if (st.active && st.intent === "back" && !closingRef.current) springBack();
     };
-  }, [onClose]);
+  }, [closeFromSwipe]);
 
   // Escape-to-close, arrow-keys-to-switch + lock background scroll while open.
   useEffect(() => {
