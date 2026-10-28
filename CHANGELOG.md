@@ -2,6 +2,16 @@
 
 Recent product updates and deployment notes.
 
+## October 28, 2026 - A tutorial guide that never covers the page (v0.6.342)
+
+- omg.dev's tutorial guide now sits inside the chat box it belongs to. It moves the chat up instead of covering the reply, the preview or the tutorial cards.
+- On Home, a tutorial that waits in its own chat shows one "Continue" row above the chat box. Continue opens that chat, also on a computer.
+- The guide can be hidden to one row. "Quit" asks first and tells you that your app and chat stay.
+- While a tutorial's first step shows, the Create page hides the other tutorial cards, and "Getting started" stays hidden during a tutorial.
+- After a reload, a sentence that is already in the chat box counts. The guide says "Ready. Tap Send."
+- On a phone, the Create page header gets its background back when you scroll, so the cards no longer run under "Welcome" and the Create buttons.
+- Fixed: the omg.dev app could fail to load with v0.6.341 ("Something went wrong").
+
 ## October 28, 2026 - Publishes v0.6.339 and v0.6.340 (v0.6.341)
 
 - This release publishes the changes listed under v0.6.339 and v0.6.340 below. Neither of those releases published: a release check still assumed the build layout from before Vite 8.
