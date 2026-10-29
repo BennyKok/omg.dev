@@ -12,8 +12,11 @@ describe("parseMarkdownIntoBlocks", () => {
   });
 
   test("keeps a fenced block together even with blank lines inside it", () => {
+    // Streamdown 2.7 keeps the blank lines after a block in that block;
+    // classifyBlock strips them, so compare the trimmed source.
     const blocks = parseMarkdownIntoBlocks("before\n\n```ts\na\n\nb\n```\n\nafter")
-      .filter((block) => block.trim().length > 0);
+      .map((block) => block.trim())
+      .filter((block) => block.length > 0);
     expect(blocks).toEqual(["before", "```ts\na\n\nb\n```", "after"]);
   });
 

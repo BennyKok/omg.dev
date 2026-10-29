@@ -104,7 +104,7 @@ export function StreamdownResponse({ className, mode = "static", children, compo
       mode={mode}
       plugins={plugins}
       rehypePlugins={REHYPE_PLUGINS}
-      // Streamdown 2.6 caps fenced code at 400px and tables at 300px by
+      // Streamdown (2.6 and 2.7) caps fenced code at 400px and tables at 300px by
       // default. The transcript height model treats those blocks as full
       // height, so a silent cap would leave empty space on unmounted rows.
       // Infinity keeps the previous unbounded layout. Callers can still

@@ -2,6 +2,14 @@
 
 Recent product updates and deployment notes.
 
+## October 29, 2026 - Streamdown 2.7 and a bounded parse cache (v0.6.346)
+
+- Chat replies render with Streamdown 2.7.1. While a reply streams, code blocks highlight only the new lines, and finished blocks are not parsed again.
+- Fixed: math with a `<` inside, such as `$$ \sum_{j<k} $$`, no longer cuts off the rest of a reply. Reference links (`[text][label]`) whose definition is further down a reply now resolve.
+- The cache that keeps finished replies parsed across session switches now holds up to 500 replies and 1,000,000 characters of text, about 35 MB. Before, it kept 250 replies of any length. A single reply longer than that is not kept.
+- A test now fails if Streamdown is upgraded without moving the cache patch to the new version. Before, the cache would have quietly stopped working.
+- Code highlighting uses Shiki 4, with one copy shared with the diff viewer.
+
 ## October 28, 2026 - React 19.3 and the latest shared UI libraries (v0.6.345)
 
 - The web app now uses React 19.3.1, @base-ui/react 1.9, TanStack Router 1.170.46, lucide-react 1.63 and sonner 2.0.8. omg.dev declares the same versions, so the app it embeds still shares one copy of each.

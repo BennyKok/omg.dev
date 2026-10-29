@@ -63,7 +63,7 @@ describe("release bundle manifest", () => {
     const source = {
       name: "lfg",
       dependencies: { zod: "^4.0.0" },
-      patchedDependencies: { "streamdown@2.6.0": "patches/streamdown@2.6.0.patch" },
+      patchedDependencies: { "streamdown@2.7.1": "patches/streamdown@2.7.1.patch" },
     };
     expect(prepareReleaseManifest(source)).toEqual({ name: "lfg", dependencies: { zod: "^4.0.0" } });
   });
