@@ -25,12 +25,14 @@ let generation: number;
 let pendingOpen: ((rfb: FakeRfb) => void) | null;
 let deferOpen: boolean;
 let conn: ComputerConnection;
+let moves: HTMLElement[];
 
 const runTimers = () => { for (const [id, fn] of [...timers]) { timers.delete(id); fn(); } };
 const slot = () => { const el = document.createElement("div"); document.body.appendChild(el); return el; };
 const live = () => conn.getSnapshot().rfb as unknown as FakeRfb | null;
 
 beforeEach(() => {
+  moves = [];
   opened = []; timers = new Map(); nextTimer = 1; generation = 0; pendingOpen = null; deferOpen = false;
   conn = createComputerConnection({
     open: async () => {
@@ -43,6 +45,7 @@ beforeEach(() => {
     createHost: () => { const el = document.createElement("div"); el.dataset.host = "1"; return el; },
     setTimer: (fn) => { const id = nextTimer++; timers.set(id, fn); return id; },
     clearTimer: (id) => { timers.delete(id as number); },
+    moved: (host) => { moves.push(host); },
   });
 });
 
@@ -142,4 +145,28 @@ test("watch-only is shared and applied to a new connection", async () => {
   expect(live()!.viewOnly).toBe(true);
   conn.setViewOnly(false);
   expect(live()!.viewOnly).toBe(false);
+});
+
+test("closing full screen tells the client the picture moved, so a stale cursor can hide", async () => {
+  const inline = slot();
+  const releaseInline = conn.hold(inline);
+  await conn.connect();
+  expect(moves).toHaveLength(0);
+
+  // Open full screen: inline lets go, full takes it.
+  releaseInline();
+  const releaseFull = conn.hold(slot());
+  expect(moves.length).toBeGreaterThan(0);
+
+  // Close full screen: the picture leaves the full view, then inline takes it.
+  moves = [];
+  releaseFull();
+  expect(moves).toHaveLength(1);
+  conn.hold(inline);
+  expect(inline.querySelector("[data-host]")).not.toBeNull();
+
+  // Re-holding the slot it is already in is not a move.
+  moves = [];
+  conn.hold(inline);
+  expect(moves).toHaveLength(0);
 });

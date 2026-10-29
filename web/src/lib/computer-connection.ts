@@ -37,6 +37,12 @@ export interface ComputerConnectionDeps {
   /** Changes when the app points at a different Computer. */
   generation(): number;
   createHost(): HTMLElement;
+  /**
+   * The picture just moved to another view or off the page. noVNC draws the
+   * remote cursor on touch devices as a fixed canvas on `document.body`, not
+   * inside the picture, so it stays where the old view left it unless hidden.
+   */
+  moved?(host: HTMLElement): void;
   graceMs?: number;
   setTimer?: (fn: () => void, ms: number) => unknown;
   clearTimer?: (timer: unknown) => void;
@@ -83,11 +89,13 @@ export function createComputerConnection(deps: ComputerConnectionDeps): Computer
   const place = () => {
     const el = hostElement();
     const top = slots[slots.length - 1];
+    const from = el.parentElement;
     if (top) {
-      if (el.parentElement !== top) top.appendChild(el);
+      if (from !== top) top.appendChild(el);
     } else {
       el.remove();
     }
+    if (from && from !== top) deps.moved?.(el);
   };
 
   const cancelRelease = () => {

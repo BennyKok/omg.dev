@@ -24,4 +24,9 @@ export const computerConnection = createComputerConnection({
     el.style.inset = "0";
     return el;
   },
+  // A mouseleave with nowhere to go makes noVNC hide its cursor. The next
+  // touch in the new view moves it there and shows it again.
+  moved(host) {
+    host.querySelector("canvas")?.dispatchEvent(new MouseEvent("mouseleave", { relatedTarget: null }));
+  },
 });
