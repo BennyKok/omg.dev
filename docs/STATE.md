@@ -2,7 +2,7 @@
 
 Read this first. The nightly librarian refreshes this file from merged pull
 requests. Verify a fact in code before you depend on it.
-Last refresh: 2026-10-28.
+Last refresh: 2026-10-29.
 
 ## Active work (last 14 days)
 
@@ -23,11 +23,11 @@ Last refresh: 2026-10-28.
 - **Previews and transcripts**: Android and web links lead phone previews;
   signed frames and image URLs load; launch text and builder instructions stay
   out of customer messages (#403, #413–#415, #421).
-- **App and game kits**: game first-run kit, web games by default, drag controls,
-  preview-first checks, and no badge-moving step (#392, #397, #418, #422,
-  #428). The web-game template uses React 19.3 and Vite 8.3 (#469).
-- **Computer**: bounded screenshots, stuck-view reset, and release of keys
-  left held by a viewer (#391, #411).
+- **App and game kits**: web games by default, drag controls, preview-first
+  checks, and no badge-moving step (#397, #418, #422, #428). The web-game
+  template uses React 19.3 and Vite 8.3 (#469).
+- **Computer**: release keys left held by a viewer (#411). Hide the cursor
+  after closing full screen (#479).
 - **Embedding**: stale-chunk reload message, composer-top host slot, guide
   navigation, conversation binding, and send acknowledgement (#401, #405,
   #409). The prebuilt app bundle has no remaining React require (#475).
@@ -36,7 +36,7 @@ Last refresh: 2026-10-28.
   visibility are available from sessions (#395, #406–#407, #457, #460).
 - **Media and release**: 3D generation and a $25 default daily media cap (#398).
   Verified releases start the omg.dev pin update through `omg_pin`
-  (#442–#444). Nightly documentation refreshes continue (latest: #462).
+  (#442–#444). Nightly documentation refreshes continue (latest: #478).
 
 ## Open pull requests
 
