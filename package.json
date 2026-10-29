@@ -64,6 +64,8 @@
     "@expo/apple-utils": "2.2.1"
   },
   "overrides": {
+    "@shikijs/transformers": "^4.5.0",
+    "shiki": "^4.5.0",
     "proxy-addr": "^2.0.8",
     "seroval": "^1.6.3",
     "source-map-js": "^1.2.2",
@@ -81,6 +83,6 @@
     "zod": "^4.6.7"
   },
   "patchedDependencies": {
-    "streamdown@2.6.0": "patches/streamdown@2.6.0.patch"
+    "streamdown@2.7.1": "patches/streamdown@2.7.1.patch"
   }
 }
