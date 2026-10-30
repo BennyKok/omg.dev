@@ -10,7 +10,19 @@ Versions `0.4.x` on this name were published from `BennyKok/vibes`. This line
 starts at `0.5.0` so `npm install --global @omg-dev/cli` resolves to the current
 product. `0.5.1+` restores `create` / `deploy` / `login` on this binary.
 
-## Install
+## Deploy an app (no install needed)
+
+```bash
+cd my-app
+npx @omg-dev/cli login
+npx @omg-dev/cli deploy --name my-app
+```
+
+The app goes live at `https://<slug>.omgs.app`. These commands only need an
+omg Cloud sign-in, not the local control plane. They need Bun on the machine.
+For CI, sign in with `omg login --api-key KEY` or set `OMG_API_KEY`.
+
+## Install the control plane
 
 ```bash
 bun install --global @omg-dev/cli && omg computer setup
@@ -42,7 +54,8 @@ You bring your own agent accounts. omg.dev does not resell tokens.
 | `omg login` | Sign in to omg Cloud. |
 
 Any other verb the install owns (`mcp`, `doctor`, `agents`, …) is forwarded to
-it. `create` / `deploy` / `login` also forward to the install. The retired
+it. When an install exists, the hosted-app verbs (`create`, `deploy`, `login`,
+`apps`, `env`, ...) forward to it. Without an install, they run in this package. The retired
 `@omg-dev/cli@0.4.42` tarball is no longer downloaded.
 
 After setup, `omg help` prints the install's complete command list. Before

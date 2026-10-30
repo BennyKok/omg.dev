@@ -10,16 +10,22 @@ export const HELP_BANNER = "omg — run and manage your AI coding agents on your
  */
 export const HELP = `${HELP_BANNER}
 
-omg.dev is not installed on this computer yet.
+Hosted apps (*.omgs.app) work without an install:
+  omg login [--api-key KEY]            Sign in to omg Cloud
+  omg deploy [--name NAME]             Publish the current directory
+             [--no-wait] [--generate-icon]
+  omg create <name>                    Publish the current directory as a new app
+  omg apps                             List your apps
+  omg visibility <slug> [public|omg-users]
+  omg rename <slug> <new-slug>
+  omg env list|pull|set|rm|import <slug> ...
+  omg whoami | omg logout
 
-Usage:
+Run your AI coding agents on this computer:
   omg computer setup [--reinstall]     Install omg.dev here
   omg --version                        Show this CLI's version
   omg help
 
 After setup, open http://localhost:8766. Run \`omg help\` again to see every
-command: agents, the omg Cloud sign-in (omg login), and hosted apps
-(omg create, omg deploy).
-
-You bring your own agent accounts. omg.dev does not resell tokens.
+command. You bring your own agent accounts. omg.dev does not resell tokens.
 `;
