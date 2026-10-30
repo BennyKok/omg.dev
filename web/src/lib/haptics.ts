@@ -13,7 +13,10 @@ import { getUiFeedbackPrefs } from "./ui-feedback-prefs";
  *   `<input type="checkbox" switch>` toggles. web-haptics injects that switch
  *   but defaults to `display: none`, which Safari does NOT treat as a real
  *   switch flip — so we keep our own off-screen (opacity/clip, not display:none)
- *   switch and click it ourselves.
+ *   switch and click it ourselves. Since iOS 26.5 a click from code no longer
+ *   buzzes at all; only a finger on a real switch does. Taps that must buzz on
+ *   a current iPhone put `<HapticTap />` (components/haptic-tap.tsx) inside the
+ *   button.
  */
 
 let instance: WebHaptics | null = null;
@@ -111,11 +114,24 @@ function triggerIos(type?: HapticInput): void {
   iosRaf = requestAnimationFrame(step);
 }
 
+let lastFingerSwitchTap = Number.NEGATIVE_INFINITY;
+
+/**
+ * Called by `HapticTap` when a finger flipped its switch. iOS has already
+ * buzzed for that tap, so the `haptic()` call the button's own click handler
+ * makes next must not add a second, code-driven tick (which still buzzes
+ * before iOS 26.5).
+ */
+export function noteFingerSwitchTap(): void {
+  lastFingerSwitchTap = performance.now();
+}
+
 export function haptic(type?: HapticInput) {
   if (!getUiFeedbackPrefs().haptics) return;
 
   // iOS (and anything without Vibration API): dedicated switch path.
   if (!hasVibrateApi()) {
+    if (performance.now() - lastFingerSwitchTap < 250) return;
     triggerIos(type);
     return;
   }

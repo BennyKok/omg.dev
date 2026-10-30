@@ -516,6 +516,7 @@ import { ComputerChatEmbed, isComputerScreenCall } from "@/components/computer-c
 import { isBrowserLoginCall } from "../../packages/protocol/src/browser-login";
 import { ProjectPreviewCard } from "@/components/project-preview-card";
 import { haptic } from "@/lib/haptics";
+import { HapticTap } from "@/components/haptic-tap";
 import { feedback } from "@/lib/feedback";
 import { type AutoAgentRefine } from "@/lib/auto-refine";
 import { useUiFeedbackPrefs, setUiFeedbackPrefs } from "@/lib/ui-feedback-prefs";
@@ -4766,10 +4767,14 @@ export function ComposerSendButton({
       pointerDown.current = true;
       holdFired.current = false;
       pendingPointerAction.current = null;
-      try {
-        e.currentTarget.setPointerCapture(e.pointerId);
-      } catch {
-        /* capture unsupported — pointerup still fires on the element */
+      // Not over the iPhone haptic switch: capturing to the button would make
+      // the button, not the switch, the click target, and the tap would not buzz.
+      if (!(e.target instanceof HTMLInputElement)) {
+        try {
+          e.currentTarget.setPointerCapture(e.pointerId);
+        } catch {
+          /* capture unsupported — pointerup still fires on the element */
+        }
       }
       clearHoldTimer();
       holdTimer.current = window.setTimeout(() => {
@@ -4797,7 +4802,8 @@ export function ComposerSendButton({
       } else {
         // Wait for click before changing the DOM. See pendingPointerAction.
         pendingPointerAction.current = "send";
-        haptic("selection");
+        // On an iPhone the finger on the haptic switch already buzzes.
+        if (!(e.target instanceof HTMLInputElement)) haptic("selection");
       }
     },
     [clearHoldTimer],
@@ -4834,12 +4840,13 @@ export function ComposerSendButton({
       aria-label={label.aria}
       title={label.title}
       className={cn(
-        "flex shrink-0 touch-none select-none items-center justify-center rounded-full font-semibold shadow-sm transition active:scale-[0.97]",
+        "relative flex shrink-0 touch-none select-none items-center justify-center rounded-full font-semibold shadow-sm transition active:scale-[0.97]",
         "bg-foreground/[0.08] text-foreground/80 hover:bg-foreground/[0.12] hover:text-foreground",
         className,
       )}
     >
       {sending ? <Loader2 className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}
+      <HapticTap disabled={sending} />
     </button>
   );
 }
@@ -25368,9 +25375,10 @@ function NewSessionDialog({
       disabled={!canSubmit && !canQueue}
       aria-label="Start session"
       title="Start session"
-      className="flex size-11 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition active:scale-95 disabled:bg-secondary disabled:text-muted-foreground"
+      className="relative flex size-11 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition active:scale-95 disabled:bg-secondary disabled:text-muted-foreground"
     >
       <ArrowUp className="size-5" strokeWidth={2.5} />
+      <HapticTap disabled={!canSubmit && !canQueue} />
     </button>
   ) : (
     <ComposerStartButton
