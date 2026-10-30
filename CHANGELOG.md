@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 30, 2026 - More iPhone taps buzz (v0.6.348)
+
+- On an iPhone, these taps now give a light haptic tap too: the Create, Apps and Chats buttons at the top, the agent button and the model level (Auto) in the composer, the menu button, and each page in the side menu. A swipe or scroll that starts on one of them no longer taps it. The buzz follows the Haptics setting.
+
 ## October 30, 2026 - Sending a message buzzes on iPhone (v0.6.347)
 
 - On an iPhone, tapping the Send arrow in a chat, or the arrow that starts a new chat, now gives a light haptic tap. Since iOS 26.5, websites could no longer trigger haptics from code, so the website's haptics had gone silent on iPhones. The buzz follows the Haptics setting.
