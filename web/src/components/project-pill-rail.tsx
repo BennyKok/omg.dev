@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { LayoutGrid, MessagesSquare, Sparkles, ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { arrangeFolders, type FolderMenuPrefs } from "../lib/folder-menu-prefs";
 import { NO_PROJECT_FILTER, projectFilterLabel } from "../lib/project-filter";
+import { HapticTap } from "./haptic-tap";
 
 export type ProjectPill = {
   value: string;
@@ -163,9 +164,10 @@ export function ProjectPillRail({ projects, value, onChange, onManageFolders, to
               return (
                 <button key={pill.id} type="button" aria-pressed={pill.pressed} onClick={pill.onPress}
                   onFocus={(event) => reveal(event.currentTarget)}
-                  className={`flex h-[34px] shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-[13px] font-semibold outline-offset-2 focus-visible:outline-2 focus-visible:outline-primary ${pill.pressed ? "border-[var(--border-strong)] bg-card text-foreground" : "border-transparent bg-secondary text-muted-foreground hover:text-foreground"}`}>
+                  className={`relative flex h-[34px] shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-[13px] font-semibold outline-offset-2 focus-visible:outline-2 focus-visible:outline-primary ${pill.pressed ? "border-[var(--border-strong)] bg-card text-foreground" : "border-transparent bg-secondary text-muted-foreground hover:text-foreground"}`}>
                   <Icon className="size-3.5" aria-hidden="true" />
                   {pill.label}
+                  <HapticTap />
                 </button>
               );
             })}

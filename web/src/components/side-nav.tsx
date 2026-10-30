@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SlidePanel } from "@/components/ui/slide-panel";
+import { HapticTap } from "./haptic-tap";
 import type { SideNavIcon, SideNavRow } from "../lib/side-nav-items";
 
 const GLYPH: Record<SideNavIcon, typeof Bell> = {
@@ -82,6 +83,7 @@ export function SideNavButton({
           online ? "bg-emerald-500" : "bg-muted-foreground/40",
         )}
       />
+      <HapticTap />
     </button>
   );
 }
@@ -219,7 +221,7 @@ function SideNavRows({
               onClose();
             }}
             className={cn(
-              "flex items-center gap-3 rounded-xl px-3 text-left transition-colors",
+              "relative flex items-center gap-3 rounded-xl px-3 text-left transition-colors",
               dense ? "min-h-10 text-[14px]" : "min-h-12 text-[15px]",
               row.current
                 ? "bg-muted font-semibold text-foreground"
@@ -231,6 +233,7 @@ function SideNavRows({
             {unread?.has(row.key) ? (
               <span role="status" aria-label={`${row.label} has unread`} className="size-2 shrink-0 rounded-full bg-primary" />
             ) : null}
+            <HapticTap />
           </button>
         );
       })}

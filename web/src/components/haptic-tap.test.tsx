@@ -132,4 +132,73 @@ describe("HapticTap on an iPhone", () => {
     ui.flush(() => setUiFeedbackPrefs({ haptics: false }));
     expect(cover()).toBeNull();
   });
+  test("a swipe that starts on the switch does not flip it or tap the button", () => {
+    ui = mount();
+    let taps = 0;
+    ui.render(
+      <button type="button" onClick={() => (taps += 1)}>
+        Chats
+        <HapticTap />
+      </button>,
+    );
+    const input = cover()!;
+    ui.flush(() => {
+      touch(input, "touchstart", 20, 20);
+      touch(input, "touchmove", 22, 60);
+      input.click();
+    });
+    expect(taps).toBe(0);
+    expect(input.checked).toBe(false);
+  });
+
+  test("a finger that wobbles a little is still a tap", () => {
+    ui = mount();
+    let taps = 0;
+    ui.render(
+      <button type="button" onClick={() => (taps += 1)}>
+        Chats
+        <HapticTap />
+      </button>,
+    );
+    const input = cover()!;
+    ui.flush(() => {
+      touch(input, "touchstart", 20, 20);
+      touch(input, "touchmove", 24, 23);
+      input.click();
+    });
+    expect(taps).toBe(1);
+  });
+
+  test("a touch the browser took for a scroll does not tap the button", () => {
+    ui = mount();
+    let taps = 0;
+    ui.render(
+      <button type="button" onClick={() => (taps += 1)}>
+        Chats
+        <HapticTap />
+      </button>,
+    );
+    const input = cover()!;
+    ui.flush(() => {
+      touch(input, "touchstart", 20, 20);
+      input.dispatchEvent(new g.window.Event("pointercancel", { bubbles: true }) as Event);
+      input.click();
+    });
+    expect(taps).toBe(0);
+    // The next clean tap works again.
+    ui.flush(() => {
+      touch(input, "touchstart", 20, 20);
+      input.click();
+    });
+    expect(taps).toBe(1);
+  });
 });
+
+function touch(target: HTMLElement, type: "touchstart" | "touchmove", x: number, y: number) {
+  const event = new g.window.Event(type, { bubbles: true, cancelable: true }) as Event;
+  const point = { clientX: x, clientY: y, identifier: 0, target };
+  for (const key of ["touches", "targetTouches", "changedTouches"]) {
+    Object.defineProperty(event, key, { value: [point] });
+  }
+  target.dispatchEvent(event);
+}

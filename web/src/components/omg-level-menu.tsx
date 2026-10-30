@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { toast } from "@/lib/notify";
 import { cn } from "@/lib/utils";
+import { HapticTap } from "./haptic-tap";
 import { useEmbeddedHostOptions } from "../lib/embedded-host-options";
 import { useModelPrices } from "../lib/use-model-prices";
 import { OMG_LEVEL_MODELS, isOmgLevelModel } from "../../../src/omg-models";
@@ -56,12 +57,13 @@ export function OmgLevelMenu({
             type="button"
             aria-label={`Model level: ${label}`}
             title="Model level"
-            className="flex h-9 shrink-0 items-center gap-1 rounded-full px-2.5 text-sm font-medium text-foreground/80 transition hover:text-foreground"
+            className="relative flex h-9 shrink-0 items-center gap-1 rounded-full px-2.5 text-sm font-medium text-foreground/80 transition hover:text-foreground"
           />
         }
       >
         <span>{label}</span>
         <ChevronDown className="size-3.5 shrink-0 opacity-60" />
+        <HapticTap />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="min-w-40">
         <DropdownMenuRadioGroup

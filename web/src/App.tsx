@@ -24195,6 +24195,22 @@ function NewSessionDialog({
     let drag:
       | { x: number; y: number; lastStepY: number; dragged: boolean; pointerId: number }
       | null = null;
+    // A tap on the iPhone haptic switch opens the sheet on its click, not on
+    // pointerup: the sheet's backdrop would appear under the finger first and
+    // take the click, so the switch would never flip and never buzz. The timer
+    // opens it anyway when iOS sends no click (a long press).
+    let switchTapTimer: number | null = null;
+    const clearSwitchTap = () => {
+      if (switchTapTimer !== null) window.clearTimeout(switchTapTimer);
+      switchTapTimer = null;
+    };
+    const openFromTap = () => {
+      clearSwitchTap();
+      setSetupPage("root");
+      setAgentPopoverOpen(true);
+    };
+    const isHapticSwitch = (target: EventTarget | null) =>
+      target instanceof HTMLInputElement && target.hasAttribute("data-haptic-tap");
     const blockNativeMouseDown = (e: Event) => {
       // Stop Base UI's mousedown-to-open; we drive open on pointerup instead.
       e.stopPropagation();
@@ -24204,6 +24220,7 @@ function NewSessionDialog({
       // but let keyboard-activated clicks (Enter/Space → detail 0) through so
       // Base UI still opens the popover for keyboard users.
       if (e.detail > 0) e.stopPropagation();
+      if (switchTapTimer !== null && isHapticSwitch(e.target)) openFromTap();
     };
     // Move/up are tracked on window, not the 32px button: the pointer leaves
     // the tiny target within ~16px, well under the swipe threshold, so listening
@@ -24233,12 +24250,17 @@ function NewSessionDialog({
       window.removeEventListener("pointercancel", endDrag, true);
       // A clean press with no drag is a tap → open the agent sheet.
       if (d && !d.dragged && e.type === "pointerup") {
-        setSetupPage("root");
-        setAgentPopoverOpen(true);
+        if (isHapticSwitch(e.target)) {
+          clearSwitchTap();
+          switchTapTimer = window.setTimeout(openFromTap, 400);
+        } else {
+          openFromTap();
+        }
       }
     };
     const onPointerDown = (e: PointerEvent) => {
       if (e.button > 0) return; // ignore right/middle press
+      clearSwitchTap();
       drag = {
         x: e.clientX,
         y: e.clientY,
@@ -24274,6 +24296,7 @@ function NewSessionDialog({
       el.removeEventListener("click", blockNativeClick);
       el.removeEventListener("pointerdown", onPointerDown);
       el.removeEventListener("wheel", onWheel);
+      clearSwitchTap();
       // Drop any window listeners left over from an in-flight drag.
       window.removeEventListener("pointermove", onPointerMove, true);
       window.removeEventListener("pointerup", endDrag, true);
@@ -25217,6 +25240,7 @@ function NewSessionDialog({
           {selectedAgentOption.badge}
         </span>
       ) : null}
+      <HapticTap />
     </button>
   );
 
