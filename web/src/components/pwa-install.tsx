@@ -173,9 +173,6 @@ export function PwaInstallSettingsSection() {
   );
 }
 
-/** The omg.dev iPhone app. Same link as the README's App Store badge. */
-export const IOS_APP_STORE_URL = "https://apps.apple.com/us/app/omg-dev/id6800792515";
-
 const RAIL_CARD_DISMISSED_KEY = "lfg_get_apps_card_dismissed";
 
 function railCardInitiallyDismissed() {
@@ -187,72 +184,41 @@ function railCardInitiallyDismissed() {
 }
 
 /**
- * Where an Android phone gets omg. There is no Play Store app, so Android
- * uses the web app: Chrome installs it from its menu, and the hosted app's
- * own menu has an "Install app" row.
+ * Where a phone gets omg: the web app, installed from the phone's browser.
+ * omg offers the home screen web app, not the native iOS app, so this QR code
+ * never points at an app store. The hosted app's own menu then has an
+ * "Install app" row with the steps for that phone.
  */
-export const ANDROID_INSTALL_URL = "https://app.omg.dev/";
+export const PHONE_INSTALL_URL = "https://app.omg.dev/";
 
-type PhoneOs = "ios" | "android";
+let phoneInstallQr: string | undefined;
 
-const PHONE_TARGETS: Record<PhoneOs, { url: string; alt: string; body: string; link: string }> = {
-  ios: {
-    url: IOS_APP_STORE_URL,
-    alt: "QR code for omg.dev on the App Store",
-    body: "Scan with your iPhone camera to get the app. Then start and follow your sessions from anywhere.",
-    link: "Open the App Store",
-  },
-  android: {
-    url: ANDROID_INSTALL_URL,
-    alt: "QR code for omg.dev in your phone's browser",
-    body: "Scan with your Android camera to open omg in Chrome. Then open the ⋮ menu and tap Install app.",
-    link: "Open omg.dev",
-  },
-};
-
-const phoneInstallQr: Partial<Record<PhoneOs, string>> = {};
-
-// The portal mounts this only when the phone popup opens. Each destination is
-// static, so neither chat updates nor reopening the popup re-encodes it.
-function PhoneInstallQr({ os }: { os: PhoneOs }) {
-  const src = phoneInstallQr[os] ??= `data:image/svg+xml;utf8,${encodeURIComponent(renderSVG(PHONE_TARGETS[os].url, { border: 1 }))}`;
-  return <img src={src} alt={PHONE_TARGETS[os].alt} className="mx-auto size-40 rounded-lg bg-white p-1.5" />;
+// The portal mounts this only when the phone popup opens. The destination is
+// static, so neither chat updates nor reopening the popup needs to encode it.
+function PhoneInstallQr() {
+  const src = phoneInstallQr ??= `data:image/svg+xml;utf8,${encodeURIComponent(renderSVG(PHONE_INSTALL_URL, { border: 1 }))}`;
+  return <img src={src} alt="QR code for omg.dev" className="mx-auto size-40 rounded-lg bg-white p-1.5" />;
 }
 
 function PhoneInstallPopup() {
-  const [os, setOs] = useState<PhoneOs>("ios");
-  const target = PHONE_TARGETS[os];
+  const steps: Array<[string, string]> = [
+    ["iPhone", "open it in Safari, tap Share, then Add to Home Screen."],
+    ["Android", "open it in Chrome, tap the menu, then Install app."],
+  ];
   return (
     <>
-      <div role="tablist" aria-label="Phone" className="mb-2.5 grid grid-cols-2 gap-1 rounded-lg bg-muted p-0.5">
-        {(["ios", "android"] as const).map((value) => (
-          <button
-            key={value}
-            type="button"
-            role="tab"
-            aria-selected={os === value}
-            data-testid={`phone-os-${value}`}
-            onClick={() => setOs(value)}
-            className={cn(
-              "h-7 rounded-md text-xs font-medium text-muted-foreground transition-colors",
-              os === value && "bg-background text-foreground shadow-sm",
-            )}
-          >
-            {value === "ios" ? "iPhone" : "Android"}
-          </button>
+      <PhoneInstallQr />
+      <p className="mt-2.5 text-center text-[13px] font-semibold">Install omg on your phone</p>
+      <p className="mt-1 text-center text-xs text-muted-foreground">
+        Scan with your phone camera to open omg. Then add it to your home screen:
+      </p>
+      <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+        {steps.map(([phone, step]) => (
+          <li key={phone}>
+            <span className="font-semibold text-foreground">{phone}:</span> {step}
+          </li>
         ))}
-      </div>
-      <PhoneInstallQr os={os} />
-      <p className="mt-2.5 text-center text-[13px] font-semibold">Use omg on your phone</p>
-      <p className="mt-1 text-center text-xs text-muted-foreground">{target.body}</p>
-      <a
-        href={target.url}
-        target="_blank"
-        rel="noreferrer"
-        className="mt-2 flex h-8 items-center justify-center rounded-lg bg-secondary text-xs font-medium hover:bg-muted"
-      >
-        {target.link}
-      </a>
+      </ul>
     </>
   );
 }
@@ -264,8 +230,8 @@ function PhoneInstallPopup() {
  * desktop layout, pushing everything down to sell one thing. It sits at the
  * foot of the rail now, above the machine switcher, and offers both ways to
  * have omg outside a browser tab: this computer (the web app install) and
- * your phone. The phone row opens a QR code (the iPhone app, or the web app
- * on Android, which has no Play Store app), because the
+ * your phone. The phone row opens a QR code to the web app, with the home
+ * screen steps for iPhone and Android, because the
  * person reading this is at a desk and the phone is the device that has to
  * open the link.
  *
@@ -294,17 +260,17 @@ export function GetAppsRailCard() {
   return (
     <>
       <section
-        aria-label="Get the omg apps"
+        aria-label="Install omg"
         data-testid="get-apps-card"
         className="mx-2 mb-2 rounded-xl border border-border bg-card/70 p-1.5"
       >
         <div className="flex items-center gap-2 px-2 pb-1 pt-0.5">
           <OmgBrandMark className="size-4 text-muted-foreground" />
-          <span className="min-w-0 flex-1 truncate text-xs font-semibold text-muted-foreground">Get the apps</span>
+          <span className="min-w-0 flex-1 truncate text-xs font-semibold text-muted-foreground">Install omg</span>
           <button
             type="button"
             onClick={dismiss}
-            aria-label="Dismiss the apps card"
+            aria-label="Dismiss the install card"
             className="-mr-1 flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
           >
             <X className="size-3.5" />
@@ -321,7 +287,7 @@ export function GetAppsRailCard() {
             render={
               <button type="button" className={rowClass}>
                 <Smartphone className="size-4 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 flex-1 truncate">Use on your phone</span>
+                <span className="min-w-0 flex-1 truncate">Install on your phone</span>
                 <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/70" />
               </button>
             }
@@ -329,7 +295,7 @@ export function GetAppsRailCard() {
           <Popover.Portal>
             <Popover.Positioner side="right" align="end" sideOffset={10} className="isolate z-[170] outline-none">
               <Popover.Popup
-                data-testid="ios-app-popover"
+                data-testid="phone-install-popover"
                 className="w-60 rounded-2xl border border-border bg-popover p-3 text-popover-foreground shadow-2xl outline-none"
               >
                 <PhoneInstallPopup />
