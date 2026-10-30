@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## October 30, 2026 - Out of AI credit shows an Upgrade card (v0.6.349)
+
+- When your AI credit runs out, the chat now shows a card that says "You're out of AI credit" with an Upgrade button, instead of a plain sentence. On omg.dev the button opens the upgrade dialog, and the dialog also opens by itself the moment a reply is refused. Your chat is kept, so you can send the message again after you upgrade.
+- On omg.dev, the yellow "Build paused - out of credits" banner no longer repeats the card.
+- An app that embeds omg.dev can now hide the composer's agent picker (`hideAgentPicker`), for a plan that only runs the default agent.
+
 ## October 30, 2026 - More iPhone taps buzz (v0.6.348)
 
 - On an iPhone, these taps now give a light haptic tap too: the Create, Apps and Chats buttons at the top, the agent button and the model level (Auto) in the composer, the menu button, and each page in the side menu. A swipe or scroll that starts on one of them no longer taps it. The buzz follows the Haptics setting.
