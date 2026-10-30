@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 30, 2026 - Deploy an app with `omg deploy`, no install needed (v0.6.352)
+
+- `omg login` and `omg deploy` now work on any computer that has Bun. Install the CLI with `npm i -g @omg-dev/cli` (version 0.5.4), then run `omg deploy` in your app folder to publish it at `*.omgs.app`. Before, these commands stopped with "Run `omg computer setup` first" unless the full omg.dev control plane was installed.
+- `omg apps`, `omg env`, `omg visibility`, `omg rename`, `omg whoami` and `omg logout` also work without the install. When omg.dev is installed, they still run through it.
+
 ## October 30, 2026 - Dictation defaults to Cloud (v0.6.351)
 
 - Dictation now uses Cloud unless you choose otherwise, so text appears live while you speak. Before, a new browser started on Auto and downloaded the on-device model. If you already picked Auto or On-device, that choice is kept. Cloud is now first in the mode menu.
