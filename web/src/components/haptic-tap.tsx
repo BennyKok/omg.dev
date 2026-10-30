@@ -1,4 +1,4 @@
-import { useSyncExternalStore, type MouseEvent } from "react";
+import { useSyncExternalStore, type MouseEvent, type PointerEvent, type TouchEvent } from "react";
 import { noteFingerSwitchTap } from "@/lib/haptics";
 import { useUiFeedbackPrefs } from "@/lib/ui-feedback-prefs";
 
@@ -21,9 +21,12 @@ import { useUiFeedbackPrefs } from "@/lib/ui-feedback-prefs";
  *   is submitted from here, and a link would not navigate at all: never put it
  *   in an `<a>`.
  * - Pass `disabled` along with the button's: a disabled button must not buzz.
- * - Only in fixed chrome (headers, the composer, tab bars, the nav drawer),
- *   never in a scrolling list. A swipe that starts on an iOS switch flips it,
- *   so a scroll would tap the button.
+ * - A swipe that starts on an iOS switch still flips it when the finger
+ *   lifts, which would tap the button at the end of a scroll. So a touch that
+ *   moved more than a tap, or that the browser took over for scrolling, is
+ *   cancelled here: no flip and no click on the button. That makes it safe in
+ *   short lists such as the nav drawer. Long, busy lists are still better
+ *   without it.
  *
  * Renders nothing on phones without switch support, on Android (which buzzes
  * through `navigator.vibrate`), on desktop and when haptics are off in
@@ -40,6 +43,9 @@ export function HapticTap({ disabled = false }: { disabled?: boolean }) {
       aria-hidden="true"
       tabIndex={-1}
       data-haptic-tap=""
+      onTouchStart={onSwitchTouchStart}
+      onTouchMove={onSwitchTouchMove}
+      onPointerCancel={onSwitchPointerCancel}
       onClick={onSwitchClick}
       // Keep this styling as verified on the device. Do not add
       // `appearance: none`, `display: none`, `visibility: hidden` or
@@ -59,7 +65,38 @@ export function HapticTap({ disabled = false }: { disabled?: boolean }) {
   );
 }
 
+/** Farther than this between touch-down and lift is a swipe, not a tap. */
+const TAP_SLOP_PX = 10;
+const touchStarts = new WeakMap<HTMLInputElement, { x: number; y: number; moved: boolean }>();
+
+function onSwitchTouchStart(event: TouchEvent<HTMLInputElement>) {
+  const touch = event.touches[0];
+  if (touch) touchStarts.set(event.currentTarget, { x: touch.clientX, y: touch.clientY, moved: false });
+}
+
+function onSwitchTouchMove(event: TouchEvent<HTMLInputElement>) {
+  const start = touchStarts.get(event.currentTarget);
+  const touch = event.touches[0];
+  if (start && touch && Math.hypot(touch.clientX - start.x, touch.clientY - start.y) > TAP_SLOP_PX) {
+    start.moved = true;
+  }
+}
+
+function onSwitchPointerCancel(event: PointerEvent<HTMLInputElement>) {
+  // The browser took the touch for a scroll.
+  const start = touchStarts.get(event.currentTarget);
+  if (start) start.moved = true;
+}
+
 function onSwitchClick(event: MouseEvent<HTMLInputElement>) {
+  const start = touchStarts.get(event.currentTarget);
+  touchStarts.delete(event.currentTarget);
+  if (start?.moved) {
+    // The end of a swipe or a scroll: leave the switch and the button alone.
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+  }
   noteFingerSwitchTap();
   // The click's default action is the switch flip, so a submit button around
   // it no longer submits by itself. Submit once the click has finished
