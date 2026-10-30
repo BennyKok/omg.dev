@@ -21,7 +21,10 @@ export function selectTranscriptionTake(state: BrowserTranscriptionState): Trans
 
 type Pending = { resolve: (text: string) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> };
 export class BrowserTranscription {
-  private state: BrowserTranscriptionState = { mode: "auto", language: "auto", status: "idle", progress: 0, error: null };
+  // Cloud by default (Benny, 2026-10-30): live text while you speak, and no
+  // on-device model download until someone picks Auto or On-device. A saved
+  // choice below still wins.
+  private state: BrowserTranscriptionState = { mode: "cloud", language: "auto", status: "idle", progress: 0, error: null };
   private listeners = new Set<() => void>();
   private worker: Worker | null = null;
   private pending = new Map<number, Pending>();

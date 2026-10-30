@@ -7,6 +7,8 @@ afterEach(() => ui?.cleanup());
 
 test("renders download progress, ready state, and a working Cloud override", () => {
   window.localStorage.clear();
+  // Cloud is the default now; these start from a browser that chose Auto.
+  window.localStorage.setItem("omg-browser-transcription-v1", JSON.stringify({ mode: "auto", language: "auto" }));
   let emit: (data: unknown) => void = () => {};
   const worker = { onmessage: null as any, onerror: null, postMessage() {}, terminate() {} };
   const service = new BrowserTranscription(() => { emit = (data) => worker.onmessage?.({ data }); return worker as unknown as Worker; });
@@ -26,6 +28,8 @@ test("renders download progress, ready state, and a working Cloud override", () 
 
 test("a host that selects Cloud through useTranscriptionMode sends the next take to the cloud", () => {
   window.localStorage.clear();
+  // Cloud is the default now; these start from a browser that chose Auto.
+  window.localStorage.setItem("omg-browser-transcription-v1", JSON.stringify({ mode: "auto", language: "auto" }));
   let emit: (data: unknown) => void = () => {};
   const worker = { onmessage: null as any, onerror: null, postMessage() {}, terminate() {} };
   const service = new BrowserTranscription(() => { emit = (data) => worker.onmessage?.({ data }); return worker as unknown as Worker; });
@@ -33,8 +37,9 @@ test("a host that selects Cloud through useTranscriptionMode sends the next take
   function HostRow() { api = useTranscriptionMode(service); return <span>{api!.mode}:{api!.status}</span>; }
   ui = mount();
   ui.render(<HostRow />);
+  ui.flush(() => api!.setMode("auto"));
   ui.flush(() => emit({ type: "ready" }));
-  // Default Auto with a ready model: dictation stays on the device.
+  // Auto with a ready model: dictation stays on the device.
   expect(selectTranscriptionTake(service.getSnapshot()).provider).toBe("local");
   ui.flush(() => api!.setMode("cloud"));
   expect(ui.text()).toContain("cloud:");
