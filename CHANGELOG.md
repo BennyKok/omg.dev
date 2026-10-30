@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 30, 2026 - Sending a message buzzes on iPhone (v0.6.347)
+
+- On an iPhone, tapping the Send arrow in a chat, or the arrow that starts a new chat, now gives a light haptic tap. Since iOS 26.5, websites could no longer trigger haptics from code, so the website's haptics had gone silent on iPhones. The buzz follows the Haptics setting.
+- Fixed: on a phone or tablet, the Computer's cursor no longer stays over the chat after you close the full-screen Computer.
+
 ## October 29, 2026 - Streamdown 2.7 and a bounded parse cache (v0.6.346)
 
 - Chat replies render with Streamdown 2.7.1. While a reply streams, code blocks highlight only the new lines, and finished blocks are not parsed again.
