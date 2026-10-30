@@ -17603,7 +17603,11 @@ function SessionChatBody({
   // `busy` prop, so the working indicator tracks the session even for turns
   // driven from another device (where chatStatus never leaves "ready").
   const [liveBusy, setLiveBusy] = useState(false);
-  const chatBusy = busy || liveBusy || chatStatus === "submitted" || chatStatus === "streaming";
+  // An answered question the server has not cleared yet. Answering resumes the
+  // turn on the server at once; this page hears it a poll later.
+  const [answeringPrompt, setAnsweringPrompt] = useState(false);
+  const chatBusy =
+    busy || liveBusy || answeringPrompt || chatStatus === "submitted" || chatStatus === "streaming";
   const { composerSendMode } = useContext(ViewPrefsContext);
   const alternateSendMode: ComposerSendMode = composerSendMode === "queue" ? "steer" : "queue";
   const sendIdentity = useContext(SendIdentityContext);
@@ -17836,8 +17840,8 @@ function SessionChatBody({
     // here: the server holds it as an editable card until the turn ends (see
     // heldQueue), and only then does it become a real send. On an idle session
     // both modes deliver immediately and the bubble is an ordinary send. The
-    // busy read can lag the server by a poll; reconcileOmgQueueMessages drops
-    // an optimistic bubble the server turned into a held row instead.
+    // busy read can lag the server by a poll. A bubble the server held anyway
+    // stays a bubble, marked queued (reconcileOmgQueueMessages).
     const holdOnServer = mode === "queue" && chatBusy && !bot && !reviewingShipped;
     const queuedBehindTurn = mode === "queue" && chatBusy;
     // A phone closes its keyboard so the new turn has room; a tablet or a
@@ -18207,6 +18211,7 @@ function SessionChatBody({
         prompt={prompt}
         onPromptError={onError}
         composerSendSeq={composerSendSeq}
+        onPromptAnsweringChange={setAnsweringPrompt}
       />
 
       {error ? (
@@ -20772,6 +20777,7 @@ const ChatStream = memo(function ChatStream({
   prompt = null,
   onPromptError,
   composerSendSeq = 0,
+  onPromptAnsweringChange,
 }: {
   sid: string | null;
   messages: Message[];
@@ -20793,6 +20799,8 @@ const ChatStream = memo(function ChatStream({
   onPromptError?: (error: string | null) => void;
   /** Increments on each composer send; that send answers an open prompt. */
   composerSendSeq?: number;
+  /** An answered prompt is waiting for the server to clear it (see SessionPromptPanel). */
+  onPromptAnsweringChange?: (answering: boolean) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const transcriptView = useContext(TranscriptViewContext);
@@ -22027,6 +22035,7 @@ const ChatStream = memo(function ChatStream({
             sid={sid}
             onError={onPromptError ?? noopPromptError}
             composerSendSeq={composerSendSeq}
+            onAnsweringChange={onPromptAnsweringChange}
           />
           {/* Pinned below the working indicator: what the agent is doing now,
               then what it will read next. */}

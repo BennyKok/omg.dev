@@ -133,6 +133,46 @@ test("a composer send hides the open prompt, and a new prompt shows", async () =
   expect(ui.query(".question-card")).not.toBeNull();
 });
 
+test("an answer counts as a running turn until the server clears the prompt", async () => {
+  // The agent waits on a question as idle. The answer resumes its turn at
+  // once, so the chat must not read idle until the cleared prompt arrives:
+  // a queued send in that gap was drawn as a sent bubble the server held.
+  const reports: boolean[] = [];
+  const onAnsweringChange = (answering: boolean) => reports.push(answering);
+  const pick = { question: "Stop the emulator?", options: [{ index: 0, label: "Yes" }] };
+  const view = (prompt: typeof pick | null) => (
+    <SessionPromptPanel sid={SID} onError={() => {}} prompt={prompt} onAnsweringChange={onAnsweringChange} />
+  );
+  ui.render(view(pick));
+  expect(reports.at(-1)).toBe(false);
+  choiceButtons()[0]!.click();
+  await settle();
+  expect(reports.at(-1)).toBe(true);
+  // The server clears the prompt (with its busy state in the same frame).
+  ui.render(view(null));
+  await ui.flushAsync();
+  expect(reports.at(-1)).toBe(false);
+});
+
+test("a failed answer does not leave the turn counted as running", async () => {
+  globalThis.fetch = (async () => Response.json({ error: "answer failed" }, { status: 400 })) as typeof fetch;
+  configureOmgTransport(createSameOriginTransport());
+  const reports: boolean[] = [];
+  ui.render(
+    <SessionPromptPanel
+      sid={SID}
+      onError={() => {}}
+      prompt={{ question: "Pick", options: [{ index: 0, label: "One" }] }}
+      onAnsweringChange={(answering) => reports.push(answering)}
+    />,
+  );
+  choiceButtons()[0]!.click();
+  await settle();
+  expect(reports).toContain(true);
+  expect(reports.at(-1)).toBe(false);
+  expect(ui.query(".question-card")).not.toBeNull();
+});
+
 test("an ask-user question in the session uses the same lettered answers", async () => {
   open = [{ id: "abc123", question: "Deploy to production?", options: ["Yes", "Not yet"], sessionId: "s1", createdAt: Date.now() }];
   ui.render(
