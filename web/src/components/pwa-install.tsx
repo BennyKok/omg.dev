@@ -184,12 +184,11 @@ function railCardInitiallyDismissed() {
 }
 
 /**
- * Where a phone gets omg: the web app, installed from the phone's browser.
- * omg offers the home screen web app, not the native iOS app, so this QR code
- * never points at an app store. The hosted app's own menu then has an
- * "Install app" row with the steps for that phone.
+ * Where a phone gets omg: the web app, installed from the phone's browser,
+ * never an app store. `install=1` makes app.omg.dev open its install guide
+ * on arrival: Install on Android, Share then Add to Home Screen on iPhone.
  */
-export const PHONE_INSTALL_URL = "https://app.omg.dev/";
+export const PHONE_INSTALL_URL = "https://app.omg.dev/?install=1";
 
 let phoneInstallQr: string | undefined;
 
@@ -197,30 +196,7 @@ let phoneInstallQr: string | undefined;
 // static, so neither chat updates nor reopening the popup needs to encode it.
 function PhoneInstallQr() {
   const src = phoneInstallQr ??= `data:image/svg+xml;utf8,${encodeURIComponent(renderSVG(PHONE_INSTALL_URL, { border: 1 }))}`;
-  return <img src={src} alt="QR code for omg.dev" className="mx-auto size-40 rounded-lg bg-white p-1.5" />;
-}
-
-function PhoneInstallPopup() {
-  const steps: Array<[string, string]> = [
-    ["iPhone", "open it in Safari, tap Share, then Add to Home Screen."],
-    ["Android", "open it in Chrome, tap the menu, then Install app."],
-  ];
-  return (
-    <>
-      <PhoneInstallQr />
-      <p className="mt-2.5 text-center text-[13px] font-semibold">Install omg on your phone</p>
-      <p className="mt-1 text-center text-xs text-muted-foreground">
-        Scan with your phone camera to open omg. Then add it to your home screen:
-      </p>
-      <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
-        {steps.map(([phone, step]) => (
-          <li key={phone}>
-            <span className="font-semibold text-foreground">{phone}:</span> {step}
-          </li>
-        ))}
-      </ul>
-    </>
-  );
+  return <img src={src} alt="QR code to install omg on your phone" className="mx-auto size-40 rounded-lg bg-white p-1.5" />;
 }
 
 /**
@@ -230,8 +206,8 @@ function PhoneInstallPopup() {
  * desktop layout, pushing everything down to sell one thing. It sits at the
  * foot of the rail now, above the machine switcher, and offers both ways to
  * have omg outside a browser tab: this computer (the web app install) and
- * your phone. The phone row opens a QR code to the web app, with the home
- * screen steps for iPhone and Android, because the
+ * your phone. The phone row opens a QR code to the web app, which shows
+ * the phone its own install steps, because the
  * person reading this is at a desk and the phone is the device that has to
  * open the link.
  *
@@ -298,7 +274,9 @@ export function GetAppsRailCard() {
                 data-testid="phone-install-popover"
                 className="w-60 rounded-2xl border border-border bg-popover p-3 text-popover-foreground shadow-2xl outline-none"
               >
-                <PhoneInstallPopup />
+                <PhoneInstallQr />
+                <p className="mt-2.5 text-center text-[13px] font-semibold">Install omg on your phone</p>
+                <p className="mt-1 text-center text-xs text-muted-foreground">Scan with your phone camera.</p>
               </Popover.Popup>
             </Popover.Positioner>
           </Popover.Portal>
