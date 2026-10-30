@@ -26,6 +26,7 @@ import { SessionReparentProvider, SessionReparentTarget, useSessionDragMenuGuard
 import { HostDrawerSlot, SideNavButton, SideNavDrawer, SideNavGlyph, SideNavPanel } from "./components/side-nav";
 import { createSideNavOpenStore, useSideNavOpen, type SideNavOpenStore } from "./lib/side-nav-open";
 import { FindingsPill, FindingsSheet } from "./components/findings-pill";
+import { OutOfCreditCard, isOutOfCreditNotice } from "./components/out-of-credit-card";
 import { sideNavRows, type SideNavRow } from "./lib/side-nav-items";
 import { settledParagraphs } from "./lib/paragraph-stream";
 import {
@@ -6577,7 +6578,15 @@ export function App() {
   const hostedFilterAppliedRef = useRef<number | null>(null);
   const hostedSurfaceRef = useRef(hostedSurface);
   hostedSurfaceRef.current = hostedSurface;
-  const viewPrefs = useMemo(() => applyRoleViews(settings, roleViewer), [settings, roleViewer]);
+  // A host that sells the plan can hide the agent picker for a plan that only
+  // runs the default agent. Same effect as the box's own toggle being off.
+  const { hideAgentPicker: hostHidesAgentPicker } = useEmbeddedHostOptions();
+  const viewPrefs = useMemo(() => {
+    const prefs = applyRoleViews(settings, roleViewer);
+    return hostHidesAgentPicker && prefs.showComposerAgents
+      ? { ...prefs, showComposerAgents: false }
+      : prefs;
+  }, [settings, roleViewer, hostHidesAgentPicker]);
   const hiddenPages = roleViewer.hiddenPages;
   const roleViewerState = useMemo<RoleViewerState>(
     () => ({ viewer: roleViewer, roles: roleOptions, preview: previewRole }),
@@ -16452,9 +16461,13 @@ function PausedBanner({
   onRefresh: () => Promise<void>;
 }) {
   const authFlow = useContext(CodingAgentAuthContext);
+  const hostOwnsPlanLimits = !!useEmbeddedHostOptions().onPlanLimit;
   const [working, setWorking] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   if (session.status !== "blocked" || SEND_RESUMES_REASONS.has(session.statusReason)) return null;
+  // With a host that sells the plan, the out-of-credit card in the transcript
+  // owns this message and its Upgrade button. A second banner would repeat it.
+  if (session.statusReason === "out_of_credits" && hostOwnsPlanLimits) return null;
   const sid = session.sessionId;
   const reason = session.statusReason;
   const reconnectKind =
@@ -23278,6 +23291,19 @@ export const MessageBubble = memo(function MessageBubble({
       : message.text ?? "",
   );
   const botBubble = !!bot && !!shownText;
+  // The router refused this turn for credit. Draw it as a plan limit with an
+  // Upgrade button rather than as an ordinary reply (out-of-credit-card.tsx).
+  if (!bot && !isDraftAssistantMessage(message) && isOutOfCreditNotice(shownText)) {
+    return (
+      <AiMessage className={cn("msg", entering && "lfg-msg-in")} from="assistant">
+        <OutOfCreditCard
+          text={shownText.trim()}
+          messageKey={message.id ?? message.renderKey}
+          ts={message.ts}
+        />
+      </AiMessage>
+    );
+  }
   const body = (
     <MessageActions text={assistantMessageText(message.text || "")} isUser={false}>
         {/* Assistant turns render markdown from the raw source via Streamdown,

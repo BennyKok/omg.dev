@@ -94,6 +94,14 @@ export interface EmbeddedHostOptions {
    */
   onPlanLimit?: (detail: PlanLimitDetail) => void;
   /**
+   * Hide the composer's agent picker. The host sells the plan, so it knows
+   * when the person can only use the default agent: a plan that cannot run
+   * other coding agents should not offer them. Every new session then uses
+   * `defaultAgent`, exactly as when the box's own "Agent picker in the
+   * composer" setting is off.
+   */
+  hideAgentPicker?: boolean;
+  /**
    * The machines the viewer can point this surface at, owned by the host.
    *
    * A standalone box lists its own account's machines and switches by
@@ -322,7 +330,7 @@ export interface PlanLimitDetail {
   /** The server's own sentence, already written for a human to read. */
   message: string;
   /** What the person was trying to do when the plan stopped them. */
-  action: "start-session" | "select-model" | "run-model";
+  action: "start-session" | "select-model" | "run-model" | "out-of-credit";
   /**
    * The live chats the plan counted, so the host can list them. Home shows one
    * project at a time and can hide most of them. Absent on an older surface.

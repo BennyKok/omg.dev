@@ -175,6 +175,11 @@ export interface OmgAppSurfaceProps {
    */
   onPlanLimit?: (detail: PlanLimitDetail) => void;
   /**
+   * Hide the composer's agent picker, for a plan that can only run the default
+   * agent. New sessions then use `defaultAgent`.
+   */
+  hideAgentPicker?: boolean;
+  /**
    * The host's toast function — pass Sonner's `toast` from the host's own
    * bundle. Every toast this surface raises is then drawn by the host's
    * Toaster, in the host's top layer, and the surface mounts no toast stack of
@@ -434,6 +439,7 @@ export function OmgAppSurface({
   onOpenHostSettings,
   onNavigate,
   onPlanLimit,
+  hideAgentPicker,
   errorSink,
   machines,
   hostToast,
@@ -483,6 +489,7 @@ export function OmgAppSurface({
           onOpenHostSettings,
           onNavigate,
           onPlanLimit,
+          hideAgentPicker,
           machines,
           composerGuide,
           starterChips,
