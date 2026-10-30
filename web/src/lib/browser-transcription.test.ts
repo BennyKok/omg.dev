@@ -18,8 +18,29 @@ beforeEach(() => {
   service = new BrowserTranscription(() => worker as unknown as Worker);
 });
 
-test("Auto uses cloud until the runtime is ready and preserves the selected take", () => {
+test("a browser with no saved choice uses Cloud and downloads nothing", () => {
+  expect(service.getSnapshot().mode).toBe("cloud");
   service.prepare();
+  expect(worker.messages).toHaveLength(0);
+  expect(selectTranscriptionTake(service.getSnapshot()).provider).toBe("cloud");
+});
+
+test("a saved choice still wins over the Cloud default", () => {
+  const g = globalThis as { window?: unknown };
+  const had = "window" in g;
+  const previous = g.window;
+  const saved = JSON.stringify({ mode: "auto", language: "auto" });
+  g.window = { localStorage: { getItem: () => saved, setItem: () => {} } };
+  try {
+    expect(new BrowserTranscription(() => worker as unknown as Worker).getSnapshot().mode).toBe("auto");
+  } finally {
+    if (had) g.window = previous;
+    else delete g.window;
+  }
+});
+
+test("Auto uses cloud until the runtime is ready and preserves the selected take", () => {
+  service.configure({ mode: "auto" });
   const first = selectTranscriptionTake(service.getSnapshot());
   expect(first.provider).toBe("cloud");
   worker.emit({ type: "progress", progress: 100 });
@@ -47,7 +68,7 @@ test("preparation is shared and Cloud does not start a download", () => {
 });
 
 test("unsupported languages stay on cloud and Local refuses audio upload", () => {
-  service.prepare(); worker.emit({ type: "ready" });
+  service.configure({ mode: "auto" }); worker.emit({ type: "ready" });
   service.configure({ language: "yue" });
   expect(selectTranscriptionTake(service.getSnapshot()).provider).toBe("cloud");
   service.configure({ mode: "local" });
@@ -55,7 +76,7 @@ test("unsupported languages stay on cloud and Local refuses audio upload", () =>
 });
 
 test("a worker error fails local requests and Auto selects cloud for the next take", async () => {
-  service.prepare(); worker.emit({ type: "ready" });
+  service.configure({ mode: "auto" }); worker.emit({ type: "ready" });
   const take = selectTranscriptionTake(service.getSnapshot());
   const result = service.transcribe(new Float32Array([0.1]), take);
   worker.emit({ type: "error", id: 1, error: "decoder failed" });

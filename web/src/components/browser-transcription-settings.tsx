@@ -30,7 +30,7 @@ export function BrowserTranscriptionSettings({ service = browserTranscription }:
     <div className="flex items-center justify-between gap-4">
       <label htmlFor="browser-transcription-mode" className="text-sm font-medium">Transcription</label>
       <select id="browser-transcription-mode" className="rounded-md border border-border bg-background p-2 text-sm" value={state.mode} onChange={(event) => service.configure({ mode: event.target.value as TranscriptionMode })}>
-        <option value="auto">Auto</option><option value="cloud">Cloud</option><option value="local">Local</option>
+        <option value="cloud">Cloud</option><option value="auto">Auto</option><option value="local">Local</option>
       </select>
     </div>
     <div className="flex items-center justify-between gap-4">
