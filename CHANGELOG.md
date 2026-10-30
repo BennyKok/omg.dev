@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## October 30, 2026 - Install omg on your phone from one QR code (v0.6.353)
+
+- The "Install omg" card in the sidebar now offers the omg web app on every phone. "Install on your phone" shows one QR code that opens `app.omg.dev/?install=1`. Before, the card linked to the iPhone App Store and had a separate Android choice.
+- On the phone, that link opens the install steps right away: Chrome's Install button on Android, or Share → Add to Home Screen on iPhone. In an in-app browser it shows how to open the page in the real browser first.
+
 ## October 30, 2026 - Deploy an app with `omg deploy`, no install needed (v0.6.352)
 
 - `omg login` and `omg deploy` now work on any computer that has Bun. Install the CLI with `npm i -g @omg-dev/cli` (version 0.5.4), then run `omg deploy` in your app folder to publish it at `*.omgs.app`. Before, these commands stopped with "Run `omg computer setup` first" unless the full omg.dev control plane was installed.
