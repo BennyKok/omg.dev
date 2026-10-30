@@ -341,6 +341,11 @@ export interface OmgAppSurfaceProps {
    * owns the entire response.
    */
   onPlanLimit?: (detail: PlanLimitDetail) => void;
+  /**
+   * Hide the composer's agent picker, for a plan that can only run the default
+   * agent. New sessions then use `defaultAgent`.
+   */
+  hideAgentPicker?: boolean;
   errorSink?: OmgErrorSink;
   /**
    * Machines the viewer can switch this surface between, and which one it
@@ -397,7 +402,7 @@ export interface PlanLimitDetail {
   /** The machine's own sentence, already written for a human to read. */
   message: string;
   /** What the person was trying to do when the plan stopped them. */
-  action: "start-session";
+  action: "start-session" | "select-model" | "run-model" | "out-of-credit";
   /**
    * The live chats the plan counted, so the host can list them. Home shows one
    * project at a time and can hide most of them. Absent on an older surface.
