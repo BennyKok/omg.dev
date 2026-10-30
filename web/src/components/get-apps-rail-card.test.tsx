@@ -10,7 +10,7 @@ beforeEach(() => {
 });
 afterEach(() => ui.cleanup());
 
-test("the phone popup is the web app for iPhone and Android, encoded once", async () => {
+test("the phone popup is one QR code to the web app install link, encoded once", async () => {
   const encode = spyOn(qr, "renderSVG");
   try {
     ui.render(<GetAppsRailCard />);
@@ -25,9 +25,8 @@ test("the phone popup is the web app for iPhone and Android, encoded once", asyn
     expect(popover?.querySelector("img")?.getAttribute("src")).toStartWith("data:image/svg+xml");
     expect(encode).toHaveBeenCalledTimes(1);
     expect(encode.mock.calls[0]?.[0]).toBe(PHONE_INSTALL_URL);
-    // Home screen steps for both phones, and no app store anywhere.
-    expect(popover?.textContent).toContain("Add to Home Screen");
-    expect(popover?.textContent).toContain("Install app");
+    expect(PHONE_INSTALL_URL).toBe("https://app.omg.dev/?install=1");
+    // No app store anywhere: the phone installs the web app.
     expect(popover?.innerHTML).not.toContain("apps.apple.com");
     expect(popover?.innerHTML).not.toContain("play.google.com");
     ui.render(<GetAppsRailCard />);
