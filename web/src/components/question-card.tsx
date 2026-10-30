@@ -170,17 +170,25 @@ export const PROMPT_RESTORE_MS = 8000;
  * `composerSendSeq` increments when the session composer sends a message. The
  * server treats a message sent while a question is open as its answer, so the
  * card goes the same way a tap does.
+ *
+ * `onAnsweringChange` reports the window between an answer and the server
+ * clearing the prompt. The agent waits on a question as idle, and an answer
+ * resumes its turn at once, but the page hears the new busy state only with
+ * the cleared prompt, a poll later. A queued send in that window was drawn as
+ * a sent bubble the server then held. The chat counts the window as busy.
  */
 export function SessionPromptPanel({
   prompt,
   sid,
   onError,
   composerSendSeq = 0,
+  onAnsweringChange,
 }: {
   prompt: SessionPrompt | null;
   sid: string | null;
   onError: (error: string | null) => void;
   composerSendSeq?: number;
+  onAnsweringChange?: (answering: boolean) => void;
 }) {
   "use memo";
   const sig = promptSignature(prompt);
@@ -207,6 +215,15 @@ export function SessionPromptPanel({
     const timer = setTimeout(() => setAnsweredSig(null), PROMPT_RESTORE_MS);
     return () => clearTimeout(timer);
   }, [answeredSig, sig]);
+
+  // Answered here, not yet cleared upstream. A failed answer and the safety
+  // valve both end it, so the chat cannot stay busy on a question still open.
+  const answering = sig !== "" && answeredSig === sig;
+  useLayoutEffect(() => {
+    if (!onAnsweringChange) return;
+    onAnsweringChange(answering);
+    return () => onAnsweringChange(false);
+  }, [answering, onAnsweringChange]);
 
   if (!prompt || !sid || answeredSig === sig) return null;
 

@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 30, 2026 - A message sent right after you answer a question waits as a queued card (v0.6.350)
+
+- When you answer an agent's question and then send a message at once, the message now waits in the queued card under the composer, the same as any message sent while the agent works. Before, it could show in the chat as a dashed "Queued · sends when this turn ends" bubble, because the page still thought the agent was idle for a second or two after the answer.
+
 ## October 30, 2026 - Out of AI credit shows an Upgrade card (v0.6.349)
 
 - When your AI credit runs out, the chat now shows a card that says "You're out of AI credit" with an Upgrade button, instead of a plain sentence. On omg.dev the button opens the upgrade dialog, and the dialog also opens by itself the moment a reply is refused. Your chat is kept, so you can send the message again after you upgrade.
