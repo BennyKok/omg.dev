@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## October 30, 2026 - Dictation defaults to Cloud (v0.6.351)
+
+- Dictation now uses Cloud unless you choose otherwise, so text appears live while you speak. Before, a new browser started on Auto and downloaded the on-device model. If you already picked Auto or On-device, that choice is kept. Cloud is now first in the mode menu.
+
 ## October 30, 2026 - A message sent right after you answer a question waits as a queued card (v0.6.350)
 
 - When you answer an agent's question and then send a message at once, the message now waits in the queued card under the composer, the same as any message sent while the agent works. Before, it could show in the chat as a dashed "Queued · sends when this turn ends" bubble, because the page still thought the agent was idle for a second or two after the answer.
