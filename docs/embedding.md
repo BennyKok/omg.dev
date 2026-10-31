@@ -70,10 +70,12 @@ host portals into them:
 
 ### Keeping host toasts above the phone chat box
 
-While the phone chat box is on screen, the surface sets `--lfg-host-toast-clear`
-on `<html>`: the distance in pixels from the bottom of the screen to the top of
-the chat box. It is removed when the chat box goes, and it has no stylesheet
-default. A host that draws its own toasts keeps them at least this far up:
+While a chat box is on screen, the surface sets `--lfg-host-toast-clear` on
+`<html>`: the distance in pixels from the bottom of the screen to the top of
+the chat box a person can see. That is the Create chat box on Create, and the
+open chat's own box inside a chat (the Create box stays mounted under it). It
+is removed when no chat box is visible, and it has no stylesheet default.
+`web/src/lib/host-toast-clear.ts` owns it. A host that draws its own toasts keeps them at least this far up:
 
 ```css
 bottom: max(var(--your-toast-offset), calc(var(--lfg-host-toast-clear, 0px) + 0.5rem));
