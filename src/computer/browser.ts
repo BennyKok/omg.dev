@@ -217,12 +217,65 @@ export async function focusAgentTab(): Promise<void> {
   } catch {}
 }
 
+/**
+ * How long one navigate() may take. Bun.WebView resolves navigate() on the
+ * load event, so a page with a request that never finishes (Gmail keeps one
+ * open) holds it forever. A navigation whose URL has changed by then counts as
+ * done; see navigateWithRecovery.
+ */
+export const NAVIGATE_TIMEOUT_MS = 25_000;
+
+/** What navigateWithRecovery needs. Injectable so a test can use a fake view. */
+export interface NavigateDeps extends ViewOpDeps {
+  /** Foreground the tab once the page is up, so the person sees it. */
+  capture(v: WebViewLike): Promise<unknown>;
+}
+
+/**
+ * Navigate the agent tab. A view allows one navigate() at a time, and
+ * Page.stopLoading does not release it, so a navigate that never resolves
+ * refuses every later one with "a navigation is already pending" for as long
+ * as the cached view lives. Bound it, and on a stall drop the view and retry
+ * once on a fresh one.
+ *
+ * A stall after the address has changed is a slow page, not a failure: it is
+ * returned as is, with the view kept so the agent can read and click it. The
+ * next navigate then meets "already pending" and moves to a fresh view.
+ */
+export async function navigateWithRecovery(deps: NavigateDeps, url: string): Promise<{ url: string; title: string }> {
+  let before = "";
+  let stalled = false;
+  const v = await withViewRecovery(
+    deps,
+    "navigation",
+    async (view) => {
+      before = view.url;
+      await view.navigate(url);
+      return view;
+    },
+    {
+      retryAfterTimeout: true,
+      onTimeout: (view) => {
+        if (!view.url || view.url === before) return undefined;
+        stalled = true;
+        return view;
+      },
+    },
+  );
+  await deps.capture(v);
+  // view.title still holds the previous page's title until navigate()
+  // resolves, so ask the page. Bounded: the page may be busy.
+  const title = stalled
+    ? await Promise.race([
+        Promise.resolve().then(() => v.evaluate("document.title")).then((t) => String(t ?? ""), () => ""),
+        new Promise<string>((resolve) => setTimeout(() => resolve(""), 2_000)),
+      ])
+    : v.title;
+  return { url: v.url, title };
+}
+
 export async function browserNavigate(url: string): Promise<{ url: string; title: string }> {
-  const v = await agentView();
-  await focusAgentTab();
-  await v.navigate(url);
-  await captureViewTarget(v);
-  return { url: v.url, title: v.title };
+  return await navigateWithRecovery({ ...liveOpDeps(NAVIGATE_TIMEOUT_MS), capture: captureViewTarget }, url);
 }
 
 /**
@@ -247,23 +300,26 @@ export async function expoWebSignedIn(): Promise<boolean> {
   return expoWebSignedInFrom(found.cookies ?? [], v.url);
 }
 
+/**
+ * How long click, type, press and read may take. click(selector) gives up by
+ * itself after 30 s when the element never becomes actionable (measured on
+ * Bun 1.4.4), so this must be longer than that.
+ */
+export const INPUT_TIMEOUT_MS = 40_000;
+
 export async function browserClick(target: number | string, y?: number): Promise<void> {
-  const v = await agentView();
-  await focusAgentTab();
-  if (typeof target === "number") await v.click(target, y ?? 0);
-  else await v.click(target);
+  await withViewRecovery(liveOpDeps(INPUT_TIMEOUT_MS), "click", async (v) => {
+    if (typeof target === "number") await v.click(target, y ?? 0);
+    else await v.click(target);
+  });
 }
 
 export async function browserType(text: string): Promise<void> {
-  const v = await agentView();
-  await focusAgentTab();
-  await v.type(text);
+  await withViewRecovery(liveOpDeps(INPUT_TIMEOUT_MS), "typing", (v) => v.type(text));
 }
 
 export async function browserPress(key: string): Promise<void> {
-  const v = await agentView();
-  await focusAgentTab();
-  await v.press(key);
+  await withViewRecovery(liveOpDeps(INPUT_TIMEOUT_MS), "key press", (v) => v.press(key));
 }
 
 /**
@@ -381,8 +437,8 @@ export async function browserPaste(text: string): Promise<void> {
 /** How long one capture may take before the view is judged stuck. */
 export const SCREENSHOT_TIMEOUT_MS = 15_000;
 
-/** What screenshotWithRecovery needs. Injectable so a test can use a fake view. */
-export interface ScreenshotDeps {
+/** What withViewRecovery needs. Injectable so a test can use a fake view. */
+export interface ViewOpDeps {
   view(): Promise<WebViewLike>;
   focus(): Promise<void>;
   /** Drop the cached view so the next view() builds a fresh one. */
@@ -390,35 +446,63 @@ export interface ScreenshotDeps {
   timeoutMs: number;
 }
 
-class ScreenshotTimeout extends Error {}
+export type ScreenshotDeps = ViewOpDeps;
+
+class ViewOpTimeout extends Error {}
 
 /**
- * Bun.WebView allows one screenshot() at a time. A capture that never resolves
- * (no compositor frame for a tab that is not painting) keeps the slot taken
- * for as long as the view lives, and the view is cached per process. So a
- * capture is time-limited, and a stuck or "already pending" view is dropped
- * so the next call gets a fresh one.
+ * Run one operation on the cached agent view, time-limited.
+ *
+ * Bun.WebView allows one call at a time per kind of operation: navigate(),
+ * screenshot() and evaluate() each have a slot, and click, type and press
+ * share one. A call that never resolves keeps its slot taken for as long as
+ * the view lives, and the view is cached per process, so every later call of
+ * that kind is refused with "... is already pending" (thrown synchronously).
+ *
+ * "Already pending" means the operation did not run, so the view is dropped
+ * and the call is retried once on a fresh one. A timeout also drops the view.
+ * It is retried only when the caller says the operation is safe to repeat
+ * (typing twice is not), and `onTimeout` may accept a partial result first.
  */
-export async function screenshotWithRecovery(deps: ScreenshotDeps): Promise<Blob> {
+export async function withViewRecovery<T>(
+  deps: ViewOpDeps,
+  name: string,
+  op: (v: WebViewLike) => Promise<T>,
+  opts: { retryAfterTimeout?: boolean; onTimeout?: (v: WebViewLike) => T | undefined } = {},
+): Promise<T> {
   for (let attempt = 0; ; attempt++) {
     const v = await deps.view();
     await deps.focus();
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const timeout = new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new ScreenshotTimeout()), deps.timeoutMs);
+        timer = setTimeout(() => reject(new ViewOpTimeout()), deps.timeoutMs);
       });
-      return await Promise.race([v.screenshot({ format: "png" }), timeout]);
+      // Through then(), so a synchronous "already pending" throw is caught too.
+      return await Promise.race([Promise.resolve().then(() => op(v)), timeout]);
     } catch (e) {
+      const timedOut = e instanceof ViewOpTimeout;
+      if (timedOut) {
+        const partial = opts.onTimeout?.(v);
+        if (partial !== undefined) return partial;
+      }
       const pending = e instanceof Error && /already pending/i.test(e.message);
-      if (!(e instanceof ScreenshotTimeout) && !pending) throw e;
+      if (!timedOut && !pending) throw e;
       deps.reset();
-      if (e instanceof ScreenshotTimeout) throw new Error("screenshot timed out; try again");
-      if (attempt >= 1) throw e;
+      const last = attempt >= 1 || (timedOut && !opts.retryAfterTimeout);
+      if (last) throw timedOut ? new Error(`${name} timed out; try again`) : e;
     } finally {
       clearTimeout(timer);
     }
   }
+}
+
+/**
+ * Bun.WebView allows one screenshot() at a time. A capture that never resolves
+ * (no compositor frame for a tab that is not painting) keeps the slot taken.
+ */
+export async function screenshotWithRecovery(deps: ScreenshotDeps): Promise<Blob> {
+  return await withViewRecovery(deps, "screenshot", (v) => v.screenshot({ format: "png" }));
 }
 
 /** Forget the cached agent view. The next agentView() opens a new tab. */
@@ -431,13 +515,12 @@ function resetAgentView(): void {
   try { old?.close(); } catch {}
 }
 
+function liveOpDeps(timeoutMs: number): ViewOpDeps {
+  return { view: agentView, focus: focusAgentTab, reset: resetAgentView, timeoutMs };
+}
+
 export async function browserScreenshot(): Promise<Blob> {
-  return await screenshotWithRecovery({
-    view: agentView,
-    focus: focusAgentTab,
-    reset: resetAgentView,
-    timeoutMs: SCREENSHOT_TIMEOUT_MS,
-  });
+  return await screenshotWithRecovery(liveOpDeps(SCREENSHOT_TIMEOUT_MS));
 }
 
 /**
@@ -446,8 +529,11 @@ export async function browserScreenshot(): Promise<Blob> {
  * syntax error. Hence the IIFE.
  */
 export async function browserReadText(max = 4000): Promise<string> {
-  const v = await agentView();
-  const out = await v.evaluate(`(() => document.body?.innerText ?? "")()`);
+  // Reading does not bring the tab to the front; it never did.
+  const deps = { ...liveOpDeps(INPUT_TIMEOUT_MS), focus: async () => {} };
+  const out = await withViewRecovery(deps, "reading the page", (v) =>
+    v.evaluate(`(() => document.body?.innerText ?? "")()`),
+  );
   return String(out ?? "").slice(0, max);
 }
 
