@@ -143,6 +143,7 @@ describe("OMG icon assets", () => {
       ["web/public/icon-maskable-512.png", 512, 512],
       ["web/public/apple-touch-icon.png", 180, 180],
       ["docs/images/omg-icon.png", 192, 192],
+      ["docs/images/omg-mark.png", 192, 192],
     ] as const;
 
     for (const [path, width, height] of assets) {
