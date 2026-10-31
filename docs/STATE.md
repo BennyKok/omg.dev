@@ -2,14 +2,14 @@
 
 Read this first. The nightly librarian refreshes this file from merged pull
 requests. Verify a fact in code before you depend on it.
-Last refresh: 2026-10-30.
+Last refresh: 2026-10-31.
 
 ## Active work (last 14 days)
 
-- **Hosted models and routing**: Auto, Max, Balanced, and Fast lead the picker;
-  models come from the router. Auto starts new projects on omg/build and
-  changes model on the next message (#448, #450, #452–#454).
-  Credit refusals say "out of AI credit" (#449).
+- **Models and routing**: Auto, Max, Balanced, and Fast lead the hosted picker;
+  models come from the router. Auto starts projects on omg/build and changes
+  model on the next message (#448, #450, #452–#454). Credit refusals say
+  "out of AI credit" (#449). Codex offers GPT-6.1 Terra (#459).
 - **Home and navigation**: Create, Apps, and Chats on phones; local projects,
   app chat boxes, tutorials, compact cards, owner faces, stable project moves,
   and shared page navigation (#419, #423–#425, #427, #429, #431, #434,
@@ -23,29 +23,26 @@ Last refresh: 2026-10-30.
 - **Previews and transcripts**: Android and web links lead phone previews;
   signed frames and image URLs load; launch text and builder instructions stay
   out of customer messages (#403, #413–#415, #421).
-- **App and game kits**: web games by default, drag controls, preview-first
-  checks, and no badge-moving step (#397, #418, #422, #428). The web-game
-  template uses React 19.3 and Vite 8.3 (#469).
+- **App and game kits**: drag controls, preview-first checks, and web games
+  by default (#418, #422, #428). The web-game template uses React 19.3
+  and Vite 8.3 (#469).
 - **Computer**: release keys left held by a viewer (#411). Hide the cursor
   after closing full screen (#479).
 - **Embedding**: stale-chunk reload message, composer-top host slot, guide
   navigation, conversation binding, and send acknowledgement (#401, #405,
   #409). The prebuilt app bundle has no remaining React require (#475).
 - **Cloud and apps**: hosted app rename, paid-flow checkout tests, payment
-  setup, and owner names are available from sessions
-  (#406–#407, #457, #460).
+  setup, and owner names are available from sessions (#406–#407, #457, #460).
   `omg deploy` works without a control-plane install (#482).
-- **Media and release**: 3D generation and a $25 default daily media cap (#398).
-  Verified releases start the omg.dev pin update through `omg_pin`
-  (#442–#444). Nightly documentation refreshes continue (latest: #480).
+- **Release**: verified releases start the omg.dev pin update through
+  `omg_pin` (#442–#444). Release failures no longer file issues (#485).
+  Nightly documentation refreshes continue (latest: #483).
 
 ## Open pull requests
 
-- In progress: #360 (close release failure issues after verified success),
-  #393 (game sprites move each frame without a React redraw),
+- In progress: #393 (game sprites move each frame without a React redraw),
   #417 (survive memory and inotify exhaustion from agent commands),
-  #459 (GPT-6.1 Terra on the ChatGPT subscription),
-  #474 (check the embed import graph during release tests).
+  #484 (bound Computer navigation and recover a stuck agent view).
 - Stale (no update for 30+ days): #252 (visual element inspection), #284
   (auto-agent acting tools), #287 (film mode and page navigation).
   Ask the owner before building on these.
