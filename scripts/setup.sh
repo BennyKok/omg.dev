@@ -963,6 +963,12 @@ RestartSec=3
 # serve's cgroup. With KillMode=control-group a deploy restart wipes them all;
 # kill only the main bun process so direct SDK and tmux sessions both survive.
 KillMode=process
+# Agents and the commands they run share this cgroup. The default
+# OOMPolicy=stop turns one out-of-memory kill of an agent's test run into a
+# stop of the whole server. Keep the server running and cap the cgroup, so a
+# runaway command is killed here before the rest of the host runs short.
+OOMPolicy=continue
+MemoryMax=75%
 
 [Install]
 WantedBy=default.target
