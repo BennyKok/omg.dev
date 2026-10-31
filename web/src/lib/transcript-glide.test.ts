@@ -85,6 +85,7 @@ describe("transcript follow action", () => {
       reengaged: false,
       reducedMotion: false,
       running: false,
+      gestureLive: false,
       ...overrides,
     });
 
@@ -110,5 +111,14 @@ describe("transcript follow action", () => {
 
   test("reduced motion always snaps", () => {
     expect(action({ running: true, reducedMotion: true })).toBe("snap");
+  });
+
+  test("a live gesture is never followed, so its momentum and bounce survive", () => {
+    // Scrolling down into the bottom slack re-pins mid-flick. That re-pin is
+    // `reengaged`, and it used to start a glide under the moving thumb.
+    expect(action({ gestureLive: true, reengaged: true })).toBe("hold");
+    expect(action({ gestureLive: true })).toBe("hold");
+    expect(action({ gestureLive: true, running: true })).toBe("hold");
+    expect(action({ gestureLive: true, reducedMotion: true })).toBe("hold");
   });
 });

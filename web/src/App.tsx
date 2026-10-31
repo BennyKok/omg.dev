@@ -544,7 +544,7 @@ import {
 } from "./lib/transcript-paging";
 import { nextScrollMode } from "./lib/transcript-stick";
 import { rowsWhileLive, showsTypingIndicator } from "./lib/typing-dots";
-import { shouldApplyAnchorCorrection } from "./lib/transcript-anchor";
+import { FLING_EVENT_RECENCY_MS, shouldApplyAnchorCorrection } from "./lib/transcript-anchor";
 import {
   completeTranscriptGlideFrame,
   createTranscriptGlideState,
@@ -21160,6 +21160,17 @@ const ChatStream = memo(function ChatStream({
   const prevStickRef = useRef(stick);
   const followedSendRef = useRef({ sid, sequence: composerSendSeq });
   const justSwitchedRef = useRef(true);
+  // The follow effect writes nothing while a reader's gesture or its momentum
+  // is moving the pane (see transcriptGlideAction's "hold"). Content that
+  // lands during that window still has to be followed, so a hold leaves this
+  // flag set and a timer re-runs the effect once scroll events stop. That
+  // later run glides the rest of the way instead of jumping.
+  const settleAfterGestureRef = useRef(false);
+  const settleTimerRef = useRef<number | null>(null);
+  const [settleTick, setSettleTick] = useState(0);
+  useEffect(() => () => {
+    if (settleTimerRef.current != null) clearTimeout(settleTimerRef.current);
+  }, []);
 
   const stopGlide = useCallback(() => {
     if (glideRafRef.current != null) {
@@ -21590,6 +21601,7 @@ const ChatStream = memo(function ChatStream({
     userDrivenRef.current = false;
     lastUserScrollAtRef.current = Number.NEGATIVE_INFINITY;
     justSwitchedRef.current = true;
+    settleAfterGestureRef.current = false;
     stopGlide();
     lastScrollTopRef.current = 0;
   }, [sid, stopGlide]);
@@ -21621,6 +21633,8 @@ const ChatStream = memo(function ChatStream({
   // through the same `stick` transition the effect below already treats as
   // one, instead of a second scroll call that would race the effect's own.
   const scrollToBottom = useCallback(() => {
+    // A deliberate request, so a flick that just ended does not hold it.
+    userDrivenRef.current = false;
     setStick(true);
   }, []);
 
@@ -21662,6 +21676,7 @@ const ChatStream = memo(function ChatStream({
     }
     if (!el || (!stick && !sent)) {
       prevStickRef.current = stick;
+      settleAfterGestureRef.current = false;
       return;
     }
     const switched = justSwitchedRef.current;
@@ -21706,15 +21721,31 @@ const ChatStream = memo(function ChatStream({
     }
     justSwitchedRef.current = false;
     if (Math.abs(el.scrollTop - bottom) <= 0.5) {
+      settleAfterGestureRef.current = false;
       stopGlide();
       return;
     }
     const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
     const glideAction = transcriptGlideAction({
-      reengaged,
+      reengaged: reengaged || settleAfterGestureRef.current,
       reducedMotion,
       running: glideRafRef.current != null,
+      // Same recency test as the anchor correction: momentum keeps raising
+      // scroll events, so a recent one means the reader still owns the pane.
+      gestureLive:
+        userDrivenRef.current &&
+        performance.now() - lastUserScrollAtRef.current < FLING_EVENT_RECENCY_MS,
     });
+    if (glideAction === "hold") {
+      settleAfterGestureRef.current = true;
+      if (settleTimerRef.current != null) clearTimeout(settleTimerRef.current);
+      settleTimerRef.current = window.setTimeout(() => {
+        settleTimerRef.current = null;
+        setSettleTick((tick) => tick + 1);
+      }, FLING_EVENT_RECENCY_MS);
+      return;
+    }
+    settleAfterGestureRef.current = false;
     // A manual jump already in flight keeps chasing the live target. All
     // other growth follows immediately through this one scroll owner.
     if (glideAction === "start") {
@@ -21729,7 +21760,7 @@ const ChatStream = memo(function ChatStream({
       // Our write, not theirs: the event this raises must not move the mode.
       userDrivenRef.current = false;
     }
-  }, [visibleMessages, busy, stick, items.length, showTypingIndicator, waitingKey, totalSize, viewportHeight, revealedSid, sid, composerSendSeq, startGlide, stopGlide, captureAnchor]);
+  }, [visibleMessages, busy, stick, items.length, showTypingIndicator, waitingKey, totalSize, viewportHeight, revealedSid, sid, composerSendSeq, settleTick, startGlide, stopGlide, captureAnchor]);
 
   // The virtual list sits below the loading-older spinner, so the offsets the
   // virtualizer hands out are shifted by however much chrome is above it.

@@ -4,19 +4,32 @@ export type TranscriptGlideState = {
   accumulatedOffsetPx: number;
 };
 
-export type TranscriptGlideAction = "start" | "continue" | "snap";
+export type TranscriptGlideAction = "start" | "continue" | "snap" | "hold";
 
 /** Follow new content immediately. Only an explicit return to latest starts
- * a glide; subsequent growth lets that user-requested glide finish. */
+ * a glide; subsequent growth lets that user-requested glide finish.
+ *
+ * "hold" means write nothing. A reader's drag or coasting flick owns the pane:
+ * a `scrollTop` write then stops the momentum dead and, at the end of the
+ * list, restarts the rubber-band bounce, so the view stutters and snaps to the
+ * end under the reader's thumb. Scrolling down into the bottom slack re-pins
+ * the transcript while that flick is still moving, so this was the common
+ * path, not a corner case. The native client holds for the same reason (see
+ * `touchingRef` in mobile/app/session/[id].tsx). ChatStream runs the follow
+ * again once scroll events stop, and that run glides the rest of the way. */
 export function transcriptGlideAction({
   reengaged,
   reducedMotion,
   running,
+  gestureLive,
 }: {
   reengaged: boolean;
   reducedMotion: boolean;
   running: boolean;
+  /** A reader's gesture or its momentum is still moving the pane. */
+  gestureLive: boolean;
 }): TranscriptGlideAction {
+  if (gestureLive) return "hold";
   if (reducedMotion) return "snap";
   if (reengaged) return "start";
   if (running) return "continue";
