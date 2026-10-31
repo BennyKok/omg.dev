@@ -60,6 +60,11 @@ for (const [file, size] of [
   ["mobile/assets/favicon.png", 96],
 ] as const) await pngOutput(file, source, size);
 await pngOutput("web/public/icon-maskable-512.png", safe, 512);
+// README mark: no white tile, which shows as a hard square on GitHub's dark
+// theme. The eye is painted white so it reads the same on light and dark.
+const readmeMark = variant({ scale: 1.3, transparent: true })
+  .replace(' mask="url(#disc)"/>', ' mask="url(#disc)"/>\n    <circle cx="71" cy="29" r="14" fill="#FFFFFF"/>');
+await pngOutput("docs/images/omg-mark.png", readmeMark, 192, false);
 await pngOutput("mobile/assets/splash-icon.png", variant({ transparent: true }), 1024, false);
 await pngOutput("mobile/assets/android-icon-foreground.png", variant({ scale: .66, transparent: true }), 1024, false);
 await pngOutput("mobile/assets/android-icon-monochrome.png", variant({ scale: .66, transparent: true, monochrome: true }), 1024, false);
