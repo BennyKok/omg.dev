@@ -370,6 +370,7 @@ import { withoutCompactionNoise } from "./lib/compaction-rows";
 import { PresenceDock } from "./components/presence-dock";
 import { CreateTutorials } from "./components/create-tutorials";
 import { FindingToastCard } from "./components/finding-toast-card";
+import { trackHostToastClear } from "./lib/host-toast-clear";
 import { OmgLevelMenu, showOmgLevelMenu } from "./components/omg-level-menu";
 import { SystemMessageLine } from "./components/system-message-line";
 import { classifyUserTurn } from "./lib/system-message";
@@ -18236,6 +18237,8 @@ function SessionChatBody({
              somebody restarted something for it. */
         bot || canDriveSession(session) || reviewingShipped ? (
         <form
+          // An embedding host's toasts clear this chat box while it is on screen.
+          ref={trackHostToastClear}
           onSubmit={sendLatest}
           data-lfg-bar-lift=""
           // Which chat box this is, for a host that waits for it to show
@@ -24401,23 +24404,19 @@ function NewSessionDialog({
     const sync = () => {
       const rect = bar.getBoundingClientRect();
       document.documentElement.style.setProperty("--lfg-inline-composer-height", `${Math.ceil(rect.height)}px`);
-      // For an embedding host's toasts: the distance from the bottom of the
-      // screen to the top of this chat box. No stylesheet default, so it
-      // exists only while the box is on screen (docs/embedding.md).
-      document.documentElement.style.setProperty(
-        "--lfg-host-toast-clear",
-        `${Math.max(0, Math.ceil(window.innerHeight - rect.top))}px`,
-      );
     };
     sync();
     const ro = new ResizeObserver(sync);
     ro.observe(bar);
     window.addEventListener("resize", sync);
+    // For an embedding host's toasts. The tracker decides which chat box on
+    // screen they clear: this one stays mounted under an open chat.
+    const untrack = trackHostToastClear(bar);
     return () => {
       ro.disconnect();
       window.removeEventListener("resize", sync);
+      untrack?.();
       document.documentElement.style.removeProperty("--lfg-inline-composer-height");
-      document.documentElement.style.removeProperty("--lfg-host-toast-clear");
     };
   }, [variant]);
   // True while the post-commit swap animation is in flight. Committing a swipe
