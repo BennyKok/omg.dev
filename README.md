@@ -1,5 +1,5 @@
 <a href="https://omg.dev">
-  <img src="https://raw.githubusercontent.com/BennyKok/omg.dev/main/docs/images/omg-icon.png" alt="omg.dev icon" width="96" />
+  <img src="https://raw.githubusercontent.com/BennyKok/omg.dev/main/docs/images/omg-mark.png" alt="omg.dev" width="96" />
 </a>
 
 # omg.dev

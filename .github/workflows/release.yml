@@ -20,7 +20,6 @@ on:
 permissions:
   contents: write # create releases + upload assets
   id-token: write # npm provenance attestation for the published packages
-  issues: write # file an issue when a release run fails
 
 jobs:
   build:
@@ -231,40 +230,3 @@ jobs:
         run: |
           gh workflow run update-lfg-app.yml --repo BennyKok/vibes --ref main \
             || echo "::warning::Could not start BennyKok/vibes update-lfg-app.yml. The hourly schedule will pick up this release."
-
-      # A failed tag build emails only the pusher, and v0.1.360 showed that
-      # is not enough — it sat broken until someone read `gh run list` for
-      # an unrelated reason. File one issue per tag so the failure is
-      # durable and visible to everyone watching the repo. Re-runs of the
-      # same tag comment on the existing issue instead of opening new ones.
-      - name: File an issue on failure
-        if: ${{ failure() && startsWith(inputs.tag || github.ref_name, 'v') }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
-        run: |
-          set -euo pipefail
-          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          title="Release ${RELEASE_TAG} failed"
-          existing="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
-            --search "\"${title}\" in:title" --json number --jq '.[0].number // empty')"
-          if [ -n "$existing" ]; then
-            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" \
-              --body "Failed again: ${run_url}"
-          else
-            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$(cat <<EOF
-          The release workflow run for \`${RELEASE_TAG}\` failed: ${run_url}
-
-          If the publish step died mid-upload, the GitHub Release may exist
-          with assets missing — check it before tagging the next release:
-
-          \`\`\`
-          gh release view ${RELEASE_TAG} --json assets --jq '.assets[].name'
-          bash scripts/verify-release-assets.sh ${RELEASE_TAG} dist
-          \`\`\`
-
-          A \`latest\` release with missing assets silently breaks
-          \`omg update\` for every user on the affected platform.
-          EOF
-          )"
-          fi
