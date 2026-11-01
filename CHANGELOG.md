@@ -2,6 +2,14 @@
 
 Recent product updates and deployment notes.
 
+## November 1, 2026 - Queued messages show only in the queued card (v0.6.355)
+
+- A message that waits for the agent now shows only in the queued card under the chat box. The dashed "Queued · sends when this turn ends" bubble in the chat is gone. Before, a message sent while the page still thought the agent was idle (for example, right after you stopped a reply) could show as that bubble, and the queued card stayed empty.
+- An update from another agent that arrives while the agent works now shows in the chat when the agent reads it, not earlier.
+- Auto-agent updates are sorted by most recent activity. An agent that just acted is no longer under an old high-severity finding.
+- An agent can now close its own session after its turn. A new message from you cancels that close.
+- Codex on the ChatGPT subscription can now use GPT-6.1 Terra.
+
 ## October 31, 2026 - Notifications stay at the bottom inside a chat (v0.6.354)
 
 - On the omg.dev phone app, a notification such as "yt-ads-campaign-watch responded" now shows just above the chat box of the chat you are in. Before, inside a chat it could float in the middle of the conversation, because its position came from the Create page's chat box, which stays loaded under an open chat.
