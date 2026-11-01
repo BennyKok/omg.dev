@@ -29,7 +29,6 @@ export type ChatRenderMessage = {
   text?: string;
   ts?: number | null;
   pending?: boolean;
-  queued?: boolean;
   /**
    * Kind `work`: the steps of the run, in order. An empty list WITHDRAWS the
    * row: its only step turned out to be a display call whose artifact then
@@ -355,17 +354,3 @@ export function transcriptRowWindowStart<T extends ChatRenderMessage>(
   return spans[spans.length - rows]!.start;
 }
 
-// A queued turn is ordered by when it was *written*, but the agent has not read
-// it yet: the turn it waits behind keeps streaming thinking, tools and text
-// after it. Left in timestamp order it scrolls up into the middle of output it
-// never influenced and reads as already answered. Split it out so the view can
-// pin it below the live turn until the real transcript row replaces it.
-export function splitQueuedRenderItems<T extends ChatRenderMessage>(
-  items: ChatRenderItem<T>[],
-): { items: ChatRenderItem<T>[]; queued: ChatRenderItem<T>[] } {
-  const isQueued = (item: ChatRenderItem<T>) =>
-    item.type === "msg" && !!item.message.queued && !!item.message.pending;
-  const queued = items.filter(isQueued);
-  if (!queued.length) return { items, queued };
-  return { items: items.filter((item) => !isQueued(item)), queued };
-}

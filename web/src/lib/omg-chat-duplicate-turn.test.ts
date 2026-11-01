@@ -305,7 +305,7 @@ describe("sending while the assistant is streaming", () => {
     // An ordinary tap is visible at once. It is not a queued row.
     const live = omgUIMessagesToMessages(chat.messages);
     expect(live.filter((message) => message.text === "stop, do this instead")).toHaveLength(1);
-    expect(live.find((message) => message.text === "stop, do this instead")?.queued).toBeUndefined();
+    expect(live.find((message) => message.text === "stop, do this instead")).not.toHaveProperty("queued");
     expect(live.filter((message) => message.kind === "text").map((message) => message.text)).toEqual([
       "ship it",
       answer,
