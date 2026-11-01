@@ -47,10 +47,12 @@ export function sortFindings<F extends GroupableFinding>(findings: readonly F[])
 }
 
 /**
- * Group open findings by the agent that filed them. Reports are ordered the
- * same way findings inside them are: worst severity first, then the group
- * with the newest sighting first. An agent's report therefore rises when it
- * files something worse or something new, and sinks as its findings age.
+ * Group open findings by the agent that filed them. Reports are ordered by
+ * recency alone: the group with the newest sighting comes first, so the
+ * agent that acted last is at the top. Severity stays visible on each row's
+ * dot; it does not reorder the list, because a stale high finding pinned
+ * above fresh activity hid what had just happened. Inside a report the
+ * findings stay worst first (see sortFindings).
  */
 export function groupFindingsByAgent<F extends GroupableFinding>(
   findings: readonly F[],
@@ -71,7 +73,5 @@ export function groupFindingsByAgent<F extends GroupableFinding>(
       findings: sorted,
     });
   }
-  return reports.sort(
-    (a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity] || b.latestAt - a.latestAt,
-  );
+  return reports.sort((a, b) => b.latestAt - a.latestAt);
 }
