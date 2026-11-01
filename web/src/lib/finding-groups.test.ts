@@ -19,8 +19,8 @@ describe("groupFindingsByAgent", () => {
       f("b1", "ci", "med", 15),
     ]);
     expect(reports.map((r) => [r.agentId, r.findings.length])).toEqual([
-      ["ci", 1],
       ["fleet", 2],
+      ["ci", 1],
     ]);
   });
 
@@ -42,12 +42,28 @@ describe("groupFindingsByAgent", () => {
     expect(reports[0].latestAt).toBe(500);
   });
 
-  test("worse agents sort ahead of newer ones", () => {
+  test("the most recent agent sorts first, whatever its severity", () => {
     const reports = groupFindingsByAgent([
-      f("a1", "quiet", "low", 1000),
       f("b1", "loud", "high", 1),
+      f("a1", "quiet", "low", 1000),
+      f("c1", "mid", "med", 500),
     ]);
-    expect(reports.map((r) => r.agentId)).toEqual(["loud", "quiet"]);
+    expect(reports.map((r) => r.agentId)).toEqual(["quiet", "mid", "loud"]);
+    expect(reports[2].severity).toBe("high");
+  });
+
+  test("a new finding moves its agent's group to the top", () => {
+    const before = groupFindingsByAgent([
+      f("a1", "fleet", "low", 100),
+      f("b1", "ci", "low", 200),
+    ]);
+    expect(before.map((r) => r.agentId)).toEqual(["ci", "fleet"]);
+    const after = groupFindingsByAgent([
+      f("a1", "fleet", "low", 100),
+      f("b1", "ci", "low", 200),
+      f("a2", "fleet", "low", 300),
+    ]);
+    expect(after.map((r) => r.agentId)).toEqual(["fleet", "ci"]);
   });
 
   test("sortFindings does not mutate its input", () => {
