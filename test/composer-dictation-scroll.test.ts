@@ -25,7 +25,7 @@ describe("shared composer growth and dictation follow-scroll", () => {
     const app = await readFile("web/src/App.tsx", "utf8");
     expect(app).toContain("followedScrollNonceRef.current !== scrollToEndNonce");
     expect(app).toContain("field.scrollTop = field.scrollHeight");
-    expect(app.match(/scrollToEndNonce=\{dictationScrollNonce\}/g)?.length).toBe(2);
+    expect(app.match(/scrollToEndNonce=\{dictationScrollNonce\}/g)?.length).toBe(3);
     expect(app.match(/setDictationScrollNonce\(\(nonce\) => nonce \+ 1\)/g)?.length).toBeGreaterThanOrEqual(3);
   });
 });

@@ -5,6 +5,12 @@
 // A single shared AudioContext + master gain is lazily created and resumed on
 // the triggering gesture (clicks/taps are user gestures, so autoplay policy is
 // satisfied). Everything degrades to a no-op where Web Audio is unavailable.
+//
+// The context is SUSPENDED whenever no blip is playing. A running context is
+// an active audio session on iOS: after a dictation take (play-and-record) it
+// kept the session in record mode, so the user's music stayed paused for as
+// long as the page was open (Benny, 2026-11-01). Each sound resumes it and a
+// short timer suspends it again once the last voice has ended.
 
 export type SfxName =
   | "tap"
@@ -21,6 +27,22 @@ export type SfxName =
 
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
+let suspendTimer: ReturnType<typeof setTimeout> | null = null;
+// Wall-clock time (ms) when the last scheduled voice is silent.
+let quietAt = 0;
+// Margin after the last voice ends before the context is suspended, so the
+// exponential tail and the oscillator stop are not cut.
+const SUSPEND_AFTER_MS = 400;
+
+/** Suspend the context once every scheduled voice has ended. */
+function suspendWhenQuiet(endsInMs: number) {
+  quietAt = Math.max(quietAt, Date.now() + endsInMs);
+  if (suspendTimer) clearTimeout(suspendTimer);
+  suspendTimer = setTimeout(() => {
+    suspendTimer = null;
+    if (ctx?.state === "running") void ctx.suspend().catch(() => {});
+  }, Math.max(0, quietAt - Date.now()) + SUSPEND_AFTER_MS);
+}
 
 function getCtx(): AudioContext | null {
   if (typeof window === "undefined") return null;
@@ -54,7 +76,8 @@ export function warmSfxOnFirstGesture(enabled: () => boolean): void {
     for (const type of events) window.removeEventListener(type, warm, true);
     const idle = window.requestIdleCallback ?? ((fn: () => void) => window.setTimeout(fn, 1));
     idle(() => {
-      if (enabled()) getCtx();
+      // Built, then parked: a warm context must not hold the audio session.
+      if (enabled() && getCtx()) suspendWhenQuiet(0);
     });
   };
   for (const type of events) window.addEventListener(type, warm, { capture: true, passive: true });
@@ -89,6 +112,7 @@ function voice(v: Voice) {
   gain.connect(master);
   osc.start(t0);
   osc.stop(t0 + v.dur + 0.03);
+  suspendWhenQuiet(((v.delay ?? 0) + v.dur + 0.03) * 1000);
 }
 
 // Each sound is one or more short voices. Kept low and brief so rapid UI
