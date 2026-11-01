@@ -54,7 +54,17 @@ function harness(opts?: {
       />,
     );
   render();
-  return { calls, sent, painted, errors, current: () => items };
+  return {
+    calls,
+    sent,
+    painted,
+    errors,
+    current: () => items,
+    render: (next: OmgQueueMessage[]) => {
+      items = next;
+      render();
+    },
+  };
 }
 
 describe("HeldQueueCards", () => {
@@ -158,6 +168,42 @@ describe("HeldQueueCards", () => {
     expect(h.sent).toEqual(["first thing"]);
     expect(h.errors).toEqual(["network down"]);
     expect(h.current().map((item) => item.id)).toEqual(["bb22"]);
+  });
+
+  // The idle release and a tap can cross: the server already sent the row and
+  // answers 404/409. Nothing failed, so nothing is shown; the list re-reads.
+  test("send now on a row the server already released shows no error and sends nothing twice", async () => {
+    const h = harness({
+      request: async <T,>(_path: string, init?: RequestInit) => {
+        if (init?.method === "DELETE") throw new Error("queued message not found");
+        return { queue: [] } as T;
+      },
+    });
+    await ui.flushAsync(() => (ui.query(SEND_ALL) as HTMLButtonElement).click());
+    expect(h.sent).toEqual([]);
+    expect(h.errors).toEqual([]);
+    expect(h.current()).toEqual([]);
+    expect(h.calls.at(-1)).toEqual({ path: Q, method: undefined, body: undefined });
+  });
+
+  test("removing or editing a row that is no longer held shows no error", async () => {
+    const h = harness({
+      request: async <T,>(_path: string, init?: RequestInit) => {
+        if (init?.method === "DELETE") throw new Error("only a held message can be removed");
+        if (init?.method === "PATCH") throw new Error("only a held message can be edited");
+        return { queue: [] } as T;
+      },
+    });
+    const open = ui.queryAll('button[title="Edit"]')[0] as HTMLButtonElement;
+    await ui.flushAsync(() => open.click());
+    await ui.flushAsync(() => (ui.query('button[aria-label="Save queued message"]') as HTMLButtonElement).click());
+    expect(h.errors).toEqual([]);
+    expect(h.current()).toEqual([]);
+    h.calls.length = 0;
+    await ui.flushAsync(() => h.render([held[1]!]));
+    await ui.flushAsync(() => (ui.query('button[aria-label="Remove queued message"]') as HTMLButtonElement).click());
+    expect(h.calls.map((call) => call.method)).toEqual(["DELETE", undefined]);
+    expect(h.errors).toEqual([]);
   });
 
   test("send now leaves a card that is still waiting for its server row", async () => {
