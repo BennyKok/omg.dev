@@ -6,7 +6,7 @@ import { customInputModalities } from "./custom-models.ts";
 // Bump whenever an agent-facing omg.dev capability or its operating guidance
 // changes. Managed sessions persist the value they launched with, which lets
 // the UI identify long-lived sessions whose MCP/tool catalog predates a ship.
-export const OMG_CAPABILITY_VERSION = "2026-10-27.1";
+export const OMG_CAPABILITY_VERSION = "2026-11-01.1";
 
 export const OMG_CAPABILITIES = [
   {
@@ -79,8 +79,9 @@ export const OMG_CAPABILITIES = [
   },
   {
     tool: "omg_close_session",
-    useWhen: "Another live session is clearly complete and should be removed from the active fleet.",
-    guidance: "Resolve the exact id with omg_list_sessions first; never close the calling session or an active, uncertain, errored, or blocked session.",
+    useWhen: "Another live session is clearly complete, or the user or your task asks this session to close itself.",
+    guidance:
+      "Omit sessionId to close your own session only when the user or your task asks for it; it closes after the current turn, so write your final reply first. To close another session, resolve the exact id with omg_list_sessions first. Never close an active, uncertain, errored, or blocked session.",
   },
   {
     tool: "omg_create_subagent / omg_delegate_*",
@@ -129,7 +130,7 @@ export function omgRuntimeContract(): string {
     "- Shipped is not deployed. If deployment was requested, verify it before you claim it.",
     "- For a website login, use `omg_request_browser_login` and `omg_browser_login_status`. The iOS app can transfer an approved login to the shared Computer browser. Check client availability and verify the signed-in page after transfer; never request cookies or passwords in chat.",
     "- Act by default: do the next step yourself. Do not ask to check in, confirm a plan, ask \"what next?\", or approve in-scope work. Ask only when blocked on a decision that is truly the human's (irreversible, external, or unclear intent): once, with 2-4 options via `AskUserQuestion`, else `omg_input` (fire-and-forget; do not poll).",
-    "- Never request channel identity or credentials. Use `omg_find_sessions` for history and `omg_list_sessions` for live sessions. Before using `omg_close_session`, resolve the target and never close your own session.",
+    "- Never request channel identity or credentials. Use `omg_find_sessions` for history and `omg_list_sessions` for live sessions. `omg_close_session` without an id closes your own session after this turn; resolve another target's id first.",
     "- Delegate only when explicitly requested, using `omg_create_subagent` or `omg_delegate_*` so children remain linked and visible.",
     "- Recurring/scheduled work is an auto agent, not a long-lived session: compose it with `omg_compose_auto_agent`, save it with `omg_save_auto_agent`, and read results with `omg_list_findings`.",
     `- Session ids use an ${SHORT_SESSION_ID_LENGTH}-character prefix. Pass them back exactly as shown. If an omg.dev tool is missing, call \`omg_capabilities\`; report a refresh only when it returns \`stale: true\`, otherwise report the feature as unsupported.`,

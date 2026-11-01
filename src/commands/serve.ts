@@ -57,6 +57,7 @@ import { buildContinueSessionPrompt } from "../session-continue-prompt.ts";
 import { createForkSession } from "../session-fork.ts";
 import { handleSessionMove } from "../session-move.ts";
 import { applyPendingProjectMoves, requestProjectSessionMove } from "../project-session-move.ts";
+import { applyPendingSelfCloses, cancelSelfClose, requestSelfClose } from "../session-self-close.ts";
 import { sessionIsMoving } from "../session-recovery.ts";
 import { regenerateSessionTitle } from "../session-title-regenerate.ts";
 import { hasHostedOmgAiProxy, hasOmgProviderAccess } from "../omg-provider.ts";
@@ -2844,6 +2845,32 @@ function startProjectMoveSweep(): void {
   timer.unref?.();
 }
 
+let selfCloseRunning = false;
+
+/** Close sessions that asked to close themselves, once each turn ends. */
+function startSelfCloseSweep(): void {
+  const timer = setInterval(() => {
+    if (selfCloseRunning || !listManaged().some((row) => row.pendingSelfClose)) return;
+    selfCloseRunning = true;
+    void applyPendingSelfCloses({
+      isBusy: async (sessionId) => {
+        const session = (await listSessions()).find((s) => s.sessionId === sessionId || s.nativeSessionId === sessionId);
+        if (!session?.sessionId) return null;
+        return !!session.busy || queueBlocksBotRotation(listQueue(session.sessionId));
+      },
+      close: async (sessionId) => {
+        const session = (await listSessions()).find((s) => s.sessionId === sessionId || s.nativeSessionId === sessionId);
+        if (!session?.sessionId) return { ok: true };
+        return closeLiveSession(session, session.sessionId, { sessionId: session.sessionId, source: "self_close_after_turn" });
+      },
+    })
+      .then((closed) => { if (closed) invalidateListSessionsCache(); })
+      .catch((error) => console.error(`[self-close] ${error instanceof Error ? error.message : String(error)}`))
+      .finally(() => { selfCloseRunning = false; });
+  }, PROJECT_MOVE_SWEEP_MS);
+  timer.unref?.();
+}
+
 const MANAGED_RETIREMENT_SWEEP_MS = 6 * 60 * 60_000;
 
 /**
@@ -3216,6 +3243,10 @@ function sendPromptToLiveSession(
   if (!sid) return { ok: false, error: "live session has no id" };
   if (sessionIsMoving(sid)) return { ok: false, error: "The session is moving; try again when it is ready" };
   if (session.agent === "hermes") return { ok: false, error: "Hermes has been removed" };
+  // The person kept talking, so an earlier "close me after this turn" is void.
+  if (opts.fromPerson && cancelSelfClose(session.tmuxName)) {
+    evlog("session_self_close_cancelled", { sessionId: sid, reason: "person_message" });
+  }
   traceLog("session_send_request", {
     sessionId: sid,
     agent: session.agent,
@@ -11940,6 +11971,15 @@ a{color:#60a5fa}
             source,
             href: req.headers.get("referer") ?? undefined,
           };
+          // A session closing itself is mid tool call: record the request and
+          // let the self-close sweep close it once its turn ends.
+          // The caller is the identity header mcp.ts's api() sets on every call.
+          const selfClose = requestSelfClose(req.headers.get("x-omg-caller-session-id"), m[1]);
+          if (selfClose) {
+            evlog("session_close_request", { ...closeLog, self: true, status: selfClose.status });
+            if (selfClose.status === "refused") return err(403, selfClose.reason);
+            return json({ ok: true, afterTurn: true });
+          }
           const sess = (await listSessions()).find((s) => s.sessionId === m[1]);
           evlog("session_close_request", {
             ...closeLog,
@@ -12673,6 +12713,7 @@ a{color:#60a5fa}
   startOrphanAgentServerSweep((l) => console.log(l));
   startBotCompactionSweep();
   startProjectMoveSweep();
+  startSelfCloseSweep();
   // Watch the fleet for busy -> idle transitions and fan "completed" events out
   // to fleet subscribers (Web Push). Idempotent + best-effort.
   startFleetWatcher();

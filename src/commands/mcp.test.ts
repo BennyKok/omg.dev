@@ -34,11 +34,30 @@ describe("closeOmgSession", () => {
     });
   });
 
-  test("refuses to close the calling session", async () => {
-    process.env.LFG_SESSION_ID = "same-session";
-    await expect(closeOmgSession("same-session")).rejects.toThrow(
-      "omg_close_session cannot close the calling session",
-    );
+  test("an omitted id closes the calling session after its turn", async () => {
+    const self = "abcd1234-1111-4111-8111-111111111111";
+    process.env.LFG_BASE = "http://127.0.0.1:9876";
+    process.env.LFG_SESSION_ID = self;
+    let request: { url: string; init?: RequestInit } | undefined;
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      request = { url: String(url), init };
+      return Response.json({ ok: true, afterTurn: true });
+    }) as typeof fetch;
+
+    await expect(closeOmgSession()).resolves.toEqual({
+      closed: false,
+      closesAfterTurn: true,
+      sessionId: "abcd1234",
+    });
+    expect(request?.url).toBe(`http://127.0.0.1:9876/api/sessions/${self}/close`);
+    // The server decides "self" from this header, not from the client.
+    expect(new Headers(request?.init?.headers).get("x-omg-caller-session-id")).toBe(self);
+  });
+
+  test("an omitted id outside a managed session is an error", async () => {
+    delete process.env.LFG_SESSION_ID;
+    delete process.env.OMG_SESSION_ID;
+    await expect(closeOmgSession()).rejects.toThrow("sessionId required");
   });
 });
 

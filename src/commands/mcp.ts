@@ -335,15 +335,12 @@ async function callerBotId(): Promise<string | null> {
   return row?.botId ?? null;
 }
 
-export async function closeOmgSession(sessionIdInput: string) {
-  if (!sessionIdInput.trim()) throw new Error("sessionId required");
-  // Resolve before the self-close check so a short id can't slip past it.
-  const sessionId = await resolveSid(sessionIdInput);
-  const caller = callerSessionId();
-  if (caller && caller === sessionId) {
-    throw new Error("omg_close_session cannot close the calling session");
-  }
-  const data = await api<{ ok?: boolean }>(
+// An omitted id closes the calling session. The server owns the "is this the
+// caller?" decision (from the caller header) and defers a self-close until the
+// turn ends, so this tool result and the agent's last reply still land.
+export async function closeOmgSession(sessionIdInput?: string) {
+  const sessionId = await activeSessionId(sessionIdInput);
+  const data = await api<{ ok?: boolean; afterTurn?: boolean }>(
     `/api/sessions/${encodeURIComponent(sessionId)}/close`,
     {
       method: "POST",
@@ -351,6 +348,9 @@ export async function closeOmgSession(sessionIdInput: string) {
       body: JSON.stringify({ source: "mcp_omg_close_session" }),
     },
   );
+  if (data.afterTurn) {
+    return { closed: false, closesAfterTurn: true, sessionId: shortSid(sessionId) };
+  }
   return { closed: data.ok !== false, sessionId: shortSid(sessionId) };
 }
 
@@ -845,9 +845,13 @@ export function buildOmgMcpServer(): McpServer {
     {
       title: "Close omg.dev Session",
       description:
-        "Close another omg.dev runtime session that is clearly finished. Resolve the exact target id with omg_list_sessions first. The calling session cannot close itself.",
+        "Close an omg.dev runtime session that is clearly finished. Omit sessionId to close your own session when the user or your task asks for it: it closes after your current turn ends, so write your final reply in this turn. A message from the user before then keeps it open. Bot conversations cannot close themselves. To close another session, resolve its exact id with omg_list_sessions first.",
       inputSchema: {
-        sessionId: z.string().min(1).describe("Exact omg.dev session id returned by omg_list_sessions."),
+        sessionId: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Exact omg.dev session id returned by omg_list_sessions. Omit it to close the calling session after this turn."),
       },
     },
     async ({ sessionId }) => result(await closeOmgSession(sessionId)),

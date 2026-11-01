@@ -93,6 +93,11 @@ export type ManagedSession = {
    * sweep moves the session there at its next idle boundary, then clears it.
    */
   pendingProjectMove?: { cwd: string; project: string; requestedAt: number };
+  /**
+   * The session asked to close itself (omg_close_session). The serve sweep
+   * closes it at its next idle boundary. See src/session-self-close.ts.
+   */
+  pendingSelfClose?: { requestedAt: number };
   parentSessionId?: string;
   parentNativeSessionId?: string;
   parentAgent?: string;
