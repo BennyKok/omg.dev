@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## November 1, 2026 - Dictation leaves your music alone (v0.6.356)
+
+- Dictation no longer keeps your music paused. The microphone now closes as soon as a recording ends. Before, it stayed open for a minute after each recording, and on iPhone the music stayed paused for that minute. Interface sounds also stop holding the audio between sounds.
+- The chat box now grows to at most three lines. Longer text scrolls inside the box, so dictation no longer pushes the chat up and down.
+- The chat no longer scrolls sideways. While a message was being sent, its glow could reach past the screen edge and let the chat move to the side.
+
 ## November 1, 2026 - Queued messages show only in the queued card (v0.6.355)
 
 - A message that waits for the agent now shows only in the queued card under the chat box. The dashed "Queued · sends when this turn ends" bubble in the chat is gone. Before, a message sent while the page still thought the agent was idle (for example, right after you stopped a reply) could show as that bubble, and the queued card stayed empty.
