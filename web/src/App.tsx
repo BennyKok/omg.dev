@@ -363,7 +363,7 @@ import {
   retryQueuedMessage,
 } from "./lib/queue-reconcile";
 import { HeldQueueCards, HeldQueueDock, LOCAL_HELD_ID_PREFIX } from "./components/held-queue-cards";
-import { heldFieldHeight } from "./lib/held-field-height";
+import { cappedFieldHeight, heldFieldHeight } from "./lib/held-field-height";
 import { closesKeyboardAfterSendHere } from "./lib/keyboard-after-send";
 import { createHeldRelease } from "./lib/held-release";
 import { withoutCompactionNoise } from "./lib/compaction-rows";
@@ -3458,13 +3458,6 @@ function recordingButtonStyle(level: number): CSSProperties {
   };
 }
 
-// How long to keep the mic stream open (track disabled, not stopped) after a
-// take ends before fully releasing it. Long enough that back-to-back dictation
-// reuses a single grant — avoiding the repeat permission prompt an installed PWA
-// (iOS standalone especially) shows on each fresh getUserMedia after a full
-// track.stop() — short enough that we don't sit on the mic indicator forever.
-const MIC_IDLE_RELEASE_MS = 60_000;
-
 // Mic capture constraints. Explicit rather than a bare `audio: true` so dictation
 // gets the browser's voice cleanup (echo cancel / noise suppression / AGC) the
 // same way the call path does, instead of whatever the UA happens to default to.
@@ -3480,9 +3473,9 @@ const MIC_SLOW_PROMPT_MS = 1200;
 // Hard ceiling on mic acquisition. getUserMedia does NOT settle while a permission
 // prompt sits unanswered (and some UAs never settle at all if the device is wedged),
 // which would otherwise pin the UI in "starting" with no way back. We give up on the
-// *UI* at this point; if the grant lands afterwards we quietly park the stream so the
-// next tap reuses it instead of prompting again. Generous — a user reading the
-// prompt shouldn't be cut off.
+// *UI* at this point; if the grant lands afterwards we stop its tracks, so no
+// mic is held with nothing on screen. Generous — a user reading the prompt
+// shouldn't be cut off.
 const MIC_ACQUIRE_TIMEOUT_MS = 30_000;
 
 // Race sentinels for the acquisition window. Distinct objects so they can never
@@ -3612,36 +3605,18 @@ function useDictation(opts: {
   // ceiling expires.
   const abortAcquireRef = useRef<(() => void) | null>(null);
 
-  // A single mic MediaStream is acquired lazily and then KEPT ALIVE across takes
-  // rather than being stopped after each one. Re-running getUserMedia after a
-  // full track.stop() re-triggers the browser's permission gate in an installed
-  // PWA (iOS standalone doesn't persist the grant across released streams), so
-  // repeated dictation used to re-prompt every take. We hold the track, disable
-  // it while idle, and only fully release after a spell of inactivity (or on
-  // unmount) — so tap→tap→tap reuses one grant.
+  // The mic MediaStream lives for exactly one take. It used to be kept alive
+  // (track disabled, not stopped) for 60 s after each take, to save an
+  // installed iOS PWA a permission prompt on the next tap. A disabled track is
+  // still a live capture on iOS: the audio session stayed in play-and-record,
+  // so the user's music stayed paused for that whole minute (Benny,
+  // 2026-11-01). Every path that ends or abandons a take stops the tracks.
   const streamRef = useRef<MediaStream | null>(null);
-  const idleReleaseRef = useRef<number | null>(null);
   const releaseStream = useCallback(() => {
-    if (idleReleaseRef.current !== null) {
-      clearTimeout(idleReleaseRef.current);
-      idleReleaseRef.current = null;
-    }
     const s = streamRef.current;
     streamRef.current = null;
     s?.getTracks().forEach((t) => t.stop());
   }, []);
-
-  // Silence the held mic and (re-)arm the idle release. EVERY path that abandons
-  // a take after the stream is open must call this, not just disable the track:
-  // a disabled-but-live track keeps the device open and the OS mic indicator lit,
-  // and start() clears the pending release before acquiring — so a bail that only
-  // disables would sit on the mic indefinitely, with each retry re-clearing the
-  // timer so it could never self-heal.
-  const parkStream = useCallback(() => {
-    streamRef.current?.getAudioTracks().forEach((t) => (t.enabled = false));
-    if (idleReleaseRef.current !== null) clearTimeout(idleReleaseRef.current);
-    idleReleaseRef.current = setTimeout(releaseStream, MIC_IDLE_RELEASE_MS) as unknown as number;
-  }, [releaseStream]);
 
   // Keep the callbacks in refs so the VAD interval / stop always see the latest
   // handlers without needing to tear down and recreate the audio session.
@@ -3706,11 +3681,8 @@ function useDictation(opts: {
       // Stop feeding the mic first so no frame races the flush/close below.
       s.proc.disconnect();
       s.src.disconnect();
-      // Keep the mic track alive but silenced so the next take reuses this grant
-      // instead of re-prompting; an idle timeout (or unmount) fully releases it.
-      s.stream.getAudioTracks().forEach((t) => (t.enabled = false));
-      if (idleReleaseRef.current !== null) clearTimeout(idleReleaseRef.current);
-      idleReleaseRef.current = setTimeout(releaseStream, MIC_IDLE_RELEASE_MS) as unknown as number;
+      // Release the mic now, so iOS hands the audio session back to the music.
+      releaseStream();
       await s.ac.close().catch(() => {});
       const closeWs = () => {
         try {
@@ -3881,16 +3853,10 @@ function useDictation(opts: {
       return;
     }
 
-    // A new take cancels any pending idle-release so we keep the same grant.
-    if (idleReleaseRef.current !== null) {
-      clearTimeout(idleReleaseRef.current);
-      idleReleaseRef.current = null;
-    }
-
     // ── The bounded, abortable "starting" window ──────────────────────────────
     // EVERY await between here and `setState("recording")` runs under one shared
     // deadline and one shared abort signal. Bounding only getUserMedia isn't
-    // enough: when a parked stream is reused the mic branch is skipped entirely,
+    // enough: when a live stream is reused the mic branch is skipped entirely,
     // and the *config* fetch becomes the unbounded await — on exactly the asleep
     // backend / dead tunnel this whole change exists to survive. Since stop() no
     // longer resets the state mid-acquisition, an unbounded await here would pin
@@ -3898,7 +3864,7 @@ function useDictation(opts: {
     //
     // `abortWindow` lets stop() collapse the wait the moment the user cancels, so
     // a tap on X is honored immediately instead of at the ceiling.
-    const epoch = ++acquireEpochRef.current;
+    acquireEpochRef.current += 1;
     let abortWindow!: () => void;
     const aborted = new Promise<typeof ACQUIRE_ABORTED>((resolve) => {
       abortWindow = () => resolve(ACQUIRE_ABORTED);
@@ -3963,27 +3929,11 @@ function useDictation(opts: {
           clearTimeout(slowHint);
         }
         if (settled === ACQUIRE_ABORTED || settled === ACQUIRE_EXPIRED) {
-          // We've stopped waiting, but the grant may still land. Adopt it only if
-          // it's still ours to adopt — otherwise stop it, or it becomes an
-          // unreachable live track (parkStream only disables; releaseStream only
-          // ever stops whatever streamRef currently points at).
-          //
-          // An explicit user cancel is NOT adopted: someone who tapped X and then
-          // reflexively clicked "Allow" would otherwise be left with the mic held
-          // (indicator lit) for a full minute with nothing on screen saying so.
-          // A timeout is different — nobody said stop, so keep the grant and save
-          // the next tap a re-prompt.
-          const userCancelled = settled === ACQUIRE_ABORTED;
+          // We've stopped waiting, but the grant may still land. Stop it when
+          // it does: no take owns it, and a live track holds the mic (and, on
+          // iOS, the audio session) with nothing on screen saying so.
           void request
-            .then((late) => {
-              const staleEpoch = acquireEpochRef.current !== epoch;
-              if (userCancelled || staleEpoch || streamRef.current || sessionRef.current) {
-                late.getTracks().forEach((t) => t.stop());
-                return;
-              }
-              streamRef.current = late;
-              parkStream();
-            })
+            .then((late) => late.getTracks().forEach((t) => t.stop()))
             .catch(() => {});
           abandon(
             settled === ACQUIRE_EXPIRED
@@ -4003,9 +3953,9 @@ function useDictation(opts: {
 
     // A stop() that landed while we were acquiring (quick tap-tap, or a released
     // hold) means the user no longer wants this take. Bail before spinning up the
-    // audio graph and socket, and park the grant for next time.
+    // audio graph and socket, and release the mic.
     if (pendingStopRef.current) {
-      parkStream();
+      releaseStream();
       abandon();
       return;
     }
@@ -4013,7 +3963,7 @@ function useDictation(opts: {
     try {
       // Now that the mic is open, confirm the STT provider is actually usable.
       // Off the critical path, so it can't delay the prompt. Cache-hit → instant.
-      // Guarded: this fetch is the unbounded one when a parked stream was reused.
+      // Guarded: this fetch is an await with no bound of its own.
       //
       // Skipped entirely on a hosted surface: this check asks the BOX which
       // provider key it holds, and a hosted broker makes that irrelevant — the
@@ -4023,14 +3973,14 @@ function useDictation(opts: {
       if (take.provider === "cloud" && !hostedTranscriptionRef.current) {
         const configured = await guard(ensureVoiceConfigured("input"));
         if (configured === ACQUIRE_ABORTED || configured === ACQUIRE_EXPIRED) {
-          parkStream();
+          releaseStream();
           abandon(
             configured === ACQUIRE_EXPIRED ? "Voice setup check timed out — try again" : undefined,
           );
           return;
         }
         if (!configured) {
-          parkStream();
+          releaseStream();
           abandon();
           return;
         }
@@ -4230,12 +4180,12 @@ function useDictation(opts: {
         void stop(queued.auto, queued.discard);
       }
     } catch (err) {
-      // Audio-graph / socket setup failed after the mic was already open. Park
+      // Audio-graph / socket setup failed after the mic was already open. Release
       // the grant and tell the user rather than silently snapping back to idle.
-      parkStream();
+      releaseStream();
       abandon(micErrorMessage(err));
     }
-  }, [silenceMs, stop, parkStream]);
+  }, [silenceMs, stop, releaseStream]);
 
   const toggle = useCallback(() => {
     if (state === "transcribing") return;
@@ -4263,8 +4213,7 @@ function useDictation(opts: {
   // a track (and its OS mic indicator) live after the UI is gone. Bumping the
   // epoch matters as much as releasing: an in-flight getUserMedia can still
   // resolve after unmount, and without this it would adopt itself onto the dead
-  // hook — a live track plus a 60s timer that releaseStream already ran past.
-  // With the bump, the late handler stops the tracks instead.
+  // hook as a live track. With the bump, the late handler stops the tracks.
   useEffect(
     () => () => {
       acquireEpochRef.current += 1;
@@ -16883,6 +16832,11 @@ type SkillTextareaProps = Omit<
    * settles once, to the final text, when this clears.
    */
   holdHeight?: boolean;
+  /**
+   * Grow to at most this many lines of text, then scroll inside the field.
+   * Unset means the className's max-height is the only cap.
+   */
+  maxLines?: number;
 };
 
 // Hands a DOM node to a caller's ref. At module scope because React Compiler
@@ -16905,6 +16859,7 @@ function SkillTextarea({
   plainMentions,
   mentionBots = true,
   holdHeight = false,
+  maxLines,
   ...props
 }: SkillTextareaProps) {
   "use memo";
@@ -17010,7 +16965,12 @@ function SkillTextarea({
       box.style.height = `${lockedHeight}px`;
     }
     el.style.height = "0px";
-    const { height, held } = heldFieldHeight(el.scrollHeight, heldHeightRef.current, holdRef.current);
+    // Read only when a line cap or the multiline report needs it.
+    const style = maxLines || onMultilineChange ? window.getComputedStyle(el) : null;
+    const lineHeight = style ? Number.parseFloat(style.lineHeight) : Number.NaN;
+    const padding = style ? Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom) : 0;
+    const fitted = cappedFieldHeight(el.scrollHeight, lineHeight, padding, maxLines);
+    const { height, held } = heldFieldHeight(fitted, heldHeightRef.current, holdRef.current);
     heldHeightRef.current = held;
     el.style.height = `${height}px`;
     if (box && lockedHeight > 0) {
@@ -17018,9 +16978,6 @@ function SkillTextarea({
       box.style.boxSizing = previousBoxSizing;
     }
     if (onMultilineChange) {
-      const style = window.getComputedStyle(el);
-      const lineHeight = Number.parseFloat(style.lineHeight);
-      const padding = Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom);
       const contentHeight = height - padding;
       const multiline = Number.isFinite(lineHeight) && contentHeight > lineHeight * 1.5;
       if (multilineRef.current !== multiline) {
@@ -17028,7 +16985,7 @@ function SkillTextarea({
         onMultilineChange(multiline);
       }
     }
-  }, [onMultilineChange, holdRef]);
+  }, [onMultilineChange, holdRef, maxLines]);
 
   const setFieldRef = useCallback(
     (node: HTMLTextAreaElement | null) => {
@@ -17276,6 +17233,12 @@ function threadPickerMentions(mentions: readonly ThreadMentionOption[] | undefin
  */
 function ThreadComposerBar({ testId, placeholder, onSend, autoFocus, onTyping, mentions }: ThreadComposerProps) {
   const [text, setText] = useState("");
+  // The field stops at three lines, so dictated words past that scroll it.
+  const [dictationScrollNonce, setDictationScrollNonce] = useState(0);
+  const setDictatedText = (said: string, base: string) => {
+    setText(base.trim() ? `${base.trimEnd()} ${said}` : said);
+    setDictationScrollNonce((nonce) => nonce + 1);
+  };
   useTypingReport(text, onTyping);
   const pickerMentions = useMemo(() => threadPickerMentions(mentions), [mentions]);
   const [sending, setSending] = useState(false);
@@ -17342,6 +17305,8 @@ function ThreadComposerBar({ testId, placeholder, onSend, autoFocus, onTyping, m
             value={text}
             onValueChange={setText}
             onMultilineChange={setMultiline}
+            maxLines={3}
+            scrollToEndNonce={dictationScrollNonce}
             plainMentions={pickerMentions}
             mentionBots={false}
             onKeyDown={(e) => {
@@ -17357,8 +17322,8 @@ function ThreadComposerBar({ testId, placeholder, onSend, autoFocus, onTyping, m
           <MicButton
             className="size-10 shrink-0 rounded-full bg-foreground/[0.06] text-foreground/70 hover:bg-foreground/[0.12] hover:text-foreground md:size-8"
             baseText={() => text}
-            onText={setText}
-            onInterim={setText}
+            onText={setDictatedText}
+            onInterim={setDictatedText}
             onAutoSubmit={(said, base) => void send(base.trim() ? `${base.trimEnd()} ${said}` : said)}
             onCancel={(base) => setText(base)}
           />
@@ -18345,6 +18310,7 @@ function SessionChatBody({
               value={messageText}
               onValueChange={setMessageText}
               onMultilineChange={setMessageMultiline}
+              maxLines={3}
               scrollToEndNonce={dictationScrollNonce}
               holdHeight={dictationHold}
               onPaste={files.onPasteFiles}
@@ -25563,6 +25529,9 @@ function NewSessionDialog({
           onValueChange={setPrompt}
           mentionScope={{ cwd: selectedRepo }}
           onMultilineChange={variant === "inline" ? setPromptMultiline : undefined}
+          // The inline bar sits over the page, so it stops at three lines.
+          // The stage and sheet are prompt editors with their own tall box.
+          maxLines={variant === "inline" ? 3 : undefined}
           scrollToEndNonce={dictationScrollNonce}
           holdHeight={dictationHold}
           onPaste={files.onPasteFiles}

@@ -12,3 +12,15 @@ export function heldFieldHeight(fitted: number, held: number, hold: boolean): { 
   const height = Math.max(fitted, held);
   return { height, held: height };
 }
+
+/**
+ * Cap a fitted field height at `maxLines` lines of text plus the field's
+ * vertical padding. Past the cap the field scrolls instead of growing, so
+ * long dictation does not push the transcript up (Benny, 2026-11-01).
+ * `lineHeight` is the computed CSS value in px; when it cannot be read
+ * (NaN, or `normal`), the height is returned unchanged.
+ */
+export function cappedFieldHeight(fitted: number, lineHeight: number, padding: number, maxLines?: number): number {
+  if (!maxLines || !Number.isFinite(lineHeight) || lineHeight <= 0) return fitted;
+  return Math.min(fitted, Math.ceil(lineHeight * maxLines + (Number.isFinite(padding) ? padding : 0)));
+}

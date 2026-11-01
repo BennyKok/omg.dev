@@ -1048,6 +1048,13 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
   }
 
   .chat-stream {
+    /* The transcript scrolls up and down only. With overflow-x left at
+       visible it computes to auto, so anything a few pixels past the edge
+       made the whole list pan sideways, with iOS's elastic bounce on top.
+       The in-flight glow on a sent bubble (.user-bubble-organic, inset
+       -14px) reached 2px past the right edge (Benny, 2026-11-01). Code
+       blocks and tables keep their own horizontal scrollers. */
+    overflow-x: hidden;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
     /* ChatStream holds the reading anchor itself. Native scroll anchoring
