@@ -13,6 +13,14 @@ import type { OmgQueueMessage } from "../lib/omg-chat-transport";
  */
 export const LOCAL_HELD_ID_PREFIX = "local-held-";
 
+/**
+ * The server's answer for a held row that is no longer held: released by the
+ * idle turn, or removed from another client. See serve.ts `/queue/:id`.
+ */
+function isAlreadyReleased(message: string): boolean {
+  return /queued message not found|only a held message/i.test(message);
+}
+
 /** Held texts sent together, in queue order, as one message. */
 export function joinHeldTexts(rows: { text: string }[]): string {
   return rows
@@ -57,14 +65,15 @@ export function HeldQueueCards({
   const [draft, setDraft] = useState("");
   const base = `/api/sessions/${encodeURIComponent(sessionId)}/queue`;
   // A card can be released (or removed elsewhere) between opening it and
-  // acting on it. The server answers 404/409; the honest message is that the
-  // text already went. Any failure re-reads the list: the optimistic edit may
-  // have hidden a card the server still holds, or kept one it already sent.
+  // acting on it: the idle release and the tap race, and no UI state closes
+  // that window. The server answers 404/409. That is not a failure the user
+  // can act on: the text went, and its bubble arrives in the transcript, so
+  // it is silent. Only other failures (network, server) are shown, because
+  // those can be retried. Any failure re-reads the list: the optimistic edit
+  // may have hidden a card the server still holds, or kept one it already sent.
   const fail = (err: unknown) => {
     const message = err instanceof Error ? err.message : String(err);
-    onError(
-      /not found|only a held message/i.test(message) ? "That queued message was already sent." : message,
-    );
+    if (!isAlreadyReleased(message)) onError(message);
     void request<{ queue?: OmgQueueMessage[] }>(base, { cache: "no-store" })
       .then((res) => onChange(() => (res.queue ?? []).filter((item) => item.status === "held")))
       .catch(() => null);
