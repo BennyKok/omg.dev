@@ -220,13 +220,6 @@ describe("grouping: consecutive other-human beats hide repeated name+face", () =
     expect(component).toContain('className="mb-0.5 size-[22px] shrink-0"');
     expect(component).toContain("items-end");
   });
-
-  test("queued rows omit the edges so the defaults still show both name and face", () => {
-    const queued = APP.slice(APP.indexOf("{queuedItems.map"), APP.indexOf("</ConversationContent>"));
-    expect(queued).toContain("<MessageBubble");
-    expect(queued).not.toContain("firstOfRun");
-    expect(queued).not.toContain("lastOfRun");
-  });
 });
 
 describe("no horizontal overflow at 390px: the other-human bubble reuses the existing width caps", () => {

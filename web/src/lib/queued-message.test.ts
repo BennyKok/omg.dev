@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildChatRenderItems, splitQueuedRenderItems } from "./chat-render-items";
+import { buildChatRenderItems } from "./chat-render-items";
 import {
   appendOmgTranscriptEvent,
   omgMessagesToUIMessages,
@@ -9,20 +9,20 @@ import {
   type OmgMessage,
 } from "./omg-chat-transport";
 
-// Queueing a message while a turn is running is a distinct state from steering:
-// the agent has NOT read the text yet. Two things have to hold for the bubble to
-// tell the truth about that — it has to keep carrying the flag through the
-// render pipeline, and it has to stay pinned below the turn it is waiting on,
-// which keeps producing output after the message was written.
+// A message the agent has not read yet is never drawn in the transcript as a
+// "queued" bubble. A send the server held is a card under the composer
+// (held-queue-cards). A row the agent accepted behind its running turn draws
+// nothing until its real transcript row lands. Only in-flight sends (pending,
+// sending) and failed sends are bubbles.
 
 const TS = 1786185318060;
 
-function optimisticQueued(text: string, ts = TS): OmgChatMessage {
+function optimisticSend(text: string, ts = TS): OmgChatMessage {
   return {
     id: `optimistic-${ts}`,
     role: "user",
     metadata: {
-      omgMessage: { role: "user", kind: "text", text, ts, pending: true, queued: true },
+      omgMessage: { role: "user", kind: "text", text, ts, pending: true },
     },
     parts: [{ type: "text", text, state: "done" }],
   };
@@ -32,11 +32,11 @@ function assistantRow(id: string, text: string, ts: number): OmgMessage {
   return { id, role: "assistant", kind: "text", text, ts };
 }
 
-describe("a message queued behind a running turn", () => {
+describe("a message the agent has not read yet", () => {
   test("keeps an ordinary steering row visible when its server row arrives", () => {
     const text = "stop, do this instead";
     const optimistic: OmgChatMessage[] = [{
-      ...optimisticQueued(text),
+      ...optimisticSend(text),
       metadata: {
         omgMessage: { role: "user", kind: "text", text, ts: TS, pending: true },
       },
@@ -57,53 +57,9 @@ describe("a message queued behind a running turn", () => {
     });
   });
 
-  test("keeps its queued state through the render pipeline", () => {
-    const [rendered] = omgUIMessagesToMessages([optimisticQueued("look at the tests too")]);
-    expect(rendered.queued).toBe(true);
-    expect(rendered.pending).toBe(true);
-  });
-
-  test("pins below output the turn produced after it was written", () => {
-    const messages = omgUIMessagesToMessages([
-      ...omgMessagesToUIMessages([
-        { id: "row-1", role: "user", kind: "text", text: "start the refactor", ts: TS },
-        assistantRow("row-2", "On it.", TS + 10),
-      ]),
-      optimisticQueued("look at the tests too", TS + 20),
-      // The turn the queued message is waiting behind keeps going.
-      ...omgMessagesToUIMessages([
-        { id: "row-3", role: "assistant", kind: "tool_use", text: "Read: src/app.ts", ts: TS + 30 },
-        assistantRow("row-4", "Refactor done.", TS + 40),
-      ]),
-    ]);
-
-    const { items, queued } = splitQueuedRenderItems(buildChatRenderItems(messages));
-
-    expect(queued).toHaveLength(1);
-    expect(queued[0].type === "msg" && queued[0].message.text).toBe("look at the tests too");
-    // Everything the agent actually produced stays in order, without it.
-    expect(
-      items.map((item) => (item.type === "msg" ? item.message.text : "(tools)")),
-    ).toEqual(["start the refactor", "On it.", "(tools)", "Refactor done."]);
-  });
-
-  test("leaves an ordinary transcript untouched", () => {
-    const messages = omgUIMessagesToMessages(
-      omgMessagesToUIMessages([
-        { id: "row-1", role: "user", kind: "text", text: "hello", ts: TS },
-        assistantRow("row-2", "hi", TS + 10),
-      ]),
-    );
-    const built = buildChatRenderItems(messages);
-    const { items, queued } = splitQueuedRenderItems(built);
-    expect(queued).toHaveLength(0);
-    // Same array identity: no queued turn means no re-derivation of the stream.
-    expect(items).toBe(built);
-  });
-
-  test("drops the queued state when the agent finally reads the message", () => {
+  test("the server row replaces the in-flight bubble when the agent reads it", () => {
     const text = "look at the tests too";
-    const current = [optimisticQueued(text)];
+    const current = [optimisticSend(text)];
     const next = appendOmgTranscriptEvent(current, {
       type: "message",
       message: { id: "row-9", role: "user", kind: "text", text, ts: TS + 5000 },
@@ -113,11 +69,9 @@ describe("a message queued behind a running turn", () => {
     expect(rendered).toHaveLength(1);
     expect(rendered[0].id).toBe("row-9");
     expect(buildChatRenderItems(rendered)[0]?.key).toBe(`optimistic-${TS}`);
-    expect(rendered[0].queued).toBeUndefined();
-    expect(splitQueuedRenderItems(buildChatRenderItems(rendered)).queued).toHaveLength(0);
   });
 
-  test("restores the queued bubble from the server after session re-entry", () => {
+  test("restores an in-flight bubble from the server after session re-entry", () => {
     const current = omgMessagesToUIMessages([
       { id: "row-1", role: "assistant", kind: "text", text: "Still working.", ts: TS },
     ]);
@@ -136,12 +90,12 @@ describe("a message queued behind a running turn", () => {
       role: "user",
       text: "look at the tests too",
       pending: true,
-      queued: true,
     });
+    expect(rendered.at(-1)).not.toHaveProperty("queued");
   });
 
   test("replaces the local optimistic bubble with the stable queue row", () => {
-    const next = reconcileOmgQueueMessages([optimisticQueued("look at the tests too")], [
+    const next = reconcileOmgQueueMessages([optimisticSend("look at the tests too")], [
       {
         id: "send-1",
         text: "look at the tests too",
@@ -159,7 +113,7 @@ describe("a message queued behind a running turn", () => {
   test("keeps one ordinary row through delivery and its live server echo", () => {
     const text = "stop, do this instead";
     const optimistic: OmgChatMessage[] = [{
-      ...optimisticQueued(text),
+      ...optimisticSend(text),
       metadata: {
         omgMessage: { role: "user", kind: "text", text, ts: TS, pending: true },
       },
@@ -190,30 +144,10 @@ describe("a message queued behind a running turn", () => {
     ).toEqual(Array(4).fill(`optimistic-${TS}`));
   });
 
-  // The send queue reports a message behind a running turn as pending, then
-  // sending, then queued, one event each. Reading `queued` straight off the
-  // status dropped the bubble out of the queued rail and back into the
-  // transcript in between, so one mid-turn send visibly flickered and re-ran
-  // its entrance animation on every crossing.
-  test("stays in the queued rail across the queue's own status churn", () => {
-    let messages = [optimisticQueued("look at the tests too")];
-    const rail: ("queued" | "list")[] = [];
-    for (const status of ["pending", "sending", "queued"] as const) {
-      messages = reconcileOmgQueueMessages(messages, [
-        { id: "send-1", text: "look at the tests too", status, createdAt: TS },
-      ]);
-      const { queued } = splitQueuedRenderItems(
-        buildChatRenderItems(omgUIMessagesToMessages(messages)),
-      );
-      rail.push(queued.length ? "queued" : "list");
-    }
-    expect(rail).toEqual(["queued", "queued", "queued"]);
-  });
-
-  test("never labels an ordinary tap queued during queue status churn", () => {
+  test("keeps one ordinary bubble through the queue's status churn", () => {
     const text = "stop, do this instead";
     let messages: OmgChatMessage[] = [{
-      ...optimisticQueued(text),
+      ...optimisticSend(text),
       metadata: {
         omgMessage: { role: "user", kind: "text", text, ts: TS, pending: true },
       },
@@ -224,10 +158,9 @@ describe("a message queued behind a running turn", () => {
       ]);
       const rendered = omgUIMessagesToMessages(messages);
       expect(rendered).toHaveLength(1);
-      expect(rendered[0]?.queued).toBe(false);
-      const split = splitQueuedRenderItems(buildChatRenderItems(rendered));
-      expect(split.queued).toHaveLength(0);
-      expect(split.items[0]?.type === "msg" && split.items[0].message.text).toBe(text);
+      expect(rendered[0]).not.toHaveProperty("queued");
+      const items = buildChatRenderItems(rendered);
+      expect(items[0]?.type === "msg" && items[0].message.text).toBe(text);
     }
   });
 
@@ -299,8 +232,6 @@ describe("a message queued behind a running turn", () => {
       queueId: "send-1",
     });
     expect(rendered[0].pending).toBeUndefined();
-    // A failed bubble is not pinned with the queued rail — it renders in place.
-    expect(splitQueuedRenderItems(buildChatRenderItems(rendered)).queued).toHaveLength(0);
   });
 
   test("a failed bubble becomes pending again when the queue reports the retry", () => {
@@ -315,5 +246,55 @@ describe("a message queued behind a running turn", () => {
     expect(rendered).toHaveLength(1);
     expect(rendered[0]).toMatchObject({ id: "queue-send-1", pending: true });
     expect(rendered[0].failed).toBeUndefined();
+  });
+
+  // The page guesses that the agent is idle and draws an ordinary bubble. The
+  // server, which owns the decision, finds the agent busy and holds the send.
+  // The bubble must go: the held card under the composer is the only place a
+  // held message shows. It used to stay as a dashed "Queued" bubble.
+  test("a send the server held leaves the transcript for the held card", () => {
+    const text = "why does this not apply on PR changes?";
+    const current = [
+      ...omgMessagesToUIMessages([
+        { id: "row-1", role: "user", kind: "text", text: "start the refactor", ts: TS - 100 },
+      ]),
+      optimisticSend(text),
+    ];
+    const next = reconcileOmgQueueMessages(current, [
+      { id: "held-1", text, status: "held", createdAt: TS + 5, queuedBehindTurn: true },
+    ]);
+
+    const rendered = omgUIMessagesToMessages(next);
+    expect(rendered.map((message) => message.text)).toEqual(["start the refactor"]);
+    expect(rendered.some((message) => message.queueId === "held-1")).toBe(false);
+  });
+
+  test("a held send with the same text as an older settled turn only drops the new bubble", () => {
+    const text = "looks good";
+    const current = [
+      ...omgMessagesToUIMessages([{ id: "row-1", role: "user", kind: "text", text, ts: TS - 100 }]),
+      optimisticSend(text),
+    ];
+    const next = reconcileOmgQueueMessages(current, [
+      { id: "held-1", text, status: "held", createdAt: TS + 5, queuedBehindTurn: true },
+    ]);
+
+    expect(omgUIMessagesToMessages(next).map((message) => message.id)).toEqual(["row-1"]);
+  });
+
+  // An agent update accepted behind the running turn sits in the agent's own
+  // queue. It is not drawn until the agent reads it and its row lands.
+  test("a row the agent queued behind its turn draws no bubble", () => {
+    const text = "[subagent complete] tests pass";
+    const waiting = reconcileOmgQueueMessages([], [
+      { id: "send-1", text, status: "queued", createdAt: TS, queuedBehindTurn: true },
+    ]);
+    expect(waiting).toHaveLength(0);
+
+    const read = appendOmgTranscriptEvent(waiting, {
+      type: "message",
+      message: { id: "row-9", role: "user", kind: "text", text, ts: TS + 5000 },
+    });
+    expect(omgUIMessagesToMessages(read).map((message) => message.id)).toEqual(["row-9"]);
   });
 });

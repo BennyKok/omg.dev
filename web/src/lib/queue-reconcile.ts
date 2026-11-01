@@ -33,7 +33,6 @@ export type QueueReconcileMessage = {
   text?: string;
   ts?: number;
   pending?: boolean;
-  queued?: boolean;
   failed?: boolean;
   queueError?: string;
   queueId?: string;
@@ -55,7 +54,17 @@ function normText(value?: string) {
 // all: the composer shows them as editable cards until the agent is idle.
 const BUBBLE_STATUSES = new Set(["pending", "sending", "queued", "failed"]);
 
+/**
+ * Does this queue row draw a bubble in the transcript?
+ *
+ * The transcript shows what the agent is reading now or has read. A row the
+ * agent accepted behind a running turn (an agent update sent mid-turn) is in
+ * the agent's own queue and has not been read, so it draws nothing until its
+ * real transcript row lands. It used to draw a dashed "Queued" bubble pinned
+ * under the live turn, a second queued UI beside the held cards.
+ */
 export function queueRowNeedsBubble(item: QueueMessageRow): boolean {
+  if (item.status === "queued" && item.queuedBehindTurn === true) return false;
   return BUBBLE_STATUSES.has(item.status);
 }
 
@@ -106,14 +115,11 @@ export function matchedQueueRowIds(
 // that did not land, with the server-side error and the id retry needs.
 export function queueRowHydration(
   item: QueueMessageRow,
-): Pick<QueueReconcileMessage, "pending" | "queued" | "failed" | "queueError" | "queueId"> {
+): Pick<QueueReconcileMessage, "pending" | "failed" | "queueError" | "queueId"> {
   if (item.status === "failed") {
     return { failed: true, queueError: item.error, queueId: item.id };
   }
-  return {
-    pending: true,
-    queued: item.status === "queued" && item.queuedBehindTurn !== false,
-  };
+  return { pending: true };
 }
 
 /**
@@ -143,7 +149,7 @@ export function reconcileQueueMessages<T extends QueueReconcileMessage>(
     const hydrated = hydrate(item);
     const existingIndex = next.findIndex((message) => message.id === id);
     if (existingIndex >= 0) {
-      // Refresh in place: the same row moves pending → queued → failed.
+      // Refresh in place: the same row moves pending → sending → failed.
       next = [...next];
       next[existingIndex] = hydrated;
       continue;

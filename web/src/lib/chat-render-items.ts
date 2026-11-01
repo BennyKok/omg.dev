@@ -4,7 +4,6 @@
 export {
   buildChatRenderItems,
   countTranscriptRows,
-  splitQueuedRenderItems,
   toolGroupLabel,
   toolGroupWorkLabel,
   toolName,

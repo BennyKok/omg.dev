@@ -41,11 +41,24 @@ function hydrate(item: QueueMessageRow): Row {
     ts: item.createdAt ?? item.updatedAt,
     ...(item.status === "failed"
       ? { failed: true, queueError: item.error, queueId: item.id }
-      : { pending: true, queued: item.status === "queued" }),
+      : { pending: true }),
   };
 }
 
 describe("reconcileQueueMessages", () => {
+  test("a row the agent queued behind its running turn draws no bubble", () => {
+    const next = reconcileQueueMessages(
+      [],
+      [{ ...queueRow("a", "[subagent complete] done", "queued", TS), queuedBehindTurn: true }],
+      hydrate,
+    );
+    expect(next).toHaveLength(0);
+  });
+
+  test("a held row draws no bubble", () => {
+    expect(reconcileQueueMessages([], [queueRow("a", "later", "held", TS)], hydrate)).toHaveLength(0);
+  });
+
   test("keeps a later identical follow-up visible until its own row lands", () => {
     // Two identical sends; only the first has reached the transcript.
     const current: Row[] = [transcriptUser("looks good", TS)];
@@ -108,7 +121,7 @@ describe("reconcileQueueMessages", () => {
       queueId: "a",
     });
     expect(next[0].pending).toBeUndefined();
-    expect(next[0].queued).toBeUndefined();
+    expect(next[0]).not.toHaveProperty("queued");
   });
 
   test("a failed row does not claim an identical transcript row", () => {

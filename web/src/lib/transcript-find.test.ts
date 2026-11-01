@@ -7,7 +7,7 @@
 // a way for a hit to silently go nowhere. That is what these pin down.
 
 import { describe, expect, test } from "bun:test";
-import { buildChatRenderItems, splitQueuedRenderItems } from "./chat-render-items";
+import { buildChatRenderItems } from "./chat-render-items";
 import { messagesForTranscriptView } from "./transcript-view";
 import {
   buildFindRowIndex,
@@ -149,21 +149,6 @@ describe("hit to row index", () => {
     expect(findHitRowIndex(buildFindRowIndex(afterPage), { messageId: "recent-1" })).toEqual({
       status: "row",
       index: 1,
-    });
-  });
-
-  test("a queued turn is pinned outside the virtual list and has no row", () => {
-    const { items, queued } = splitQueuedRenderItems(
-      rows([
-        text("a"),
-        { id: "q", role: "user", kind: "text", text: "later", ts: 3, pending: true, queued: true },
-      ]),
-    );
-    expect(queued).toHaveLength(1);
-    // buildFindRowIndex is fed the virtualized `items` only, so the pinned
-    // queued bubble must not claim a row index that belongs to something else.
-    expect(findHitRowIndex(buildFindRowIndex(items), { messageId: "q" })).toEqual({
-      status: "unloaded",
     });
   });
 

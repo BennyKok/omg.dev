@@ -26,11 +26,6 @@ export type OmgMessage = {
   caption?: string;
   alt?: string;
   pending?: boolean;
-  // Sent with mode:"queue" while a turn was still running, so the agent has not
-  // read it yet — it waits behind the turn in the send queue. Renders as its own
-  // "waiting" state instead of an ordinary in-flight bubble, and clears when the
-  // real transcript row for the same text replaces the optimistic one.
-  queued?: boolean;
   // The send queue gave up on this message. Stays visible with the delivery
   // error until the user retries (queueId targets the retry endpoint) or
   // clears the queue.
@@ -249,7 +244,6 @@ function projectOmgMessage(message: OmgChatMessage): OmgMessage[] {
       text: part.text,
       html: message.role === "user" ? escapeHtml(part.text).replace(/\n/g, "<br>") : base?.html,
       pending: base?.pending,
-      queued: base?.queued,
       catchUp: base?.catchUp,
     });
   });
@@ -320,7 +314,6 @@ function messagesInTranscriptOrder(messages: OmgChatMessage[]): OmgChatMessage[]
     (latest, message, index) =>
       message.role === "user" &&
       !!message.metadata?.omgMessage?.pending &&
-      !message.metadata?.omgMessage?.queued &&
       (latest < 0 || messageTs(message) >= messageTs(messages[latest]!))
         ? index
         : latest,
@@ -376,7 +369,6 @@ function messagesInTranscriptOrder(messages: OmgChatMessage[]): OmgChatMessage[]
     (message, index) =>
       index < assistantIndex &&
       message.role === "user" &&
-      !message.metadata?.omgMessage?.queued &&
       (index === pendingIndex || (startedAt > 0 && messageTs(message) > startedAt)),
   );
   if (steerIndex < 0) return messages;
@@ -607,41 +599,26 @@ export function reconcileOmgQueueMessages(
   let next = current.filter(
     (message) => !message.id.startsWith(QUEUE_MESSAGE_ID_PREFIX) || visibleIds.has(message.id),
   );
-  // A send the server held (queue mode, agent busy) is drawn ONCE. A send the
-  // composer knew was waiting is a card under the composer and never had a
-  // bubble. A send this page already drew as a bubble, because it thought the
-  // agent was done while the server was still finishing the turn, stays that
-  // bubble and turns into a waiting one, bound to the held row (`queueId`) so
-  // the composer does not also show it as a card. It used to be dropped here
-  // and reappear as a card, then as a bubble again when it was sent: one
-  // message drawn in three places in a second.
+  // A send the server held (queue mode, agent busy) is a card under the
+  // composer and never a bubble. The server owns that decision; this page only
+  // guesses whether the agent is busy, and the guess lags by up to a poll. A
+  // send it guessed wrong was already drawn as an ordinary bubble, so that
+  // bubble goes, and the card shows the message. It used to stay as a dashed
+  // "Queued" bubble in the transcript: a second queued UI, and a message drawn
+  // as part of a conversation the agent had not read.
   const held = queue
     .filter((item) => item.status === "held")
     .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
-  if (held.length) {
-    const bound = new Set(
-      next.map((message) => message.metadata?.omgMessage?.queueId).filter((id): id is string => !!id),
+  for (const item of held) {
+    const text = normText(item.text);
+    // Newest first: the held send is the latest one with this text.
+    const index = next.findLastIndex(
+      (message) =>
+        !message.id.startsWith(QUEUE_MESSAGE_ID_PREFIX) &&
+        isPendingUserRow(message) &&
+        normText(message.metadata!.omgMessage!.text) === text,
     );
-    for (const item of held) {
-      if (bound.has(item.id)) continue;
-      const text = normText(item.text);
-      const index = next.findIndex((message) => {
-        if (message.id.startsWith(QUEUE_MESSAGE_ID_PREFIX) || !isPendingUserRow(message)) return false;
-        const meta = message.metadata!.omgMessage!;
-        return !meta.queueId && normText(meta.text) === text;
-      });
-      if (index < 0) continue;
-      const bubble = next[index]!;
-      next = [...next];
-      next[index] = {
-        ...bubble,
-        metadata: {
-          ...bubble.metadata,
-          omgMessage: { ...bubble.metadata!.omgMessage!, queued: true, queueId: item.id },
-        },
-      };
-      bound.add(item.id);
-    }
+    if (index >= 0) next = next.filter((_, i) => i !== index);
   }
   const matched = matchedQueueRowIds(queue, next.map(omgQueueReconcileRow));
   const claimedOptimistic = new Set<number>();
@@ -670,16 +647,6 @@ export function reconcileOmgQueueMessages(
             );
           });
 
-    // `queued` only ever goes on, never off, for as long as one bubble lives.
-    // The send queue reports a message behind a running turn as pending, then
-    // sending, then queued, and each of those is a separate event. Reading the
-    // flag straight off the status made the bubble drop out of the queued rail
-    // and back into the transcript between them, so a single mid-turn send
-    // visibly flickered "queued → sending → queued" and re-ran its entrance
-    // animation on every crossing. Delivery state is the server's; whether the
-    // agent has read the text yet is not in doubt while the bubble exists.
-    // A failed row still leaves the rail: queueRowHydration drops `pending`,
-    // and splitQueuedRenderItems needs both flags.
     const replaced = next[existingIndex >= 0 ? existingIndex : optimisticIndex];
     const hydration = queueRowHydration(item);
     const renderKey =
@@ -695,13 +662,12 @@ export function reconcileOmgQueueMessages(
       html: escapeHtml(item.text).replace(/\n/g, "<br>"),
       ts: item.createdAt ?? item.updatedAt ?? Date.now(),
       ...hydration,
-      queued: hydration.queued || !!replaced?.metadata?.omgMessage?.queued,
     };
     const [message] = omgMessagesToUIMessages([row]);
     if (!message) continue;
 
     if (existingIndex >= 0) {
-      // Refresh in place: the same row moves pending → queued → failed.
+      // Refresh in place: the same row moves pending → sending → failed.
       next = [...next];
       next[existingIndex] = message;
       continue;

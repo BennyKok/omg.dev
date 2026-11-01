@@ -451,7 +451,6 @@ import {
   Bot,
   BrainCircuit,
   CalendarClock,
-  Clock3,
   Copy,
   ExternalLink,
   Flag,
@@ -529,7 +528,6 @@ import { folderMenuPrefsStore, useFolderMenuPrefs } from "@/lib/folder-menu-pref
 import { reportError } from "./lib/report-error";
 import {
   buildChatRenderItems,
-  splitQueuedRenderItems,
   toolGroupLabel,
   toolGroupWorkLabel,
   type ChatRenderItem,
@@ -1178,10 +1176,6 @@ type Message = {
   version?: number;
   title?: string;
   pending?: boolean;
-  // Queued behind a running turn: written, accepted by the send queue, but not
-  // yet read by the agent. See MessageBubble / ChatStream — it renders as a
-  // distinct "waiting" bubble pinned below the turn that is still streaming.
-  queued?: boolean;
   // The send queue gave up on this message. Stays visible with the delivery
   // error until the user retries (queueId targets the retry endpoint) or
   // clears the queue.
@@ -17662,18 +17656,14 @@ function SessionChatBody({
       return false;
     });
     const keys = heldCardKeys;
-    // A held row this chat already shows as a waiting bubble is not a card too
-    // (reconcileOmgQueueMessages binds the bubble to it by queueId).
-    const shownAsBubble = new Set(
-      uiMessages.map((message) => message.metadata?.omgMessage?.queueId).filter((id): id is string => !!id),
-    );
-    const waiting = shownAsBubble.size ? heldQueue.filter((row) => !shownAsBubble.has(row.id)) : heldQueue;
+    // Every held row is a card. None is ever drawn as a bubble too
+    // (reconcileOmgQueueMessages drops a bubble the server held).
     const rows = keys.size
-      ? waiting.map((row) => {
+      ? heldQueue.map((row) => {
           const renderKey = keys.get(row.id);
           return renderKey && row.renderKey !== renderKey ? { ...row, renderKey } : row;
         })
-      : waiting;
+      : heldQueue;
     return unanswered.length ? [...rows, ...unanswered] : rows;
   })();
   useEffect(() => {
@@ -17844,9 +17834,8 @@ function SessionChatBody({
     // heldQueue), and only then does it become a real send. On an idle session
     // both modes deliver immediately and the bubble is an ordinary send. The
     // busy read can lag the server by a poll. A bubble the server held anyway
-    // stays a bubble, marked queued (reconcileOmgQueueMessages).
+    // becomes a card when the queue frame arrives (reconcileOmgQueueMessages).
     const holdOnServer = mode === "queue" && chatBusy && !bot && !reviewingShipped;
-    const queuedBehindTurn = mode === "queue" && chatBusy;
     // A phone closes its keyboard so the new turn has room; a tablet or a
     // computer keeps the field focused (lib/keyboard-after-send).
     if (closesKeyboardAfterSendHere()) messageInputRef.current?.blur();
@@ -17972,7 +17961,6 @@ function SessionChatBody({
               html: escapeHtml(outgoingText).replace(/\n/g, "<br>"),
               ts: Date.now(),
               pending: true,
-              queued: queuedBehindTurn,
             },
           },
         },
@@ -20900,18 +20888,14 @@ const ChatStream = memo(function ChatStream({
     () => messagesForTranscriptView(transcriptMessages, transcriptView.value),
     [transcriptMessages, transcriptView.value],
   );
-  // Queued turns are pinned below the live turn instead of sitting in timestamp
-  // order — see splitQueuedRenderItems.
-  const { items: foldedItems, queued: queuedItems } = useMemo(
+  const foldedItems = useMemo(
     () =>
-      splitQueuedRenderItems(
-        // Claude's steering marker carries no words a person wrote. It used
-        // to be an "Interrupted" line; like the app, it is not a row at all.
-        // It is dropped after folding so the work runs on either side of it
-        // stay separate (see mobile/src/omg/transcript-items.ts).
-        buildChatRenderItems(visibleMessages).filter(
-          (item) => item.type !== "msg" || !isRequestInterruptedMessage(item.message),
-        ),
+      // Claude's steering marker carries no words a person wrote. It used
+      // to be an "Interrupted" line; like the app, it is not a row at all.
+      // It is dropped after folding so the work runs on either side of it
+      // stay separate (see mobile/src/omg/transcript-items.ts).
+      buildChatRenderItems(visibleMessages).filter(
+        (item) => item.type !== "msg" || !isRequestInterruptedMessage(item.message),
       ),
     [visibleMessages],
   );
@@ -22073,19 +22057,6 @@ const ChatStream = memo(function ChatStream({
             composerSendSeq={composerSendSeq}
             onAnsweringChange={onPromptAnsweringChange}
           />
-          {/* Pinned below the working indicator: what the agent is doing now,
-              then what it will read next. */}
-          {queuedItems.map((item) =>
-            item.type === "msg" ? (
-              <MessageBubble
-                key={item.key}
-                message={item.message}
-                onRetryQueued={onRetryQueued}
-                bot={bot}
-                conversation={conversation}
-              />
-            ) : null,
-          )}
         </ConversationContent>
       ) : loading ? (
         <ConversationEmptyState
@@ -22739,13 +22710,11 @@ function UserAttachments({
 function UserBubble({
   html,
   pending,
-  queued,
   failed,
   otherAuthor,
 }: {
   html: string;
   pending?: boolean;
-  queued?: boolean;
   failed?: boolean;
   // Someone else's turn in a shared bot conversation, not the viewer's own —
   // see OtherHumanMessageBubble. Same shape, a different tint (is-other in
@@ -22770,7 +22739,7 @@ function UserBubble({
     return () => ro.disconnect();
   }, [html, expanded]);
 
-  const inFlight = !!pending && !queued;
+  const inFlight = !!pending;
   return (
     // The bubble clips its contents (overflow: hidden), so the in-flight
     // rings sit beside it in this wrapper rather than inside it.
@@ -22789,14 +22758,12 @@ function UserBubble({
         // The shared content's 3.5rem minimum adds blank space after short
         // prompts such as "Hi". Sent bubbles should fit their own text.
         "msg-text markdown user-bubble text-base w-fit min-w-0 max-w-full",
-        pending && !queued && "is-pending",
-        queued && "is-queued",
+        pending && "is-pending",
         failed && "is-failed",
         otherAuthor && "is-other",
       )}
     >
-      {/* The organic shimmer means "in flight". A queued turn is deliberately
-          still — nothing is happening to it until the current turn ends. */}
+      {/* The organic shimmer means "in flight". */}
       <OrganicActivityEffect active={inFlight} className="user-bubble-organic" layers="wash" />
       <div
         ref={bodyRef}
@@ -23263,7 +23230,6 @@ export const MessageBubble = memo(function MessageBubble({
   }
   const isUser = message.role === "user";
   if (isUser) {
-    const queued = !!message.queued && !!message.pending;
     const failed = !!message.failed;
     return (
       <AiMessage
@@ -23278,16 +23244,6 @@ export const MessageBubble = memo(function MessageBubble({
               instructions={omgEnvelope.instructions}
               version={omgEnvelope.version}
             />
-          ) : null}
-          {/* A queued turn hasn't reached the agent, so it must not look like a
-              turn that has. The label states what the bubble's muted, dashed
-              styling implies, and disappears the moment the real transcript row
-              replaces this optimistic one. */}
-          {queued ? (
-            <span className="user-queued-label" role="status">
-              <Clock3 className="size-3" aria-hidden="true" />
-              Queued · sends when this turn ends
-            </span>
           ) : null}
           {/* A failed send never reached the agent at all. Keep it visible with
               the delivery error and offer retry through the queue's retry
@@ -23317,7 +23273,7 @@ export const MessageBubble = memo(function MessageBubble({
               picture is the whole message, with no empty bubble under it. */}
           {userContent.html ? (
             <MessageActions text={botVisibleUserText(omgEnvelope?.task ?? message.text ?? "", bot)} isUser>
-              <UserBubble html={userContent.html} pending={message.pending} queued={queued} failed={failed} />
+              <UserBubble html={userContent.html} pending={message.pending} failed={failed} />
             </MessageActions>
           ) : null}
         </div>
