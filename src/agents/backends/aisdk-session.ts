@@ -44,6 +44,7 @@ import { initialCmdOffset, readNewCmdLines, writeCursor } from "./cmd-tail.ts";
 import { claudeAccountEnv } from "../../claude-creds.ts";
 import { describeClaudeBinary, resolveClaudePath } from "./claude-path.ts";
 import { omgMcpServers } from "../../config.ts";
+import { claudeMcpConfigFile } from "../../private-mcp-config.ts";
 import {
   claudeAccountConfigDir,
   resolveClaudeAccount,
@@ -572,7 +573,7 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
     patchEntry(sessionId, next ? { busy: true } : { busy: false, draftText: null, draftUpdatedAt: null });
   };
 
-  const startQuery = (resumeRuntime: boolean) => query({
+  const startQuery = (resumeRuntime: boolean, mcpConfig: ReturnType<typeof claudeMcpConfigFile>) => query({
     prompt: input as AsyncIterable<never>,
     options: {
       model,
@@ -597,7 +598,7 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
       // config serves every session — so without this the shared serve process
       // cannot tell who is calling, and every session-scoped tool
       // (lfg_display_image, lfg_input, lfg_publish_artifact, …) fails.
-      ...omgMcpServers(sessionId),
+      ...mcpConfig.options,
       // stream_event partial messages drive the live draft in the web UI.
       includePartialMessages: true,
       ...(effort ? { effort } : {}),
@@ -885,6 +886,7 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
   let exitExplanation: string | null = null;
   try {
     while (!closing) {
+      using mcpConfig = claudeMcpConfigFile(sessionId, omgMcpServers(sessionId));
       // startQuery can throw SYNCHRONOUSLY, before any stream exists — the SDK
       // resolves its native binary here, so a bundle without one dies on this
       // line. That throw used to escape the inner try (which only wraps the
@@ -892,7 +894,7 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
       // discarded it: exit 1, no stdout, no stderr, no transcript. The session
       // showed thinking dots forever because nothing was ever told otherwise.
       try {
-        q = startQuery(resuming || runtimeGeneration > 0);
+        q = startQuery(resuming || runtimeGeneration > 0, mcpConfig);
       } catch (error) {
         exitExplanation = describeAisdkStreamEnd({
           turns: sdkMessagesSeen,
