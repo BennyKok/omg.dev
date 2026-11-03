@@ -14,6 +14,7 @@
 
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { reapOrphanMcpConfigs } from "./private-mcp-config.ts";
 
 const SDK_ARGV = ["serve", "--hostname=127.0.0.1", "--port=0"];
 const HARNESS_MARK = "opencode-aisdk-session";
@@ -83,6 +84,8 @@ export function startOrphanAgentServerSweep(onLog: (line: string) => void = () =
   if (process.platform !== "linux" || timer) return;
   const run = () => {
     try {
+      const configs = reapOrphanMcpConfigs();
+      if (configs) onLog(`[orphan-sweep] removed ${configs} MCP config file(s) with no owner`);
       const stopped = reapOrphanOpencodeServers();
       if (stopped.length) onLog(`[orphan-sweep] stopped ${stopped.length} opencode server(s) with no harness: ${stopped.join(",")}`);
     } catch (error) {

@@ -134,3 +134,29 @@ export function withCodexHttpMcpServers(
   config.mcp_servers = mcp_servers;
   return { config };
 }
+
+/** Codex SDK config is serialized into --config arguments. Keep header values
+ * in its child environment and pass only environment variable names in config.
+ * Never mutate process.env: scheduled runs can execute concurrently.
+ */
+export function codexMcpEnvironment(base: { config?: { [key: string]: CodexConfigValue } }): {
+  config?: { [key: string]: CodexConfigValue };
+  env: Record<string, string>;
+} {
+  const config = structuredClone(base.config ?? {});
+  const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
+  const servers = config.mcp_servers as Record<string, Record<string, CodexConfigValue>> | undefined;
+  let index = 0;
+  for (const server of Object.values(servers ?? {})) {
+    if (!server.http_headers || typeof server.http_headers !== "object") continue;
+    const references = { ...(server.env_http_headers as Record<string, string> | undefined) };
+    for (const [header, value] of Object.entries(server.http_headers)) {
+      const name = `OMG_MCP_HEADER_${index++}`;
+      env[name] = String(value);
+      references[header] = name;
+    }
+    delete server.http_headers;
+    server.env_http_headers = references;
+  }
+  return { config, env };
+}

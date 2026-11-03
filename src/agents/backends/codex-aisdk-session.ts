@@ -34,7 +34,7 @@ import type { SessionMsg } from "../../sessions.ts";
 import { sessionTitleFromPrompt } from "../../omg-capabilities.ts";
 import { indexSessionMessagesDirect, reindexFileHistoryUnderSessionKey } from "../../transcript-index.ts";
 import { makeDraftPublisher } from "./draft.ts";
-import { codexSessionMcpConfig, withCodexHttpMcpServers, type CodexConfigValue } from "../../codex-mcp-config.ts";
+import { codexSessionMcpConfig, withCodexHttpMcpServers, codexMcpEnvironment, type CodexConfigValue } from "../../codex-mcp-config.ts";
 import {
   withCodexServiceTierConfig,
   type CodexServiceTier,
@@ -258,7 +258,7 @@ export async function pipeToCodexAiSdk(
   const codexPathOverride = resolveCodexPathOverride();
   const codex = new Codex({
     ...(codexPathOverride ? { codexPathOverride } : {}),
-    ...withCodexHttpMcpServers(omgMcpConfig(opts.serviceTier), opts.mcpServers),
+    ...codexMcpEnvironment(withCodexHttpMcpServers(omgMcpConfig(opts.serviceTier), opts.mcpServers)),
   });
 
   log(`[runner] piping ${prompt.length} chars to codex via codex-sdk (${model})`);
@@ -340,7 +340,7 @@ export async function cmdCodexAisdkSession(argv: string[]): Promise<void> {
   // Omitting `env` inherits process.env (HOME → ~/.codex auth, LFG_* for MCP).
   const createCodex = () => new Codex({
     ...(codexPathOverride ? { codexPathOverride } : {}),
-    ...omgMcpConfig(serviceTier),
+    ...codexMcpEnvironment(omgMcpConfig(serviceTier)),
   });
   let codex = createCodex();
   let threadThinkingLevel = thinkingLevel;
