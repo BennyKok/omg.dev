@@ -7,15 +7,13 @@
 // inherit its tools. The fix is a token only the serve process can mint and
 // only the session it was minted for is handed at launch.
 //
-// Derived, not stored: HMAC(box secret, session id). The registry row needs
-// no new column, a serve restart can verify a token it did not mint, and the
-// box secret is one file under the data dir. Rows created before this landed
-// carry no `mcpTokenRequired` flag and are still accepted on the bare query
-// string, so an upgrade does not downgrade running sessions to anonymous.
+// The session signing key is separate from the immutable box encryption key.
+// See session-token-secret.ts for upgrade compatibility and rotation grace.
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { PATHS } from "../config.ts";
+import { sessionTokenKeyRing, type SessionTokenKey } from "./session-token-secret.ts";
 
 export const SESSION_TOKEN_HEADER = "x-omg-session-token";
 
@@ -44,21 +42,30 @@ function boxSecret(): string {
   return secret;
 }
 
-/** The token a session presents to speak as `sessionId`. */
-export function sessionToken(sessionId: string): string {
-  return createHmac("sha256", boxSecret()).update(sessionId).digest("base64url");
+function tokenForKey(sessionId: string, key: SessionTokenKey): string {
+  const mac = createHmac("sha256", key.secret).update(sessionId).digest("base64url");
+  return key.version === "legacy" ? mac : `${key.version}.${mac}`;
 }
 
-export function verifySessionToken(sessionId: string, token: string | null | undefined): boolean {
-  if (!token) return false;
-  const expected = Buffer.from(sessionToken(sessionId));
-  const given = Buffer.from(token);
-  return expected.length === given.length && timingSafeEqual(expected, given);
+/** The token a session presents to speak as `sessionId`. */
+export function sessionToken(sessionId: string): string {
+  return tokenForKey(sessionId, sessionTokenKeyRing().current);
+}
+
+export function verifySessionToken(sessionId: string, token: string | null | undefined, now = Date.now()): boolean {
+  if (!token || token.length > 128) return false;
+  const ring = sessionTokenKeyRing(now);
+  const matches = (key: SessionTokenKey) => {
+    const expected = Buffer.from(tokenForKey(sessionId, key));
+    const given = Buffer.from(token);
+    return expected.length === given.length && timingSafeEqual(expected, given);
+  };
+  return matches(ring.current) || !!(ring.previous && now < ring.previous.expiresAt && matches(ring.previous));
 }
 
 /**
  * The raw box secret, for deriving other at-rest keys (e.g. connector OAuth
- * token encryption). Same secret the session tokens are HMAC'd with.
+ * token encryption). Session-token rotation never changes this material.
  */
 export function boxSecretMaterial(): string {
   return boxSecret();
@@ -71,13 +78,13 @@ export function resetSessionSecretForTests(): void {
 
 /**
  * The token a scheduled auto agent run presents on /mcp/connectors?auto=<id>.
- * Same box secret, separate namespace, so an auto agent id can never be
+ * Same session signing key, separate namespace, so an auto agent id can never be
  * replayed as a session id or the other way round.
  */
 export function autoAgentToken(agentId: string): string {
   return sessionToken(`auto-agent:${agentId}`);
 }
 
-export function verifyAutoAgentToken(agentId: string, token: string | null | undefined): boolean {
-  return verifySessionToken(`auto-agent:${agentId}`, token);
+export function verifyAutoAgentToken(agentId: string, token: string | null | undefined, now = Date.now()): boolean {
+  return verifySessionToken(`auto-agent:${agentId}`, token, now);
 }

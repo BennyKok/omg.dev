@@ -5,9 +5,8 @@
 // `?session=` query or the `x-omg-session-id` header, as before. What is new
 // is that a session whose registry row demands a token (`mcpTokenRequired`)
 // must also present `x-omg-session-token`; a claim without a valid token is
-// downgraded to anonymous rather than rejected, which is the same degradation
-// an unknown id already gets, and keeps session-scoped tools failing loudly
-// ("sessionId required") instead of acting on someone else's session.
+// marked as invalid. HTTP callers must use resolveMcpCaller, which rejects
+// invalid claims before any tool handler can fall back to anonymous access.
 //
 // Role: the row's `role`, else owner. Anonymous callers are the owner: on a
 // solo box every CLI session registered at user scope is anonymous, and this
@@ -40,7 +39,7 @@ function findRow(sessionId: string): ManagedSession | undefined {
   return listManaged().find((m) => m.sessionId === sessionId || m.nativeSessionId === sessionId);
 }
 
-/** Resolve the caller of one MCP request. Never throws. */
+/** Resolve the caller of one MCP request. */
 export function resolveCaller(
   req: Request,
   lookup: (sessionId: string) => ManagedSession | undefined = findRow,
@@ -48,8 +47,9 @@ export function resolveCaller(
   const claimed = claimedSession(req);
   if (!claimed) return { sessionId: undefined, role: OWNER_ROLE };
   const row = lookup(claimed);
-  if (row?.mcpTokenRequired) {
-    const token = req.headers.get(SESSION_TOKEN_HEADER);
+  const token = req.headers.get(SESSION_TOKEN_HEADER);
+  // Validate any supplied token, even if the session row has since ended.
+  if (row?.mcpTokenRequired || token !== null) {
     if (!token) return { sessionId: undefined, role: OWNER_ROLE, downgraded: "missing-token" };
     if (!verifySessionToken(claimed, token)) {
       return { sessionId: undefined, role: OWNER_ROLE, downgraded: "bad-token" };
@@ -57,4 +57,18 @@ export function resolveCaller(
   }
   const role = (row?.role && getRole(row.role)) || OWNER_ROLE;
   return { sessionId: claimed, role };
+}
+
+/** HTTP boundary: an expired or invalid token must not become an anonymous
+ * owner, or reach a handler that defaults back to the raw query-string id.
+ */
+export function resolveMcpCaller(
+  req: Request,
+  lookup: (sessionId: string) => ManagedSession | undefined = findRow,
+): Caller | Response {
+  const caller = resolveCaller(req, lookup);
+  if (caller.downgraded) {
+    return Response.json({ error: "invalid session token" }, { status: 401 });
+  }
+  return caller;
 }

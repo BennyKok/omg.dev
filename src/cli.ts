@@ -15,6 +15,7 @@ Agents:
   omg subagent create|models       Start a managed agent session on any harness
   omg agents list|run|show         Run or inspect insight agents (see 'omg agents help')
   omg projects status|clean        Check or clean old project state
+  omg session-token status|rotate  Inspect or rotate the session signing key
   omg mcp                          Run the omg.dev MCP server (stdio)
   omg computer-mcp                 Run the Computer MCP server (stdio)
 
@@ -55,6 +56,7 @@ connect also work without "computer", for example \`omg update\`.
  * migrating third-party agent configs for no user-visible gain.
  */
 const COMPUTER_VERBS = new Set([
+  "session-token",
   "serve",
   "setup",
   "update",
@@ -93,6 +95,10 @@ async function main() {
 
   const [cmd, ...rest] = unwrapComputerNamespace(process.argv.slice(2));
   switch (cmd) {
+    case "session-token": {
+      const { cmdSessionToken } = await import("./commands/session-token.ts");
+      return cmdSessionToken(rest);
+    }
     case "serve": {
       const { cmdServe } = await import("./commands/serve.ts");
       return await cmdServe();
