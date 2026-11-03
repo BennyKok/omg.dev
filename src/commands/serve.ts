@@ -8750,10 +8750,22 @@ a{color:#60a5fa}
             // findings could only ever pile up in unresolved states.
             status?: "open" | "dismissed" | "session" | "read" | "resolved";
             sessionId?: string;
+            note?: string;
+            needsHuman?: boolean;
           } | null;
-          const patch: { status?: NonNullable<typeof b>["status"]; sessionId?: string } = {};
+          if (b?.note !== undefined && typeof b.note !== "string") return err(400, "note must be a string");
+          if (b?.needsHuman !== undefined && typeof b.needsHuman !== "boolean")
+            return err(400, "needsHuman must be a boolean");
+          const patch: {
+            status?: NonNullable<typeof b>["status"];
+            sessionId?: string;
+            note?: string;
+            needsHuman?: boolean;
+          } = {};
           if (b?.status) patch.status = b.status;
           if (b?.sessionId) patch.sessionId = b.sessionId;
+          if (b?.note) patch.note = b.note.slice(0, 2000);
+          if (b?.needsHuman !== undefined) patch.needsHuman = b.needsHuman;
           const f = await updateFinding(m[1], patch);
           if (!f) return err(404, "unknown finding");
           return json({ finding: f });

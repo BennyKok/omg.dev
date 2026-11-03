@@ -11,6 +11,7 @@
 import { listAutoAgents, setLastRun, type AutoAgent } from "./store.ts";
 import { runAutoAgent } from "./runner.ts";
 import { reconcileFixLandings } from "./fix-landing.ts";
+import { autopilotTick } from "./autopilot.ts";
 import { getGlobalSettingsSync } from "../settings.ts";
 
 // Bot-owned routines are delivered as a chat nudge, not run headless — and
@@ -144,6 +145,11 @@ export async function autoSchedulerTickNow(
     } catch (e) {
       onLog(`[auto-sched] fix-landing reconcile failed: ${e}`);
     }
+
+    // Open findings get a session that checks, fixes and closes them. Not
+    // awaited: a dispatch makes HTTP calls to this same server and must not
+    // hold the scheduler's minute.
+    void autopilotTick(onLog, now.getTime()).catch((e) => onLog(`[auto-sched] autopilot failed: ${e}`));
 
     let agents;
     try {

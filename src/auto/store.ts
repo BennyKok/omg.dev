@@ -154,6 +154,14 @@ export type Finding = {
   fixCommit?: string;
   /** When fixCommit was confirmed — the anchor promoteLandedFixes measures the grace window from. */
   fixLandedAt?: number;
+  /** Why the last status change happened, written by whoever made it (an autopilot session's evidence). */
+  note?: string;
+  /** A session decided only a human can finish this. The autopilot leaves it in the feed and does not retry. */
+  needsHuman?: boolean;
+  /** When the finding last entered "resolved" or "dismissed". Cleared when it reopens. Feeds the metrics. */
+  closedAt?: number;
+  /** Autopilot bookkeeping (src/auto/autopilot.ts): dispatch attempts and the last one. */
+  autopilot?: { attempts: number; lastAt: number; sessionId?: string };
 };
 
 const dir = () => join(PATHS.data, "auto");
@@ -475,15 +483,28 @@ export async function addFinding(input: {
   return finding;
 }
 
+const CLOSED: FindingStatus[] = ["resolved", "dismissed"];
+
+/** Stamp or clear closedAt when a status change crosses the open/closed line. */
+function withClosedAt(prev: Finding, next: Finding, now: number): Finding {
+  if (next.status === prev.status) return next;
+  if (CLOSED.includes(next.status)) return { ...next, closedAt: now };
+  if (CLOSED.includes(prev.status)) return { ...next, closedAt: undefined };
+  return next;
+}
+
 export async function updateFinding(
   id: string,
-  patch: Partial<Pick<Finding, "status" | "sessionId" | "fixCommit" | "fixLandedAt">>,
+  patch: Partial<
+    Pick<Finding, "status" | "sessionId" | "fixCommit" | "fixLandedAt" | "note" | "needsHuman" | "autopilot">
+  >,
 ): Promise<Finding | null> {
   const rows = await listFindings();
+  const now = Date.now();
   let found: Finding | null = null;
   const next = rows.map((r) => {
     if (r.id === id) {
-      found = { ...r, ...patch };
+      found = withClosedAt(r, { ...r, ...patch }, now);
       return found;
     }
     return r;
@@ -524,7 +545,7 @@ export async function dismissAllFindings(ids?: readonly string[]): Promise<numbe
     if (r.status !== "open") return r;
     if (only && !only.has(r.id)) return r;
     cleared++;
-    return { ...r, status: "dismissed" as const };
+    return { ...r, status: "dismissed" as const, closedAt: Date.now() };
   });
   if (!cleared) return 0;
   await writeFindings(next);
@@ -590,7 +611,7 @@ export async function promoteLandedFixes(
   const promoted: Finding[] = [];
   const next = rows.map((r) => {
     if (r.status === "fix-landed" && r.fixLandedAt !== undefined && now - r.fixLandedAt >= graceMs) {
-      const updated: Finding = { ...r, status: "resolved" };
+      const updated: Finding = { ...r, status: "resolved", closedAt: now };
       promoted.push(updated);
       return updated;
     }
@@ -726,11 +747,11 @@ export async function recordRecurrence(
   const status: FindingStatus =
     match.status === "session" ? "session" : "open";
 
-  const next = rows.map((r) =>
-    r.id === match.id ? { ...r, occurrences, lastSeenAt: now, status } : r,
-  );
+  // A dismissed row that recurs is open again, so it is no longer closed.
+  const updated: Finding = { ...match, occurrences, lastSeenAt: now, status, closedAt: undefined };
+  const next = rows.map((r) => (r.id === match.id ? updated : r));
   await writeFindings(next);
-  return { ...match, occurrences, lastSeenAt: now, status };
+  return updated;
 }
 
 /** @deprecated use recordRecurrence — kept so existing callers keep compiling. */
