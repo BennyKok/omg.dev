@@ -18,18 +18,21 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { WORKTREE_ROOT, worktreeRoots } from "./config.ts";
 import { MAIN_REF } from "./agents/collectors/git-fresh.ts";
-import { listManagedWithArchive } from "./managed.ts";
+import { listManaged, listManagedWithArchive } from "./managed.ts";
 import { deleteMergedSessionBranch } from "./project-maintenance.ts";
 import { lastActivityAtForCwd } from "./resume-cache.ts";
 import { tmuxHasSession } from "./tmux.ts";
 import {
   createSnapfork,
   ensureSnapforkMounted,
+  isMounted,
   isSnapfork,
   removeSnapforkLayer,
   snapforkEnabled,
   sweepOrphanForks,
   sweepUnusedBases,
+  unmountIdleForks,
+  unmountSnapfork,
 } from "./snapfork.ts";
 
 // Persistent, env-overridable. Never default to /tmp: it is cleared on reboot
@@ -841,9 +844,6 @@ export async function sweepStaleWorktrees(opts?: {
         continue;
       }
 
-      // An unmounted fork shows only its bare mountpoint. Mount it so the
-      // checks below see the real files, exactly as for a normal worktree.
-      if (isSnapfork(name, root)) await ensureSnapforkMounted(name, root);
       const pointer = readGitPointer(wtPath);
       if (pointer.kind === "checkout") {
         decide("keep", "main-checkout");
@@ -914,50 +914,62 @@ export async function sweepStaleWorktrees(opts?: {
         continue;
       }
 
-      const repoRoot = (await repoRootFromWorktree(wtPath)) ?? undefined;
-      const facts = { lastActivityMs, repoRoot };
-      const dirty = await worktreeIsDirty(wtPath);
-      if (dirty === null) {
-        decide("keep", "git-error", facts);
-        continue;
-      }
-      if (dirty) {
-        result.dirty.push(name);
-        decide("keep", "dirty", facts);
-        continue;
-      }
-      const landed = await worktreeLandedOnMain(wtPath);
-      if (landed !== "landed") {
-        if (landed === "not-landed") result.unmerged.push(name);
-        decide("keep", landed === "not-landed" ? "unmerged" : "git-error", facts);
-        continue;
-      }
+      // An unmounted fork shows only its bare mountpoint. Mount it so the
+      // checks below see the real files, exactly as for a normal worktree.
+      // Only here, past retention: everything above reads the `.git` pointer
+      // under the mountpoint and the gitdir, which need no mount. Mounting
+      // every fork on every pass kept days of forks mounted, ~60 MB each.
+      // Put it back the way it was afterwards, unless it was removed.
+      const mountedForCheck = isSnapfork(name, root) && !isMounted(wtPath);
+      if (mountedForCheck) await ensureSnapforkMounted(name, root);
+      try {
+        const repoRoot = (await repoRootFromWorktree(wtPath)) ?? undefined;
+        const facts = { lastActivityMs, repoRoot };
+        const dirty = await worktreeIsDirty(wtPath);
+        if (dirty === null) {
+          decide("keep", "git-error", facts);
+          continue;
+        }
+        if (dirty) {
+          result.dirty.push(name);
+          decide("keep", "dirty", facts);
+          continue;
+        }
+        const landed = await worktreeLandedOnMain(wtPath);
+        if (landed !== "landed") {
+          if (landed === "not-landed") result.unmerged.push(name);
+          decide("keep", landed === "not-landed" ? "unmerged" : "git-error", facts);
+          continue;
+        }
 
-      if (dryRun) {
-        result.removable.push(name);
-        decide("remove", "removable", facts);
-        continue;
-      }
-      if (removals >= maxRemovals) {
-        result.deferred.push(name);
-        decide("keep", "deferred", facts);
-        continue;
-      }
-      removals++;
-      const removal = await removeSessionWorktree(repoRoot ?? null, name, root);
-      if (repoRoot) touchedRepos.add(repoRoot);
-      if (removal.ok) {
-        result.removed.push(name);
-        if (removal.capture) result.captures[name] = removal.capture;
-        decide("remove", "removable", facts);
-      } else if (removal.stage === "capture") {
-        // Never reclaim on the assumption a capture worked. Keep it and surface
-        // it — this needs a human, not a retry loop.
-        result.captureFailed.push(name);
-        decide("keep", "capture-failed", facts);
-      } else {
-        result.failed.push(name);
-        decide("keep", "remove-failed", facts);
+        if (dryRun) {
+          result.removable.push(name);
+          decide("remove", "removable", facts);
+          continue;
+        }
+        if (removals >= maxRemovals) {
+          result.deferred.push(name);
+          decide("keep", "deferred", facts);
+          continue;
+        }
+        removals++;
+        const removal = await removeSessionWorktree(repoRoot ?? null, name, root);
+        if (repoRoot) touchedRepos.add(repoRoot);
+        if (removal.ok) {
+          result.removed.push(name);
+          if (removal.capture) result.captures[name] = removal.capture;
+          decide("remove", "removable", facts);
+        } else if (removal.stage === "capture") {
+          // Never reclaim on the assumption a capture worked. Keep it and surface
+          // it — this needs a human, not a retry loop.
+          result.captureFailed.push(name);
+          decide("keep", "capture-failed", facts);
+        } else {
+          result.failed.push(name);
+          decide("keep", "remove-failed", facts);
+        }
+      } finally {
+        if (mountedForCheck) await unmountSnapfork(name, root).catch(() => false);
       }
     }
   }
@@ -970,9 +982,18 @@ export async function sweepStaleWorktrees(opts?: {
   }
 
   if (!dryRun) {
+    // Live sessions keep their mount even between turns; anything else
+    // nobody is in gets unmounted once idle, keeping its layer. A resume,
+    // reuse or the next sweep mounts it again on demand.
+    const live = new Set<string>();
+    for (const m of listManaged()) {
+      live.add(m.tmuxName);
+      if (m.cwd) live.add(basename(m.cwd));
+    }
     for (const root of roots) {
       await sweepOrphanForks(root).catch(() => []);
       await sweepUnusedBases(root).catch(() => []);
+      await unmountIdleForks(root, { keep: live }).catch(() => []);
     }
   }
 

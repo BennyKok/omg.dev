@@ -34,6 +34,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  readlinkSync,
   realpathSync,
   rmSync,
   statSync,
@@ -299,18 +300,127 @@ export async function ensureSnapforkMountedForPath(path: string | null | undefin
   if (name && !name.startsWith(".")) await ensureSnapforkMounted(name, WORKTREE_ROOT);
 }
 
-/** Mount every fork under the root. Called once at server start. */
+/**
+ * Mount forks under the root. Called once at server start. Pass `only` to
+ * limit it to the forks of live sessions: every mount is a FUSE daemon of
+ * about 60 MB, and remounting all of a few days' forks at boot is enough to
+ * exhaust memory. Any other fork is mounted on demand when it is resumed,
+ * reused or swept.
+ */
 export async function remountSnapforks(
   root: string = WORKTREE_ROOT,
   log: (s: string) => void = () => {},
+  only?: Set<string>,
 ): Promise<void> {
   const layers = `${snapforkRoot(root)}/layers`;
   if (!existsSync(layers)) return;
   let mounted = 0;
   for (const name of readdirSync(layers)) {
+    if (only && !only.has(name)) continue;
     if (!isMounted(`${root}/${name}`) && (await ensureSnapforkMounted(name, root))) mounted++;
   }
   if (mounted) log(`[snapfork] remounted ${mounted} fork(s)`);
+}
+
+/**
+ * Unmount one fork and keep its layer, so nothing is lost: the next
+ * ensureSnapforkMounted brings back the same files. `fusermount -u` without
+ * `-z` refuses a busy mount, so a process inside keeps its view.
+ */
+export async function unmountSnapfork(name: string, root: string = WORKTREE_ROOT): Promise<boolean> {
+  const mnt = `${root}/${name}`;
+  if (!isMounted(mnt)) return true;
+  const fm = fusermountBinary();
+  if (!fm) return false;
+  await run([fm, "-u", mnt], { cwd: "/", timeoutMs: 30_000 });
+  return !isMounted(mnt);
+}
+
+/**
+ * Forks a process works in or holds a file open in. Covers the cwd scan the
+ * sweeper uses plus open descriptors, for a server or editor started from
+ * outside the fork that still reads it.
+ */
+export function forksInUse(root: string = WORKTREE_ROOT): Set<string> {
+  const prefix = `${resolve(root)}/`;
+  const used = new Set<string>();
+  const note = (path: string) => {
+    if (!path.startsWith(prefix)) return;
+    const name = path.slice(prefix.length).split("/")[0];
+    if (name) used.add(name);
+  };
+  let pids: string[] = [];
+  try {
+    pids = readdirSync("/proc").filter((p) => /^\d+$/.test(p));
+  } catch {
+    return used;
+  }
+  for (const pid of pids) {
+    try {
+      note(readlinkSync(`/proc/${pid}/cwd`));
+    } catch {}
+    let fds: string[] = [];
+    try {
+      fds = readdirSync(`/proc/${pid}/fd`);
+    } catch {}
+    for (const fd of fds) {
+      try {
+        note(readlinkSync(`/proc/${pid}/fd/${fd}`));
+      } catch {}
+    }
+  }
+  return used;
+}
+
+export function snapforkIdleUnmountMs(): number {
+  const raw = process.env.LFG_SNAPFORK_IDLE_UNMOUNT_MS;
+  const fallback = 30 * 60_000;
+  const n = raw ? parseInt(raw, 10) : fallback;
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
+// When each mounted fork was first seen with nobody in it. In memory only: a
+// restart just starts the idle clock again, which can only keep a mount
+// longer.
+const idleSince = new Map<string, number>();
+
+/**
+ * Unmount forks nobody has used for `idleMs`, keeping their layers. The
+ * sweeper keeps a finished session's fork for days so it can be resumed; that
+ * must not also keep a 60 MB FUSE daemon alive per fork, which on 2026-11-03
+ * held 11.5 GB across 195 idle mounts. A fork is unmounted only after being
+ * seen idle on passes at least `idleMs` apart, never while a process is in it
+ * or it belongs to a live session (`keep`).
+ */
+export async function unmountIdleForks(
+  root: string = WORKTREE_ROOT,
+  opts: { keep?: Set<string>; idleMs?: number; now?: number; inUse?: Set<string> } = {},
+): Promise<string[]> {
+  const idleMs = opts.idleMs ?? snapforkIdleUnmountMs();
+  if (idleMs === 0) return [];
+  const layers = `${snapforkRoot(root)}/layers`;
+  if (!existsSync(layers)) return [];
+  const now = opts.now ?? Date.now();
+  const inUse = opts.inUse ?? forksInUse(root);
+  const unmounted: string[] = [];
+  for (const name of readdirSync(layers)) {
+    const key = `${root}/${name}`;
+    if (!isMounted(key) || opts.keep?.has(name) || inUse.has(name)) {
+      idleSince.delete(key);
+      continue;
+    }
+    const since = idleSince.get(key);
+    if (since === undefined) {
+      idleSince.set(key, now);
+      continue;
+    }
+    if (now - since < idleMs) continue;
+    if (await unmountSnapfork(name, root)) {
+      idleSince.delete(key);
+      unmounted.push(name);
+    }
+  }
+  return unmounted;
 }
 
 // ---------------------------------------------------------------------------

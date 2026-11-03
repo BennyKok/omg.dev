@@ -11955,6 +11955,7 @@ a{color:#60a5fa}
         if (m && req.method === "GET") {
           const sess = await findListedSession((s) => s.sessionId === m[1]);
           if (!sess) return err(404, "session not found");
+          await ensureSnapforkMountedForPath(sess.cwd).catch(() => undefined);
           const tree = listSessionTree(sess.cwd, url.searchParams.get("root"));
           if (!tree.ok) return err(403, tree.error ?? "cannot list that directory");
           return json({ tree });
@@ -11971,6 +11972,7 @@ a{color:#60a5fa}
           if (!sess) return err(404, "session not found");
           const p = url.searchParams.get("path");
           if (!p) return err(400, "missing path");
+          await ensureSnapforkMountedForPath(sess.cwd).catch(() => undefined);
           const file = await readSessionFile(sess.cwd, p);
           if ("error" in file) return err(file.error === "file not found" ? 404 : 403, file.error);
           return json({ file });
@@ -12724,7 +12726,14 @@ a{color:#60a5fa}
     process.once(signal, handler);
   }
   startModelDiscoveryScheduler((l) => console.log(l));
-  void remountSnapforks(undefined, (l) => console.log(l)).catch(() => undefined);
+  // Only live sessions' forks: the rest mount on demand (resume, reuse,
+  // sweep), and mounting days of forks at once can exhaust memory.
+  const liveForks = new Set<string>();
+  for (const m of listManaged()) {
+    liveForks.add(m.tmuxName);
+    if (m.cwd) liveForks.add(basename(m.cwd));
+  }
+  void remountSnapforks(undefined, (l) => console.log(l), liveForks).catch(() => undefined);
   startWorktreeSweep((l) => console.log(l));
   startTmpSweep((l) => console.log(l));
   startOrphanAgentServerSweep((l) => console.log(l));
