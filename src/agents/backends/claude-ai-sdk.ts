@@ -7,6 +7,7 @@
 
 import type { OmgMcpServerConfig } from "../../config.ts";
 import { omgMcpServers } from "../../config.ts";
+import { claudeMcpConfigFile } from "../../private-mcp-config.ts";
 import { resolveClaudePath } from "./claude-path.ts";
 
 export type AiSdkOptions = {
@@ -103,6 +104,10 @@ export async function pipeToClaudeAiSdk(
 
   if (claudePath) log(`[runner] ai-sdk driving installed binary: ${claudePath}`);
 
+  using mcpConfig = claudeMcpConfigFile(
+    process.env.OMG_SESSION_ID ?? process.env.LFG_SESSION_ID ?? "auto",
+    withExtraMcpServers(omgMcpServers(), opts.mcpServers),
+  );
   const q = query({
     prompt,
     options: {
@@ -116,7 +121,7 @@ export async function pipeToClaudeAiSdk(
       // user-scope registration is session-agnostic — it has to be, one config
       // serves every session — so without this the serve process cannot tell
       // who is calling and every session-scoped tool fails "sessionId required".
-      ...withExtraMcpServers({ ...omgMcpServers() }, opts.mcpServers),
+      ...mcpConfig.options,
       includePartialMessages: true,
       ...(effort ? { effort } : {}),
       // With no opts.env, `env` stays omitted and the Agent SDK inherits

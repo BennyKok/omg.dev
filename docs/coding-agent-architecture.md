@@ -168,3 +168,26 @@ It keeps worktrees with uncommitted changes, live processes, or recent activity.
 4. Keep historical readers for old CLI and Hermes records.
 5. Add new providers through `CodingAgentProvider` before adding route branches.
 6. Prefer SDK or RPC drivers. Use a terminal driver only when no usable SDK exists.
+
+## MCP credentials at process launch
+
+Claude SDK queries use a separate `data/session-mcp/<session-hash>/run-*/mcp.json`
+file for each query. The file has mode `0600`. The SDK receives its path through
+`extraArgs`, because the SDK serializes its `mcpServers` option into the child
+command line. Query disposal and process exit remove the file. The session
+close owner also removes files after a forced stop.
+The existing orphan sweep removes files whose owner process has died, including
+after an OOM kill or a reboot. It preserves files while their owner PID is live.
+
+Codex SDK launches use `env_http_headers`. Header values stay in the child
+process environment. The overrides in argv contain only environment variable
+names. Each child gets its own environment; scheduled runs do not change the
+server environment.
+
+OpenCode passes its config through `OPENCODE_CONFIG_CONTENT`. ACP providers
+(Cursor, Grok, fx) and Copilot send MCP settings over their control connection.
+Pi, JCode, Muse, DeepSeek, Devin, and legacy TUI launchers do not put managed
+MCP credentials in argv. JCode copies its existing MCP config into its private
+home. The launch audit in `src/private-mcp-config.test.ts` captures the actual
+SDK or adapter spawn boundary for each backend. It also checks Claude report
+runs and Codex report runs. Test failures report booleans, never credentials.
