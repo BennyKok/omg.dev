@@ -2353,14 +2353,23 @@ export function buildOmgMcpServer(): McpServer {
           .string()
           .optional()
           .describe("Session that picked this finding up, when status is 'session'."),
+        note: z
+          .string()
+          .max(2000)
+          .optional()
+          .describe("One or two sentences of evidence for this change: what you checked and what you found or did."),
+        needsHuman: z
+          .boolean()
+          .optional()
+          .describe("Set true with status 'open' when only the owner can finish it (an approval, a dashboard, a decision). The autopilot then stops retrying it."),
       },
     },
-    async ({ id, status, sessionId }) => {
+    async ({ id, status, sessionId, note, needsHuman }) => {
       const sid = sessionId ? await resolveSid(sessionId) : undefined;
       const data = await api<{ finding: unknown }>(`/api/auto/findings/${encodeURIComponent(id)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status, sessionId: sid }),
+        body: JSON.stringify({ status, sessionId: sid, note, needsHuman }),
       });
       return result({ finding: data.finding });
     },
