@@ -91,7 +91,7 @@ import {
 } from "../self-update.ts";
 import { compressedAssetResponse, maybeCompressResponse } from "../http-compress.ts";
 import { serveOmgMcpRequest, serveComputerMcpRequest } from "../mcp-http.ts";
-import { resolveCaller } from "../policy/caller.ts";
+import { resolveMcpCaller } from "../policy/caller.ts";
 import { createBrowserLoginService } from "../computer/login.ts";
 import { createProjectPreviewService, storedProjectPreview } from "../project-previews.ts";
 import { simulatorStreamProvider } from "../simulator-stream.ts";
@@ -4888,7 +4888,8 @@ export async function cmdServe() {
         // Who is calling, verified once here (src/policy/caller.ts), then the
         // role filter (src/policy/mcp-filter.ts) and the server itself both
         // work from that answer. The owner role passes straight through.
-        const caller = resolveCaller(req);
+        const caller = resolveMcpCaller(req);
+        if (caller instanceof Response) return caller;
         return await enforceRole(req, caller.role, { namespace: "omg", strip: "omg_" }, (r) =>
           serveOmgMcpRequest(r, caller.sessionId),
         );
@@ -4946,7 +4947,8 @@ export async function cmdServe() {
       if (path === "/mcp/computer") {
         const { computerMcpEnabled } = await getGlobalSettings();
         if (!computerMcpEnabled) return err(404, "the computer MCP is disabled");
-        const caller = resolveCaller(req);
+        const caller = resolveMcpCaller(req);
+        if (caller instanceof Response) return caller;
         return await enforceRole(req, caller.role, { namespace: "computer", strip: "computer_" }, (r) =>
           serveComputerMcpRequest(r, caller.sessionId),
         );
@@ -4983,7 +4985,8 @@ export async function cmdServe() {
             serveConnectorsMcpRequest(r, autoOwner, refuseApproval, null, allow),
           );
         }
-        const caller = resolveCaller(req);
+        const caller = resolveMcpCaller(req);
+        if (caller instanceof Response) return caller;
         const owner = connectorOwnerForSession(caller.sessionId);
         const gate: ConnectorApprovalGate = async (connector, tool, args) => {
           if (!connector.requireApproval || !caller.sessionId) return { held: false };

@@ -4,7 +4,8 @@
 // connector: the dynamically-registered client information, the PKCE code
 // verifier for an in-flight authorization, and the resulting tokens. Tokens
 // and the verifier are secrets, so the file is encrypted with a key derived
-// from the box secret (the same secret the session tokens use). A pending
+// from the stable box encryption secret. Session-token rotation does not change
+// this key. A pending
 // authorization is also indexed by its `state` parameter, so the callback can
 // find which connector a redirect belongs to.
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";

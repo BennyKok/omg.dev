@@ -191,3 +191,53 @@ MCP credentials in argv. JCode copies its existing MCP config into its private
 home. The launch audit in `src/private-mcp-config.test.ts` captures the actual
 SDK or adapter spawn boundary for each backend. It also checks Claude report
 runs and Codex report runs. Test failures report booleans, never credentials.
+
+## Session-token key rotation
+
+`data/session-token-secret` holds a versioned signing key and, after rotation,
+one previous key with an expiry time. The file has mode `0600`. All token
+minting and verification reads this file, so a rotation takes effect across
+processes without restarting the server. Session and scheduled auto-agent
+tokens use separate HMAC namespaces in the same key ring.
+
+`data/session-secret` remains the stable box encryption key. Connector OAuth
+uses this file. Rotation does not rewrite it or `data/connector-oauth.enc`.
+On an existing installation, the first key-ring initialization copies the old
+signing material as version `legacy`. It keeps the old token format and starts
+no expiry timer. This allows an upgrade to land before a planned restart.
+The first explicit rotation replaces that signing material with a new,
+independent key. A new installation starts with an independent key immediately.
+
+Run these commands from the deployed checkout. Set `OMG_DATA_DIR` to the
+service data directory if the service uses an override.
+
+```
+bun src/cli.ts session-token status
+bun src/cli.ts session-token rotate --grace-seconds 3600
+```
+
+The installed command is `omg session-token`; `lfg` and
+`omg computer session-token` also work. Output contains version identifiers,
+12-character hash fingerprints, and the previous key's expiry time. It never
+contains key or token values. Grace defaults to one hour. It accepts a duration
+from one second to 24 hours. A second rotation during grace is rejected, because
+it would invalidate sessions that still use the previous key.
+
+Coordinate rotation with session restarts. Rotate immediately before the
+planned restart. Verify that recovered sessions use the current version and
+that MCP requests succeed. After the reported expiry, verify that a token made
+with the previous key is rejected. Do not put verification tokens into shell
+arguments or print them. Existing sessions keep their launch credentials;
+they must relaunch before grace expires. A service restart alone does not
+restart the agent processes.
+
+A corrupt key file fails closed. It is never replaced automatically. Concurrent
+initialization publishes one complete key file. Rotation uses an exclusive
+`session-token-secret.lock` file. If a rotation process crashes, inspect the
+recorded PID before removing that lock. Never remove the key file as a way to
+rotate it, and never rotate the box encryption key.
+
+The HTTP MCP boundary returns `401` for a missing required token or any invalid
+supplied token. It does not fall back to anonymous access. This applies to the
+omg, Computer, and connector endpoints, including claims for ended sessions.
+Legacy anonymous clients that do not supply a token keep their existing access.
