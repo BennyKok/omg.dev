@@ -1,0 +1,11 @@
+# Changes to CI, release, and install paths need Benny's review.
+# These files decide what runs with repository secrets and what users install.
+/.github/                         @BennyKok
+/scripts/setup.sh                 @BennyKok
+/scripts/release.sh               @BennyKok
+/scripts/tag-release.sh           @BennyKok
+/scripts/pack-packages.sh         @BennyKok
+/scripts/prepare-release-manifest.ts @BennyKok
+/scripts/verify-release-assets.sh @BennyKok
+/package.json                     @BennyKok
+/bun.lock                         @BennyKok
