@@ -1,3 +1,4 @@
+import { cleanupSessionMcpConfigs } from "../private-mcp-config.ts";
 import { existingNoProjectWorkspace, NO_PROJECT, noProjectWorkspacePath, prepareNoProjectWorkspace } from "../no-project-chat.ts";
 import { APP_BUILDER_MODEL, validateBuilderPreset } from "../agents/backends/app-builder.ts";
 import { readinessBootstrap } from "../bootstrap-readiness.ts";
@@ -2642,6 +2643,7 @@ async function closeLiveSession(
     }
     markClosed(sess.pid);
     removeAisdkEntry(key);
+    cleanupSessionMcpConfigs(key);
     if (sess.tmuxName) {
       removeManaged(sess.tmuxName);
       assignUser(sess.tmuxName, null);
