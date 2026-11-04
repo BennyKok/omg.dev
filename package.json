@@ -80,7 +80,8 @@
     "nanoid": "^3.3.18",
     "undici": "^8.12.3",
     "dompurify": "^3.4.17",
-    "zod": "^4.6.7"
+    "zod": "^4.6.7",
+    "systeminformation": "5.33.16"
   },
   "patchedDependencies": {
     "streamdown@2.7.1": "patches/streamdown@2.7.1.patch"
