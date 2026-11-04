@@ -32,8 +32,6 @@ type MachineSource = {
   reload?: () => Promise<void>;
   signIn?: () => Promise<void>;
   signedIn?: boolean;
-  /** Every connected machine the account lists, whether or not it is reachable from here. */
-  connectedIds?: string[];
 };
 
 /** Present a host-supplied machine as the row shape the menu already renders. */
@@ -59,7 +57,7 @@ function hostEntry(machine: HostMachine): Entry {
  * The box's own account list, used when no host supplies one. Available once the box account routes respond.
  */
 function useBoxMachines(enabled: boolean, onSelect: (choice: MachineChoice) => void): MachineSource | null {
-  const { status, computers, thisComputer, reload, signIn } = useCloudMachines(enabled);
+  const { status, computers, reload, signIn } = useCloudMachines(enabled);
   const active = activeMachine();
   if (!enabled) return null;
   const reachable: Entry[] = (computers ?? []).flatMap((row) => {
@@ -68,10 +66,9 @@ function useBoxMachines(enabled: boolean, onSelect: (choice: MachineChoice) => v
   });
   if (!status) return null;
   return {
-    entries: [{ choice: { ...LOCAL_MACHINE_CHOICE, name: thisComputer?.name || status.localName || LOCAL_MACHINE_CHOICE.name }, row: null }, ...reachable],
+    entries: [{ choice: { ...LOCAL_MACHINE_CHOICE, name: status.localName || LOCAL_MACHINE_CHOICE.name }, row: null }, ...reachable],
     activeId: active.id,
     select: onSelect, reload, signIn, signedIn: status.signedIn,
-    connectedIds: (computers ?? []).filter((row) => row.kind === "connected").map((row) => row.bindingId ?? row.slug),
   };
 }
 
@@ -229,7 +226,6 @@ export function MachineSwitcher({
           action={action}
           name={editing?.name ?? ""}
           bindingId={editing?.id}
-          connectedIds={source.connectedIds ?? []}
           onClose={() => setAction(null)}
           onSaved={box?.reload ?? (async () => {})}
         />

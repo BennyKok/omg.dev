@@ -1,6 +1,6 @@
 // The omg account this box is paired to.
 //
-// `omg connect` stores an OAuth credential in ~/.omg/credentials.json whose
+// `omg login` stores an OAuth credential in ~/.omg/credentials.json whose
 // access token carries an `email` claim. A box is paired to exactly one
 // account, so an ownerless session can use that account as a last-resort
 // attribution source.

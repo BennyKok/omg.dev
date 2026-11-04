@@ -73,7 +73,6 @@ import {
   isStorableUserFilter,
   setSessionUserFilter,
 } from "../session-user-filter.ts";
-import { createConnectManager, readRelayBoxId } from "../connect-manager.ts";
 import { tailnetGateResponse, tailnetPortFromEnv } from "../tailnet-gate.ts";
 import { findProjectFavicon, projectFaviconMime } from "../project-favicon.ts";
 import { claudeOauthToken as sharedClaudeOauthToken } from "../claude-creds.ts";
@@ -4560,7 +4559,6 @@ export async function cmdServe() {
     getAgentRun: agentRunSnapshot,
     subscribeAgentRun,
   });
-  const connectManager = createConnectManager();
   const browserLogin = createBrowserLoginService({
     session: async (id) => {
       const row = await findListedSession((s) => sessionMatchesId(s, id));
@@ -4589,7 +4587,6 @@ export async function cmdServe() {
     },
   });
   const cloudAccount = createCloudAccount({
-    thisBoxId: readRelayBoxId,
     localName: () => getGlobalSettingsSync().machineName,
     renameLocal: async (machineName) => { await setGlobalSettings({ machineName }); },
   });
@@ -4897,9 +4894,7 @@ export async function cmdServe() {
         );
       }
 
-      if (path === "/api/connect/reconcile" && req.method === "POST") {
-        return json(await connectManager.reconcile());
-      }
+
 
       // Browser-side diagnostics. This is the ingest half of the live
       // transport instrumentation in docs/live-ws-protocol.md: the client
@@ -6033,7 +6028,6 @@ a{color:#60a5fa}
         path === "/api/cloud/token" ||
         path === "/api/cloud/logout" ||
         path === "/api/cloud/computers" ||
-        path === "/api/cloud/pairing" ||
         path === "/api/cloud/rename" ||
         path === "/api/cloud/provision"
       ) {
@@ -12633,7 +12627,6 @@ a{color:#60a5fa}
     },
   });
 
-  connectManager.start();
 
   // The egress proxy: a restricted-role session's harness is pointed here, so
   // it reaches only the model APIs plus its role's allowed hosts. Resolves the
@@ -12718,7 +12711,6 @@ a{color:#60a5fa}
   // interactive or service-manager shutdown.
   const stopRefreshOnExit = () => {
     stopArtifactRefresh();
-    connectManager.stop();
   };
   process.once("exit", stopRefreshOnExit);
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
@@ -12797,7 +12789,7 @@ a{color:#60a5fa}
       hostname: "127.0.0.1",
       maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
       fetch(req) {
-        const gated = tailnetGateResponse(req, { boxId: readRelayBoxId(), webOrigin: OMG_WEB_ORIGIN });
+        const gated = tailnetGateResponse(req, { boxId: null, webOrigin: OMG_WEB_ORIGIN });
         if (gated) {
           if (gated.status === 401) console.warn(`[tailnet-gate] 401 ${req.method} ${new URL(req.url).pathname}`);
           return gated;
