@@ -2,7 +2,7 @@
 
 Read this first. The nightly librarian refreshes this file from merged pull
 requests. Verify a fact in code before you depend on it.
-Last refresh: 2026-11-03.
+Last refresh: 2026-11-04.
 
 ## Active work (last 14 days)
 
@@ -21,30 +21,29 @@ Last refresh: 2026-11-03.
   (#471). React Compiler covers hot components; rail rows update selectively
   (#464–#465). Web uses Vite 8 and React 19.3 (#467–#468).
 - **Previews and transcripts**: Android and web links lead phone previews;
-  signed frames and image URLs load; launch text and builder instructions stay
-  out of customer messages (#403, #413–#415, #421).
+  signed image URLs load; launch text and builder instructions stay
+  out of customer messages (#413–#415, #421).
 - **App and game kits**: drag controls, preview-first checks, and web games
   by default (#418, #422, #428). The web-game template uses React 19.3
   and Vite 8.3 (#469).
 - **Computer**: release keys left held by a viewer (#411). Hide the cursor
-  after closing full screen (#479).
-- **Embedding**: guide navigation, conversation binding, and send
-  acknowledgement (#409). The prebuilt app bundle has
-  no remaining React require (#475).
+  after closing full screen (#479). Personal Computer connections are
+  retired; local use and cloud Computers remain available (#493).
+- **Embedding**: the prebuilt app bundle has no remaining React require (#475).
 - **Cloud and apps**: payment setup and owner-name visibility are available
-  from sessions (#457, #460).
-  `omg deploy` works without a control-plane install (#482).
+  from sessions (#457, #460). `omg deploy` works without a control-plane
+  install (#482). Finding autopilot starts sessions for open findings (#490).
+- **Dependencies**: audit fixes and mobile install patches landed (#494).
 - **Release**: verified releases start the omg.dev pin update through
   `omg_pin` (#442–#444). Release failures no longer file issues (#485).
-  Nightly documentation refreshes continue (latest: #487).
+  Nightly documentation refreshes continue (latest: #492).
 
 ## Open pull requests
 
 - In progress: #393 (game sprites move each frame without a React redraw),
   #417 (survive memory and inotify exhaustion from agent commands),
   #484 (bound Computer navigation and recover a stuck agent view),
-  #488–#489 (session token security), #490 (finding autopilot),
-  #491 (Actions and release security).
+  #488–#489 (session token security), #491 (Actions and release security).
 - Stale (no update for 30+ days): #252 (visual element inspection), #284
   (auto-agent acting tools), #287 (film mode and page navigation).
   Ask the owner before building on these.
