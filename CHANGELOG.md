@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## November 4, 2026 - Cloud Computers only (v0.6.357)
+
+- Personal computer connections have been removed. Use your cloud Computer.
+- `lfg connect` now exits once with a clear message. Computer settings show cloud Computers.
+
 ## November 1, 2026 - Dictation leaves your music alone (v0.6.356)
 
 - Dictation no longer keeps your music paused. The microphone now closes as soon as a recording ends. Before, it stayed open for a minute after each recording, and on iPhone the music stayed paused for that minute. Interface sounds also stop holding the audio between sounds.
