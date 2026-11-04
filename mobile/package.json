@@ -9,7 +9,9 @@
     "image-size": "^2.0.3",
     "js-yaml": "^5.4.1",
     "nanoid": "^3.3.18",
-    "@omg-dev/protocol": "https://github.com/BennyKok/omg.dev/releases/download/v0.6.267/omg-dev-protocol-0.6.267.tgz"
+    "@omg-dev/protocol": "https://github.com/BennyKok/omg.dev/releases/download/v0.6.267/omg-dev-protocol-0.6.267.tgz",
+    "decode-uri-component": "0.5.1",
+    "node-forge": "1.4.1"
   },
   "dependencies": {
     "@expo/metro-runtime": "~58.0.4",
@@ -87,7 +89,8 @@
     "expo-modules-jsi@58.0.3": "patches/expo-modules-jsi@58.0.3.patch",
     "@siteed/audio-studio@3.2.1": "patches/@siteed%2Faudio-studio@3.2.1.patch",
     "expo-modules-core@58.0.4": "patches/expo-modules-core@58.0.4.patch",
-    "expo-iap@5.3.1": "patches/expo-iap@5.3.1.patch"
+    "expo-iap@5.3.1": "patches/expo-iap@5.3.1.patch",
+    "query-string@7.1.3": "patches/query-string@7.1.3.patch"
   },
   "expo": {
     "autolinking": {
