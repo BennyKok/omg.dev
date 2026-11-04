@@ -40,6 +40,7 @@ import { wakeAfterPresence } from "./cloud-startup";
 import { subscribeReadinessRecovery, sharedReadiness, type ComputerReadiness } from "./readiness";
 import {
   isSharedBindingId,
+  parseSharedBindingId,
   SHARED_REVOKED_DETAIL,
   sharedBindingId,
   sharedComputerMachineIdentity,
@@ -253,7 +254,7 @@ export function OmgProvider({ children }: PropsWithChildren) {
     clearTranscriptCache();
     await sessionCache.open(found?.id ?? null, AsyncStorage);
     const savedBinding = sessionCache.read<string>("binding");
-    setBindingId(typeof savedBinding === "string" ? savedBinding : null);
+    setBindingId(typeof savedBinding === "string" && (savedBinding === CLOUD_BINDING_ID || parseSharedBindingId(savedBinding)?.bindingId === CLOUD_BINDING_ID) ? savedBinding : null);
     setUser(found);
     setAuthStatus(found ? "signed-in" : "signed-out");
   }, []);
@@ -278,8 +279,7 @@ export function OmgProvider({ children }: PropsWithChildren) {
     }
     setMachinesLoading(true);
     try {
-      const [bindingsResult, cloudResult, sharedResult, legacySelection] = await Promise.allSettled([
-        controlPlane<{ bindings?: ComputerBinding[] }>("listComputerBindings"),
+      const [cloudResult, sharedResult, legacySelection] = await Promise.allSettled([
         controlPlane<CloudComputer>("getCloudComputer"),
         controlPlane<{ computers?: SharedComputerView[] }>("listSharedComputers"),
         AsyncStorage.getItem(STORAGE_KEYS.binding),
@@ -289,17 +289,14 @@ export function OmgProvider({ children }: PropsWithChildren) {
       // computer list confirms access. All later reads use the scoped cache.
       if (!sessionCache.read("binding") && legacySelection.status === "fulfilled") {
         const previous = legacySelection.value;
-        const owns = bindingsResult.status === "fulfilled" && bindingsResult.value.bindings?.some(b => b.id === previous);
         const hasCloud = previous === CLOUD_BINDING_ID && cloudResult.status === "fulfilled" &&
           cloudResult.value && !["upgrade_required", "recycled"].includes(cloudResult.value.status ?? "");
-        if (previous && (owns || hasCloud)) {
+        if (previous && hasCloud) {
           sessionCache.write("binding", previous);
           setBindingId(previous);
         }
       }
-      if (bindingsResult.status === "fulfilled") {
-        setBindings(bindingsResult.value?.bindings ?? []);
-      }
+      setBindings([]);
       if (cloudResult.status === "fulfilled") setCloud(cloudResult.value ?? null);
       // Best-effort, same as the web dashboard: almost every account has
       // nothing shared with it, and a failure here should cost the "Shared
@@ -311,10 +308,10 @@ export function OmgProvider({ children }: PropsWithChildren) {
       // Only a total failure of the two calls every account depends on is
       // worth a message; `sharedComputers` failing alone never blocks the
       // screen (see the best-effort note above).
-      if (bindingsResult.status === "rejected" && cloudResult.status === "rejected") {
+      if (cloudResult.status === "rejected") {
         setMachinesError(
-          bindingsResult.reason instanceof Error
-            ? bindingsResult.reason.message
+          cloudResult.reason instanceof Error
+            ? cloudResult.reason.message
             : "Couldn't load your computers.",
         );
       } else {

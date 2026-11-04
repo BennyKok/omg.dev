@@ -128,7 +128,7 @@ action always calls Cloud through one function, `cloudFetch(path, init)` in
 
 | Case | Where the runtime runs | Credential | Who attaches it |
 | --- | --- | --- | --- |
-| Local | user's own box, paired with `omg connect` | `~/.omg/credentials.json`, already read by `src/cloud-account.ts` | the runtime, as `Authorization: Bearer` |
+| Local | user's local runtime, signed in with `omg login` | `~/.omg/credentials.json`, already read by `src/cloud-account.ts` | the runtime, as `Authorization: Bearer` |
 | Cloud sandbox | Firecracker Computer | none on disk | Infra. The VM's outbound Cloud calls go through the node proxy, which knows the sandbox's binding and owner and adds the token on the way out |
 
 Rules:

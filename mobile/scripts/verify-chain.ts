@@ -119,31 +119,8 @@ try {
 const t2 = await getAuthToken();
 ok("JWT cache is shared", t2 === token ? "second call reused the token" : "MISS");
 
-// 3. Control plane: which Computers does this account have?
-let bindings: any[] = [];
-try {
-  const res = await realFetch(`${CONTROLPLANE_ORIGIN}/api/computer/listComputerBindings`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: "{}",
-  });
-  const data = (await res.json().catch(() => ({}))) as any;
-  bindings = data?.bindings ?? data?.value?.bindings ?? [];
-  ok("listComputerBindings", `${res.status} · ${bindings.length} paired machine(s)`);
-} catch (e) {
-  console.log(`  \x1b[33mWARN\x1b[0m listComputerBindings — ${e}`);
-}
-
-// 4. JWT -> session grant (the mobile transport's own mint).
-//    Target an online paired machine when there is one; the account's cloud
-//    Computer is only the fallback, and on this account it is currently
-//    plan-blocked (getCloudComputer → upgrade_required), which the proxy
-//    surfaces as a permanent 425.
-const onlineBinding = bindings.find((b) => b?.online)?.id;
-const targetBinding = onlineBinding ?? CLOUD_BINDING_ID;
-console.log(
-  `\n  target: ${onlineBinding ? `paired machine ${targetBinding.slice(0, 8)}…` : "cloud Computer"}\n`,
-);
+// JWT -> session grant for the account's cloud Computer.
+const targetBinding = CLOUD_BINDING_ID;
 
 let grant;
 try {

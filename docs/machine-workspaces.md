@@ -26,7 +26,7 @@ checkout at `~/repos/vibes` is four weeks stale, so all paths below are from
 | --- | --- | --- |
 | Browser login | better-auth on `auth.omg.dev`, `POST /token {appId:"vibes"}` returns a JWT | cookie session, short lived JWT |
 | CLI login | `packages/cli/src/auth.ts`, `config.ts` | OAuth 2.1 PKCE, stored in `~/.omg/credentials.json` |
-| Machine list | `POST backend.omg.dev/api/computer/listComputerBindings`, `listSharedComputers`, `getCloudComputer`, `getOrProvisionCloudComputer` | Bearer JWT. Bindings come from the relay `/internal/bindings` |
+| Machine list | `listSharedComputers`, `getCloudComputer`, `getOrProvisionCloudComputer` | Bearer JWT. Owned and shared cloud Computers. |
 | Selection | `api.computer.setComputerPreference` | binding id or `"cloud"` |
 | Reaching a machine | `createGrantTransport({ baseUrl: "https://sessions.omgs.app", getGrant })` | grant from `POST /__omg/session-auth {bindingId, ownerUserId?}` |
 | Transport cache | `apps/web/src/components/computer/computer-transport-cache.ts` | one transport per binding id |
@@ -59,9 +59,7 @@ dependency in the data layer.
   hosted app already switches machines by passing a new transport.
 - `RailStage` in `web/src/App.tsx` owns the desktop rail and the
   `rail-footer` slot (line ~13178).
-- `omg connect` stores the relay binding in `relay-credentials.json`.
-  `serve.ts` exposes `POST /api/connect/reconcile`. There is no login concept
-  in `serve.ts` or in `web/src`.
+- Personal-machine pairing is retired. See [Remote access](remote-access.md).
 
 ## Proposal
 
@@ -181,9 +179,7 @@ same machine.
 
 ## Open questions
 
-1. Local box identity. When signed in, the local box also appears in the cloud
-   binding list. The rail must show it once. `omg connect status` reports the
-   binding id, so `serve.ts` can expose it and `MachineProvider` can merge.
+1. Local identity stays local. Cloud account lists contain cloud Computers.
 2. Route shape. Hosted uses `/computers/$bindingId`. Standalone has no such
    route. Decide whether the machine id lives in the URL or in local storage.
 3. Per machine state leaks. `localStorage` keys such as `lfg_v2_user_filter`

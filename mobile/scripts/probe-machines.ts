@@ -40,10 +40,6 @@ async function cp(name: string, body: unknown = {}) {
   return { status: res.status, data };
 }
 
-const bindings = await cp("listComputerBindings");
-console.log("\nlistComputerBindings:", bindings.status);
-console.log(JSON.stringify(bindings.data, null, 2).slice(0, 1200));
-
 const cloud = await cp("getCloudComputer");
 console.log("\ngetCloudComputer:", cloud.status);
 console.log(JSON.stringify(cloud.data, null, 2).slice(0, 1500));

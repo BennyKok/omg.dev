@@ -50,12 +50,6 @@ export type CloudAccountStatus = {
   expiresAt: number | null;
   kind: CloudCredentials["kind"] | null;
   authUrl: string;
-  /**
-   * This box's own binding id on the account, when it is paired through
-   * `omg connect`. The account's machine list includes this box like any
-   * other; the UI uses this to show it once, as "This computer".
-   */
-  thisBoxId: string | null;
   localName?: string;
 };
 
@@ -104,8 +98,6 @@ export interface CloudAccountOptions {
   now?: () => number;
   /** How long a started sign-in waits for its callback. Default 10 minutes. */
   pendingTtlMs?: number;
-  /** This box's relay binding id, read fresh each time. Null when not paired. */
-  thisBoxId?: () => string | null;
   localName?: () => string;
   renameLocal?: (name: string) => Promise<void>;
 }
@@ -438,7 +430,6 @@ export function createCloudAccount(options: CloudAccountOptions = {}): CloudAcco
       expiresAt: creds?.expiresAt ?? null,
       kind: creds?.kind ?? null,
       authUrl,
-      thisBoxId: options.thisBoxId?.() ?? null,
       localName: options.localName?.() ?? "",
     };
   }
@@ -469,10 +460,10 @@ export function createCloudAccount(options: CloudAccountOptions = {}): CloudAcco
         );
       }
       const message = typeof body.error === "string" ? body.error : `Computer list failed (${response.status})`;
-      throw new CloudAccountError(message, response.status === 401 ? 401 : 502);
+      throw new CloudAccountError(message, [401, 410].includes(response.status) ? response.status : 502);
     }
     return {
-      computers: Array.isArray(body.computers) ? (body.computers as CloudComputerRow[]) : [],
+      computers: Array.isArray(body.computers) ? (body.computers as CloudComputerRow[]).filter((row) => row.kind === "cloud") : [],
       defaultComputer: typeof body.defaultComputer === "string" ? body.defaultComputer : "cloud",
     };
   }
@@ -577,6 +568,7 @@ export function createCloudAccount(options: CloudAccountOptions = {}): CloudAcco
         return json({ error: "Open iOS signing setup in the Mac app." }, { status: 403 });
       }
       const path = `/api/cloud${url.pathname.slice(routePrefix.length)}`;
+      if (path === "/api/cloud/pairing") return json({ error: "Connecting your own computer has been removed." }, { status: 410 });
       try {
         if (path === "/api/cloud/session" && req.method === "GET") return json(status());
         if (path === "/api/cloud/login" && req.method === "POST") return await startLogin(req, url);
@@ -591,7 +583,6 @@ export function createCloudAccount(options: CloudAccountOptions = {}): CloudAcco
         }
         if (path === "/api/cloud/computers" && req.method === "GET") return json(await listComputers());
         const action = ({
-          "/api/cloud/pairing": "connect",
           "/api/cloud/rename": "rename",
           "/api/cloud/provision": "provision",
         } as Record<string, string>)[path];
@@ -618,15 +609,11 @@ export function createCloudAccount(options: CloudAccountOptions = {}): CloudAcco
             }
             let bindingId = input.bindingId ?? "cloud";
             if (bindingId === "local") {
-              // A paired box uses the account name. An unpaired box uses its
-              // existing local settings store, so no cloud login is required.
-              bindingId = options.thisBoxId?.() ?? "local";
-              if (bindingId === "local") {
-                if (!options.renameLocal) throw new CloudAccountError("Local rename is unavailable.", 503);
-                await options.renameLocal(input.name.trim());
-                return json({ name: input.name.trim() });
-              }
+              if (!options.renameLocal) throw new CloudAccountError("Local rename is unavailable.", 503);
+              await options.renameLocal(input.name.trim());
+              return json({ name: input.name.trim() });
             }
+            if (bindingId !== "cloud") throw new CloudAccountError("Connecting your own computer has been removed.", 410);
             body = { name: input.name.trim(), ...(input.bindingId === undefined ? {} : { bindingId }) };
           }
           const token = await getAccessToken();

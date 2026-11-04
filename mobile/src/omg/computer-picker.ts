@@ -127,17 +127,6 @@ export function useComputerPicker() {
     }
 
     /**
-     * The menu switches; the screen manages. They are not competing answers.
-     *
-     * A menu is a list of short labels, and there are things it structurally
-     * cannot carry — above all "Pair a new machine by running `omg connect` on
-     * it", which is the only place in the app that explains pairing exists.
-     * Without a route to that screen, an account with nothing paired sees one
-     * cloud entry and no way to discover it can have more. Machine specs, the
-     * folder each box is bound to, and the blocked-plan reason are all the same
-     * shape of problem: they need room this does not have.
-     */
-    /**
      * No icon on this row either. The machines above it are named, not
      * symbolised, and iOS reserves an icon gutter for the WHOLE menu the
      * moment one row asks for one — so a single gear pushed every machine's
