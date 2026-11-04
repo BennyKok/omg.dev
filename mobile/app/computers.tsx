@@ -22,7 +22,7 @@ import { Card, Icon, Row, SectionLabel, Separator, StatusDot } from "../src/comp
 import { useOmg } from "../src/omg/provider";
 import { useTheme } from "../src/omg/theme";
 import { useToast } from "../src/omg/toast";
-import { cloudComputerLabel, bindingLabel, cloudStatusLabel, machineSpec, relativeTime } from "../src/omg/format";
+import { cloudComputerLabel, cloudStatusLabel, machineSpec } from "../src/omg/format";
 import { CLOUD_BINDING_ID } from "../src/omg/config";
 import { sharedBindingLabel, sharedComputerSubtitle } from "../src/omg/computer-shared-binding";
 
@@ -70,7 +70,6 @@ export default function ComputersScreen() {
   const insets = useSafeAreaInsets();
   const { colors, type, space } = useTheme();
   const {
-    bindings,
     sharedComputers,
     cloud,
     bindingId,
@@ -115,47 +114,6 @@ export default function ComputersScreen() {
         />
       }
     >
-      {bindings.length > 0 ? (
-        <>
-          <SectionLabel>Your machines</SectionLabel>
-          <Card>
-            {bindings.map((b, i) => {
-              const selected = b.id === bindingId;
-              return (
-                <View key={b.id}>
-                  {i > 0 ? <Separator inset="text" /> : null}
-                  <Row onPress={() => void choose(b.id)}>
-                    <StatusDot busy={b.online} />
-                    <View style={{ flex: 1, gap: 2 }}>
-                      <Text
-                        numberOfLines={1}
-                        style={{ ...type.callout, color: colors.text, fontWeight: "600" }}
-                      >
-                        {bindingLabel(b)}
-                      </Text>
-                      <Text numberOfLines={1} style={{ ...type.footnote, color: colors.textMuted }}>
-                        {b.online
-                          ? b.defaultFolder ?? "Online"
-                          : `Last seen ${relativeTime(b.lastSeenAt) || "a while ago"}`}
-                      </Text>
-                    </View>
-                    {selected ? (
-                      <Icon
-                        ios="checkmark"
-                        android="check"
-                        size={16}
-                        weight="semibold"
-                        color={colors.primary}
-                      />
-                    ) : null}
-                  </Row>
-                </View>
-              );
-            })}
-          </Card>
-        </>
-      ) : null}
-
       <SectionLabel>omg cloud</SectionLabel>
       <Card>
         <Row
@@ -270,18 +228,6 @@ export default function ComputersScreen() {
         </>
       ) : null}
 
-      <Text
-        style={{
-          ...type.footnote,
-          color: colors.textMuted,
-          paddingHorizontal: space.lg,
-          paddingTop: space.lg,
-          lineHeight: 18,
-        }}
-      >
-        Pair a new machine by running{" "}
-        <Text style={{ color: colors.text }}>omg connect</Text> on it.
-      </Text>
     </ScrollView>
   );
 }

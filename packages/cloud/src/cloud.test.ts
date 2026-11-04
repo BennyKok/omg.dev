@@ -201,12 +201,12 @@ test("control plane lists machines with each read allowed to fail alone", async 
     fetch,
   });
   const list = await client.listMachines();
-  expect(list.bindings.map((b) => b.id)).toEqual(["box-1"]);
+  expect(list.bindings).toEqual([]);
   expect(list.cloud?.status).toBe("live");
   expect(list.sharedComputers).toEqual([]);
   expect(list.error).toBeNull();
   expect(calls.every((c) => c.url.startsWith("https://backend.example/api/computer/"))).toBe(true);
-  expect(bindingLabel(list.bindings[0]!)).toBe("studio");
+  expect(calls.some((c) => c.url.endsWith("/listComputerBindings"))).toBe(false);
 
   const down = createControlPlaneClient({
     getAuthToken: async () => "jwt",

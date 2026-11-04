@@ -112,7 +112,6 @@ export type MachineList = {
 export interface ControlPlaneClient {
   /** Call any control plane computer function by name. */
   call<T>(name: string, body?: unknown): Promise<T>;
-  listBindings(): Promise<ComputerBinding[]>;
   listSharedComputers(): Promise<SharedComputerBinding[]>;
   getCloudComputer(): Promise<CloudComputer | null>;
   /**
@@ -150,8 +149,6 @@ export function createControlPlaneClient(options: ControlPlaneOptions): ControlP
     return data as T;
   }
 
-  const listBindings = async () =>
-    (await call<{ bindings?: ComputerBinding[] }>("listComputerBindings")).bindings ?? [];
   const listSharedComputers = async () =>
     ((await call<{ computers?: SharedComputerView[] }>("listSharedComputers")).computers ?? []).map(
       toSharedBinding,
@@ -160,7 +157,6 @@ export function createControlPlaneClient(options: ControlPlaneOptions): ControlP
 
   return {
     call,
-    listBindings,
     listSharedComputers,
     getCloudComputer,
     getOrProvisionCloudComputer: async () =>
@@ -169,19 +165,15 @@ export function createControlPlaneClient(options: ControlPlaneOptions): ControlP
       await call("setComputerPreference", { value });
     },
     async listMachines() {
-      const [bindings, cloud, shared] = await Promise.allSettled([
-        listBindings(),
+      const [cloud, shared] = await Promise.allSettled([
         getCloudComputer(),
         listSharedComputers(),
       ]);
-      const error =
-        bindings.status === "rejected" && cloud.status === "rejected"
-          ? bindings.reason instanceof Error
-            ? bindings.reason.message
-            : "Couldn't load your computers."
-          : null;
+      const error = cloud.status === "rejected"
+        ? cloud.reason instanceof Error ? cloud.reason.message : "Could not load your Computer."
+        : null;
       return {
-        bindings: bindings.status === "fulfilled" ? bindings.value : [],
+        bindings: [],
         cloud: cloud.status === "fulfilled" ? cloud.value : null,
         sharedComputers: shared.status === "fulfilled" ? shared.value : [],
         error,

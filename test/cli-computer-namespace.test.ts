@@ -67,33 +67,12 @@ describe("omg computer <verb>", () => {
   });
 });
 
-describe("the machine-readable pairing contract", () => {
-  // The omg.dev CLI used to learn the relay URL by regex-matching this
-  // command's prose, across repositories. Rewording a log line — exactly what
-  // the LFG→omg.dev branding sweep did — would have broken pairing silently.
-  test("connect status --json is parseable and complete", () => {
-    const { out } = run(["connect", "status", "--json"]);
-    const line = out.trim().split("\n").at(-1)!;
-    const parsed = JSON.parse(line);
-    expect(Object.keys(parsed).sort()).toEqual(
-      ["boxId", "computerUrl", "pairedAt", "paired", "relayUrl"].sort(),
-    );
-    expect(typeof parsed.paired).toBe("boolean");
-  });
-
-  test("an unpaired box reports paired:false with nulls, not an error", () => {
-    const { code, out } = run(["connect", "status", "--json"]);
-    expect(code).toBe(0);
-    const parsed = JSON.parse(out.trim().split("\n").at(-1)!);
-    if (!parsed.paired) {
-      expect(parsed.relayUrl).toBeNull();
-      expect(parsed.boxId).toBeNull();
-    }
-  });
-
-  test("the human output stays human", () => {
-    const { out } = run(["connect", "status"]);
-    expect(out).not.toContain("{");
-    expect(out).toContain("omg connect:");
-  });
+describe("retired Computer connection", () => {
+  for (const args of [["connect"], ["connect", "status", "--json"], ["computer", "connect"]]) {
+    test(`exits once for ${args.join(" ")}`, () => {
+      const { code, out } = run(args);
+      expect(code).toBe(1);
+      expect(out).toContain("has been removed");
+    });
+  }
 });
