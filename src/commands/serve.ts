@@ -6028,6 +6028,7 @@ a{color:#60a5fa}
         path === "/api/cloud/token" ||
         path === "/api/cloud/logout" ||
         path === "/api/cloud/computers" ||
+        path === "/api/cloud/pairing" ||
         path === "/api/cloud/rename" ||
         path === "/api/cloud/provision"
       ) {
