@@ -4524,6 +4524,8 @@ async function resolveTermTarget(
     const sess = (await listSessionsCached().catch(() => [])).find(
       (s) => s.sessionId === sessionId,
     );
+    // An idle snapshot fork is unmounted; mount it so the shell sees files.
+    await ensureSnapforkMountedForPath(sess?.cwd).catch(() => undefined);
     const cwd = sess?.cwd && existsSync(sess.cwd) ? sess.cwd : homedir();
     return { sessionName: termSessionName(`s-${sessionId}`), cwd };
   }
@@ -11917,6 +11919,7 @@ a{color:#60a5fa}
         if (m && req.method === "GET") {
           const sess = await findListedSession((s) => s.sessionId === m[1]);
           if (!sess) return err(404, "session not found");
+          await ensureSnapforkMountedForPath(sess.cwd).catch(() => undefined);
           return json({ stat: computeSessionDiffStat(sess.cwd) });
         }
       }
@@ -11929,6 +11932,7 @@ a{color:#60a5fa}
           // ?summary=1 → fast file-list overview (no patch bodies); the viewer
           // then lazy-loads each file via /diff-file.
           const summary = url.searchParams.get("summary") === "1";
+          await ensureSnapforkMountedForPath(sess.cwd).catch(() => undefined);
           return json({ diff: summary ? computeSessionDiffSummary(sess.cwd) : computeSessionDiff(sess.cwd) });
         }
       }
@@ -11940,6 +11944,7 @@ a{color:#60a5fa}
           if (!sess) return err(404, "session not found");
           const p = url.searchParams.get("path");
           if (!p) return err(400, "missing path");
+          await ensureSnapforkMountedForPath(sess.cwd).catch(() => undefined);
           const file = computeSessionFilePatch(sess.cwd, p);
           if (!file) return err(404, "no diff for path");
           return json({ file });
