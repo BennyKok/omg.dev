@@ -64,7 +64,7 @@ describe("CloudAccountSettingsSection", () => {
     expect(assigned).toBe("https://auth.omg.dev/api/auth/oauth2/authorize?x=1");
   });
 
-  test("lists the account's computers when signed in", async () => {
+  test("lists cloud computers and hides retired personal computers when signed in", async () => {
     respond({
       "/api/cloud/session": () => Response.json(signedIn),
       "/api/cloud/computers": () =>
@@ -84,11 +84,10 @@ describe("CloudAccountSettingsSection", () => {
     expect(ui.text()).toContain("Cloud computer");
     expect(ui.text()).toContain("Paused");
     expect(ui.text()).toContain("Default");
-    expect(ui.text()).toContain("studio");
-    expect(ui.text()).toContain("Online");
+    expect(ui.query('[data-cloud-computer="studio"]')).toBeNull();
     expect(ui.text()).toContain("This computer");
-    // This computer first, then the two account machines.
-    expect(ui.queryAll("[data-cloud-computer]")).toHaveLength(3);
+    // This computer and the account cloud Computer remain available.
+    expect(ui.queryAll("[data-cloud-computer]")).toHaveLength(2);
     expect(ui.query('[data-cloud-computer="local"]')?.getAttribute("aria-current")).toBe("true");
   });
 
