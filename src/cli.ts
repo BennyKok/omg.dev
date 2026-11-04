@@ -9,7 +9,6 @@ This computer:
                                    Remove omg.dev. Sessions and settings stay unless --purge
   omg serve                        Run the web UI and control server (default :8766)
   omg doctor [--json]              Print a diagnostic for bug reports
-  omg connect <code>               Pair this computer for remote access (EXPERIMENTAL)
 
 Agents:
   omg subagent create|models       Start a managed agent session on any harness
@@ -38,8 +37,8 @@ Hosted apps (*.omgs.app):
 Settings (read from the environment or .env, see .env.example):
   OMG_PORT, OMG_HOST, OMG_REPOS_ROOT  (the older LFG_* names still work)
 
-setup, update, uninstall, doctor, serve, mcp, agents, subagent, projects and
-connect also work without "computer", for example \`omg update\`.
+setup, update, uninstall, doctor, serve, mcp, agents, subagent and projects
+also work without "computer", for example \`omg update\`.
 \`lfg\` is an older name for this command and still works.
 `;
 
@@ -58,6 +57,7 @@ connect also work without "computer", for example \`omg update\`.
 const COMPUTER_VERBS = new Set([
   "session-token",
   "serve",
+  "connect", // Retirement tombstone for old namespaced invocations.
   "setup",
   "update",
   "uninstall",
@@ -67,7 +67,6 @@ const COMPUTER_VERBS = new Set([
   "agents",
   "subagent",
   "subagents",
-  "connect",
   "projects",
 ]);
 
@@ -124,8 +123,9 @@ async function main() {
       return await cmdComputerMcp();
     }
     case "connect": {
-      const { cmdConnect } = await import("./commands/connect.ts");
-      return await cmdConnect(rest);
+      console.error("Connecting your own computer has been removed. Use your omg.dev cloud Computer.");
+      process.exitCode = 1;
+      return;
     }
     case "projects": {
       const { cmdProjects } = await import("./commands/projects.ts");

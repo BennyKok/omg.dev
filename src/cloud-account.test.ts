@@ -211,7 +211,7 @@ test("computers come from the control plane CLI status route with the bearer tok
   const response = await account.handleRequest(...request("/api/cloud/computers"));
   expect(response?.status).toBe(200);
   const body = (await response?.json()) as { computers: { slug: string }[]; defaultComputer: string };
-  expect(body.computers.map((c) => c.slug)).toEqual(["cloud", "macbook"]);
+  expect(body.computers.map((c) => c.slug)).toEqual(["cloud"]);
   expect(body.defaultComputer).toBe("cloud");
   expect(calls[0]?.url).toBe("https://backend.example/api/cli/computer/status?passive=true");
   expect(new Headers(calls[0]?.init?.headers).get("Authorization")).toBe("Bearer omg_sk_live_x");
@@ -228,21 +228,6 @@ test("a credential without the computer scope reads as a re-sign-in", async () =
   });
 });
 
-test("session reports this box's own binding id when paired", async () => {
-  saveCloudCredentials({ token: "omg_sk_live_x", kind: "api-key" }, credentialPath);
-  const account = createCloudAccount({
-    credentialPath,
-    fetch: fakeFetch(() => jsonResponse({})).fetch,
-    thisBoxId: () => "62494ca7-db41-4e88-8820-fa938e863795",
-  });
-  const response = await account.handleRequest(...request("/api/cloud/session"));
-  expect(await response?.json()).toMatchObject({
-    signedIn: true,
-    thisBoxId: "62494ca7-db41-4e88-8820-fa938e863795",
-  });
-  const unpaired = createCloudAccount({ credentialPath, fetch: fakeFetch(() => jsonResponse({})).fetch });
-  expect(unpaired.status().thisBoxId).toBeNull();
-});
 
 test("computers answers 401 when signed out and logout removes the credential", async () => {
   const account = createCloudAccount({ credentialPath, fetch: fakeFetch(() => jsonResponse({})).fetch });
@@ -271,7 +256,7 @@ test("helpers: return targets stay on this origin and token email is best effort
 test("machine actions require sign-in and only forward account-owned inputs", async () => {
   const { fetch, calls } = fakeFetch(() => jsonResponse({ name: "Build Mac" }));
   const account = createCloudAccount({ credentialPath, fetch });
-  for (const action of ["pairing", "rename", "provision"]) {
+  for (const action of ["rename", "provision"]) {
     const response = await account.handleRequest(...request("/api/cloud/" + action, { method: "POST", body: JSON.stringify({ name: "Build Mac" }) }));
     expect(response?.status).toBe(401);
   }
@@ -290,10 +275,9 @@ test("machine actions require sign-in and only forward account-owned inputs", as
     })))?.status).toBe(400);
   }
   expect(calls).toHaveLength(1);
-  await account.handleRequest(...request("/api/cloud/pairing", { method: "POST" }));
+  expect((await account.handleRequest(...request("/api/cloud/pairing", { method: "POST" })))?.status).toBe(410);
   await account.handleRequest(...request("/api/cloud/provision", { method: "POST" }));
-  expect(calls[1]?.url).toEndWith("/api/cli/computer/connect");
-  expect(calls[2]?.url).toEndWith("/api/cli/computer/provision");
+  expect(calls[1]?.url).toEndWith("/api/cli/computer/provision");
 });
 
 test("machine actions preserve upstream errors", async () => {
@@ -314,7 +298,7 @@ test("machine mutations reject cross-site browser requests before using cloud cr
       { "Sec-Fetch-Site": "cross-site", "Content-Type": "application/json" },
       { "Sec-Fetch-Site": "same-site", "Content-Type": "application/json" },
   ];
-  for (const action of ["pairing", "rename", "provision"]) {
+  for (const action of ["rename", "provision"]) {
     for (const headers of attackHeaders) {
       const response = await account.handleRequest(...request("/api/cloud/" + action, {
         method: "POST", headers, body: JSON.stringify({ name: "Attacker" }),
@@ -323,25 +307,20 @@ test("machine mutations reject cross-site browser requests before using cloud cr
     }
   }
   expect(calls).toHaveLength(0);
-  expect((await account.handleRequest(...request("/api/cloud/pairing", {
+  expect((await account.handleRequest(...request("/api/cloud/provision", {
     method: "POST", headers: { "Content-Type": "text/plain" },
   })))?.status).toBe(415);
-  expect((await account.handleRequest(...request("/api/cloud/pairing", {
+  expect((await account.handleRequest(...request("/api/cloud/provision", {
     method: "POST", headers: { Origin: "http://box.tailnet:8766", "Sec-Fetch-Site": "same-origin" },
   })))?.status).toBe(200);
 });
 
-test("rename targets a connected machine and resolves this box to its binding", async () => {
-  saveCloudCredentials({ token: "test-token", kind: "api-key" }, credentialPath);
-  const { fetch, calls } = fakeFetch(() => jsonResponse({ name: "Studio" }));
-  const account = createCloudAccount({ credentialPath, fetch, thisBoxId: () => "this-box-id" });
-  for (const [bindingId, expected] of [["remote-id", "remote-id"], ["local", "this-box-id"]]) {
-    const result = await account.handleRequest(...request("/api/cloud/rename", {
-      method: "POST", body: JSON.stringify({ bindingId, name: " Studio " }),
-    }));
-    expect(result?.status).toBe(200);
-    expect(JSON.parse(String(calls.at(-1)?.init?.body))).toEqual({ bindingId: expected, name: "Studio" });
-  }
+test("retired pairing and rename routes never contact the control plane", async () => {
+  const { fetch, calls } = fakeFetch(() => { throw new Error("must not forward"); });
+  const account = createCloudAccount({ credentialPath, fetch });
+  expect((await account.handleRequest(...request("/api/cloud/pairing", { method: "POST" })))?.status).toBe(410);
+  expect((await account.handleRequest(...request("/api/cloud/rename", { method: "POST", body: JSON.stringify({ bindingId: "retired-box", name: "Name" }) })))?.status).toBe(410);
+  expect(calls).toHaveLength(0);
 });
 
 test("unpaired local rename works without cloud login and retains same-origin protection", async () => {

@@ -12,7 +12,7 @@ export type CliDependencies = InstallDependencies &
     error?: (line: string) => void;
   };
 
-const COMPUTER_OWNED = new Set(["setup", "update", "uninstall", "status", "connect"]);
+const COMPUTER_OWNED = new Set(["setup", "update", "uninstall", "status"]);
 
 function write(writer: ((line: string) => void) | undefined, fallback: typeof console.log, line: string) {
   (writer ?? fallback)(line);
@@ -33,6 +33,10 @@ export async function runCli(argv: string[], dependencies: CliDependencies = {})
   const out = (line: string) => write(dependencies.output, console.log, line);
   const err = (line: string) => write(dependencies.error, console.error, line);
   const [cmd, ...rest] = argv;
+  if (cmd === "connect" || (cmd === "computer" && rest[0] === "connect")) {
+    err("Connecting your own computer has been removed. Use your omg.dev cloud Computer.");
+    return 1;
+  }
 
   // The probe must not forward: setup.sh greps its output for HELP_BANNER.
   if (cmd === "__omg_forward_probe") {
@@ -67,9 +71,6 @@ export async function runCli(argv: string[], dependencies: CliDependencies = {})
     }
     if (verb === "status") {
       return await runComputerForward("update", ["--check", ...args], { ...dependencies, output: out });
-    }
-    if (verb === "connect") {
-      return await runComputerForward("connect", args, { ...dependencies, output: out });
     }
     if (!COMPUTER_OWNED.has(verb)) {
       const forwarded = await forwardToInstall([verb, ...args], dependencies);

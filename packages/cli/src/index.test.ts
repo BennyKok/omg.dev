@@ -201,3 +201,14 @@ describe("omg computer", () => {
     expect(log.text()).toContain("omg computer setup");
   });
 });
+
+describe("retired personal Computer connections", () => {
+  for (const args of [["connect"], ["computer", "connect"]]) {
+    test(`${args.join(" ")} never forwards to an old installation`, async () => {
+      expect(await runCli(args, {
+        which: () => { throw new Error("must not find or launch the old CLI"); },
+        output: () => {}, error: () => {},
+      })).toBe(1);
+    });
+  }
+});

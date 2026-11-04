@@ -86,7 +86,7 @@ export function sessionNameFromWorktreePath(path: string): string | null {
 }
 
 // LFG_HOST is the server's BIND address, but the in-box clients — `lfg mcp`,
-// `lfg subagent`, `lfg connect` — read the same variable to DIAL that server.
+// `lfg subagent` — read the same variable to DIAL that server.
 // A bind address is not always dialable: every containerized deploy sets
 // LFG_HOST to a wildcard (`0.0.0.0`, or `::` where the platform's private
 // network is IPv6-only). `http://0.0.0.0:8766` only connects by accident on
