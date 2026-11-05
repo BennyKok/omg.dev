@@ -460,6 +460,48 @@ async function findReusableBase(
   return null;
 }
 
+// Folders with their own bun.lock (vibes apps/landing, templates/*,
+// tools/ops/typecheck; lfg mobile/) are separate installs, not workspaces of
+// the root. Without them in the base, a session that runs `bun install` in one
+// of them writes a full copy into its upper layer, because a hardlink cannot
+// cross into the FUSE mount. On 2026-11-05, 348 layers held 21.9 GB and
+// 20.6 GB of that was node_modules; mobile/node_modules alone was 1.6 GB per
+// fork. Installed here, outside any overlay, they are hardlinks from bun's
+// cache and every fork shares them. Test fixtures are left alone, and the cap
+// keeps a repository full of templates from stalling a base build.
+const NESTED_SKIP_SEGMENT = /^(fixtures?|__fixtures__|tests?|__tests__)$/;
+const NESTED_MAX = 16;
+
+/** Directories (relative, no root) whose tracked bun.lock the base installs. */
+export function nestedBunProjects(lockfiles: string[]): string[] {
+  const dirs = lockfiles
+    .filter((f) => f.endsWith("/bun.lock"))
+    .map((f) => f.slice(0, -"/bun.lock".length))
+    .filter((dir) => dir !== "" && !dir.split("/").some((s) => s === "node_modules" || NESTED_SKIP_SEGMENT.test(s)));
+  return [...new Set(dirs)].sort().slice(0, NESTED_MAX);
+}
+
+async function trackedNestedProjects(checkout: string): Promise<string[]> {
+  const r = await git(checkout, ["ls-files", "-z", "--", "*/bun.lock"]);
+  if (!r.ok) return [];
+  return nestedBunProjects(r.out.split("\0").filter(Boolean)).filter((dir) =>
+    existsSync(join(checkout, dir, "package.json")),
+  );
+}
+
+// Best effort: a nested project that will not install is left without
+// node_modules, exactly as before this existed, and never fails the base.
+async function installNestedProjects(basePath: string): Promise<void> {
+  for (const dir of await trackedNestedProjects(basePath)) {
+    const cwd = join(basePath, dir);
+    const install = await run(["nice", "-n", "10", "bun", "install", "--frozen-lockfile"], {
+      cwd,
+      timeoutMs: 10 * 60_000,
+    });
+    if (!install.ok) rmSync(join(cwd, "node_modules"), { recursive: true, force: true });
+  }
+}
+
 const building = new Map<string, Promise<ReadyBase | null>>();
 
 /**
@@ -501,6 +543,7 @@ export function buildBase(
         rmSync(path, { recursive: true, force: true });
         return null;
       }
+      await installNestedProjects(path);
     }
     writeFileSync(`${path}.ready`, `${new Date().toISOString()}\n`);
     return { path, sha, readyAt: Date.now() };
@@ -600,19 +643,37 @@ export async function createSnapfork(opts: {
     // the read-tree steps are the ones that must succeed.
     if (!r.ok && args[0] === "read-tree") return fallback(`${args.join(" ")}: ${r.err.trim()}`);
   }
-  // The base's node_modules match the base's lockfile. When the session
-  // commit changed it, install the difference now so the fork never runs on
-  // stale dependencies. Only changed packages land in the upper layer.
-  if (
-    existsSync(join(wtPath, "bun.lock")) &&
-    process.env.LFG_SNAPFORK_INSTALL !== "0" &&
-    !(await git(wtPath, ["diff", "--quiet", base.sha, "HEAD", "--", "bun.lock", "package.json"])).ok
-  ) {
-    const install = await run(["nice", "-n", "10", "bun", "install", "--frozen-lockfile"], {
-      cwd: wtPath,
-      timeoutMs: 10 * 60_000,
-    });
-    if (!install.ok) return fallback(`bun install: ${install.err.trim().slice(-300)}`);
+  // The base's node_modules match the base's lockfiles. When the session
+  // commit changed one, install the difference now so the fork never runs on
+  // stale dependencies. Only changed packages land in the upper layer. Nested
+  // projects count only where the base installed them; the others have no
+  // node_modules to go stale.
+  if (process.env.LFG_SNAPFORK_INSTALL !== "0") {
+    const installed = (await trackedNestedProjects(base.path)).filter((dir) =>
+      existsSync(join(base.path, dir, "node_modules")),
+    );
+    const manifests = (dir: string) => [join(dir, "bun.lock"), join(dir, "package.json")];
+    const changed = await git(wtPath, [
+      "diff",
+      "--name-only",
+      base.sha,
+      "HEAD",
+      "--",
+      "bun.lock",
+      "package.json",
+      ...installed.flatMap(manifests),
+    ]);
+    // If git cannot say, treat every lockfile as changed: slower, never stale.
+    const names = changed.ok ? new Set(changed.out.split("\n").filter(Boolean)) : null;
+    const stale = (dir: string) => names === null || manifests(dir).some((f) => names.has(f));
+    for (const dir of [".", ...installed]) {
+      if (!existsSync(join(wtPath, dir, "bun.lock")) || !stale(dir)) continue;
+      const install = await run(["nice", "-n", "10", "bun", "install", "--frozen-lockfile"], {
+        cwd: join(wtPath, dir),
+        timeoutMs: 10 * 60_000,
+      });
+      if (!install.ok) return fallback(`bun install (${dir}): ${install.err.trim().slice(-300)}`);
+    }
   }
   return { kind: "snapfork", baseSha: base.sha };
 }
