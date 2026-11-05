@@ -2,14 +2,7 @@
  * The rows of the mobile side navigation, as data.
  *
  * Pure and DOM-free so the order, the gating and the current-row logic can be
- * tested without mounting anything. This mirrors
- * `mobile/src/omg/side-nav-items.ts`, which exists for the same reason.
- *
- * The two lists are deliberately NOT identical. iOS has an Archive page and
- * no Computer; the web has Computer and no Archive. What is
- * shared is the shape: the machine first (drawn by the panel, not listed
- * here), then the surfaces you switch between, then the pages, then Settings
- * last.
+ * tested without mounting anything.
  */
 
 /** Which glyph a row draws. The component owns the actual icon components. */

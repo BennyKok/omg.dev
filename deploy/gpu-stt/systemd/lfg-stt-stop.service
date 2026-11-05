@@ -1,5 +1,0 @@
-[Unit]
-Description=Stop lfg STT GPU box (23:00 HKT)
-[Service]
-Type=oneshot
-ExecStart=/home/dev/repos/lfg/deploy/gpu-stt/lifecycle.sh stop

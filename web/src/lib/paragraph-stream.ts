@@ -9,10 +9,6 @@
 // are single-line blocks, so they complete at their own newline; otherwise a
 // long list would wait for the blank line after its last item. Inside a code
 // fence every finished line is shown, so a long code block still grows.
-//
-// Kept in sync with mobile/src/omg/paragraph-stream.ts. The native app
-// consumes @omg-dev/client from a release tarball, so the two clients each
-// carry this small pure function instead of sharing it through the package.
 
 const FENCE = /^ {0,3}(`{3,}|~{3,})/;
 const LINE_BLOCK = /^ {0,3}(#{1,6}\s|[-*+]\s|\d{1,9}[.)]\s|\|)/;

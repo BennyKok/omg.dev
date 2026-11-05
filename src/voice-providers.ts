@@ -6,8 +6,8 @@
 // data/voice-settings.json; keys entered in the setup dialog are written to the
 // server's .env file and are never returned to the browser.
 // NOTE: text-to-speech was removed, so there is no TTS adapter here any more.
-// The self-hosted GPU stacks under deploy/*-stt are NOT reachable from here —
-// nothing reads STT_UPSTREAM/STT_WS_URL. Wiring one up means adding an adapter.
+// Nothing reads STT_UPSTREAM/STT_WS_URL. A self-hosted speech server needs an
+// adapter here.
 
 import { chmod, mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";

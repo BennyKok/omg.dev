@@ -31,7 +31,7 @@ The layering idea was correct. The ownership flip was never finished.
 
 ```
 +---------------------------------------------------------------+
-| omg Client   web/ mobile/ desktop/ packages/client  (this repo)|
+| omg Client   web/ desktop/ packages/client  (this repo)         |
 |   what the user touches                                        |
 +---------------------------------------------------------------+
 | omg Cloud    auth.omg.dev backend.omg.dev            (vibes)   |
@@ -116,7 +116,6 @@ visibility, machines) reaches the agent for free.
 | --- | --- |
 | `packages/cli` | `omg deploy` calls `deploy.start` on the local runtime. Delete `apps.ts` and the 0.4.42 tarball shim. |
 | `web/` | Deploy button on a project. Status and URL card. |
-| `mobile/` | Deploy row on the project sheet. Status, URL, open in browser. |
 | MCP | `omg_deploy` tool so the agent can deploy when asked. Same library as the CLI. |
 | agent shell | `omg deploy` works inside the Computer because `omg` there is this runtime. No extra install. |
 

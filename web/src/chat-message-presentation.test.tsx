@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mount, type Mounted } from "./test-support/render";
 import { assistantMessageText, userMessageText } from "./lib/chat-message-presentation";
-import * as mobile from "../../mobile/src/omg/chat-message-presentation";
 
 const { MessageBubble } = await import("./App");
 let ui: Mounted;
@@ -70,9 +69,3 @@ test("quoted diagnostics in a normal reply are preserved", () => {
   expect(ui.text()).not.toContain(recovery);
 });
 
-test("web and mobile presentation stay consistent", () => {
-  for (const text of [emptyReply, "OpenCode turn failed for omg/model: no key", "Normal reply", `\`\`\`\n${emptyReply}\n\`\`\``, "Hi   \n\n", "  First\nSecond\n", "\n\n"]) {
-    expect(assistantMessageText(text)).toBe(mobile.assistantMessageText(text));
-    expect(userMessageText(text)).toBe(mobile.userMessageText(text));
-  }
-});

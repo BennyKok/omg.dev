@@ -8,8 +8,7 @@ This is one of **two** ways a host mounts OMG — this cross-origin iframe path,
 and the same-document native library mount (`@omg-dev/app`'s `OmgAppSurface`,
 built by `web/vite.lib.config.ts`), which `app.omg.dev` uses instead. The
 native mount shares no postMessage protocol with this one; it has its own DOM
-slot contract (`data-lfg-host-slot`) documented alongside the full shell/host
-integration inventory in `docs/hosted-shell-inventory.md`. Both flags
+slot contract (`data-lfg-host-slot`). Both flags
 (`?embed=1` / `readLocationEmbedFlag()`) and the native mount set the same
 `embedded` state inside `App.tsx`, so the header/onboarding suppression this
 document describes applies to both.

@@ -1,7 +1,0 @@
-[Unit]
-Description=Start lfg STT GPU box at 03:00 UTC (11:00 HKT)
-[Timer]
-OnCalendar=*-*-* 03:00:00
-Persistent=true
-[Install]
-WantedBy=timers.target

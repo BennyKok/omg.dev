@@ -23,7 +23,7 @@
 #
 # Requirements:
 #   VIBES_INFRA_SERVICE_TOKEN  - infra service token (or _CI variant via ENVF)
-#   INFRA_URL                  - defaults to https://infra.omg.dev
+#   INFRA_URL                  - infra API base URL (required)
 #   ENVF                       - optional env file to source for the above
 #
 # Exit codes:
@@ -56,7 +56,7 @@ if [[ -n "${ENVF:-}" && -f "${ENVF}" ]]; then
   set -a; . "$ENVF"; set +a
 fi
 
-INFRA_URL="${INFRA_URL:-https://infra.omg.dev}"
+INFRA_URL="${INFRA_URL:?INFRA_URL required (or set ENVF to a file providing it)}"
 TOKEN="${VIBES_INFRA_SERVICE_TOKEN:-${VIBES_INFRA_SERVICE_TOKEN_CI:-}}"
 ON_BEHALF="${SMOKE_USER:-svc:omg-install-test}"
 : "${TOKEN:?VIBES_INFRA_SERVICE_TOKEN required (or set ENVF to a file providing it)}"

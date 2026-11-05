@@ -1,5 +1,0 @@
-[Unit]
-Description=Start lfg STT GPU box (11:00 HKT)
-[Service]
-Type=oneshot
-ExecStart=/home/dev/repos/lfg/deploy/gpu-stt/lifecycle.sh start

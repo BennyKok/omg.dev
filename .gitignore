@@ -23,7 +23,6 @@ desktop/embedded-runtime.tar.gz.sha256
 desktop/icon.iconset/
 
 # GPU STT host secrets
-deploy/gpu-stt/instance.env
 
 # Python bytecode cache
 __pycache__/

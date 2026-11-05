@@ -1,7 +1,0 @@
-[Unit]
-Description=lfg STT watchdog every 3 min
-[Timer]
-OnBootSec=2min
-OnUnitActiveSec=3min
-[Install]
-WantedBy=timers.target

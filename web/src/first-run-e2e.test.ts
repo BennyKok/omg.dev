@@ -166,7 +166,7 @@ describe("a fresh hosted account is shown its onboarding steps", () => {
         React.createElement(OmgAppSurface, {
           transport: mockTransport(),
           connectionOnboarding: true,
-          viewer: { name: "Itechbenny" },
+          viewer: { name: "Benny" },
         }),
       );
     });

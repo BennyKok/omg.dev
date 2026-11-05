@@ -28,10 +28,8 @@ Repo-local deployment paths:
 
 - Self-hosted setup: `scripts/setup.sh` keeps OMG on loopback and optionally
   fronts it with `tailscale serve --https=<port> http://127.0.0.1:<LFG_PORT>`.
-- Fly: `fly.toml` has no public `http_service`; `deploy/fly/README.md` says to
-  use private networking, WireGuard, Tailscale, or a local proxy.
-- Railway and Render: the shared Dockerfile binds OMG to the platform-provided
-  port; the platform edge is the browser-facing TLS/protocol terminator.
+- Fly, Railway and Render: these templates and the shared Dockerfile were
+  removed on 2026-11-05.
 - OMG one-click workspace: `deploy/omg/README.md` says the control plane starts
   `lfg serve --host 0.0.0.0 --port 8766` and redirects the browser to the
   sandbox public URL.
@@ -92,7 +90,7 @@ for the relevant public wildcard hosts, even when the application route returns
 
 ## Bun HTTP/2 Server Status
 
-Local Bun is `1.3.13`, and the Dockerfile pins the same version. The local
+Local Bun was `1.3.13` when this was checked. The local
 `bun-types` `Serve` options expose `tls`, `http3`, `http1`, `idleTimeout`, and
 WebSocket options, but no `http2` or ALPN option for `Bun.serve`.
 

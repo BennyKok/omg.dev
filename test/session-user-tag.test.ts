@@ -9,9 +9,9 @@ describe("resolveSessionUserTag", () => {
     // The regression: a hosted omg Computer has no LFG_USERS and no onboarding
     // profiles, so rosterEmails() is empty. A client that tags sessions with
     // the signed-in identity used to get
-    //   400 unknown user "itechbenny@gmail.com" (expected one of the roster emails)
+    //   400 unknown user "benny@example.com" (expected one of the roster emails)
     // on EVERY session create, because [].includes(anything) is false.
-    expect(resolveSessionUserTag("itechbenny@gmail.com", [])).toEqual({
+    expect(resolveSessionUserTag("benny@example.com", [])).toEqual({
       ok: true,
       user: undefined,
     });

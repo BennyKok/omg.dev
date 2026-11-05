@@ -1,7 +1,0 @@
-# Streaming STT server (NeMo cache-aware FastConformer over a websocket).
-# Install into a dedicated venv on the GPU box. Match the torch/CUDA build to the
-# box; nemo_toolkit[asr] pulls a large dependency tree.
-nemo_toolkit[asr]>=1.23.0
-torch
-numpy
-websockets>=12.0

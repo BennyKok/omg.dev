@@ -43,8 +43,8 @@ Shape 2 is same-origin by construction, which is why it is no longer the plan.
 UI and API share an origin, so both shapes work. Two things to watch on a
 hosted sandbox:
 
-- `data/push/vapid.json` must survive redeploys. The Dockerfile symlinks
-  `/app/data` to the mounted volume (`/data/lfg`). Lose the volume and the
+- `data/push/vapid.json` must survive redeploys. The hosted image
+  symlinks `/app/data` to the mounted volume (`/data/lfg`). Lose the volume and the
   keypair regenerates, and every existing subscription starts failing with
   `403` — logged by `sendOne`, but it presents to a user as "notifications
   just stopped".

@@ -1,8 +1,7 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import * as web from "../web/src/cron";
-import * as mobile from "../mobile/src/omg/cron";
 
-for (const [name, cron] of [["web", web], ["mobile", mobile]] as const) {
+for (const [name, cron] of [["web", web]] as const) {
   describe(`${name} schedule previews`, () => {
     const cases = [
       ["* * * * *", "UTC", "2026-10-12T04:00:35Z", "2026-10-12T04:01:00Z"],

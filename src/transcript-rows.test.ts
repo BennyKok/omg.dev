@@ -259,20 +259,3 @@ describe("the row window", () => {
     expect(countTranscriptRows(messages.slice(start))).toBe(12);
   });
 });
-
-describe("the phone and the web name a live step the same way", () => {
-  test("mobile/src/omg/work-label.ts matches src/transcript-rows.ts", async () => {
-    const mobile = await import("../mobile/src/omg/work-label.ts");
-    const names = ["Bash", "shell", "Write", "apply_patch", "edit", "Read", "grep", "mcp__omg__omg_deploy",
-      "mcp__omg__omg_expose_port", "mcp__computer__computer_screenshot", "WebSearch", "TodoWrite", "anything"];
-    for (const name of names) {
-      expect(mobile.workStepLabel({ kind: "tool_use", name })).toBe(workStepLabel({ kind: "tool_use", name }));
-    }
-    const run = [
-      { kind: "thinking", text: "plan", ts: 1_000 },
-      { kind: "tool_use", text: "mcp__omg__omg_deploy: {}", ts: 2_000 },
-    ];
-    expect(mobile.workLabel(run, { live: true, now: 62_000 })).toBe(toolGroupWorkLabel(run, { live: true, now: 62_000 }));
-    expect(mobile.workLabel(run, { live: false, endTs: 5_000 })).toBe(toolGroupWorkLabel(run, { live: false, endTs: 5_000 }));
-  });
-});

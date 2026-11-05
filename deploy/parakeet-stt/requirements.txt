@@ -1,7 +1,0 @@
-# Install torch first, matched to the host's CUDA (see README), then:
-nemo_toolkit[asr]>=2.0.0
-fastapi>=0.110
-uvicorn[standard]>=0.29
-soundfile>=0.12
-scipy>=1.11
-numpy>=1.26

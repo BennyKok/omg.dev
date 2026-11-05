@@ -1,5 +1,0 @@
-[Unit]
-Description=lfg STT watchdog (re-sync if box up but STT down)
-[Service]
-Type=oneshot
-ExecStart=/home/dev/repos/lfg/deploy/gpu-stt/lifecycle.sh watchdog

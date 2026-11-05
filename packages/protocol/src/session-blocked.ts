@@ -6,8 +6,8 @@
  * row names that thing. The banner inside the session carries the detail and
  * the button.
  *
- * Import-free on purpose: the web and the native app both load this file by
- * path (see mobile/metro.config.js), so both clients say the same words.
+ * Import-free on purpose, so any client can load this file by path and say
+ * the same words.
  */
 export function blockedSessionAction(session: {
   status?: string | null;

@@ -7,8 +7,8 @@ import {
 } from "./user-filter";
 import { firstFrameUserFilter } from "./user-filter";
 
-const benny = { assignedUser: "itechbenny@gmail.com" };
-const angel = { assignedUser: "lyyluiyanyan@gmail.com" };
+const benny = { assignedUser: "benny@example.com" };
+const angel = { assignedUser: "angel@example.com" };
 // What the native app produces: no identity header reaches the box, so the
 // server has nobody to attribute a root session to.
 const fromPhone = { assignedUser: null };
@@ -25,24 +25,24 @@ describe("sessionMatchesUserFilter", () => {
   });
 
   test("a person sees their own sessions", () => {
-    expect(sessionMatchesUserFilter(benny, "itechbenny@gmail.com")).toBe(true);
+    expect(sessionMatchesUserFilter(benny, "benny@example.com")).toBe(true);
   });
 
   test("a person does NOT see another person's sessions", () => {
-    expect(sessionMatchesUserFilter(angel, "itechbenny@gmail.com")).toBe(false);
+    expect(sessionMatchesUserFilter(angel, "benny@example.com")).toBe(false);
   });
 
   // The regression this helper exists for: an app-created session was visible
   // on the phone and invisible on the web, because the phone forces "__all"
   // (isHostedSurface) while the browser had a saved person filter.
   test("a person ALSO sees unassigned sessions", () => {
-    expect(sessionMatchesUserFilter(fromPhone, "itechbenny@gmail.com")).toBe(true);
-    expect(sessionMatchesUserFilter(fromPhone, "lyyluiyanyan@gmail.com")).toBe(true);
+    expect(sessionMatchesUserFilter(fromPhone, "benny@example.com")).toBe(true);
+    expect(sessionMatchesUserFilter(fromPhone, "angel@example.com")).toBe(true);
   });
 
   test("treats undefined and empty-string owners as unassigned", () => {
-    expect(sessionMatchesUserFilter({}, "itechbenny@gmail.com")).toBe(true);
-    expect(sessionMatchesUserFilter({ assignedUser: "" }, "itechbenny@gmail.com")).toBe(true);
+    expect(sessionMatchesUserFilter({}, "benny@example.com")).toBe(true);
+    expect(sessionMatchesUserFilter({ assignedUser: "" }, "benny@example.com")).toBe(true);
     expect(sessionMatchesUserFilter({}, "__unassigned")).toBe(true);
   });
 });
@@ -114,27 +114,27 @@ describe("composerDefaultOwner", () => {
 });
 
 describe("hostedStartUserFilter", () => {
-  const users = [{ email: "itechbenny@gmail.com" }, { email: "lyyluiyanyan@gmail.com" }];
+  const users = [{ email: "benny@example.com" }, { email: "angel@example.com" }];
 
   test("defaults a shared machine to the viewer's own sessions", () => {
-    expect(hostedStartUserFilter({ saved: null, viewerEmail: "ITechBenny@gmail.com", users }))
-      .toBe("itechbenny@gmail.com");
+    expect(hostedStartUserFilter({ saved: null, viewerEmail: "Benny@Example.com", users }))
+      .toBe("benny@example.com");
   });
 
   test("a saved choice wins over the default", () => {
-    expect(hostedStartUserFilter({ saved: "__all", viewerEmail: "itechbenny@gmail.com", users }))
+    expect(hostedStartUserFilter({ saved: "__all", viewerEmail: "benny@example.com", users }))
       .toBe("__all");
-    expect(hostedStartUserFilter({ saved: "lyyluiyanyan@gmail.com", viewerEmail: "itechbenny@gmail.com", users }))
-      .toBe("lyyluiyanyan@gmail.com");
+    expect(hostedStartUserFilter({ saved: "angel@example.com", viewerEmail: "benny@example.com", users }))
+      .toBe("angel@example.com");
   });
 
   test("a saved person who left the roster falls back to the viewer", () => {
-    expect(hostedStartUserFilter({ saved: "gone@example.com", viewerEmail: "itechbenny@gmail.com", users }))
-      .toBe("itechbenny@gmail.com");
+    expect(hostedStartUserFilter({ saved: "gone@example.com", viewerEmail: "benny@example.com", users }))
+      .toBe("benny@example.com");
   });
 
   test("an unshared machine (no roster) keeps the current filter", () => {
-    expect(hostedStartUserFilter({ saved: null, viewerEmail: "itechbenny@gmail.com", users: [] })).toBeNull();
+    expect(hostedStartUserFilter({ saved: null, viewerEmail: "benny@example.com", users: [] })).toBeNull();
   });
 });
 

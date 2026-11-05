@@ -34,9 +34,10 @@ const vapidPath = () => join(dir(), "vapid.json");
 const subsPath = () => join(dir(), "subscriptions.json");
 
 // mailto:/https: subject the push service uses to contact us about abuse.
+// RFC 8292 accepts an https: URL, so the default names no person's inbox.
 const SUBJECT =
   process.env.LFG_VAPID_SUBJECT ||
-  `mailto:${process.env.LFG_VAPID_EMAIL || "itechbenny@gmail.com"}`;
+  (process.env.LFG_VAPID_EMAIL ? `mailto:${process.env.LFG_VAPID_EMAIL}` : "https://omg.dev");
 
 export type PushSubscription = {
   endpoint: string;

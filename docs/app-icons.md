@@ -13,10 +13,9 @@ The coding-agent avatar uses the previous cream mark on a dark brown tile.
 `web/public/agent-omg.svg` owns this separate artwork. The generator preserves
 its dark palette and transparent corners for the native 1x, 2x and 3x PNGs.
 
-Run `bun run icons` to generate the web icons, touch icon, documentation image,
-native launcher assets and coding-agent avatar PNGs. Run
+Run `bun run icons` to generate the web icons, touch icon, documentation image
+and the 1024 px desktop source icon (`desktop/icon.png`). Run
 `bun run icons --check` to check decoded pixels, dimensions and alpha contracts.
-`mobile/scripts/make-icons.py` forwards to this generator for old callers.
 
 Platform masks own launcher corners. The Apple PNG has no alpha channel.
 Android adaptive icons use a transparent orange foreground on a white
@@ -87,7 +86,7 @@ These failures remain outside this logo change.
 App Store status was read again after publication: 1.0.16 build 92 still waits
 for review; the public version remains 1.0.15. The new native launcher and
 extension artwork stays prepared for the next binary. The macOS icon generator
-also uses `mobile/assets/icon.png`, so its next build inherits this artwork. No review was restarted.
+uses the same 1024 px tile, now `desktop/icon.png`, so its next build inherits this artwork. No review was restarted.
 
 The hosted runtime bake check `38136184643` passed against the 0.6.221 pin.
 Its live registry result was `agent-lfg v338`, `agent-lfg-v338-51805b8a`,
