@@ -8486,15 +8486,16 @@ a{color:#60a5fa}
           pushback?: boolean;
           wait?: boolean;
           timeoutMs?: number;
-          secret?: { key?: unknown; cwd?: unknown; slug?: unknown } | null;
+          secret?: { key?: unknown; cwd?: unknown; slug?: unknown; saveToHosted?: unknown } | null;
         } | null;
         if (!b?.question?.trim()) return err(400, "missing question");
-        let secret: { key: string; cwd: string | null; slug: string | null } | undefined;
+        let secret: { key: string; cwd: string | null; slug: string | null; saveToHosted: boolean } | undefined;
         if (b.secret) {
-          const { validateEnvKey } = await import("../app-secrets.ts");
+          const { validateEnvKey, validateSaveToHosted } = await import("../app-secrets.ts");
           try {
             secret = {
               key: validateEnvKey(b.secret.key),
+              saveToHosted: validateSaveToHosted(b.secret.saveToHosted),
               cwd: typeof b.secret.cwd === "string" && b.secret.cwd.trim() ? b.secret.cwd.trim() : null,
               slug: typeof b.secret.slug === "string" && b.secret.slug.trim() ? b.secret.slug.trim() : null,
             };
@@ -8502,6 +8503,7 @@ a{color:#60a5fa}
             return err(400, e instanceof Error ? e.message : "bad secret key");
           }
           if (!secret.cwd && !secret.slug) return err(400, "a secret ask needs cwd or slug");
+          if (!secret.saveToHosted && !secret.cwd) return err(400, "a local-only secret needs a project folder");
           if (!b.sessionId) return err(400, "a secret ask needs sessionId");
         }
         const q = await addQuestion({
@@ -8665,7 +8667,7 @@ a{color:#60a5fa}
         }
       }
       // Answer a secure ask with its secret value. The value goes to the
-      // project's .env and to the hosted app's Cloud env, and nowhere else: the
+      // project's .env and optionally the hosted app's Cloud env. The
       // stored answer and the message to the agent carry the key name only.
       {
         const m = path.match(/^\/api\/ask\/([0-9a-f]+)\/secret$/);
@@ -8675,16 +8677,18 @@ a{color:#60a5fa}
           if (!pending) return err(404, "unknown question");
           if (!pending.secret) return err(400, "this question does not take a secret");
           if (pending.status !== "open") return err(409, "this question is already answered");
-          const { saveAppSecret, formatSecretSavedText } = await import("../app-secrets.ts");
+          const { saveAppSecret, formatSecretSavedText, validateSaveToHosted } = await import("../app-secrets.ts");
           const { createRuntimeAppsClient } = await import("../cloud-apps.ts");
           let saved;
           try {
+            const saveToHosted = validateSaveToHosted(pending.secret.saveToHosted);
             saved = await saveAppSecret({
+              saveToHosted,
               key: pending.secret.key,
               value: b?.value as string,
               cwd: pending.secret.cwd,
               slug: pending.secret.slug,
-              client: createRuntimeAppsClient({ getAccessToken: () => cloudAccount.getAccessToken() }),
+              client: saveToHosted ? createRuntimeAppsClient({ getAccessToken: () => cloudAccount.getAccessToken() }) : null,
             });
           } catch (e) {
             // Nothing was answered: the field stays open for another try.

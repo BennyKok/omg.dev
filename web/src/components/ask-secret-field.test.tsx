@@ -14,7 +14,7 @@ const SECRET = {
   id: "abc123",
   question: "Enter FISH_AUDIO_API_KEY (fish.audio > API Keys)",
   sessionId: "s1",
-  secret: { key: "FISH_AUDIO_API_KEY" },
+  secret: { key: "FISH_AUDIO_API_KEY", cwd: "/project" },
   createdAt: Date.now(),
 };
 
@@ -44,7 +44,7 @@ afterEach(() => {
 function setInput(input: HTMLInputElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
   setter.call(input, value);
-  input.dispatchEvent(new window.Event("input", { bubbles: true }));
+  ui.flush(() => input.dispatchEvent(new window.Event("input", { bubbles: true })));
 }
 
 test("a key request in the session shows a password field and saves through /secret", async () => {
@@ -60,7 +60,7 @@ test("a key request in the session shows a password field and saves through /sec
 
   setInput(input!, "fa_secret_1");
   await ui.flushAsync();
-  ui.query<HTMLButtonElement>('button[type="submit"]')!.click();
+  ui.flush(() => ui.query<HTMLButtonElement>('button[type="submit"]')!.click());
   await ui.flushAsync();
 
   const secretCalls = calls.filter((c) => c.url.endsWith("/api/ask/abc123/secret"));
@@ -114,4 +114,20 @@ test("the preview keeps underscores inside a key name and still strips emphasis"
   const { stripMd } = await import("./ask-center");
   expect(stripMd("Enter FISH_AUDIO_API_KEY (fish.audio)")).toBe("Enter FISH_AUDIO_API_KEY (fish.audio)");
   expect(stripMd("Use `MY_KEY` or _this_ or **that**")).toBe("Use MY_KEY or this or that");
+});
+
+// The agent owns the destination; answering only sends the secret value.
+test("a local-only request shows its destination and only submits the value", async () => {
+  open = [{ ...SECRET, secret: { ...SECRET.secret, saveToHosted: false } }];
+  ui.render(<AskProvider><SessionQuestionPanel sessionIds={["s1"]} /></AskProvider>);
+  await ui.flushAsync();
+  expect(ui.query('input[type="checkbox"]')).toBeNull();
+  expect(ui.text()).toContain("local use only");
+  setInput(ui.query<HTMLInputElement>('input[type="password"]')!, "local-secret");
+  await ui.flushAsync();
+  ui.flush(() => ui.query<HTMLButtonElement>('button[type="submit"]')!.click());
+  await ui.flushAsync();
+  expect(calls.filter((c) => c.url.endsWith("/secret")).map((c) => c.body))
+    .toEqual([{ value: "local-secret" }]);
+  expect(calls.some((c) => c.url.includes("/answer"))).toBe(false);
 });

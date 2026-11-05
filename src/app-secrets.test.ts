@@ -10,6 +10,7 @@ import {
   saveAppSecret,
   upsertDotenvText,
   validateEnvKey,
+  validateSaveToHosted,
 } from "./app-secrets.ts";
 
 let dir: string;
@@ -121,4 +122,48 @@ test("the message to the agent names the key and never holds the value", async (
   expect(text.startsWith("[env-set FISH_AUDIO_API_KEY]")).toBe(true);
   expect(text).toContain("process.env.FISH_AUDIO_API_KEY");
   expect(text).not.toContain("fa_secret_1");
+});
+
+// Regression: a local-only key must never reach an already linked app.
+test("local-only saves skip Cloud even with a linked app and explicit slug", async () => {
+  linkApp();
+  let calls = 0;
+  const saved = await saveAppSecret({
+    key: "LOCAL_TOKEN", value: "private-local-value", cwd: dir, slug: "voice",
+    saveToHosted: false, client: fakeClient(() => { calls++; }),
+  });
+  expect(calls).toBe(0);
+  expect(saved.cloud).toBe("skipped");
+  expect(saved.slug).toBeUndefined();
+  expect(readFileSync(join(dir, ".env"), "utf8")).toBe("LOCAL_TOKEN=private-local-value\n");
+  const text = formatSecretSavedText("abc123", saved);
+  expect(text).toContain("local use only");
+  expect(text).not.toContain("omg_app_env");
+  expect(text).not.toContain("omg_deploy");
+  expect(JSON.stringify(saved) + text).not.toContain("private-local-value");
+});
+
+test("local-only saves work without a Cloud client or linked app", async () => {
+  const saved = await saveAppSecret({ key: "K", value: "v", cwd: dir, saveToHosted: false, client: null });
+  expect(saved.cloud).toBe("skipped");
+  expect(readFileSync(join(dir, ".env"), "utf8")).toBe("K=v\n");
+});
+
+test("local-only requests require a folder even when an app slug is given", async () => {
+  let calls = 0;
+  await expect(saveAppSecret({
+    key: "K", value: "v", slug: "voice", saveToHosted: false,
+    client: fakeClient(() => { calls++; }),
+  })).rejects.toThrow("a local-only secret needs a project folder");
+  expect(calls).toBe(0);
+});
+
+test("an invalid hosted-save option cannot silently publish a key", () => {
+  expect(validateSaveToHosted(undefined)).toBe(true);
+  expect(validateSaveToHosted(undefined, false)).toBe(false);
+  expect(validateSaveToHosted(false)).toBe(false);
+  expect(validateSaveToHosted(true, false)).toBe(true);
+  for (const value of [null, "false", 0, {}]) {
+    expect(() => validateSaveToHosted(value)).toThrow("saveToHosted must be a boolean");
+  }
 });

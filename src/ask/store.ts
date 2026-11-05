@@ -27,6 +27,7 @@ export type AskSecret = {
   key: string;
   cwd?: string | null;
   slug?: string | null;
+  saveToHosted?: boolean;
 };
 
 export type AskQuestion = {

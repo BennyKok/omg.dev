@@ -40,7 +40,7 @@ export type Question = {
   agentId?: string | null;
   sessionId?: string | null;
   /** A secure ask: the answer is one env value, typed in a password field. */
-  secret?: { key: string } | null;
+  secret?: { key: string; saveToHosted?: boolean } | null;
   createdAt: number;
 };
 
@@ -219,7 +219,7 @@ export function AskProvider({ children }: { children: React.ReactNode }) {
   }, [settleLocally]);
 
   // The value goes to the runtime, which saves it to the project .env and the
-  // hosted app. It never enters the transcript, and the agent gets the key
+  // optional hosted app. It never enters the transcript, and the agent gets the key
   // name only.
   const submitSecret = useCallback(
     async (q: Question, value: string): Promise<boolean> => {
@@ -647,7 +647,9 @@ export function SecretField({ q }: { q: Question }) {
         </Button>
       </div>
       <p className="mt-1 text-[11px] text-muted-foreground">
-        Saved to the project .env and the hosted app. The agent sees the name only.
+        {q.secret?.saveToHosted !== false
+          ? "Saved to the project .env and any linked hosted app."
+          : "Saved to the project .env for local use only."} The agent sees the name only.
       </p>
     </form>
   );

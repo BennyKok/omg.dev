@@ -1,8 +1,8 @@
 // Save one secret (API key, internal API URL, token) for a user's app.
 //
 // The value arrives from the secure ask field and goes to two places: the
-// project's `.env`, so local dev and previews read it at once, and the hosted
-// app's Cloud env vars when the folder is linked to a deployed app. The value
+// project's `.env`, so local dev and previews read it at once, and optionally
+// the hosted app's Cloud env vars when the folder is linked to a deployed app. The value
 // is never returned, logged, or stored anywhere else. Callers get key names and
 // outcomes only.
 
@@ -15,6 +15,13 @@ import { resolveEnvTarget } from "./cloud-apps.ts";
 /** Same rule as a shell variable name, which is what the app will read. */
 export const ENV_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 export const MAX_SECRET_VALUE_BYTES = 16 * 1024;
+
+/** Omitted options preserve existing requests; invalid options must not publish a secret. */
+export function validateSaveToHosted(value: unknown, fallback = true): boolean {
+  if (value === undefined) return fallback;
+  if (typeof value !== "boolean") throw new Error("saveToHosted must be a boolean");
+  return value;
+}
 
 export function validateEnvKey(key: unknown): string {
   const trimmed = typeof key === "string" ? key.trim() : "";
@@ -80,8 +87,8 @@ export type SaveAppSecretResult = {
   localFile?: string;
   /** True when this call added `.env` to `.gitignore`. */
   gitignoreUpdated?: boolean;
-  /** set: Cloud has it. not-linked: no deployed app for this folder yet. failed: see cloudError. */
-  cloud: "set" | "not-linked" | "failed";
+  /** skipped: local only. set: Cloud has it. not-linked: no app yet. failed: see cloudError. */
+  cloud: "skipped" | "set" | "not-linked" | "failed";
   slug?: string;
   cloudError?: string;
 };
@@ -91,15 +98,18 @@ export async function saveAppSecret(input: {
   value: string;
   cwd?: string | null;
   slug?: string | null;
+  saveToHosted?: boolean;
   client: CloudAppsClient | null;
 }): Promise<SaveAppSecretResult> {
   const key = validateEnvKey(input.key);
   const value = validateSecretValue(input.value);
   const cwd = input.cwd?.trim() || "";
   const slug = input.slug?.trim() || "";
+  const saveToHosted = validateSaveToHosted(input.saveToHosted);
+  if (!saveToHosted && !cwd) throw new Error("a local-only secret needs a project folder");
   if (!cwd && !slug) throw new Error("the request has no project folder or app");
 
-  const result: SaveAppSecretResult = { key, cloud: "not-linked" };
+  const result: SaveAppSecretResult = { key, cloud: saveToHosted ? "not-linked" : "skipped" };
   if (cwd) {
     if (!existsSync(cwd)) throw new Error(`project folder not found: ${cwd}`);
     const file = join(cwd, ".env");
@@ -108,6 +118,8 @@ export async function saveAppSecret(input: {
     result.localFile = file;
     if (ensureDotenvIgnored(cwd)) result.gitignoreUpdated = true;
   }
+
+  if (!saveToHosted) return result;
 
   let target: { slug: string; projectId?: string } | null = null;
   try {
@@ -142,7 +154,9 @@ export function formatSecretSavedText(askId: string, saved: SaveAppSecretResult)
       `Saved to ${saved.localFile}${saved.gitignoreUpdated ? " and added .env to .gitignore" : ""}. Read it as process.env.${saved.key} on the server side; do not put it in client code.`,
     );
   }
-  if (saved.cloud === "set") {
+  if (saved.cloud === "skipped") {
+    parts.push("Saved for local use only. Do not copy this key to a hosted app unless the user asks.");
+  } else if (saved.cloud === "set") {
     parts.push(`Also set on hosted app ${saved.slug}. It applies on the next omg_deploy.`);
   } else if (saved.cloud === "not-linked") {
     parts.push("No hosted app is linked yet. After the first omg_deploy, call omg_app_env with action import to copy .env to the app.");
