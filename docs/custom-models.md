@@ -13,7 +13,7 @@ Create `~/.omg/models.json`:
     {
       "id": "pc",
       "name": "3060 Ti",
-      "baseURL": "http://100.79.118.10:8000/v1",
+      "baseURL": "http://100.64.0.10:8000/v1",
       "apiKey": "optional",
       "models": [
         { "id": "gemma-4-e4b", "context": 24576, "output": 4096, "input": ["text", "image"] }

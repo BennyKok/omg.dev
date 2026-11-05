@@ -36,7 +36,7 @@ function put(path: string, text: string) {
 const PC = {
   id: "pc",
   name: "3060 Ti",
-  baseURL: "http://100.79.118.10:8000/v1/",
+  baseURL: "http://100.64.0.10:8000/v1/",
   models: [{ id: "gemma-4-e4b", context: 24576, input: ["text", "image"] }],
 };
 const writeModels = (providers: unknown[]) => put(join(home, ".omg/models.json"), JSON.stringify({ providers }));
@@ -55,7 +55,7 @@ test("parse keeps valid providers and drops bad entries", () => {
     ],
   }));
   expect(providers).toEqual([
-    { id: "pc", name: "3060 Ti", baseURL: "http://100.79.118.10:8000/v1", models: [{ id: "gemma-4-e4b", context: 24576, input: ["text", "image"] }] },
+    { id: "pc", name: "3060 Ti", baseURL: "http://100.64.0.10:8000/v1", models: [{ id: "gemma-4-e4b", context: 24576, input: ["text", "image"] }] },
     { id: "qwen", baseURL: "https://h.example/v1", apiKey: "k", models: [{ id: "Qwen/Qwen3-8B", input: ["text"] }] },
   ]);
   expect(parseCustomModels("not json")).toEqual([]);
@@ -90,7 +90,7 @@ test("ensureCustomProviders writes OpenCode providers next to existing ones", ()
   expect(config.provider["custom-pc"]).toEqual({
     npm: "@ai-sdk/openai-compatible",
     name: "3060 Ti",
-    options: { baseURL: "http://100.79.118.10:8000/v1", apiKey: "none" },
+    options: { baseURL: "http://100.64.0.10:8000/v1", apiKey: "none" },
     models: {
       "gemma-4-e4b": {
         name: "gemma-4-e4b",
