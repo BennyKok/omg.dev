@@ -7,12 +7,12 @@ Standalone diagnostics also receive the event through `evlog`.
 Run the read-only production report:
 
 ```sh
-scripts/computer-resume-metrics.sh 7
+OMG_METRICS_SSH_TARGET=root@<metrics-host> scripts/computer-resume-metrics.sh 7
 ```
 
 The report shows daily and total sample counts, average, p50, and p95 in seconds.
 Failed and abandoned attempts are counted separately. Empty averages mean there
-are no completed samples. `OMG_METRICS_SSH_TARGET` overrides the metrics host.
+are no completed samples. `OMG_METRICS_SSH_TARGET` is required. It names the metrics host.
 
 The timer starts when the foreground app first observes a connection wait.
 It includes the time before the status endpoint identifies `paused` or `waking`.

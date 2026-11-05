@@ -53,7 +53,7 @@ test("timeout clears a stale number and retries with a fresh route", async () =>
 
 test("names known relay locations without exposing a grant URL", () => {
   expect(connectionRoute("wss://sessions.omgs.app/api/live/ws?secret=hidden")).toBe("Relay · Germany");
-  expect(connectionRoute("wss://dev-us.tail8c417.ts.net/api/live/ws")).toBe("Direct");
+  expect(connectionRoute("wss://my-box.tailnet01.ts.net/api/live/ws")).toBe("Direct");
   expect(connectionRoute("wss://sessions.omgs.app", true)).toBe("Cloud computer");
   expect(connectionRoute(undefined)).toBe("Connection");
 });
