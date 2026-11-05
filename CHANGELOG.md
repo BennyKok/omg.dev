@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## November 5, 2026 - Local-only secret keys (v0.6.358)
+
+- Agents can request a secret key for local use without setting it on a hosted app.
+- The secure input shows the destination chosen by the agent. You only enter the value.
+
 ## November 4, 2026 - Cloud Computers only (v0.6.357)
 
 - Personal computer connections have been removed. Use your cloud Computer.
