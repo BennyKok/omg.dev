@@ -2,7 +2,7 @@
 
 Read this first. The nightly librarian refreshes this file from merged pull
 requests. Verify a fact in code before you depend on it.
-Last refresh: 2026-11-04.
+Last refresh: 2026-11-05.
 
 ## Active work (last 14 days)
 
@@ -33,26 +33,23 @@ Last refresh: 2026-11-04.
 - **Cloud and apps**: payment setup and owner-name visibility are available
   from sessions (#457, #460). `omg deploy` works without a control-plane
   install (#482). Finding autopilot starts sessions for open findings (#490).
-- **Dependencies**: audit fixes and mobile install patches landed (#494).
+- **Runtime**: snapfork bases install nested Bun projects for forks to share (#497).
+- **Dependencies and security**: audit fixes and mobile install patches landed
+  (#494). A production host address and tailnet name were removed (#496).
 - **Release**: verified releases start the omg.dev pin update through
   `omg_pin` (#442–#444). Release failures no longer file issues (#485).
-  Nightly documentation refreshes continue (latest: #492).
+  Nightly documentation refreshes continue (latest: #495).
 
 ## Open pull requests
 
-- In progress: #393 (game sprites move each frame without a React redraw),
-  #417 (survive memory and inotify exhaustion from agent commands),
-  #484 (bound Computer navigation and recover a stuck agent view),
-  #488–#489 (session token security), #491 (Actions and release security).
-- Stale (no update for 30+ days): #252 (visual element inspection), #284
-  (auto-agent acting tools), #287 (film mode and page navigation).
-  Ask the owner before building on these.
+- In progress: #491 (Actions and release security), #498 (remove the native
+  app, legacy deploy templates, and internal files).
+- Stale (no update for 30+ days): none.
 
 ## Where things are
 
 - Ownership, task contract, verification, and release rules: `AGENTS.md`.
 - Hosted product, billing, and fleet: the `vibes` repository.
 - Native client: `mobile/` and `mobile/AGENTS.md`.
-- Design and protocol documents: `docs/`. Verify top `Status:` lines in code;
-  the team-tooling status still describes an earlier stage.
+- Design and protocol documents: `docs/`. Verify top `Status:` lines in code.
 - Old plans: `docs/archive/`. Search tools skip this history folder.
