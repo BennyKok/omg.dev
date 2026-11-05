@@ -69,33 +69,13 @@ export const LOCKFILE_BY_TOOL: Record<AuditTool, string> = {
  * new, it audits the root a second time under a different label. assertRootsAreDistinct()
  * below refuses to run in that state rather than reporting inflated coverage.
  *
- * A root also names the tool that can read it. `mobile` is not a member of the
- * root `workspaces` list, so nothing the root audit runs will ever see its
- * graph; it is audited as its own root.
- *
- * It used to be an npm root, and this comment used to say so — including that
- * the escape route once recorded against it, "convert it to bun.lock", "was
- * never going to happen". It happened: this branch converted the Expo app to
- * bun and deleted `mobile/package-lock.json`. Nobody moved the tool with it, so
- * `npm audit` was pointed at a lockfile that no longer existed and the gate died
- * with "This command requires an existing lockfile" on every PR in the mobile
- * stack. The coverage test had been saying exactly this the whole time —
- * `mobile/bun.lock` neither audited nor excluded — but a hard failure in the
- * audit step exits before the tests run, so the accurate message was never the
- * one anybody read.
- *
- * Two things worth keeping from that: a root's tool has to move when its
- * lockfile does, and a gate that dies before its own diagnostics run will
- * misreport why it is red.
+ * A root also names the tool that can read it. A project outside the root
+ * `workspaces` list has its own graph that the root audit never sees, so it
+ * must be listed here as its own root, with the tool that reads its lockfile.
+ * A root's tool has to move when its lockfile does.
  */
 export const AUDIT_ROOTS: { dir: string; why: string; tool: AuditTool }[] = [
   { dir: ".", why: "the workspace graph — the CLI, agent backends, packages/* and web/", tool: "bun" },
-  { dir: "mobile", why: "the Expo mobile app — its own graph, outside the root workspaces list", tool: "bun" },
-  {
-    dir: "mobile/docs/appstore-frames",
-    why: "the standalone App Store frame renderer — its own npm graph executes Playwright during asset production",
-    tool: "npm",
-  },
 ];
 
 /** The lockfile a configured root audits, relative to the repo root. */
@@ -465,7 +445,7 @@ async function auditRoot(root: { dir: string; tool: AuditTool }): Promise<Findin
   const { dir, tool } = root;
   const cwd = join(REPO_ROOT, dir);
   // npm needs --package-lock-only so it audits the committed lockfile rather
-  // than an installed tree: mobile/node_modules is not present in CI, and
+  // than an installed tree: node_modules is not present in CI, and
   // without the flag npm reports an empty graph there — which reads as "clean".
   const cmd = tool === "npm" ? ["npm", "audit", "--json", "--package-lock-only"] : ["bun", "audit", "--json"];
   const proc = Bun.spawn(cmd, { cwd, stdout: "pipe", stderr: "pipe" });

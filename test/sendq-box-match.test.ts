@@ -61,7 +61,7 @@ describe("boxTextMatches", () => {
     const full = norm(
       "[ask-user answer 45bd680b6a2b] The user replied while this question was open. " +
         "Question: Which path for benny@omg.dev Gmail? (Previous answer was empty.) " +
-        "A=switch native connector to benny@omg.dev. B=keep itechbenny + add second MCP. " +
+        "A=switch native connector to benny@omg.dev. B=keep the old account + add second MCP. " +
         "C=just send me the reconnect steps. " +
         "Their reply: B: keep both (second MCP) " +
         "If it answers the question, act on it now — it is the user's decision, and do not ask again.",
@@ -70,7 +70,7 @@ describe("boxTextMatches", () => {
     const partial =
       "[ask-user answer 45bd680b6a2b] The user replied while this question was open.\n" +
       "Question: Which path for benny@omg.dev Gmail? (Previous answer was empty.) " +
-      "A=switch native connector to benny@omg.dev. B=keep itechbenny + add second MCP. " +
+      "A=switch native connector to benny@omg.dev. B=keep the old account + add second MCP. " +
       "C=just send me the reconnect steps.";
     expect(norm(partial).includes(needle)).toBe(true); // head alone would have fired
     expect(boxTextMatches(partial, full, needle)).toBe(false);
@@ -80,7 +80,7 @@ describe("boxTextMatches", () => {
     const complete =
       "[ask-user answer 45bd680b6a2b] The user replied while this question was open.\n" +
       "Question: Which path for benny@omg.dev Gmail? (Previous answer was empty.) " +
-      "A=switch native connector to benny@omg.dev. B=keep itechbenny + add second MCP. " +
+      "A=switch native connector to benny@omg.dev. B=keep the old account + add second MCP. " +
       "C=just send me the reconnect steps.\n" +
       "Their reply: B: keep both (second MCP)\n" +
       "If it answers the question, act on it now — it is the user's decision, and do not ask again.";

@@ -6,10 +6,6 @@
  * in, an answered `omg_input` question, the launch prompt of a fork or a
  * continue, a bot rotation notice, a fired routine. Drawn as a sent bubble,
  * the marker is what the person sees.
- *
- * Keep this list in lockstep with mobile/src/omg/system-message.ts. The phone
- * owns the shapes; this copy is how the web transcript draws the same events.
- * test/system-message-parity.test.ts fails if they disagree.
  */
 
 import { parseOmgPromptEnvelope } from "./omg-prompt-envelope";

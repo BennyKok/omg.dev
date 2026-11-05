@@ -3,8 +3,7 @@
 set -euo pipefail
 
 DESKTOP_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-REPO_ROOT="$(cd "$DESKTOP_ROOT/.." && pwd)"
-SOURCE_ICON="$REPO_ROOT/mobile/assets/icon.png"
+SOURCE_ICON="$DESKTOP_ROOT/icon.png"
 ICONSET="$DESKTOP_ROOT/icon.iconset"
 
 command -v sips >/dev/null 2>&1 || {

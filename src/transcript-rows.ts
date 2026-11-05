@@ -265,8 +265,7 @@ export function buildChatRenderItems<T extends ChatRenderMessage>(messages: T[])
  * 11m" alone read as stuck. Only the tool NAME is on the wire during a run
  * (arguments load when the row is opened), so this maps names, across the
  * agents: Claude (Bash, Write), Codex (shell, apply_patch), OpenCode (bash,
- * write) and omg's own MCP tools. mobile/src/omg/work-label.ts keeps the same
- * table.
+ * write) and omg's own MCP tools.
  */
 export function workStepLabel(step: { kind?: string; name?: string | null } | null): string {
   if (!step) return "Working";

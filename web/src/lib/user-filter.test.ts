@@ -117,7 +117,7 @@ describe("hostedStartUserFilter", () => {
   const users = [{ email: "benny@example.com" }, { email: "angel@example.com" }];
 
   test("defaults a shared machine to the viewer's own sessions", () => {
-    expect(hostedStartUserFilter({ saved: null, viewerEmail: "ITechBenny@gmail.com", users }))
+    expect(hostedStartUserFilter({ saved: null, viewerEmail: "Benny@Example.com", users }))
       .toBe("benny@example.com");
   });
 

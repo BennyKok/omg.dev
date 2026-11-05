@@ -1,4 +1,3 @@
-// Keep behavior in sync with mobile/src/omg/chat-message-presentation.ts.
 const RECOVERY_MESSAGE = "The reply could not be completed. Please send your message again.";
 
 /** Old transcripts keep their diagnostic text on disk. Present a safe message. */

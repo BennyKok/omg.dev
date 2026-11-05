@@ -10,8 +10,8 @@ describe("OMG icon assets", () => {
     expect(source.match(/<rect/g)?.length ?? 0).toBeLessThan(12);
   });
 
-  test("ships the orange mark and white tile across web and native", async () => {
-    for (const file of ["web/public/icon.svg", "web/public/icon-512.png", "web/public/apple-touch-icon.png", "mobile/assets/icon.png"]) {
+  test("ships the orange mark and white tile across web and desktop", async () => {
+    for (const file of ["web/public/icon.svg", "web/public/icon-512.png", "web/public/apple-touch-icon.png", "desktop/icon.png"]) {
       const { data, info } = await sharp(file).resize(100, 100).removeAlpha().raw().toBuffer({ resolveWithObject: true });
       const pixel = (x: number, y: number) => [...data.subarray((y * info.width + x) * info.channels, (y * info.width + x) * info.channels + 3)];
       expect(pixel(0, 0)).toEqual([255, 255, 255]);
@@ -29,25 +29,6 @@ describe("OMG icon assets", () => {
     expect(pixel(50, 50)).toEqual([255, 85, 48, 255]);
     expect(pixel(50, 95)).toEqual([255, 85, 48, 255]);
     expect(pixel(73, 27)[3]).toBe(0);
-  });
-
-  test("keeps the coding-agent avatar cream on dark at every native scale", async () => {
-    for (const scale of [1, 2, 3]) {
-      const size = 32 * scale;
-      const file = `mobile/assets/agents/agent-omg${scale === 1 ? "" : `@${scale}x`}.png`;
-      const image = sharp(file);
-      const metadata = await image.metadata();
-      expect([metadata.width, metadata.height, metadata.hasAlpha]).toEqual([size, size, true]);
-      const { data, info } = await image.ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-      const pixel = (x: number, y: number) => [...data.subarray((y * info.width + x) * 4, (y * info.width + x) * 4 + 4)];
-      expect(pixel(0, 0)[3]).toBe(0);
-      expect(pixel(size / 2, size / 2)).toEqual([246, 242, 236, 255]);
-      const bite = pixel(Math.floor(size * 340 / 512), Math.floor(size * 169.3 / 512));
-      expect(Math.max(...bite.slice(0, 3))).toBeLessThan(80);
-      expect(bite[3]).toBe(255);
-      const expected = await sharp("web/public/agent-omg.svg", { density: 384 }).resize(size, size).ensureAlpha().raw().toBuffer();
-      expect(data.equals(expected)).toBe(true);
-    }
   });
 
   test("keeps the consolidated push-only service worker recovery invariants", async () => {

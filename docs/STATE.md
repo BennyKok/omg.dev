@@ -50,6 +50,6 @@ Last refresh: 2026-11-05.
 
 - Ownership, task contract, verification, and release rules: `AGENTS.md`.
 - Hosted product, billing, and fleet: the `vibes` repository.
-- Native client: `mobile/` and `mobile/AGENTS.md`.
+- Native client: removed from this repository on 2026-11-05.
 - Design and protocol documents: `docs/`. Verify top `Status:` lines in code.
 - Old plans: `docs/archive/`. Search tools skip this history folder.

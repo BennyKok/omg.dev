@@ -1,4 +1,4 @@
-/** Generate app tiles and the separate, quieter coding-agent avatar.
+/** Generate the app tiles for the web, the README and the desktop app.
  * bun run icons [--check]
  * --check compares decoded pixels and validates the native alpha contracts.
  */
@@ -9,7 +9,6 @@ import sharp from "sharp";
 const root = resolve(import.meta.dir, "..");
 const check = process.argv.includes("--check");
 const source = await readFile(resolve(root, "web/public/icon.svg"), "utf8");
-const avatar = await readFile(resolve(root, "web/public/agent-omg.svg"), "utf8");
 
 function variant({ scale = 1, transparent = false, monochrome = false } = {}): string {
   let svg = source;
@@ -56,8 +55,8 @@ for (const [file, size] of [
   ["web/public/icon-512.png", 512],
   ["web/public/apple-touch-icon.png", 180],
   ["docs/images/omg-icon.png", 192],
-  ["mobile/assets/icon.png", 1024],
-  ["mobile/assets/favicon.png", 96],
+  // Source for the macOS .icns (desktop/scripts/prepare-macos-icon.sh).
+  ["desktop/icon.png", 1024],
 ] as const) await pngOutput(file, source, size);
 await pngOutput("web/public/icon-maskable-512.png", safe, 512);
 // README mark: no white tile, which shows as a hard square on GitHub's dark
@@ -65,12 +64,4 @@ await pngOutput("web/public/icon-maskable-512.png", safe, 512);
 const readmeMark = variant({ scale: 1.3, transparent: true })
   .replace(' mask="url(#disc)"/>', ' mask="url(#disc)"/>\n    <circle cx="71" cy="29" r="14" fill="#FFFFFF"/>');
 await pngOutput("docs/images/omg-mark.png", readmeMark, 192, false);
-await pngOutput("mobile/assets/splash-icon.png", variant({ transparent: true }), 1024, false);
-await pngOutput("mobile/assets/android-icon-foreground.png", variant({ scale: .66, transparent: true }), 1024, false);
-await pngOutput("mobile/assets/android-icon-monochrome.png", variant({ scale: .66, transparent: true, monochrome: true }), 1024, false);
-// Android status icons use an alpha silhouette. A white app tile becomes a square.
-await pngOutput("mobile/assets/notification-icon.png", variant({ transparent: true, monochrome: true }), 96, false);
-for (const scale of [1, 2, 3]) {
-  await pngOutput(`mobile/assets/agents/agent-omg${scale === 1 ? "" : `@${scale}x`}.png`, avatar, 32 * scale, false);
-}
-console.log(`App tile, platform masks and avatar ${check ? "verified" : "generated"}`);
+console.log(`App tiles ${check ? "verified" : "generated"}`);

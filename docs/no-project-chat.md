@@ -19,7 +19,7 @@ The session's explicit `project: ""` means unassigned. A missing project field
 on a legacy record still falls back to its working directory. Live, historical,
 and resumed managed sessions must retain the explicit empty value.
 
-Release the runtime endpoint before the mobile client. An older runtime returns
+Release the runtime endpoint before any client that calls it. An older runtime returns
 404 for this endpoint. It must not silently create a chat in its default repo.
 This change does not add Tasks.
 
@@ -97,18 +97,11 @@ app identity. This is guidance for
 the selected coding agent, not a deterministic scaffold or deploy pipeline.
 Existing scratch instructions are preserved; new instructions apply to new chats.
 
-The project-creation simulator fixture registers a demo project while a chat
-is open. It exercises roster refresh and selection, not a real deployment.
-Use entry `scripts/project-creation-e2e-entry.tsx` and plan `project-creation`.
-
 ## Verification
 
 - `bun test src/no-project-chat.test.ts src/sessions-command-file-transcript.test.ts test/no-project-http.test.ts`
-- Run each `mobile/scripts/{project-filter,project-picker,home-composer}.native-check.*` separately with `bun test ./<path>`.
 - `bun test web/src/lib/project-filter.test.ts web/src/components/chat-starter-row.test.tsx`
-- Root and mobile TypeScript checks.
-- In `mobile/`, run `OMG_SIM_DEVICE="<isolated-simulator-name>" OMG_E2E_ENTRY_FILE=scripts/no-project-e2e-entry.tsx bun run test:e2e --build --plan no-project-chat --record`.
+- Root and web TypeScript checks.
 
-The simulator-only entry uses the full app with the demo transport. It does not
-contact a real computer or launch a paid agent. The HTTP test runs the actual
+The HTTP test runs the actual
 request handler with only agent spawning and the repo roster stubbed.

@@ -1,23 +1,20 @@
 # Provider and agent marks
 
-Audit date: 2026-10-11. Target: the existing web and mobile icon sets.
+Audit date: 2026-10-11. Target: the existing web icon set.
 This checks the identity and shape of each mark. The app uses monochrome
 provider marks so they remain legible in both themes.
 
 `web/src/lib/model-provider-icon-paths.ts` owns provider geometry.
-`bun scripts/generate-provider-icons.ts` generates all mobile sizes.
-`bun scripts/generate-provider-icons.ts --check` compares decoded pixels with
-that geometry. Mobile normalizes provider slugs in the same way as the web.
 
 | Provider | Reference | Result |
 | --- | --- | --- |
 | Anthropic | [Anthropic](https://www.anthropic.com/company) | Retain the A and diagonal lettermark. |
-| Callstack / Apex | [Official favicon](https://apex.callstack.com/favicon.png) | Retain the A lettermark. Add missing mobile assets. |
+| Callstack / Apex | [Official favicon](https://apex.callstack.com/favicon.png) | Retain the A lettermark. |
 | DeepSeek | [DeepSeek](https://www.deepseek.com/) | Retain the whale. |
 | MiniMax | [Official logo](https://www.minimax.io/assets/logo/minimax-horizontal-brand-black.webp) | Retain the waveform. |
 | OpenAI | [Brand guidelines](https://openai.com/brand/) | Retain the Blossom. |
 | Qwen | [Official Qwen Code mark](https://github.com/QwenLM/qwen-code/blob/main/packages/desktop/bootstrap/qwen-code-logo.svg) | Retain the three interlocking arrows. |
-| xAI | [Brand guidelines](https://x.ai/legal/brand-guidelines) | Replace the generic X with the xAI lettermark. Add missing mobile assets. |
+| xAI | [Brand guidelines](https://x.ai/legal/brand-guidelines) | Replace the generic X with the xAI lettermark. |
 | Z.ai | [Official logo](https://z-cdn.chatglm.cn/z-ai/static/logo.svg) | Retain the diagonal Z. |
 
 Anthropic, DeepSeek, MiniMax, OpenAI and Qwen vectors come from Simple Icons

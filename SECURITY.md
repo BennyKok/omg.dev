@@ -39,8 +39,7 @@ understand it before you run it anywhere shared.
 
 ## Dependency auditing
 
-`bun.lock` is the only lockfile that describes what we ship — the Dockerfile
-copies it, CI runs `bun install --frozen-lockfile`, and the service runs under
+`bun.lock` is the only lockfile that describes what we ship — CI runs `bun install --frozen-lockfile`, and the service runs under
 bun. **GitHub Dependabot cannot parse `bun.lock`**; it only understands
 `package-lock.json` / `yarn.lock` / `pnpm-lock.yaml`. Stale npm lockfiles used
 to sit in the repo, so Dependabot spent its time on a dependency graph nobody

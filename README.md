@@ -15,13 +15,10 @@ yourself for free.
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![GitHub release](https://img.shields.io/github/v/release/BennyKok/omg.dev?label=release)](https://github.com/BennyKok/omg.dev/releases)
 [![Download macOS desktop preview](https://img.shields.io/badge/Download-macOS%20desktop%20preview-000000?logo=apple&logoColor=white)](https://github.com/BennyKok/omg.dev/releases/download/desktop-preview/macos-arm64-omg.dev.dmg)
-[![App Store](https://img.shields.io/badge/App%20Store-omg.dev-0D96F6?logo=apple&logoColor=white)](https://apps.apple.com/us/app/omg-dev/id6800792515)
 [![Discord](https://img.shields.io/badge/Discord-join%20the%20community-5865F2?logo=discord&logoColor=white)](https://omg.dev/discord)
 
 <p align="center">
-  <img src="./docs/images/omg-chat.webp" alt="omg.dev showing a list of coding-agent sessions and an active agent transcript" width="70%" />
-  &nbsp;
-  <img src="./docs/images/ios/home.webp" alt="omg.dev iOS app home screen: agent sessions across several repositories" width="22%" />
+  <img src="./docs/images/omg-chat.webp" alt="omg.dev showing a list of coding-agent sessions and an active agent transcript" width="80%" />
 </p>
 
 ## Free or hosted
@@ -65,19 +62,6 @@ No local server. Runs in the cloud, opens in the browser. This is a paid
 service with a free plan. See [pricing](https://omg.dev/pricing).
 
 [**Start with a hosted Computer →**](https://app.omg.dev/)
-
-iPhone: [omg.dev on the App Store](https://apps.apple.com/us/app/omg-dev/id6800792515)
-
-## Pick a task. Put the phone down.
-
-Start a task from the app. Your agents work on your computer. You get a
-notification when it is done.
-
-<p align="center">
-  <img src="./docs/images/ios/home.webp" alt="omg.dev iOS: every task on one board" width="30%" />
-  <img src="./docs/images/ios/live-activity.webp" alt="omg.dev iOS Live Activity: agent sessions that need you, are working, or are done" width="30%" />
-  <img src="./docs/images/ios/widget.webp" alt="omg.dev iOS home-screen widget with a needs-you summary" width="30%" />
-</p>
 
 ## What you get
 

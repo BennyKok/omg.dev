@@ -4,12 +4,12 @@
 #
 #   OMG_API_KEY=omg_sk_... scripts/sync-bench-sandbox.sh [branch] [runs]
 #
-# OMG_BASE_URL defaults to https://infra.example.com. The branch must be pushed to
+# OMG_BASE_URL is required: the omg API base URL. The branch must be pushed to
 # github.com/BennyKok/omg.dev. Prints one JSON result per run. The key is sent
 # only as an Authorization header and is never printed.
 set -euo pipefail
 : "${OMG_API_KEY:?set OMG_API_KEY to an omg_sk_ key}"
-BASE="${OMG_BASE_URL:-https://infra.example.com}"
+BASE="${OMG_BASE_URL:?set OMG_BASE_URL to the omg API base URL}"
 BRANCH="${1:-$(git rev-parse --abbrev-ref HEAD)}"
 RUNS="${2:-3}"
 H=(-H "Authorization: Bearer $OMG_API_KEY" -H 'Content-Type: application/json')

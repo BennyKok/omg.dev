@@ -4,10 +4,8 @@
  * The composers write this token and agents read it, so the grammar must not
  * exist in two places. It lives in the protocol package because every
  * surface can reach it from here: the server and web through
- * `@omg-dev/protocol`, and the native app through a direct path into this
- * source tree (`mobile/metro.config.js` adds it to Metro's watch folders),
- * because `mobile/` consumes the published package and cannot wait for a
- * release to pick up a grammar change. No imports on purpose.
+ * `@omg-dev/protocol`. No imports on purpose, so a client can also load it
+ * by path without waiting for a release.
  *
  * Shape: `[#Session title](omg:session_1234abcd)`
  *

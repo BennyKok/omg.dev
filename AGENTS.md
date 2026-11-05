@@ -8,10 +8,8 @@ adapters, and local artifacts.
 
 It does not own the hosted omg.dev product, billing, account data, or
 Firecracker fleet. Those concerns belong in the `vibes` repository. The
-`mobile/` directory is the current source tree for the native omg.dev client.
-Its hosted authentication, billing, and product contracts belong in `vibes`.
-The separate `app-blocker` repository is a different product idea. More
-specific client instructions live in `mobile/AGENTS.md`.
+native iOS and Android client was removed from this repository on 2026-11-05.
+The separate `app-blocker` repository is a different product idea.
 
 ## Context and memory
 
@@ -265,7 +263,7 @@ tags, pushes, and publishes the GitHub release bundle.
 ## Dependency advisories
 
 `scripts/audit.ts` is the source of truth for dependency audits. It covers the
-Bun workspace and the separate npm graph in `mobile/`.
+Bun workspace.
 
 - Put accepted advisories in `scripts/audit-exceptions.json` with a reason and
   a hard `reviewBy` date.

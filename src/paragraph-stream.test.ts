@@ -1,10 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { settledParagraphs as web } from "../web/src/lib/paragraph-stream";
-import { settledParagraphs as mobile } from "../mobile/src/omg/paragraph-stream";
 
-for (const [name, settledParagraphs] of [["web", web], ["mobile", mobile]] as const) {
+for (const [name, settledParagraphs] of [["web", web]] as const) {
   describe(`settledParagraphs (${name})`, () => {
     test("holds a paragraph until it ends", () => {
       expect(settledParagraphs("Hello wor")).toBe("");
@@ -37,9 +34,3 @@ for (const [name, settledParagraphs] of [["web", web], ["mobile", mobile]] as co
     });
   });
 }
-
-test("web and mobile copies stay identical", () => {
-  const strip = (path: string) =>
-    readFileSync(join(import.meta.dir, "..", path), "utf8").replace(/^\/\/ Kept in sync with .*$/m, "");
-  expect(strip("mobile/src/omg/paragraph-stream.ts")).toBe(strip("web/src/lib/paragraph-stream.ts"));
-});
