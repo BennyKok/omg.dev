@@ -3,9 +3,9 @@ import { mount } from "../../web/src/test-support/render";
 import { expect, mock, test } from "bun:test";
 import * as React from "../../web/node_modules/react";
 import { resolve } from "node:path";
-mock.module(resolve(import.meta.dir, "../node_modules/react/index.js"), () => React);
+mock.module("react", () => React);
 const View = ({ children }: any) => <div>{children}</div>;
-mock.module(resolve(import.meta.dir, "../node_modules/react-native/index.js"), () => ({
+mock.module("react-native", () => ({
   View,
   ActivityIndicator: () => <span>busy</span>,
   StyleSheet: { hairlineWidth: 1 },
@@ -15,7 +15,7 @@ mock.module(resolve(import.meta.dir, "../node_modules/react-native/index.js"), (
     </button>
   ),
 }));
-mock.module(import.meta.resolve("expo-symbols"), () => ({ SymbolView: ({ name }: any) => <i>{name}</i> }));
+mock.module("expo-symbols", () => ({ SymbolView: ({ name }: any) => <i>{name}</i> }));
 mock.module(resolve(import.meta.dir, "../src/omg/text.tsx"), () => ({
   Text: View,
   TextInput: ({ value, onChangeText, secureTextEntry, accessibilityLabel }: any) => (
@@ -115,5 +115,21 @@ test("answers are lettered rows that carry their description and answer with the
     expect(ui.text()).not.toContain("NEEDS YOUR INPUT");
     rows[1]!.click();
     expect(answered).toEqual(["No"]);
+  } finally { ui.cleanup(); }
+});
+
+test("the agent's local-only request shows its destination and only asks for the value", async () => {
+  const ui = mount();
+  const saved: unknown[] = [];
+  try {
+    ui.render(<QuestionCard question="Enter K" options={[]} onAnswer={() => {}}
+      secretKey="K" secretSaveToHosted={false}
+      onSaveSecret={async (...args) => { saved.push(args); return true; }} />);
+    expect(ui.query('input[type="checkbox"]')).toBeNull();
+    expect(ui.text()).toContain("local use only");
+    await ui.flushAsync(() => typeInto(ui.query<HTMLInputElement>('input[type="password"]')!, "local-secret"));
+    await ui.flushAsync(() => ui.query<HTMLButtonElement>('button[aria-label="Save K"]')!.click());
+    expect(saved).toEqual([["local-secret"]]);
+    expect(ui.query<HTMLInputElement>('input[type="password"]')!.value).toBe("");
   } finally { ui.cleanup(); }
 });

@@ -1551,9 +1551,9 @@ export function buildOmgMcpServer(): McpServer {
   server.registerTool(
     "omg_app_env",
     {
-      title: "Manage A Hosted App's Env Vars And API Keys",
+      title: "Manage Env Vars And API Keys",
       description:
-        "Give an app its secrets (API keys, internal API URLs, tokens) as env vars. When the app needs a key the user has not given, use action request with one key: the user gets a password field in omg.dev, the value is saved to the project .env and to the hosted app, and you get a message with the key name only. Call request once per key, then end your turn and wait for the [env-set KEY] message. Never ask the user to paste a key in chat. .env files are never uploaded by omg_deploy. action import reads a .env file on this machine and sends it to Cloud, so values never appear in chat: prefer it. action set takes values directly; use it only for values the user already typed. action list shows key names with masked previews. action remove deletes keys. Changes apply on the next deploy, so call omg_deploy after. Never echo secret values back to the user. The app is the slug, else the one linked to cwd by .omg/project.json.",
+        "Give an app its secrets (API keys, internal API URLs, tokens) as env vars. When the app needs a key the user has not given, use action request with one key: the user gets a password field in omg.dev, the value is saved to the project .env and optionally to the hosted app, and you get a message with the key name only. For local tools or keys that must stay off the hosted app, use request with saveToHosted: false and cwd. This needs no hosted app or Cloud login. Choose the destination when requesting the key. The secure field shows that destination and only asks the user for the value. Call request once per key, then end your turn and wait for the [env-set KEY] message. Never ask the user to paste a key in chat. .env files are never uploaded by omg_deploy. action import reads a .env file on this machine and sends it to Cloud, so values never appear in chat: prefer it. action set takes values directly; use it only for values the user already typed. action list shows key names with masked previews. action remove deletes keys. Hosted changes apply on the next deploy. Local-only requests need no deploy or import. Never echo secret values back to the user. The app is the slug, else the one linked to cwd by .omg/project.json.",
       inputSchema: {
         action: z.enum(["request", "list", "import", "set", "remove"]),
         slug: z.string().optional().describe("App slug. Defaults to the app linked to cwd."),
@@ -1562,11 +1562,12 @@ export function buildOmgMcpServer(): McpServer {
         vars: z.record(z.string(), z.string()).optional().describe("set: KEY to value map."),
         keys: z.array(z.string()).optional().describe("remove: keys to delete."),
         key: z.string().optional().describe("request: the one env var name to ask for, e.g. FISH_AUDIO_API_KEY."),
+        saveToHosted: z.boolean().optional().describe("request: also save to the hosted app. Defaults to true. Set false for local-only use in cwd."),
         hint: z.string().max(200).optional().describe("request: where the user finds the value, e.g. fish.audio > API Keys."),
         sessionId: z.string().optional().describe("Session used to default cwd. Defaults to OMG_SESSION_ID."),
       },
     },
-    async ({ action, slug, cwd, file, vars, keys, key, hint, sessionId }) => {
+    async ({ action, slug, cwd, file, vars, keys, key, hint, saveToHosted, sessionId }) => {
       const sid = await activeSessionId(sessionId);
       let folder = cwd?.trim();
       if (!folder) {
@@ -1586,7 +1587,7 @@ export function buildOmgMcpServer(): McpServer {
             user: await questionUser(undefined, sid),
             pushback: true,
             wait: false,
-            secret: { key: name, cwd: target.cwd, slug: target.slug },
+            secret: { key: name, cwd: target.cwd, slug: target.slug, saveToHosted },
           }),
         });
         return result({

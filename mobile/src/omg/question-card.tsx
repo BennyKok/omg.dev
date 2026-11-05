@@ -32,6 +32,7 @@ export function QuestionCard({
   onAnswer,
   onDismiss,
   secretKey,
+  secretSaveToHosted = true,
   onSaveSecret,
 }: {
   question?: string | null;
@@ -43,6 +44,7 @@ export function QuestionCard({
   onDismiss?: () => void;
   /** Set for a secure ask: shows a password field instead of the composer. */
   secretKey?: string | null;
+  secretSaveToHosted?: boolean;
   onSaveSecret?: (value: string) => Promise<boolean>;
 }) {
   const { colors, type, space } = useTheme();
@@ -160,7 +162,9 @@ export function QuestionCard({
             </Pressable>
           </View>
           <Text style={{ ...type.caption, color: colors.textMuted }}>
-            Saved to the project .env and the hosted app. The agent sees the name only.
+            {secretSaveToHosted
+              ? "Saved to the project .env and any linked hosted app."
+              : "Saved to the project .env for local use only."} The agent sees the name only.
           </Text>
         </View>
       ) : null}

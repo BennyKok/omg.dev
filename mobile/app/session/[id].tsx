@@ -114,7 +114,7 @@ export type AskQuestion = {
   options?: string[];
   sessionId?: string | null;
   /** A secure ask: one env value typed into a password field, never the composer. */
-  secret?: { key: string } | null;
+  secret?: { key: string; saveToHosted?: boolean } | null;
   createdAt: number;
 };
 /** Same cadence as the web's ask center. */
@@ -639,7 +639,7 @@ function SessionScreenContent({
   );
   /**
    * Save a secure ask's value. It goes to the machine, which writes the
-   * project .env and the hosted app; the agent gets the key name only.
+   * project .env and optionally the hosted app; the agent gets the key name only.
    * Returns false when the save failed, so the field keeps what was typed.
    */
   const saveSecret = useCallback(
@@ -2335,6 +2335,7 @@ function SessionScreenContent({
                     }}
                     onDismiss={() => void dismissAsk(q)}
                     secretKey={q.secret?.key}
+                    secretSaveToHosted={q.secret?.saveToHosted}
                     onSaveSecret={(value) => saveSecret(q, value)}
                   />
                 ))}
