@@ -24,23 +24,23 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Every release waits for Benny's approval in the "release" environment,
+    # which only accepts v* tags. npm trusted publishing is bound to this
+    # environment, so a run from any other ref cannot publish packages.
+    # Start a manual run from the tag ("Use workflow from: v1.2.3").
+    environment: release
     env:
       # `secrets` is not allowed in step `if:` — surface them as env first.
       NPM_REGISTRY: ${{ secrets.NPM_REGISTRY }}
       NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-      # Publishing to npmjs is a different credential from NPM_TOKEN, which
-      # authenticates *reads* against the private provider registry. Keeping
-      # them separate means a read token can never publish, and the publish
-      # token is never written into the default registry config.
-      NPM_PUBLISH_TOKEN: ${{ secrets.NPM_PUBLISH_TOKEN }}
       # Fine-grained token with Actions: write on BennyKok/vibes. It only
       # starts that repository's "Update LFG app" workflow (see the last step).
       VIBES_DISPATCH_TOKEN: ${{ secrets.VIBES_DISPATCH_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Install Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: latest
 
@@ -96,32 +96,29 @@ jobs:
       # manual dispatch that passes `tag` is a real release and must publish,
       # and testing only github.ref would silently skip it.
       #
-      # A missing token warns instead of skipping silently. Gating the whole
-      # step on the secret would mean a release that quietly ships no packages
-      # and a green checkmark saying it worked — the release log has to say why
-      # nothing was published.
+      # Publishing uses npm trusted publishing (OIDC). There is no long-lived
+      # npm token: each @omg-dev/* package on npmjs.com trusts only
+      # BennyKok/omg.dev, workflow release.yml, environment "release". npm
+      # exchanges this job's id-token for a short-lived publish credential and
+      # attaches provenance automatically. Trusted publishing needs npm 11.5.1+.
+      - name: Install npm with trusted publishing support
+        if: ${{ startsWith(inputs.tag || github.ref_name, 'v') }}
+        run: npm install -g npm@^11.5.1 && npm --version
+
       - name: Publish packages to npm
         if: ${{ startsWith(inputs.tag || github.ref_name, 'v') }}
         run: |
           set -euo pipefail
-          if [ -z "${NPM_PUBLISH_TOKEN:-}" ]; then
-            echo "::warning title=npm publish skipped::NPM_PUBLISH_TOKEN is not set, so @omg-dev/* was NOT published for this tag. Add the secret and re-run this workflow to publish."
-            exit 0
-          fi
           REG="https://registry.npmjs.org/"
-          # Job-local userconfig, never the shared ~/.npmrc: the private-registry
-          # step above owns that file, and this token must not end up as the
-          # default credential for every later command.
+          # Job-local userconfig with no token, never the shared ~/.npmrc: the
+          # private-registry step above owns that file, and its read token must
+          # not be offered to npmjs.
           #
           # This repository now publishes @omg-dev/cli 0.5.0+ (the control-plane
           # bootstrapper). BennyKok/vibes used to publish 0.4.x — the retired
           # prompt-to-app CLI — into the same name. Do not publish 0.4.x again.
           NPMRC="$RUNNER_TEMP/.npmrc.publish"
-          printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_PUBLISH_TOKEN" > "$NPMRC"
-          chmod 600 "$NPMRC"
-          # Fail fast and legibly on a bad or expired token, rather than
-          # discovering it as an opaque 401 partway through the loop.
-          npm whoami --userconfig "$NPMRC" --registry "$REG"
+          : > "$NPMRC"
 
           # Dependency order, not glob order. `dist/omg-dev-*.tgz` expands
           # alphabetically to app, client, protocol, react — publishing app
@@ -162,7 +159,7 @@ jobs:
 
       - name: Publish release
         id: publish
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           # Stable asset name: /releases/latest/download/omg-bundle.tar.gz.
           # lfg-bundle.tar.gz is the same tarball under its pre-rename name —
