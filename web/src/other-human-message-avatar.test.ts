@@ -179,7 +179,7 @@ describe("grouping: consecutive other-human beats hide repeated name+face", () =
   // rather than `items` directly. The run-edge derivation inside it is
   // unchanged, which is what this block is about.
   const loop = APP.slice(
-    APP.indexOf("{virtualRows.map((virtualRow) =>"),
+    APP.indexOf("{virtualSlots.map((slot) =>"),
     APP.indexOf("<TypingIndicator"),
   );
   const bubble = APP.slice(APP.indexOf("function MessageBubble("), APP.indexOf("function botVisibleUserText("));

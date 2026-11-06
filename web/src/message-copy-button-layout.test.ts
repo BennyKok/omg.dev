@@ -142,7 +142,7 @@ describe("consecutive messages keep one consistent vertical rhythm", () => {
   });
 
   test("only a speaker change adds anything on top of that gap", () => {
-    const loop = APP.slice(APP.indexOf("{virtualRows.map((virtualRow) =>"));
+    const loop = APP.slice(APP.indexOf("{virtualSlots.map((slot) =>"));
     const spacing = loop.slice(0, loop.indexOf("{item.type ==="));
     expect(spacing).toContain('cn("pb-2", speakerChanged && "pt-2.5")');
     // No second, per-message spacing source: same-speaker rows get the row's

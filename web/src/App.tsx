@@ -563,7 +563,8 @@ import {
   pretextMeasurer,
   useChatMarkdownMetrics,
 } from "./lib/markdown-metrics";
-import { useVirtualizer, type Range } from "@tanstack/react-virtual";
+import { type Range } from "@tanstack/react-virtual";
+import { FLOW_GAP_ATTR, flowSlots, useFlowVirtualizer } from "./lib/flow-virtualizer";
 import { remeasureChatRows } from "./lib/remeasure-chat-rows";
 import { chatRowHeightKey, chatRowHeights } from "./lib/row-height-cache";
 import { useChatItemKey } from "./lib/chat-item-keys";
@@ -20974,7 +20975,10 @@ const ChatStream = memo(function ChatStream({
   );
 
   const getItemKey = useChatItemKey(items);
-  const virtualizer = useVirtualizer({
+  // Set once holdAnchor exists further down; the virtualizer calls it when a
+  // mounted row changes height.
+  const holdAnchorRef = useRef<((source: "commit" | "resize") => void) | null>(null);
+  const virtualizer = useFlowVirtualizer({
     count: items.length,
     getScrollElement: () => ref.current,
     estimateSize,
@@ -20983,13 +20987,10 @@ const ChatStream = memo(function ChatStream({
     overscan: 6,
     scrollMargin,
     scrollToFn: noVirtualizerScroll,
-    // Scrolling alone does not change a row's offset, only which rows are
-    // mounted. With direct updates the virtualizer writes row offsets and the
-    // container height itself, and re-renders this component only when the
-    // mounted range or the scrolling flag changes. Before, every scroll event
-    // re-rendered the whole transcript frame.
-    directDomUpdates: true,
-    directDomUpdatesMode: "transform",
+    onItemResize: () => holdAnchorRef.current?.("resize"),
+    // Rows sit in normal flow; the virtualizer only sizes the gaps for rows
+    // that are not mounted, and re-renders this component only when the
+    // mounted range or the scrolling flag changes. See lib/flow-virtualizer.
   });
   // Not an option, an instance field: the library reads it directly.
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = () => false;
@@ -21019,6 +21020,7 @@ const ChatStream = memo(function ChatStream({
 
   const virtualRows = virtualizer.getVirtualItems();
   const totalSize = virtualizer.getTotalSize();
+  const virtualSlots = flowSlots(virtualRows, totalSize, scrollMargin);
   const attachVirtualContainer = useCallback(
     (node: HTMLDivElement | null) => {
       virtualContainerRef.current = node;
@@ -21733,9 +21735,17 @@ const ChatStream = memo(function ChatStream({
   // viewport moved, and one identified row has to be held still. Both go
   // through this effect, because AGENTS.md forbids a second source of truth
   // and scroll position already has an owner here.
-  useLayoutEffect(() => {
+  //
+  // It runs from two places. After a commit, as a layout effect. And from the
+  // virtualizer's resize path: rows sit in normal flow (lib/flow-virtualizer),
+  // so a row above the fold that grows moves the text below it at once, in
+  // the same frame, without any React render. Holding the anchor from the
+  // ResizeObserver callback corrects that before it is painted. The resize
+  // path never consumes a requested prepend hold; the commit owns that.
+  const holdAnchor = useCallback((source: "commit" | "resize") => {
     const el = ref.current;
     if (!el) return;
+    if (source === "resize" && preserveScrollRef.current) return;
     const requested = preserveScrollRef.current;
     preserveScrollRef.current = null;
     // While stuck to the bottom the glide owns the viewport; holding an old
@@ -21801,7 +21811,11 @@ const ChatStream = memo(function ChatStream({
     // Our write, not theirs: the event this raises must not move the mode.
     userDrivenRef.current = false;
     anchorRef.current = { key: anchor.anchorKey, offset: anchor.anchorOffset };
-  }, [visibleMessages, totalSize, stick, indexByKey, virtualizer, captureAnchor]);
+  }, [stick, indexByKey, virtualizer, captureAnchor]);
+  holdAnchorRef.current = holdAnchor;
+  useLayoutEffect(() => {
+    holdAnchor("commit");
+  }, [visibleMessages, totalSize, holdAnchor]);
 
   // A transcript that does not overflow sits at scrollTop 0 *and* at the
   // bottom, so no gesture can ever ask for more of it. The old guard refused
@@ -21934,17 +21948,32 @@ const ChatStream = memo(function ChatStream({
               Loading older messages
             </div>
           ) : null}
-          {/* The virtual window. Rows are absolutely positioned, so the flex
-              gap that used to separate them no longer applies — each row
-              carries it as its own bottom padding instead, which also means
-              the DOM measurement of a row includes exactly what the model
-              predicts for it. */}
+          {/* The virtual window. Mounted rows sit in normal flow, so the
+              browser stacks them and two rows can never overlap; only the
+              gaps standing in for unmounted rows are sized from the model.
+              Each row carries its spacing as its own padding, so the DOM
+              measurement of a row includes exactly what the model predicts
+              for it. */}
           <div
             ref={attachVirtualContainer}
-            className="relative w-full"
-            style={{ height: `${totalSize}px` }}
+            // A flex column, not a block: each row is then its own formatting
+            // context, as an absolutely positioned row was, so a child's
+            // margin can never collapse through the row and make its DOM
+            // height differ from what the model predicts.
+            className="flex w-full flex-col"
           >
-            {virtualRows.map((virtualRow) => {
+            {virtualSlots.map((slot) => {
+              if (slot.kind === "gap") {
+                return (
+                  <div
+                    key={slot.key}
+                    aria-hidden
+                    {...{ [FLOW_GAP_ATTR]: slot.key }}
+                    style={{ height: `${slot.size}px` }}
+                  />
+                );
+              }
+              const virtualRow = slot.item;
               const index = virtualRow.index;
               const item = items[index];
               if (!item) return null;
@@ -21970,15 +21999,6 @@ const ChatStream = memo(function ChatStream({
                   data-find-hit={findHitRow === index ? "true" : undefined}
                   ref={virtualizer.measureElement}
                   className={cn("pb-2", speakerChanged && "pt-2.5")}
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    width: "100%",
-                    // The same string the virtualizer writes on scroll (see
-                    // directDomUpdates), so React and it never disagree.
-                    transform: `translate3d(0, ${virtualRow.start - scrollMargin}px, 0)`,
-                  }}
                 >
                   {item.type === "tools" ? (
                     <>
