@@ -103,7 +103,13 @@ jobs:
       # attaches provenance automatically. Trusted publishing needs npm 11.5.1+.
       - name: Install npm with trusted publishing support
         if: ${{ startsWith(inputs.tag || github.ref_name, 'v') }}
-        run: npm install -g npm@^11.5.1 && npm --version
+        # Into a runner-owned prefix: the image's global prefix (/usr/local) is
+        # not writable by the runner user (EACCES on /usr/local/share/man).
+        run: |
+          prefix="$RUNNER_TEMP/npm-cli"
+          npm install --global --prefix "$prefix" npm@^11.5.1
+          echo "$prefix/bin" >> "$GITHUB_PATH"
+          "$prefix/bin/npm" --version
 
       - name: Publish packages to npm
         if: ${{ startsWith(inputs.tag || github.ref_name, 'v') }}

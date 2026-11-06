@@ -2,7 +2,7 @@
 
 Recent product updates and deployment notes.
 
-## November 6, 2026 - Verified npm packages (v0.6.360)
+## November 6, 2026 - Verified npm packages (v0.6.361)
 
 - The `@omg-dev` npm packages are now published only by the approved GitHub release workflow, with npm provenance. npm shows the source commit and workflow for each version.
 
