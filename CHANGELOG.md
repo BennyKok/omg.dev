@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## November 6, 2026 - Snapshot workspaces use less disk (v0.6.359)
+
+- With Snapshot workspaces on (Settings > Advanced), sessions now share the installed packages of folders that have their own lockfile, such as a mobile app or a template. Before, each session that installed them kept its own full copy, often more than 1 GB.
+- A session installs such a folder again only when it changed that folder's lockfile or package.json.
+
 ## November 5, 2026 - Local-only secret keys (v0.6.358)
 
 - Agents can request a secret key for local use without setting it on a hosted app.
