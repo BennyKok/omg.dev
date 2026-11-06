@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## November 6, 2026 - Verified npm packages (v0.6.360)
+
+- The `@omg-dev` npm packages are now published only by the approved GitHub release workflow, with npm provenance. npm shows the source commit and workflow for each version.
+
 ## November 6, 2026 - Snapshot workspaces use less disk (v0.6.359)
 
 - With Snapshot workspaces on (Settings > Advanced), sessions now share the installed packages of folders that have their own lockfile, such as a mobile app or a template. Before, each session that installed them kept its own full copy, often more than 1 GB.
