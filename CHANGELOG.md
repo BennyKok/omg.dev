@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## November 7, 2026 - Chat text no longer overlaps (v0.6.362)
+
+- In a long chat, messages sometimes drew on top of each other. This happened most when a reply, a card or an image grew after it was shown. Messages on screen now stack in normal page order, so they cannot overlap.
+- When a message above the screen grows, the text that you read stays in place.
+
 ## November 6, 2026 - Verified npm packages (v0.6.361)
 
 - The `@omg-dev` npm packages are now published only by the approved GitHub release workflow, with npm provenance. npm shows the source commit and workflow for each version.
