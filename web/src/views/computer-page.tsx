@@ -29,6 +29,7 @@ import { omgFetch } from "@/lib/omg-client";
 import { computerStartErrorMessage } from "@/lib/computer-start-error";
 import { computerConnection } from "@/lib/computer-connection-instance";
 import { dispatchComputerMouse } from "@/lib/computer-pointer";
+import { ComputerVoxlScreen } from "@/components/computer-voxl-screen";
 
 interface DepReport {
   ok: boolean;
@@ -45,6 +46,8 @@ interface ComputerStatus {
   height: number;
   startedAt: number | null;
   deps: DepReport;
+  /** "voxl" when the box opted in to the faster stream (OMG_COMPUTER_STREAM). */
+  stream?: "vnc" | "voxl";
 }
 
 type Phase = "idle" | "starting" | "connecting" | "live" | "stopping";
@@ -188,9 +191,12 @@ export function ComputerPage({
 
   // Connect once the desktop is up and this view is on screen. A connection
   // another view (or this one, a moment ago) left open is reused as is.
+  // The full page uses voxl instead when the box opted in; the inline view
+  // stays on noVNC.
+  const voxl = !inline && status?.stream === "voxl";
   useEffect(() => {
-    if (active && status?.running) void computerConnection.connect();
-  }, [active, status?.running]);
+    if (active && status?.running && !voxl) void computerConnection.connect();
+  }, [active, status?.running, voxl]);
 
   // In a transcript the wheel belongs to the chat until you click into the
   // screen. noVNC takes every wheel event on its canvas, so without this the
@@ -400,8 +406,9 @@ export function ComputerPage({
           over the canvas, which otherwise eats the right-click gesture. */}
       <div
         ref={screenRef}
-        className="absolute inset-0 touch-none select-none [-webkit-touch-callout:none] [overscroll-behavior:none]"
+        className={`absolute inset-0 touch-none select-none [-webkit-touch-callout:none] [overscroll-behavior:none]${voxl ? " hidden" : ""}`}
       />
+      {voxl && running ? <ComputerVoxlScreen active={active} viewOnly={viewOnly} /> : null}
 
       {/* Trackpad surface. Mounted only while controlling AND on a finger, so a
           mouse keeps absolute pointing and reaches noVNC's own handlers
@@ -420,7 +427,7 @@ export function ComputerPage({
             Tap to use the Computer
           </span>
         </button>
-      ) : running && !viewOnly && trackpad ? (
+      ) : running && !viewOnly && trackpad && !voxl ? (
         <div
           ref={overlayRef}
           className="absolute inset-0 z-[6] touch-none select-none"
@@ -515,8 +522,9 @@ export function ComputerPage({
             </Button>
             {/* Keyboard is visible whether or not you have taken control, and
                 takes control itself when used. Hiding it until you are already
-                controlling made it undiscoverable. */}
-            <>
+                controlling made it undiscoverable. The noVNC-only controls
+                are hidden on the voxl stream, which has its own. */}
+            {voxl ? null : <>
                 <Button
                   variant="secondary"
                   size="icon-sm"
@@ -527,7 +535,6 @@ export function ComputerPage({
                 >
                   <Keyboard className="size-3.5" />
                 </Button>
-            </>
             <Button
               variant="secondary"
               size="icon-sm"
@@ -561,6 +568,7 @@ export function ComputerPage({
             >
               <RotateCcw className="size-3.5" />
             </Button>
+            </>}
             {onExpand ? (
               <Button
                 variant="secondary"
@@ -600,7 +608,7 @@ export function ComputerPage({
       {/* Connecting covers a real gap: the desktop can be up while the RFB
           handshake is still running, so without this the page is just black
           and reads as broken. */}
-      {running && phase !== "live" && !error ? (
+      {running && phase !== "live" && !error && !voxl ? (
         <div className="pointer-events-none absolute inset-0 z-[5] flex items-center justify-center">
           <div className="flex items-center gap-2 rounded-full bg-card/90 px-4 py-2 text-sm shadow-lg backdrop-blur">
             <Loader2 className="size-4 animate-spin" />

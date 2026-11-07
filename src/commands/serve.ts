@@ -437,8 +437,11 @@ import { coldResumeContainment, type ColdResumeContainment, commandFileHarnessIs
 import { resolveResumeModel } from "../resume-model.ts";
 import { PtyBridge, termSessionName } from "../pty.ts";
 import { RfbBridge } from "../computer/rfb-bridge.ts";
+import { VoxlBridge } from "../computer/voxl-bridge.ts";
+import { computerStream, ensureVoxl, stopVoxl } from "../computer/voxl.ts";
 import { computerKiosk } from "../computer/kiosk.ts";
 import {
+  desktopConfig,
   desktopStatus,
   ensureDesktopAdopted,
   startDesktop,
@@ -4419,12 +4422,17 @@ const computerBridges = new WeakMap<object, RfbBridge>();
 // no viewer can be holding a key on purpose. Any key still down is stuck, so
 // it is released (see releaseHeldInput).
 let computerViewers = 0;
+// The voxl stream of the same screen (see computer/voxl.ts), when this box
+// opts in with OMG_COMPUTER_STREAM=voxl.
+type ComputerVoxlSocketData = { computerVoxl: true };
+const voxlBridges = new WeakMap<object, VoxlBridge>();
 
 type AppSocketData =
   | TermSocketData
   | SttStreamSocketData
   | LiveWsSocketData
-  | ComputerSocketData;
+  | ComputerSocketData
+  | ComputerVoxlSocketData;
 
 // Parse a terminal dimension from a query param, clamped to a sane range so a
 // bogus value can't allocate an absurd pty winsize.
@@ -4571,6 +4579,24 @@ export async function cmdServe() {
           void bridge.open();
           return;
         }
+        // voxl socket: bridge to voxl on loopback, which the route below
+        // already started for this desktop.
+        if ((ws.data as unknown as ComputerVoxlSocketData)?.computerVoxl) {
+          const display = desktopConfig()?.display;
+          if (display === undefined) {
+            try {
+              ws.close();
+            } catch {}
+            return;
+          }
+          const bridge = new VoxlBridge(ws as unknown as ServerWebSocket<unknown>, {
+            endpoint: ensureVoxl(display),
+            onClose: () => voxlBridges.delete(ws),
+          });
+          voxlBridges.set(ws, bridge);
+          void bridge.open();
+          return;
+        }
         // Streaming-STT bridge socket: open the upstream realtime-STT bridge and
         // pipe its results back as {partial,final} text frames. Built synchronously
         // (the bridge queues outbound audio until its upstream connects), so the
@@ -4660,6 +4686,11 @@ export async function cmdServe() {
           if (typeof message !== "string") computerBridge.write(message as Uint8Array);
           return;
         }
+        const voxlBridge = voxlBridges.get(ws);
+        if (voxlBridge) {
+          voxlBridge.write(message as string | Uint8Array);
+          return;
+        }
         // Streaming-STT bridge: binary frames are raw 16 kHz PCM; text frames are
         // the worker's {"type":"flush"|"eof"} control messages.
         const sttTake = sttTakes.get(ws);
@@ -4705,6 +4736,12 @@ export async function cmdServe() {
         if (computerBridge) {
           computerBridges.delete(ws);
           computerBridge.close();
+          return;
+        }
+        const voxlBridge = voxlBridges.get(ws);
+        if (voxlBridge) {
+          voxlBridges.delete(ws);
+          voxlBridge.close();
           return;
         }
         // Streaming-STT bridge: tear the upstream realtime-STT socket down.
@@ -4939,7 +4976,7 @@ export async function cmdServe() {
         // kept running, and reporting "stopped" for a live screen is worse
         // than the extra probe costs.
         await ensureDesktopAdopted();
-        return json(desktopStatus());
+        return json({ ...desktopStatus(), stream: computerStream() });
       }
 
       if (path === "/api/computer/start" && req.method === "POST") {
@@ -4961,6 +4998,7 @@ export async function cmdServe() {
       }
 
       if (path === "/api/computer/stop" && req.method === "POST") {
+        stopVoxl();
         await stopDesktop();
         return json(desktopStatus());
       }
@@ -5336,6 +5374,24 @@ export async function cmdServe() {
           data: { computer: true } satisfies ComputerSocketData,
         });
         if (ok) return undefined; // upgraded — Bun takes over the socket
+        return err(400, "expected a websocket upgrade");
+      }
+
+      // The voxl stream of the same screen, only when this box opted in.
+      if (path === "/api/computer/voxl") {
+        await ensureDesktopAdopted();
+        if (computerStream() !== "voxl") return err(404, "the voxl stream is not enabled");
+        const display = desktopConfig()?.display;
+        if (display === undefined) return err(409, "the computer is not running");
+        try {
+          await ensureVoxl(display);
+        } catch (e) {
+          return err(503, e instanceof Error ? e.message : "voxl did not start");
+        }
+        const ok = server.upgrade(req, {
+          data: { computerVoxl: true } satisfies ComputerVoxlSocketData,
+        });
+        if (ok) return undefined;
         return err(400, "expected a websocket upgrade");
       }
 
