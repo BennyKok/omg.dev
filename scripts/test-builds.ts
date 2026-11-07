@@ -45,35 +45,6 @@ export const TEST_BUILDS = [
   },
 ] as const;
 
-/**
- * The prebuilt `@omg-dev/app` embed bundle.
- *
- * Deliberately NOT in TEST_BUILDS. This one output is a full vite build that
- * peaks at 1.7 GB resident and takes ~30 s, and it lists `web/src` as an
- * input — so every edit to the UI marked it stale and every `bun run test`
- * rebuilt it. With several worktrees testing at once that is the memory
- * spike, not a disk problem: bun hardlinks packages from the global cache,
- * so a worktree's node_modules costs almost no incremental disk.
- *
- * It still has to run before the tarball ships. `bun run test:embed` builds
- * it and runs the smoke, and release.yml calls that on the publish path.
- */
-export const EMBED_TEST_BUILDS = [
-  ...TEST_BUILDS,
-  {
-    output: "web/dist-lib/index.js",
-    build: ["run", "--cwd", "web", "build:lib"],
-    inputs: [
-      "package.json",
-      "web/src",
-      "web/package.json",
-      "web/tsconfig.json",
-      "web/vite.lib.config.ts",
-      "packages/client/dist/index.js",
-    ],
-  },
-] as const;
-
 function newestMtime(path: string): number {
   const stat = statSync(path);
   if (!stat.isDirectory()) return stat.mtimeMs;

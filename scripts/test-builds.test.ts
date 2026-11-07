@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { EMBED_TEST_BUILDS, TEST_BUILDS } from "./test-builds";
+import { TEST_BUILDS } from "./test-builds";
 
 const ROOT = join(import.meta.dir, "..");
 const read = (p: string) => readFileSync(join(ROOT, p), "utf8");
@@ -25,42 +25,19 @@ describe("the default test path does not build the embed bundle", () => {
     // The real tell is the command, not the path: nothing here may invoke vite.
     expect(TEST_BUILDS.some((b) => b.build.includes("build:lib"))).toBe(false);
   });
-
-  test("EMBED_TEST_BUILDS adds it on top of the package builds", () => {
-    expect(EMBED_TEST_BUILDS.map((b) => b.output)).toContain("web/dist-lib/index.js");
-    // It must keep the package builds ahead of it; dist-lib imports the client.
-    expect(EMBED_TEST_BUILDS.length).toBe(TEST_BUILDS.length + 1);
-    expect(EMBED_TEST_BUILDS.slice(0, TEST_BUILDS.length)).toEqual(TEST_BUILDS as never);
-  });
 });
 
-describe("the embed smoke stays runnable and stays wired up", () => {
-  const SMOKE = "web/src/embedded-lib-smoke.release-check.ts";
-
-  test("the smoke file exists under a name bun test does not discover", () => {
-    expect(existsSync(join(ROOT, SMOKE))).toBe(true);
-    // bun test discovers .test./.spec. only. If someone renames this back, the
-    // 1.7 GB build silently returns to every local test run.
-    expect(/\.(test|spec)\./.test(SMOKE)).toBe(false);
-  });
-
-  test("test:embed builds with --with-embed and names the file as a path", () => {
-    const script = JSON.parse(read("package.json")).scripts["test:embed"] as string;
-    expect(script).toContain("--with-embed");
-    // "./" matters: a bare filter that matches nothing exits 0, which would
-    // make a broken release check look green.
-    expect(script).toContain(`bun test ./${SMOKE}`);
-  });
-
-  test("the release workflow runs it after the packages are built", () => {
+// The @omg-dev/app library bundle was removed with the embedding mode: no
+// script, workflow or package may build or publish it again.
+describe("the library bundle is gone", () => {
+  test("no build:lib, no test:embed, and the release does not publish @omg-dev/app", () => {
+    expect(JSON.parse(read("web/package.json")).scripts["build:lib"]).toBeUndefined();
+    expect(JSON.parse(read("package.json")).scripts["test:embed"]).toBeUndefined();
     const yml = read(".github/workflows/release.yml");
-    expect(yml).toContain("bun run test:embed");
-    expect(yml.indexOf("bun run build:packages")).toBeLessThan(yml.indexOf("bun run test:embed"));
-  });
-
-  test("the web tsconfig excludes release-check files", () => {
-    // It imports ../dist-lib and bun:test; neither resolves in the app program.
-    expect(read("web/tsconfig.json")).toContain("src/**/*.release-check.ts");
+    expect(yml).not.toContain("test:embed");
+    expect(yml).not.toContain("omg-dev-app");
+    expect(read("scripts/pack-packages.sh")).not.toContain("build:lib");
+    expect(existsSync(join(ROOT, "web/vite.lib.config.ts"))).toBe(false);
   });
 });
 
@@ -71,6 +48,5 @@ describe("vite runtime split", () => {
     // Measured: bun builds are faster (26s vs 31s) but peak at 3.18 GB against
     // 1.72 GB. Memory is the constraint here, so the builds stay on node.
     expect(scripts.build).not.toContain("--bun");
-    expect(scripts["build:lib"]).not.toContain("--bun");
   });
 });

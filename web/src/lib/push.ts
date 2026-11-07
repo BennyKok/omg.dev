@@ -1,19 +1,9 @@
 // Client-side Web Push enrolment. Talks to /api/push/* and manages the
 // subscription lifecycle. The machine encrypts each notice into the push, so
 // all that matters here is subscribing through a registration whose worker
-// actually renders one.
-//
-// Which registration that is is NOT obvious on a hosted surface. A push
-// subscription belongs to a service-worker registration, and a host page can
-// easily have more than one: an app-shell or cache-drain worker at the root
-// scope (no push handler at all) plus a dedicated push worker on a sub-scope
-// that already holds the HOST's own subscription under the HOST's VAPID key.
-// Picking the wrong one fails silently — the browser accepts the subscription
-// and every notification is delivered to a worker that ignores it — so an
-// embedded surface makes the host name its scope instead of guessing.
+// actually renders one: the app's own /sw.js.
 
 import { omgFetch } from "./omg-client";
-import { isEmbedded } from "./embed";
 
 function urlBase64ToUint8Array(base64: string): Uint8Array {
   const padding = "=".repeat((4 - (base64.length % 4)) % 4);
@@ -41,61 +31,6 @@ export function pushPermission(): NotificationPermission | "unsupported" {
 }
 
 /**
- * A service-worker registration an embedding host dedicates to OMG.
- *
- * The host serves a worker that renders `event.data.json()` on a scope of its
- * own, and names it here. It must not be a scope whose registration already
- * carries the host's own push subscription: one registration holds exactly one
- * subscription, so sharing would force us either to hijack theirs (our sends
- * would then be rejected — different VAPID key) or to replace it (silently
- * killing the host's own notifications).
- */
-export type HostPushConfig = {
-  /** Scope of the dedicated registration, e.g. "/__omg_push/". */
-  scope: string;
-  /** Worker URL to register when that scope has no registration yet. */
-  workerUrl?: string;
-};
-
-let hostPush: HostPushConfig | null = null;
-
-/** Declared by the embedded surface before anything reads it. */
-export function configureHostPush(config: HostPushConfig | null): void {
-  hostPush = config;
-}
-
-/**
- * Whether this bundle is running inside somebody else's page.
- *
- * `isEmbedded()` cannot answer that on its own. It reads the DOCUMENT's URL and
- * whether we are framed, which is right for an iframe surface and wrong for a
- * host that mounts us as plain React components: there the document is the
- * host's own top-level page, so it reports "standalone" and we take the branch
- * that registers `/sw.js` at scope `/` — on the HOST's origin. That is not our
- * worker. On app.omg.dev it is the cache-drain worker, whose activate handler
- * navigates every open client to bust its caches, so merely opening the More
- * page reloads the whole app; it then unregisters itself, so the next visit
- * does it again. Hence an explicit flag the surface sets, rather than a guess
- * re-derived from `window`.
- */
-let hostedSurface = false;
-
-/** Declared by the embedded surfaces alongside `configureHostPush`. */
-export function configureHostedSurface(hosted: boolean): void {
-  hostedSurface = hosted;
-}
-
-/** True when we must not touch a registration the host did not give us. */
-export function isHostedSurface(): boolean {
-  return hostedSurface;
-}
-
-/** Whether a host has actually dedicated a scope to us. */
-export function hasHostPushScope(): boolean {
-  return hostPush != null;
-}
-
-/**
  * Why push cannot be turned on here, or null when it can.
  *
  * Returned as a sentence for the UI to show. The toggle used to render nothing
@@ -107,9 +42,6 @@ export function pushUnavailableReason(): string | null {
   if (!pushSupported()) {
     // The usual cause by far: iOS only exposes PushManager to an installed PWA.
     return "Add omg to your Home Screen to turn on notifications";
-  }
-  if (hostedSurface && !hostPush) {
-    return "Not available here yet — open your Computer's own address to turn on notifications";
   }
   return null;
 }
@@ -180,7 +112,6 @@ export async function waitForActiveWorker(
  */
 export type PushRegistrationDeps = {
   container?: ServiceWorkerContainer;
-  embedded?: boolean;
 };
 
 export async function resolvePushRegistration(
@@ -192,27 +123,7 @@ export async function resolvePushRegistration(
   if (!container) return null;
   if (!deps.container && !pushSupported()) return null;
 
-  if (hostPush) {
-    const declared = await container.getRegistration(hostPush.scope).catch(() => null);
-    if (declared) return usableRegistration(declared);
-    if (!hostPush.workerUrl) return null;
-    const registered = await container
-      .register(hostPush.workerUrl, { scope: hostPush.scope })
-      .catch(() => null);
-    return registered ? usableRegistration(registered) : null;
-  }
-
-  // Embedded with nothing declared: the registration serving this page belongs
-  // to the host and there is no way to know whether its worker handles push.
-  // Refuse rather than enrol into silence.
-  //
-  // `hostedSurface` is checked first and separately because `isEmbedded()` is
-  // only reliable for the iframe topology — see configureHostedSurface. A host
-  // that mounts us directly looks standalone to it, and falling through to the
-  // branch below would register the HOST's `/sw.js` on the HOST's origin.
-  if (deps.embedded ?? (hostedSurface || isEmbedded())) return null;
-
-  // Standalone. index.html registers /sw.js on every load, so there is normally
+  // index.html registers /sw.js on every load, so there is normally
   // one here already — but "normally" is not "always": that registration can
   // fail (an offline cold start, an evicted worker, sw.js 404ing mid-deploy)
   // and nothing retries it until the next full page load. Waiting on `ready`
@@ -310,11 +221,7 @@ export async function enablePush(user?: string | null): Promise<boolean> {
 
   const reg = await registration;
   if (!reg) {
-    throw new Error(
-      hostedSurface || isEmbedded()
-        ? "This host hasn't given OMG a service-worker scope for notifications yet"
-        : "Couldn't start the notification service worker — reload the app and try again",
-    );
+    throw new Error("Couldn't start the notification service worker — reload the app and try again");
   }
 
   const sub = await ensurePushSubscription(reg, urlBase64ToUint8Array(key));
@@ -341,12 +248,7 @@ export async function enablePush(user?: string | null): Promise<boolean> {
 /**
  * Unsubscribe locally and tell the backend to forget this endpoint.
  *
- * Resolves the same registration `enablePush` subscribed on. It used to await
- * `navigator.serviceWorker.ready`, which is a different registration on an
- * embedded surface — the HOST's — whose pushManager holds no subscription of
- * ours, so turning notifications off reported success and left the device
- * subscribed and the endpoint live on the server. On a host page with no
- * controlling worker `ready` never settles at all, hanging the toggle.
+ * Resolves the same registration `enablePush` subscribed on.
  */
 export async function disablePush(): Promise<void> {
   if (!pushSupported()) return;
@@ -372,9 +274,6 @@ export async function disablePush(): Promise<void> {
 export async function closePushNotification(tag: string): Promise<void> {
   if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
   try {
-    // Our registration, not the root one: on an embedded surface the root
-    // belongs to the host, and closing ITS notifications is both useless (ours
-    // are not there) and rude (the host's are).
     const reg = await resolvePushRegistration();
     if (!reg) return;
     for (const notification of await reg.getNotifications({ tag })) notification.close();

@@ -1,15 +1,14 @@
-import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-const nativeEvent = globalThis.Event;
 const { mount } = await import("../web/src/test-support/render");
 const { createElement } = await import("../web/node_modules/react");
 type Mounted = import("../web/src/test-support/render").Mounted;
 
 const { AutoAgentPage } = await import("../web/src/components/auto-agent-page");
 
-afterAll(() => {
-  globalThis.Event = nativeEvent;
-});
+// No global restore here: the shared harness owns the DOM globals for the
+// whole run, and swapping Event back to Bun's own broke every DOM test that
+// ran after this file (their elements belong to the harness window).
 
 describe("auto-agent findings use a full-height page", () => {
   let ui: Mounted;

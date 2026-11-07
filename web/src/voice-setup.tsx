@@ -42,7 +42,9 @@ export function voiceIsBatchOnly(cfg: VoiceConfig | null): boolean {
 const SETUP_EVENT = "lfg:voice-setup";
 
 function selectedProvider(cfg: VoiceConfig, _capability: VoiceCapability): ProviderOption | undefined {
-  return cfg.providers.stt.find((provider) => provider.id === cfg.settings.sttProvider);
+  // A malformed config (an older box, a proxy error page) reads as "not ready"
+  // rather than crashing the mic button.
+  return cfg?.providers?.stt?.find((provider) => provider.id === cfg.settings?.sttProvider);
 }
 
 export function voiceReady(cfg: VoiceConfig, capability: VoiceCapability): boolean {

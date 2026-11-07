@@ -1,7 +1,7 @@
 {
   "name": "@omg-dev/app",
   "version": "0.1.366",
-  "description": "The full OMG application surface for React hosts.",
+  "description": "The omg.dev web UI.",
   "license": "MIT",
   "homepage": "https://omg.dev",
   "repository": {
@@ -12,21 +12,10 @@
   "bugs": {
     "url": "https://github.com/BennyKok/omg.dev/issues"
   },
-  "files": [
-    "dist-lib"
-  ],
-  "exports": {
-    ".": {
-      "types": "./dist-lib/index.d.ts",
-      "import": "./dist-lib/index.js"
-    },
-    "./styles.css": "./dist-lib/styles.css"
-  },
   "type": "module",
   "scripts": {
     "dev": "bun --bun vite",
     "build": "tsc --noEmit && vite build",
-    "build:lib": "tsc --noEmit && vite build --config vite.lib.config.ts && cp src/embedded.d.ts dist-lib/index.d.ts",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit"
   },
@@ -88,5 +77,6 @@
   },
   "publishConfig": {
     "access": "public"
-  }
+  },
+  "private": true
 }

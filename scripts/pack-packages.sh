@@ -27,7 +27,6 @@ if [ "${SKIP_PACKAGE_BUILD:-}" != "1" ]; then
   for package in "${PACKAGES[@]}"; do
     bun run --cwd "packages/$package" build
   done
-  bun run --cwd web build:lib
   bun run --cwd packages/cli build
 fi
 
@@ -68,33 +67,6 @@ fs.writeFileSync(manifest, JSON.stringify(json, null, 2) + "\n");
 
   npm pack "$package_stage" --pack-destination "$OUT_DIR" --silent
 done
-
-app_stage="$STAGE/app"
-mkdir -p "$app_stage"
-cp -r web/dist-lib "$app_stage/dist-lib"
-cp web/package.json "$app_stage/package.json"
-cp LICENSE "$app_stage/LICENSE"
-
-MANIFEST="$app_stage/package.json" \
-VERSION="$VERSION" \
-bun -e '
-const fs = require("node:fs");
-const manifest = process.env.MANIFEST;
-const version = process.env.VERSION;
-const json = JSON.parse(fs.readFileSync(manifest, "utf8"));
-json.version = version;
-for (const section of ["dependencies", "optionalDependencies"]) {
-  for (const [name, value] of Object.entries(json[section] || {})) {
-    if (!name.startsWith("@omg-dev/") || value !== "workspace:*") continue;
-    json[section][name] = version;
-  }
-}
-delete json.scripts;
-delete json.devDependencies;
-fs.writeFileSync(manifest, JSON.stringify(json, null, 2) + "\n");
-'
-
-npm pack "$app_stage" --pack-destination "$OUT_DIR" --silent
 
 # @omg-dev/cli is versioned independently. The runtime packages follow the
 # repository tag (0.2.x). npm latest for this name is the retired vibes

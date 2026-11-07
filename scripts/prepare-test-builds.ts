@@ -1,7 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import {
-  EMBED_TEST_BUILDS,
   staleTestBuildCommands,
   TEST_BUILDS,
   testBuildPrerequisiteError,
@@ -10,10 +9,7 @@ import {
 
 const root = join(import.meta.dir, "..");
 
-// `--with-embed` adds the prebuilt @omg-dev/app bundle. That is the ~30s,
-// 1.7 GB-resident vite build, so it is opt-in and belongs to `test:embed`
-// and the release workflow, not to every `bun run test`.
-const builds = process.argv.includes("--with-embed") ? EMBED_TEST_BUILDS : TEST_BUILDS;
+const builds = TEST_BUILDS;
 const before = unreadyTestBuilds(root, builds);
 
 // Only what is actually stale. This used to run the whole build:packages

@@ -1,13 +1,12 @@
 // The harness proving itself, and the worked example the convention points at.
 //
-// Written against the real component this repository shipped a source-text
-// test for: hosted-coach-card. The point is the contrast. The old style asked
-// "does App.tsx contain this string"; this asks "does the user see the step".
+// The point is the contrast with source-text tests. They asked "does App.tsx
+// contain this string"; this asks "does the user see the result".
 import { afterEach, describe, expect, test } from "bun:test";
 import { mount } from "./render";
 
 const React = await import("react");
-const { HostedCoachCard } = await import("../components/hosted-coach-card");
+const { Spinner } = await import("../components/apps-home");
 
 let ui: ReturnType<typeof mount> | null = null;
 afterEach(() => {
@@ -18,8 +17,8 @@ afterEach(() => {
 describe("render harness", () => {
   test("mounts a component and exposes what reached the DOM", () => {
     ui = mount();
-    ui.render(React.createElement(HostedCoachCard, { steps: [], onDismiss: () => {} }) as never);
-    expect(typeof ui.text()).toBe("string");
+    ui.render(React.createElement(Spinner) as never);
+    expect(ui.query('[role="status"]')?.getAttribute("aria-label")).toBe("Working");
   });
 
   test("re-rendering the same root replaces the tree instead of stacking it", () => {

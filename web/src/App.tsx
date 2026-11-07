@@ -1,27 +1,23 @@
+import { replayTranscription } from "./lib/transcription-replay";
 import type { OmgChatSendCallbacks } from "./lib/omg-chat-transport";
-import { fillVisibleComposer } from "./lib/guide-fill";
-import { GuideComposerSlot, useGuideCardKey, useGuideFocus, useGuideRunning, useHomeGuideActive } from "./components/tutorial-guide";
 import { attempt, attemptAsync, errorMessage } from "./lib/attempt";
 import { useLatestCallback, useLatestRef } from "./lib/use-latest-ref";
 import { shareUnchanged } from "./lib/share-unchanged";
 import { AGENT_DEFAULT_MODELS as AGENT_DEFAULT_MODEL } from "../../src/agent-defaults";
 import { browserTranscription, selectTranscriptionTake, type TranscriptionTake } from "./lib/browser-transcription";
 import { BrowserTranscriptionSettings, useBrowserTranscription } from "./components/browser-transcription-settings";
-import { replayCloudTranscription } from "./lib/transcription-cloud-replay";
 import { useCustomModelStatus } from "./lib/use-custom-model-status";
 import { OMG_BUILD_MODEL, OMG_MODELS, isOmgLevelModel } from "../../src/omg-models";
 import { modelLabProvider, modelListHasRoutes, omgModelLabel, omgModelSearchText, parseOmgModel, parseRoutedModel, setServerModelLabels } from "../../packages/protocol/src/omg-model-display";
 import { ModelProviderIcon, modelProviderIconKey } from "./lib/model-provider-icons";
 import { setupOutcome, type SetupResultInfo, type SetupWatchAgent } from "../../packages/protocol/src/coding-agent-setup-outcome";
 import { useRuntimeLifecycle } from "./lib/runtime-lifecycle";
-import { useComputerResumeMetrics } from "./lib/use-computer-resume-metrics";
 import { LiveHeaderContext } from "./components/live-header-context";
 import { CreateBackdrop, Spinner } from "./components/apps-home";
 import { ProjectFolderMenu } from "./components/project-folder-menu";
 import { SessionReparentProvider, SessionReparentTarget, useSessionDragMenuGuard } from "./components/session-reparent";
 import { HostDrawerSlot, SideNavButton, SideNavGlyph, SideNavPanel } from "./components/side-nav";
 import { FindingsPill, FindingsSheet } from "./components/findings-pill";
-import { OutOfCreditCard, isOutOfCreditNotice } from "./components/out-of-credit-card";
 import { mobileHeaderControl, sideNavRows, tabFallsToSettings, type SideNavRow } from "./lib/side-nav-items";
 import { settledParagraphs } from "./lib/paragraph-stream";
 import {
@@ -55,32 +51,7 @@ import {
   shouldPrioritizeSession,
 } from "./lib/app-search";
 import type { AppSearch } from "./lib/app-search";
-import { isEmbedded, readLocationEmbedFlag } from "./lib/embed";
-import { useBareSurface } from "./lib/bare-surface";
-import { useHostOwnsConnection, useReportHostConnection } from "./lib/host-connection";
-import {
-  useEmbeddedHostOptions,
-  useModelPlanErrorHandler,
-  type HostSettingsPage,
-  type PlanLimitDetail,
-} from "./lib/embedded-host-options";
-import { discardSavedScreen, markSavedScreenDrawn, readSavedScreen, writeSavedScreen } from "./lib/saved-screen";
-import {
-  embeddedConnectOptions,
-  shouldShowEmbeddedConnectGate,
-  type ToolConnectOption,
-} from "./lib/embedded-connect";
-import {
-  hostedCoachSteps,
-  shouldShowHostedCoach,
-  unrecordedHostedCoachSteps,
-  type HostedCoachFlags,
-  type HostedCoachKey,
-} from "./lib/hosted-coach";
-import { HostedCoachCard } from "./components/hosted-coach-card";
-import { emitSessionCreatedToHost } from "./lib/embed-host-signal";
 import { recordLaunchMessage, settleLaunchMessage } from "./lib/launch-message";
-import { filtersToShowSession, liveAgentsControl, planLimitLiveAgents, registerLiveAgents } from "./lib/plan-limit-live";
 import { isAuthorizationUrl } from "./lib/auth-popup";
 import { OmgBrandMark, omgBrandToneClass } from "./components/omg-brand-mark";
 import {
@@ -237,7 +208,6 @@ import {
   type BotMotionState,
   type BotShape,
 } from "./components/BotAvatar";
-import { EmbeddedConnectGate } from "./components/embedded-connect-gate";
 import {
   ConversationParticipantRow,
   HumanTypingIndicator,
@@ -359,9 +329,7 @@ import { closesKeyboardAfterSendHere } from "./lib/keyboard-after-send";
 import { createHeldRelease } from "./lib/held-release";
 import { withoutCompactionNoise } from "./lib/compaction-rows";
 import { PresenceDock } from "./components/presence-dock";
-import { CreateTutorials } from "./components/create-tutorials";
 import { FindingToastCard } from "./components/finding-toast-card";
-import { trackHostToastClear } from "./lib/host-toast-clear";
 import { SystemMessageLine } from "./components/system-message-line";
 import { classifyUserTurn } from "./lib/system-message";
 import { canDriveSession } from "./lib/session-runtime";
@@ -688,7 +656,6 @@ import {
   enablePush,
   disablePush,
   acknowledgePushNotifications,
-  isHostedSurface,
 } from "./lib/push";
 import {
   markAllNotificationsRead,
@@ -715,7 +682,6 @@ import {
   CustomInstructionsRow,
 } from "./views/custom-instructions-page";
 import { RemoteAccessSettingsSection } from "./components/remote-access-settings";
-import { MachineSwitcher } from "./components/machine-switcher";
 import { ConnectionOverlay } from "./components/connection-overlay";
 import { ConnectorsRow } from "./views/connectors-row";
 import {
@@ -1765,78 +1731,15 @@ function agentPickerOptions(
   );
 }
 
-/**
- * Standalone LFG's own way to reach a settings page — supplied by App from its
- * router-backed setTab. Embedded surfaces override this with the host's
- * callback (see useOpenSettingsPage), because there the Settings tab is the
- * host's, not ours.
- */
-/**
- * Device-local echo of the server's hosted.introDoneAt.
- *
- * Only consulted when the Computer is too old to have the server-side field —
- * see markHostedIntroDone. A Computer updates on the user's command rather than
- * automatically, so this covers the window between shipping the surface and the
- * box catching up, and stops being consulted the moment the server can answer.
- */
-const HOSTED_INTRO_DONE_KEY = "omg:hosted-intro-done:v1";
 
-function hostedIntroDoneOnThisDevice(): boolean {
-  try {
-    return localStorage.getItem(HOSTED_INTRO_DONE_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
+/** A page of the machine's Settings. */
+type SettingsPage = "settings" | "coding-agents" | "auto" | "storage" | "connectors";
 
-const OpenSettingsPageContext = createContext<(page: HostSettingsPage) => void>(() => {});
+const OpenSettingsPageContext = createContext<(page: SettingsPage) => void>(() => {});
 
-/**
- * Send the viewer to one of the machine's settings pages, wherever those pages
- * happen to be mounted.
- *
- * An embedded surface has no Settings tab of its own — the host mounts those
- * pages under its own account chrome — so a hardcoded internal navigation
- * would land on a route the person can't see. Preferring the host callback
- * keeps one call site working in both products.
- */
-function useOpenSettingsPage(): (page: HostSettingsPage) => void {
-  const { onOpenSettingsPage } = useEmbeddedHostOptions();
-  const openTab = useContext(OpenSettingsPageContext);
-  return onOpenSettingsPage ?? openTab;
-}
-
-/**
- * Offer a failure to the host as a PLAN refusal. Returns true when the host
- * took it, meaning the caller must not also report the error itself.
- *
- * "Your plan allows 1 concurrent agent" is not really an error message — it is
- * a sales conversation, and rendering it as red toast + red inline text over a
- * composer is both easy to miss and the wrong tone for the one moment someone
- * is hitting the ceiling of what they're paying for. Only a host that sells
- * plans can have that conversation, so LFG hands the refusal over and stays
- * out of it. With no host (standalone, self-hosted) nothing is registered and
- * this returns false, leaving the existing error path exactly as it was.
- */
-function usePlanLimitHandler(): (error: unknown, action: PlanLimitDetail["action"]) => boolean {
-  const { onPlanLimit } = useEmbeddedHostOptions();
-  return useCallback(
-    (error, action) => {
-      if (!onPlanLimit || !isPlanLimitError(error)) return false;
-      // The chats that hold the slots, with a way to open or close each. Home
-      // shows one project at a time, so most of them can be out of sight.
-      const live = liveAgentsControl();
-      onPlanLimit({
-        message: error instanceof Error ? error.message : String(error),
-        action,
-        ...(live
-          ? { live: live.list(), openSession: live.open, closeSession: live.close }
-          : {}),
-      });
-      return true;
-    },
-    [onPlanLimit],
-  );
+/** Send the viewer to one of the machine's settings pages. */
+function useOpenSettingsPage(): (page: SettingsPage) => void {
+  return useContext(OpenSettingsPageContext);
 }
 
 /**
@@ -3591,9 +3494,6 @@ function useDictation(opts: {
   // UI is served from: the platform funds it and meters it against the viewer's
   // own allowance. Read through a ref so the async start() below always dials
   // the currently-configured broker rather than one captured at mount.
-  const { hostedTranscription } = useEmbeddedHostOptions();
-  const hostedTranscriptionRef = useRef(hostedTranscription);
-  hostedTranscriptionRef.current = hostedTranscription;
 
   // start() is async — the mic/socket aren't live until getUserMedia resolves and
   // sessionRef is assigned. `startingRef` marks that window; if a release fires
@@ -3736,7 +3636,7 @@ function useDictation(opts: {
           toast.info("On-device transcription failed. Using cloud for this recording.");
           setProvider("cloud");
           try {
-            const text = await replayCloudTranscription(pcm.buffer, hostedTranscriptionRef.current);
+            const text = await replayTranscription(pcm.buffer);
             if (epoch === acquireEpochRef.current && text.trim()) deliver(text);
             else if (epoch === acquireEpochRef.current) toast.error("No speech was detected. Try again.");
             finish();
@@ -3853,7 +3753,7 @@ function useDictation(opts: {
     // synchronous cache read — the old code awaited a network round trip here on
     // every tap, which both delayed the permission prompt (the "10 seconds then
     // it asks" symptom) and burned the user activation getUserMedia needs.
-    if (take.provider === "cloud" && !hostedTranscriptionRef.current && voiceConfiguredCached("input") === false) {
+    if (take.provider === "cloud" && voiceConfiguredCached("input") === false) {
       startingRef.current = false;
       setState("idle");
       showVoiceSetup("input");
@@ -3972,12 +3872,7 @@ function useDictation(opts: {
       // Off the critical path, so it can't delay the prompt. Cache-hit → instant.
       // Guarded: this fetch is an await with no bound of its own.
       //
-      // Skipped entirely on a hosted surface: this check asks the BOX which
-      // provider key it holds, and a hosted broker makes that irrelevant — the
-      // platform is the provider. Running it anyway would abort the take (and
-      // pop a "configure a key" dialog) on exactly the keyless self-hosted box
-      // that hosted transcription exists to serve.
-      if (take.provider === "cloud" && !hostedTranscriptionRef.current) {
+      if (take.provider === "cloud") {
         const configured = await guard(ensureVoiceConfigured("input"));
         if (configured === ACQUIRE_ABORTED || configured === ACQUIRE_EXPIRED) {
           releaseStream();
@@ -4014,23 +3909,9 @@ function useDictation(opts: {
       // somewhere to go (queued in `pending` until the socket opens).
       const proto = location.protocol === "https:" ? "wss:" : "ws:";
       let ws: WebSocket | null = null;
-      const hosted = hostedTranscriptionRef.current;
       try {
         if (take.provider === "cloud") {
-          if (hosted) {
-            // Hosted surface: stream straight to the platform broker. The JWT
-            // rides the subprotocol because that is the only header a browser
-            // lets a WS client set. A null token means the session can no longer
-            // be proven — fall through to the box rather than opening a socket
-            // that would only be refused after the upgrade.
-            const token = await hosted.getToken();
-            if (token) {
-              ws = new WebSocket(hosted.url, [`vibes-bearer.${token}`]);
-            }
-          }
-          if (!ws) {
-            ws = new WebSocket(`${proto}//${location.host}/api/voice/stt-stream`);
-          }
+          ws = new WebSocket(`${proto}//${location.host}/api/voice/stt-stream`);
           ws.binaryType = "arraybuffer";
         }
       } catch {
@@ -5032,11 +4913,6 @@ function sameJson<T>(prev: T, next: T): T {
 function markCreatedSid(sid: string): void {
   recentlyCreatedSids.add(sid);
   window.setTimeout(() => recentlyCreatedSids.delete(sid), 2000);
-  // Single funnel for "this tab just created a session", so it is also the one
-  // place the embedding host learns about it (see lib/embed-host-signal.ts).
-  // Embed intent is read from the location rather than React state to keep
-  // this module-level helper free of a second owner of that flag.
-  emitSessionCreatedToHost(sid, readLocationEmbedFlag());
 }
 
 // The set of EXPANDED session ids among `sessions`, kept in sync with the
@@ -5863,94 +5739,13 @@ export function App() {
   // Consuming the ref prevents later list refreshes from stealing focus.
   const deepLinkSearch = useSearch({ strict: false });
   const sessionDeepLinkRef = usePendingSessionLink(deepLinkSearch.session);
-  // Hosted inside omg (or any frame): drop LFG chrome, skip onboarding/picker,
-  // default to all sessions. `?embed=1` is the explicit contract; framing alone
-  // is enough as a defence-in-depth signal.
-  const embedded = isEmbedded(deepLinkSearch);
-  // Native hosts can mount OmgAppSurface without an iframe. Keep filter policy
-  // identical for both host integrations.
-  const hostedSurface = embedded || isHostedSurface();
-  // Host-mounted single page: suppress every piece of LFG shell chrome the
-  // host already renders (header, brand, nav, composer).
-  const bare = useBareSurface();
-  const {
-    connectionOnboarding,
-    defaultAgent,
-    viewer,
-    onAnalyticsEvent,
-    savedScreen,
-  } = useEmbeddedHostOptions();
-  // The last startup state for this account and machine (lib/saved-screen.ts).
-  // It seeds the first render, so the screen is drawn before live data
-  // arrives. It never sets the runtime version, so nothing counts as ready.
-  const savedScreenKey = embedded ? savedScreen?.key ?? null : null;
-  // Everything derived from the copy is computed here, inside one try: a copy
-  // that does not fit this build is discarded and the page starts empty.
-  const [savedStart] = useState(() => {
-    if (!savedScreenKey) return null;
-    const saved = readSavedScreen(savedScreenKey);
-    if (!saved) return null;
-    try {
-      const payload = saved.payload as BootstrapPayload;
-      return {
-        payload,
-        settings: resolveGlobalSettings({ timeZone: payload.auto?.tz, ...payload.settings }),
-        modelCatalog: buildAgentModelCatalog(payload.models ?? undefined),
-      };
-    } catch {
-      discardSavedScreen(savedScreenKey);
-      return null;
-    }
-  });
-  const startPayload = savedStart?.payload;
-  const [showingSaved, setShowingSaved] = useState(!!savedStart);
-  // The first screen from the copy is on the page. A crash before this point
-  // leaves the copy marked, and the next load discards it.
-  useEffect(() => {
-    if (savedStart && savedScreenKey) markSavedScreenDrawn(savedScreenKey);
-    // Once, for the copy this page started from.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // omg.dev runs on this computer only: no host page embeds this UI.
+  const embedded = false;
+  const hostedSurface = false;
+  const bare = false;
   // Session deep-links win over filter/identity work so the target card opens
   // as soon as bootstrap returns sessions.
   const prioritizeSession = shouldPrioritizeSession(deepLinkSearch) || !!sessionDeepLinkRef.current;
-  // Tell CSS (and any fixed bottom chrome) we're framed under omg's compact
-  // bottom nav so --lfg-host-bottom-inset lifts content without host crop.
-  useEffect(() => {
-    if (!embedded) return;
-    document.documentElement.dataset.lfgEmbed = "true";
-    return () => {
-      delete document.documentElement.dataset.lfgEmbed;
-    };
-  }, [embedded]);
-  // Standalone WebKit resumes its own animation timelines. A cross-origin
-  // Computer iframe can remain suspended, so the top-level omg host forwards
-  // its authoritative foreground event and we restart infinite animations
-  // only. Finite transitions must never replay when a user returns.
-  useEffect(() => {
-    if (!embedded) return;
-    const recover = () => {
-      if (document.visibilityState !== "visible") return;
-      restartContinuousAnimations(document.getAnimations());
-    };
-    const onHostResume = (event: MessageEvent) => {
-      if (event.source !== window.parent || !isComputerHostResumeMessage(event.data)) return;
-      recover();
-    };
-    const onVisible = () => {
-      if (document.visibilityState === "visible") recover();
-    };
-    window.addEventListener("message", onHostResume);
-    window.addEventListener("pageshow", recover);
-    window.addEventListener("focus", recover);
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      window.removeEventListener("message", onHostResume);
-      window.removeEventListener("pageshow", recover);
-      window.removeEventListener("focus", recover);
-      document.removeEventListener("visibilitychange", onVisible);
-    };
-  }, [embedded]);
   const isMobile = useIsMobile();
   const isWide = useIsWide();
   // Narrow layout floats the top chrome over an absolutely-positioned scroll
@@ -6047,7 +5842,7 @@ export function App() {
     keyboardOpenRef.current = open;
     setKeyboardOpenState(open);
   }, []);
-  const [codingAgents, setCodingAgents] = useState<CodingAgentInfo[]>(() => startPayload?.codingAgents ?? []);
+  const [codingAgents, setCodingAgents] = useState<CodingAgentInfo[]>(() => []);
   const [codingAgentAuth, setCodingAgentAuth] = useState<CodingAgentAuthSession | null>(null);
   // The provider whose login is being PREPARED — set on click, before the
   // server has answered.
@@ -6070,22 +5865,11 @@ export function App() {
   // tail (and therefore still classifies as blocked until the user retries).
   const [codingAgentAuthInlineSid, setCodingAgentAuthInlineSid] = useState<string | null>(null);
   const [codingAgentAuthCompletedSid, setCodingAgentAuthCompletedSid] = useState<string | null>(null);
-  // Embed-only first-run gate: which connection has an in-flight click, whether
-  // the user finished/skipped it, and whether this load ever entered the flow.
-  const [connectPendingKind, setConnectPendingKind] = useState<AgentKind | "github" | null>(null);
-  // Local echo of the SERVER's hosted.introDoneAt, so dismissing the gate takes
-  // effect before the write lands. It used to be the whole story, which is what
-  // made the gate unusable: "Skip for now" lived only in this state, so it came
-  // back on every reload until an agent was connected — a permanent wall for
-  // anyone happy on the seeded credential-free agent, not a first run.
-  const [connectGateSkipped, setConnectGateSkipped] = useState(false);
-  const connectGateStarted = useRef(false);
-  const [toolConnections, setToolConnections] = useState<ToolConnectOption[] | undefined>();
   const [modelCatalog, setModelCatalog] = useState<AgentModelCatalog>(() =>
-    savedStart?.modelCatalog ?? buildAgentModelCatalog(),
+    buildAgentModelCatalog(),
   );
   const [setupChecks, setSetupChecks] = useState<SetupCheckGroup[]>([]);
-  const [sessions, setSessions] = useSkipSameState<Session[]>(() => startPayload?.sessions ?? []);
+  const [sessions, setSessions] = useSkipSameState<Session[]>(() => []);
   // Read state for the Chat roster. Only a full list payload writes this — see
   // web/src/lib/session-unread.ts.
   const [unreadSessions, setUnreadSessions] = useState<Set<string>>(() => new Set());
@@ -6096,7 +5880,7 @@ export function App() {
     const next = unreadSessionIds(rows);
     setUnreadSessions((prev) => (sameUnreadSessions(prev, next) ? prev : next));
   }, []);
-  const [topPinned, setTopPinned] = useState<string[]>(() => startPayload?.sessionPins ?? []);
+  const [topPinned, setTopPinned] = useState<string[]>(() => []);
   const topPinnedRef = useRef(topPinned);
   topPinnedRef.current = topPinned;
   const pinMutationRevisionRef = useRef(0);
@@ -6128,13 +5912,13 @@ export function App() {
   // this the new card either waits for the next poll, or appears and then
   // vanishes on the first refresh whose snapshot predates it.
   const seededSessionsRef = useRef(new Map<string, { session: Session; at: number }>());
-  const [users, setUsers] = useState<User[]>(() => startPayload?.users ?? []);
+  const [users, setUsers] = useState<User[]>(() => []);
   // "Me", as a conversation participant id — resolved server-side (trusted
   // header on a managed Computer, the selected local profile otherwise) and
   // used only to skip drawing a redundant avatar on the viewer's own turns in
   // a shared bot conversation. Never an authorization signal.
   const [viewerParticipantId, setViewerParticipantId] = useState<string | null>(
-    () => startPayload?.viewer?.participantId ?? null,
+    () => null,
   );
   // Server-side first-run state (profiles/steps/completion) + whether the
   // full-screen onboarding flow is showing. See loadCore for the gate.
@@ -6153,7 +5937,7 @@ export function App() {
   // is to fire on a connection EDGE, not on new data.
   const computerVersionReportRef = useRef(computerVersionReport);
   computerVersionReportRef.current = computerVersionReport;
-  const [repos, setRepos] = useState<Repo[]>(() => startPayload?.repos ?? []);
+  const [repos, setRepos] = useState<Repo[]>(() => []);
   const [loading, setLoading] = useState(true);
   // STARTUP failures only — "the app could not load its own state". Every other
   // failure toasts. This surface is persistent by design and has no business
@@ -6179,7 +5963,6 @@ export function App() {
   // Local echo of "I dismissed the getting-started panel". The durable record
   // is the server marking every coach step done (see the card's onDismiss);
   // this just makes it go away without waiting on the round trip.
-  const [hostedCoachDismissed, setHostedCoachDismissed] = useState(false);
   // Auto agents
   // Tabs are "live" | "settings" | "notifications" | "term". Auto agents and runtime
   // extension nav-tabs now render inside the Settings page rather than as their
@@ -6262,22 +6045,8 @@ export function App() {
   // Session references in rendered messages open through this page route.
   // The list is read through a ref so a click sees the latest sessions.
   const sessionsForRefs = useRef<Session[]>(sessions);
-  const openLiveAgentRef = useRef<(sid: string) => void>(() => {});
   const openThreadPageRef = useRef<(id: string) => void>(() => {});
   sessionsForRefs.current = sessions;
-  useEffect(() => {
-    registerLiveAgents({
-      list: () => planLimitLiveAgents(sessionsForRefs.current),
-      // Through a ref: the filters that decide whether the chat can show are
-      // declared further down, and the hand-off must see their latest values.
-      open: (sid) => openLiveAgentRef.current(sid),
-      close: async (sid) => {
-        await closeSessionRequest(sid, "plan_limit_sheet");
-        await refreshSessionsRef.current();
-      },
-    });
-    return () => registerLiveAgents(null);
-  }, []);
   useEffect(() => {
     registerSessionRefHandlers({
       navigate: openSessionPage,
@@ -6374,23 +6143,12 @@ export function App() {
     [navigate],
   );
   const extNavTabs = useExtensionNavTabs();
-  // The host's own settings, offered from OUR menu.
-  //
-  // NOT onOpenSettingsPage: that one addresses the MACHINE's settings pages,
-  // and omg routes it to /settings/computer. Wiring this entry to it replaced
-  // a general Settings control with a per-computer page behind a machine
-  // selector — a back tap away from what the gear used to do. Unset leaves the
-  // item out entirely rather than guessing a destination.
-  const { onOpenHostSettings } = useEmbeddedHostOptions();
-  // A host that supplies its own machine list gets the switcher too.
-  const { machines: hostMachines } = useEmbeddedHostOptions();
   const headerProfile = useHeaderProfile(
-    hostMachines?.activeId ?? LOCAL_MACHINE.id,
+    LOCAL_MACHINE.id,
     identity,
     users.find((user) => user.email === identity),
   );
 
-  const hostSettingsInMenu = embedded && !!onOpenHostSettings;
   // Keep the session list + Shipped/Artifacts mounted after first visit so
   // tab switches don't remount, re-fetch, or reboot gallery iframes. Hidden
   // pages set `active=false` to pause polling. First paint of Shipped/Artifacts
@@ -6444,7 +6202,7 @@ export function App() {
     const t = window.setTimeout(run, 800);
     return () => window.clearTimeout(t);
   }, [loading]);
-  const [autoAgents, setAutoAgents] = useState<AutoAgent[]>(() => startPayload?.auto?.agents ?? []);
+  const [autoAgents, setAutoAgents] = useState<AutoAgent[]>(() => []);
   const [bots, setBots] = useState<PersistentBot[]>([]);
   const [botQuota, setBotQuota] = useState<PersistentBotQuota | null>(null);
   const [botConversations, setBotConversations] = useState<BotConversationUnread[]>([]);
@@ -6452,18 +6210,18 @@ export function App() {
     () => new Map(bots.map((bot) => [bot.id, bot])),
     [bots],
   );
-  const [managedComputer, setManagedComputer] = useState(() => !!startPayload?.computer);
-  const [settings, setSettings] = useState<GlobalSettings>(() => savedStart?.settings ?? DEFAULT_GLOBAL_SETTINGS);
+  const [managedComputer, setManagedComputer] = useState(false);
+  const [settings, setSettings] = useState<GlobalSettings>(() => DEFAULT_GLOBAL_SETTINGS);
   // Whether the box stores the folder display settings. null until the
   // first bootstrap answers. An older box omits them, and then the folder
   // menu keeps its browser-local copy.
   const [boxOwnsFolderDisplay, setBoxOwnsFolderDisplay] = useState<boolean | null>(() =>
-    startPayload ? Array.isArray(startPayload.settings?.folderOrder) : null,
+    null,
   );
   const [mobileFolderBrowser, setMobileFolderBrowser] = useState<"add" | "new" | null>(null);
   const [importGitHubOpen, setImportGitHubOpen] = useState(false);
   const [schedTz, setSchedTz] = useState<string>(
-    () => startPayload?.settings?.timeZone ?? startPayload?.auto?.tz ?? DEFAULT_SCHED_TZ,
+    () => DEFAULT_SCHED_TZ,
   );
   const [findings, setFindings] = useState<AutoFinding[]>([]);
   const [autoTriageBusy, setAutoTriageBusy] = useState(false);
@@ -6488,12 +6246,11 @@ export function App() {
     // "unset" and falling through to lfg_user made "Everyone" non-sticky: the
     // next load re-applied the profile and hid every unassigned session. That
     // looked like a project-filter failure when Settings still showed live>0.
-    // A saved screen's own viewer filter comes first (firstFrameUserFilter).
     return firstFrameUserFilter({
-      savedScreen: startPayload,
+      savedScreen: null,
       savedFilter: localStorage.getItem("lfg_v2_user_filter"),
       standaloneProfile: localStorage.getItem("lfg_user"),
-      hosted: readLocationEmbedFlag() || isHostedSurface(),
+      hosted: false,
     });
   });
   // The folder in view. One value drives the list, the phone title and the
@@ -6510,15 +6267,7 @@ export function App() {
   const hostedFilterAppliedRef = useRef<number | null>(null);
   const hostedSurfaceRef = useRef(hostedSurface);
   hostedSurfaceRef.current = hostedSurface;
-  // A host that sells the plan can hide the agent picker for a plan that only
-  // runs the default agent. Same effect as the box's own toggle being off.
-  const { hideAgentPicker: hostHidesAgentPicker } = useEmbeddedHostOptions();
-  const viewPrefs = useMemo(() => {
-    const prefs = applyRoleViews(settings, roleViewer);
-    return hostHidesAgentPicker && prefs.showComposerAgents
-      ? { ...prefs, showComposerAgents: false }
-      : prefs;
-  }, [settings, roleViewer, hostHidesAgentPicker]);
+  const viewPrefs = useMemo(() => applyRoleViews(settings, roleViewer), [settings, roleViewer]);
   const hiddenPages = roleViewer.hiddenPages;
   const roleViewerState = useMemo<RoleViewerState>(
     () => ({ viewer: roleViewer, roles: roleOptions, preview: previewRole }),
@@ -6950,9 +6699,6 @@ export function App() {
     // since succeeded, so retire it — a stale "could not load" over a screen
     // full of freshly loaded state is just noise the reader has to disbelieve.
     setError(null);
-    // Live data now fills every view the saved screen drew. Keep it for the
-    // next page load.
-    setShowingSaved(false);
     firstBootstrapDoneRef.current = true;
     const earlySids = statusSidsBeforeListRef.current;
     statusSidsBeforeListRef.current = new Set();
@@ -6970,8 +6716,7 @@ export function App() {
         void loadCoreRef.current().catch(() => {});
       }, 2000);
     }
-    if (savedScreenKey) writeSavedScreen(savedScreenKey, payload);
-  }, [botUnreadIdentity, embedded, savedScreenKey]);
+  }, [botUnreadIdentity, embedded]);
 
   // How many bootstraps are in flight. A socket that goes live while one is
   // running must not start another (see shouldReloadRuntime).
@@ -7646,28 +7391,6 @@ export function App() {
     setLiveFocus({ sid: target.sessionId ?? sid, n: Date.now() });
   }, [allLiveSessions, loading, userFilter, projectFilter, identityGateOpen, setTab, deepLinkSearch.session]);
 
-  // The plan-limit sheet's Open. The chats it lists are mostly the ones Home
-  // hides behind a project filter, and the session page renders only a chat
-  // the filters list, so scope to the chat first (as a deep link does), then
-  // focus it: the narrow layout opens its page, the wide one its column.
-  const openLiveAgent = useCallback(
-    (sid: string) => {
-      const target = allLiveSessions.find(
-        (session) => session.sessionId === sid || session.nativeSessionId === sid,
-      );
-      if (target) {
-        const next = filtersToShowSession(target, { userFilter, projectFilter });
-        if (next.userFilter) setUserFilter(next.userFilter);
-        if (next.projectFilter) setProjectFilter(next.projectFilter);
-      }
-      setTab("live");
-      setLiveFocus({ sid: target?.sessionId ?? sid, n: Date.now() });
-    },
-    [allLiveSessions, userFilter, projectFilter, setTab],
-  );
-  useEffect(() => {
-    openLiveAgentRef.current = openLiveAgent;
-  }, [openLiveAgent]);
 
   // ...and if it never shows up, open it as a FINISHED session instead of
   // reporting the link dead. A shipped post outlives its session — the human
@@ -8044,23 +7767,8 @@ export function App() {
     loading || !runtimeReady || !!error || (useWsLive && wsLiveStream.connection.status !== "live"),
     omgTransportGeneration(),
   );
-  useComputerResumeMetrics({
-    generation: omgTransportGeneration(),
-    live: runtimeReady && (!useWsLive || wsLiveStream.connection.status === "live"),
-    lifecycle: runtimeLifecycle,
-  }, !bare);
 
-  // A host that owns the connection display (OmgAppSurfaceProps.onConnectionChange)
-  // hears every change and draws the only message; this tree then draws none.
-  const hostOwnsConnection = useHostOwnsConnection();
-  useReportHostConnection({
-    status: useWsLive ? wsLiveStream.connection.status : "live",
-    loading,
-    ready: runtimeReady,
-    saved: showingSaved && !runtimeReady,
-    error,
-    lifecycle: runtimeLifecycle ?? null,
-  });
+  const hostOwnsConnection = false;
 
   const retryRuntime = useCallback(() => {
     if (loading) return;
@@ -8615,7 +8323,7 @@ export function App() {
     const launchAgent =
       knownAgentKind(localStorage.getItem("lfg_v2_agent")) ??
       knownAgentKind(settings.lastAgent) ??
-      resolveInitialAgent(settings.defaultAgent, defaultAgent);
+      resolveInitialAgent(settings.defaultAgent, "aisdk");
     const launchModel =
       localStorage.getItem(`lfg_model_${launchAgent}`) ||
       (launchAgent === settings.lastAgent ? settings.lastModel : "") ||
@@ -8735,86 +8443,6 @@ export function App() {
     }
   }, []);
 
-  /**
-   * Record that the hosted intro has been seen, so it does not reappear on the
-   * next load. Silent on failure by design — the only cost of a lost write is
-   * seeing the intro once more, and a toast about onboarding bookkeeping at the
-   * exact moment someone is finally reaching their Computer is worse than that.
-   *
-   * The device fallback is NOT belt-and-braces, it is the load-bearing path on
-   * an older Computer. A box that predates `hosted` accepts this POST, ignores
-   * the field it doesn't know, and answers with a state that has no `hosted`
-   * block — so the server can never report the intro as done, and the gate
-   * would return on EVERY load, which is the exact wall this feature was meant
-   * to remove. Computers self-update on the user's command, not automatically
-   * (see the template pin), so "older box" is the normal case for a while, not
-   * an edge. Per-device is worse than per-account and better than a nag loop.
-   */
-  const markHostedIntroDone = useCallback(async () => {
-    try {
-      localStorage.setItem(HOSTED_INTRO_DONE_KEY, "1");
-    } catch {
-      /* private mode, quota — the server write below is still attempted */
-    }
-    try {
-      const response = await api<{ state: OnboardingState }>("/api/onboarding", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ hostedIntroDone: true }),
-      });
-      setOnboarding(response.state);
-    } catch {
-      /* see above — a repeat of the intro is the whole downside */
-    }
-  }, []);
-
-  /**
-   * Record hosted coach progress. Same fire-and-forget posture as
-   * markHostedIntroDone: a failed write costs a repeated step, never a block.
-   * hostedCoachSteps() also counts on-box evidence, so the panel stays correct
-   * for the whole session even when this never lands.
-   */
-  const markHostedCoach = useCallback(async (patch: Partial<HostedCoachFlags>) => {
-    try {
-      const response = await api<{ state: OnboardingState }>("/api/onboarding", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ hostedCoach: patch }),
-      });
-      setOnboarding(response.state);
-    } catch {
-      /* see above */
-    }
-  }, []);
-
-  /**
-   * Put the hosted surface back through its own first run. Deliberately does
-   * NOT touch `steps`/`completedAt`: those belong to the open-source flow, and
-   * a hosted Computer must not be able to reset a walkthrough it never ran.
-   */
-  const restartHostedFirstRun = useCallback(async () => {
-    try {
-      const response = await api<{ state: OnboardingState }>("/api/onboarding", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          hostedIntroDone: false,
-          hostedCoach: { session: false, schedule: false },
-        }),
-      });
-      setOnboarding(response.state);
-      try {
-        localStorage.removeItem(HOSTED_INTRO_DONE_KEY);
-      } catch {
-        /* nothing to clear */
-      }
-      setConnectGateSkipped(false);
-      connectGateStarted.current = false;
-      setHostedCoachDismissed(false);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't restart the tour");
-    }
-  }, []);
 
   const refreshCodingAgents = useCallback(async (opts: { refreshModels?: boolean } = {}) => {
     const agentsPath = opts.refreshModels ? "/api/coding-agents?refreshModels=1" : "/api/coding-agents";
@@ -8893,14 +8521,6 @@ export function App() {
     }
   }, [agentSetupRunning, refreshCodingAgents]);
 
-  const refreshToolConnections = useCallback(async () => {
-    try {
-      const payload = await api<{ connections?: ToolConnectOption[] }>("/api/connections");
-      setToolConnections(payload.connections ?? []);
-    } catch {
-      // Keep the last known connection state during a transient box restart.
-    }
-  }, []);
 
   function runSetupCheck(key: string) {
     setSetupChecks((current) =>
@@ -9057,10 +8677,7 @@ export function App() {
         toast.success(`${authProviderLabel(session.provider)} connected`);
         setCodingAgentAuthInlineSid(null);
         if (inlineSid) setCodingAgentAuthCompletedSid(inlineSid);
-        await Promise.all([
-          refreshCodingAgents({ refreshModels: true }),
-          refreshToolConnections(),
-        ]);
+        await refreshCodingAgents({ refreshModels: true });
         return;
       }
       // The session replaces the pending placeholder in the SAME dialog, so
@@ -9105,9 +8722,6 @@ export function App() {
     );
   }
 
-  async function loginTool(key: ToolConnectOption["key"]) {
-    return startBrowserAuth(key, `/api/connections/${key}/auth`, undefined, {}, "GitHub");
-  }
 
   // pi, OpenCode, and jcode sign in per model provider, so the request carries
   // which one — and which agent, since the id namespaces overlap and write to
@@ -9231,10 +8845,7 @@ export function App() {
     // A finished login flips an account to connected, which changes the set of
     // usage sources.
     invalidateUsageProviders();
-    await Promise.all([
-      refreshCodingAgents({ refreshModels: true }),
-      refreshToolConnections(),
-    ]);
+    await refreshCodingAgents({ refreshModels: true });
   }
 
   const codingAgentAuthFlow: CodingAgentAuthFlow = {
@@ -9253,139 +8864,6 @@ export function App() {
     complete: completeConnectionAuth,
   };
 
-  // Embedded fresh box: onboarding and settings are hidden under a host, so
-  // the gate below is the only place a framed user can connect a coding agent.
-  // While it is open we re-read the roster so a finished CLI install (or an
-  // out-of-band login) reveals the app without a manual reload; the auth dialog
-  // already refreshes on its own when a browser login completes.
-  // A `?session=` deep link is the host asking for one specific session, which
-  // only exists on a box that is past first run — never hold that behind the
-  // gate. The gate is back on the next plain load while nothing is connected.
-  // `bare` closes it: a host that mounted one settings page asked for that
-  // page, not for onboarding. See shouldShowEmbeddedConnectGate.
-  // Server first; device fallback ONLY where the server cannot answer, so an
-  // up-to-date Computer stays per-account and an older one still can't nag.
-  const hostedIntroSeen = onboarding
-    ? onboarding.hosted
-      ? !!onboarding.hosted.introDoneAt
-      : hostedIntroDoneOnThisDevice()
-    : false;
-
-  // Second half of the hosted first run, and the half that was missing: the
-  // connect gate hands a fresh Computer back to an empty home with nothing to
-  // read. These steps are optional, so unlike the gate they render INSIDE the
-  // home surface (see components/hosted-coach-card.tsx). Counts are unfiltered
-  // on purpose — "have you ever run a session here" is not a question the
-  // project filter gets to answer.
-  const hostedCoachFlags = onboarding?.hosted?.coach ?? null;
-  const hostedCoachInput = {
-    coach: hostedCoachFlags,
-    sessionCount: sessions.length,
-    autoAgentCount: autoAgents.length,
-  };
-  const hostedCoach = hostedCoachSteps(hostedCoachInput);
-  // A host's tutorial run is its own guide: two checklists at once was how a
-  // beginner got "Put an agent on a schedule" drawn over their first tutorial.
-  const guideRunning = useGuideRunning();
-  const hostedCoachOpen =
-    !guideRunning &&
-    !hostedCoachDismissed &&
-    shouldShowHostedCoach({
-      embedded,
-      bare,
-      introSeen: hostedIntroSeen,
-      // `onboarding` is null until bootstrap answers. Rendering a fresh-looking
-      // checklist over an unknown state would flash it at people who are done.
-      coachLoaded: !!onboarding,
-      steps: hostedCoach,
-    });
-
-  // Backfill the server from what the box can already prove, so progress made
-  // before this panel existed (or while a write failed) is not re-taught on the
-  // next device. Keyed on the pending list, so it fires once per real change.
-  const hostedCoachPending = onboarding ? unrecordedHostedCoachSteps(hostedCoachInput) : [];
-  const hostedCoachPendingKey = hostedCoachPending.join(",");
-  useEffect(() => {
-    if (!embedded || !hostedCoachPendingKey) return;
-    const patch: Partial<HostedCoachFlags> = {};
-    for (const key of hostedCoachPendingKey.split(",") as HostedCoachKey[]) patch[key] = true;
-    void markHostedCoach(patch);
-  }, [embedded, hostedCoachPendingKey, markHostedCoach]);
-
-  const connectGateRequired = shouldShowEmbeddedConnectGate({
-    embedded,
-    bare,
-    connectionOnboarding,
-    agents: codingAgents,
-    // Server-backed, so this is genuinely once-per-Computer rather than
-    // once-per-page-load. `onboarding` is null until bootstrap answers; that
-    // window is covered by connectGateStarted below, which only latches after
-    // a real "yes".
-    dismissed:
-      connectGateSkipped ||
-      hostedIntroSeen ||
-      !!sessionDeepLinkRef.current,
-  });
-  if (connectGateRequired) connectGateStarted.current = true;
-  const connectGateOpen =
-    embedded &&
-    !bare &&
-    connectionOnboarding &&
-    !connectGateSkipped &&
-    !hostedIntroSeen &&
-    !sessionDeepLinkRef.current &&
-    connectGateStarted.current;
-  useEffect(() => {
-    if (!connectGateOpen) return;
-    void refreshToolConnections();
-    const timer = window.setInterval(() => void refreshCodingAgents(), 4000);
-    return () => window.clearInterval(timer);
-  }, [connectGateOpen, refreshCodingAgents, refreshToolConnections]);
-
-  // Reuses the existing setup handlers and shared auth dialog for every row.
-  // Once opened, it stays mounted through the tools page; a connected agent
-  // must not make page two disappear mid-flow.
-  if (connectGateOpen) {
-    return (
-      <>
-        <EmbeddedConnectGate
-          options={embeddedConnectOptions(codingAgents)}
-          toolConnections={toolConnections}
-          pendingKind={connectPendingKind}
-          onAnalyticsEvent={onAnalyticsEvent}
-          onConnect={(kind) => {
-            setConnectPendingKind(kind as AgentKind);
-            void loginCodingAgent(kind as AgentKind).finally(() =>
-              setConnectPendingKind(null),
-            );
-          }}
-          onInstall={(kind) => {
-            setupCodingAgent(kind as AgentKind);
-          }}
-          onConnectTool={(key) => {
-            setConnectPendingKind(key);
-            void loginTool(key).finally(() => setConnectPendingKind(null));
-          }}
-          onDone={() => {
-            // Echo locally first so the app appears immediately, then record it
-            // for good. Fire-and-forget: a failed write means they see the
-            // intro again next load, which is a far better failure than
-            // blocking the Computer behind a spinner on a bookkeeping call.
-            setConnectGateSkipped(true);
-            void markHostedIntroDone();
-          }}
-        />
-        <CodingAgentAuthDialog
-          session={codingAgentAuth}
-          pendingLabel={codingAgentAuthPending}
-          onSessionChange={setCodingAgentAuth}
-          onComplete={completeConnectionAuth}
-        />
-        {/* A host that owns the toast stack draws every toast; see host-toast.ts. */}
-        {hasHostToast() ? null : <Toaster position={isMobile ? "top-center" : "bottom-center"} />}
-      </>
-    );
-  }
 
   // Brand-new install (no roster, no sessions, onboarding never completed):
   // walk through profile → agents → first session. State is service-ized
@@ -9607,23 +9085,8 @@ export function App() {
       onOpenTab={setTab}
       extraTabs={extNavTabs}
       showSettings={!embedded}
-      onOpenHostSettings={embedded && hostSettingsInMenu ? onOpenHostSettings : undefined}
     />
   );
-  // Where a host docks its own header actions. Every page offers one, and every
-  // one carries `data-lfg-host-settings="menu"` when our navigation (the drawer
-  // or the Pages menu) carries the host's Settings, so the host never draws a
-  // second Settings control. A page without the slot made the host float its
-  // gear over our page; a slot without the flag made it dock one.
-  const hostActionsSlot = (className: string) =>
-    embedded ? (
-      <span
-        data-lfg-host-slot="header-actions"
-        data-lfg-host-drawer={isMobile ? "footer" : undefined}
-        data-lfg-host-settings={hostSettingsInMenu ? "menu" : undefined}
-        className={className}
-      />
-    ) : null;
 
   // An auto-agent report or finding. On the desktop workspace it opens in
   // the stage beside the rail, the same two panes Schedules uses. Elsewhere
@@ -9699,7 +9162,7 @@ export function App() {
       transportLive: useWsLive && wsLiveStream.connection.status === "live",
       loading,
       ready: runtimeReady,
-      saved: showingSaved && !runtimeReady,
+      saved: false,
       error,
       retry: retryRuntime,
     }}>
@@ -9777,7 +9240,6 @@ export function App() {
           <LiveHeaderContext
             intro={showHeaderBrandIntro && !error}
             brand={<ProductBrand compact hosted={embedded} />}
-            viewerName={viewer?.name}
             user={headerProfile}
             identity={identity}
             busyCount={liveSessions.filter(
@@ -9830,7 +9292,6 @@ export function App() {
                     that still floats keeps working exactly as before. */}
                 {/* Out of the flex run while unfilled, so its gap does not
                     push the avatar off the corner. */}
-                {hostActionsSlot("flex items-center gap-1.5 empty:hidden")}
 
               </div>
             </NavIsland>
@@ -9928,11 +9389,9 @@ export function App() {
         {/* A phone page has nothing for the right island (the roster globe
             is on the home header only), so it draws no empty pill: only the
             host slot, which takes no space while unfilled. */}
-        {isMobile ? hostActionsSlot("flex items-center gap-1.5 empty:hidden") : (
+        {isMobile ? null : (
         <NavIsland className="shrink-0">
           <div className="glass-island flex h-11 items-center gap-1.5 rounded-full px-2">
-            {/* Host actions first, our own controls after them. */}
-            {hostActionsSlot("flex items-center gap-1.5 empty:hidden")}
             {headerScopeFilters ? (
               // Page destinations live in PagesMenu. Mobile project scope lives
               // in the Live composer and never impersonates a page destination.
@@ -10090,7 +9549,6 @@ export function App() {
               // Built here rather than inside RailStage: the shell owns the tab
               // state and the extension registry, and the rail should not have to
               // know either to render a menu.
-              hostSettingsInMenu={hostSettingsInMenu}
               // The phone header's status line, at the top of the rail: the
               // welcome, then what is building, then questions. The logo it
               // replaced sits at the foot of the rail now.
@@ -10098,7 +9556,6 @@ export function App() {
                 <LiveHeaderContext
                   intro={false}
                   brand={null}
-                  viewerName={viewer?.name}
                   user={headerProfile}
                   identity={identity}
                   busyCount={liveSessions.filter(
@@ -10118,9 +9575,6 @@ export function App() {
                   extensions: extNavTabs,
                 }),
                 onNavigate: setTab,
-                // Hosted: Settings is the host's, and rides in this menu the
-                // way it rode in the old pages menu.
-                onOpenHostSettings: hostSettingsInMenu ? onOpenHostSettings : undefined,
               }}
               repos={repos}
               onReposChanged={loadCore}
@@ -10165,37 +9619,6 @@ export function App() {
                 />
               )}
               hosted={embedded}
-              // The hosted first run's optional half. Steps complete from
-              // EVIDENCE (a session exists, an auto agent exists), so these
-              // handlers only take the person to where the step happens —
-              // claiming a step on click would tick it for anyone who tapped
-              // and changed their mind.
-              coach={
-                hostedCoachOpen ? (
-                  <HostedCoachCard
-                    steps={hostedCoach}
-                    onStep={(key) => {
-                      if (key === "schedule") {
-                        // The auto-agent surface, not Settings: a framed box
-                        // has no Settings tab of its own (the host owns that
-                        // chrome), but `tab === "auto"` renders either way.
-                        setTab("auto");
-                        return;
-                      }
-                      if (isMobile) setComposerFocusNonce((n) => n + 1);
-                      else setNewOpen(true);
-                    }}
-                    onDismiss={() => {
-                      // Echo locally, then make it stick. Dismissing IS the
-                      // answer "do not teach me these", so it records the
-                      // steps done rather than hiding them for this tab only —
-                      // and Settings' "Setup guide" row still replays it.
-                      setHostedCoachDismissed(true);
-                      void markHostedCoach({ session: true, schedule: true });
-                    }}
-                  />
-                ) : null
-              }
               findings={projectScopedFindings}
               autoAgents={projectScopedAutoAgents}
               onOpenReport={setOpenReport}
@@ -10293,7 +9716,6 @@ export function App() {
           // (chromelessSurface), so the title row starts under the status bar.
           <div className="mx-auto max-w-xl pb-10 pt-[calc(0.5rem+env(safe-area-inset-top))]">
             <PhoneFolders
-              trailing={hostActionsSlot("flex items-center gap-1.5 empty:hidden")}
               value={projectFilter}
               projects={projectOptions}
               labelFor={(value) => projectFilterLabel(value, shortProject)}
@@ -10312,16 +9734,8 @@ export function App() {
               onAddFolder={() => setMobileFolderBrowser("add")}
               onNewFolder={() => setMobileFolderBrowser("new")}
               onCloneGitHub={() => setImportGitHubOpen(true)}
-              onOpenSettings={
-                embedded
-                  ? hostSettingsInMenu
-                    ? onOpenHostSettings
-                    : undefined
-                  : () => setTab("settings")
-              }
+              onOpenSettings={() => setTab("settings")}
             />
-            {/* A host's own rows (for example Upgrade), where its drawer had them. */}
-            {embedded ? <div className="mt-3 flex flex-col gap-1"><HostDrawerSlot onClose={noop} /></div> : null}
           </div>
         ) : null}
         {tab === "changelog" ? (
@@ -10358,7 +9772,6 @@ export function App() {
               // No navigation button: the close control already leaves the
               // Computer. Only the host slot, so the host knows our drawer
               // carries its Settings and floats nothing over the screen.
-              navigation={hostActionsSlot("flex items-center gap-1.5 empty:hidden")}
             />
           </Suspense>
         ) : null}
@@ -10393,7 +9806,7 @@ export function App() {
             // not be able to reset the open-source walkthrough (it never ran
             // it, and doing so would demand a profile and a repo it doesn't
             // need), and a self-hosted box has no hosted tour to replay.
-            onRedoOnboarding={embedded ? restartHostedFirstRun : redoOnboarding}
+            onRedoOnboarding={redoOnboarding}
             managedComputer={managedComputer}
             extTabs={extNavTabs}
             onOpenExt={(id) => setTab(id)}
@@ -10543,9 +9956,7 @@ export function App() {
       {/* The one connection surface for the full app. Bare pages are hosted
           inside someone else's page and keep the toasts above. */}
       {!bare && !hostOwnsConnection ? (
-        <ConnectionOverlay
-          machineSwitcher={!embedded || hostMachines ? <MachineSwitcher variant="nav" /> : null}
-        />
+        <ConnectionOverlay />
       ) : null}
       <VoiceSetupDialog />
       {/* Shift toggles the all-agent usage campfire; long-press rings on mobile. */}
@@ -13134,8 +12545,6 @@ function RailStage({
   hostSettingsInMenu?: boolean;
 }) {
   "use memo";
-  // A host that supplies its own machine list gets the switcher too.
-  const { machines: hostMachines, onNavigate: onHostNavigate } = useEmbeddedHostOptions();
   const appDialog = useAppDialog();
   const { conversations: botConversationsForRail, selectedConversationId: selectedBotConversationForRail, markRead: markBotRowRead, any: botsUnreadAny } = useContext(BotUnreadContext);
   const { any: sessionsUnreadAny } = useContext(SessionUnreadContext);
@@ -13442,7 +12851,6 @@ function RailStage({
   // shortcut, the fresh session after Start) retires the in-pane composer, so
   // it can never linger behind a transcript.
   const startNew = () => {
-    onHostNavigate?.();
     if (railSurface === "sessions" && validPinned.length === 0) {
       setPreview(null);
       return;
@@ -13700,7 +13108,6 @@ function RailStage({
   // so re-clicking an already-open column still points at which window it is.
   const activate = useCallback(
     (sid: string, shift: boolean) => {
-      onHostNavigate?.();
       if (shift && anchorRef.current) {
         selectTo(sid);
         pulseStage(sid);
@@ -13711,7 +13118,7 @@ function RailStage({
       openSession(sid);
       pulseStage(sid);
     },
-    [selectTo, openSession, pulseStage, onHostNavigate],
+    [selectTo, openSession, pulseStage],
   );
 
   // Quick-interrupt a session by id. Interrupting an idle session is a harmless
@@ -14233,7 +13640,7 @@ function RailStage({
         // The same row as the Chat list's New session.
         <button
           type="button"
-          onClick={() => { onHostNavigate?.(); onNewBot?.(); }}
+          onClick={() => { onNewBot?.(); }}
           className="mb-1 flex h-10 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
           <span className="flex size-7 shrink-0 items-center justify-center rounded-full border border-dashed border-border">
@@ -14257,7 +13664,6 @@ function RailStage({
         // either — the row would read `[subagent complete] …`.
         const preview = plainPreviewText(botRosterPreview(rawPreview, busy));
         const open = () => {
-          onHostNavigate?.();
           onOpenBot?.(bot.id, row.conversationId);
           if (sid) activate(sid, false);
         };
@@ -14380,7 +13786,7 @@ function RailStage({
               {onOpenAsk ? (
                 <>
                   {hosted ? null : <UpdateNavButton />}
-                  <AskNavButton active={false} onOpen={() => { onHostNavigate?.(); onOpenAsk(); }} />
+                  <AskNavButton active={false} onOpen={() => { onOpenAsk(); }} />
                 </>
               ) : null}
               {onUserChange ? (
@@ -14467,11 +13873,9 @@ function RailStage({
                   collapsed={railCollapsed}
                   dense
                   onOpen={(id) => {
-                    onHostNavigate?.();
                     onOpenThread?.(id);
                   }}
                   onNew={onOpenThread ? () => {
-                    onHostNavigate?.();
                     onOpenThread(NEW_THREAD_ID);
                   } : undefined}
                 />
@@ -14507,12 +13911,10 @@ function RailStage({
             onBack={() => setRailNavOpen(false)}
             rows={sideNav.rows}
             onNavigate={sideNav.onNavigate}
-            onSelect={onHostNavigate}
             unread={railNavUnread}
             // The machine lives in the menu, first, as in the phone drawer.
             // It is set once and rarely changed, so it does not need a
             // permanent row at the foot of the rail.
-            machineSwitcher={!hosted || hostMachines ? <MachineSwitcher variant="nav" onHostAction={() => setRailNavOpen(false)} /> : null}
             footer={
               sideNav.onOpenHostSettings ? (
                 <button
@@ -16240,13 +15642,11 @@ function PausedBanner({
   onRefresh: () => Promise<void>;
 }) {
   const authFlow = useContext(CodingAgentAuthContext);
-  const hostOwnsPlanLimits = !!useEmbeddedHostOptions().onPlanLimit;
   const [working, setWorking] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   if (session.status !== "blocked" || SEND_RESUMES_REASONS.has(session.statusReason)) return null;
   // With a host that sells the plan, the out-of-credit card in the transcript
   // owns this message and its Upgrade button. A second banner would repeat it.
-  if (session.statusReason === "out_of_credits" && hostOwnsPlanLimits) return null;
   const sid = session.sessionId;
   const reason = session.statusReason;
   const reconnectKind =
@@ -17256,13 +16656,11 @@ function SessionChat(rawProps: SessionChatProps) {
     [sid, onSubscribeTranscript, botId, viewerIdentity],
   );
   // The engine's errors are the transport's: a dropped stream, a send the body
-  // also catches. An out-of-credit refusal still opens its card; anything else
-  // is logged, never printed (lib/chat-failure.ts).
-  const handleModelPlanError = useModelPlanErrorHandler();
+  // also catches. They are logged, never printed (lib/chat-failure.ts).
   const reportError = useCallback((message: string | null) => {
-    if (!message || handleModelPlanError(message)) return;
+    if (!message) return;
     logChatError("chat-engine", sid, message);
-  }, [handleModelPlanError, sid]);
+  }, [sid]);
   return (
     <Suspense fallback={<SessionChatSkeleton />}>
       <OmgChatEngine
@@ -17299,9 +16697,6 @@ function SessionChatBody({
   "use memo";
   const sid = session.sessionId;
   const reviewingShipped = !!session.shippedReview;
-  // A host's guided tutorial (OmgAppSurfaceProps.composerGuide): Send waits
-  // for the draft it accepts, and the host hears each draft and send.
-  const { composerGuide } = useEmbeddedHostOptions();
   // Open ask-user questions raised BY this session. The transcript shows them
   // at the end of the stream (SessionQuestionPanel in ChatStream) and the
   // composer is their reply box — there is no second input, so what you type
@@ -17314,22 +16709,6 @@ function SessionChatBody({
   );
   // Read when dictation starts, not on every keystroke (see useDictation).
   const messageTextRef = useLatestRef(messageText);
-  const onGuideDraft = composerGuide?.onDraft;
-  const guideCardKey = useGuideCardKey();
-  useEffect(() => {
-    onGuideDraft?.(messageText, "session", sid ?? undefined);
-  }, [messageText, onGuideDraft, sid, guideCardKey]);
-  // The host's "Fill it in" (composerGuide.registerFill) sets this draft
-  // through setMessageText, declared below; a ref reaches the latest one.
-  const fillSessionDraftRef = useRef<(text: string) => void>(() => {});
-  const registerGuideFill = composerGuide?.registerFill;
-  useEffect(() => {
-    if (!registerGuideFill) return;
-    const cleanup = registerGuideFill((text) => fillVisibleComposer(messageInputRef.current, fillSessionDraftRef.current, text), "session", sid ?? undefined);
-    return typeof cleanup === "function" ? cleanup : undefined;
-  }, [registerGuideFill, sid]);
-  // The guide card's ring target in this bar (index.css [data-lfg-guide-focus]).
-  const guideFocus = useGuideFocus("session", sid);
   const [sending, setSending] = useState(false);
   // Counts composer sends, so the open harness prompt can hide on the send
   // that answers it (see SessionPromptPanel).
@@ -17508,9 +16887,6 @@ function SessionChatBody({
     },
     [onTyping, session.project, session.title, sid, stashContext],
   );
-  useLayoutEffect(() => {
-    fillSessionDraftRef.current = setMessageText;
-  });
   // Faces and names for whoever is typing. An id with no roster row still
   // renders, as the existing "somebody else" placeholder: the id came from the
   // server, so dropping it would hide a real person rather than admit we
@@ -17546,11 +16922,9 @@ function SessionChatBody({
     return () => onTyping(sid, false);
   }, [onTyping, sid]);
 
-  // A failed action is a short notice in plain words; an out-of-credit refusal
-  // goes to its own card first. The server's text is logged, not shown.
-  const handleModelPlanError = useModelPlanErrorHandler();
+  // A failed action is a short notice in plain words. The server's text is
+  // logged, not shown.
   const failed = useLatestCallback((title: string, err: unknown, description?: string) => {
-    if (handleModelPlanError(errorMessage(err))) return;
     notifyChatFailure(title, sid, err, description);
   });
   const failedQuietly = useCallback((message: string | null) => {
@@ -17603,7 +16977,6 @@ function SessionChatBody({
     const text = (overrideText ?? messageText).trim();
     const files = attachments;
     if (!sid || (!text && !files.length)) return;
-    if (composerGuide?.accepts && !composerGuide.accepts(text, "session", sid ?? undefined)) return;
     const fastCommand = parseFastChatCommand(text);
     if (fastCommand.matched) {
       if (files.length) {
@@ -17701,7 +17074,6 @@ function SessionChatBody({
           }),
         });
         setPromptStashStatus(stashed?.id, "sent");
-        composerGuide?.onSent?.({ surface: "session", text, sessionId: sid });
         setLocalHeld((current) => current.filter((item) => item.id !== localHeldId));
         if (res.msg?.status === "held") {
           const held = res.msg;
@@ -17747,7 +17119,6 @@ function SessionChatBody({
           }),
         });
         setPromptStashStatus(stashed?.id, "sent");
-        composerGuide?.onSent?.({ surface: "session", text, sessionId: sid });
         for (const att of files) {
           if (att.previewUrl) URL.revokeObjectURL(att.previewUrl);
         }
@@ -17775,8 +17146,7 @@ function SessionChatBody({
         {
           onAccepted: () => {
             setPromptStashStatus(stashed?.id, "sent");
-            composerGuide?.onSent?.({ surface: "session", text, sessionId: sid });
-          },
+              },
           onRejected: () => {
             setPromptStashStatus(stashed?.id, "draft");
             setMessageTextState((current) => current || text);
@@ -18025,15 +17395,12 @@ function SessionChatBody({
              somebody restarted something for it. */
         bot || canDriveSession(session) || reviewingShipped ? (
         <form
-          // An embedding host's toasts clear this chat box while it is on screen.
-          ref={trackHostToastClear}
           onSubmit={sendLatest}
           data-lfg-bar-lift=""
           // Which chat box this is, for a host that waits for it to show
           // (omg.dev opens a tutorial's chat and checks it is on screen).
           data-composer-kind="session"
           data-composer-sid={sid}
-          data-lfg-guide-focus={guideFocus}
           {...files.dropZoneProps}
           className={cn(
             // Sit on the same surface as the chat (no card/border seam) and let
@@ -18067,18 +17434,6 @@ function SessionChatBody({
               top edge: the next one to go is always visible, the rest fold
               behind a count until tapped. */}
           {heldDock}
-          {/* Host chrome right above this session's bar (the omg.dev guide card).
-              Empty unless a host portals into it; [data-lfg-host-slot]:empty
-              hides it. The session id keeps a guide attached to its own
-              conversation when several composers are mounted. */}
-          <div data-lfg-host-slot="composer-top" data-composer-kind="session" data-composer-sid={sid} />
-          {/* The host's tutorial guide (composerGuide.card), in the flow right
-              above the field: the transcript shrinks; nothing is covered. */}
-          <GuideComposerSlot
-            surface="session"
-            sessionId={sid}
-            fill={(text) => fillVisibleComposer(messageInputRef.current, fillSessionDraftRef.current, text)}
-          />
           {/* The bar itself (not just the textarea) is the field now: attach, type,
               mic and send all live inside one lfg-gfield pill, matching the
               wrapper pattern NewSessionDialog/ForkSessionDialog already use. That
@@ -18228,8 +17583,7 @@ function SessionChatBody({
                 A live-but-still-silent recording has nothing to show here yet;
                 the mic button's own recording state (red, level-reactive) is
                 what carries "gesture in progress" until words land. */}
-            {(messageText.trim() || attachments.length || sending) &&
-            (sending || !composerGuide?.accepts || composerGuide.accepts(messageText.trim(), "session", sid ?? undefined)) ? (
+            {messageText.trim() || attachments.length || sending ? (
               sendButton
             ) : null}
             </div>
@@ -22509,7 +21863,6 @@ function OmgInstructionsBlock(props: {
   version: string | null;
   align?: "end" | "center";
 }) {
-  if (readLocationEmbedFlag() || isHostedSurface()) return null;
   return <OmgInstructionsDisclosure {...props} />;
 }
 
@@ -22999,19 +22352,6 @@ export const MessageBubble = memo(function MessageBubble({
       : message.text ?? "",
   );
   const botBubble = !!bot && !!shownText;
-  // The router refused this turn for credit. Draw it as a plan limit with an
-  // Upgrade button rather than as an ordinary reply (out-of-credit-card.tsx).
-  if (!bot && !isDraftAssistantMessage(message) && isOutOfCreditNotice(shownText)) {
-    return (
-      <AiMessage className={cn("msg", entering && "lfg-msg-in")} from="assistant">
-        <OutOfCreditCard
-          text={shownText.trim()}
-          messageKey={message.id ?? message.renderKey}
-          ts={message.ts}
-        />
-      </AiMessage>
-    );
-  }
   const body = (
     <MessageActions text={assistantMessageText(message.text || "")} isUser={false}>
         {/* Assistant turns render markdown from the raw source via Streamdown,
@@ -23730,13 +23070,9 @@ function NewSessionDialog({
   const [sendWhenReady, setSendWhenReady] = useState<{ text?: string; thinking?: ThinkingLevel } | null>(null);
   const catalog = useAgentModelCatalog();
   const accessMode = useContext(AgentAccessModeContext);
-  // A host's guided tutorial (OmgAppSurfaceProps.composerGuide).
-  const { composerGuide, starterChips } = useEmbeddedHostOptions();
   const view = useContext(ViewPrefsContext);
-  const { defaultAgent: hostDefaultAgent } = useEmbeddedHostOptions();
-  // Box default (Settings > More > View) sits between the browser's saved
-  // choice and the host's built-in default.
-  const defaultAgent = resolveInitialAgent(view.defaultAgent, hostDefaultAgent);
+  // Box default (Settings > More > View), else the built-in default.
+  const defaultAgent = resolveInitialAgent(view.defaultAgent, "aisdk");
   const defaultModelFor = (key: AgentKind) => catalog.defaults[key] ?? AGENT_DEFAULT_MODEL[key];
   // The box's cross-device memory of the last model launched, which only
   // answers for the agent it was launched with.
@@ -23828,23 +23164,6 @@ function NewSessionDialog({
   const [prompt, setPromptState] = useState(
     () => readPromptDraft("new-session")?.text ?? "",
   );
-  const onGuideDraft = composerGuide?.onDraft;
-  const homeGuideCardKey = useGuideCardKey();
-  useEffect(() => {
-    onGuideDraft?.(prompt, "new-session");
-  }, [prompt, onGuideDraft, homeGuideCardKey]);
-  // The host's "Fill it in" (composerGuide.registerFill) sets the home draft
-  // through setPrompt, declared below; a ref reaches the latest one.
-  const fillHomeDraftRef = useRef<(text: string) => void>(() => {});
-  const registerHomeFill = composerGuide?.registerFill;
-  useEffect(() => {
-    if (!registerHomeFill) return;
-    const cleanup = registerHomeFill((text) => fillVisibleComposer(fieldRef.current?.querySelector("textarea") ?? null, fillHomeDraftRef.current, text), "new-session");
-    return typeof cleanup === "function" ? cleanup : undefined;
-  }, [registerHomeFill]);
-  const homeGuideFocus = useGuideFocus("new-session");
-  // While the guide's card sits in this composer, the tutorial cards under it step aside.
-  const homeGuideActive = useHomeGuideActive();
   // A mirror of `prompt` for callbacks that outlive the render that made them.
   // The agent-cap offer is the one that does: it now waits to be answered, so
   // the box can be edited while it sits there, and answering it must send what
@@ -24074,13 +23393,9 @@ function NewSessionDialog({
     const ro = new ResizeObserver(sync);
     ro.observe(bar);
     window.addEventListener("resize", sync);
-    // For an embedding host's toasts. The tracker decides which chat box on
-    // screen they clear: this one stays mounted under an open chat.
-    const untrack = trackHostToastClear(bar);
     return () => {
       ro.disconnect();
       window.removeEventListener("resize", sync);
-      untrack?.();
       document.documentElement.style.removeProperty("--lfg-inline-composer-height");
     };
   }, [variant]);
@@ -24396,9 +23711,6 @@ function NewSessionDialog({
       project: composerProject,
     });
   }
-  useLayoutEffect(() => {
-    fillHomeDraftRef.current = setPrompt;
-  });
 
   function openFolderBrowser(create: boolean) {
     setFolderBrowserCreate(create);
@@ -24452,7 +23764,6 @@ function NewSessionDialog({
     return agentPickerOptions(codingAgents, accessMode);
   }, [accessMode, codingAgents]);
   const openSettingsPage = useOpenSettingsPage();
-  const handlePlanLimit = usePlanLimitHandler();
 
   const selectedLaunchId =
     agent === "aisdk" && claudeAccountId ? `aisdk:${claudeAccountId}` : agent;
@@ -24511,8 +23822,6 @@ function NewSessionDialog({
     const taskPrompt = (overrideText ?? prompt).trim();
     const files = attachments;
     if (!taskPrompt && !files.length) return;
-    if (composerGuide?.accepts && !composerGuide.accepts(taskPrompt, "new-session")) return;
-    const guideLaunch = composerGuide?.newSession;
     if (!visibleAgentOptions.some((option) => option.key === agent)) {
       const message = "Set up and sign in to a coding agent before starting a session.";
       setError(message);
@@ -24604,13 +23913,8 @@ function NewSessionDialog({
             fastMode: launchFastMode,
             claudeAccountId: launchClaudeAccountId,
             overLimit: overLimit || undefined,
-            // The host's guide (composerGuide.newSession): first-run rules
-            // plus its own instructions, inside the launch envelope.
-            ...(guideLaunch?.firstRun ? { firstRun: true } : {}),
-            ...(guideLaunch?.guide ? { guide: guideLaunch.guide } : {}),
             // A no-project session from this composer starts something new
-            // (Create). On Auto, lfg builds it on the build model
-            // (src/auto-build-model.ts). No other effect.
+            // (Create).
             ...(unassigned ? { newApp: true } : {}),
           }),
         });
@@ -24629,7 +23933,6 @@ function NewSessionDialog({
           );
         }
         setPromptStashStatus(stashed?.id, "sent");
-        composerGuide?.onSent?.({ surface: "new-session", text: taskPrompt, sessionId: sid ?? null });
         await onCreated({ launchId: sid, sessionId: sid, session: res?.session ?? null });
       };
       // attemptAsync, not try/finally: see lib/attempt.ts.
@@ -24675,7 +23978,6 @@ function NewSessionDialog({
         // A plan ceiling the host can sell past is not an error to show — it's
         // an upgrade prompt to open. The prompt is already restored above, so
         // whoever comes back from checkout finds their task still typed.
-        if (handlePlanLimit(err, "start-session")) return;
         const message = errorMessage(err);
         setError(message);
         toast.error(message || "Couldn't create session");
@@ -24724,8 +24026,7 @@ function NewSessionDialog({
     !runtime.loading && runtime.ready && runtime.status === "live" && !runtime.error &&
     (unassigned || !!selectedRepo) &&
     visibleAgentOptions.some((option) => option.key === agent) &&
-    (!!prompt.trim() || attachments.length > 0) &&
-    (!composerGuide?.accepts || composerGuide.accepts(prompt.trim(), "new-session"));
+    (!!prompt.trim() || attachments.length > 0);
   const selectedAgentOption = displayedAgentOption<AgentLaunchOption>(
     AGENT_CATALOG,
     visibleAgentOptions,
@@ -25149,7 +24450,6 @@ function NewSessionDialog({
       {...files.dropZoneProps}
       aria-busy={launching}
       data-composer-kind="home"
-      data-lfg-guide-focus={homeGuideFocus}
       className={cn(
         // Inline home: original device home-indicator pad when standalone.
         // Embed cancels --lfg-device-safe-bottom to 0 (host owns that zone) and
@@ -25176,12 +24476,6 @@ function NewSessionDialog({
       {/* Host chrome above the new-session composer and its starter row (the
           omg.dev guide card). Empty unless a host portals into it. */}
       <div data-lfg-host-slot="composer-top" data-composer-kind="home" className={variant === "inline" ? "mb-2" : undefined} />
-      {/* The host's tutorial guide (composerGuide.card), or a row back to the
-          run's chat. In the flow above the field, never over the page. */}
-      <GuideComposerSlot
-        surface="new-session"
-        fill={(text) => fillVisibleComposer(fieldRef.current?.querySelector("textarea") ?? null, fillHomeDraftRef.current, text)}
-      />
       {/* A chat with no folder starts from these four, the way it does on iOS.
           They sit above the field and only while the field is empty: once
           there is anything to send, the person has said what they want and
@@ -25191,7 +24485,6 @@ function NewSessionDialog({
           // Inline: run the swipe row to the screen edge, not the composer's.
           className={cn("mb-2", variant === "inline" && "-mx-4 scroll-px-4 px-4")}
           disabled={launching}
-          hostChips={starterChips}
           onStart={(starterPrompt) => submitLatest(undefined, starterPrompt)}
         />
       ) : null}
@@ -25481,11 +24774,6 @@ function NewSessionDialog({
             What do you want to make?
           </h2>
           {formBody}
-          {/* The host's tutorials, as on the phone Create page. Nothing
-              without a host that lists any. */}
-          <div className="mt-5 px-1">
-            {homeGuideActive ? null : <CreateTutorials layout="grid" />}
-          </div>
         </section>
       </div>
     );
@@ -30655,10 +29943,7 @@ function SettingsView({
   connection: ConnectionState | null;
   computerVersionReport: { version: string | null; generation: number } | null;
 }) {
-  // A host mounting this page renders the signed-in account itself — and its
-  // account is the real one, where ours is only a per-device session tag. Two
-  // identity blocks on one page is worse than none.
-  const bare = useBareSurface();
+  const bare = false;
   const diskStats = useServerStats(true);
   const diskLine = diskFreeLine(diskStats);
 
@@ -31079,12 +30364,11 @@ function ViewSettingsSection({
   const codingAgents = useContext(CodingAgentsContext);
   const accessMode = useContext(AgentAccessModeContext);
   const catalog = useAgentModelCatalog();
-  const { defaultAgent: hostDefaultAgent } = useEmbeddedHostOptions();
   const options = useMemo(
     () => configuredLaunchOptions(codingAgents, accessMode, { scheduledOnly: false }),
     [accessMode, codingAgents],
   );
-  const agent = resolveInitialAgent(settings.defaultAgent, hostDefaultAgent);
+  const agent = resolveInitialAgent(settings.defaultAgent, "aisdk");
   const models = useAgentModels(agent);
   const model =
     (settings.defaultAgent === agent && settings.defaultModel) ||

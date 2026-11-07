@@ -12,35 +12,6 @@ function openAllModels(ui: Mounted) {
   ui.flush(() => more.click());
 }
 
-// A hosted person sees Auto and three levels, so they do not have to choose
-// among 14 models. The full list must stay one tap away, and a person who
-// already chose a specific model must see that choice without the tap.
-test("hosted picker leads with Auto and the levels, the full list one tap away", async () => {
-  const ui = mount();
-  try {
-    let chosen: string | null = null;
-    ui.render(<ModelOptionList value={OMG_MODELS[0]!} models={OMG_MODELS} onChoose={(m) => { chosen = m; }} />);
-    const labels = () => ui.queryAll("button").map((row) => row.textContent);
-    // Rows are placeholders until the credit prices settle (or their wait ends).
-    for (let i = 0; i < 50 && labels().length < 5; i++) await ui.flushAsync(() => new Promise((r) => setTimeout(r, 50)));
-    expect(labels()).toEqual(["Auto", "Max", "Balanced", "Fast", "All models"]);
-    const balanced = ui.queryAll("button").find((row) => row.textContent === "Balanced") as HTMLButtonElement;
-    ui.flush(() => balanced.click());
-    expect(chosen).toBe("omg/omg/balanced");
-    openAllModels(ui);
-    // Everything except the build model, which nobody picks.
-    expect(labels().length).toBe(OMG_MODELS.length - 1);
-  } finally {
-    ui.cleanup();
-  }
-  const pinned = mount();
-  try {
-    pinned.render(<ModelOptionList value="omg/anthropic/claude-opus-5.5" models={OMG_MODELS} onChoose={() => {}} />);
-    expect(pinned.queryAll("button").map((row) => row.textContent)).toContain("Claude Opus 5.5");
-  } finally {
-    pinned.cleanup();
-  }
-});
 
 // The hosted omg picker used to list raw router ids
 // ("omg/deepseek/deepseek-v4-flash-0731"), which truncated on a phone-width
@@ -53,53 +24,7 @@ describe("ModelOptionList", () => {
   });
   afterEach(() => ui.cleanup());
 
-  test("omg rows show the short name and the provider mark, and choose the id", () => {
-    let chosen: string | null = null;
-    ui.render(
-      <ModelOptionList value={OMG_MODELS[0]!} models={OMG_MODELS} onChoose={(m) => { chosen = m; }} />,
-    );
-    openAllModels(ui);
-    const text = ui.text();
-    expect(text).toContain("DeepSeek V4 Flash");
-    expect(text).toContain("GLM 5.3 Flash");
-    expect(text).toContain("GPT-6.1 Sol");
-    expect(text).not.toContain("omg/deepseek/deepseek-v4-flash-0731");
-    const rows = ui.queryAll("button");
-    // The build model is not offered.
-    expect(rows.length).toBe(OMG_MODELS.length - 1);
-    expect(rows.some((row) => row.title.includes("omg/omg/build"))).toBe(false);
-    // Auto and the levels are omg's own choices and carry no lab mark.
-    expect(ui.queryAll("button svg[role='img'], button img").length).toBe(OMG_MODELS.length - OMG_LEVEL_MODELS.length - 1);
-    const apex = rows.find((row) => row.textContent?.includes("Apex")) as HTMLButtonElement;
-    expect(apex.title.split("\n")[0]).toBe("Callstack · omg/apex");
-    ui.flush(() => apex.click());
-    expect(chosen).toBe("omg/apex");
-    const glm = rows.find((row) => row.textContent === "GLM 5.3") as HTMLButtonElement;
-    expect(glm.title.split("\n")[0]).toBe("Z.ai · omg/z-ai/glm-5.3");
-    ui.flush(() => glm.click());
-    expect(chosen).toBe("omg/z-ai/glm-5.3");
-  });
 
-  test("the filter matches the short name and the router id", () => {
-    ui.render(<ModelOptionList value={OMG_MODELS[0]!} models={OMG_MODELS} onChoose={() => {}} />);
-    const input = ui.query("input") as HTMLInputElement;
-    expect(input).not.toBeNull();
-    const type = (value: string) =>
-      ui.flush(() => {
-        // React tracks the last value it set; the prototype setter bypasses
-        // that so the "input" event reads as a real change.
-        const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value")!.set!;
-        setter.call(input, value);
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-      });
-    type("deepseek v4");
-    expect(ui.queryAll("button").length).toBe(2);
-    type("z-ai");
-    expect(ui.queryAll("button").length).toBe(2);
-    expect(ui.text()).toContain("GLM 5.3");
-    type("nothing-here");
-    expect(ui.text()).toContain("No matching models");
-  });
 
   test("Codex ids show their display name, without a mark", () => {
     ui.render(<ModelOptionList value="gpt-5.6" models={["gpt-5.6", "gpt-5.6-mini"]} onChoose={() => {}} />);
@@ -267,25 +192,6 @@ test("the model dropdown retains thinking changes without closing", async () => 
   }
 });
 
-// A removed model must not be offered for new sessions. Haiku selection must
-// return the exact router id that the runtime can execute.
-test("managed picker offers Haiku 5.5 and excludes retired choices", () => {
-  const ui = mount();
-  let chosen: string | null = null;
-  try {
-    ui.render(<ModelOptionList value={OMG_MODELS[0]!} models={OMG_MODELS} onChoose={(model) => { chosen = model; }} />);
-    openAllModels(ui);
-    const haiku = ui.queryAll("button").find((row) => row.title.split("\n")[0]!.endsWith("omg/anthropic/claude-haiku-5.5")) as HTMLButtonElement;
-    expect(haiku).toBeDefined();
-    ui.flush(() => haiku.click());
-    expect(chosen).toBe("omg/anthropic/claude-haiku-5.5");
-    for (const retired of ["omg/z-ai/glm-5.2", "omg/openai/gpt-5.6-sol", "omg/openai/gpt-5.6-terra", "omg/anthropic/claude-opus-4.8", "omg/anthropic/claude-sonnet-4.6", "omg/openai/gpt-5.6-luna", "omg/qwen/qwen3.7-plus", "omg/qwen/qwen3-coder-next"]) {
-      expect(ui.queryAll("button").some((row) => row.title.split("\n")[0]!.endsWith(retired))).toBe(false);
-    }
-  } finally {
-    ui.cleanup();
-  }
-});
 
 // A custom model whose server is stopped reads "Offline" and cannot be picked.
 describe("ModelOptionList custom model status", () => {

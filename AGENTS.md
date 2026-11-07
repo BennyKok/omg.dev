@@ -11,6 +11,11 @@ Firecracker fleet. Those concerns belong in the `vibes` repository. The
 native iOS and Android client was removed from this repository on 2026-11-05.
 The separate `app-blocker` repository is a different product idea.
 
+omg.dev is local software since v0.7.0 (2026-11-07). It runs on the owner's
+computer only: no omg Cloud sign-in, hosted apps, cloud builds, paid media
+tools, embedding in app.omg.dev, or calls to omg.dev services. Do not add
+them back without the owner's decision.
+
 ## Context and memory
 
 - Read `docs/STATE.md` first. It records current work and stale pull requests.
@@ -62,7 +67,6 @@ risk and delivery scope.
 
 - Focused Bun test: `bun test <path>`
 - Full test suite: `bun run test`
-- Prebuilt embed smoke: `bun run test:embed`
 - Type check: `bun run typecheck`
 - Web type check: `cd web && bun x tsc --noEmit`
 - Dependency audit: `bun run audit`
@@ -167,35 +171,26 @@ API to the local server, so the app works. Do not build a production bundle
 and copy it over a running install.
 
 A production build emits about 65 MB across roughly 400 chunks, and more than
-half of that is source maps. Measured peak resident memory is 1.7 GB for
-`build:lib`. Three agents doing that at once put this machine at load 44 with
+half of that is source maps. Measured peak resident memory was 1.7 GB for the
+former library build. Three agents doing that at once put this machine at load 44 with
 24 percent iowait, and none of the builds finished. One agent later left an
 orphaned `tsc` at 325 percent CPU for ten minutes by calling it with
 `--ignoreConfig`, which bypasses every setting above. Use the project
 configuration.
 
-`web/dist-lib` is no longer a default test prerequisite. It was the largest
-cost on the default path, because it lists `web/src` as an input. Any edit to
-the UI marked it stale, so every `bun run test` rebuilt it. The full suite now
-peaks at about 505 MB and takes about 49 seconds with no bundle build.
-
-The embed smoke test moved to `web/src/embedded-lib-smoke.release-check.ts`.
-`bun test` does not discover that name. `bun run test:embed` builds the bundle
-and runs the smoke by explicit path. The release workflow runs the same script
-after `build:packages`. A missing path makes `bun test` exit 1, so the check
-cannot pass silently.
+The full suite peaks at about 505 MB and takes about 49 seconds with no bundle
+build.
 
 ### Runtime choice for Vite
 
 The dev server runs under Bun. `web/package.json` uses `bun --bun vite`.
 Measured start is 423 ms, against 512 ms under Node.
 
-Builds stay on Node. This is deliberate. Bun is faster in wall clock for
-`build:lib`, at 26 seconds against 31 seconds. Bun also doubles peak resident
+Builds stay on Node. This is deliberate. Bun was faster in wall clock for a
+web build, at 26 seconds against 31 seconds, but it doubled peak resident
 memory, at 3.18 GB against 1.72 GB. The failure this repository actually hits
 is memory exhaustion from concurrent agents, not build latency. Do not move
-the builds to Bun. `build:lib` does not hang under Bun. That earlier report
-was wrong.
+the builds to Bun.
 
 ### Worktree disk cost
 
@@ -252,10 +247,7 @@ For a release:
    `git log --oneline $(git describe --tags --abbrev=0)..origin/main`.
 2. Add a user-facing entry at the top of `CHANGELOG.md`.
 3. Run `scripts/tag-release.sh`. Pass `minor` or `major` only when needed.
-4. Start the omg.dev pin update: `omg-ops omg_pin vX.Y.Z --dryRun false`
-   (MCP tool `ops_omg_pin`, from the vibes repository). Run it in the
-   background. It waits for the release workflow and then starts omg.dev's
-   `update-lfg-app.yml`, so the release does not wait for its hourly run.
+   The release workflow waits for approval of the `release` environment.
 
 The script requires a clean, current `main`. It bumps the version, commits,
 tags, pushes, and publishes the GitHub release bundle.

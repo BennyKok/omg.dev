@@ -76,27 +76,31 @@ function restoreFakes() {
 }
 
 const { MicButton } = await import("./App");
-const { EmbeddedHostOptionsProvider } = await import("./lib/embedded-host-options");
+const { invalidateVoiceConfig } = await import("./voice-setup");
+const { configureOmgTransport } = await import("./lib/omg-client");
+const { createSameOriginTransport } = await import("@omg-dev/client");
 
-const hosted = { url: "wss://broker.test/stt", getToken: async () => "token" };
 let ui: Mounted;
 let sent: string[] = [];
 
 beforeEach(() => {
   installFakes();
+  // Another file may have cached "voice is not set up", which opens the setup
+  // dialog instead of the mic. Start unknown, and let the config read fail:
+  // a failed health check never blocks a take.
+  invalidateVoiceConfig();
+  configureOmgTransport({ request: () => Promise.reject(new Error("offline in this test")) } as never);
   tracks = [];
   sockets = [];
   sent = [];
   ui = mount();
-  ui.render(
-    <EmbeddedHostOptionsProvider value={{ hostedTranscription: hosted }}>
-      <MicButton onText={() => {}} onAutoSubmit={(text) => sent.push(text)} />
-    </EmbeddedHostOptionsProvider>,
-  );
+  ui.render(<MicButton onText={() => {}} onAutoSubmit={(text) => sent.push(text)} />);
 });
 afterEach(() => {
   ui.cleanup();
   restoreFakes();
+  configureOmgTransport(createSameOriginTransport());
+  invalidateVoiceConfig();
 });
 
 const mic = () => ui.query("button") as HTMLButtonElement;

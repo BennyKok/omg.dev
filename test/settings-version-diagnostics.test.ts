@@ -20,7 +20,6 @@ const REPO = join(import.meta.dir, "..");
 const APP = readFileSync(join(REPO, "web/src/App.tsx"), "utf8");
 const SERVE = readFileSync(join(REPO, "src/commands/serve.ts"), "utf8");
 const VITE_APP = readFileSync(join(REPO, "web/vite.config.ts"), "utf8");
-const VITE_LIB = readFileSync(join(REPO, "web/vite.lib.config.ts"), "utf8");
 const DIAGNOSTICS = readFileSync(join(REPO, "web/src/lib/version-diagnostics.ts"), "utf8");
 const OMG_CLIENT = readFileSync(join(REPO, "web/src/lib/omg-client.ts"), "utf8");
 
@@ -55,7 +54,6 @@ describe("the frontend version is stamped from the ROOT package.json", () => {
   // release actually publishes.
   for (const [name, source] of [
     ["web/vite.config.ts (standalone bundle)", VITE_APP],
-    ["web/vite.lib.config.ts (@omg-dev/app, the hosted app.omg.dev pin)", VITE_LIB],
   ] as const) {
     test(`${name} defines __OMG_FRONTEND_VERSION__`, () => {
       expect(source).toContain("__OMG_FRONTEND_VERSION__");
