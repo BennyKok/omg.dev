@@ -29,6 +29,20 @@ import { omgFetch } from "@/lib/omg-client";
 import { computerStartErrorMessage } from "@/lib/computer-start-error";
 import { computerConnection } from "@/lib/computer-connection-instance";
 import { dispatchComputerMouse } from "@/lib/computer-pointer";
+import {
+  clampCamera,
+  clampToDesk,
+  coverScale,
+  followCursor,
+  keepCursorInView,
+  panCamera,
+  viewCentre,
+  zoomAbout,
+  type Camera,
+  type CameraView,
+  type DeskPoint,
+  type Size,
+} from "@/lib/computer-camera";
 
 interface DepReport {
   ok: boolean;
@@ -100,10 +114,20 @@ export function ComputerPage({
   const clipboardRef = useRef<ComputerClipboard | null>(null);
   const screenRef = useRef<HTMLDivElement | null>(null);
   const keyboardRef = useRef<HTMLTextAreaElement | null>(null);
-  // The virtual cursor, in client coordinates. noVNC reads clientX/clientY off
-  // real mouse events, so we keep a position here and synthesize events at it.
-  const cursorRef = useRef<{ x: number; y: number } | null>(null);
+  // The virtual cursor, in DESKTOP pixels, so it stays on the same spot of the
+  // desktop while the camera moves. noVNC reads clientX/clientY off real mouse
+  // events, so each event is synthesized at this point's place on screen.
+  const cursorRef = useRef<DeskPoint | null>(null);
   const touchRef = useRef<{ x: number; y: number; moved: boolean; at: number } | null>(null);
+  /** Two fingers down: their distance and midpoint at the last move. */
+  const pinchRef = useRef<{ distance: number; x: number; y: number } | null>(null);
+  // The camera (see lib/computer-camera.ts): on a touch screen the desktop
+  // fills the page and the view moves over it. `viewRef` is the window, the
+  // screen slot inside it is sized and moved to zoom and pan.
+  const viewRef = useRef<HTMLDivElement | null>(null);
+  const cameraRef = useRef<Camera | null>(null);
+  /** Set by a pinch. Until then the view keeps filling the page as it resizes. */
+  const pinchedRef = useRef(false);
   /** When a finger last touched the screen. Gates the switch back to a mouse. */
   const lastTouchAtRef = useRef(0);
 
@@ -215,31 +239,156 @@ export function ComputerPage({
     [],
   );
 
+  // The camera is on for a finger on the full page. A mouse, and the screen in
+  // a chat, keep the fitted desktop and noVNC's own pointing.
+  const cameraOn = active && !inline && trackpad;
+  const statusWidth = status?.width;
+  const statusHeight = status?.height;
+
+  /** The desktop's size in pixels: the canvas once there is one, else the status. */
+  const deskSize = useCallback((): Size | null => {
+    const c = canvas();
+    if (c && c.width > 0 && c.height > 0) return { width: c.width, height: c.height };
+    return statusWidth && statusHeight ? { width: statusWidth, height: statusHeight } : null;
+  }, [canvas, statusWidth, statusHeight]);
+
+  /** The camera's window, with the part the on-screen keyboard leaves visible. */
+  const cameraView = useCallback((): (CameraView & { left: number; topOnPage: number }) | null => {
+    const el = viewRef.current;
+    if (!el) return null;
+    const box = el.getBoundingClientRect();
+    if (box.width <= 0 || box.height <= 0) return null;
+    const vv = typeof window !== "undefined" ? window.visualViewport : null;
+    return {
+      width: box.width,
+      height: box.height,
+      left: box.left,
+      topOnPage: box.top,
+      top: vv ? Math.max(0, vv.offsetTop - box.top) : 0,
+      bottom: vv ? Math.min(box.height, vv.offsetTop + vv.height - box.top) : box.height,
+    };
+  }, []);
+
+  /** Size and place the screen slot for a camera. Null hands it back to the class. */
+  const applyCamera = useCallback(
+    (next: Camera | null) => {
+      cameraRef.current = next;
+      const slot = screenRef.current;
+      const desk = deskSize();
+      if (!slot) return;
+      if (!next || !desk) {
+        slot.style.left = slot.style.top = slot.style.width = slot.style.height = "";
+        return;
+      }
+      slot.style.left = `${next.x}px`;
+      slot.style.top = `${next.y}px`;
+      slot.style.width = `${desk.width * next.scale}px`;
+      slot.style.height = `${desk.height * next.scale}px`;
+    },
+    [deskSize],
+  );
+
   const emitMouse = useCallback(
     (type: "mousemove" | "mousedown" | "mouseup", buttons: number, button = 0) => {
       const c = canvas();
       const at = cursorRef.current;
-      if (!c || !at) return;
-      dispatchComputerMouse(c, at, type, buttons, button);
+      const desk = deskSize();
+      if (!c || !at || !desk) return;
+      // Through the canvas's own box, which is how noVNC maps it back.
+      const box = c.getBoundingClientRect();
+      const client = {
+        x: box.left + ((at.x + 0.5) * box.width) / desk.width,
+        y: box.top + ((at.y + 0.5) * box.height) / desk.height,
+      };
+      dispatchComputerMouse(c, client, type, buttons, button);
     },
-    [canvas],
+    [canvas, deskSize],
   );
 
-  /** Move the virtual cursor by a delta, clamped to the visible screen. */
+  // After a zoom, noVNC resizes its canvas from a ResizeObserver, a frame
+  // later. The drawn cursor is put back once the canvas has its new size.
+  const cursorSyncRef = useRef(0);
+  const syncCursorSoon = useCallback(() => {
+    cancelAnimationFrame(cursorSyncRef.current);
+    cursorSyncRef.current = requestAnimationFrame(() => {
+      cursorSyncRef.current = requestAnimationFrame(() => {
+        if (!computerConnection.getSnapshot().viewOnly) emitMouse("mousemove", 0);
+      });
+    });
+  }, [emitMouse]);
+  useEffect(() => () => cancelAnimationFrame(cursorSyncRef.current), []);
+
+  /** Move the virtual cursor by a finger's travel. The camera follows it. */
   const moveCursor = useCallback(
     (dx: number, dy: number) => {
-      const c = canvas();
-      if (!c) return;
-      const box = c.getBoundingClientRect();
-      const at = cursorRef.current ?? { x: box.left + box.width / 2, y: box.top + box.height / 2 };
-      cursorRef.current = {
-        x: Math.min(box.right - 1, Math.max(box.left, at.x + dx)),
-        y: Math.min(box.bottom - 1, Math.max(box.top, at.y + dy)),
-      };
+      const desk = deskSize();
+      const view = cameraView();
+      const camera = cameraRef.current;
+      if (!desk || !view || !camera) return;
+      const from = cursorRef.current ?? viewCentre(camera, view, desk);
+      // Finger travel is screen pixels; zoomed in, the same travel is a finer move.
+      const at = clampToDesk({ x: from.x + dx / camera.scale, y: from.y + dy / camera.scale }, desk);
+      cursorRef.current = at;
+      applyCamera(followCursor(camera, view, desk, at));
       emitMouse("mousemove", 0);
     },
-    [canvas, emitMouse],
+    [applyCamera, cameraView, deskSize, emitMouse],
   );
+
+  /** Pan and zoom by two fingers (or one, while only watching). */
+  const moveCamera = useCallback(
+    (dx: number, dy: number, zoom = 1, about?: DeskPoint) => {
+      const desk = deskSize();
+      const view = cameraView();
+      let camera = cameraRef.current;
+      if (!desk || !view || !camera) return;
+      if (zoom !== 1 && about) {
+        pinchedRef.current = true;
+        camera = zoomAbout(camera, camera.scale * zoom, { x: about.x - view.left, y: about.y - view.topOnPage }, view, desk);
+      }
+      camera = panCamera(camera, dx, dy, view, desk);
+      applyCamera(camera);
+      if (cursorRef.current) cursorRef.current = keepCursorInView(cursorRef.current, camera, view, desk);
+      syncCursorSoon();
+    },
+    [applyCamera, cameraView, deskSize, syncCursorSoon],
+  );
+
+  // Lay the camera out: when it turns on, when the desktop or the page changes
+  // size, and when the on-screen keyboard opens or closes. Until a pinch, the
+  // desktop keeps filling the page; after one, the chosen zoom is kept.
+  useLayoutEffect(() => {
+    if (!cameraOn) {
+      applyCamera(null);
+      return;
+    }
+    const layout = () => {
+      const desk = deskSize();
+      const view = cameraView();
+      if (!desk || !view) return;
+      const prev = cameraRef.current;
+      let camera = clampCamera(
+        prev && pinchedRef.current ? prev : { scale: coverScale(view, desk), x: prev?.x ?? 0, y: prev?.y ?? 0 },
+        view,
+        desk,
+      );
+      if (cursorRef.current) camera = followCursor(camera, view, desk, cursorRef.current);
+      applyCamera(camera);
+      syncCursorSoon();
+    };
+    layout();
+    const view = viewRef.current;
+    const observer = typeof ResizeObserver !== "undefined" && view ? new ResizeObserver(layout) : null;
+    if (observer && view) observer.observe(view);
+    const vv = window.visualViewport;
+    vv?.addEventListener("resize", layout);
+    vv?.addEventListener("scroll", layout);
+    return () => {
+      observer?.disconnect();
+      vv?.removeEventListener("resize", layout);
+      vv?.removeEventListener("scroll", layout);
+    };
+  }, [cameraOn, applyCamera, cameraView, deskSize, syncCursorSoon, phase]);
 
   const clickAtCursor = useCallback(
     (button: 0 | 2) => {
@@ -267,9 +416,25 @@ export function ComputerPage({
     const el = overlayRef.current;
     if (!el) return;
 
+    const pinchOf = (touches: TouchList) => {
+      const a = touches[0];
+      const b = touches[1];
+      return {
+        distance: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY),
+        x: (a.clientX + b.clientX) / 2,
+        y: (a.clientY + b.clientY) / 2,
+      };
+    };
+
     const onStart = (e: TouchEvent) => {
       // Suppress the compatibility mouse/click/dblclick burst outright.
       e.preventDefault();
+      if (e.touches.length === 2) {
+        // A second finger makes this a pinch, never a tap.
+        pinchRef.current = pinchOf(e.touches);
+        if (touchRef.current) touchRef.current.moved = true;
+        return;
+      }
       if (e.touches.length !== 1) return;
       const t = e.touches[0];
       touchRef.current = { x: t.clientX, y: t.clientY, moved: false, at: Date.now() };
@@ -277,6 +442,13 @@ export function ComputerPage({
 
     const onMove = (e: TouchEvent) => {
       e.preventDefault();
+      if (e.touches.length === 2 && pinchRef.current) {
+        const prev = pinchRef.current;
+        const next = pinchOf(e.touches);
+        pinchRef.current = next;
+        moveCamera(next.x - prev.x, next.y - prev.y, prev.distance > 0 ? next.distance / prev.distance : 1, next);
+        return;
+      }
       const prev = touchRef.current;
       if (!prev || e.touches.length !== 1) return;
       const t = e.touches[0];
@@ -284,20 +456,34 @@ export function ComputerPage({
       const dy = t.clientY - prev.y;
       // 3px of slop, so the tiny wobble of a real tap is not read as a drag.
       if (Math.abs(dx) > 3 || Math.abs(dy) > 3) prev.moved = true;
+      prev.x = t.clientX;
+      prev.y = t.clientY;
+      // Only watching: one finger looks around instead of moving the pointer.
+      if (computerConnection.getSnapshot().viewOnly) {
+        moveCamera(dx, dy);
+        return;
+      }
       // Mild acceleration: slow drags stay precise, fast ones cross the screen.
       const speed = Math.min(2.5, 1 + Math.hypot(dx, dy) / 12);
       moveCursor(dx * speed, dy * speed);
-      prev.x = t.clientX;
-      prev.y = t.clientY;
     };
 
     const onEnd = (e: TouchEvent) => {
       e.preventDefault();
+      if (pinchRef.current) {
+        if (e.touches.length < 2) pinchRef.current = null;
+        // The finger still down carries on from where it is, as a drag.
+        const rest = e.touches[0];
+        touchRef.current = rest ? { x: rest.clientX, y: rest.clientY, moved: true, at: 0 } : null;
+        return;
+      }
       const prev = touchRef.current;
       touchRef.current = null;
       // A tap clicks WHERE THE CURSOR IS, not where the finger landed. That is
       // the whole point of relative pointing.
-      if (prev && !prev.moved && Date.now() - prev.at < 400) clickAtCursor(0);
+      if (prev && !prev.moved && Date.now() - prev.at < 400 && !computerConnection.getSnapshot().viewOnly) {
+        clickAtCursor(0);
+      }
     };
 
     el.addEventListener("touchstart", onStart, { passive: false });
@@ -310,7 +496,7 @@ export function ComputerPage({
       el.removeEventListener("touchend", onEnd);
       el.removeEventListener("touchcancel", onEnd);
     };
-  }, [moveCursor, clickAtCursor, status?.running, viewOnly, trackpad]);
+  }, [moveCursor, moveCamera, clickAtCursor, status?.running, viewOnly, trackpad]);
 
   /** Raise the soft keyboard. A canvas cannot hold focus on iOS, so we focus a
    *  hidden field and forward what it receives. */
@@ -398,10 +584,26 @@ export function ComputerPage({
           panning and zooming, and the desktop appears to ignore every touch.
           select-none stops long-press from raising the text-selection callout
           over the canvas, which otherwise eats the right-click gesture. */}
+      {/* The camera's window. On a touch screen it starts under the control
+          row, so the desktop fills the page without anything over it, and the
+          slot inside is moved and sized by the camera. Otherwise the slot fills
+          it and noVNC fits the desktop as before. */}
       <div
-        ref={screenRef}
-        className="absolute inset-0 touch-none select-none [-webkit-touch-callout:none] [overscroll-behavior:none]"
-      />
+        ref={viewRef}
+        className={
+          cameraOn
+            ? "absolute inset-x-0 bottom-0 top-[calc(env(safe-area-inset-top)+3.25rem)] overflow-hidden"
+            : "absolute inset-0"
+        }
+      >
+        <div
+          ref={screenRef}
+          className={
+            (cameraOn ? "absolute " : "absolute inset-0 ") +
+            "touch-none select-none [-webkit-touch-callout:none] [overscroll-behavior:none]"
+          }
+        />
+      </div>
 
       {/* Trackpad surface. Mounted only while controlling AND on a finger, so a
           mouse keeps absolute pointing and reaches noVNC's own handlers
@@ -420,13 +622,15 @@ export function ComputerPage({
             Tap to use the Computer
           </span>
         </button>
-      ) : running && !viewOnly && trackpad ? (
+      ) : running && trackpad ? (
+        // Also while only watching: then one finger looks around and a pinch
+        // zooms, and nothing reaches the desktop.
         <div
           ref={overlayRef}
           className="absolute inset-0 z-[6] touch-none select-none"
           onContextMenu={(e) => {
             e.preventDefault();
-            clickAtCursor(2);
+            if (!viewOnly) clickAtCursor(2);
           }}
         />
       ) : null}

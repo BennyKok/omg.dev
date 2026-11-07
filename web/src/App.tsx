@@ -9459,6 +9459,9 @@ export function App() {
               // scroll surface; only the measured chrome height is layout space.
               "absolute inset-x-0 bottom-[var(--lfg-host-bottom-inset)] top-0 px-2 pt-[var(--lfg-mobile-header-height)] [scroll-padding-top:var(--lfg-mobile-header-height)]",
             liveDesktopWorkspace ? "overflow-hidden pb-3" : `overflow-y-auto ${mainBottomPadding}`,
+            // The phone's Computer is the desktop, edge to edge: no gutter for
+            // card corners, and nothing under it to scroll to.
+            isMobile && tab === "computer" && "overflow-hidden px-0 pb-0",
           ],
         )}
       >
