@@ -80,11 +80,31 @@ export interface VoxlStreamOptions {
   onStats?: (stats: VoxlStats) => void;
   onError?: (message: string) => void;
   viewOnly?: () => boolean;
+  /**
+   * Drawn at the remote pointer while a finger is driving it. The desktop
+   * image carries no pointer, and a phone shows no mouse cursor of its own.
+   */
+  cursor?: HTMLImageElement;
+}
+
+/**
+ * The slice of noVNC's RFB that the shared clipboard code drives
+ * (packages/protocol/src/computer-clipboard.ts), so voxl gets the same
+ * copy, paste and shortcut handling as the VNC stream.
+ */
+export interface VoxlClipboardTarget extends EventTarget {
+  viewOnly: boolean;
+  sendKey(keysym: number, code: string | null, down?: boolean): void;
+  clipboardPasteFrom(text: string): void;
 }
 
 export interface VoxlStream {
   close(): void;
   send(command: string): void;
+  clipboard: VoxlClipboardTarget;
+  /** Type text from the on-screen keyboard, one key tap per character. */
+  typeText(text: string): void;
+  tapKey(keysym: number): void;
 }
 
 /** Can this browser decode the stream? WebCodecs needs a secure page. */
@@ -280,18 +300,48 @@ export function openVoxlStream(opts: VoxlStreamOptions): VoxlStream {
     }
   }
 
+  // The remote pointer: its image (desktop pixels) and where we last put it.
+  const pointer = { w: 0, h: 0, hx: 0, hy: 0, url: "", x: -1, y: -1, touch: false };
+
   function onCursor(buf: ArrayBuffer) {
     const v = new DataView(buf);
     const w = v.getUint16(2), h = v.getUint16(4), hx = v.getUint16(6), hy = v.getUint16(8);
     if (!w || !h || buf.byteLength < 14 + w * h * 4) {
       surface.style.cursor = "none";
+      Object.assign(pointer, { w: 0, h: 0, url: "" });
+      drawPointer();
       return;
     }
     const c = document.createElement("canvas");
     c.width = w;
     c.height = h;
     c.getContext("2d")?.putImageData(new ImageData(new Uint8ClampedArray(buf, 14, w * h * 4), w, h), 0, 0);
-    surface.style.cursor = `url(${c.toDataURL("image/png")}) ${hx} ${hy}, default`;
+    const url = c.toDataURL("image/png");
+    surface.style.cursor = `url(${url}) ${hx} ${hy}, default`;
+    Object.assign(pointer, { w, h, hx, hy, url });
+    drawPointer();
+  }
+
+  /** Place the pointer image over the picture. Shown only while touch drives it. */
+  function drawPointer() {
+    const el = opts.cursor;
+    if (!el) return;
+    if (!pointer.touch || !pointer.url || pointer.x < 0 || !desk.w) {
+      el.style.display = "none";
+      return;
+    }
+    const r = canvas.getBoundingClientRect();
+    const host = surface.getBoundingClientRect();
+    const scale = Math.min(r.width / desk.w, r.height / desk.h);
+    // Never smaller than a normal pointer, so a phone-sized desktop keeps one you can see.
+    const k = Math.max(scale, 24 / Math.max(pointer.w, pointer.h));
+    const ox = r.left - host.left + (r.width - desk.w * scale) / 2;
+    const oy = r.top - host.top + (r.height - desk.h * scale) / 2;
+    if (el.src !== pointer.url) el.src = pointer.url;
+    el.style.display = "block";
+    el.style.width = `${pointer.w * k}px`;
+    el.style.height = `${pointer.h * k}px`;
+    el.style.transform = `translate(${ox + pointer.x * scale - pointer.hx * k}px, ${oy + pointer.y * scale - pointer.hy * k}px)`;
   }
 
   function onText(s: string) {
@@ -303,6 +353,9 @@ export function openVoxlStream(opts: VoxlStreamOptions): VoxlStream {
     }
     if (m.t === "ping") {
       send(voxlCmd.pong((m as { s: number }).s));
+    } else if (m.t === "clip") {
+      // The Computer's clipboard changed (after a copy there).
+      clipboard.dispatchEvent(new CustomEvent("clipboard", { detail: { text: (m as { d: string }).d } }));
     } else if (m.t === "close") {
       socket.close();
     } else if (m.t === "hello") {
@@ -369,9 +422,14 @@ export function openVoxlStream(opts: VoxlStreamOptions): VoxlStream {
     return 1 / Math.min(r.width / (desk.w || 1), r.height / (desk.h || 1));
   };
   let lastMove = "";
-  const move = (p: { clientX: number; clientY: number }) => {
+  const moveTo = (clientX: number, clientY: number, touch: boolean) => {
     if (!desk.w) return;
-    const s = voxlCmd.move(...toDesk(p));
+    const [x, y] = toDesk({ clientX, clientY });
+    pointer.x = x;
+    pointer.y = y;
+    pointer.touch = touch;
+    drawPointer();
+    const s = voxlCmd.move(x, y);
     if (s !== lastMove) {
       lastMove = s;
       input(s);
@@ -389,65 +447,129 @@ export function openVoxlStream(opts: VoxlStreamOptions): VoxlStream {
       sx = sy = 0;
     });
   };
+  const click = (button: number) => {
+    input(voxlCmd.button(button, true));
+    input(voxlCmd.button(button, false));
+  };
 
-  // Touch: a tap clicks where the finger is, a one-finger drag scrolls.
-  let touch: { x: number; y: number; moved: boolean; at: number } | null = null;
+  // Touch, as voxl's own client does it: tap clicks, drag left-drags (selects
+  // text), long press right-clicks, two fingers scroll, a quick second tap
+  // double-clicks the same spot.
+  const SLOP = 10, LONG_PRESS = 550, MULTI_TAP_MS = 400, MULTI_TAP_PX = 24;
+  const pts = new Map<number, { x: number; y: number }>();
+  let mode: "pending" | "drag" | "scroll" | "done" | null = null;
+  let start = { x: 0, y: 0 };
+  let pressTimer: ReturnType<typeof setTimeout> | undefined;
+  let lastMid: [number, number] = [0, 0];
+  let lastTap = { x: 0, y: 0, t: -Infinity };
+  const mid = (): [number, number] => {
+    let x = 0, y = 0;
+    for (const p of pts.values()) { x += p.x; y += p.y; }
+    return [x / pts.size, y / pts.size];
+  };
+  const touchDown = (e: PointerEvent) => {
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pts.size === 1) {
+      mode = "pending";
+      start = { x: e.clientX, y: e.clientY };
+      pressTimer = setTimeout(() => {
+        if (mode !== "pending") return;
+        moveTo(start.x, start.y, true);
+        click(3);
+        mode = "done";
+        navigator.vibrate?.(10);
+      }, LONG_PRESS);
+    } else if (pts.size === 2) {
+      clearTimeout(pressTimer);
+      if (mode === "drag") input(voxlCmd.button(1, false));
+      mode = "scroll";
+      lastMid = mid();
+    }
+  };
+  const touchMove = (e: PointerEvent) => {
+    const p = pts.get(e.pointerId);
+    if (!p) return;
+    p.x = e.clientX;
+    p.y = e.clientY;
+    if (mode === "pending" && Math.hypot(p.x - start.x, p.y - start.y) > SLOP) {
+      clearTimeout(pressTimer);
+      mode = "drag";
+      moveTo(start.x, start.y, true);
+      input(voxlCmd.button(1, true));
+    }
+    if (mode === "drag") moveTo(p.x, p.y, true);
+    else if (mode === "scroll" && pts.size >= 2) {
+      const m = mid(), k = deskPerPx();
+      queueScroll((lastMid[0] - m[0]) * k, (lastMid[1] - m[1]) * k);
+      lastMid = m;
+    }
+  };
+  const touchUp = (e: PointerEvent) => {
+    if (!pts.delete(e.pointerId)) return;
+    if (mode === "pending") {
+      clearTimeout(pressTimer);
+      const now = performance.now();
+      const at = now - lastTap.t < MULTI_TAP_MS && Math.hypot(start.x - lastTap.x, start.y - lastTap.y) < MULTI_TAP_PX
+        ? lastTap : start;
+      lastTap = { x: at.x, y: at.y, t: now };
+      moveTo(at.x, at.y, true);
+      click(1);
+      mode = "done";
+    } else if (mode === "drag") {
+      input(voxlCmd.button(1, false));
+      mode = "done";
+    } else if (mode === "scroll" && pts.size < 2) mode = "done";
+    if (pts.size === 0) mode = null;
+  };
+  const touchCancel = (e: PointerEvent) => {
+    clearTimeout(pressTimer);
+    if (mode === "drag") input(voxlCmd.button(1, false));
+    pts.delete(e.pointerId);
+    if (pts.size === 0) mode = null;
+  };
 
   const onPointerMove = (e: PointerEvent) => {
-    if (e.pointerType === "touch") {
-      if (!touch) return;
-      const dx = e.clientX - touch.x, dy = e.clientY - touch.y;
-      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) touch.moved = true;
-      if (touch.moved) queueScroll(-dx * deskPerPx(), -dy * deskPerPx());
-      touch.x = e.clientX;
-      touch.y = e.clientY;
-      return;
-    }
-    move(e);
+    if (e.pointerType === "touch") touchMove(e);
+    else moveTo(e.clientX, e.clientY, false);
   };
   const onPointerDown = (e: PointerEvent) => {
     e.preventDefault();
-    surface.focus({ preventScroll: true });
+    try { surface.setPointerCapture(e.pointerId); } catch {}
     if (e.pointerType === "touch") {
-      touch = { x: e.clientX, y: e.clientY, moved: false, at: Date.now() };
+      touchDown(e);
       return;
     }
-    move(e);
-    try { surface.setPointerCapture(e.pointerId); } catch {}
+    surface.focus({ preventScroll: true });
+    moveTo(e.clientX, e.clientY, false);
     input(voxlCmd.button(BUTTONS[e.button] ?? 1, true));
   };
   const onPointerUp = (e: PointerEvent) => {
     e.preventDefault();
     if (e.pointerType === "touch") {
-      const t = touch;
-      touch = null;
-      if (t && !t.moved && Date.now() - t.at < 500) {
-        move(e);
-        input(voxlCmd.button(1, true));
-        input(voxlCmd.button(1, false));
-      }
+      touchUp(e);
       return;
     }
-    move(e);
+    moveTo(e.clientX, e.clientY, false);
     input(voxlCmd.button(BUTTONS[e.button] ?? 1, false));
   };
-  const onPointerCancel = () => {
-    touch = null;
-    input(voxlCmd.releaseAll);
+  const onPointerCancel = (e: PointerEvent) => {
+    if (e.pointerType === "touch") touchCancel(e);
+    else input(voxlCmd.releaseAll);
   };
   const onWheel = (e: WheelEvent) => {
     e.preventDefault();
-    move(e);
+    moveTo(e.clientX, e.clientY, false);
     const k = (e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? 800 : 1) * deskPerPx();
     queueScroll(e.deltaX * k, e.deltaY * k);
   };
   const onContextMenu = (e: Event) => e.preventDefault();
+  const onResize = () => drawPointer();
 
+  // Physical keys. Copy, cut and paste shortcuts are taken first by the shared
+  // clipboard code (capture phase), which sends them itself.
   const down = new Map<string, number>();
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.isComposing) return;
-    // Let the paste event carry the text: Ctrl/Cmd+V is sent after it.
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") return;
     const ks = keysymOf(e, isMac);
     if (!ks) return;
     e.preventDefault();
@@ -467,15 +589,20 @@ export function openVoxlStream(opts: VoxlStreamOptions): VoxlStream {
       input(voxlCmd.releaseAll);
     }
   };
-  const onPaste = (e: ClipboardEvent) => {
-    const text = e.clipboardData?.getData("text/plain");
-    if (!text) return;
-    e.preventDefault();
-    input(voxlCmd.clipboard(text));
-    input(voxlCmd.key(XK_CONTROL_L, true));
-    input(voxlCmd.key(0x76, true));
-    input(voxlCmd.key(0x76, false));
-    input(voxlCmd.key(XK_CONTROL_L, false));
+
+  const clipboard = Object.assign(new EventTarget(), {
+    viewOnly: false,
+    sendKey(keysym: number, _code: string | null, isDown = true) {
+      input(voxlCmd.key(keysym, isDown));
+    },
+    clipboardPasteFrom(text: string) {
+      input(voxlCmd.clipboard(text));
+    },
+  }) as VoxlClipboardTarget;
+
+  const tapKey = (keysym: number) => {
+    input(voxlCmd.key(keysym, true));
+    input(voxlCmd.key(keysym, false));
   };
 
   surface.addEventListener("pointermove", onPointerMove);
@@ -487,15 +614,24 @@ export function openVoxlStream(opts: VoxlStreamOptions): VoxlStream {
   surface.addEventListener("keydown", onKeyDown);
   surface.addEventListener("keyup", onKeyUp);
   surface.addEventListener("blur", onBlur);
-  surface.addEventListener("paste", onPaste);
+  window.addEventListener("resize", onResize);
 
   return {
     send: input,
+    clipboard,
+    tapKey,
+    typeText(text: string) {
+      for (const ch of text) {
+        if (ch === "\n") tapKey(0xff0d);
+        else tapKey(keysymOf({ code: "", key: ch }, isMac));
+      }
+    },
     close() {
       if (closed) return;
       send(voxlCmd.releaseAll);
       closed = true;
       clearInterval(statsTimer);
+      clearTimeout(pressTimer);
       surface.removeEventListener("pointermove", onPointerMove);
       surface.removeEventListener("pointerdown", onPointerDown);
       surface.removeEventListener("pointerup", onPointerUp);
@@ -505,7 +641,8 @@ export function openVoxlStream(opts: VoxlStreamOptions): VoxlStream {
       surface.removeEventListener("keydown", onKeyDown);
       surface.removeEventListener("keyup", onKeyUp);
       surface.removeEventListener("blur", onBlur);
-      surface.removeEventListener("paste", onPaste);
+      window.removeEventListener("resize", onResize);
+      if (opts.cursor) opts.cursor.style.display = "none";
       resetDecoder();
       try { socket.close(); } catch {}
     },

@@ -609,7 +609,7 @@ export function ComputerPage({
           }
         />
       </div>
-      {voxl && running ? <ComputerVoxlScreen active={active} viewOnly={viewOnly} autoFocus={!inline} /> : null}
+      {voxl && running ? <ComputerVoxlScreen active={active} autoFocus={!inline} controls={!tapToExpand} /> : null}
 
       {/* Trackpad surface. Mounted only while controlling AND on a finger, so a
           mouse keeps absolute pointing and reaches noVNC's own handlers
@@ -714,6 +714,8 @@ export function ComputerPage({
       >
         {running && !tapToExpand ? (
           <>
+            {/* The voxl screen is always in control; it has no watch mode. */}
+            {voxl ? null : (
             <Button
               variant={viewOnly ? "secondary" : "default"}
               size="sm"
@@ -723,6 +725,7 @@ export function ComputerPage({
               <MousePointer2 className="mr-1.5 size-3.5" />
               {viewOnly ? "Take control" : "Controlling"}
             </Button>
+            )}
             {/* Keyboard is visible whether or not you have taken control, and
                 takes control itself when used. Hiding it until you are already
                 controlling made it undiscoverable. The noVNC-only controls
