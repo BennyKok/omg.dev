@@ -21,7 +21,7 @@ cd "$ROOT"
 
 OUT_DIR="$ROOT/dist"
 VERSION="$(bun -e 'console.log(JSON.parse(require("node:fs").readFileSync("package.json","utf8")).version)')"
-PACKAGES=(protocol client cloud react)
+PACKAGES=(protocol client react)
 
 if [ "${SKIP_PACKAGE_BUILD:-}" != "1" ]; then
   for package in "${PACKAGES[@]}"; do
