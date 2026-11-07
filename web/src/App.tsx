@@ -509,6 +509,7 @@ import { isBrowserLoginCall } from "../../packages/protocol/src/browser-login";
 import { haptic } from "@/lib/haptics";
 import { isPhonePageTab, phonePageAfterSwipe, phonePageSwipe, scrollsSideways } from "./lib/phone-pages";
 import { PhoneFolders } from "./components/phone-folders";
+import { logChatError, notifyChatFailure } from "./lib/chat-failure";
 import { HapticTap } from "@/components/haptic-tap";
 import { feedback } from "@/lib/feedback";
 import { type AutoAgentRefine } from "@/lib/auto-refine";
@@ -17126,13 +17127,11 @@ function ThreadComposerBar({ testId, placeholder, onSend, autoFocus, onTyping, m
     endpoint: (att) => `/api/uploads?filename=${encodeURIComponent(att.name)}`,
     disabled: sending,
   });
-  const [error, setError] = useState<string | null>(null);
   const send = async (override?: string) => {
     const body = (override ?? text).trim();
     const attached = files.attachments;
     if ((!body && !attached.length) || sending) return;
     setSending(true);
-    setError(null);
     setText("");
     try {
       // Uploads started when the files were attached; this waits only for bytes still in flight.
@@ -17142,7 +17141,7 @@ function ThreadComposerBar({ testId, placeholder, onSend, autoFocus, onTyping, m
       files.forgetAllUploads();
     } catch (e) {
       setText(body);
-      setError(e instanceof Error ? e.message : String(e));
+      notifyChatFailure("Message not sent", null, e, "Your text is back in the box.");
     } finally {
       setSending(false);
     }
@@ -17216,7 +17215,6 @@ function ThreadComposerBar({ testId, placeholder, onSend, autoFocus, onTyping, m
           ) : null}
         </div>
       </div>
-      {error ? <p className="mt-1 px-2 text-[12px] text-destructive">{error}</p> : null}
     </div>
   );
 }
@@ -17255,8 +17253,6 @@ type SessionChatProps = {
   typingIds?: readonly string[];
   /** Report the viewer's own typing; the transport throttles it. */
   onTyping?: (sid: string, typing: boolean) => void;
-  error: string | null;
-  onError: (error: string | null) => void;
   onSubscribeTranscript?: OmgTranscriptSubscribe;
   onRefresh: () => Promise<void>;
   onDictatingChange?: (recording: boolean) => void;
@@ -17289,7 +17285,7 @@ function SessionChat(rawProps: SessionChatProps) {
   const props = rawProps.bot ? rawProps : { ...rawProps, bot: contextBot };
   const sid = props.session.sessionId;
   const botId = props.bot?.id;
-  const { onError, onSubscribeTranscript } = props;
+  const { onSubscribeTranscript } = props;
   const viewerIdentity = useContext(SendIdentityContext);
   const chatTransport = useMemo(
     () =>
@@ -17305,14 +17301,14 @@ function SessionChat(rawProps: SessionChatProps) {
         : undefined,
     [sid, onSubscribeTranscript, botId, viewerIdentity],
   );
+  // The engine's errors are the transport's: a dropped stream, a send the body
+  // also catches. An out-of-credit refusal still opens its card; anything else
+  // is logged, never printed (lib/chat-failure.ts).
   const handleModelPlanError = useModelPlanErrorHandler();
   const reportError = useCallback((message: string | null) => {
-    if (message && handleModelPlanError(message)) {
-      onError(null);
-      return;
-    }
-    onError(message);
-  }, [onError, handleModelPlanError]);
+    if (!message || handleModelPlanError(message)) return;
+    logChatError("chat-engine", sid, message);
+  }, [handleModelPlanError, sid]);
   return (
     <Suspense fallback={<SessionChatSkeleton />}>
       <OmgChatEngine
@@ -17320,7 +17316,7 @@ function SessionChat(rawProps: SessionChatProps) {
         transport={chatTransport}
         onError={reportError}
       >
-        <SessionChatBody {...props} onError={reportError} />
+        <SessionChatBody {...props} />
       </OmgChatEngine>
     </Suspense>
   );
@@ -17341,8 +17337,6 @@ function SessionChatBody({
   prompt,
   typingIds,
   onTyping,
-  error,
-  onError,
   onSubscribeTranscript,
   onRefresh,
   onDictatingChange,
@@ -17598,7 +17592,22 @@ function SessionChatBody({
     return () => onTyping(sid, false);
   }, [onTyping, sid]);
 
-  const { loading: historyLoading, applySnapshot, loadOlderMessages } = useSessionHistory(sid, setMessages, onError);
+  // A failed action is a short notice in plain words; an out-of-credit refusal
+  // goes to its own card first. The server's text is logged, not shown.
+  const handleModelPlanError = useModelPlanErrorHandler();
+  const failed = useLatestCallback((title: string, err: unknown, description?: string) => {
+    if (handleModelPlanError(errorMessage(err))) return;
+    notifyChatFailure(title, sid, err, description);
+  });
+  const failedQuietly = useCallback((message: string | null) => {
+    if (message) failed("That did not work", message);
+  }, [failed]);
+  // A failed history page is logged, not shown: the live subscription below
+  // sends a snapshot of the same transcript.
+  const logHistoryError = useCallback((message: string | null) => {
+    if (message) logChatError("history", sid, message);
+  }, [sid]);
+  const { loading: historyLoading, applySnapshot, loadOlderMessages } = useSessionHistory(sid, setMessages, logHistoryError);
 
   useEffect(() => {
     if (!sid || !onSubscribeTranscript) return;
@@ -17609,7 +17618,9 @@ function SessionChatBody({
         return;
       }
       if (event.type === "error") {
-        onError(event.error);
+        // Not the reader's to fix: the connection overlay owns connection
+        // state, and a resubscribe brings a fresh snapshot (lib/chat-failure).
+        logChatError("live-stream", sid, event.error);
         return;
       }
       if (event.type === "busy") setLiveBusy(event.busy);
@@ -17624,7 +17635,7 @@ function SessionChatBody({
         return next;
       });
     });
-  }, [applySnapshot, onError, onSubscribeTranscript, ownedChatStreams, setMessages, showServerHeld, sid]);
+  }, [applySnapshot, onSubscribeTranscript, ownedChatStreams, setMessages, showServerHeld, sid]);
 
   async function sendMessage(
     e?: FormEvent,
@@ -17642,17 +17653,17 @@ function SessionChatBody({
     const fastCommand = parseFastChatCommand(text);
     if (fastCommand.matched) {
       if (files.length) {
-        onError("Fast is a session control command; send attachments separately.");
+        toast.error("Send the files separately", { description: "/fast only turns Fast mode on or off." });
         return;
       }
       if (fastCommand.error) {
-        onError(fastCommand.error);
+        // Our own parser's words, written for people.
+        toast.error(fastCommand.error);
         return;
       }
       const currentFast = session.fastMode === true || session.serviceTier === "fast";
       const enabled = fastCommand.enabled ?? !currentFast;
       setSending(true);
-      onError(null);
       // attemptAsync, not try/finally: see lib/attempt.ts.
       await attemptAsync(
         async () => {
@@ -17667,7 +17678,7 @@ function SessionChatBody({
           });
           await onRefresh();
         },
-        (err) => onError(errorMessage(err)),
+        (err) => failed("Fast mode not changed", err),
         () => setSending(false),
       );
       return;
@@ -17692,7 +17703,6 @@ function SessionChatBody({
     });
     setSending(true);
     feedback.send();
-    onError(null);
     setMessageTextState("");
     // The server takes a message sent while a question is open as its answer.
     // A held message waits behind the turn and answers nothing yet.
@@ -17822,7 +17832,7 @@ function SessionChatBody({
         .catch((err) => {
           setPromptStashStatus(stashed?.id, "draft");
           setMessageTextState((current) => current || text);
-          onError(err instanceof Error ? err.message : String(err));
+          failed("Message not sent", err, "Your text is back in the box.");
         });
       // Typing here IS the answer to any question this session is waiting on:
       // the agent receives the text through the send above, so the ask store
@@ -17836,13 +17846,11 @@ function SessionChatBody({
       setAttachments([]);
       forgetAllUploads();
       setSending(false);
-      void onRefresh().catch((err) => {
-        onError(err instanceof Error ? err.message : String(err));
-      });
+      void onRefresh().catch((err) => logChatError("refresh-after-send", sid, err));
     }, (err) => {
       if (localHeldId) setLocalHeld((current) => current.filter((item) => item.id !== localHeldId));
       setPromptStashStatus(stashed?.id, "draft");
-      onError(errorMessage(err));
+      failed("Message not sent", err, "Your text is back in the box.");
       setMessageTextState((current) => current || text);
     }, () => setSending(false));
   }
@@ -17853,7 +17861,7 @@ function SessionChatBody({
       await api(`/api/sessions/${sid}/interrupt`, { method: "POST" });
       await onRefresh();
     } catch (err) {
-      onError(err instanceof Error ? err.message : String(err));
+      failed("Could not stop the agent", err);
     }
   }
 
@@ -17929,9 +17937,9 @@ function SessionChatBody({
           metadata: { omgMessage: { ...sentMessage, renderKey: placeholderId } },
         },
         "steer",
-      ).catch((err) => onError(err instanceof Error ? err.message : String(err)));
+      ).catch((err) => failed("Message not sent", err));
     },
-    [onError, sendIntoChat, setMessages, sid],
+    [failed, sendIntoChat, setMessages, sid],
   );
 
   // Re-queue a failed send. The next queue event repaints the bubble as
@@ -17939,11 +17947,9 @@ function SessionChatBody({
   const retryQueued = useCallback(
     (message: Message) => {
       if (!sid || !message.queueId) return;
-      void retryQueuedMessage(sid, message.queueId).catch((err) =>
-        onError(err instanceof Error ? err.message : String(err)),
-      );
+      void retryQueuedMessage(sid, message.queueId).catch((err) => failed("Could not resend the message", err));
     },
-    [sid, onError],
+    [sid, failed],
   );
 
   // Always in the expanded shape. Folding to one row on blur and opening again
@@ -17984,7 +17990,7 @@ function SessionChatBody({
           items={items}
           busy={chatBusy}
           onChange={changeHeldQueue}
-          onError={onError}
+          onError={failedQuietly}
           onSendNow={steerHeldText}
         />
       )}
@@ -18042,14 +18048,10 @@ function SessionChatBody({
         loginUser={session.assignedUser}
         nativeSid={session.nativeSessionId ?? null}
         prompt={prompt}
-        onPromptError={onError}
+        onPromptError={failedQuietly}
         composerSendSeq={composerSendSeq}
         onPromptAnsweringChange={setAnsweringPrompt}
       />
-
-      {error ? (
-        <div className="border-t border-border/70 px-3 py-1.5 text-xs text-destructive">{error}</div>
-      ) : null}
 
       {beforeComposer}
 
@@ -18420,14 +18422,14 @@ function useSessionActions({
   users,
   onRefresh,
   onRemove,
-  onError,
 }: {
   session: Session;
   users: User[];
   onRefresh: () => Promise<void>;
   onRemove: (sid: string) => void;
-  onError: (error: string | null) => void;
 }) {
+  // Failures are short notices in plain words; the server's text is logged
+  // (lib/chat-failure.ts). The hook owns this for every menu that uses it.
   const [forkMode, setForkMode] = useState<"fork" | "continue" | null>(null);
   const [moveOpen, setMoveOpen] = useState(false);
   const restoreSession = useContext(SessionRestoreContext);
@@ -18436,7 +18438,6 @@ function useSessionActions({
 
   async function assign(user: string) {
     if (!sid) return;
-    onError(null);
     try {
       await api(`/api/sessions/${sid}/user`, {
         method: "POST",
@@ -18445,18 +18446,17 @@ function useSessionActions({
       });
       await onRefresh();
     } catch (err) {
-      onError(err instanceof Error ? err.message : String(err));
+      notifyChatFailure("Could not assign the chat", sid, err);
     }
   }
 
   async function interrupt() {
     if (!sid) return;
-    onError(null);
     try {
       await api(`/api/sessions/${sid}/interrupt`, { method: "POST" });
       await onRefresh();
     } catch (err) {
-      onError(err instanceof Error ? err.message : String(err));
+      notifyChatFailure("Could not stop the agent", sid, err);
     }
   }
 
@@ -18466,13 +18466,12 @@ function useSessionActions({
       await copyMessageText(sessionReference(sid));
       toast.success("Session reference copied");
     } catch (err) {
-      onError(err instanceof Error ? err.message : "Could not copy session reference");
+      notifyChatFailure("Could not copy the reference", sid, err);
     }
   }
 
   async function close() {
     if (!sid) return;
-    onError(null);
     onRemove(sid); // drop the card now; the tombstone survives the next poll
     try {
       await closeSessionRequest(sid, "session_menu");
@@ -18482,12 +18481,10 @@ function useSessionActions({
       // optimistic removal instead of hiding it until the page reloads.
       if (!isMissingSessionError(err)) {
         restoreSession(sid);
-        onError(err instanceof Error ? err.message : String(err));
+        notifyChatFailure("Could not close the chat", sid, err);
       }
     } finally {
-      await onRefresh().catch((err) =>
-        onError(err instanceof Error ? err.message : String(err)),
-      );
+      await onRefresh().catch((err) => logChatError("refresh-after-close", sid, err));
     }
   }
 
@@ -18512,7 +18509,6 @@ function SessionActionsMenu({
   users,
   onRefresh,
   onRemove,
-  onError,
   onRename,
   triggerClassName,
   pinned,
@@ -18523,7 +18519,6 @@ function SessionActionsMenu({
   users: User[];
   onRefresh: () => Promise<void>;
   onRemove: (sid: string) => void;
-  onError: (error: string | null) => void;
   onRename?: () => void;
   triggerClassName?: string;
   pinned?: boolean;
@@ -18542,7 +18537,7 @@ function SessionActionsMenu({
     interrupt,
     copyReference,
     close,
-  } = useSessionActions({ session, users, onRefresh, onRemove, onError });
+  } = useSessionActions({ session, users, onRefresh, onRemove });
   const transcriptView = useContext(TranscriptViewContext);
   const openTerminal = useContext(SessionTerminalContext);
 
@@ -18676,7 +18671,6 @@ function SessionActionsMenu({
           <SessionThinkingLevelSubmenu
             session={session}
             onRefresh={onRefresh}
-            onError={onError}
           />
           {onTogglePin ? (
             <DropdownMenuItem disabled={!sid} onClick={() => sid && onTogglePin(sid)}>
@@ -18796,9 +18790,6 @@ function RailSessionContextMenu({
     users,
     onRefresh,
     onRemove,
-    onError: (error) => {
-      if (error) toast.error(error);
-    },
   });
   const transcriptView = useContext(TranscriptViewContext);
   const { unread: unreadSessions, markRead } = useContext(SessionUnreadContext);
@@ -18997,11 +18988,9 @@ const LIVE_THINKING_AGENTS = new Set([
 function SessionThinkingLevelSubmenu({
   session,
   onRefresh,
-  onError,
 }: {
   session: Session;
   onRefresh: () => Promise<void>;
-  onError: (error: string | null) => void;
 }) {
   const sid = session.sessionId;
   const agent = session.agent as AgentKind | undefined;
@@ -19022,7 +19011,6 @@ function SessionThinkingLevelSubmenu({
   async function changeThinkingLevel(thinkingLevel: string) {
     if (!sid || !thinkingLevel || thinkingLevel === session.thinkingLevel || changing) return;
     setChanging(true);
-    onError(null);
     try {
       await api(`/api/sessions/${sid}/thinking-level`, {
         method: "POST",
@@ -19033,7 +19021,7 @@ function SessionThinkingLevelSubmenu({
       await onRefresh();
       toast.success(`Thinking level set to ${thinkingLevel}`);
     } catch (error) {
-      onError(error instanceof Error ? error.message : String(error));
+      notifyChatFailure("Thinking level not changed", sid, error);
     } finally {
       setChanging(false);
     }
@@ -19109,7 +19097,6 @@ function SessionTitleSheet({
   onTogglePin?: (sid: string) => void;
   onClose: () => void;
 }) {
-  const [error, setError] = useState<string | null>(null);
   const [renamingInline, setRenamingInline] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const backdropRef = useRef<HTMLButtonElement>(null);
@@ -19145,22 +19132,19 @@ function SessionTitleSheet({
     [idx, onSwitch, order],
   );
 
-  // A stale composer error from the previous session shouldn't bleed across.
   useLayoutEffect(() => {
-    setError(null);
     setRenamingInline(false);
   }, [sid]);
 
 
   const commitInlineRename = useCallback(
     async (next: string) => {
-      setError(null);
       setRenamingInline(false);
       try {
         await onRenameSession(sid, next);
         toast.success("Session renamed");
       } catch (error) {
-        setError(error instanceof Error ? error.message : String(error));
+        notifyChatFailure("Could not rename the chat", sid, error);
         setRenamingInline(true);
         throw error;
       }
@@ -19513,7 +19497,6 @@ function SessionTitleSheet({
             users={users}
             onRefresh={onRefresh}
             onRemove={onRemove}
-            onError={setError}
             onRename={
               session.shippedReview ? undefined : () => setRenamingInline(true)
             }
@@ -19529,8 +19512,6 @@ function SessionTitleSheet({
             prompt={prompt}
             typingIds={typingIds}
             onTyping={onTyping}
-            error={error}
-            onError={setError}
             onSubscribeTranscript={onSubscribeTranscript}
             onRefresh={onRefresh}
           />
@@ -19906,7 +19887,6 @@ const SessionCard = memo(function SessionCard({
   const appDialog = useAppDialog();
   const catalog = useAgentModelCatalog();
   const isMobile = useIsMobile();
-  const [error, setError] = useState<string | null>(null);
   // Desktop double-click and the actions menu on every viewport edit in place.
   const [renamingInline, setRenamingInline] = useState(false);
 
@@ -19936,14 +19916,12 @@ const SessionCard = memo(function SessionCard({
   const commitInlineRename = useCallback(
     async (next: string) => {
       if (!sid) return;
-      setError(null);
       setRenamingInline(false);
       try {
         await onRenameSession(sid, next);
         toast.success("Session renamed");
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        setError(msg);
+        notifyChatFailure("Could not rename the chat", sid, e);
         setRenamingInline(true);
         throw e;
       }
@@ -19953,7 +19931,6 @@ const SessionCard = memo(function SessionCard({
 
   async function changeModel(model: string) {
     if (!sid || !model || model === session.model) return;
-    setError(null);
     try {
       await api(`/api/sessions/${sid}/model`, {
         method: "POST",
@@ -19962,7 +19939,7 @@ const SessionCard = memo(function SessionCard({
       });
       await onRefresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      notifyChatFailure("Model not changed", sid, e);
     }
   }
 
@@ -20421,7 +20398,6 @@ const onTouchStart = (e: ReactTouchEvent) => {
             users={users}
             onRefresh={onRefresh}
             onRemove={onRemove}
-            onError={setError}
             onRename={session.shippedReview ? undefined : startRename}
             pinned={pinned}
             onTogglePin={session.shippedReview ? undefined : onTogglePin}
@@ -20451,8 +20427,6 @@ const onTouchStart = (e: ReactTouchEvent) => {
           prompt={prompt}
           typingIds={typingIds}
           onTyping={onTyping}
-          error={error}
-          onError={setError}
           onSubscribeTranscript={onSubscribeTranscript}
           onRefresh={onRefresh}
           onDictatingChange={setDictating}
@@ -31750,10 +31724,6 @@ function FirstBotMessageComposer({
   );
 }
 
-function reportBotChatError(message: string | null) {
-  if (message) toast.error(message);
-}
-
 type BotRestartResponse = {
   ok: true;
   state: "restarted" | "already-restarted";
@@ -31930,8 +31900,6 @@ function BotsView({
         bot={bot}
         busy={busy}
         prompt={null}
-        error={null}
-        onError={reportBotChatError}
         onSubscribeTranscript={onSubscribeTranscript}
         onRefresh={async () => {
           await Promise.all([onRefreshBots(), onRefreshSessions()]);
