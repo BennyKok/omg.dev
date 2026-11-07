@@ -182,6 +182,23 @@ describe("release update status", () => {
 });
 
 describe("applying a release update", () => {
+  test("does not download a release already on disk while the service is older", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lfg-release-current-"));
+    cleanup.push(root);
+    writeFileSync(join(root, "package.json"), JSON.stringify({ version: "9.9.9" }));
+    const requests: string[] = [];
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = String(input instanceof Request ? input.url : input);
+      requests.push(url);
+      if (url.endsWith("/releases/latest")) return Response.json({ tag_name: "v9.9.9" });
+      throw new Error("An installed release must not be downloaded again.");
+    }) as typeof fetch;
+    const result = await applyReleaseUpdate(root, { repoSlug: "example/already-installed" });
+    expect(result.updated).toBe(false);
+    expect(result.status.state).toBe("staged");
+    expect(requests).toEqual(["https://api.github.com/repos/example/already-installed/releases/latest"]);
+  });
+
   test("looks up the latest release fresh instead of using the status cache", async () => {
     const root = mkdtempSync(join(tmpdir(), "lfg-release-apply-"));
     cleanup.push(root);

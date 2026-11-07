@@ -272,7 +272,7 @@ export type InstallInfo = {
 function updateCommand(channel: InstallChannel): string {
   if (channel === "source") return "git pull --ff-only && bun install && (cd web && bun install && bun run build)";
   if (channel === "container") return "redeploy the container to rebuild the image from the current source";
-  if (channel === "release") return "lfg setup";
+  if (channel === "release") return "omg update";
   return "check the install method, then update from the latest GitHub release or source checkout";
 }
 

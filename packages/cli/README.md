@@ -34,9 +34,9 @@ You bring your own agent accounts. omg.dev does not resell tokens.
 | Command | Does |
 | --- | --- |
 | `omg computer setup [--reinstall]` | Install the local control plane. No account needed. |
-| `omg computer update` | Update an existing install. |
+| `omg computer update [--check \| --restart]` | Update and verify the running service. `--check` is read-only. `--restart` skips downloads. |
 | `omg computer uninstall [--purge --yes]` | Remove the install. Keeps data unless purged. |
-| `omg computer status` | Show this machine's install. |
+| `omg computer status` | Show installed and running versions, and update status. |
 | `omg serve` | After setup, run the web UI (forwarded to the install). |
 
 Any other verb the install owns (`mcp`, `doctor`, `agents`, …) is forwarded to
@@ -44,6 +44,16 @@ it. The retired `@omg-dev/cli@0.4.42` tarball is no longer downloaded.
 
 After setup, `omg help` prints the install's complete command list. Before
 setup, it prints only the commands that work without an install.
+
+The desktop preview has its own bundled runtime. A CLI update changes the
+local service, not the desktop app. If the desktop app owns the local address,
+the updater stops before downloading and explains how to switch to the local
+service. Quit the desktop app fully and use the local URL in your browser.
+
+If a download succeeds but the service does not restart, use
+`omg update --restart`. This retries the restart without a release lookup or
+another download. The command verifies the running version before it reports
+success.
 
 ## Versioning
 

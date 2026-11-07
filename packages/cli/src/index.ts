@@ -79,7 +79,7 @@ export async function runCli(argv: string[], dependencies: CliDependencies = {})
       return await showHelp(dependencies, out);
     }
     if (verb === "setup") return await runComputerSetup(args, { ...dependencies, output: out });
-    if (verb === "update") return await runComputerForward("setup", args, { ...dependencies, output: out });
+    if (verb === "update") return await runComputerForward("update", args, { ...dependencies, output: out });
     if (verb === "uninstall") {
       return await runComputerForward("uninstall", args, { ...dependencies, output: out });
     }

@@ -9030,7 +9030,7 @@ a{color:#60a5fa}
             // `omg update` compares it with the disk version to decide whether
             // the running service still needs a restart, and to prove one
             // happened.
-            return json({ ...desktopRuntimeReadyPayload(SERVER_INSTANCE_ID), version: appVersion() });
+            return json({ ...desktopRuntimeReadyPayload(SERVER_INSTANCE_ID), version: appVersion(), root: PATHS.root });
           }
           // A manual "Check" click forces a fresh lookup that bypasses the
           // 5-minute release-tag cache; the passive on-load check stays cached.

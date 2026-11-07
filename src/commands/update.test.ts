@@ -5,8 +5,18 @@
 //
 // It deliberately drives the same code path the UI button does, so there is one
 // update mechanism rather than a second that drifts out of step with it.
-import { describe, expect, test } from "bun:test";
-import { cmdUpdate, localServeControl, restartRunningService } from "./update.ts";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { cmdUpdate, localServeControl, restartLocalService, restartRunningService, type ServeIdentity } from "./update.ts";
+
+const realFetch = globalThis.fetch;
+const cleanup: string[] = [];
+afterEach(() => {
+  globalThis.fetch = realFetch;
+  for (const root of cleanup.splice(0)) rmSync(root, { recursive: true, force: true });
+});
 
 function harness(channel: string) {
   const output: string[] = [];
@@ -55,7 +65,7 @@ describe("installs that cannot update themselves", () => {
 // replacement: the running service is asked to restart, and the command only
 // succeeds once a NEW process reports the version on disk.
 describe("restarting the running service", () => {
-  type Boot = { bootId: string; version?: string } | null;
+  type Boot = ServeIdentity | null;
 
   function restartHarness(opts: {
     disk: string;
@@ -141,12 +151,113 @@ describe("restarting the running service", () => {
     expect(h.restarts).toEqual([]);
     expect(h.output[0]).toContain("not running");
   });
+
+  test("restart-only recovery does not contact GitHub", async () => {
+    globalThis.fetch = (async () => { throw new Error("No download or release check is allowed."); }) as unknown as typeof fetch;
+    const h = restartHarness({
+      disk: "0.7.1",
+      boots: [{ bootId: "a", version: "0.6.203" }, { bootId: "a", version: "0.6.203" }, { bootId: "b", version: "0.7.1" }],
+    });
+    await cmdUpdate(["--restart"], h.deps);
+    expect(h.restarts).toEqual(["release"]);
+    expect(h.output.at(-1)).toBe("The service now runs omg.dev 0.7.1.");
+  });
+
+  test("a desktop runtime blocks updates before any download or restart", async () => {
+    let requests = 0;
+    globalThis.fetch = (async () => { requests++; throw new Error("Unexpected network request."); }) as unknown as typeof fetch;
+    const h = restartHarness({
+      disk: "0.7.1",
+      boots: [{ bootId: "desktop", version: "0.6.203", desktopRuntimeId: "ba32ae39" }],
+    });
+    for (const args of [[], ["--check"], ["--restart"]]) {
+      await expect(cmdUpdate(args, h.deps)).rejects.toThrow("Quit the desktop app fully");
+    }
+    expect(requests).toBe(0);
+    expect(h.restarts).toEqual([]);
+    expect(h.output.join("\n")).toContain("Running: omg.dev 0.6.203.");
+  });
+
+  test("a service from another install is not restarted even on the same version", async () => {
+    const h = restartHarness({ disk: "0.7.1", boots: [{ bootId: "a", version: "0.7.1", root: "/other/omg" }] });
+    await expect(restartRunningService(h.deps, "release")).rejects.toThrow("service runs from /other/omg");
+    expect(h.restarts).toEqual([]);
+  });
+
+  test("a desktop app taking the port during restart is not reported as success", async () => {
+    const h = restartHarness({
+      disk: "0.7.1",
+      boots: [{ bootId: "a", version: "0.6.203" }, { bootId: "desktop", version: "0.7.1", desktopRuntimeId: "desktop" }],
+    });
+    await expect(restartRunningService(h.deps, "release")).rejects.toThrow("desktop app");
+    expect(h.output.join("\n")).not.toContain("service now runs");
+  });
+
+  test("check reports a pending restart from the service version, not the CLI version", async () => {
+    const root = mkdtempSync(join(tmpdir(), "omg-update-status-"));
+    cleanup.push(root);
+    writeFileSync(join(root, "package.json"), JSON.stringify({ version: "0.7.1" }));
+    const requests: string[] = [];
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      requests.push(String(input));
+      return Response.json({ tag_name: "v0.7.1" });
+    }) as typeof fetch;
+    const h = restartHarness({ disk: "0.7.1", boots: [{ bootId: "a", version: "0.6.203" }] });
+    await cmdUpdate(["--check"], { ...h.deps, root, install: { channel: "release", repoSlug: "example/status", source: "file", updateCommand: "omg update" } });
+    expect(h.output.at(-1)).toContain("starts after a restart (running 0.6.203)");
+    expect(h.restarts).toEqual([]);
+    expect(requests).toEqual(["https://api.github.com/repos/example/status/releases/latest"]);
+  });
 });
 
 // The real HTTP client against a stand-in service that behaves like serve on a
 // Computer: POST /api/install makes it "exit" and come back with a new boot id
 // running the staged version.
 describe("localServeControl", () => {
+  test("preserves desktop and install identity from the readiness response", async () => {
+    const identity = { bootId: "a", version: "0.6.203", desktopRuntimeId: "desktop", root: "/app/runtime" };
+    const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json(identity) });
+    try {
+      expect(await localServeControl(`http://127.0.0.1:${server.port}`).probe()).toEqual(identity);
+    } finally { server.stop(true); }
+  });
+
+  test("a legacy install rejection falls back to the local service manager and verifies the new process", async () => {
+    let boot = { bootId: "old", version: "0.6.203" };
+    let nativeRestarts = 0;
+    const server = Bun.serve({
+      hostname: "127.0.0.1", port: 0,
+      fetch: req => req.method === "POST"
+        ? Response.json({ error: "UI updates are only available for Git and release installs." }, { status: 400 })
+        : Response.json(boot),
+    });
+    try {
+      const output: string[] = [];
+      await restartRunningService({
+        ...harness("release").deps,
+        output: message => output.push(message),
+        diskVersion: () => "0.7.1", sleep: async () => {}, restartTimeoutMs: 100, pollIntervalMs: 0,
+        serve: localServeControl(`http://127.0.0.1:${server.port}`, () => {
+          nativeRestarts++;
+          boot = { bootId: "new", version: "0.7.1" };
+        }),
+      }, "release");
+      expect(nativeRestarts).toBe(1);
+      expect(output.at(-1)).toBe("The service now runs omg.dev 0.7.1.");
+    } finally { server.stop(true); }
+  });
+
+  test("native restart is not a fallback for authorization or concurrency failures", async () => {
+    let restarts = 0;
+    for (const status of [401, 403, 409, 500]) {
+      const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({ error: "refused" }, { status }) });
+      try {
+        await expect(localServeControl(`http://127.0.0.1:${server.port}`, () => { restarts++; }).requestRestart("release"))
+          .rejects.toThrow("refused");
+      } finally { server.stop(true); }
+    }
+    expect(restarts).toBe(0);
+  });
   test("drives a release restart over the same routes serve exposes", async () => {
     let boot = { bootId: "old", version: "0.6.137" };
     const server = Bun.serve({
@@ -199,4 +310,13 @@ describe("localServeControl", () => {
   test("nothing listening reads as no service", async () => {
     expect(await localServeControl("http://127.0.0.1:1").probe()).toBeNull();
   });
+});
+
+test("a supervisor-loop restart cannot signal the update CLI itself", () => {
+  let ran = false;
+  expect(() => restartLocalService({ command: ["/bin/kill", "-TERM", String(process.pid)] }, () => {
+    ran = true;
+    throw new Error("must not execute");
+  })).toThrow("cannot be restarted from the command line");
+  expect(ran).toBe(false);
 });

@@ -478,6 +478,7 @@ async function latestReleaseTag(repoSlug: string, force = false): Promise<string
   }
   const response = await fetch(`https://api.github.com/repos/${repoSlug}/releases/latest`, {
     headers: { Accept: "application/vnd.github+json", "User-Agent": "lfg-self-update" },
+    signal: AbortSignal.timeout(15_000),
   });
   if (!response.ok) throw new Error(`GitHub release check failed (${response.status}).`);
   const parsed = (await response.json()) as GithubRelease;
@@ -805,6 +806,7 @@ async function download(url: string, destination: string): Promise<Response> {
 export async function applyReleaseUpdate(
   root: string,
   install: ReleaseInstall,
+  progress?: (message: string) => void,
 ): Promise<{ status: ReleaseUpdateStatus; updated: boolean }> {
   // Always a fresh lookup. The 5-minute tag cache serves the passive status
   // check; installing from it can land a long-running process on an older
@@ -812,6 +814,12 @@ export async function applyReleaseUpdate(
   // 0.6.157 was the newest release.
   const status = await releaseUpdateStatus(root, install, true);
   if (status.state === "blocked") return { status, updated: false };
+  // The CLI may have already installed the release while the service still
+  // runs old code. A retry must restart it, not download the same bundle again.
+  const onDisk = installedVersion(root);
+  if (onDisk && cleanVersion(onDisk) === status.latestVersion) {
+    return { status, updated: false };
+  }
   if (!status.restartSupported) throw new Error(restartUnavailableError(status));
 
   const repoSlug = install.repoSlug!;
@@ -828,6 +836,7 @@ export async function applyReleaseUpdate(
   const archive = join(temp, asset);
 
   try {
+    progress?.(`Downloading omg.dev ${status.latestVersion} (${asset})…`);
     await download(url, archive);
 
     // Releases normally publish a sibling checksum. Keep compatibility with
@@ -856,6 +865,7 @@ export async function applyReleaseUpdate(
       throw new Error("The release bundle contains unsafe paths.");
     }
 
+    progress?.(`Installing omg.dev ${status.latestVersion}…`);
     await installReleaseBundle(archive, root);
 
     // The bundle is on disk now, but THIS process is still the old one until

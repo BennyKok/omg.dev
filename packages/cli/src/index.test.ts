@@ -171,9 +171,20 @@ describe("omg computer", () => {
       },
     });
     expect(ran).toEqual([
-      ["/tmp/lfg", "setup"],
+      ["/tmp/lfg", "update"],
       ["/tmp/lfg", "uninstall", "--purge", "--yes"],
     ]);
+  });
+
+  test("update forwards recovery and check options unchanged", async () => {
+    for (const option of ["--check", "--restart"]) {
+      const ran: string[][] = [];
+      expect(await runCli(["computer", "update", option], {
+        which: () => "/opt/omg/lfg",
+        runCommand: async argv => { ran.push(argv); return 7; },
+      })).toBe(7);
+      expect(ran).toEqual([["/opt/omg/lfg", "update", option]]);
+    }
   });
 
   test("serve forwards to the install", async () => {

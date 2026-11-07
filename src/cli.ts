@@ -3,8 +3,9 @@ const HELP = `omg — run and manage your AI coding agents on your own box
 
 This computer:
   omg computer setup               Install omg.dev here (Bun, tmux, service)
-  omg computer status              Show the installed version and if an update exists
-  omg computer update [--check]    Update to the latest release and restart
+  omg computer status              Show the installed and running versions, and update status
+  omg computer update [--check | --restart]
+                                   Update and verify the service; --restart skips downloading
   omg computer uninstall [--purge --yes]
                                    Remove omg.dev. Sessions and settings stay unless --purge
   omg serve                        Run the web UI and control server (default :8766)
