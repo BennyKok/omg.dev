@@ -45,7 +45,7 @@ test("a live app shows no connection surface", () => {
   expect(overlay()).toBeNull();
 });
 
-test("a loaded local page reconnects quietly, then offers Retry without covering the page", () => {
+test("a loaded local page reconnects quietly, then shows the full-page recovery screen", () => {
   let now = 1_000;
   let retries = 0;
   nowSpy = spyOn(Date, "now").mockImplementation(() => now);
@@ -58,7 +58,7 @@ test("a loaded local page reconnects quietly, then offers Retry without covering
   expect(overlay()).toBeNull();
   now += 30_000;
   ui.render(view(offline));
-  expect(overlay()?.getAttribute("data-connection-overlay")).toBe("pill");
+  expect(overlay()?.getAttribute("data-connection-overlay")).toBe("page");
   expect(document.querySelector('[role="alertdialog"]')).toBeNull();
   ui.flush(() => (overlay()!.querySelector("button") as HTMLElement).click());
   expect(retries).toBe(1);
@@ -112,7 +112,7 @@ test("a missed visibility event still restarts the foreground clock", async () =
   ui.render(view(offline));
   now += 60_000;
   ui.render(view(offline));
-  expect(overlay()?.getAttribute("data-connection-overlay")).toBe("pill");
+  expect(overlay()?.getAttribute("data-connection-overlay")).toBe("page");
   pageVisibility("hidden");
   expect(overlay()).toBeNull();
   now += 120_000;
@@ -124,7 +124,7 @@ test("a missed visibility event still restarts the foreground clock", async () =
   expect(overlay()).toBeNull();
   now += 1;
   ui.render(view(offline));
-  expect(overlay()?.getAttribute("data-connection-overlay")).toBe("pill");
+  expect(overlay()?.getAttribute("data-connection-overlay")).toBe("page");
 });
 
 test("each disconnect gets its own quiet wait", () => {
@@ -206,7 +206,7 @@ test("the first bootstrap appears after a short wait", async () => {
   ui.render(view({ ...base, loading: true, ready: false, status: "connecting" }));
   expect(overlay()).toBeNull();
   await ui.flushAsync(() => sleep(700));
-  expect(overlay()?.textContent).toContain("Connecting…");
+  expect(overlay()?.textContent).toContain("Connecting to your computer");
   expect([...overlay()!.querySelectorAll("button")].some((b) => b.textContent === "Retry")).toBe(false);
 });
 
@@ -228,7 +228,7 @@ test("the first load shows the card, says Connected, then closes", async () => {
   ui = mount();
   ui.render(view({ ...base, loading: true, ready: false, status: "connecting" }));
   await ui.flushAsync(() => sleep(700));
-  expect(overlay()?.textContent).toContain("Connecting…");
+  expect(overlay()?.textContent).toContain("Connecting to your computer");
   // Bootstrap answers, then the socket connects.
   ui.render(view({ ...base, status: "connecting" }));
   ui.render(view(base));
@@ -250,7 +250,7 @@ test("still connecting shows Boxy with no Retry and no switcher", async () => {
   ui.render(view({ ...base, status: "connecting", loading: true, ready: false }));
   await ui.flushAsync(() => sleep(700));
   const el = overlay()!;
-  expect(el.textContent).toContain("Connecting…");
+  expect(el.textContent).toContain("Connecting to your computer");
   expect(el.textContent).not.toContain("Retry");
   expect(el.textContent).not.toContain("Switch computer");
 });

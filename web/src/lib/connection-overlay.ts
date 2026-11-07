@@ -7,12 +7,11 @@ import type { RuntimeLifecycle } from "./runtime-lifecycle";
  * app cannot talk to its computer (first connect, reconnect, resume after the
  * app was in the background, offline, and a computer the server stopped).
  *
- * The app stays mounted and visible behind it. Short blips stay silent. A
+ * The app stays mounted behind it. Short blips stay silent. A
  * loaded local page reconnects quietly for one foreground minute, then shows
- * a small Retry pill. Explicit lifecycle failures and a first load with
- * nothing to show can still use the full recovery surface.
+ * full-page recovery screen. First loads use the same centered screen.
  */
-export type ConnectionOverlayMode = "hidden" | "pill" | "overlay";
+export type ConnectionOverlayMode = "hidden" | "pill" | "overlay" | "page";
 export type BoxyMood = "booting" | "searching" | "sleeping" | "error" | "happy";
 
 export type ConnectionOverlayInput = {
@@ -25,8 +24,6 @@ export type ConnectionOverlayInput = {
   notLiveMs: number;
   /** The app came back from the background and has not reconnected yet. */
   resuming: boolean;
-  /** Preserve a surface already shown during the first connection. */
-  keepVisible?: boolean;
 };
 
 export type ConnectionOverlayView = {
@@ -129,18 +126,21 @@ function detailFor(input: ConnectionOverlayInput, mood: BoxyMood): string | null
 }
 
 export function connectionOverlayView(input: ConnectionOverlayInput): ConnectionOverlayView {
-  if (input.ready && !input.lifecycle) {
+  if (!input.lifecycle) {
     if (!runtimeStatusText(input)) return HIDDEN;
-    const wait = LOCAL_RECONNECT_AFTER_MS - input.notLiveMs;
-    if (wait > 0 && !input.keepVisible) return { ...HIDDEN, nextChangeMs: wait };
+    const wait = (input.ready ? LOCAL_RECONNECT_AFTER_MS : STARTUP_SHOW_AFTER_MS) - input.notLiveMs;
+    if (wait > 0) return { ...HIDDEN, nextChangeMs: wait };
+    const canRetry = input.notLiveMs >= LOCAL_RECONNECT_AFTER_MS;
     return {
-      mode: "pill",
-      mood: "searching",
-      title: "Reconnecting…",
-      detail: null,
-      canRetry: wait <= 0,
+      mode: "page",
+      mood: input.ready ? "searching" : "booting",
+      title: input.ready ? "Reconnecting to your computer" : "Connecting to your computer",
+      detail: canRetry ? "This is taking longer than expected. You can try again."
+        : input.notLiveMs >= FAIL_AFTER_MS ? "Still connecting. This can take a moment." : null,
+      canRetry,
       canSwitch: false,
-      nextChangeMs: wait > 0 ? wait : null,
+      nextChangeMs: canRetry ? null
+        : (input.notLiveMs < FAIL_AFTER_MS ? FAIL_AFTER_MS : LOCAL_RECONNECT_AFTER_MS) - input.notLiveMs,
     };
   }
   const view = baseView(input);

@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## November 7, 2026 - Calmer connection recovery (v0.7.3)
+
+- Short disconnects stay silent. After one minute in the foreground, a single full-page screen shows the connection state and a Try again button.
+- The first connection uses the same centered screen. The workspace stays mounted and returns when the connection recovers.
+- Time spent in the background does not trigger a reconnect warning when you return to the page.
+
 ## November 7, 2026 - Clear local updates (v0.7.2)
 
 - `omg computer update` now runs the updater. It shows the installed and running versions, skips a release already on disk, and verifies the service after a restart.

@@ -29,8 +29,7 @@ function useNow(nextChangeMs: number | null): void {
  * that App owns and never keeps its own copy of the connection.
  *
  * - A short blip shows nothing.
- * - A longer reconnect, resume, or wake shows a pill at the top for as long
- *   as it lasts. The app stays usable.
+ * - A local reconnect stays quiet for a minute, then shows the full page.
  * - A hard failure, or a first load with nothing to show, dims the app and
  *   shows Boxy, Retry, and the computer switcher. The app stays visible behind it, so the screen is
  *   never blank, and the user can always move to another computer.
@@ -94,7 +93,6 @@ export function ConnectionOverlay({ machineSwitcher }: { machineSwitcher?: React
   const view = connectionOverlayView({
     ...availability,
     notLiveMs: away || clock.current.since === null ? 0 : now - clock.current.since,
-    keepVisible: lastShown.current !== "hidden",
     resuming: now < clock.current.resumeUntil,
   });
   useNow(away ? null : view.nextChangeMs);
@@ -110,25 +108,26 @@ export function ConnectionOverlay({ machineSwitcher }: { machineSwitcher?: React
     // Not live but still under the pill threshold: wait. A short flap (the
     // first connect reloads its bootstrap at once) must not cut "Connected"
     // short; its own timer closes it, and a real drop brings the pill.
-    if (notLive) return;
+    if (notLive && !(lastShown.current === "page" && availability.ready)) return;
     if (lastShown.current === "hidden") return;
     setBack(lastShown.current);
     lastShown.current = "hidden";
-  }, [view.mode, notLive, away]);
+  }, [view.mode, notLive, away, availability.ready]);
   // The close timer belongs to the "Connected" moment alone. When it shared
   // the effect above, a brief flap right after recovery (the runtime reloads
   // its bootstrap) cancelled it and nothing restarted it, so "Connected"
   // stayed on screen for good.
   useEffect(() => {
     if (back === "hidden") return;
-    const timer = setTimeout(() => setBack("hidden"), BACK_MS);
+    const timer = setTimeout(() => setBack("hidden"), back === "page" ? 300 : BACK_MS);
     return () => clearTimeout(timer);
   }, [back]);
 
   // Recovery answers in the same render that hides the wait. Waiting for the
   // effect above left one frame with nothing mounted, so "Connected" faded in
   // as a new surface: the card vanished and came back.
-  const recovered = view.mode === "hidden" && !notLive && lastShown.current !== "hidden" ? lastShown.current : "hidden";
+  const recovered = view.mode === "hidden" && (!notLive || (lastShown.current === "page" && availability.ready))
+    && lastShown.current !== "hidden" ? lastShown.current : "hidden";
   const closing = back !== "hidden" ? back : recovered;
 
   if (typeof document === "undefined" || away) return null;
@@ -182,6 +181,30 @@ function ConnectionSurface({
       window.visualViewport?.removeEventListener("scroll", place);
     };
   }, [pill, view.title, view.canRetry, view.canSwitch, machineSwitcher]);
+
+  if (view.mode === "page") {
+    return (
+      <div
+        role="status"
+        aria-live="polite"
+        data-connection-overlay="page"
+        className={`${view.mood === "happy" ? "lfg-connection-out pointer-events-none" : "lfg-connection-in"} fixed inset-0 z-[180] grid place-items-center bg-background px-6 text-foreground`}
+      >
+        <div className="relative grid place-items-center">
+          <Boxy mood={view.mood} size={80} />
+          <div className="absolute left-1/2 top-full mt-2 flex w-72 max-w-[calc(100vw-3rem)] -translate-x-1/2 flex-col items-center gap-2 text-center">
+            <p className="text-sm font-medium">{view.title}</p>
+            {view.detail ? <p className="text-xs text-muted-foreground">{view.detail}</p> : null}
+            {view.canRetry ? (
+              <button type="button" onClick={onRetry} className="mt-1 rounded-full bg-secondary px-4 py-2 text-sm font-medium text-foreground hover:bg-secondary/70">
+                Try again
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

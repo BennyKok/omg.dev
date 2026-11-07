@@ -3078,11 +3078,14 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
 /* The overlay fades in, so a state change never snaps the whole screen. */
 @keyframes lfg-connection-in { from { opacity: 0; } to { opacity: 1; } }
 .lfg-connection-in { animation: lfg-connection-in 0.25s ease-out both; }
+@keyframes lfg-connection-out { from { opacity: 1; } to { opacity: 0; } }
+.lfg-connection-out { animation: lfg-connection-out 0.3s ease-out both; }
 
 @media (prefers-reduced-motion: reduce) {
   .boxy *,
   .boxy,
-  .lfg-connection-in {
+  .lfg-connection-in,
+  .lfg-connection-out {
     animation: none !important;
   }
   .boxy-booting .boxy-grid { opacity: 1; }

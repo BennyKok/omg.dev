@@ -25,16 +25,16 @@ test("a live runtime shows nothing", () => {
   expect(connectionOverlayView(live).mode).toBe("hidden");
 });
 
-test("a loaded local page stays quiet for a minute, then offers a nonblocking retry", () => {
+test("a loaded local page stays quiet for a minute, then shows one full-page recovery screen", () => {
   for (const status of ["connecting", "reconnecting", "offline"] as const) {
     for (const error of [null, "Failed to fetch"]) {
       const extra = { status, error };
       expect(reconnecting(500, extra)).toMatchObject({ mode: "hidden", nextChangeMs: LOCAL_RECONNECT_AFTER_MS - 500 });
       expect(reconnecting(LOCAL_RECONNECT_AFTER_MS - 1, extra)).toMatchObject({ mode: "hidden", nextChangeMs: 1 });
       expect(reconnecting(LOCAL_RECONNECT_AFTER_MS, extra)).toMatchObject({
-        mode: "pill", title: "Reconnecting…", mood: "searching", canRetry: true, canSwitch: false, nextChangeMs: null,
+        mode: "page", title: "Reconnecting to your computer", mood: "searching", canRetry: true, canSwitch: false, nextChangeMs: null,
       });
-      expect(reconnecting(300_000, extra).mode).toBe("pill");
+      expect(reconnecting(300_000, extra).mode).toBe("page");
     }
   }
 });
@@ -43,17 +43,14 @@ test("returning from the background does not skip the local grace period", () =>
   expect(reconnecting(0, { resuming: true })).toMatchObject({ mode: "hidden", nextChangeMs: LOCAL_RECONNECT_AFTER_MS });
 });
 
-test("a first-connection surface can become a pill without inventing elapsed time", () => {
-  expect(reconnecting(1_000, { keepVisible: true })).toMatchObject({
-    mode: "pill", canRetry: false, nextChangeMs: LOCAL_RECONNECT_AFTER_MS - 1_000,
+test("loading data ends the first screen while the socket connects quietly", () => {
+  expect(reconnecting(1_000, { status: "connecting" })).toMatchObject({
+    mode: "hidden", nextChangeMs: LOCAL_RECONNECT_AFTER_MS - 1_000,
   });
 });
 
-test("an unavailable computer or a failed first load still offers recovery", () => {
+test("an unavailable computer offers recovery", () => {
   expect(reconnecting(0, { lifecycle: "unavailable" })).toMatchObject({ mode: "overlay", mood: "error" });
-  expect(connectionOverlayView({ ...live, ready: false, error: "Failed to fetch", notLiveMs: FAIL_AFTER_MS })).toMatchObject({
-    mode: "overlay", mood: "error", title: "Connection unavailable", canRetry: true,
-  });
 });
 
 test("a waking cloud computer shows resume progress", () => {
@@ -78,32 +75,21 @@ test("paused and waking stay in progress beyond the failure grace period", () =>
   expect(connectionOverlayView({ ...live, lifecycle: "waking" }).mode).toBe("hidden");
 });
 
-test("the first bootstrap waits briefly, then covers the empty shell without Retry", () => {
-  const first = { ...live, loading: true, ready: false, status: "connecting" as const };
-  expect(connectionOverlayView({ ...first, notLiveMs: 100 }).mode).toBe("hidden");
-  expect(connectionOverlayView({ ...first, notLiveMs: STARTUP_SHOW_AFTER_MS })).toMatchObject({
-    mode: "overlay",
-    mood: "booting",
-    title: "Connecting…",
-    canRetry: false,
-    canSwitch: false,
-    nextChangeMs: LONG_WAIT_MS - STARTUP_SHOW_AFTER_MS,
-  });
-  expect(connectionOverlayView({ ...first, notLiveMs: LONG_WAIT_MS })).toMatchObject({
-    canRetry: false,
-    canSwitch: true,
-  });
-});
-
-test("a failed first bootstrap stays soft while the app retries it", () => {
-  const failed = { ...live, loading: true, status: "connecting" as const, ready: false, error: "Failed to fetch" };
-  expect(connectionOverlayView({ ...failed, notLiveMs: 0 }).mode).toBe("hidden");
-  expect(connectionOverlayView({ ...failed, notLiveMs: STARTUP_SHOW_AFTER_MS })).toMatchObject({
-    mode: "overlay", title: "Connecting…", canRetry: false,
-  });
-  expect(connectionOverlayView({ ...failed, notLiveMs: FAIL_AFTER_MS })).toMatchObject({
-    mode: "overlay", mood: "error", canRetry: true,
-  });
+test("a first load uses one full page and offers a retry after a minute", () => {
+  for (const error of [null, "Failed to fetch"]) {
+    const first = { ...live, loading: true, ready: false, status: "connecting" as const, error };
+    expect(connectionOverlayView({ ...first, notLiveMs: 100 }).mode).toBe("hidden");
+    expect(connectionOverlayView({ ...first, notLiveMs: STARTUP_SHOW_AFTER_MS })).toMatchObject({
+      mode: "page", mood: "booting", canRetry: false, canSwitch: false,
+      nextChangeMs: FAIL_AFTER_MS - STARTUP_SHOW_AFTER_MS,
+    });
+    expect(connectionOverlayView({ ...first, notLiveMs: FAIL_AFTER_MS })).toMatchObject({
+      mode: "page", canRetry: false, nextChangeMs: LOCAL_RECONNECT_AFTER_MS - FAIL_AFTER_MS,
+    });
+    expect(connectionOverlayView({ ...first, notLiveMs: LOCAL_RECONNECT_AFTER_MS })).toMatchObject({
+      mode: "page", canRetry: true, canSwitch: false, nextChangeMs: null,
+    });
+  }
 });
 
 test("a recovered socket clears an older bootstrap error", () => {
