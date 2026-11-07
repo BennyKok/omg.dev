@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { sideNavCurrentKey, sideNavRows } from "./side-nav-items";
+import { mobileHeaderControl, sideNavCurrentKey, sideNavRows } from "./side-nav-items";
 
 const keys = (rows: { key: string }[]) => rows.map((row) => row.key);
 
@@ -78,5 +78,19 @@ describe("sideNavRows", () => {
     expect(keys(rows).slice(-2)).toEqual(["my-ext", "settings"]);
     expect(rows.find((row) => row.current)?.key).toBe("my-ext");
     expect(rows.find((row) => row.key === "my-ext")?.label).toBe("My Extension");
+  });
+});
+
+describe("mobileHeaderControl", () => {
+  test("every page the drawer lists shows the drawer button", () => {
+    for (const tab of ["live", "notifications", "auto", "artifacts", "computer", "settings", "board", "ext-anything"]) {
+      expect(mobileHeaderControl(tab)).toBe("menu");
+    }
+  });
+
+  test("a page inside Settings shows Back to Settings instead", () => {
+    for (const tab of ["usage", "coding-agents", "storage", "instructions", "connectors", "changelog", "more"]) {
+      expect(mobileHeaderControl(tab)).toBe("back-to-settings");
+    }
   });
 });

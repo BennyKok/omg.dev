@@ -23,7 +23,7 @@ import { HostDrawerSlot, SideNavButton, SideNavDrawer, SideNavGlyph, SideNavPane
 import { createSideNavOpenStore, useSideNavOpen, type SideNavOpenStore } from "./lib/side-nav-open";
 import { FindingsPill, FindingsSheet } from "./components/findings-pill";
 import { OutOfCreditCard, isOutOfCreditNotice } from "./components/out-of-credit-card";
-import { sideNavRows, type SideNavRow } from "./lib/side-nav-items";
+import { mobileHeaderControl, sideNavRows, type SideNavRow } from "./lib/side-nav-items";
 import { settledParagraphs } from "./lib/paragraph-stream";
 import {
   AgentSetupSheet,
@@ -130,7 +130,6 @@ import {
   BOT_ROSTER_ROW_CLASS,
   isPrimarySurfaceTab,
   shouldShowBotsInSessionList,
-  isMobileDrawerPeerPage,
   shouldShowInlineBotsSurfaceToggle,
 } from "./lib/mobile-bots-nav";
 import { botChatSessionId, botDetachedSession, botStageSession, findBotMainSession } from "./lib/bot-session";
@@ -9873,14 +9872,23 @@ export function App() {
         {/* min-h-11: the height of Live's header islands, so the drawer button
             sits at the same height on a page with no pills around it. */}
         <div className="flex min-h-11 min-w-0 items-center gap-2">
-        {/* A phone opens the drawer from the top-left corner on every page,
-            the same spot as on Live. */}
-        {isMobile ? pageNavigation : null}
-        {/* The pages the drawer lists side by side with Live (Notifications,
-            Artifacts, Board) get no back pill on a phone: the drawer button
-            beside it already goes to Live, so it was a second control for the
-            same move. */}
-        {isMobileDrawerPeerPage(isMobile, tab) ? null : (
+        {/* A phone has ONE control in this corner (lib/side-nav-items.ts,
+            mobileHeaderControl): the drawer button on a page the drawer
+            lists, or Back to Settings on a page inside Settings. */}
+        {isMobile ? (
+          mobileHeaderControl(tab) === "menu" ? pageNavigation : (
+            <button
+              type="button"
+              onClick={() => setTab(embedded ? "live" : "settings")}
+              aria-label={embedded ? "Back to Chats" : "Back to Settings"}
+              className="flex h-11 items-center gap-1 rounded-full pl-1 pr-3 text-[15px] font-medium tracking-[-0.01em] text-muted-foreground transition-colors duration-200 ease-out hover:text-foreground active:scale-[0.96]"
+            >
+              <ChevronLeft className="size-5" />
+              {/* Embedded has no Settings page of its own to go back to. */}
+              <span>{embedded ? "Chats" : "Settings"}</span>
+            </button>
+          )
+        ) : (
         <NavIsland className="shrink-0">
           <div className="glass-island flex h-11 items-center rounded-full px-1.5">
             {isPrimarySurfaceTab(tab) || tab === "notifications" || tab === "artifacts" || tab === "board" ? (
@@ -9907,7 +9915,7 @@ export function App() {
               >
                 <ChevronLeft className="size-[18px]" />
                 <span>
-                  {embedded || tab === "settings" ? "Live" : "Settings"}
+                  {embedded || tab === "settings" ? "Chats" : "Settings"}
                 </span>
               </button>
             )}

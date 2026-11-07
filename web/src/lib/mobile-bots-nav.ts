@@ -56,15 +56,6 @@ export function isPrimarySurfaceTab(tab: string): tab is PrimaryMobileTab {
 }
 
 /**
- * Pages a phone reaches from the drawer as peers of Live. Their header has no
- * left pill: no brand button and no "back to Live", because the drawer button
- * beside it already goes to Live.
- */
-export function isMobileDrawerPeerPage(isMobile: boolean, tab: string): boolean {
-  return isMobile && (tab === "notifications" || tab === "artifacts" || tab === "board");
-}
-
-/**
  * Chat and Bots are strict, mutually exclusive data surfaces on every width.
  *
  * Mobile always worked this way. The desktop rail did not: it listed the same

@@ -116,3 +116,17 @@ export function sideNavRows(input: {
   }
   return rows;
 }
+
+/**
+ * The one control in a phone header's top-left corner.
+ *
+ * A page the drawer lists (Chats, Inbox, Schedules, Artifacts, Computer,
+ * Settings, an extension) is a place you go to, so it shows the drawer
+ * button. A page inside Settings is a place you went down into, so it shows
+ * Back to Settings instead. Never both: two controls in one corner were two
+ * answers to "how do I leave", and the back one was labelled with the internal
+ * name "Live".
+ */
+export function mobileHeaderControl(tab: string): "menu" | "back-to-settings" {
+  return SETTINGS_TABS.has(tab) && tab !== "settings" ? "back-to-settings" : "menu";
+}
