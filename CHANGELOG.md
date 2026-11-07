@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## November 7, 2026 - No embedding in app.omg.dev (v0.7.1)
+
+- The web UI can no longer be embedded in app.omg.dev. The `@omg-dev/app` package is no longer published.
+- Removed the hosted first-run steps, tutorials, plan-limit and credit cards, and the machine list that app.omg.dev supplied.
+- If on-device dictation fails, the recording is still transcribed by the speech service on this computer.
+
 ## November 7, 2026 - omg.dev is local software (v0.7.0)
 
 - omg.dev now runs on your computer only. It needs no omg account and makes no calls to omg Cloud.
