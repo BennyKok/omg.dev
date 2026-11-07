@@ -8,10 +8,9 @@ import type { RuntimeLifecycle } from "./runtime-lifecycle";
  * app was in the background, offline, and a computer the server stopped).
  *
  * The app stays mounted and visible behind it. Short blips stay silent. A
- * longer reconnect, resume, or wake is a small pill for as long as it lasts,
- * because the app behind it stays usable (Benny, 2026-10-07). Only a hard
- * failure, or a first load with nothing to show, dims the app and offers
- * Retry and the computer switcher.
+ * loaded local page reconnects quietly for one foreground minute, then shows
+ * a small Retry pill. Explicit lifecycle failures and a first load with
+ * nothing to show can still use the full recovery surface.
  */
 export type ConnectionOverlayMode = "hidden" | "pill" | "overlay";
 export type BoxyMood = "booting" | "searching" | "sleeping" | "error" | "happy";
@@ -22,10 +21,12 @@ export type ConnectionOverlayInput = {
   status: ConnectionStatus;
   error: string | null;
   lifecycle?: RuntimeLifecycle | null;
-  /** Milliseconds since the runtime stopped being live. */
+  /** Foreground milliseconds since the runtime stopped being live or the page returned. */
   notLiveMs: number;
   /** The app came back from the background and has not reconnected yet. */
   resuming: boolean;
+  /** Preserve a surface already shown during the first connection. */
+  keepVisible?: boolean;
 };
 
 export type ConnectionOverlayView = {
@@ -34,8 +35,7 @@ export type ConnectionOverlayView = {
   title: string;
   detail: string | null;
   /**
-   * Offer Retry: only a real failure. While the app is still connecting or
-   * reconnecting, a retry button reads as "it already failed".
+   * Offer Retry after a failure or a prolonged local reconnect.
    */
   canRetry: boolean;
   /** Offer the computer switcher: a real failure, or a long wait. */
@@ -48,6 +48,8 @@ export type ConnectionOverlayView = {
 
 /** A blip shorter than this is not worth any UI. */
 export const PILL_AFTER_MS = 2_000;
+/** A loaded local page quietly reconnects for one foreground minute. */
+export const LOCAL_RECONNECT_AFTER_MS = 60_000;
 /** A wait longer than this offers another computer (never while waking). */
 export const LONG_WAIT_MS = 8_000;
 /**
@@ -127,6 +129,20 @@ function detailFor(input: ConnectionOverlayInput, mood: BoxyMood): string | null
 }
 
 export function connectionOverlayView(input: ConnectionOverlayInput): ConnectionOverlayView {
+  if (input.ready && !input.lifecycle) {
+    if (!runtimeStatusText(input)) return HIDDEN;
+    const wait = LOCAL_RECONNECT_AFTER_MS - input.notLiveMs;
+    if (wait > 0 && !input.keepVisible) return { ...HIDDEN, nextChangeMs: wait };
+    return {
+      mode: "pill",
+      mood: "searching",
+      title: "Reconnecting…",
+      detail: null,
+      canRetry: wait <= 0,
+      canSwitch: false,
+      nextChangeMs: wait > 0 ? wait : null,
+    };
+  }
   const view = baseView(input);
   // A soft error must be looked at again when it settles into a hard one.
   if (stillRetrying(input) && !(view.mode === "hidden" && view.nextChangeMs === null)) {

@@ -3,7 +3,6 @@ import { createPortal } from "react-dom";
 import { useRuntimeAvailability, runtimeIsLive } from "../lib/runtime-availability";
 import {
   connectionOverlayView,
-  PILL_AFTER_MS,
   type ConnectionOverlayMode,
   type ConnectionOverlayView,
 } from "../lib/connection-overlay";
@@ -25,35 +24,6 @@ function useNow(nextChangeMs: number | null): void {
   }, [nextChangeMs, tick]);
 }
 
-/** True for a short window after the page returns from the background. */
-function useResuming(): boolean {
-  const [until, setUntil] = useState(0);
-  const hiddenAt = useRef<number | null>(null);
-  useEffect(() => {
-    const onVisibility = () => {
-      if (document.visibilityState === "hidden") {
-        hiddenAt.current = Date.now();
-        return;
-      }
-      const away = hiddenAt.current === null ? 0 : Date.now() - hiddenAt.current;
-      hiddenAt.current = null;
-      if (away >= RESUME_AWAY_MS) setUntil(Date.now() + RESUME_WINDOW_MS);
-    };
-    const onPageShow = (event: PageTransitionEvent) => {
-      if (event.persisted) setUntil(Date.now() + RESUME_WINDOW_MS);
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-    window.addEventListener("pageshow", onPageShow);
-    return () => {
-      document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener("pageshow", onPageShow);
-    };
-  }, []);
-  const remaining = until - Date.now();
-  useNow(remaining > 0 ? remaining : null);
-  return remaining > 0;
-}
-
 /**
  * The one connection surface for the whole app. It reads the runtime state
  * that App owns and never keeps its own copy of the connection.
@@ -69,27 +39,69 @@ function useResuming(): boolean {
  */
 export function ConnectionOverlay({ machineSwitcher }: { machineSwitcher?: ReactNode }) {
   const availability = useRuntimeAvailability();
-  const resuming = useResuming();
   const notLive = !runtimeIsLive(availability);
-
-  const [notLiveSince, setNotLiveSince] = useState<number | null>(() => (notLive ? Date.now() : null));
-  useEffect(() => {
-    setNotLiveSince((since) => (notLive ? since ?? Date.now() : null));
-  }, [notLive]);
-
-  // Once a surface is visible, a change of wait state must not remove it
-  // during the next state's quiet threshold. Move straight into its pill.
+  const clock = useRef({ since: null as number | null, away: false, hiddenAt: null as number | null, resumeUntil: 0 });
+  const [, tick] = useState(0);
   const lastShown = useRef<ConnectionOverlayMode>("hidden");
+  const [back, setBack] = useState<ConnectionOverlayMode>("hidden");
+  const now = Date.now();
+  if (!notLive) clock.current.since = null;
+  else clock.current.since ??= now;
+  // A browser can run a late timer before its visibility event. Keep that
+  // first render quiet too; only the foreground event starts the wait again.
+  const away = clock.current.away || (typeof document !== "undefined" && document.visibilityState === "hidden");
+  useEffect(() => {
+    const resetSurface = () => {
+      lastShown.current = "hidden";
+      setBack("hidden");
+      tick((n) => n + 1);
+    };
+    const resume = () => {
+      const time = Date.now();
+      const hiddenAt = clock.current.hiddenAt;
+      if (hiddenAt !== null && time - hiddenAt >= RESUME_AWAY_MS) {
+        clock.current.resumeUntil = time + RESUME_WINDOW_MS;
+      }
+      clock.current.away = false;
+      clock.current.hiddenAt = null;
+      if (clock.current.since !== null) clock.current.since = time;
+      resetSurface();
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        clock.current.away = true;
+        clock.current.hiddenAt = Date.now();
+        resetSurface();
+      } else resume();
+    };
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) resume();
+    };
+    if (document.visibilityState === "hidden") onVisibility();
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pageshow", onPageShow);
+    // Some browsers restore visibility without delivering visibilitychange.
+    const timer = setInterval(() => {
+      if (clock.current.away && document.visibilityState === "visible") resume();
+    }, 1_000);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pageshow", onPageShow);
+    };
+  }, []);
+
   const view = connectionOverlayView({
     ...availability,
-    notLiveMs: Math.max(lastShown.current === "hidden" ? 0 : PILL_AFTER_MS, notLiveSince === null ? 0 : Date.now() - notLiveSince),
-    resuming,
+    notLiveMs: away || clock.current.since === null ? 0 : now - clock.current.since,
+    keepVisible: lastShown.current !== "hidden",
+    resuming: now < clock.current.resumeUntil,
   });
-  useNow(view.nextChangeMs);
+  useNow(away ? null : view.nextChangeMs);
 
   // Remember what was on screen so the recovery can answer in the same place.
-  const [back, setBack] = useState<ConnectionOverlayMode>("hidden");
   useEffect(() => {
+    if (away) return;
     if (view.mode !== "hidden") {
       lastShown.current = view.mode;
       setBack("hidden");
@@ -102,7 +114,7 @@ export function ConnectionOverlay({ machineSwitcher }: { machineSwitcher?: React
     if (lastShown.current === "hidden") return;
     setBack(lastShown.current);
     lastShown.current = "hidden";
-  }, [view.mode, notLive]);
+  }, [view.mode, notLive, away]);
   // The close timer belongs to the "Connected" moment alone. When it shared
   // the effect above, a brief flap right after recovery (the runtime reloads
   // its bootstrap) cancelled it and nothing restarted it, so "Connected"
@@ -119,7 +131,7 @@ export function ConnectionOverlay({ machineSwitcher }: { machineSwitcher?: React
   const recovered = view.mode === "hidden" && !notLive && lastShown.current !== "hidden" ? lastShown.current : "hidden";
   const closing = back !== "hidden" ? back : recovered;
 
-  if (typeof document === "undefined") return null;
+  if (typeof document === "undefined" || away) return null;
   if (view.mode !== "hidden") {
     return createPortal(
       <ConnectionSurface view={view} onRetry={availability.retry} machineSwitcher={machineSwitcher} />,

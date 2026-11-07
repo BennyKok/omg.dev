@@ -1,11 +1,19 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { mount, type Mounted } from "../test-support/render";
 import type { RuntimeAvailability } from "../lib/runtime-availability";
 const { RuntimeAvailabilityContext } = await import("../lib/runtime-availability");
 const { ConnectionOverlay } = await import("./connection-overlay");
 
 let ui: Mounted;
-afterEach(() => ui?.cleanup());
+const originalVisibility = Object.getOwnPropertyDescriptor(document, "visibilityState");
+let nowSpy: ReturnType<typeof spyOn<typeof Date, "now">> | undefined;
+afterEach(() => {
+  ui?.cleanup();
+  nowSpy?.mockRestore();
+  nowSpy = undefined;
+  if (originalVisibility) Object.defineProperty(document, "visibilityState", originalVisibility);
+  else Reflect.deleteProperty(document, "visibilityState");
+});
 
 const base: RuntimeAvailability = {
   status: "live",
@@ -18,6 +26,11 @@ const base: RuntimeAvailability = {
 const overlay = () => document.body.querySelector("[data-connection-overlay]");
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+function pageVisibility(state: "visible" | "hidden", notify = true) {
+  Object.defineProperty(document, "visibilityState", { configurable: true, value: state });
+  if (notify) ui.flush(() => document.dispatchEvent(new Event("visibilitychange")));
+}
+
 function view(value: RuntimeAvailability) {
   return (
     <RuntimeAvailabilityContext.Provider value={value}>
@@ -29,6 +42,102 @@ function view(value: RuntimeAvailability) {
 test("a live app shows no connection surface", () => {
   ui = mount();
   ui.render(view(base));
+  expect(overlay()).toBeNull();
+});
+
+test("a loaded local page reconnects quietly, then offers Retry without covering the page", () => {
+  let now = 1_000;
+  let retries = 0;
+  nowSpy = spyOn(Date, "now").mockImplementation(() => now);
+  ui = mount();
+  const offline = { ...base, status: "offline" as const, retry: () => { retries++; } };
+  ui.render(view(base));
+  ui.render(view(offline));
+  now += 30_000;
+  ui.render(view(offline));
+  expect(overlay()).toBeNull();
+  now += 30_000;
+  ui.render(view(offline));
+  expect(overlay()?.getAttribute("data-connection-overlay")).toBe("pill");
+  expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+  ui.flush(() => (overlay()!.querySelector("button") as HTMLElement).click());
+  expect(retries).toBe(1);
+  ui.render(view(base));
+  expect(overlay()?.textContent).toContain("Connected");
+});
+
+test("time in the background cannot open a reconnect dialog on return", () => {
+  let now = 1_000;
+  nowSpy = spyOn(Date, "now").mockImplementation(() => now);
+  ui = mount();
+  pageVisibility("visible", false);
+  ui.render(view(base));
+  pageVisibility("hidden");
+  const offline = { ...base, status: "offline" as const };
+  ui.render(view(offline));
+  now += 120_000;
+  // Browsers can render a late timer before delivering visibilitychange.
+  pageVisibility("visible", false);
+  ui.render(view(offline));
+  expect(overlay()).toBeNull();
+  pageVisibility("visible");
+  now += 5_000;
+  ui.render(view(offline));
+  expect(overlay()).toBeNull();
+  ui.render(view(base));
+  // A silent recovery must not flash a new Connected card.
+  expect(overlay()).toBeNull();
+});
+
+test("a restored page gets a fresh reconnect grace period", () => {
+  let now = 1_000;
+  nowSpy = spyOn(Date, "now").mockImplementation(() => now);
+  ui = mount();
+  pageVisibility("visible", false);
+  const offline = { ...base, status: "offline" as const };
+  ui.render(view(offline));
+  now += 120_000;
+  const event = new Event("pageshow");
+  Object.defineProperty(event, "persisted", { value: true });
+  ui.flush(() => window.dispatchEvent(event));
+  expect(overlay()).toBeNull();
+});
+
+test("a missed visibility event still restarts the foreground clock", async () => {
+  let now = 1_000;
+  nowSpy = spyOn(Date, "now").mockImplementation(() => now);
+  ui = mount();
+  pageVisibility("visible", false);
+  const offline = { ...base, status: "offline" as const };
+  ui.render(view(offline));
+  now += 60_000;
+  ui.render(view(offline));
+  expect(overlay()?.getAttribute("data-connection-overlay")).toBe("pill");
+  pageVisibility("hidden");
+  expect(overlay()).toBeNull();
+  now += 120_000;
+  pageVisibility("visible", false);
+  await ui.flushAsync(() => sleep(1_100));
+  expect(overlay()).toBeNull();
+  now += 59_999;
+  ui.render(view(offline));
+  expect(overlay()).toBeNull();
+  now += 1;
+  ui.render(view(offline));
+  expect(overlay()?.getAttribute("data-connection-overlay")).toBe("pill");
+});
+
+test("each disconnect gets its own quiet wait", () => {
+  let now = 1_000;
+  nowSpy = spyOn(Date, "now").mockImplementation(() => now);
+  ui = mount();
+  const offline = { ...base, status: "offline" as const };
+  ui.render(view(offline));
+  now += 59_000;
+  ui.render(view(base));
+  ui.render(view(offline));
+  now += 59_000;
+  ui.render(view(offline));
   expect(overlay()).toBeNull();
 });
 
