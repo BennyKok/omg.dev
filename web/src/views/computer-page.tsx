@@ -43,6 +43,7 @@ import {
   type DeskPoint,
   type Size,
 } from "@/lib/computer-camera";
+import { ComputerVoxlScreen } from "@/components/computer-voxl-screen";
 
 interface DepReport {
   ok: boolean;
@@ -59,6 +60,8 @@ interface ComputerStatus {
   height: number;
   startedAt: number | null;
   deps: DepReport;
+  /** "voxl" when the box opted in to the faster stream (OMG_COMPUTER_STREAM). */
+  stream?: "vnc" | "voxl";
 }
 
 type Phase = "idle" | "starting" | "connecting" | "live" | "stopping";
@@ -212,9 +215,12 @@ export function ComputerPage({
 
   // Connect once the desktop is up and this view is on screen. A connection
   // another view (or this one, a moment ago) left open is reused as is.
+  // The full page uses voxl instead when the box opted in; the inline view
+  // stays on noVNC.
+  const voxl = !inline && status?.stream === "voxl";
   useEffect(() => {
-    if (active && status?.running) void computerConnection.connect();
-  }, [active, status?.running]);
+    if (active && status?.running && !voxl) void computerConnection.connect();
+  }, [active, status?.running, voxl]);
 
   // In a transcript the wheel belongs to the chat until you click into the
   // screen. noVNC takes every wheel event on its canvas, so without this the
@@ -591,9 +597,9 @@ export function ComputerPage({
       <div
         ref={viewRef}
         className={
-          cameraOn
+          (cameraOn
             ? "absolute inset-x-0 bottom-0 top-[calc(env(safe-area-inset-top)+3.25rem)] overflow-hidden"
-            : "absolute inset-0"
+            : "absolute inset-0") + (voxl ? " hidden" : "")
         }
       >
         <div
@@ -604,6 +610,7 @@ export function ComputerPage({
           }
         />
       </div>
+      {voxl && running ? <ComputerVoxlScreen active={active} viewOnly={viewOnly} /> : null}
 
       {/* Trackpad surface. Mounted only while controlling AND on a finger, so a
           mouse keeps absolute pointing and reaches noVNC's own handlers
@@ -622,7 +629,7 @@ export function ComputerPage({
             Tap to use the Computer
           </span>
         </button>
-      ) : running && trackpad ? (
+      ) : running && trackpad && !voxl ? (
         // Also while only watching: then one finger looks around and a pinch
         // zooms, and nothing reaches the desktop.
         <div
@@ -719,8 +726,9 @@ export function ComputerPage({
             </Button>
             {/* Keyboard is visible whether or not you have taken control, and
                 takes control itself when used. Hiding it until you are already
-                controlling made it undiscoverable. */}
-            <>
+                controlling made it undiscoverable. The noVNC-only controls
+                are hidden on the voxl stream, which has its own. */}
+            {voxl ? null : <>
                 <Button
                   variant="secondary"
                   size="icon-sm"
@@ -731,7 +739,6 @@ export function ComputerPage({
                 >
                   <Keyboard className="size-3.5" />
                 </Button>
-            </>
             <Button
               variant="secondary"
               size="icon-sm"
@@ -765,6 +772,7 @@ export function ComputerPage({
             >
               <RotateCcw className="size-3.5" />
             </Button>
+            </>}
             {onExpand ? (
               <Button
                 variant="secondary"
@@ -804,7 +812,7 @@ export function ComputerPage({
       {/* Connecting covers a real gap: the desktop can be up while the RFB
           handshake is still running, so without this the page is just black
           and reads as broken. */}
-      {running && phase !== "live" && !error ? (
+      {running && phase !== "live" && !error && !voxl ? (
         <div className="pointer-events-none absolute inset-0 z-[5] flex items-center justify-center">
           <div className="flex items-center gap-2 rounded-full bg-card/90 px-4 py-2 text-sm shadow-lg backdrop-blur">
             <Loader2 className="size-4 animate-spin" />
