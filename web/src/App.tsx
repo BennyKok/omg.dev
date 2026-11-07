@@ -8,10 +8,8 @@ import { AGENT_DEFAULT_MODELS as AGENT_DEFAULT_MODEL } from "../../src/agent-def
 import { browserTranscription, selectTranscriptionTake, type TranscriptionTake } from "./lib/browser-transcription";
 import { BrowserTranscriptionSettings, useBrowserTranscription } from "./components/browser-transcription-settings";
 import { replayCloudTranscription } from "./lib/transcription-cloud-replay";
-import { MODEL_USAGE_GROUPS } from "../../packages/protocol/src/model-pricing";
-import { useModelPrices, usePrefetchModelPrices, modelUsageLevel } from "./lib/use-model-prices";
 import { useCustomModelStatus } from "./lib/use-custom-model-status";
-import { OMG_BUILD_MODEL, OMG_MODELS, OMG_PRICE_BASELINE_MODEL, isOmgLevelModel } from "../../src/omg-models";
+import { OMG_BUILD_MODEL, OMG_MODELS, isOmgLevelModel } from "../../src/omg-models";
 import { modelLabProvider, modelListHasRoutes, omgModelLabel, omgModelSearchText, parseOmgModel, parseRoutedModel, setServerModelLabels } from "../../packages/protocol/src/omg-model-display";
 import { ModelProviderIcon, modelProviderIconKey } from "./lib/model-provider-icons";
 import { setupOutcome, type SetupResultInfo, type SetupWatchAgent } from "../../packages/protocol/src/coding-agent-setup-outcome";
@@ -19,7 +17,7 @@ import { useRuntimeLifecycle } from "./lib/runtime-lifecycle";
 import { useComputerResumeMetrics } from "./lib/use-computer-resume-metrics";
 import { LiveHeaderContext } from "./components/live-header-context";
 import { MobileProjectFolders } from "./components/mobile-project-folders";
-import { AppHeaderCard, AppNoOpenSessions, buildAppItems, CreateBackdrop, CreateHome, LocalProjectCard, ScopeCrumb, Spinner, sessionInAppScope, useCloudApps, useScopedApp } from "./components/apps-home";
+import { buildLocalProjects, CreateBackdrop, CreateHome, LocalProjectCard, ScopeCrumb, Spinner } from "./components/apps-home";
 import { CreateComposerFrame } from "./components/create-composer-frame";
 import { ProjectFolderMenu } from "./components/project-folder-menu";
 import { SessionReparentProvider, SessionReparentTarget, useSessionDragMenuGuard } from "./components/session-reparent";
@@ -38,7 +36,8 @@ import {
 import { ComposerPickerFooter } from "./components/composer-picker-footer";
 import { FastModeSettingsSection } from "./components/fast-mode-settings-section";
 import { SnapshotWorkspacesSettingsSection } from "./components/snapshot-workspaces-settings-section";
-import { activeMachine } from "./lib/machines";
+/** The only machine a local install shows: the box that served this page. */
+const LOCAL_MACHINE = { id: "local", name: "This computer" } as const;
 import { useHeaderProfile } from "./lib/header-profile";
 import { RuntimeAvailabilityContext, useRuntimeAvailability, shouldReloadRuntime, composerSendMode } from "./lib/runtime-availability";
 import { RuntimeRecovery, RuntimeEmptyState } from "./components/runtime-recovery";
@@ -371,7 +370,6 @@ import { PresenceDock } from "./components/presence-dock";
 import { CreateTutorials } from "./components/create-tutorials";
 import { FindingToastCard } from "./components/finding-toast-card";
 import { trackHostToastClear } from "./lib/host-toast-clear";
-import { OmgLevelMenu, showOmgLevelMenu } from "./components/omg-level-menu";
 import { SystemMessageLine } from "./components/system-message-line";
 import { classifyUserTurn } from "./lib/system-message";
 import { canDriveSession } from "./lib/session-runtime";
@@ -515,7 +513,6 @@ import { toast } from "@/lib/notify";
 import { BrowserLoginCard } from "@/components/browser-login-card";
 import { ComputerChatEmbed, isComputerScreenCall } from "@/components/computer-chat-embed";
 import { isBrowserLoginCall } from "../../packages/protocol/src/browser-login";
-import { ProjectPreviewCard } from "@/components/project-preview-card";
 import { haptic } from "@/lib/haptics";
 import { HapticTap } from "@/components/haptic-tap";
 import { feedback } from "@/lib/feedback";
@@ -613,7 +610,6 @@ import {
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { useAppDialog } from "@/components/ui/app-dialog";
-import { SessionAppChip, sessionAppRepo } from "@/components/session-app-chip";
 import { MoveSessionDialog } from "@/components/move-session-dialog";
 import { claimShortcutScope } from "@/lib/shortcut-scope";
 // Code-split: the terminal pulls in ghostty-web's ~400KB WASM, so only load it
@@ -724,8 +720,6 @@ import {
   CustomInstructionsRow,
 } from "./views/custom-instructions-page";
 import { RemoteAccessSettingsSection } from "./components/remote-access-settings";
-import { CloudAccountSettingsSection } from "./components/cloud-account-settings";
-import { IosTestingSettingsSection } from "./components/ios-testing-settings";
 import { MachineSwitcher } from "./components/machine-switcher";
 import { ConnectionOverlay } from "./components/connection-overlay";
 import { ConnectorsRow } from "./views/connectors-row";
@@ -1002,7 +996,6 @@ type Repo = {
   cwd: string;
   project?: string;
   custom?: boolean;
-  deploy?: { slug: string; url: string; projectId?: string; name?: string };
 };
 
 // Auto agents: a streamlined agent is JUST a prompt + a schedule. It emits
@@ -2290,16 +2283,6 @@ function putSessionTitle(sid: string, title: string) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ title }),
   });
-}
-
-// Ask the server to re-run the automatic title for an existing session. The
-// server persists the result as a title override, so this wins over a managed
-// registry title the same way a human rename does.
-function postGenerateSessionTitle(sid: string) {
-  return api<{ ok?: boolean; title?: string }>(
-    `/api/sessions/${encodeURIComponent(sid)}/title/generate`,
-    { method: "POST" },
-  );
 }
 
 type RenameSession = (sid: string, title: string) => Promise<void>;
@@ -6390,7 +6373,7 @@ export function App() {
   // A host that supplies its own machine list gets the switcher too.
   const { machines: hostMachines } = useEmbeddedHostOptions();
   const headerProfile = useHeaderProfile(
-    hostMachines?.activeId ?? activeMachine().id,
+    hostMachines?.activeId ?? LOCAL_MACHINE.id,
     identity,
     users.find((user) => user.email === identity),
   );
@@ -6518,9 +6501,7 @@ export function App() {
   const [sideNavOpen] = useState(createSideNavOpenStore);
   const setNavOpen = sideNavOpen.set;
   const closeNav = useCallback(() => sideNavOpen.set(false), [sideNavOpen]);
-  // Read straight from the stored choice rather than through MachineSwitcher,
-  // which owns the list. The button only needs the current name for its label.
-  const navMachineName = activeMachine().name;
+  const navMachineName = LOCAL_MACHINE.name;
   const didDefaultFilter = useRef(false);
   const hostedFilterAppliedRef = useRef<number | null>(null);
   const hostedSurfaceRef = useRef(hostedSurface);
@@ -7548,25 +7529,14 @@ export function App() {
     if (resolved !== projectFilter) setProjectFilter(resolved);
   }, [loading, projectFilter, projectOptions]);
 
-  // A folder scope that links to an app also holds the session that built the
-  // app, whatever folder that session ran in (the Cloud app list names it).
-  // An app is a folder linked to a published app (buildAppItems).
-  const hasApps = repos.some((repo) => repo.deploy);
-  const scopeCloudApps = useCloudApps(hasApps);
-  // The last app went away while its list was open: back to Create.
+  // The last project went away while its list was open: back to Create.
   useEffect(() => {
-    if (!hasApps && !repos.length && homeView === "apps") setHomeView(null);
-  }, [hasApps, repos.length, homeView]);
-  const scopeBuiltBy = useMemo(() => {
-    const repo = repos.find((candidate) => candidate.deploy && repoProject(candidate) === projectFilter);
-    return repo?.deploy ? scopeCloudApps.get(repo.deploy.slug)?.builtBySessionId ?? null : null;
-  }, [repos, projectFilter, scopeCloudApps]);
+    if (!repos.length && homeView === "apps") setHomeView(null);
+  }, [repos.length, homeView]);
   const liveSessions = useMemo(() => {
     if (projectFilter === "__all") return userScopedSessions;
-    return userScopedSessions.filter((session) =>
-      sessionMatchesProjectFilter(session, projectFilter) || sessionInAppScope(session, projectFilter, scopeBuiltBy),
-    );
-  }, [userScopedSessions, projectFilter, scopeBuiltBy]);
+    return userScopedSessions.filter((session) => sessionMatchesProjectFilter(session, projectFilter));
+  }, [userScopedSessions, projectFilter]);
   // The Chat roster adds pinned families from every project to the scoped
   // list. The Board, the busy counts and the folder counts stay scoped.
   const rosterSessions = useMemo(
@@ -9418,11 +9388,8 @@ export function App() {
     );
   }
 
-  // The composer's hint names the app when the scope is a published app's folder.
-  const scopedAppRepo = repos.find((repo) => repo.deploy && repoProject(repo) === projectFilter);
-  const scopedAppName = isMobile && !homeView && scopedAppRepo ? scopedAppRepo.deploy?.name || projectFilter : null;
   // A folder opened from Apps: the hint names it, so a new chat's place is clear.
-  const scopedFolderRepo = scopedAppRepo ? undefined : repos.find((repo) => repoProject(repo) === projectFilter);
+  const scopedFolderRepo = repos.find((repo) => repoProject(repo) === projectFilter);
   const scopedFolderName =
     isMobile && !homeView && scopedFolderRepo ? scopedFolderRepo.name || projectFilter.split("/").pop() || projectFilter : null;
   // Apps hides the composer; an app page shows it, ready for the next change.
@@ -9968,7 +9935,7 @@ export function App() {
             },
             // Once there is an app or a project on this Computer: before that
             // the page would be empty, and Create is where the first one starts.
-            ...(hasApps || repos.length
+            ...(repos.length
               ? [{
                   id: "apps",
                   label: "Apps",
@@ -10500,12 +10467,10 @@ export function App() {
               focusNonce={composerFocusNonce}
               findSessions={findSessions}
               placeholder={
-                scopedAppName
-                  ? `Change something in ${scopedAppName}…`
-                  : scopedFolderName
+                scopedFolderName
                     ? `What should we work on in ${scopedFolderName}?`
                     : createComposer
-                      ? "Describe a game or an app…"
+                      ? "What do you want to make?"
                       : undefined
               }
               agentRequest={agentRequest}
@@ -12559,16 +12524,11 @@ function LiveView({
     [onOpenSessionPage],
   );
 
-  // The Apps view and the scoped app's card (components/apps-home.tsx).
-  const cloudApps = useCloudApps(appsView || createView);
-  // Memoized by React Compiler on its inputs.
-  const appItems = appsView
-    ? buildAppItems(repos, allSessions ?? sessions, cloudApps, repoProject)
-    : { all: [], games: [], apps: [], local: [] };
-  const scopedApp = useScopedApp(projectFilter, repos, allSessions ?? sessions, repoProject);
+  // The Apps view (components/apps-home.tsx). Memoized by React Compiler.
+  const localProjects = appsView ? buildLocalProjects(repos, allSessions ?? sessions, repoProject) : [];
   // A project on this Computer opened from the Apps page ("On this computer").
   const scopedLocalName =
-    isMobile && !scopedApp && !createView && !appsView && projectFilter !== "__all" && projectFilter !== NO_PROJECT_FILTER
+    isMobile && !createView && !appsView && projectFilter !== "__all" && projectFilter !== NO_PROJECT_FILTER
       ? repos.find((repo) => repoProject(repo) === projectFilter)?.name || projectFilter.split("/").pop() || projectFilter
       : null;
   // Settings > View > "Session details in lists". Off (the default) is compact.
@@ -12911,23 +12871,20 @@ function LiveView({
         ) : appsView ? (
           <Suspense fallback={null}>
           <AppsListPage
-            apps={appItems.all}
-            local={appItems.local}
+            local={localProjects}
             onOpenSession={openSessionPage}
-            onOpenApp={(item: { project: string }) => onOpenApp?.(item.project)}
             onOpenProject={(project: string) => onOpenApp?.(project)}
             onImportFolder={onImportFolder}
             onImportGitHub={onImportGitHub}
           />
           </Suspense>
         ) : <>
-        {(scopedApp || scopedLocalName) && onShowApps ? (
-          <ScopeCrumb name={scopedApp?.name ?? scopedLocalName ?? ""} onBack={onShowApps} />
+        {scopedLocalName && onShowApps ? (
+          <ScopeCrumb name={scopedLocalName} onBack={onShowApps} />
         ) : null}
-        {scopedApp ? <AppHeaderCard item={scopedApp} onCopied={() => toast.success("Link copied")} /> : null}
         {scopedLocalName ? <LocalProjectCard name={scopedLocalName} onFindSessions={() => onFindSessions?.("")} /> : null}
         {/* Threads are people chats, not work on this app. */}
-        {scopedApp || !showThreads ? null : <ThreadRailGroup threads={threads} activeId={openThreadId} collapsed={false} onOpen={(id) => onOpenThread?.(id)} />}
+        {!showThreads ? null : <ThreadRailGroup threads={threads} activeId={openThreadId} collapsed={false} onOpen={(id) => onOpenThread?.(id)} />}
         <SessionGroups
           groups={projectGroups}
           pinnedNodes={pinnedNodes}
@@ -12937,14 +12894,12 @@ function LiveView({
           renderItem={renderMobileItem}
           card={listStyle === "compact"}
           // The card and the crumb above already name the app or folder.
-          headerless={!!(scopedApp || scopedLocalName)}
+          headerless={!!scopedLocalName}
         />
         {/* Threads alone (or a project chip with nothing in it) used to leave
             the rest of the phone blank above the composer. */}
         {!pinned.length && !botSessions.length && !working.length && !idle.length ? (
-          scopedApp ? (
-            <AppNoOpenSessions name={scopedApp.name} onFindSessions={() => onFindSessions?.(scopedApp.name)} />
-          ) : scopedLocalName ? (
+          scopedLocalName ? (
             // The card above offers the earlier sessions.
             <p className="px-6 py-8 text-center text-[13.5px] text-muted-foreground">
               No session is open in {scopedLocalName}. Type below to start one.
@@ -14608,7 +14563,6 @@ function RailStage({
                   }}
                   onAddFolder={() => openFolderBrowser(false)}
                   onNewFolder={() => openFolderBrowser(true)}
-                  liveProjects={new Set(repos.filter((repo) => repo.deploy).map(repoProject))}
                 />
               ) : null}
             </div>
@@ -14663,10 +14617,9 @@ function RailStage({
             that fills it never pays for it and one that doesn't never sees it.
             The collapsed flag rides along so the host can stack its controls
             vertically in the 56px rail instead of overflowing it. */}
-        {/* Machine switcher, in the same last-row spot the hosted app docks
-            its navigation into. Empty until the box is signed in to omg Cloud
-            with a machine it can reach, so a plain install sees no change.
-            A hosted surface never shows it: the host owns machine selection. */}
+        {/* Machine switcher, in the same last-row spot a host page docks its
+            navigation into. Only a host page supplies machines; a local
+            install runs on this computer only and shows nothing here. */}
         {autoRailPill}
         </div>
         {sideNav && !railCollapsed ? (
@@ -18099,7 +18052,6 @@ function SessionChatBody({
   // keystroke re-renders only what reads the draft.
   const sendLatest = useLatestCallback(sendMessage);
   const typingIndicator = <HumanTypingIndicator participants={typingParticipants} />;
-  const previewCard = <ProjectPreviewCard sessionId={sid} user={session.assignedUser} agentBusy={chatBusy} />;
   const heldDock = sid ? (
     <HeldQueueDock items={heldCards}>
       {(items) => (
@@ -18229,7 +18181,6 @@ function SessionChatBody({
               rather than in ChatStream's TypingIndicator slot so the two can
               never be mistaken for each other. */}
           {typingIndicator}
-          {previewCard}
           {files.fileInput}
 
           {/* Held sends rise out of the bar as a narrow island docked to its
@@ -18630,45 +18581,6 @@ function useSessionActions({
   };
 }
 
-/**
- * Shared "Rename with AI" action for the session card and the session sheet.
- *
- * The server generates the title AND persists it as a title override. Pushing
- * the result back through `onRenameSession` re-uses the optimistic update and
- * the per-session write queue, so the new name shows immediately and cannot be
- * reordered behind a slower manual rename.
- */
-function useRegenerateSessionTitle(
-  sid: string | null | undefined,
-  onRenameSession: RenameSession,
-  onError: (error: string | null) => void,
-) {
-  // "off" hides the row rather than letting it fail: the server answers 403
-  // for that mode, and an action whose only outcome is an error toast is worse
-  // than no action. "manual" keeps it, because that mode exists precisely to
-  // make this the only way a title is generated.
-  const { autoSessionTitles } = useContext(ViewPrefsContext);
-  const [pending, setPending] = useState(false);
-  const run = useCallback(async () => {
-    if (!sid || pending) return;
-    setPending(true);
-    onError(null);
-    try {
-      const result = await postGenerateSessionTitle(sid);
-      const title = result?.title?.trim();
-      if (!title) throw new Error("no title was generated");
-      await onRenameSession(sid, title);
-      toast.success("Session renamed");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      onError(message);
-      toast.error(`Could not rename: ${message}`);
-    } finally {
-      setPending(false);
-    }
-  }, [sid, pending, onRenameSession, onError]);
-  return autoSessionTitles === "off" ? null : run;
-}
 
 function SessionActionsMenu({
   session,
@@ -18678,7 +18590,6 @@ function SessionActionsMenu({
   onRemove,
   onError,
   onRename,
-  onRegenerateTitle,
   triggerClassName,
   pinned,
   onTogglePin,
@@ -18690,7 +18601,6 @@ function SessionActionsMenu({
   onRemove: (sid: string) => void;
   onError: (error: string | null) => void;
   onRename?: () => void;
-  onRegenerateTitle?: () => void;
   triggerClassName?: string;
   pinned?: boolean;
   onTogglePin?: (sid: string) => void;
@@ -18854,12 +18764,6 @@ function SessionActionsMenu({
             <DropdownMenuItem disabled={!sid} onClick={() => onRename()}>
               <Pencil className="size-4" />
               Rename
-            </DropdownMenuItem>
-          ) : null}
-          {onRegenerateTitle ? (
-            <DropdownMenuItem disabled={!sid} onClick={() => onRegenerateTitle()}>
-              <Sparkles className="size-4" />
-              Rename with AI
             </DropdownMenuItem>
           ) : null}
           {canDriveSession(session) && !busy && !session.botId ? (
@@ -19323,7 +19227,6 @@ function SessionTitleSheet({
     setRenamingInline(false);
   }, [sid]);
 
-  const regenerateTitle = useRegenerateSessionTitle(sid, onRenameSession, setError);
 
   const commitInlineRename = useCallback(
     async (next: string) => {
@@ -19689,9 +19592,6 @@ function SessionTitleSheet({
             onError={setError}
             onRename={
               session.shippedReview ? undefined : () => setRenamingInline(true)
-            }
-            onRegenerateTitle={
-              session.shippedReview ? undefined : (regenerateTitle ?? undefined)
             }
             triggerClassName="size-9"
             pinned={pinned}
@@ -20093,26 +19993,6 @@ const SessionCard = memo(function SessionCard({
   const headerBotId = renderedBotId(session, stageBotId);
   const headerBot = headerBotId ? botDirectory.get(headerBotId) ?? null : null;
   const editBot = useContext(EditBotContext);
-  const appRepo = repos ? sessionAppRepo(session, repos) : undefined;
-  const unlinkApp = async (cwd: string, slug: string) => {
-    const confirmed = await appDialog.confirm({
-      title: `Unlink ${slug}?`,
-      description: "The live app stays as it is. The next deploy from this project creates a new app.",
-      confirmLabel: "Unlink",
-      destructive: true,
-    });
-    if (!confirmed) return;
-    const response = await omgFetch("/api/cloud/apps/unlink", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cwd }),
-    }).catch(() => null);
-    if (!response?.ok) {
-      toast.error("Could not unlink the app");
-      return;
-    }
-    await onRefresh();
-  };
 
   const sid = session.sessionId;
   // An ask-user question raised by this session is the one state on the live
@@ -20128,7 +20008,6 @@ const SessionCard = memo(function SessionCard({
     setRenamingInline(true);
   }, [sid]);
 
-  const regenerateTitle = useRegenerateSessionTitle(sid, onRenameSession, setError);
 
   const commitInlineRename = useCallback(
     async (next: string) => {
@@ -20540,13 +20419,6 @@ const onTouchStart = (e: ReactTouchEvent) => {
             The harness it happens to run on is a session detail, and picking a
             model mid-conversation is a session action — both belong to the
             session view of this same session, not to the chat. */}
-        {!collapsedView && !headerBot && appRepo?.deploy ? (
-          <SessionAppChip
-            link={appRepo.deploy}
-            onCopied={() => toast.success("Link copied")}
-            onUnlink={() => void unlinkApp(appRepo.cwd, appRepo.deploy!.slug)}
-          />
-        ) : null}
         {!collapsedView && !headerBot && (
           (session.agent === "claude" || session.agent === "opencode" || session.agent === "omg") &&
           (session.tmuxTarget || session.agent === "opencode" || session.agent === "omg") &&
@@ -20627,9 +20499,6 @@ const onTouchStart = (e: ReactTouchEvent) => {
             onRemove={onRemove}
             onError={setError}
             onRename={session.shippedReview ? undefined : startRename}
-            onRegenerateTitle={
-              session.shippedReview ? undefined : (regenerateTitle ?? undefined)
-            }
             pinned={pinned}
             onTogglePin={session.shippedReview ? undefined : onTogglePin}
           />
@@ -24620,7 +24489,6 @@ function NewSessionDialog({
   // prices with the composer so that list opens already grouped. Any agent
   // counts, because switching agents inside the open picker shows its list.
   const catalogModels = useMemo(() => Object.values(catalog.models).flat(), [catalog.models]);
-  usePrefetchModelPrices(catalogModels);
   const thinkingLevels = useAgentThinkingLevels(agent, model);
   // Hidden by the box (or the viewer's role) means off. A saved "on" in
   // localStorage must not launch fast mode through a pill nobody can see.
@@ -25084,7 +24952,6 @@ function NewSessionDialog({
       projects={[NO_PROJECT_FILTER, ...new Set(repos.map(repoProject))]}
       labelFor={(value) => projectFilterLabel(value, shortProject)}
       counts={projectCounts}
-      liveProjects={new Set(repos.filter((repo) => repo.deploy).map(repoProject))}
       onChange={(next) => {
         if (next === "__all" || next === NO_PROJECT_FILTER) {
           setFolderPicked(false);
@@ -25116,13 +24983,6 @@ function NewSessionDialog({
 
   // The composer carries no Stash button. Stash and recent sessions open with
   // the upward swipe on a phone and from a project's "find sessions" card.
-  // The omg agent on a level (Auto, Max, Balanced, Fast) shows the level menu
-  // here, so a level change is one tap. A specific model chosen in the full
-  // picker hides it.
-  const levelMenu =
-    agent === "omg" && view.showComposerModels && showOmgLevelMenu(model, models) ? (
-      <OmgLevelMenu value={model} onChange={chooseModel} />
-    ) : null;
 
   const pickerThinking =
     agentSupportsThinking(agent) && thinkingLevels.length > 0
@@ -25158,7 +25018,6 @@ function NewSessionDialog({
           onModelChange={chooseModel}
           showModels={view.showComposerModels}
           showAgents={view.showComposerAgents}
-          hideModelLabel={!!levelMenu}
           // The stage keeps Thinking and Fast inside the picker. With neither
           // available there is no footer, so no divider under the list.
           footer={variant === "stage" && (pickerThinking || pickerFast) ? (
@@ -25598,7 +25457,6 @@ function NewSessionDialog({
             {attachButton}
             {/* The project rail under the mobile header chooses the folder,
                 as on iOS, so the composer carries no folder button. */}
-            {inlineExpanded ? levelMenu : null}
             {/* Desktop home uses the same folder menu as the session rail. */}
             {variant === "stage" ? folderChip : null}
             {inlineExpanded ? <span className="flex-1" /> : null}
@@ -25644,7 +25502,6 @@ function NewSessionDialog({
             </span>
             {/* Right cluster: level + photo + send, stacked together. */}
             <div className="flex shrink-0 items-center gap-2">
-              {levelMenu}
               {attachButton}
               {startButton}
             </div>
@@ -26780,7 +26637,6 @@ function ModelPicker({
   onMobileLayerOpenChange?: (open: boolean) => void;
 }) {
   // Prices load with the pill, so the list opens already grouped.
-  usePrefetchModelPrices(models);
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
   const [mobileMounted, setMobileMounted] = useState(false);
@@ -26966,8 +26822,6 @@ export function routedModelGroups(
   return groups;
 }
 
-const PRICE_WAIT_MS = 1500;
-
 // Filter box + option list shared by the model pill and the combined
 // agent/model pill. Owns the query, so closing the popover (which unmounts
 // this) is what clears it. Exported for the render test.
@@ -26998,29 +26852,10 @@ export function ModelOptionList({
   const [query, setQuery] = useState("");
   // The build model runs an Auto new-app build on its own; nobody picks it.
   const models = useMemo(() => allModels.filter((model) => model !== OMG_BUILD_MODEL), [allModels]);
-  const hasManagedModels = models.some((model) => model.startsWith("omg/"));
-  const { prices, loading: pricesLoading } = useModelPrices(hasManagedModels);
-  // Placeholder rows hold the list's shape while the prices load, so it draws
-  // grouped in one step. A slow price service must not block a pick, so after
-  // PRICE_WAIT_MS the plain list shows and regroups when the prices land.
-  const [priceWaitOver, setPriceWaitOver] = useState(false);
-  useEffect(() => {
-    if (!pricesLoading) return;
-    const timer = setTimeout(() => setPriceWaitOver(true), PRICE_WAIT_MS);
-    return () => clearTimeout(timer);
-  }, [pricesLoading]);
-  const pricesPending = hasManagedModels && pricesLoading && !priceWaitOver;
-  const { onPlanLimit } = useEmbeddedHostOptions();
   const customStatus = useCustomModelStatus(models.some((model) => model.startsWith("custom-")));
   const chooseModel = (item: string) => {
     if (customStatus[item]?.online === false && item !== value) {
       toast.error(`${omgModelLabel(item)} is offline. Start its server, then pick it again.`);
-      return;
-    }
-    if (prices[item]?.available === false) {
-      const message = `Upgrade your plan to use ${omgModelLabel(item)}.`;
-      if (onPlanLimit) onPlanLimit({ message, action: "select-model" });
-      else toast.error(message);
       return;
     }
     onChoose(item);
@@ -27044,12 +26879,6 @@ export function ModelOptionList({
     ? []
     : routeGroups
     ? routeGroups
-    : hasManagedModels && !pricesLoading
-    ? MODEL_USAGE_GROUPS.map(({ level, label }) => ({
-        level,
-        label,
-        items: restItems.filter((item) => (modelUsageLevel(prices[item], prices[OMG_PRICE_BASELINE_MODEL])?.bars ?? 0) === level),
-      })).filter((group) => group.items.length > 0)
     : [{ level: -1, label: "", items: restItems }];
   const groups = levelItems.length
     ? [{ level: 100, label: "", items: levelItems }, ...restGroups.map((group) => ({ ...group, label: group.label || "All models" }))]
@@ -27059,7 +26888,6 @@ export function ModelOptionList({
   const anyMarked = models.some((item) => !!modelMarkProvider(item));
   const renderModel = (item: string) => {
     const selected = value === item;
-    const locked = prices[item]?.available === false;
     // A custom model whose server did not answer (see useCustomModelStatus).
     const offline = customStatus[item]?.online === false;
     // A hosted omg id, or a routed id such as OpenCode's opencode-go/glm-5.3,
@@ -27068,22 +26896,17 @@ export function ModelOptionList({
     const hosted = parseOmgModel(item);
     const routed = hosted ? null : parseRoutedModel(item);
     const markProvider = modelMarkProvider(item);
-    const price = prices[item];
-    const usage = modelUsageLevel(price, prices[OMG_PRICE_BASELINE_MODEL]);
-    const priceHint = usage
-      ? usage.bars === 1 ? "" : "Uses credits faster. This model can reach your credit limit sooner. Usage varies by task."
-      : "Credit usage unavailable";
     return (
       <button
         key={item}
         type="button"
         onClick={() => chooseModel(item)}
-        aria-disabled={locked || (offline && !selected) || undefined}
+        aria-disabled={(offline && !selected) || undefined}
         title={
           offline
             ? `Offline: the server for ${item} did not answer.`
             : hosted
-            ? `${hosted.providerLabel} · ${item}${priceHint ? `\n${priceHint}` : ""}`
+            ? `${hosted.providerLabel} · ${item}`
             : routed
               ? `${routed.providerLabel ? `${routed.providerLabel} via ` : ""}${routed.routeLabel} · ${item}`
               : undefined
@@ -27106,14 +26929,13 @@ export function ModelOptionList({
           // they keep no gap for one.
           <span aria-hidden className="size-4 shrink-0" />
         ) : null}
-        <span className={cn("min-w-0 flex-1 truncate", (locked || offline) && "text-muted-foreground")}>{omgModelLabel(item)}</span>
+        <span className={cn("min-w-0 flex-1 truncate", offline && "text-muted-foreground")}>{omgModelLabel(item)}</span>
         {offline ? (
           <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
             <span aria-hidden className="size-1.5 rounded-full bg-muted-foreground/60" />
             Offline
           </span>
         ) : null}
-        {locked ? <Lock className="size-4 shrink-0 text-muted-foreground" aria-label="Upgrade required" /> : null}
         {selected ? <Check className="size-4 shrink-0 text-primary" aria-hidden="true" /> : null}
       </button>
     );
@@ -27150,30 +26972,12 @@ export function ModelOptionList({
           fill ? "min-h-0 flex-1" : large ? "max-h-[52dvh]" : "max-h-72",
         )}
       >
-        {pricesPending && filtered.length ? (
-          // Rows the size of the real ones until the prices arrive, so the
-          // list draws grouped in one step instead of flat and then regrouped.
-          <div aria-label="Loading credit usage" aria-busy="true">
-            {filtered.slice(0, 8).map((item) => (
-              <div key={item} className={cn("flex items-center gap-3 px-3", large ? "h-12" : "h-10")}>
-                <span className="h-3 w-40 max-w-full animate-pulse rounded bg-muted" />
-              </div>
-            ))}
-          </div>
-        ) : filtered.length ? (
+        {filtered.length ? (
           groups.map((group) => (
             <div key={group.level} role={group.label ? "group" : undefined} aria-label={group.label || undefined} className="mb-2 last:mb-0">
               {group.label ? (
                 <div className="flex items-center justify-between gap-2 px-3 pb-1 pt-2 text-[11px] font-medium text-muted-foreground">
-                  <span aria-label={group.level === 0 ? "Credit usage unavailable" : undefined}>{group.label}</span>
-                  {group.level === 2 || group.level === 3 ? (
-                    <svg aria-label={group.level === 2 ? "Uses more credits" : "Uses credits much faster"} viewBox="0 0 20 16" className="h-4 w-5 shrink-0" fill="none">
-                      <path d="M2 12a8 8 0 0 1 16 0" stroke="currentColor" strokeWidth="2" strokeLinecap="round" opacity="0.25" />
-                      <path d={group.level === 2 ? "M2 12a8 8 0 0 1 10.1-7.7" : "M2 12a8 8 0 0 1 16 0"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                      <path d={group.level === 2 ? "M10 12l2-5" : "M10 12l5-2"} stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                      <circle cx="10" cy="12" r="1.5" fill="currentColor" />
-                    </svg>
-                  ) : null}
+                  <span>{group.label}</span>
                 </div>
               ) : null}
               {group.items.map(renderModel)}
@@ -27184,7 +26988,7 @@ export function ModelOptionList({
             No matching models
           </div>
         )}
-        {hasLevels && !allOpen && filtered.length && !pricesPending ? (
+        {hasLevels && !allOpen && filtered.length ? (
           <button
             type="button"
             onClick={() => setShowAllModels(true)}
@@ -27256,7 +27060,6 @@ function AgentModelPickerInner<K extends AgentKind>({
   footer?: ReactNode;
 }) {
   // Prices load with the pill, so the list opens already grouped.
-  usePrefetchModelPrices(models);
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   // Nothing to choose: the pill would open an empty popover.
@@ -31095,10 +30898,6 @@ function SettingsView({
         </div>
       </section>
 
-      <CloudAccountSettingsSection />
-
-      <IosTestingSettingsSection />
-
       <RemoteAccessSettingsSection />
 
       {/* Tool access and agent limits are for people tuning the box. A host
@@ -31533,41 +31332,6 @@ function ViewSettingsSection({
                     className={cn(
                       "px-3 py-1 capitalize transition-colors",
                       settings.composerSendMode === mode
-                        ? "bg-foreground text-background"
-                        : "text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    {mode}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="flex items-center justify-between gap-4 px-4 py-2.5">
-              <div className="min-w-0">
-                <div className="text-sm font-medium">Name sessions with AI</div>
-                <div className="text-xs text-muted-foreground">
-                  {settings.autoSessionTitles === "off"
-                    ? "Sessions keep the name taken from their first prompt. Rename with AI is hidden."
-                    : settings.autoSessionTitles === "manual"
-                      ? "Only when you pick Rename with AI. Nothing is sent while a session starts."
-                      : "A new session is named automatically, and Rename with AI can redo it later."}
-                </div>
-              </div>
-              <div
-                role="radiogroup"
-                aria-label="Name sessions with AI"
-                className="flex shrink-0 overflow-hidden rounded-full border border-border text-xs"
-              >
-                {(["on", "manual", "off"] as const).map((mode) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    role="radio"
-                    aria-checked={settings.autoSessionTitles === mode}
-                    onClick={() => void onChange({ autoSessionTitles: mode })}
-                    className={cn(
-                      "px-3 py-1 capitalize transition-colors",
-                      settings.autoSessionTitles === mode
                         ? "bg-foreground text-background"
                         : "text-muted-foreground hover:text-foreground",
                     )}

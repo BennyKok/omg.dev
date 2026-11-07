@@ -284,7 +284,9 @@ test("the untested catalog is not on the page; a custom server hides under Advan
   expect(ui.text()).toContain("Advanced: add a custom MCP server by URL");
 });
 
-test("a code relayed back from auth.omg.dev is handed to the box", async () => {
+// omg.dev is local software: the auth.omg.dev relay is gone, so a relayed
+// code arriving from the popup is ignored rather than posted to the box.
+test("a code relayed from the retired auth.omg.dev relay is ignored", async () => {
   await customForm();
   expect(popup.location.href).toBe("https://example.com/authorize");
   const posted: unknown[] = [];
@@ -302,7 +304,7 @@ test("a code relayed back from auth.omg.dev is handed to the box", async () => {
     window.dispatchEvent(new window.MessageEvent("message", { source: popup as unknown as Window, data: { omgConnectorOAuth: { code: "c0de", state: "st4te" } } }));
   });
   await ui.flushAsync(() => new Promise((r) => setTimeout(r, 20)));
-  expect(posted).toEqual([{ code: "c0de", state: "st4te" }]);
+  expect(posted).toEqual([]);
 });
 
 async function pasteAddress(address: string) {

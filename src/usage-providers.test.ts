@@ -202,7 +202,6 @@ describe("usage providers", () => {
       "cursor",
       "grok",
       "opencode",
-      "omg",
       "muse",
     ]);
   });
@@ -391,87 +390,9 @@ describe("usage providers", () => {
   });
 });
 
-describe("omg agent usage", () => {
-  test("the omg agent is a usage source on every box", async () => {
-    const { listUsageProviders } = await import("./usage.ts");
-    expect(listUsageProviders().find((ref) => ref.kind === "omg")).toEqual({
-      id: "omg", kind: "omg", label: "omg agent",
-    });
-  });
-
-  test("maps the plan's monthly AI credit to one ring", async () => {
-    const { omgUsageFromBalance } = await import("./usage.ts");
-    const ref = { id: "omg", kind: "omg", label: "omg agent" };
-    const usage = omgUsageFromBalance(ref, {
-      plan: "computer_5",
-      build: { limitUsd: 38, usedUsd: 9.5, remainingUsd: 28.5, resetsAt: 1_800_000_000_000 },
-    });
-    expect(usage).toEqual({
-      ...ref,
-      available: true,
-      plan: "Personal",
-      windows: [{ label: "Monthly · $38", pct: 25, resetsAt: 1_800_000_000_000 }],
-      note: "AI credit: $28.50 of $38 left",
-    });
-  });
-
-  test("the free plan shows its signup credit as one ring", async () => {
-    const { omgUsageFromBalance } = await import("./usage.ts");
-    const ref = { id: "omg", kind: "omg", label: "omg agent" };
-    const usage = omgUsageFromBalance(ref, { plan: "free", balanceUsd: 1.5, build: null });
-    expect(usage).toEqual({
-      ...ref,
-      available: true,
-      plan: "Free",
-      windows: [{ label: "Free credit · $2", pct: 25, resetsAt: null }],
-      note: "AI credit: $1.50 of $2 left. It does not renew; upgrade on omg.dev for a monthly allowance.",
-    });
-  });
-
-  test("a topped-up free balance above the grant reads as a full pool", async () => {
-    const { omgUsageFromBalance } = await import("./usage.ts");
-    const ref = { id: "omg", kind: "omg", label: "omg agent" };
-    const usage = omgUsageFromBalance(ref, { plan: "free", balanceUsd: 5, build: null });
-    expect(usage.available).toBe(true);
-    expect(usage.windows).toEqual([{ label: "Free credit · $5", pct: 0, resetsAt: null }]);
-  });
-
-  test("a spent free balance reads as unavailable, with the way out", async () => {
-    const { omgUsageFromBalance } = await import("./usage.ts");
-    const ref = { id: "omg", kind: "omg", label: "omg agent" };
-    const usage = omgUsageFromBalance(ref, { plan: "free", balanceUsd: 0, build: null });
-    expect(usage.available).toBe(false);
-    expect(usage.plan).toBe("Free");
-    expect(usage.note).toContain("Upgrade on omg.dev");
-  });
-
-  test("a plan without AI credit reads as unavailable, with the way out", async () => {
-    const { omgUsageFromBalance } = await import("./usage.ts");
-    const ref = { id: "omg", kind: "omg", label: "omg agent" };
-    const usage = omgUsageFromBalance(ref, { plan: "free", build: { limitUsd: 0, usedUsd: 0, remainingUsd: 0, resetsAt: null } });
-    expect(usage.available).toBe(false);
-    expect(usage.plan).toBe("Free");
-    expect(usage.note).toContain("Upgrade on omg.dev");
-  });
+// omg.dev is local software: there is no omg credit balance to show.
+test("the omg agent is not a usage source", async () => {
+  const { listUsageProviders } = await import("./usage.ts");
+  expect(listUsageProviders().some((ref) => ref.kind === "omg")).toBe(false);
 });
 
-test("the in-guest router's micro-dollar balance normalizes like the control plane's", async () => {
-  const { normalizeOmgBalance } = await import("./usage.ts");
-  expect(normalizeOmgBalance({
-    plan: "computer_5",
-    build: { window: "month", limitMicros: 38_000_000, usedMicros: 1_498, remainingMicros: 37_998_502, resetsAt: 1_790_812_800_000 },
-  })).toEqual({
-    plan: "computer_5",
-    balanceUsd: 0,
-    build: { limitUsd: 38, usedUsd: 0.001498, remainingUsd: 37.998502, resetsAt: 1_790_812_800_000 },
-  });
-  expect(normalizeOmgBalance({ plan: "computer_5", build: { limitUsd: 38, usedUsd: 1, remainingUsd: 37, resetsAt: null } }).build)
-    .toEqual({ limitUsd: 38, usedUsd: 1, remainingUsd: 37, resetsAt: null });
-  expect(normalizeOmgBalance({ plan: "free" }).build).toBeNull();
-  // The free plan has no window: the signup credit is the bare balance, in
-  // micro-dollars from the in-guest router and dollars from the control plane.
-  expect(normalizeOmgBalance({ plan: "free", balanceMicros: 1_850_000 }))
-    .toEqual({ plan: "free", balanceUsd: 1.85, build: null });
-  expect(normalizeOmgBalance({ plan: "free", balanceUsd: 1.85 }))
-    .toEqual({ plan: "free", balanceUsd: 1.85, build: null });
-});

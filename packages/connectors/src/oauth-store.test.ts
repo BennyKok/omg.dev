@@ -62,38 +62,22 @@ describe("connector oauth store", () => {
   });
 });
 
-describe("platform OAuth client", () => {
-  const ID = "OMG_GOOGLE_CONNECTOR_CLIENT_ID";
-  const SECRET = "OMG_GOOGLE_CONNECTOR_CLIENT_SECRET";
+// omg.dev is local software: only a client the owner saved on this box counts.
+// The retired omg.dev platform client in the environment is ignored.
+describe("OAuth client source", () => {
   afterEach(() => {
-    delete process.env[ID];
-    delete process.env[SECRET];
+    delete process.env.OMG_GOOGLE_CONNECTOR_CLIENT_ID;
+    delete process.env.OMG_GOOGLE_CONNECTOR_CLIENT_SECRET;
   });
 
-  test("a managed Computer's client comes from the environment, and one saved on the box wins", async () => {
+  test("only a client saved on this box is used", async () => {
     const { getOAuthApp, oauthAppSource, saveOAuthApp } = await import("./oauth-store.ts");
+    process.env.OMG_GOOGLE_CONNECTOR_CLIENT_ID = "omg.apps.googleusercontent.com";
+    process.env.OMG_GOOGLE_CONNECTOR_CLIENT_SECRET = "platform-secret";
     expect(getOAuthApp("google")).toBeUndefined();
     expect(oauthAppSource("google")).toBeNull();
-
-    process.env[ID] = "omg.apps.googleusercontent.com";
-    process.env[SECRET] = "platform-secret";
-    expect(getOAuthApp("google")).toMatchObject({ clientId: "omg.apps.googleusercontent.com", clientSecret: "platform-secret" });
-    expect(oauthAppSource("google")).toBe("platform");
-    expect(oauthAppSource("slack")).toBeNull();
-
     saveOAuthApp("google", { clientId: "own.apps.googleusercontent.com", clientSecret: "own" });
     expect(getOAuthApp("google")?.clientId).toBe("own.apps.googleusercontent.com");
     expect(oauthAppSource("google")).toBe("box");
-  });
-
-  test("or from the file the control plane writes into the Computer", async () => {
-    const { platformOAuthApp } = await import("./oauth-apps.ts");
-    const file = join(tmp, "connector-clients.json");
-    expect(platformOAuthApp("google", file)).toBeUndefined();
-    writeFileSync(file, JSON.stringify({ google: { clientId: "file.apps.googleusercontent.com", clientSecret: "file-secret" } }));
-    expect(platformOAuthApp("google", file)).toMatchObject({ clientId: "file.apps.googleusercontent.com", clientSecret: "file-secret" });
-    expect(platformOAuthApp("slack", file)).toBeUndefined();
-    writeFileSync(file, "not json");
-    expect(platformOAuthApp("google", file)).toBeUndefined();
   });
 });

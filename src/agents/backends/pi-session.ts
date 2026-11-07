@@ -9,7 +9,7 @@
 // own file-based config (~/.pi/agent/{auth,models}.json): the API key comes
 // from the sandbox's ANTHROPIC_API_KEY env var (pi resolves that on its own),
 // and ensurePiProviderConfig() below points pi's "anthropic" provider at the
-// sandbox's local LLM proxy (OMG_AI_URL) — there is no interactive
+// local LLM proxy (ANTHROPIC_BASE_URL) — there is no interactive
 // /login step, which is exactly what this backend exists to avoid (unlike
 // "aisdk", which requires one against this proxy).
 //
@@ -140,12 +140,9 @@ const PI_PROXY_MODEL_IDS = ["deepseek/deepseek-v4-flash"];
 // No-op outside a sandbox (neither variable set) — pi keeps talking to the
 // real Anthropic API with whatever real credentials are configured there.
 export function resolvePiProxyBaseUrl(env: NodeJS.ProcessEnv): string | undefined {
-  // OMG_AI_URL is the platform's own endpoint, and the one to prefer: infra is
-  // dropping the vendor-named variables, which belong to the user rather than
-  // to us. An explicit ANTHROPIC_BASE_URL still wins so a developer can aim pi
-  // somewhere by hand. ANTHROPIC_BASE_URL carries the SDK's `/v1` suffix and
-  // OMG_AI_URL does not; pi's models.json wants the bare base, so strip it.
-  const raw = env.ANTHROPIC_BASE_URL?.trim() || env.OMG_AI_URL?.trim();
+  // An explicit ANTHROPIC_BASE_URL lets a developer aim pi somewhere by hand.
+  // It carries the SDK's `/v1` suffix; pi's models.json wants the bare base.
+  const raw = env.ANTHROPIC_BASE_URL?.trim();
   if (!raw) return undefined;
   return raw.replace(/\/v1\/?$/, "").replace(/\/+$/, "") || undefined;
 }

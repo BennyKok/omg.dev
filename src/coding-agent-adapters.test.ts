@@ -151,11 +151,14 @@ describe("coding agent adapter contract", () => {
       const option = MODEL_OPTIONS[agent];
       const item = catalogByKey.get(agent);
       expect(item, agent).toBeDefined();
+      expect(item!.thinkingLevels).toEqual([...(thinkingLevelsForAgent(agent) ?? [])]);
+      // The omg agent runs only the owner's own models (~/.omg/models.json),
+      // so it has none until the owner adds one.
+      if (agent === "omg") continue;
       expect(option.models.length, agent).toBeGreaterThan(0);
       expect(option.defaultModel, agent).toBeTruthy();
       expect(item!.models.length, agent).toBeGreaterThan(0);
       expect(item!.defaultModel, agent).toBeTruthy();
-      expect(item!.thinkingLevels).toEqual([...(thinkingLevelsForAgent(agent) ?? [])]);
     }
   });
 
@@ -420,21 +423,34 @@ describe("coding agent adapter contract", () => {
   });
 });
 
-test("omg accepts its own kind and delegates to the OpenCode launch with the default model", () => {
+test("omg accepts its own kind and, with no custom model, says how to add one", async () => {
   expect(isCodingAgentKind("omg")).toBe(true);
   expect(resolveActiveSessionAgent("omg")).toBe("omg");
   expect(CODING_AGENT_LABELS.omg).toBe("omg agent");
+  // An empty home, so a real ~/.omg/models.json on the test machine is not
+  // read, and a stubbed launcher, so nothing can ever start a real agent.
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const home = mkdtempSync(join(tmpdir(), "omg-adapter-home-"));
+  const savedHome = process.env.HOME;
   const opencode = ACTIVE_CODING_AGENT_PROVIDERS.opencode;
   const original = opencode.launch;
-  let request: Parameters<typeof opencode.launch>[0] | undefined;
-  opencode.launch = (value) => { request = value; return { ok: true }; };
+  let launched = false;
+  opencode.launch = () => { launched = true; return { ok: true }; };
+  process.env.HOME = home;
   try {
-    expect(ACTIVE_CODING_AGENT_PROVIDERS.omg.launch({
+    const result = ACTIVE_CODING_AGENT_PROVIDERS.omg.launch({
       agent: "omg", name: "test", cwd: "/tmp", sessionId: "test-session",
-    })).toEqual({ ok: true });
-    expect(request?.agent).toBe("omg");
-    expect(request?.model).toBe("omg/omg/auto");
-  } finally { opencode.launch = original; }
+    });
+    expect(result.ok).toBe(false);
+    expect(result.ok ? "" : result.error).toContain("~/.omg/models.json");
+    expect(launched).toBe(false);
+  } finally {
+    opencode.launch = original;
+    process.env.HOME = savedHome;
+    rmSync(home, { recursive: true, force: true });
+  }
 });
 
 test("omg rejects models outside its managed provider before launch", () => {

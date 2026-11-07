@@ -14,7 +14,7 @@ import {
   findCustomModel,
   parseCustomModels,
 } from "./custom-models.ts";
-import { listModelCatalog, modelsForAgent, OMG_MODELS } from "./agent-catalog.ts";
+import { listModelCatalog, modelsForAgent } from "./agent-catalog.ts";
 
 let home: string;
 let savedHome: string | undefined;
@@ -71,10 +71,10 @@ test("ids, lookup and modalities come from ~/.omg/models.json", () => {
   expect(customInputModalities("custom-pc/gemma-4-e4b", { home })).toEqual(["text", "image"]);
 });
 
-test("omg picker lists hosted models then custom ones; image support follows the file", () => {
+test("omg picker lists the owner's custom models only; image support follows the file", () => {
   process.env.HOME = home;
   writeModels([PC, { id: "box", baseURL: "http://box/v1", models: [{ id: "coder" }] }]);
-  expect(modelsForAgent("omg")).toEqual([...OMG_MODELS, "custom-pc/gemma-4-e4b", "custom-box/coder"]);
+  expect(modelsForAgent("omg")).toEqual(["custom-pc/gemma-4-e4b", "custom-box/coder"]);
   expect(customInputModalities("custom-pc/gemma-4-e4b", { home })).toEqual(["text", "image"]);
   expect(customInputModalities("custom-box/coder", { home })).toEqual(["text"]);
 });

@@ -21,9 +21,6 @@ import { PATHS, appVersion, installInfo, localServeBaseUrl } from "../config.ts"
 import { hostDisks } from "../host-disks.ts";
 import { desktopRuntimeReadyPayload } from "../desktop-parent.ts";
 import { handleServerAccessRequest } from "../server-access.ts";
-import { iosSetupRoutes } from "../ios-testing/routes.ts";
-import { CloudAccountError, createCloudAccount } from "../cloud-account.ts";
-import { generateSessionTitle, omgChatCompletionsEndpoint } from "../session-auto-title.ts";
 import {
   answerMention,
   appendThreadMessage,
@@ -60,9 +57,6 @@ import { handleSessionMove } from "../session-move.ts";
 import { applyPendingProjectMoves, requestProjectSessionMove } from "../project-session-move.ts";
 import { applyPendingSelfCloses, cancelSelfClose, requestSelfClose } from "../session-self-close.ts";
 import { sessionIsMoving } from "../session-recovery.ts";
-import { regenerateSessionTitle } from "../session-title-regenerate.ts";
-import { hasHostedOmgAiProxy, hasOmgProviderAccess } from "../omg-provider.ts";
-import { createCloudMachineProxy, type CloudProxySocketData } from "../cloud-machine-proxy.ts";
 import {
   importSessionPins,
   visibleSessionPins,
@@ -92,10 +86,8 @@ import { compressedAssetResponse, maybeCompressResponse } from "../http-compress
 import { serveOmgMcpRequest, serveComputerMcpRequest } from "../mcp-http.ts";
 import { resolveMcpCaller } from "../policy/caller.ts";
 import { createBrowserLoginService } from "../computer/login.ts";
-import { createProjectPreviewService, storedProjectPreview } from "../project-previews.ts";
-import { simulatorStreamProvider } from "../simulator-stream.ts";
 import { computerClipboardRequest } from "../computer/clipboard.ts";
-import { createExpoAccountService, installXdgOpenShim, liveExpoAccountDeps } from "../expo-account.ts";
+import { installXdgOpenShim } from "../computer/xdg-open.ts";
 import { importBrowserLogin } from "../computer/browser.ts";
 import {
   configureConnectors,
@@ -139,9 +131,6 @@ import {
   connectorsForMember,
   listConnectorsForAdmin,
   emitConnectorsChanged,
-  appRelayRedirectUrl,
-  APP_RETURN_URL,
-  oauthAppSource,
 } from "@omg-dev/connectors";
 import { enforceRole } from "../policy/mcp-filter.ts";
 import { withConnectorGrants } from "../policy/connector-grants.ts";
@@ -298,7 +287,6 @@ import {
 import { recordHumanTurn } from "../conversation-turns.ts";
 import { startAutoScheduler, setBotRoutineDelivery } from "../auto/scheduler.ts";
 import { handleWakeTick } from "../auto/wake-tick.ts";
-import { pushWakeHooksNow, setWakeHooksBootId } from "../auto/wake-hooks-push.ts";
 import {
   getMetricsHistory,
   readAllPressure,
@@ -445,7 +433,6 @@ import {
   type ManagedSession,
 } from "../managed.ts";
 import { recordSessionExitReason } from "../session-containment-record.ts";
-import { autoBuildSwitch, routeAutoLaunch } from "../auto-build-model.ts";
 import { coldResumeContainment, type ColdResumeContainment, commandFileHarnessIsDead, reconcileCommandFileSessions, relaunchDeadCommandFileHarness, setRecoveryEgressProxy } from "../session-recovery.ts";
 import { resolveResumeModel } from "../resume-model.ts";
 import { PtyBridge, termSessionName } from "../pty.ts";
@@ -615,7 +602,6 @@ import {
   refreshModelCatalog,
   startModelDiscoveryScheduler,
 } from "../model-discovery.ts";
-import { refreshOmgModelCatalog, startOmgModelCatalogRefresh } from "../omg-model-catalog.ts";
 import {
   BOT_SCHEDULE_LIMIT,
   CUSTOM_INSTRUCTIONS_MAX_LENGTH,
@@ -883,14 +869,12 @@ const PORT = Number(process.env.LFG_PORT ?? process.env.PORT ?? 8766);
 /** Ceiling on any single request body. See the Bun.serve options for why. */
 const MAX_REQUEST_BODY_BYTES = 32 * 1024 * 1024;
 
-// The base URL the OAuth redirect_uri is built from. A managed UI passes its
-// hosted relay base explicitly; otherwise the browser's own origin (so a
-// Tailscale user redirects back to the Tailscale URL) is used, falling back to
-// the loopback base for a purely local flow.
+// The base URL the OAuth redirect_uri is built from: an explicit base when the
+// caller passes one, else the browser's own origin (so a Tailscale user
+// redirects back to the Tailscale URL), falling back to the loopback base for
+// a purely local flow.
 function oauthRedirectBase(req: Request, explicit?: string): string {
   if (explicit && /^https?:\/\//.test(explicit)) return explicit;
-  const relay = oauthRelayConfig();
-  if (relay) return relay.base;
   const host = req.headers.get("x-forwarded-host") || req.headers.get("host");
   if (host) {
     const proto = req.headers.get("x-forwarded-proto") || (host.includes(".ts.net") || host.endsWith(":443") ? "https" : "http");
@@ -909,29 +893,8 @@ function oauthRedirectBase(req: Request, explicit?: string): string {
  * Connectors that register themselves (DCR) keep the request's own origin.
  */
 function connectorRedirectBase(req: Request, preRegistered: boolean, explicit?: string): string {
-  if (!explicit && preRegistered && PUBLIC_URL.startsWith("https://") && !oauthRelayConfig()) return PUBLIC_URL;
+  if (!explicit && preRegistered && PUBLIC_URL.startsWith("https://")) return PUBLIC_URL;
   return oauthRedirectBase(req, explicit);
-}
-
-// A box that cannot receive the provider redirect directly (a hosted sandbox,
-// or a self-hosted box behind NAT) is told at launch to route OAuth through a
-// hosted relay: OMG_OAUTH_RELAY_BASE is the relay origin, and the box's own
-// id (OMG_OAUTH_RELAY_PROJECT, else RUN_ID) is encoded into the state as
-// `omgc.<id>.<random>` so the relay can forward the callback back to this box
-// (see docs/team-tooling-design.md and the vibes relay). Unset on a directly
-// reachable box, which uses its own request origin instead.
-function oauthRelayConfig(): { base: string; project: string } | null {
-  const base = process.env.OMG_OAUTH_RELAY_BASE?.trim();
-  const project = (process.env.OMG_OAUTH_RELAY_PROJECT || process.env.RUN_ID)?.trim();
-  if (base && /^https?:\/\//.test(base) && project) return { base: base.replace(/\/+$/, ""), project };
-  return null;
-}
-
-/** The relay-routable OAuth state for this box, or undefined when not relaying. */
-function oauthRelayState(): string | undefined {
-  const relay = oauthRelayConfig();
-  if (!relay) return undefined;
-  return `omgc.${relay.project}.${randomBytes(24).toString("base64url")}`;
 }
 
 // The tiny page a browser lands on after the provider redirect: it reports the
@@ -979,7 +942,6 @@ function publicSessionUrl(sessionId: string): string | null {
 const HOST = process.env.LFG_HOST ?? "127.0.0.1";
 // Opt-in second listener for `tailscale serve`. See src/tailnet-gate.ts.
 const TAILNET_PORT = tailnetPortFromEnv(process.env.LFG_TAILNET_PORT, PORT);
-const OMG_WEB_ORIGIN = (process.env.OMG_WEB_URL ?? "https://omg.dev").trim();
 const MAX_LFG_SUBAGENT_DEPTH = 4;
 // How old the newest finished session scan may be for admission to count from
 // it (see recentAdmissionSessions). Active clients refresh it every few seconds.
@@ -1333,35 +1295,10 @@ function renderReportHtml(raw: string): string {
 
 // ---------- legacy: pre-agents flat reports ----------
 
-/** Model used for a thread's quick @omg answers. */
-const THREAD_REPLY_MODEL = "anthropic/claude-sonnet-4.6";
-
 const threadDeps: ThreadDeps = {
-  complete: async (system, user) => {
-    const endpoint = await omgChatCompletionsEndpoint();
-    if (!endpoint) return null;
-    const response = await fetch(endpoint.url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(endpoint.token ? { Authorization: `Bearer ${endpoint.token}` } : {}),
-      },
-      body: JSON.stringify({
-        model: THREAD_REPLY_MODEL,
-        max_tokens: 900,
-        temperature: 0.3,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-      }),
-      signal: AbortSignal.timeout(30_000),
-    });
-    if (!response.ok) return null;
-    const body = await response.json().catch(() => null) as { choices?: Array<{ message?: { content?: unknown } }> } | null;
-    const content = body?.choices?.[0]?.message?.content;
-    return typeof content === "string" ? content : null;
-  },
+  // A quick @omg answer needed the hosted model. Without one, a mention
+  // that asks for work still becomes a task; a chat-only reply stays quiet.
+  complete: async () => null,
   // Through the normal creation route, so a task gets every rule a session
   // started from the composer gets: admission, worktree, user tag, title.
   startTask: async ({ prompt, title, cwd, user, agent }) => {
@@ -3266,14 +3203,6 @@ function sendPromptToLiveSession(
     const key = findAisdkEntryByAnyId(sid)?.sessionId ?? sid;
     patchAisdkEntry(key, { recoveredAt: null });
     if (session.tmuxName) patchManaged(session.tmuxName, { interruptedAt: undefined });
-    // The person's second message ends an Auto build: queued before the send,
-    // the switch applies to this message's turn.
-    const autoNext = autoBuildSwitch(findManagedById(sid), prompt, !!opts.fromPerson);
-    if (autoNext) {
-      appendAisdkCmd(key, { type: "set_model", model: autoNext });
-      if (session.tmuxName) patchManaged(session.tmuxName, { model: autoNext, autoNextModel: undefined });
-      traceLog("session_auto_build_switch", { sessionId: sid, key, model: autoNext });
-    }
     appendAisdkCmd(key, { type: "send", text: prompt });
     traceLog("session_send_aisdk_cmd", { sessionId: sid, key, chars: prompt.length });
     return {
@@ -4496,8 +4425,7 @@ type AppSocketData =
   | TermSocketData
   | SttStreamSocketData
   | LiveWsSocketData
-  | ComputerSocketData
-  | CloudProxySocketData;
+  | ComputerSocketData;
 
 // Parse a terminal dimension from a query param, clamped to a sane range so a
 // bogus value can't allocate an absurd pty winsize.
@@ -4585,63 +4513,11 @@ export async function cmdServe() {
       } });
     },
   });
-  const cloudAccount = createCloudAccount({
-    localName: () => getGlobalSettingsSync().machineName,
-    renameLocal: async (machineName) => { await setGlobalSettings({ machineName }); },
-  });
   // The router owns the omg agent model list; keep it current without a release.
-  const omgCatalogSource = { signedIn: () => cloudAccount.status().signedIn, fetch: cloudAccount.cloudFetch };
-  startOmgModelCatalogRefresh(omgCatalogSource, (fields) => evlog("omg_model_catalog", fields));
-  const handleIosSetup = iosSetupRoutes({ root: join(PATHS.data, "ios-testing"), runtimeRoot: PATHS.root });
-  const projectPreview = createProjectPreviewService({
-    session: async (id) => {
-      const row = (await listSessions()).find(s => s.sessionId === id || s.nativeSessionId === id);
-      return row?.sessionId ? { id: row.sessionId, owner: row.assignedUser ?? null, cwd: row.cwd ?? null } : null;
-    },
-    viewer: req => botViewerFromRequest(req, new URL(req.url).searchParams.get("user")).identity,
-    resolve: async (port, options) => {
-      if (!cloudAccount.status().inherited) {
-        throw new CloudAccountError("Live sandbox previews are available inside an omg.dev Cloud Computer.", 409);
-      }
-      const response = await cloudAccount.cloudFetch(`/api/cli/computer/preview?port=${port}${options?.expoGo ? "&expoGo=1" : ""}`);
-      const body = await response.json().catch(() => ({})) as { url?: string; expoGoUrl?: string; frameUrl?: string; error?: string };
-      if (!response.ok || !body.url) {
-        throw new CloudAccountError(body.error || `Could not expose port ${port}.`, response.status || 502);
-      }
-      return { url: body.url, expoGoUrl: body.expoGoUrl, frameUrl: body.frameUrl };
-    },
-    simulator: simulatorStreamProvider(),
-    published: async (slug) => {
-      const { appIsPublished, createRuntimeAppsClient } = await import("../cloud-apps.ts");
-      return appIsPublished(createRuntimeAppsClient({ getAccessToken: () => cloudAccount.getAccessToken() }), slug);
-    },
-  });
-  // A Computer has no xdg-open. Tools that open a browser (`expo login
-  // --browser`, `gh auth login --web`) get the shim, which opens the page in
-  // the Computer's desktop browser. Every child of this process inherits it.
+  // A Computer has no xdg-open. Tools that open a browser (`gh auth login
+  // --web`) get the shim, which opens the page in the Computer's desktop
+  // browser. Every child of this process inherits it.
   installXdgOpenShim(process.env, PORT);
-  const expoAccount = createExpoAccountService({
-    ...liveExpoAccountDeps(),
-    session: async (id) => {
-      const row = (await listSessions()).find(s => s.sessionId === id || s.nativeSessionId === id);
-      return row?.sessionId ? { id: row.sessionId, owner: row.assignedUser ?? null, cwd: row.cwd ?? null } : null;
-    },
-    viewer: req => botViewerFromRequest(req, new URL(req.url).searchParams.get("user")).identity,
-    preview: (sessionId) => storedProjectPreview(sessionId),
-    startDesktop: () => startDesktop(),
-    // The sign-up and sign-in pages open in the kiosk window, which the card
-    // shows in a sheet. The agent's own tab is not touched.
-    openBrowser: (url) => computerKiosk().open(url),
-    closeBrowser: () => computerKiosk().close(),
-    webSignedIn: () => expoWebSignedIn(),
-    tellAgent: async (sessionId, text) => {
-      await fetch(`http://127.0.0.1:${PORT}/api/sessions/${encodeURIComponent(sessionId)}/send`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, mode: "queue" }),
-      });
-    },
-  });
-  const cloudMachineProxy = createCloudMachineProxy({ account: cloudAccount });
   const server = Bun.serve<AppSocketData>({
     port: PORT,
     hostname: HOST,
@@ -4667,10 +4543,6 @@ export async function cmdServe() {
       // as binary frames — the full raw VT byte stream a faithful renderer wants.
       idleTimeout: 600,
       open(ws: ServerWebSocket<AppSocketData>) {
-        if (cloudMachineProxy.isProxySocket(ws)) {
-          cloudMachineProxy.open(ws);
-          return;
-        }
         if (liveWs.isLiveSocket(ws as unknown as ServerWebSocket<unknown>)) {
           liveWs.open(ws as unknown as ServerWebSocket<unknown>);
           return;
@@ -4778,10 +4650,6 @@ export async function cmdServe() {
         }
       },
       message(ws: ServerWebSocket<AppSocketData>, message) {
-        if (cloudMachineProxy.isProxySocket(ws)) {
-          cloudMachineProxy.message(ws, message);
-          return;
-        }
         if (liveWs.isLiveSocket(ws as unknown as ServerWebSocket<unknown>)) {
           liveWs.message(ws as unknown as ServerWebSocket<unknown>, message);
           return;
@@ -4827,10 +4695,6 @@ export async function cmdServe() {
         bridge.write(message as Uint8Array);
       },
       close(ws: ServerWebSocket<AppSocketData>) {
-        if (cloudMachineProxy.isProxySocket(ws)) {
-          cloudMachineProxy.close(ws);
-          return;
-        }
         if (liveWs.isLiveSocket(ws as unknown as ServerWebSocket<unknown>)) {
           liveWs.close(ws as unknown as ServerWebSocket<unknown>);
           return;
@@ -4873,10 +4737,6 @@ export async function cmdServe() {
 
       const response = await (async () => {
       try {
-      if (path === "/api/ios-testing" || path.startsWith("/api/ios-testing/")) {
-        const iosSetupResponse = await handleIosSetup(req, server.requestIP(req)?.address ?? null);
-        if (iosSetupResponse) return iosSetupResponse;
-      }
       // The shared MCP endpoint. Agents registered with `--transport http`
       // reach the same tool surface `lfg mcp` exposes over stdio, without each
       // session spawning its own copy of this process. Streamable HTTP drives
@@ -5065,12 +4925,6 @@ export async function cmdServe() {
       if (path === "/api/browser-login" || path.startsWith("/api/browser-login/")) {
         return await browserLogin(req);
       }
-      if (path === "/api/project-preview" || path === "/api/project-preview/simulator") {
-        return await projectPreview(req);
-      }
-      if (path === "/api/expo-account" || path.startsWith("/api/expo-account/")) {
-        return await expoAccount(req);
-      }
 
       // ---- the computer: a shared desktop, streamed and controllable ----
       // Status is safe to poll and reports what is installed, so the UI can
@@ -5131,9 +4985,8 @@ export async function cmdServe() {
 
       // ---- connector OAuth ----
       // omg owns the MCP OAuth flow (src/connectors/oauth-provider.ts). start
-      // returns an authorize URL for the browser; the callback (browser GET) or
-      // complete (POST, for a hosted relay) exchanges the code and stores the
-      // tokens. redirectBase lets a managed UI point the redirect at its relay.
+      // returns an authorize URL for the browser; the callback (browser GET)
+      // exchanges the code and stores the tokens.
       {
         const m = path.match(/^\/api\/connectors\/([0-9a-f]+)\/oauth\/start$/);
         if (m && req.method === "POST") {
@@ -5141,30 +4994,17 @@ export async function cmdServe() {
           if (!connector) return err(404, "connector not found");
           const body = (await req.json().catch(() => null)) as { redirectBase?: string; state?: string; via?: string } | null;
           const base = connectorRedirectBase(req, !!connector.oauthApp, body?.redirectBase);
-          // The phone app signs in through the fixed relay on auth.omg.dev and
-          // then hands the code back itself (POST /api/connectors/oauth/callback).
-          // Only a pre-registered client has that relay on its redirect list.
-          const viaApp = body?.via === "app";
-          if (viaApp && !connector.oauthApp) return err(400, "Connect this one from the web page.");
-          // omg.dev's own client (a managed Computer) lists only the relay as a
-          // return address, so the web page signs in through it too and gets
-          // the code back from the relay page (it posts to the page that opened it).
-          const platform = !!connector.oauthApp && oauthAppSource(connector.oauthApp) === "platform";
-          const viaRelay = viaApp || platform;
-          const appRedirect = viaRelay
-            ? appRelayRedirectUrl(connector.oauthApp!, process.env.OMG_CONNECTOR_APP_RELAY?.trim() || undefined)
-            : undefined;
-          // State that routes the redirect back to this box through a relay: a
-          // caller may supply it, else the box mints one from its relay env.
-          const state =
-            (typeof body?.state === "string" && body.state.length >= 16 ? body.state : undefined) ??
-            oauthRelayState();
-          const result = await startConnectorOAuth(connector, base, state, appRedirect);
+          // The phone app's sign-in went through a relay on auth.omg.dev.
+          // omg.dev is local software now, so a connector signs in on this
+          // computer's own callback only.
+          if (body?.via === "app") return err(400, "Connect this one from the web page.");
+          const state = typeof body?.state === "string" && body.state.length >= 16 ? body.state : undefined;
+          const result = await startConnectorOAuth(connector, base, state);
           // A connector on a pre-registered app that the box has no client
           // for yet: the client shows the setup form instead of an error.
           if (!result.ok && result.needsOAuthApp) return json({ error: result.error, needsOAuthApp: result.needsOAuthApp }, { status: 409 });
           if (!result.ok) return err(502, result.error);
-          return json(viaRelay ? { ...result, returnUrl: APP_RETURN_URL, viaRelay: true } : result);
+          return json(result);
         }
       }
       // Pre-registered OAuth clients (Google has no dynamic registration).
@@ -5948,23 +5788,13 @@ a{color:#60a5fa}
         return json({ models: await customModelStatus() });
       }
 
-      if (path === "/api/omg/model-prices") {
-        const { handleOmgModelPrices } = await import("../omg-model-pricing.ts");
-        return handleOmgModelPrices(req, {
-          signedIn: () => cloudAccount.status().signedIn,
-          fetch: cloudAccount.cloudFetch,
-        }, (fields) => evlog("omg_model_prices", fields));
-      }
 
       // ---- coding-agent config: which session backends are shown in the
       // composer, plus lightweight setup health/actions for Settings.
       if (path === "/api/coding-agents" && req.method === "GET") {
         const refresh = url.searchParams.get("refreshModels") === "1";
         if (refresh) {
-          await Promise.all([
-            refreshModelCatalog({ reason: "manual", onLog: (line) => console.log(line) }),
-            refreshOmgModelCatalog(omgCatalogSource, (fields) => evlog("omg_model_catalog", { ...fields, reason: "manual" })),
-          ]);
+          await refreshModelCatalog({ reason: "manual", onLog: (line) => console.log(line) });
         }
         // An explicit refresh is the user asking for ground truth, so it pays
         // the full probe; the ordinary Settings read takes the cache.
@@ -6004,69 +5834,6 @@ a{color:#60a5fa}
       }
       if (path === "/api/server/access" && req.method === "GET") {
         return handleServerAccessRequest();
-      }
-      // The account's other machines, reached through this box
-      // (src/cloud-machine-proxy.ts). Everything under the prefix is the
-      // machine's own API, so this must run before any other /api route.
-      if (path.startsWith("/api/cloud/machines/")) {
-        if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
-          const data = cloudMachineProxy.upgradeData(url);
-          if (!data) return err(404, "not found");
-          const ok = server.upgrade(req, { data });
-          if (ok) return undefined;
-          return err(400, "expected a websocket upgrade");
-        }
-        return cloudMachineProxy.handleHttp(req, url);
-      }
-      // omg Cloud account on this box (src/cloud-account.ts). Listed one by
-      // one so the client route coverage test can see each of them.
-      if (
-        path === "/api/cloud/session" ||
-        path === "/api/cloud/login" ||
-        path === "/api/cloud/callback" ||
-        path === "/api/cloud/token" ||
-        path === "/api/cloud/logout" ||
-        path === "/api/cloud/computers" ||
-        path === "/api/cloud/pairing" ||
-        path === "/api/cloud/rename" ||
-        path === "/api/cloud/provision"
-      ) {
-        const handled = await cloudAccount.handleRequest(req, url);
-        if (path === "/api/cloud/logout") cloudMachineProxy.reset();
-        if (handled) return handled;
-      }
-      if (
-        path === "/api/cloud/whoami" ||
-        path === "/api/cloud/apps" ||
-        path === "/api/cloud/apps/deploy" ||
-        path === "/api/cloud/apps/status" ||
-        path === "/api/cloud/apps/stats" ||
-        path === "/api/cloud/apps/visibility" ||
-        path === "/api/cloud/apps/rename" ||
-        path === "/api/cloud/apps/test-checkout" ||
-        path === "/api/cloud/apps/payments" ||
-        path === "/api/cloud/apps/identity" ||
-        path === "/api/cloud/apps/link" ||
-        path === "/api/cloud/apps/unlink" ||
-        path === "/api/cloud/env" ||
-        path === "/api/cloud/env/pull" ||
-        path === "/api/cloud/env/rm" ||
-        path === "/api/cloud/env/import"
-      ) {
-        const { handleCloudAppsRequest } = await import("../cloud-apps.ts");
-        const handled = await handleCloudAppsRequest(req, url, {
-          getAccessToken: () => cloudAccount.getAccessToken(),
-          projectFolders: async () => (await listRepos()).map((repo) => repo.cwd),
-        });
-        if (handled) return handled;
-      }
-      // Android APK builds through omg Cloud (src/cloud-builds.ts).
-      if (path === "/api/cloud/builds/android" || path === "/api/cloud/builds/status") {
-        const { handleCloudBuildsRequest } = await import("../cloud-builds.ts");
-        const handled = await handleCloudBuildsRequest(req, url, {
-          getAccessToken: () => cloudAccount.getAccessToken(),
-        });
-        if (handled) return handled;
       }
       if (path === "/api/server/wake-tick" && req.method === "POST") {
         return handleWakeTick((l) => console.log(l));
@@ -9394,16 +9161,10 @@ a{color:#60a5fa}
         // They are the bulk of the catalog on a box with active auto agents
         // and none of them is a conversation a human wants to resume.
         const includeScheduled = url.searchParams.get("includeScheduled") === "1";
-        // A search also finds sessions by the app their folder links to.
-        const appFolders = search
-          ? (await listRepos().catch(() => [])).flatMap((repo) =>
-              repo.deploy ? [{ cwd: repo.cwd, name: `${repo.deploy.name ?? ""} ${repo.deploy.slug}` }] : [])
-          : undefined;
         const { sessions, total, facets, scheduledTotal } = await queryResumable({
           limit,
           offset,
           search,
-          appFolders,
           agent,
           project,
           includeScheduled,
@@ -10309,25 +10070,7 @@ a{color:#60a5fa}
         // native transcript id. This keeps provider-specific ids out of serve.
         const launchId = crypto.randomUUID();
         const createdAt = Date.now();
-        // Auto on a new project: build on the build model, then Auto for
-        // changes. On a hosted Computer the router's judge decides whether
-        // this first message starts a new project; else the local guess.
-        const autoBuild = await routeAutoLaunch(
-          {
-            agent,
-            model: resolvedModel ?? opencodeDefault ?? defaultModelForAgent(agent),
-            firstRun: body?.firstRun === true || body?.newApp === true,
-            spawnedBy,
-            message: body?.prompt,
-            project: unassigned ? undefined : repo?.project,
-            noProject: !!unassigned,
-          },
-          { hosted: hasHostedOmgAiProxy(), baseUrl: process.env.OMG_AI_URL },
-        );
-        if (autoBuild.routeId || autoBuild.routeSource) {
-          traceLog("session_auto_route", { launchId, model: autoBuild.model, routeId: autoBuild.routeId, source: autoBuild.routeSource });
-        }
-        const launchModel = autoBuild.model;
+        const launchModel = resolvedModel ?? opencodeDefault ?? defaultModelForAgent(agent);
         const requestedTitle = body?.title?.trim().slice(0, 200);
         const fallbackTitle = body?.prompt?.slice(0, 72);
         const resolvedRole = requestedRole || roleForUser(assignedUser).id;
@@ -10353,7 +10096,6 @@ a{color:#60a5fa}
           launchState: "launching",
           hydrating: true,
           model: launchModel,
-          autoNextModel: autoBuild.autoNextModel,
           thinkingLevel,
           serviceTier,
           fastMode,
@@ -10423,31 +10165,6 @@ a{color:#60a5fa}
                 : undefined,
           }),
         }).finally(backgroundRelease);
-        // Keep creation fast and resilient. The prompt-derived title appears
-        // immediately, then managed AI may replace it. A human rename wins the
-        // compare-and-swap if it happens before this best-effort call finishes.
-        //
-        // NOT `hasHostedOmgAiProxy`. That guard is true only inside a hosted
-        // omg sandbox, so on a self-hosted box this branch never ran and no
-        // session was ever titled at spawn, even with an account signed in.
-        // `generateSessionTitle` works through the CLI route there, which is
-        // what the session menu already uses. When nothing is reachable the
-        // generator returns null and the prompt-derived title simply stays.
-        if (
-          getGlobalSettingsSync().autoSessionTitles === "on" &&
-          hasOmgProviderAccess() &&
-          !requestedTitle &&
-          fallbackTitle
-        ) {
-          void generateSessionTitle(body?.prompt)
-            .then((generatedTitle) => {
-              if (!generatedTitle) return;
-              if (replaceManagedTitle(tmuxName, fallbackTitle, generatedTitle)) {
-                invalidateListSessionsCache();
-              }
-            })
-            .catch(() => {});
-        }
         // Hand the caller the session row itself, not just an id. A client that
         // gets only an id has to go re-derive the row from GET /api/sessions,
         // which is a full process+transcript scan — so the create is instant
@@ -11790,39 +11507,6 @@ a{color:#60a5fa}
       }
 
       {
-        // Re-run the automatic title for a session the user already has open.
-        // The spawn-time pass is fire-and-forget and only runs for sessions
-        // created without an explicit title, so this is the only way back to a
-        // generated title after a rename or a failed first attempt.
-        const m = path.match(/^\/api\/sessions\/([0-9a-fA-F-]{36})\/title\/generate$/);
-        if (m && req.method === "POST") {
-          // "manual" still allows this: it is the mode where a title is only
-          // ever written because the user asked for one. Only "off" refuses.
-          if (getGlobalSettingsSync().autoSessionTitles === "off")
-            return err(403, "automatic session titles are turned off");
-          const result = await regenerateSessionTitle(m[1], {
-            // NOT `hasHostedOmgAiProxy`. That one is true only inside a
-            // hosted omg sandbox, but `generateSessionTitle` also works on a
-            // self-hosted box through the signed-in CLI route. Using the
-            // narrow guard here made the action fail with 503 on every
-            // self-hosted install, which is most of them.
-            aiAvailable: hasOmgProviderAccess,
-            resolveTranscript,
-            // Index-backed, so this works for every adapter. The raw-rollout
-            // reader only understands Codex lines and returns null for
-            // claude, aisdk and cursor sessions.
-            digestRows: (p) => indexedTitleDigestRows(p, m[1]),
-            // The override store, the same one a human rename writes, so the
-            // generated name beats any managed registry title.
-            setTitle: setSessionTitle,
-          });
-          if (!result.ok) return err(result.status, result.error);
-          invalidateListSessionsCache();
-          return json({ ok: true, title: result.title });
-        }
-      }
-
-      {
         const m = path.match(/^\/api\/sessions\/([0-9a-fA-F-]{36})\/answer$/);
         if (m && req.method === "POST") {
           const body = (await req.json().catch(() => null)) as {
@@ -12676,8 +12360,6 @@ a{color:#60a5fa}
     }
   });
   startAutoScheduler((l) => console.log(l));
-  setWakeHooksBootId(SERVER_INSTANCE_ID);
-  void pushWakeHooksNow();
   // Rolling CPU/RAM/network/PSI history for the settings Performance panel.
   startMetricsSampler();
   const stopArtifactRefresh = startArtifactRefreshScheduler((l) => console.log(l));
@@ -12764,7 +12446,7 @@ a{color:#60a5fa}
       hostname: "127.0.0.1",
       maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
       fetch(req) {
-        const gated = tailnetGateResponse(req, { boxId: null, webOrigin: OMG_WEB_ORIGIN });
+        const gated = tailnetGateResponse(req);
         if (gated) {
           if (gated.status === 401) console.warn(`[tailnet-gate] 401 ${req.method} ${new URL(req.url).pathname}`);
           return gated;
@@ -12776,12 +12458,12 @@ a{color:#60a5fa}
   }
   console.log(`  agents dir: ${AGENTS_DIR}`);
 
-  // Release installs apply a newer GitHub release on their own. Hosted
-  // Computers and source checkouts stay on the manual Update button.
+  // Release installs apply a newer GitHub release on their own. Source
+  // checkouts stay on the manual Update button.
   startAutoUpdateLoop({
     root: PATHS.root,
     install: () => installInfo(),
-    hosted: () => hasHostedOmgAiProxy(),
+    hosted: () => false,
     enabled: () => autoUpdateEnabled() && getGlobalSettingsSync().autoUpdateEnabled,
     skippedUpdateVersion: () => getGlobalSettingsSync().skippedUpdateVersion,
     log: (line) => console.log(line),

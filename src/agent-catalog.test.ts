@@ -9,14 +9,12 @@ import {
   defaultModelForCatalogItem,
   discoveredModelsOrFallback,
   hasConnectedModelAccount,
+  isAllowedModelForAgent,
   listModelCatalog,
   MODEL_OPTIONS,
   modelsForAgent,
   OPENCODE_MODELS,
 } from "./agent-catalog.ts";
-import { applyOmgRouterFixture } from "./fixtures/omg-agent-catalog.ts";
-
-applyOmgRouterFixture();
 
 test("offers the current Codex models", () => {
   for (const id of ["gpt-6.1-sol", "gpt-6-astra", "gpt-6.1-terra", "gpt-6-sol", "gpt-6-luna"]) {
@@ -340,9 +338,8 @@ test("grok catalog defaults to Grok 4.7 and keeps the fast variant", async () =>
   expect(grok?.thinkingLevelsByModel?.["grok-4.5"]).toEqual(["low", "medium", "high"]);
 });
 
-test("omg agent lists the routed models in hosted picker order, default first", async () => {
-  const { OMG_MODELS } = await import("./agent-catalog.ts");
-  // An owner's ~/.omg/models.json would append custom models; read an empty home.
+// omg.dev is local software: the omg agent runs only the owner's own models.
+test("omg agent lists only the owner's custom models, and none in an empty home", async () => {
   const savedHome = process.env.HOME;
   const { mkdtempSync, rmSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
@@ -350,53 +347,13 @@ test("omg agent lists the routed models in hosted picker order, default first", 
   const emptyHome = mkdtempSync(join(tmpdir(), "omg-catalog-home-"));
   process.env.HOME = emptyHome;
   try {
-    expect(OMG_MODELS).toEqual([
-      "omg/omg/auto",
-      "omg/omg/max",
-      "omg/omg/balanced",
-      "omg/omg/fast",
-      "omg/omg/build",
-      "omg/anthropic/claude-opus-5.5",
-      "omg/apex",
-      "omg/deepseek/deepseek-v4-flash-0731",
-      "omg/deepseek/deepseek-v4-pro",
-      "omg/z-ai/glm-5.3-flash",
-      "omg/z-ai/glm-5.3",
-      "omg/minimax/minimax-m3",
-      "omg/moonshotai/kimi-k3.1-pro",
-      "omg/x-ai/grok-4.7",
-      "omg/anthropic/claude-fable-5.1",
-      "omg/anthropic/claude-sonnet-5.5",
-      "omg/anthropic/claude-haiku-5.5",
-      "omg/openai/gpt-6.1-sol",
-      "omg/openai/gpt-6-astra",
-      "omg/openai/gpt-6-luna",
-    ]);
-    expect(defaultModelForAgent("omg")).toBe("omg/omg/auto");
-    expect(defaultModelForAgent("omg")).toBe(OMG_MODELS[0]!);
-    expect(modelsForAgent("omg")).toEqual(OMG_MODELS);
-    expect(listModelCatalog().find((item) => item.key === "omg")).toMatchObject({
-      label: "omg agent", models: OMG_MODELS, defaultModel: OMG_MODELS[0], session: true, auto: true,
-    });
+    expect(modelsForAgent("omg")).toEqual([]);
+    expect(defaultModelForAgent("omg")).toBe("");
+    expect(isAllowedModelForAgent("omg", "omg/omg/auto")).toBe(false);
   } finally {
     process.env.HOME = savedHome;
     rmSync(emptyHome, { recursive: true, force: true });
   }
-});
-
-test("omg thinking levels follow the model: effort where OpenRouter honours it, nothing elsewhere", async () => {
-  const { listModelCatalog, thinkingLevelsForAgent } = await import("./agent-catalog.ts");
-  expect(thinkingLevelsForAgent("omg", "omg/deepseek/deepseek-v4-flash-0731")).toEqual(["low", "medium", "high"]);
-  expect(thinkingLevelsForAgent("omg", "omg/anthropic/claude-haiku-5.5")).toEqual(["off", "low", "medium", "high"]);
-  expect(thinkingLevelsForAgent("omg", "omg/openai/gpt-6.1-sol")).toEqual(["low", "medium", "high"]);
-  expect(thinkingLevelsForAgent("omg", "omg/minimax/minimax-m3")).toBeNull();
-  expect(thinkingLevelsForAgent("omg", "omg/x-ai/grok-4.7")).toEqual(["low", "medium", "high"]);
-  expect(thinkingLevelsForAgent("omg", "omg/openai/gpt-6-luna")).toEqual(["low", "medium", "high"]);
-  expect(thinkingLevelsForAgent("omg")).toEqual(["low", "medium", "high"]);
-  const item = listModelCatalog().find((entry) => entry.key === "omg")!;
-  expect(item.thinkingLevels).toEqual(["low", "medium", "high"]);
-  expect(Object.keys(item.thinkingLevelsByModel ?? {})).toHaveLength(13);
-  expect(item.thinkingLevelsByModel?.["omg/anthropic/claude-haiku-5.5"]).toEqual(["off", "low", "medium", "high"]);
 });
 
 test("Codex defaults follow the preferred catalog model", () => {

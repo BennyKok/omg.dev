@@ -118,44 +118,6 @@ try {
     resetManagedRegistryForTests();
     assert.equal(listManaged().find(row => row.sessionId === result.sessionId)?.cwd, result.cwd);
     assert.equal(listManaged().find(row => row.sessionId === result.sessionId)?.project, "");
-    // Use the real deploy owner with a fake control plane. No paid deployment.
-    const { createCloudAppsClient } = await import("../../packages/cloud/src/apps");
-    const { deployFolder, loadProjectLink } = await import("../../src/cloud-apps");
-    await Bun.write(join(body.repo.cwd, "index.html"), "<h1>Demo site</h1>");
-    const uploads: any[] = [];
-    const cloud = createCloudAppsClient({
-      getAuthToken: async () => "fixture-token",
-      endpoints: { controlPlaneOrigin: "https://fixture.invalid" },
-      fetch: async (input, init) => {
-        const url = String(input);
-        if (url.includes("/deploy-source")) {
-          uploads.push(JSON.parse(String(init?.body)));
-          return Response.json({ slug: "demo-site", projectId: "project-fixture", runId: "run-fixture", url: "https://demo-site.example", status: "accepted" });
-        }
-        if (url.includes("/apps/status")) return Response.json({ slug: "demo-site", phase: "ready", url: "https://demo-site.example", status: "ready" });
-        throw new Error(`Unexpected fixture request: ${url}`);
-      },
-    });
-    const deployed = await deployFolder(cloud, { cwd: body.repo.cwd, name: "Demo site", wait: true });
-    assert.equal(deployed.latest?.phase, "ready");
-    assert.equal(deployed.url, "https://demo-site.example");
-    assert.equal(loadProjectLink(body.repo.cwd)?.projectId, "project-fixture");
-    assert.equal(loadProjectLink(result.cwd), null);
-    assert.ok(uploads[0].files.some((file: any) => file.path.endsWith("/index.html")));
-    assert.ok(!uploads[0].files.some((file: any) => file.path.endsWith("/AGENTS.md")));
-    assert.ok(!uploads[0].files.some((file: any) => file.path.endsWith("/CLAUDE.md")));
-    assert.ok(!uploads[0].files.some((file: any) => file.path.includes("/.agents/")));
-    await deployFolder(cloud, { cwd: body.repo.cwd, wait: true });
-    assert.equal(uploads[1].projectId, "project-fixture");
-    for (const args of [["add", "index.html", ".omg/project.json"], ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-m", "Save fixture website and deploy identity"]]) {
-      assert.equal(Bun.spawnSync(["git", "-C", body.repo.cwd, ...args]).exitCode, 0);
-    }
-    const future = await (await post("/api/sessions/new", { cwd: body.repo.cwd, prompt: "Improve this website", agent: "codex" })).json() as any;
-    assert.ok(future.sessionId, JSON.stringify(future));
-    await hydrated(future.sessionId);
-    assert.notEqual(future.session.project, "");
-    assert.equal(loadProjectLink(future.cwd)?.projectId, "project-fixture");
-    assert.equal(await readFile(join(future.cwd, "index.html"), "utf8"), "<h1>Demo site</h1>");
   } finally {
     await client.close();
     await mcp.close();

@@ -1,13 +1,10 @@
 import { AGENT_DEFAULT_MODELS } from "./agent-defaults.ts";
-import { isOmgRunnableModel, OMG_MODELS, omgCatalogFromRouter, OMG_THINKING_LEVELS_BY_MODEL, OMG_THINKING_OFF, omgThinkingLevels } from "./omg-models.ts";
-export { OMG_MODELS } from "./omg-models.ts";
 import { customModelIds, customModelLabels } from "./custom-models.ts";
 
 import type { Agent } from "./agents/registry.ts";
 import type { AutoAgent } from "./auto/store.ts";
 import type { CodingAgentInfo, CodingAgentKind } from "./coding-agents.ts";
 import { readModelDiscoveryCacheSync } from "./model-discovery.ts";
-import { ensureOmgCatalogLoaded } from "./omg-model-catalog.ts";
 import { PI_AUTH_PROVIDER_IDS } from "./pi-auth.ts";
 import type { Session } from "./sessions.ts";
 
@@ -337,7 +334,8 @@ export const MODEL_OPTIONS: Record<CodingAgentKind, { defaultModel: string; mode
   devin: { defaultModel: AGENT_DEFAULT_MODELS.devin, models: DEVIN_MODELS },
   hermes: { defaultModel: AGENT_DEFAULT_MODELS.hermes, models: HERMES_MODELS },
   opencode: { defaultModel: AGENT_DEFAULT_MODELS.opencode, models: OPENCODE_MODELS },
-  omg: { defaultModel: AGENT_DEFAULT_MODELS.omg, models: OMG_MODELS },
+  // The owner's custom models (~/.omg/models.json), read at call time.
+  omg: { defaultModel: AGENT_DEFAULT_MODELS.omg, models: [] },
   jcode: { defaultModel: AGENT_DEFAULT_MODELS.jcode, models: JCODE_MODELS },
   pi: { defaultModel: AGENT_DEFAULT_MODELS.pi, models: PI_MODELS },
   copilot: { defaultModel: AGENT_DEFAULT_MODELS.copilot, models: COPILOT_MODELS },
@@ -612,11 +610,8 @@ function curateModels(
 }
 
 export function rawModelsForAgent(agent: CodingAgentKind): string[] {
-  // Hosted models first, then the owner's own endpoints (src/custom-models.ts).
-  if (agent === "omg") {
-    ensureOmgCatalogLoaded();
-    return [...OMG_MODELS, ...customModelIds()];
-  }
+  // The omg agent runs the owner's own endpoints (src/custom-models.ts).
+  if (agent === "omg") return customModelIds();
   const fallback = MODEL_OPTIONS[agent]?.models;
   const provider = readModelDiscoveryCacheSync()?.providers?.[agent];
   // A successful harness query is authoritative. Unioning it with the static
@@ -632,19 +627,9 @@ export function modelsForAgent(
   return curateModels(agent, rawModelsForAgent(agent), connectedProviderIds);
 }
 
-/**
- * True when a session may run this model. The picker list (modelsForAgent)
- * shows only the latest generation; an omg session may also run an older
- * generation the router still lists, because a saved choice must keep
- * working. Before the router first answers, only the aliases are known, so
- * any omg/<vendor>/<model> id passes and the router decides.
- */
+/** True when a session may run this model. */
 export function isAllowedModelForAgent(agent: CodingAgentKind, model: string): boolean {
-  if (agent === "omg") {
-    ensureOmgCatalogLoaded();
-    if (isOmgRunnableModel(model) || customModelIds().includes(model)) return true;
-    return !omgCatalogFromRouter() && /^omg\/[^/]+\/.+/.test(model);
-  }
+  if (agent === "omg") return customModelIds().includes(model);
   return modelsForAgent(agent).includes(model);
 }
 
@@ -689,15 +674,8 @@ export function thinkingLevelsForAgent(
     const levels = [...new Set(Object.values(variants).flat())];
     return levels.length ? levels : null;
   }
-  // Hosted models differ per model: OpenRouter honours reasoning_effort for
-  // some and has no control for others. See OMG_THINKING_LEVELS_BY_MODEL.
-  if (agent === "omg") {
-    if (model) return omgThinkingLevels(model);
-    // "off" belongs to the models that default to it; the model-less union
-    // stays the effort levels every model understands.
-    const levels = [...new Set(Object.values(OMG_THINKING_LEVELS_BY_MODEL).flat())].filter((level) => level !== OMG_THINKING_OFF);
-    return levels.length ? levels : null;
-  }
+  // The omg agent runs custom OpenAI-compatible models, which take no level.
+  if (agent === "omg") return null;
   if (agent === "claude" || agent === "aisdk") return CLAUDE_THINKING_LEVELS;
   // grok and pi drive their own CLIs with narrower vocabularies; offering more
   // hands the user a level that either kills the session or does nothing.
@@ -889,7 +867,7 @@ export function listModelCatalog(codingAgents: CodingAgentInfo[] = []): ModelCat
       piProviders,
       openCodeConnected,
     );
-    const perModelLevels = key === "opencode" || key === "omg" || key === "grok";
+    const perModelLevels = key === "opencode" || key === "grok";
     const thinkingLevelsByModel = perModelLevels
       ? Object.fromEntries(
           models.flatMap((model) => {
@@ -899,7 +877,7 @@ export function listModelCatalog(codingAgents: CodingAgentInfo[] = []): ModelCat
         )
       : undefined;
     const thinkingLevels = perModelLevels
-      ? [...new Set(Object.values(thinkingLevelsByModel ?? {}).flat())].filter((level) => key !== "omg" || level !== OMG_THINKING_OFF)
+      ? [...new Set(Object.values(thinkingLevelsByModel ?? {}).flat())]
       : [...(thinkingLevelsForAgent(key) ?? [])];
     return {
       key,

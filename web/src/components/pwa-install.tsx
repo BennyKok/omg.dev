@@ -1,7 +1,5 @@
 import { useState } from "react";
-import { Popover } from "@base-ui/react/popover";
-import { renderSVG } from "uqr";
-import { ChevronRight, Download, Share, Smartphone, X } from "lucide-react";
+import { Download, Share, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -184,32 +182,11 @@ function railCardInitiallyDismissed() {
 }
 
 /**
- * Where a phone gets omg: the web app, installed from the phone's browser,
- * never an app store. `install=1` makes app.omg.dev open its install guide
- * on arrival: Install on Android, Share then Add to Home Screen on iPhone.
- */
-export const PHONE_INSTALL_URL = "https://app.omg.dev/?install=1";
-
-let phoneInstallQr: string | undefined;
-
-// The portal mounts this only when the phone popup opens. The destination is
-// static, so neither chat updates nor reopening the popup needs to encode it.
-function PhoneInstallQr() {
-  const src = phoneInstallQr ??= `data:image/svg+xml;utf8,${encodeURIComponent(renderSVG(PHONE_INSTALL_URL, { border: 1 }))}`;
-  return <img src={src} alt="QR code to install omg on your phone" className="mx-auto size-40 rounded-lg bg-white p-1.5" />;
-}
-
-/**
  * THE DESKTOP RAIL'S "GET THE APPS" CARD.
  *
  * The install suggestion used to be a full-width banner over the whole
  * desktop layout, pushing everything down to sell one thing. It sits at the
- * foot of the rail now, above the machine switcher, and offers both ways to
- * have omg outside a browser tab: this computer (the web app install) and
- * your phone. The phone row opens a QR code to the web app, which shows
- * the phone its own install steps, because the
- * person reading this is at a desk and the phone is the device that has to
- * open the link.
+ * foot of the rail now and offers to install the web app on this computer.
  *
  * Dismissal is remembered on this browser. The iPhone offer does not depend
  * on this browser's install state, so a session-only dismissal would bring
@@ -219,8 +196,9 @@ export function GetAppsRailCard() {
   const { installed, mode, install } = usePwaInstall();
   const [dismissed, setDismissed] = useState(railCardInitiallyDismissed);
   const action = useInstallAction(mode, install);
-  if (dismissed) return null;
   const canInstallHere = !installed && mode !== "none";
+  // Nothing left to offer once this computer has it.
+  if (dismissed || !canInstallHere) return null;
 
   const dismiss = () => {
     setDismissed(true);
@@ -252,35 +230,10 @@ export function GetAppsRailCard() {
             <X className="size-3.5" />
           </button>
         </div>
-        {canInstallHere ? (
-          <button type="button" onClick={() => void action.act()} disabled={action.busy} className={rowClass}>
-            <Download className="size-4 shrink-0 text-muted-foreground" />
-            <span className="min-w-0 flex-1 truncate">Install on this computer</span>
-          </button>
-        ) : null}
-        <Popover.Root>
-          <Popover.Trigger
-            render={
-              <button type="button" className={rowClass}>
-                <Smartphone className="size-4 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 flex-1 truncate">Install on your phone</span>
-                <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/70" />
-              </button>
-            }
-          />
-          <Popover.Portal>
-            <Popover.Positioner side="right" align="end" sideOffset={10} className="isolate z-[170] outline-none">
-              <Popover.Popup
-                data-testid="phone-install-popover"
-                className="w-60 rounded-2xl border border-border bg-popover p-3 text-popover-foreground shadow-2xl outline-none"
-              >
-                <PhoneInstallQr />
-                <p className="mt-2.5 text-center text-[13px] font-semibold">Install omg on your phone</p>
-                <p className="mt-1 text-center text-xs text-muted-foreground">Scan with your phone camera.</p>
-              </Popover.Popup>
-            </Popover.Positioner>
-          </Popover.Portal>
-        </Popover.Root>
+        <button type="button" onClick={() => void action.act()} disabled={action.busy} className={rowClass}>
+          <Download className="size-4 shrink-0 text-muted-foreground" />
+          <span className="min-w-0 flex-1 truncate">Install on this computer</span>
+        </button>
       </section>
       <InstallInstructions mode={mode} open={action.instructionsOpen} onOpenChange={action.setInstructionsOpen} />
     </>

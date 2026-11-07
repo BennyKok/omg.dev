@@ -1,5 +1,4 @@
 import { EmptyOpencodeReply, opencodeTurnFailureMessage, opencodeTurnHasProgress, recoverOpencodeTurn } from "./opencode-turn-recovery.ts";
-import { ensureOmgProvider } from "../../omg-provider.ts";
 import { customModelToolFilter, ensureCustomProviders, isCustomModel, refreshCustomModelContexts } from "../../custom-models.ts";
 import { APP_BUILDER_PRESET, BUILDER_MAX_STEPS, builderAgentConfig, createStepBound, builderReviewPacket, captureBuilderDesign, reviewBuilderDesign, reviewBuilderCode, runAppBuilder, validateBuilderPreset } from "./app-builder.ts";
 // Headless interactive session harness for the "opencode" agent kind.
@@ -569,7 +568,6 @@ export async function pipeToOpencodeAiSdk(
 ): Promise<string> {
   const model = opts.model ?? "opencode/big-pickle";
   const cwd = opts.cwd ?? process.cwd();
-  if (model.startsWith("omg/")) ensureOmgProvider();
   if (isCustomModel(model)) {
     // Read each server's context size before OpenCode loads the provider config.
     await refreshCustomModelContexts();
@@ -640,7 +638,6 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
     process.chdir(cwd);
   } catch {}
 
-  if (model.startsWith("omg/")) ensureOmgProvider();
   if (isCustomModel(model)) {
     // Read each server's context size before OpenCode loads the provider config.
     await refreshCustomModelContexts();

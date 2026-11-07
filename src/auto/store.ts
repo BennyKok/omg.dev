@@ -11,7 +11,6 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { PATHS } from "../config.ts";
 import { thinkingLevelsForAgent } from "../agent-catalog.ts";
-import { scheduleWakeHooksPush } from "./wake-hooks-push.ts";
 
 export type Severity = "high" | "med" | "low";
 export type AutoAgentBackend =
@@ -334,7 +333,6 @@ export async function saveAutoAgent(input: {
     : [...list, agent];
   await Bun.write(agentsPath(), JSON.stringify(next, null, 2));
   announceChange("auto");
-  scheduleWakeHooksPush();
   return agent;
 }
 
@@ -350,7 +348,6 @@ export async function deleteAutoAgent(id: string): Promise<void> {
     ),
   );
   announceChange("auto");
-  scheduleWakeHooksPush();
 }
 
 /** Everything a bot owns, permanently gone. Called when the bot itself is deleted. */
@@ -360,7 +357,6 @@ export async function deleteAutoAgentsOwnedByBot(botId: string): Promise<number>
   const keep = list.filter((a) => !(a.owner.kind === "bot" && a.owner.botId === botId));
   await Bun.write(agentsPath(), JSON.stringify(keep, null, 2));
   announceChange("auto");
-  scheduleWakeHooksPush();
   return list.length - keep.length;
 }
 

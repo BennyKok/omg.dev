@@ -123,7 +123,8 @@ export const ACTIVE_CODING_AGENT_PROVIDERS = {
       egressProxyUrl: request.egressProxyUrl,
     })),
   omg: provider("omg", (request): CodingAgentLaunchResult => {
-    const model = request.model ?? defaultModelForAgent("omg");
+    const model = request.model || defaultModelForAgent("omg");
+    if (!model) return { ok: false, error: "The omg agent runs your own models. Add one to ~/.omg/models.json first." };
     if (!isAllowedModelForAgent("omg", model) && !findCustomModel(model)) return { ok: false, error: `unknown omg model "${model}"` };
     return ACTIVE_CODING_AGENT_PROVIDERS.opencode.launch({ ...request, model });
   }),

@@ -15,17 +15,13 @@ import {
   listHiddenRepos,
   type CustomRepo,
 } from "./repos-store.ts";
-import { deployLinkFromProjectAsync, type RepoDeployLink } from "./cloud-apps.ts";
 
-export type { RepoDeployLink };
 
 export type RepoListEntry = {
   name: string;
   cwd: string;
   project: string;
   custom?: boolean;
-  /** Present after `omg deploy` writes `.omg/project.json`. */
-  deploy?: RepoDeployLink;
 };
 
 export type RepoListSources = {
@@ -56,13 +52,11 @@ export async function buildRepoList(sources: RepoListSources): Promise<RepoListE
       // One row per project. A git worktree collapses onto its owning checkout,
       // so without this the same project appears once per worktree.
       if (repos.some((r) => r.project === project)) return;
-      const deploy = await deployLinkFromProjectAsync(cwd);
       repos.push({
         name,
         cwd,
         project,
         ...(custom ? { custom: true } : {}),
-        ...(deploy ? { deploy } : {}),
       });
     } catch {}
   };
@@ -128,7 +122,7 @@ export async function listConfiguredRepos(input?: {
  * and the pin and hidden files) is unchanged and it is younger than
  * `maxAgeMs`. Adding, cloning, pinning, hiding or removing a project changes
  * the fingerprint, so a write is seen at once. Changes the fingerprint cannot
- * see, such as a deploy link written inside a project, show within `maxAgeMs`.
+ * see show within `maxAgeMs`.
  * Requests that arrive while a build runs with the same fingerprint share it.
  */
 export function createRepoListCache<T>(options: {

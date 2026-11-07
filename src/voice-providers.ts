@@ -44,11 +44,8 @@ export type SttStreamBridge = {
   close: () => void; // stream end → tear down the upstream
 };
 
-// On a hosted omg workspace there is no ElevenLabs key to enter — the platform
-// relays transcription for us — so the default has to follow the environment
-// rather than being a fixed string. A local install is unchanged.
 const DEFAULTS = (): VoiceSettings => ({
-  sttProvider: sttOmg.available() && !sttElevenLabs.available() ? "omg" : "elevenlabs",
+  sttProvider: "elevenlabs",
 });
 
 const TIMEOUT_MS = 30000;
@@ -318,134 +315,6 @@ function elevenLabsRealtimeStream(handlers: SttStreamHandlers): SttStreamBridge 
   };
 }
 
-// ---------------------------------------------------------------- omg relay
-//
-// On a hosted omg workspace the platform runs the realtime STT upstream for us:
-// the sandbox holds no provider key, and OMG_MEDIA_URL points at the per-sandbox
-// media proxy. Its /realtime/transcribe websocket speaks the SAME neutral
-// protocol this module already defines, so the bridge is a straight pipe:
-//
-//   we send  : binary PCM frames, {"type":"flush"}, {"type":"eof"}
-//   we get   : {"type":"ready"|"partial"|"final"|"error"}
-//
-// Auth is ambient — reaching the proxy at all proves which sandbox you are — so
-// there is no key to configure and nothing to put in the setup dialog.
-function omgRelayURL(): string | null {
-  const base = process.env.OMG_MEDIA_URL;
-  if (!base) return null;
-  return `${base.replace(/\/+$/, "").replace(/^http/, "ws")}/realtime/transcribe`;
-}
-
-function omgRelayStream(handlers: SttStreamHandlers): SttStreamBridge | null {
-  const url = omgRelayURL();
-  if (!url) return null;
-
-  let up: WebSocket;
-  try {
-    up = new WebSocket(url);
-  } catch (e) {
-    console.log(`[voice] omg relay could not connect: ${(e as { message?: string })?.message || e}`);
-    return null;
-  }
-  up.binaryType = "arraybuffer";
-
-  let open = false;
-  let closed = false;
-  // Frames captured before the socket opens. openStream() must construct
-  // synchronously (the ws open() handler can't await), so early audio queues
-  // here rather than being dropped.
-  const outbox: Array<string | Uint8Array> = [];
-
-  const send = (frame: string | Uint8Array) => {
-    if (closed) return;
-    if (!open) {
-      outbox.push(frame);
-      return;
-    }
-    try {
-      up.send(frame);
-    } catch {}
-  };
-
-  up.addEventListener("open", () => {
-    open = true;
-    for (const frame of outbox) {
-      try {
-        up.send(frame);
-      } catch {}
-    }
-    outbox.length = 0;
-  });
-
-  up.addEventListener("message", (ev) => {
-    let d: { type?: string; text?: string; message?: string; status?: string };
-    try {
-      d = JSON.parse(typeof ev.data === "string" ? ev.data : "");
-    } catch {
-      return;
-    }
-    if (d.type === "partial") handlers.onPartial((d.text || "").trim());
-    else if (d.type === "final") handlers.onFinal((d.text || "").trim());
-    else if (d.type === "finalizing") handlers.onFinalizing?.();
-    else if (d.type === "error") {
-      // Fail loud: an exhausted allowance or a missing Computer grant is a real
-      // condition the operator needs to see, not a silent downgrade.
-      console.log(`[voice] omg relay error (${d.status || "unknown"}): ${d.message || ""}`);
-    }
-  });
-
-  up.addEventListener("close", () => {
-    closed = true;
-    handlers.onClose?.();
-  });
-  up.addEventListener("error", (e) => {
-    console.log(`[voice] omg relay ws error: ${(e as { message?: string })?.message || e}`);
-  });
-
-  return {
-    pushPcm: (pcm) => {
-      // Bun may reuse the underlying buffer for the next frame.
-      const copy = new Uint8Array(pcm.length);
-      copy.set(pcm);
-      send(copy);
-    },
-    flush: () => send(JSON.stringify({ type: "flush" })),
-    close: () => {
-      if (closed) return;
-      send(JSON.stringify({ type: "eof" }));
-      closed = true;
-      try {
-        up.close();
-      } catch {}
-    },
-  };
-}
-
-const sttOmg: SttProvider = {
-  id: "omg",
-  label: "omg.dev (hosted)",
-  envVar: "OMG_MEDIA_URL",
-  accountUrl: "https://omg.dev",
-  available: () => !!process.env.OMG_MEDIA_URL,
-  // Never actually transcribes a batch clip — see `transcribe` below. Without
-  // this, `firstAvailable`'s old `!!c.transcribe` check picked this provider
-  // for the batch fallback on every hosted workspace, because the method
-  // exists; it just always fails.
-  batchCapable: false,
-  openStream: (handlers) => omgRelayStream(handlers),
-  async transcribe() {
-    // The relay is realtime-only: the platform's batch job API takes a public
-    // audio URL, not bytes, so there is nothing to POST a clip to. Say so
-    // plainly instead of returning an empty transcript the caller would treat
-    // as silence.
-    return eres(503, "omg.dev live transcription is unavailable for this recording.", {
-      code: "realtime_only",
-      provider: "omg",
-      retryable: true,
-    });
-  },
-};
-
 const sttElevenLabs: SttProvider = {
   id: "elevenlabs",
   label: "ElevenLabs (Scribe)",
@@ -524,7 +393,6 @@ const sttOpenAI: SttProvider = {
 };
 
 const STT: Record<string, SttProvider> = {
-  [sttOmg.id]: sttOmg,
   [sttElevenLabs.id]: sttElevenLabs,
   [sttOpenAI.id]: sttOpenAI,
 };
@@ -673,17 +541,12 @@ export function pickStt(id: string): SttProvider {
   // actually do batch.
   if (p && p.available() && p.batchCapable !== false) return p;
   // It can't (or isn't configured) — prefer any OTHER available provider that
-  // genuinely can. This is the fix: `!!c.transcribe` used to pass for every
-  // provider, including the omg relay, whose `transcribe` unconditionally
-  // 503s — so a real batch-capable provider configured alongside the relay
-  // (e.g. an ElevenLabs key on a box that also has OMG_MEDIA_URL) was never
-  // reached.
+  // genuinely can.
   const capable = firstAvailable((c) => c.batchCapable !== false);
   if (capable) return capable;
   // Nothing can actually do batch. If the configured provider is at least
   // available, return IT rather than an unrelated, equally-unconfigured
-  // default — its own `transcribe()` gives the specific, accurate reason
-  // (e.g. the relay's "realtime-only; batch transcription is unavailable"),
+  // default — its own `transcribe()` gives the specific, accurate reason,
   // which is more useful than a generic "not configured" for a provider the
   // caller never chose.
   if (p && p.available()) return p;
@@ -714,8 +577,7 @@ export function sttBatchAvailable(): boolean {
 
 // Open a realtime STT bridge for the /api/voice/stt-stream websocket. Picks the
 // configured provider; if it has no realtime path, falls back to any other
-// provider that does (the omg relay on a hosted workspace, ElevenLabs on a local
-// install), else returns null so the proxy closes the socket and the browser
+// provider that does, else returns null so the proxy closes the socket and the browser
 // degrades to the batch path. Sync so the websocket open() handler can build it
 // without racing the first frame.
 export function openSttStream(handlers: SttStreamHandlers): SttStreamBridge | null {

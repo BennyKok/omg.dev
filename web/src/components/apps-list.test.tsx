@@ -1,58 +1,51 @@
-// The Apps page lists published apps and folders on this Computer as one list.
-// A folder worked on recently must sit above an app that was not, or the work
-// a person is doing now drops below every app they ever published.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mount, type Mounted } from "../test-support/render";
-import type { AppItem, LocalProject, SessionLike } from "./apps-home";
 
 const { default: AppsList } = await import("./apps-list");
+const { buildLocalProjects } = await import("./apps-home");
 
 let ui: Mounted;
+const originalFetch = globalThis.fetch;
 beforeEach(() => {
-  globalThis.fetch = (async () => new Response("{}", { status: 200 })) as unknown as typeof fetch;
   ui = mount();
+  globalThis.fetch = (async () => Response.json({ facets: { projects: [] } })) as typeof fetch;
 });
-afterEach(() => ui.cleanup());
-
-const hour = 3_600_000;
-const session = (at: number): SessionLike => ({ sessionId: `s${at}`, project: "x", lastActivityAt: at });
-
-const app = (name: string, at: number): AppItem<SessionLike> => ({
-  project: name,
-  link: { slug: name, name, url: `https://${name}.omgs.app` } as AppItem<SessionLike>["link"],
-  name,
-  iconUrl: null,
-  isLive: true,
-  kind: "app",
-  sessions: at ? [session(at)] : [],
-  lastActivityAt: at,
-});
-const folder = (name: string, at: number): LocalProject<SessionLike> => ({
-  project: name,
-  name,
-  sessions: [session(at)],
-  lastActivityAt: at,
+afterEach(() => {
+  ui.cleanup();
+  globalThis.fetch = originalFetch;
 });
 
-function names(): string[] {
-  return ui.queryAll("section span.truncate.font-semibold").map((node) => node.textContent ?? "");
-}
-
-test("apps and folders sort together by the last work on them", () => {
-  const now = Date.now();
-  ui.render(
-    <AppsList apps={[app("todo", now - 5 * hour), app("snake", 0)]} local={[folder("vibes", now - hour)]} onOpenApp={() => {}} onOpenProject={() => {}} />,
-  );
-  expect(names()).toEqual(["vibes", "todo", "snake"]);
+test("projects on this computer are grouped with their sessions, newest work first", () => {
+  const repos = [
+    { cwd: "/home/me/alpha", project: "alpha", name: "alpha" },
+    { cwd: "/home/me/beta", project: "beta", name: "beta" },
+  ];
+  const sessions = [
+    { sessionId: "s1", cwd: "/home/me/beta/src", lastActivityAt: 20 },
+    { sessionId: "s2", cwd: "/home/me/alpha", lastActivityAt: 10 },
+    { sessionId: "s3", cwd: "/elsewhere", lastActivityAt: 30 },
+  ];
+  const local = buildLocalProjects(repos, sessions, (repo) => repo.project);
+  expect(local.map((item) => [item.name, item.sessions.map((s) => s.sessionId)])).toEqual([
+    ["beta", ["s1"]],
+    ["alpha", ["s2"]],
+  ]);
 });
 
-test("Published shows only apps, and Folders only folders", () => {
-  const now = Date.now();
-  ui.render(<AppsList apps={[app("todo", now - 5 * hour)]} local={[folder("vibes", now - hour)]} onOpenApp={() => {}} onOpenProject={() => {}} />);
-  const press = (label: string) =>
-    ui.flush(() => (ui.queryAll("button").find((b) => b.textContent === label) as HTMLButtonElement).click());
-  press("Published");
-  expect(names()).toEqual(["todo"]);
-  press("Folders");
-  expect(names()).toEqual(["vibes"]);
+test("the Apps page lists local folders and opens one by its project", async () => {
+  const opened: string[] = [];
+  const local = [{ project: "alpha", name: "alpha", sessions: [{ sessionId: "s2", lastActivityAt: 10 }], lastActivityAt: 10 }];
+  ui.render(<AppsList local={local} onOpenProject={(project) => opened.push(project)} />);
+  await ui.flushAsync();
+  expect(ui.text()).toContain("Projects · 1");
+  expect(ui.text()).toContain("On this computer");
+  expect(ui.text()).not.toContain("Published");
+  (ui.queryAll("button").find((b) => b.textContent?.includes("alpha")) as HTMLButtonElement).click();
+  expect(opened).toEqual(["alpha"]);
+});
+
+test("with no projects it says how to start one", async () => {
+  ui.render(<AppsList local={[]} onOpenProject={() => {}} />);
+  await ui.flushAsync();
+  expect(ui.text()).toContain("No projects yet");
 });

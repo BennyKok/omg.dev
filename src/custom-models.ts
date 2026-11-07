@@ -5,8 +5,8 @@ import {
   openCodeConfigPath,
   readOpenCodeConfig,
   writeOpenCodeConfig,
-  type OmgProviderOptions,
-} from "./omg-provider.ts";
+  type OpenCodeConfigOptions as OmgProviderOptions,
+} from "./opencode-config.ts";
 
 /**
  * Custom models: OpenAI-compatible endpoints the box owner adds by hand, such
@@ -178,7 +178,7 @@ function openCodeProvider(provider: CustomProvider, detected: DetectedContexts) 
       ...(context
         ? { limit: { context, output: Math.min(model.output ?? DEFAULT_OUTPUT, context) } }
         : {}),
-      // Without modalities OpenCode drops every image part (see omg-provider.ts).
+      // Without modalities OpenCode drops every image part.
       attachment: model.input.includes("image"),
       modalities: { input: [...model.input], output: ["text"] },
     }];

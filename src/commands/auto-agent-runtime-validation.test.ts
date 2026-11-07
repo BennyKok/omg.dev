@@ -91,8 +91,8 @@ describe("thinking level", () => {
   });
 });
 
-test("omg schedules accept only the managed router model list", () => {
-  const model = "omg/deepseek/deepseek-v4-flash-0731";
-  expect(ok(resolveAutoAgentRuntime({ agent: "omg", model }))).toMatchObject({ agent: "omg", model });
+// omg.dev is local software: the hosted router models are gone.
+test("omg schedules refuse a retired hosted router model", () => {
+  expect(resolveAutoAgentRuntime({ agent: "omg", model: "omg/deepseek/deepseek-v4-flash-0731" }).ok).toBe(false);
   expect(resolveAutoAgentRuntime({ agent: "omg", model: "opencode/free" }).ok).toBe(false);
 });

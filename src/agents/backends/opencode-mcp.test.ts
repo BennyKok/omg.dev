@@ -9,8 +9,6 @@
 // The end-to-end test below runs the real `opencode serve` with a global
 // config whose stdio `omg` entry never answers, as on that Computer, and checks
 // what OpenCode actually sends to the model.
-import { AGENT_CALL_BUDGET_MS } from "../../cloud-builds.ts";
-import { AGENT_DEPLOY_WAIT_MS } from "../../cloud-apps.ts";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -68,8 +66,8 @@ describe("opencodeSessionMcpConfig", () => {
   // the agent told the user the build "timed out" while it finished (2026-10-07).
   test("allows the slowest omg tool call to finish", () => {
     for (const server of Object.values(opencodeSessionMcpConfig("s").mcp)) {
-      expect(server.timeout).toBeGreaterThan(AGENT_CALL_BUDGET_MS + 10_000);
-      expect(server.timeout).toBeGreaterThan(AGENT_DEPLOY_WAIT_MS + 10_000);
+      // Long tool calls (up to 45 s) must not be cut by OpenCode.
+      expect(server.timeout).toBeGreaterThan(55_000);
     }
   });
 

@@ -38,7 +38,7 @@
     },
     "packages/cli": {
       "name": "@omg-dev/cli",
-      "version": "0.5.3",
+      "version": "0.5.4",
       "bin": {
         "omg": "./dist/omg.mjs",
       },
@@ -49,13 +49,6 @@
       "dependencies": {
         "@omg-dev/protocol": "workspace:*",
         "@omg-dev/sdk": "0.4.55",
-      },
-    },
-    "packages/cloud": {
-      "name": "@omg-dev/cloud",
-      "version": "0.1.84",
-      "dependencies": {
-        "@omg-dev/client": "workspace:*",
       },
     },
     "packages/connectors": {
@@ -561,8 +554,6 @@
     "@omg-dev/cli": ["@omg-dev/cli@workspace:packages/cli"],
 
     "@omg-dev/client": ["@omg-dev/client@workspace:packages/client"],
-
-    "@omg-dev/cloud": ["@omg-dev/cloud@workspace:packages/cloud"],
 
     "@omg-dev/connectors": ["@omg-dev/connectors@workspace:packages/connectors"],
 

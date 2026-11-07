@@ -101,7 +101,8 @@ describe("release bundle manifest", () => {
     const packages = sourceWorkspacePackages();
     expect(packages).toContain("connectors");
     expect(packages).toContain("protocol");
-    expect(packages).toContain("cloud");
+    // omg Cloud was removed; its package must not come back into the bundle.
+    expect(packages).not.toContain("cloud");
     for (const name of packages) {
       expect(releaseScript).toContain(
         `stage_runtime_workspace_package "$STAGE/lfg" ${name}`,

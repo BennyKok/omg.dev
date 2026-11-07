@@ -1,4 +1,3 @@
-import { ensureOmgProvider } from "./omg-provider.ts";
 import { ensureCustomProviders, isCustomModel } from "./custom-models.ts";
 // Map a live process to its tmux pane and inject input. Claude Code sessions
 // run inside tmux panes; we discover the `claude` pid via pgrep/proc, walk up
@@ -1371,16 +1370,6 @@ export function spawnManagedOpencodeAisdkSession(opts: {
   egressProxyUrl?: string;
   recoveredAt?: number;
 }): ManagedHarnessSpawnResult {
-  if (opts.model.startsWith("omg/")) {
-    try {
-      // The provider only. The omg.dev MCP servers are registered per session by
-      // the harness itself (agents/backends/opencode-mcp.ts), not here in the
-      // box-global OpenCode config.
-      ensureOmgProvider();
-    } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : String(error) };
-    }
-  }
   if (isCustomModel(opts.model)) {
     try {
       ensureCustomProviders();
