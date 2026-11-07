@@ -540,6 +540,9 @@ export function ComputerPage({
   // trackpad surface would swallow the chat's own scrolling. Tap opens the
   // full screen instead.
   const tapToExpand = inline && trackpad && !!onExpand;
+  // The full page starts a stopped desktop on its own (see the effect above),
+  // including while the first status is still loading. Show that as progress.
+  const autoStarting = !inline && !running && !error && deps?.ok !== false;
 
   return (
     // Full bleed: the screen is the page. No title, no chrome, no padding --
@@ -813,18 +816,22 @@ export function ComputerPage({
 
       {/* Connecting covers a real gap: the desktop can be up while the RFB
           handshake is still running, so without this the page is just black
-          and reads as broken. */}
-      {running && phase !== "live" && !error && !voxl ? (
+          and reads as broken. The full page starts a stopped desktop by
+          itself, so it goes straight to this indicator too, with no Start
+          card in between; only the inline view offers a Start button. */}
+      {(running && phase !== "live" && !error && !voxl) || autoStarting ? (
         <div className="pointer-events-none absolute inset-0 z-[5] flex items-center justify-center">
           <div className="flex items-center gap-2 rounded-full bg-card/90 px-4 py-2 text-sm shadow-lg backdrop-blur">
             <Loader2 className="size-4 animate-spin" />
-            {phase === "starting" ? "Starting the computer…" : "Connecting to the screen…"}
+            {phase === "starting" || autoStarting ? "Starting the computer…" : "Connecting to the screen…"}
           </div>
         </div>
       ) : null}
 
-      {/* Everything below only appears when there is no picture to show. */}
-      {!running || error || (deps && !deps.ok) ? (
+      {/* Everything below only appears when there is no picture to show and
+          something needs the person: missing packages, a failed start, or a
+          stopped desktop in the inline view (which never starts one itself). */}
+      {(!running && !autoStarting) || error || (deps && !deps.ok) ? (
         <div className="absolute inset-0 z-[5] flex items-center justify-center p-6">
           <div className="w-full max-w-md space-y-3 rounded-2xl border border-border bg-card/90 p-5 text-center backdrop-blur">
             {deps && !deps.ok ? (
@@ -849,7 +856,7 @@ export function ComputerPage({
                 ) : (
                   <Power className="mr-1.5 size-4" />
                 )}
-                Start the computer
+                {error ? "Try again" : "Start the computer"}
               </Button>
             ) : null}
           </div>
