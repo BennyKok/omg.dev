@@ -19,7 +19,7 @@ import { LiveHeaderContext } from "./components/live-header-context";
 import { CreateBackdrop, Spinner } from "./components/apps-home";
 import { ProjectFolderMenu } from "./components/project-folder-menu";
 import { SessionReparentProvider, SessionReparentTarget, useSessionDragMenuGuard } from "./components/session-reparent";
-import { HostDrawerSlot, SideNavButton, SideNavGlyph, SideNavPanel, SideNavRows } from "./components/side-nav";
+import { HostDrawerSlot, SideNavButton, SideNavGlyph, SideNavPanel } from "./components/side-nav";
 import { FindingsPill, FindingsSheet } from "./components/findings-pill";
 import { OutOfCreditCard, isOutOfCreditNotice } from "./components/out-of-credit-card";
 import { mobileHeaderControl, sideNavRows, type SideNavRow } from "./lib/side-nav-items";
@@ -3102,6 +3102,19 @@ function shortUser(email?: string | null) {
 // A human-friendly label for a project. Current backend payloads use the
 // top-level folder under the repos root. The legacy dash-encoded full-path shape
 // is still accepted so old selected filters degrade cleanly.
+/** The newest chat activity per folder, for the Folders page's Recent sort. */
+function lastActivityByProject(
+  sessions: readonly { project?: string | null; lastActivityAt?: number | null }[],
+): Map<string, number> {
+  const latest = new Map<string, number>();
+  for (const session of sessions) {
+    const key = session.project === "" ? NO_PROJECT_FILTER : session.project;
+    if (!key || !session.lastActivityAt) continue;
+    if (session.lastActivityAt > (latest.get(key) ?? 0)) latest.set(key, session.lastActivityAt);
+  }
+  return latest;
+}
+
 /** Chats with an agent at work, per folder, for the phone's Folders page. */
 function runningByProject(
   sessions: readonly { sessionId?: string | null; project?: string | null }[],
@@ -9517,6 +9530,9 @@ export function App() {
     <Suspense fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>}>
       <ShippedPage
         active={active}
+        // The phone's Folders page lists only folders, so the Inbox is the
+        // way to Artifacts there.
+        onOpenArtifacts={isMobile && !hiddenPages.includes("artifacts") ? () => setTab("artifacts") : undefined}
         notificationIdentity={identity}
         liveSessionIds={liveSessionIdSet}
         onOpenSession={(sid) => {
@@ -9565,7 +9581,9 @@ export function App() {
   // control on the screen itself (see views/computer-page.tsx). Adding a case
   // here without that is how Notifications and Artifacts once ended up with no
   // route home at all -- see test/pages-nav.test.ts.
-  const chromelessSurface = liveDesktopWorkspace || tab === "computer";
+  // No header bar: the Computer has its own toolbar, and the phone's Folders
+  // page draws its title row in the bar's place, so nothing sits empty above it.
+  const chromelessSurface = liveDesktopWorkspace || tab === "computer" || (isMobile && tab === "folders");
 
   // The page navigation control, the same one on every page that has no rail:
   // the drawer button on a phone, the Pages menu between the phone and rail
@@ -10268,19 +10286,28 @@ export function App() {
           </div>
         ) : null}
         {isMobile && tab === "folders" ? (
-          // The phone's Folders page: the leftmost of its flat pages, and
-          // where the menu button goes. Folders first, then every other page,
-          // with Settings one tap away beside the title.
-          <div className="mx-auto max-w-xl pb-10 pt-1">
+          // The phone's Folders page: the leftmost of its flat pages, and where
+          // the menu button goes. Only folders. Settings is the gear in the
+          // title row; Inbox and Computer are swipes away; Schedules is in
+          // Settings and Artifacts in the Inbox. No header bar above it
+          // (chromelessSurface), so the title row starts under the status bar.
+          <div className="mx-auto max-w-xl pb-10 pt-[calc(0.5rem+env(safe-area-inset-top))]">
             <PhoneFolders
+              trailing={hostActionsSlot("flex items-center gap-1.5 empty:hidden")}
               value={projectFilter}
               projects={projectOptions}
               labelFor={(value) => projectFilterLabel(value, shortProject)}
               counts={projectSessionCounts}
               running={runningByProject(allLiveSessions, liveStream.busyBySid)}
+              lastActivity={lastActivityByProject(userScopedSessions)}
               onPick={(value) => {
                 changeProjectFilter(value);
                 setTab("live");
+              }}
+              canRemove={(project) => repos.some((repo) => repoProject(repo) === project)}
+              onRemove={async (project) => {
+                const repo = repos.find((candidate) => repoProject(candidate) === project);
+                if (repo) await unlinkRepoFromList(repo, loadCore);
               }}
               onAddFolder={() => setMobileFolderBrowser("add")}
               onNewFolder={() => setMobileFolderBrowser("new")}
@@ -10293,30 +10320,8 @@ export function App() {
                   : () => setTab("settings")
               }
             />
-            <div className="mx-3 my-3 border-t border-border" />
-            <div className="flex flex-col gap-1">
-              <SideNavRows
-                rows={sideNavRows({
-                  tab,
-                  hiddenPages,
-                  showSchedules: settings.showSchedules,
-                  // A host owns its own settings surface.
-                  showSettings: !embedded,
-                  extensions: extNavTabs,
-                  // "All chats" above is the way to Chats.
-                }).filter((row) => row.key !== "live")}
-                onNavigate={setTab}
-                onClose={noop}
-                haptic={false}
-              />
-              {/* Host rows, for example Upgrade, where the drawer had them. */}
-              {embedded ? <HostDrawerSlot onClose={noop} /> : null}
-            </div>
-            {!embedded || hostMachines ? (
-              <div className="mt-3 px-1">
-                <MachineSwitcher variant="nav" />
-              </div>
-            ) : null}
+            {/* A host's own rows (for example Upgrade), where its drawer had them. */}
+            {embedded ? <div className="mt-3 flex flex-col gap-1"><HostDrawerSlot onClose={noop} /></div> : null}
           </div>
         ) : null}
         {tab === "changelog" ? (

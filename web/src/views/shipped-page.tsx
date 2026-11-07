@@ -181,6 +181,7 @@ export default function ShippedPage({
   notificationIdentity,
   artifactsOnly = false,
   active = true,
+  onOpenArtifacts,
 }: {
   onOpenSession: (sessionId: string) => void;
   onOpenArtifactSession?: (artifact: GalleryArtifact) => void;
@@ -189,6 +190,8 @@ export default function ShippedPage({
   notificationIdentity?: string | null;
   artifactsOnly?: boolean;
   active?: boolean;
+  /** The phone has no menu row for Artifacts; the Inbox links to it. */
+  onOpenArtifacts?: () => void;
 }) {
   // Shipped and Artifacts are separate virtual pages. This shared loader keeps
   // their paging/realtime behavior aligned without exposing a nested toggle.
@@ -533,6 +536,13 @@ export default function ShippedPage({
             </p>
           )}
         </div>
+        <div className="flex items-center gap-1">
+        {!artifactsOnly && onOpenArtifacts ? (
+          <Button size="sm" variant="ghost" onClick={onOpenArtifacts}>
+            <LayoutDashboard className="size-4" />
+            Artifacts
+          </Button>
+        ) : null}
         {!artifactsOnly && posts !== null ? (
           // Icon only. It is a rare, undoable housekeeping action — it does not
           // need to be the second-loudest thing on the page.
@@ -551,6 +561,7 @@ export default function ShippedPage({
             )}
           </Button>
         ) : null}
+        </div>
       </div>
 
       {view === "artifacts" ? (
