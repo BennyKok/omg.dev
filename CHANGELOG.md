@@ -2,6 +2,16 @@
 
 Recent product updates and deployment notes.
 
+## November 7, 2026 - omg.dev is local software (v0.7.0)
+
+- omg.dev now runs on your computer only. It needs no omg account and makes no calls to omg Cloud.
+- Removed: omg Cloud sign-in, hosted apps (`omg deploy`, `omg apps`, `omg env` and the related commands), Android cloud builds, cloud previews, the machine switcher for cloud Computers, and image, video and 3D generation.
+- Removed: the Expo app, Expo game and web game templates. A new project is a plain Git folder.
+- The omg agent runs your own models from `~/.omg/models.json`. omg credits, hosted models and model levels are gone.
+- Session titles come from the first prompt. Rename with AI is removed.
+- When an agent asks for an API key, the key is saved only to the project `.env` file on this computer. The file is readable by its owner only.
+- Google connectors work with a Google client that you add on this computer.
+
 ## November 7, 2026 - Chat text no longer overlaps (v0.6.362)
 
 - In a long chat, messages sometimes drew on top of each other. This happened most when a reply, a card or an image grew after it was shown. Messages on screen now stack in normal page order, so they cannot overlap.
