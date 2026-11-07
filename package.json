@@ -36,8 +36,7 @@
     "desktop:dev": "bun run --cwd desktop desktop:dev",
     "desktop:build": "bun run --cwd desktop desktop:build",
     "desktop:test": "bun run --cwd desktop test",
-    "sitemap:submit": "bun run scripts/gsc-submit-sitemaps.ts",
-    "ios:login": "bun run src/ios-testing/setup-cli.ts login"
+    "sitemap:submit": "bun run scripts/gsc-submit-sitemaps.ts"
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "^0.83.0",

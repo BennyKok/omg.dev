@@ -3170,8 +3170,7 @@ function sendPromptToLiveSession(
   // into the TUI's own queue). The held-row release path and agent-to-agent
   // updates deliver right away.
   // `fromPerson`: the person sent this (composer, resume, held-row release),
-  // not an agent update or an internal notice. Only such a message ends an
-  // Auto new-app build (src/auto-build-model.ts).
+  // not an agent update or an internal notice.
   opts: { mode?: "steer" | "queue"; hold?: boolean; fromPerson?: boolean } = {},
 ): { ok: boolean; msg?: unknown; error?: string } {
   const prompt = text.trim();
