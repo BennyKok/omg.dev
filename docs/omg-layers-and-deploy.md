@@ -1,7 +1,11 @@
 # omg layers: Client, Cloud, Infra, and the outer API from any client
 
-Status: implemented in this repository for the Client, runtime, and guest
-proxy origin. Date: 2026-09-18. `vibes` owns injecting the owner's token on
+Status: superseded. omg.dev became local software in v0.7.0 on 2026-11-07.
+The hosted deploy and Cloud APIs this design proposes were removed from this
+repository (`a53393a5e`, `2cdf61627`). `CHANGELOG.md` and `docs/STATE.md`
+describe current behavior. The Problem, Proposal, and First slice sections
+below describe the removed cloud path; this document is kept as a design
+record. Written 2026-09-18, when `vibes` owned injecting the owner's token on
 `/cloud/api/cli/*` at the Infra guest proxy.
 
 ## Problem
