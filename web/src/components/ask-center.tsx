@@ -40,7 +40,7 @@ export type Question = {
   agentId?: string | null;
   sessionId?: string | null;
   /** A secure ask: the answer is one env value, typed in a password field. */
-  secret?: { key: string; saveToHosted?: boolean } | null;
+  secret?: { key: string } | null;
   createdAt: number;
 };
 
@@ -218,9 +218,9 @@ export function AskProvider({ children }: { children: React.ReactNode }) {
     }
   }, [settleLocally]);
 
-  // The value goes to the runtime, which saves it to the project .env and the
-  // optional hosted app. It never enters the transcript, and the agent gets the key
-  // name only.
+  // The value goes to the runtime, which saves it to the project .env on this
+  // computer. It never enters the transcript, and the agent gets the key name
+  // only.
   const submitSecret = useCallback(
     async (q: Question, value: string): Promise<boolean> => {
       if (busy || !value.trim()) return false;
@@ -232,7 +232,7 @@ export function AskProvider({ children }: { children: React.ReactNode }) {
           body: JSON.stringify({ value }),
         });
         const body = (await res.json().catch(() => null)) as
-          | { error?: string; saved?: { key: string; cloud: string; cloudError?: string } }
+          | { error?: string; saved?: { key: string } }
           | null;
         if (!res.ok) {
           toast.error(body?.error || "Could not save the key");
@@ -240,11 +240,7 @@ export function AskProvider({ children }: { children: React.ReactNode }) {
         }
         setQuestions((prev) => prev.filter((x) => x.id !== q.id));
         void closePushNotification(`ask-${q.id}`);
-        if (body?.saved?.cloud === "failed") {
-          toast.error(`${q.secret?.key ?? "Key"} saved locally. The hosted app was not updated.`);
-        } else {
-          toast(`${q.secret?.key ?? "Key"} saved`);
-        }
+        toast(`${q.secret?.key ?? "Key"} saved`);
         return true;
       } catch {
         toast.error("Could not save the key");
@@ -647,9 +643,7 @@ export function SecretField({ q }: { q: Question }) {
         </Button>
       </div>
       <p className="mt-1 text-[11px] text-muted-foreground">
-        {q.secret?.saveToHosted !== false
-          ? "Saved to the project .env and any linked hosted app."
-          : "Saved to the project .env for local use only."} The agent sees the name only.
+        Saved to the project .env on this computer. The agent sees the name only.
       </p>
     </form>
   );

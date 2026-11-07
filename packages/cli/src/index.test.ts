@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { APP_COMMANDS } from "./apps.ts";
 import { HELP_BANNER } from "./help.ts";
 import { runCli } from "./index.ts";
 import manifest from "../package.json" with { type: "json" };
@@ -27,17 +26,16 @@ describe("published version can replace the retired 0.4.x line", () => {
   });
 });
 
-describe("omg help names the control plane and the hosted app verbs", () => {
+describe("omg help names the control plane only", () => {
   test("help before setup prints the probe phrase setup.sh greps for", async () => {
     const log = capture();
     expect(await runCli(["help"], { ...log, ...noInstall })).toBe(0);
     expect(log.text()).toContain(HELP_BANNER);
     expect(log.text()).toContain("computer setup");
     expect(log.text()).toContain("localhost:8766");
-    expect(log.text()).toContain("omg create");
-    expect(log.text()).toContain("omg deploy");
-    expect(log.text()).toContain("omg login");
-    expect(log.text()).not.toContain("omg-apps");
+    for (const retired of ["omg create", "omg deploy", "omg login", "omgs.app", "omg Cloud"]) {
+      expect(log.text()).not.toContain(retired);
+    }
   });
 
   // setup.sh runs the probe to decide whether this `omg` is the wrapper. If
@@ -78,8 +76,10 @@ describe("omg help names the control plane and the hosted app verbs", () => {
     }
   });
 
-  test("hosted app verbs start the old app flow on this same omg", async () => {
-    for (const command of APP_COMMANDS) {
+  // omg Cloud and hosted apps were removed. An old script must get a clear
+  // answer, and nothing may be forwarded to an install that no longer has them.
+  test("retired cloud verbs fail with a clear message and never forward", async () => {
+    for (const command of ["create", "deploy", "dev", "apps", "link", "visibility", "rename", "login", "logout", "whoami", "env"]) {
       const log = capture();
       const spawned: string[][] = [];
       const code = await runCli([command, "arg"], {
@@ -90,9 +90,9 @@ describe("omg help names the control plane and the hosted app verbs", () => {
           return 0;
         },
       });
-      expect(code, command).toBe(0);
-      expect(spawned, command).toEqual([["/tmp/lfg", command, "arg"]]);
-      expect(log.text(), command).not.toContain("not part of the current omg.dev product");
+      expect(code, command).toBe(1);
+      expect(spawned, command).toEqual([]);
+      expect(log.text(), command).toContain("runs on this computer only");
     }
   });
 });

@@ -18,22 +18,6 @@ Agents:
   omg mcp                          Run the omg.dev MCP server (stdio)
   omg computer-mcp                 Run the Computer MCP server (stdio)
 
-omg Cloud account:
-  omg login [--api-key KEY]        Sign in to omg Cloud
-  omg logout                       Sign out of omg Cloud
-  omg whoami                       Show the signed-in account
-
-Hosted apps (*.omgs.app):
-  omg create <name>                Publish the current directory as a new app
-  omg deploy [--name NAME]         Publish the current directory
-             [--no-wait] [--generate-icon]
-  omg apps                         List your apps
-  omg visibility <slug> [public|omg-users]
-  omg rename <slug> <new-slug>
-                                   Show or set who can open an app
-  omg env list|pull|set|rm|import <slug> ...
-                                   Manage an app's environment variables
-
 Settings (read from the environment or .env, see .env.example):
   OMG_PORT, OMG_HOST, OMG_REPOS_ROOT  (the older LFG_* names still work)
 
@@ -123,7 +107,7 @@ async function main() {
       return await cmdComputerMcp();
     }
     case "connect": {
-      console.error("Connecting your own computer has been removed. Use your omg.dev cloud Computer.");
+      console.error("Connecting your own computer has been removed. omg.dev runs on this computer only.");
       process.exitCode = 1;
       return;
     }
@@ -131,6 +115,8 @@ async function main() {
       const { cmdProjects } = await import("./commands/projects.ts");
       return await cmdProjects(rest);
     }
+    // Retired: omg.dev is local software now. Old scripts get a clear answer
+    // instead of the generic unknown-command help.
     case "login":
     case "logout":
     case "whoami":
@@ -142,9 +128,8 @@ async function main() {
     case "env":
     case "dev":
     case "link": {
-      const { cmdApps } = await import("./commands/apps.ts");
-      const code = await cmdApps([cmd, ...rest]);
-      if (code !== 0) process.exit(code);
+      console.error(`omg ${cmd} was removed. omg Cloud and hosted apps are no longer part of omg.dev; it runs on this computer only.`);
+      process.exitCode = 1;
       return;
     }
     case "setup": {

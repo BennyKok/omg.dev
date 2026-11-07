@@ -169,11 +169,8 @@ describe("omg.dev runtime capabilities", () => {
       "omg_request_browser_login / omg_browser_login_status",
       "omg_create_owned_bot / omg_update_self / omg_list_owned_bots / omg_send_message_to_peer",
       "omg_ship",
-      "omg_deploy / omg_deploy_status / omg_apps / omg_whoami / omg_app_visibility / omg_app_rename / omg_app_test_checkout / omg_app_payments / omg_app_identity / omg_app_env / omg_link_app / omg_unlink_app",
-      "omg_expose_port",
-      "omg_build_android / omg_build_status",
+      "omg_request_secret",
       "omg_display_image / omg_display_video / omg_display_file",
-      "omg_generate_image / omg_generate_video / omg_generate_3d / omg_media_job / omg_media_models",
       "omg_input",
       "omg_list_threads / omg_read_thread / omg_send_thread_message",
       "omg_find_sessions",
@@ -183,12 +180,16 @@ describe("omg.dev runtime capabilities", () => {
     ]);
   });
 
-  test("makes the sandbox proxy the Expo Go path", () => {
-    const preview = OMG_CAPABILITIES.find((item) => item.tool === "omg_expose_port");
-    expect(preview?.guidance).toContain("expoGo:true");
-    expect(preview?.guidance).toContain("EXPO_PACKAGER_PROXY_URL");
-    expect(preview?.guidance).toContain("Do not use Expo tunnel");
-    expect(OMG_MCP_INSTRUCTIONS).toContain("prepare the Metro port with expoGo:true");
+  // omg.dev is local software: no agent-facing text may point at a cloud tool.
+  test("advertises no omg Cloud, hosted app, cloud build or paid media tool", () => {
+    const text = [OMG_MCP_INSTRUCTIONS, ...OMG_CAPABILITIES.map((item) => `${item.tool} ${item.useWhen} ${item.guidance}`)].join("\n");
+    for (const removed of [
+      "omg_deploy", "omg_apps", "omg_whoami", "omg_app_", "omg_link_app", "omg_unlink_app",
+      "omg_build_android", "omg_build_status", "omg_expose_port",
+      "omg_generate_", "omg_media_", "omg Cloud", "omgs.app", "omg credits",
+    ]) {
+      expect(text).not.toContain(removed);
+    }
   });
 
   test("keeps visual display tools without registering omg_output", () => {
@@ -315,165 +316,6 @@ describe("user standing instructions", () => {
     expect(omgUserInstructionsBlock(undefined)).toBe("");
     expect(omgUserInstructionsBlock("  ")).toBe("");
     expect(omgUserInstructionsBlock(RULES)).toContain(RULES);
-  });
-});
-
-describe("first-run envelope", () => {
-  test("wraps the task in the first-run rules and still shows only the human's ask", async () => {
-    const { withFirstRunEnvelope, withOmgRuntimeContract, stripOmgRuntimeContract, sessionTitleFromPrompt, FIRST_RUN_HEADER } =
-      await import("./omg-capabilities.ts");
-    const ask = "Build me a Lua obfuscator website";
-    const wrapped = withFirstRunEnvelope(ask, { seesImages: false })!;
-    expect(wrapped.startsWith(FIRST_RUN_HEADER)).toBe(true);
-    expect(wrapped).toContain("Within about 5 minutes");
-    expect(wrapped).toContain("including a new request typed after the user stops you");
-    expect(wrapped).toContain("You cannot see images");
-    expect(wrapped).toContain("If the request links a design image");
-    // The launch envelope wraps it once more; display surfaces peel both.
-    const launched = withOmgRuntimeContract(wrapped)!;
-    expect(stripOmgRuntimeContract(launched)).toBe(ask);
-    expect(sessionTitleFromPrompt(launched)).toBe(ask);
-  });
-
-  // A host's guided first task (omg.dev install campaign): the person
-  // publishes from the guide. Fails if the guide shows in the person's bubble,
-  // if the deploy rule stays beside it, or if an ordinary first run loses it.
-  test("a guided first task carries the host's rules in place of the deploy rule, out of the person's bubble", async () => {
-    const { withFirstRunEnvelope, withOmgRuntimeContract, stripOmgRuntimeContract } = await import("./omg-capabilities.ts");
-    const ask = "A to-do app where I add tasks.";
-    const guide = "Do not publish until I send Publish my app.";
-    const guided = withFirstRunEnvelope(ask, { seesImages: false, guide })!;
-    expect(guided).toContain(guide);
-    expect(guided).not.toContain("deploy once with `omg_deploy`");
-    expect(guided.indexOf(guide)).toBeLessThan(guided.indexOf("=== USER TASK ==="));
-    expect(stripOmgRuntimeContract(withOmgRuntimeContract(guided)!)).toBe(ask);
-
-    const ordinary = withFirstRunEnvelope(ask, { seesImages: false })!;
-    expect(ordinary).toContain("deploy once with `omg_deploy`");
-    expect(ordinary).not.toContain("guided first task");
-  });
-
-  // Owner decision 2026-10-16: an app is a web app in the ready project unless
-  // the person asks for one to install. Fails if the web default goes away or
-  // the Expo steps apply to every app again.
-  test("an app is a web app in the ready project by default, and Expo only when an install is asked for", async () => {
-    const { withFirstRunEnvelope } = await import("./omg-capabilities.ts");
-    const wrapped = withFirstRunEnvelope("Build a habit tracker", { seesImages: true })!;
-    const web = wrapped.split("\n").find((line) => line.startsWith("- Build an app as a web app by default"));
-    expect(web).toContain("/home/user/project");
-    expect(web).toContain("port 5173");
-    const expo = wrapped.split("\n").find((line) => line.includes('`template: "expo"`'));
-    expect(expo?.startsWith("- For an app to install on a phone (only when asked")).toBe(true);
-    expect(wrapped.indexOf("- Build an app as a web app by default")).toBeLessThan(wrapped.indexOf(expo!));
-  });
-
-  test("a phone app exposes Metro before any code, with the concrete Expo steps", async () => {
-    const { withFirstRunEnvelope } = await import("./omg-capabilities.ts");
-    const wrapped = withFirstRunEnvelope("Build a mobile app for my family", { seesImages: true })!;
-    const create = wrapped.indexOf('`omg_create_project` with `template: "expo"`');
-    const expose = wrapped.indexOf("`omg_expose_port` with port 8081 and `expoGo: true`");
-    const script = wrapped.indexOf("bash scripts/start-expo-preview.sh <expoGo.proxyUrl> 8081");
-    expect(create).toBeGreaterThan(0);
-    expect(expose).toBeGreaterThan(create);
-    expect(script).toBeGreaterThan(expose);
-    expect(wrapped).toContain("before you write any app code, even when the request includes a design to match");
-    expect(wrapped).toContain("`WARNING: Expo CLI is not signed in`");
-    // The agent offers the account in the card's words and never signs up itself.
-    expect(wrapped).toContain('offer \"Create a free Expo account\"');
-    expect(wrapped).toContain('tap \"Create free account\", or \"I have one\"');
-    expect(wrapped).toContain("never sign up for them");
-    // Level 1 first: the web preview works on any device with no account.
-    const web = wrapped.indexOf("Present the web preview first");
-    const phone = wrapped.indexOf('tap \"Your phone\" on the card');
-    expect(web).toBeGreaterThan(script);
-    expect(phone).toBeGreaterThan(web);
-  });
-
-  test("a game first run starts from the web game kit, with Expo only on request", async () => {
-    const { withFirstRunEnvelope } = await import("./omg-capabilities.ts");
-    const wrapped = withFirstRunEnvelope("Build a block puzzle game.", { seesImages: true })!;
-    const rule = wrapped.split("\n").find((line) => line.startsWith("- For a game"))!;
-    // The kit and its skill load before any game code, on the port the kit serves.
-    expect(rule).toContain('`template: "web-game"`');
-    expect(rule).toContain("omg-web-game-builder");
-    expect(rule).toContain("port 5174");
-    // A native game stays possible, but only when the user asks for one.
-    const native = rule.indexOf('`template: "expo-game"`');
-    expect(native).toBeGreaterThan(rule.indexOf('`template: "web-game"`'));
-    expect(rule.slice(native)).toContain("only when the user asks for a game to install");
-  });
-
-  test("the final message of a phone app carries the Expo account offer", async () => {
-    const { withFirstRunEnvelope } = await import("./omg-capabilities.ts");
-    const wrapped = withFirstRunEnvelope("Build a mobile app for my family", { seesImages: true })!;
-    const rule = wrapped.split("\n").find((line) => line.startsWith("- Final message for a phone app"));
-    expect(rule).toBeDefined();
-    expect(rule).toContain("`WARNING: Expo CLI is not signed in`");
-    expect(rule).toContain("end your final message with this offer");
-    expect(rule).toContain("Create a free Expo account");
-    expect(rule).toContain(`then "Create free account" (or "I have one")`);
-    expect(rule).toContain("Do not tell the user to try it in Expo Go");
-    // The rule precedes the user's request, so it applies to the whole session.
-    expect(wrapped.indexOf(rule!)).toBeLessThan(wrapped.indexOf("Build a mobile app for my family"));
-  });
-
-  test("the omg-app-builder skill tells the agent to end with the Expo account offer", async () => {
-    const { readFile } = await import("node:fs/promises");
-    const skill = await readFile(new URL("../agents/skills/omg-app-builder/SKILL.md", import.meta.url), "utf8");
-    expect(skill).toContain("Your final message must also carry that offer while Expo CLI is not signed in");
-    expect(skill).toContain('Never end with "try it on your phone via Expo Go"');
-  });
-
-  test("a phone app first run is told to replace the template home screen", async () => {
-    // A DeepSeek build put its screens in app/(tabs)/index.tsx and "/" kept
-    // showing the template to-do app from src/app/index.tsx.
-    const { withFirstRunEnvelope } = await import("./omg-capabilities.ts");
-    const wrapped = withFirstRunEnvelope("Build a habit tracker app", { seesImages: false })!;
-    expect(wrapped).toContain("Replace the template home screen in `src/app/index.tsx`; do not add a second index route");
-  });
-
-  test("a first run with a design checks the screens against it before deploying", async () => {
-    // Trial builds (2026-10-08) deployed the first preview without comparing
-    // it to the paid design, so the user opened a different app.
-    const { withFirstRunEnvelope } = await import("./omg-capabilities.ts");
-    const wrapped = withFirstRunEnvelope("Build a jewelry store app. Match this design.", { seesImages: true })!;
-    const gate = wrapped.indexOf("- If the task includes design screens to match");
-    const deploy = wrapped.indexOf("- After the preview:");
-    expect(gate).toBeGreaterThan(-1);
-    expect(gate).toBeLessThan(deploy);
-    expect(wrapped.slice(gate, deploy)).toContain("deploy again after the fixes");
-    // The user has often left. A turn that ends on a question ships nothing.
-    expect(wrapped.slice(gate, deploy)).toContain("Do not stop to ask whether to continue");
-    // Public preview links ask for a sign-in, so the check uses the local server.
-    expect(wrapped.slice(gate, deploy)).toContain("`http://127.0.0.1:8081`");
-    // A model that cannot see images cannot compare screenshots.
-    expect(withFirstRunEnvelope("x", { seesImages: false })).not.toContain("design screens to match");
-  });
-
-  test("a first run makes its first deployed app public", async () => {
-    // An owner-only first app asked everyone, the agent included, to sign in.
-    const { withFirstRunEnvelope } = await import("./omg-capabilities.ts");
-    const rule = withFirstRunEnvelope("Build a habit tracker app", { seesImages: false })!
-      .split("\n")
-      .find((line) => line.startsWith("- After the preview:"));
-    expect(rule).toContain("`omg_app_visibility`");
-    expect(rule!.indexOf("`omg_deploy`")).toBeLessThan(rule!.indexOf("`omg_app_visibility`"));
-  });
-
-  test("the image rule is only for models that cannot see", async () => {
-    const { withFirstRunEnvelope, modelSeesImages } = await import("./omg-capabilities.ts");
-    expect(withFirstRunEnvelope("x", { seesImages: true })).not.toContain("You cannot see images");
-    expect(withFirstRunEnvelope("x", { seesImages: true })).not.toContain("design image");
-    expect(modelSeesImages("omg/deepseek/deepseek-v4-flash-0731")).toBe(false);
-    expect(modelSeesImages("omg/openai/gpt-6-luna")).toBe(true);
-    expect(modelSeesImages("omg/deepseek/deepseek-v4-pro")).toBe(false);
-    // Hosted models follow the catalog that declares image input to OpenCode.
-    expect(modelSeesImages("omg/z-ai/glm-5.3-flash")).toBe(true);
-    expect(modelSeesImages("omg/anthropic/claude-haiku-5.5")).toBe(true);
-    expect(modelSeesImages("omg/z-ai/glm-5.3")).toBe(false);
-    expect(modelSeesImages("opus")).toBe(true);
-    expect(modelSeesImages(undefined)).toBe(true);
-    expect(withFirstRunEnvelope("", { seesImages: true })).toBe("");
   });
 });
 

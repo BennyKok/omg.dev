@@ -1,27 +1,15 @@
-// Save one secret (API key, internal API URL, token) for a user's app.
+// Save one secret (API key, internal API URL, token) for a user's project.
 //
-// The value arrives from the secure ask field and goes to two places: the
-// project's `.env`, so local dev and previews read it at once, and optionally
-// the hosted app's Cloud env vars when the folder is linked to a deployed app. The value
-// is never returned, logged, or stored anywhere else. Callers get key names and
-// outcomes only.
+// The value arrives from the secure ask field and goes to one place: the
+// project's `.env` on this computer. It is never returned, logged, sent off the
+// machine, or stored anywhere else. Callers get key names and outcomes only.
 
-import { existsSync, readFileSync, writeFileSync, appendFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-
-import type { CloudAppsClient } from "../packages/cloud/src/apps.ts";
-import { resolveEnvTarget } from "./cloud-apps.ts";
 
 /** Same rule as a shell variable name, which is what the app will read. */
 export const ENV_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 export const MAX_SECRET_VALUE_BYTES = 16 * 1024;
-
-/** Omitted options preserve existing requests; invalid options must not publish a secret. */
-export function validateSaveToHosted(value: unknown, fallback = true): boolean {
-  if (value === undefined) return fallback;
-  if (typeof value !== "boolean") throw new Error("saveToHosted must be a boolean");
-  return value;
-}
 
 export function validateEnvKey(key: unknown): string {
   const trimmed = typeof key === "string" ? key.trim() : "";
@@ -84,85 +72,37 @@ export function ensureDotenvIgnored(cwd: string): boolean {
 export type SaveAppSecretResult = {
   key: string;
   /** Absolute path of the `.env` that now holds the key. */
-  localFile?: string;
+  localFile: string;
   /** True when this call added `.env` to `.gitignore`. */
   gitignoreUpdated?: boolean;
-  /** skipped: local only. set: Cloud has it. not-linked: no app yet. failed: see cloudError. */
-  cloud: "skipped" | "set" | "not-linked" | "failed";
-  slug?: string;
-  cloudError?: string;
 };
 
 export async function saveAppSecret(input: {
   key: string;
   value: string;
   cwd?: string | null;
-  slug?: string | null;
-  saveToHosted?: boolean;
-  client: CloudAppsClient | null;
 }): Promise<SaveAppSecretResult> {
   const key = validateEnvKey(input.key);
   const value = validateSecretValue(input.value);
   const cwd = input.cwd?.trim() || "";
-  const slug = input.slug?.trim() || "";
-  const saveToHosted = validateSaveToHosted(input.saveToHosted);
-  if (!saveToHosted && !cwd) throw new Error("a local-only secret needs a project folder");
-  if (!cwd && !slug) throw new Error("the request has no project folder or app");
-
-  const result: SaveAppSecretResult = { key, cloud: saveToHosted ? "not-linked" : "skipped" };
-  if (cwd) {
-    if (!existsSync(cwd)) throw new Error(`project folder not found: ${cwd}`);
-    const file = join(cwd, ".env");
-    const before = existsSync(file) ? readFileSync(file, "utf8") : "";
-    writeFileSync(file, upsertDotenvText(before, key, value), { mode: 0o600 });
-    result.localFile = file;
-    if (ensureDotenvIgnored(cwd)) result.gitignoreUpdated = true;
-  }
-
-  if (!saveToHosted) return result;
-
-  let target: { slug: string; projectId?: string } | null = null;
-  try {
-    target = resolveEnvTarget({ slug, cwd });
-  } catch {
-    target = null; // folder not deployed yet
-  }
-  if (!target) return result;
-  result.slug = target.slug;
-  if (!input.client) {
-    result.cloud = "failed";
-    result.cloudError = "this runtime is not signed in to omg Cloud";
-    return result;
-  }
-  try {
-    await input.client.setEnv({ ...target, vars: { [key]: value } });
-    result.cloud = "set";
-  } catch (error) {
-    result.cloud = "failed";
-    const message = error instanceof Error ? error.message : "Cloud request failed";
-    // Never let a Cloud error echo the value back into the transcript.
-    result.cloudError = message.split(value).join("[redacted]");
-  }
+  if (!cwd) throw new Error("the request has no project folder");
+  if (!existsSync(cwd)) throw new Error(`project folder not found: ${cwd}`);
+  const file = join(cwd, ".env");
+  const before = existsSync(file) ? readFileSync(file, "utf8") : "";
+  writeFileSync(file, upsertDotenvText(before, key, value), { mode: 0o600 });
+  // `mode` applies only when the file is created. An existing .env keeps its
+  // old bits, often 0644, so tighten it now that it holds a secret.
+  chmodSync(file, 0o600);
+  const result: SaveAppSecretResult = { key, localFile: file };
+  if (ensureDotenvIgnored(cwd)) result.gitignoreUpdated = true;
   return result;
 }
 
 /** What the asking agent reads. Key names and outcomes only. */
 export function formatSecretSavedText(askId: string, saved: SaveAppSecretResult): string {
-  const parts = [`[env-set ${saved.key}] The user entered ${saved.key} in the secure field (ask ${askId}).`];
-  if (saved.localFile) {
-    parts.push(
-      `Saved to ${saved.localFile}${saved.gitignoreUpdated ? " and added .env to .gitignore" : ""}. Read it as process.env.${saved.key} on the server side; do not put it in client code.`,
-    );
-  }
-  if (saved.cloud === "skipped") {
-    parts.push("Saved for local use only. Do not copy this key to a hosted app unless the user asks.");
-  } else if (saved.cloud === "set") {
-    parts.push(`Also set on hosted app ${saved.slug}. It applies on the next omg_deploy.`);
-  } else if (saved.cloud === "not-linked") {
-    parts.push("No hosted app is linked yet. After the first omg_deploy, call omg_app_env with action import to copy .env to the app.");
-  } else {
-    parts.push(`Setting it on hosted app ${saved.slug ?? ""} failed: ${saved.cloudError}. Retry later with omg_app_env action import.`);
-  }
-  parts.push("Do not ask the user to paste the value in chat, and never print it.");
-  return parts.join(" ");
+  return [
+    `[env-set ${saved.key}] The user entered ${saved.key} in the secure field (ask ${askId}).`,
+    `Saved to ${saved.localFile}${saved.gitignoreUpdated ? " and added .env to .gitignore" : ""}. Read it as process.env.${saved.key} on the server side; do not put it in client code.`,
+    "Do not ask the user to paste the value in chat, and never print it.",
+  ].join(" ");
 }

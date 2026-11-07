@@ -246,7 +246,7 @@ describe.skipIf(!OPENCODE)("managed OpenCode session, end to end", () => {
 
       // OpenCode names MCP tools `<server>_<tool>`.
       const firstTurn = toolsSentToModel.find((tools) => tools.length) ?? [];
-      expect(firstTurn).toContain("omg_omg_build_android");
+      expect(firstTurn).toContain("omg_omg_display_file");
       expect(firstTurn).toContain("omg_omg_ship");
       // Identity: every call named this session and carried its valid token.
       expect(callers.length).toBeGreaterThan(0);

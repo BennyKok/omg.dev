@@ -15,7 +15,6 @@ import {
   parseCustomModels,
 } from "./custom-models.ts";
 import { listModelCatalog, modelsForAgent, OMG_MODELS } from "./agent-catalog.ts";
-import { modelSeesImages } from "./omg-capabilities.ts";
 
 let home: string;
 let savedHome: string | undefined;
@@ -76,8 +75,8 @@ test("omg picker lists hosted models then custom ones; image support follows the
   process.env.HOME = home;
   writeModels([PC, { id: "box", baseURL: "http://box/v1", models: [{ id: "coder" }] }]);
   expect(modelsForAgent("omg")).toEqual([...OMG_MODELS, "custom-pc/gemma-4-e4b", "custom-box/coder"]);
-  expect(modelSeesImages("custom-pc/gemma-4-e4b")).toBe(true);
-  expect(modelSeesImages("custom-box/coder")).toBe(false);
+  expect(customInputModalities("custom-pc/gemma-4-e4b", { home })).toEqual(["text", "image"]);
+  expect(customInputModalities("custom-box/coder", { home })).toEqual(["text"]);
 });
 
 test("ensureCustomProviders writes OpenCode providers next to existing ones", () => {
@@ -133,8 +132,6 @@ const LITE = {
   omg_omg_ship: true,
   omg_omg_display_image: true,
   omg_omg_display_file: true,
-  omg_omg_deploy: true,
-  omg_omg_deploy_status: true,
 };
 
 test("a small custom model gets the lite omg tools; a larger one gets more", () => {

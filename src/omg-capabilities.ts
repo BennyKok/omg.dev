@@ -1,7 +1,5 @@
 import type { CodingAgentKind } from "./coding-agents.ts";
 import { DEFAULT_MAX_BOT_SCHEDULES } from "./settings.ts";
-import { omgInputModalities } from "./omg-models.ts";
-import { customInputModalities } from "./custom-models.ts";
 
 // Bump whenever an agent-facing omg.dev capability or its operating guidance
 // changes. Managed sessions persist the value they launched with, which lets
@@ -32,33 +30,15 @@ export const OMG_CAPABILITIES = [
       "This is how finished work reaches the human — a session that never ships is invisible. Post a headline, a tweet-length result and the strongest evidence. Posting does not close the session. Never ship planning, partial, or blocked work.",
   },
   {
-    tool: "omg_deploy / omg_deploy_status / omg_apps / omg_whoami / omg_app_visibility / omg_app_rename / omg_app_test_checkout / omg_app_payments / omg_app_identity / omg_app_env / omg_link_app / omg_unlink_app",
-    useWhen: "A project folder must be published to omg Infra, listed, have its URL visibility changed, or have its name, tagline or icon set.",
+    tool: "omg_request_secret",
+    useWhen: "A project needs an API key, token or internal URL that the user has not given.",
     guidance:
-      "These verbs inherit the runtime Cloud credential. A local box uses ~/.omg/credentials.json. A Cloud Computer gets the binding token from Infra. Do not ask the user to paste a token. omg_deploy waits at most 45 seconds; when it returns pending: true, call omg_deploy_status with the slug until the build is ready or failed, and do not deploy again. omg_ship is a feed post, not a deploy. After a first deploy, give the app a clear name and a one-line tagline with omg_app_identity; they show on its link preview and sign-in page. Add an icon only when the project has a real one. A first deploy returns storeScreenshotsHint: follow it once the build is ready, so the app's store page and \"ready\" email show the app. When the app needs API keys or internal API URLs, put them in a .env file and call omg_app_env with action import, then deploy again; never print secret values in chat. A deploy from a folder with no .omg/project.json creates a new app. If the folder is the source of an app that already exists (check omg_apps), link it with omg_link_app before you deploy, so the deploy updates that app. Link only when you know it is the same app; otherwise ask the user with omg_ask_user first. To take payments in an app, read omg_app_payments status; if payments are off, show the owner the seller terms, ask them to accept, and call enable only after they accept.",
-  },
-  {
-    tool: "omg_expose_port",
-    useWhen: "A live HTTP development server in an omg.dev Cloud Computer should appear as a preview card.",
-    guidance:
-      "For web previews, start one server on 0.0.0.0 and expose its exact port. For Expo Go, choose a free Metro port and call with expoGo:true before Metro starts. In an Expo template project, start Metro with `bash scripts/start-expo-preview.sh <expoGo.proxyUrl> <port>`; elsewhere start Metro with EXPO_PACKAGER_PROXY_URL set to expoGo.proxyUrl. The omg.dev preview card shows the Expo Web version inline first, and its Your phone tab has the Open in Expo Go button and a QR code for expoGo.url. So tell the user the app is ready in the card below, then mention the Your phone tab, and do not paste the exps:// URL. Paste expoGo.url only where the user cannot see the card, for example a reply sent with omg_send_to_origin to a messaging channel, or when the user asks for the link. Do not use Expo tunnel, exp.direct, ngrok, or LAN exposure.",
-  },
-  {
-    tool: "omg_build_android / omg_build_status",
-    useWhen: "The user wants an Expo app installed on an Android phone as a real app, not only in Expo Go.",
-    guidance:
-      "omg_build_android builds a signed APK in omg Cloud from the committed project and needs Expo SDK 57, a static app.json and a committed bun.lock (the omg_create_project expo template meets this). It waits at most 45 seconds; a build takes about 3 to 5 minutes, so tell the user it is building and call omg_build_status with the buildId until it finishes. Do not start a second build. On success, show apkPath with omg_display_file and send installUrl, which opens an install page on an Android phone and expires; call omg_build_status again for a fresh link. Later builds of the same project update the installed app and keep its data. If app.json names no icon, the build commits the icon made on omg.dev as assets/omg-icon.png. It does not make an iPhone app.",
+      "The user types the value into a password field; it is saved to the project .env on this computer and you receive the key name only. Request one key per call, then end your turn and wait for the [env-set KEY] message. Never ask for a secret in chat and never print one.",
   },
   {
     tool: "omg_display_image / omg_display_video / omg_display_file",
     useWhen: "A local screenshot, recording, or file would be useful evidence in the omg.dev transcript.",
     guidance: "Use omg_display_file for a PDF, an audio clip, a CSV, a log, or any other document. Use these to show artifacts, not to talk: communicate with the human through normal assistant messages.",
-  },
-  {
-    tool: "omg_generate_image / omg_generate_video / omg_generate_3d / omg_media_job / omg_media_models",
-    useWhen: "A task needs a new image or video made from a prompt, or a 3D model (GLB) made from an image, on an omg.dev Computer.",
-    guidance:
-      "These spend the user's omg credits. Read the media-generation skill (guidePath from omg_media_models) first. Prefer the cheapest model that fits and tell the user the costUsd in your reply. Calls are capped per call and per UTC day. When a result has pending: true, call omg_media_job with the jobId and do not generate again. Show results with omg_display_image or omg_display_video; a video must be under 6 MB, H.264, faststart.",
   },
   {
     tool: "omg_input",
@@ -117,7 +97,7 @@ export const OMG_MCP_INSTRUCTIONS = [
   "In a task session, publish every verified result with omg_ship; work that is never shipped never reaches the human. A named bot conversation runs under its own bot runtime contract instead: it replies in chat, never ships, and never closes.",
   "Decide autonomously and keep working: do not ask to check in, to confirm the next step, or to approve work already in scope. Use omg_input (or your own AskUserQuestion tool) only for a genuinely irreversible, external, or ambiguous decision, with 2-4 options. Use omg.dev-managed delegation only when delegation is explicitly requested.",
   "Recurring scheduled work belongs to the auto agent tools (omg_list_auto_agents, omg_compose_auto_agent, omg_save_auto_agent, omg_run_auto_agent, omg_list_findings).",
-  "Hosted apps use omg_deploy, omg_deploy_status, omg_apps, omg_whoami, omg_app_visibility, omg_app_rename, omg_app_test_checkout, omg_app_payments, omg_app_identity, omg_app_env, omg_link_app, and omg_unlink_app. Installable Android apps use omg_build_android and omg_build_status. For a live Cloud Computer preview, use omg_expose_port. For Expo Go, prepare the Metro port with expoGo:true and use the returned sandbox proxy URL. The runtime supplies the Cloud credential.",
+  "When a project needs an API key or token the user has not given, use omg_request_secret; never ask for a secret in chat.",
   `Session ids are returned in short form (${SHORT_SESSION_ID_LENGTH}-char prefix, like a git short sha). Pass them back exactly as given — any unambiguous prefix resolves to the full id.`,
 ].join(" ");
 
@@ -266,109 +246,7 @@ const SUBAGENT_HEADERS = [
   "=== omg.dev THREAD TASK ===",
 ] as const;
 
-export const FIRST_RUN_HEADER = "=== omg.dev FIRST RUN ===";
 
-/**
- * Whether a model can read the screenshots it takes. A text-only model on the
- * omg router cannot: in production first runs the DeepSeek models spent 8 to
- * 12 minutes writing screenshot and CDP harnesses, then said "I can't view
- * images". A hosted omg model follows the model catalog, the same list that
- * declares image input to OpenCode. Other models are assumed to see, except
- * DeepSeek.
- */
-export function modelSeesImages(model: string | undefined | null): boolean {
-  const input = model ? omgInputModalities(model) ?? customInputModalities(model) : null;
-  if (input) return input.includes("image");
-  return !/deepseek/i.test(model ?? "");
-}
-
-/**
- * The first task of a new user's first session, wrapped in the first-run rules.
- *
- * WHY. Real ad signups (2026-09-26/27) left minutes after publishing, and one
- * never saw a result: after they stopped the starter task and typed their own,
- * the agent built and self-tested for 49 minutes with no preview, spent 12 more
- * on a screenshot harness it could not read, and sent the link 77 minutes in.
- * The Expo path already puts the preview first; these rules do it for every
- * card, template and typed prompt. They are in the envelope, not the visible
- * prompt, and they hold for the whole session, so a request typed after the
- * user stops the agent follows them too.
- */
-export function withFirstRunEnvelope(
-  prompt: string | undefined,
-  opts: {
-    seesImages: boolean;
-    /**
-     * A host's guided first task (the omg.dev install campaign): its own
-     * instructions, which replace the deploy rule because the guide has the
-     * person publish. Inside the envelope, so the person's bubble shows only
-     * their own words.
-     */
-    guide?: string;
-  },
-): string | undefined {
-  const text = prompt?.trim();
-  if (!text) return prompt;
-  return [
-    FIRST_RUN_HEADER,
-    "This session is a new user's first task on omg.dev. They are watching, and they leave if nothing appears. These rules hold for every request in this session, including a new request typed after the user stops you.",
-    "- Within about 5 minutes, show a first visible version. Start or reuse the dev server (in /home/user/project the web server on 5173 is already running), call `omg_expose_port`, and tell the user the preview is ready. Do this before deep work.",
-    // Owner decision 2026-10-16: an app is a web app unless the person asks
-    // for one they install. The ready web project (React, shadcn/ui and the
-    // omg backend, dev server already on 5173) is quicker and more reliable
-    // than an Expo project, and its web link works on every phone.
-    "- Build an app as a web app by default: work in the ready web project in /home/user/project, expose port 5173, and read its AGENTS.md before you change the UI. Make it work well at phone size, because most people open it on a phone. Use the Expo steps below only when the user asks for an app to install on iPhone or Android, or names Expo or a native app.",
-    // The Expo steps are spelled out here because the omg-app-builder skill
-    // only exists inside a project made by omg_create_project, so an agent
-    // that plans first never reads its fast path. Measured 2026-09-27 (Family
-    // Feast design build, deepseek-v4-flash): 31 turns and 5 min of code
-    // before the first omg_expose_port, then 2 min of cold Metro bundling,
-    // preview at 8 min. The A/B runs that exposed first had the card at 27 s.
-    `- For an app to install on a phone (only when asked, see above), do these steps first, before you write any app code, even when the request includes a design to match: 1. \`omg_create_project\` with \`template: "expo"\`. 2. \`omg_expose_port\` with port 8081 and \`expoGo: true\`. 3. From the project directory run \`bash scripts/start-expo-preview.sh <expoGo.proxyUrl> 8081\` with a 240000 ms shell timeout. 4. Present the web preview first: tell the user the app is ready and the card below shows it running, on any device, with no account. Then mention the phone in one sentence: to try it on their own phone, tap \"Your phone\" on the card. If the script prints \`WARNING: Expo CLI is not signed in\`, offer \"Create a free Expo account\" for an iPhone: on that tab they tap \"Create free account\", or \"I have one\" if they already have one; Android does not need it. The user creates the account themself; never sign up for them. Metro reloads on every save, so the preview follows your edits. Then read the omg-app-builder skill in the project and build the screens. Replace the template home screen in \`src/app/index.tsx\`; do not add a second index route or a root \`app/\` folder, because the template screen then stays on \`/\`.`,
-    // Owner decision 2026-10-22: a game is a web game unless the person asks
-    // for one they install. The web-game kit (Vite, canvas 2D or three.js,
-    // shared game UI, daily and friend challenges) loads in about a third of
-    // the expo-game web export's size, and its link works on every phone.
-    // The kit runs on 5174 because the ready web project already holds 5173.
-    // Without explicit steps the agent started from scratch in the ready web
-    // project (Timber Tumble, 2026-10-13), and the kit never loaded.
-    `- For a game, build a web game by default, and do these steps first, before you write any game code: 1. \`omg_create_project\` with \`template: "web-game"\`. 2. In the project directory run \`bun install\`, then start \`bun run dev\` in the background (port 5174). 3. \`omg_expose_port\` with port 5174, without \`expoGo\`. 4. Tell the user the preview is ready in the card below. These four steps are step 1 of the omg-web-game-builder skill. Then read that skill in the project and replace the sample game with the user's game as it says, from its step 2. Use \`template: "expo-game"\` with the phone app steps above, and the omg-game-builder skill, only when the user asks for a game to install on iPhone or Android, or names Expo or a native app.`,
-    "- Before that first preview: no test suites, no self-test loops, and no reading files one by one to learn the template. One quick check that the page loads is enough.",
-    // A paid design is the spec. Trial builds (2026-10-08) shipped the first
-    // preview, built from the words alone, and stopped: "Adorn By Deonte"
-    // went live as "House of Deonte" in other colours, and the later match
-    // work was never deployed. The preview-first rule above stays; this gate
-    // runs before the deploy, so what the user opens matches what they saw.
-    // Haiku 5.5 on a cloud Computer (same day) found the differences, then
-    // ended its turn asking "continue?" with nothing deployed.
-    ...(opts.seesImages
-      ? [
-          "- If the task includes design screens to match, you are not done until the app matches them. Before `omg_deploy`, take a screenshot of each screen in the preview and compare it with its design screen. Take the screenshots in the Computer browser from the local dev server: `http://127.0.0.1:8081` for a phone app, or the web server port for a web app. Public preview links can ask for a sign-in. If the page is blank or still loading, wait a few seconds and reload until your screen shows. List every difference in layout, colors, name, text and labels, fix them, and check again until none are left. If you deployed before this check, deploy again after the fixes, so that the link the user has shows the matched app. Do not stop to ask whether to continue: fix the differences, deploy, and finish in this turn.",
-        ]
-      : []),
-    // A new app is owner-only, so the link asked everyone else, and the
-    // agent's own browser, to sign in (Haiku 5.5 cloud test, 2026-10-08).
-    // The first app is something to show people, so it is made public.
-    opts.guide
-      ? `- This is a guided first task. These rules replace the usual deploy rule and hold for the whole session:\n${opts.guide}`
-      : "- After the preview: build in a few larger edits, run one typecheck or build, deploy once with `omg_deploy`, then make the app public with `omg_app_visibility` (`visibility: \"public\"`) so its link opens for anyone, commit, then `omg_ship`.",
-    "- When the user asks for an installable Android app, or the task says to build one, call `omg_build_android` once after the preview works. It needs an Expo project: if the app is a web app so far, first create the Expo project with the steps above and bring the app over. While it builds (about 3 to 5 minutes), say so and keep polling `omg_build_status`. Then show the APK with `omg_display_file` and give the user `installUrl`.",
-    ...(opts.seesImages
-      ? []
-      : [
-          "- You cannot see images. Do not take screenshots or write browser or CDP scripts to check the UI. Check the page text instead, for example with `curl` on the preview URL.",
-          "- If the request links a design image, you cannot read it either. Do not download it or write scripts to inspect it. Build from the words in the request.",
-        ]),
-    // Walkthrough 2026-09-29: the offer sat only in step 4 above, and after
-    // 8 minutes of building the final message said "try it on your phone via
-    // Expo Go", which fails on an iPhone with no Expo account. The final
-    // message is what the user reads, so it gets its own rule.
-    `- Final message for a phone app: if \`start-expo-preview.sh\` printed \`WARNING: Expo CLI is not signed in\`, end your final message with this offer, in these words: "To open it on your iPhone, Create a free Expo account: tap \"Your phone\" on the preview card, then \"Create free account\" (or \"I have one\")." Do not tell the user to try it in Expo Go or scan a QR code without that offer, because Expo Go on an iPhone cannot open the app until they have an account.`,
-    "- Keep your messages to the user short and plain.",
-    USER_TASK,
-    text,
-  ].join("\n");
-}
 
 export const THREAD_TASK_HEADER = "=== omg.dev THREAD TASK ===";
 

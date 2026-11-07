@@ -764,7 +764,7 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
         id: `${key}:mcp-unavailable:${Date.now()}`,
         role: "assistant",
         kind: "text",
-        text: `omg.dev tools are not connected for this session (${detail}). Tools such as omg_build_android are MCP tools, not shell commands.`,
+        text: `omg.dev tools are not connected for this session (${detail}). Tools such as omg_ship are MCP tools, not shell commands.`,
         ts: Date.now(),
       },
     ]);

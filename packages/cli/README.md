@@ -3,24 +3,13 @@
 Install and manage the local omg.dev agent control plane.
 
 This package is the control-plane bootstrapper published from
-[BennyKok/omg.dev](https://github.com/BennyKok/omg.dev). The same `omg`
-binary also starts the hosted create / deploy flow.
+[BennyKok/omg.dev](https://github.com/BennyKok/omg.dev). omg.dev is local
+software: it runs on your computer and needs no omg account.
 
 Versions `0.4.x` on this name were published from `BennyKok/vibes`. This line
 starts at `0.5.0` so `npm install --global @omg-dev/cli` resolves to the current
-product. `0.5.1+` restores `create` / `deploy` / `login` on this binary.
-
-## Deploy an app (no install needed)
-
-```bash
-cd my-app
-npx @omg-dev/cli login
-npx @omg-dev/cli deploy --name my-app
-```
-
-The app goes live at `https://<slug>.omgs.app`. These commands only need an
-omg Cloud sign-in, not the local control plane. They need Bun on the machine.
-For CI, sign in with `omg login --api-key KEY` or set `OMG_API_KEY`.
+product. The hosted-app commands (`create`, `deploy`, `login`, `apps`, `env`,
+...) were removed; they now exit with a message.
 
 ## Install the control plane
 
@@ -49,14 +38,9 @@ You bring your own agent accounts. omg.dev does not resell tokens.
 | `omg computer uninstall [--purge --yes]` | Remove the install. Keeps data unless purged. |
 | `omg computer status` | Show this machine's install. |
 | `omg serve` | After setup, run the web UI (forwarded to the install). |
-| `omg create <name>` | Create an app (hosted `*.omgs.app`). |
-| `omg deploy` | Publish the current directory. |
-| `omg login` | Sign in to omg Cloud. |
 
 Any other verb the install owns (`mcp`, `doctor`, `agents`, …) is forwarded to
-it. When an install exists, the hosted-app verbs (`create`, `deploy`, `login`,
-`apps`, `env`, ...) forward to it. Without an install, they run in this package. The retired
-`@omg-dev/cli@0.4.42` tarball is no longer downloaded.
+it. The retired `@omg-dev/cli@0.4.42` tarball is no longer downloaded.
 
 After setup, `omg help` prints the install's complete command list. Before
 setup, it prints only the commands that work without an install.

@@ -117,12 +117,12 @@ test("the preview keeps underscores inside a key name and still strips emphasis"
 });
 
 // The agent owns the destination; answering only sends the secret value.
-test("a local-only request shows its destination and only submits the value", async () => {
-  open = [{ ...SECRET, secret: { ...SECRET.secret, saveToHosted: false } }];
+test("a secret request shows its local destination and only submits the value", async () => {
+  open = [SECRET];
   ui.render(<AskProvider><SessionQuestionPanel sessionIds={["s1"]} /></AskProvider>);
   await ui.flushAsync();
   expect(ui.query('input[type="checkbox"]')).toBeNull();
-  expect(ui.text()).toContain("local use only");
+  expect(ui.text()).toContain("Saved to the project .env on this computer.");
   setInput(ui.query<HTMLInputElement>('input[type="password"]')!, "local-secret");
   await ui.flushAsync();
   ui.flush(() => ui.query<HTMLButtonElement>('button[type="submit"]')!.click());

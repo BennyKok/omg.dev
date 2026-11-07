@@ -310,8 +310,6 @@ export const LITE_OMG_TOOLS = [
   "omg_ship",
   "omg_display_image",
   "omg_display_file",
-  "omg_deploy",
-  "omg_deploy_status",
 ] as const;
 
 /**

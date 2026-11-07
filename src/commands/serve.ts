@@ -149,7 +149,7 @@ import { createRole, deleteRole, getRole, listRoles, roleEgress, roleForUser, ro
 import { DEFAULT_ALLOW_HOSTS, startEgressProxy, type EgressProxy } from "../sandbox/egress-proxy.ts";
 import { sessionToken, verifySessionToken, verifyAutoAgentToken, boxSecretMaterial, SESSION_TOKEN_HEADER as SESSION_TOKEN_HEADER_NAME } from "../policy/session-token.ts";
 import * as pwaBootLog from "../pwa-boot-log.ts";
-import { botRuntimeContract, modelSeesImages, shortSessionId, withFirstRunEnvelope } from "../omg-capabilities.ts";
+import { botRuntimeContract, shortSessionId } from "../omg-capabilities.ts";
 import {
   getCachedResumableSession,
   updateResumableUser,
@@ -6069,21 +6069,6 @@ a{color:#60a5fa}
         });
         if (handled) return handled;
       }
-      // Agent media generation billed to omg credits (src/media-generation.ts).
-      if (
-        path === "/api/media/models" ||
-        path === "/api/media/generate" ||
-        path.startsWith("/api/media/jobs/")
-      ) {
-        // A video job may wait up to 300 s, beyond the 240 s idle timeout.
-        server.timeout(req, 360);
-        const { handleMediaRequest } = await import("../media-generation.ts");
-        const handled = await handleMediaRequest(req, url, {
-          spendPath: join(PATHS.data, "media-spend.json"),
-          cloud: { signedIn: () => cloudAccount.status().signedIn, fetch: cloudAccount.cloudFetch },
-        });
-        if (handled) return handled;
-      }
       if (path === "/api/server/wake-tick" && req.method === "POST") {
         return handleWakeTick((l) => console.log(l));
       }
@@ -8489,22 +8474,21 @@ a{color:#60a5fa}
           secret?: { key?: unknown; cwd?: unknown; slug?: unknown; saveToHosted?: unknown } | null;
         } | null;
         if (!b?.question?.trim()) return err(400, "missing question");
-        let secret: { key: string; cwd: string | null; slug: string | null; saveToHosted: boolean } | undefined;
+        // A secret is saved to the project .env on this computer only. Old
+        // callers may still send slug or saveToHosted; both are ignored.
+        let secret: { key: string; cwd: string } | undefined;
         if (b.secret) {
-          const { validateEnvKey, validateSaveToHosted } = await import("../app-secrets.ts");
+          const { validateEnvKey } = await import("../app-secrets.ts");
+          let key: string;
           try {
-            secret = {
-              key: validateEnvKey(b.secret.key),
-              saveToHosted: validateSaveToHosted(b.secret.saveToHosted),
-              cwd: typeof b.secret.cwd === "string" && b.secret.cwd.trim() ? b.secret.cwd.trim() : null,
-              slug: typeof b.secret.slug === "string" && b.secret.slug.trim() ? b.secret.slug.trim() : null,
-            };
+            key = validateEnvKey(b.secret.key);
           } catch (e) {
             return err(400, e instanceof Error ? e.message : "bad secret key");
           }
-          if (!secret.cwd && !secret.slug) return err(400, "a secret ask needs cwd or slug");
-          if (!secret.saveToHosted && !secret.cwd) return err(400, "a local-only secret needs a project folder");
+          const cwd = typeof b.secret.cwd === "string" ? b.secret.cwd.trim() : "";
+          if (!cwd) return err(400, "a secret ask needs a project folder (cwd)");
           if (!b.sessionId) return err(400, "a secret ask needs sessionId");
+          secret = { key, cwd };
         }
         const q = await addQuestion({
           question: b.question,
@@ -8677,18 +8661,13 @@ a{color:#60a5fa}
           if (!pending) return err(404, "unknown question");
           if (!pending.secret) return err(400, "this question does not take a secret");
           if (pending.status !== "open") return err(409, "this question is already answered");
-          const { saveAppSecret, formatSecretSavedText, validateSaveToHosted } = await import("../app-secrets.ts");
-          const { createRuntimeAppsClient } = await import("../cloud-apps.ts");
+          const { saveAppSecret, formatSecretSavedText } = await import("../app-secrets.ts");
           let saved;
           try {
-            const saveToHosted = validateSaveToHosted(pending.secret.saveToHosted);
             saved = await saveAppSecret({
-              saveToHosted,
               key: pending.secret.key,
               value: b?.value as string,
               cwd: pending.secret.cwd,
-              slug: pending.secret.slug,
-              client: saveToHosted ? createRuntimeAppsClient({ getAccessToken: () => cloudAccount.getAccessToken() }) : null,
             });
           } catch (e) {
             // Nothing was answered: the field stays open for another try.
@@ -10086,16 +10065,13 @@ a{color:#60a5fa}
           spawnedBy?: string;
           /** Start even though the live-agent cap is full — self-hosted only. */
           overLimit?: boolean;
-          /** A new user's first task: wrap it in the first-run rules (withFirstRunEnvelope). */
+          /** Older name for newApp, sent by hosts that embedded this UI. */
           firstRun?: boolean;
           /**
            * The person started something new from the composer (a no-project
-           * session). Only picks the Auto build model; unlike firstRun it adds
-           * no first-run rules to the prompt.
+           * session). Only picks the Auto build model; the prompt is unchanged.
            */
           newApp?: boolean;
-          /** A host's guided first task: its instructions join the first-run rules (needs firstRun). */
-          guide?: string;
           /** Role the session runs as at the MCP endpoints. Missing = owner. */
           role?: string;
           agent?: "claude" | "codex" | "aisdk" | "codex-aisdk" | "opencode" | "omg" | "jcode" | "grok" | "cursor" | "copilot" | "hermes" | "pi";
@@ -10321,13 +10297,6 @@ a{color:#60a5fa}
         const cwd = planned.cwd;
         const worktree = planned.worktree;
         let prompt = body?.prompt;
-        if (body?.firstRun === true && spawnedBy !== "subagent") {
-          const guide = typeof body.guide === "string" ? body.guide.trim().slice(0, 4_000) : "";
-          prompt = withFirstRunEnvelope(prompt, {
-            seesImages: modelSeesImages(model ?? opencodeDefault),
-            ...(guide ? { guide } : {}),
-          });
-        }
         if (spawnedBy === "subagent") {
           prompt = withOmgSubagentContract(prompt, {
             parentSessionId: parent?.sessionId ?? parent?.nativeSessionId ?? parentId,

@@ -1,4 +1,3 @@
-import { APP_COMMANDS, runAppCommand, type AppCommandDependencies } from "./apps.ts";
 import { HELP, HELP_BANNER } from "./help.ts";
 import { forwardToInstall, type ForwardDependencies } from "./forward.ts";
 import { runComputerForward, runComputerSetup, type InstallDependencies } from "./install.ts";
@@ -6,13 +5,27 @@ import { runComputerForward, runComputerSetup, type InstallDependencies } from "
 export { HELP, HELP_BANNER };
 
 export type CliDependencies = InstallDependencies &
-  ForwardDependencies &
-  AppCommandDependencies & {
+  ForwardDependencies & {
     output?: (line: string) => void;
     error?: (line: string) => void;
   };
 
 const COMPUTER_OWNED = new Set(["setup", "update", "uninstall", "status"]);
+
+/** omg Cloud and hosted apps were removed; omg.dev is local software now. */
+const RETIRED_CLOUD_COMMANDS = new Set([
+  "create",
+  "deploy",
+  "dev",
+  "apps",
+  "link",
+  "visibility",
+  "rename",
+  "login",
+  "logout",
+  "whoami",
+  "env",
+]);
 
 function write(writer: ((line: string) => void) | undefined, fallback: typeof console.log, line: string) {
   (writer ?? fallback)(line);
@@ -54,8 +67,9 @@ export async function runCli(argv: string[], dependencies: CliDependencies = {})
     return 0;
   }
 
-  if (APP_COMMANDS.has(cmd)) {
-    return await runAppCommand(argv, { ...dependencies, error: err });
+  if (RETIRED_CLOUD_COMMANDS.has(cmd)) {
+    err(`omg ${cmd} was removed. omg Cloud and hosted apps are no longer part of omg.dev; it runs on this computer only.`);
+    return 1;
   }
 
   if (cmd === "computer") {

@@ -117,21 +117,13 @@ describe("caller identity over the shared MCP endpoint", () => {
     expect((await callTool("omg_browser_login_status", {}, { session: SESSION })).isError).toBe(false);
     expect(requests.at(-1)?.url).toContain(`/api/browser-login?sessionId=${SESSION}`);
   });
-  test("live preview exposure is session-owned and structured", async () => {
+  // omg.dev is local software: the cloud tools are gone from the catalog.
+  test("lists no omg Cloud, hosted app, cloud build or paid media tool", async () => {
     const names = await listToolNames();
-    expect(names).toContain("omg_expose_port");
-    const requests: Array<{ url: string; body: any; caller: string | null }> = [];
-    globalThis.fetch = (async (url: any, init?: RequestInit) => {
-      requests.push({ url: String(url), body: init?.body ? JSON.parse(String(init.body)) : null, caller: new Headers(init?.headers).get("x-omg-caller-session-id") });
-      return Response.json({ preview: { url: "https://sandbox-8081.preview.omgs.app", port: 8081 }, expoGo: { proxyUrl: "https://token.preview.omgs.app", url: "exps://token.preview.omgs.app" } });
-    }) as typeof fetch;
-    const reply = await callTool("omg_expose_port", { port: 8081, title: "Expo", expoGo: true }, { session: SESSION });
-    expect(reply.isError).toBe(false);
-    expect(requests).toEqual([{
-      url: "http://127.0.0.1:9876/api/project-preview",
-      body: { sessionId: SESSION, port: 8081, title: "Expo", expoGo: true },
-      caller: SESSION,
-    }]);
+    for (const name of names) {
+      expect(name).not.toMatch(/^omg_(deploy|apps|whoami|app_|link_app|unlink_app|build_android|build_status|expose_port|generate_|media_)/);
+    }
+    expect(names).toContain("omg_request_secret");
   });
   test("input questions inherit the calling session owner", async () => {
     const requests: Array<{ url: string; method: string; body: unknown }> = [];
@@ -345,35 +337,3 @@ describe("caller identity over the shared MCP endpoint", () => {
   });
 });
 
-describe("media generation tools", () => {
-  test("map friendly fields into provider input and post to the serve route", async () => {
-    const bodies: unknown[] = [];
-    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
-      calls.push(String(url));
-      bodies.push(init?.body ? JSON.parse(String(init.body)) : null);
-      return Response.json({ jobId: "j1", status: "succeeded", costUsd: 0.2 });
-    }) as typeof fetch;
-
-    const reply = await callTool("omg_generate_video", {
-      prompt: "a fox",
-      durationSeconds: 5,
-      resolution: "720p",
-      aspectRatio: "9:16",
-      input: { generate_audio: false, duration: 99 },
-    });
-
-    expect(reply.isError).toBe(false);
-    expect(calls).toEqual(["http://127.0.0.1:9876/api/media/generate"]);
-    expect(bodies[0]).toEqual({
-      kind: "video",
-      input: { generate_audio: false, duration: 5, prompt: "a fox", resolution: "720p", aspect_ratio: "9:16" },
-    });
-  });
-
-  test("lists all five media tools", async () => {
-    const names = await listToolNames();
-    for (const name of ["omg_generate_image", "omg_generate_video", "omg_generate_3d", "omg_media_job", "omg_media_models"]) {
-      expect(names).toContain(name);
-    }
-  });
-});

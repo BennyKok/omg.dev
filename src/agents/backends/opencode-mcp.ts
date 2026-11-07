@@ -51,10 +51,9 @@ export type OpencodeRemoteMcp = {
 };
 
 /**
- * Long enough for the slowest omg tool call. omg_build_android commits,
- * uploads and starts a build within its own 40 s budget (src/cloud-builds.ts),
- * and omg_deploy_status waits up to 45 s. At 15 s every such call "timed out"
- * in the agent while the build itself finished (builder e2e, 2026-10-07).
+ * Long enough for the slowest omg tool call. At 15 s, long calls (the former
+ * cloud build and deploy tools waited up to 45 s) "timed out" in the agent
+ * while the work itself finished (builder e2e, 2026-10-07).
  */
 const MCP_REQUEST_TIMEOUT_MS = 90_000;
 
