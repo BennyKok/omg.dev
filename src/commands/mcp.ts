@@ -1331,17 +1331,16 @@ export function buildOmgMcpServer(): McpServer {
     "omg_create_project",
     {
       title: "Create omg.dev Project",
-      description: "Create and register a new project folder with Git and the omg-app-builder skill. Select the expo template for an Expo or universal mobile app; it includes Expo Router, Expo Web, an API route, and EAS configuration. Defaults to a blank project. Returns repo.cwd for building and deploying. When the calling chat has no project, it moves into the new project after the current turn ends (sessionMove.status is after_turn); until then, use repo.cwd explicitly. Read the generated skill before building. Existing folders are never overwritten. Inspect omg_list_repos after an uncertain response before retrying.",
+      description: "Create and register a new project folder with Git and a committed README. Returns repo.cwd for building. When the calling chat has no project, it moves into the new project after the current turn ends (sessionMove.status is after_turn); until then, use repo.cwd explicitly. Existing folders are never overwritten. Inspect omg_list_repos after an uncertain response before retrying.",
       inputSchema: {
         name: z.string().min(1).describe("Short project folder name"),
         parent: z.string().optional().describe("Existing parent folder; omit to use the configured projects directory"),
-        template: z.enum(["blank", "expo", "expo-game", "web-game"]).optional().describe("Starter template. Use web-game for games (2D or 3D browser games for phones: arcade, racing, puzzle, kids, word; adds the web game kit and the omg-web-game-builder skill). Use expo for an app the user wants to install on iPhone or Android, and expo-game only for a game the user wants to install as a native app. Omit for blank."),
       },
     },
-    async ({ name, parent, template }) => result(await api("/api/projects/create-folder", {
+    async ({ name, parent }) => result(await api("/api/projects/create-folder", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, parent, template }),
+      body: JSON.stringify({ name, parent }),
     })),
   );
 

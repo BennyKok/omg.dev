@@ -1,7 +1,6 @@
 import { mkdir, realpath, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import { installProjectBuilderSkill, PROJECT_BUILDER_SKILL } from "./project-starter.ts";
 
 /** Empty project is intentional, unlike undefined on older session records. */
 export const NO_PROJECT = "";
@@ -15,11 +14,11 @@ When the user wants to create something, help clarify the outcome in the convers
 Ask only for details needed to proceed; a website, app, API, or image is a starting point, not a full specification.
 Use this workspace for ordinary chat, drafts, and artifacts. For a new software project:
 
-1. Read ${PROJECT_BUILDER_SKILL} completely. Learn the intended outcome, then call omg_create_project with a short, descriptive name. Select the \`expo\` template for an Expo or universal mobile app. Otherwise use the default blank template.
-   It creates and registers a real project folder with Git, a committed README, and the same app-builder skill.
-   Use the returned repo.cwd explicitly for shell commands, file edits, builds, and deployment.
+1. Learn the intended outcome, then call omg_create_project with a short, descriptive name.
+   It creates and registers a real project folder with Git and a committed README.
+   Use the returned repo.cwd explicitly for shell commands, file edits and builds.
    Do not move or relabel this conversation yourself. When your turn ends, omg.dev moves it into the new project, so later turns run in repo.cwd.
-2. Follow that skill through implementation, verification, the requested delivery, and the final report.
+2. Build, verify and report in that project. It runs on this computer: preview with a local dev server and give the user its localhost URL.
 
 Keep setup details in agent work. Ask the user about product decisions only when needed to proceed.
 Do not change unrelated repositories. Do not claim a project was registered in omg.dev unless it was.
@@ -79,6 +78,5 @@ export async function prepareNoProjectWorkspace(cwd: string): Promise<string> {
       if (error.code !== "EEXIST") throw error;
     });
   }
-  await installProjectBuilderSkill(cwd);
   return cwd;
 }

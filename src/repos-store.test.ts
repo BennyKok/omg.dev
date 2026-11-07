@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PATHS } from "./config.ts";
 import { createProjectFolder, prepareProjectFolder, useProjectFolder } from "./repos-store.ts";
-import { PROJECT_BUILDER_SKILL } from "./project-starter.ts";
 import {
   prepareSessionWorktree,
   resolveSessionCwd,
@@ -44,9 +43,8 @@ describe("project creation", () => {
 
     expect(git(repo.cwd, "branch", "--show-current")).toBe("main");
     expect(git(repo.cwd, "show", "HEAD:README.md")).toBe("# test");
-    expect(git(repo.cwd, "show", `HEAD:${PROJECT_BUILDER_SKILL}`)).toContain("name: omg-app-builder");
-    expect(git(repo.cwd, "show", "HEAD:AGENTS.md")).toContain(PROJECT_BUILDER_SKILL);
-    expect(git(repo.cwd, "show", "HEAD:CLAUDE.md")).toContain(PROJECT_BUILDER_SKILL);
+    // A plain project: no template, no hosted builder skill, no agent files.
+    expect(git(repo.cwd, "ls-files")).toBe("README.md");
     expect(git(repo.cwd, "status", "--short")).toBe("");
     expect(JSON.parse(readFileSync(join(PATHS.data, "custom-repos.json"), "utf8"))).toEqual([
       { name: "test", cwd: repo.cwd },
@@ -71,11 +69,11 @@ describe("project creation", () => {
     process.env.HOME = home;
     process.env.GIT_CONFIG_NOSYSTEM = "1";
     process.env.GIT_CONFIG_GLOBAL = join(home, "empty-gitconfig");
-    const bare = await createProjectFolder(root, "No Identity", "blank");
+    const bare = await createProjectFolder(root, "No Identity");
     expect(git(bare.cwd, "config", "--local", "user.email")).toBe("agent@omg.dev");
 
     writeFileSync(join(home, "empty-gitconfig"), "[user]\n\tname = Real Person\n\temail = real@example.com\n");
-    const owned = await createProjectFolder(root, "Has Identity", "blank");
+    const owned = await createProjectFolder(root, "Has Identity");
     expect(Bun.spawnSync(["git", "-C", owned.cwd, "config", "--local", "user.email"], { env: { ...process.env } }).exitCode).not.toBe(0);
     const effective = Bun.spawnSync(["git", "-C", owned.cwd, "config", "user.email"], { env: { ...process.env } });
     expect(effective.stdout.toString().trim()).toBe("real@example.com");
@@ -86,49 +84,6 @@ describe("project creation", () => {
     rmSync(home, { recursive: true, force: true });
   }
 });
-
-test("creates a committed Expo app from the managed template", async () => {
-    const root = mkdtempSync(join(tmpdir(), "lfg-project-expo-"));
-    roots.push(root);
-    PATHS.data = join(root, "data");
-
-    const installed: string[] = [];
-    const repo = await createProjectFolder(root, "Pocket Kitchen", "expo", {
-      installDependencies: async (cwd) => { installed.push(cwd); return true; },
-    });
-    // The agent gets a project whose dependencies are installed.
-    expect(installed).toEqual([repo.cwd]);
-
-    expect(JSON.parse(readFileSync(join(repo.cwd, "package.json"), "utf8"))).toMatchObject({
-      name: "pocket-kitchen",
-      main: "expo-router/entry",
-      dependencies: {
-        expo: "~57.0.24",
-        "expo-router": "~57.0.22",
-        "expo-glass-effect": "~57.0.3",
-        "lucide-react-native": "^1.47.0",
-        "@react-native-async-storage/async-storage": "2.2.0",
-        "@omg-dev/schema": "^0.4.45",
-      },
-      scripts: { preview: "bash scripts/start-expo-preview.sh" },
-      devDependencies: { "@omg-dev/vite-plugin": "^0.4.45" },
-      omg: { clientBuild: "prebuilt" },
-    });
-    expect(JSON.parse(readFileSync(join(repo.cwd, "app.json"), "utf8"))).toMatchObject({
-      expo: { name: "Pocket Kitchen", slug: "pocket-kitchen", web: { output: "static" } },
-    });
-    expect(JSON.parse(readFileSync(join(repo.cwd, ".omg/template.json"), "utf8"))).toEqual({
-      name: "expo",
-      version: 1,
-    });
-    expect(readFileSync(join(repo.cwd, "README.md"), "utf8")).toContain("Pocket Kitchen");
-    expect(git(repo.cwd, "show", "HEAD:package.json")).toContain('"expo-router"');
-    // Data is stored on the phone by default, so there are no hosted collections.
-    expect(git(repo.cwd, "show", "HEAD:schema.ts")).toContain("collections: {}");
-    expect(git(repo.cwd, "show", "HEAD:src/lib/tasks.ts")).toContain("AsyncStorage");
-    expect(git(repo.cwd, "show", "HEAD:scripts/start-expo-preview.sh")).toContain("EXPO_PACKAGER_PROXY_URL");
-    expect(git(repo.cwd, "status", "--short")).toBe("");
-  });
 
   test("isolates LFG's own repository instead of honoring the old self-repo skip", async () => {
     const root = mkdtempSync(join(tmpdir(), "lfg-self-worktree-"));
@@ -178,7 +133,7 @@ test("creates a committed Expo app from the managed template", async () => {
     expect(readFileSync(join(folder, "notes.txt"), "utf8")).toBe("keep me\n");
   });
 
-  test("installs the app-builder skill in an existing folder without changing its files or Git history", async () => {
+  test("accepts an existing folder without changing its files or Git history", async () => {
     const root = mkdtempSync(join(tmpdir(), "lfg-project-prepare-"));
     roots.push(root);
     const folder = join(root, "existing");
@@ -186,23 +141,8 @@ test("creates a committed Expo app from the managed template", async () => {
     writeFileSync(join(folder, "notes.txt"), "keep me\n");
 
     expect(await prepareProjectFolder(folder)).toBe(folder);
-    expect(readFileSync(join(folder, PROJECT_BUILDER_SKILL), "utf8")).toContain("name: omg-app-builder");
     expect(readFileSync(join(folder, "notes.txt"), "utf8")).toBe("keep me\n");
     expect(existsSync(join(folder, "AGENTS.md"))).toBe(false);
     expect(existsSync(join(folder, ".git"))).toBe(false);
   });
-});
-
-test("the starter install is best effort and reports whether it worked", async () => {
-  const { installStarterDependencies } = await import("./repos-store.ts");
-  const dir = mkdtempSync(join(tmpdir(), "lfg-starter-install-"));
-  try {
-    expect(await installStarterDependencies(dir, 5_000, ["true"])).toBe(false); // no package.json
-    writeFileSync(join(dir, "package.json"), "{}");
-    expect(await installStarterDependencies(dir, 5_000, ["true"])).toBe(true);
-    expect(await installStarterDependencies(dir, 5_000, ["false"])).toBe(false);
-    expect(await installStarterDependencies(dir, 5_000, ["definitely-not-a-command-omg"])).toBe(false);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
 });

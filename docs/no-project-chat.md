@@ -9,11 +9,9 @@ Long-press a project pill or the plus tab to manage folders.
 `POST /api/sessions/new-unassigned` uses the normal session creation pipeline.
 It gives each conversation a persistent
 `~/.local/share/omg/chats/<managed-name>` workspace. The runtime reserves
-`~/.omg` for managed files, which can be root-owned on a hosted Computer.
-`AGENTS.md` and `CLAUDE.md` provide project-creation guidance without changing
-the user's message. The workspace also receives the managed
-`.agents/skills/omg-app-builder/SKILL.md` workflow. The normal selected agent
-and model still run the chat.
+`~/.omg` for managed files. `AGENTS.md` and `CLAUDE.md` provide
+project-creation guidance without changing the user's message. The normal
+selected agent and model still run the chat.
 
 The session's explicit `project: ""` means unassigned. A missing project field
 on a legacy record still falls back to its working directory. Live, historical,

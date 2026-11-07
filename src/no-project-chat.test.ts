@@ -3,7 +3,6 @@ import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createNoProjectWorkspace, existingNoProjectWorkspace, noProjectChatsRoot, NO_PROJECT_INSTRUCTIONS } from "./no-project-chat";
-import { PROJECT_BUILDER_SKILL } from "./project-starter";
 
 test("finding launches recognize an existing Quick Chat workspace and retain its artifacts", async () => {
   const root = await mkdtemp(join(tmpdir(), "omg-chat-finding-"));
@@ -44,7 +43,8 @@ test("each unassigned chat has a persistent workspace and project guidance", asy
     for (const file of ["AGENTS.md", "CLAUDE.md"]) {
       expect(await readFile(join(first, file), "utf8")).toBe(NO_PROJECT_INSTRUCTIONS);
     }
-    expect(await readFile(join(first, PROJECT_BUILDER_SKILL), "utf8")).toContain("name: omg-app-builder");
+    expect(NO_PROJECT_INSTRUCTIONS).not.toContain("omg-app-builder");
+    expect(NO_PROJECT_INSTRUCTIONS).not.toContain("deploy");
     await writeFile(join(first, "draft.txt"), "Keep this draft");
     await writeFile(join(first, "AGENTS.md"), "User instructions");
     expect(await createNoProjectWorkspace("first-chat", root)).toBe(first);

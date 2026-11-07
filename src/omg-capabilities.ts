@@ -10,7 +10,7 @@ export const OMG_CAPABILITIES = [
   {
     tool: "omg_create_project / omg_list_repos",
     useWhen: "A chat needs a new project that future sessions can select.",
-    guidance: "Create a named folder in the configured projects directory, then use the returned repo.cwd explicitly. New folders include .agents/skills/omg-app-builder/SKILL.md; read it and follow its build, verification, and delivery workflow. A chat with no project moves into the new project when your turn ends; until then use repo.cwd. Runtime deploy tools supply credentials.",
+    guidance: "Create a named folder in the configured projects directory, then use the returned repo.cwd explicitly. A chat with no project moves into the new project when your turn ends; until then use repo.cwd.",
   },
   {
     tool: "omg_request_browser_login / omg_browser_login_status",

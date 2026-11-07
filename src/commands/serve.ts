@@ -519,7 +519,6 @@ import {
   prepareProjectFolder,
   useProjectFolder,
 } from "../repos-store.ts";
-import { isProjectTemplate } from "../project-starter.ts";
 import { projectName, reposRoot } from "../projects.ts";
 import { createRepoListCache, listConfiguredRepos, repoListFingerprint } from "../repo-list.ts";
 import { onChangeAnnounced } from "../change-topics.ts";
@@ -8967,15 +8966,17 @@ a{color:#60a5fa}
           name?: unknown;
           template?: unknown;
         } | null;
+        // Project templates were removed; "blank" is still accepted from
+        // older clients because it is what every new project now is.
         if (
           typeof b?.name !== "string" ||
           (b.parent !== undefined && typeof b.parent !== "string") ||
-          (b.template !== undefined && !isProjectTemplate(b.template))
+          (b.template !== undefined && b.template !== "blank")
         ) {
-          return err(400, "name is required; parent must be a string and template must be blank, expo, expo-game or web-game when provided");
+          return err(400, "name is required; parent must be a string. Project templates were removed, so template can only be blank");
         }
         try {
-          const repo = await createProjectFolder(b.parent, b.name, b.template ?? "blank");
+          const repo = await createProjectFolder(b.parent, b.name);
           const repos = await listRepos();
           // An agent in a no-project chat sends its own session id. That chat
           // moves into the new project when its current turn ends.

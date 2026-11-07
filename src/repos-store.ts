@@ -13,17 +13,11 @@
 // finds it, and listRepos() drops it on the way out.
 
 import { announceChange } from "./change-topics.ts";
-import { mkdir, stat, realpath, rm } from "node:fs/promises";
+import { mkdir, stat, realpath, rm, writeFile } from "node:fs/promises";
 import { join, resolve, basename } from "node:path";
 import { homedir } from "node:os";
 import { PATHS } from "./config.ts";
 import { reposRoot } from "./projects.ts";
-import {
-  installProjectBuilderSkill,
-  installProjectTemplate,
-  type ProjectTemplate,
-  writeProjectAgentInstructions,
-} from "./project-starter.ts";
 
 export type CustomRepo = { name: string; cwd: string };
 
@@ -214,43 +208,6 @@ async function ensureProjectGitIdentity(cwd: string): Promise<void> {
   await runGit(cwd, ["config", "user.email", "agent@omg.dev"], "set git user.email");
 }
 
-/**
- * Install a template's pinned dependencies while the project is created, so
- * the agent gets a project that runs. In a production first run the agent
- * spent minutes on this: it read node_modules to find out what was there,
- * symlinked another project's node_modules, then installed by hand.
- *
- * Best effort. A failed or slow install does not fail the create; the agent
- * can still run `bun install` itself (the app-builder skill says so).
- * @internal exported for tests.
- */
-export async function installStarterDependencies(
-  cwd: string,
-  timeoutMs = 180_000,
-  cmd: string[] = ["bun", "install", "--no-progress"],
-): Promise<boolean> {
-  try {
-    await stat(join(cwd, "package.json"));
-  } catch {
-    return false;
-  }
-  try {
-    const proc = Bun.spawn({ cmd, cwd, stdout: "ignore", stderr: "pipe", env: process.env });
-    const timer = setTimeout(() => proc.kill(), timeoutMs);
-    const code = await proc.exited;
-    clearTimeout(timer);
-    if (code !== 0) {
-      const stderr = (await new Response(proc.stderr).text()).trim().slice(-500);
-      console.warn(`[projects] starter install failed in ${cwd} (exit ${code}): ${stderr}`);
-      return false;
-    }
-    return true;
-  } catch (error) {
-    console.warn(`[projects] starter install could not start in ${cwd}:`, error);
-    return false;
-  }
-}
-
 async function commitStarterProject(cwd: string): Promise<void> {
   await runGit(cwd, ["add", "--", "."], "stage starter project");
   await runGit(
@@ -278,20 +235,17 @@ export async function useProjectFolder(rawPath: string): Promise<CustomRepo> {
   return addCustomRepo(cwd);
 }
 
-/** Install the managed app-builder skill without changing an existing repo's instructions or Git history. */
+/** Check that an existing folder can be used as a project, without changing it. */
 export async function prepareProjectFolder(rawPath: string): Promise<string> {
   const cwd = await canonical(rawPath);
   const info = await stat(cwd);
   if (!info.isDirectory()) throw new Error(`not a directory: ${cwd}`);
-  await installProjectBuilderSkill(cwd);
   return cwd;
 }
 
 export async function createProjectFolder(
   rawParent: string | undefined,
   rawName: string,
-  template: ProjectTemplate = "blank",
-  options: { installDependencies?: (cwd: string) => Promise<boolean> } = {},
 ): Promise<CustomRepo> {
   const name = rawName.trim();
   if (!name || !/^[\w .-]+$/.test(name) || name === "." || name === "..") {
@@ -309,11 +263,7 @@ export async function createProjectFolder(
   }
   await mkdir(cwd);
   try {
-    await installProjectTemplate(cwd, template, name);
-    // Before the first commit, so the lockfile is part of it.
-    if (template !== "blank") await (options.installDependencies ?? installStarterDependencies)(cwd);
-    await installProjectBuilderSkill(cwd);
-    await writeProjectAgentInstructions(cwd);
+    await writeFile(join(cwd, "README.md"), `# ${name}\n`);
     await gitInit(cwd);
     await ensureProjectGitIdentity(cwd);
     await commitStarterProject(cwd);
