@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## November 7, 2026 - Clear local updates (v0.7.2)
+
+- `omg computer update` now runs the updater. It shows the installed and running versions, skips a release already on disk, and verifies the service after a restart.
+- If a desktop runtime or another install serves the local address, the updater stops before downloading and explains the conflict.
+- Use `omg update --restart` to retry a restart without another download. Older services can restart through the local service manager when their update API rejects the request.
+- The Computer page uses the voxl stream by default. It opens directly, fills the phone screen, and includes keyboard, paste, and copy controls.
+
 ## November 7, 2026 - No embedding in app.omg.dev (v0.7.1)
 
 - The web UI can no longer be embedded in app.omg.dev. The `@omg-dev/app` package is no longer published.
