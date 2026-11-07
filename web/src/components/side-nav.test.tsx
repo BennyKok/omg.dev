@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mount, type Mounted } from "../test-support/render";
 import { sideNavRows } from "../lib/side-nav-items";
 
-const { HostDrawerSlot, SideNavButton, SideNavDrawer, SideNavPanel } = await import("./side-nav");
+const { HostDrawerSlot, SideNavButton, SideNavPanel, SideNavRows } = await import("./side-nav");
 
 let ui: Mounted;
 beforeEach(() => {
@@ -31,9 +31,7 @@ test("opening is the button's only job", () => {
 test("every row the model offers is drawn and can be navigated to", () => {
   const rows = sideNavRows({ tab: "live" });
   const went: string[] = [];
-  ui.render(
-    <SideNavDrawer open onOpenChange={() => {}} rows={rows} onNavigate={(key) => went.push(key)} />,
-  );
+  ui.render(<SideNavRows rows={rows} onNavigate={(key) => went.push(key)} onClose={() => {}} />);
   for (const row of rows) {
     expect(rowFor(row.key), `missing row ${row.key}`).not.toBeNull();
   }
@@ -42,76 +40,30 @@ test("every row the model offers is drawn and can be navigated to", () => {
 });
 
 test("the current row is marked and navigating to it is a no-op", () => {
-  const rows = sideNavRows({ tab: "auto" });
   const went: string[] = [];
-  let open = true;
-  ui.render(
-    <SideNavDrawer
-      open
-      onOpenChange={(next) => (open = next)}
-      rows={rows}
-      onNavigate={(key) => went.push(key)}
-    />,
-  );
+  ui.render(<SideNavRows rows={sideNavRows({ tab: "auto" })} onNavigate={(key) => went.push(key)} onClose={() => {}} />);
   expect(rowFor("auto")?.getAttribute("aria-current")).toBe("page");
   expect(rowFor("live")?.getAttribute("aria-current")).toBeNull();
-  // Tapping where you already are closes the drawer without navigating, as on
-  // iOS. Navigating would push a duplicate history entry for the same page.
+  // Navigating to where you already are would push a duplicate history entry.
   ui.flush(() => rowFor("auto")!.click());
   expect(went).toEqual([]);
-  expect(open).toBe(false);
 });
 
-test("choosing a row closes the drawer", () => {
-  let open = true;
-  ui.render(
-    <SideNavDrawer
-      open
-      onOpenChange={(next) => (open = next)}
-      rows={sideNavRows({ tab: "live" })}
-      onNavigate={() => {}}
-    />,
-  );
-  ui.flush(() => rowFor("notifications")!.click());
-  expect(open).toBe(false);
+test("rows in a scrolling page carry no tap switch", () => {
+  ui.render(<SideNavRows rows={sideNavRows({ tab: "live" })} onNavigate={() => {}} onClose={() => {}} haptic={false} />);
+  expect(document.querySelector("[data-haptic-tap]")).toBeNull();
 });
 
-test("the machine switcher leads the panel, above the first row", () => {
-  ui.render(
-    <SideNavDrawer
-      open
-      onOpenChange={() => {}}
-      rows={sideNavRows({ tab: "live" })}
-      onNavigate={() => {}}
-      machineSwitcher={<div data-testid="machine-slot">Work</div>}
-    />,
-  );
-  const panel = inDoc('[data-slot="side-nav"]')!;
-  const order = [...panel.querySelectorAll('[data-testid]')].map((el) =>
-    el.getAttribute("data-testid"),
-  );
-  expect(order[0]).toBe("machine-slot");
-  expect(order[1]).toBe("side-nav-row-live");
-});
-
-test("a host gets a drawer-footer slot, and a tap in it closes the drawer", () => {
-  let open = true;
-  ui.render(
-    <SideNavDrawer
-      open
-      onOpenChange={() => {}}
-      rows={sideNavRows({ tab: "live" })}
-      onNavigate={() => {}}
-      footer={<HostDrawerSlot onClose={() => (open = false)} />}
-    />,
-  );
+test("a host gets a slot for its own rows, and a tap in it reaches the host's close", () => {
+  let closed = 0;
+  ui.render(<HostDrawerSlot onClose={() => closed++} />);
   const slot = inDoc('[data-lfg-host-slot="drawer-footer"]') as HTMLElement | null;
   expect(slot).not.toBeNull();
   // The host renders from its own React root, so simulate a plain DOM child.
   const hostButton = document.createElement("button");
   slot!.appendChild(hostButton);
   ui.flush(() => hostButton.click());
-  expect(open).toBe(false);
+  expect(closed).toBe(1);
 });
 
 test("the rail panel lists the same rows, and a row navigates then goes back", () => {
@@ -178,63 +130,4 @@ test("a current rail row dismisses a host page without adding app history", () =
   ui.flush(() => (ui.query('[data-testid="side-nav-row-auto"]') as HTMLButtonElement).click());
   expect(selected).toBe(2);
   expect(navigated).toEqual(["auto"]);
-});
-
-function renderDrawer(open: boolean, onOpenChange: (next: boolean) => void) {
-  ui.render(
-    <SideNavDrawer open={open} onOpenChange={onOpenChange} rows={sideNavRows({ tab: "live" })} onNavigate={() => {}} />,
-  );
-}
-const drawerRoot = () => document.querySelector('[data-slot="side-nav"]')?.closest("[data-open]") as (HTMLElement & { inert?: boolean }) | null;
-
-test("the drawer stays mounted when closed, hidden from focus and assistive tech", () => {
-  renderDrawer(true, () => {});
-  expect(drawerRoot()?.getAttribute("data-open")).toBe("true");
-  renderDrawer(false, () => {});
-  const root = drawerRoot()!;
-  expect(root).not.toBeNull();
-  expect(root.getAttribute("data-open")).toBe("false");
-  expect(root.getAttribute("aria-hidden")).toBe("true");
-  expect(root.inert).toBe(true);
-});
-
-test("Escape and a tap on the dimmed page close the drawer", () => {
-  const changes: boolean[] = [];
-  renderDrawer(true, (next) => changes.push(next));
-  ui.flush(() => document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
-  ui.flush(() => {
-    const backdrop = document.querySelector('[data-slot="drawer-overlay"]') as HTMLElement;
-    backdrop.dispatchEvent(new window.PointerEvent("pointerdown", { bubbles: true, pointerId: 2, isPrimary: true }));
-    backdrop.click();
-  });
-  expect(changes).toEqual([false, false]);
-});
-
-function swipe(dxs: number[], dy = 0) {
-  const target = document.querySelector('[data-slot="side-nav"]') as HTMLElement;
-  const fire = (type: string, x: number, y: number) =>
-    target.dispatchEvent(
-      new window.PointerEvent(type, { bubbles: true, clientX: x, clientY: y, pointerId: 1, isPrimary: true, pointerType: "touch" }),
-    );
-  ui.flush(() => {
-    fire("pointerdown", 200, 300);
-    for (const dx of dxs) fire("pointermove", 200 + dx, 300 + dy);
-    fire("pointerup", 200 + dxs[dxs.length - 1]!, 300 + dy);
-  });
-}
-
-test("a swipe to the left closes the drawer", () => {
-  const changes: boolean[] = [];
-  renderDrawer(true, (next) => changes.push(next));
-  swipe([-12, -60, -160]);
-  expect(changes).toEqual([false]);
-});
-
-test("a vertical scroll or a twitch does not close the drawer", () => {
-  const changes: boolean[] = [];
-  renderDrawer(true, (next) => changes.push(next));
-  swipe([-3, -5]);
-  swipe([-10, -20], 120);
-  swipe([30, 90]);
-  expect(changes).toEqual([]);
 });

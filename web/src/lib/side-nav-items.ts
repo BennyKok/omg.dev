@@ -127,6 +127,8 @@ export function sideNavRows(input: {
  * answers to "how do I leave", and the back one was labelled with the internal
  * name "Live".
  */
-export function mobileHeaderControl(tab: string): "menu" | "back-to-settings" {
+export function mobileHeaderControl(tab: string): "menu" | "back-to-settings" | "none" {
+  // Folders is where the menu button goes, so it needs none of its own.
+  if (tab === "folders") return "none";
   return SETTINGS_TABS.has(tab) && tab !== "settings" ? "back-to-settings" : "menu";
 }

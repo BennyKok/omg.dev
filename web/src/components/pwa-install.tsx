@@ -13,16 +13,6 @@ import { cn } from "@/lib/utils";
 import { toast } from "@/lib/notify";
 import { OmgBrandMark } from "@/components/omg-brand-mark";
 
-const CALLOUT_DISMISSED_KEY = "lfg_pwa_install_callout_dismissed";
-
-function initiallyDismissed() {
-  try {
-    return sessionStorage.getItem(CALLOUT_DISMISSED_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
 export function InstallInstructions({ mode, open, onOpenChange }: {
   mode: PwaInstallMode;
   open: boolean;
@@ -92,45 +82,6 @@ function useInstallAction(mode: PwaInstallMode, install: () => Promise<boolean>)
   };
 
   return { act, busy, instructionsOpen, setInstructionsOpen };
-}
-
-export function PwaInstallCallout() {
-  const { installed, mode, install } = usePwaInstall();
-  const [dismissed, setDismissed] = useState(initiallyDismissed);
-  const action = useInstallAction(mode, install);
-
-  if (installed || mode === "none" || dismissed) return null;
-
-  const dismiss = () => {
-    setDismissed(true);
-    try {
-      sessionStorage.setItem(CALLOUT_DISMISSED_KEY, "1");
-    } catch {
-      // Storage can be disabled; dismissing for this render is still enough.
-    }
-  };
-
-  return (
-    <>
-      <aside className="mx-3 mt-2 flex items-center gap-3 rounded-2xl border border-primary/20 bg-card/90 px-3 py-2.5 shadow-sm backdrop-blur-xl">
-        <OmgBrandMark className="size-10 text-muted-foreground" />
-        <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold">Install omg</div>
-          <div className="truncate text-xs text-muted-foreground">
-            Faster launch, its own window, and a home-screen icon.
-          </div>
-        </div>
-        <Button size="sm" onClick={() => void action.act()} disabled={action.busy}>
-          <Download className="size-4" />
-          {mode === "native" ? "Install" : "How"}
-        </Button>
-        <Button size="icon-xs" variant="ghost" onClick={dismiss} aria-label="Dismiss install suggestion">
-          <X className="size-3.5" />
-        </Button>
-      </aside>
-      <InstallInstructions mode={mode} open={action.instructionsOpen} onOpenChange={action.setInstructionsOpen} />
-    </>
-  );
 }
 
 export function PwaInstallSettingsSection() {

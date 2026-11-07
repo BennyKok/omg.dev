@@ -19,8 +19,7 @@ import { LiveHeaderContext } from "./components/live-header-context";
 import { CreateBackdrop, Spinner } from "./components/apps-home";
 import { ProjectFolderMenu } from "./components/project-folder-menu";
 import { SessionReparentProvider, SessionReparentTarget, useSessionDragMenuGuard } from "./components/session-reparent";
-import { HostDrawerSlot, SideNavButton, SideNavDrawer, SideNavGlyph, SideNavPanel } from "./components/side-nav";
-import { createSideNavOpenStore, useSideNavOpen, type SideNavOpenStore } from "./lib/side-nav-open";
+import { HostDrawerSlot, SideNavButton, SideNavGlyph, SideNavPanel, SideNavRows } from "./components/side-nav";
 import { FindingsPill, FindingsSheet } from "./components/findings-pill";
 import { OutOfCreditCard, isOutOfCreditNotice } from "./components/out-of-credit-card";
 import { mobileHeaderControl, sideNavRows, type SideNavRow } from "./lib/side-nav-items";
@@ -710,7 +709,7 @@ import {
   useSessionQuestions,
 } from "./components/ask-center";
 import { SessionPromptPanel, type SessionPrompt } from "./components/question-card";
-import { GetAppsRailCard, PwaInstallCallout, PwaInstallSettingsSection } from "./components/pwa-install";
+import { GetAppsRailCard, PwaInstallSettingsSection } from "./components/pwa-install";
 import {
   CustomInstructionsPage,
   CustomInstructionsRow,
@@ -5634,6 +5633,7 @@ const EMPTY_TYPING: Record<string, string[]> = {};
 /** Stable empty list so a non-typing card never gets a new prop identity. */
 const EMPTY_TYPING_IDS: readonly string[] = [];
 function noopSendTyping(_sid: string, _typing: boolean): void {}
+function noop(): void {}
 
 // Header toggle for PWA push notifications. Hidden entirely where the browser
 // can't do Web Push (e.g. desktop Safari without the SW, or an http origin).
@@ -5791,18 +5791,6 @@ function useResourceWarnings(): void {
       window.clearInterval(timer);
     };
   }, []);
-}
-
-/**
- * The phone drawer, subscribed to its own open state. Only this component
- * renders when the drawer opens or closes; App does not.
- */
-function AppSideNavDrawer({
-  store,
-  ...props
-}: Omit<ComponentProps<typeof SideNavDrawer>, "open" | "onOpenChange"> & { store: SideNavOpenStore }) {
-  const open = useSideNavOpen(store);
-  return <SideNavDrawer {...props} open={open} onOpenChange={store.set} />;
 }
 
 export function App() {
@@ -6504,14 +6492,6 @@ export function App() {
   );
   // An app page's "Earlier sessions": the composer opens its history searched.
   const [findSessions, setFindSessions] = useState<{ nonce: number; search: string } | undefined>();
-  // The mobile side navigation. One drawer now answers "where do I go",
-  // replacing both the bottom surface bar and the overflow menu.
-  // The drawer owns its open state (lib/side-nav-open), so a tap on the menu
-  // button does not render App again. See AppSideNavDrawer. The store is this
-  // App's own: a second surface in the same page has its own drawer.
-  const [sideNavOpen] = useState(createSideNavOpenStore);
-  const setNavOpen = sideNavOpen.set;
-  const closeNav = useCallback(() => sideNavOpen.set(false), [sideNavOpen]);
   const navMachineName = LOCAL_MACHINE.name;
   const didDefaultFilter = useRef(false);
   const hostedFilterAppliedRef = useRef<number | null>(null);
@@ -7913,13 +7893,18 @@ export function App() {
   const liveStream = useWsLive ? wsLiveStream : sseLiveStream;
 
   // The phone's side-by-side pages: Folders | Chats | Inbox | Computer
-  // (lib/phone-pages.ts). A sideways swipe on the page picks the next one.
+  // (lib/phone-pages.ts), all flat pages. A sideways swipe picks the next one.
   // Only on the page itself: an open chat has its own swipe back, and the
   // composer and sheets sit outside <main>.
+  // Folders is a phone page. A wider window has the rail and its folder
+  // menu instead, so /folders there falls back to Chats.
+  useEffect(() => {
+    if (!isMobile && tab === "folders") setTab("live");
+  }, [isMobile, tab, setTab]);
   const phoneSwipeOn =
     isMobile && !bare && !openSessionId && !openThreadId && !viewerArtifact && !terminalSid && isPhonePageTab(tab);
-  const phoneSwipe = useRef({ tab, setTab, openNav: () => setNavOpen(true) });
-  phoneSwipe.current = { tab, setTab, openNav: () => setNavOpen(true) };
+  const phoneSwipe = useRef({ tab, setTab });
+  phoneSwipe.current = { tab, setTab };
   useEffect(() => {
     const main = mainRef.current;
     if (!phoneSwipeOn || !main) return;
@@ -7940,16 +7925,12 @@ export function App() {
       const from = start;
       start = null;
       if (!from || !touch) return;
-      const { tab: current, setTab: go, openNav } = phoneSwipe.current;
+      const { tab: current, setTab: go } = phoneSwipe.current;
       const direction = phonePageSwipe({ tab: current, dx: touch.clientX - from.x, dy: touch.clientY - from.y, startX: from.x });
       if (!direction) return;
       const next = phonePageAfterSwipe(current, direction);
       if (!next) return;
       haptic("selection");
-      if (next === "folders") {
-        openNav();
-        return;
-      }
       go(next);
       // The new page comes in from the side the finger came from. Transform
       // and opacity only, on <main>; it ends on no transform, so the fixed
@@ -9599,7 +9580,8 @@ export function App() {
     !isMobile &&
     (tab === "live" || tab === "bots" || tab === "notifications" || tab === "artifacts" || tab === "board");
   const pageNavigation = isMobile ? (
-    <SideNavButton onOpen={() => setNavOpen(true)} machineName={navMachineName} online={online} />
+    // The phone's menu is the Folders page, the leftmost of its pages.
+    <SideNavButton onOpen={() => setTab("folders")} machineName={navMachineName} online={online} />
   ) : (
     <PagesMenu
       tab={tab}
@@ -9786,7 +9768,7 @@ export function App() {
             onOpenNotifications={() => setTab("notifications")}
             // The folder in view names the page; a tap opens Folders to change it.
             folderName={tab === "live" && projectFilter !== "__all" ? projectFilterLabel(projectFilter, shortProject) : null}
-            onOpenFolders={() => setNavOpen(true)}
+            onOpenFolders={() => setTab("folders")}
           />
           {embedded ? (
             // The host owns identity/settings chrome here, but the machine's
@@ -9877,7 +9859,7 @@ export function App() {
             mobileHeaderControl): the drawer button on a page the drawer
             lists, or Back to Settings on a page inside Settings. */}
         {isMobile ? (
-          mobileHeaderControl(tab) === "menu" ? pageNavigation : (
+          mobileHeaderControl(tab) === "none" ? null : mobileHeaderControl(tab) === "menu" ? pageNavigation : (
             <button
               type="button"
               onClick={() => setTab(embedded ? "live" : "settings")}
@@ -9971,7 +9953,7 @@ export function App() {
 
       {/* Wide layouts offer this at the foot of the rail instead (see
           GetAppsRailCard), not as a banner across the whole layout. */}
-      {embedded || isWide ? null : <PwaInstallCallout />}
+
 
       {/* The desktop workspace shows this in the rail's brand row instead, so
           the line does not sit unaligned above the layout and push it down. */}
@@ -10285,6 +10267,58 @@ export function App() {
             {artifactsPage(tab === "artifacts")}
           </div>
         ) : null}
+        {isMobile && tab === "folders" ? (
+          // The phone's Folders page: the leftmost of its flat pages, and
+          // where the menu button goes. Folders first, then every other page,
+          // with Settings one tap away beside the title.
+          <div className="mx-auto max-w-xl pb-10 pt-1">
+            <PhoneFolders
+              value={projectFilter}
+              projects={projectOptions}
+              labelFor={(value) => projectFilterLabel(value, shortProject)}
+              counts={projectSessionCounts}
+              running={runningByProject(allLiveSessions, liveStream.busyBySid)}
+              onPick={(value) => {
+                changeProjectFilter(value);
+                setTab("live");
+              }}
+              onAddFolder={() => setMobileFolderBrowser("add")}
+              onNewFolder={() => setMobileFolderBrowser("new")}
+              onCloneGitHub={() => setImportGitHubOpen(true)}
+              onOpenSettings={
+                embedded
+                  ? hostSettingsInMenu
+                    ? onOpenHostSettings
+                    : undefined
+                  : () => setTab("settings")
+              }
+            />
+            <div className="mx-3 my-3 border-t border-border" />
+            <div className="flex flex-col gap-1">
+              <SideNavRows
+                rows={sideNavRows({
+                  tab,
+                  hiddenPages,
+                  showSchedules: settings.showSchedules,
+                  // A host owns its own settings surface.
+                  showSettings: !embedded,
+                  extensions: extNavTabs,
+                  // "All chats" above is the way to Chats.
+                }).filter((row) => row.key !== "live")}
+                onNavigate={setTab}
+                onClose={noop}
+                haptic={false}
+              />
+              {/* Host rows, for example Upgrade, where the drawer had them. */}
+              {embedded ? <HostDrawerSlot onClose={noop} /> : null}
+            </div>
+            {!embedded || hostMachines ? (
+              <div className="mt-3 px-1">
+                <MachineSwitcher variant="nav" />
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         {tab === "changelog" ? (
           <Suspense fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading changelog…</div>}>
             <ChangelogPage />
@@ -10386,77 +10420,6 @@ export function App() {
         ) : null}
         </>}
       </main>
-
-      {isMobile ? (
-        <AppSideNavDrawer
-          store={sideNavOpen}
-          rows={sideNavRows({
-            tab,
-            hiddenPages,
-            showSchedules: settings.showSchedules,
-            // A host owns its own settings surface. Before the drawer, the
-            // embedded header passed showSettings={false} unconditionally and
-            // offered the host's control only when it asked for it, so
-            // deciding this on hostSettingsInMenu alone put an in-app
-            // Settings row under hosts that never had one.
-            showSettings: !embedded,
-            extensions: extNavTabs,
-            // "All chats" in Folders above is the way to Chats.
-          }).filter((row) => row.key !== "live")}
-          onNavigate={setTab}
-          brand={<ProductBrand hosted={embedded} />}
-          folders={
-            <PhoneFolders
-              value={projectFilter}
-              projects={projectOptions}
-              labelFor={(value) => projectFilterLabel(value, shortProject)}
-              counts={projectSessionCounts}
-              running={runningByProject(allLiveSessions, liveStream.busyBySid)}
-              onPick={(value) => {
-                changeProjectFilter(value);
-                setTab("live");
-                setNavOpen(false);
-              }}
-              onAddFolder={() => {
-                setNavOpen(false);
-                setMobileFolderBrowser("add");
-              }}
-              onNewFolder={() => {
-                setNavOpen(false);
-                setMobileFolderBrowser("new");
-              }}
-              onCloneGitHub={() => {
-                setNavOpen(false);
-                setImportGitHubOpen(true);
-              }}
-            />
-          }
-          machineSwitcher={
-            !embedded || hostMachines ? <MachineSwitcher variant="nav" onHostAction={() => setNavOpen(false)} /> : null
-          }
-          footer={
-            embedded || (hostSettingsInMenu && onOpenHostSettings) ? (
-              <>
-              {/* Host rows first (for example Upgrade), then Settings. */}
-              {embedded ? <HostDrawerSlot onClose={closeNav} /> : null}
-              {hostSettingsInMenu && onOpenHostSettings ? (
-              <button
-                type="button"
-                onClick={() => {
-                  onOpenHostSettings();
-                  setNavOpen(false);
-                }}
-                className="flex min-h-12 w-full items-center gap-3 rounded-xl px-3 text-left text-[15px] text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
-              >
-                <Settings className="size-[18px] shrink-0" />
-                <span className="min-w-0 flex-1 truncate">Settings</span>
-              </button>
-              ) : null}
-              </>
-            ) : null
-          }
-        />
-      ) : null}
 
       {!bare ? (
         <>

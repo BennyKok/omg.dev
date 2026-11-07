@@ -6,12 +6,11 @@
  * chat starts there. "All chats" leaves the folder. The shell owns the value
  * (the project filter); this only draws it and hands a pick back.
  */
-import { Folder, FolderPlus, MessagesSquare } from "lucide-react";
+import { Folder, FolderPlus, MessagesSquare, Settings } from "lucide-react";
 import { Github } from "./icons/github";
 import { cn } from "@/lib/utils";
 import { arrangeFolders, useFolderMenuPrefs } from "../lib/folder-menu-prefs";
 import { NO_PROJECT_FILTER } from "../lib/project-filter";
-import { HapticTap } from "./haptic-tap";
 import type { ReactNode } from "react";
 
 export function PhoneFolders({
@@ -24,6 +23,7 @@ export function PhoneFolders({
   onAddFolder,
   onNewFolder,
   onCloneGitHub,
+  onOpenSettings,
 }: {
   /** The current project filter. "__all" is every chat. */
   value: string;
@@ -38,6 +38,8 @@ export function PhoneFolders({
   onAddFolder?: () => void;
   onNewFolder?: () => void;
   onCloneGitHub?: () => void;
+  /** The gear beside the title. Settings is one tap from here, always. */
+  onOpenSettings?: () => void;
 }) {
   const prefs = useFolderMenuPrefs();
   const folders = arrangeFolders(
@@ -48,9 +50,22 @@ export function PhoneFolders({
 
   return (
     <section aria-labelledby="phone-folders-title" className="flex flex-col gap-1">
-      <h2 id="phone-folders-title" className="px-3 pb-1 text-[22px] font-bold tracking-[-0.02em]">
-        Folders
-      </h2>
+      <div className="flex items-center justify-between px-3 pb-1">
+        <h1 id="phone-folders-title" className="text-[22px] font-bold tracking-[-0.02em]">
+          Folders
+        </h1>
+        {onOpenSettings ? (
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            aria-label="Settings"
+            title="Settings"
+            className="flex size-10 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <Settings className="size-5" />
+          </button>
+        ) : null}
+      </div>
       <FolderRow
         icon={<MessagesSquare className="size-[18px]" />}
         label="All chats"
@@ -124,7 +139,8 @@ function FolderRow({
       ) : detail ? (
         <span className="shrink-0 text-[13px] tabular-nums text-muted-foreground">{detail}</span>
       ) : null}
-      <HapticTap />
+      {/* No HapticTap: this is a long scrolling list, and the switch it lays
+          over a row caught the finger at the start of a scroll. */}
     </button>
   );
 }

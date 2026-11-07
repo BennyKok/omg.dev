@@ -88,6 +88,10 @@ describe("mobileHeaderControl", () => {
     }
   });
 
+  test("Folders, where the drawer button goes, has no control of its own", () => {
+    expect(mobileHeaderControl("folders")).toBe("none");
+  });
+
   test("a page inside Settings shows Back to Settings instead", () => {
     for (const tab of ["usage", "coding-agents", "storage", "instructions", "connectors", "changelog", "more"]) {
       expect(mobileHeaderControl(tab)).toBe("back-to-settings");

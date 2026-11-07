@@ -1,21 +1,14 @@
 /**
- * The mobile side navigation, ported from the iOS drawer
- * (mobile/src/omg/side-nav.tsx).
+ * The navigation pieces: the phone's menu button, the page rows (drawn on the
+ * phone's Folders page and in the desktop rail menu) and the rail panel. The
+ * phone's slide-over drawer is gone; its contents are a flat page now.
  *
- * It replaces two things at once, the way it did on iOS: the bottom bar that
- * switched Chat / Bots / Schedules, and the overflow menu that held every
- * other page. Having both meant the answer to "where do I go" depended on
- * which of the two you happened to open.
- *
- * Deliberately not a pixel copy. iOS pushes the page sideways and rounds its
- * left corners; doing that on the web means a transform on the app shell, and
- * a transformed ancestor makes every `position: fixed` descendant resolve
- * against it instead of the viewport. The composer, the headers and the sheets
- * all depend on `fixed`, and the composer's keyboard tracking depends on it
- * most. So the panel slides over a dimmed page instead, keeping the iOS
- * timings and dim.
+ * The rows replace two things at once, the way they did on iOS: the bottom
+ * bar that switched Chat / Bots / Schedules, and the overflow menu that held
+ * every other page. Having both meant the answer to "where do I go" depended
+ * on which of the two you happened to open.
  */
-import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 import {
   Bell,
   Bot,
@@ -29,7 +22,6 @@ import {
   SquareKanban,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { SlidePanel } from "@/components/ui/slide-panel";
 import { HapticTap } from "./haptic-tap";
 import type { SideNavIcon, SideNavRow } from "../lib/side-nav-items";
 
@@ -113,91 +105,20 @@ export function HostDrawerSlot({ onClose }: { onClose: () => void }) {
   return <div ref={ref} data-lfg-host-slot="drawer-footer" className="flex flex-col" />;
 }
 
-/**
- * THE PHONE DRAWER. A left-edge SlidePanel: mounted ahead of the first tap,
- * slid on the compositor, and closed by a swipe left that follows the finger.
- */
-export function SideNavDrawer({
-  open,
-  onOpenChange,
-  rows,
-  onNavigate,
-  machineSwitcher,
-  brand,
-  folders,
-  footer,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  rows: SideNavRow[];
-  onNavigate: (key: string) => void;
-  /** The machine picker, drawn first. */
-  machineSwitcher?: ReactNode;
-  brand?: ReactNode;
-  /** The phone's Folders page, above the page rows (components/phone-folders.tsx). */
-  folders?: ReactNode;
-  footer?: ReactNode;
-}) {
-  const titleId = useId();
-  const onOpenChangeRef = useRef(onOpenChange);
-  onOpenChangeRef.current = onOpenChange;
-  const close = useCallback(() => onOpenChangeRef.current(false), []);
-
-  // The machine list is read when its switcher mounts. Remount it after each
-  // close, off screen, so the next open shows fresh machines without paying
-  // for that read during the tap.
-  const [machineGeneration, setMachineGeneration] = useState(0);
-  const wasOpen = useRef(open);
-  useEffect(() => {
-    if (wasOpen.current && !open) {
-      const id = window.setTimeout(() => setMachineGeneration((n) => n + 1), 400);
-      wasOpen.current = open;
-      return () => window.clearTimeout(id);
-    }
-    wasOpen.current = open;
-  }, [open]);
-
-  return (
-    <SlidePanel
-      open={open}
-      onOpenChange={onOpenChange}
-      edge="left"
-      labelledBy={titleId}
-      slot="side-nav"
-      initialFocus={focusCurrentRow}
-      refreshKey={machineGeneration}
-      backdropClassName="bg-black/[0.28]"
-      className="inset-y-0 left-0 flex h-[100dvh] w-[min(22rem,86vw)] select-none flex-col border-r border-border bg-background text-foreground shadow-2xl"
-    >
-      <h2 id={titleId} className="sr-only">Navigation</h2>
-      <div className="flex min-h-0 flex-1 touch-pan-y flex-col gap-1 overflow-y-auto overscroll-contain px-3 pb-[max(var(--lfg-safe-bottom),1rem)] pt-[calc(0.75rem+env(safe-area-inset-top))]">
-        {brand ? <div className="px-1 pb-4 pt-1">{brand}</div> : null}
-        {/* The machine, first. It is the thing every other row is scoped
-            to, so it reads as the heading for them. */}
-        {machineSwitcher ? <div key={machineGeneration} className="pb-3">{machineSwitcher}</div> : null}
-        {folders ? <div className="pb-2">{folders}</div> : null}
-        {folders ? <div className="mx-3 mb-1 border-t border-border" /> : null}
-        <SideNavRows rows={rows} onNavigate={onNavigate} onClose={close} />
-        {footer ? <div className="mt-2 border-t border-border pt-2">{footer}</div> : null}
-      </div>
-    </SlidePanel>
-  );
-}
-
-const focusCurrentRow = (panel: HTMLElement) => panel.querySelector<HTMLElement>('[aria-current="page"]');
 
 /**
  * The rows themselves, shared by the phone drawer and the desktop rail panel,
  * so the two cannot list different places or mark the current one
  * differently.
  */
-function SideNavRows({
+export function SideNavRows({
   onSelect,
   rows,
   onNavigate,
   onClose,
   unread,
   dense = false,
+  haptic = true,
 }: {
   rows: SideNavRow[];
   onNavigate: (key: string) => void;
@@ -208,6 +129,11 @@ function SideNavRows({
   unread?: ReadonlySet<string>;
   /** Pointer-sized rows for the desktop rail. */
   dense?: boolean;
+  /**
+   * The iPhone tap switch (HapticTap). Off in a long scrolling page such as
+   * the phone's Folders page, where a switch under the finger caught scrolls.
+   */
+  haptic?: boolean;
 }) {
   return (
     <>
@@ -238,7 +164,7 @@ function SideNavRows({
             {unread?.has(row.key) ? (
               <span role="status" aria-label={`${row.label} has unread`} className="size-2 shrink-0 rounded-full bg-primary" />
             ) : null}
-            <HapticTap />
+            {haptic ? <HapticTap /> : null}
           </button>
         );
       })}

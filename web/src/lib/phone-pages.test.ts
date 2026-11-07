@@ -12,6 +12,11 @@ describe("phonePageAfterSwipe", () => {
     expect(phonePageAfterSwipe("notifications", "left")).toBe("computer");
   });
 
+  test("Folders is the first page", () => {
+    expect(phonePageAfterSwipe("folders", "left")).toBe("live");
+    expect(phonePageAfterSwipe("folders", "right")).toBeNull();
+  });
+
   test("the Computer is the last page", () => {
     expect(phonePageAfterSwipe("computer", "right")).toBe("notifications");
     expect(phonePageAfterSwipe("computer", "left")).toBeNull();

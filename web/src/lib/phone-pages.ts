@@ -2,20 +2,19 @@
 //
 //   Folders  ←  Chats  →  Inbox  →  Computer
 //
-// Chats (the "live" tab) is home. A swipe right on it opens Folders, which is
-// the side drawer (a panel over the page, see components/side-nav.tsx). A swipe
-// left walks to the Inbox (the "notifications" tab) and then the Computer.
-// The tab stays the one owner of "which page is up": a swipe only picks the
-// next tab, the same way a drawer row does.
+// Chats (the "live" tab) is home. All four are flat pages, each its own tab:
+// a swipe right on Chats opens Folders, a swipe left walks to the Inbox (the
+// "notifications" tab) and then the Computer. The tab stays the one owner of
+// "which page is up": a swipe only picks the next tab.
 //
 // Pure and DOM-free, so the order and the gesture rules are tested without a
 // touch screen.
 
-/** What a swipe can open. "folders" is the drawer, not a tab. */
-export type PhonePageTarget = "folders" | "live" | "notifications" | "computer";
+/** The tabs in swipe order, left to right. */
+export const PHONE_PAGE_TABS = ["folders", "live", "notifications", "computer"] as const;
 
-/** The tabs in swipe order, left to right. Folders sits left of the first. */
-export const PHONE_PAGE_TABS = ["live", "notifications", "computer"] as const;
+/** What a swipe can open. */
+export type PhonePageTarget = (typeof PHONE_PAGE_TABS)[number];
 
 /** Travel before a release counts as a page swipe, in px. */
 export const PHONE_PAGE_SWIPE_MIN_PX = 56;
@@ -35,8 +34,7 @@ export function isPhonePageTab(tab: string): tab is (typeof PHONE_PAGE_TABS)[num
 export function phonePageAfterSwipe(tab: string, direction: "left" | "right"): PhonePageTarget | null {
   if (!isPhonePageTab(tab)) return null;
   const index = PHONE_PAGE_TABS.indexOf(tab);
-  if (direction === "right") return index === 0 ? "folders" : PHONE_PAGE_TABS[index - 1]!;
-  return PHONE_PAGE_TABS[index + 1] ?? null;
+  return PHONE_PAGE_TABS[direction === "right" ? index - 1 : index + 1] ?? null;
 }
 
 /**
