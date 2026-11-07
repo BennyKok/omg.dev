@@ -4422,8 +4422,8 @@ const computerBridges = new WeakMap<object, RfbBridge>();
 // no viewer can be holding a key on purpose. Any key still down is stuck, so
 // it is released (see releaseHeldInput).
 let computerViewers = 0;
-// The voxl stream of the same screen (see computer/voxl.ts), when this box
-// opts in with OMG_COMPUTER_STREAM=voxl.
+// The voxl stream of the same screen (see computer/voxl.ts): on whenever the
+// binary is installed, unless OMG_COMPUTER_STREAM=vnc.
 type ComputerVoxlSocketData = { computerVoxl: true };
 const voxlBridges = new WeakMap<object, VoxlBridge>();
 
@@ -5378,7 +5378,7 @@ export async function cmdServe() {
         return err(400, "expected a websocket upgrade");
       }
 
-      // The voxl stream of the same screen, only when this box opted in.
+      // The voxl stream of the same screen, unless this box uses VNC.
       if (path === "/api/computer/voxl") {
         await ensureDesktopAdopted();
         if (computerStream() !== "voxl") return err(404, "the voxl stream is not enabled");

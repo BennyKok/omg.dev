@@ -12,14 +12,20 @@ const fakeBin = () => {
   return { dir, bin };
 };
 
-test("the stream stays VNC unless the box opts in", () => {
+test("voxl is the default stream when its binary is installed", () => {
   const { bin } = fakeBin();
-  expect(computerStream({ OMG_VOXL_BIN: bin })).toBe("vnc");
+  expect(computerStream({ OMG_VOXL_BIN: bin })).toBe("voxl");
   expect(computerStream({ OMG_COMPUTER_STREAM: "voxl", OMG_VOXL_BIN: bin })).toBe("voxl");
-  expect(computerStream({ OMG_COMPUTER_STREAM: " VOXL ", OMG_VOXL_BIN: bin })).toBe("voxl");
 });
 
-test("opting in without the binary falls back to VNC", () => {
+test("a box can opt out of voxl", () => {
+  const { bin } = fakeBin();
+  expect(computerStream({ OMG_COMPUTER_STREAM: "vnc", OMG_VOXL_BIN: bin })).toBe("vnc");
+  expect(computerStream({ OMG_COMPUTER_STREAM: " VNC ", OMG_VOXL_BIN: bin })).toBe("vnc");
+});
+
+test("without the binary the stream is VNC", () => {
+  expect(computerStream({ OMG_VOXL_BIN: "/nonexistent/voxl" })).toBe("vnc");
   expect(computerStream({ OMG_COMPUTER_STREAM: "voxl", OMG_VOXL_BIN: "/nonexistent/voxl" })).toBe("vnc");
   expect(voxlBinary({ OMG_VOXL_BIN: "/nonexistent/voxl" })).toBeNull();
 });

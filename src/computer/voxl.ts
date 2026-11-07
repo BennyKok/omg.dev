@@ -1,17 +1,18 @@
-// voxl: an optional, faster stream of the Computer's screen.
+// voxl: the faster stream of the Computer's screen, and the default one.
 //
-// The default stream is x11vnc -> RfbBridge -> noVNC (see rfb-bridge.ts).
 // voxl (https://github.com/tembo/voxl, MIT; links x264, GPL-2.0) captures
-// the same X display and sends it as H.264 stripes over one websocket, which
-// the browser decodes with WebCodecs. It is opt-in per box:
+// the X display and sends it as H.264 stripes over one websocket, which the
+// browser decodes with WebCodecs. It is on by default wherever the binary is
+// installed. Without it the stream is x11vnc -> RfbBridge -> noVNC (see
+// rfb-bridge.ts), and a browser that cannot decode voxl uses noVNC too.
 //
-//   OMG_COMPUTER_STREAM=voxl   use voxl for the Computer page
+//   OMG_COMPUTER_STREAM=vnc    opt this box out of voxl
 //   OMG_VOXL_BIN=/path/voxl    the binary (default: `voxl` on PATH, then
 //                              ~/.cargo/bin/voxl)
 //   OMG_COMPUTER_VOXL_PORT     its loopback port (default 6901)
 //
-// x11vnc keeps running beside it, so the inline transcript view and agents are
-// unaffected and turning the switch off needs nothing but a restart.
+// x11vnc keeps running beside it, so agents are unaffected and opting out
+// needs nothing but a restart.
 //
 // Security: voxl listens on 127.0.0.1 only, with a random password that never
 // leaves this process and the 0600 record below. The browser reaches it only
@@ -51,9 +52,13 @@ export function voxlBinary(env: NodeJS.ProcessEnv = process.env): string | null 
   return onPath("voxl", env.PATH) ?? (existsSync(cargo) ? cargo : null);
 }
 
-/** Which stream the Computer page should use. Falls back to VNC when voxl is missing. */
+/**
+ * Which stream the Computer page should use: voxl whenever its binary is
+ * installed, unless the box opts out with OMG_COMPUTER_STREAM=vnc.
+ */
 export function computerStream(env: NodeJS.ProcessEnv = process.env): ComputerStream {
-  return env.OMG_COMPUTER_STREAM?.trim().toLowerCase() === "voxl" && voxlBinary(env) ? "voxl" : "vnc";
+  if (env.OMG_COMPUTER_STREAM?.trim().toLowerCase() === "vnc") return "vnc";
+  return voxlBinary(env) ? "voxl" : "vnc";
 }
 
 export function voxlPort(env: NodeJS.ProcessEnv = process.env): number {

@@ -44,6 +44,7 @@ import {
   type Size,
 } from "@/lib/computer-camera";
 import { ComputerVoxlScreen } from "@/components/computer-voxl-screen";
+import { voxlSupported } from "@/lib/voxl-stream";
 
 interface DepReport {
   ok: boolean;
@@ -60,7 +61,7 @@ interface ComputerStatus {
   height: number;
   startedAt: number | null;
   deps: DepReport;
-  /** "voxl" when the box opted in to the faster stream (OMG_COMPUTER_STREAM). */
+  /** "voxl" unless the box has no voxl binary or set OMG_COMPUTER_STREAM=vnc. */
   stream?: "vnc" | "voxl";
 }
 
@@ -215,8 +216,10 @@ export function ComputerPage({
 
   // Connect once the desktop is up and this view is on screen. A connection
   // another view (or this one, a moment ago) left open is reused as is.
-  // Both the full page and the inline view use voxl when the box opted in.
-  const voxl = status?.stream === "voxl";
+  // Both the full page and the inline view use voxl when the box offers it.
+  // A browser that cannot decode it (no WebCodecs, or plain HTTP off
+  // localhost) gets noVNC instead of an error screen.
+  const voxl = status?.stream === "voxl" && voxlSupported() === null;
   useEffect(() => {
     if (active && status?.running && !voxl) void computerConnection.connect();
   }, [active, status?.running, voxl]);

@@ -1,6 +1,6 @@
 // The Computer's screen over the voxl stream (lib/voxl-stream.ts). Used by the
-// Computer page and its inline chat view when the box runs with
-// OMG_COMPUTER_STREAM=voxl.
+// Computer page and its inline chat view by default, when the box has the
+// voxl binary and the browser can decode it.
 //
 // The screen is always controllable: there is no watch-only mode to switch
 // out of. Keyboard, paste and copy sit in one small bar at the bottom.
