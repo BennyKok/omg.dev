@@ -519,7 +519,7 @@ export default function ShippedPage({
       <div className="flex items-center justify-between px-1">
         <div>
           <h1 className="text-lg font-semibold tracking-[-0.01em]">
-            {artifactsOnly ? "Artifacts" : "Notifications"}
+            {artifactsOnly ? "Artifacts" : "Inbox"}
           </h1>
           {artifactsOnly ? (
             <p className="mt-0.5 text-xs text-muted-foreground">Interactive reports and live dashboards</p>

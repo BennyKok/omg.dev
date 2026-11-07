@@ -16,9 +16,7 @@ import { setupOutcome, type SetupResultInfo, type SetupWatchAgent } from "../../
 import { useRuntimeLifecycle } from "./lib/runtime-lifecycle";
 import { useComputerResumeMetrics } from "./lib/use-computer-resume-metrics";
 import { LiveHeaderContext } from "./components/live-header-context";
-import { MobileProjectFolders } from "./components/mobile-project-folders";
-import { buildLocalProjects, CreateBackdrop, CreateHome, LocalProjectCard, ScopeCrumb, Spinner } from "./components/apps-home";
-import { CreateComposerFrame } from "./components/create-composer-frame";
+import { CreateBackdrop, Spinner } from "./components/apps-home";
 import { ProjectFolderMenu } from "./components/project-folder-menu";
 import { SessionReparentProvider, SessionReparentTarget, useSessionDragMenuGuard } from "./components/session-reparent";
 import { HostDrawerSlot, SideNavButton, SideNavDrawer, SideNavGlyph, SideNavPanel } from "./components/side-nav";
@@ -113,7 +111,6 @@ import {
 import {
   cacheProjectFilter,
   NO_PROJECT_FILTER,
-  projectFilterAfterPress,
   resolveInitialProjectFilter,
   NO_PROJECT_FILTER_LABEL,
   projectFilterLabel,
@@ -303,9 +300,6 @@ const OmgChatEngine = lazyWithReload("OmgChatEngine", () => import("./lib/chat-e
 // component suspends on its first render even when the module is already
 // loaded, and React holds a Suspense reveal for about 300 ms, so the Apps page
 // appeared only after its slide had finished.
-let appsListModule: typeof import("./components/apps-list") | null = null;
-const loadAppsList = () => import("./components/apps-list").then((mod) => (appsListModule = mod));
-const AppsList = lazyWithReload("AppsList", loadAppsList);
 const ImportGitHubDialog = lazyWithReload("ImportGitHubDialog", () =>
   import("./components/import-github-dialog").then((mod) => ({ default: mod.ImportGitHubDialog })),
 );
@@ -514,6 +508,8 @@ import { BrowserLoginCard } from "@/components/browser-login-card";
 import { ComputerChatEmbed, isComputerScreenCall } from "@/components/computer-chat-embed";
 import { isBrowserLoginCall } from "../../packages/protocol/src/browser-login";
 import { haptic } from "@/lib/haptics";
+import { isPhonePageTab, phonePageAfterSwipe, phonePageSwipe, scrollsSideways } from "./lib/phone-pages";
+import { PhoneFolders } from "./components/phone-folders";
 import { HapticTap } from "@/components/haptic-tap";
 import { feedback } from "@/lib/feedback";
 import { type AutoAgentRefine } from "@/lib/auto-refine";
@@ -3107,6 +3103,21 @@ function shortUser(email?: string | null) {
 // A human-friendly label for a project. Current backend payloads use the
 // top-level folder under the repos root. The legacy dash-encoded full-path shape
 // is still accepted so old selected filters degrade cleanly.
+/** Chats with an agent at work, per folder, for the phone's Folders page. */
+function runningByProject(
+  sessions: readonly { sessionId?: string | null; project?: string | null }[],
+  busyBySid: Readonly<Record<string, unknown>>,
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const session of sessions) {
+    if (!session.sessionId || !busyBySid[session.sessionId]) continue;
+    const key = session.project === "" ? NO_PROJECT_FILTER : session.project;
+    if (!key) continue;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
+}
+
 function shortProject(project: string): string {
   const legacy = project.match(/(?:^|-)repos-(.+)$/)?.[1];
   if (legacy) return legacy;
@@ -6484,13 +6495,13 @@ export function App() {
       hosted: readLocationEmbedFlag() || isHostedSurface(),
     });
   });
-  const [projectFilter, setProjectFilter] = useState(readCachedProjectFilter);
-  // The phone's Create and Apps views (components/apps-home.tsx). A folder pill leaves them.
-  // Create has no state of its own: it is the no-project scope (the rail's
-  // old plus pill), drawn as "What do you want to make?" with its chats below.
-  const [homeView, setHomeView] = useState<"apps" | null>(null);
-  const appsView = homeView === "apps";
-  const createView = isMobile && !appsView && projectFilter === NO_PROJECT_FILTER;
+  // The folder in view. One value drives the list, the phone title and the
+  // composer: picking a folder anywhere selects it for the next chat and
+  // filters the list to it. A phone with no choice this visit opens on every
+  // chat ("__all"); the desktop rail opens on No project.
+  const [projectFilter, setProjectFilter] = useState(() =>
+    readCachedProjectFilter(undefined, undefined, isMobile ? "__all" : NO_PROJECT_FILTER),
+  );
   // An app page's "Earlier sessions": the composer opens its history searched.
   const [findSessions, setFindSessions] = useState<{ nonce: number; search: string } | undefined>();
   // The mobile side navigation. One drawer now answers "where do I go",
@@ -7511,10 +7522,6 @@ export function App() {
     }
     return counts;
   }, [userScopedSessions]);
-  const mobileProjectOptions = useMemo(
-    () => projectOptions,
-    [projectOptions],
-  );
 
   // Never unscoped: the rail has no "All" pill. An unscoped filter, or a
   // folder that has gone away, resolves to the no-project scope, which is
@@ -7529,10 +7536,6 @@ export function App() {
     if (resolved !== projectFilter) setProjectFilter(resolved);
   }, [loading, projectFilter, projectOptions]);
 
-  // The last project went away while its list was open: back to Create.
-  useEffect(() => {
-    if (!repos.length && homeView === "apps") setHomeView(null);
-  }, [repos.length, homeView]);
   const liveSessions = useMemo(() => {
     if (projectFilter === "__all") return userScopedSessions;
     return userScopedSessions.filter((session) => sessionMatchesProjectFilter(session, projectFilter));
@@ -7852,19 +7855,6 @@ export function App() {
     setTab((current) => (current === "shipped" || current === "artifacts" ? "live" : current));
   }, []);
 
-  const cycleMobileProjectFilter = useCallback(
-    (dir: 1 | -1) => {
-      // The composer's project gesture only changes project scope. Secondary
-      // pages are deliberate page navigation through PagesMenu.
-      const options = mobileProjectOptions;
-      if (options.length <= 1) return false;
-      const next = cycleProjectFilter(options, projectFilter, dir);
-      if (next === projectFilter) return false;
-      setProjectFilter(next);
-      return true;
-    },
-    [mobileProjectOptions, projectFilter],
-  );
 
   // Tab / Shift+Tab cycles the live project filter (mirrors the project menu).
   const projectKb = useRef({ tab, projectFilter, projectOptions, setProjectFilter });
@@ -7921,6 +7911,71 @@ export function App() {
   wsLiveRef.current = useWsLive && wsLiveStream.connection.status === "live";
   setListsLive(wsLiveRef.current);
   const liveStream = useWsLive ? wsLiveStream : sseLiveStream;
+
+  // The phone's side-by-side pages: Folders | Chats | Inbox | Computer
+  // (lib/phone-pages.ts). A sideways swipe on the page picks the next one.
+  // Only on the page itself: an open chat has its own swipe back, and the
+  // composer and sheets sit outside <main>.
+  const phoneSwipeOn =
+    isMobile && !bare && !openSessionId && !openThreadId && !viewerArtifact && !terminalSid && isPhonePageTab(tab);
+  const phoneSwipe = useRef({ tab, setTab, openNav: () => setNavOpen(true) });
+  phoneSwipe.current = { tab, setTab, openNav: () => setNavOpen(true) };
+  useEffect(() => {
+    const main = mainRef.current;
+    if (!phoneSwipeOn || !main) return;
+    let start: { x: number; y: number } | null = null;
+    const onStart = (event: TouchEvent) => {
+      const touch = event.touches[0];
+      const target = event.target instanceof Element ? event.target : null;
+      // A field, or anything that scrolls sideways (a code block, a chip
+      // row), keeps its own drag.
+      if (event.touches.length !== 1 || !touch || !target || scrollsSideways(target, main)) {
+        start = null;
+        return;
+      }
+      start = { x: touch.clientX, y: touch.clientY };
+    };
+    const onEnd = (event: TouchEvent) => {
+      const touch = event.changedTouches[0];
+      const from = start;
+      start = null;
+      if (!from || !touch) return;
+      const { tab: current, setTab: go, openNav } = phoneSwipe.current;
+      const direction = phonePageSwipe({ tab: current, dx: touch.clientX - from.x, dy: touch.clientY - from.y, startX: from.x });
+      if (!direction) return;
+      const next = phonePageAfterSwipe(current, direction);
+      if (!next) return;
+      haptic("selection");
+      if (next === "folders") {
+        openNav();
+        return;
+      }
+      go(next);
+      // The new page comes in from the side the finger came from. Transform
+      // and opacity only, on <main>; it ends on no transform, so the fixed
+      // children have the viewport back afterwards.
+      if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        main.animate(
+          [
+            { opacity: 0, transform: `translate3d(${direction === "left" ? 36 : -36}px, 0, 0)` },
+            { opacity: 1, transform: "none" },
+          ],
+          { duration: 260, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" },
+        );
+      }
+    };
+    const onCancel = () => {
+      start = null;
+    };
+    main.addEventListener("touchstart", onStart, { passive: true });
+    main.addEventListener("touchend", onEnd, { passive: true });
+    main.addEventListener("touchcancel", onCancel, { passive: true });
+    return () => {
+      main.removeEventListener("touchstart", onStart);
+      main.removeEventListener("touchend", onEnd);
+      main.removeEventListener("touchcancel", onCancel);
+    };
+  }, [phoneSwipeOn]);
 
   // "Somebody ELSE is typing."
   //
@@ -9388,13 +9443,6 @@ export function App() {
     );
   }
 
-  // A folder opened from Apps: the hint names it, so a new chat's place is clear.
-  const scopedFolderRepo = repos.find((repo) => repoProject(repo) === projectFilter);
-  const scopedFolderName =
-    isMobile && !homeView && scopedFolderRepo ? scopedFolderRepo.name || projectFilter.split("/").pop() || projectFilter : null;
-  // Apps hides the composer; an app page shows it, ready for the next change.
-  const createComposer = createView;
-  const composerHiddenForApps = isMobile && appsView;
   const mobileComposerVisible =
     isMobile &&
     !viewerArtifact &&
@@ -9736,6 +9784,9 @@ export function App() {
               (session) => !!liveStream.busyBySid[session.sessionId ?? ""],
             ).length}
             onOpenNotifications={() => setTab("notifications")}
+            // The folder in view names the page; a tap opens Folders to change it.
+            folderName={tab === "live" && projectFilter !== "__all" ? projectFilterLabel(projectFilter, shortProject) : null}
+            onOpenFolders={() => setNavOpen(true)}
           />
           {embedded ? (
             // The host owns identity/settings chrome here, but the machine's
@@ -9909,68 +9960,6 @@ export function App() {
       </header>
       )}
 
-      {/* The folder rail under the header, as on iOS. It is the mobile
-          composer's folder control: the chosen project is where a new
-          session starts. */}
-      {isMobile && tab === "live" && projectOptions.length > 0 ? (
-        <MobileProjectFolders
-          projects={projectOptions}
-          shortProject={shortProject}
-          value={projectFilter}
-          onChange={(next) => {
-            setHomeView(null);
-            setProjectFilter(projectFilterAfterPress(next, projectFilter));
-          }}
-          viewPills={[
-            {
-              id: "create",
-              label: "Create",
-              icon: "create",
-              pressed: createView,
-              onPress: () => {
-                // A new idea starts with no folder; the agent makes one.
-                setHomeView(null);
-                setProjectFilter(NO_PROJECT_FILTER);
-              },
-            },
-            // Once there is an app or a project on this Computer: before that
-            // the page would be empty, and Create is where the first one starts.
-            ...(repos.length
-              ? [{
-                  id: "apps",
-                  label: "Apps",
-                  icon: "apps" as const,
-                  // An app or a folder page sits under Apps, so Apps stays
-                  // pressed there and a press goes back to the list.
-                  pressed: appsView || (!homeView && projectFilter !== "__all" && projectFilter !== NO_PROJECT_FILTER),
-                  onPress: () => setHomeView("apps"),
-                }]
-              : []),
-            {
-              // Every session, grouped by folder: the list this page showed
-              // before Create and Apps, and the home of agent-only use.
-              id: "chats",
-              label: "Chats",
-              icon: "chats",
-              pressed: !appsView && projectFilter === "__all",
-              onPress: () => {
-                setHomeView(null);
-                setProjectFilter("__all");
-              },
-            },
-          ]}
-          canRemove={(project) => repos.some((repo) => repoProject(repo) === project)}
-          onRemove={async (project) => {
-            const repo = repos.find((candidate) => repoProject(candidate) === project);
-            if (repo) {
-              await unlinkRepoFromList(repo, loadCore);
-            }
-          }}
-          onAddFolder={() => setMobileFolderBrowser("add")}
-          onNewFolder={() => setMobileFolderBrowser("new")}
-        />
-      ) : null}
-
       {/* Wide layouts offer this at the foot of the rail instead (see
           GetAppsRailCard), not as a banner across the whole layout. */}
       {embedded || isWide ? null : <PwaInstallCallout />}
@@ -10005,9 +9994,6 @@ export function App() {
           ],
         )}
       >
-        {/* The Create colour, kept on every live phone page and faded in with
-            Create, so switching pages cross-fades and the drift carries on. */}
-        {isMobile && !bare && tab === "live" ? <CreateBackdrop shown={createView} /> : null}
         {/* A host-mounted page has no header, no nav and no composer of its
             own — so while /api/bootstrap is in flight the mount painted the
             real page with empty values: "Unavailable" ping, "0 working", "—"
@@ -10041,17 +10027,8 @@ export function App() {
               onToggleTopPin={toggleTopPin}
               users={users}
               userFilter={userFilter}
-              appsView={isMobile && appsView}
-              createView={createView}
-              onShowApps={() => setHomeView("apps")}
               onFindSessions={(search) => setFindSessions((current) => ({ nonce: (current?.nonce ?? 0) + 1, search }))}
               allSessions={userScopedSessions}
-              onImportFolder={() => setMobileFolderBrowser("add")}
-              onImportGitHub={() => setImportGitHubOpen(true)}
-              onOpenApp={(project) => {
-                setHomeView(null);
-                setProjectFilter(project);
-              }}
               projectFilter={projectFilter}
               projectOptions={projectOptions}
               projectCounts={projectSessionCounts}
@@ -10415,9 +10392,36 @@ export function App() {
             // Settings row under hosts that never had one.
             showSettings: !embedded,
             extensions: extNavTabs,
-          })}
+            // "All chats" in Folders above is the way to Chats.
+          }).filter((row) => row.key !== "live")}
           onNavigate={setTab}
           brand={<ProductBrand hosted={embedded} />}
+          folders={
+            <PhoneFolders
+              value={projectFilter}
+              projects={projectOptions}
+              labelFor={(value) => projectFilterLabel(value, shortProject)}
+              counts={projectSessionCounts}
+              running={runningByProject(allLiveSessions, liveStream.busyBySid)}
+              onPick={(value) => {
+                changeProjectFilter(value);
+                setTab("live");
+                setNavOpen(false);
+              }}
+              onAddFolder={() => {
+                setNavOpen(false);
+                setMobileFolderBrowser("add");
+              }}
+              onNewFolder={() => {
+                setNavOpen(false);
+                setMobileFolderBrowser("new");
+              }}
+              onCloneGitHub={() => {
+                setNavOpen(false);
+                setImportGitHubOpen(true);
+              }}
+            />
+          }
           machineSwitcher={
             !embedded || hostMachines ? <MachineSwitcher variant="nav" onHostAction={() => setNavOpen(false)} /> : null
           }
@@ -10455,31 +10459,23 @@ export function App() {
             // surface (artifact viewer, pulled-up terminal) so it cannot stack
             // above the content — `mobileComposerVisible` is the single source
             // of truth, shared with the <main> padding that reserves its space.
-            <CreateComposerFrame create={createComposer} hidden={composerHiddenForApps}>
             <NewSessionDialog
               variant="inline"
               open
-              // The phone shows no starter row: Create offers the host's
-              // tutorial cards below the chat box, and Chats lists work.
+              // The phone shows no starter row: the list above is the page.
               starters={false}
               expanded={composerExpanded}
               onExpandedChange={setComposerExpanded}
               focusNonce={composerFocusNonce}
               findSessions={findSessions}
-              placeholder={
-                scopedFolderName
-                    ? `What should we work on in ${scopedFolderName}?`
-                    : createComposer
-                      ? "What do you want to make?"
-                      : undefined
-              }
               agentRequest={agentRequest}
               users={users}
               repos={repos}
+              // The folder in view. The composer's folder pill writes it back,
+              // so a pick there also filters the list.
               scopedProject={projectFilter}
-              projectOptions={mobileProjectOptions}
-              onProjectChange={setProjectFilter}
-              onProjectSwipe={cycleMobileProjectFilter}
+              projectCounts={projectSessionCounts}
+              onProjectChange={changeProjectFilter}
               onReposChanged={loadCore}
               codingAgents={codingAgents}
               defaultUser={composerDefaultOwner(identity, userFilter)}
@@ -10497,7 +10493,6 @@ export function App() {
                 if (sid) openSessionPage(sid);
               }}
             />
-            </CreateComposerFrame>
           ) : null}
         </>
       ) : null}
@@ -12319,14 +12314,8 @@ function LiveView({
   repos = [],
   onReposChanged,
   hosted = false,
-  appsView = false,
-  createView = false,
-  onShowApps,
   onFindSessions,
   allSessions,
-  onOpenApp,
-  onImportFolder,
-  onImportGitHub,
   coach = null,
   focus,
   stageComposer,
@@ -12336,20 +12325,10 @@ function LiveView({
   hostSettingsInMenu = false,
 }: {
   sessions: Session[];
-  /** Phone: list apps and games instead of folders (components/apps-home.tsx). */
-  appsView?: boolean;
-  /** Phone: the Create page; the shell centers the composer over it. */
-  createView?: boolean;
-  onShowApps?: () => void;
   /** Open the session history searched for this text (an app's name). */
   onFindSessions?: (search: string) => void;
-  /** Every session, before the project scope. The Apps view groups these. */
+  /** Every session, before the project scope. A scoped app page reads these. */
   allSessions?: Session[];
-  /** Open an app: scope the list and the composer to its folder. `change` also focuses the composer. */
-  onOpenApp?: (project: string) => void;
-  /** The Apps page's Import: a folder on this Computer, or a GitHub repository. */
-  onImportFolder?: () => void;
-  onImportGitHub?: () => void;
   shippedReview?: Session | null;
   /** The session `/sessions/<id>` names, or null on the plain list. */
   openSessionId?: string | null;
@@ -12524,13 +12503,6 @@ function LiveView({
     [onOpenSessionPage],
   );
 
-  // The Apps view (components/apps-home.tsx). Memoized by React Compiler.
-  const localProjects = appsView ? buildLocalProjects(repos, allSessions ?? sessions, repoProject) : [];
-  // A project on this Computer opened from the Apps page ("On this computer").
-  const scopedLocalName =
-    isMobile && !createView && !appsView && projectFilter !== "__all" && projectFilter !== NO_PROJECT_FILTER
-      ? repos.find((repo) => repoProject(repo) === projectFilter)?.name || projectFilter.split("/").pop() || projectFilter
-      : null;
   // Settings > View > "Session details in lists". Off (the default) is compact.
   const { showSessionDetails, showThreads } = useContext(ViewPrefsContext);
   const listStyle = showSessionDetails ? "detailed" : "compact";
@@ -12579,36 +12551,14 @@ function LiveView({
     prefetchTranscripts(prefetchKey.split(","), loadTranscriptPage);
   }, [prefetchKey]);
 
-  // These hooks stay above EVERY early return in this component: the phone's
-  // empty list and the wide layout. Below the empty-list return, a phone whose
-  // list emptied or filled called a different number of hooks, React threw
-  // ("Rendered fewer hooks than expected", #300/#310) and the whole live view,
-  // question cards included, fell to "Something broke".
-  //
-  // The pill order, so a switch knows which side the next page comes from.
-  // No motion on the first draw: only a switch animates.
-  const homePage = createView ? 0 : appsView ? 1 : 2;
-  // The Apps page is its own chunk. Load it while the phone home is up, so
-  // the page is there when its slide starts instead of popping in after.
-  useEffect(() => {
-    if (!isMobile) return;
-    const idle = window.requestIdleCallback ?? ((run: () => void) => window.setTimeout(run, 1500));
-    idle(() => void loadAppsList().catch(() => {}));
-  }, [isMobile]);
-  const [homePageMove, setHomePageMove] = useState({ page: homePage, dir: 0 });
-  if (homePageMove.page !== homePage) setHomePageMove({ page: homePage, dir: homePage > homePageMove.page ? 1 : -1 });
 
   // On mobile keep the empty state quiet and unboxed. The persistent composer
   // is already the action, so duplicating it with a card/button only sends focus
   // back to the same input.
   // Keep this return AFTER all hooks so the hook order remains stable as the
   // live list empties and refills.
-  // Create and Apps are pages of their own: a new account with no sessions
-  // still gets the Create heading and the tutorials, not "No sessions yet".
   if (
     !isWide &&
-    !createView &&
-    !appsView &&
     !pinned.length &&
     !botSessions.length &&
     !working.length &&
@@ -12848,7 +12798,7 @@ function LiveView({
 
   return (
     <>
-    <div className={cn("flex flex-col gap-2", !createView && "pb-[calc(var(--lfg-composer-clear)+3.5rem)]")}>
+    <div className="flex flex-col gap-2 pb-[calc(var(--lfg-composer-clear)+3.5rem)]">
       {coach}
       {/* The same list the rail renders, at the same density, grouped the same
           way (SessionGroups). It used to be a grid of cards split by Working
@@ -12860,29 +12810,6 @@ function LiveView({
           with Threads on in Settings: otherwise the list has no pull at all,
           and it updates live, so it needs no pull to refresh either. */}
       <PullToThreadWhen enabled={showThreads} onStart={() => onOpenThread?.(NEW_THREAD_ID)}>
-        {/* Create, Apps and Chats slide in from the side of their pill. */}
-        <div
-          key={homePage}
-          className={homePageMove.dir ? "lfg-page-enter" : undefined}
-          style={homePageMove.dir ? ({ "--lfg-page-dir": homePageMove.dir } as CSSProperties) : undefined}
-        >
-        {createView ? (
-          <CreateHome />
-        ) : appsView ? (
-          <Suspense fallback={null}>
-          <AppsListPage
-            local={localProjects}
-            onOpenSession={openSessionPage}
-            onOpenProject={(project: string) => onOpenApp?.(project)}
-            onImportFolder={onImportFolder}
-            onImportGitHub={onImportGitHub}
-          />
-          </Suspense>
-        ) : <>
-        {scopedLocalName && onShowApps ? (
-          <ScopeCrumb name={scopedLocalName} onBack={onShowApps} />
-        ) : null}
-        {scopedLocalName ? <LocalProjectCard name={scopedLocalName} onFindSessions={() => onFindSessions?.("")} /> : null}
         {/* Threads are people chats, not work on this app. */}
         {!showThreads ? null : <ThreadRailGroup threads={threads} activeId={openThreadId} collapsed={false} onOpen={(id) => onOpenThread?.(id)} />}
         <SessionGroups
@@ -12893,23 +12820,12 @@ function LiveView({
           onProjectChange={onProjectChange}
           renderItem={renderMobileItem}
           card={listStyle === "compact"}
-          // The card and the crumb above already name the app or folder.
-          headerless={!!scopedLocalName}
         />
         {/* Threads alone (or a project chip with nothing in it) used to leave
             the rest of the phone blank above the composer. */}
         {!pinned.length && !botSessions.length && !working.length && !idle.length ? (
-          scopedLocalName ? (
-            // The card above offers the earlier sessions.
-            <p className="px-6 py-8 text-center text-[13.5px] text-muted-foreground">
-              No session is open in {scopedLocalName}. Type below to start one.
-            </p>
-          ) : (
-            <RuntimeEmptyState />
-          )
+          <RuntimeEmptyState />
         ) : null}
-        </>}
-        </div>
       </PullToThreadWhen>
     </div>
     {/* Open findings live behind a pill, not at the end of the list. A group
@@ -24560,6 +24476,7 @@ function NewSessionDialog({
     if (onProjectChange) onProjectChange(repoProject(next));
   }
 
+
   // A pinned account shows its own limits. Claude Auto has no pinned account,
   // so it folds every connected Claude profile into one combined-capacity ring.
   const { usage, loading: usageLoading } = useProviderUsage({
@@ -24943,12 +24860,18 @@ function NewSessionDialog({
 
   const chooseModel = (next: string) => setModel(next);
 
-  // One folder dropdown for every desktop composer shape: a chip on the home
-  // stage, a pill in the drawer's controls row.
+  // One folder dropdown for every composer shape: a chip on the home stage, a
+  // pill in the drawer's controls row, and a pill on the phone. On the phone
+  // "All chats" is the Folders page's, not the composer's: here the menu only
+  // names a folder, and with none chosen the next chat has no project.
+  const ownsFolder = variant === "inline";
   const folderPicker = (trigger: "chip" | "pill") => (
     <ProjectFolderMenu
       trigger={trigger}
-      value={unassigned ? (allProjects ? "__all" : NO_PROJECT_FILTER) : composerProject}
+      includeAll={!ownsFolder}
+      touch={ownsFolder}
+      heading={ownsFolder ? "Start the next chat in" : undefined}
+      value={unassigned ? (allProjects && !ownsFolder ? "__all" : NO_PROJECT_FILTER) : composerProject}
       projects={[NO_PROJECT_FILTER, ...new Set(repos.map(repoProject))]}
       labelFor={(value) => projectFilterLabel(value, shortProject)}
       counts={projectCounts}
@@ -25423,7 +25346,12 @@ function NewSessionDialog({
           placeholder={
             attachments.length
               ? "Add a note for the files…"
-              : placeholder ?? (variant === "stage" && unassigned ? "Describe a game or an app…" : "What should we work on?")
+              : placeholder ??
+                (variant === "stage" && unassigned
+                  ? "Describe a game or an app…"
+                  : ownsFolder && !unassigned
+                    ? `What should we work on in ${projectFilterLabel(composerProject, shortProject)}?`
+                    : "What should we work on?")
           }
           className={cn(
             "border-0 bg-transparent text-base leading-relaxed shadow-none focus-visible:border-0 focus-visible:ring-0",
@@ -25455,8 +25383,9 @@ function NewSessionDialog({
                 first words expand the composer. */}
             {inlineExpanded ? (variant === "stage" ? modelControls : agentPopover) : null}
             {attachButton}
-            {/* The project rail under the mobile header chooses the folder,
-                as on iOS, so the composer carries no folder button. */}
+            {/* Where the next chat starts. A pick also filters the list,
+                through the same folder value the Folders page sets. */}
+            {variant === "inline" ? folderPill : null}
             {/* Desktop home uses the same folder menu as the session rail. */}
             {variant === "stage" ? folderChip : null}
             {inlineExpanded ? <span className="flex-1" /> : null}
@@ -27289,12 +27218,6 @@ function AgentModelRow<K extends AgentKind>({
       />
     </div>
   );
-}
-
-/** The Apps page: the preloaded module when it is there, else the lazy one. */
-function AppsListPage(props: ComponentProps<typeof AppsList>) {
-  const Loaded = appsListModule?.default;
-  return Loaded ? <Loaded {...props} /> : <AppsList {...props} />;
 }
 
 // ---------- auto agents: pages + manage view ----------

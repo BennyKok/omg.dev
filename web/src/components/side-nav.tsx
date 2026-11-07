@@ -124,6 +124,7 @@ export function SideNavDrawer({
   onNavigate,
   machineSwitcher,
   brand,
+  folders,
   footer,
 }: {
   open: boolean;
@@ -133,6 +134,8 @@ export function SideNavDrawer({
   /** The machine picker, drawn first. */
   machineSwitcher?: ReactNode;
   brand?: ReactNode;
+  /** The phone's Folders page, above the page rows (components/phone-folders.tsx). */
+  folders?: ReactNode;
   footer?: ReactNode;
 }) {
   const titleId = useId();
@@ -164,7 +167,7 @@ export function SideNavDrawer({
       initialFocus={focusCurrentRow}
       refreshKey={machineGeneration}
       backdropClassName="bg-black/[0.28]"
-      className="inset-y-0 left-0 flex h-[100dvh] w-[min(20rem,72vw)] select-none flex-col border-r border-border bg-background text-foreground shadow-2xl"
+      className="inset-y-0 left-0 flex h-[100dvh] w-[min(22rem,86vw)] select-none flex-col border-r border-border bg-background text-foreground shadow-2xl"
     >
       <h2 id={titleId} className="sr-only">Navigation</h2>
       <div className="flex min-h-0 flex-1 touch-pan-y flex-col gap-1 overflow-y-auto overscroll-contain px-3 pb-[max(var(--lfg-safe-bottom),1rem)] pt-[calc(0.75rem+env(safe-area-inset-top))]">
@@ -172,6 +175,8 @@ export function SideNavDrawer({
         {/* The machine, first. It is the thing every other row is scoped
             to, so it reads as the heading for them. */}
         {machineSwitcher ? <div key={machineGeneration} className="pb-3">{machineSwitcher}</div> : null}
+        {folders ? <div className="pb-2">{folders}</div> : null}
+        {folders ? <div className="mx-3 mb-1 border-t border-border" /> : null}
         <SideNavRows rows={rows} onNavigate={onNavigate} onClose={close} />
         {footer ? <div className="mt-2 border-t border-border pt-2">{footer}</div> : null}
       </div>

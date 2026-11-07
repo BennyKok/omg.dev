@@ -55,7 +55,9 @@ const PAGES: { key: string; label: string; icon: SideNavIcon }[] = [
   { key: "live", label: "Chat", icon: "chat" },
   { key: "auto", label: "Schedules", icon: "schedules" },
   // Then the destinations that used to be behind the overflow menu.
-  { key: "notifications", label: "Notifications", icon: "notifications" },
+  // The Inbox: questions, findings and finished work. On a phone it is also
+  // the page one swipe left of Chats (lib/phone-pages.ts).
+  { key: "notifications", label: "Inbox", icon: "notifications" },
   { key: "artifacts", label: "Artifacts", icon: "artifacts" },
   { key: "computer", label: "Computer", icon: "computer" },
   // Board is not listed either. It reads the same sessions as Chat laid out by

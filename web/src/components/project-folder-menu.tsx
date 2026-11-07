@@ -70,6 +70,16 @@ export type ProjectFolderMenuProps = {
    * rounded configuration pills in the composer's controls row.
    */
   trigger?: "bar" | "chip" | "pill";
+  /**
+   * Offer "All projects". A list filter wants it. The phone composer does
+   * not: there the menu answers where the next chat starts, and every chat
+   * already shows in the list.
+   */
+  includeAll?: boolean;
+  /** Finger-sized rows and a wider popup, for the phone composer. */
+  touch?: boolean;
+  /** A short line above the rows that says what the pick does. */
+  heading?: string;
 };
 
 const ROW = "flex h-9 w-full min-w-0 items-center gap-2.5 rounded-lg px-2.5 text-left text-[13px] outline-none transition-colors";
@@ -86,6 +96,9 @@ export function ProjectFolderMenu({
   onNewFolder,
   liveProjects,
   trigger = "bar",
+  includeAll = true,
+  touch = false,
+  heading,
 }: ProjectFolderMenuProps) {
   const [open, setOpen] = useState(false);
   const [page, setPage] = useState<"pick" | "manage">("pick");
@@ -155,10 +168,17 @@ export function ProjectFolderMenu({
           <Popover.Popup
             initialFocus={page === "pick" && searchable ? inputRef : true}
             data-testid="project-folder-menu"
-            className="flex max-h-[min(var(--available-height),32rem)] w-[max(var(--anchor-width),16rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-2xl border border-border bg-popover p-1.5 text-popover-foreground shadow-2xl ring-1 ring-foreground/5 outline-none"
+            className={cn(
+              "flex max-h-[min(var(--available-height),32rem)] max-w-[calc(100vw-1rem)] flex-col",
+              touch ? "w-[min(22rem,calc(100vw-1.5rem))]" : "w-[max(var(--anchor-width),16rem)]",
+              " overflow-hidden rounded-2xl border border-border bg-popover p-1.5 text-popover-foreground shadow-2xl ring-1 ring-foreground/5 outline-none",
+            )}
           >
             {page === "pick" ? (
               <>
+                {heading ? (
+                  <p className="px-2.5 pb-1.5 pt-1 text-[11px] font-semibold text-muted-foreground">{heading}</p>
+                ) : null}
                 {searchable ? (
                   <div className="relative mb-1.5">
                     <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -180,8 +200,9 @@ export function ProjectFolderMenu({
                 <div className="min-h-0 flex-1 overflow-y-auto">
                   {/* Every folder at once. A view, not a place: a new chat
                       under it still starts with no folder. */}
-                  {!needle ? (
+                  {includeAll && !needle ? (
                     <PickRow
+                      touch={touch}
                       selected={value === "__all"}
                       icon={<Layers className="size-3.5" />}
                       label={labelFor("__all")}
@@ -190,6 +211,7 @@ export function ProjectFolderMenu({
                   ) : null}
                   {hasNoProject && !needle ? (
                     <PickRow
+                      touch={touch}
                       selected={value === NO_PROJECT_FILTER}
                       icon={<span className="block size-3.5" />}
                       label={labelFor(NO_PROJECT_FILTER)}
@@ -199,6 +221,7 @@ export function ProjectFolderMenu({
                   ) : null}
                   {matching.map((folder) => (
                     <PickRow
+                      touch={touch}
                       key={folder.value}
                       selected={value === folder.value}
                       icon={<Folder className="size-3.5" />}
@@ -213,10 +236,38 @@ export function ProjectFolderMenu({
                   ) : null}
                 </div>
                 <div className="mt-1 border-t border-border pt-1">
+                  {/* The phone has no Apps page any more, so adding a folder
+                      is offered here directly, not one level down. */}
+                  {touch && onAddFolder ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOpen(false);
+                        onAddFolder();
+                      }}
+                      className={cn(ROW, "h-11 text-[15px] text-primary hover:bg-muted focus-visible:bg-muted")}
+                    >
+                      <FolderPlus className="size-3.5 shrink-0" />
+                      <span className="min-w-0 flex-1 truncate">Add a folder on this computer</span>
+                    </button>
+                  ) : null}
+                  {touch && onNewFolder ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOpen(false);
+                        onNewFolder();
+                      }}
+                      className={cn(ROW, "h-11 text-[15px] text-primary hover:bg-muted focus-visible:bg-muted")}
+                    >
+                      <FolderPlus className="size-3.5 shrink-0" />
+                      <span className="min-w-0 flex-1 truncate">New empty folder</span>
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => setPage("manage")}
-                    className={cn(ROW, "text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:bg-muted")}
+                    className={cn(ROW, touch && "h-11 text-[15px]", "text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:bg-muted")}
                   >
                     <SlidersHorizontal className="size-3.5 shrink-0" />
                     <span className="min-w-0 flex-1 truncate">Manage folders</span>
@@ -261,6 +312,7 @@ export function ProjectFolderMenu({
 }
 
 function PickRow({
+  touch = false,
   selected,
   icon,
   label,
@@ -268,6 +320,7 @@ function PickRow({
   count,
   onClick,
 }: {
+  touch?: boolean;
   selected: boolean;
   icon: ReactNode;
   label: string;
@@ -283,6 +336,7 @@ function PickRow({
       title={label}
       className={cn(
         ROW,
+        touch && "h-11 text-[15px]",
         selected ? "bg-primary/12 font-medium text-foreground" : "text-foreground hover:bg-muted focus-visible:bg-muted",
       )}
     >

@@ -45,3 +45,26 @@ test("connection state never replaces the greeting; the overlay owns it", () => 
   ui.flush(() => (ui.query("button") as HTMLElement).click());
   expect(notifications).toBe(1);
 });
+
+test("inside a folder the title names it and opens Folders, until a question needs the Inbox", () => {
+  let folders = 0;
+  let inbox = 0;
+  ui.render(
+    <AskProvider>
+      <LiveHeaderContext
+        brand={<span>omg</span>}
+        intro={false}
+        viewerName="Benny"
+        busyCount={0}
+        folderName="lfg"
+        onOpenFolders={() => folders++}
+        onOpenNotifications={() => inbox++}
+      />
+    </AskProvider>,
+  );
+  expect(ui.text()).toContain("lfg");
+  expect(ui.text()).not.toContain("Welcome");
+  ui.flush(() => (ui.query("button") as HTMLElement).click());
+  expect(folders).toBe(1);
+  expect(inbox).toBe(0);
+});

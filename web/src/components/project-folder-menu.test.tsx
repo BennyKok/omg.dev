@@ -178,3 +178,29 @@ test("marks folders whose project has a live app", async () => {
   expect(live("alpha")).toBe(false);
   expect(live("gamma")).toBe(false);
 });
+
+test("the phone composer's menu names folders only and offers adding one directly", async () => {
+  const picked: string[] = [];
+  let added = 0;
+  ui.render(
+    <ProjectFolderMenu
+      value={NO_PROJECT_FILTER}
+      projects={projects}
+      labelFor={labelFor}
+      onChange={(v) => picked.push(v)}
+      includeAll={false}
+      touch
+      heading="Start the next chat in"
+      onAddFolder={() => added++}
+    />,
+  );
+  ui.flush(() => byLabel("Folder: No project")!.click());
+  await ui.flushAsync();
+  // "All projects" is a list view, not a place a chat can start.
+  expect(menuRows()).toEqual(["No project", "alpha", "beta", "gamma"]);
+  expect(body().textContent).toContain("Start the next chat in");
+  const add = Array.from(body().querySelectorAll("button")).find((b) => b.textContent === "Add a folder on this computer");
+  expect(add).toBeDefined();
+  ui.flush(() => add!.click());
+  expect(added).toBe(1);
+});

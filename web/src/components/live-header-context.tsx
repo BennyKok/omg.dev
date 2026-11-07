@@ -20,6 +20,8 @@ export function LiveHeaderContext({
   identity,
   busyCount,
   onOpenNotifications,
+  folderName = null,
+  onOpenFolders,
 }: {
   intro: boolean;
   brand: ReactNode;
@@ -28,6 +30,10 @@ export function LiveHeaderContext({
   identity?: string | null;
   busyCount: number;
   onOpenNotifications: () => void;
+  /** The folder the phone list is in. It replaces the welcome while set. */
+  folderName?: string | null;
+  /** Open Folders, to change or leave the folder. */
+  onOpenFolders?: () => void;
 }) {
   const { questions } = useAsk();
   const intro = requestedIntro;
@@ -59,9 +65,14 @@ export function LiveHeaderContext({
       : firstName
         ? `${firstName}, ${questionCount} agents need you`
         : `${questionCount} agents need you`
-    : actionInMotion && showAmbientStatus
-      ? ambientContext
-      : welcomeMessage;
+    : folderName
+      ? folderName
+      : actionInMotion && showAmbientStatus
+        ? ambientContext
+        : welcomeMessage;
+  // A question still opens the Inbox. Otherwise, inside a folder, the title is
+  // the way to Folders.
+  const opensFolders = !!folderName && !questionCount && !!onOpenFolders;
 
   useEffect(() => {
     if (intro || questionCount || !actionInMotion) {
@@ -87,18 +98,21 @@ export function LiveHeaderContext({
         type="button"
         onClick={() => {
           haptic("selection");
-          onOpenNotifications();
+          if (opensFolders) onOpenFolders?.();
+          else onOpenNotifications();
         }}
         aria-label={
           intro
             ? "omg.dev"
-            : questionCount
+            : opensFolders
+              ? `Folder: ${folderName}. Tap to change folder`
+              : questionCount
               ? `${headline}. Tap to open notifications`
               : actionInMotion
                 ? `${welcomeMessage}. ${ambientContext}`
                 : welcomeMessage
         }
-        title={intro ? "omg.dev" : "Open notifications"}
+        title={intro ? "omg.dev" : opensFolders ? "Change folder" : "Open notifications"}
         className={cn(
           "relative flex h-11 items-center overflow-hidden rounded-full text-left transition-colors active:scale-[0.98]",
           intro ? "w-11" : "w-full",

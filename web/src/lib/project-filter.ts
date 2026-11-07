@@ -20,22 +20,27 @@ function browserStorage(): ProjectFilterStorage | null {
   }
 }
 
-/** The folder picked in this visit, or the no-project scope. */
+/**
+ * The folder picked in this visit, or `fallback` when there is none. The
+ * desktop rail falls back to the no-project scope; a phone opens on every
+ * chat.
+ */
 export function readCachedProjectFilter(
   storage: ProjectFilterStorage | null = browserStorage(),
   now: number = Date.now(),
+  fallback: string = NO_PROJECT_FILTER,
 ): string {
   try {
     const raw = storage?.getItem(PROJECT_FILTER_STORAGE_KEY);
-    if (!raw) return NO_PROJECT_FILTER;
+    if (!raw) return fallback;
     const saved = JSON.parse(raw) as { value?: unknown; at?: unknown };
     if (typeof saved.value !== "string" || !saved.value || typeof saved.at !== "number") {
-      return NO_PROJECT_FILTER;
+      return fallback;
     }
-    if (now - saved.at >= PROJECT_FILTER_TTL_MS) return NO_PROJECT_FILTER;
+    if (now - saved.at >= PROJECT_FILTER_TTL_MS) return fallback;
     return saved.value;
   } catch {
-    return NO_PROJECT_FILTER;
+    return fallback;
   }
 }
 
