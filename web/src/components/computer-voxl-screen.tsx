@@ -1,5 +1,6 @@
 // The Computer's screen over the voxl stream (lib/voxl-stream.ts). Used by the
-// full Computer page when the box runs with OMG_COMPUTER_STREAM=voxl.
+// Computer page and its inline chat view when the box runs with
+// OMG_COMPUTER_STREAM=voxl.
 
 import { useEffect, useRef, useState } from "react";
 import { Loader2, RotateCcw } from "lucide-react";
@@ -7,7 +8,16 @@ import { Button } from "@/components/ui/button";
 import { openOmgSocket } from "@/lib/omg-client";
 import { openVoxlStream, voxlSupported, type VoxlStats } from "@/lib/voxl-stream";
 
-export function ComputerVoxlScreen({ active, viewOnly }: { active: boolean; viewOnly: boolean }) {
+export function ComputerVoxlScreen({
+  active,
+  viewOnly,
+  autoFocus = true,
+}: {
+  active: boolean;
+  viewOnly: boolean;
+  /** Take the keyboard when the stream opens. Off inline, where the person is typing in the chat. */
+  autoFocus?: boolean;
+}) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const surfaceRef = useRef<HTMLDivElement | null>(null);
   const viewOnlyRef = useRef(viewOnly);
@@ -41,7 +51,7 @@ export function ComputerVoxlScreen({ active, viewOnly }: { active: boolean; view
           onError: setError,
           viewOnly: () => viewOnlyRef.current,
         });
-        surface.focus({ preventScroll: true });
+        if (autoFocus) surface.focus({ preventScroll: true });
       })
       .catch((e: unknown) => {
         if (!cancelled) setError(e instanceof Error ? e.message : "could not open the fast stream");
@@ -50,7 +60,7 @@ export function ComputerVoxlScreen({ active, viewOnly }: { active: boolean; view
       cancelled = true;
       stream?.close();
     };
-  }, [active, attempt, unsupported]);
+  }, [active, attempt, unsupported, autoFocus]);
 
   return (
     <div

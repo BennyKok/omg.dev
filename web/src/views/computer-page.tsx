@@ -215,9 +215,8 @@ export function ComputerPage({
 
   // Connect once the desktop is up and this view is on screen. A connection
   // another view (or this one, a moment ago) left open is reused as is.
-  // The full page uses voxl instead when the box opted in; the inline view
-  // stays on noVNC.
-  const voxl = !inline && status?.stream === "voxl";
+  // Both the full page and the inline view use voxl when the box opted in.
+  const voxl = status?.stream === "voxl";
   useEffect(() => {
     if (active && status?.running && !voxl) void computerConnection.connect();
   }, [active, status?.running, voxl]);
@@ -610,7 +609,7 @@ export function ComputerPage({
           }
         />
       </div>
-      {voxl && running ? <ComputerVoxlScreen active={active} viewOnly={viewOnly} /> : null}
+      {voxl && running ? <ComputerVoxlScreen active={active} viewOnly={viewOnly} autoFocus={!inline} /> : null}
 
       {/* Trackpad surface. Mounted only while controlling AND on a finger, so a
           mouse keeps absolute pointing and reaches noVNC's own handlers

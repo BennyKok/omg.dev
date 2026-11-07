@@ -4592,6 +4592,7 @@ export async function cmdServe() {
           const bridge = new VoxlBridge(ws as unknown as ServerWebSocket<unknown>, {
             endpoint: ensureVoxl(display),
             onClose: () => voxlBridges.delete(ws),
+            log: (line) => console.log(line),
           });
           voxlBridges.set(ws, bridge);
           void bridge.open();
