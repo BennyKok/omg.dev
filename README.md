@@ -1,6 +1,4 @@
-<a href="https://omg.dev">
-  <img src="https://raw.githubusercontent.com/BennyKok/omg.dev/main/docs/images/omg-mark.png" alt="omg.dev" width="96" />
-</a>
+<img src="https://raw.githubusercontent.com/BennyKok/omg.dev/main/docs/images/omg-mark.png" alt="omg.dev" width="96" />
 
 # omg.dev
 
@@ -9,8 +7,10 @@
 Give your agents a task from your phone. Get a notification when the result is
 ready. Your laptop can stay closed.
 
-Open-source harness for Claude Code, Codex, and other coding agents. Install it
-yourself for free.
+Open-source harness for Claude Code, Codex, and other coding agents. Run it on
+your own computer or your own server. Free and MIT licensed.
+
+Built by the team behind [omg.dev](https://omg.dev).
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![GitHub release](https://img.shields.io/github/v/release/BennyKok/omg.dev?label=release)](https://github.com/BennyKok/omg.dev/releases)
@@ -21,16 +21,7 @@ yourself for free.
   <img src="./docs/images/omg-chat.webp" alt="omg.dev showing a list of coding-agent sessions and an active agent transcript" width="80%" />
 </p>
 
-## Free or hosted
-
-|                | Self-host                    | Hosted on omg.dev                                    |
-| -------------- | ---------------------------- | ---------------------------------------------------- |
-| **Price**      | Free (MIT)                   | Free plan to try. Paid plans from $19/mo.            |
-| **Runs on**    | Your Mac or Linux machine    | A cloud computer we run for you                      |
-| **You manage** | Install and updates          | Nothing                                              |
-| **Start**      | [Install below](#install-on-your-computer) | [app.omg.dev](https://app.omg.dev/) · [Pricing](https://omg.dev/pricing) |
-
-Both use the agent subscription you already pay for, such as Claude or ChatGPT.
+Use the agent subscription you already pay for, such as Claude or ChatGPT.
 
 ## Install on your computer
 
@@ -40,7 +31,7 @@ bun install --global @omg-dev/cli && omg computer setup
 
 Open [http://localhost:8766](http://localhost:8766).
 
-Debian, Ubuntu, or macOS. No omg.dev account. On Linux, a normal user with
+Debian, Ubuntu, or macOS. No account needed. On Linux, a normal user with
 `sudo`. Do not run as `root`.
 
 Open **Settings → Coding agents**. Supports Claude Code, Codex, Grok, Cursor,
@@ -55,13 +46,6 @@ Apple Silicon. Ships with its own runtime. No separate CLI install.
 
 Unsigned preview. Control-click the app, choose **Open**, then **Open** again.
 Or **System Settings → Privacy & Security → Open Anyway**.
-
-## Use the hosted version
-
-No local server. Runs in the cloud, opens in the browser. This is a paid
-service with a free plan. See [pricing](https://omg.dev/pricing).
-
-[**Start with a hosted Computer →**](https://app.omg.dev/)
 
 ## What you get
 
