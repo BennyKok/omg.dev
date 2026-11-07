@@ -132,3 +132,33 @@ export function mobileHeaderControl(tab: string): "menu" | "back-to-settings" | 
   if (tab === "folders") return "none";
   return SETTINGS_TABS.has(tab) && tab !== "settings" ? "back-to-settings" : "menu";
 }
+
+/** Tabs that draw their own page in the shell. Anything else falls to Settings. */
+const OWN_PAGE_TABS = new Set([
+  "live",
+  "folders",
+  "auto",
+  "usage",
+  "coding-agents",
+  "notifications",
+  "artifacts",
+  "changelog",
+  "term",
+  "bots",
+  "storage",
+  "computer",
+  "board",
+  "instructions",
+  "connectors",
+  "more",
+]);
+
+/**
+ * Whether the shell draws the Settings page for `tab`. Settings is the
+ * fallback for any tab without a page of its own, so a new page must be
+ * listed in OWN_PAGE_TABS. The phone's Folders page was not, and Settings
+ * was drawn under its folder list.
+ */
+export function tabFallsToSettings(tab: string): boolean {
+  return !OWN_PAGE_TABS.has(tab);
+}

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mobileHeaderControl, sideNavCurrentKey, sideNavRows } from "./side-nav-items";
+import { mobileHeaderControl, sideNavCurrentKey, sideNavRows, tabFallsToSettings } from "./side-nav-items";
 
 const keys = (rows: { key: string }[]) => rows.map((row) => row.key);
 
@@ -96,5 +96,18 @@ describe("mobileHeaderControl", () => {
     for (const tab of ["usage", "coding-agents", "storage", "instructions", "connectors", "changelog", "more"]) {
       expect(mobileHeaderControl(tab)).toBe("back-to-settings");
     }
+  });
+});
+
+describe("tabFallsToSettings", () => {
+  test("the Folders page and every page with its own view do not draw Settings under them", () => {
+    for (const tab of ["folders", "live", "notifications", "computer", "artifacts", "usage", "auto"]) {
+      expect(tabFallsToSettings(tab)).toBe(false);
+    }
+  });
+
+  test("Settings itself and an unknown tab show Settings", () => {
+    expect(tabFallsToSettings("settings")).toBe(true);
+    expect(tabFallsToSettings("no-such-page")).toBe(true);
   });
 });

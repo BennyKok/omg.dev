@@ -22,7 +22,7 @@ import { SessionReparentProvider, SessionReparentTarget, useSessionDragMenuGuard
 import { HostDrawerSlot, SideNavButton, SideNavGlyph, SideNavPanel } from "./components/side-nav";
 import { FindingsPill, FindingsSheet } from "./components/findings-pill";
 import { OutOfCreditCard, isOutOfCreditNotice } from "./components/out-of-credit-card";
-import { mobileHeaderControl, sideNavRows, type SideNavRow } from "./lib/side-nav-items";
+import { mobileHeaderControl, sideNavRows, tabFallsToSettings, type SideNavRow } from "./lib/side-nav-items";
 import { settledParagraphs } from "./lib/paragraph-stream";
 import {
   AgentSetupSheet,
@@ -10404,21 +10404,7 @@ export function App() {
         {extNavTabs.some((t) => t.id === tab) ? (
           extNavTabs.find((t) => t.id === tab)!.render()
         ) : null}
-        {tab !== "live" &&
-        tab !== "auto" &&
-        tab !== "usage" &&
-        tab !== "coding-agents" &&
-        tab !== "notifications" &&
-        tab !== "artifacts" &&
-        tab !== "changelog" &&
-        tab !== "term" &&
-        tab !== "bots" &&
-        tab !== "storage" &&
-        tab !== "computer" &&
-        tab !== "board" &&
-        tab !== "instructions" &&
-        tab !== "connectors" &&
-        tab !== "more" &&
+        {tabFallsToSettings(tab) &&
         !settingsInWorkspace &&
         !extNavTabs.some((t) => t.id === tab) ? (
           settingsPage
