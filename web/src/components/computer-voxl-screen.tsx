@@ -4,6 +4,9 @@
 //
 // The screen is always controllable: there is no watch-only mode to switch
 // out of. Keyboard, paste and copy sit in one small bar at the bottom.
+//
+// A finger drives the pointer like a trackpad (lib/voxl-trackpad.ts). With
+// `camera`, the desktop also fills the phone and the view follows the pointer.
 
 import { useEffect, useRef, useState } from "react";
 import { ClipboardCopy, ClipboardPaste, Keyboard, Loader2, RotateCcw } from "lucide-react";
@@ -33,12 +36,15 @@ export function ComputerVoxlScreen({
   active,
   autoFocus = true,
   controls = true,
+  camera = false,
 }: {
   active: boolean;
   /** Take the keyboard when the stream opens. Off inline, where the person is typing in the chat. */
   autoFocus?: boolean;
   /** Show the keyboard / paste / copy bar. */
   controls?: boolean;
+  /** Let a finger zoom and pan the desktop. The full page; not the inline view. */
+  camera?: boolean;
 }) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -52,6 +58,7 @@ export function ComputerVoxlScreen({
   const [stats, setStats] = useState<VoxlStats | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const [touchMode, setTouchMode] = useState(false);
   const unsupported = voxlSupported();
 
   useEffect(() => {
@@ -78,6 +85,8 @@ export function ComputerVoxlScreen({
           onLive: setLive,
           onStats: setStats,
           onError: setError,
+          camera,
+          onTouchMode: setTouchMode,
         });
         streamRef.current = stream;
         // Same copy / paste / shortcut handling as the VNC stream.
@@ -101,7 +110,7 @@ export function ComputerVoxlScreen({
       stream?.close();
       streamRef.current = null;
     };
-  }, [active, attempt, unsupported, autoFocus]);
+  }, [active, attempt, unsupported, autoFocus, camera]);
 
   useEffect(() => {
     if (!notice) return;
@@ -114,10 +123,17 @@ export function ComputerVoxlScreen({
       <div
         ref={surfaceRef}
         tabIndex={0}
-        className="absolute inset-0 touch-none select-none outline-none [-webkit-touch-callout:none] [overscroll-behavior:none]"
+        className={
+          // Under a finger the camera's window starts below the control row,
+          // so the desktop fills the page with nothing over its top edge.
+          (camera && touchMode
+            ? "absolute inset-x-0 bottom-0 top-[calc(env(safe-area-inset-top)+3.25rem)] "
+            : "absolute inset-0 ") +
+          "overflow-hidden touch-none select-none outline-none [-webkit-touch-callout:none] [overscroll-behavior:none]"
+        }
       >
         <canvas ref={canvasRef} className="size-full object-contain" />
-        {/* The remote pointer, drawn while a finger drives it. */}
+        {/* The remote pointer, drawn while a finger drives it like a trackpad. */}
         <img
           ref={cursorRef}
           alt=""

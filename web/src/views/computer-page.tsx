@@ -615,7 +615,7 @@ export function ComputerPage({
           }
         />
       </div>
-      {voxl && running ? <ComputerVoxlScreen active={active} autoFocus={!inline} controls={!tapToExpand} /> : null}
+      {voxl && running ? <ComputerVoxlScreen active={active} autoFocus={!inline} controls={!tapToExpand} camera={!inline} /> : null}
 
       {/* Trackpad surface. Mounted only while controlling AND on a finger, so a
           mouse keeps absolute pointing and reaches noVNC's own handlers

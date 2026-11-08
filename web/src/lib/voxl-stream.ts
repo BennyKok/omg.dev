@@ -31,6 +31,8 @@
 // SOFTWARE.
 
 import type { OmgSocket } from "@omg-dev/client";
+import { clampCamera, coverScale, type Camera, type Size } from "./computer-camera";
+import { createVoxlTrackpad, type TrackpadView } from "./voxl-trackpad";
 
 const BIN_VIDEO = 0x01;
 const BIN_CURSOR = 0x03;
@@ -85,6 +87,13 @@ export interface VoxlStreamOptions {
    * image carries no pointer, and a phone shows no mouse cursor of its own.
    */
   cursor?: HTMLImageElement;
+  /**
+   * Let a finger zoom and pan the picture like a camera (the full page). Off,
+   * the picture stays fitted and a pinch scrolls (the inline view).
+   */
+  camera?: boolean;
+  /** A finger (true) or a mouse (false) is now driving the screen. */
+  onTouchMode?: (touch: boolean) => void;
 }
 
 /**
@@ -164,6 +173,17 @@ export function keysymOf(e: Pick<KeyboardEvent, "code" | "key">, isMac: boolean)
 
 /** DOM button -> X button (left, middle, right, back, forward). */
 const BUTTONS = [1, 2, 3, 8, 9];
+
+/** A plain arrow, 12x19 with its tip at 0,0, for before the server sends the real one. */
+const DEFAULT_POINTER =
+  "data:image/svg+xml," +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="19" viewBox="0 0 12 19">' +
+      '<path d="M.5.5v16l4-4 3 6 2-1-3-6h5.5z" fill="#fff" stroke="#000"/></svg>',
+  );
+
+/** A real mouse within this long of a finger is the browser's own echo of the touch. */
+const MOUSE_AFTER_TOUCH_MS = 1000;
 
 export function openVoxlStream(opts: VoxlStreamOptions): VoxlStream {
   const { socket, canvas, surface } = opts;
@@ -301,7 +321,9 @@ export function openVoxlStream(opts: VoxlStreamOptions): VoxlStream {
   }
 
   // The remote pointer: its image (desktop pixels) and where we last put it.
-  const pointer = { w: 0, h: 0, hx: 0, hy: 0, url: "", x: -1, y: -1, touch: false };
+  // Until the server sends one, a plain arrow stands in, so a finger can see
+  // the pointer it is driving from the first touch.
+  const pointer = { w: 12, h: 19, hx: 0, hy: 0, url: DEFAULT_POINTER, x: -1, y: -1, touch: false };
 
   function onCursor(buf: ArrayBuffer) {
     const v = new DataView(buf);
@@ -368,6 +390,7 @@ export function openVoxlStream(opts: VoxlStreamOptions): VoxlStream {
       ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
       layout = hello.stripes?.length ? hello.stripes : [[0, hello.h]];
       resetDecoder();
+      layoutCamera();
       opts.onLive?.(true);
     }
   }
@@ -422,9 +445,10 @@ export function openVoxlStream(opts: VoxlStreamOptions): VoxlStream {
     return 1 / Math.min(r.width / (desk.w || 1), r.height / (desk.h || 1));
   };
   let lastMove = "";
-  const moveTo = (clientX: number, clientY: number, touch: boolean) => {
-    if (!desk.w) return;
-    const [x, y] = toDesk({ clientX, clientY });
+  /** Send the pointer to desktop px. `touch` draws it, since a finger has none of its own. */
+  const moveDesk = (dx: number, dy: number, touch: boolean) => {
+    const x = Math.round(dx);
+    const y = Math.round(dy);
     pointer.x = x;
     pointer.y = y;
     pointer.touch = touch;
@@ -434,6 +458,11 @@ export function openVoxlStream(opts: VoxlStreamOptions): VoxlStream {
       lastMove = s;
       input(s);
     }
+  };
+  const moveTo = (clientX: number, clientY: number, touch: boolean) => {
+    if (!desk.w) return;
+    const [x, y] = toDesk({ clientX, clientY });
+    moveDesk(x, y, touch);
   };
   let sx = 0, sy = 0, queued = false;
   const queueScroll = (dx: number, dy: number) => {
@@ -447,98 +476,134 @@ export function openVoxlStream(opts: VoxlStreamOptions): VoxlStream {
       sx = sy = 0;
     });
   };
-  const click = (button: number) => {
-    input(voxlCmd.button(button, true));
-    input(voxlCmd.button(button, false));
+
+  // ---- a finger: trackpad pointing and the camera (lib/voxl-trackpad.ts) ----
+  // A finger drives the pointer like a laptop trackpad. On the full page the
+  // canvas is also sized and moved so the desktop fills the phone and the
+  // view follows the pointer. A real mouse switches back to absolute pointing
+  // and the fitted picture. This follows the input device, not a toggle: the
+  // media query is only the first guess, because an iPad can have both.
+  let touchMode = !!window.matchMedia?.("(pointer: coarse)").matches;
+  let lastTouchAt = 0;
+  let cam: Camera | null = null;
+  /** Set by a pinch. Until then the desktop keeps filling the view as it resizes. */
+  let pinched = false;
+  const deskSize = (): Size | null => (desk.w ? { width: desk.w, height: desk.h } : null);
+  const cameraOn = () => !!opts.camera && touchMode && desk.w > 0;
+
+  /** The camera's window: the surface, less what the on-screen keyboard covers. */
+  const viewBox = (): TrackpadView | null => {
+    const box = surface.getBoundingClientRect();
+    if (box.width <= 0 || box.height <= 0) return null;
+    const vv = window.visualViewport;
+    return {
+      width: box.width,
+      height: box.height,
+      left: box.left,
+      topOnPage: box.top,
+      top: vv ? Math.max(0, vv.offsetTop - box.top) : 0,
+      bottom: vv ? Math.min(box.height, vv.offsetTop + vv.height - box.top) : box.height,
+    };
   };
 
-  // Touch, as voxl's own client does it: tap clicks, drag left-drags (selects
-  // text), long press right-clicks, two fingers scroll, a quick second tap
-  // double-clicks the same spot.
-  const SLOP = 10, LONG_PRESS = 550, MULTI_TAP_MS = 400, MULTI_TAP_PX = 24;
-  const pts = new Map<number, { x: number; y: number }>();
-  let mode: "pending" | "drag" | "scroll" | "done" | null = null;
-  let start = { x: 0, y: 0 };
-  let pressTimer: ReturnType<typeof setTimeout> | undefined;
-  let lastMid: [number, number] = [0, 0];
-  let lastTap = { x: 0, y: 0, t: -Infinity };
-  const mid = (): [number, number] => {
-    let x = 0, y = 0;
-    for (const p of pts.values()) { x += p.x; y += p.y; }
-    return [x / pts.size, y / pts.size];
+  /** Where the fitted (object-contain) picture sits, as a camera. */
+  const fitted = (): Camera | null => {
+    if (!desk.w) return null;
+    const r = canvas.getBoundingClientRect();
+    const host = surface.getBoundingClientRect();
+    const scale = Math.min(r.width / desk.w, r.height / desk.h);
+    if (!(scale > 0)) return null;
+    return {
+      scale,
+      x: r.left - host.left + (r.width - desk.w * scale) / 2,
+      y: r.top - host.top + (r.height - desk.h * scale) / 2,
+    };
   };
-  const touchDown = (e: PointerEvent) => {
-    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (pts.size === 1) {
-      mode = "pending";
-      start = { x: e.clientX, y: e.clientY };
-      pressTimer = setTimeout(() => {
-        if (mode !== "pending") return;
-        moveTo(start.x, start.y, true);
-        click(3);
-        mode = "done";
-        navigator.vibrate?.(10);
-      }, LONG_PRESS);
-    } else if (pts.size === 2) {
-      clearTimeout(pressTimer);
-      if (mode === "drag") input(voxlCmd.button(1, false));
-      mode = "scroll";
-      lastMid = mid();
+
+  /** Size and place the canvas for a camera. Null hands it back to its classes. */
+  const applyCamera = (next: Camera | null) => {
+    cam = next;
+    const s = canvas.style;
+    if (!next) {
+      s.position = s.left = s.top = s.width = s.height = s.maxWidth = "";
+    } else {
+      s.position = "absolute";
+      s.maxWidth = "none";
+      s.left = `${next.x}px`;
+      s.top = `${next.y}px`;
+      s.width = `${desk.w * next.scale}px`;
+      s.height = `${desk.h * next.scale}px`;
     }
+    drawPointer();
   };
-  const touchMove = (e: PointerEvent) => {
-    const p = pts.get(e.pointerId);
-    if (!p) return;
-    p.x = e.clientX;
-    p.y = e.clientY;
-    if (mode === "pending" && Math.hypot(p.x - start.x, p.y - start.y) > SLOP) {
-      clearTimeout(pressTimer);
-      mode = "drag";
-      moveTo(start.x, start.y, true);
-      input(voxlCmd.button(1, true));
+
+  const trackpad = createVoxlTrackpad({
+    desk: deskSize,
+    view: viewBox,
+    camera: () => (cameraOn() ? cam : fitted()),
+    setCamera: (next) => {
+      if (!cameraOn()) return;
+      if (cam && next.scale !== cam.scale) pinched = true;
+      applyCamera(next);
+    },
+    canZoom: cameraOn,
+    moveTo: (at) => moveDesk(at.x, at.y, true),
+    button: (button, isDown) => input(voxlCmd.button(button, isDown)),
+    scroll: queueScroll,
+    later: (fn, ms) => {
+      const t = setTimeout(fn, ms);
+      return () => clearTimeout(t);
+    },
+    buzz: () => navigator.vibrate?.(10),
+  });
+
+  /** Lay the camera out for the current desktop, view and input device. */
+  const layoutCamera = () => {
+    const view = viewBox();
+    const size = deskSize();
+    if (!cameraOn() || !view || !size) {
+      if (cam) applyCamera(null);
+      else drawPointer();
+      return;
     }
-    if (mode === "drag") moveTo(p.x, p.y, true);
-    else if (mode === "scroll" && pts.size >= 2) {
-      const m = mid(), k = deskPerPx();
-      queueScroll((lastMid[0] - m[0]) * k, (lastMid[1] - m[1]) * k);
-      lastMid = m;
-    }
+    const prev = cam;
+    applyCamera(
+      clampCamera(
+        prev && pinched ? prev : { scale: coverScale(view, size), x: prev?.x ?? 0, y: prev?.y ?? 0 },
+        view,
+        size,
+      ),
+    );
+    trackpad.relayout();
   };
-  const touchUp = (e: PointerEvent) => {
-    if (!pts.delete(e.pointerId)) return;
-    if (mode === "pending") {
-      clearTimeout(pressTimer);
-      const now = performance.now();
-      const at = now - lastTap.t < MULTI_TAP_MS && Math.hypot(start.x - lastTap.x, start.y - lastTap.y) < MULTI_TAP_PX
-        ? lastTap : start;
-      lastTap = { x: at.x, y: at.y, t: now };
-      moveTo(at.x, at.y, true);
-      click(1);
-      mode = "done";
-    } else if (mode === "drag") {
-      input(voxlCmd.button(1, false));
-      mode = "done";
-    } else if (mode === "scroll" && pts.size < 2) mode = "done";
-    if (pts.size === 0) mode = null;
+
+  const setTouchMode = (on: boolean) => {
+    if (on === touchMode) return;
+    touchMode = on;
+    if (!on) pointer.touch = false;
+    opts.onTouchMode?.(on);
+    layoutCamera();
   };
-  const touchCancel = (e: PointerEvent) => {
-    clearTimeout(pressTimer);
-    if (mode === "drag") input(voxlCmd.button(1, false));
-    pts.delete(e.pointerId);
-    if (pts.size === 0) mode = null;
-  };
+  opts.onTouchMode?.(touchMode);
+
+  /** A mouse event this soon after a finger is the browser echoing the touch. */
+  const touchEcho = () => performance.now() - lastTouchAt < MOUSE_AFTER_TOUCH_MS;
 
   const onPointerMove = (e: PointerEvent) => {
-    if (e.pointerType === "touch") touchMove(e);
-    else moveTo(e.clientX, e.clientY, false);
+    if (e.pointerType === "touch") trackpad.move(e.pointerId, e.clientX, e.clientY);
+    else if (!touchEcho()) moveTo(e.clientX, e.clientY, false);
   };
   const onPointerDown = (e: PointerEvent) => {
     e.preventDefault();
     try { surface.setPointerCapture(e.pointerId); } catch {}
     if (e.pointerType === "touch") {
-      touchDown(e);
+      lastTouchAt = performance.now();
+      setTouchMode(true);
+      trackpad.down(e.pointerId, e.clientX, e.clientY);
       return;
     }
+    if (touchEcho()) return;
+    setTouchMode(false);
     surface.focus({ preventScroll: true });
     moveTo(e.clientX, e.clientY, false);
     input(voxlCmd.button(BUTTONS[e.button] ?? 1, true));
@@ -546,14 +611,16 @@ export function openVoxlStream(opts: VoxlStreamOptions): VoxlStream {
   const onPointerUp = (e: PointerEvent) => {
     e.preventDefault();
     if (e.pointerType === "touch") {
-      touchUp(e);
+      lastTouchAt = performance.now();
+      trackpad.up(e.pointerId);
       return;
     }
+    if (touchEcho()) return;
     moveTo(e.clientX, e.clientY, false);
     input(voxlCmd.button(BUTTONS[e.button] ?? 1, false));
   };
   const onPointerCancel = (e: PointerEvent) => {
-    if (e.pointerType === "touch") touchCancel(e);
+    if (e.pointerType === "touch") trackpad.cancel(e.pointerId);
     else input(voxlCmd.releaseAll);
   };
   const onWheel = (e: WheelEvent) => {
@@ -563,7 +630,8 @@ export function openVoxlStream(opts: VoxlStreamOptions): VoxlStream {
     queueScroll(e.deltaX * k, e.deltaY * k);
   };
   const onContextMenu = (e: Event) => e.preventDefault();
-  const onResize = () => drawPointer();
+  const onResize = () => layoutCamera();
+  const resizeObserver = typeof ResizeObserver !== "undefined" ? new ResizeObserver(onResize) : null;
 
   // Physical keys. Copy, cut and paste shortcuts are taken first by the shared
   // clipboard code (capture phase), which sends them itself.
@@ -615,6 +683,9 @@ export function openVoxlStream(opts: VoxlStreamOptions): VoxlStream {
   surface.addEventListener("keyup", onKeyUp);
   surface.addEventListener("blur", onBlur);
   window.addEventListener("resize", onResize);
+  resizeObserver?.observe(surface);
+  window.visualViewport?.addEventListener("resize", onResize);
+  window.visualViewport?.addEventListener("scroll", onResize);
 
   return {
     send: input,
@@ -628,10 +699,10 @@ export function openVoxlStream(opts: VoxlStreamOptions): VoxlStream {
     },
     close() {
       if (closed) return;
+      trackpad.dispose();
       send(voxlCmd.releaseAll);
       closed = true;
       clearInterval(statsTimer);
-      clearTimeout(pressTimer);
       surface.removeEventListener("pointermove", onPointerMove);
       surface.removeEventListener("pointerdown", onPointerDown);
       surface.removeEventListener("pointerup", onPointerUp);
@@ -642,6 +713,10 @@ export function openVoxlStream(opts: VoxlStreamOptions): VoxlStream {
       surface.removeEventListener("keyup", onKeyUp);
       surface.removeEventListener("blur", onBlur);
       window.removeEventListener("resize", onResize);
+      resizeObserver?.disconnect();
+      window.visualViewport?.removeEventListener("resize", onResize);
+      window.visualViewport?.removeEventListener("scroll", onResize);
+      applyCamera(null);
       if (opts.cursor) opts.cursor.style.display = "none";
       resetDecoder();
       try { socket.close(); } catch {}
