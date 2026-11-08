@@ -488,6 +488,8 @@ export function openVoxlStream(opts: VoxlStreamOptions): VoxlStream {
   let cam: Camera | null = null;
   /** Set by a pinch. Until then the desktop keeps filling the view as it resizes. */
   let pinched = false;
+  /** The view width the zoom was chosen for. Only a new width picks a new zoom. */
+  let zoomWidth = 0;
   const deskSize = (): Size | null => (desk.w ? { width: desk.w, height: desk.h } : null);
   const cameraOn = () => !!opts.camera && touchMode && desk.w > 0;
 
@@ -566,10 +568,17 @@ export function openVoxlStream(opts: VoxlStreamOptions): VoxlStream {
       else drawPointer();
       return;
     }
+    // The zoom is locked to the view's width. The on-screen keyboard (or a
+    // browser toolbar) only changes the height, and then the camera keeps its
+    // zoom and moves so the pointer sits above the keyboard, where you can see
+    // what you type. A new width (a rotation) picks the filling zoom again,
+    // unless a pinch chose one.
     const prev = cam;
+    const keep = prev && (pinched || Math.abs(view.width - zoomWidth) < 1);
+    if (!keep) zoomWidth = view.width;
     applyCamera(
       clampCamera(
-        prev && pinched ? prev : { scale: coverScale(view, size), x: prev?.x ?? 0, y: prev?.y ?? 0 },
+        keep ? prev : { scale: coverScale(view, size), x: prev?.x ?? 0, y: prev?.y ?? 0 },
         view,
         size,
       ),

@@ -43,7 +43,13 @@ export function ComputerChatEmbed({ label, expanded: expandedProp, onExpandedCha
             <Computer active variant="inline" onExpand={() => setExpanded(true)} />
           </Suspense>}
     </div>
-    {expanded && createPortal(<div className="fixed inset-0 z-[100] bg-background" role="dialog" aria-label="Computer">
+    {/* Sized from the band the app shell measures above the on-screen
+        keyboard, so typing on the desktop never happens under the keyboard. */}
+    {expanded && createPortal(<div
+      className="fixed inset-x-0 z-[100] bg-background"
+      style={{ top: "var(--lfg-visual-offset-top, 0px)", height: "var(--lfg-visual-height, 100dvh)" }}
+      role="dialog"
+      aria-label="Computer">
       <Suspense fallback={<p>Opening Computer…</p>}><Computer active onClose={() => setExpanded(false)} /></Suspense>
     </div>, document.body)}
   </>;

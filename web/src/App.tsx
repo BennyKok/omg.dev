@@ -6074,6 +6074,9 @@ export function App() {
   // Both need the same soft-keyboard treatment: the shell pinned to the visible
   // band and translated past the scroll iOS applies to reveal the focused field.
   const terminalSurface = tab === "term" || terminalSid !== null;
+  // Surfaces that fit the shell to the band above the on-screen keyboard: the
+  // terminal, and the Computer, where you type into a desktop and must see it.
+  const visibleBandSurface = terminalSurface || tab === "computer";
   // Backwards-compatible with the old `useState` API: accepts a literal tab id
   // (a built-in page or an extension tab) or an updater `(current) => next`, and
   // navigates to the matching path. Kept identity-stable (reads the current tab
@@ -6439,7 +6442,7 @@ export function App() {
       // when the focused field is already clear of it. Translate the shell
       // back by the same amount so nothing appears to move. (Pinning the
       // shell with position: fixed does not help: it moves with that scroll.)
-      const visualTopPx = stale ? 0 : open || terminalSurface || lifted ? rawVisualTopPx : 0;
+      const visualTopPx = stale ? 0 : open || visibleBandSurface || lifted ? rawVisualTopPx : 0;
       const measuredHeight = `${visualHeight}px`;
       const offsetTop = `${visualTopPx}px`;
       document.documentElement.style.setProperty("--lfg-app-height", measuredHeight);
@@ -6461,7 +6464,7 @@ export function App() {
         // the keyboard is closed, always override `h-dvh` with the measured
         // visual viewport so foreground-return stale `dvh` cannot leave a white
         // strip until the next pinch/zoom/layout event.
-        if (terminalSurface || !open || (tab === "live" && isMobile)) {
+        if (visibleBandSurface || !open || (tab === "live" && isMobile)) {
           el.style.height = measuredHeight;
         } else {
           el.style.height = "";
@@ -6470,7 +6473,7 @@ export function App() {
         // translated. A translateY(0) still creates a containing block that
         // would reparent fixed nav chrome, so it is cleared at 0.
         el.style.transform =
-          (terminalSurface || lifted) && visualTopPx ? `translateY(${visualTopPx}px)` : "";
+          (visibleBandSurface || lifted) && visualTopPx ? `translateY(${visualTopPx}px)` : "";
       } else if (el) {
         // Not ours to size (a bare mount). Cleared here rather than in the
         // effect's cleanup, which no longer resets anything between runs.
@@ -6563,7 +6566,7 @@ export function App() {
       // app.omg.dev, measured 2026-10-28) and briefly unsized the shell. The
       // vars are cleared once, on unmount, by the effect below.
     };
-  }, [bare, isMobile, loading, tab, terminalSurface]);
+  }, [bare, isMobile, loading, tab, terminalSurface, visibleBandSurface]);
   useEffect(
     () => () => {
       const el = rootRef.current;
