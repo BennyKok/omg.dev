@@ -2,6 +2,15 @@
 
 Recent product updates and deployment notes.
 
+## November 9, 2026 - Agent plans, docked terminal, simpler setup (v0.7.4)
+
+- See the agent's plan beside the chat. Claude and Codex sessions show their to-do steps and sub-agents in a side pane on wide screens and on a swipe page on a phone. Tap a step to ask the agent to do it next, skip it, or add a note.
+- The session terminal docks under the chat, with tabs and a drag divider. Press Ctrl+` to hide it. The screen comes back exactly after a reload, a tab switch, or a service restart.
+- The terminal accepts requests only from the omg.dev page itself.
+- On the Computer page, a finger moves the pointer like a trackpad. The desktop stays above the phone keyboard at the same zoom.
+- New `omg computer start` starts the background service and waits until it answers.
+- Setup no longer needs `jq` or `tmux`. On Linux it runs `apt-get` only when `git` or `curl` is missing. The README lists Bun as the first install step.
+
 ## November 7, 2026 - Calmer connection recovery (v0.7.3)
 
 - Short disconnects stay silent. After one minute in the foreground, a single full-page screen shows the connection state and a Try again button.
