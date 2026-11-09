@@ -40,6 +40,7 @@ import {
   type ImageArtifactMessage,
 } from "./artifacts.ts";
 import { listQueue, reconcileQueued } from "./sendq.ts";
+import { readSessionPlan, type SessionPlan } from "./session-plan.ts";
 import { listConversationsShared } from "./conversations.ts";
 import { traceLog } from "./trace-log.ts";
 
@@ -66,7 +67,7 @@ export type LiveWsSocketData = {
 
 type Evlog = (event: string, fields?: Record<string, unknown>) => void;
 type LiveWs = ServerWebSocket<unknown>;
-type SendType = "batch" | "msg" | "busy" | "prompt" | "queue" | "ai_part" | "error";
+type SendType = "batch" | "msg" | "busy" | "prompt" | "queue" | "plan" | "ai_part" | "error";
 type DraftState = { id: string; text: string; kind: "text" | "thinking" };
 type HtmlMessage = {
   kind: string;
@@ -440,6 +441,9 @@ type SidTail = {
   lastPrompt: unknown;
   lastBusy: string;
   lastQ: string;
+  /** The plan last published (JSON), "?" before the first read. */
+  lastPlan: string;
+  plan: SessionPlan | null;
   lastMessageAt: number;
   lastStallLogAt: number;
   lastDraft: Map<string, DraftState>;
@@ -1040,6 +1044,22 @@ export function createLiveWsSupport(opts: {
     publishSid(tail.sid, "queue", { queue });
   };
 
+  // The agent's to-do list and sub-agents (src/session-plan.ts). The harness
+  // writes it under its own id, which is the sid for every current agent; the
+  // registry id is the fallback for a session opened under another of its ids.
+  const pollPlan = (tail: SidTail) => {
+    let plan = readSessionPlan(tail.sid);
+    if (!plan) {
+      const entry = findEntryByAnyId(tail.sid);
+      if (entry && entry.sessionId !== tail.sid) plan = readSessionPlan(entry.sessionId);
+    }
+    const sig = plan ? JSON.stringify(plan) : "";
+    if (sig === tail.lastPlan) return;
+    tail.lastPlan = sig;
+    tail.plan = plan;
+    publishSid(tail.sid, "plan", { plan });
+  };
+
   const pollOne = async (tail: SidTail) => {
     if (!tail.pane.target) {
       const entry = findEntryByAnyId(tail.sid);
@@ -1100,6 +1120,8 @@ export function createLiveWsSupport(opts: {
       lastPrompt: null,
       lastBusy: "?",
       lastQ: "[]",
+      lastPlan: "?",
+      plan: null,
       lastMessageAt: Date.now(),
       lastStallLogAt: 0,
       lastDraft: new Map(),
@@ -1116,11 +1138,13 @@ export function createLiveWsSupport(opts: {
     if (tp) await subscribeTailToTranscript(tail, tp);
     void hydrateTarget(tail).then(() => void pollOne(tail));
     pollQueue(tail);
+    pollPlan(tail);
     tail.pollInterval = setInterval(() => {
       if (tail.transcriptSource === "db") armTranscriptIndexWriteWatch();
       void ensureTranscriptSubscription(tail).then(() => pollIndexedTranscript(tail));
       void pollOne(tail);
       pollQueue(tail);
+      pollPlan(tail);
       void reconcileQueued(tail.sid).then((changed) => changed && pollQueue(tail));
     }, 1000);
     tail.draftInterval = setInterval(() => pollDraft(tail), 400);
@@ -1222,6 +1246,8 @@ export function createLiveWsSupport(opts: {
       // then already current, so pollQueue() has no change to publish when a new
       // browser joins. Send the current queue directly to hydrate that browser.
       safeSend(state.ws, { t: "queue", sid, queue: listQueue(sid) });
+      pollPlan(tail);
+      safeSend(state.ws, { t: "plan", sid, plan: tail.plan });
       return;
     }
     // Built inside the closure, because replayOrSnapshot only calls it when the
@@ -1264,6 +1290,8 @@ export function createLiveWsSupport(opts: {
   const sendCurrentTailState = (state: SocketState, tail: SidTail) => {
     if (tail.lastSig !== " ") safeSend(state.ws, { t: "prompt", sid: tail.sid, prompt: tail.lastPrompt ?? null });
     if (tail.lastBusy === "0" || tail.lastBusy === "1") safeSend(state.ws, { t: "busy", sid: tail.sid, busy: tail.lastBusy === "1" });
+    pollPlan(tail);
+    safeSend(state.ws, { t: "plan", sid: tail.sid, plan: tail.plan });
   };
 
   const unsubscribeTranscript = (state: SocketState, sid: string) => {

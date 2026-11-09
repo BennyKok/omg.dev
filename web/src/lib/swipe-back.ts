@@ -42,3 +42,21 @@ export function swipeBackFinishMs(dx: number, width: number, fullMs: number): nu
   const left = width > 0 ? Math.max(0, Math.min(1, 1 - dx / width)) : 1;
   return Math.max(90, Math.round(fullMs * left));
 }
+
+/**
+ * The phone chat's two sideways gestures: right goes back (above), left
+ * opens the session's plan (components/session-plan). A mostly horizontal
+ * drag picks one by its direction; anything else is the scroller's.
+ */
+export type ChatSwipeIntent = "pending" | "back" | "plan" | "none";
+
+export function chatSwipeIntent(dx: number, dy: number): ChatSwipeIntent {
+  if (Math.abs(dx) < SWIPE_BACK_SLOP_PX && Math.abs(dy) < SWIPE_BACK_SLOP_PX) return "pending";
+  if (Math.abs(dx) <= Math.abs(dy) * 1.2) return "none";
+  return dx > 0 ? "back" : "plan";
+}
+
+/** Whether letting go of a leftward drag opens the plan. Mirrors swipeBackCommits. */
+export function planSwipeCommits(dx: number, width: number, velocity: number): boolean {
+  return swipeBackCommits(-dx, width, -velocity);
+}

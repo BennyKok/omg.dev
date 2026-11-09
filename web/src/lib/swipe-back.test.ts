@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { swipeBackCommits, swipeBackFinishMs, swipeBackIntent, swipeBackOffset } from "./swipe-back";
+import { chatSwipeIntent, planSwipeCommits, swipeBackCommits, swipeBackFinishMs, swipeBackIntent, swipeBackOffset } from "./swipe-back";
 
 describe("swipe right to go back", () => {
   test("only a rightward, mostly sideways drag is a back gesture", () => {
@@ -29,5 +29,24 @@ describe("swipe right to go back", () => {
     expect(swipeBackFinishMs(0, 400, 300)).toBe(300);
     expect(swipeBackFinishMs(200, 400, 300)).toBe(150);
     expect(swipeBackFinishMs(390, 400, 300)).toBe(90);
+  });
+});
+
+describe("the phone chat's two sideways swipes", () => {
+  test("right goes back, left opens the plan, anything steep is the scroller's", () => {
+    expect(chatSwipeIntent(3, 2)).toBe("pending");
+    expect(chatSwipeIntent(40, 6)).toBe("back");
+    expect(chatSwipeIntent(-40, 6)).toBe("plan");
+    expect(chatSwipeIntent(-20, 30)).toBe("none");
+    expect(chatSwipeIntent(4, -40)).toBe("none");
+  });
+
+  test("the plan opens past a third of the width or on a leftward flick", () => {
+    expect(planSwipeCommits(-140, 390, 0)).toBe(true);
+    expect(planSwipeCommits(-60, 390, 0)).toBe(false);
+    expect(planSwipeCommits(-30, 390, -0.8)).toBe(true);
+    // Past a third of the width it opens, as the back swipe closes past a third.
+    expect(planSwipeCommits(-140, 390, 0.9)).toBe(true);
+    expect(planSwipeCommits(-5, 390, -2)).toBe(false);
   });
 });

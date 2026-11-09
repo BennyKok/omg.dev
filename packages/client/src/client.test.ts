@@ -807,6 +807,38 @@ test("queue frames reach listeners, and a late listener gets the current queue",
   live.dispose();
 });
 
+// The plan is state like the queue: the header chip and the plan page listen
+// passively and often mount after the frame arrived, so they must be handed
+// the current plan, and a cleared plan must replace it.
+test("plan frames reach listeners, and a late passive listener gets the current plan", async () => {
+  const { sockets, transport } = socketQueue();
+  const live = new OmgLiveConnection(transport, { environment: null });
+  const early: unknown[] = [];
+  const off = live.subscribeTranscript("s", (event) => early.push(event));
+  await tick();
+  sockets[0]!.open();
+  const plan = {
+    source: "claude",
+    updatedAt: 1,
+    items: [{ id: "todo-1", text: "Write tests", status: "in_progress" }],
+    agents: [],
+  };
+  sockets[0]!.receive({ t: "delta", kind: "transcript", key: "s", seq: 1, delta: { t: "plan", sid: "s", plan } });
+  expect(early).toEqual([{ type: "plan", plan }]);
+  const late: unknown[] = [];
+  const offLate = live.subscribeTranscript("s", (event) => late.push(event), { passive: true });
+  expect(late).toEqual([{ type: "plan", plan }]);
+  sockets[0]!.receive({ t: "plan", sid: "s", plan: null });
+  expect(late.at(-1)).toEqual({ type: "plan", plan: null });
+  const after: unknown[] = [];
+  const offAfter = live.subscribeTranscript("s", (event) => after.push(event), { passive: true });
+  expect(after).toEqual([{ type: "plan", plan: null }]);
+  offAfter();
+  offLate();
+  off();
+  live.dispose();
+});
+
 test("a passive listener holds no subscription but hears what another subscription streams", async () => {
   const { sockets, transport } = socketQueue();
   const live = new OmgLiveConnection(transport, { environment: null });

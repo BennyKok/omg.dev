@@ -15,6 +15,16 @@ import { useRuntimeLifecycle } from "./lib/runtime-lifecycle";
 import { LiveHeaderContext } from "./components/live-header-context";
 import { CreateBackdrop, Spinner } from "./components/apps-home";
 import { SessionTerminalDock } from "./components/session-terminal-dock";
+import {
+  hasPlan,
+  SessionPlanChip,
+  SessionPlanPane,
+  SessionPlanScreen,
+  SessionPlanToggleChip,
+  setPlanPaneOpen,
+  usePlanPaneOpen,
+  useSessionPlan,
+} from "./components/session-plan";
 import { ProjectFolderMenu } from "./components/project-folder-menu";
 import { SessionReparentProvider, SessionReparentTarget, useSessionDragMenuGuard } from "./components/session-reparent";
 import { HostDrawerSlot, SideNavButton, SideNavGlyph, SideNavPanel } from "./components/side-nav";
@@ -482,7 +492,7 @@ import { HapticTap } from "@/components/haptic-tap";
 import { feedback } from "@/lib/feedback";
 import { type AutoAgentRefine } from "@/lib/auto-refine";
 import { useUiFeedbackPrefs, setUiFeedbackPrefs } from "@/lib/ui-feedback-prefs";
-import { swipeBackCommits, swipeBackFinishMs, swipeBackIntent, swipeBackOffset, type SwipeBackIntent } from "@/lib/swipe-back";
+import { chatSwipeIntent, planSwipeCommits, swipeBackCommits, swipeBackFinishMs, swipeBackOffset } from "@/lib/swipe-back";
 import { subscribeSelectionChange } from "./lib/selection-change";
 import { useProjectListPrefs, setProjectListPrefs, projectListPrefsStore } from "@/lib/project-list-prefs";
 import { folderMenuPrefsStore, useFolderMenuPrefs } from "@/lib/folder-menu-prefs";
@@ -16595,6 +16605,27 @@ type SessionChatProps = {
  * practice it is already cached by the time a session is opened and the
  * fallback never renders.
  */
+/**
+ * Send one message to a session's agent, the way the composer does: the
+ * viewer's identity, and the composer's send mode (steer or queue). Used by
+ * the plan's actions.
+ */
+function useSessionSend(sid: string | null | undefined): (text: string) => Promise<void> {
+  const { composerSendMode } = useContext(ViewPrefsContext);
+  const identity = useContext(SendIdentityContext);
+  return useCallback(
+    async (text: string) => {
+      if (!sid) throw new Error("no session");
+      await api(`/api/sessions/${encodeURIComponent(sid)}/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, mode: composerSendMode, ...(identity ? { user: identity } : {}) }),
+      });
+    },
+    [sid, composerSendMode, identity],
+  );
+}
+
 function SessionChat(rawProps: SessionChatProps) {
   // A bot-backed session is a bot chat wherever it is opened — the rail, a
   // stage column, the mobile sheet — not only inside the Bots surface that
@@ -16637,17 +16668,32 @@ function SessionChat(rawProps: SessionChatProps) {
     if (sid) terminals.close(sid);
   }, [sid, terminals]);
   const where = props.session.cwd ? props.session.cwd.split("/").filter(Boolean).slice(-1)[0] : null;
+  // The agent's plan, in a pane on the right of the chat when the column is
+  // wide enough (the phone swipes to it instead; see SessionTitleSheet). Not
+  // for a bot chat: a bot is talked to, not supervised.
+  const plan = useSessionPlan(botId ? null : sid, onSubscribeTranscript);
+  const planPaneOpen = usePlanPaneOpen();
+  const sendToAgent = useSessionSend(sid);
+  const showPlanPane = !botId && planPaneOpen && hasPlan(plan);
   return (
     <>
-      <Suspense fallback={<SessionChatSkeleton />}>
-        <OmgChatEngine
-          id={sid ?? "missing-session"}
-          transport={chatTransport}
-          onError={reportError}
-        >
-          <SessionChatBody {...props} />
-        </OmgChatEngine>
-      </Suspense>
+      {/* Always the same wrapper, so opening the pane never remounts the chat.
+          lfg-session-chat: index.css hides it while the terminal dock fills
+          the column. @container: the pane shows only in a wide column. */}
+      <div className="lfg-session-chat @container flex min-h-0 min-w-0 flex-1">
+        <Suspense fallback={<SessionChatSkeleton />}>
+          <OmgChatEngine
+            id={sid ?? "missing-session"}
+            transport={chatTransport}
+            onError={reportError}
+          >
+            <SessionChatBody {...props} />
+          </OmgChatEngine>
+        </Suspense>
+        {showPlanPane ? (
+          <SessionPlanPane plan={plan} send={sendToAgent} onClose={() => setPlanPaneOpen(false)} />
+        ) : null}
+      </div>
       {terminalOpen && sid ? (
         <SessionTerminalDock
           sessionId={sid}
@@ -16661,7 +16707,7 @@ function SessionChat(rawProps: SessionChatProps) {
 
 function SessionChatSkeleton() {
   return (
-    <div className="lfg-session-chat flex flex-1 items-center justify-center py-10 text-sm text-muted-foreground">
+    <div className="flex flex-1 items-center justify-center py-10 text-sm text-muted-foreground">
       Loading chat…
     </div>
   );
@@ -17343,9 +17389,7 @@ function SessionChatBody({
   );
 
   return (
-    // lfg-session-chat: index.css hides it while the docked terminal fills
-    // the column, so the composer cannot spill over the terminal.
-    <div className="lfg-session-chat flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <PausedBanner session={session} onRefresh={onRefresh} />
       <ChatStream
         sid={sid}
@@ -18398,6 +18442,14 @@ function SessionTitleSheet({
   const bodyRef = useRef<HTMLDivElement>(null);
   const closingRef = useRef(false);
   const switchDirRef = useRef<1 | -1 | null>(null);
+  // The plan page: a swipe left from the chat, or the header chip, opens it
+  // over the chat; a swipe right, Back, or Escape closes it.
+  const planRef = useRef<HTMLDivElement>(null);
+  const [planOpen, setPlanOpen] = useState(false);
+  const planOpenRef = useRef(false);
+  planOpenRef.current = planOpen;
+  const plan = useSessionPlan(sid, onSubscribeTranscript);
+  const sendToAgent = useSessionSend(sid);
 
   // Per-session live data, selected for whichever session is active right now.
   const busy = !!busyBySid[sid];
@@ -18429,7 +18481,17 @@ function SessionTitleSheet({
 
   useLayoutEffect(() => {
     setRenamingInline(false);
+    setPlanOpen(false);
   }, [sid]);
+
+  // The plan page's resting place. The swipe moves it by hand while a finger
+  // is on it; this settles it wherever the state says, with the sheet's ease.
+  useLayoutEffect(() => {
+    const page = planRef.current;
+    if (!page) return;
+    page.style.transition = `transform 280ms ${SHEET_EASE}`;
+    page.style.transform = planOpen ? "translate3d(0, 0, 0)" : "translate3d(100%, 0, 0)";
+  }, [planOpen]);
 
 
   const commitInlineRename = useCallback(
@@ -18571,7 +18633,26 @@ function SessionTitleSheet({
   useEffect(() => {
     const panel = panelRef.current;
     if (!panel) return;
-    const st = { active: false, intent: "pending" as SwipeBackIntent, x0: 0, y0: 0, dx: 0, lastX: 0, lastT: 0, velocity: 0 };
+    type Intent = "pending" | "back" | "plan" | "plan-close" | "none";
+    const st = { active: false, intent: "pending" as Intent, x0: 0, y0: 0, dx: 0, lastX: 0, lastT: 0, velocity: 0 };
+    // The plan page under the finger: `x` px right of fully open.
+    const placePlan = (x: number) => {
+      const page = planRef.current;
+      if (!page) return;
+      page.style.transition = "none";
+      page.style.transform = `translate3d(${Math.max(0, x)}px, 0, 0)`;
+    };
+    const settlePlan = (open: boolean) => {
+      const page = planRef.current;
+      if (page) {
+        page.style.transition = `transform 240ms ${SHEET_EASE}`;
+        page.style.transform = open ? "translate3d(0, 0, 0)" : "translate3d(100%, 0, 0)";
+      }
+      if (open !== planOpenRef.current) {
+        haptic("selection");
+        setPlanOpen(open);
+      }
+    };
     const place = (dx: number) => {
       panel.style.transition = "none";
       panel.style.transform = dx ? `translate3d(${dx}px, 0, 0)` : "";
@@ -18637,7 +18718,15 @@ function SessionTitleSheet({
       const touch = event.touches[0];
       const dx = touch.clientX - st.x0;
       if (st.intent === "pending") {
-        st.intent = swipeBackIntent(dx, touch.clientY - st.y0);
+        // Left opens the plan, right goes back; with the plan open, right
+        // closes the plan instead and left belongs to nothing.
+        const dir = chatSwipeIntent(dx, touch.clientY - st.y0);
+        st.intent =
+          dir === "pending" || dir === "none"
+            ? dir
+            : planOpenRef.current
+              ? dir === "back" ? "plan-close" : "none"
+              : dir;
         if (st.intent === "none") {
           st.active = false; // the transcript, or the field, has this touch
           return;
@@ -18651,12 +18740,22 @@ function SessionTitleSheet({
       if (now > st.lastT) st.velocity = (touch.clientX - st.lastX) / (now - st.lastT);
       st.lastX = touch.clientX;
       st.lastT = now;
-      st.dx = swipeBackOffset(dx);
-      place(st.dx);
+      if (st.intent === "plan") {
+        st.dx = Math.min(0, dx);
+        placePlan(panel.clientWidth + st.dx);
+      } else if (st.intent === "plan-close") {
+        st.dx = Math.max(0, dx);
+        placePlan(st.dx);
+      } else {
+        st.dx = swipeBackOffset(dx);
+        place(st.dx);
+      }
     };
     const onEnd = () => {
       if (!st.active) return;
       st.active = false;
+      if (st.intent === "plan") return settlePlan(planSwipeCommits(st.dx, panel.clientWidth, st.velocity));
+      if (st.intent === "plan-close") return settlePlan(!swipeBackCommits(st.dx, panel.clientWidth, st.velocity));
       if (st.intent !== "back") return;
       if (swipeBackCommits(st.dx, panel.clientWidth, st.velocity)) finishBack(st.dx);
       else springBack();
@@ -18667,6 +18766,7 @@ function SessionTitleSheet({
       if (!st.active) return;
       st.active = false;
       if (st.intent === "back") springBack();
+      else if (st.intent === "plan" || st.intent === "plan-close") settlePlan(planOpenRef.current);
     };
     panel.addEventListener("touchstart", onStart, { passive: true });
     panel.addEventListener("touchmove", onMove, { passive: false });
@@ -18679,6 +18779,7 @@ function SessionTitleSheet({
       panel.removeEventListener("touchcancel", onCancel);
       // Never leave the page mid-drag with nothing listening for the release.
       if (st.active && st.intent === "back" && !closingRef.current) springBack();
+      if (st.active && (st.intent === "plan" || st.intent === "plan-close")) settlePlan(planOpenRef.current);
     };
   }, [closeFromSwipe]);
 
@@ -18687,6 +18788,10 @@ function SessionTitleSheet({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         if (renamingInline) return;
+        if (planOpenRef.current) {
+          setPlanOpen(false);
+          return;
+        }
         requestClose();
         return;
       }
@@ -18786,6 +18891,8 @@ function SessionTitleSheet({
               Shipped
             </span>
           ) : null}
+          {/* Progress at a glance; a tap opens the plan, as a swipe left does. */}
+          <SessionPlanChip plan={plan} onClick={() => setPlanOpen(true)} />
           <SessionActionsMenu
             session={session}
             busy={busy}
@@ -18810,6 +18917,19 @@ function SessionTitleSheet({
             onSubscribeTranscript={onSubscribeTranscript}
             onRefresh={onRefresh}
           />
+        </div>
+        {/* The plan page. Always mounted, off to the right while closed, so a
+            swipe can pull it in under the finger. Its transform is set by the
+            effect above and by the swipe, never by React. */}
+        <div
+          ref={planRef}
+          data-testid="session-plan-page"
+          data-open={planOpen ? "true" : "false"}
+          aria-hidden={!planOpen}
+          inert={!planOpen}
+          className="absolute inset-0 z-20 shadow-[-12px_0_32px_rgba(0,0,0,0.12)]"
+        >
+          <SessionPlanScreen plan={plan} send={sendToAgent} onBack={() => setPlanOpen(false)} />
         </div>
       </div>
     </div>,
@@ -19683,6 +19803,10 @@ const onTouchStart = (e: ReactTouchEvent) => {
              ring around the mark and a blue spinner further along. */
           headerBot ? null : <SessionStatusDot className="lg:hidden" />
         )}
+        {/* The agent's plan: progress, and the pane on the right of the chat. */}
+        {!collapsedView && !headerBot ? (
+          <SessionPlanToggleChip sid={session.sessionId} subscribe={onSubscribeTranscript} />
+        ) : null}
         {/* No fork, ship, close or archive in a bot chat: a bot session is not
             closed from the UI, and the gear beside its name is the one entry
             point to everything you can change about it. */}

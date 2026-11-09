@@ -92,13 +92,15 @@ type StatusRow = Pick<
 >;
 /** A list the server says changed (see OmgChangeTopic in @omg-dev/protocol). */
 export type { OmgChangeTopic as ChangeTopic } from "@omg-dev/protocol";
-import type { OmgChangeTopic as ChangeTopic } from "@omg-dev/protocol";
+import type { OmgChangeTopic as ChangeTopic, OmgSessionPlan } from "@omg-dev/protocol";
 
 export type TranscriptEvent =
   | { type: "snapshot"; messages: Message[]; nextBefore: number | null }
   | { type: "message"; message: Message }
   | { type: "ai_part"; part: AiStreamPart }
   | { type: "queue"; queue: QueueMsg[] }
+  /** The agent's to-do list and sub-agents (components/session-plan). */
+  | { type: "plan"; plan: OmgSessionPlan | null }
   | { type: "busy"; busy: boolean }
   | { type: "error"; error: string };
 export type TranscriptSubscribe = (
@@ -378,6 +380,7 @@ function consumerEvent(event: OmgTranscriptEvent): TranscriptEvent | null {
   if (event.type === "message") return { type: "message", message: normalizeMessageIdentity(event.message as Message) };
   if (event.type === "ai_part") return { type: "ai_part", part: event.part as AiStreamPart };
   if (event.type === "queue") return { type: "queue", queue: event.queue };
+  if (event.type === "plan") return { type: "plan", plan: event.plan };
   if (event.type === "busy") return { type: "busy", busy: event.busy };
   if (event.type === "error") return { type: "error", error: event.error };
   return null;

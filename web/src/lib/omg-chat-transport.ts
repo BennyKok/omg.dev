@@ -1,4 +1,5 @@
 import type { ChatTransport, UIMessage, UIMessageChunk } from "ai";
+import type { OmgSessionPlan } from "@omg-dev/protocol";
 import { omgFetch } from "./omg-client";
 import {
   matchedQueueRowIds,
@@ -81,12 +82,16 @@ export type OmgTranscriptEvent =
   | { type: "message"; message: OmgMessage }
   | { type: "ai_part"; part: OmgAiStreamPart }
   | { type: "queue"; queue: OmgQueueMessage[] }
+  /** The agent's to-do list and sub-agents; state, not a chat message. */
+  | { type: "plan"; plan: OmgSessionPlan | null }
   | { type: "busy"; busy: boolean }
   | { type: "error"; error: string };
 
 export type OmgTranscriptSubscribe = (
   sid: string,
   listener: (event: OmgTranscriptEvent) => void,
+  /** `passive`: hear the session without holding a subscription (useLiveSocket). */
+  options?: { passive?: boolean },
 ) => () => void;
 
 // A focused chat consumes transcript events twice: once through useChat's
@@ -904,7 +909,9 @@ class OmgChunkEmitter {
       this.handlePart(event.part);
       return;
     }
-    if (event.type === "queue" || event.type === "snapshot") return;
+    // Only a message is a chunk. State frames (queue, plan) and the snapshot
+    // are not; a new state type must not fall through to handleMessage.
+    if (event.type !== "message") return;
     this.handleMessage(event.message);
   }
 

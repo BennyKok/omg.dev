@@ -13,6 +13,7 @@ import type {
   OmgDraft,
   OmgStatusRow,
   OmgQueueMessage,
+  OmgSessionPlan,
   OmgChangeTopic,
 } from "@omg-dev/protocol";
 
@@ -23,6 +24,9 @@ export type {
   OmgLiveMessage,
   OmgMessage,
   OmgQueueMessage,
+  OmgPlanAgent,
+  OmgPlanItem,
+  OmgSessionPlan,
   OmgSession,
   OmgSessionPrompt,
   OmgStatusRow,
@@ -533,6 +537,7 @@ export class OmgLiveConnection {
   private passiveListeners = new Map<string, Set<TranscriptListener>>();
   /** The last send queue per session, replayed to a new listener. */
   private queues = new Map<string, OmgQueueMessage[]>();
+  private plans = new Map<string, OmgSessionPlan | null>();
   private typingSentAt = new Map<string, number>();
   /** Per session, the drafts in flight by draft id; see OmgDraft. */
   private drafts = new Map<string, Map<string, OmgDraft>>();
@@ -643,11 +648,15 @@ export class OmgLiveConnection {
     options: { passive?: boolean } = {},
   ): () => void {
     const queue = this.queues.get(sessionId);
+    // The plan is state, like the queue: a listener that joins late still
+    // sees the current one.
+    const plan = this.plans.get(sessionId);
     if (options.passive) {
       const passive = this.passiveListeners.get(sessionId) ?? new Set<TranscriptListener>();
       passive.add(listener);
       this.passiveListeners.set(sessionId, passive);
       if (queue) listener({ type: "queue", queue });
+      if (plan !== undefined) listener({ type: "plan", plan });
       return () => {
         const current = this.passiveListeners.get(sessionId);
         current?.delete(listener);
@@ -658,6 +667,7 @@ export class OmgLiveConnection {
     listeners.add(listener);
     this.listeners.set(sessionId, listeners);
     if (queue) listener({ type: "queue", queue });
+    if (plan !== undefined) listener({ type: "plan", plan });
     this.ensureConnected();
     this.scheduleSubscriptionFlush();
     return () => {
@@ -692,6 +702,7 @@ export class OmgLiveConnection {
     this.listeners.clear();
     this.passiveListeners.clear();
     this.queues.clear();
+    this.plans.clear();
     this.statusListeners.clear();
     this.connectionListeners.clear();
     this.connection.dispose();
@@ -861,6 +872,10 @@ export class OmgLiveConnection {
       const queue = Array.isArray(message.queue) ? message.queue : [];
       this.queues.set(sessionId, queue);
       this.emit(sessionId, { type: "queue", queue });
+    } else if (message.t === "plan") {
+      const plan = message.plan && typeof message.plan === "object" ? message.plan : null;
+      this.plans.set(sessionId, plan);
+      this.emit(sessionId, { type: "plan", plan });
     } else if (message.t === "typing") {
       // Replace, never merge: the frame is the current set.
       this.emit(sessionId, { type: "typing", ids: Array.isArray(message.ids) ? message.ids : [] });

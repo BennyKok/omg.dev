@@ -34,6 +34,7 @@ import type { SessionMsg } from "../../sessions.ts";
 import { sessionTitleFromPrompt } from "../../omg-capabilities.ts";
 import { indexSessionMessagesDirect, reindexFileHistoryUnderSessionKey } from "../../transcript-index.ts";
 import { makeDraftPublisher } from "./draft.ts";
+import { PlanTracker } from "../../session-plan.ts";
 import { codexSessionMcpConfig, withCodexHttpMcpServers, codexMcpEnvironment, type CodexConfigValue } from "../../codex-mcp-config.ts";
 import {
   withCodexServiceTierConfig,
@@ -351,6 +352,8 @@ export async function cmdCodexAisdkSession(argv: string[]): Promise<void> {
     ? codex.resumeThread(resumeThreadId, threadOptions(model, cwd, thinkingLevel ?? undefined))
     : codex.startThread(threadOptions(model, cwd, thinkingLevel ?? undefined));
   let threadId: string | null = resumeThreadId ?? null;
+  // The to-do list the session's plan view shows (Codex's todo_list item).
+  const plan = new PlanTracker(key, "codex");
 
   // Control-plane registry entry — the moment this exists (and our pid is
   // alive), serve surfaces the session in the live view. threadId starts null
@@ -424,6 +427,7 @@ export async function cmdCodexAisdkSession(argv: string[]): Promise<void> {
           lastSdkEventAt = Date.now();
           if (next.done) break;
           const event = next.value;
+          plan.codexEvent(event);
           if (event.type === "thread.started") {
             if (event.thread_id && event.thread_id !== threadId) {
               threadId = event.thread_id;

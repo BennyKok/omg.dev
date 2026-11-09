@@ -22,6 +22,7 @@
 //
 // Interrupt is the SDK's native `query.interrupt()` — it stops the current turn
 // without killing the session process.
+import { PlanTracker } from "../../session-plan.ts";
 import {
   type AisdkCommand,
   cmdPath,
@@ -484,6 +485,7 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
   const cacheIdle = new ClaudeCacheIdle(process.env.OMG_CLAUDE_IDLE_COMPACTION !== "0");
   let idleCompacting = false;
   let backgroundTasks = 0;
+  const plan = new PlanTracker(sessionId, "claude");
   const cacheNotice = (text: string) => indexSessionMessagesDirect(sessionId, [{
     id: crypto.randomUUID(), role: "assistant", kind: "text", text, ts: Date.now(),
   }]);
@@ -621,6 +623,8 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
 
   function handleMessage(msg: Record<string, unknown>): void {
     lastSdkEventAt = Date.now();
+    // The to-do list and sub-agents the session's plan view shows.
+    plan.claudeMessage(msg);
     // Proof the runtime actually spoke. A stream that ends having produced
     // nothing at all never started, which is a different failure from one that
     // started and later died — and only the first is explained by missing auth.

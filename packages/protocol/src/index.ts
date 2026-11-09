@@ -161,6 +161,43 @@ export interface OmgQueueMessage {
   queuedBehindTurn?: boolean;
 }
 
+/**
+ * One step of a coding agent's own to-do list, normalized across agents
+ * (Claude's TodoWrite and TaskCreate/TaskUpdate, Codex's todo_list).
+ */
+export interface OmgPlanItem {
+  id: string;
+  text: string;
+  /** What the agent shows while the step runs ("Running tests"), when it gives one. */
+  activeText?: string;
+  status: "pending" | "in_progress" | "completed";
+}
+
+/** A sub-agent or background task the session started. */
+export interface OmgPlanAgent {
+  id: string;
+  title: string;
+  /** The sub-agent type ("Explore") or task type ("local_bash"), when known. */
+  kind?: string;
+  status: "running" | "completed" | "failed" | "stopped";
+  startedAt: number;
+  endedAt?: number;
+  /** The latest activity line while it runs, its summary once it ends. */
+  detail?: string;
+}
+
+/**
+ * What a session's agent says it is doing: its to-do list and its
+ * sub-agents. Written by the agent's harness, sent whole on every change.
+ */
+export interface OmgSessionPlan {
+  /** The agent format it was read from: "claude", "codex". */
+  source: string;
+  updatedAt: number;
+  items: OmgPlanItem[];
+  agents: OmgPlanAgent[];
+}
+
 export type OmgLiveChannelKind =
   | "transcript"
   | "status"
@@ -226,6 +263,8 @@ export type OmgLiveMessage =
   | { t: "msg"; sid: string; message?: OmgMessage; m?: OmgMessage }
   | { t: "ai_part"; sid: string; part?: OmgAiStreamPart }
   | { t: "queue"; sid: string; queue?: OmgQueueMessage[] }
+  /** The session's plan as it stands (OmgSessionPlan); null when it has none. */
+  | { t: "plan"; sid: string; plan?: OmgSessionPlan | null }
   | { t: "busy"; sid: string; busy?: boolean }
   | { t: "prompt"; sid: string; prompt?: OmgSessionPrompt | null }
   | {
@@ -251,6 +290,7 @@ export type OmgLiveMessage =
         busy?: boolean;
         prompt?: OmgSessionPrompt | null;
         queue?: OmgQueueMessage[];
+        plan?: OmgSessionPlan | null;
       };
     }
   | { t: "resumed"; kind: OmgLiveChannelKind; key: string; seq?: number; fromSeq?: number; toSeq?: number; replayed?: number }
@@ -283,6 +323,8 @@ export type OmgTranscriptEvent =
   | { type: "prompt"; prompt: OmgSessionPrompt | null }
   /** The session's send queue as it stands; replayed to a new listener. */
   | { type: "queue"; queue: OmgQueueMessage[] }
+  /** The agent's to-do list and sub-agents; replayed to a new listener. */
+  | { type: "plan"; plan: OmgSessionPlan | null }
   /** Who is typing now, as the complete set of participant ids. */
   | { type: "typing"; ids: string[] }
   | { type: "error"; error: string };
