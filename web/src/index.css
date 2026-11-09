@@ -501,6 +501,14 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
   html.lfg-keyboard-open .lfg-term-dock:focus-within {
     height: 100% !important;
   }
+  /* When the dock fills the column (maximized, or the phone case above), the
+     chat beside it is hidden rather than squeezed: squeezed to zero height,
+     its composer still overflowed and painted over the dock's tab strip. */
+  :has(> .lfg-term-dock[data-maximized="true"]) > .lfg-session-chat,
+  html.lfg-keyboard-open :has(> .lfg-term-dock:focus-within) > .lfg-session-chat {
+    /* !important: this layer loses to the `flex` utility otherwise. */
+    display: none !important;
+  }
   @keyframes lfg-term-dock-in {
     from {
       opacity: 0;

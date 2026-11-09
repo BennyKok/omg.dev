@@ -19,9 +19,14 @@ function Page() {
         </button>
       </div>
       <section className="flex min-h-0 flex-1 flex-col">
-        <div data-testid="chat" className="flex min-h-0 flex-1 flex-col justify-end overflow-auto p-3 text-sm">
-          <p>Transcript stand-in.</p>
-          <div data-testid="composer" className="mt-2 rounded border border-border p-2">
+        {/* Shaped like the real SessionChatBody: a scrolling transcript and a
+            composer that does not shrink, under the same lfg-session-chat
+            root the stylesheet hides when the dock fills the column. */}
+        <div data-testid="chat" className="lfg-session-chat flex min-h-0 flex-1 flex-col text-sm">
+          <div className="flex min-h-0 flex-1 flex-col justify-end overflow-auto p-3">
+            <p>Transcript stand-in.</p>
+          </div>
+          <div data-testid="composer" className="relative mx-3 mb-3 h-24 shrink-0 rounded border border-border p-2">
             Composer stand-in
           </div>
         </div>

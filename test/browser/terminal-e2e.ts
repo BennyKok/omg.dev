@@ -255,6 +255,35 @@ try {
     assert(after.cols === before.cols, `cols changed ${before.cols} → ${after.cols}`);
   });
 
+  await check("a full-column dock hides the chat instead of painting under its composer", async () => {
+    // Maximized, and the phone case: keyboard up with focus in the shell.
+    // Squeezed to zero height, the chat's composer used to overflow and paint
+    // over the tab strip (seen on an iPhone, 2026-11-09).
+    const covered = async () => {
+      const composer = page.locator('[data-testid="composer"]');
+      if (!(await composer.isVisible())) return false;
+      const c = await composer.boundingBox();
+      const t = await box('[role="tablist"]');
+      return !!c && c.y < t.y + t.height && c.y + c.height > t.y;
+    };
+    await page.dblclick('[role="separator"][aria-label="Resize terminal"]');
+    await page.waitForTimeout(150);
+    assert(!(await covered()), "maximized: the composer covers the tab strip");
+    assert(!(await page.locator('[data-testid="composer"]').isVisible()), "maximized: the chat is still shown");
+    await page.dblclick('[role="separator"][aria-label="Resize terminal"]');
+    await page.waitForTimeout(150);
+    assert(await page.locator('[data-testid="composer"]').isVisible(), "restored: the chat did not come back");
+    await page.click('[data-testid="terminal-canvas-host"]');
+    await page.evaluate(() => document.documentElement.classList.add("lfg-keyboard-open"));
+    await page.waitForTimeout(150);
+    try {
+      assert(!(await covered()), "keyboard up: the composer covers the tab strip");
+      assert(!(await page.locator('[data-testid="composer"]').isVisible()), "keyboard up: the chat is still shown");
+    } finally {
+      await page.evaluate(() => document.documentElement.classList.remove("lfg-keyboard-open"));
+    }
+  });
+
   await check("a synchronized-output update is never painted half-way", async () => {
     await typeLine("clear; for i in $(seq 1 80); do printf 'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\\n'; done");
     await page.waitForTimeout(400);

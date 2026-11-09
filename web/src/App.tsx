@@ -16661,7 +16661,7 @@ function SessionChat(rawProps: SessionChatProps) {
 
 function SessionChatSkeleton() {
   return (
-    <div className="flex flex-1 items-center justify-center py-10 text-sm text-muted-foreground">
+    <div className="lfg-session-chat flex flex-1 items-center justify-center py-10 text-sm text-muted-foreground">
       Loading chat…
     </div>
   );
@@ -17343,7 +17343,9 @@ function SessionChatBody({
   );
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    // lfg-session-chat: index.css hides it while the docked terminal fills
+    // the column, so the composer cannot spill over the terminal.
+    <div className="lfg-session-chat flex min-h-0 flex-1 flex-col">
       <PausedBanner session={session} onRefresh={onRefresh} />
       <ChatStream
         sid={sid}
