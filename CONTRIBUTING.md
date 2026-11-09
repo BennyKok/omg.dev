@@ -6,7 +6,8 @@ self-host are very welcome.
 
 ## Dev setup
 
-Requires [Bun](https://bun.sh), `tmux`, `git`, and the Claude CLI on `PATH`.
+Requires [Bun](https://bun.sh), `git`, and the Claude CLI on `PATH`. `tmux` is optional.
+It is only needed to resume old native-TUI sessions.
 
 ```bash
 bun install

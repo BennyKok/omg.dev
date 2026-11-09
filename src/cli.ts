@@ -2,7 +2,8 @@
 const HELP = `omg — run and manage your AI coding agents on your own box
 
 This computer:
-  omg computer setup               Install omg.dev here (Bun, tmux, service)
+  omg computer setup               Install omg.dev here (Bun, service)
+  omg computer start               Start the installed background service
   omg computer status              Show the installed and running versions, and update status
   omg computer update [--check | --restart]
                                    Update and verify the service; --restart skips downloading
@@ -22,7 +23,7 @@ Agents:
 Settings (read from the environment or .env, see .env.example):
   OMG_PORT, OMG_HOST, OMG_REPOS_ROOT  (the older LFG_* names still work)
 
-setup, update, uninstall, doctor, serve, mcp, agents, subagent and projects
+setup, start, update, uninstall, doctor, serve, mcp, agents, subagent and projects
 also work without "computer", for example \`omg update\`.
 \`lfg\` is an older name for this command and still works.
 `;
@@ -44,6 +45,7 @@ const COMPUTER_VERBS = new Set([
   "serve",
   "connect", // Retirement tombstone for old namespaced invocations.
   "setup",
+  "start",
   "update",
   "uninstall",
   "status",
@@ -136,6 +138,10 @@ async function main() {
     case "setup": {
       const { cmdSetup } = await import("./commands/setup.ts");
       return await cmdSetup(rest);
+    }
+    case "start": {
+      const { cmdStart } = await import("./commands/start.ts");
+      return await cmdStart(rest);
     }
     case "update": {
       const { cmdUpdate } = await import("./commands/update.ts");

@@ -25,14 +25,28 @@ Use the agent subscription you already pay for, such as Claude or ChatGPT.
 
 ## Install on your computer
 
-```bash
-bun install --global @omg-dev/cli && omg computer setup
-```
-
-Open [http://localhost:8766](http://localhost:8766).
-
 Debian, Ubuntu, or macOS. No account needed. On Linux, a normal user with
 `sudo`. Do not run as `root`.
+
+1. Install [Bun](https://bun.sh) if you do not have it:
+
+   ```bash
+   curl -fsSL https://bun.sh/install | bash
+   ```
+
+   Open a new terminal after this step.
+
+2. Install omg.dev and start it as a background service:
+
+   ```bash
+   bun install --global @omg-dev/cli && omg computer setup
+   ```
+
+3. Open [http://localhost:8766](http://localhost:8766).
+
+Setup needs `git` and `curl`. On Linux it installs them when they are missing.
+On macOS, install them yourself or run setup with `OMG_INSTALL_SYSTEM_DEPS=1`
+to use Homebrew. `tmux` and `jq` are not required.
 
 Open **Settings → Coding agents**. Supports Claude Code, Codex, Grok, Cursor,
 omg agent, OpenCode, fx, Muse, DeepSeek, Devin, Jcode, Copilot, and Pi. Sign in
@@ -72,8 +86,10 @@ and [SECURITY.md](./SECURITY.md) before you share access.
 ## Manage a local install
 
 ```bash
+omg computer start     # start the background service
 omg computer status    # check the install
 omg computer update    # install the latest release
+omg computer update --restart  # restart the service, no download
 omg doctor             # create a sanitized diagnostic report
 omg computer uninstall # remove omg.dev and keep sessions and config
 ```

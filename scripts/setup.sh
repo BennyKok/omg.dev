@@ -2,7 +2,7 @@
 #
 # omg - one-command setup for a fresh VPS or macOS workstation.
 #
-# Provisions Bun, tmux, git, fetches omg, optionally joins your Tailscale
+# Provisions Bun, git, fetches omg, optionally joins your Tailscale
 # tailnet, and runs the web UI as a background user service. Agent CLIs are
 # detected but not installed unless explicitly requested.
 #
@@ -320,16 +320,13 @@ tailscale_serve_endpoint_target() {
   local cfg
   cfg="$(tailscale_sudo serve get-config --all 2>/dev/null || true)"
   [ -n "$cfg" ] || return 0
-  printf '%s' "$cfg" | jq -r --arg port "$port_key" '
-    first(
-      (.services // {})
-      | to_entries[]
-      | (.value.endpoints // {})
-      | to_entries[]
-      | select(.key == $port)
-      | .value
-    ) // empty
-  ' 2>/dev/null
+  printf '%s' "$cfg" | PORT_KEY="$port_key" "$BUN_BIN" -e '
+    const cfg = JSON.parse(require("fs").readFileSync(0, "utf8"));
+    for (const svc of Object.values(cfg.services ?? {})) {
+      const target = (svc?.endpoints ?? {})[process.env.PORT_KEY];
+      if (target != null) { console.log(target); break; }
+    }
+  ' 2>/dev/null || true
 }
 
 # ---- named local URL ----
@@ -435,28 +432,35 @@ ensure_local_hostname() {
 }
 
 # ---- 1. base packages ----
-if [ "$OS_NAME" = "Linux" ]; then
-  [ "$LFG_INSTALL_SYSTEM_DEPS" = "1" ] || die "Missing or unchecked system deps. Re-run with LFG_INSTALL_SYSTEM_DEPS=1, or install git, tmux, curl, ca-certificates, and jq yourself."
-  say "Installing base packages (git, tmux, curl, jq)..."
+# Only git and curl are required, plus CA certificates so curl can reach HTTPS.
+# jq is gone: the few JSON reads below run through Bun. tmux is optional: new
+# sessions run as direct SDK/ACP processes, and tmux only drives old native-TUI
+# sessions created before that change. Check before installing, so a box that
+# already has everything never pays for `apt-get update`.
+MISSING_PKGS=()
+for pkg in git curl; do
+  command -v "$pkg" >/dev/null 2>&1 || MISSING_PKGS+=("$pkg")
+done
+if [ "$OS_NAME" = "Linux" ] && [ ! -s /etc/ssl/certs/ca-certificates.crt ]; then
+  MISSING_PKGS+=("ca-certificates")
+fi
+if [ "${#MISSING_PKGS[@]}" -eq 0 ]; then
+  say "Base packages already installed."
+elif [ "$OS_NAME" = "Linux" ]; then
+  [ "$LFG_INSTALL_SYSTEM_DEPS" = "1" ] || die "Missing required packages: ${MISSING_PKGS[*]}. Install them yourself, or re-run with OMG_INSTALL_SYSTEM_DEPS=1."
+  say "Installing base packages (${MISSING_PKGS[*]})..."
   sudo apt-get update -y -qq
-  sudo apt-get install -y -qq git tmux curl ca-certificates jq
+  sudo apt-get install -y -qq "${MISSING_PKGS[@]}"
 else
-  MISSING_PKGS=()
-  for pkg in git tmux curl jq; do
-    command -v "$pkg" >/dev/null 2>&1 || MISSING_PKGS+=("$pkg")
-  done
-  if [ "${#MISSING_PKGS[@]}" -gt 0 ]; then
-    if [ "$LFG_INSTALL_SYSTEM_DEPS" = "1" ]; then
-      command -v brew >/dev/null 2>&1 || die "Homebrew is required to install missing packages on macOS: ${MISSING_PKGS[*]}"
-      say "Installing base packages with Homebrew (${MISSING_PKGS[*]})..."
-      brew install "${MISSING_PKGS[@]}"
-    else
-      die "Missing required commands on macOS: ${MISSING_PKGS[*]}. Install them yourself, or re-run with LFG_INSTALL_SYSTEM_DEPS=1 to let setup use Homebrew."
-    fi
+  if [ "$LFG_INSTALL_SYSTEM_DEPS" = "1" ]; then
+    command -v brew >/dev/null 2>&1 || die "Homebrew is required to install missing packages on macOS: ${MISSING_PKGS[*]}"
+    say "Installing base packages with Homebrew (${MISSING_PKGS[*]})..."
+    brew install "${MISSING_PKGS[@]}"
   else
-    say "Base packages already installed."
+    die "Missing required commands on macOS: ${MISSING_PKGS[*]}. Install them yourself, or re-run with OMG_INSTALL_SYSTEM_DEPS=1 to let setup use Homebrew."
   fi
 fi
+command -v tmux >/dev/null 2>&1 || say "tmux not found (optional). It is only needed to resume old native-TUI sessions."
 
 # ---- 2. Bun ----
 # Extend PATH *before* deciding bun is missing.
@@ -521,8 +525,11 @@ deepseek_harness_ready() {
 }
 
 pi_pinned_version() {
-  jq -r '(.devDependencies["@earendil-works/pi-coding-agent"] // .dependencies["@earendil-works/pi-coding-agent"] // "latest")' \
-    "$LFG_DIR/package.json" 2>/dev/null | sed 's/^[\^~]//'
+  "$BUN_BIN" -e '
+    const pkg = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+    const name = "@earendil-works/pi-coding-agent";
+    console.log(pkg.devDependencies?.[name] ?? pkg.dependencies?.[name] ?? "latest");
+  ' "$LFG_DIR/package.json" 2>/dev/null | sed 's/^[\^~]//'
 }
 
 run_agent_installer() {
@@ -878,14 +885,18 @@ seed_env REPOS_ROOT "$LFG_REPOS_ROOT"
 chmod 600 "$LFG_DIR/.env"
 mkdir -p "$LFG_REPOS_ROOT"
 mkdir -p "$LFG_DIR/data"
-jq -n \
-  --arg channel "$LFG_INSTALL_MODE" \
-  --arg repoSlug "$LFG_REPO_SLUG" \
-  --arg release "$LFG_RELEASE" \
-  --arg releaseAsset "${ASSET:-${LFG_RELEASE_ASSET:-omg-bundle.tar.gz}}" \
-  --arg installedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  '{channel:$channel, repoSlug:$repoSlug, release:$release, releaseAsset:$releaseAsset, installedAt:$installedAt}' \
-  > "$LFG_DIR/data/install.json"
+INSTALL_CHANNEL="$LFG_INSTALL_MODE" \
+INSTALL_REPO_SLUG="$LFG_REPO_SLUG" \
+INSTALL_RELEASE="$LFG_RELEASE" \
+INSTALL_RELEASE_ASSET="${ASSET:-${LFG_RELEASE_ASSET:-omg-bundle.tar.gz}}" \
+INSTALL_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+"$BUN_BIN" -e '
+  const e = process.env;
+  console.log(JSON.stringify({
+    channel: e.INSTALL_CHANNEL, repoSlug: e.INSTALL_REPO_SLUG, release: e.INSTALL_RELEASE,
+    releaseAsset: e.INSTALL_RELEASE_ASSET, installedAt: e.INSTALL_AT,
+  }));
+' > "$LFG_DIR/data/install.json"
 
 # ---- 8. Tailscale (opt-in) ----
 # Remote access is a choice, not part of getting omg.dev running. Setup used to
@@ -1066,7 +1077,9 @@ fi
 # ---- done ----
 TAILNET_URL=""
 if command -v tailscale >/dev/null 2>&1; then
-  TAILNET_URL="$(tailscale status --json 2>/dev/null | jq -r '.Self.DNSName // empty' | sed 's/\.$//' || true)"
+  TAILNET_URL="$(tailscale status --json 2>/dev/null \
+    | "$BUN_BIN" -e 'console.log(JSON.parse(require("fs").readFileSync(0, "utf8")).Self?.DNSName ?? "")' 2>/dev/null \
+    | sed 's/\.$//' || true)"
 fi
 
 # Only a name setup itself confirmed resolves to loopback gets printed, rather
@@ -1106,10 +1119,12 @@ fi
 if [ "$LFG_INSTALL_SERVICE" != "1" ]; then
   printf '    Start      cd %s && %s run %s/src/cli.ts serve\n' "$LFG_DIR" "$BUN_BIN" "$LFG_DIR"
 elif [ "$OS_NAME" = "Linux" ]; then
-  printf '    Service    systemctl --user restart %s\n' "$SERVICE"
+  printf '    Start      omg computer start\n'
+  printf '    Restart    omg computer update --restart\n'
   printf '    Logs       journalctl --user -u %s -f\n' "$SERVICE"
 else
-  printf '    Service    launchctl kickstart -k gui/%s/%s\n' "$(id -u)" "$SERVICE_LABEL"
+  printf '    Start      omg computer start\n'
+  printf '    Restart    omg computer update --restart\n'
   printf '    Logs       tail -f %s\n' "$HOME/Library/Logs/$SERVICE.err.log"
 fi
 echo

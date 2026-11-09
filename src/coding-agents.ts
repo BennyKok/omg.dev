@@ -1706,7 +1706,9 @@ export async function listSetupChecks(): Promise<SetupCheck[]> {
   ]);
   const checks: CodingAgentCheck[] = [
     { label: "Bun", ok: !!bunPath(), detail: bunPath() ?? "not found" },
-    { label: "tmux", ok: !!which("tmux"), detail: which("tmux") ?? "not found" },
+    // tmux is optional. New sessions run as direct SDK/ACP processes; tmux only
+    // drives old native-TUI sessions, so a box without it is still configured.
+    { label: "tmux", ok: true, detail: which("tmux") ?? "not installed (optional, only for old native-TUI sessions)" },
     { label: "git", ok: !!which("git"), detail: which("git") ?? "not found" },
     { label: "omg.dev MCP command", ok: !!args, detail: args?.join(" ") ?? "not available" },
   ];
