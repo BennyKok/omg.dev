@@ -435,7 +435,8 @@ import {
 import { recordSessionExitReason } from "../session-containment-record.ts";
 import { coldResumeContainment, type ColdResumeContainment, commandFileHarnessIsDead, reconcileCommandFileSessions, relaunchDeadCommandFileHarness, setRecoveryEgressProxy } from "../session-recovery.ts";
 import { resolveResumeModel } from "../resume-model.ts";
-import { PtyBridge, termSessionName } from "../pty.ts";
+import { runInTerminal } from "../term/client.ts";
+import { createTermRoutes, isTermSocketData, type TermSocketData } from "../term/routes.ts";
 import { RfbBridge } from "../computer/rfb-bridge.ts";
 import { VoxlBridge } from "../computer/voxl-bridge.ts";
 import { computerStream, ensureVoxl, stopVoxl } from "../computer/voxl.ts";
@@ -460,9 +461,7 @@ import {
   browserType,
   expoWebSignedIn,
 } from "../computer/browser.ts";
-import { capturePaneScroll, capturePaneEscaped, paneWidth } from "../tmux.ts";
-import { detectUrls } from "../links.ts";
-import type { ServerWebSocket } from "bun";
+import type { Server, ServerWebSocket } from "bun";
 import {
   createLiveWsSupport,
   isLiveWsEnabled,
@@ -4392,15 +4391,6 @@ function sseHeaders(): Record<string, string> {
 
 // ---------- server ----------
 
-// Per-socket state for the browser terminal: which tmux session it attaches to,
-// where its shell starts, and the initial geometry the client reported at
-// connect time.
-type TermSocketData = { sessionName: string; cwd: string; cols: number; rows: number };
-
-// Live PTY bridges keyed by their websocket, so message/close handlers can find
-// the bridge to write to / tear down.
-const termBridges = new WeakMap<object, PtyBridge>();
-
 // ---- streaming-STT bridge sockets ----
 // The browser dictation path holds a websocket to /api/voice/stt-stream and streams
 // 16 kHz PCM up / gets {partial,final} transcripts back. Each socket owns one
@@ -4434,53 +4424,31 @@ type AppSocketData =
   | ComputerSocketData
   | ComputerVoxlSocketData;
 
-// Parse a terminal dimension from a query param, clamped to a sane range so a
-// bogus value can't allocate an absurd pty winsize.
-function clampDim(raw: string | null, fallback: number): number {
-  const n = parseInt(raw ?? "", 10);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.max(1, Math.min(500, n));
-}
-
-// Resolve which shell a terminal websocket/scan request wants.
-//
-// `?sessionId=<uuid>` asks for that agent session's OWN terminal: a dedicated
-// persistent tmux session whose shell starts in the session's cwd (its
-// worktree), so pulling up the terminal from a session card lands you exactly
-// where that agent is working. Falling back to `?session=<name>` keeps the
-// free-form global shells ("main", the login terminals) working unchanged.
-async function resolveTermTarget(
-  url: URL,
-): Promise<{ sessionName: string; cwd: string }> {
-  const sessionId = url.searchParams.get("sessionId");
-  if (sessionId) {
-    const sess = (await listSessionsCached().catch(() => [])).find(
-      (s) => s.sessionId === sessionId,
-    );
+// The browser terminal's routes (src/term/routes.ts). A session terminal's
+// shell starts in that session's cwd (its worktree).
+const termRoutes = createTermRoutes({
+  sessionCwd: async (sessionId) => {
+    const sess = (await listSessionsCached().catch(() => [])).find((s) => s.sessionId === sessionId);
     // An idle snapshot fork is unmounted; mount it so the shell sees files.
     await ensureSnapforkMountedForPath(sess?.cwd).catch(() => undefined);
-    const cwd = sess?.cwd && existsSync(sess.cwd) ? sess.cwd : homedir();
-    return { sessionName: termSessionName(`s-${sessionId}`), cwd };
-  }
-  return {
-    sessionName: termSessionName(url.searchParams.get("session") || "main"),
-    cwd: homedir(),
-  };
-}
-
-function prepareLoginTerminal(kind: string, command: string): string {
-  const sessionId = `login-${kind}`;
-  const sessionName = termSessionName(sessionId);
-  if (!tmuxHasSession(sessionName)) {
-    const created = Bun.spawnSync(["tmux", "new-session", "-d", "-s", sessionName, "-c", homedir()]);
-    if (created.exitCode !== 0) {
-      throw new Error(new TextDecoder().decode(created.stderr) || "failed to create terminal session");
+    return sess?.cwd && existsSync(sess.cwd) ? sess.cwd : null;
+  },
+  // The box's public HTTPS address (the Tailscale name), when configured.
+  allowedOrigins: () => {
+    try {
+      return PUBLIC_URL ? [new URL(PUBLIC_URL).origin] : [];
+    } catch {
+      return [];
     }
-  }
-  Bun.spawnSync(["tmux", "send-keys", "-t", `=${sessionName}`, "C-c"]);
-  Bun.spawnSync(["tmux", "send-keys", "-t", `=${sessionName}`, "-l", command]);
-  Bun.spawnSync(["tmux", "send-keys", "-t", `=${sessionName}`, "Enter"]);
-  return sessionId;
+  },
+});
+
+// Type an agent's login command into its own terminal, creating the shell if
+// needed. ^C first, so a half-finished earlier attempt does not swallow it.
+async function prepareLoginTerminal(kind: string, command: string): Promise<string> {
+  const id = `login-${kind}`;
+  await runInTerminal(id, homedir(), command, { interrupt: true });
+  return id;
 }
 
 export async function cmdServe() {
@@ -4639,41 +4607,16 @@ export async function cmdServe() {
           sttTakes.set(ws, take);
           return;
         }
-        if (!("sessionName" in ws.data)) {
+        if (!isTermSocketData(ws.data)) {
           try {
             ws.close();
           } catch {}
           return;
         }
-        try {
-          const { sessionName, cols, rows } = ws.data;
-          const cwd = ws.data.cwd || homedir();
-          // `-c cwd` sets the tmux session's start-directory, so the shell (and
-          // every later window/pane in it) opens where this terminal belongs —
-          // the agent session's worktree for per-session terminals. It only
-          // applies when tmux actually creates the session; `-A` re-attaches an
-          // existing one untouched, which is what makes the shell persist.
-          const bridge = new PtyBridge(
-            ["tmux", "new-session", "-A", "-s", sessionName, "-c", cwd],
-            { cols, rows, cwd },
-          );
-          bridge.onData((chunk) => {
-            try {
-              ws.send(chunk);
-            } catch {}
-          });
-          bridge.onExit(() => {
-            try {
-              ws.close();
-            } catch {}
-          });
-          termBridges.set(ws, bridge);
-        } catch (e) {
-          try {
-            ws.send(`\r\n[lfg] failed to open terminal: ${(e as Error).message}\r\n`);
-            ws.close();
-          } catch {}
-        }
+        // The shell lives in the terminal host, not in this process, so a
+        // serve restart only drops this socket. The browser reconnects and
+        // gets the screen back from the host's snapshot.
+        termRoutes.open(ws as unknown as ServerWebSocket<TermSocketData>);
       },
       message(ws: ServerWebSocket<AppSocketData>, message) {
         if (liveWs.isLiveSocket(ws as unknown as ServerWebSocket<unknown>)) {
@@ -4707,23 +4650,9 @@ export async function cmdServe() {
           }
           return;
         }
-        const bridge = termBridges.get(ws);
-        if (!bridge) return;
-        if (typeof message === "string") {
-          // Control channel (resize). Anything unparseable is ignored.
-          try {
-            const ctrl = JSON.parse(message) as {
-              t?: string;
-              cols?: number;
-              rows?: number;
-            };
-            if (ctrl.t === "resize" && ctrl.cols && ctrl.rows)
-              bridge.resize(ctrl.cols, ctrl.rows);
-          } catch {}
-          return;
+        if (isTermSocketData(ws.data)) {
+          termRoutes.message(ws as unknown as ServerWebSocket<TermSocketData>, message as string | Uint8Array);
         }
-        // Binary frame = raw keystrokes.
-        bridge.write(message as Uint8Array);
       },
       close(ws: ServerWebSocket<AppSocketData>) {
         if (liveWs.isLiveSocket(ws as unknown as ServerWebSocket<unknown>)) {
@@ -4752,11 +4681,8 @@ export async function cmdServe() {
           sttTake.close();
           return;
         }
-        const bridge = termBridges.get(ws);
-        termBridges.delete(ws);
-        // Tears down our attach client; the tmux session itself persists so the
-        // shell (and any in-flight OAuth / long command) survives a reconnect.
-        bridge?.close();
+        // Detaches only; the shell keeps running in the terminal host.
+        if (isTermSocketData(ws.data)) termRoutes.close(ws as unknown as ServerWebSocket<TermSocketData>);
       },
     },
     async fetch(req, server) {
@@ -4948,15 +4874,9 @@ export async function cmdServe() {
       }
 
       // ---- browser terminal (websocket upgrade) ----
-      if (path === "/api/term") {
-        const { sessionName, cwd } = await resolveTermTarget(url);
-        const cols = clampDim(url.searchParams.get("cols"), 80);
-        const rows = clampDim(url.searchParams.get("rows"), 24);
-        const ok = server.upgrade(req, {
-          data: { sessionName, cwd, cols, rows },
-        });
-        if (ok) return undefined; // upgraded — Bun takes over the socket
-        return err(400, "expected a websocket upgrade");
+      if (path === "/api/term" || path.startsWith("/api/term/")) {
+        const handled = await termRoutes.handle(req, url, server as unknown as Server<unknown>);
+        if (handled !== null) return handled;
       }
 
       if (path === "/api/browser-login" || path.startsWith("/api/browser-login/")) {
@@ -5408,22 +5328,6 @@ export async function cmdServe() {
         return err(400, "expected a websocket upgrade");
       }
 
-
-      // Detect links in the terminal for the tappable-chip UI. A long URL is
-      // wrapped across rows in the rendered terminal (and often hard-wrapped by
-      // the app, so tmux -J can't help). We reconstruct full URLs from the pane
-      // by stitching full-width rows, and also read any OSC 8 hyperlink targets.
-      if (path === "/api/term/scan" && req.method === "GET") {
-        const { sessionName: target } = await resolveTermTarget(url);
-        const plain = capturePaneScroll(target);
-        if (plain == null) return json({ urls: [] });
-        const urls = detectUrls({
-          plain,
-          escaped: capturePaneEscaped(target) ?? undefined,
-          width: paneWidth(target) ?? 80,
-        });
-        return json({ urls });
-      }
 
       // ---- static ----
       if (path === "/" || path === "/index.html") {
@@ -6544,7 +6448,7 @@ a{color:#60a5fa}
           const command = loginCommandFor(kind);
           if (!command) return err(400, `no terminal login command for ${kind}`);
           try {
-            const terminalSession = prepareLoginTerminal(kind, command);
+            const terminalSession = await prepareLoginTerminal(kind, command);
             return json({ ok: true, terminalSession, command });
           } catch (e) {
             return err(502, e instanceof Error ? e.message : "failed to open login terminal");

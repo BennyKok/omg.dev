@@ -171,7 +171,10 @@ export default defineConfig({
     allowedHosts: true,
     hmr: { clientPort: 443 },
     proxy: {
-      "/api": { target: API_TARGET, changeOrigin: true, ws: true },
+      // xfwd passes the browser's Host on as X-Forwarded-Host. changeOrigin
+      // rewrites Host, and serve's terminal checks Origin against the host
+      // the page was loaded from (src/term/routes.ts).
+      "/api": { target: API_TARGET, changeOrigin: true, ws: true, xfwd: true },
     },
   },
   // `vite preview` serves the built app (dist) with NO hot-reload — this is what
@@ -182,7 +185,10 @@ export default defineConfig({
     port: 5174,
     allowedHosts: true,
     proxy: {
-      "/api": { target: API_TARGET, changeOrigin: true, ws: true },
+      // xfwd passes the browser's Host on as X-Forwarded-Host. changeOrigin
+      // rewrites Host, and serve's terminal checks Origin against the host
+      // the page was loaded from (src/term/routes.ts).
+      "/api": { target: API_TARGET, changeOrigin: true, ws: true, xfwd: true },
     },
   },
 });

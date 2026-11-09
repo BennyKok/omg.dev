@@ -14,6 +14,7 @@ import { setupOutcome, type SetupResultInfo, type SetupWatchAgent } from "../../
 import { useRuntimeLifecycle } from "./lib/runtime-lifecycle";
 import { LiveHeaderContext } from "./components/live-header-context";
 import { CreateBackdrop, Spinner } from "./components/apps-home";
+import { SessionTerminalDock } from "./components/session-terminal-dock";
 import { ProjectFolderMenu } from "./components/project-folder-menu";
 import { SessionReparentProvider, SessionReparentTarget, useSessionDragMenuGuard } from "./components/session-reparent";
 import { HostDrawerSlot, SideNavButton, SideNavGlyph, SideNavPanel } from "./components/side-nav";
@@ -579,7 +580,7 @@ import { claimShortcutScope } from "@/lib/shortcut-scope";
 // when the Terminal tab is actually opened — keeps the initial bundle lean.
 // lazyWithReload recovers from the post-deploy stale-chunk case (React #306).
 const TermView = lazyWithReload("TermView", () =>
-  import("@/components/TermView").then((m) => ({ default: m.TermView })),
+  import("@/components/terminal-panel").then((m) => ({ default: m.TermView })),
 );
 const ShippedPage = lazyWithReload("ShippedPage", () => import("./views/shipped-page"));
 const SessionTokenUsageDialog = lazyWithReload("SessionTokenUsageDialog", () =>
@@ -1798,84 +1799,55 @@ function toastAgentLimit(
 // ---- Native artifact viewer -------------------------------------------------
 // Opening an artifact never leaves the app or pops a window: cards push onto a
 // full-screen in-app page with a Back header (Escape also closes).
-// Per-session terminal: pull up a real shell already sitting in the session's
-// worktree, without leaving the session you're reading. Pass a session id to
-// open it, null to close.
-const SessionTerminalContext = createContext<(sessionId: string | null) => void>(() => {});
+// Per-session terminals: a real shell already sitting in the session's
+// worktree, docked under that session's chat (see session-terminal-dock.tsx).
+// The set of sessions whose dock is open is app state, so the session list's
+// `t` key and the session menu can toggle it, and it survives a reload.
+type SessionTerminalDocks = {
+  isOpen: (sessionId: string) => boolean;
+  toggle: (sessionId: string) => void;
+  close: (sessionId: string) => void;
+};
+const SessionTerminalContext = createContext<SessionTerminalDocks>({
+  isOpen: () => false,
+  toggle: () => {},
+  close: () => {},
+});
 
-// A sheet rather than a full page: dev work at a terminal is usually a glance
-// (git status, a test run, a tail) alongside the transcript that prompted it,
-// so the session stays visible behind it.
-//
-// Deliberately NOT closed by a bare Escape — Escape belongs to whatever TUI is
-// running in the shell. We only take it when focus is outside the terminal.
-function SessionTerminalOverlay({
-  sessionId,
-  session,
-  onClose,
-}: {
-  sessionId: string;
-  session: Session | null;
-  onClose: () => void;
-}) {
-  const surfaceRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      const active = document.activeElement;
-      if (active && surfaceRef.current?.contains(active)) return;
-      onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+const TERMINAL_DOCKS_KEY = "lfg_term_docks";
 
-  const name = session?.title || session?.project || "session";
-  const where = session?.cwd ? session.cwd.split("/").filter(Boolean).slice(-1)[0] : null;
+function readTerminalDocks(): ReadonlySet<string> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(TERMINAL_DOCKS_KEY) ?? "[]");
+    return new Set(Array.isArray(raw) ? raw.filter((x): x is string => typeof x === "string").slice(-20) : []);
+  } catch {
+    return new Set();
+  }
+}
 
-  return (
-    // Pinned to the *visual* viewport, not the layout one. iOS keeps the layout
-    // viewport full-height when the soft keyboard opens and instead shrinks the
-    // visual viewport and scrolls the page to reveal the focused field — so a
-    // `fixed inset-0` sheet sized in dvh gets shoved under the keyboard and then
-    // dragged around by that scroll. The app shell already measures the real
-    // visible band every frame and publishes it; ride those vars so the sheet
-    // just sits still. (Desktop, where the vars are absent, falls back to dvh.)
-    <div
-      className="fixed inset-x-0 z-[95] flex flex-col justify-end"
-      style={{
-        top: "var(--lfg-visual-offset-top, 0px)",
-        height: "var(--lfg-visual-height, 100dvh)",
-      }}
-    >
-      <button
-        type="button"
-        aria-label="Close terminal"
-        onClick={onClose}
-        className="absolute inset-0 bg-black/50 backdrop-blur-[2px]"
-      />
-      <div
-        ref={surfaceRef}
-        // No `mb-*` utility here: Tailwind utilities outrank the components
-        // layer, so it would win over the keyboard-open rule in lfg-term-sheet.
-        // The class owns the bottom margin in both states.
-        className="lfg-card-in lfg-term-sheet relative mx-2 min-h-0 shadow-2xl"
-      >
-        <Suspense
-          fallback={
-            <div className="grid h-full place-items-center rounded-2xl border border-border bg-[#0b0b0d] text-xs text-white/50">
-              Loading terminal…
-            </div>
-          }
-        >
-          <TermView
-            sessionId={sessionId}
-            label={where ? `${name} · ~/${where}` : name}
-            onClose={onClose}
-          />
-        </Suspense>
-      </div>
-    </div>
+function useSessionTerminalDocks(): SessionTerminalDocks & { open: ReadonlySet<string> } {
+  const [open, setOpen] = useState<ReadonlySet<string>>(readTerminalDocks);
+  const update = useCallback((sessionId: string, next: boolean | "toggle") => {
+    setOpen((prev) => {
+      const want = next === "toggle" ? !prev.has(sessionId) : next;
+      if (want === prev.has(sessionId)) return prev;
+      const out = new Set(prev);
+      if (want) out.add(sessionId);
+      else out.delete(sessionId);
+      try {
+        localStorage.setItem(TERMINAL_DOCKS_KEY, JSON.stringify([...out].slice(-20)));
+      } catch {}
+      return out;
+    });
+  }, []);
+  return useMemo(
+    () => ({
+      open,
+      isOpen: (sessionId: string) => open.has(sessionId),
+      toggle: (sessionId: string) => update(sessionId, "toggle"),
+      close: (sessionId: string) => update(sessionId, false),
+    }),
+    [open, update],
   );
 }
 
@@ -5700,8 +5672,8 @@ export function App() {
   const mainRef = useRef<HTMLElement>(null);
   // Full-page native artifact viewer (no popups/new tabs).
   const [viewerArtifact, setViewerArtifact] = useState<ViewerArtifact | null>(null);
-  // Session id whose terminal is pulled up over the app, or null.
-  const [terminalSid, setTerminalSid] = useState<string | null>(null);
+  // Sessions whose terminal dock is open.
+  const terminalDocks = useSessionTerminalDocks();
   // The viewer participates in browser history: opening pushes a state so the
   // back button / swipe-back closes the viewer and returns to the page you
   // were on (feed, chat, gallery) instead of leaving the app.
@@ -6070,10 +6042,12 @@ export function App() {
   // Thread references in rendered messages (`#Title` links) open through this.
   openThreadPageRef.current = openThreadPage;
   const selectedBotConversationId = selectedBotId ? routeSearch.conversation ?? null : null;
-  // A terminal is on screen — as the Terminal tab, or pulled up over any tab.
-  // Both need the same soft-keyboard treatment: the shell pinned to the visible
-  // band and translated past the scroll iOS applies to reveal the focused field.
-  const terminalSurface = tab === "term" || terminalSid !== null;
+  // A terminal is on screen — as the Terminal tab, or docked in the open
+  // session. Both need the same soft-keyboard treatment: the shell pinned to
+  // the visible band and translated past the scroll iOS applies to reveal the
+  // focused field.
+  const terminalSurface =
+    tab === "term" || (openSessionId !== null && terminalDocks.open.has(openSessionId));
   // Surfaces that fit the shell to the band above the on-screen keyboard: the
   // terminal, and the Computer, where you type into a desktop and must see it.
   const visibleBandSurface = terminalSurface || tab === "computer";
@@ -7641,7 +7615,7 @@ export function App() {
     if (!isMobile && tab === "folders") setTab("live");
   }, [isMobile, tab, setTab]);
   const phoneSwipeOn =
-    isMobile && !bare && !openSessionId && !openThreadId && !viewerArtifact && !terminalSid && isPhonePageTab(tab);
+    isMobile && !bare && !openSessionId && !openThreadId && !viewerArtifact && isPhonePageTab(tab);
   const phoneSwipe = useRef({ tab, setTab });
   phoneSwipe.current = { tab, setTab };
   useEffect(() => {
@@ -8921,11 +8895,6 @@ export function App() {
   const mobileComposerVisible =
     isMobile &&
     !viewerArtifact &&
-    // The pulled-up terminal covers the page and owns the keyboard. Leaving the
-    // composer mounted underneath means it rides the keyboard up and down (and
-    // repads <main> as it goes) behind the sheet — motion you can see through
-    // the backdrop, for a control you can't reach.
-    !terminalSid &&
     tab === "live";
   // The mobile scroll surface is absolutely positioned, so it escapes the app
   // shell's host-inset padding and would otherwise run its content underneath
@@ -9155,7 +9124,7 @@ export function App() {
     <ViewPrefsContext.Provider value={viewPrefs}>
     <RoleViewerContext.Provider value={roleViewerState}>
     <ArtifactViewerContext.Provider value={openArtifactViewer}>
-    <SessionTerminalContext.Provider value={setTerminalSid}>
+    <SessionTerminalContext.Provider value={terminalDocks}>
     <OpenSettingsPageContext.Provider value={setTab}>
     <BotDirectoryContext.Provider value={botDirectory}>
     <ViewerIdentityContext.Provider value={viewerParticipantId}>
@@ -10017,13 +9986,6 @@ export function App() {
       {hasHostToast() ? null : <Toaster position={isMobile ? "top-center" : "bottom-center"} />}
     </div>
     {loading && bare && !hostOwnsConnection ? <AppStartupStatus /> : null}
-    {terminalSid ? (
-      <SessionTerminalOverlay
-        sessionId={terminalSid}
-        session={sessions.find((s) => s.sessionId === terminalSid) ?? null}
-        onClose={() => setTerminalSid(null)}
-      />
-    ) : null}
     </EditBotContext.Provider>
     </OpenBotContext.Provider>
     </BotUnreadContext.Provider>
@@ -13339,10 +13301,10 @@ function RailStage({
           }
           return;
         case "t":
-          // Pull up this session's shell, already in its worktree.
+          // Show or hide this session's terminal, already in its worktree.
           if (cur) {
             e.preventDefault();
-            s.openTerminal(cur);
+            s.openTerminal.toggle(cur);
           }
           return;
         case "p":
@@ -16667,16 +16629,33 @@ function SessionChat(rawProps: SessionChatProps) {
     if (!message) return;
     logChatError("chat-engine", sid, message);
   }, [sid]);
+  // The session's terminal docks under the chat as a sibling in the parent's
+  // flex column, so opening it pushes the transcript and composer up.
+  const terminals = useContext(SessionTerminalContext);
+  const terminalOpen = !!sid && terminals.isOpen(sid);
+  const closeTerminal = useCallback(() => {
+    if (sid) terminals.close(sid);
+  }, [sid, terminals]);
+  const where = props.session.cwd ? props.session.cwd.split("/").filter(Boolean).slice(-1)[0] : null;
   return (
-    <Suspense fallback={<SessionChatSkeleton />}>
-      <OmgChatEngine
-        id={sid ?? "missing-session"}
-        transport={chatTransport}
-        onError={reportError}
-      >
-        <SessionChatBody {...props} />
-      </OmgChatEngine>
-    </Suspense>
+    <>
+      <Suspense fallback={<SessionChatSkeleton />}>
+        <OmgChatEngine
+          id={sid ?? "missing-session"}
+          transport={chatTransport}
+          onError={reportError}
+        >
+          <SessionChatBody {...props} />
+        </OmgChatEngine>
+      </Suspense>
+      {terminalOpen && sid ? (
+        <SessionTerminalDock
+          sessionId={sid}
+          label={where ? `~/${where}` : undefined}
+          onClose={closeTerminal}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -18010,9 +17989,9 @@ function SessionActionsMenu({
             <FileCode className="size-4" />
             Files
           </DropdownMenuItem>
-          <DropdownMenuItem disabled={!sid} onClick={() => sid && openTerminal(sid)}>
+          <DropdownMenuItem disabled={!sid} onClick={() => sid && openTerminal.toggle(sid)}>
             <TerminalSquare className="size-4" />
-            <span className="flex-1">Terminal</span>
+            <span className="flex-1">{sid && openTerminal.isOpen(sid) ? "Hide terminal" : "Terminal"}</span>
             <kbd className="shrink-0 font-mono text-[10px] text-muted-foreground">t</kbd>
           </DropdownMenuItem>
           <DropdownMenuItem disabled={!sid} onClick={() => setTokenUsageOpen(true)}>

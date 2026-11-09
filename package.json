@@ -52,6 +52,7 @@
     "@modelcontextprotocol/sdk": "^1.32.1",
     "@openai/codex-sdk": "0.159.2",
     "@opencode-ai/sdk": "^1.19.4",
+    "ghostty-web": "^0.4.0",
     "marked": "^18.0.3",
     "opencode-ai": "^1.19.4",
     "sharp": "^0.35.5",

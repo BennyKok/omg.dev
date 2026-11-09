@@ -3,7 +3,7 @@
 //
 // We allocate a real pseudo-terminal via libutil's openpty(3), spawn a command
 // on the slave end (with `setsid -c` so the child becomes a session leader that
-// owns the pty as its controlling terminal — tmux attach needs that), and pump
+// owns the pty as its controlling terminal — job control in a shell needs it), and pump
 // the master fd in both directions. The master is set non-blocking and drained
 // on a short interval: an idle read is a single EAGAIN syscall, so polling a
 // handful of terminals costs nothing, and we get the full raw VT byte stream
@@ -88,6 +88,7 @@ export class PtyBridge {
   private dataCb: ((chunk: Uint8Array) => void) | null = null;
   private exitCb: (() => void) | null = null;
   private closed = false;
+  private burst: ReturnType<typeof setTimeout>[] = [];
 
   constructor(argv: string[], opts: PtyOptions = {}) {
     const cols = opts.cols ?? 80;
@@ -117,6 +118,7 @@ export class PtyBridge {
       env: { TERM: "xterm-256color", ...process.env, ...opts.env },
     });
     libc.symbols.close(slave); // parent keeps only the master
+    this.watchExit();
 
     // Non-blocking master so the drain loop never stalls the event loop.
     const flags = libc.symbols.fcntl(this.master, F_GETFL, 0);
@@ -132,6 +134,28 @@ export class PtyBridge {
     this.exitCb = cb;
   }
 
+  // Exit is taken from the process, not from the master fd: on Linux a read
+  // after the slave closes fails with EIO, which looks the same as "no data"
+  // to a non-blocking poll. Drain whatever the child wrote last, then report.
+  private watchExit(): void {
+    void this.proc?.exited.then(() => {
+      if (this.closed) return;
+      this.drain();
+      this.close();
+      this.exitCb?.();
+    });
+  }
+
+  /** The spawned process id (the `setsid` wrapper execs into the command). */
+  get pid(): number | null {
+    return this.proc?.pid ?? null;
+  }
+
+  /** Exit status once the child has gone, otherwise null. */
+  get exitCode(): number | null {
+    return this.proc?.exitCode ?? null;
+  }
+
   private startPump(): void {
     this.poll = setInterval(() => this.drain(), 16);
   }
@@ -139,30 +163,55 @@ export class PtyBridge {
   private drain(): void {
     if (this.closed) return;
     const { libc } = ptySymbols();
+    // Everything readable right now goes out as ONE chunk. A TUI frame often
+    // spans several reads; splitting it across messages lets the browser paint
+    // a half-drawn frame in between, which reads as flicker.
+    const chunks: Uint8Array[] = [];
+    let size = 0;
     for (;;) {
       const n = Number(
         libc.symbols.read(this.master, ptr(this.rbuf), BigInt(this.rbuf.length)),
       );
-      if (n > 0) {
-        // Copy out of the reused scratch buffer before handing it off.
-        this.dataCb?.(this.rbuf.slice(0, n));
-        continue;
-      }
-      if (n === 0) {
-        // EOF: the child closed the slave (process exited / tmux detached).
-        this.close();
-        this.exitCb?.();
-      }
-      // n < 0 → EAGAIN (no data right now); stop draining until next tick.
+      if (n <= 0) break; // EAGAIN (nothing now), EIO or EOF (child gone)
+      // Copy out of the reused scratch buffer before handing it off.
+      chunks.push(this.rbuf.slice(0, n));
+      size += n;
+      if (size >= 1 << 20) break; // let the event loop breathe on a flood
+    }
+    if (size === 0) return;
+    if (chunks.length === 1) {
+      this.dataCb?.(chunks[0]);
       return;
     }
+    const out = new Uint8Array(size);
+    let off = 0;
+    for (const c of chunks) {
+      out.set(c, off);
+      off += c.length;
+    }
+    this.dataCb?.(out);
   }
 
   write(data: Uint8Array | string): void {
     if (this.closed || this.master < 0) return;
     const { libc } = ptySymbols();
     const b = typeof data === "string" ? this.enc.encode(data) : data;
+    if (b.length === 0) return;
     libc.symbols.write(this.master, ptr(b), BigInt(b.length));
+    // A keystroke's echo is usually ready within a millisecond or two. Waiting
+    // for the next 16 ms tick adds visible typing lag, so look again soon.
+    this.drainSoon();
+  }
+
+  private drainSoon(): void {
+    if (!this.dataCb || this.burst.length) return;
+    for (const ms of [1, 4]) {
+      const t = setTimeout(() => {
+        this.burst = this.burst.filter((x) => x !== t);
+        this.drain();
+      }, ms);
+      this.burst.push(t);
+    }
   }
 
   resize(cols: number, rows: number): void {
@@ -181,24 +230,17 @@ export class PtyBridge {
       clearInterval(this.poll);
       this.poll = null;
     }
+    for (const t of this.burst) clearTimeout(t);
+    this.burst = [];
     if (this.master >= 0) {
       const { libc } = ptySymbols();
       libc.symbols.close(this.master);
       this.master = -1;
     }
-    // Best-effort: tear down the attach client. The tmux *session* it was
-    // attached to is detached, not killed, so it survives for the next connect.
+    // Closing the master hangs up the terminal (SIGHUP to the session); the
+    // explicit kill covers a child that ignores the hangup.
     try {
       this.proc?.kill();
     } catch {}
-    this.proc = null;
   }
-}
-
-// Sanitize a caller-supplied terminal id into a tmux session name fragment:
-// tmux session names can't contain `.` or `:` and we don't want shell-hostile
-// chars. Keep it short and predictable.
-export function termSessionName(id: string): string {
-  const safe = (id || "main").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 32) || "main";
-  return `lfg-term-${safe}`;
 }

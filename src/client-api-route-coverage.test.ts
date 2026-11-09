@@ -29,7 +29,11 @@ import { dirname, join } from "node:path";
 
 const SRC = dirname(new URL(import.meta.url).pathname);
 const WEB_SRC = join(SRC, "..", "web", "src");
-const SERVE = readFileSync(join(SRC, "commands", "serve.ts"), "utf8");
+// serve.ts mounts the terminal routes from src/term/routes.ts, so both files
+// are the server side of the contract.
+const SERVE = [join(SRC, "commands", "serve.ts"), join(SRC, "term", "routes.ts")]
+  .map((file) => readFileSync(file, "utf8"))
+  .join("\n");
 
 // Optional routes owned outside the local runtime. Name their owner here.
 const ROUTED_ELSEWHERE = new Set<string>([

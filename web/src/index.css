@@ -491,18 +491,26 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
     }
   }
 
-  /* The pulled-up session terminal. It sits in a band that is already exactly
-     the visible viewport, so a percentage is measured against the space above
-     the keyboard rather than the whole screen. Leaving a strip of the session
-     showing is nice when you're reading along, but once you're typing that
-     strip is wasted — with the keyboard up, take the whole band. */
-  .lfg-term-sheet {
-    height: 78%;
-    margin-bottom: calc(0.5rem + var(--lfg-safe-bottom, 0px));
+  /* The docked session terminal. It sits under the chat in the session's
+     flex column and takes a remembered share of it. On a phone, once you are
+     typing in it, the strip of transcript above it is wasted: with the
+     keyboard up and focus inside the dock, it takes the whole column. */
+  .lfg-term-dock {
+    animation: lfg-term-dock-in 160ms var(--ease-ios, ease-out);
   }
-  html.lfg-keyboard-open .lfg-term-sheet {
-    height: 100%;
-    margin-bottom: 0;
+  html.lfg-keyboard-open .lfg-term-dock:focus-within {
+    height: 100% !important;
+  }
+  @keyframes lfg-term-dock-in {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .lfg-term-dock {
+      animation: none;
+    }
   }
 
   .markdown {

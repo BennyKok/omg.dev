@@ -1,8 +1,15 @@
-// The Terminal tab: a faithful browser terminal — ghostty-web (Ghostty's real
-// VT engine compiled to WASM) bridged over a websocket to a persistent tmux
-// shell on the box. ghostty-web renders Claude Code's heavy TUI faithfully where
-// xterm.js mangles it, which is the case we mostly care about here.
-import { useCallback, useEffect, useRef, useState } from "react";
+// One browser terminal: ghostty-web (Ghostty's real VT engine compiled to
+// WASM) bridged over a websocket to a shell that lives in the terminal host on
+// the box (src/term). ghostty-web renders Claude Code's heavy TUI faithfully
+// where xterm.js mangles it, which is the case we mostly care about here.
+//
+// There is no multiplexer in between. The host keeps a headless copy of the
+// screen and sends it as the first frame of every attach, so a reconnect (a
+// deploy, a dropped phone connection, switching tabs) repaints the exact
+// screen in one write, then the live byte stream continues.
+//
+// The tabbed panel around it lives in terminal-panel.tsx.
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { FormEvent, TouchEvent as ReactTouchEvent } from "react";
 import { init, Terminal as GhosttyTerminal, FitAddon } from "ghostty-web";
 import {
@@ -16,7 +23,6 @@ import {
   PinOff,
   RotateCcw,
   SendHorizontal,
-  TerminalSquare,
   X,
 } from "lucide-react";
 import type { OmgSocket } from "@omg-dev/client";
@@ -39,7 +45,95 @@ const TERMINAL_THEME = {
   selectionForeground: "#fafafa",
 } as const;
 
+// The platform's own monospace first, so the terminal reads like the native
+// terminal app on each OS rather than the browser's generic fallback.
+export const TERMINAL_FONT =
+  'ui-monospace, "SF Mono", SFMono-Regular, Menlo, "Cascadia Mono", "JetBrains Mono", "DejaVu Sans Mono", Consolas, monospace';
+
 const SOCKET_OPEN = 1;
+
+/** How long a synchronized-output update may hold the frame back. */
+const SYNC_OUTPUT_HOLD_MS = 150;
+
+type GhosttyInternals = {
+  wasmTerm?: { readResponse(): string | null; getMode(mode: number, ansi?: boolean): boolean };
+  renderer?: { render: (buffer: unknown, force?: boolean, ...rest: unknown[]) => void };
+  processTerminalResponses?: () => void;
+};
+
+/**
+ * Two fixes at ghostty-web's seams (0.4.0), applied to one open terminal.
+ * test/browser/terminal-e2e.ts fails without each of them.
+ *
+ * 1. Synchronized output (DEC mode 2026). Claude Code and other modern TUIs
+ *    wrap each frame in begin/end-sync so the terminal never shows half of
+ *    it. ghostty-web's VT tracks the mode, but its render loop paints every
+ *    animation frame regardless, so a frame that arrived in two pieces was
+ *    painted half-drawn: the flicker. Rendering is held while the mode is
+ *    set, bounded so an app that never ends the update cannot freeze it.
+ * 2. Query replies. The terminal host answers cursor-position and
+ *    device-attribute queries from its own screen (it saw every byte, and it
+ *    answers even when no browser is attached). The browser's copy of the
+ *    answer would reach the app a second time, typed into the prompt, so it
+ *    is dropped.
+ */
+export function tuneGhostty(term: unknown, now: () => number = () => performance.now()) {
+  const t = term as GhosttyInternals;
+  const renderer = t.renderer;
+  if (renderer && typeof renderer.render === "function") {
+    const render = renderer.render.bind(renderer);
+    let heldSince: number | null = null;
+    renderer.render = (buffer: unknown, force?: boolean, ...rest: unknown[]) => {
+      let syncing = false;
+      try {
+        syncing = !force && !!t.wasmTerm?.getMode(2026);
+      } catch {}
+      if (syncing) {
+        const at = now();
+        heldSince ??= at;
+        if (at - heldSince < SYNC_OUTPUT_HOLD_MS) return;
+      }
+      heldSince = null;
+      render(buffer, force, ...rest);
+    };
+  }
+  if (typeof t.processTerminalResponses === "function") {
+    t.processTerminalResponses = () => {
+      try {
+        while (t.wasmTerm?.readResponse()) {
+          /* drained: the host already answered */
+        }
+      } catch {}
+    };
+  }
+}
+
+// Several terminals can be mounted at once (two session docks, the Terminal
+// page). Page-wide keys (⌃⇧K, the deck's hints) belong to the one the user
+// touched last, not to all of them.
+let activeSurface: symbol | null = null;
+
+// Pinch and double-tap zoom are locked while any terminal is mounted. A
+// counter, so two terminals unmounting out of order restore the right value.
+let zoomLocks = 0;
+let zoomRestore: string | null = null;
+function lockZoom() {
+  const meta = document.querySelector('meta[name="viewport"]');
+  if (!meta) return () => {};
+  if (zoomLocks++ === 0) {
+    zoomRestore = meta.getAttribute("content") ?? "";
+    meta.setAttribute("content", `${zoomRestore}, maximum-scale=1, user-scalable=no`);
+  }
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    if (--zoomLocks === 0 && zoomRestore !== null) {
+      meta.setAttribute("content", zoomRestore);
+      zoomRestore = null;
+    }
+  };
+}
 
 // Merge freshly-seen URLs into the running list, most-recent first, deduped and
 // capped. `found` is chronological, so unshifting in order leaves the newest at
@@ -875,26 +969,45 @@ function KeyDeck({
   );
 }
 
+export type TerminalStatus = "connecting" | "open" | "reconnecting" | "closed";
+
+export interface TerminalAttachedInfo {
+  id: string;
+  title: string | null;
+  program: string | null;
+  cwd: string;
+  created: boolean;
+}
+
+export interface TerminalSurfaceHandle {
+  toggleDeck(): void;
+  focus(): void;
+}
+
 /**
- * Props let the same terminal serve two roles: the global Terminal tab (no
- * props — a free-form shell named by localStorage), and a session's own
- * terminal (`sessionId`), which attaches to a dedicated persistent tmux session
- * whose shell starts in that session's worktree.
+ * One live terminal. `query` names the shell on the server: `session=<name>`
+ * for a global shell, `sessionId=<id>` for a session's, plus `&tab=<tab>` for
+ * a tab after the first. The surface has no header of its own; the panel
+ * around it draws the tabs.
  */
-export function TermView({
-  sessionId,
-  label,
-  onClose,
-}: {
-  sessionId?: string;
-  label?: string;
-  onClose?: () => void;
-} = {}) {
-  const [termSession, setTermSession] = useState(() => localStorage.getItem("lfg_term_session") || "main");
+export const TerminalSurface = forwardRef<
+  TerminalSurfaceHandle,
+  {
+    query: string;
+    onStatus?: (status: TerminalStatus) => void;
+    onAttached?: (info: TerminalAttachedInfo) => void;
+    onTitle?: (title: string) => void;
+    /** The shell ended (`exit`, or the tab was closed elsewhere). */
+    onExit?: (code: number | null) => void;
+    onDeckChange?: (open: boolean) => void;
+  }
+>(function TerminalSurface({ query, onStatus, onAttached, onTitle, onExit, onDeckChange }, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<OmgSocket | null>(null);
   const termRef = useRef<InstanceType<typeof GhosttyTerminal> | null>(null);
-  const [status, setStatus] = useState<"connecting" | "open" | "reconnecting" | "closed">("connecting");
+  const surfaceId = useRef(Symbol("terminal")).current;
+  const [status, setStatusState] = useState<TerminalStatus>("connecting");
   // URLs detected in the output stream → rendered as tappable chips, since a
   // wrapped URL is hard to tap inside the terminal grid (and reliable on iOS).
   const [links, setLinks] = useState<string[]>([]);
@@ -903,9 +1016,8 @@ export function TermView({
   // pasteInput = the native-input fallback when clipboard reads are blocked.
   const [pasteAt, setPasteAt] = useState<{ x: number; y: number } | null>(null);
   const [pasteInput, setPasteInput] = useState(false);
-  const [keyboardActive, setKeyboardActive] = useState(false);
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
-  // The vi menu. Closed by default — that's the whole point of the redesign.
+  // The vi menu. Closed by default.
   const [deckOpen, setDeckOpen] = useState(false);
   const [deckSticky, setDeckSticky] = useState(
     () => localStorage.getItem(DECK_STICKY_KEY) === "1",
@@ -922,24 +1034,30 @@ export function TermView({
   // the deck puts you back exactly where you were instead of typing into a void.
   const resumeFocusRef = useRef(false);
 
-  // Which shell this view is attached to. A session terminal is keyed by the
-  // session id (server-side it resolves to that session's worktree); the global
-  // Terminal tab keeps its free-form localStorage-named shell.
-  const connTarget = sessionId
-    ? `sessionId=${encodeURIComponent(sessionId)}`
-    : `session=${encodeURIComponent(termSession)}`;
+  // Callbacks change identity every render; the socket effect must not
+  // reconnect for that, so it reads them through refs.
+  const callbacks = useRef({ onStatus, onAttached, onTitle, onExit, onDeckChange });
+  callbacks.current = { onStatus, onAttached, onTitle, onExit, onDeckChange };
+
+  const setStatus = useCallback((next: TerminalStatus) => {
+    setStatusState(next);
+    callbacks.current.onStatus?.(next);
+  }, []);
 
   useEffect(() => {
-    if (sessionId) return;
-    const onSession = () => setTermSession(localStorage.getItem("lfg_term_session") || "main");
-    window.addEventListener("lfg:term-session", onSession);
-    return () => window.removeEventListener("lfg:term-session", onSession);
-  }, [sessionId]);
+    callbacks.current.onDeckChange?.(deckOpen);
+  }, [deckOpen]);
 
-  const setTerminalKeyboardActive = useCallback((active: boolean) => {
-    keyboardActiveRef.current = active;
-    setKeyboardActive(active);
-  }, []);
+  const markActive = useCallback(() => {
+    activeSurface = surfaceId;
+  }, [surfaceId]);
+  const isActive = useCallback(() => {
+    const root = rootRef.current;
+    if (!root || !root.isConnected) return false;
+    if (activeSurface === surfaceId) return true;
+    // Nobody claimed the keys yet: the first mounted terminal answers.
+    return activeSurface === null;
+  }, [surfaceId]);
 
   // Send raw bytes (keystrokes / control sequences) to the PTY.
   const sendRaw = useCallback((data: string) => {
@@ -957,17 +1075,19 @@ export function TermView({
   const openDeck = useCallback(() => {
     if (deckOpenRef.current) return;
     deckOpenRef.current = true;
+    markActive();
     // Remember whether we were "in insert mode" so closing restores it, and drop
     // shell focus while the menu is up (on a phone that also gets the software
     // keyboard out of the way, which is most of the screen).
     resumeFocusRef.current = keyboardActiveRef.current;
     blurTerminalKeyboard(termRef.current);
-    setTerminalKeyboardActive(false);
+    keyboardActiveRef.current = false;
     setDeckOpen(true);
-  }, [setTerminalKeyboardActive]);
+  }, [markActive]);
 
   const onTouchStart = useCallback(
     (e: ReactTouchEvent) => {
+      markActive();
       const t = e.touches[0];
       if (!t) return;
       lpStart.current = { x: t.clientX, y: t.clientY };
@@ -982,7 +1102,7 @@ export function TermView({
         450,
       );
     },
-    [cancelLongPress],
+    [cancelLongPress, markActive],
   );
 
   const onTouchMove = useCallback(
@@ -1011,7 +1131,11 @@ export function TermView({
     try {
       const text = await navigator.clipboard.readText();
       if (text) {
-        sendRaw(text);
+        const term = termRef.current;
+        // Through ghostty's paste path, so bracketed paste wraps it when the
+        // app asked for that.
+        if (term) term.paste(text);
+        else sendRaw(text);
         focusTerminalKeyboard(termRef.current);
         return;
       }
@@ -1023,7 +1147,11 @@ export function TermView({
 
   const submitPasteInput = useCallback(() => {
     const v = pasteInputRef.current?.value ?? "";
-    if (v) sendRaw(v);
+    if (v) {
+      const term = termRef.current;
+      if (term) term.paste(v);
+      else sendRaw(v);
+    }
     setPasteInput(false);
     focusTerminalKeyboard(termRef.current);
   }, [sendRaw]);
@@ -1035,17 +1163,17 @@ export function TermView({
     setDeckOpen(false);
     if (resumeFocusRef.current) {
       focusTerminalKeyboard(termRef.current);
-      setTerminalKeyboardActive(true);
+      keyboardActiveRef.current = true;
     }
-  }, [setTerminalKeyboardActive]);
+  }, []);
 
   const enterInsertMode = useCallback(() => {
     resumeFocusRef.current = true;
     deckOpenRef.current = false;
     setDeckOpen(false);
     focusTerminalKeyboard(termRef.current);
-    setTerminalKeyboardActive(true);
-  }, [setTerminalKeyboardActive]);
+    keyboardActiveRef.current = true;
+  }, []);
 
   const toggleDeckSticky = useCallback(() => {
     setDeckSticky((prev) => {
@@ -1081,14 +1209,25 @@ export function TermView({
     [sendRaw, afterDeckAction],
   );
 
+  useImperativeHandle(
+    ref,
+    () => ({
+      toggleDeck: () => (deckOpenRef.current ? closeDeck() : openDeck()),
+      focus: () => {
+        markActive();
+        focusTerminalKeyboard(termRef.current);
+      },
+    }),
+    [closeDeck, openDeck, markActive],
+  );
+
   // ⌃⇧K summons the menu. Ctrl+Shift+<letter> is safe to steal: it isn't a
   // distinct control code, so no TUI underneath can be listening for it.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (!e.ctrlKey || !e.shiftKey || e.metaKey || e.altKey) return;
       if (e.key !== "K" && e.key !== "k") return;
-      const host = hostRef.current;
-      if (!host || !host.isConnected) return;
+      if (!isActive()) return;
       e.preventDefault();
       e.stopPropagation();
       if (deckOpenRef.current) closeDeck();
@@ -1096,7 +1235,7 @@ export function TermView({
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [openDeck, closeDeck]);
+  }, [openDeck, closeDeck, isActive]);
 
   const copyLink = useCallback(async (url: string) => {
     try {
@@ -1122,35 +1261,41 @@ export function TermView({
     let term: InstanceType<typeof GhosttyTerminal> | null = null;
     let fit: FitAddon | null = null;
     let ro: ResizeObserver | null = null;
+    let fitFrame = 0;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let cleanupMouseReporting: (() => void) | null = null;
     let cleanupCopyShortcut: (() => void) | null = null;
     let cleanupFocusTracking: (() => void) | null = null;
     let attempt = 0;
     let opening = false;
+    // The shell ended. Nothing to reconnect to; the panel closes the tab.
+    let ended = false;
+    // Set by `attached`: the next binary frame is the host's snapshot of the
+    // screen and replaces whatever this terminal showed before. Reset and
+    // snapshot happen in one task, so no blank frame is ever painted.
+    let pendingReset = false;
+    setStatus("connecting");
+    setLinks([]);
 
     const scheduleReconnect = () => {
-      if (disposed || reconnectTimer) return;
+      if (disposed || ended || reconnectTimer) return;
       setStatus("reconnecting");
-      const delay = Math.min(5000, 500 * 2 ** attempt++);
+      const delay = Math.min(5000, 300 * 2 ** attempt++);
       reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
         void connect();
       }, delay);
     };
 
-    // (Re)open the socket. The tmux shell session lives independently of serve,
-    // so when serve restarts (deploys) the socket drops but the session is
-    // intact — reconnecting just re-attaches and tmux repaints. That's what
-    // makes a deploy non-destructive instead of wiping the terminal.
+    // (Re)open the socket. The shell lives in the terminal host, independent
+    // of serve, so when serve restarts (deploys) only the socket drops.
+    // Reconnecting re-attaches and the host's snapshot repaints the screen.
     async function connect() {
       if (disposed || !term || opening || wsRef.current) return;
       opening = true;
       let ws: OmgSocket;
       try {
-        ws = await openOmgSocket(
-          `/api/term?${connTarget}&cols=${term.cols}&rows=${term.rows}`,
-        );
+        ws = await openOmgSocket(`/api/term?${query}&cols=${term.cols}&rows=${term.rows}`);
       } catch {
         opening = false;
         scheduleReconnect();
@@ -1167,18 +1312,48 @@ export function TermView({
       ws.addEventListener("open", () => {
         attempt = 0;
         setStatus("open");
-        term?.focus();
-        // Force tmux to repaint the reattached session at our geometry.
-        if (term) ws.send(JSON.stringify({ t: "resize", cols: term.cols, rows: term.rows }));
       });
       ws.addEventListener("message", (e) => {
-        if (typeof e.data === "string") term?.write(e.data);
-        else term?.write(new Uint8Array(e.data as ArrayBuffer));
+        if (!term) return;
+        if (typeof e.data === "string") {
+          let msg: { t?: string; [k: string]: unknown } | null = null;
+          try {
+            msg = JSON.parse(e.data);
+          } catch {}
+          if (!msg || typeof msg.t !== "string") {
+            term.write(e.data);
+            return;
+          }
+          if (msg.t === "attached") {
+            pendingReset = true;
+            const info = msg as unknown as TerminalAttachedInfo;
+            callbacks.current.onAttached?.(info);
+            if (info.title) callbacks.current.onTitle?.(info.title);
+          } else if (msg.t === "title" && typeof msg.title === "string") {
+            callbacks.current.onTitle?.(msg.title);
+          } else if (msg.t === "exit") {
+            ended = true;
+            callbacks.current.onExit?.(typeof msg.code === "number" ? msg.code : null);
+          } else if (msg.t === "error" && typeof msg.message === "string") {
+            term.write(`\r\n\x1b[31m${msg.message.replace(/[\x00-\x1f]/g, " ")}\x1b[0m\r\n`);
+          }
+          return;
+        }
+        const bytes = new Uint8Array(e.data as ArrayBuffer);
+        if (pendingReset) {
+          pendingReset = false;
+          term.reset();
+        }
+        term.write(bytes);
       });
       ws.addEventListener("close", () => {
         if (wsRef.current === ws) wsRef.current = null;
         if (disposed) return;
-        // Reconnect with backoff (0.5s → 5s) so a serve restart self-heals.
+        if (ended) {
+          setStatus("closed");
+          return;
+        }
+        // Reconnect with backoff (0.3s → 5s) so a serve restart self-heals.
         scheduleReconnect();
       });
     }
@@ -1188,6 +1363,7 @@ export function TermView({
       if (disposed || !hostRef.current) return;
       term = new GhosttyTerminal({
         fontSize: 13,
+        fontFamily: TERMINAL_FONT,
         scrollback: 8000,
         cursorBlink: true,
         theme: TERMINAL_THEME,
@@ -1195,24 +1371,36 @@ export function TermView({
       fit = new FitAddon();
       term.loadAddon(fit);
       term.open(hostRef.current);
+      tuneGhostty(term);
       cleanupMouseReporting = installMouseReporting(hostRef.current, term, sendRaw);
       cleanupCopyShortcut = installCopyShortcut(hostRef.current, term);
       tameTerminalInput(term);
       const textarea = terminalInput(term);
-      const onInputFocus = () => setTerminalKeyboardActive(true);
-      const onInputBlur = () => setTerminalKeyboardActive(false);
-      hostRef.current.addEventListener("focusin", onInputFocus);
-      hostRef.current.addEventListener("focusout", onInputBlur);
+      const host = hostRef.current;
+      const onInputFocus = () => {
+        keyboardActiveRef.current = true;
+        markActive();
+      };
+      const onInputBlur = () => {
+        keyboardActiveRef.current = false;
+      };
+      host.addEventListener("focusin", onInputFocus);
+      host.addEventListener("focusout", onInputBlur);
       textarea?.addEventListener("focus", onInputFocus);
       textarea?.addEventListener("blur", onInputBlur);
       cleanupFocusTracking = () => {
-        hostRef.current?.removeEventListener("focusin", onInputFocus);
-        hostRef.current?.removeEventListener("focusout", onInputBlur);
+        host.removeEventListener("focusin", onInputFocus);
+        host.removeEventListener("focusout", onInputBlur);
         textarea?.removeEventListener("focus", onInputFocus);
         textarea?.removeEventListener("blur", onInputBlur);
       };
-      try { fit.fit(); } catch {}
+      try {
+        fit.fit();
+      } catch {}
       termRef.current = term;
+      // Dev builds expose the terminal on its host element, so the browser
+      // end-to-end test can read the screen it actually renders.
+      if (import.meta.env.DEV) (host as HTMLElement & { __lfgTerminal?: unknown }).__lfgTerminal = term;
 
       // Keystrokes → binary frames; resizes → JSON control frames (the backend
       // distinguishes the two by frame type).
@@ -1226,32 +1414,38 @@ export function TermView({
           ws.send(JSON.stringify({ t: "resize", cols, rows }));
       });
 
-      // Refit only when the box really changed size. iOS republishes viewport
-      // metrics many times while the soft keyboard animates (and the app shell
-      // re-samples deliberately for a settle window afterwards), and each
-      // refit reflows the grid, resizes the pty and makes tmux repaint the
-      // pane — which reads as the terminal flickering up and down. Sub-pixel
-      // and no-op notifications are the common case, so drop them.
+      // Refit at most once per frame, and only when the box really changed.
+      // A dragged divider or the iOS keyboard animation reports many sizes in
+      // a row; each refit reflows the grid and makes the app repaint, so the
+      // in-between sizes are skipped. A hidden or collapsed box (0×0) keeps
+      // the last real size instead of shrinking the shell to one column.
       let lastW = 0;
       let lastH = 0;
       ro = new ResizeObserver((entries) => {
         const box = entries[entries.length - 1]?.contentRect;
-        if (box) {
-          const w = Math.round(box.width);
-          const h = Math.round(box.height);
-          if (w === lastW && h === lastH) return;
-          lastW = w;
-          lastH = h;
-        }
-        try { fit?.fit(); } catch {}
+        if (!box) return;
+        const w = Math.round(box.width);
+        const h = Math.round(box.height);
+        if (w < 8 || h < 8) return;
+        if (w === lastW && h === lastH) return;
+        lastW = w;
+        lastH = h;
+        if (fitFrame) return;
+        fitFrame = requestAnimationFrame(() => {
+          fitFrame = 0;
+          try {
+            fit?.fit();
+          } catch {}
+        });
       });
-      ro.observe(hostRef.current);
+      ro.observe(host);
       void connect();
     })();
 
     return () => {
       disposed = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (fitFrame) cancelAnimationFrame(fitFrame);
       try { cleanupMouseReporting?.(); } catch {}
       try { cleanupCopyShortcut?.(); } catch {}
       try { cleanupFocusTracking?.(); } catch {}
@@ -1261,117 +1455,60 @@ export function TermView({
       termRef.current = null;
       wsRef.current = null;
     };
-    // Re-attaching to a different shell (another session's terminal, or a new
-    // free-form name) rebuilds the terminal and its socket.
-  }, [sendRaw, connTarget]);
+    // Re-attaching to a different shell rebuilds the terminal and its socket.
+  }, [sendRaw, query, setStatus, markActive]);
 
-  // Detect links by polling tmux's logical buffer (wrapped lines rejoined), so
-  // long URLs survive — the rendered stream breaks them at every wrap. Cheap
-  // and only runs while the tab is mounted.
+  // Detect links from the host's copy of the screen (wrapped rows stitched
+  // back together), so long URLs survive — the rendered stream breaks them at
+  // every wrap. Cheap, and only while this terminal is mounted.
   useEffect(() => {
     let alive = true;
     const poll = async () => {
+      if (document.hidden) return;
       try {
-        const r = await omgFetch(`/api/term/scan?${connTarget}`);
+        const r = await omgFetch(`/api/term/scan?${query}`);
         const d = await r.json();
         if (alive && Array.isArray(d.urls) && d.urls.length)
           setLinks((prev) => mergeUrls(prev, d.urls));
       } catch {}
     };
     void poll();
-    const iv = setInterval(poll, 2000);
+    const iv = setInterval(poll, 2500);
     return () => {
       alive = false;
       clearInterval(iv);
     };
-  }, [connTarget]);
+  }, [query]);
 
-  // Drop any pending long-press timer if the tab unmounts mid-press.
+  // Drop any pending long-press timer if the terminal unmounts mid-press.
   useEffect(() => cancelLongPress, [cancelLongPress]);
 
   useEffect(() => {
     return () => {
       if (copyTimer.current) clearTimeout(copyTimer.current);
+      if (activeSurface === surfaceId) activeSurface = null;
     };
-  }, []);
+  }, [surfaceId]);
 
-  // Lock pinch/double-tap/focus auto-zoom WHILE the terminal is mounted (iOS
-  // zooms on a tap into the canvas's hidden input and on double-tap). We scope
-  // it to this tab by patching the viewport meta and restoring it on unmount,
-  // so the rest of the app keeps normal zoom.
-  useEffect(() => {
-    const meta = document.querySelector('meta[name="viewport"]');
-    if (!meta) return;
-    const prev = meta.getAttribute("content") ?? "";
-    meta.setAttribute("content", prev + ", maximum-scale=1, user-scalable=no");
-    return () => meta.setAttribute("content", prev);
-  }, []);
+  // Lock pinch/double-tap/focus auto-zoom WHILE a terminal is mounted (iOS
+  // zooms on a tap into the canvas's hidden input and on double-tap).
+  useEffect(() => lockZoom(), []);
 
   return (
-    <div className="relative flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-[#0b0b0d]">
-      {/* One slim strip is the terminal's entire permanent chrome — everything
-          else lives in the deck, summoned only when it's wanted. */}
-      <div className="flex items-center gap-2 border-b border-white/10 px-2.5 py-1 text-[11px] text-white/55">
-        <TerminalSquare className="size-3.5 shrink-0" />
-        <span className="min-w-0 truncate font-medium text-white/75">
-          {label ?? `terminal · ${termSession}`}
-        </span>
-        <span
-          className={`inline-flex shrink-0 items-center gap-1 ${
-            status === "open"
-              ? "text-emerald-400"
-              : status === "closed"
-                ? "text-destructive"
-                : "text-white/50"
-          }`}
-          title={`terminal ${status}`}
-        >
-          <span className="size-1.5 rounded-full bg-current" />
-          <span className="hidden sm:inline">{status}</span>
-        </span>
-        <div className="ml-auto flex shrink-0 items-center gap-1">
-          <button
-            type="button"
-            onClick={() => (deckOpen ? closeDeck() : openDeck())}
-            style={{ touchAction: "manipulation" }}
-            aria-pressed={deckOpen}
-            aria-label="Terminal keys"
-            title="Terminal keys (⌃⇧K)"
-            className={`flex h-6 items-center gap-1 rounded-md px-1.5 text-[11px] font-medium ${
-              deckOpen ? "bg-white text-black" : "bg-white/10 text-white/70 active:bg-white/25"
-            }`}
-          >
-            <Keyboard className="size-3.5" />
-            <span className="hidden sm:inline">Keys</span>
-            <kbd
-              className={`hidden font-mono text-[9px] md:inline ${
-                deckOpen ? "text-black/45" : "text-white/35"
-              }`}
-            >
-              ⌃⇧K
-            </kbd>
-          </button>
-          {onClose ? (
-            <button
-              type="button"
-              onClick={onClose}
-              style={{ touchAction: "manipulation" }}
-              aria-label="Close terminal"
-              title="Close terminal"
-              className="grid size-6 place-items-center rounded-md bg-white/10 text-white/60 active:bg-white/25"
-            >
-              <X className="size-3.5" />
-            </button>
-          ) : null}
-        </div>
-      </div>
+    <div
+      ref={rootRef}
+      data-terminal-status={status}
+      onPointerDownCapture={markActive}
+      className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[#0b0b0d]"
+    >
       {/* The terminal host and the grab handle share a positioning context, so
           the handle overlays the terminal's bottom edge and never the link tray
           below it — an absolute handle anchored to the card bottom would sit on
           top of the link chips and swallow their taps. */}
-      <div className="relative flex min-h-0 flex-1 flex-col">
+      <div data-testid="terminal-host-area" className="relative flex min-h-0 flex-1 flex-col">
         <div
           ref={hostRef}
+          data-testid="terminal-canvas-host"
           onClick={() => focusTerminalKeyboard(termRef.current)}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") focusTerminalKeyboard(termRef.current);
@@ -1392,12 +1529,11 @@ export function TermView({
           role="button"
           tabIndex={0}
           aria-label="Focus terminal"
-          className="min-h-0 flex-1 overflow-hidden p-1.5"
+          className="min-h-0 flex-1 overflow-hidden px-2 pt-1.5"
         />
 
-        {/* Grab handle: the one always-visible hint that there are more keys, and
-            the target the bottom-edge swipe-up starts from. 10px of chrome
-            instead of the ~110px toolbar it replaces. */}
+        {/* Grab handle: the one always-visible hint that there are more keys,
+            and the target the bottom-edge swipe-up starts from. */}
         {!deckOpen ? (
           <button
             type="button"
@@ -1405,7 +1541,7 @@ export function TermView({
             style={{ touchAction: "manipulation" }}
             aria-label="Show terminal keys"
             title="Terminal keys (⌃⇧K, or swipe up)"
-            className="absolute inset-x-0 bottom-0 z-20 flex h-6 items-end justify-center pb-1"
+            className="absolute inset-x-0 bottom-0 z-20 flex h-5 items-end justify-center pb-1 md:hidden"
           >
             <span className="h-1 w-10 rounded-full bg-white/20" />
           </button>
@@ -1414,7 +1550,7 @@ export function TermView({
       {/* Detected links — browser-native open/copy actions for verification
           URLs that a CLI tries to open inside the VM. */}
       {links.length > 0 ? (
-        <div className="flex items-center gap-1.5 border-t border-white/10 px-2 py-1.5">
+        <div className="flex items-center gap-1.5 border-t border-white/10 px-2 py-1.5" data-testid="terminal-link-tray">
           <ExternalLink className="size-3.5 shrink-0 text-white/40" />
           <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto">
             {links.map((u) => (
@@ -1531,4 +1667,4 @@ export function TermView({
       ) : null}
     </div>
   );
-}
+});
